@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it('rejects foreground writes and checkpoint while refreshing host-applied memory', async () => {
+it.each([false, true])('assembles the role agreement and protects formal memory (PA=%s)', async personal => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
   const home = await mkdtemp(join(tmpdir(), 'nano-document-runtime-')); let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
   const workspace = await realpath(home);
@@ -28,7 +28,9 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     registerNoopTaskHosts(client);
     client.rpc.handle('knowledge.role.workspace', () => ({workspace}));
     const binding={sessionId:'memory-root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
-    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'fixture',model:'test',features:{dreaming:false,memory_curation:false,skill_creation:false},toolAllowlist:['read','write','edit','memory','memory_maintenance']}],bindings:[binding]});
+    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'fixture',model:'test',
+      ...(personal?{mode:'global',personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{}),
+      features:{dreaming:false,memory_curation:false,skill_creation:false},toolAllowlist:['read','write','edit','memory','memory_maintenance']}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
     const submit = async (id: string, actorId = 'owner', roleAccountId?: string) => {
       await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',content:[{type:'text',text:id}],source:{kind:'human',actorId,roleAccountId,channel:roleAccountId?'feishu':'test',messageId:id}});
@@ -51,11 +53,18 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     await writeFile(entry,'# Expert memory\n[Preferences](knowledge/preferences.md)');
     await submit('use-new-memory', 'collaborator');
     const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
-    expect(JSON.stringify(requests[0].messages)).toContain('Role agreement is unset');
+    const confirmer = personal ? 'owner' : 'bound administrator';
+    expect(JSON.stringify(requests[0].messages)).toContain(`Contact your ${confirmer} immediately`);
+    expect(JSON.stringify(requests[0].messages)).toContain('You must ask every time you speak with them');
     expect(JSON.stringify(requests[0].messages)).toContain('Host-verified role agreement sender for the following direct input: bound account.');
     const latest=requests.at(-1);
-    expect(JSON.stringify(latest.messages)).toContain('Coordinate delivery. Use {{customer_name}} in templates.');
-    expect(JSON.stringify(latest.messages)).toContain('When completing an oversized role repair, read the saved file again');
+    const savedAgreement = latest.messages.flatMap((message: {content?: Array<{text?: string}>}) => message.content ?? [])
+      .findLast((block: {text?: string}) => block.text?.includes('Role agreement file:'))?.text;
+    expect(savedAgreement).toContain('<role_content>\nCoordinate delivery. Use {{customer_name}} in templates.\n</role_content>');
+    expect(savedAgreement).toContain(personal ? 'how your owner wants you to help over time' : 'what you need to deliver');
+    expect(savedAgreement).toContain(`only when your ${confirmer} ("owner") explicitly asks for a change`);
+    expect(savedAgreement).not.toContain('You must ask every time');
+    expect(savedAgreement).not.toContain('read the saved file again');
     expect(JSON.stringify(latest.messages)).toContain('Host-verified role agreement sender for the following direct input: other user.');
     const control = latest.tools.find((tool:any)=>tool.name==='memory_maintenance');
     expect(control.parameters.properties.action.enum).toEqual(['status', 'run']);
@@ -86,11 +95,10 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     await submit('check-oversized-role', 'collaborator');
     const tooLong = await currentContext('Role agreement file:');
     expect(tooLong).toContain('exceeds the 2000 UTF-16 code unit limit');
-    expect(tooLong).toContain('draft the exact shortened Markdown');
-    expect(tooLong).toContain('send the draft in that private conversation and ask the maintainer to confirm or correct it');
-    expect(tooLong).toContain('after an explicit confirmation');
+    expect(tooLong).toContain('Draft a shorter version that preserves the original meaning and send it privately');
+    expect(tooLong).toContain('Save only after they explicitly confirm the exact text');
     expect(tooLong).toContain('read the saved file again');
-    expect(tooLong).toContain('Before continuing other work, check');
+    expect(tooLong).toContain('Read the complete original first');
     expect(tooLong).toContain('send_message to "user:owner"');
     expect(tooLong).not.toContain('OVERSIZED_ROLE_BODY');
     expect(tooLong).not.toContain('Role agreement is unset');
@@ -104,8 +112,8 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     const unavailable = await currentContext('Role agreement file:');
     expect(unavailable).toContain('could not read the saved role file');
     expect(unavailable).toContain('restore a readable regular file');
-    expect(unavailable).not.toContain('draft the exact shortened Markdown');
-    expect(unavailable).toContain('Before continuing other work, check');
+    expect(unavailable).not.toContain('Draft a shorter version');
+    expect(unavailable).toContain('Check it with the ordinary read tool first');
     expect(unavailable).toContain('send_message to "user:owner"');
     expect(unavailable).not.toContain('Role agreement is unset');
     const checked = await client.rpc.request('session.observe', {sessionId: binding.sessionId}) as {events: any[]};
@@ -119,6 +127,7 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     const prefix = beginning + firstItem + omitted;
     const oversizedEntry = prefix + 'x'.repeat(9461 - prefix.length);
     await writeFile(entry, oversizedEntry);
+    expect(await client.rpc.request('session.command', {sessionId:binding.sessionId,id:'compact-before-preview',action:'compact'})).toMatchObject({success:true});
     await submit('preview-oversized-memory');
     const preview = await currentContext('Memory directory:');
     expect(preview).toContain(`<memory_content>\n${beginning}${firstItem}\n</memory_content>`);
@@ -129,6 +138,7 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
 
     const exactLimit = '💡'.repeat(4000);
     await writeFile(entry, exactLimit);
+    expect(await client.rpc.request('session.command', {sessionId:binding.sessionId,id:'compact-before-limit',action:'compact'})).toMatchObject({success:true});
     await submit('load-at-memory-limit');
     const fullMemory = await currentContext('Memory directory:');
     expect(fullMemory).toContain(`<memory_content>\n${exactLimit}\n</memory_content>`);
