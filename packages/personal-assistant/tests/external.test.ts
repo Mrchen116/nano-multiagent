@@ -286,7 +286,7 @@ it('sets a Global Feishu receipt after Inbox admission and replaces it only on r
     });
     await deliver(received.status);
     inbox.confirmRelay(received.input.relay_task_id, received.status);
-    expect(reactions.mock.calls).toEqual([['message', undefined, 'OK']]);
+    expect(reactions.mock.calls).toEqual([['message', undefined, 'CRY']]);
 
     const page = inbox.read('a', 'main', 'read', {target: received.input.conversation_id});
     expect(inbox.commitRead('main', 'read', [{type: 'text', text: JSON.stringify(page)}], false, 1)).toBe(true);
@@ -297,7 +297,7 @@ it('sets a Global Feishu receipt after Inbox admission and replaces it only on r
     await deliver('completed');
     await deliver('read');
     expect(reactions.mock.calls).toEqual([
-      ['message', undefined, 'OK'], ['message', 'reaction-OK'], ['message', undefined, 'CheckMark'],
+      ['message', undefined, 'CRY'], ['message', 'reaction-CRY'], ['message', undefined, 'Get'],
     ]);
   } finally { await external.stop(); inbox.close(); store.close(); }
 });

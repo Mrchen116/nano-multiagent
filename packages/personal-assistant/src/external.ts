@@ -336,7 +336,7 @@ export class ExternalChannels {
         await connection.reaction(row.message.messageId, row.reaction);
         this.state.reaction(row.id, null);
       }
-      const reaction = await connection.reaction(row.message.messageId, undefined, stage === 'read' ? 'CheckMark' : 'OK');
+      const reaction = await connection.reaction(row.message.messageId, undefined, stage === 'read' ? 'Get' : 'CRY');
       if (!reaction) throw new Error('Feishu returned no reaction identity');
       this.state.reaction(row.id, reaction, stage);
     });
