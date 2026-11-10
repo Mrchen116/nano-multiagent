@@ -35,7 +35,7 @@ Full，需求已对齐。用户确认开始按三项改进及对应的上游参�
 
 ### 设计初心与历史依据
 
-依据 feat-676 的[用户原话与最终决定](../archive/feat-676-role-memory-dreaming/spec.md)、[内容决策](../archive/feat-676-role-memory-dreaming/input/nano-memory-research-v2/01-decisions.md)、[文档规范](../archive/feat-676-role-memory-dreaming/input/nano-memory-research-v2/design/layout-and-documents.md)及[上游来源说明](../../../packages/dsh-integration/assets/dreaming-provenance.md)：
+依据 feat-676 的[用户原话与最终决定](../feat-676-role-memory-dreaming/spec.md)、[内容决策](../feat-676-role-memory-dreaming/input/nano-memory-research-v2/01-decisions.md)、[文档规范](../feat-676-role-memory-dreaming/input/nano-memory-research-v2/design/layout-and-documents.md)及[上游来源说明](../../../../packages/dsh-integration/assets/dreaming-provenance.md)：
 
 - 长期 Agent 从持续经历形成可修正、有依据、能改善后续判断与行动的理解；不以减少文件或字符数本身作为目标。
 - Codex 提供任务经历提炼、整合与证据/范围保真方法；Instinct 黑盒材料启发文档分层与单一后台写入者；Muse 社区材料补充关系、目标变化和互动反思。不同来源的证据等级保持，不声称掌握后两者完整生产实现。
@@ -50,7 +50,7 @@ Full，需求已对齐。用户确认开始按三项改进及对应的上游参�
 
 禅首页当时为 9,461 字符；部署基线 `383bc7904` 的首页装配在超过 8,000 UTF-16 code units 时只提供读取提示。文件统计与装配代码支持首页超限判断，本轮未捕获新 provider 请求，未验证其是否实际漏读。未逐条核验全部记忆的原始来源；不把这些统计本身作为质量失败阈值。
 
-当前契约见 [Agent capabilities](../../specs/gateway/agent-capabilities.md) 的角色化文档记忆、关键记忆与 Dreaming 条目。当前 Dreaming 明确提供 PA/专家类别，尚未专门提供具体 Persona/长期职责背景，相关缺口见 #465。记忆内容问题与该缺口的因果关系尚无对照实验证明，不能将全部问题归因于 Persona 缺失。
+当前契约见 [Agent capabilities](../../../specs/gateway/agent-capabilities.md) 的角色化文档记忆、关键记忆与 Dreaming 条目。当前 Dreaming 明确提供 PA/专家类别，尚未专门提供具体 Persona/长期职责背景，相关缺口见 #465。记忆内容问题与该缺口的因果关系尚无对照实验证明，不能将全部问题归因于 Persona 缺失。
 
 ### 角色约定的维护与使用
 
