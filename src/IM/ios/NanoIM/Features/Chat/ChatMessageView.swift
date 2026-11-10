@@ -164,12 +164,7 @@ private struct MessageReceiptButton: View {
         .accessibilityHint(L("轻点查看消息回执", "Tap to view message receipts"))
         .accessibilityIdentifier("message.receipt")
         .popover(isPresented: $showDetails) {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(L("消息回执", "Message receipts"))
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .accessibilityAddTraits(.isHeader)
-                Divider()
+            Group {
                 if receipts.count > 5 {
                     ScrollView { receiptRows }.frame(height: 230)
                 } else {

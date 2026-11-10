@@ -1068,7 +1068,6 @@
       "copySuccess": "Copied",
       "copyError": "Copy failed. Please try again.",
       "receipt": {
-        "title": "Message receipts",
         "pending": "Pending",
         "sent": "Sent, awaiting delivery",
         "received": "Delivered",

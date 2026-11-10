@@ -1744,9 +1744,6 @@ function MessageReceipt({ receipts }: { receipts: NonNullable<Message["receipts"
         aria-hidden="true"
         className={`pointer-events-none absolute right-0 z-20 hidden w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[var(--im-border)] bg-[var(--im-surface)] text-left shadow-[var(--im-shadow-strong)] group-hover/receipt:block group-focus/receipt:block ${above ? "bottom-full mb-1.5" : "top-full mt-1.5"}`}
       >
-        <span className="block border-b border-[var(--im-border)] px-3.5 py-2 text-xs font-semibold text-[var(--im-text)]">
-          {t("chat.messagePane.receipt.title")}
-        </span>
         <span className="grid gap-1 px-3 py-2">
           {receipts.map(receipt => {
             const Mark = receipt.status === "sent" ? Check : CheckCheck;

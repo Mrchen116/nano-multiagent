@@ -1067,7 +1067,6 @@
       "copySuccess": "已复制",
       "copyError": "复制失败，请重试",
       "receipt": {
-        "title": "消息回执",
         "pending": "待送达",
         "sent": "已发送，等待送达",
         "received": "已送达",
