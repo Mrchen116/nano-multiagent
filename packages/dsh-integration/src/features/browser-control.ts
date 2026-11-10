@@ -2,7 +2,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { AgentConfiguration } from '../index.js';
 import type { BrowserActArguments, BrowserControl, BrowserReadArguments } from '../browser/control.js';
-import { BROWSER_PRODUCT_BOUNDARY } from '../browser/contract.js';
+import { BROWSER_AUTHORIZED_FORMS, BROWSER_PRODUCT_BOUNDARY } from '../browser/contract.js';
 
 const FOREGROUND = '不抢焦点地操作页面；新窗口或首次接入可能短暂占前台。';
 const TURN_LIMIT = '非用户发起的轮次（含定时、心跳、任务续跑）及其后台派生的子 Agent 不能新开实例；只有用户在场轮次里的同步前台委派可以新开。轮次已结束或最近一条人类消息超过 5 分钟时，请用户再发一条消息以刷新在场窗口。';
@@ -29,7 +29,8 @@ export const BROWSER_ACT_DESCRIPTION = [
   'scroll 的 ref 必须是声明了 scroll/pointer 动作的 ref（看 refs[].actions）；否则驱动会拒绝，请换一个声明了 pointer 的 ref。',
   'open 只接受 http/https；file:// 与其他 scheme 会被提前拒绝。没有 close 动作：实例由宿主在 Agent 销毁、真实新窗口后归还前台或空闲回收时结束。',
   `前台承诺：${FOREGROUND} 页面动作使用 background；但页面脚本打开真实新窗口时可能短暂占前台，宿主会在本次回读后结束实例并归还。${TURN_LIMIT}`,
-  `产品边界：${BROWSER_PRODUCT_BOUNDARY}需要这些结果的请求要明确拒绝，不要用别的动作绕到同一结果。`,
+  BROWSER_AUTHORIZED_FORMS,
+  `产品边界：${BROWSER_PRODUCT_BOUNDARY}遇到这些请求要说明限制。`,
   `effect 只表示回读到了什么：changed/unchanged/unverifiable；不要把它当成业务成功，动作后要看 text_after 或截图。${SCREENSHOT}`,
   NOISE,
   '审批出口：interactive 单聊需要人工时会出现审批卡片；Global 根与子 Agent 没有人工卡片，分类器要求人工时会直接拒绝，请向用户说明“这一步需要在单聊里确认”；无人值守轮次不会因为 unattendedFallback 放行页面动作。',

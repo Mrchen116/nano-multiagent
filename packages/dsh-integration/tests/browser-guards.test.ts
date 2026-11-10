@@ -64,7 +64,7 @@ it('keeps the model-visible contract sentences in both tool descriptions', () =>
     expect(description).toContain('不抢焦点地操作页面；新窗口或首次接入可能短暂占前台');
     expect(description).toContain('只接受 ref，无坐标');
     expect(description).toContain('截图用 read_image 读 workspace 相对路径');
-    expect(description).toContain('不登录、不提交表单、不下载');
+    expect(description).toContain('不下载、不上传');
     expect(description).toContain('浏览器自带弹层是噪声，不算失败');
     expect(description).toContain('非用户发起的轮次（含定时、心跳、任务续跑）及其后台派生的子 Agent 不能新开实例');
     expect(description).toContain('请用户再发一条消息以刷新在场窗口');
@@ -74,7 +74,9 @@ it('keeps the model-visible contract sentences in both tool descriptions', () =>
   expect(BROWSER_READ_DESCRIPTION).toContain('refs[].actions');
   expect(BROWSER_ACT_DESCRIPTION).toContain('没有 close 动作');
   expect(`${BROWSER_READ_DESCRIPTION}${BROWSER_ACT_DESCRIPTION}`).not.toContain('绝不打扰用户');
-  expect(BROWSER_APPROVAL_REASON).toContain('不登录、不提交表单、不下载');
+  expect(BROWSER_APPROVAL_REASON).toContain('不下载、不上传');
+  expect(BROWSER_ACT_DESCRIPTION).toContain('登录、提交表单和发送网页消息');
+  expect(BROWSER_APPROVAL_REASON).toContain('登录、提交表单和发送网页消息');
   expect(BROWSER_APPROVAL_REASON).toContain('要先读后做');
   expect(BROWSER_APPROVAL_REASON).toContain('不接受坐标点击');
 });
