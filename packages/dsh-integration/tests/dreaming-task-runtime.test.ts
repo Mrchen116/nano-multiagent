@@ -73,7 +73,7 @@ export function apply(ctx){
     client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
     registerNoopTaskHosts(client);
     const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
-    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},knowledge:{dreaming:{maxSteps:24,maxRunMs:1}},toolAllowlist:['read','write','edit','memory_maintenance','subagent','subagent_fork'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
+    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},knowledge:{dreaming:{maxSteps:24,maxRunMs:1}},toolAllowlist:['read','write','edit','memory_maintenance','subagent','subagent_fork'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
     const submit=async(id:string,text=id)=>{
       await client!.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
@@ -84,25 +84,24 @@ export function apply(ctx){
     await submit('after-child');
     await submit('maintain-first');
     let reviews=(await client.rpc.request('knowledge.facts',{}) as any).reviews;
-    if(mode!=='valid'){
-      expect(reviews).toHaveLength(2);
-      expect(reviews.find((review: any) => review.title === 'Dreaming · 提取任务摘要')).toMatchObject({
-        status: 'failed', childSessionId: expect.stringMatching(/^dreaming-/),
-      });
-      const consolidation = reviews.find((review: any) => review.title === 'Dreaming · 整合长期记忆');
-      expect(consolidation).toMatchObject({ status: 'failed' });
-      expect(consolidation.childSessionId).toBeUndefined();
-      expect(reviews.some((review:any)=>review.summary.includes('未生成有效的新版本'))).toBe(true);
-      await expect(readFile(join(home,'.nanoassistant/memory/knowledge/travel.md'))).rejects.toMatchObject({code:'ENOENT'});
-      return;
-    }
-    expect(reviews,JSON.stringify(reviews)).toEqual(expect.arrayContaining([expect.objectContaining({title:'Dreaming · 提取任务摘要',status:'completed',summary:expect.stringContaining('提炼 completed')})]));
-    expect(reviews.some((review:any)=>review.status==='failed'&&review.summary?.includes('did not complete'))).toBe(true);
+    expect(reviews).toHaveLength(2);
+    const extract = reviews.find((review: any) => review.title === 'Dreaming · 提取任务摘要');
+    const consolidate = reviews.find((review: any) => review.title === 'Dreaming · 整合长期记忆');
+    expect(extract).toMatchObject({ status: mode === 'valid' ? 'completed' : 'failed', childSessionId: expect.stringMatching(/^dreaming-/) });
+    expect(consolidate).toMatchObject({ status: 'failed', childSessionId: expect.stringMatching(/^dreaming-/) });
+    expect(extract.childSessionId).not.toBe(consolidate.childSessionId);
     await client.rpc.request('trajectory.prepare', { observerId: 'dreaming-stages', rootAgentId: 'a', rootSessionId: 'root', sessionId: 'root', ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
     const runs = await client.rpc.request('trajectory.call', { observerId: 'dreaming-stages', method: 'trajectory/runs' }) as { value: import('@nano/product-contracts').TrajectoryRun[] };
     expect(runs.value.filter(run => run.kind === 'dreaming')).toEqual(expect.arrayContaining(reviews.map((review: any) =>
       expect.objectContaining({ sessionId: review.childSessionId, label: review.title, state: review.status }))));
     await client.rpc.request('trajectory.close', { observerId: 'dreaming-stages' });
+    if(mode!=='valid'){
+      expect(extract.summary).toContain('未生成有效的新版本');
+      await expect(readFile(join(home,'.nanoassistant/memory/knowledge/travel.md'))).rejects.toMatchObject({code:'ENOENT'});
+      return;
+    }
+    expect(extract.summary).toContain('提炼 completed');
+    expect(consolidate.summary).toContain('did not complete');
     await submit('maintain-retry');
     const readRequests=async()=>(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const extractionIds=(requests:any[])=>new Set(requests.filter(r=>r.sessionId.startsWith('dreaming-')&&JSON.stringify(r.messages).includes('Return a JSON object with exactly two string fields')).map(r=>r.sessionId));

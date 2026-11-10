@@ -44,3 +44,15 @@ it('keeps native tool and live assistant coordinates tied to their request epoch
 it('labels a combined review as one Memory and Skill execution', () => {
   expect(runTitle({...run,kind:'combined'})).toBe('记忆与技能复盘');
 });
+
+it('shows each failed Dreaming launch with its own stage and execution', () => {
+  const runs: TrajectoryRun[] = [
+    {...run, runId: 'extract', sessionId: 'extract-session', kind: 'dreaming', provider: 'native', label: 'Dreaming · 提取任务摘要', state: 'failed'},
+    {...run, runId: 'consolidate', sessionId: 'consolidate-session', kind: 'dreaming', provider: 'native', label: 'Dreaming · 整合长期记忆', state: 'failed'},
+  ];
+  const cells = withLaunches([], runs, 'parent', undefined).flatMap(turn => turn.groups.flatMap(group => group.cells));
+  expect(cells.map(cell => ({ title: cell.text, target: cell.launchRuns?.[0]?.sessionId }))).toEqual([
+    { title: 'Dreaming · 提取任务摘要', target: 'extract-session' },
+    { title: 'Dreaming · 整合长期记忆', target: 'consolidate-session' },
+  ]);
+});
