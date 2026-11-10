@@ -194,13 +194,14 @@ export class InboxStore {
     } catch(error) {this.db.exec('ROLLBACK');throw error;}
   }
   /** Return bounded receipt obligations without depending on runtime availability. */
-  pendingRelays(channel?: 'im' | 'feishu'): {input:RelayInput;status:string}[] {
+  pendingRelays(channel?: 'im' | 'feishu', deferred: readonly string[] = []): {input:RelayInput;status:string}[] {
     return (this.db.prepare(`
       SELECT input, CASE WHEN confirmed=0 THEN status ELSE 'read' END AS status
       FROM relay_receipts WHERE confirmed>=0 AND (confirmed=0 OR read_pending=1)
         AND (? IS NULL OR (id LIKE 'external:%')=?)
+        AND id NOT IN (SELECT value FROM json_each(?))
       ORDER BY confirmed, rowid LIMIT 100
-    `).all(channel ?? null, Number(channel === 'feishu')) as {input:string;status:string}[])
+    `).all(channel ?? null, Number(channel === 'feishu'), JSON.stringify(deferred)) as {input:string;status:string}[])
       .map(row=>({input:JSON.parse(row.input) as RelayInput,status:row.status}));
   }
   /** Derive read badges from durable ingestions, outside the Inbox read transaction.

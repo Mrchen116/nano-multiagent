@@ -318,6 +318,29 @@ it('retains completed Web receipts offline while reconciling external inputs, th
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
 
+it('keeps healthy Feishu receipts moving while an old App fails', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  for (const id of ['external:old', 'external:healthy']) {
+    inbox.acceptRelay({ agent_id: id, conversation_id: id, relay_task_id: id, idempotency_key: id,
+      metadata: { conversation_type: 'direct', agent_receipt: true },
+      message: { id, content: 'hello', sender_type: 'user', sender_user_id: 'owner', attachments: [] } }, true);
+  }
+  const received: string[] = [];
+  const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [], store, inbox,
+    runtime: { onNotification: () => () => {}, request: async () => ({}) },
+    relay: { ready: false, async request(_type, payload) {
+      if (payload.relay_task_id === 'external:old') throw new Error('External app is unavailable');
+      received.push(String(payload.relay_task_id));
+      return { type: 'ack', payload: {} };
+    } }, image: async () => '', onError: () => {},
+  });
+  try {
+    product.scheduleReceipts();
+    await expect.poll(() => received).toEqual(['external:healthy']);
+    expect(inbox.pendingRelays('feishu').map(row => row.input.relay_task_id)).toEqual(['external:old']);
+  } finally { await product.stop(); inbox.close(); store.close(); }
+});
+
 it('recovers healthy ordinary work while an unavailable PA retains its pending source event',async()=>{
  const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
  const calls:{method:string;args:any}[]=[],errors:unknown[]=[];

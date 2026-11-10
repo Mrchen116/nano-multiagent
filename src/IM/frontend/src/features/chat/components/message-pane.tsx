@@ -1712,15 +1712,19 @@ function ContextMenu({
 
 function MessageReceipt({ receipts }: { receipts: NonNullable<Message["receipts"]> }) {
   const { t } = useTranslation();
-  const card = useRef<HTMLSpanElement>(null);
-  const [above, setAbove] = useState(false);
-  function positionCard(button: HTMLButtonElement) {
-    const timeline = button.closest(".chat-pane-messages")?.getBoundingClientRect();
-    if (!timeline || !card.current) return;
-    const anchor = button.getBoundingClientRect();
-    const below = timeline.bottom - anchor.bottom;
-    setAbove(below < card.current.offsetHeight + 6 && anchor.top - timeline.top > below);
-  }
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = useState<React.CSSProperties>();
+  useEffect(() => {
+    if (!position) return;
+    const timeline = trigger.current?.closest(".chat-pane-messages");
+    const close = () => setPosition(undefined);
+    timeline?.addEventListener("scroll", close);
+    window.addEventListener("resize", close);
+    return () => {
+      timeline?.removeEventListener("scroll", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [position]);
   const status = receipts.some(receipt => receipt.status === "sent") ? "sent"
     : receipts.some(receipt => receipt.status === "received") ? "received" : "read";
   const Icon = status === "sent" ? Check : CheckCheck;
@@ -1730,20 +1734,27 @@ function MessageReceipt({ receipts }: { receipts: NonNullable<Message["receipts"
   }).join(", ");
 
   return (
-    <button type="button"
-      className={`group/receipt inline-flex h-5 w-5 shrink-0 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-offset-1 ${status === "read" ? "text-[var(--im-accent)]" : "text-[var(--im-text-muted)]"}`}
-      aria-label={label}
-      onMouseEnter={event => positionCard(event.currentTarget)}
-      onFocus={event => positionCard(event.currentTarget)}
-      onClick={event => event.currentTarget.focus()}
-      onKeyDown={event => { if (event.key === "Escape") event.currentTarget.blur(); }}
-    >
-      <Icon size={14} strokeWidth={1.8} aria-hidden="true" />
-      <span
-        ref={card}
-        aria-hidden="true"
-        className={`pointer-events-none absolute right-0 z-20 hidden w-60 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-[var(--im-border)] bg-[var(--im-surface)] text-left shadow-[var(--im-shadow-strong)] group-hover/receipt:block group-focus/receipt:block ${above ? "bottom-full mb-1.5" : "top-full mt-1.5"}`}
-      >
+    <Dialog.Root modal={false} open={position !== undefined} onOpenChange={open => {
+      const rect = trigger.current?.getBoundingClientRect();
+      if (!open || !rect) { setPosition(undefined); return; }
+      const width = Math.min(240, window.innerWidth - 16);
+      const below = window.innerHeight - rect.bottom;
+      const above = below < 270 && rect.top > below;
+      setPosition({ width, left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
+        maxHeight: Math.min(256, (above ? rect.top : below) - 14),
+        ...(above ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }) });
+    }}>
+      <Dialog.Trigger asChild>
+        <button ref={trigger} type="button"
+          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-offset-1 ${status === "read" ? "text-[var(--im-accent)]" : "text-[var(--im-text-muted)]"}`}
+          aria-label={label}>
+          <Icon size={14} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Content style={position} tabIndex={0} aria-describedby={undefined}
+          className="fixed z-50 overflow-y-auto overscroll-contain rounded-xl border border-[var(--im-border)] bg-[var(--im-surface)] text-left shadow-[var(--im-shadow-strong)]">
+          <Dialog.Title className="sr-only">{t(`chat.messagePane.receipt.${status}`)}</Dialog.Title>
         <span className="grid gap-1 px-3 py-2">
           {receipts.map(receipt => {
             const Mark = receipt.status === "sent" ? Check : CheckCheck;
@@ -1762,8 +1773,9 @@ function MessageReceipt({ receipts }: { receipts: NonNullable<Message["receipts"
             );
           })}
         </span>
-      </span>
-    </button>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

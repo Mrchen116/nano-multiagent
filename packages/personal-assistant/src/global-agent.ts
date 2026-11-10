@@ -219,9 +219,10 @@ export class GlobalAgent {
     const queue = this.receiptQueues[channel];
     if (queue.task) return queue.task;
     const task = (async () => {
+      const deferred: string[] = [];
       let batch;
-      while ((channel === 'feishu' || this.options.relay.ready !== false)
-        && (batch = this.options.inbox.pendingRelays(channel)).length) {
+      drain: while ((channel === 'feishu' || this.options.relay.ready !== false)
+        && (batch = this.options.inbox.pendingRelays(channel, deferred)).length) {
         for (const receipt of batch) {
           try {
             await this.transmitReceipt(receipt.input, receipt.status);
@@ -233,20 +234,22 @@ export class GlobalAgent {
               this.options.onError(error);
               continue;
             }
-            if (!this.stopped) {
-              queue.timer = setTimeout(() => {
-                queue.timer = undefined;
-                this.scheduleReceipts();
-              }, queue.backoff);
-              queue.timer.unref();
-              queue.backoff = Math.min(30000, queue.backoff * 2);
-            }
             this.options.onError(error);
-            return;
+            deferred.push(receipt.input.relay_task_id);
+            // A stale Feishu App or message must not hold up other receipt obligations.
+            if (channel === 'im') break drain;
           }
         }
       }
-      queue.backoff = 1000;
+      if (!deferred.length) queue.backoff = 1000;
+      else if (!this.stopped) {
+        queue.timer = setTimeout(() => {
+          queue.timer = undefined;
+          this.scheduleReceipts();
+        }, queue.backoff);
+        queue.timer.unref();
+        queue.backoff = Math.min(30000, queue.backoff * 2);
+      }
     })().finally(() => { queue.task = undefined; });
     queue.task = task;
     return task;

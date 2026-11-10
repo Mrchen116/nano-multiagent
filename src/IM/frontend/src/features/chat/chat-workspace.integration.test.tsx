@@ -2183,16 +2183,20 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.getByText(latest.content)).toBeVisible();
   });
 
-  it("loads older messages with a before cursor when the message list enters the upper third", async () => {
+  it("keeps paginated history when receipts change and shows the full group in a scrollable card", async () => {
     const newestPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`new-${idx + 1}`, idx + 50));
     const olderPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`old-${idx + 1}`, idx, `older ${idx + 1}`));
+    let receiptStatus = "sent";
     fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
         if (url.includes("before_message_id=new-1")) {
           return jsonResponse({ items: olderPage, next_before_message_id: null });
         }
-        return jsonResponse({ items: newestPage, next_before_message_id: "new-1" });
+        const items = newestPage.map((message, index) => index === 48 ? { ...message, receipts: Array.from({ length: 12 }, (_, idx) => ({
+          recipient_id: `member-${idx + 1}`, display_name: `Member ${idx + 1}`, status: receiptStatus
+        })) } : message);
+        return jsonResponse({ items, next_before_message_id: "new-1" });
       }
       return mockFetch()(input, init);
     }) as ReturnType<typeof mockFetch>;
@@ -2238,6 +2242,18 @@ describe("ChatWorkspacePage — integration", () => {
     expect(messageGets[1]!.url).toContain("limit=50");
     expect(messageGets[1]!.url).toContain("before_message_id=new-1");
     expect(messageGets[1]!.url).not.toContain("mark_as_read=true");
+
+    receiptStatus = "read";
+    act(() => emitSharedChatEvent({ type: "message.receipts_changed", conversation_id: "c1" }));
+    const receipt = await screen.findByRole("button", { name: /Member 12 · Read/ });
+    expect(screen.getByText("older 1")).toBeInTheDocument();
+    fireEvent.scroll(scroller);
+    expect(sent.filter(entry => entry.url.includes("before_message_id=new-1"))).toHaveLength(1);
+    await userEvent.click(receipt);
+    const panel = await screen.findByRole("dialog", { name: "Read" });
+    expect(panel.closest(".chat-pane-messages")).toBeNull();
+    expect(panel).toHaveClass("overflow-y-auto");
+    expect(within(panel).getByText("Member 12")).toBeInTheDocument();
   });
 
   it("does not issue duplicate older-history requests for the same cursor before loading state commits", async () => {

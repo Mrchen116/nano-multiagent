@@ -14,6 +14,24 @@ final class ChatStateTests: XCTestCase {
 
     private let user = AuthUser(id: "user", username: "user", display_name: "User", owner_id: "user", locale: "en", membership_status: "active", is_company_admin: false, owned_node_ids: [], created_at: "now")
 
+    func testDeliveryConfirmationRetriesWithoutASecondStreamEvent() async throws {
+        let pair = try JSONEncoder().encode(TokenPair(access_token: "test", refresh_token: "test", user: user))
+        let transport = HistoryTransport(pair: pair, latest: Data(), bridge: Data())
+        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport,
+                              credentials: ChatTestCredentials(), sendAttempts: attemptStore)
+        _ = try await session.login(username: "user", password: "test")
+        let store = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
+        defer { store.stop() }
+        let event = Data(#"{"op":"event","event_type":"message.created","event_id":1,"data":{"conversation_id":"chat","message_id":"message","sender_user_id":"peer","receipts_requested":true}}"#.utf8)
+        await store.consume(try JSONDecoder().decode(UserEvent.self, from: event))
+        for _ in 0..<120 {
+            if await transport.receiptBatches.count == 2 { break }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        let batches = await transport.receiptBatches
+        XCTAssertEqual(batches, [["message"], ["message"]])
+    }
+
     func testForegroundRemindersHandleHumanSentWithoutRepeatingCreation() async throws {
         let key = "nano.foregroundReminders"
         let previous = UserDefaults.standard.object(forKey: key)
@@ -380,6 +398,7 @@ private struct ChatTestCredentials: CredentialStore {
 private actor HistoryTransport: HTTPTransport {
     let pair: Data; let latest: Data; let bridge: Data; let list: Data
     var cursors: [String?] = []
+    var receiptBatches: [[String]] = []
     var detail: Data?
     var detailStatus = 200
     func revokeDetail() { detailStatus = 404 }
@@ -393,6 +412,12 @@ private actor HistoryTransport: HTTPTransport {
         let body: Data
         if url.path.contains("/auth/") { body = pair }
         else if url.path == "/im/v1/conversations" { body = list }
+        else if url.path == "/im/v1/message-receipts" {
+            let payload = try JSONDecoder().decode([String: [String]].self, from: request.httpBody ?? Data())
+            receiptBatches.append(payload["message_ids"] ?? [])
+            let status = receiptBatches.count == 1 ? 503 : 200
+            return (Data(#"{"ok":true}"#.utf8), HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: [:])!)
+        }
         else if url.path == "/im/v1/conversations/chat", let detail {
             return (detailStatus == 200 ? detail : Data(#"{"detail":"not found"}"#.utf8), HTTPURLResponse(url: url, statusCode: detailStatus, httpVersion: nil, headerFields: [:])!)
         }
