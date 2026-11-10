@@ -399,6 +399,19 @@ it("saves role and ordinary configuration separately", async () => {
   expect(JSON.parse(roleWrites()[0]![1].body)).toEqual({content:"Coordinate the team's long-term planning.", version:null});
 }, 15_000);
 
+it("blocks an oversized role draft until it fits the save limit", async () => {
+  config.owner_id = "user-1";
+  open();
+  const editor = await screen.findByRole("textbox", {name: "Role agreement"});
+  const save = screen.getByRole("button", {name: "Save role agreement"});
+  fireEvent.change(editor, {target: {value: "💡".repeat(1000) + "x"}});
+  expect(editor).toHaveAttribute("aria-invalid", "true");
+  expect(save).toBeDisabled();
+  expect(roleWrites()).toHaveLength(0);
+  fireEvent.change(editor, {target: {value: "💡".repeat(1000)}});
+  expect(save).toBeEnabled();
+});
+
 it("keeps the role draft and shows the latest saved agreement after a conflict", async () => {
   config.owner_id = "user-1";
   role = {content:"Original role", version:"old"};

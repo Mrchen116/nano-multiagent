@@ -30,6 +30,9 @@ it('shares one role file and guards stale settings drafts against ordinary file 
     expect(await roleDocument(fs, workspace, { content: '💡'.repeat(1001), version: current.version })).toEqual({ error: 'role_too_long' });
     expect(await roleDocument(fs, workspace, { content: '', version: current.version })).toMatchObject({ content: '' });
     expect(await readFile(path, 'utf8')).toContain('ask the user');
+    const oversizedBlank = ' '.repeat(2001);
+    await writeFile(path, oversizedBlank);
+    expect(await roleDocument(fs, workspace)).toMatchObject({ content: oversizedBlank, version: expect.any(String) });
   } finally { await rm(dir, { recursive: true, force: true }); }
 });
 

@@ -10,9 +10,23 @@ type RoleView = { content: string; version: string | null };
 type RoleError = { error: 'role_conflict' | 'role_unavailable' | 'role_too_long' };
 export type RoleResult = RoleView | RoleError;
 
-const visibleRole = (content: string) => content.trim() === rolePlaceholder.trim() || !content.trim() ? '' : content;
+const visibleRole = (content: string) => {
+  if (content.length > roleLimit) return content;
+  const trimmed = content.trim();
+  return !trimmed || trimmed === rolePlaceholder.trim() ? '' : content;
+};
 const token = (path: string, version: string) => createHash('sha256').update(path).update('\0').update(version).digest('hex');
 const conflicted = (error: unknown) => error instanceof FsError && ['FS_STALE_VERSION', 'FS_NOT_OBSERVED'].includes(error.code);
+
+/** Resolve the role path without following an aliased file or private directory. */
+export async function resolveRoleFile(fs: FileSystem, workspace: string) {
+  const path = rolePath(workspace);
+  const directory = await fs.lstat(dirname(path));
+  const file = await fs.lstat(path);
+  if (directory && directory.type !== 'directory' || file && file.type !== 'file') return;
+  const target = await fs.resolve(path);
+  if (fs.processPath(target) === path) return target;
+}
 
 /** Read or update the one role agreement in the trusted canonical workspace.
  *
@@ -26,11 +40,8 @@ export async function roleDocument(fs: FileSystem, workspace: string, update?: R
   if (update && update.content.length > roleLimit) return { error: 'role_too_long' };
   const path = rolePath(workspace);
   try {
-    const directory = await fs.lstat(dirname(path));
-    const file = await fs.lstat(path);
-    if (directory && directory.type !== 'directory' || file && file.type !== 'file') return { error: 'role_unavailable' };
-    const target = await fs.resolve(path);
-    if (fs.processPath(target) !== path) return { error: 'role_unavailable' };
+    const target = await resolveRoleFile(fs, workspace);
+    if (!target) return { error: 'role_unavailable' };
     const info = await fs.stat(target);
     const version = info ? token(path, info.version) : null;
     if (update && update.version !== version) return { error: 'role_conflict' };

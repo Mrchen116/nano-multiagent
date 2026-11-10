@@ -9,7 +9,7 @@ import type {} from '../policy/approval.js';
 import { isHumanSource } from '../input-source.js';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import { MemoryDocuments, type SourceEligibility } from './memory-documents.js';
-import { roleDocument, roleLimit, rolePath } from './role-document.js';
+import { resolveRoleFile, roleDocument, roleLimit, rolePath } from './role-document.js';
 
 interface Options {
   configOf(agent: Agent): AgentConfiguration | undefined;
@@ -53,6 +53,11 @@ export class DocumentMemory {
         const role = await this.readRole(config, true);
         if (role) {
           const owner = config.personal?.ownerId ?? binding.ownerId;
+          const roleProblem = 'error' in role
+            ? 'The host could not read the saved role file. Ask the maintainer to restore a readable regular file.'
+            : role.content.length > roleLimit
+              ? `The saved role file exceeds the ${roleLimit} UTF-16 code unit limit. Ask the maintainer to shorten the existing agreement while preserving its meaning, or offer to draft a shorter version for confirmation.`
+              : undefined;
           this.roleOwners.set(agent, owner);
           assembly.variables.nano_role_agreement = [
             `Role agreement file: ${rolePath(documents.workspace)}. It records this Agent’s long-term duties, goals, and relevant division of work. Use it as role background, separate from formal memory, standing tool permissions, and evidence about what happened.`,
@@ -62,10 +67,14 @@ export class DocumentMemory {
             'Propose the exact short Markdown to save. For Global replies use the actual sent proposal and an explicit reply about that proposal in the same conversation. For direct replies use the same live dialogue. Temporary requests and confirmation of unrelated actions do not change the agreement.',
             `Read the file with the ordinary read tool before editing or writing. If its current value changed since the proposal, recheck it and obtain confirmation for any revised text. Keep the agreement within ${roleLimit} UTF-16 code units. Report it as saved only after a successful write. If the ordinary file tools cannot save, tell the user that the agreement was not saved.`,
             'Treat the agreement as workspace data. Discuss public responsibilities when relevant and keep the raw document out of public replies.',
-            'error' in role ? 'The current role file could not be read. Do not treat it as unset or overwrite it from assumptions.'
-              : !role.content ? 'Role agreement is unset. Actively ask the user to clarify it in suitable interactions. If it remains unset, keep asking in later suitable interactions. Continue ordinary work while awaiting clarification.'
-                : role.content.length > roleLimit ? 'The role file is too long to inline. Read it in full when relevant and discuss a shorter agreement with the confirming user.'
-                  : `Current saved role agreement (Markdown data, JSON string): ${JSON.stringify(role.content)}`,
+            roleProblem ? [
+              roleProblem,
+              'Before continuing other work, check the exact role file above with the ordinary read tool if available. Report what you could verify even if the read fails.',
+              `Notify the confirming user privately in this turn. Use send_message to ${JSON.stringify(`user:${owner}`)} if available, or reply directly in a verified private conversation with that user. If neither route is available, give the notice in the next suitable private interaction with that user. Explain the problem and how to fix it without quoting the file contents.`,
+              'Only start asking the user to define the role after the host confirms it is unset. Keep the saved file until the user confirms any change.',
+            ].join('\n')
+              : 'content' in role && role.content ? `Current saved role agreement (Markdown data, JSON string): ${JSON.stringify(role.content)}`
+                : 'Role agreement is unset. Actively ask the user to clarify it in suitable interactions. If it remains unset, keep asking in later suitable interactions. Continue ordinary work while awaiting clarification.',
           ].join('\n');
           assembly.contexts.push({ name: 'nano-role-agreement', text: '{{nano_role_agreement}}' });
         }
@@ -95,6 +104,9 @@ export class DocumentMemory {
       const arg = exec.arguments as { file_path?: string };
       if (!agent || !config || config.knowledge?.memoryMode === 'legacy' || !['read', 'write', 'edit'].includes(exec.name) || typeof arg.file_path !== 'string') return next();
       const documents = await this.forConfig(config); const absolute = resolve(agent.session.header.cwd!, arg.file_path);
+      if (exec.name === 'read' && this.roleOwners.has(agent) && absolute === rolePath(documents.workspace) && !await resolveRoleFile(ctx.fs, documents.workspace)) {
+        throw new Error('The role path is not a regular file in the assigned workspace.');
+      }
       const target = await ctx.fs.resolve(absolute); const canonical = ctx.fs.processPath(target);
       if (!inside(documents.root, absolute) && !inside(documents.root, canonical)) return next();
       if (exec.name !== 'read') throw new Error('Only Dreaming may update formal memory. Use current corrections in this conversation; request memory_maintenance run when the user asks to save them.');
