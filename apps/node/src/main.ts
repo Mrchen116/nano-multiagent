@@ -290,6 +290,19 @@ const relay = new WebRelayConnection({
       return;
     }
     if (['channels.bootstrap.request', 'channel.reconcile', 'channel.reconnect'].includes(frame.type)) await managed.handle(frame);
+    if (frame.type === 'node.agent.role.request') {
+      const agentId = String(payload.agent_id);
+      const result = await (async () => {
+        const workspace = await configuration.roleWorkspace(agentId);
+        if (!workspace) return {error: 'role_unavailable'};
+        const response = await runtime.request('configuration.role', {agentId, workspace,
+          ...(payload.update === undefined ? {} : {update: payload.update})}) as
+          {content: string; version: string | null} | {error: 'role_conflict' | 'role_unavailable' | 'role_too_long'};
+        return 'error' in response ? {error: response.error} : {role: response};
+      })().catch(() => ({error: 'role_unavailable'}));
+      await relay.request('node.agent.role', {request_id: payload.request_id, node_id: config.node.node_id, ...result});
+      return;
+    }
     if (frame.type === 'node.plugins.request') {
       const result = await (async () => {
         const agentId = String(payload.agent_id);
@@ -498,6 +511,9 @@ runtime.handle('configuration.workflow', async value => {
   return {effective: true};
 });
 runtime.handle('model.check', value => product.modelCheck(value as { sessionId: string; turn: number }));
+runtime.handle('knowledge.role.workspace', async value => ({
+  workspace: await configuration.roleWorkspace((value as {agentId: string}).agentId),
+}));
 const scheduleDeletions=new ScheduleDeletions({ownerId:config.node.user_id,agents,store,runtime,onError:reportError,repair:intent=>tasks.scheduleDeleted(intent),
  notify:async intent=>{
   await runtime.request('schedule.deleted.notify',{agentId:intent.agentId,sessionId:intent.sessionId,inputId:intent.changeInputId,content:[{type:'text',text:'The user deleted the Schedule identified below. It will no longer wake you as planned. Account for this change when checking your existing arrangements. This is a Schedule change, not a new task or permission, and it does not resume paused work.\n'+JSON.stringify({schedule_id:intent.scheduleId,title:intent.title,agent_id:intent.agentId,session_id:intent.sessionId,deleted_at:intent.deletedAt,actor:intent.actor})}]});

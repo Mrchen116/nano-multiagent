@@ -6,6 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { FileSystem } from '@deepseek-ai/dsh-fs';
 import { atomicWrite } from './files.js';
 
+export const memoryEntryLimit = 8000;
 export type DocumentVersions = Record<string, string>;
 export interface SourceEligibility { revision: string; allowed: string[]; excluded: string[] }
 export interface DocumentOperation { operationId: string; path: string; beforeHash: string | null; content: string }
@@ -154,7 +155,7 @@ export class MemoryDocuments {
     const versions = await this.versions();
     const entry = await readFile(join(this.root, 'MEMORY.md'), 'utf8');
     return { role: this.role, root: this.root, versions,
-      entry: entry.length <= 8000 ? entry : undefined,
+      entry: entry.length <= memoryEntryLimit ? entry : undefined,
       backupRoot: this.backupRoot };
   }
   /** Tell Dreaming whether saved pages need checking before its next publication. */

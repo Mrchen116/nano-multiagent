@@ -1,6 +1,7 @@
 /** Nano's sole stdio server inside an unmodified DSH profile. */
 import { personalEvidenceMessages, personalReviewAction, personalReviewImages, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
 import { randomUUID } from 'node:crypto';
+import { realpath } from 'node:fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { OwnedSessions, OwnedSessionController } from './owned-sessions.js';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
@@ -37,6 +38,7 @@ import { skillCatalog } from './capabilities.js';
 import * as SelectedSkills from './capabilities.js';
 import { createScope } from '@deepseek-ai/dsh-scope';
 import { KnowledgeRuntime } from './knowledge/runtime.js';
+import { roleDocument } from './knowledge/role-document.js';
 import { NativeModelSetup } from './model-setup.js';
 import { ModelPolicy } from './model-policy.js';
 import { NativeHistory } from './history.js';
@@ -221,7 +223,9 @@ export default class NanoRuntime {
     const workflowFiber = ctx.plugin(NanoWorkflowEngine, { configuration: (agent: Agent) => configurationService.forAgent(agent)!, completed: (record: import('./workflow/state.js').WorkflowRecord) => this.peer.notify('workflow.completed', record) });
     const workflow = new Promise<NanoWorkflowEngine>(resolve => { ctx.inject(['workflowEngine', 'nanoApproval', 'nanoModels'], child => { const engine = child.workflowEngine as NanoWorkflowEngine; registerWorkflowTool(child, engine, agent => configurationService.forAgent(agent)!); resolve(engine); }); });
     const models = this.models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
-    const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configOf: (agent: Agent) => configurationService.forAgent(agent), configs: this.configurations, bindings: this.bindings, notify: () => this.peer.notify('knowledge.changed', {}), held: (agentId: string, kind: 'memory' | 'skills') => lifecycle.current(agentId).disabled === true || this.capabilities.held(agentId, {kind: 'feature', name: kind === 'memory' ? 'memory_curation' : 'skill_creation'}) });
+    const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configOf: (agent: Agent) => configurationService.forAgent(agent), configs: this.configurations, bindings: this.bindings,
+      roleWorkspace: async (agentId: string) => (await this.peer.request('knowledge.role.workspace', {agentId}) as {workspace: string | null}).workspace,
+      notify: () => this.peer.notify('knowledge.changed', {}), held: (agentId: string, kind: 'memory' | 'skills') => lifecycle.current(agentId).disabled === true || this.capabilities.held(agentId, {kind: 'feature', name: kind === 'memory' ? 'memory_curation' : 'skill_creation'}) });
     const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
     let updateServices: { models: ModelPolicy; knowledge: KnowledgeRuntime; workflow: NanoWorkflowEngine } | undefined;
     const update = new UpdateBarrier({
@@ -531,6 +535,13 @@ export default class NanoRuntime {
         void settled.finally(() => preset[Symbol.asyncDispose]()).catch(error => ctx.logger.error(error));
         return view;
       } catch (error) { await preset[Symbol.asyncDispose](); throw error; }
+    });
+    handle('configuration.role', async value => {
+      const { agentId, workspace, update } = value as { agentId: string; workspace: string; update?: {content: string; version: string | null} };
+      const config = [...this.configurations.values()].find(config => config.agentId === agentId);
+      if (!workspace || !config?.workspace || config.knowledge?.memoryMode === 'legacy'
+        || await realpath(config.workspace).catch(() => null) !== workspace) return { error: 'role_unavailable' };
+      return roleDocument(ctx.fs, workspace, update);
     });
     handle('configuration.selection', async value => {
       const { agentId, cwd } = value as { agentId: string; cwd: string };

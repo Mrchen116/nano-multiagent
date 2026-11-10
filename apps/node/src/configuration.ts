@@ -162,6 +162,20 @@ export class NodeConfiguration {
   }
   releaseWorkspace(agentId: string): void { this.preparedWorkspaces.delete(agentId); }
 
+  /** Resolve the role workspace against every Agent on this node, including other runtime partitions. */
+  roleWorkspace(agentId: string): Promise<string | null> {
+    return this.serialize(async () => {
+      const agent = this.value.agents.find(item => item.agent_id === agentId);
+      if (!agent || normalizeKnowledge(agent.knowledge).memoryMode === 'legacy') return null;
+      const workspace = await realpath(agent.workspace_root).catch(() => null);
+      if (!workspace) return null;
+      const others = this.value.agents.filter(item => item.agent_id !== agentId).map(item => item.workspace_root);
+      const assigned = await Promise.all(others.map(path => realpath(path).catch(() => resolve(path))));
+      const reserved = [...this.preparedWorkspaces].some(([id, item]) => id !== agentId && item.path === workspace);
+      return reserved || assigned.includes(workspace) ? null : workspace;
+    });
+  }
+
   /** Offer removal only for directories this node created specifically for this Agent. */
   deletionWorkspace(agentId: string, pending: CanonicalAgentConfiguration[]): Promise<AgentWorkspaceWitness | undefined> {
     return this.serialize(()=>this.exclusiveWorkspace(agentId,pending));

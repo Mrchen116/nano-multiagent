@@ -27,6 +27,7 @@ import {
 } from "./model-reasoning-field";
 import { fallbacksAfterPrimaryChange, ModelFallbackField } from "./model-fallback-field";
 import { AgentPluginsPanel } from "./agent-plugins-panel";
+import { AgentRoleEditor, useAgentRoleEditor } from "./agent-role-editor";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
 import { AgentWorkPanel } from "./agent-work-panel";
@@ -144,6 +145,7 @@ interface BehaviorCardProps {
   capabilityFeatures: AgentFeature[];
   onApprovalModeChange: (value: ApprovalMode) => void;
   onCustomPromptChange: (value: string) => void;
+  roleEditor: ReactNode;
   onFeatureToggle: (key: string, value: boolean) => void;
   onPolicyChange: (value: string) => void;
 }
@@ -158,6 +160,7 @@ function BehaviorCard({
   inheritedRules,
   onApprovalModeChange,
   onCustomPromptChange,
+  roleEditor,
   onFeatureToggle,
   onPolicyChange
 }: BehaviorCardProps) {
@@ -230,7 +233,6 @@ function BehaviorCard({
         <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
       </div>
 
-      {/* Custom Instructions are the only public per-agent prompt input. */}
       <ApprovalModeField inheritedRules={inheritedRules} disabled={readOnly} value={draft.approval_mode} onChange={onApprovalModeChange} />
 
       <div className="im-agent-field">
@@ -246,6 +248,8 @@ function BehaviorCard({
           onChange={(e) => onCustomPromptChange(e.target.value)}
         />
       </div>
+
+      {roleEditor}
 
       {!capabilitiesKnown && capabilityFeatures.length === 0 && <div className="im-agent-field" data-testid="features-section">
         <span className="text-[13px] font-semibold text-slate-900">{t("agents.form.behavior.features")}</span>
@@ -1345,6 +1349,8 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   const currentDeletion = closed && deletion.query.data?.revision === lifecycleState?.revision;
   const deleting = Boolean(deletion.query.data?.operation);
   const detailQuery = settings.query;
+  const canManageRole = !!self && detailQuery.data?.config.owner_id === self;
+  const roleEditor = useAgentRoleEditor(agentId, canManageRole && !inactive && activeSection === "config" && !settings.connectionReadOnly && !deleting);
   const confirmationPending = applyPending || !!detailQuery.data?.pendingOperation;
   const readOnly = settings.readOnly || confirmationPending || deleting;
   const settingsReason = confirmationPending && (!settings.reason || settings.reason === 'refreshingEditable') ? 'pending' : settings.reason;
@@ -1510,7 +1516,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
 
   function selectAgent(nextID: string) {
     if (nextID === agentId) return;
-    if (isDirty) setPendingAgent(nextID);
+    if (isDirty || roleEditor.dirty) setPendingAgent(nextID);
     else navigate(`/settings/agents/${encodeURIComponent(nextID)}`);
   }
 
@@ -1882,6 +1888,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
         <BehaviorCard
           agentId={agentId}
           draft={draft}
+          roleEditor={canManageRole && <AgentRoleEditor editor={roleEditor} />}
           inheritedRules={capabilities.inherited_approval_rules}
           capabilityFeatures={capabilities.features ?? []}
           capabilitiesKnown={detailQuery.data?.liveCapabilities === true}

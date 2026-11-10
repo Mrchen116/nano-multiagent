@@ -880,6 +880,25 @@ export async function deleteAgentCronJob(agentId: string, jobId: string): Promis
   }
 }
 
+export interface AgentRoleDocument {
+  content: string;
+  version: string | null;
+}
+
+/** Read the Agent's current workspace role without initializing its file. */
+export function getAgentRole(agentId: string, signal?: AbortSignal): Promise<AgentRoleDocument> {
+  return requestJson<AgentRoleDocument>(`/im/v1/agents/${encodeURIComponent(agentId)}/role`, {signal});
+}
+
+/** Save only ROLE.md using the version the manager reviewed. */
+export function saveAgentRole(agentId: string, document: AgentRoleDocument): Promise<AgentRoleDocument> {
+  return requestJson<AgentRoleDocument>(`/im/v1/agents/${encodeURIComponent(agentId)}/role`, {
+    method: "PUT",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(document),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // feat-394-M13 (决策 G): HEARTBEAT.md read-only preview via WS RPC.
 // Data comes from the gateway node — IM never reads workspace files directly.

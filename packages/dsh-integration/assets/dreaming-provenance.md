@@ -14,15 +14,20 @@ does not expose provider-native JSON Schema output; Nano does not replace it wit
 another completion tool. Empty strings retain the original no-signal meaning. The host owns
 scope, source versions, staging, receipts and persistence.
 
-The consolidation prompt retains the original grounded-claims paragraph, adapting
-its preference destination to Nano's role documents. Codex's memory-folder layout,
-raw-memory workspace protocol, per-thread storage and scheduler are not runtime
-interfaces in Nano. The replacement sections specify the approved existing PA/expert
-Markdown layout, one updated summary per task, original Global dialogue, current
-source exclusions and the single Dreaming writer. They preserve the distinction
-between omitted sources and revoked sources, and between private drafts and delivery.
-Normal model completion leads to host validation of staged files and application;
-failed or cancelled execution cannot publish staged changes or advance progress.
+Consolidation adapts Codex's tests for grounding claims, preserving preference
+scope and selecting knowledge that will help on a related future task. Nano uses
+its own PA and expert Markdown layout, original Global dialogue, one current
+summary per task and current source exclusions. It distinguishes omitted sources
+from revoked sources, and private drafts from delivery. Normal model completion
+leads to host validation and application of staged files. Model failure or
+cancellation keeps staged changes and source progress unpublished.
+
+The two responsibilities of integrating new knowledge and cleaning up existing
+memory follow [memoryrepo's Dreaming instructions](https://github.com/supermemoryai/memoryrepo/blob/54f7ff3065df8af687dc5c04a4bb17d6611e5fd1/src/server/memory.ts#L68).
+Its entry-page conventions inform the short `MEMORY.md` directly loaded in
+ordinary requests. The [Anthropic Cookbook Organizer](https://github.com/anthropics/claude-cookbooks/blob/ce8b2629efe8b24048b127b4c79af1e9cbab93d4/managed_agents/example_data/memory_distill/prompts/organizer_system.md#L17)
+informs the order for cross-page moves. Nano checks the live destination before
+trimming the source page because it publishes staged files individually.
 
 The relationship, interaction-reflection and proactive-preference dimensions were
 checked against the original Muse descriptions collected at
@@ -33,11 +38,12 @@ official released Dreaming implementation. Nano paraphrases their content dimens
 it does not copy personal instances, create Muse's separate cards/schedulers, or
 claim knowledge of its hidden runtime prompt.
 
-Consolidation selects the reflection focus using the bound Agent's existing PA or
-expert role. The PA interaction-reflection wording is retained; the expert variant
-focuses on domain/project changes, environment conditions, verified work lessons
-and collaboration, following Nano's approved specialist-memory policy. Shared
-evidence and proactive-communication guidance remains unchanged.
+Consolidation selects its focus using the bound Agent's PA or expert role and
+supplies the confirmed workspace role agreement and configured persona separately
+as background data. The PA interaction-reflection wording remains. The expert
+variant focuses on domain and project changes, environment conditions, verified
+work lessons and collaboration. Both use the same evidence and proactive
+communication rules.
 
 The retained source snapshots, hashes, implementation comparison and exact prompt
 diff are part of feat-676's review evidence. Runtime content and authority remain in

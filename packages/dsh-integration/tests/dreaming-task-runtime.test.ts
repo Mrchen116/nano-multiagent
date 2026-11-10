@@ -112,6 +112,8 @@ export function apply(ctx){
     expect(JSON.stringify(extraction.messages)).toContain('Inherited background');
     expect(JSON.stringify(extraction.messages)).toContain('free cancellation');
     expect(JSON.stringify(extraction.messages)).toContain('Own experience');
+    expect(JSON.stringify(extraction.messages)).not.toContain('# Confirmed role agreement (data)');
+    expect(JSON.stringify(extraction.messages)).not.toContain('# Configured persona (data)');
     expect(extraction.tools.map((tool:any)=>tool.name)).not.toContain('write');
     expect(extraction.tools.map((tool:any)=>tool.name)).not.toContain('finish');
     expect(requests.filter(r=>extractionIds(requests).has(r.sessionId))).toHaveLength(1);

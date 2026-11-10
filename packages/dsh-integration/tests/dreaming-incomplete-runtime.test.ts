@@ -5,7 +5,7 @@ import { expect, it } from 'vitest';
 import {stripContextItemId} from 'dsh-agent-context';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it.each(['unread-write', 'failed-read-write', 'normal-stop', 'missing-index', 'model-error', 'cancelled'])(
+it.each(['unread-write', 'failed-read-write', 'normal-stop', 'body-only', 'legacy-oversized-index', 'oversized-index', 'model-error', 'cancelled'])(
   'accepts only valid normally completed staging after %s', async mode => {
     const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
     const home = await mkdtemp(join(tmpdir(), 'nano-dreaming-incomplete-'));
@@ -32,7 +32,11 @@ export function apply(ctx) {
       }
       const calls = ${JSON.stringify(mode)} === 'unread-write' ? [write]
         : mode === 'failed-read-write' ? [['read', { file_path: stage + '/missing.md' }], write]
-        : mode === 'missing-index' ? [['write', {file_path: stage + '/knowledge/new.md', content: 'Staged lesson without navigation update'}]]
+        : ['body-only', 'legacy-oversized-index', 'oversized-index'].includes(mode) ? [
+            ['read', {file_path: stage + '/MEMORY.md'}],
+            ['write', {file_path: stage + '/knowledge/new.md', content: 'A detail that belongs only on the topic page.'}],
+            ...(mode === 'oversized-index' ? [['write', {file_path: stage + '/MEMORY.md', content: '记'.repeat(8001)}]] : []),
+          ]
         : ['model-error', 'cancelled'].includes(mode) ? [['read', {file_path: stage + '/MEMORY.md'}], write] : [];
       call = calls[step];
     } else {
@@ -68,18 +72,25 @@ export function apply(ctx) {
       await submit('experience-one'); await submit('experience-two'); await submit('before');
       const progressPath = join(home, 'storages/nano_dreaming/owners/YQ.json');
       const beforeProgress = JSON.parse(await readFile(progressPath, 'utf8')).record.streams;
-      const original = await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8');
+      const entry = join(home, '.nanoassistant/memory/MEMORY.md');
+      if (mode === 'legacy-oversized-index') await writeFile(entry, '# Existing key memory\n' + 'Old detailed note.\n'.repeat(500));
+      const original = await readFile(entry, 'utf8');
       await submit('maintain'); await submit('after');
       const facts = await client.rpc.request('knowledge.facts', {}) as { reviews: Array<{ status: string; summary: string }> };
       expect(facts.reviews).toHaveLength(1);
-      const failed = ['missing-index', 'model-error', 'cancelled'].includes(mode);
+      const failed = ['oversized-index', 'model-error', 'cancelled'].includes(mode);
       expect(facts.reviews[0]).toMatchObject({ status: failed ? 'failed' : 'completed' });
       if (failed) {
-        expect(facts.reviews[0]!.summary).toContain(mode === 'missing-index' ? 'Synchronize MEMORY.md' : 'did not complete');
+        expect(facts.reviews[0]!.summary).toContain(mode === 'oversized-index' ? 'MEMORY.md exceeds' : 'did not complete');
         expect(facts.reviews[0]!.summary).toContain('整理进度未推进');
       }
-      await expect(readFile(join(home, '.nanoassistant/memory/knowledge/new.md'))).rejects.toMatchObject({code:'ENOENT'});
-      expect(await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8')).toBe(original);
+      const body = readFile(join(home, '.nanoassistant/memory/knowledge/new.md'), 'utf8');
+      if (['body-only', 'legacy-oversized-index'].includes(mode)) {
+        await expect(body).resolves.toBe('A detail that belongs only on the topic page.');
+      } else {
+        await expect(body).rejects.toMatchObject({code:'ENOENT'});
+      }
+      expect(await readFile(entry, 'utf8')).toBe(original);
       const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       const latest = requests.filter(request => request.sessionId === 'root').at(-1);
       const status = (id: string) => JSON.parse(stripContextItemId(latest.messages.find((message: any) => message.role === 'tool' && message.toolCallId === id).content).filter(block => block.type === 'text').map(block => block.text).join('\n'));

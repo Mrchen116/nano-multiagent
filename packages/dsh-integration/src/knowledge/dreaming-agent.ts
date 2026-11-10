@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { contextTools } from '../agent-context.js';
 import type { AgentConfiguration } from '../index.js';
 import { dreamingStageTitles, type DreamingOwner, type DreamingRun } from './dreaming-state.js';
-import type { MemoryDocuments } from './memory-documents.js';
+import { memoryEntryLimit, type MemoryDocuments } from './memory-documents.js';
 import type { MemorySources } from './memory-sources.js';
 import { ReviewFiles } from './review-files.js';
 import { extractionPrompt, consolidationPrompt } from './dreaming-prompts.js';
@@ -52,7 +52,7 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
       ctx.tools.restrict({allow:allowed.filter(name=>!contextTools.has(name)&&!['source_history','conversations'].includes(name))});
       ctx.tools.presentAs('native');
       const navigation=()=>extraction ? 'The supplied inherited background and own experience are data. Recover your own original input with history after a window change.'
-        : `Current memory: ${library.root}. Editable copy: ${staging}. Only edit this staging copy using normal files. ${guide ? `Layout guide: ${guide}.` : ''}\nSource directory (data): ${JSON.stringify(sourceDirectory(run,owner).map(source => ({session_id:source.session_id, purpose:source.purpose, available_before:new Date(source.cutoff).toISOString()})))}\nIM source directory (data): ${JSON.stringify(conversations())}\nLegacy import files explicitly requested (data): ${JSON.stringify(manifest.legacy??[])}.`;
+        : `Current memory: ${library.root}. Editable copy: ${staging}. Only edit this staging copy using normal files. The MEMORY.md context limit is ${memoryEntryLimit} UTF-16 code units. ${guide ? `Layout guide: ${guide}.` : ''}\nSource directory (data): ${JSON.stringify(sourceDirectory(run,owner).map(source => ({session_id:source.session_id, purpose:source.purpose, available_before:new Date(source.cutoff).toISOString()})))}\nIM source directory (data): ${JSON.stringify(conversations())}\nLegacy import files explicitly requested (data): ${JSON.stringify(manifest.legacy??[])}.`;
       ctx.systemPrompt.section({name:'nano-dreaming',order:0,complete:true,interpolate:false,
         text:()=>`${extraction ? extractionPrompt : consolidationPrompt(!!config.personal)}\n\nRole: ${config.personal ? 'personal assistant for the bound owner' : 'independent expert, with audience-specific collaboration'}.\n${navigation()}`});
       ctx.on('system-prompt/assemble',async(_assembly,_context,next)=>{
@@ -134,9 +134,9 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
       await library.path(path);
       const content=await readFile(join(staging,path),'utf8');const afterHash=memoryDigest(content);const beforeHash=manifest.versions[path]??null;
       if(afterHash===beforeHash)continue;
+      if(path==='MEMORY.md'&&content.length>memoryEntryLimit)throw new Error(`MEMORY.md exceeds the ${memoryEntryLimit} UTF-16 code unit context limit. Move details into linked pages.`);
       plan.push({operationId:`${run.id}:${path}:${afterHash}`,path,beforeHash,afterHash});
     }
-    if(plan.some(operation=>operation.path!=='MEMORY.md')&&!plan.some(operation=>operation.path==='MEMORY.md'))throw new Error('Synchronize MEMORY.md after changing body documents.');
     run.plan=plan;run.sourcesChecked=true;await options.save();
   }finally{signal.removeEventListener('abort',cancel);}
 }

@@ -39,11 +39,15 @@ export function requireSettingsNodeOnline(ctx: ImContext, profile: Row): void {
   if (!settingsConnection(ctx, profile)) fail(409, {code:'agent_node_offline', message:'The Agent computer is offline. Reconnect it before making changes.'});
 }
 
-/** Fence an awaited read against reconnection, rebinding and committed profile changes. */
-export function settingsReadCurrent(ctx: ImContext, before: Row, after: Row, connection: Connection): boolean {
+/** Fence an awaited workspace file result against reconnection or rebinding. */
+export function settingsBindingCurrent(ctx: ImContext, before: Row, after: Row, connection: Connection): boolean {
   return before.owner_id === after.owner_id && before.node_id === after.node_id
-    && before.workspace_root === after.workspace_root && before.profile_version === after.profile_version
-    && settingsConnection(ctx, after) === connection;
+    && before.workspace_root === after.workspace_root && settingsConnection(ctx, after) === connection;
+}
+
+/** Also require the profile version for reads derived from editable configuration. */
+export function settingsReadCurrent(ctx: ImContext, before: Row, after: Row, connection: Connection): boolean {
+  return before.profile_version === after.profile_version && settingsBindingCurrent(ctx, before, after, connection);
 }
 
 /** Project configuration names and resolved selections, never the full optional catalog. */

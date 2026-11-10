@@ -6,7 +6,7 @@ import {useAuthStore} from "../../auth/auth-store";
 import {appRoutes} from "../../../app/router";
 import {renderRouter} from "../../../test/render-router";
 import type {UserStreamSubscriber} from "../../../realtime/user-stream";
-import type {AgentConfig} from "./im-agent-config-api";
+import type {AgentConfig, AgentRoleDocument} from "./im-agent-config-api";
 
 const stream = vi.hoisted(() => ({subscribers: new Set<UserStreamSubscriber>()}));
 vi.mock("../../../realtime/user-stream", () => ({subscribeUserStream: (subscriber: UserStreamSubscriber) => {
@@ -24,6 +24,7 @@ const capabilities = {
   platform_default_model: "codex_oauth:gpt-5.5",
 };
 let config: AgentConfig;
+let role: AgentRoleDocument;
 let online: boolean;
 let pending: boolean;
 let settingsRead: () => Promise<Response>;
@@ -43,10 +44,12 @@ async function presence(status: "online" | "offline") {
   online = status === "online";
   await act(async () => { for (const s of stream.subscribers) s.onEvent({eventType: "agent.status_changed", payload: {agent_id: config.agent_id, status}}); });
 }
+const roleWrites = () => fetchMock.mock.calls.filter(([url, init]) => url === `${path}/role` && init?.method === "PUT");
 const patches = () => fetchMock.mock.calls.filter(([url, init]) => url === `${path}/config` && init?.method === "PATCH");
 
 beforeEach(() => {
   online = true; pending = false;
+  role = {content: "", version: null};
   config = {
     agent_id: "agent-core-1", owner_id: "owner-1", display_name: "Core Planner", description: "Milestone execution coordinator",
     skills: ["tdd-execution-worker", "playwright"], skills_selection_mode: "explicit_allowlist", tool_allowlist: ["bash", "read_file"],
@@ -63,6 +66,14 @@ beforeEach(() => {
     if (url === `${path}/capability-usage`) return json({checked_at: "now", active_tasks: 0, active_schedules: 0, busy: []});
     if (url === `${path}/settings`) return settingsRead();
     if (url === `${path}/settings?view=saved` && savedRead) return savedRead();
+    if (url === `${path}/role`) {
+      if (!online) return json({code:"role_unavailable", message:"Unavailable"}, 503);
+      if (init?.method !== "PUT") return json(role);
+      const update = JSON.parse(init.body) as AgentRoleDocument;
+      if (update.version !== role.version) return json({code:"role_conflict", message:"Role conflict"}, 409);
+      role = {...update, version:"next-role-version"};
+      return json(role);
+    }
     if (url === `${path}/config` && init?.method === "PATCH") return save(JSON.parse(init.body));
     if (url.includes("/settings/sections/")) return json({source: "current", captured_at: "2026-10-23T00:00:00Z", data: [], error: null});
     if (url.includes("/im/v1/contacts?")) return json({items: [{user_id: "agent-user", kind: "agent", agent_id: config.agent_id, display_name: "Core Planner", owner_id: useAuthStore.getState().user?.id, work_mode: config.work_mode ?? "single_thread", node_name: "MacBook", status: "online"}], next_cursor: null});
@@ -365,3 +376,62 @@ it.each(["transport", "envelope"] as const)("preserves a last successful usage r
   expect(screen.getByText("No skill usage yet")).toBeInTheDocument();
   expect(screen.queryByText(/Gateway offline/i)).not.toBeInTheDocument();
 });
+
+
+it("saves role and ordinary configuration separately", async () => {
+  config.owner_id = "user-1";
+  open();
+  const editor = await screen.findByRole("textbox", {name: "Role agreement"}, {timeout: 5000});
+  expect(editor).toHaveValue("");
+  fireEvent.change(editor, {target:{value:"Coordinate the team's long-term planning."}});
+  fireEvent.change(screen.getByLabelText("Display Name"), {target:{value:"New name"}});
+  const ordinarySave = screen.getByRole("button", {name:"Save Agent"});
+  await waitFor(() => expect(ordinarySave).toBeEnabled());
+  fireEvent.click(ordinarySave);
+  await waitFor(() => expect(patches()).toHaveLength(1));
+  expect(roleWrites()).toHaveLength(0);
+  expect(editor).toHaveValue("Coordinate the team's long-term planning.");
+  const roleSave = screen.getByRole("button", {name:"Save role agreement"});
+  await waitFor(() => expect(roleSave).toBeEnabled());
+  fireEvent.click(roleSave);
+  expect(await screen.findByText("Role agreement saved.", {}, {timeout: 5000})).toBeVisible();
+  expect(patches()).toHaveLength(1);
+  expect(JSON.parse(roleWrites()[0]![1].body)).toEqual({content:"Coordinate the team's long-term planning.", version:null});
+}, 15_000);
+
+it("keeps the role draft and shows the latest saved agreement after a conflict", async () => {
+  config.owner_id = "user-1";
+  role = {content:"Original role", version:"old"};
+  open();
+  const editor = await screen.findByRole("textbox", {name: "Role agreement"}, {timeout: 5000});
+  expect(editor).toHaveValue("Original role");
+  fireEvent.change(editor, {target:{value:"My draft"}});
+  role = {content:"Changed in chat", version:"current"};
+  fireEvent.click(screen.getByRole("button", {name:"Save role agreement"}));
+  expect(await screen.findByText("Changed in chat", {}, {timeout: 5000})).toBeVisible();
+  expect(editor).toHaveValue("My draft");
+  expect(roleWrites()).toHaveLength(1);
+  const roleSave = screen.getByRole("button", {name:"Save role agreement"});
+  await waitFor(() => expect(roleSave).toBeEnabled());
+  fireEvent.click(roleSave);
+  expect(await screen.findByText("Role agreement saved.", {}, {timeout: 5000})).toBeVisible();
+  expect(JSON.parse(roleWrites()[1]![1].body)).toEqual({content:"My draft", version:"current"});
+}, 15_000);
+
+it("keeps a role draft offline and refreshes the file before unlocking save", async () => {
+  config.owner_id = "user-1";
+  role = {content:"Original role", version:"old"};
+  open();
+  const editor = await screen.findByRole("textbox", {name:"Role agreement"}, {timeout: 5000});
+  fireEvent.change(editor, {target:{value:"Draft during outage"}});
+  await presence("offline");
+  await waitFor(() => expect(editor).toBeDisabled());
+  expect(editor).toHaveValue("Draft during outage");
+  expect(screen.getByText("Last read agreement")).toBeVisible();
+  role = {content:"Updated during outage", version:"after-outage"};
+  await presence("online");
+  expect(await screen.findByText("Updated during outage", {}, {timeout: 5000})).toBeVisible();
+  expect(editor).toHaveValue("Draft during outage");
+  expect(roleWrites()).toHaveLength(0);
+  await waitFor(() => expect(screen.getByRole("button", {name:"Save role agreement"})).toBeEnabled());
+}, 15_000);

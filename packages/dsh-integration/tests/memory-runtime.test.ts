@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { expect, it } from 'vitest';
@@ -24,24 +24,38 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     await prepareProfile(home, [{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}}, {insert:[{id:'memory-fixture',name:join(home,'fixture.mjs')}]}]);
     client = new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
     registerNoopTaskHosts(client);
+    const workspace = await realpath(home);
+    client.rpc.handle('knowledge.role.workspace', () => ({workspace}));
     const binding={sessionId:'memory-root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'fixture',model:'test',features:{dreaming:false,memory_curation:false,skill_creation:false},toolAllowlist:['read','write','edit','memory','memory_maintenance']}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
-    const submit = async (id: string) => {
-      await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',content:[{type:'text',text:id}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
+    const submit = async (id: string, actorId = 'owner') => {
+      await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',content:[{type:'text',text:id}],source:{kind:'human',actorId,channel:'test',messageId:id}});
       await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId:id}) as {terminal?:unknown}).terminal,{timeout:8000}).toBeTruthy();
     };
     await submit('learn');
     const observed=await client.rpc.request('session.observe',{sessionId:binding.sessionId}) as {events:any[]};
+    expect(observed.events.find(event => event.type === 'user/message' && event.data.id === 'learn')?.data.content.filter((block: {contextItemId?: string}) => !block.contextItemId))
+      .toEqual([{type:'text',text:'learn'}]);
     for (const id of ['learn-1', 'learn-2', 'learn-3']) {
       expect(observed.events.find(e=>e.type==='tool/result'&&e.data.message.toolCallId===id)?.data.message.isError).toBe(true);
     }
     expect(await readFile(page,'utf8')).toBe('Public updates only.');
+    const rolePath = join(workspace, '.nanoassistant/ROLE.md');
+    expect(await readFile(rolePath,'utf8')).toContain('ask the user');
+    const role = await client.rpc.request('configuration.role',{agentId:'a',workspace}) as {content:string;version:string};
+    expect(role.content).toBe('');
+    expect(await client.rpc.request('configuration.role',{agentId:'a',workspace,update:{content:'Coordinate the product team and verify delivery.',version:role.version}}))
+      .toMatchObject({content:'Coordinate the product team and verify delivery.'});
     await writeFile(page,'Never interrupt, including urgent incidents.');
     await writeFile(entry,'# Expert memory\n[Preferences](knowledge/preferences.md)');
-    await submit('use-new-memory');
+    await submit('use-new-memory', 'collaborator');
     const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
+    expect(JSON.stringify(requests[0].messages)).toContain('Role agreement is unset');
+    expect(JSON.stringify(requests[0].messages)).toContain('Host-verified role agreement sender for the following direct input: bound account.');
     const latest=requests.at(-1);
+    expect(JSON.stringify(latest.messages)).toContain('Coordinate the product team and verify delivery.');
+    expect(JSON.stringify(latest.messages)).toContain('Host-verified role agreement sender for the following direct input: other user.');
     const control = latest.tools.find((tool:any)=>tool.name==='memory_maintenance');
     expect(control.parameters.properties.action.enum).toEqual(['status', 'run']);
     expect(control.parameters.properties).not.toHaveProperty('paths');

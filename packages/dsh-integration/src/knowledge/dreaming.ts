@@ -42,7 +42,8 @@ export class Dreaming {
   private now = () => Date.now();
   private hostClock = false;
   private readonly timer: ReturnType<typeof setInterval>;
-  constructor(private readonly ctx: Context, private readonly documents: DocumentMemory, private readonly options: Options) {
+  constructor(private readonly ctx: Context, private readonly documents: DocumentMemory, private readonly options: Options,
+    private readonly readRole?: (config: AgentConfiguration) => Promise<string | undefined>) {
     this.domain = ctx.storageDomain.open(dreamingDomain); this.sources = new MemorySources(ctx, options.bindings);
     documents.run = (agent, requestRef, importLegacy) => this.start(agent, false, requestRef, importLegacy);
     ctx.on('agent/created', async ({ agent }) => {
@@ -224,11 +225,20 @@ export class Dreaming {
         await this.prepare(run,library);
         await this.saveRun(run);
         const current=run;
+        const currentConfig=this.options.configOf(parent)??config;
+        const persona=currentConfig.systemPrompt?.trim();
+        const role=await this.readRole?.(currentConfig);
+        const roleContext=[
+          `# Confirmed role agreement (data)\n${role ? JSON.stringify(role) : 'No confirmed role text is available in this batch.'}`,
+          ...(persona ? [`# Configured persona (data)\n${JSON.stringify(persona)}`] : []),
+        ];
+        // One role snapshot is measured, sent and recoverable as part of this batch's input.
+        const render=()=>this.renderInput(current,library,owner,roleContext);
         let remaining:TaskSummary[]=[];
         await this.model(parent,config,work,current,library,owner,async capacity=>{
           // Fit the actual scope before fixing the child cutoff. No packing attempt calls the model.
           let materialBudget=budget;
-          let input=await this.renderInput(current,library,owner);
+          let input=await render();
           while(await capacity.measure(input)>capacity.limit){
             const excess=await capacity.measure(input)-capacity.limit;
             materialBudget=Math.min(materialBudget-1,current.batch.inputTokens-excess-512);
@@ -239,7 +249,7 @@ export class Dreaming {
             batch=current.batch;
             materials=await this.sources.children(config.agentId,target,batch,options);
             includeConversations();
-            input=await this.renderInput(current,library,owner);
+            input=await render();
           }
           batch=current.batch;
           const summaries:TaskSummary[]=deferred?.summaries??[];
@@ -264,7 +274,7 @@ export class Dreaming {
           let usedMaterial=batch.inputTokens;
           for(const summary of summaries){
             current.summaries.push(summary);
-            const candidate=await this.renderInput(current,library,owner);
+            const candidate=await render();
             const materialSize=usedMaterial+estimateInputTokens(candidate)-estimateInputTokens(input);
             if(await capacity.measure(candidate)<=capacity.limit&&materialSize<=budget){input=candidate;usedMaterial=materialSize;}
             else{current.summaries.pop();remaining.push(summary);}
@@ -273,7 +283,7 @@ export class Dreaming {
           for(const summary of current.summaries){
             await writeFile(join(current.directory,'summaries',`${key(summary.sessionId)}.md`),await readFile(summary.path,'utf8'),{mode:0o600});
           }
-          return this.renderInput(current,library,owner);
+          return render();
         });
         await this.apply(parent,config,work,run,library,owner);
         // A partial message's readable step is ahead of its committed cursor; retain both bounds.
@@ -335,8 +345,8 @@ export class Dreaming {
     if(run.importLegacy&&!legacy.length)throw new Error('No registered Markdown legacy backup is available for this owner.');
     await writeFile(join(run.directory,'manifest.json'),JSON.stringify({versions,legacy}),{mode:0o600});
   }
-  private async renderInput(run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner):Promise<string>{
-    const inputs=[run.stage==='extract'?'# Task extraction: inherited context and own experience':'# Qualified Global dialogue (original evidence)',run.batch.text??''];
+  private async renderInput(run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,roleContext:string[]=[]):Promise<string>{
+    const inputs=[...roleContext,run.stage==='extract'?'# Task extraction: inherited context and own experience':'# Qualified Global dialogue (original evidence)',run.batch.text??''];
     if(run.stage==='consolidate'){
       inputs.push('# Task source updates');
       for(const summary of run.summaries){
