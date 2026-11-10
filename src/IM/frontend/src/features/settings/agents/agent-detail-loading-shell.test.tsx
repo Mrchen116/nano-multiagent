@@ -34,8 +34,10 @@ vi.mock("./agents-rail-desktop", () => ({
   )
 }));
 
-vi.mock("./im-agent-config-api", () => ({
+vi.mock("./im-agent-config-api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./im-agent-config-api")>(),
   getAgentDetailState: mocks.getAgentDetailState,
+  getAgentRole: vi.fn().mockResolvedValue({ content: "", version: null }),
   updateAgentConfig: mocks.updateAgentConfig
 }));
 

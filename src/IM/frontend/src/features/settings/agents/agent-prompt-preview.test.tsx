@@ -41,9 +41,11 @@ vi.mock("../../../hooks/use-is-mobile", () => ({
   useIsMobile: () => false,
 }));
 
-vi.mock("./im-agent-config-api", () => ({
+vi.mock("./im-agent-config-api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./im-agent-config-api")>(),
   getAgentCapabilityUsage: vi.fn().mockResolvedValue({ checked_at: "now", active_tasks: 0, active_schedules: 0, busy: [] }),
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
+  getAgentRole: vi.fn().mockResolvedValue({ content: "", version: null }),
   updateAgentConfig: apiMocks.updateAgentConfigMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
   listNodes: apiMocks.listNodesMock,
