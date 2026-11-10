@@ -63,7 +63,7 @@
 1. 每个公开工具调用都重新绑定已登记的窗口并唯一匹配当前标签。导航、读取及动作后的回读使用本次绑定。引用动作携带最近一次 `read_id` 的 ref 及其原始成组句柄，驱动在派发前重新验证该窗口、标签和元素。这组句柄仅随最近一次快照保留，不用作长期身份。
 2. 对外身份使用我们自己铸造的 `read_id`（单调递增的快照游标），绝不对模型暴露 `tab_id`/`target_id`。
 3. 选标签只按 `url`+`title`+`active` 匹配；匹配到多个 → `browser_tab_ambiguous` 并列出候选，不按 index 取第一个。`tabs[]` 的 index 只用于展示，不参与判定。
-4. ref 只在最近一次 `read` 的 `read_id` 下有效；驱动报 ref 失效或动作时 URL 与 `read_id` 记录不一致 → `browser_snapshot_stale`，要求重新读取，不做“再点一次试试”。
+4. ref 只在最近一次 `read` 的 `read_id` 下有效。宿主发现游标或 URL 失效时返回 `browser_snapshot_stale`。驱动在派发时拒绝 ref 则返回 `browser_driver_refused`，供模型按提示重新读取。
 5. 同一 Agent 的驱动调用串行化（进程内互斥），避免两个工具调用交替 bind 后互相作废身份。
 
 ### 约束二：前台行为必须收窄承诺
@@ -295,7 +295,7 @@ model → browser_read {}（需要更多内容时；若实例已因真窗口结�
 |---|---|---|---|
 | 主窗口 | `(pid, window_id)`，pid 必须来自本 Agent 的 `browser_prepare` 结果；每实例只登记一个（约束五） | 当前绑定的 `target_id` | 无候选 → `browser_session_lost`；多候选 → `browser_window_ambiguous`；非登记窗口 → `browser_window_not_registered` |
 | 标签 | 同一次 bind 结果里的 `url` + `title` + `active` 三元匹配，只在主窗口内 | 当前绑定的 `tab_id` | 多匹配 → `browser_tab_ambiguous`；零匹配 → `browser_tab_not_found` |
-| 元素 | 最近一次读取的 `ref`（`p<snapshot>:<index>`） | 快照的 `target_id` / `tab_id` 与 ref 成组 | ref 失效 / 页面 URL 变化 → `browser_snapshot_stale` |
+| 元素 | 最近一次读取的 `ref`（`p<snapshot>:<index>`） | 快照的 `target_id` / `tab_id` 与 ref 成组 | 驱动拒绝 ref 时返回 `browser_driver_refused` |
 | 读取游标 | 我们铸造的 `read_id`（单调、按会话） | 只对产生它的标签/URL 有效 | 与当前 bind 不一致 → `browser_snapshot_stale` |
 | 新窗口事件 | bind 成功 + 至少一个 `http(s)` tab | 窗口集合只在本调用内比较 | 见错误分类（真窗口 / 噪声 / 未分类）；新窗口不登记为主窗口 |
 

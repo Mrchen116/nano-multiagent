@@ -150,6 +150,16 @@ fixture HTTP 200、headless operator24773 打开同栈登录页，fresh snapshot
 
 本次 paired down/fixture stop 与 headless close 均 **exit 0**；最终 IM23625 / Node23660 / ordinary23681 / PA23833 / operator24773 均不存在，64483/64519 无监听、own tmux/PID/state/birth 均无。B 的 driver/front/stop 文件仍未创建，sampler/driver/model/CU Chrome 均未启动，**累计仍为 1 startup / 1 popup attempt**。全部 job 已收齐，物理资源已实际释放给协调者。当前阻塞是新的操作者前置调用拒绝，不再描述为只等主机负载或 runtime 未就绪；原 V2/V3/V4 与实际 PA/read_image 缺口均不降标准，离线材料仍按下表有限保留。
 
+### 策略更新后并行前置：登录已成功，catalog 未就绪
+
+用户随后明确“工具审核策略已经更新了，应该不会被拒绝了”。协调者依据此新事实恢复正常工具审查，并纠正先前把可能的前台测量干扰扩大为整条串行：隔离端口/DB/profile 不是冲突，旧 CPU 不是当前硬门槛；服务、headless 登录与只读能力前置可并行，只有真实 CU startup/popup/前台采样才协调短测量段。此为新事实后的正常调用，不绕过旧拒绝、不保证允许、不调查审批实现。
+
+同一现场无 seed/build 恢复 IM16311、Node16367、ordinary16455/PA16848，09:53:01.945Z 在 18.063 秒内观察到 `ready=true / connected=true`；当前 package/profile 链接、两个 runtime 的过滤 shim 环境及三项冻结 SHA 均核实。headless18512 打开隔离 IM。登录/只读设置命令开始执行后，后台回执读取发生中断、随后返回 unknown job；未盲重复有登录副作用的命令。仅用同 session 只读 snapshot 核到实际已登录 Test User、进入同栈 PA 设置页，**本次旧登录/设置拒绝未再现**，无设置写入或 PA 任务。
+
+但实际 catalog 前置未通过：页面显示 `Refresh failed / Last confirmed 12:20:03`，Sol medium/fallbacks unset/v4 仅是旧确认态，不当作本次有效能力响应。现有 `gateway.log` L1171–1181 对应页面初始/导航请求两次 inspection timeout（7365 / 7299ms）。唯一一次人工点击明确标记 Read-only 的 Refresh 后，L1182–1187 再次 timeout **7354ms**，有 preview.start、无 catalog.built，cleanup/released 完成；UI 仍 Refresh failed。未第二次 Refresh、重启、改 timeout/策略或增设服务；根因未知，不把双就绪、节点 online、构建或旧选中态当 catalog 成功，也不归因于主机 CPU 或策略修复失败。协调者提供短前台空档时，owner 如实回报前置未完成，未占用空档发 B。
+
+配对 down/fixture stop、headless close 均 exit 0；最终核实 IM16311 / Node16367 / ordinary16455 / PA16848 / operator18512 均不存在，64483/64519 无监听，own tmux/PID/state/birth 均无。B driver/front/stop 文件仍未创建，无模型任务、sampler、driver 页面调用或 CU Chrome；**累计仍为 A 的 1 startup / 1 popup attempt**。新阶段阻塞为 PA 只读 catalog 超时，而非旧登录拒绝或等待其他 unit 全部结束。必要本机日志、snapshot 与原同栈数据依下表有限保留，后续只对具体前置原因处理，不自动循环起栈或扩大产品修复。
+
 ### 测试资源回收与暂留责任
 
 共享主机随后出现其他线报告的 ENOSPC，协调者要求保持不启动新 GUI/模型/重型验证并按更新后的[测试资源回收规则入口](../../development/worktree-runtime.md)先回收己有资源。owner 实际执行并核实：
@@ -165,7 +175,29 @@ fixture HTTP 200、headless operator24773 打开同栈登录页，fresh snapshot
 
 样本 A 已按本方式恢复并再次完全停止；后续获实际资源后仍须复核 ready/同一版本/有效 Sol 配置，历史 PID 不构成在线证明。当前离线数据和构建继续有限保留用于未闭环的 popup 诊断。未交接清理责任，创建者继续负责最终核实进程退出、端口释放与独占目录移除。
 
-## 发布阻塞与待补验
+## 2026-11-10 Codex 接手复验
+
+在同一隔离 daily 数据和身份上恢复。基线为 `0f1d36f16`，`1b1686af2` 合入时保留主线的 Agent 删除、私有截图外发保护，以及本事项的浏览器审批和在场判定。PA 设置页的新能力检查在 5.554 秒和 4.138 秒完成，未调整超时。操作者用无头浏览器在本地 IM 发任务，真实 Sol PA 通过 Node、DSH 和 CuaDriver 0.38.0 操作独立 Chrome。真实样本仍使用相同本地夹具。
+
+- 样本 B 在 `1b1686af2` 上跑通两张截图的 `read_image`，各得 2400×1464 图像附件。点击后处理器仍为 0。驱动返回 `effect=refused` 且没有传统拒绝 envelope，宿主错误报告已派发。样本 B 的读没有 query。样本 A 另有查询范围与整页回读不可比较的问题。
+- `40e1772c2` 将驱动拒绝映射为工具错误，并避免将查询范围变化报告成页面变化。两个定向断言均先失败后通过。
+- `8b4bd8a5` 保持派发前的实时窗口与唯一标签检查，引用动作使用生成 ref 的成组句柄。旧版断言实际收到新 bind 的 target/tab，修复后收到快照原始值。驱动再复核窗口、标签、文档和元素身份。
+- 独立审查发现观察模式会清理归档截图。该错误在安装运行时的过期文件断言中复现。`112e9e632` 让 `observationOnly` 跳过清理。普通启动仍清理，含该回归的 13 个文件共 124 项窄测试通过。独立复核关闭上述实现问题，corrected-delta aligned。
+- 已补产品截图链。样本 C 点击前后各截图一次，模型通过 `read_image` 取得图像，结合文本报告处理器从 0 变为 1，识别真窗口并停止。工具结果、实际模型回复、前台元数据和驱动日志各自保留，未新增 provider 请求录制。
+
+| 样本 | 版本与实际消费 | 窗口和前台观察 |
+|---|---|---|
+| C | `8b4bd8a5`，原生 turn 7 seq307–348。点击一次，主窗口仍绑定原页，回读处理器为 1，报告独立窗口和 `foreground_released:true` | CuaDriver 确认一个真实 `popup.html` 窗口，翻译气泡归为噪声，`end_session` 返回 `active:false`。Activity Monitor → 自持 Chrome → Activity Monitor，回切比清理调用开始早约 142ms |
+| D | `112e9e632`，原生 turn 8 seq373–398。query read → 最新 ref 一次点击。处理器为 1，返回窗口事件和 `foreground_released:true` | `end_session` 开始前约 177ms 前台仍为自持 Chrome，开始后约 68ms 采到 ChatGPT，结束后继续为 ChatGPT |
+| E | `112e9e632`，原生 turn 9 seq421–446。最新 ref 点击一次，处理器为 1，返回独立窗口和 `foreground_released:true`，交付后停止 | 点击前采到 ChatGPT，弹窗出现后采到自持 Chrome。清理开始前约 17ms 仍为该 Chrome，开始后约 132ms 回到 ChatGPT，驱动约 +157ms 返回 `active:false` |
+
+独立审查复核 D、E 的真窗口、驱动清理与外部前台记录。两轮均在 `end_session` 调用期间采到前台回到会话开始前的应用，关闭 V2。两轮动作后均回读已登记的原窗口，弹窗只作为事件上报，未替换主窗口。
+
+B、C、D 三次独立 `browser_prepare` 的调用前、约 +0.5s 和 +2s 均有采样。三次分别在 +0.442s、+0.536s、+0.547s 仍见 ChatGPT，+2.072s、+2.173s、+2.024s 已见各自 Chrome。该样本覆盖启动可能占前台，不推导时长保证。V4 实际登记主窗口并在动作后识别独立的弹窗，原主窗口仍被绑定。原主窗口丢失的拒绝路径沿用定向故障测试。
+
+原件定位为原隔离 PA session `06040d4d-5e81-42f4-acab-62f2159ba26c`、`/tmp/feat720-fixture-20261108/driver-diagnostic-{B,C,D}.jsonl`、`foreground-diagnostic-{B,C,D,E}.jsonl`。样本 E 的驱动记录追加在 D 文件中，按自持 session label 区分。仅记录驱动白名单元数据和前台应用身份。仓库内保留脱敏结论。隔离 IM、Node、无头操作者、夹具监听及本轮 CuaDriver 会话已停止。另按路径与进程身份清理了该 worktree 早先遗留的三个临时测试子进程。
+
+## 交接前的发布阻塞与待补验
 
 - **V2 ≥2 次真窗口后前台归还，是发布阻塞**；V3 ≥3 次独立启动采样及 V4 弹窗半边仍缺。本轮不能用“未测但已披露”替代。
 - 老版 V1/V5/V6 是直接驱动 / orchestrator workspace 证据，不是本轮真实产品节点等价性证明。仍需真实 IM→Node→DSH→驱动→结果→read_image 链路，以及默认关闭、身份、审批拒绝、无人值守、Global/native/PTC 与子 Agent 的代表性场景。
@@ -202,7 +234,7 @@ fixture HTTP 200、headless operator24773 打开同栈登录页，fresh snapshot
 
 同一 reviewer 接受按具体 CU claim 评估真实 native journal、有效配置/实际模型与 fallback 状态、tool call/result 顺序和随后实际动作、用户可见结果及独立页面/前台观察；这可支持模型能否找到入口、正确使用 read_id/ref、理解失败/归还事件及读图后作受支持结论的判断，不把 journal 称为转换后请求。只有必要 claim 本身涉及转换层而现有原件不足时，才指出具体缺口与最低字段交协调者核对，不把缺笼统 wire 变成统一新增捕获门禁。
 
-## 独立审查结论
+## 交接前的独立审查结论
 
 `054ab52ea` 源码、`fb297cba9` 契约的非作者增量复核：F1/F2 **superseded-by-authorized-scope-correction**，F3/F4 **closed**，静态存活 findings 为空；**corrected-delta = aligned（静态源码/契约范围）**。本轮配置例外及实际模型/effort 边界见上文。
 
