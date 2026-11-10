@@ -108,10 +108,18 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
+function exitInspection(status: number): never {
+  if (process.platform !== 'win32') process.kill(-process.pid, 'SIGKILL');
+  process.exit(status);
+}
+
 /** Trusted node configuration is installed before any Session can be resumed. */
 export default class NanoRuntime {
   static inject = ['jobs', 'agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', 'sessionPersistence', 'storageDomain', 'llm', 'settings', 'credentials', 'authorization', ...SessionController.inject];
-  private readonly peer = new RpcPeer(process.stdin, process.stdout, () => process.kill(process.pid, 'SIGTERM'));
+  private readonly peer = new RpcPeer(process.stdin, process.stdout, () => {
+    if (process.env.NANO_CONFIGURATION_INSPECTION_ID && process.platform !== 'win32') exitInspection(1);
+    process.kill(process.pid, 'SIGTERM');
+  });
   private readonly bindings = new Map<string, SessionBinding>();
   private readonly configurations = new Map<string, AgentConfiguration>();
   private readonly inputs = new Map<string, Promise<unknown>>();
@@ -134,12 +142,11 @@ export default class NanoRuntime {
     const inspection = process.env.NANO_CONFIGURATION_INSPECTION_ID;
     const inspectionAbort = new AbortController();
     if (inspection) {
-      // An orphan must not survive a responsive parent-link loss. A blocked
-      // event loop is reclaimed by the next Node via the worker's OS identity.
-      process.stdin.once('end', () => process.exit(0));
+      // If the main thread can still run, exit the group before its leader goes away.
+      process.stdin.once('end', () => exitInspection(0));
       this.peer.onNotification(method => {if (method === 'configuration.cancel') inspectionAbort.abort();});
       const deadline = Number(process.env.NANO_CONFIGURATION_INSPECTION_DEADLINE);
-      if (Number.isFinite(deadline)) setTimeout(() => process.exit(1), Math.max(0,deadline-Date.now())+500).unref();
+      if (Number.isFinite(deadline)) setTimeout(() => exitInspection(1), Math.max(0,deadline-Date.now())+500).unref();
     }
     let inspectionPackageManager: ProfilePnpmInvocation | undefined;
     const cleanup = new AsyncLocalStorage<string[]>();
