@@ -164,6 +164,9 @@ struct ConversationView: View {
         }
         .task(id: "\(conversationID)-\(phase == .active)") {
             guard phase == .active else { return }
+            await store.interactionDrafts.foreground(activeConversation: store.selectedID)
+            // One bounded recovery pass, never an offline retry loop.
+            if store.interactionDrafts.failure(conversationID) != nil { _ = await store.flushDrafts(conversationID) }
             while !Task.isCancelled {
                 // Visitors do not subscribe as members; recheck access while reading public history.
                 if conversation?.is_member == false || conversation?.dissolved_at != nil {
@@ -252,7 +255,7 @@ struct ConversationView: View {
                     }
                 Button { Task { await store.send(conversationID) } } label: {
                     if store.sending.contains(conversationID) { ProgressView() } else { Image(systemName: "arrow.up.circle.fill").font(.largeTitle) }
-                }.disabled(!uploads.isEmpty || store.pending[conversationID] != nil || ((store.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (store.attachments[conversationID] ?? []).isEmpty))
+                }.disabled(store.sending.contains(conversationID) || !uploads.isEmpty || store.pending[conversationID] != nil || ((store.drafts[conversationID] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (store.attachments[conversationID] ?? []).isEmpty))
                     .accessibilityLabel(L("发送", "Send"))
             }
         }.padding(.horizontal, 16).padding(.vertical, 10).background(NanoTheme.surface)

@@ -24,11 +24,23 @@ it("executes native JavaScript and children, recovers durable prefixes, and keep
     await writeFile(
       join(home, "fixture.mjs"),
       `import {appendFile} from 'node:fs/promises';
-export const name='workflow-fixture'; export const inject=['llm','sessionPersistence'];
+export const name='workflow-fixture'; export const inject=['llm','sessionPersistence','subagents','sessions'];
 export async function apply(ctx) {
  const open=ctx.sessionPersistence.open.bind(ctx.sessionPersistence);
  ctx.sessionPersistence.open=async(...args)=>{const handle=await open(...args);if(!handle)return handle;const read=handle.read.bind(handle);handle.read=async(...range)=>{const result=await read(...range);await appendFile(process.env.DSH_HOME+'/body-reads.jsonl',JSON.stringify({id:handle.id,offset:range[0]??0,events:result.events.length})+'\\n');return result;};return handle;};
  if(process.env.NANO_FIXTURE_APPEND_CHILD){const h=await ctx.sessionPersistence.open(process.env.NANO_FIXTURE_APPEND_CHILD,'write');const r=await h.read();await h.append(Array.from({length:260},(_,i)=>({seq:r.events.length+i,time:Date.now(),type:'fixture/work-gap',ignorable:true,data:{}})));await h.flush();await h.close();}
+ if(process.env.NANO_FIXTURE_PAUSE_ATTEMPT){
+   const start=ctx.subagents.start.bind(ctx.subagents);
+   ctx.subagents.start=async(...args)=>{
+     const run=await start(...args);
+     if(args[1].parent.id==='workflow-crash'){
+       if(!await ctx.sessions.flush(args[1].parent.session))throw Error('fixture cannot flush parent catalog');
+       await appendFile(process.env.DSH_HOME+'/before-attempt.jsonl',JSON.stringify({id:run.id})+'\\n');
+       await new Promise(()=>{});
+     }
+     return run;
+   };
+ }
  const seen=new Set();
  ctx.on('llm/stream',async function*(o) {
    const input=o.messages.findLast(m=>m.role==='user'&&m.content.some(c=>c.type==='text'&&(c.text.startsWith('WF_CHILD_')||c.text==='launch')));
@@ -57,11 +69,11 @@ export async function apply(ctx) {
       ownerId: "owner",
       cwd: home,
     };
-    const initialize = async (bindings: unknown[], appendChild?:string) => {
+    const initialize = async (bindings: unknown[], appendChild?:string, pauseAttempt=false) => {
       client = new RuntimeClient({
         home,
         cwd: home,
-        env: { NANO_OWNER_CONFIG_ROOT: join(home, "owner"), ...(appendChild?{NANO_FIXTURE_APPEND_CHILD:appendChild}:{}) },
+        env: { NANO_OWNER_CONFIG_ROOT: join(home, "owner"), ...(appendChild?{NANO_FIXTURE_APPEND_CHILD:appendChild}:{}), ...(pauseAttempt?{NANO_FIXTURE_PAUSE_ATTEMPT:"1"}:{}) },
         onLog: (text) => (logs += text),
       });
       registerNoopTaskHosts(client);
@@ -111,6 +123,7 @@ export async function apply(ctx) {
     expect(visibleRuns[0]).not.toHaveProperty('parentSessionId');
     expect(visibleRuns[0]).not.toHaveProperty('budgetId');
     expect(visibleRuns[0]).not.toHaveProperty('inputIds');
+    expect(visibleRuns[0]).not.toHaveProperty('workChildren');
     for (const call of visibleRuns[0].calls) {
       expect(call).not.toHaveProperty('key');
       for (const attempt of call.attempts) expect(attempt).not.toHaveProperty('id');
@@ -144,6 +157,7 @@ export async function apply(ctx) {
     const rootCut=await client!.rpc.request('session.observe',{sessionId:'workflow'});
     const descendantCuts=await workDescendants(client!.rpc, {sessionId:'workflow'}) as any[];
     expect(descendantCuts.filter(item=>item.kind==='child')).toHaveLength(4);
+    expect(descendantCuts.every(item=>item.workflowRunId===first.id)).toBe(true);
     const cuts=[{id:'workflow',...rootCut},...descendantCuts.filter(item=>item.kind==='child')];
     const positions={sessionId:'workflow',cursors:Object.fromEntries(cuts.map(item=>[item.id,item.throughSeq])),modelVersions:Object.fromEntries(cuts.map(item=>[item.id,item.modelVersion]))};
     await client!.shutdown();
@@ -153,6 +167,8 @@ export async function apply(ctx) {
     expect(await client!.rpc.request('session.work.check',{sessionId:'workflow',afterSeq:positions.cursors.workflow,modelVersion:positions.modelVersions.workflow})).toEqual({rootSettled:true});
     const unchanged=await workDescendants(client!.rpc, positions) as any[];
     expect(unchanged.filter(item=>item.kind==='child').every(item=>item.events.length===0)).toBe(true);
+    const target=await client!.rpc.request('session.work.targets',{sessionId:'workflow',childId:descendantCuts[0].id});
+    expect(target).toMatchObject({children:[{id:descendantCuts[0].id,parentId:'workflow',workflowRunId:first.id}]});
     expect(await readFile(join(home,'body-reads.jsonl'),'utf8')).toBe('');
     await client!.shutdown();client=undefined;
     const changedChild=descendantCuts.find(item=>item.kind==='child')!.id;
@@ -228,6 +244,23 @@ export async function apply(ctx) {
     expect(await readFile(join(home,'body-reads.jsonl'),'utf8')).toBe('');
     await client!.shutdown();
     client = undefined;
+    const crashBinding={...binding,sessionId:'workflow-crash'};
+    await initialize([],undefined,true);
+    await client!.rpc.request('session.ensure',crashBinding);
+    await client!.rpc.request('session.submit',{
+      sessionId:crashBinding.sessionId,inputId:'launch-crash',mode:'followup',
+      content:[{type:'text',text:'launch'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'launch-crash'},
+    });
+    const marker=join(home,'before-attempt.jsonl');
+    await until(async()=>!!(await readFile(marker,'utf8').catch(()=>''))).toBe(true);
+    client!.process.kill('SIGKILL');await client!.exited;client=undefined;
+    const childId=JSON.parse((await readFile(marker,'utf8')).split('\n')[0]).id;
+    await initialize([crashBinding]);
+    const crashCatalog=await client!.rpc.request('session.work.children',{sessionId:crashBinding.sessionId}) as import('@nano/product-contracts').RuntimeWorkCatalog;
+    const [interrupted]=await client!.rpc.request('workflow.read',{sessionId:crashBinding.sessionId}) as any[];
+    expect(interrupted.state).toBe('interrupted');
+    expect(interrupted.calls.flatMap((call:any)=>call.attempts)).toEqual([]);
+    expect(crashCatalog.children).toContainEqual(expect.objectContaining({id:childId,parentId:crashBinding.sessionId,workflowRunId:interrupted.id}));
   } catch (error) {
     const evidence = client
       ? await client.rpc

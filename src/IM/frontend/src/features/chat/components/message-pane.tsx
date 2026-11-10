@@ -18,6 +18,7 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
 import { useTranslation } from "../../../i18n";
+import { awaitPendingDiscard, beginSend } from "../interaction-background";
 import { TaskGraphLink } from "../../tasks/task-graph-link";
 import {
   classifyChatLink,
@@ -78,7 +79,6 @@ import {
   type ComposerSnapshot
 } from "./composer-draft-store";
 
-import type { InteractiveSelection } from "../interactive/interactive-card";
 const InteractiveCard = React.lazy(() => import("../interactive/interactive-card").then(module => ({default: module.InteractiveCard})));
 import type { InteractionReplyInput } from "../interactive/types";
 import { lookupMessageAttempt } from "../chat-api";
@@ -125,7 +125,7 @@ export interface MessagePaneProps {
   agentInitials?: string | null;
   /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
   isMobile?: boolean;
-  onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string, interactionContexts?: import("../interactive/types").InteractionContextInput[], replyToMessageId?: string): void | Promise<void | Message>;
+  onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string, replyToMessageId?: string): void | Promise<void | Message>;
   /** Merge a previously committed send through the same message-id projection as HTTP success. */
   onRecovered?(message: Message): void;
   /** Route a local persistence failure through the existing send error owner. */
@@ -289,24 +289,15 @@ export function MessagePane({
   const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
   const timeDividers = timelineTimeDividers(renderedTimeline, i18n.language);
   const anchoredMessageIds = new Set(messages.map((message) => message.id));
-  const backgrounds = useRef<Record<string, Record<string, InteractiveSelection>>>({});
   const [sendAttempts, setSendAttempts] = useState<Record<string, SendAttempt>>({});
-  const pendingInteraction = sendAttempts[conversation.id]?.contexts.length ? sendAttempts[conversation.id] : undefined;
+  // The unconfirmed-send notice must survive the removal of client-side background data.
+  const pendingInteraction = sendAttempts[conversation.id];
   function clearSendAttempt(cid: string, key?: string) {
     setSendAttempts(current => {
       if (key && current[cid]?.key !== key) return current;
       const next={...current}; delete next[cid]; return next;
     });
   }
-  const chooseInteraction = useCallback((next: InteractiveSelection) => {
-    const chat = backgrounds.current[next.conversationId] ??= {};
-    const previous = chat[next.source_message_id];
-    chat[next.source_message_id] = next;
-    if (previous && JSON.stringify(previous.state) !== JSON.stringify(next.state)
-      && displayedConversationIdRef.current === next.conversationId) {
-      liveComposerRef.current = {...liveComposerRef.current,revision:crypto.randomUUID()};
-    }
-  }, []);
   const submittedMessages = new Map(messages.filter(m => (m.sender.id === selfUserId || m.sender_user_id === selfUserId) && m.interaction_reply).map(m => [m.interaction_reply!.source_message_id, m.id]));
   const replacedIds = new Set(messages.flatMap(m => m.interactive?.supersedes_message_id ? [m.interactive.supersedes_message_id] : []));
 
@@ -765,20 +756,14 @@ export function MessagePane({
     const trimmed = text.trim();
     if (!trimmed && (onlyText || pending.length === 0)) return;
     const sourceConversationId = displayedConversationIdRef.current;
-    const contexts = !isGroup ? messages.filter(message => message.interactive && !message.interactive.read_only
-      && !message.interactive.superseded_by && !replacedIds.has(message.id))
-      .flatMap((message,index) => {
-        const value = backgrounds.current[sourceConversationId]?.[message.id];
-        return value ? [{value,index}] : [];
-      }).sort((left,right) => right.value.editedAt-left.value.editedAt || right.index-left.index).slice(0,3)
-      .map(({value}) => ({source_message_id:value.source_message_id,state:structuredClone(value.state),
-        ...(value.editedAt ? {interacted_at:value.editedAt} : {})})) : [];
-    // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
-    const wireContent = reconstructWireContent(contexts.length ? text : trimmed, draftMentions);
+    // Capture the submitted composer before waiting for card saves: the user may type a
+    // newer draft or switch chats during that await. Confirmation belongs to this snapshot.
+    const wireContent = reconstructWireContent(trimmed, draftMentions);
     const submittedAttachments = onlyText ? [] : pending;
     const submittedDraft = cloneComposerSnapshot(liveComposerRef.current);
     const sourceOwner = selfUserId;
-    forceScrollToBottomRef.current = true;
+    // Claim the send slot before the first await: sending now starts with a flush, and two
+    // quick presses must not both pass the pending-send guard above and POST twice.
     sendInFlightRef.current = true;
     sendingConversationIdRef.current = sourceConversationId;
     markComposerSending(sourceConversationId);
@@ -788,16 +773,26 @@ export function MessagePane({
       const prior = sendAttempts[sourceConversationId];
       const retry = prior?.draft.revision === submittedDraft.revision
         && JSON.stringify(prior.attachments) === JSON.stringify(submittedAttachments) ? prior : undefined;
+      if (!isGroup && !retry) {
+        await awaitPendingDiscard(sourceConversationId);
+        if (currentOwnerRef.current !== sourceOwner) return;
+        if (!await beginSend(sourceConversationId)) {
+          if (currentOwnerRef.current === sourceOwner) throw new Error(t('chat.interactive.saveError'));
+          return;
+        }
+      }
+      if (currentOwnerRef.current !== sourceOwner) return;
+      forceScrollToBottomRef.current = true;
       const payload = retry
-        ? {text:retry.text,attachments:retry.attachments,contexts:retry.contexts,...(retry.replyToMessageId?{replyToMessageId:retry.replyToMessageId}:{})}
-        : {text:wireContent,attachments:structuredClone(submittedAttachments),contexts,...(submittedDraft.replyTo?{replyToMessageId:submittedDraft.replyTo.message_id}:{})};
+        ? {text:retry.text,attachments:retry.attachments,...(retry.replyToMessageId?{replyToMessageId:retry.replyToMessageId}:{})}
+        : {text:wireContent,attachments:structuredClone(submittedAttachments),...(submittedDraft.replyTo?{replyToMessageId:submittedDraft.replyTo.message_id}:{})};
       // Another tab may already have confirmed and removed the durable row.
       // The restored owner must still retry its original immutable identity.
       attempt = retry ?? (sourceOwner ? await prepareSendAttempt(sourceOwner,sourceConversationId,submittedDraft,payload)
         : {userId:'',conversationId:sourceConversationId,key:crypto.randomUUID(),draft:submittedDraft,...payload,retryable:true});
       if (currentOwnerRef.current !== sourceOwner) return;
       setSendAttempts(current => ({...current,[sourceConversationId]:attempt!}));
-      const sendArgs:Parameters<typeof onSend>=[attempt.text,attempt.attachments,undefined,attempt.key,attempt.contexts];
+      const sendArgs:Parameters<typeof onSend>=[attempt.text,attempt.attachments,undefined,attempt.key];
       if (attempt.replyToMessageId) sendArgs.push(attempt.replyToMessageId);
       await onSend(...sendArgs);
       if (sourceOwner) await removeSendAttempt(attempt).catch(()=>{});
@@ -1263,6 +1258,7 @@ export function MessagePane({
                     isMobile={isMobile}
                     participants={conversation.participants}
                     isDirectChat={isDirectChat}
+                    isGroup={isGroup}
                     agentOnline={agentOnline}
                     onReply={composerBusy ? undefined : replyToMessage}
                     onFork={onFork}
@@ -1276,7 +1272,6 @@ export function MessagePane({
                       writeComposerSnapshot(composerSnapshots, conversation.id, liveComposerRef.current);
                       await onComposeMessage?.(target, text);
                     }}
-                    onInteractionSelect={chooseInteraction}
                     onInteractionSend={(input, key) => Promise.resolve(onSend("", [], input, key))}
                   />
                   </React.Fragment>
@@ -1734,14 +1729,14 @@ function MessageBubble({
   onCopyRequest,
   onMenuRequest,
   onSheetRequest,
-  interactiveReadOnly, interactiveSubmissionId, onInteractionSelect, onInteractionSend, onComposeMessage,
+  interactiveReadOnly, interactiveSubmissionId, onInteractionSend, onComposeMessage, isGroup = false,
 }: {
   message: Message;
   historyProcess?: MessagePaneProps["historyProcess"];
   onComposeMessage?(target: string, text: string): Promise<void>;
   interactiveReadOnly?: boolean;
+  isGroup?: boolean;
   interactiveSubmissionId?: string;
-  onInteractionSelect(selection: InteractiveSelection): void;
   onInteractionSend(input: InteractionReplyInput, key: string): Promise<unknown>;
   selfUserId?: string | null;
   workAgentId?: string;
@@ -2014,8 +2009,8 @@ function MessageBubble({
                 : <MarkdownContent content={message.content} participants={participants} onCopyCode={handleCopyCode} />}
             </div>
           )}
-          {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} submittedMessageId={interactiveSubmissionId}
-            onSelect={onInteractionSelect} onSend={onInteractionSend} onComposeMessage={onComposeMessage} onAttachmentVisibility={onAttachmentVisibility} /></React.Suspense>}
+          {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} isGroup={isGroup} submittedMessageId={interactiveSubmissionId}
+            onSend={onInteractionSend} onComposeMessage={onComposeMessage} onAttachmentVisibility={onAttachmentVisibility} /></React.Suspense>}
           {message.interaction_reply && <details className="interactive-snapshot" open>
             <summary>{t("chat.interactive.choices")}</summary>
             <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>

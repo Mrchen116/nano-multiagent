@@ -375,7 +375,7 @@ actor ChatRepository {
     // MARK: - Snapshot
 
     func applySnapshot(_ items: [Conversation], maxEventID: Int, snapshotSeq: Int,
-                       executionCleanupRevisions: [String: Int] = [:],
+                       executionCleanupRevisions: [String: Int] = [:], privateDraftIDs: Set<String> = [],
                        write context: ChatWriteContext) throws -> ChatSnapshotResult {
         var intents: [ChatCleanupFailure.Intent] = []
         do { return try write { db in
@@ -385,6 +385,7 @@ actor ChatRepository {
             let authoritative = Set(items.map(\.id))
             // Identities, not conversation rows: a migrated pending record may have no row yet.
             var identities = Set(try String.fetchAll(db, sql: "SELECT id FROM conversations"))
+            identities.formUnion(privateDraftIDs)
             identities.formUnion(try String.fetchAll(db, sql: "SELECT DISTINCT conversation_id FROM pending_sends"))
             identities.formUnion(try String.fetchAll(db, sql: "SELECT conversation_id FROM revoked_conversations"))
             identities.formUnion(try String.fetchAll(db, sql: "SELECT DISTINCT conversation_id FROM discarded_messages"))
@@ -643,9 +644,16 @@ actor ChatRepository {
         }
     }
 
-    func removePending(_ attempt: SendAttempt, write context: ChatWriteContext) throws {
+    func removePending(_ attempt: SendAttempt, restoreDraft: Bool = false, write context: ChatWriteContext) throws {
         try write { db in
             try validate(context, db: db)
+            if restoreDraft, attempt.sourceMessageID == nil, !attempt.draft.content.isEmpty {
+                try db.execute(sql: """
+                    INSERT OR IGNORE INTO drafts(conversation_id, body, updated_at)
+                    SELECT conversation_id, ?, ? FROM pending_sends
+                    WHERE conversation_id=? AND source_message_id='' AND attempt_key=?
+                    """, arguments: [attempt.draft.content, Self.iso(Date()), attempt.conversationID, attempt.draft.key])
+            }
             try db.execute(sql: "DELETE FROM pending_sends WHERE conversation_id=? AND source_message_id=? AND attempt_key=?",
                            arguments: [attempt.conversationID, attempt.sourceMessageID ?? "", attempt.draft.key])
             let marker = "handoff." + Self.itemKey(conversationID: attempt.conversationID,

@@ -186,10 +186,13 @@ export function validateInteractiveSource(source: string): InteractiveSchema & C
  * Args:
  *   schema: The validated immutable public program.
  *   input: Current viewer's native Renderer state, at most 16 KiB.
+ *   options.withOptions: Also return each choice field's normalized option list. Only the
+ *     private draft read (409 field comparison) asks for it: a background entering model
+ *     input must stay byte-identical, so this stays off by default.
  * Returns:
  *   A canonical snapshot and readable fields; state is user data, never authority.
  */
-export function interactionState(schema: InteractiveSchema, input: unknown) {
+export function interactionState(schema: InteractiveSchema, input: unknown, options: {withOptions?: boolean} = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Buffer.byteLength(JSON.stringify(input), 'utf8') > 16384)
     throw new Error('Interaction state must be an object within 16 KiB');
   const state = JSON.parse(sortedJsonAscii(input)) as Record<string, unknown>;
@@ -207,7 +210,7 @@ export function interactionState(schema: InteractiveSchema, input: unknown) {
     },
   };
   const labels: Record<string, number> = {Input:1, TextArea:1, Select:2, RadioGroup:2, Slider:4, Checkbox:1, DatePicker:1};
-  const fields: {name:string; label:string; value:unknown; display_value?:string}[] = [];
+  const fields: {name:string; label:string; value:unknown; display_value?:string; options?:{label:string;value:string}[]}[] = [];
   const seen = new Set<string>();
   for (const statement of split(tokenize(schema.source))) walkAST(parseExpression(statement.tokens), node => {
     if (node.k !== 'Comp' || !(node.name in labels || node.name === 'SegmentedControl')) return;
@@ -217,10 +220,16 @@ export function interactionState(schema: InteractiveSchema, input: unknown) {
     const value = ctx.getState!(binding.n);
     const labelNode = node.name in labels ? node.args[labels[node.name]] : undefined;
     const label = labelNode ? evaluate(labelNode, ctx) : undefined;
-    const options = ['Select','RadioGroup','SegmentedControl'].includes(node.name) ? evaluate(node.args[1], ctx) : undefined;
-    const selected = Array.isArray(options) ? options.find(option => typeof option === 'string' ? option === value : option?.value === value) : undefined;
+    const choices = ['Select','RadioGroup','SegmentedControl'].includes(node.name) ? evaluate(node.args[1], ctx) : undefined;
+    const selected = Array.isArray(choices) ? choices.find(option => typeof option === 'string' ? option === value : option?.value === value) : undefined;
+    // The catalogue allows bare strings; expand them so one shape reaches every client.
+    const optionList = options.withOptions && Array.isArray(choices)
+      ? choices.map(option => typeof option === 'string' ? {label:option, value:option}
+        : {label:String(option?.label ?? option?.value ?? ''), value:String(option?.value ?? '')})
+      : undefined;
     fields.push({name:binding.n, label:typeof label === 'string' ? label : binding.n.slice(1), value,
-      ...(selected ? {display_value:typeof selected === 'string' ? selected : selected.label} : {})});
+      ...(selected ? {display_value:typeof selected === 'string' ? selected : selected.label} : {}),
+      ...(optionList ? {options:optionList} : {})});
   });
   return {state, fields};
 }

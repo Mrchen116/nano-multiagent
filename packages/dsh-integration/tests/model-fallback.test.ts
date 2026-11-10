@@ -15,6 +15,7 @@ it('continues one admitted input on the backup and restores successful sticky se
   const config = {
     agentId: 'a',
     revision: '1',
+    mode: 'global',
     provider: 'fixture',
     model: 'primary',
     reasoningEffort: 'high',

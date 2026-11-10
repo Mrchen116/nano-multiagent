@@ -92,9 +92,10 @@ export class ExternalStore {
       .get(mirror, agentId) as InboundRow | undefined;
     return row && decodeInbound(row);
   }
-  pendingAdmissions() {
-    return this.db.prepare("SELECT id,json_extract(body,'$.input.agent_id') AS agentId FROM inbound WHERE accepted=0 ORDER BY rowid")
-      .all() as { id: string; agentId: string }[];
+  pendingAdmissions(agentId?: string) {
+    const scope=agentId ? " AND json_extract(body,'$.input.agent_id')=?" : "";
+    return this.db.prepare("SELECT id,json_extract(body,'$.input.agent_id') AS agentId FROM inbound WHERE accepted=0"+scope+" ORDER BY rowid")
+      .all(...(agentId ? [agentId] : [])) as { id: string; agentId: string }[];
   }
   pendingMirrors(): ExternalInbound[] {
     return (this.db.prepare(selectInbound + " WHERE mirror IS NULL OR mirror='' ORDER BY rowid").all() as InboundRow[]).map(decodeInbound);

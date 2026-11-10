@@ -585,6 +585,14 @@ CREATE TABLE IF NOT EXISTS interaction_drafts (
     submission_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL,
     PRIMARY KEY(source_message_id,user_id)
 );
+-- Monotonic "left this conversation" watermark per viewer. It clears only drafts edited at
+-- or before it, so a late discard cannot erase newer edits from either device.
+CREATE TABLE IF NOT EXISTS interaction_background_discards (
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    discarded_through TEXT NOT NULL,
+    PRIMARY KEY(conversation_id,user_id)
+);
 CREATE TABLE IF NOT EXISTS interaction_submissions (
     source_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -643,6 +651,18 @@ CREATE TABLE IF NOT EXISTS task_lifecycle_schedules (agent_id TEXT NOT NULL,sche
 
 CREATE INDEX IF NOT EXISTS agent_work_turns_sequence ON agent_work_turns(session_id,seq DESC);
 CREATE INDEX IF NOT EXISTS agent_work_items_sequence ON agent_work_items(session_id,turn_id,seq);
+CREATE INDEX IF NOT EXISTS agent_work_sessions_catalog ON agent_work_sessions(root_agent_id,session_id);
+CREATE INDEX IF NOT EXISTS agent_work_sessions_current_main ON agent_work_sessions(root_agent_id,session_id)
+  WHERE scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0;
+CREATE INDEX IF NOT EXISTS agent_work_sessions_parent_call
+  ON agent_work_sessions(root_agent_id,parent_session_id,json_extract(payload,'$.parent_tool_call_id'),session_id);
+CREATE INDEX IF NOT EXISTS agent_work_sessions_child_agent
+  ON agent_work_sessions(root_agent_id,json_extract(payload,'$.child_agent_id'),session_id);
+CREATE INDEX IF NOT EXISTS agent_work_sessions_parent_child
+  ON agent_work_sessions(root_agent_id,parent_session_id,json_extract(payload,'$.child_agent_id'),session_id);
+CREATE INDEX IF NOT EXISTS agent_work_turns_usage ON agent_work_turns(session_id,seq DESC)
+  WHERE json_type(payload,'$.usage')='object';
+CREATE INDEX IF NOT EXISTS agent_work_items_revision ON agent_work_items(session_id,turn_id,revision);
 CREATE INDEX IF NOT EXISTS conversation_events_time ON conversation_events(created_at);
 CREATE INDEX IF NOT EXISTS conversation_events_by_chat ON conversation_events(conversation_id,event_id,created_at);
 

@@ -652,7 +652,7 @@ describe("MessagePane", () => {
       expect(onSend).not.toHaveBeenCalled();
       expect(composer.value).toBe("first line\nsecond line");
       await user.click(screen.getByRole("button", { name: "Send" }));
-      expect(onSend).toHaveBeenCalledWith("first line\nsecond line", [], undefined, expect.any(String), []);
+      expect(onSend).toHaveBeenCalledWith("first line\nsecond line", [], undefined, expect.any(String));
       expect(composer.value).toBe("");
     });
 
@@ -671,7 +671,7 @@ describe("MessagePane", () => {
       const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
       await user.type(composer, "desktop send");
       await user.keyboard("{Enter}");
-      expect(onSend).toHaveBeenCalledWith("desktop send", [], undefined, expect.any(String), []);
+      expect(onSend).toHaveBeenCalledWith("desktop send", [], undefined, expect.any(String));
       expect(composer.value).toBe("");
     });
 
@@ -710,6 +710,10 @@ describe("MessagePane", () => {
       fireEvent.keyDown(composer, { key: "Enter", shiftKey: false });
       fireEvent.keyDown(composer, { key: "Enter", shiftKey: false });
 
+      // Sending now begins with a draft flush, so the POST lands one microtask later; the
+      // second press must still not queue a second one (the slot is claimed before the await).
+      await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
       expect(onSend).toHaveBeenCalledTimes(1);
       expect(composer.value).toBe("one pending send");
     });
@@ -769,7 +773,7 @@ describe("MessagePane", () => {
       const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
       await user.type(composer, "send but no append");
       await user.keyboard("{Enter}");
-      await waitFor(() => expect(onSend).toHaveBeenCalledWith("send but no append", [], undefined, expect.any(String), []));
+      await waitFor(() => expect(onSend).toHaveBeenCalledWith("send but no append", [], undefined, expect.any(String)));
       expect(scroller.scrollTop).toBe(120);
 
       metrics.scrollHeight = 1400;
@@ -1826,7 +1830,7 @@ describe("MessagePane", () => {
     const composer = screen.getByRole("textbox");
     await user.type(composer, "  hello world  ");
     await user.click(screen.getByRole("button", { name: /Send/i }));
-    expect(onSend).toHaveBeenCalledWith("hello world", [], undefined, expect.any(String), []);
+    expect(onSend).toHaveBeenCalledWith("hello world", [], undefined, expect.any(String));
   });
 
   describe("clipboard image attachments", () => {
@@ -1892,7 +1896,7 @@ describe("MessagePane", () => {
       await user.click(screen.getByRole("button", { name: "Remove first.png" }));
       await user.type(composer, "caption");
       await user.click(screen.getByRole("button", { name: /Send/i }));
-      expect(onSend).toHaveBeenCalledWith("caption", [imageAttachment(second)], undefined, expect.any(String), []);
+      expect(onSend).toHaveBeenCalledWith("caption", [imageAttachment(second)], undefined, expect.any(String));
     });
 
     it("falls back to clipboard files only when items produce no image file", async () => {
@@ -2735,7 +2739,7 @@ describe("MessagePane", () => {
         const box = screen.getByRole("textbox") as HTMLTextAreaElement;
         await user.type(box, command);
         await user.keyboard("{Enter}");
-        expect(onSend).toHaveBeenCalledWith(command, [], undefined, expect.any(String), []);
+        expect(onSend).toHaveBeenCalledWith(command, [], undefined, expect.any(String));
         expect(box.value).toBe("");
       }
     );
@@ -2809,7 +2813,7 @@ describe("MessagePane", () => {
       expect(onSend).toHaveBeenCalledWith(
         '<mention type="user" target_id="a-coder"/> /effort max',
         [],
-        undefined, expect.any(String), [],
+        undefined, expect.any(String),
       );
     });
 

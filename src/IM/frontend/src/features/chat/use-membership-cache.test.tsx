@@ -6,6 +6,7 @@ import type { UserStreamSubscriber } from "../../realtime/user-stream/user-strea
 import { useAuthStore } from "../auth/auth-store";
 import type { Conversation } from "./chat-types";
 import { useMembershipCache } from "./use-membership-cache";
+import { draftFailures, interactionDraftRecord, noteDraftFailed, resetInteractionBackground } from './interaction-background';
 
 const { list } = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock("./chat-api", () => ({ listConversations: list }));
@@ -24,11 +25,31 @@ function change(id = "removed") {
   act(() => subscriber.onEvent({ eventType: "conversation.membership_changed", payload: { conversation_id: id } }));
 }
 beforeEach(() => {
+  resetInteractionBackground('owner');
   list.mockReset().mockResolvedValue([]);
   useAuthStore.getState().setSession({ access_token: "token", user: {
     id: "owner", username: "owner", display_name: "Owner", owner_id: "owner", locale: "en", default_entry_node_id: null,
     membership_status: "active", is_company_admin: true, owned_node_ids: [], created_at: ""
   } });
+});
+
+it('forgets retained private edits for revoked chats even while no chat pane is mounted', async () => {
+  const removed = interactionDraftRecord('removed', 'card');
+  removed.update({'$body':'private removed edit'}, true);
+  noteDraftFailed('removed', 'card', 'conflict');
+  const kept = interactionDraftRecord('kept', 'card');
+  kept.update({'$body':'private kept edit'}, true);
+  noteDraftFailed('kept', 'card', 'conflict');
+  const {client} = fixture();
+  client.setQueryData(key, [{id:'removed'}, {id:'kept'}]);
+  list.mockResolvedValue([{id:'kept'}]);
+  await act(async () => { await subscriber.onRecovery!(); });
+  expect(removed.current).toBe(false);
+  expect(removed.state).toEqual({});
+  expect(draftFailures('removed')).toEqual([]);
+  expect(kept.current).toBe(true);
+  expect(kept.state).toEqual({'$body':'private kept edit'});
+  expect(draftFailures('kept')).toEqual([{messageId:'card',reason:'conflict'}]);
 });
 
 it("coalesces a replay burst and immediately removes only the changed conversation's read caches", async () => {

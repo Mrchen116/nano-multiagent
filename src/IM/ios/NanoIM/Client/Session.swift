@@ -110,6 +110,27 @@ actor Session {
             return attempts
         }
     }
+    /// Read the card ledger off the main actor, fenced to the authenticated owner.
+    func draftWatermarks(userID: String, revision: Int) throws -> [String: String] {
+        try assertOwner(userID, revision: revision)
+        return try sendAttempts.loadDraftWatermarks(origin: baseURL, userID: userID)
+    }
+    func draftDiscardIntents(userID: String, revision: Int) throws -> [String: String] {
+        try assertOwner(userID, revision: revision)
+        return try sendAttempts.loadDraftDiscards(origin: baseURL, userID: userID)
+    }
+    func noteDraftSaved(_ conversationID: String, updatedAt: String, userID: String, revision: Int) throws -> [String: String] {
+        try assertOwner(userID, revision: revision)
+        return try sendAttempts.noteDraftSaved(conversationID, updatedAt: updatedAt, origin: baseURL, userID: userID)
+    }
+    func updateDraftDiscard(_ conversationID: String, through: String, confirmed: Bool = false, userID: String, revision: Int) throws {
+        try assertOwner(userID, revision: revision)
+        try sendAttempts.updateDraftDiscard(conversationID, through: through, confirmed: confirmed, origin: baseURL, userID: userID)
+    }
+    func removeDraftLedger(_ conversationID: String, userID: String, revision: Int) throws {
+        try assertOwner(userID, revision: revision)
+        try sendAttempts.removeDraftLedger(origin: baseURL, userID: userID, conversationID: conversationID)
+    }
     func removeSendAttempt(_ attempt: SendAttempt, userID: String, revision: Int) throws {
         try assertOwner(userID, revision: revision)
         try attemptStorage(userID).removeHandoff(attempt)
@@ -146,6 +167,9 @@ actor Session {
     @discardableResult
     func signOut() async -> Bool {
         let old = stored?.refresh_token
+        if let userID = stored?.user.id {
+            try? sendAttempts.removeDraftLedger(origin: baseURL, userID: userID)
+        }
         let flight = refreshFlight?.task
         invalidateRequests()
         stored = nil; access = nil; refreshFlight = nil
@@ -167,8 +191,10 @@ actor Session {
         let user = try JSONDecoder().decode(AuthUser.self, from: data)
         guard expected == generation, let previous = stored, user.id == previous.user.id else { throw CancellationError() }
         let next = StoredSession(refresh_token: previous.refresh_token, user: user)
-        if !user.accountEnabled { invalidateRequests(); termination = .deactivated }
-        else { termination = nil }
+        if !user.accountEnabled {
+            invalidateRequests(); termination = .deactivated
+            try? sendAttempts.removeDraftLedger(origin: baseURL, userID: user.id)
+        } else { termination = nil }
         try credentials.save(next); stored = next; publish(user)
         return user
     }
@@ -214,6 +240,7 @@ actor Session {
         } catch {
             if generation != expected { throw CancellationError() }
             if (error as? APIError)?.status == 401 {
+                try? sendAttempts.removeDraftLedger(origin: baseURL, userID: stored.user.id)
                 invalidateRequests(); self.stored = nil; access = nil
                 try? credentials.remove()
                 // Termination is written before the publish: the observer clears the partition
@@ -230,6 +257,7 @@ actor Session {
         // An unavailable account keeps its `user` (no extra nil publish): the observer reads
         // the reason from here and shows the access screen instead of a login form.
         termination = pair.user.accountEnabled ? nil : .deactivated
+        if !pair.user.accountEnabled { try? sendAttempts.removeDraftLedger(origin: baseURL, userID: pair.user.id) }
         let next = StoredSession(refresh_token: pair.refresh_token, user: pair.user)
         try credentials.save(next)
         stored = next; access = pair.access_token; publish(pair.user)

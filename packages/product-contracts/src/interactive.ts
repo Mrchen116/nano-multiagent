@@ -1,5 +1,5 @@
 import type { InteractiveResponse, MessageInteractive, InteractionSnapshot, InteractionContext } from './interactive-types.js';
-export type { InteractiveResponse, MessageInteractive, InteractionReplyInput, InteractionSnapshot, InteractionDraft, InteractionContextInput, InteractionContext } from './interactive-types.js';
+export type { InteractiveResponse, MessageInteractive, InteractionReplyInput, InteractionSnapshot, InteractionDraft, InteractionDraftField, InteractionContextInput, InteractionContext } from './interactive-types.js';
 
 /** Validate the transport envelope without importing the rendering engine.
  *

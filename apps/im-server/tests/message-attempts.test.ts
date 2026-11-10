@@ -36,28 +36,50 @@ describe('human message attempt lookup', () => {
 });
 
 describe('message creation key reuse', () => {
-  const payload = messageAttemptPayload({content:'hello',attachments:[{url:'/im/uploads/one',file_name:'one'}],interaction_contexts:[{source_message_id:'card',state:{b:2,a:1}}]});
+  const payload = messageAttemptPayload({content:'hello',attachments:[{url:'/im/uploads/one',file_name:'one'}]});
   const saved = {sender_user_id:'u1',sender_type:'user',caller_payload_json:payload};
 
   it('accepts the same sender and canonical payload regardless of object property order', () => {
-    const retry = messageAttemptPayload({interaction_contexts:[{state:{a:1,b:2},source_message_id:'card'}],attachments:[{file_name:'one',url:'/im/uploads/one'}],content:'hello'});
+    const retry = messageAttemptPayload({attachments:[{file_name:'one',url:'/im/uploads/one'}],content:'hello'});
     expect(() => assertMessageAttempt(saved, 'u1', 'user', retry)).not.toThrow();
+  });
+
+  it('treats client background as outside the snapshot identity', () => {
+    // The centre freezes the background with the message, so a snapshot field that can no
+    // longer change the message must not turn a retry into a conflict.
+    const oldRow = JSON.stringify({attachments:[{file_name:'one',url:'/im/uploads/one'}],content:'hello',
+      interaction_contexts:[{source_message_id:'card',state:{a:1}}]});
+    expect(() => assertMessageAttempt({sender_user_id:'u1',sender_type:'user',caller_payload_json:oldRow}, 'u1', 'user', payload)).not.toThrow();
+  });
+
+  it('keeps quoted reply identity while ignoring legacy client background', () => {
+    const quoted = {content:'hello',attachments:[],reply_to_message_id:'original'};
+    const stored = {...saved,caller_payload_json:JSON.stringify({...quoted,
+      interaction_contexts:[{source_message_id:'old-card',state:{a:1}}]})};
+    expect(() => assertMessageAttempt(stored,'u1','user',messageAttemptPayload(quoted))).not.toThrow();
+    for (const reply_to_message_id of [undefined,'another']) {
+      expect(() => assertMessageAttempt(stored,'u1','user',messageAttemptPayload({...quoted,reply_to_message_id})))
+        .toThrowError(expect.objectContaining({statusCode:409}));
+    }
+    expect(() => assertMessageAttempt({...saved,caller_payload_json:messageAttemptPayload({content:'hello'})},
+      'u1','user',messageAttemptPayload(quoted))).toThrowError(expect.objectContaining({statusCode:409}));
   });
 
   it.each([
     ['another sender', 'u2', payload],
     ['new content', 'u1', messageAttemptPayload({content:'changed'})],
     ['new attachments', 'u1', messageAttemptPayload({content:'hello',attachments:[]})],
-    ['new private context', 'u1', messageAttemptPayload({content:'hello',attachments:[{url:'/im/uploads/one',file_name:'one'}],interaction_contexts:[{source_message_id:'card',state:{a:3,b:2}}]})],
   ])('rejects %s instead of returning an unrelated existing message', (_label, sender, changed) => {
     expect(() => assertMessageAttempt(saved, sender, 'user', changed)).toThrowError(expect.objectContaining({statusCode:409}));
   });
 });
 
-// Persisted before the serializer move at a34af8473; retry must keep the same identity.
-it('recognizes a historical message attempt with Unicode attachment and nested choice data', () => {
-  const payload = messageAttemptPayload({"content":"\u4e2d\u6587\ud83d\ude00\u007f\u0080","attachments":[{"file_name":"\u9644\u4ef6.txt","url":"/im/uploads/a"}],"interaction_contexts":[{"source_message_id":"card","state":{"z":"\u9009\u9879\ud83d\ude00","a":{"b":2,"a":1}}}]});
-  const previous = "{\"attachments\":[{\"file_name\":\"\\u9644\\u4ef6.txt\",\"url\":\"/im/uploads/a\"}],\"content\":\"\\u4e2d\\u6587\\ud83d\\ude00\u007f\\u0080\",\"interaction_contexts\":[{\"source_message_id\":\"card\",\"state\":{\"a\":{\"a\":1,\"b\":2},\"z\":\"\\u9009\\u9879\\ud83d\\ude00\"}}]}";
-  expect(payload).toBe(previous);
+// Persisted before the serializer move at a34af8473 and before the background rule; a retry
+// started across that deploy must still match, or every in-flight send would 409.
+it('recognizes a historical attempt that also froze private background', () => {
+  const payload = messageAttemptPayload({"content":"\u4e2d\u6587\ud83d\ude00\u007f\u0080","attachments":[{"file_name":"\u9644\u4ef6.txt","url":"/im/uploads/a"}]});
+  const previous = "{\"attachments\":[{\"file_name\":\"\\u9644\\u4ef6.txt\",\"url\":\"/im/uploads/a\"}],\"content\":\"\\u4e2d\\u6587\ud83d\ude00\u007f\u0080\",\"interaction_contexts\":[{\"source_message_id\":\"card\",\"state\":{\"a\":{\"a\":1,\"b\":2},\"z\":\"\\u9009\\u9879\ud83d\ude00\"}}]}";
   expect(() => assertMessageAttempt({sender_user_id:'u1',sender_type:'user',caller_payload_json:previous}, 'u1', 'user', payload)).not.toThrow();
+  expect(() => assertMessageAttempt({sender_user_id:'u1',sender_type:'user',caller_payload_json:previous}, 'u1', 'user',
+    messageAttemptPayload({"content":"changed","attachments":[]}))).toThrowError(expect.objectContaining({statusCode:409}));
 });

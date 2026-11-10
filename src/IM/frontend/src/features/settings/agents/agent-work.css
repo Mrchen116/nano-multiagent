@@ -51,10 +51,8 @@
 .im-work-background>.im-work-link-footer{padding:4px 0 0}
 @media(max-width:700px){.im-work-child-link{min-height:40px}}
 
-.im-work-earlier {
-  min-height: 36px;
-  color: var(--im-accent);
-  font-weight: 600;
+.im-work-page-end {
+  min-height: 1px;
 }
 .im-work-gap {
   margin: 0.5rem 0;

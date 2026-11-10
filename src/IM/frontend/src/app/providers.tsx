@@ -4,6 +4,7 @@ import { useMobileViewport } from "../hooks/use-mobile-viewport";
 import { accountEnabled, useAuthStore } from "../features/auth/auth-store";
 
 import { forgetComposerUser } from "../features/chat/components/composer-draft-store";
+import { forgetInteractionBackground } from '../features/chat/interaction-background';
 
 export function AppProviders({ children }: PropsWithChildren) {
   useMobileViewport();
@@ -27,6 +28,7 @@ export function AppProviders({ children }: PropsWithChildren) {
       if (previousUserId !== null && (previousUserId !== nextUserId || !accountEnabled(state.user) || previousMembership !== state.user?.membership_status)) {
         queryClient.clear();
         forgetComposerUser(previousUserId);
+        void forgetInteractionBackground(previousUserId).catch(() => {});
         window.sessionStorage.removeItem(`im:user_stream_cursor:${previousUserId}`);
       }
       previousUserId = nextUserId;

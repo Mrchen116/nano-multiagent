@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLanguage } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
 import { ChatWorkspacePage } from "./chat-workspace-page";
+import { awaitWatermarkWrite, loadWatermarks, noteDraftFailed, noteDraftSaved, registerDraftHandle, resetInteractionBackground } from "./interaction-background";
 import type { Conversation } from "./chat-types";
 import { composerStoreFor, EMPTY_COMPOSER_SNAPSHOT, forgetComposerUser } from "./components/composer-draft-store";
 import type { UserStreamEvent, UserStreamSync } from "../../realtime/user-stream";
@@ -348,6 +349,9 @@ function mockFetch(opts: {
         platform_default_model: null,
       });
     }
+    if (/\/interaction-background\/discard$/.test(url) && init?.method === "POST") {
+      return jsonResponse({ discarded_through: (JSON.parse(String(init.body)) as { through?: string }).through ?? null });
+    }
     if (/\/im\/v1\/conversations\/c1\/messages$/.test(url) && init?.method === "POST") {
       const body = JSON.parse(String(init.body));
       return jsonResponse({
@@ -426,6 +430,8 @@ describe("ChatWorkspacePage — integration", () => {
   let fetchSpy: ReturnType<typeof mockFetch>;
 
   beforeEach(() => {
+    // Draft handles, failures and leave watermarks are module state shared across renders.
+    resetInteractionBackground();
     streamSubscribers.clear();
     setLanguage("en");
     capturedStatusHandler = null;
@@ -1837,6 +1843,63 @@ describe("ChatWorkspacePage — integration", () => {
     });
 
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("clears only the background this browser confirmed when leaving a conversation", async () => {
+    const user = userEvent.setup();
+    // Hydrate this account first, as a mounted workspace does; a later hydration call must
+    // then keep the watermark instead of resetting it.
+    await loadWatermarks("u-self");
+    // This device saved a card edit in c1 and is now switching away from it.
+    noteDraftSaved("c1", "2026-05-01T00:00:05.000Z");
+    await awaitWatermarkWrite();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+
+    await user.click(screen.getByRole("button", { name: /Research Squad/ }));
+    await screen.findByRole("heading", { name: "Research Squad" });
+
+    await waitFor(() => {
+      expect(fetchSpy.mock.calls.some(([input, init]) =>
+        /\/im\/v1\/conversations\/c1\/interaction-background\/discard$/.test(input.toString()) && init?.method === "POST"
+      )).toBe(true);
+    });
+    const discardCall = fetchSpy.mock.calls.find(([input]) =>
+      /\/im\/v1\/conversations\/c1\/interaction-background\/discard$/.test(input.toString()))!;
+    // The watermark is this device's own confirmed save time, so another device's later
+    // unsent edit stays carryable.
+    expect(JSON.parse(String((discardCall[1] as RequestInit).body))).toEqual({ through: "2026-05-01T00:00:05.000Z" });
+    // A conversation this browser never saved in is never cleared: it cannot name what it
+    // would erase, and a later re-entry must still be able to carry an edit.
+    expect(fetchSpy.mock.calls.some(([input]) => /\/c2\/interaction-background\/discard$/.test(input.toString()))).toBe(false);
+  });
+
+  it("clears its confirmed background when mobile Back returns to the chat list", async () => {
+    const width = vi.spyOn(window, "innerWidth", "get").mockReturnValue(390);
+    try {
+      const user = userEvent.setup();
+      await loadWatermarks("u-self");
+      noteDraftSaved("c1", "2026-05-01T00:00:05.000Z");
+      await awaitWatermarkWrite();
+      renderAtRoute("/chat/c1");
+      await user.click(await screen.findByRole("button", {name:"Back"}));
+      await waitFor(() => expect(fetchSpy.mock.calls.some(([input, init]) =>
+        /\/c1\/interaction-background\/discard$/.test(input.toString()) && init?.method === "POST"
+      )).toBe(true));
+    } finally { width.mockRestore(); }
+  });
+
+  it.each(["online", "visibilitychange"])("recovers private card saves and conflict refreshes on %s", async event => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    const flush = vi.fn(async () => ({updatedAt:"2026-05-01T00:00:05.000Z"}));
+    const conflictFlush = vi.fn(async () => ({reason:"conflict" as const}));
+    registerDraftHandle("c1", "transient", {flush});
+    registerDraftHandle("c1", "conflict", {flush:conflictFlush});
+    act(() => { noteDraftFailed("c1", "transient", "transient"); noteDraftFailed("c1", "conflict", "conflict"); });
+    act(() => { (event === "online" ? window : document).dispatchEvent(new Event(event)); });
+    await waitFor(() => expect(flush).toHaveBeenCalledTimes(1));
+    expect(conflictFlush).toHaveBeenCalledOnce();
   });
 
   it("R9-3: optimistically renders the user's bubble in the pane the instant the POST resolves", async () => {

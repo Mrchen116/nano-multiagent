@@ -1,12 +1,6 @@
 import CryptoKit
 import Foundation
 
-struct InteractionContextInput: Codable, Sendable {
-    let source_message_id: String
-    let state: [String: JSONValue]
-    let interacted_at: Double?
-}
-
 struct SendAttempt: Codable, Sendable {
     let conversationID: String
     let sourceMessageID: String?
@@ -76,10 +70,76 @@ struct SendAttemptStore: Sendable {
 
     func remove(origin: URL, userID: String, conversationID: String? = nil) throws {
         if let conversationID {
+            try removeDraftLedger(origin: origin, userID: userID, conversationID: conversationID)
             for attempt in try load(origin: origin, userID: userID) where attempt.conversationID == conversationID {
                 try remove(attempt, origin: origin, userID: userID)
             }
         } else { try removeIfPresent(ownerDirectory(origin, userID)) }
+    }
+
+    /// The card ledger lives alongside the legacy files but has its own cleanup lifetime.
+    func removeDraftLedger(origin: URL, userID: String, conversationID: String? = nil) throws {
+        for name in ["draft-watermarks", "draft-discard-intents"] {
+            if let conversationID {
+                var values = try loadDraftMap(name, origin: origin, userID: userID)
+                if values.removeValue(forKey: conversationID) != nil {
+                    try saveDraftMap(values, name: name, origin: origin, userID: userID)
+                }
+            } else {
+                try removeIfPresent(ownerDirectory(origin, userID).appendingPathComponent(name))
+            }
+        }
+    }
+
+    /// Watermarks share the attempt owner's protected lifetime, but are not send attempts.
+    func loadDraftWatermarks(origin: URL, userID: String) throws -> [String: String] {
+        try loadDraftMap("draft-watermarks", origin: origin, userID: userID)
+    }
+
+    @discardableResult
+    func noteDraftSaved(_ conversationID: String, updatedAt: String, origin: URL, userID: String) throws -> [String: String] {
+        var values = try loadDraftWatermarks(origin: origin, userID: userID)
+        values[conversationID] = max(values[conversationID] ?? "", updatedAt)
+        values = Dictionary(uniqueKeysWithValues: values.sorted {
+            $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value
+        }.prefix(128).map { ($0.key, $0.value) })
+        try saveDraftMap(values, name: "draft-watermarks", origin: origin, userID: userID)
+        return values
+    }
+
+    /// A saved draft is not a leave intent; only explicit departures may be retried on launch.
+    func loadDraftDiscards(origin: URL, userID: String) throws -> [String: String] {
+        try loadDraftMap("draft-discard-intents", origin: origin, userID: userID)
+    }
+    func updateDraftDiscard(_ conversationID: String, through: String, confirmed: Bool, origin: URL, userID: String) throws {
+        var values = try loadDraftDiscards(origin: origin, userID: userID)
+        if confirmed {
+            // An older response must never acknowledge a newer departure's cleanup.
+            if let pending = values[conversationID], pending <= through { values[conversationID] = nil }
+        } else {
+            values[conversationID] = max(values[conversationID] ?? "", through)
+            values = Dictionary(uniqueKeysWithValues: values.sorted {
+                $0.value == $1.value ? $0.key < $1.key : $0.value > $1.value
+            }.prefix(128).map { ($0.key, $0.value) })
+        }
+        try saveDraftMap(values, name: "draft-discard-intents", origin: origin, userID: userID)
+    }
+    private func loadDraftMap(_ name: String, origin: URL, userID: String) throws -> [String: String] {
+        let url = ownerDirectory(origin, userID).appendingPathComponent(name)
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        return try JSONDecoder().decode([String: String].self, from: Data(contentsOf: url))
+    }
+    private func saveDraftMap(_ values: [String: String], name: String, origin: URL, userID: String) throws {
+        let owner = ownerDirectory(origin, userID)
+        try FileManager.default.createDirectory(at: owner, withIntermediateDirectories: true)
+        var options: Data.WritingOptions = [.atomic]
+        #if os(iOS)
+        options.insert(.completeFileProtection)
+        #endif
+        try JSONEncoder().encode(values).write(to: owner.appendingPathComponent(name), options: options)
+        #if os(iOS)
+        try FileManager.default.setAttributes([.protectionKey: FileProtectionType.complete], ofItemAtPath: owner.path)
+        #endif
     }
 
     private func ownerDirectory(_ origin: URL, _ userID: String) -> URL {

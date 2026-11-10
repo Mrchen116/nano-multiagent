@@ -1,10 +1,11 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { vi } from "vitest";
 
 import { useAuthStore } from "../features/auth/auth-store";
 import { App } from "./App";
+import { interactionDraftRecord, noteDraftSaved, resetInteractionBackground } from "../features/chat/interaction-background";
 import { AppProviders } from "./providers";
 import * as streamModule from "../realtime/user-stream";
 
@@ -45,7 +46,10 @@ describe("App shell", () => {
     Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: 1280 });
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    resetInteractionBackground();
+    vi.restoreAllMocks();
+  });
 
   it("shows shared-stream recovery and clears it when the connection returns", () => {
     const spy = vi.spyOn(streamModule, "subscribeUserStream").mockImplementation(() => () => undefined);
@@ -59,6 +63,21 @@ describe("App shell", () => {
       for (const [subscriber] of spy.mock.calls) subscriber.onConnectionStatus?.(null);
     });
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("discards this browser's pending card background when navigating out of chat", async () => {
+    vi.spyOn(streamModule, "subscribeUserStream").mockImplementation(() => () => undefined);
+    resetInteractionBackground(SAMPLE_USER.id);
+    const record = interactionDraftRecord("open-chat", "card");
+    record.update({ '$body': 'Private edit' }, true);
+    const through = "2026-11-09T11:00:00.000Z";
+    noteDraftSaved("open-chat", through);
+    render(<AppProviders><MemoryRouter initialEntries={["/chat/open-chat"]}><App /></MemoryRouter></AppProviders>);
+
+    fireEvent.click(screen.getByRole("link", { name: /agents|智能体/i }));
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/open-chat/interaction-background/discard"),
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ through }) })));
+    expect(record.current).toBe(false);
   });
 
   it("clears inaccessible chat data after membership changes even off the chat route", async () => {

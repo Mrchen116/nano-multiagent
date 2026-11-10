@@ -1,4 +1,4 @@
-import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Component, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Renderer, type ActionEvent } from '@openuidev/react-lang';
 import { ThemeProvider } from '@openuidev/react-ui';
 import '@openuidev/react-ui/defaults.css';
@@ -7,26 +7,22 @@ import { interactiveLibrary } from './catalog';
 import { runLibraryAction } from './open-intelligent-ui/actions';
 import { CardAttachmentImage } from './open-intelligent-ui/attachment-images';
 import { MessageImage, protectedResourceUrl } from '../components/message-image';
-import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
+import { listMessages, readInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
 import type { InteractionReplyInput } from './types';
 import { useTranslation } from '../../../i18n';
 import './interactive-card.css';
 import { InteractionSubmissionError } from './submission-error';
+import { attachDraftRecord, forgetInteractionDraft, interactionDraftRecord, registerDraftHandle,
+  type DraftHandle } from '../interaction-background';
 
-export interface InteractiveSelection {
-  conversationId: string;
-  source_message_id: string;
-  state: Record<string, unknown>;
-  editedAt: number;
-}
 export interface InteractiveCardProps {
   message: Message;
   readOnly?: boolean;
+  isGroup?: boolean;
   submittedMessageId?: string;
   onComposeMessage?(target: string, text: string): Promise<void>;
   onAttachmentVisibility?(url: string, visible: boolean): void;
-  onSelect(selection: InteractiveSelection): void;
   onSend(input: InteractionReplyInput, key: string): Promise<unknown>;
 }
 
@@ -42,114 +38,113 @@ function CardMessageImage({ url, alt, report }: { url: string; alt: string; repo
 }
 
 /** Render public source while keeping edits private until an explicit continuation. */
-export function InteractiveCard({message, readOnly, submittedMessageId, onSelect, onSend, onComposeMessage, onAttachmentVisibility}: InteractiveCardProps) {
+export function InteractiveCard({message, readOnly, isGroup, submittedMessageId, onSend, onComposeMessage, onAttachmentVisibility}: InteractiveCardProps) {
   const { t } = useTranslation();
-  const [loaded, setLoaded] = useState(false);
-  const [initial, setInitial] = useState<Record<string, unknown>>({});
-  const [generation, setGeneration] = useState(0);
-  const [done, setDone] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const retained = !readOnly && !isGroup;
+  const record = useMemo(() => interactionDraftRecord(message.conversation_id, message.id, retained),
+    [message.conversation_id, message.id, retained]);
+  useSyncExternalStore(record.subscribe, record.snapshot, record.snapshot);
+  // A replacement renderer starts at the retained edit, but an ordinary acknowledgement
+  // must never reseed the current renderer or move its cursor.
+  const initial = useMemo(() => record.state, [record, record.renderVersion]);
+  const { loaded, done, renderVersion } = record;
+  const syncingLatest = retained && record.failure === 'conflict';
+  const busy = record.submitting;
+  const pending = record.hasPendingSubmission;
   const [applyingDraft, setApplyingDraft] = useState(false);
   const [composeError, setComposeError] = useState<string | null>(null);
-  const [error, setError] = useState<'load'|'save'|'conflict'|'send'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
+  const [actionError, setError] = useState<'load'|'save'|'conflict'|'render'|'alreadySubmitted'|'stale'|'action'|null>(null);
+  const error = pending && !busy ? 'send' : actionError ?? (isGroup && record.failure === 'conflict' ? 'conflict' : isGroup && record.failure ? 'save' : record.loadFailed ? 'load' : null);
   const [submissionConflict, setSubmissionConflict] = useState<InteractionSubmissionError|null>(null);
-  const state = useRef<Record<string, unknown>>({});
-  const revision = useRef(0);
   const touched = useRef(false);
-  const lastEditedAt = useRef(0);
-  const dirty = useRef(false);
-  const saving = useRef(false);
-  const saveRequest = useRef<ReturnType<typeof saveInteractionDraft> | null>(null);
-  const submitting = useRef(false);
+  const viewActive = useRef(true);
   const actionLabel = useRef('');
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const pending = useRef<{input: InteractionReplyInput; key: string}|null>(null);
   const locked = Boolean(readOnly || submissionConflict);
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
-  const selectRef = useRef(onSelect); selectRef.current = onSelect;
-  const select = (value: Record<string, unknown>, editedAt = Date.now()) => selectRef.current({
-    conversationId: message.conversation_id, source_message_id: message.id,
-    state: value, editedAt,
-  });
   async function composeMessage(target: string, text: string) {
     if (!onComposeMessage || lockedRef.current || applyingDraft) return;
     clearTimeout(timer.current); setApplyingDraft(true); setComposeError(null);
+    const version = record.renderVersion;
     try {
-      await saveRequest.current?.catch(() => undefined);
+      await record.request;
       await save();
-      if (dirty.current || saving.current) return;
+      if (!viewActive.current || !record.current) return;
+      if (record.dirty || record.request) throw new Error(t('chat.interactive.saveError'));
+      if (record.renderVersion !== version) throw new Error(t('chat.interactive.conflictError'));
       const latest = await readInteractionDraft(message.conversation_id, message.id);
       if (latest.can_interact !== true || latest.read_only || latest.superseded_by) throw new Error(t('chat.interactive.readOnly'));
-      await onComposeMessage(target, text);
+      if (viewActive.current && record.current) await onComposeMessage(target, text);
     } catch (error) { setComposeError(error instanceof Error ? error.message : t('chat.interactive.actionError')); }
     finally { setApplyingDraft(false); }
   }
-  async function load() {
+  async function load(adopting = false) {
     setError(null);
-    try {
-      const draft = await readInteractionDraft(message.conversation_id, message.id);
-      state.current = draft.state; revision.current = draft.draft_revision;
-      setInitial(draft.state); setDone(Boolean(draft.submission_message_id));
-      setGeneration(value => value + 1); setLoaded(true); dirty.current = false;
-      touched.current = false;
-      lastEditedAt.current = draft.updated_at ? Date.parse(draft.updated_at) : 0;
-      if (!readOnly) select(draft.state, lastEditedAt.current);
-    } catch { setError('load'); }
+    const success = await record.load(adopting);
+    if (success) touched.current = false;
+    else if (adopting && record.current && !record.hasPendingSubmission) setError('conflict');
+    return success;
   }
-  useEffect(() => { void load(); return () => clearTimeout(timer.current); }, [message.id]);
+  useEffect(() => {
+    viewActive.current = true;
+    const detach = attachDraftRecord(record, retained);
+    if (readOnly) forgetInteractionDraft(message.conversation_id, message.id);
+    void load();
+    // A detach may interrupt the debounce before the first PUT; resume it on this view.
+    if (record.dirty && !record.failure && !record.hasPendingSubmission) timer.current = setTimeout(() => { void save(); }, 500);
+    return () => { viewActive.current = false; clearTimeout(timer.current); detach(); };
+  }, [record]);
   async function syncSubmittedDraft() {
-    try {
-      const draft = await readInteractionDraft(message.conversation_id, message.id);
-      // POST and WS can confirm the same submission in either order.
-      revision.current = Math.max(revision.current, draft.draft_revision);
-      setDone(JSON.stringify(state.current) === JSON.stringify(draft.state));
-    } catch { setError('save'); }
+    try { await record.syncSubmitted(); }
+    catch { if (record.current) setError('save'); }
   }
   // Composer submissions also advance the draft revision, without remounting the explorer.
   useEffect(() => {
     if (loaded && submittedMessageId) void syncSubmittedDraft();
   }, [submittedMessageId]);
 
-  async function save() {
-    if (saving.current || lockedRef.current || !dirty.current || pending.current) return;
-    saving.current = true;
-    dirty.current = false;
-    const value = state.current;
-    try {
-      saveRequest.current = saveInteractionDraft(message.conversation_id, message.id, revision.current, value);
-      const result = await saveRequest.current;
-      revision.current = result.draft_revision;
-      setError(null);
-    } catch (e) {
-      dirty.current = true;
-      setError(String(e).includes('409') ? 'conflict' : 'save');
-    } finally { saving.current = false; saveRequest.current = null; }
-    // An edit during an in-flight save must persist with the newly returned revision.
-    if (state.current !== value && dirty.current) void save();
+  async function save(): Promise<string | undefined> {
+    if (lockedRef.current || record.hasPendingSubmission) return record.savedAt;
+    setError(null);
+    return record.save();
   }
+  /** Finish this view's debounce while the retained record owns any in-flight PUT. */
+  async function flush() {
+    clearTimeout(timer.current);
+    if (lockedRef.current || record.hasPendingSubmission) {
+      return record.unsaved ? {reason: record.failure ?? 'transient' as const} : {updatedAt: record.savedAt};
+    }
+    return record.flush();
+  }
+  const handleRef = useRef<DraftHandle>({flush});
+  handleRef.current = {flush};
+  useEffect(() => {
+    if (readOnly || isGroup) return;
+    return registerDraftHandle(message.conversation_id, message.id, handleRef.current);
+  }, [record, readOnly, isGroup]);
   async function submit(request?: Pick<InteractionReplyInput, 'action_id'|'event'>, formState?: Record<string, unknown>) {
     if (lockedRef.current) { setError('stale'); throw new Error('This historical reply cannot submit new requests'); }
-    if (submitting.current) throw new Error('A request is already pending');
-    submitting.current = true;
-    if (!pending.current) pending.current = {input: {source_message_id: message.id, ...request,
-      state: structuredClone({...state.current, ...formState})}, key: crypto.randomUUID()};
-    clearTimeout(timer.current); setBusy(true); setError(null);
+    const pending = record.beginSubmission(() => ({source_message_id: message.id, ...request,
+      state: structuredClone({...record.state, ...formState})}));
+    clearTimeout(timer.current); setError(null);
+    let outcome: 'accepted' | 'rejected' | 'unknown' = 'unknown';
     try {
       // Finish an earlier private save before submission increments its revision.
-      await saveRequest.current?.catch(() => undefined);
-      const result = await onSend(pending.current.input, pending.current.key);
-      setDone(true); pending.current = null; dirty.current = false;
-      await syncSubmittedDraft();
+      await record.request;
+      if (!viewActive.current || !record.current) throw new Error('This interaction view is no longer active');
+      const result = await onSend(pending.input, pending.key);
+      outcome = 'accepted';
+      if (record.current) await syncSubmittedDraft();
       return result;
     } catch (e) {
       if (e instanceof InteractionSubmissionError) {
-        pending.current = null; dirty.current = false;
+        outcome = 'rejected';
         setSubmissionConflict(e); setError(e.reason);
-      } else setError('send');
+      }
       throw e;
     }
-    finally { submitting.current = false; setBusy(false); }
+    finally { record.finishSubmission(outcome); }
   }
   const submitRef = useRef(submit); submitRef.current = submit;
   const toolProvider = useMemo(() => ({
@@ -165,6 +160,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     },
   }), [message.id, message.conversation_id, t]);
   function onAction(action: ActionEvent) {
+    if (!viewActive.current || !record.current) return;
     const handled = runLibraryAction(action);
     if (handled) { void handled.then(ok => { if (!ok) setError('action'); }); return; }
     if (action.type === 'ComposeMessage') {
@@ -211,24 +207,20 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
     onChangeCapture={() => { touched.current = true; }}>
     {!loaded && !error && <p role="status">{t('chat.interactive.loading')}</p>}
     {loaded && error !== 'render' && <RenderBoundary fallback={fallback}>
-      <fieldset disabled={readOnly || busy || applyingDraft || Boolean(pending.current)} className="interactive-card-fields">
+      <fieldset disabled={readOnly || busy || applyingDraft || pending || syncingLatest} className="interactive-card-fields">
         <CardAttachmentImage.Provider value={renderAttachment}>
         <ThemeProvider mode="light" cssSelector=".interactive-card">
-        <Renderer key={generation} response={message.interactive!.source} library={interactiveLibrary}
-          initialState={initial} isStreaming={busy || Boolean(pending.current)} toolProvider={toolProvider} publishObservability={false}
-          onParseResult={parsed => {
-            state.current = {...parsed?.stateDeclarations, ...state.current};
-            if (!lockedRef.current) select(state.current, lastEditedAt.current);
-          }}
+        <Renderer key={renderVersion} response={message.interactive!.source} library={interactiveLibrary}
+          initialState={initial} isStreaming={busy || pending} toolProvider={toolProvider} publishObservability={false}
+          onParseResult={parsed => { if (viewActive.current && renderVersion === record.renderVersion) record.update({...parsed?.stateDeclarations, ...record.state}); }}
           onError={errors => { if (errors.some(error => error.source === 'parser')) setError('render'); }}
           onStateUpdate={value => {
-            state.current = value;
-            if (lockedRef.current || pending.current) return;
-            if (touched.current) lastEditedAt.current = Date.now();
-            select(value, lastEditedAt.current);
-            if (!touched.current) return;
-            dirty.current = true; setDone(false);
-            clearTimeout(timer.current); timer.current = setTimeout(() => { void save(); }, 500);
+            if (!viewActive.current || renderVersion !== record.renderVersion || (retained && record.failure === 'conflict')) return;
+            // Only a real input event may arm a background; rendering must never do it.
+            const edited = !lockedRef.current && !record.hasPendingSubmission && touched.current;
+            if (record.update(value, edited)) {
+              clearTimeout(timer.current); timer.current = setTimeout(() => { void save(); }, 500);
+            }
           }}
           onAction={onAction} />
         </ThemeProvider>
@@ -244,7 +236,7 @@ export function InteractiveCard({message, readOnly, submittedMessageId, onSelect
       {error === 'load' && <button type="button" onClick={() => void load()}>{t('chat.interactive.retry')}</button>}
       {error === 'save' && <button type="button" onClick={() => void save()}>{t('chat.interactive.retry')}</button>}
       {error === 'send' && <button type="button" onClick={() => void submit().catch(() => undefined)}>{t('chat.interactive.retry')}</button>}
-      {error === 'conflict' && <button type="button" onClick={() => void load()}>{t('chat.interactive.loadLatest')}</button>}
+      {isGroup && error === 'conflict' && <button type="button" onClick={() => void load(true)}>{t('chat.interactive.loadLatest')}</button>}
     </div>}
   </section>;
 }

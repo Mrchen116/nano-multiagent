@@ -23,11 +23,10 @@ import { UpdateBarrier } from './update-barrier.js';
 import { RpcError, RpcPeer } from './rpc.js';
 import { recordToolPresentations } from './tool-presentation.js';
 import { scheduleEvidence } from './schedule-evidence.js';
-import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
 import { CapabilityState, needsSchedules, configurationBlocks } from './capability-state.js';
 import type { RuntimePublicationEvidence, RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
-import { jsonBytes, workPage, workPageBytes, workPageItems } from './work-page.js';
+import { jsonBytes, workPage, workPageBytes, workPageItems, WorkCatalogPages } from './work-page.js';
 import { type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import { CronOwners } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
@@ -152,11 +151,6 @@ export default class NanoRuntime {
     ctx.inject(['terminals'], child => { terminals = child.terminals; child.effect(() => () => { terminals = undefined; }); });
     const lifecycle = this.lifecycle = new ColdLifecycleBarrier(ctx);
     const deletion = !inspection && config?.agentDeletion ? SessionDeletion.forRuntime(ctx, process.env.DSH_HOME!) : undefined;
-    this.owned = new OwnedSessions(ctx, this.bindings, agentId => lifecycle.assertEnabled(agentId), async binding => {
-      if (this.markRecovery && this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode === 'single_thread')
-        await this.peer.request('session.recovery.mark', {sessionId: binding.sessionId, agentId: binding.agentId});
-    });
-    ctx.provide('nanoSessions', this.owned);
     installStandaloneModelRetry(ctx);
     installLlmAttribution(ctx, sessionId => {
       let session = ctx.sessions.get(SessionId(sessionId));
@@ -190,11 +184,31 @@ export default class NanoRuntime {
     const disabled = (id: string) => { const owner = this.ownerOf(id); return owner ? lifecycle.current(owner).disabled === true : false; };
     const cancelPersisted = async (agentId: string) => {
       const owns = (id: string) => this.ownerOf(id) === agentId;
-      await (await models).cancelPersisted(owns);
+      const coldOwns=async(id:string)=>{
+        const seen=new Set<string>();
+        let sessionId:string|undefined=id;
+        while(sessionId && !seen.has(sessionId)) {
+          seen.add(sessionId);
+          const owner=this.ownerOf(sessionId);
+          if(owner)return owner===agentId;
+          const snapshot=await ctx.sessionPersistence.stat(SessionId(sessionId));
+          sessionId=snapshot?.header?.parentSession;
+        }
+        return false;
+      };
+      await (await models).cancelPersisted(owns,coldOwns);
       await (await workflow).cancelPersisted(owns);
       await (await knowledge).cancelPersisted(agentId);
     };
-    const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => { this.peer.notify('model.changed', { sessionId, rootSessionId: boundRoot(sessionId) }); } });
+    const workChanged = (rootSessionId: string, childId: string) => {
+      const binding = this.bindings.get(rootSessionId);
+      if (!binding || this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode !== 'global') return;
+      this.peer.notify('session.work.changed', {sessionId:rootSessionId,rootSessionId,childId}, `session.work.changed:${childId}`);
+    };
+    const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => {
+      const rootSessionId = boundRoot(sessionId);
+      this.peer.notify('model.changed', { sessionId, rootSessionId, workChild:descendantReader.hasChild(sessionId) });
+    } });
     const webFiber = ctx.plugin(NanoWeb);
     const workflowFiber = ctx.plugin(NanoWorkflowEngine, { configuration: (agent: Agent) => configurationService.forAgent(agent)!, completed: (record: import('./workflow/state.js').WorkflowRecord) => this.peer.notify('workflow.completed', record) });
     const workflow = new Promise<NanoWorkflowEngine>(resolve => { ctx.inject(['workflowEngine', 'nanoApproval', 'nanoModels'], child => { const engine = child.workflowEngine as NanoWorkflowEngine; registerWorkflowTool(child, engine, agent => configurationService.forAgent(agent)!); resolve(engine); }); });
@@ -265,6 +279,21 @@ export default class NanoRuntime {
       if (!binding || configurationService.forAgent(agent)?.mode !== 'global') return;
       return {agentId: binding.agentId, revision: lifecycle.current(binding.agentId).revision};
     });
+    this.owned = new OwnedSessions(ctx, this.bindings, agentId => lifecycle.assertEnabled(agentId), async binding => {
+      if (this.markRecovery && this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode === 'single_thread')
+        await this.peer.request('session.recovery.mark', {sessionId: binding.sessionId, agentId: binding.agentId});
+    }, async (binding, observation) => {
+      if (this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode !== 'global') return;
+      const revision = lifecycle.current(binding.agentId).revision;
+      const assertCurrent = () => {
+        lifecycle.assertEnabled(binding.agentId);
+        if (lifecycle.current(binding.agentId).revision !== revision) throw new RpcError(-32003, 'stale_lifecycle');
+      };
+      const {interrupted, complete} = await descendantReader.interruptedChildren(observation);
+      await subagentRecovery.record(binding.sessionId, interrupted, assertCurrent);
+      if (!complete) throw new RpcError(-32005, 'Subagent recovery evidence is temporarily unavailable');
+    });
+    ctx.provide('nanoSessions', this.owned);
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -288,16 +317,20 @@ export default class NanoRuntime {
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
       history.attach(agent, config, () => modelPolicy.route(agent));
       if (agentId) lifecycle.assertEnabled(agentId);
+      await (await workflow).recordWorkChild(agent);
       liveAgents.add(agent);
     });
     const toolViews = recordToolPresentations(ctx, process.env.DSH_HOME!);
     ctx.on('session/event', (session, event) => {
       const rootSessionId = boundRoot(session.id);
-      if (rootSessionId) descendantReader.remember(session,event,rootSessionId);
+      if (rootSessionId) {
+        const discovered = descendantReader.remember(session,event,rootSessionId);
+        if (discovered) workChanged(rootSessionId,discovered);
+      }
       const source = event.type === 'user/message' ? event.data.source : undefined;
       const hint = {seq:event.seq, type:event.type, time:event.time, data: event.type === 'user/message'
         ? {id:event.data.id, source:source && {kind:source.kind, ...('channel' in source ? {channel:source.channel} : {})}} : {}};
-      this.peer.notify('session.event', {sessionId:session.id, rootSessionId, event:hint},
+      this.peer.notify('session.event', {sessionId:session.id, rootSessionId, workChild:descendantReader.hasChild(session.id), event:hint},
         ['user/message','turn/end','step/start'].includes(event.type) ? undefined : `session.event:${session.id}:changed`);
     });
     const liveness = setInterval(() => {
@@ -400,17 +433,6 @@ export default class NanoRuntime {
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
       for (const pending of config.pendingConfigurations ?? []) if (!deletion?.retired(pending.config.agentId)) await prepare(pending);
-      for (const binding of config.bindings) {
-        if (lifecycle.current(binding.agentId).disabled ||
-          this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode !== 'global') continue;
-        try {
-          if (!await ctx.sessionPersistence.stat(SessionId(binding.sessionId))) continue;
-          const interrupted = await descendantReader.interruptedChildren(SessionId(binding.sessionId));
-          if (interrupted.length) await subagentRecovery.record(binding.sessionId, interrupted);
-        } catch (error) {
-          ctx.logger.warn(`Cannot recover subagent notices for ${binding.sessionId}: ${String(error)}`);
-        }
-      }
       this.accepting = true;
       for (const agent of config.agents) if (!deletion?.retired(agent.agentId)) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
@@ -564,7 +586,7 @@ export default class NanoRuntime {
       await workBinding(input);
       const id = SessionId(input.sessionId), fallback = (await models).fallback;
       const rootSettled = await descendantReader.settled(id, {[id]:input.afterSeq ?? -1}, () =>
-        fallback.list(id).some(run=>run.state!=='completed') || input.modelVersion!==fallback.workVersion(id), false);
+        fallback.hasActive(id) || input.modelVersion!==fallback.workVersion(id), false);
       return {rootSettled};
     });
     handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
@@ -623,42 +645,43 @@ export default class NanoRuntime {
       return projectPage(input, session.inheritedEventCount, head,
         seq => session.snapshotEvents(SessionLogOffset(seq), SessionLogOffset(seq + 1))[0], policy);
     }, {pull:'work-root'});
+    type CatalogEntry = Awaited<ReturnType<DescendantReader['targets']>>[number];
+    const workChild = (entry: CatalogEntry, policy: ModelPolicy, engine: NanoWorkflowEngine): RuntimeWorkChild => {
+      if (entry.kind !== 'child') return {kind:'diagnostic',id:entry.id,parentId:entry.parentId,reason:entry.reason};
+      const workflowRunId = engine.workRelationship(entry.parentId,entry.id);
+      return {kind:'child',id:entry.id,parentId:entry.parentId,label:entry.label,throughSeq:entry.throughSeq,mode:entry.mode,
+        depth:entry.depth,activity:entry.activity,hasChildren:entry.hasChildren,modelVersion:policy.fallback.workVersion(entry.id),
+        ...(workflowRunId ? {workflowRunId} : {})};
+    };
+    const catalogs = new WorkCatalogPages();
     handle('session.work.children', async value => {
       const input = value as WorkRead & {afterId?: string};
       await workBinding(input);
-      const root = SessionId(input.sessionId), reply:RuntimeWorkCatalog={children:[]};
-      if (!ctx.sessions.get(root) && !await ctx.sessionPersistence.stat(root)) return reply;
-      const fallback = (await models).fallback;
-      const workflowRuns = await (await workflow).relationships(root);
-      let seeking = input.afterId !== undefined, bytes = 128;
-      for await (const entry of descendantReader.catalog(root)) {
-        if (seeking) { if (entry.id === input.afterId) seeking = false; continue; }
-        const linked = entry.kind === 'child' && workflowRuns.find(run=>run.calls.some(call=>call.attempts.some(attempt=>attempt.id===entry.id)));
-        const child:RuntimeWorkChild = entry.kind === 'child'
-          ? {kind:'child', id:entry.id, parentId:entry.parentId, label:entry.label, throughSeq:entry.throughSeq,
-            mode:entry.mode, depth:entry.depth, activity:entry.activity, hasChildren:entry.hasChildren,
-            modelVersion:fallback.workVersion(entry.id), ...(linked ? {workflowRunId:linked.id} : {})}
-          : {kind:'diagnostic', id:entry.id, parentId:entry.parentId, reason:entry.reason};
-        const size = jsonBytes(child);
-        if (reply.children.length && (reply.children.length >= workPageItems || bytes+size > workPageBytes)) {
-          reply.next = reply.children.at(-1)!.id;
-          return reply;
-        }
-        reply.children.push(child);
-        bytes += size;
-      }
-      if (seeking) throw new RpcError(-32005, 'Work catalog position changed');
-      return reply;
+      const root = SessionId(input.sessionId), policy = await models, engine = await workflow;
+      await engine.ready;
+      return catalogs.read(root,input.afterId,input.stoppedRevision,async function* () {
+        if (!ctx.sessions.get(root) && !await ctx.sessionPersistence.stat(root)) return;
+        for await (const entry of descendantReader.catalog(root)) yield workChild(entry,policy,engine);
+      });
+    }, {pull:'work-descendants'});
+    handle('session.work.targets', async value => {
+      const input = value as WorkRead & {childId:string};
+      await workBinding(input);
+      const policy = await models, engine = await workflow;
+      await engine.ready;
+      const targets = await descendantReader.targets(SessionId(input.sessionId),SessionId(input.childId));
+      return {children:targets.map(target=>workChild(target,policy,engine))} satisfies RuntimeWorkCatalog;
     }, {pull:'work-descendants'});
     handle('session.work.child', async value => {
       const input = value as WorkRead & {childId: string};
       await workBinding(input);
       const id = SessionId(input.childId), policy = await models;
-      const version = () => policy.fallback.workVersion(id);
-      const page = await descendantReader.page(SessionId(input.sessionId), id, input.afterSeq ?? -1,
-        () => input.modelVersion !== version(), cut =>
-          projectPage({...input,sessionId:id}, cut.inheritedEventCount, cut.cursor, seq=>cut.events[seq], policy));
-      return page ?? {durable:true,events:[],modelRuns:[],modelVersion:version(),throughSeq:input.afterSeq ?? -1,more:false} satisfies RuntimeWorkPage;
+      const modelVersion=policy.fallback.workVersion(id), afterSeq=input.afterSeq ?? -1;
+      const page=await descendantReader.eventPage(SessionId(input.sessionId),id,afterSeq,input.modelVersion!==modelVersion,
+        (session,head)=>projectPage({...input,sessionId:id},session.inheritedEventCount,head,
+          seq=>session.snapshotEvents(SessionLogOffset(seq),SessionLogOffset(seq+1))[0],policy),
+        cut=>projectPage({...input,sessionId:id},cut.inheritedEventCount,cut.cursor,seq=>cut.events[seq],policy));
+      return page ?? {durable:true,events:[],modelRuns:[],modelVersion,throughSeq:afterSeq,more:false} satisfies RuntimeWorkPage;
     }, {pull:'work-descendants'});
     handle('session.observe', async value => {
       const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
@@ -852,10 +875,11 @@ export default class NanoRuntime {
       // Preserve the native child's identity and composition; never redirect to root.
       const revision=this.lifecycle.current(agentId).revision;
       const admitted=await ctx.attachments.admitPromptContent(content);
+      const fallback=(await models).fallback;
       this.lifecycle.assertEnabled(agentId);
       if(this.lifecycle.current(agentId).revision!==revision)throw new Error('stale_lifecycle');
       // The final evidence check and synchronous enqueue share one admission turn.
-      if(!inputEvidence(agent.session.snapshotEvents(),inputId).accepted){
+      if(!fallback.nativeEvidence(agent,inputId).accepted){
         const message:UserMessage=freezeMessage({id:MessageId(inputId),role:'user' as const,content:admitted,source:{kind:'nano-system',actorId:agentId,channel:'schedule-change',messageId:inputId,lifecycle_revision:revision}});
         if(this.tasks.passive(root.sessionId))agent.inject(message);else agent.followup(message);
       }
@@ -900,13 +924,14 @@ export default class NanoRuntime {
         const task = tasks.find(task => task.id === args.id && task.sessionId === sessionId);
         if (!task || task.status !== 'active') throw new RpcError(-32602, 'Schedule does not exist or is inactive');
         if (typeof args.inputId !== 'string' || !args.inputId.startsWith('manual-schedule:')) throw new RpcError(-32602, 'Manual schedule input identity is required');
+        const fallback = (await models).fallback;
         const agent = await this.agent(sessionId!);
-        if (!inputEvidence(agent.session.snapshotEvents(), args.inputId).accepted) {
+        if (!fallback.nativeEvidence(agent, args.inputId).accepted) {
           agent.followup(freezeMessage({ id: MessageId(args.inputId), role: 'user' as const,
             content: [{ type: 'text', text: `Manual run of an existing schedule. This is configured work, not live human permission.\nTitle: ${task.title}\nSaved instructions:\n${task.prompt}` }],
             source: { kind: 'schedule' as const, scheduleId: task.id, triggerKind: 'manual' } }));
         }
-        await this.flush(agent); return { inputId: args.inputId, ...inputEvidence(agent.session.snapshotEvents(), args.inputId) };
+        await this.flush(agent); return { inputId: args.inputId, ...fallback.nativeEvidence(agent, args.inputId) };
         } finally { this.capabilities.end(key); }
       }
       return this.cron.command(agentId, sessionId, action, args);
@@ -945,6 +970,8 @@ export default class NanoRuntime {
         ]);
         await purgeDerived(ctx, process.env.DSH_HOME!, agentId, sessionIds);
         descendantReader.forget(ids);
+        (await workflow).forgetWorkChildren(ids);
+        for (const id of ids) await catalogs.forget(id);
         await this.cron.disposeAgent(agentId, true);
         for (const id of sessionIds) if (this.bindings.get(id)?.agentId === agentId) this.bindings.delete(id);
         for (const [preset, item] of this.configurations) if (item.agentId === agentId) this.configurations.delete(preset);
@@ -1092,14 +1119,15 @@ export default class NanoRuntime {
     this.lifecycle.assertEnabled(agentId);
     if ((input.lifecycle_revision ?? input.source.lifecycle_revision ?? revision) !== revision) throw new RpcError(-32003, 'stale_lifecycle');
     const agent = await this.agent(input.sessionId);
-    if (!inputEvidence(agent.session.snapshotEvents(), input.inputId).accepted) {
+    const fallback = (await this.models).fallback;
+    if (!fallback.nativeEvidence(agent, input.inputId).accepted) {
       if (!['human', 'system'].includes(input.source.kind)) throw new RpcError(-32602, 'Invalid input source');
       const content = await this.ctx.attachments.admitPromptContent(input.content);
       if (input.attachmentSources) await this.ctx.nanoTrajectoryAttachments.record(input.sessionId, content, input.attachmentSources);
       const config = this.configurations.get(agent.session.header.agentPreset!);
       if (input.source.channel === 'heartbeat' && config && this.capabilities.held(config.agentId, {kind: 'feature', name: 'heartbeat'})) return {accepted: false, busy: true};
       if (input.onlyIfIdle && (agent.status !== 'idle' || agent.inbox.nextTurn.length || agent.inbox.nextStep.length)) return { accepted: false, busy: true };
-      (await this.models).fallback.interrupt(agent);
+      fallback.interrupt(agent);
       this.lifecycle.assertEnabled(agentId);
       if (this.lifecycle.current(agentId).revision !== revision) throw new Error('stale_lifecycle');
       const source = {...input.source, admittedAt:Date.now(), lifecycle_revision: input.source.lifecycle_revision ?? input.lifecycle_revision ?? revision};
@@ -1119,7 +1147,7 @@ export default class NanoRuntime {
       else throw new RpcError(-32602, 'Invalid input mode');
     }
     await this.flush(agent);
-    return { ...inputEvidence(agent.session.snapshotEvents(), input.inputId), durable: true };
+    return { ...fallback.nativeEvidence(agent, input.inputId), durable: true };
   }
 
   private async flush(agent: Agent) {

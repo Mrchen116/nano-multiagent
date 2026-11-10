@@ -26,7 +26,8 @@ final class ChatStore {
     @ObservationIgnored private var pendingRevision = UUID()
     @ObservationIgnored private var unpersistedCleanups: [String: ChatAttemptPersistence.CleanupKind] = [:]
     @ObservationIgnored private var cleanupBlocked = false
-    var interactionSelections: [String: InteractionSelection] = [:]
+    let interactionDrafts: InteractionDraftCoordinator
+    private(set) var interactionEpoch = UUID()
     var interactionSending: Set<String> = []
     private var interactionConversations: [String: String] = [:]
     var sending: Set<String> = []
@@ -37,7 +38,11 @@ final class ChatStore {
         let text: String
     }
     var composeRequest: ComposeRequest?
-    var selectedID: String?
+    var selectedID: String? {
+        didSet {
+            if let oldValue, oldValue != selectedID { interactionDrafts.leave(oldValue) }
+        }
+    }
     /// Content phase: whether anything can be shown. Independent of the connection.
     var listPhase: ChatListPhase = .loadingFirst
     /// Connection phase: how the correction is going.
@@ -129,6 +134,7 @@ final class ChatStore {
 
     init(client: IMClient, user: AuthUser, controller: ChatStorageController? = nil) {
         self.client = client; self.user = user; self.stream = UserStream(client: client)
+        self.interactionDrafts = InteractionDraftCoordinator(client: client, userID: user.id)
         self.storageController = controller
         if let controller { controller.attach(self) } else { scheduleAttemptRestore() }
     }
@@ -351,7 +357,7 @@ final class ChatStore {
 
     /// Reset every projection to its initial value; durable rows are the controller's business.
     func resetProjection() {
-        sendEpoch = UUID(); projectionRevision = UUID()
+        sendEpoch = UUID(); interactionEpoch = UUID(); projectionRevision = UUID()
         attemptRestore?.cancel(); attemptRestore = nil
         draftFlush?.cancel(); draftFlush = nil
         draftWriteTail?.cancel(); draftWriteTail = nil
@@ -359,8 +365,8 @@ final class ChatStore {
         stop()
         timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
         inspectedConversation = nil; before = [:]; olderNeedsNetwork = []; receivedTimelineResults = []
-        interactionPending = [:]; interactionConversations = [:]; interactionSelections = [:]; interactionSending = []; sending = []
-        discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; composeRequest = nil; banner = nil
+        interactionPending = [:]; interactionConversations = [:]; interactionSending = []; sending = []
+        discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; interactionDrafts.clear(); composeRequest = nil; banner = nil
         listPhase = .loadingFirst; connection = .starting; pendingCount = 0; lastFullAt = nil; listError = nil
         cursor = nil; needsList = false; dirtyChats = []
         executionCleanupRevisions = [:]; knownDeletedActorIDs = []; readingPositions = [:]; pendingReadingPositions = [:]; restoreReadingPositions = [:]
@@ -389,6 +395,8 @@ final class ChatStore {
                 // not keep a successfully synchronized list labeled "Connecting" forever.
                 connection = .online; attempt = 0
                 await recoverPending()
+                await interactionDrafts.foreground(activeConversation: selectedID)
+                if let selectedID, interactionDrafts.failure(selectedID) != nil { _ = await flushDrafts(selectedID) }
                 guard token == epoch, !Task.isCancelled else { return }
                 notificationFloor = sync.max_event_id
                 if cursor == nil { cursor = sync.max_event_id }
@@ -444,10 +452,13 @@ final class ChatStore {
             await reconcileNetwork(sync.items)
             return
         }
+        await interactionDrafts.prepare()
+        guard await isCurrent(request) else { throw CancellationError() }
         do {
             let result = try await repository.applySnapshot(sync.items, maxEventID: sync.max_event_id,
                                                             snapshotSeq: context.snapshotSeq + 1,
-                                                            executionCleanupRevisions: sync.execution_cleanup_revisions ?? [:], write: context)
+                                                            executionCleanupRevisions: sync.execution_cleanup_revisions ?? [:],
+                                                            privateDraftIDs: Set(interactionDrafts.watermarks.keys), write: context)
             guard request.epoch == epoch, request.discardRevision == discardReadRevision, self.repository === repository else { throw CancellationError() }
             guard result.conversations.allSatisfy({ ($0.execution_cleanup_revision ?? 0) >= (executionCleanupRevisions[$0.id] ?? 0) }) else { throw CancellationError() }
             projectionRevision = UUID()
@@ -461,6 +472,8 @@ final class ChatStore {
                 clearConversationState(id)
                 revokedChats.insert(id)
                 errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
+                await forgetInteractionDrafts(id)
+                guard request.epoch == epoch else { throw CancellationError() }
             }
             for chat in result.conversations where chat.can_write == false || chat.dissolved_at != nil {
                 await discardConversationAttempts(chat.id)
@@ -491,6 +504,8 @@ final class ChatStore {
     private func reconcileNetwork(_ values: [Conversation]) async {
         let values = normalizingDeletedActors(values)
         let token = epoch, discardRevision = discardReadRevision
+        await interactionDrafts.prepare()
+        guard token == epoch, discardRevision == discardReadRevision else { return }
         for chat in values { observeExecutionCleanup(chat.id, revision: chat.execution_cleanup_revision ?? 0) }
         if let id = selectedID, !values.contains(where: { $0.id == id }) { await inspectConversation(id) }
         else { inspectedConversation = nil }
@@ -498,7 +513,7 @@ final class ChatStore {
         if let inspectedConversation { allowed.insert(inspectedConversation.id) }
         revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
-        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values) where !allowed.contains(id) {
+        for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values).union(interactionDrafts.watermarks.keys) where !allowed.contains(id) {
             // A degraded partition still has old JSON/handoff qualification to revoke.
             await revokeConversation(id, reason: .snapshotAbsent)
             errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
@@ -967,19 +982,28 @@ final class ChatStore {
         let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
         guard chat?.can_write != false else { return }
         guard !sending.contains(id), !checkingAccess.contains(id), !revokedChats.contains(id) else { return }
+        let token = sendEpoch
         sending.insert(id)
-        defer { sending.remove(id) }
+        defer { if token == sendEpoch { sending.remove(id) } }
+        // This click owns this text/files, not edits made while the draft PUT is awaited.
+        let clickedContent = drafts[id] ?? "", clickedFiles = textOnly ? [] : attachments[id] ?? []
         if !retry {
+            let saved = await flushDrafts(id)
+            guard token == sendEpoch, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+            guard saved else {
+                errors[id] = L("消息尚未发送，请重试。", "Message was not sent. Please try again.")
+                return
+            }
             guard pending[id] == nil, !(uploadDrafts[id] ?? []).contains(where: \.uploading),
                   textOnly || (uploadDrafts[id] ?? []).isEmpty else { return }
-            let content = drafts[id] ?? "", files = textOnly ? [] : attachments[id] ?? []
+            let content = clickedContent, files = clickedFiles
             guard !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty else { return }
             do {
-                let token = sendEpoch, revision = try await sessionRevision()
+                let revision = try await sessionRevision()
                 guard token == sendEpoch else { return }
                 guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
                 let draft = try client.prepareMessage(PendingSend(content: content, attachments: files), userID: user.id,
-                    participants: chat?.participants ?? [], contexts: backgroundContexts(id, chat: chat))
+                    participants: chat?.participants ?? [])
                 let attempt = SendAttempt(conversationID: id, sourceMessageID: nil, draft: draft)
                 try await persistAttempt(attempt, revision: revision)
                 guard token == sendEpoch else { return }
@@ -988,7 +1012,6 @@ final class ChatStore {
         }
         guard let draft = pending[id] else { return }
         let attempt = SendAttempt(conversationID: id, sourceMessageID: nil, draft: draft)
-        let token = sendEpoch
         errors[id] = nil
         do {
             _ = try await resolveAttempt(attempt, lookup: retry, resend: true)
@@ -1008,13 +1031,16 @@ final class ChatStore {
     func submitInteraction(_ id: String, input: InteractionReplyInput, key: String) async throws -> ChatMessage {
         await attemptRestore?.value
         try requireWritable(id)
+        let token = sendEpoch
+        guard await flushDrafts(id) else { throw APIError(status: 0, detail: errors[id] ?? "Draft not saved") }
+        guard token == sendEpoch else { throw CancellationError() }
         let source = input.source_message_id
         guard interactionPending[source] == nil, !interactionSending.contains(source) else {
             throw APIError(status: 0, detail: unconfirmedText)
         }
         interactionSending.insert(source)
-        defer { interactionSending.remove(source) }
-        let token = sendEpoch, revision = try await sessionRevision()
+        defer { if token == sendEpoch { interactionSending.remove(source) } }
+        let revision = try await sessionRevision()
         guard token == sendEpoch else { throw CancellationError() }
         try requireWritable(id)
         let draft = try client.prepareMessage(PendingSend(key: key, content: "", attachments: []), userID: user.id, interaction: input)
@@ -1071,16 +1097,16 @@ final class ChatStore {
         }
     }
 
-    private func backgroundContexts(_ id: String, chat: Conversation?) -> [InteractionContextInput] {
-        guard chat?.type == "direct" else { return [] }
-        let messages = (timelines[id] ?? []).compactMap(\.message)
-        let replaced = Set(messages.compactMap { $0.interactive?.supersedes_message_id })
-        return messages.enumerated().compactMap { index, message -> (InteractionSelection, Int)? in
-            guard let card = message.interactive, card.read_only != true, card.superseded_by == nil, !replaced.contains(message.id),
-                  let selection = interactionSelections[message.id], selection.conversationID == id else { return nil }
-            return (selection, index)
-        }.sorted { $0.0.editedAt == $1.0.editedAt ? $0.1 > $1.1 : $0.0.editedAt > $1.0.editedAt }.prefix(3)
-            .map { InteractionContextInput(source_message_id: $0.0.source_message_id, state: $0.0.state, interacted_at: $0.0.editedAt == 0 ? nil : $0.0.editedAt) }
+    func isGroupConversation(_ id: String) -> Bool {
+        let chat = inspectedConversation?.id == id ? inspectedConversation : conversations.first { $0.id == id }
+        return chat?.type == "group"
+    }
+
+    @discardableResult
+    func flushDrafts(_ id: String) async -> Bool {
+        // Group drafts remain private until explicit submission.
+        if isGroupConversation(id) { return true }
+        return await interactionDrafts.flush(id)
     }
 
     private func isCurrent(_ attempt: SendAttempt, token: UUID) -> Bool {
@@ -1130,10 +1156,18 @@ final class ChatStore {
             guard isCurrent(attempt, token: token), !(error is CancellationError) else { throw CancellationError() }
             try await client.session.assertOwner(user.id, revision: revision)
             if let api = error as? APIError, (400..<500).contains(api.status), ![408, 429].contains(api.status) {
-                try await removeAttempt(attempt, revision: revision)
+                // A rejected background leaves the original text available for a new send.
+                let restoreDraft = api.code == "interaction_background_too_large" && attempt.sourceMessageID == nil
+                    && drafts[id]?.isEmpty != false && !dirtyDraftIDs.contains(id)
+                try await removeAttempt(attempt, revision: revision, restoreDraft: restoreDraft)
                 guard isCurrent(attempt, token: token) else { throw CancellationError() }
                 if let source = attempt.sourceMessageID { interactionPending[source] = nil; interactionConversations[source] = nil }
-                else { pending[id] = nil }
+                else {
+                    pending[id] = nil
+                    if restoreDraft, drafts[id]?.isEmpty != false, !dirtyDraftIDs.contains(id) {
+                        drafts[id] = attempt.draft.content
+                    }
+                }
                 if [403, 404].contains(api.status) { await revokeConversation(id, reason: .detailForbidden) }
                 errors[id] = api.detail
                 throw api
@@ -1190,11 +1224,11 @@ final class ChatStore {
         }
     }
 
-    private func removeAttempt(_ attempt: SendAttempt, revision: Int) async throws {
+    private func removeAttempt(_ attempt: SendAttempt, revision: Int, restoreDraft: Bool = false) async throws {
         if let repository {
             try await client.session.assertOwner(user.id, revision: revision)
             let context = try await repository.writeContext()
-            try await repository.removePending(attempt, write: context)
+            try await repository.removePending(attempt, restoreDraft: restoreDraft, write: context)
         } else {
             try await client.session.removeSendAttempt(attempt, userID: user.id, revision: revision)
         }
@@ -1214,7 +1248,7 @@ final class ChatStore {
         for source in interactionConversations.filter({ $0.value == id }).map(\.key) {
             interactionPending[source] = nil; interactionConversations[source] = nil; interactionSending.remove(source)
         }
-        interactionSelections = interactionSelections.filter { $0.value.conversationID != id }
+        await forgetInteractionDrafts(id)
         do {
             if let repository {
                 let context = try await repository.writeContext()
@@ -1266,7 +1300,7 @@ final class ChatStore {
         revokedChats.insert(id)
         conversations.removeAll { $0.id == id }
         if inspectedConversation?.id == id { inspectedConversation = nil }
-        interactionSelections = interactionSelections.filter { $0.value.conversationID != id }
+        await forgetInteractionDrafts(id)
         do {
             if let reason, let repository {
                 let context = try await repository.writeContext()
@@ -1281,6 +1315,13 @@ final class ChatStore {
         } catch {
             guard token == epoch else { return }
             handleCleanupFailure(error, conversationID: id, kind: .revokeAccess)
+        }
+    }
+
+    private func forgetInteractionDrafts(_ id: String) async {
+        interactionDrafts.remove(id)
+        if let revision = try? await sessionRevision() {
+            try? await client.session.removeDraftLedger(id, userID: user.id, revision: revision)
         }
     }
 

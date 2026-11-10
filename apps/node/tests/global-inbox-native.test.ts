@@ -379,14 +379,15 @@ it('resumes a paged native child after runtime loss and pairs the complete tool 
       }}});
     product=create();
     await product.recover();
+    await expect.poll(()=>errors.map(String)).toContain('Error: fixture runtime disconnected before the next Work page');
     expect(cut).toBeDefined();
-    expect(errors.map(String)).toContain('Error: fixture runtime disconnected before the next Work page');
     expect(inbox.workCut(childId!)?.throughSeq).toBe(cut);
     expect(inbox.workProcessingPending).toBe(true);
     await product.stop();product=undefined;
     inject=false;errors.length=0;
     await start();product=create();
     await product.recover();
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
     expect(cutAtReconnect).toBe(cut);
     expect(errors).toEqual([]);
     const rows=inbox.journal(0,1000).filter(row=>row.session_id===childId);
