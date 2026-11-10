@@ -54,11 +54,17 @@ export class RuntimeClient {
     this.ownsInspector = !options.inspector && !options.inspectionWorker;
     this.inspector = options.inspectionWorker ? undefined : options.inspector ?? new ConfigurationInspector({root:join(options.home,'.configuration-inspections'),env:options.env,onLog:options.onLog});
     const cli = require.resolve('@deepseek-ai/dsh/package.json');
-    this.process = spawn(process.execPath, [join(dirname(cli), 'lib/bin.js'), '--profile', 'nano', ...(options.inspectionWorker ? [`--nano-inspection-id=${options.inspectionWorker.id}`] : [])], {
+    const watchOwner = options.inspectionWorker && process.platform !== 'win32';
+    const preload = watchOwner ? ['--import', new URL('./inspection-owner-watch.js', import.meta.url).href] : [];
+    this.process = spawn(process.execPath, [...preload, join(dirname(cli), 'lib/bin.js'), '--profile', 'nano', ...(options.inspectionWorker ? [`--nano-inspection-id=${options.inspectionWorker.id}`] : [])], {
       cwd: options.cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
-      env: { ...process.env, ...options.env, DSH_HOME: options.home, DSH_TELEMETRY_DISABLED: '1', ...(options.inspectionWorker ? {NANO_CONFIGURATION_INSPECTION_ID:options.inspectionWorker.id, NANO_CONFIGURATION_INSPECTION_DEADLINE:String(options.inspectionWorker.deadlineAt), NANO_CONFIGURATION_INSPECTION_REQUEST:options.inspectionWorker.requestId} : {}) },
+      env: { ...process.env, ...options.env, DSH_HOME: options.home, DSH_TELEMETRY_DISABLED: '1',
+        ...(options.inspectionWorker ? {NANO_CONFIGURATION_INSPECTION_ID:options.inspectionWorker.id, NANO_CONFIGURATION_INSPECTION_DEADLINE:String(options.inspectionWorker.deadlineAt), NANO_CONFIGURATION_INSPECTION_REQUEST:options.inspectionWorker.requestId} : {}),
+        ...(watchOwner ? {NANO_CONFIGURATION_INSPECTION_OWNER_PID:String(process.pid)} : {}),
+      },
     });
-    this.rpc = new RpcPeer(this.process.stdout, this.process.stdin, () => this.process.kill('SIGTERM'));
+    // Inspection RPC failures reject the request, so its owner can stop the whole group.
+    this.rpc = new RpcPeer(this.process.stdout, this.process.stdin, watchOwner ? undefined : () => this.process.kill('SIGTERM'));
     if (this.inspector) {
       this.rpc.handle('configuration.inspect', async value => {
         const input = value as ConfigurationInspection;

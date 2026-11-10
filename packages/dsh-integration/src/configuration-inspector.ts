@@ -216,9 +216,7 @@ export class ConfigurationInspector {
         const info = await processInfo(lease.pid);
         if (info) {
           if (!info.split(/\s+/).includes(`--nano-inspection-id=${lease.id}`)) throw cleanupFailed();
-          killGroup(lease.pid, 'SIGTERM');
-          await delay(150);
-          killGroup(lease.pid,'SIGKILL');
+          await stopInspectionGroup(lease.pid);
           await waitForGroupExit(lease.pid);
         } else if (await groupAlive(lease.pid)) {
           // Without the marked leader we cannot prove a surviving group's identity.
@@ -242,13 +240,17 @@ function killGroup(pid: number, signal: NodeJS.Signals) {
 }
 async function terminateWorker(worker: RuntimeClient): Promise<void> {
   if (!worker.process.pid) {await worker.exited;return;}
-  killGroup(worker.process.pid, 'SIGTERM');
-  // A plugin can outlive its CLI leader and ignore SIGTERM. Reclaim the whole
-  // group owned by this ChildProcess even when the leader has already exited.
-  await delay(150);
-  killGroup(worker.process.pid, 'SIGKILL');
+  await stopInspectionGroup(worker.process.pid);
   if (!await Promise.race([worker.exited.then(()=>true), delay(500).then(()=>false)])) throw cleanupFailed();
   await waitForGroupExit(worker.process.pid);
+}
+
+async function stopInspectionGroup(pid: number): Promise<void> {
+  if (process.platform === 'win32') killGroup(pid, 'SIGTERM');
+  // Give configuration.cancel a chance to run without killing the POSIX watchdog
+  // before children that can ignore SIGTERM have been stopped.
+  await delay(150);
+  killGroup(pid, 'SIGKILL');
 }
 async function groupAlive(pid: number): Promise<boolean> {
   const {stdout} = await execute('ps', ['-eo','pgid=,stat='], {timeout:1000});
