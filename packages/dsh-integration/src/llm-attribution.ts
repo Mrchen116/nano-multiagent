@@ -34,7 +34,9 @@ export function installLlmAttribution(ctx: Context, rootOf: (sessionId: string) 
     return dispatch(attributed, Object.assign(observed, {
       onResponseError(controller: Dispatcher.DispatchController, error: NodeJS.ErrnoException) {
         current.connectionFailed = connectionCodes.has(error.code ?? '') ||
-          (error.syscall === 'connect' && error.code === 'ETIMEDOUT');
+          (error.syscall === 'connect' && error.code === 'ETIMEDOUT') ||
+          (error.code === 'ECONNRESET' &&
+            error.message === 'Client network socket disconnected before secure TLS connection was established');
         handler.onResponseError?.(controller, error);
       },
     }));

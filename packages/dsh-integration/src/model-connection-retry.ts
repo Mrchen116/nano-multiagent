@@ -9,11 +9,13 @@ const maxDelayMs = 60000;
 const policyKey = 'nano:model-connection';
 
 function upstreamConnectionFailed(failure: LlmFailure): boolean {
-  // The local Anthropic bridge answers with a typed 502 when it cannot dial its upstream.
-  const prefix = '502 ';
-  if (failure.code !== 'SERVER' || !failure.message.startsWith(prefix)) return false;
+  // The adapter preserves the bridge's typed 502 in different envelopes across wire APIs.
+  if (failure.code !== 'SERVER') return false;
+  const body = /^(?:502:? |[^\n]+ API error \(502\): )(\{.*\})$/s.exec(failure.message)?.[1];
+  if (!body) return false;
   try {
-    const report = JSON.parse(failure.message.slice(prefix.length))?.error as { type?: unknown; message?: unknown } | undefined;
+    const value = JSON.parse(body);
+    const report = (value?.error ?? value) as { type?: unknown; message?: unknown } | undefined;
     return report?.type === 'upstream_connection_error' &&
       typeof report.message === 'string' && /^Connect(?:Error|Timeout):/.test(report.message);
   } catch {

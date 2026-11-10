@@ -30,4 +30,4 @@ DSH 的普通 provider 重试默认有次数上限。传输适配器把建连失
 
 ## 修复
 
-Nano 在既有模型 HTTP 接入点保留请求级建连失败信号，由绑定主 Agent 和各级工作子 Agent 的公开 `agent/request-error` 钩子在原模型步骤等待并重试。Air 本机 Anthropic 代理会为上游建连失败返回带 `upstream_connection_error` 和 `ConnectError` 或 `ConnectTimeout` 的 502，因此只将这类明确报告的代理错误纳入等待。等待从 5 秒按倍数退避，单次最长 60 秒，独立于普通流重试额度，随原轮次取消。DSH 仍执行原步骤、结算工具结果和管理重启恢复。
+Nano 在既有模型 HTTP 接入点保留请求级建连失败信号，由绑定主 Agent 和各级工作子 Agent 的公开 `agent/request-error` 钩子在原模型步骤等待并重试。Air 本机模型代理会为上游建连失败返回带 `upstream_connection_error` 和 `ConnectError` 或 `ConnectTimeout` 的 502，三种模型协议均只将这类明确报告的代理错误纳入等待。等待从 5 秒按倍数退避，单次最长 60 秒，独立于普通流重试额度，随原轮次取消。DSH 仍执行原步骤、结算工具结果和管理重启恢复。
