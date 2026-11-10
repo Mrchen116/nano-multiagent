@@ -5,6 +5,8 @@
 // only fields the chat UI actually consumes are declared, so the compiler
 // catches drift if the backend renames a field we depend on.
 
+import type { AgentMessageReceipt } from "@nano/product-contracts";
+
 export type ConversationKind =
   | "direct-agent"
   | "direct-user"
@@ -218,6 +220,7 @@ export interface Message {
   attachments: Attachment[];
   delivery_status: DeliveryStatus;
   update_wait?: 'updating' | 'recovery_required' | null;
+  agent_receipts?: AgentMessageReceipt[];
   created_at: string;
   tool_calls?: ToolCall[];
   process_summary?: ChatProcessSummary;

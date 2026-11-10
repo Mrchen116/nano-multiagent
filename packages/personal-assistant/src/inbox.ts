@@ -47,6 +47,8 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS relay_controls(agent_id TEXT,message_id TEXT,input TEXT,done INTEGER DEFAULT 0,PRIMARY KEY(agent_id,message_id));
       CREATE TABLE IF NOT EXISTS publications(id TEXT PRIMARY KEY,target TEXT,body TEXT,state TEXT,result TEXT);
     `);
+    if (!(this.db.prepare('PRAGMA table_info(relay_receipts)').all() as {name:string}[]).some(c=>c.name==='read_pending'))
+      this.db.exec('ALTER TABLE relay_receipts ADD COLUMN read_pending INTEGER NOT NULL DEFAULT 0');
     this.reviews = new InboxReviews(this.db);
     const publicationColumns = (this.db.prepare('PRAGMA table_info(publications)').all() as {name:string}[]).map(column => column.name);
     if (!publicationColumns.includes('agent_id')) this.db.exec('ALTER TABLE publications ADD COLUMN agent_id TEXT');
@@ -187,8 +189,13 @@ export class InboxStore {
     } catch(error) {this.db.exec('ROLLBACK');throw error;}
   }
   /** Return bounded receipt obligations without depending on runtime availability. */
-  pendingRelays(): {input:RelayInput;status:string}[] {
-    return (this.db.prepare('SELECT input,status FROM relay_receipts WHERE confirmed=0 ORDER BY rowid LIMIT 100').all() as {input:string;status:string}[])
+  pendingRelays(channel?: 'im' | 'feishu'): {input:RelayInput;status:string}[] {
+    return (this.db.prepare(`
+      SELECT input, CASE WHEN confirmed=0 THEN status ELSE 'read' END AS status
+      FROM relay_receipts WHERE confirmed>=0 AND (confirmed=0 OR read_pending=1)
+        AND (? IS NULL OR (id LIKE 'external:%')=?)
+      ORDER BY confirmed, rowid LIMIT 100
+    `).all(channel ?? null, Number(channel === 'feishu')) as {input:string;status:string}[])
       .map(row=>({input:JSON.parse(row.input) as RelayInput,status:row.status}));
   }
   /** Advance all relay identities for a message without regressing a terminal receipt. */
@@ -200,7 +207,10 @@ export class InboxStore {
   }
   /** Close a revoked obligation without recording a remote acceptance. */
   rejectRelay(id:string):void {this.db.prepare('UPDATE relay_receipts SET confirmed=-1 WHERE id=?').run(id);}
-  confirmRelay(id: string, status: string): void {this.db.prepare('UPDATE relay_receipts SET confirmed=1 WHERE id=? AND status=?').run(id,status);}
+  confirmRelay(id: string, status: string): void {
+    if (status === 'read') this.db.prepare('UPDATE relay_receipts SET read_pending=0 WHERE id=?').run(id);
+    else this.db.prepare('UPDATE relay_receipts SET confirmed=1 WHERE id=? AND status=?').run(id,status);
+  }
   pendingControls(): RelayInput[] {return (this.db.prepare('SELECT input FROM relay_controls WHERE done=0 ORDER BY rowid').all() as {input:string}[]).map(row=>JSON.parse(row.input) as RelayInput);}
   /** Return a source-authorized ordinary PA message to the Inbox after command classification. */
   demoteControl(input:RelayInput):void {
@@ -498,12 +508,18 @@ export class InboxStore {
     try {
       for (const fragment of fragments) {
         this.db.prepare('INSERT OR IGNORE INTO fragments VALUES(?,?)').run(fragment.seq, fragment.part);
-        const row = this.db.prepare('SELECT seq,payload FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; payload: string } | undefined;
+        const row = this.db.prepare('SELECT seq,payload,consumed FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; payload: string; consumed: number } | undefined;
         // Older revocations can leave saved reads behind; reject their entire consumption.
         if (!row) { this.db.exec('ROLLBACK'); return false; }
         const count = (this.db.prepare('SELECT count(*) AS n FROM fragments WHERE seq=?').get(fragment.seq) as { n: number }).n;
         if (count === this.parts(JSON.parse(row.payload) as RelayInput, row.seq).length) {
           this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(fragment.seq);
+          const input = JSON.parse(row.payload) as RelayInput;
+          if (!row.consumed && input.metadata.agent_receipt) {
+            this.db.prepare(`UPDATE relay_receipts SET read_pending=1
+              WHERE agent_id=? AND message_id=? AND json_extract(input,'$.metadata.agent_receipt')=1`)
+              .run(input.agent_id,input.message.id);
+          }
           if (turn !== undefined) this.db.prepare('INSERT OR IGNORE INTO ingestions VALUES(?,?,?)').run(fragment.seq, session, turn);
         }
       }

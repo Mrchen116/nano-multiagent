@@ -1066,6 +1066,11 @@
       "imageClose": "关闭",
       "copySuccess": "已复制",
       "copyError": "复制失败，请重试",
+      "agentReceipt": {
+        "sent": "已发送，等待 Agent 收件",
+        "received": "Agent 已收到",
+        "read": "Agent 已读取"
+      },
       "messageActions": "消息操作",
       "moreActions": "更多操作",
       "branchFromHere": "从此处分支",

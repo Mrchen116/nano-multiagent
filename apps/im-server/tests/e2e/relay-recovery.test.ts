@@ -28,3 +28,32 @@ it('establishes current scope without a Work flush and history cannot replace it
  const retired=await g.frames.send('conversation.query',{node_id:g.node,agent_id:'global',session_id:'old-main',action:'list',request_id:'old-query'});expect(retired.type==='error'||retired.payload.ok===false).toBe(true);
  expect((await g.frames.send('conversation.query',{node_id:g.node,agent_id:'global',session_id:'current-main',action:'list',request_id:'still-current'})).payload.ok).toBe(true);
 });
+
+it('projects Global Agent receipt stages separately from the relay lifecycle', async () => {
+  const f = await start(), g = await bind(f);
+  const conversation = await f.http('POST', '/im/v1/conversations', {
+    title: 'Global Agent receipt', type: 'direct', participants: [{ type: 'agent', id: 'global' }],
+  }, f.tokens.alice);
+  expect(conversation.status, conversation.body).toBe(201);
+  const messages = `/im/v1/conversations/${conversation.body.id}/messages`;
+  const sent = await f.http('POST', messages, { sender_user_id: 'alice', content: 'Check the itinerary' }, f.tokens.alice);
+  expect(sent.status, sent.body).toBe(201);
+  expect(sent.body.agent_receipts).toMatchObject([{ agent_id: 'global', status: 'sent' }]);
+
+  const input = await g.frames.next(frame => frame.type === 'relay.message');
+  const receipt = async (status: string) => {
+    const reply = await g.frames.send('node.delivery_receipt', {
+      node_id: g.node, relay_task_id: input.payload.relay_task_id, delivery_status: status, request_id: status,
+    });
+    expect(reply.type, reply.payload).toBe('ack');
+  };
+  const history = async () => {
+    const response = await f.http('GET', messages, undefined, f.tokens.alice);
+    return response.body.items.find((item: any) => item.message?.id === sent.body.id)?.message;
+  };
+  await receipt('sent');
+  expect((await history()).agent_receipts).toMatchObject([{ agent_id: 'global', status: 'received' }]);
+  await receipt('read');
+  await receipt('failed');
+  expect((await history()).agent_receipts).toMatchObject([{ agent_id: 'global', status: 'read' }]);
+});

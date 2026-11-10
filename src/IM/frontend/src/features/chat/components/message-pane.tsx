@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Copy, GitFork, Reply } from "lucide-react";
+import { Check, CheckCheck, Copy, GitFork, Reply } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -1710,6 +1710,32 @@ function ContextMenu({
   );
 }
 
+function AgentReceipt({ receipts }: { receipts: NonNullable<Message["agent_receipts"]> }) {
+  const { t } = useTranslation();
+  const status = receipts.some(receipt => receipt.status === "sent") ? "sent"
+    : receipts.some(receipt => receipt.status === "received") ? "received" : "read";
+  const Icon = status === "sent" ? Check : CheckCheck;
+  const labels = receipts.map(receipt => ({
+    id: receipt.agent_id,
+    text: receipts.length === 1 ? t(`chat.messagePane.agentReceipt.${receipt.status}`)
+      : `${receipt.display_name} · ${t(`chat.messagePane.agentReceipt.${receipt.status}`)}`
+  }));
+
+  return (
+    <button type="button"
+      className={`group/receipt inline-flex h-5 w-5 shrink-0 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-offset-1 ${status === "read" ? "text-[var(--im-accent)]" : "text-[var(--im-text-muted)]"}`}
+      aria-label={labels.map(label => label.text).join(", ")}
+      onClick={event => event.currentTarget.focus()}
+      onKeyDown={event => { if (event.key === "Escape") event.currentTarget.blur(); }}
+    >
+      <Icon size={14} strokeWidth={1.8} aria-hidden="true" />
+      <span aria-hidden="true" className="pointer-events-none invisible absolute right-full top-1/2 z-20 mr-2 grid w-max -translate-y-1/2 max-w-60 gap-1 rounded-md border border-[var(--im-border)] bg-[var(--im-surface)] px-2 py-1 text-left text-[11px] leading-4 text-[var(--im-text)] shadow-sm group-hover/receipt:visible group-focus/receipt:visible">
+        {labels.map(label => <span key={label.id}>{label.text}</span>)}
+      </span>
+    </button>
+  );
+}
+
 function MessageBubble({
   message,
   historyProcess,
@@ -2087,7 +2113,10 @@ function MessageBubble({
 
         {message.update_wait && <p className={`mb-0 mt-1 text-[11px] leading-4 text-[var(--im-text-muted)] ${isUser?'text-right':''}`} role="status">{t(message.update_wait==='recovery_required'?'nodeUpdate.waitRecovery':'nodeUpdate.waitMessage')}</p>}
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
-          <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
+          <span className="relative inline-flex items-center gap-1">
+            <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
+            {isUser && !!message.agent_receipts?.length && <AgentReceipt receipts={message.agent_receipts} />}
+          </span>
           {message.interaction_reply && deliveryStatus === "pending" && <span role="status">{t("chat.interactive.queued")}</span>}
           {deliveryStatus === "running" && (
             <span className="flex items-center gap-1" style={{ color: "oklch(0.65 0.15 60)" }}>

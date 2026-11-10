@@ -132,9 +132,10 @@ export class FeishuConnection {
   async updateCard(messageId: string, card: Record<string, unknown>): Promise<void> {
     check(await this.call(() => this.client.im.v1.message.patch({ path: { message_id: messageId }, data: { content: JSON.stringify(card) } })));
   }
-  async thinking(messageId: string, reactionId?: string): Promise<string | undefined> {
+  /** Add a message reaction, or remove the Bot's prior reaction by ID. */
+  async reaction(messageId: string, reactionId?: string, emoji = 'THINKING'): Promise<string | undefined> {
     if (reactionId) { check(await this.call(() => this.client.im.v1.messageReaction.delete({ path: { message_id: messageId, reaction_id: reactionId } }))); return; }
-    const result = await this.call(() => this.client.im.v1.messageReaction.create({ path: { message_id: messageId }, data: { reaction_type: { emoji_type: 'THINKING' } } }));
+    const result = await this.call(() => this.client.im.v1.messageReaction.create({ path: { message_id: messageId }, data: { reaction_type: { emoji_type: emoji } } }));
     check(result); return result.data?.reaction_id;
   }
   async image(messageId: string, key: string): Promise<{ data: Buffer; mediaType: string }> {

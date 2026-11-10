@@ -563,8 +563,19 @@ export class Gateway {
         c.node_id,
       );
       if (!relay) fail(404, "relay task not found");
-      const targetAgent = this.requireAgent(c, JSON.parse(relay.payload_json).agent_id);
+      const input = JSON.parse(relay.payload_json);
+      const targetAgent = this.requireAgent(c, input.agent_id);
       s.access({ ...c, kind: "gateway" }, relay.conversation_id, targetAgent.agent_id);
+      if (p.delivery_status === 'read') {
+        if (input.metadata?.agent_receipt && relay.status !== 'cancelled') transaction(db, () => {
+          if (db.prepare('INSERT OR IGNORE INTO relay_message_reads VALUES(?)').run(relay.relay_task_id).changes) {
+            s.event(relay.conversation_id, relay.message_id, 'relay.delivery_receipt', {
+              relay_task_id: relay.relay_task_id, agent_id: targetAgent.agent_id, receipt_stage: 'read',
+            });
+          }
+        });
+        return ack({relay_task_id:p.relay_task_id});
+      }
       if (!['sent','accepted','completed','failed'].includes(p.delivery_status)) fail(400,'invalid_delivery_status');
       if (relay.status === 'completed' || relay.status === 'failed' || relay.receipt_status === p.delivery_status || (relay.receipt_status==='accepted' && p.delivery_status==='sent')) return ack({relay_task_id:p.relay_task_id});
       if (relay.status === "cancelled") return ack({relay_task_id:p.relay_task_id});

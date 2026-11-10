@@ -37,17 +37,23 @@ it('only consumes exact durable read fragments, across restart and a frozen page
   const dir = mkdtempSync(join(tmpdir(), 'nano-inbox-'));
   let store = new InboxStore(join(dir, 'inbox.sqlite3'));
   try {
-    store.receive(input('one', 'a'.repeat(7000)), true);
+    const message = input('one', 'a'.repeat(7000));
+    message.metadata.agent_receipt = true;
+    store.acceptRelay(message, true);
+    expect(store.pendingRelays().map(item => item.status)).toEqual(['sent']);
+    store.confirmRelay(message.relay_task_id, 'sent');
     const page = store.read('alice', 'main', 'call-1', { target: 'group-a', limit: 1 });
     expect(store.blocking('alice', 'group-a')).toBe(true);
     expect(store.commitRead('main', 'call-1', [{ type: 'text', text: 'truncated' }], false)).toBe(false);
     expect(store.commitRead('main', 'call-1', [{ type: 'text', text: JSON.stringify(page) }], false)).toBe(true);
     expect(store.blocking('alice', 'group-a')).toBe(true);
+    expect(store.pendingRelays()).toEqual([]);
     store.close(); store = new InboxStore(join(dir, 'inbox.sqlite3'));
     store.receive(input('two', 'new correction'), true);
     const rest = store.read('alice', 'main', 'call-2', { target: 'group-a', cursor: String(page.next_cursor), limit: 1 });
     expect(JSON.stringify(rest)).not.toContain('new correction');
     expect(store.commitRead('main', 'call-2', [{ type: 'text', text: JSON.stringify(rest) }], false)).toBe(true);
+    expect(store.pendingRelays().map(item => item.status)).toEqual(['read']);
     expect(store.check('alice').sources).toMatchObject([{ unread: 1 }]);
     expect(store.blocking('alice', 'group-a')).toBe(true);
     expect(() => store.read('bob', 'other', 'call-3', { target: 'group-a', cursor: String(page.next_cursor) })).toThrow('cursor');

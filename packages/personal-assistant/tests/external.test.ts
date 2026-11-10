@@ -13,7 +13,7 @@ it('routes external search and anchored reads to the authorized shadow while lab
     im: async path => ({ id: path.endsWith('find-or-create') ? 'shadow' : 'mirror' }),
     receive: async input => { accepted.push(input); }, permission: async () => {}, onError: () => {},
   });
-  const connection = { config: { appId: 'app' }, send: async () => 'sent', thinking: async () => undefined,
+  const connection = { config: { appId: 'app' }, send: async () => 'sent', reaction: async () => undefined,
     image: async () => ({ data: Buffer.alloc(0), mediaType: 'image/png' }), updateCard: async () => {} };
   external.add('a',connection);
   try {
@@ -43,7 +43,7 @@ it('marks only the configured owner direct chat as an owner recipient, including
     im:async(_path,options)=>({id:`shadow-${JSON.parse(String(options?.body)).external_chat_id}`}),
     receive:async input=>{accepted.push(input);},permission:async()=>{},onError:()=>{}});
   let sends=0;
-  const connection={config:{appId:'app',ownerOpenId:'owner-openid'},send:async()=>{sends++;return 'sent';},thinking:async()=>undefined,image:async()=>({data:Buffer.alloc(0),mediaType:'image/png'}),updateCard:async()=>{}};
+  const connection={config:{appId:'app',ownerOpenId:'owner-openid'},send:async()=>{sends++;return 'sent';},reaction:async()=>undefined,image:async()=>({data:Buffer.alloc(0),mediaType:'image/png'}),updateCard:async()=>{}};
   external.add('a',connection);
   try{
     for(const [id,senderId,isGroup] of [['owner','owner-openid',false],['other','other-openid',false],['group','owner-openid',true]] as const){
@@ -69,7 +69,7 @@ it('keeps external execution and confirmed sends available offline and does not 
     relay: { get ready() { return online; }, async request(_type, payload) { mirrored.push(payload); return { type: 'ack', payload: { message_id: 'im-bubble' } }; } },
     im: async (path, options) => { if (!online) throw new Error('offline'); requests.push(JSON.parse(String(options?.body))); return { id: path.endsWith('find-or-create') ? 'shadow-chat' : 'shadow-input' }; }, receive: async input => { accepted.push(input); }, permission: async () => {}, onError: () => {},
   });
-  external.add('a', { config: { appId: 'app', botOpenId: 'bot', ownerOpenId: 'human' }, async send() { sends++; return 'platform-result'; }, async thinking() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {} });
+  external.add('a', { config: { appId: 'app', botOpenId: 'bot', ownerOpenId: 'human' }, async send() { sends++; return 'platform-result'; }, async reaction() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {} });
   const message = { messageId: 'source', chatId: 'chat', senderId: 'human', isGroup: false, mentioned: false, time: '1000', parts: [{ type: 'text' as const, text: 'hello' }] };
   try {
     await external.receive('a', message); await external.receive('a', message);
@@ -120,7 +120,7 @@ it('gives Feishu Inbox the original occurrence and the owner timezone captured a
     receive: async input => { accepted = input; inbox.receive(input, true); }, permission: async () => {}, onError: () => {},
   });
   external.add('a', { config: { appId: 'app', ownerOpenId: 'human' }, async send() { return 'sent'; },
-    async thinking() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {} });
+    async reaction() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {} });
   const message = { messageId: 'morning', chatId: 'chat', senderId: 'human', senderName: '你', isGroup: false, mentioned: false,
     time: String(Date.parse('2026-10-14T01:00:00Z')), parts: [{ type: 'text' as const, text: '早，今天有什么安排？' }] };
   try {
@@ -142,7 +142,7 @@ it('keeps group approval values private and accepts only the bound owner on the 
     relay: { ready: false, async request() { throw new Error('offline'); } }, im: async () => { throw new Error('offline'); },
     receive: async input => { inputs.push(input); }, permission: async () => { decisions++; }, onError: () => {},
   });
-  external.add('a', { config: { appId: 'app', botOpenId: 'bot', ownerOpenId: 'owner-openid' }, async send(_chat, _text, _key, payload) { card = payload; return 'card'; }, async thinking() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {updates++;} });
+  external.add('a', { config: { appId: 'app', botOpenId: 'bot', ownerOpenId: 'owner-openid' }, async send(_chat, _text, _key, payload) { card = payload; return 'card'; }, async reaction() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {updates++;} });
   try {
     await external.receive('a', { messageId: 'group-input', chatId: 'group', senderId: 'member', isGroup: true, mentioned: true, time: '1000', parts: [{ type: 'text', text: 'request' }] });
     const input = inputs[0]!;
@@ -167,7 +167,7 @@ it('never reports completed before the platform response and preserves unknown o
     relay: { ready: true, async request(_type: string, payload: Record<string, unknown>) { frames.push(payload); return { type: 'ack', payload: { message_id: 'mirror' } }; } },
     im: async (path: string) => ({ id: path.endsWith('find-or-create') ? 'shadow' : 'input' }), receive: async (input: RelayInput) => { accepted.push(input); }, permission: async () => {}, onError: () => {},
   };
-  const connection = { config: { appId: 'app', botOpenId: 'bot' }, send() { sends++; return new Promise<string>((_resolve, reject) => { rejectSend = reject; }); }, async thinking() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {} };
+  const connection = { config: { appId: 'app', botOpenId: 'bot' }, send() { sends++; return new Promise<string>((_resolve, reject) => { rejectSend = reject; }); }, async reaction() { return undefined; }, async image() { return { data: Buffer.alloc(0), mediaType: 'image/png' }; }, async updateCard() {} };
   let external = new ExternalChannels(path, options); external.add('a', connection);
   try {
     await external.receive('a', { messageId: 'source', chatId: 'chat', senderId: 'human', isGroup: false, mentioned: false, time: '1000', parts: [{ type: 'text', text: 'hello' }] });
@@ -198,7 +198,7 @@ it('mirrors personal inputs once for observation without blocking them on failed
   im:async(path,options)=>{if(path.endsWith('find-or-create'))return {id:'shadow-chat'};const content=JSON.parse(String(options?.body)).content;mirrors.push(content);return {id:`shadow-${content}`};},
   personalDelivery:delivery=>delivery.dispatch(delivery.text),
   receive:async()=>{received++;},permission:async()=>{},onError:error=>{errors.push(error);}});
- external.add('pa',{config:{appId:'app'},send:async()=>{sent++;return 'om_actual';},thinking:async(_id,reaction)=>{if(reaction)removed++;return 'thinking';},image:async()=>({data:Buffer.alloc(0),mediaType:'image/png'}),updateCard:async()=>{}});
+ external.add('pa',{config:{appId:'app'},send:async()=>{sent++;return 'om_actual';},reaction:async(_id,reaction)=>{if(reaction)removed++;return 'thinking';},image:async()=>({data:Buffer.alloc(0),mediaType:'image/png'}),updateCard:async()=>{}});
  try {
   const message={messageId:'m',chatId:'dm',senderId:'peer',isGroup:false,mentioned:false,time:'1000',parts:[{type:'text' as const,text:'first'}]};
   await external.receive('pa',message);
@@ -256,4 +256,47 @@ it('describes selected external targets in chat order with aliases, deduplicatio
     expect((await query({action:'info',target:'shadow-first'})).payload.result).toMatchObject({id:'first'});
     expect((await query({action:'info',target:'conversation:shadow-first'})).payload.result).toEqual({forwarded:true});
   } finally {await external.stop();store.close();}
+});
+
+it('sets a Global Feishu receipt after Inbox admission and replaces it only on read', async () => {
+  const store = new NodeStore(':memory:', 'owner');
+  const inbox = new InboxStore(':memory:');
+  const reactions = vi.fn(async (_messageId: string, prior?: string, emoji?: string) => prior ? undefined : `reaction-${emoji}`);
+  const external = new ExternalChannels(':memory:', {
+    nodeId: 'node', ownerId: 'owner', store, globalAgent: () => true,
+    relay: { ready: false, request: async () => { throw new Error('Center unavailable'); } },
+    im: async () => { throw new Error('Center unavailable'); },
+    receive: async input => { inbox.acceptRelay(input, true); },
+    permission: async () => {}, onError: () => {},
+  });
+  external.add('a', {
+    config: { appId: 'app' }, reaction: reactions, send: async () => 'reply',
+    image: async () => ({data: Buffer.alloc(0), mediaType: 'image/png'}), updateCard: async () => {},
+  });
+  try {
+    await external.receive('a', {
+      messageId: 'message', chatId: 'chat', senderId: 'human', isGroup: false, mentioned: false,
+      time: '1000', parts: [{type: 'text', text: 'hello'}],
+    });
+    expect(reactions).not.toHaveBeenCalled();
+    const received = inbox.pendingRelays('feishu')[0]!;
+    expect(received.status).toBe('sent');
+    const deliver = (status: string) => external.request('node.delivery_receipt', {
+      relay_task_id: received.input.relay_task_id, delivery_status: status,
+    });
+    await deliver(received.status);
+    inbox.confirmRelay(received.input.relay_task_id, received.status);
+    expect(reactions.mock.calls).toEqual([['message', undefined, 'OK']]);
+
+    const page = inbox.read('a', 'main', 'read', {target: received.input.conversation_id});
+    expect(inbox.commitRead('main', 'read', [{type: 'text', text: JSON.stringify(page)}], false)).toBe(true);
+    const read = inbox.pendingRelays('feishu')[0]!;
+    expect(read.status).toBe('read');
+    await deliver(read.status);
+    await deliver('completed');
+    await deliver('read');
+    expect(reactions.mock.calls).toEqual([
+      ['message', undefined, 'OK'], ['message', 'reaction-OK'], ['message', undefined, 'CheckMark'],
+    ]);
+  } finally { await external.stop(); inbox.close(); store.close(); }
 });

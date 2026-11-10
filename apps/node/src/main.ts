@@ -437,6 +437,7 @@ async function im(path: string, options?: RequestInit): Promise<unknown> {
 
 external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, store, relay,
   personalAgent: id => !!agents.find(agent => agent.agentId === id)?.personal,
+  globalAgent: id => agents.some(agent => agent.agentId === id && agent.mode === 'global' && !agent.personal),
   personalDelivery: delivery => globalProduct.externalDelivery(delivery),
   onError: reportError, runtimeFooter: config.display?.platforms?.feishu?.runtime_footer?.enabled ?? config.display?.runtime_footer?.enabled,
   attention: input => needsAttention(input, agents.find(agent => agent.agentId === input.agent_id)!),

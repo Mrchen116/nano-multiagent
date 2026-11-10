@@ -1067,6 +1067,11 @@
       "imageClose": "Close",
       "copySuccess": "Copied",
       "copyError": "Copy failed. Please try again.",
+      "agentReceipt": {
+        "sent": "Sent, awaiting Agent receipt",
+        "received": "Received by Agent",
+        "read": "Read by Agent"
+      },
       "messageActions": "Message actions",
       "moreActions": "More actions",
       "branchFromHere": "Branch from here",

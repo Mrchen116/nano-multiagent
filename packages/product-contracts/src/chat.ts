@@ -108,6 +108,12 @@ export function projectChatReplyContext(reply: ChatReplyReference) {
   };
 }
 
+export interface AgentMessageReceipt {
+  agent_id: string;
+  display_name: string;
+  status: 'sent' | 'received' | 'read';
+}
+
 export interface ChatMessage {
   id: string; conversation_id: string; sender_user_id: string; sender_type: string; lifecycle_revision: number | null;
   content: string; delivery_status: string; created_at: string; timezone: string | null; elapsed_ms: number | null; kernel_message_id: string | null;
@@ -118,6 +124,7 @@ export interface ChatMessage {
   reply_process: ChatProcessItem[]; permission_requests: ChatPermission[]; token_usage: ChatUsage | null;
   system_notice: unknown; interaction_reply: InteractionSnapshot | null; interactive?: MessageInteractive;
   update_wait?: 'updating' | 'recovery_required' | null;
+  agent_receipts?: AgentMessageReceipt[];
   pa_agent_id?: string;
   delegation?: {agent_id: string; authorized_by: string; display_name: string; label: string};
   /** Internal non-enumerable projection details, never copied into client JSON. */

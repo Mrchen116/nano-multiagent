@@ -229,6 +229,20 @@ export class MessageRecords {
       reply_process:JSON.parse(m.reply_process_json??'[]'),permission_requests:permissions,
       token_usage:JSON.parse(m.token_usage_json??'null'),system_notice:JSON.parse(m.system_notice_json??'null'),interaction_reply:JSON.parse(m.interaction_reply_json??'null'),
     };
+    if (m.sender_type === 'user') {
+      const receipts = this.db.prepare(`
+        SELECT a.agent_id, a.display_name, CASE
+          WHEN r.relay_task_id IS NOT NULL THEN 'read'
+          WHEN t.receipt_status IS NOT NULL THEN 'received'
+          ELSE 'sent' END AS status
+        FROM relay_tasks t
+        JOIN agent_profiles a ON a.agent_id=json_extract(t.payload_json,'$.agent_id')
+        LEFT JOIN relay_message_reads r ON r.relay_task_id=t.relay_task_id
+        WHERE t.message_id=? AND t.status!='cancelled' AND json_extract(t.payload_json,'$.metadata.agent_receipt')=1
+        ORDER BY a.display_name, a.agent_id
+      `).all(id) as unknown as NonNullable<ChatMessage['agent_receipts']>;
+      if (receipts.length) result.agent_receipts = receipts;
+    }
     const interactive=this.ports.interactions.message(id);if(interactive)result.interactive=interactive;
     Object.defineProperties(result,{awaiting_permission_at:{value:m.awaiting_permission_at},sender_source_id:{value:m.sender_source_id}});
     return result;
