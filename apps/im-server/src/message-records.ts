@@ -21,6 +21,7 @@ export interface PublicationRecord {dispatch_request_key:string;source_agent_id:
 interface MessageUser {id:string; username:string; display_name:string; is_stale?:number}
 export interface MessageMetadata {
   reply_to?:ChatMessage['reply_to'];
+  trackReceipts?: boolean;
   created_at?:string; sender_display_name?:string; sender_source_id?:string; timezone?:string|null;
   system_notice?:unknown; interactive?:unknown; interaction_reply?:InteractionSnapshot; publish?:boolean;
   personal_source?:{binding_id:string; agent_id:string; owner_user_id:string; display_name:string; operation_id?:string|null};
@@ -134,6 +135,18 @@ export class MessageRecords {
   process(id:string,items:ChatProcessItem[]):void {this.db.prepare('UPDATE messages SET reply_process_json=? WHERE id=?').run(JSON.stringify(items),id);}
   /** Refresh an already active permission wait after an authorized native heartbeat. */
   heartbeat(id:string):void {this.db.prepare('UPDATE messages SET awaiting_permission_at=? WHERE id=?').run(now(),id);}
+  /** Attach per-recipient receipt details to the original sender's view. */
+  senderView<T extends ChatMessage>(message: T, viewerId: string): T {
+    if (!message.receipts_requested || message.sender_user_id !== viewerId) return message;
+    const receipts = this.db.prepare(`
+      SELECT r.recipient_id, coalesce(a.display_name,u.display_name) AS display_name,
+        CASE r.status WHEN 2 THEN 'read' WHEN 1 THEN 'received' ELSE 'sent' END AS status
+      FROM message_receipts r JOIN users u ON u.id=r.recipient_id
+      LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
+      WHERE r.message_id=? ORDER BY display_name,r.recipient_id
+    `).all(message.id) as unknown as NonNullable<ChatMessage['receipts']>;
+    return {...message, receipts};
+  }
   /** Project public message data and non-enumerable internal details from stored columns.
    * Raises:
    *   Error: HTTP 404 if the message does not exist.
@@ -229,6 +242,8 @@ export class MessageRecords {
       reply_process:JSON.parse(m.reply_process_json??'[]'),permission_requests:permissions,
       token_usage:JSON.parse(m.token_usage_json??'null'),system_notice:JSON.parse(m.system_notice_json??'null'),interaction_reply:JSON.parse(m.interaction_reply_json??'null'),
     };
+    if (m.sender_type === 'user' && this.db.prepare('SELECT 1 FROM message_receipts WHERE message_id=?').get(id))
+      result.receipts_requested = true;
     const interactive=this.ports.interactions.message(id);if(interactive)result.interactive=interactive;
     Object.defineProperties(result,{awaiting_permission_at:{value:m.awaiting_permission_at},sender_source_id:{value:m.sender_source_id}});
     return result;
@@ -298,6 +313,15 @@ export class MessageRecords {
     }
     if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
     if (extra.reply_to) this.db.prepare('UPDATE messages SET reply_to_json=? WHERE id=?').run(JSON.stringify(extra.reply_to),id);
+    if (extra.trackReceipts) this.db.prepare(`
+      INSERT INTO message_receipts(message_id,recipient_id)
+      SELECT ?,p.user_id FROM conversation_participants p
+      JOIN conversations c ON c.id=p.conversation_id
+      JOIN users u ON u.id=p.user_id
+      LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
+      WHERE c.id=? AND p.user_id<>? AND c.external_source IS NULL AND
+        (c.type='group' OR (c.type='direct' AND (a.agent_id IS NULL OR a.work_mode='global')))
+    `).run(id,cId,sender);
     const m = this.message(id);
     // Shadow messages store under the local owner even when the provider has no display name.
     const data = {...m,message_id:id,...(extra.sender_source_id

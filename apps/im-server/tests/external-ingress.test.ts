@@ -47,7 +47,7 @@ it.each([true, false])('mirrors Feishu text and images over the Node HTTP adapte
     };
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
     const connection = { config: { appId: 'app', ownerOpenId: 'sender' }, send: async () => 'provider-receipt',
-      thinking: async () => undefined, image: async () => ({ data: png, mediaType: 'image/png' }), updateCard: async () => {} };
+      reaction: async () => undefined, image: async () => ({ data: png, mediaType: 'image/png' }), updateCard: async () => {} };
     external = new ExternalChannels(join(directory, 'external.sqlite3'), options);
     external.add('agent', connection);
     const message = { messageId: 'provider-message', chatId: 'provider-chat', senderId: 'sender', isGroup: false,

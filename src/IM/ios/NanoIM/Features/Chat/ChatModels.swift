@@ -88,6 +88,14 @@ struct ChatPermission: Codable, Sendable, Identifiable {
     var agent_id: String?
     var id: String { request_id }
 }
+struct MessageReceipt: Codable, Sendable, Identifiable {
+    enum Status: String, Codable, Sendable { case sent, received, read }
+    var recipient_id: String
+    var display_name: String
+    var status: Status
+    var id: String { recipient_id }
+}
+
 struct ChatMessage: Codable, Sendable, Identifiable {
     var id: String
     var conversation_id: String
@@ -110,6 +118,8 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var interactive: MessageInteractive?
     var interaction_reply: JSONValue?
     var pa_agent_id: String?
+    var receipts_requested: Bool?
+    var receipts: [MessageReceipt]?
     var delegation: JSONValue?
 }
 struct TimelineItem: Codable, Sendable, Identifiable {

@@ -1067,6 +1067,12 @@
       "imageClose": "Close",
       "copySuccess": "Copied",
       "copyError": "Copy failed. Please try again.",
+      "receipt": {
+        "pending": "Pending",
+        "sent": "Sent, awaiting delivery",
+        "received": "Delivered",
+        "read": "Read"
+      },
       "messageActions": "Message actions",
       "moreActions": "More actions",
       "branchFromHere": "Branch from here",

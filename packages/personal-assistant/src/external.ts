@@ -11,7 +11,7 @@ type CompletedMessage = Extract<ChatStreamFact, {kind: 'message_completed'}>;
 interface Connection {
   config: Pick<FeishuConfiguration, 'appId' | 'botOpenId' | 'ownerOpenId'>;
   send(chatId: string, text: string, operationId: string, card?: Record<string, unknown>): Promise<string>;
-  thinking(messageId: string, reactionId?: string): Promise<string | undefined>;
+  reaction(messageId: string, reactionId?: string, emoji?: string): Promise<string | undefined>;
   image(messageId: string, key: string): Promise<{ data: Buffer; mediaType: string }>;
   updateCard(messageId: string, card: Record<string, unknown>): Promise<void>;
 }
@@ -24,6 +24,7 @@ interface Options {
   nodeId: string; ownerId: string; store: NodeStore;
   runtimeFooter?: boolean;
   personalAgent?(agentId:string):boolean;
+  globalAgent?(agentId:string):boolean;
   personalDelivery?(delivery:ExternalDelivery):Promise<string|undefined>;
   attention?(input: RelayInput): boolean;
   relay: { readonly ready: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
@@ -69,7 +70,7 @@ export class ExternalChannels {
   add(agentId: string, connection: Connection): void {
     this.connections.set(agentId,{config:connection.config,
       send:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.send(...args);},
-      thinking:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.thinking(...args);},
+      reaction:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.reaction(...args);},
       image:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.image(...args);},
       updateCard:(...args)=>{this.options.store.lifecycle.assert(agentId);return connection.updateCard(...args);}});
   }
@@ -106,6 +107,7 @@ export class ExternalChannels {
         created_at: new Date(Number.isFinite(Number(message.time)) && Number(message.time) > 0 ? Number(message.time) : Date.now()).toISOString(),
         ...(message.senderId === connection.config.ownerOpenId && this.options.store.ownerTimezone ? { timezone: this.options.store.ownerTimezone } : {}),
       } };
+    if (this.options.globalAgent?.(agentId) && this.attention(input, message)) input.metadata.agent_receipt = true;
     input=this.options.store.admitInput(input);
     this.state.saveInbound(eventId, id, message, input);
     return this.admitOnce(eventId);
@@ -122,11 +124,14 @@ export class ExternalChannels {
     if(!this.options.store.lifecycle.allowed(row.input.agent_id,row.input.lifecycle_revision??1))return;
     return this.options.store.lifecycle.run(row.input.agent_id,row.input.lifecycle_revision??1,()=>this.admitInput(row));
   }
+  private attention(input: RelayInput, message: FeishuMessage): boolean {
+    return !message.contextOnly && (this.options.attention?.(input) ?? (!message.isGroup || message.mentioned));
+  }
   private async admitInput(row:ExternalInbound) {
     const id=row.id;
     const chat = this.state.chat(row.chatId)!; const connection = this.connections.get(chat.agentId)!;
-    if (!row.reaction && (this.options.attention?.(row.input) ?? (!row.message.isGroup || row.message.mentioned))) {
-      try { const reaction = await connection.thinking(row.message.messageId); if (reaction) this.state.reaction(id, reaction); } catch (error) { this.options.onError(error); }
+    if (!row.reaction && !row.input.metadata.agent_receipt && this.attention(row.input, row.message)) {
+      try { const reaction = await connection.reaction(row.message.messageId); if (reaction) this.state.reaction(id, reaction); } catch (error) { this.options.onError(error); }
     }
     // Persist actual image bytes before admitting the input so restart never changes its content.
     for (const part of row.message.parts) if (part.type === 'image') {
@@ -196,7 +201,11 @@ export class ExternalChannels {
       return ack(type);
     }
     if (type === 'node.delivery_receipt' && String(payload.relay_task_id).startsWith('external:')) {
-      if (['completed', 'failed'].includes(String(payload.delivery_status))) await this.removeReaction(String(payload.relay_task_id));
+      const id = String(payload.relay_task_id);
+      const row = this.state.inbound(id);
+      if (row?.input.metadata.agent_receipt) {
+        await this.showReceipt(row, payload.delivery_status === 'read' ? 'read' : 'received');
+      } else if (['completed', 'failed'].includes(String(payload.delivery_status))) await this.removeReaction(id);
       return ack(type);
     }
     if (type === 'node.system_message') {
@@ -315,10 +324,27 @@ export class ExternalChannels {
     })().finally(() => this.dispatches.delete(output.id));
     this.dispatches.set(output.id, task); return task;
   }
+  private async showReceipt(row: ExternalInbound, stage: 'received' | 'read'): Promise<void> {
+    if (row.reactionStage === stage || row.reactionStage === 'read') return;
+    const {agent_id: agentId, lifecycle_revision: revision} = row.input;
+    if (!this.options.store.lifecycle.allowed(agentId, revision ?? 1)) return;
+    const connection = this.connections.get(agentId);
+    if (!connection || connection.config.appId !== this.state.chat(row.chatId)?.appId)
+      throw new RelayDeliveryError('External app is unavailable', 'not-sent');
+    await this.options.store.lifecycle.run(agentId, revision, async () => {
+      if (row.reaction) {
+        await connection.reaction(row.message.messageId, row.reaction);
+        this.state.reaction(row.id, null);
+      }
+      const reaction = await connection.reaction(row.message.messageId, undefined, stage === 'read' ? 'CheckMark' : 'OK');
+      if (!reaction) throw new Error('Feishu returned no reaction identity');
+      this.state.reaction(row.id, reaction, stage);
+    });
+  }
   private async removeReaction(id: string): Promise<void> {
-    const row = this.state.inbound(id); if (!row?.reaction) return;
+    const row = this.state.inbound(id); if (!row?.reaction || row.input.metadata.agent_receipt) return;
     const connection = this.connections.get(row.input.agent_id); if (!connection || !this.options.store.lifecycle.allowed(row.input.agent_id,row.input.lifecycle_revision??1)) return;
-    try { await connection.thinking(row.message.messageId, row.reaction); this.state.reaction(id, null); } catch (error) { this.options.onError(error); }
+    try { await connection.reaction(row.message.messageId, row.reaction); this.state.reaction(id, null); } catch (error) { this.options.onError(error); }
   }
   private query(payload: Record<string, unknown>): Record<string, unknown> | undefined {
     const describe = (chat: ExternalChat) => {

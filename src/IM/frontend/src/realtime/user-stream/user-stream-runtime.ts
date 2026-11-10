@@ -51,6 +51,7 @@ export interface UserStreamRuntimeDependencies {
   createSocket(url: string): UserStreamSocket;
   readCursor(userId: string): number;
   writeCursor(userId: string, cursor: number): void;
+  onMessageReceived?(payload: Record<string, unknown>): void;
   sync(): Promise<UserStreamSync>;
   reportError(error: unknown): void;
   resolveUrl(accessToken: string): string | Promise<string>;
@@ -262,6 +263,7 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     if ((event.eventType === "conversation.membership_changed" || event.eventType === "conversation.deleted") && typeof event.payload.conversation_id === "string") {
       window.dispatchEvent(new CustomEvent("im:conversation-invalidated", { detail: event.payload.conversation_id }));
     }
+    if (event.eventType === "message.created") dependencies.onMessageReceived?.(event.payload);
     if (event.eventId !== undefined) {
       const current = readCursor(userId);
       if (event.eventId <= current) return;

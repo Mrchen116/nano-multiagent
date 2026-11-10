@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Copy, GitFork, Reply } from "lucide-react";
+import { Check, CheckCheck, Copy, GitFork, Reply } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -46,7 +46,7 @@ import {
   type ReplyReference,
   type TimelineItem
 } from "../chat-types";
-import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName } from "./avatar";
+import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName, initialsOf } from "./avatar";
 import { KindBadge } from "./kind-badge";
 import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
@@ -1710,6 +1710,92 @@ function ContextMenu({
   );
 }
 
+function MessageReceipt({ receipts: cached, load }: {
+  receipts: NonNullable<Message["receipts"]>;
+  load?: (signal: AbortSignal) => Promise<Message>;
+}) {
+  const { t } = useTranslation();
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [position, setPosition] = useState<React.CSSProperties>();
+  const [fetched, setFetched] = useState<Message["receipts"]>();
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    if (!position) return;
+    const request = new AbortController();
+    void loadRef.current?.(request.signal).then(message => {
+      if (!request.signal.aborted) setFetched(message.receipts);
+    }).catch(() => {});
+    const timeline = trigger.current?.closest(".chat-pane-messages");
+    const close = () => setPosition(undefined);
+    timeline?.addEventListener("scroll", close);
+    window.addEventListener("resize", close);
+    return () => {
+      request.abort();
+      timeline?.removeEventListener("scroll", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [position]);
+  const order = { sent: 0, received: 1, read: 2 };
+  const fetchedById = new Map(fetched?.map(receipt => [receipt.recipient_id, receipt]));
+  const receipts = cached.map(receipt => {
+    const current = fetchedById.get(receipt.recipient_id);
+    return current && order[current.status] >= order[receipt.status] ? current : receipt;
+  });
+  const status = receipts.some(receipt => receipt.status === "sent") ? "sent"
+    : receipts.some(receipt => receipt.status === "received") ? "received" : "read";
+  const Icon = status === "sent" ? Check : CheckCheck;
+  const label = receipts.map(receipt => {
+    const state = t(`chat.messagePane.receipt.${receipt.status}`);
+    return receipts.length === 1 ? state : `${receipt.display_name} · ${state}`;
+  }).join(", ");
+
+  return (
+    <Dialog.Root modal={false} open={position !== undefined} onOpenChange={open => {
+      const rect = trigger.current?.getBoundingClientRect();
+      if (!open || !rect) { setPosition(undefined); return; }
+      const width = Math.min(240, window.innerWidth - 16);
+      const below = window.innerHeight - rect.bottom;
+      const above = below < 270 && rect.top > below;
+      setPosition({ width, left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)),
+        maxHeight: Math.min(256, (above ? rect.top : below) - 14),
+        ...(above ? { bottom: window.innerHeight - rect.top + 6 } : { top: rect.bottom + 6 }) });
+    }}>
+      <Dialog.Trigger asChild>
+        <button ref={trigger} type="button"
+          className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-offset-1 ${status === "read" ? "text-[var(--im-accent)]" : "text-[var(--im-text-muted)]"}`}
+          aria-label={label}>
+          <Icon size={14} strokeWidth={1.8} aria-hidden="true" />
+        </button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Content style={position} tabIndex={0} aria-describedby={undefined}
+          className="fixed z-50 overflow-y-auto overscroll-contain rounded-xl border border-[var(--im-border)] bg-[var(--im-surface)] text-left shadow-[var(--im-shadow-strong)]">
+          <Dialog.Title className="sr-only">{t(`chat.messagePane.receipt.${status}`)}</Dialog.Title>
+        <span className="grid gap-1 px-3 py-2">
+          {receipts.map(receipt => {
+            const Mark = receipt.status === "sent" ? Check : CheckCheck;
+            const tint = receipt.status === "read"
+              ? "bg-[var(--im-accent-soft)] text-[var(--im-accent-2)]"
+              : "bg-[var(--im-surface-2)] text-[var(--im-text-muted)]";
+            return (
+              <span key={receipt.recipient_id} className="flex min-h-8 items-center gap-2">
+                <Avatar initials={initialsOf(receipt.display_name)} color={colorForAgentSeed(receipt.display_name)} size={24} />
+                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--im-text)]">{receipt.display_name}</span>
+                <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${tint}`}>
+                  <Mark size={12} strokeWidth={1.9} />
+                  {t(receipt.status === "sent" ? "chat.messagePane.receipt.pending" : `chat.messagePane.receipt.${receipt.status}`)}
+                </span>
+              </span>
+            );
+          })}
+        </span>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
 function MessageBubble({
   message,
   historyProcess,
@@ -2087,7 +2173,11 @@ function MessageBubble({
 
         {message.update_wait && <p className={`mb-0 mt-1 text-[11px] leading-4 text-[var(--im-text-muted)] ${isUser?'text-right':''}`} role="status">{t(message.update_wait==='recovery_required'?'nodeUpdate.waitRecovery':'nodeUpdate.waitMessage')}</p>}
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
-          <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
+          <span className="relative inline-flex items-center gap-1">
+            <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
+            {isUser && !!message.receipts?.length && <MessageReceipt receipts={message.receipts}
+              load={historyProcess && (signal => historyProcess.load(message.id, signal))} />}
+          </span>
           {message.interaction_reply && deliveryStatus === "pending" && <span role="status">{t("chat.interactive.queued")}</span>}
           {deliveryStatus === "running" && (
             <span className="flex items-center gap-1" style={{ color: "oklch(0.65 0.15 60)" }}>
@@ -2106,7 +2196,7 @@ function MessageBubble({
               ⏱ {elapsedDisplay}
             </span>
           )}
-          {deliveryStatus === "failed" && (
+          {deliveryStatus === "failed" && (!isUser || !message.receipts?.length) && (
             <span className="text-[oklch(0.55 0.15 25)]">{t("chat.messagePane.failed")}</span>
           )}
 

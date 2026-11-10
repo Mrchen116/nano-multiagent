@@ -103,7 +103,7 @@ it('keeps an external image admission in its original epoch across stop and rest
   const store=new NodeStore(':memory:','owner');let release!:()=>void,started!:()=>void;const ready=new Promise<void>(r=>started=r),gate=new Promise<void>(r=>release=r);let received=0,mirrored=0;
   const external=new ExternalChannels(':memory:',{nodeId:'n',ownerId:'owner',store,relay:{ready:true,request:async()=>({type:'ack',payload:{}})},
     im:async()=>{mirrored++;return {id:'shadow'};},receive:async()=>{received++;},permission:async()=>{},onError:()=>{}});
-  external.add('a',{config:{appId:'app'},send:async()=>'',thinking:async()=>undefined,image:async()=>{started();await gate;return {data:Buffer.alloc(1),mediaType:'image/png'};},updateCard:async()=>{}});
+  external.add('a',{config:{appId:'app'},send:async()=>'',reaction:async()=>undefined,image:async()=>{started();await gate;return {data:Buffer.alloc(1),mediaType:'image/png'};},updateCard:async()=>{}});
   try {
     const message={messageId:'image',chatId:'c',senderId:'owner',isGroup:false,mentioned:false,time:'1',parts:[{type:'image' as const,key:'key'}]};
     const pending=external.receive('a',message);await ready;disableEnable(store);release();

@@ -393,6 +393,7 @@ export function ChatWorkspacePage() {
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState<boolean | null>(null);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const olderMessageIdsRef = useRef<Set<string> | null>(null);
   const conversationIdRef = useRef(conversationId);
   // Leaving a conversation clears the private background this browser had confirmed, and
   // only that: a device without a watermark sends nothing, so another device's unsent edit
@@ -618,6 +619,7 @@ export function ChatWorkspacePage() {
       setCleanupAnchor(messageId ? { conversationId: id, messageId } : null);
       pendingLiveMessageIdsRef.current.clear();
       pendingDiscardedMessageIdsRef.current.clear();
+      olderMessageIdsRef.current = null;
       setHistoryCursor(null);
       setHasMoreHistory(null);
       setIsLoadingHistory(false);
@@ -651,6 +653,7 @@ export function ChatWorkspacePage() {
     historyRequestRef.current?.controller.abort();
     if (deniedConversation.current !== conversationId) deniedConversation.current = undefined;
     conversationIdRef.current = conversationId;
+    olderMessageIdsRef.current = null;
     setHistoryCursor(null);
     setHasMoreHistory(null);
     setIsLoadingHistory(false);
@@ -669,8 +672,10 @@ export function ChatWorkspacePage() {
     if (!conversationId || !activeConversation || !messagesQuery.data) return;
     const pageRevision = messagesQuery.data.execution_cleanup_revision ?? 0;
     if (observeExecutionCleanup(conversationId, pageRevision) || pageRevision !== (cleanupRevisions.current.get(conversationId) ?? 0)) return;
-    setHistoryCursor(messagesQuery.data.next_before_message_id);
-    setHasMoreHistory(messagesQuery.data.next_before_message_id !== null);
+    if (olderMessageIdsRef.current === null) {
+      setHistoryCursor(messagesQuery.data.next_before_message_id);
+      setHasMoreHistory(messagesQuery.data.next_before_message_id !== null);
+    }
     const restored = messagesQuery.data.items.map((item): TimelineItem => {
       if (item.type !== "message") return item;
       const m = item.message;
@@ -689,6 +694,13 @@ export function ChatWorkspacePage() {
     });
     const preserveMessageIds = new Set(pendingLiveMessageIdsRef.current);
     const discardedMessageIds = new Set(pendingDiscardedMessageIdsRef.current);
+    if (olderMessageIdsRef.current) {
+      // A latest-page refresh must leave already paginated history in place.
+      const latestIds = new Set(restored.flatMap(item => item.type === "message" ? [item.message.id] : []));
+      for (const id of olderMessageIdsRef.current) {
+        if (!latestIds.has(id) && !discardedMessageIds.has(id)) preserveMessageIds.add(id);
+      }
+    }
     dispatch({ type: "reset", conversationId, timeline: restored, preserveMessageIds, discardedMessageIds });
     pendingLiveMessageIdsRef.current.clear();
     pendingDiscardedMessageIdsRef.current.clear();
@@ -711,6 +723,11 @@ export function ChatWorkspacePage() {
       if (conversationIdRef.current !== conversationId || controller.signal.aborted) return;
       const pageRevision = page.execution_cleanup_revision ?? 0;
       if (observeExecutionCleanup(conversationId, pageRevision) || pageRevision !== (cleanupRevisions.current.get(conversationId) ?? 0)) return;
+      const olderIds = olderMessageIdsRef.current ??= new Set();
+      for (const item of page.items) {
+        if (item.type === "message") olderIds.add(item.message.id);
+        else if (!("type" in item)) olderIds.add((item as Message).id);
+      }
       dispatch({ type: "prepend_history", timeline: page.items });
       setHistoryCursor(page.next_before_message_id);
       setHasMoreHistory(page.next_before_message_id !== null);
@@ -788,6 +805,7 @@ export function ChatWorkspacePage() {
     if (conversationIdRef.current !== id) return;
     pendingLiveMessageIdsRef.current.clear();
     pendingDiscardedMessageIdsRef.current.clear();
+    olderMessageIdsRef.current = null;
     setHistoryCursor(null);
     setHasMoreHistory(null);
     setIsLoadingHistory(false);
@@ -867,6 +885,8 @@ export function ChatWorkspacePage() {
     const dispose = subscribeUserStream({
       onRecovery: async snapshot => {
         const priorAnchor = visibleReadingAnchor();
+        // Recovery can skip discards, so only an ordinary refresh retains older pages.
+        olderMessageIdsRef.current = null;
         for (const [id, revision] of Object.entries(snapshot?.executionCleanupRevisions ?? {})) {
           observeExecutionCleanup(id, revision, priorAnchor);
         }
@@ -900,7 +920,7 @@ export function ChatWorkspacePage() {
         }
         if (event.eventType === "agent.config.changed") void queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
         if (event.eventType === 'node.update_changed') void queryClient.invalidateQueries({queryKey:['chat','nodes']});
-        if ((event.eventType === 'node.update_wait_changed' || event.eventType === 'relay.delivery_receipt') && event.payload.conversation_id === conversationIdRef.current) {
+        if ((['node.update_wait_changed', 'relay.delivery_receipt', 'message.receipts_changed'].includes(event.eventType)) && event.payload.conversation_id === conversationIdRef.current) {
           void queryClient.invalidateQueries({queryKey:['chat','messages',conversationIdRef.current]});
         }
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);

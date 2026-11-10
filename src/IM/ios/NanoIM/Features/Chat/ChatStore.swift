@@ -101,6 +101,8 @@ final class ChatStore {
     private var needsList = false
     private var refreshTask: Task<Void, Never>?
     private var accessRecovery: Task<Void, Never>?
+    @ObservationIgnored private var deliveryTask: Task<Void, Never>?
+    @ObservationIgnored private var pendingDelivery: Set<String> = []
     @ObservationIgnored private var attemptRestore: Task<Void, Never>?
     @ObservationIgnored private var draftFlush: Task<Void, Never>?
     @ObservationIgnored private var draftWriteTail: Task<Void, Never>?
@@ -354,6 +356,7 @@ final class ChatStore {
     func stop() {
         epoch = UUID(); refreshTask?.cancel(); refreshTask = nil
         accessRecovery?.cancel(); accessRecovery = nil
+        deliveryTask?.cancel(); deliveryTask = nil
         Task { await stream.stop() }
     }
 
@@ -365,6 +368,7 @@ final class ChatStore {
         draftWriteTail?.cancel(); draftWriteTail = nil
         queuedDrafts = [:]; dirtyDraftIDs = []
         stop()
+        pendingDelivery.removeAll()
         timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
         inspectedConversation = nil; before = [:]; olderNeedsNetwork = []; receivedTimelineResults = []
         interactionPending = [:]; interactionConversations = [:]; interactionSending = []; sending = []
@@ -388,6 +392,7 @@ final class ChatStore {
                 let currentUser = try await client.session.updateUser()
                 guard token == epoch, !Task.isCancelled else { return }
                 guard currentUser.accountEnabled else { return }
+                confirmMessageDelivery([])
                 let request = try await readRequest()
                 let sync: SyncSnapshot = try await client.get("/im/v1/sync")
                 guard await isCurrent(request) else { continue }
@@ -691,6 +696,9 @@ final class ChatStore {
             guard await isCurrent(request), revision == (executionCleanupRevisions[id] ?? 0) else { return }
             try await applyPage(id, page: page, older: older, request: request)
             guard await isCurrent(request), revision == (executionCleanupRevisions[id] ?? 0) else { return }
+            confirmMessageDelivery(page.items.compactMap(\.message).filter {
+                $0.receipts_requested == true && $0.sender_user_id != user.id
+            }.map(\.id))
             if older || before[id] == nil { before[id] = page.next_before_message_id }
             if !older, let anchor {
                 pendingReadingPositions[id] = nil
@@ -805,7 +813,37 @@ final class ChatStore {
             banner = ChatBanner(conversationID: chat)
         }
         await persistEvent(event)
+        if event.event_type == "message.created", data["receipts_requested"].boolValue == true,
+           data["sender_user_id"].stringValue != user.id, let id = data["message_id"].stringValue {
+            confirmMessageDelivery([id])
+        }
         scheduleRefresh()
+    }
+
+    private func confirmMessageDelivery(_ ids: [String]) {
+        pendingDelivery.formUnion(ids)
+        guard deliveryTask == nil, !pendingDelivery.isEmpty else { return }
+        deliveryTask = Task { [weak self] in
+            guard let self else { return }
+            struct Acknowledgment: Decodable, Sendable { let ok: Bool }
+            var delay = 1.0
+            while !Task.isCancelled, !pendingDelivery.isEmpty {
+                let batch = Array(pendingDelivery.prefix(100))
+                do {
+                    let _: Acknowledgment = try await client.send("/im/v1/message-receipts", body: ["message_ids": batch])
+                } catch let error as APIError where (400..<500).contains(error.status) && ![408, 429].contains(error.status) {
+                    // The server rejected this batch permanently.
+                } catch {
+                    do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+                    delay = min(30, delay * 2)
+                    continue
+                }
+                guard !Task.isCancelled else { return }
+                pendingDelivery.subtract(batch)
+                delay = 1
+            }
+            if !Task.isCancelled { deliveryTask = nil }
+        }
     }
 
     private func persistEvent(_ event: UserEvent) async {

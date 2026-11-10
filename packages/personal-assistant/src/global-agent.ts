@@ -54,9 +54,13 @@ export class GlobalAgent {
   private readonly workRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly calls = new Map<string, AbortController>();
   private readonly callAgents = new Map<string,string>();
-  private receiptDrain?: Promise<void>;
-  private receiptTimer?: ReturnType<typeof setTimeout>;
-  private receiptBackoff=1000;
+  private readonly receiptQueues = {
+    im: { task: undefined as Promise<void> | undefined, timer: undefined as ReturnType<typeof setTimeout> | undefined, backoff: 1000 },
+    feishu: { task: undefined as Promise<void> | undefined, timer: undefined as ReturnType<typeof setTimeout> | undefined, backoff: 1000 },
+  };
+  private receiptKick?: ReturnType<typeof setImmediate>;
+  private receiptCatchUp = true;
+  private readonly receiptReadCalls: { sessionId: string; callId: string }[] = [];
   private readonly agentRecoveries = new Map<string, Promise<void>>();
   private readonly agentRetry = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly agentBackoff = new Map<string, number>();
@@ -167,7 +171,7 @@ export class GlobalAgent {
     const saved = structuredClone(input);
     if (config.personal) saved.metadata.personal_unclassified = true;
     this.options.inbox.acceptRelay(saved,!control && !config.personal && needsAttention(input,config),control);
-    void this.drainReceipts();
+    this.scheduleReceipts();
     const key = `${input.agent_id}:${input.message.id}`;
     const active = this.accepting.get(key); if (active) return active;
     if (control && !this.options.inbox.pendingControls().some(item=>item.agent_id===input.agent_id && item.message.id===input.message.id)) return;
@@ -188,25 +192,67 @@ export class GlobalAgent {
     return this.options.relay.request('agent.session.ensure',{node_id:this.options.nodeId,agent_id:binding.agentId,session_id:binding.sessionId})
       .then(()=>{if(this.authorityEpoch===epoch)this.authorities.add(key);});
   }
-  private drainReceipts(): Promise<void> {
-    if (this.receiptDrain) return this.receiptDrain;
-    clearTimeout(this.receiptTimer);
-    const task = (async()=>{
-      if (this.options.relay.ready===false) return;
+  /** Schedule badge projection and delivery without making execution wait for either. */
+  scheduleReceipts(): void {
+    if (this.stopped || this.receiptKick) return;
+    this.receiptKick = setImmediate(() => {
+      this.receiptKick = undefined;
+      try {
+        if (this.receiptCatchUp) {
+          this.options.inbox.projectReadReceipts();
+          this.receiptCatchUp = false;
+        }
+        if (this.receiptReadCalls.length) {
+          this.options.inbox.projectReadReceipts(this.receiptReadCalls);
+          this.receiptReadCalls.length = 0;
+        }
+      } catch (error) {
+        this.options.onError(error);
+      }
+      for (const channel of ['im', 'feishu'] as const) {
+        if (!this.receiptQueues[channel].timer) void this.drainReceiptQueue(channel).catch(this.options.onError);
+      }
+    });
+    this.receiptKick.unref();
+  }
+  private drainReceiptQueue(channel: 'im' | 'feishu'): Promise<void> {
+    const queue = this.receiptQueues[channel];
+    if (queue.task) return queue.task;
+    const task = (async () => {
+      const deferred: string[] = [];
       let batch;
-      while ((batch=this.options.inbox.pendingRelays()).length) {
+      drain: while ((channel === 'feishu' || this.options.relay.ready !== false)
+        && (batch = this.options.inbox.pendingRelays(channel, deferred)).length) {
         for (const receipt of batch) {
-          try {await this.transmitReceipt(receipt.input,receipt.status);this.options.inbox.confirmRelay(receipt.input.relay_task_id,receipt.status);}
-          catch(error) {
-            if(error instanceof RelayDeliveryError && error.delivery==='rejected' && /scope_not_allowed|agent_not_accessible|conversation_id not found|relay task not found|node_not_registered|gateway_owner_mismatch/.test(error.code??'')) {this.options.inbox.rejectRelay(receipt.input.relay_task_id);this.options.onError(error);continue;}
-            if(!this.stopped) {this.receiptTimer=setTimeout(()=>{void this.drainReceipts();},this.receiptBackoff);this.receiptTimer.unref();this.receiptBackoff=Math.min(30000,this.receiptBackoff*2);}
-            this.options.onError(error);return;
+          try {
+            await this.transmitReceipt(receipt.input, receipt.status);
+            this.options.inbox.confirmRelay(receipt.input.relay_task_id, receipt.status);
+          } catch (error) {
+            if (error instanceof RelayDeliveryError && error.delivery === 'rejected'
+              && /scope_not_allowed|agent_not_accessible|conversation_id not found|relay task not found|node_not_registered|gateway_owner_mismatch/.test(error.code ?? '')) {
+              this.options.inbox.rejectRelay(receipt.input.relay_task_id);
+              this.options.onError(error);
+              continue;
+            }
+            this.options.onError(error);
+            deferred.push(receipt.input.relay_task_id);
+            // A stale Feishu App or message must not hold up other receipt obligations.
+            if (channel === 'im') break drain;
           }
         }
       }
-      this.receiptBackoff=1000;
-    })().finally(()=>{this.receiptDrain=undefined;});
-    this.receiptDrain=task;return task;
+      if (!deferred.length) queue.backoff = 1000;
+      else if (!this.stopped) {
+        queue.timer = setTimeout(() => {
+          queue.timer = undefined;
+          this.scheduleReceipts();
+        }, queue.backoff);
+        queue.timer.unref();
+        queue.backoff = Math.min(30000, queue.backoff * 2);
+      }
+    })().finally(() => { queue.task = undefined; });
+    queue.task = task;
+    return task;
   }
   private async ingest(input: RelayInput, deferWake = false): Promise<void> {
     const prior=this.options.inbox.input(input.agent_id,input.message.id);
@@ -440,7 +486,7 @@ export class GlobalAgent {
   private async recoverAll(): Promise<void> {
     this.waitingForIdle.clear(); this.authorities.clear();
     await Promise.all(this.options.agents.map(config=>this.recoverForAgent(config.agentId)));
-    await this.recoverPersonalObservations(); await this.drainReceipts();
+    await this.recoverPersonalObservations(); this.scheduleReceipts();
   }
 
   /** Reconcile durable obligations after this Agent's own lifecycle and stop fences. */
@@ -451,7 +497,7 @@ export class GlobalAgent {
     const config=agents.find(agent=>agent.agentId===agentId);
     if(this.stopped || !config || !store.lifecycle.allowed(agentId))return Promise.resolve();
     this.waitingForIdle.delete(agentId);
-    void this.drainReceipts();
+    this.scheduleReceipts();
     const task=store.lifecycle.run(agentId,undefined,async()=>{
       const publications=config.personal ? [] : store.bindings(agentId).map(binding=>this.recoverPublications(binding));
       const results=await Promise.allSettled([...publications,...(config.mode==='global'?[this.restoreRoot(config)]:[])]);
@@ -1071,6 +1117,8 @@ export class GlobalAgent {
       source_refs: body.messages.map(item => ({conversation_id: store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target), message_id: item.id, complete_message: !item.partial})),
     }}, turn, event.time);
     inbox.appendAfterWork(fact, event.seq);
+    this.receiptReadCalls.push({sessionId: binding.sessionId, callId: message.toolCallId});
+    this.scheduleReceipts();
   }
 
   private drainChildren(binding: SessionBinding): Promise<void> {
@@ -1212,9 +1260,9 @@ export class GlobalAgent {
     this.options.onWork?.();
   }
   private async receipt(input: RelayInput, status: string) {
-    if(input.metadata.pa_observation || input.relay_task_id.startsWith('external:')) {await this.transmitReceipt(input,status);return;}
+    if(input.metadata.pa_observation || (input.relay_task_id.startsWith('external:') && !input.metadata.agent_receipt)) {await this.transmitReceipt(input,status);return;}
     this.options.inbox.settleRelay(input,status);
-    await this.drainReceipts();
+    this.scheduleReceipts();
   }
   private async transmitReceipt(input: RelayInput, status: string) {
     if(input.metadata.pa_observation) {
@@ -1224,11 +1272,12 @@ export class GlobalAgent {
     await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });
   }
   async stop(): Promise<void> {
-    this.stopped=true; clearTimeout(this.backgroundTimer);clearTimeout(this.receiptTimer);
+    this.stopped=true; clearTimeout(this.backgroundTimer); clearImmediate(this.receiptKick);
+    for (const queue of Object.values(this.receiptQueues)) clearTimeout(queue.timer);
     for (const timer of this.workRetries.values()) clearTimeout(timer);
     this.workRetries.clear();
     for(const timer of this.agentRetry.values())clearTimeout(timer);
     this.agentRetry.clear();this.childCatchup.clear();this.childCatchupStop.abort();
     await Promise.allSettled([this.childCatchupTask,...this.agentRecoveries.values()]);
-    await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.childDrains.values(), ...this.waking.values()]); await this.receiptDrain; await this.recovering; await Promise.allSettled(this.accepting.values()); }
+    await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.childDrains.values(), ...this.waking.values()]); await Promise.all(Object.values(this.receiptQueues).map(queue => queue.task)); await this.recovering; await Promise.allSettled(this.accepting.values()); }
 }

@@ -1,3 +1,4 @@
+import { confirmMessageDelivery } from "./delivery-receipts";
 import { authFetch, authFetchJson } from "../../features/auth/auth-fetch";
 import { ensureFreshSession } from "../../features/auth/auth-session";
 import { accountEnabled, useAuthStore } from "../../features/auth/auth-store";
@@ -36,6 +37,7 @@ const runtime = createUserStreamRuntime({
     return accountEnabled(state.user) ? { userId: state.user!.id, accessToken: state.accessToken } : { userId: null, accessToken: null };
   },
   subscribeSession: (listener) => useAuthStore.subscribe(listener),
+  onMessageReceived: payload => confirmMessageDelivery([{...payload, id:payload.message_id}]),
   ensureSession: ensureFreshSession,
   createSocket: (url) => new WebSocket(url) as UserStreamSocket,
   readCursor: (userId) => {

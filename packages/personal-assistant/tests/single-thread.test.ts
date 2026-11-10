@@ -31,6 +31,7 @@ it('supplies local message time to the model without rewriting the human body', 
 it.each(['user', 'system'])('parks %s group background, admits it on mention once, and suppresses silent replies', async senderType => {
   const store = new NodeStore(':memory:', 'owner');
   const submitted: Record<string, unknown>[] = []; const frames: Record<string, unknown>[] = [];
+  const receipts: [string, boolean][] = [];
   let ensured = 0; let events: RuntimeEvent[] = [];
   let notify: (method: string, value: unknown) => void = () => {};
   const product = new SingleThread({ nodeId: 'node', ownerId: 'owner', store,
@@ -39,19 +40,22 @@ it.each(['user', 'system'])('parks %s group background, admits it on mention onc
       const args = value as Record<string, unknown>;
       if (method === 'session.ensure') ensured++;
       if (method === 'session.submit') submitted.push(args);
-      if (method === 'session.lookup') return { accepted: submitted.some(input => input.inputId === args.inputId), ...(submitted.some(input => input.mode === 'followup') ? { turn: 1 } : {}) };
+      if (method === 'session.lookup') return { accepted: submitted.some(input => input.inputId === args.inputId), ...(submitted.some(input => input.mode === 'followup') ? { turn: 1, consumedSeq: 3 } : {}) };
       return { durable: true, events };
     } }, relay: { async request(_type, payload) { frames.push(payload); return { type: 'ack', payload: { message_id: 'bubble' } }; } },
+    queueMessageReceipt: (input, read) => receipts.push([input.message.id, read]),
     image: async () => '', onError: error => { throw error; },
   });
   const input = (id: string, mentioned = false): RelayInput => ({ agent_id: 'a', conversation_id: 'group', relay_task_id: id, idempotency_key: id,
-    metadata: { conversation_type: 'group', mentioned_agent_ids: mentioned ? ['a'] : [] },
+    metadata: { conversation_type: 'group', mentioned_agent_ids: mentioned ? ['a'] : [], agent_receipt: senderType==='user' },
     message: { id, content: id, sender_user_id: 'human', sender_type: senderType, attachments: [] } });
   try {
     await product.receive(input('background'));
     expect(ensured).toBe(0); expect(submitted).toHaveLength(0);
+    expect(receipts).toEqual(senderType==='user' ? [['background', false]] : []);
     await product.recover(); expect(ensured).toBe(0);
     await product.receive(input('mention', true));
+    if (senderType==='user') expect(receipts).toContainEqual(['background', true]);
     expect(submitted.map(input => [input.inputId, input.mode])).toEqual([['a:background', 'inject'], ['a:mention', 'followup']]);
     await product.receive(input('mention', true)); expect(submitted).toHaveLength(2);
     const sessionId = store.bindingFor('a', 'group')!.sessionId;

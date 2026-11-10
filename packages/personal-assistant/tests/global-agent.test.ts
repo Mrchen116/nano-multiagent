@@ -313,8 +313,31 @@ it('retains completed Web receipts offline while reconciling external inputs, th
     expect(inbox.completedInputs('main', 1)).toEqual([]);
     ready = true;
     await product.recover(); await product.recover();
-    expect(receipts).toEqual(['external:feishu', 'web']);
+    await expect.poll(() => receipts).toEqual(['external:feishu', 'web']);
     expect(inbox.completedInputs('main', 1)).toEqual([]);
+  } finally { await product.stop(); inbox.close(); store.close(); }
+});
+
+it('keeps healthy Feishu receipts moving while an old App fails', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  for (const id of ['external:old', 'external:healthy']) {
+    inbox.acceptRelay({ agent_id: id, conversation_id: id, relay_task_id: id, idempotency_key: id,
+      metadata: { conversation_type: 'direct', agent_receipt: true },
+      message: { id, content: 'hello', sender_type: 'user', sender_user_id: 'owner', attachments: [] } }, true);
+  }
+  const received: string[] = [];
+  const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [], store, inbox,
+    runtime: { onNotification: () => () => {}, request: async () => ({}) },
+    relay: { ready: false, async request(_type, payload) {
+      if (payload.relay_task_id === 'external:old') throw new Error('External app is unavailable');
+      received.push(String(payload.relay_task_id));
+      return { type: 'ack', payload: {} };
+    } }, image: async () => '', onError: () => {},
+  });
+  try {
+    product.scheduleReceipts();
+    await expect.poll(() => received).toEqual(['external:healthy']);
+    expect(inbox.pendingRelays('feishu').map(row => row.input.relay_task_id)).toEqual(['external:old']);
   } finally { await product.stop(); inbox.close(); store.close(); }
 });
 
@@ -514,4 +537,48 @@ it('attributes a Global publication and its quote with one call lookup and prese
   expect(toolCall).toHaveBeenCalledTimes(1);
   await expect(product.call({...call,args:{...call.args,reply_to_message_id:'different'}})).rejects.toThrow('identity conflict');
  } finally {await product.stop();inbox.close();store.close();}
+});
+
+it.each(['im', 'feishu'])('completes Inbox work while the %s badge request is still in flight', async channel => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  const relayId = channel==='feishu' ? 'external:feishu' : 'web';
+  inbox.acceptRelay({
+    agent_id:'a', conversation_id:relayId, relay_task_id:relayId, idempotency_key:relayId,
+    metadata:{conversation_type:'direct',agent_receipt:true},
+    message:{id:'m',content:'Please check the itinerary',sender_type:'user',sender_user_id:'owner',attachments:[]},
+  }, true);
+  const page = inbox.read('a','main','inbox-call',{target:relayId});
+  const events = [
+    {seq:1,time:1,type:'tool/result',data:{turn:1,message:{toolCallId:'inbox-call',content:[{type:'text',text:JSON.stringify(page)}],isError:false}}},
+    {seq:2,time:2,type:'turn/end',data:{turn:1,reason:{kind:'completed'}}},
+  ];
+  let unblock!: () => void;
+  const gate = new Promise<void>(resolve => { unblock = resolve; });
+  const receipts: string[] = [];
+  const product = new GlobalAgent({
+    nodeId:'node',ownerId:'owner',store,inbox,
+    agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],
+    runtime:{onNotification:()=>()=>{},async request(method) {
+      return method==='session.work.children' ? {children:[]} : {events,durable:true,status:'idle'};
+    }},
+    relay:{ready:true,async request(type,payload) {
+      if (type==='node.delivery_receipt') {
+        receipts.push(String(payload.delivery_status));
+        await gate;
+      }
+      return {type:'ack',payload:{}};
+    }},
+    image:async()=>'',onError: error=>{throw error;},
+  });
+  try {
+    let recovered = false;
+    const recovery = product.recover().then(() => { recovered = true; });
+    await expect.poll(() => ({recovered, sent: receipts.length>0})).toEqual({recovered:true,sent:true});
+    expect(inbox.check('a').sources).toEqual([]);
+    expect(inbox.completedInputs('main',1)).toEqual([]);
+    unblock();
+    await recovery;
+    await expect.poll(() => receipts.includes('read')).toBe(true);
+  } finally { unblock(); await product.stop(); inbox.close(); store.close(); }
 });

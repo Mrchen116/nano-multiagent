@@ -9,7 +9,7 @@ import { formatLocalTime, projectChatReplyContext, withInteractionContext } from
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { readonly ready?:boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
-interface InputEvidence { accepted: boolean; pending?: boolean; turn?: number; terminal?: unknown }
+interface InputEvidence { accepted: boolean; pending?: boolean; consumedSeq?: number; turn?: number; terminal?: unknown }
 interface Options {
   nodeId: string;
   ownerId: string;
@@ -19,6 +19,7 @@ interface Options {
   relay: RelayPort;
   image: (url: string, agentId: string) => Promise<string>;
   onError: (error: unknown) => void;
+  queueMessageReceipt?(input: RelayInput, read: boolean): void;
   recoveryGeneration?: (binding: SessionBinding) => string | undefined;
   taskStop?:(binding:SessionBinding,input:RelayInput)=>Promise<{wasRunning:boolean;paused:number}>;
 }
@@ -89,6 +90,10 @@ export class SingleThread {
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(controlText(input)) && !control;
     if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(controlText(input))) {
       store.bufferGroup(input);
+      if (input.metadata.agent_receipt && this.options.queueMessageReceipt) {
+        this.options.queueMessageReceipt(input, false);
+        return;
+      }
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'sent' });
       return;
     }
@@ -127,6 +132,7 @@ export class SingleThread {
     await this.controls.wait(binding.sessionId);
     store.takeGroup(binding);
     store.receive(binding.sessionId, input);
+    if (input.metadata.agent_receipt) this.options.queueMessageReceipt?.(input, false);
     await this.ensure(binding);
     for (const pending of store.pendingInputs(binding.sessionId)) await this.submit(binding, pending.input);
     await this.reconcile(binding.sessionId);
@@ -198,7 +204,8 @@ export class SingleThread {
       });
     }
     store.accepted(inputId);
-    if (current?.() !== false && !store.inputTerminal(binding.sessionId, inputId)) await this.receipt(input, 'sent');
+    if (current?.() !== false && !store.inputTerminal(binding.sessionId, inputId)
+      && !(input.metadata.agent_receipt && this.options.queueMessageReceipt)) await this.receipt(input, 'sent');
   }
 
   /** A first proactive turn reserves the future owner chat without creating a visible bubble. */
@@ -334,6 +341,10 @@ export class SingleThread {
       // Only fresh logical evidence can settle an input. Receipt recovery below
       // remains independent, and an older running observation delays finality.
       const final = evidence.accepted && evidence.pending === false && evidence.terminal != null && (!run || run.state === 'completed');
+      if (evidence.consumedSeq !== undefined && this.options.queueMessageReceipt) {
+        const input = store.inputForIds(sessionId, [inputId])?.input;
+        if (input?.metadata.agent_receipt) this.options.queueMessageReceipt(input, true);
+      }
       store.inputEvidence(inputId, evidence, final);
     }
     const noticeTurns = runs.filter(run => run.switched || run.attempts.some(attempt => attempt.error)).map(run => run.turn);

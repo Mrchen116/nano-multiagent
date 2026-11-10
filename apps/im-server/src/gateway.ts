@@ -563,9 +563,20 @@ export class Gateway {
         c.node_id,
       );
       if (!relay) fail(404, "relay task not found");
-      const targetAgent = this.requireAgent(c, JSON.parse(relay.payload_json).agent_id);
+      const input = JSON.parse(relay.payload_json);
+      const targetAgent = this.requireAgent(c, input.agent_id);
       s.access({ ...c, kind: "gateway" }, relay.conversation_id, targetAgent.agent_id);
-      if (!['sent','accepted','completed','failed'].includes(p.delivery_status)) fail(400,'invalid_delivery_status');
+      if (!['sent','accepted','completed','failed','read'].includes(p.delivery_status)) fail(400,'invalid_delivery_status');
+      if (input.metadata?.agent_receipt && relay.status !== 'cancelled' && p.delivery_status !== 'failed') {
+        const stage = p.delivery_status === 'read' ? 2 : 1;
+        if (db.prepare(`
+          UPDATE message_receipts SET status=? WHERE message_id=? AND status<?
+            AND recipient_id=(SELECT id FROM users WHERE username=?)
+        `).run(stage,relay.message_id,stage,'agent:'+targetAgent.agent_id).changes)
+          // A receipt refreshes the chat without changing the message version used by frozen reads.
+          s.event(relay.conversation_id,null,'message.receipts_changed',{});
+      }
+      if (p.delivery_status === 'read') return ack({relay_task_id:p.relay_task_id});
       if (relay.status === 'completed' || relay.status === 'failed' || relay.receipt_status === p.delivery_status || (relay.receipt_status==='accepted' && p.delivery_status==='sent')) return ack({relay_task_id:p.relay_task_id});
       if (relay.status === "cancelled") return ack({relay_task_id:p.relay_task_id});
       db.prepare(

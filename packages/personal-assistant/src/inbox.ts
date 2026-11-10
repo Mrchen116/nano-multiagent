@@ -47,6 +47,13 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS relay_controls(agent_id TEXT,message_id TEXT,input TEXT,done INTEGER DEFAULT 0,PRIMARY KEY(agent_id,message_id));
       CREATE TABLE IF NOT EXISTS publications(id TEXT PRIMARY KEY,target TEXT,body TEXT,state TEXT,result TEXT);
     `);
+    if (!(this.db.prepare('PRAGMA table_info(relay_receipts)').all() as {name:string}[]).some(c=>c.name==='read_pending'))
+      this.db.exec('ALTER TABLE relay_receipts ADD COLUMN read_pending INTEGER NOT NULL DEFAULT 0');
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS relay_receipts_message ON relay_receipts(agent_id,message_id);
+      CREATE INDEX IF NOT EXISTS relay_receipts_pending ON relay_receipts(confirmed)
+        WHERE confirmed>=0 AND (confirmed=0 OR read_pending=1);
+    `);
     this.reviews = new InboxReviews(this.db);
     const publicationColumns = (this.db.prepare('PRAGMA table_info(publications)').all() as {name:string}[]).map(column => column.name);
     if (!publicationColumns.includes('agent_id')) this.db.exec('ALTER TABLE publications ADD COLUMN agent_id TEXT');
@@ -187,9 +194,38 @@ export class InboxStore {
     } catch(error) {this.db.exec('ROLLBACK');throw error;}
   }
   /** Return bounded receipt obligations without depending on runtime availability. */
-  pendingRelays(): {input:RelayInput;status:string}[] {
-    return (this.db.prepare('SELECT input,status FROM relay_receipts WHERE confirmed=0 ORDER BY rowid LIMIT 100').all() as {input:string;status:string}[])
+  pendingRelays(channel?: 'im' | 'feishu', deferred: readonly string[] = []): {input:RelayInput;status:string}[] {
+    return (this.db.prepare(`
+      SELECT input, CASE WHEN confirmed=0 THEN status ELSE 'read' END AS status
+      FROM relay_receipts WHERE confirmed>=0 AND (confirmed=0 OR read_pending=1)
+        AND (? IS NULL OR (id LIKE 'external:%')=?)
+        AND id NOT IN (SELECT value FROM json_each(?))
+      ORDER BY confirmed, rowid LIMIT 100
+    `).all(channel ?? null, Number(channel === 'feishu'), JSON.stringify(deferred)) as {input:string;status:string}[])
       .map(row=>({input:JSON.parse(row.input) as RelayInput,status:row.status}));
+  }
+  /** Derive read badges from durable ingestions, outside the Inbox read transaction.
+   * Args:
+   *   calls: Committed Inbox tool calls to project, or undefined for restart catch-up.
+   */
+  projectReadReceipts(calls?: { sessionId: string; callId: string }[]): void {
+    const scope = calls ? `
+      FROM json_each(?) call
+      JOIN reads r ON r.session_id=json_extract(call.value,'$.sessionId') AND r.call_id=json_extract(call.value,'$.callId')
+      JOIN json_each(r.fragments) part
+      JOIN ingestions g ON g.seq=json_extract(part.value,'$.seq')
+    ` : 'FROM ingestions g';
+    this.db.prepare(`
+      UPDATE relay_receipts SET read_pending=1
+      WHERE read_pending=0 AND confirmed>=0 AND json_extract(input,'$.metadata.agent_receipt')=1
+        AND (agent_id,message_id) IN (SELECT i.agent_id,i.message_id ${scope} JOIN inbox i ON i.seq=g.seq)
+    `).run(...(calls ? [JSON.stringify(calls)] : []));
+  }
+  /** Enqueue a native session's receipt without adding the message to the Global Inbox. */
+  queueNativeReceipt(input: RelayInput, read: boolean): void {
+    this.db.prepare('INSERT OR IGNORE INTO relay_receipts(id,agent_id,message_id,input,status,read_pending) VALUES(?,?,?,?,?,?)')
+      .run(input.relay_task_id,input.agent_id,input.message.id,JSON.stringify(input),'sent',Number(read));
+    if (read) this.db.prepare('UPDATE relay_receipts SET read_pending=1 WHERE id=? AND read_pending=0').run(input.relay_task_id);
   }
   /** Advance all relay identities for a message without regressing a terminal receipt. */
   settleRelay(input: RelayInput, status: string): void {
@@ -200,7 +236,10 @@ export class InboxStore {
   }
   /** Close a revoked obligation without recording a remote acceptance. */
   rejectRelay(id:string):void {this.db.prepare('UPDATE relay_receipts SET confirmed=-1 WHERE id=?').run(id);}
-  confirmRelay(id: string, status: string): void {this.db.prepare('UPDATE relay_receipts SET confirmed=1 WHERE id=? AND status=?').run(id,status);}
+  confirmRelay(id: string, status: string): void {
+    if (status === 'read') this.db.prepare('UPDATE relay_receipts SET read_pending=2 WHERE id=?').run(id);
+    else this.db.prepare('UPDATE relay_receipts SET confirmed=1 WHERE id=? AND status=?').run(id,status);
+  }
   pendingControls(): RelayInput[] {return (this.db.prepare('SELECT input FROM relay_controls WHERE done=0 ORDER BY rowid').all() as {input:string}[]).map(row=>JSON.parse(row.input) as RelayInput);}
   /** Return a source-authorized ordinary PA message to the Inbox after command classification. */
   demoteControl(input:RelayInput):void {

@@ -13,6 +13,12 @@ export type ConversationKind =
 
 export type DeliveryStatus = "pending" | "sent" | "running" | "completed" | "failed";
 
+interface MessageReceipt {
+  recipient_id: string;
+  display_name: string;
+  status: "sent" | "received" | "read";
+}
+
 export type ToolCallStatus = "running" | "completed" | "failed";
 
 export interface Actor {
@@ -218,6 +224,8 @@ export interface Message {
   attachments: Attachment[];
   delivery_status: DeliveryStatus;
   update_wait?: 'updating' | 'recovery_required' | null;
+  receipts_requested?: true;
+  receipts?: MessageReceipt[];
   created_at: string;
   tool_calls?: ToolCall[];
   process_summary?: ChatProcessSummary;

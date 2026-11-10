@@ -15,9 +15,9 @@ function decodeFrame(value: unknown): ExternalFrame {
 export interface ExternalChat { id: string; agentId: string; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }
 export interface ExternalOutput { lifecycle_revision:number; id: string; chatId: string; operationId: string; reply?: string; state: string; platformId?: string; imId?: string }
 
-type InboundRow = { id: string; chatId: string; body: string; accepted: number; mirror: string | null; reaction: string | null };
+type InboundRow = { id: string; chatId: string; body: string; accepted: number; mirror: string | null; reaction: string | null; reactionStage: 'received' | 'read' | null };
 export type ExternalInbound = Omit<InboundRow, 'body'> & { message: FeishuMessage; input: RelayInput };
-const selectInbound = 'SELECT id,chat_id AS chatId,body,accepted,mirror,reaction FROM inbound';
+const selectInbound = 'SELECT id,chat_id AS chatId,body,accepted,mirror,reaction,reaction_stage AS reactionStage FROM inbound';
 function decodeInbound({ body, ...row }: InboundRow): ExternalInbound {
   return { ...row, ...JSON.parse(body) as { message: FeishuMessage; input: RelayInput } };
 }
@@ -42,6 +42,8 @@ export class ExternalStore {
       CREATE TABLE IF NOT EXISTS approvals(request_id TEXT PRIMARY KEY,output_id TEXT NOT NULL,platform_id TEXT,body TEXT NOT NULL,settled INTEGER NOT NULL DEFAULT 0);
     `);
     if(!(this.db.prepare('PRAGMA table_info(outputs)').all() as {name:string}[]).some(c=>c.name==='lifecycle_revision'))this.db.exec('ALTER TABLE outputs ADD COLUMN lifecycle_revision INTEGER NOT NULL DEFAULT 1');
+    if (!(this.db.prepare('PRAGMA table_info(inbound)').all() as {name:string}[]).some(c=>c.name==='reaction_stage'))
+      this.db.exec('ALTER TABLE inbound ADD COLUMN reaction_stage TEXT');
     // A crash after dispatch has no trustworthy platform result. Recovery must never blindly send it again.
     this.db.exec("UPDATE outputs SET state='unknown' WHERE state='sending'");
   }
@@ -107,7 +109,9 @@ export class ExternalStore {
   updateInput(id: string, message: FeishuMessage, input: RelayInput): void { this.db.prepare('UPDATE inbound SET body=? WHERE id=?').run(JSON.stringify({ message, input }), id); }
   accept(id: string): void { this.db.prepare('UPDATE inbound SET accepted=1 WHERE id=?').run(id); }
   mirrorInput(id: string, messageId: string): void { this.db.prepare('UPDATE inbound SET mirror=? WHERE id=?').run(messageId, id); }
-  reaction(id: string, reaction: string | null): void { this.db.prepare('UPDATE inbound SET reaction=? WHERE id=?').run(reaction, id); }
+  reaction(id: string, reaction: string | null, stage?: 'received' | 'read'): void {
+    this.db.prepare('UPDATE inbound SET reaction=?,reaction_stage=? WHERE id=?').run(reaction, stage ?? null, id);
+  }
   output(id: string): ExternalOutput | undefined {
     return this.db.prepare('SELECT id,chat_id AS chatId,operation_id AS operationId,reply,state,platform_id AS platformId,im_id AS imId,lifecycle_revision FROM outputs WHERE id=?').get(id) as unknown as ExternalOutput | undefined;
   }

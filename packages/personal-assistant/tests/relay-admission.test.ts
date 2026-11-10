@@ -36,5 +36,5 @@ test.each(['scope_not_allowed','agent_not_accessible','conversation_id not found
  inbox.acceptRelay(input,true);inbox.acceptRelay({...input,relay_task_id:'valid',conversation_id:'other',message:{...input.message,id:'valid'}},true);
  const {RelayDeliveryError}=await import('@nano/channels');
  const product=new GlobalAgent({nodeId:'n',ownerId:'owner',agents:[],store,inbox,runtime:{onNotification:()=>()=>{},request:async()=>({})},relay:{async request(_type,payload){ids.push(String(payload.relay_task_id));if(payload.relay_task_id==='r')throw new RelayDeliveryError('revoked','rejected',code);return {type:'ack',payload:{}};}},image:async()=>'',onError:()=>{}});
- try{await product.recover();expect(ids).toEqual(['r','valid']);expect(inbox.pendingRelays()).toEqual([]);}finally{await product.stop();inbox.close();store.close();}
+ try{await product.recover();await expect.poll(()=>ids).toEqual(['r','valid']);expect(inbox.pendingRelays()).toEqual([]);}finally{await product.stop();inbox.close();store.close();}
 });
