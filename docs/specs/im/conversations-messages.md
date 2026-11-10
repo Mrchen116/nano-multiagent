@@ -1,6 +1,6 @@
 # IM - Conversations and Messages Specification
 
-> 对齐: feat-716
+> 对齐: feat-760
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -98,6 +98,18 @@ IM MUST 将新托管 Agent 图片作为对应会话的受保护资源。访问�
 - **WHEN** 客户端选择摘要视图读取聊天历史，随后展开某条已结束回复的过程
 - **THEN** 历史先返回消息、审批状态和过程概况，按需读取同一消息的完整过程；普通客户端仍可按原方式读取完整历史。
 - **AND** 过程详情必须符合当前会话读取资格，消息与会话不匹配或当前不可读时不能取到详情。
+
+### Requirement: 真人发送的普通聊天消息提供逐人回执
+
+#### Scenario: 聚合展示私聊与群聊回执
+- **WHEN** 真人在 Nano 私聊向真人或 Global Agent 发送消息，或在群聊中发送普通消息
+- **THEN** 消息发送者可辨认待送达、已送达和已读，并按收件人查看状态
+- **AND** 群聊以发送时的其他群成员为范围，全部送达后才显示已送达，全部已读后才显示已读
+
+#### Scenario: 各收件人的状态独立推进
+- **WHEN** 部分收件人确认收件或已读
+- **THEN** 发送者可以查看这些人的最新状态，其他收件人维持最近一次已确认状态
+- **AND** 对 Global Agent，已收到以持久入箱为准，已读以 Inbox read 成功取得完整消息且读取事实已持久化为准
 
 ### Requirement: 聊天时间线支持非消息型 Agent 配置边界
 

@@ -10,4 +10,4 @@ Global Agent 的 Inbox 读取事务保留原路径。后台在读取提交后根
 
 本地对照曾用内存 SQLite、8,000 条历史记录和四条消息的读取页进行测量。60 个样本的读取提交中位耗时分别为功能前 0.089 ms、同步投影 1.492 ms、后台投影 0.089 ms。该测量范围为本地读取提交。Web 用真实页面与隔离 IM 观察过汇总、详情和状态更新。iPhone 17 模拟器连接隔离 IM 验证最终的气泡布局、三态和无标题详情。飞书反应通过 adapter 模拟验证。
 
-最终版本的用户验收留在活动单元中跟踪。拟归并的对外契约见 [delta-spec](specs/im/conversations-messages.md) 和 [飞书 delta-spec](specs/gateway/external-channels.md)。
+实现验证与用户的合入授权见 [review](review.md)。归并的对外契约见 [delta-spec](specs/im/conversations-messages.md) 和 [飞书 delta-spec](specs/gateway/external-channels.md)。

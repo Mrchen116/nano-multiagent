@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - External Channels Specification
 
-> 对齐: bugfix-621
+> 对齐: feat-760
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -13,7 +13,7 @@
 
 ### Requirement: 飞书 channel 消息收发
 
-Gateway 通过飞书 SDK WebSocket 长连接收发消息。1:1 私聊直接响应；群聊按 agent 的群聊回复策略决定是否响应。MENTION 策略下仅真实 @Bot 触发响应，未 @ 的群聊消息进入该 agent 的群背景上下文，待后续触发时一并带入；ALWAYS 策略下普通群消息也触发响应。Bot 收到待响应的消息后先在飞书消息上显示 THINKING 反应，回复发送后移除该反应。
+Gateway 通过飞书 SDK WebSocket 长连接收发消息。1:1 私聊直接响应；群聊按 agent 的群聊回复策略决定是否响应。MENTION 策略下仅真实 @Bot 触发响应，未 @ 的群聊消息进入该 agent 的群背景上下文，待后续触发时一并带入；ALWAYS 策略下普通群消息也触发响应。普通 Global Agent 的 Bot 在应响应的消息持久入箱后添加 OK 反应，完整读取后换成 CheckMark。其他模式的 Bot 使用待响应时添加、回复后移除的 THINKING 反应。
 
 #### Scenario: 用户在飞书 1:1 私聊中发消息并收到回复
 - **GIVEN** Gateway 配置了某个 Agent 对应的飞书 Bot
@@ -42,10 +42,15 @@ Gateway 通过飞书 SDK WebSocket 长连接收发消息。1:1 私聊直接响�
 - **WHEN** 用户在群里发送普通消息且没有 @Bot
 - **THEN** Bot 也在该群里回复该消息
 
-#### Scenario: Bot 对即将响应的消息显示 THINKING 反应并在回复后移除
-- **GIVEN** Gateway 配置的飞书 Bot 收到一条需要响应的消息
+#### Scenario: 其他模式的 Bot 对即将响应的消息显示 THINKING 反应并在回复后移除
+- **GIVEN** Gateway 配置的非普通 Global Agent 飞书 Bot 收到一条需要响应的消息
 - **WHEN** Bot 开始处理并随后发出回复
 - **THEN** 用户在飞书里看到该消息先出现 THINKING 反应，回复发出后该反应消失
+
+#### Scenario: 普通 Global Agent 的 Bot 展示收件和已读
+- **WHEN** 应响应的消息持久入箱，然后由 Agent 完整读取
+- **THEN** Bot 在原消息上的反应从 OK 更新为 CheckMark
+- **AND** 回执反馈可稍后更新，Agent 的读取和任务执行可独立推进
 
 ### Requirement: 飞书富文本与图片在飞书、内部 IM 和模型输入间保持语义
 
