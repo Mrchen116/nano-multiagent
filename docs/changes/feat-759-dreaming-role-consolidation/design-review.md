@@ -65,3 +65,66 @@
 ### Recommendations
 
 无新增。
+
+## Round 3
+
+- Reviewer / target：`design_review`，同一独立 `change-design-reviewer`。受审对象为 `develop`（`07ad36c33`）工作区新增人工编辑需求后的 [首文档](spec.md)、[设计](design.md)、[Gateway delta](specs/gateway/agent-capabilities.md)、[IM delta](specs/im/agents-nodes.md) 和 M1 退出标准。
+- Review mode：`full`。用户增加一种正式写入入口，新增 IM、Node、DSH 和两端配置界面契约并扩大 M1。复核全部受影响的职责、数据流、消费者与验收安排。两阶段 Dreaming 的既有提炼、重组、来源资格、预算、恢复及正式文档保存继续引用 `retained_from: Round 2` 与其 R1 证据。
+- Started at：`2026-11-10T19:28:04+08:00`。
+- Completed at：`2026-11-10T19:30:55+08:00`。
+- Duration：`2m 51s`。
+- Verdict：**Issues Found · 0 CRITICAL / 2 WARNING**。
+
+### 覆盖与证据
+
+- **真实入口与职责。** 现有配置入口先验证登录身份、空间与 Agent 主人，现有文件型设置走 IM 到当前 Node 的认证 RPC。RPC 校验回包连接和消息类型，配置当前读取另有 profile 与连接代次的返回前复核。ROLE 可以沿用这条路径，继续由 Node 定位目标运行时、DSH 读写固定文件，不让 IM 直读节点工作区。设计将正文留在宿主文件，不放到公开资料、配置版本或离线快照，GET 无副作用。有效连接、当前绑定与已证实保存应是返回正文或成功的前置；缺失、不可用和超时保持独立状态。实际跨分区工作区归属见 R3-W1。[现有控制入口](../../../apps/im-server/src/control-routes.ts#L101) · [在线与当前绑定校验](../../../apps/im-server/src/agent-settings.ts#L22) · [RPC 回包相关性](../../../apps/im-server/src/node-rpc.ts#L61) · [Gateway 连接校验](../../../apps/im-server/src/gateway.ts#L400) · [Node 文件型设置入口](../../../apps/node/src/main.ts#L317)
+- **共享版本和角色消费。** 设置保存以本次读取的文件版本提交，DSH 的显式 `createIfAbsent` 或 `replaceIfVersion` 与现有文件能力相容。聊天继续通过普通文件工具读取后写入，现行观察策略使用文件读取时的版本，并在过期时要求重读；因此可以检测配置页写在聊天读取之后的竞争。聊天在新的人工内容改变原提议依据时重新核对，改变拟写入文本才需要再次确认。管理者显式保存授权该次人工写入；普通配置保存、角色草稿与源证据互相独立。主 Agent 下一请求读取当前值，新整合批次取新快照，进行中的整合继续用原快照，清空则恢复主动澄清。当前批次的业务回查和正式记忆写边界均保留。实施证据应能观察到与聊天交叉写入造成的过期文件结果，超时重读表示当时可确认的文件状态。[受审数据流](design.md#接口与数据流) · [当前文件版本写入](../../../packages/dsh-integration/src/knowledge/memory-documents.ts#L208) · [普通工具已挂载观察策略](../../../packages/dsh-integration/src/knowledge/document-memory.ts#L29) · [当前维护范围](../../../packages/dsh-integration/src/knowledge/dreaming-agent.ts#L73)
+- **配置体验。** 检查了最近的归档真实 Web 设置画面中的文件读取、上次确认提示、普通配置区，以及当前 Web/iOS 控件和状态接线。把角色项放在自定义指令附近，分别说明用途，局部显示保存结果、最新版本和未保存草稿，可以沿用现有信息层级与输入组件。设计已给出决定性的操作与状态，无需另做界面原型。两端各有本地表单、保存和回退行为，原生体验取证缺口见 R3-W2。画面证据为既有功能基线，本轮未观察 ROLE 界面或执行新的保存旅程。[Web 基线画面](../archive/bugfix-644-agent-offline-settings/review-evidence/r2-history-body.png) · [Web 基线回归](../archive/bugfix-644-agent-offline-settings/regression.md#历史正文与时效补证) · [Web 普通保存与退出](../../../src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx#L2080) · [iOS 表单与状态](../../../src/IM/ios/NanoIM/Features/Agents/AgentConfigView.swift#L59)
+- **Delta 和 M1。** IM 配置的消费者契约正确锚定 agents-nodes，Gateway 行为增量继续描述主会话及 Dreaming 的下一消费时点。没有移除 Dreaming 原有六个 canonical Scenario。保留单一串行 M1 合适，Web 的管理权限、保存、清空、断线、版本冲突及后台采用已进入验收计划。扩展后的工作区边界与 iOS 实际交互需补入 M1。隔离服务、测试账号及模型仍按原 runbook 准备，本机明确选用完整 Xcode 后可用 Xcode 26.4.1 和 iOS 26.4 模拟器 runtime。本轮未启动服务、模拟器或模型。[IM 目标](../../specs/im/agents-nodes.md) · [Gateway 目标](../../specs/gateway/agent-capabilities.md) · [M1](design.md#milestones) · [iOS 隔离工程入口](../../../src/IM/ios/README.md#模拟器测试)
+
+### 历史问题闭环
+
+R1-W1/W2/W3 继续关闭。聊天确认人与同一实际交流的约束不变，人工入口采用已授权管理者的明确保存。跨页退休约束继续以正式库为依据。对话普通文件工具失败仍须如实报告，人工入口使用独立 RPC 回执。
+
+### Issues
+
+**R3-W1 · 跨分区的 ROLE 文件归属缺少可执行的权威判断。** **CONFIRMED（设计）**。第 5 条把拒绝共享工作区写在转发至 DSH 后的宿主解析描述中，未说明哪个位置拥有完整 Agent 配置，或同一资格如何供 API 和运行消费共用。Node 启动时只给每个 DSH 进程传入该分区的 `partition.agents`，PA 与普通 Agent 分区不同。现有 `DocumentMemory.forConfig` 只看该进程已打开的库。Node 自定义工作区解析也允许配置已存在的目录。两个 Agent 若解析到同一真实工作区，在首次聊天前或分属不同分区时，两边都可能把同一 `ROLE.md` 当作本 Agent 独享文件，修改一个角色就改变另一个 Agent 的长期职责。明确由能看到整台节点配置的 Node 依据已解析路径核对文件归属，相关 ROLE 写入与运行消费采用同一判定，或给出已有的等价权威来源。Node 已有跨配置的 canonical 路径比较可参考，编辑无需复用目录删除所需的删除见证。M1 加入跨分区或尚未建会话的两个配置共享同一路径的用例，验证不能通过设置或运行装配串用角色。[设计接口](design.md#接口与数据流) · [分区初始化](../../../apps/node/src/main.ts#L163) · [分区定义](../../../apps/node/src/runtime-partitions.ts#L47) · [本进程库判定](../../../packages/dsh-integration/src/knowledge/document-memory.ts#L59) · [Node 配置与已存在路径](../../../apps/node/src/configuration.ts#L130) · [Node 跨配置比较](../../../apps/node/src/configuration.ts#L170)
+
+**R3-W2 · iOS 新的独立保存和冲突交互缺少客户端验收证据。** **CONFIRMED（验收安排）**。IM delta 承诺 iOS 可以就地保存 ROLE、保留冲突草稿并和普通配置独立。设计只要求 Web 实际操作，iOS 做编译及泛称“相关回归”。当前 iOS 普通配置由 SwiftUI 顶部 Save、自己的草稿与冲突状态、离开保护共同控制，ROLE 又将增加另一组保存与冲突状态。共用 API 无法验证点顶部 Save 时不会提交角色，或者重读冲突时角色草稿仍在并可再次明确保存。M1 至少补一次隔离 iOS 模拟器的连续操作，覆盖独立保存和重开确认，以及冲突重读时保留草稿。完整权限、来源、离线及模型矩阵仍可在 Web、API 和 runtime 复用。没有需要增加的原型门禁。[IM 契约](specs/im/agents-nodes.md) · [现有 iOS 草稿和冲突状态](../../../src/IM/ios/NanoIM/Features/Agents/AgentConfigView.swift#L24) · [iOS 保存与离开](../../../src/IM/ios/NanoIM/Features/Agents/AgentConfigView.swift#L103) · [平台证据方法](../../../.agents/skills/frontend-experience-review/references/prototype-and-runbook.md#验证平台与深度) · [现有 M1](design.md#milestones)
+
+### Recommendations
+
+- **R3-R1。** 首文档将“首次填入和后续修改都由主 Agent 完成”限定为对话内更新，与用户后续增加的人工编辑入口统一。[首文档角色维护](spec.md#角色约定的维护与使用)
+
+### Author Resolutions
+
+- **R3-W1 — accepted.** 运行时分区只拥有各自的 Agent；整节点的配置和已准备工作区由 Node 掌握。按[人工编辑数据流](design.md#接口与数据流)，设置和两个运行消费者共用 Node 的 canonical workspace 归属判断，以既有本机 stdio 与分区校验交付。加入 PA 与普通分区同一工作区、首聊前后均不串用的用例。
+- **R3-W2 — accepted.** 按[审查安排](design.md#本次审查安排)补 iOS 模拟器的独立保存、重开、普通保存不提交角色和冲突草稿保留。共享权限及后台采用沿用 Web、API 与 runtime 证据。
+- **R3-R1 — accepted.** 首文档把主 Agent 更新规则限定为对话内更新，人工入口保留独立确认方式。
+
+## Round 4
+
+- Reviewer / target：`design_review`，同一独立 `change-design-reviewer`。受审对象为 `develop`（`07ad36c33`）工作区的 R3 修订。
+- Review mode：`delta`。两项有界修订明确了既有人工入口下的内部归属接线和原生验收证据。重新检查跨分区数据流及其三处消费者、iOS 旅程、M1 和首文档语义。外部 API、其余 IM 和 Gateway delta、主要写入语义与 milestone 划分未变，`retained_from: Round 3` 的未受影响证据继续有效。
+- Started at：`2026-11-10T19:32:55+08:00`。
+- Completed at：`2026-11-10T19:33:42+08:00`。
+- Duration：`47s`。
+- Verdict：**Approved · 0 CRITICAL / 0 WARNING**。
+
+### 历史问题闭环
+
+- **R3-W1 · closed。** Author 将工作区归属判断放在拥有完整配置及预备工作区的 `NodeConfiguration`。实际 Node 通过 `resolve` 记录已准备的 canonical 路径，现有跨配置检查同时可看当前配置及预备目录。方案借用 realpath 判定，无需目录删除见证。设置接口在转发前判断归属，主 Agent 与 Dreaming 用同一 Node 判定。现有 `RuntimePartitions` 注册宿主回调时按请求 Agent 所在分区检查来源，stdio 已支持 DSH 发起 Node 回调。该接口只需返回本 Agent 的角色资格，角色正文及固定路径继续由所属 DSH 分区读取。对照 R3 的 PA 与普通 Agent 共用真实目录案例，两个分区都可在首聊前得到不可用，前台跳过角色文件初始化、注入与指导，后台新批次也不消费。设计加入用实际配置复现的反例，覆盖设置和会话启动后的模型请求。原有文档记忆及 Dreaming 批内快照仍各按自己的契约处理。[修订数据流](design.md#接口与数据流) · [预备 canonical 路径](../../../apps/node/src/configuration.ts#L145) · [整节点配置检查](../../../apps/node/src/configuration.ts#L170) · [分区来源校验与回调注册](../../../apps/node/src/runtime-partitions.ts#L194) · [实际 Node 回调示例](../../../apps/node/src/main.ts#L505)
+- **R3-W2 · closed。** Author 在设计和 runbook 补入对同一隔离 IM 的原生模拟器操作。独立保存后重开、普通配置保存不提交角色草稿、版本冲突后读取最新值并仍保留原草稿，分别对应 SwiftUI 自己的状态及顶部保存按钮。审查表写明实测范围，M1 要求保留模拟器操作证据。权限和后台采用沿用 Web、API 与 runtime 的验证计划。R3 已核对完整 Xcode 与 iOS runtime 可用，修订将其明确为验收前置。[审查安排](design.md#本次审查安排) · [隔离运行入口](design.md#runbook-for-reviewer) · [M1](design.md#milestones) · [iOS 顶部保存](../../../src/IM/ios/NanoIM/Features/Agents/AgentConfigView.swift#L103)
+- **R3-R1 · adopted。** 首文档已把主 Agent 首次填入及后续更新限定为对话场景，管理者仍通过配置页的显式保存确认。[首文档](spec.md#角色约定的维护与使用)
+
+### 覆盖与证据
+
+两项修订保留 R2 已审过的聊天身份、提议与回复匹配、写入失败处理及跨页重组边界。复核了本机 Node/DSH 调用入口和修订后的验收前置。新角色 RPC、出站模型请求和 iOS 实际保存行为留待实施验证，本轮未启动服务、模型或模拟器。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增。

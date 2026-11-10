@@ -11,6 +11,7 @@
 - [主会话装配](../../../packages/dsh-integration/src/agent-config.ts)已按产品根、普通 child 和 fork 分配 Persona 和职责。[DocumentMemory](../../../packages/dsh-integration/src/knowledge/document-memory.ts)在 native request 装配文档记忆，以可信配置及产品绑定解析工作区，按次读取首页。首页超过 8,000 UTF-16 code units 时给路径而省略正文。
 - [Dreaming](../../../packages/dsh-integration/src/knowledge/dreaming.ts)沿用合格 Global 原文、任务摘要、当前首页及按需回查。两个阶段使用隔离子会话，[维护请求](../../../packages/dsh-integration/src/knowledge/dreaming-agent.ts)过滤掉前台 Persona 等提示，只提供 PA/专家类别。其暂存应用计划目前只支持写入，正文有变化时强制首页也有内容变化。
 - [现行提示](../../../packages/dsh-integration/src/knowledge/dreaming-prompts.ts)的提炼已按 Codex 保留任务脉络。整合复述了部分任务保真要求，同时要求短首页和主题/历史分层，对既有页面重组的触发和操作写得较弱。
+- Web 的 [Agent 配置](../../../src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx)与 iOS 的 [AgentConfigView](../../../src/IM/ios/NanoIM/Features/Agents/AgentConfigView.swift)都有管理者专用入口及文本编辑控件。现有 `custom_prompt` 随配置版本保存。工作区文件另有 [HEARTBEAT.md 读取](../../../apps/im-server/src/control-routes.ts#L448)先核实管理归属、再由节点访问的接线。
 
 ### 既有约束
 
@@ -26,7 +27,7 @@
 
 ## 架构总览
 
-主 Agent 在用户交流中维护 `.nanoassistant/ROLE.md`。主会话装配读取它以开展工作，Dreaming 整合在每批启动时读取它以选择和组织知识。两阶段的其他输入、正式记忆存储和应用路径沿用既有接线。
+管理者在 Agent 配置页直接维护 `.nanoassistant/ROLE.md`，主 Agent 也能在对话确认后维护同一文件。主会话装配读取它以开展工作，Dreaming 整合在每批启动时读取它以选择和组织知识。两阶段的其他输入、正式记忆存储和应用路径沿用既有接线。
 
 ## 关键决策
 
@@ -35,6 +36,10 @@
 [OpenClaw BOOTSTRAP.md 第 14 行起](https://github.com/openclaw/openclaw/blob/0dfea099d6facb4c317f82869c8d3125a3495db1/docs/reference/templates/BOOTSTRAP.md#L14)先自然对话、用户难以回答时提供建议，了解之后更新身份文件，完成后撤下引导。其[实际路由](https://github.com/openclaw/openclaw/blob/0dfea099d6facb4c317f82869c8d3125a3495db1/src/agents/pi-embedded-runner/run/attempt-bootstrap-routing.ts#L36)区分待引导的输入。Nano 沿用主动发起、对话后落盘的写法，并允许普通任务照常进行。Nano 自己的规则是先提出拟写入文本、获得明确同意后再写入。对现有 Agent 同样适用。未确认期间保留占位提示，在之后合适的真人交互中继续主动问，当前任务照常执行。PA 使用现有身份绑定，仅询问其长期帮助目标、职责和有实际需要的分工。独立 Agent 对齐职责、长期目标及相关服务对象与协作边界。
 
 角色约定为简短 Markdown，按职责适用性记录，建议整份不超过 2,000 UTF-16 code units。主 Agent 提议时压缩措辞并请用户确认。手动维护使文件超出装配上限时，前台提示读取完整文件再讨论精简，Dreaming 用清楚标注的不可内联状态及已有 Persona 继续。配置 Persona 可补充背景，已确认文件提供当前用户约定，冲突的职责含义由主 Agent 与用户厘清。配置和宿主权限保有其各自效力。
+
+#### 配置页直接编辑同一份角色文件
+
+Web 和原生 iOS 的现有 Agent 配置页在“自定义指令”附近提供独立的“角色约定”文本编辑项，沿用各端现有表单。说明只需能区分长期职责与一般行为指令，以及何时生效。使用“保存角色约定”就地提交，和整页配置各有自己的草稿及保存结果。真人管理者主动保存即为确认。未设置时显示可填写的空态，保存空白回到主 Agent 的主动澄清状态，宿主占位提示只在运行侧使用。使用同一 2,000 UTF-16 code units 上限，超限给出提示并保留草稿。该入口沿用现有信息层级和编辑控件，设计期无需另做原型。
 
 ### 2. 沿用 Codex 从保真材料中提炼可复用知识的判断
 
@@ -58,17 +63,23 @@
 2. **前台更新与恢复。** 每个根请求在动态上下文显示当前文件内容、路径和占位状态，确认后同一聊天下一请求及其他根会话读取新值。文件读取错误要能区分未初始化与不可读，不替用户推断角色。角色是用户约定的数据，文件正文与宿主角色维护规则分开装配。保留 fork 原生前缀的继承规则，在根角色指导中限定只有主 Agent 对真实用户执行询问和修改；普通 child 和隔离维护子会话不装配这段指导。
 3. **后台整合。** 为每个整合批次从固定主体工作区取一份已确认角色快照，以及有效配置 Persona 作为单独标注的数据，在现有预算测量前提供给隔离整合请求。空白或占位只表明约定尚待澄清，历史对话不得替它转正。把快照作为实际整合输入的一部分，可通过现有 `history` 恢复；同批继续时使用该快照，新批重新取值。提炼请求仍聚焦任务事实。角色数据不加入来源目录、进度水位或维护写路径。
 4. **应用。** 宿主比较暂存 Markdown 版本生成现有文件计划，移除“正文有变化就必须改首页”的条件。保留已存在文件的完整读取及资格核对，首页实际变化时沿用其最后应用顺序。复用装配阈值校验新写入首页，避免新产出退化为路径提示。老的超限首页仍可读取并在本轮有机会时缩小；正文计划不因该旧页仍超限而失败。冻结应用计划的冲突及失败恢复维持现行语义。跨正文迁移暂存阶段保留尚未保存到接收页的独有内容，因此接收页保存失败仍能从原页读取。
+5. **人工编辑。** IM 提供固定 Agent 目标的 `GET/PUT /im/v1/agents/:agent_id/role`。复用管理配置的主人与空间校验、当前节点连接和绑定复核，以及 Node RPC 请求/回执，`no-store`，不把正文放进公开资料、配置 JSON、IM 离线快照或 `profile_version`。Node 使用同一份工作区归属判定后，将固定读写请求按 `agentId` 路由到对应 DSH 分区。已配置但尚未开启首个聊天也可使用；GET 只读，区分未设置、不可用和有内容。DSH 复用固定角色路径及文件能力，核对工作区与受信配置一致，拒绝路径越界。客户端不传路径。
+   **工作区归属。** Node 的 `NodeConfiguration` 从整台节点实际配置和已准备的工作区查验目标 Agent 的文档记忆模式及 canonical workspace 归属。用 [现有跨配置路径比对](../../../apps/node/src/configuration.ts#L170)的 realpath 规则，遇到多个 Agent 指向同一真实工作区则该角色文件不可用。无需目录删除见证，也无需等待建立会话。Node 配置 API 调用该判定。主 Agent 请求装配与 Dreaming 新批次取角色快照也通过现有分区校验的本机 stdio 请求，以可信 `agentId` 向 Node 读取同一判定，不在分区各自推断。判定失败时跳过角色文件的初始化、注入和更新指导，普通工作与现有文档记忆按各自契约继续。
+6. **保存与采用。** 设置页提交 Markdown 和读取时的角色文件版本，DSH 使用同一文件系统的 `createIfAbsent` 或 `replaceIfVersion`。角色版本只绑定此 Agent 的工作区及该文件，写入成功后返回已保存内容与新版本。正常聊天写入沿用现有文件读取与更新语义，主 Agent 发现人工编辑已改变提议依据时先重新核对，需改变拟写内容时再次确认。版本冲突时只刷新并展示最新内容，保留草稿，由用户核对后主动决定；节点离线或读取失败时保留本页草稿及本页已确认的内容，恢复后先读取当前版本，超时也以重读为准。普通配置保存不覆盖角色文件。下一次主 Agent 请求和新开始的整合批次从现有装配读取已保存值，进行中的整合保留其已有角色快照。
 
 ## 本次审查安排
 
 | 必须回答的问题 | 能力与阶段 | 证据方法 |
 |---|---|---|
 | 角色在该出现的消费时点生效，前台与后台保持各自职责 | 设计与实施 Agent Context 审查 | 从产品绑定入口捕获实际 provider 请求，核对角色首次、确认后、同 Agent 另一聊天、普通 child/fork、整合与提炼、换窗恢复。用非绑定协作者、PA observer、另一聊天短回复以及角色文件工具关闭或失败作反例，检查前台与后续整合仍用原值。 |
+| 管理者能从配置页独立编辑同一份角色约定 | 设计与实施配置体验、代码与 Agent Context 审查 | 从隔离 Web 配置真实读写并重开，验证 PA 与独立 Agent、未初始化、角色修改后主 Agent/Dreaming 采用、清空、普通配置互不保存、文件版本冲突和断线恢复。用真实 API 验证非管理者访问被拒，两个不同运行分区的 Agent 在均未打开首聊且实际配置指向同一工作区时，设置页和之后的主 Agent/Dreaming 均不串用角色。用隔离 iOS 模拟器验证独立保存后重开、普通保存不提交角色草稿、版本冲突重读时仍保留角色草稿；共享权限和后台采用证据沿用 Web、API 与 runtime。 |
 | 提炼保真、整合可重组，首页对后续 Agent 仍可直接消费 | 独立设计审查、实施评测及代码审查 | 用同一脱敏样本与同一模型分别跑现行和新 prompt，含禅式长期协调经验与 PA 式个人目标/例外。比对真实读写、计划回执、合并后的证据链、首页装配，以及正文独立写入、无变化、接收页写入失败后原页仍可读。 |
 
 ## 契约层增量
 
 [Gateway Agent capabilities 增量](specs/gateway/agent-capabilities.md)，归并目标为[现行 Agent capabilities](../../specs/gateway/agent-capabilities.md)。
+
+[IM Agent 配置增量](specs/im/agents-nodes.md)，归并目标为[现行 Agents 与 Nodes](../../specs/im/agents-nodes.md)。
 
 ## 风险与回退
 
@@ -84,12 +95,12 @@
 |---|---|---|---|
 | 隔离 Node/Gateway 与配套 IM | `./scripts/e2e-down.sh --wt "$REVIEW_WT"` | `./scripts/e2e-up.sh --profile daily --wt "$REVIEW_WT"` | 确认 readiness、测试 workspace、两个 Agent 的绑定及本地测试模型可请求 |
 
-**Review 驱动方式** 从隔离 IM 分别与 PA、独立 Agent 发起对话，用现有维护入口触发整合。捕获出站请求和文件回执，用定向 runtime 测试覆盖失败、恢复及写入边界。比对内容质量时使用脱敏样本或合成副本，记录模型、版本及两次输入。
+**Review 驱动方式** 从隔离 IM 分别与 PA、独立 Agent 发起对话，从 Web 设置验证角色编辑，用现有维护入口触发整合。捕获出站请求和文件回执，用定向 runtime 测试覆盖失败、恢复及写入边界。比对内容质量时使用脱敏样本或合成副本，记录模型、版本及两次输入。用 [iOS 工程的模拟器入口](../../../src/IM/ios/README.md#模拟器测试)启动与同一隔离 IM 对接的原生客户端，验证局部保存与冲突恢复。
 
-**验收前置** `REVIEW_WT` 指向本轮独占的绝对目录，按 [隔离环境文档](../../development/worktree-runtime.md)检查测试模型凭据和工作区。已有 provider 捕获可复用时记录代码版本与证据位置。
+**验收前置** `REVIEW_WT` 指向本轮独占的绝对目录，按 [隔离环境文档](../../development/worktree-runtime.md)检查测试模型凭据和工作区。已有 provider 捕获可复用时记录代码版本与证据位置。iOS 使用本机完整 Xcode 和隔离模拟器，审查阶段确认 Xcode 26.4.1 与 iOS 26.4 runtime 可用；模拟器目标指向本次隔离 IM。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-role-and-consolidation | 角色约定与同轮记忆重组 | 无 | 串行 | `packages/dsh-integration/src/knowledge/`、相关 tests 及现有记忆指导资产 | [reviewer] 用户能补齐和确认独立角色约定，主 Agent 与 Dreaming 分别正确消费。任务保真与长期提炼在对照样本中可分别观察，旧 Wiki 实际被重组，首页适合注入，必要时只更新正文。[worker] 保留实际请求/暂存/回执证据及同模型对照；覆盖 PA/专家、未确认与后续更新、普通 child/fork、恢复、预算、证据与应用边界。 |
+| M1-role-and-consolidation | 角色约定与同轮记忆重组 | 无 | 串行 | `packages/dsh-integration/`、现有记忆指导资产、`apps/{node,im-server}/`、Web/iOS Agent 配置与相关测试 | [reviewer] 用户能经配置页直接修改角色，或在对话中补齐和确认角色约定，主 Agent 与 Dreaming 分别正确消费。配置页显示真实保存结果且保留冲突草稿。任务保真与长期提炼在对照样本中可分别观察，旧 Wiki 实际被重组，首页适合注入，必要时只更新正文。[worker] 保留实际请求/暂存/回执证据及同模型对照；覆盖 PA/专家、配置页权限与冲突、未确认与后续更新、普通 child/fork、恢复、预算、证据与应用边界，保留 iOS 模拟器独立保存、重开和冲突保留草稿的操作证据。 |
