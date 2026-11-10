@@ -168,27 +168,12 @@ export class Dreaming {
 
   private async execute(parent: Agent, config: AgentConfiguration, work: Active, importLegacy: boolean): Promise<unknown> {
     const owner=await this.owner(config);const library=await this.documents.forConfig(config);const signal=work.controller.signal;
-    const table=(await this.domain).table('runs');
     owner.lastAttempt=this.now();await this.saveOwner(config.agentId,owner);
     const completed:string[]=[];let run:DreamingRun|undefined;
     try{
       await this.refreshSources(parent,config,signal);
       const eligibility=await library.status();
       if(eligibility.sourcesPending)throw new Error('Source eligibility has not been refreshed.');
-      // Recover a finished file plan before freezing new work. Unfinished model staging is never reused.
-      for(const [,previous] of table.entries()){
-        if(previous.agentId!==config.agentId||previous.stage!=='consolidate'||!previous.plan||previous.planRetired||!(['applying','partial','failed'].includes(previous.state)||previous.state==='completed'&&previous.receipts.some(receipt=>receipt.saved&&!receipt.versionRecorded)))continue;
-        run=previous;
-        const versions=await library.versions();
-        if(run.generation!==eligibility.generation||run.plan!.some(operation=>{
-          const current=versions[operation.path]??null;return current!==operation.beforeHash&&current!==operation.afterHash;
-        })){
-          run.state='failed';run.planRetired=true;run.error='Frozen plan retired after source or document change; successful file receipts are preserved.';
-          run.endedAt=this.now();run.summary=this.summary(run);await this.saveRun(run);await this.publish(run);continue;
-        }
-        await this.apply(parent,config,work,run,library,owner);completed.push(run.id);
-      }
-      run=undefined;
       const baselines=await this.sources.baseline(config.agentId);
       for(const [id,progress] of Object.entries(baselines))owner.streams[id]??=progress;
       await this.saveOwner(config.agentId,owner);
@@ -207,7 +192,7 @@ export class Dreaming {
         includeConversations();
         const cache=(await this.domain).table('summaries');
         const pendingMaterial=materials.some(material=>owner.integrated[material.sessionId]!==material.sourceVersion);
-        const check=await library.needsVerification();
+        const check=await library.needsVerification()||(await library.gitChanges()).length>0;
         const hasProgress=batch.ranges.some(range=>range.through>range.start||range.continuation);
         if(!batch.units.length&&!pendingMaterial&&!deferred?.summaries.length&&!check&&!importPending){
           // Filtered system events can advance without a model; genuine blocked prefixes cannot.
@@ -285,7 +270,9 @@ export class Dreaming {
           }
           return render();
         });
-        await this.apply(parent,config,work,run,library,owner);
+        signal.throwIfAborted();await assertDreamingSources(library,run.generation);
+        run.state='completed';run.endedAt=this.now();run.summary=this.summary(run);await this.saveRun(run);
+        await this.commitProgress(run,owner);await this.publish(run,work.handle);
         // A partial message's readable step is ahead of its committed cursor; retain both bounds.
         deferred=remaining.length?{batch:{...run.batch,historyThrough:Object.fromEntries(sourceDirectory(run,owner)
           .filter(source=>source.session_id===source.root_session_id).map(source=>[source.session_id,source.through]))},summaries:remaining}:undefined;
@@ -297,7 +284,7 @@ export class Dreaming {
       owner.failures++;owner.retryAt=this.now()+retryDelays[Math.min(owner.failures-1,retryDelays.length-1)]!;await this.saveOwner(config.agentId,owner);
       if(!run)return {accepted:completed.length>0,state:'failed',runIds:completed,reason:String(error)};
       run.state=signal.aborted ? run.receipts.some(receipt=>receipt.saved)?'partial':'cancelled' : run.receipts.some(receipt=>receipt.saved)?'partial':'failed';
-      if(signal.aborted)run.planRetired=true;
+      if(run.stage==='consolidate')run.planRetired=true;
       run.error=String(error);run.endedAt=this.now();run.summary=this.summary(run);await this.saveRun(run);await this.publish(run,work.handle);
       return {accepted:true,runId:run.id,state:run.state,summary:run.summary};
     }finally{await this.disposeHandle(work);}
@@ -383,27 +370,27 @@ export class Dreaming {
     this.maintenance.add(`dreaming-${run.id}`);
     return library.status().then(status=>runDreamingAgent(this.ctx,{parent,config,signal:work.controller.signal,run,owner,library,input,sources:this.sources,
       conversations:()=>[...new Set(status.sources?.allowed??run.batch.conversations??[])].filter(id=>!status.sources?.excluded.includes(id)),
-      save:()=>this.saveRun(run),opened:handle=>{work.handle=handle;}}));
+      save:()=>this.saveRun(run),opened:handle=>{work.handle=handle;},
+      publishFiles:plan=>this.publishFiles(parent,config,work,run,library,plan)}));
   }
-  private async apply(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner){
-    work.controller.signal.throwIfAborted();await this.refreshSources(parent,config,work.controller.signal);await assertDreamingSources(library,run.generation);
-    if(!run.plan)throw new Error('No completed staging plan.');
-    run.state='applying';await this.saveRun(run);
-    for(const operation of run.plan){
-      work.controller.signal.throwIfAborted();const current=this.configuration(config.agentId);
-      if(this.options.held?.(config.agentId)||current?.knowledge?.memoryMode==='legacy'||work.automatic&&current?.features?.dreaming===false)throw new Error('Maintenance disabled before file application.');
+  private async publishFiles(parent:Agent,config:AgentConfiguration,work:Active,run:DreamingRun,library:MemoryDocuments,plan:NonNullable<DreamingRun['plan']>){
+    const signal=work.controller.signal;
+    await this.refreshSources(parent,config,signal);await assertDreamingSources(library,run.generation);
+    const assertCurrent=()=>{
+      signal.throwIfAborted();const current=this.configuration(config.agentId);
+      if(this.options.held?.(config.agentId)||current?.knowledge?.memoryMode==='legacy'||work.automatic&&current?.features?.dreaming===false)throw new Error('Maintenance disabled before Git publication.');
+    };
+    assertCurrent();
+    run.plan??=[];
+    for(const operation of plan){
+      assertCurrent();
       const content=await readFile(join(run.directory,'staging',operation.path),'utf8');if(memoryDigest(content)!==operation.afterHash)throw new Error('Staged output changed after host validation.');
-      const receipt=await library.apply({...operation,content},run.generation,work.controller.signal);
-      run.receipts=[...run.receipts.filter(item=>item.operationId!==receipt.operationId),receipt];await this.saveRun(run);
+      const receipt=await library.apply({...operation,content},run.generation,signal,{recordVersion:false});
       if(!receipt.saved)throw new Error(receipt.error??'File was not saved.');
+      run.plan=[...run.plan.filter(item=>item.path!==operation.path),operation];
+      run.receipts=[...run.receipts.filter(item=>item.path!==receipt.path),receipt];await this.saveRun(run);
     }
-    if(run.sourcesChecked){
-      const manifest=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8')) as {versions:Record<string,string>};
-      const confirmed={...manifest.versions};for(const operation of run.plan)confirmed[operation.path]=operation.afterHash;
-      await library.checkpoint(Object.fromEntries(Object.entries(confirmed).sort(([a],[b])=>a.localeCompare(b))),run.generation);
-    }
-    run.state='completed';run.endedAt=this.now();run.summary=this.summary(run);await this.saveRun(run);
-    await this.commitProgress(run,owner);await this.publish(run,work.handle);
+    assertCurrent();
   }
   private async commitProgress(run:DreamingRun,owner:DreamingOwner){
     for(const range of run.batch.ranges)if(owner.streams[range.sessionId])commitSourceRange(owner.streams[range.sessionId]!,range);
@@ -417,7 +404,7 @@ export class Dreaming {
   private summary(run:DreamingRun):string{
     if(run.stage==='extract')return `任务经历提炼 ${run.state}；${run.state==='completed'?(run.summaries[0]?.noSignal?'无值得保留的新信号，旧摘要退役':'已保存任务复盘，尚未整合进正式记忆'):'未生成有效的新版本'}。${run.error??''}`;
     const saved=run.receipts.filter(receipt=>receipt.saved).length;const git=run.receipts.filter(receipt=>receipt.saved&&!receipt.versionRecorded).length;
-    return `Dreaming ${run.state}: 本批交流${run.state==='completed'?'已整理':'未完成'}；使用 ${run.summaries.length} 份任务复盘；保存 ${saved}/${run.plan?.length??0} 页；${run.state==='completed'?'本批成功进度已登记':'整理进度未推进'}。${git?`${git} 页内容已保存，版本记录失败。`:''}${run.batch.blocked.length?`另有 ${run.batch.blocked.length} 个源范围待处理。`:''}${run.error??''}`;
+    return `Dreaming ${run.state}: 本批交流${run.state==='completed'?'已整理':'未完成'}；使用 ${run.summaries.length} 份任务复盘；保存 ${saved}/${run.plan?.length??0} 页；${run.state==='completed'?'本批成功进度已登记':'整理进度未推进'}。${git?`${git} 页内容已保存，Git 提交尚未确认。`:''}${run.batch.blocked.length?`另有 ${run.batch.blocked.length} 个源范围待处理。`:''}${run.error??''}`;
   }
   private async publish(run:DreamingRun,handle?:AgentHandle){
     if(handle){handle.agent.session.append('user/message',createUserMessage({source:{kind:'nano-system',actorId:run.agentId,channel:'dreaming-receipt',messageId:`${run.id}:receipt`},content:[{type:'text',text:`Host application receipt (authoritative outcome): ${run.summary}`}]}),{surfaceOp:'append'});await this.ctx.sessions.flush(handle.agent.session);}
@@ -436,7 +423,8 @@ export class Dreaming {
   /** Report both source streams without making a model call or consuming any progress. */
   async status(agentId:string){
     const config=this.configuration(agentId);if(!config)return undefined;const owner=await this.owner(config);
-    const policy=await(await this.documents.forConfig(config)).status();
+    const library=await this.documents.forConfig(config);
+    const policy=await library.status();
     if(policy.sourcesPending)return {active:this.active.has(agentId),backlog:{state:'source_eligibility_pending',scope:'unavailable'}};
     let limit:number;
     try{limit=await dreamingInputLimit(this.ctx,config);}
@@ -448,26 +436,28 @@ export class Dreaming {
     const summaries=(await this.domain).table('summaries');
     const children=materials.map(material=>{const cached=summaries.get(summaryKey(agentId,material.sessionId));return {sessionId:material.sessionId,
       state:cached?.sourceVersion!==material.sourceVersion||cached.generation!==policy.generation?'pending_extraction':owner.integrated[material.sessionId]!==material.sourceVersion?'pending_integration':'integrated'};});
-    const pending=batch.units.length>0||children.some(child=>child.state!=='integrated');
+    const pending=batch.units.length>0||children.some(child=>child.state!=='integrated')||(await library.gitChanges()).length>0;
     const blocked=[...target.blocked,...batch.blocked];
     return {active:this.active.has(agentId),backlog:{state:pending?'pending':blocked.length?'blocked':'no_eligible_increment',scope:'frozen_sources',
       global:{pending:batch.units.length>0,units:batch.units.length},children,blocked},reviews:(await this.reviews()).filter(run=>run.agentId===agentId).map(({status,summary,at,endedAt})=>({status,summary,at,endedAt}))};
   }
-  /** Recover real application receipts; never reuse unfinished model staging or an old cycle target. */
+  /** Keep actual saved files from interrupted runs; the next batch checks formal Git state. */
   async recover(retired: (agentId: string) => boolean = () => false){
     const domain=await this.domain;
     for(const [,run] of [...domain.table('runs').entries()].sort((a,b)=>a[1].at-b[1].at)){
       if (retired(run.agentId)) continue;
       if(run.childSessionId&&!run.identityRecorded)await this.repairIdentity(run);
-      // A saved file may still need its frozen content to retry version recording.
-      const pendingVersion=run.receipts.some(receipt=>receipt.saved&&!receipt.versionRecorded);
-      if(run.endedAt&&this.now()-run.endedAt>7*86400000&&(run.planRetired||run.state==='completed'&&!pendingVersion||!run.plan&&['failed','cancelled'].includes(run.state))){
+      // Only the formal worktree is reused by a fresh batch after interruption.
+      if(run.endedAt&&this.now()-run.endedAt>7*86400000&&['completed','partial','failed','cancelled'].includes(run.state)){
         for(const path of ['input','input.md','staging','summaries','legacy'])await rm(join(run.directory,path),{recursive:true,force:true});
       }
       if(run.stage==='consolidate'&&run.state==='completed'){
         const owner=domain.table('owners').get(key(run.agentId));if(owner?.protocol===2)await this.commitProgress(run,owner);
-      }else if(run.state==='prepared'||run.state==='running'){
-        run.state=run.plan?'applying':'failed';run.error='Interrupted before application; next run freezes a new target.';await this.saveRun(run);
+      }else if(run.state==='prepared'||run.state==='running'||run.state==='applying'){
+        run.state=run.receipts.some(receipt=>receipt.saved)?'partial':'failed';
+        run.planRetired=true;run.endedAt=this.now();
+        run.error='Interrupted before completion; the next run checks the current formal Git repository.';
+        run.summary=this.summary(run);await this.saveRun(run);
       }
     }
   }

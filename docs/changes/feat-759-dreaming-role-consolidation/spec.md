@@ -90,20 +90,31 @@ Full，需求已对齐。用户确认开始按三项改进及对应的上游参�
 
 Wiki 整理的直接参考为 [memoryrepo 的 Dreaming prompt](https://github.com/supermemoryai/memoryrepo/blob/54f7ff3065df8af687dc5c04a4bb17d6611e5fd1/src/server/memory.ts#L60)、Anthropic Cookbook 的 [Analyzer](https://github.com/anthropics/claude-cookbooks/blob/ce8b2629efe8b24048b127b4c79af1e9cbab93d4/managed_agents/example_data/memory_distill/prompts/analyzer_system.md) 与 [Organizer](https://github.com/anthropics/claude-cookbooks/blob/ce8b2629efe8b24048b127b4c79af1e9cbab93d4/managed_agents/example_data/memory_distill/prompts/organizer_system.md)。[tigerless agent-memory](https://github.com/tigerless-labs/agent-memory/blob/f7c22b3d4696cf5d3c151861244916471aa41a78/packages/core/src/agent_memory/core/prompts.py#L138) 提供受限候选审核的写法。[instinct-memory](https://github.com/vatsal191201/instinct-memory/blob/4785fefe0bbc777be91b483a7f1c55e256763859/scripts/instinct_reconcile.py#L250) 是独立实现。[Instinct 的黑盒报告](https://supermemory.ai/blog/reverse-engineering-instinct-memory/) 未取得产品实际的整理 prompt。
 
+### 整理提交与成功条件
+
+用户订正保存流程：
+
+> 我订正你的设计：Dreaming Agent 改完记忆后，自己应该执行 `git commit`。（不需要像你现在一个一个文件commit。）随后由系统检查正式记忆仓是否还有未提交的变更。有的话，把检查结果反馈给同一个 Dreaming Agent，让它继续处理，结束后系统再检查。没有未提交的变更时，才将本批 Dreaming 标记为成功。
+
+Dreaming 整合 Agent 主动提交一批记忆。系统每次在它正常结束后检查正式库的实际 Git 状态。若仍有未提交改动，系统把相关文件状态发回同一个整合会话，该会话继续处理。正式库干净后，本批才可登记完成及推进对应来源进度。
+
 ## 用户场景
 
 1. 新 Agent 或已有 Agent 尚无角色约定。主 Agent 在正常用户交流中主动请用户明确长期职责和目标，视职责需要对齐协作分工。用户先交办了一件临时任务，主 Agent 可以开展工作，后续有合适交流时继续主动询问。PA 已知服务对象，无需重复确认身份。
 2. 用户明确长期职责或提出调整。主 Agent 复述要写入的内容，在同一或后续交流得到明确同意才写入。之后主 Agent 用该约定履职，下一次 Dreaming 用同一份约定判断哪些经历值得长期整合。
 3. Dreaming 获得一份有多轮迭代的任务复盘和新的交流。后续 Agent 可以从主题页找到现行结论、适用条件和依据，从历史找到必要的来龙去脉。同一任务的草案、重复验证和临时状态只保留到足以理解或复查结果。
 4. Dreaming 遇到重复页面、过时的现行结论和膨胀首页。它重组相关内容，把需按主题查阅的细节移到主题页并留链接，让新会话直接获得可在开工前发挥作用的少量理解。某次只补充主题页细节时，首页仍可原样保留。
-5. 管理者想直接设置 Agent 的长期职责，在现有配置页打开“角色约定”，填写或修改后单独保存。返回配置页可以看到实际已保存的版本；已有聊天后续请求和下一批 Dreaming 开始采用它。
+5. Dreaming 先合并并改写多份记忆，自己将它们一起提交。如果仍有改动留在正式仓，同一个 Dreaming 整合会话继续处理，直至成功回执证实 Git 工作区干净。
+6. 管理者想直接设置 Agent 的长期职责，在现有配置页打开“角色约定”，填写或修改后单独保存。返回配置页可以看到实际已保存的版本；已有聊天后续请求和下一批 Dreaming 开始采用它。
 
 ## 验收标准
 
 - **WHEN** PA 或独立 Agent 的约定未初始化，**THEN** 工作区有提示占位符，主 Agent 在合适的用户交流里主动询问，未确认时在后续合适的交流继续询问；临时交办及提议未获确认时保持原文件。**WHEN** 符合上述身份及对话条件的用户明确同意拟写入的约定且普通文件工具成功，**THEN** 主 Agent 将约定写入 `.nanoassistant/ROLE.md`，下次主 Agent 请求与下一批 Dreaming 整合可分别消费保存内容。Dreaming 保持只读，角色不改变授权与事实判断。非确认人、其他聊天对不相关事项的同意、PA 观察到的旁人交流和文件工具不可用或失败均不激活新约定。
 - **WHEN** 同一复盘包含明确的本任务要求、已被替代的尝试和有依据的长期做法，**THEN** 提炼保留复查所需的完整经历，整合在主题页形成可复用理解，历史页只保留有用的结果及关键转折。单任务约束保持其范围，两个层级仍能沿来源查证。
 - **WHEN** 同一主题在已有记忆中重复、冲突或已过时，且本批材料或回查依据足以确认，**THEN** Dreaming 能在同一轮重组正文、消除旧说法并维护导航，保留仍成立的例外和有用历史。装入日常请求的首页保持简短，具体常驻内容由模型根据通用价值判断。只改正文或无变化均可正常完成，依据现有宿主回执核对保存。跨页迁移时，接收页尚未保存的依据仍可从原页读取。
-- **WHEN** 管理者在配置页成功保存角色约定，**THEN** 页面显示实际保存结果，主 Agent 后续请求和下一批 Dreaming 使用这份约定；清空后回到未确认状态。**WHEN** 节点离线、当前文件读不到、保存失败或角色在编辑期间被更新，**THEN** 页面清楚区分当前文件与本页草稿，保留草稿，待读取并核对最新内容后由用户再次决定是否保存。其他用户无法读取或编辑此文件。
+- **WHEN** 管理者在配置页成功保存角色约定，**THEN** 页面显示实际保存结果，主 Agent 后续请求和下一批 Dreaming 使用这份约定；清空后回到未确认状态。**WHEN** 节点离线、当前文件读不到、保存失败或角色在编辑期间被更新，**THEN** 页面清楚区分当前文件与本页草稿，保留草稿，待读取并核对最新内容后由用户再次决定是否保存。其他用户不能通过配置页或角色 API 读取或编辑此文件。
+
+- **WHEN** 整合 Agent 改了多页记忆，**THEN** 由该 Agent 发起整批 Git 提交；每次正常结束都由宿主检查正式仓。仍有变更时同一整合会话收到检查结果继续处理。只有正式库无未提交变更，才报告本批成功并推进本批来源。
 
 ## 范围与非目标
 

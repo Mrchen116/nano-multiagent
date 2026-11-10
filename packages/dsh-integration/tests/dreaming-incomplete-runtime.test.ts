@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -35,10 +36,22 @@ export function apply(ctx) {
         : ['body-only', 'legacy-oversized-index', 'oversized-index'].includes(mode) ? [
             ['read', {file_path: stage + '/MEMORY.md'}],
             ['write', {file_path: stage + '/knowledge/new.md', content: 'A detail that belongs only on the topic page.'}],
+            ...(mode === 'body-only' ? [['write', {file_path: stage + '/knowledge/second.md', content: 'Another related detail.'}]] : []),
             ...(mode === 'oversized-index' ? [['write', {file_path: stage + '/MEMORY.md', content: '记'.repeat(8001)}]] : []),
           ]
         : ['model-error', 'cancelled'].includes(mode) ? [['read', {file_path: stage + '/MEMORY.md'}], write] : [];
       call = calls[step];
+      const status = request.messages.findLast(message => message.source?.channel === 'dreaming-git-status');
+      if (status && !request.messages.some(message => message.toolCallId === 'batch-commit')) {
+        const second = stage + '/knowledge/second.md';
+        if (mode === 'body-only' && !request.messages.some(message => message.toolCallId === 'read-published')) {
+          call = ['read', {file_path: second}, 'read-published'];
+        } else if (mode === 'body-only' && !request.messages.some(message => message.toolCallId === 'update-published')) {
+          call = ['write', {file_path: second, content: 'Updated detail after status feedback.'}, 'update-published'];
+        } else {
+          call = ['git_commit', {message:'Consolidate related memories'}, 'batch-commit'];
+        }
+      }
     } else {
       const input = request.messages.findLast(m => m.role === 'user' && m.source?.actorId === 'owner');
       const text = input?.content.find(b => b.type === 'text')?.text;
@@ -109,6 +122,19 @@ export function apply(ctx) {
       }
       const maintenance = requests.filter(request => request.sessionId.startsWith('dreaming-'));
       expect(JSON.stringify(maintenance[0].messages)).toContain('experience-one');
+      if (mode === 'body-only') {
+        const memory = join(home, '.nanoassistant/memory');
+        const feedback = maintenance.filter(request => request.messages.some((message: any) => message.source?.channel === 'dreaming-git-status'));
+        expect(feedback).not.toHaveLength(0);
+        expect(feedback[0].sessionId).toBe(maintenance[0].sessionId);
+        expect(JSON.stringify(feedback[0].messages)).toContain('knowledge/second.md');
+        expect(await readFile(join(memory,'knowledge/second.md'),'utf8')).toBe('Updated detail after status feedback.');
+        expect(execFileSync('git', ['status', '--porcelain'], {cwd:memory,encoding:'utf8'})).toBe('');
+        expect(execFileSync('git', ['rev-list', '--count', 'HEAD'], {cwd:memory,encoding:'utf8'}).trim()).toBe('2');
+        expect(execFileSync('git', ['log', '-1', '--format=%s'], {cwd:memory,encoding:'utf8'}).trim()).toBe('Consolidate related memories');
+        expect(execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], {cwd:memory,encoding:'utf8'}).trim().split('\n'))
+          .toEqual(['knowledge/new.md', 'knowledge/second.md']);
+      }
       if (['unread-write', 'failed-read-write'].includes(mode)) expect(maintenance.at(-1).messages.some((message: any) => message.role === 'tool' && message.isError)).toBe(true);
       await client.shutdown(); client = undefined;
     } finally {

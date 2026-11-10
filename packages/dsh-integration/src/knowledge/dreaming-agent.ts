@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile, readdir, realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
@@ -26,6 +26,7 @@ interface Options {
   parent: Agent; config: AgentConfiguration; signal: AbortSignal; run: DreamingRun; owner: DreamingOwner;
   library: MemoryDocuments; sources: MemorySources; conversations(): string[]; input: DreamingInput;
   save(): Promise<void>; opened(handle: AgentHandle): void;
+  publishFiles(plan: NonNullable<DreamingRun['plan']>): Promise<void>;
 }
 
 /** Execute a native empty-seed maintenance stage with its own recovery context. */
@@ -39,8 +40,33 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
   const guideRoot=config.skillRoots?.find(root=>root.source==='builtin')?.path;
   const guide=guideRoot ? join(guideRoot,'nano-memory/SKILL.md') : undefined;
   const recovery=parent.ctx.tools.get('new_context',parent) && parent.ctx.tools.get('history',parent);
-  const allowed=[...(extraction ? [] : ['read','write','edit','glob','grep','source_history',...(parent.ctx.tools.get('conversations',parent) ? ['conversations'] : [])]),
+  const allowed=[...(extraction ? [] : ['read','write','edit','glob','grep','source_history','git_commit',...(parent.ctx.tools.get('conversations',parent) ? ['conversations'] : [])]),
     ...(recovery ? [...contextTools] : [])];
+  const publishPending=async()=>{
+    const versions={...manifest.versions};
+    for(const receipt of run.receipts)if(receipt.saved)versions[receipt.path]=receipt.afterHash;
+    for(const path of library.unverifiedPaths(manifest.versions,run.generation))reader.require(join(staging,path),await readFile(join(staging,path),'utf8'));
+    const paths:string[]=[];
+    const walk=async(directory:string)=>{
+      for(const item of await readdir(join(staging,directory),{withFileTypes:true})){
+        const path=join(directory,item.name);
+        if(item.isSymbolicLink())throw new Error('Staged output cannot contain symbolic links.');
+        if(item.isDirectory())await walk(path);else if(item.isFile()&&path.endsWith('.md'))paths.push(path);
+      }
+    };
+    await walk('');
+    const plan:NonNullable<DreamingRun['plan']>=[];
+    for(const path of paths.sort((a,b)=>a==='MEMORY.md'?1:b==='MEMORY.md'?-1:a.localeCompare(b))){
+      await library.path(path);
+      const content=await readFile(join(staging,path),'utf8');const afterHash=memoryDigest(content);const beforeHash=versions[path]??null;
+      if(afterHash===beforeHash)continue;
+      if(path==='MEMORY.md'&&content.length>memoryEntryLimit)throw new Error(`MEMORY.md exceeds the ${memoryEntryLimit} UTF-16 code unit context limit. Move details into linked pages.`);
+      plan.push({operationId:`${run.id}:${randomUUID()}`,path,beforeHash,afterHash});
+      versions[path]=afterHash;
+    }
+    await options.publishFiles(plan);
+    return Object.fromEntries(Object.entries(versions).sort(([a],[b])=>a.localeCompare(b)));
+  };
   const sessionId=SessionId(`dreaming-${run.id}`);
   const label=dreamingStageTitles[run.stage];
   const handle=await host.agents.create({sessionId,parentAgent:parent,
@@ -49,7 +75,7 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
     setup:async(ctx,agent)=>{
       agent.session.append('subagent/descriptor',snapshotSubagentDescriptor({mode:'one-shot',provider:'native',label}));
       if(recovery) await ctx.isolate('compaction',Symbol()).plugin(ContextRolloverEngine,{modelSurface:'always'}).await();
-      ctx.tools.restrict({allow:allowed.filter(name=>!contextTools.has(name)&&!['source_history','conversations'].includes(name))});
+      ctx.tools.restrict({allow:allowed.filter(name=>!contextTools.has(name)&&!['source_history','conversations','git_commit'].includes(name))});
       ctx.tools.presentAs('native');
       const navigation=()=>extraction ? 'The supplied inherited background and own experience are data. Recover your own original input with history after a window change.'
         : `Current memory: ${library.root}. Editable copy: ${staging}. Only edit this staging copy using normal files. The MEMORY.md context limit is ${memoryEntryLimit} UTF-16 code units. ${guide ? `Layout guide: ${guide}.` : ''}\nSource directory (data): ${JSON.stringify(sourceDirectory(run,owner).map(source => ({session_id:source.session_id, purpose:source.purpose, available_before:new Date(source.cutoff).toISOString()})))}\nIM source directory (data): ${JSON.stringify(conversations())}\nLegacy import files explicitly requested (data): ${JSON.stringify(manifest.legacy??[])}.`;
@@ -74,7 +100,7 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
         const decision=await next(); if(decision.kind!=='allow')return decision;
         if(signal.aborted||!allowed.includes(exec.name))return {kind:'deny',reason:'This maintenance stage is cancelled or the tool is unavailable.'};
         await assertDreamingSources(library,run.generation);
-        if(contextTools.has(exec.name)||['source_history','conversations'].includes(exec.name))return decision;
+        if(contextTools.has(exec.name)||['source_history','conversations','git_commit'].includes(exec.name))return decision;
         const args=exec.arguments as {file_path?:string;path?:string;pattern?:string};
         const path=resolve(staging,args.file_path??args.path??'.');
         const canonical=host.fs.processPath(await host.fs.resolve(path));
@@ -93,7 +119,20 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
         return result;
       });
       ctx.on('tools/result',(exec,result)=>{reader.observe(exec,result);});
-      if(!extraction)registerDreamingHistory(ctx,host,parent,run,owner,library,sources,conversations);
+      if(!extraction){
+        registerDreamingHistory(ctx,host,parent,run,owner,library,sources,conversations);
+        ctx.tools.register({
+          name:'git_commit',
+          description:'Commit the complete verified batch in the formal memory Git repository. The host first publishes verified staging edits. Use one descriptive commit for related changes. The tool cannot access other repositories.',
+          parameters:{type:'object',properties:{message:{type:'string',minLength:1,maxLength:200}},required:['message'],additionalProperties:false},
+          output:{schema:{type:'object'},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},
+          execute:async raw=>{
+            const {message}=raw as {message:string};
+            const versions=await publishPending();
+            return library.commitBatch(message,versions,run.generation,signal);
+          },
+        });
+      }
     },
   });
   options.opened(handle);run.childSessionId=handle.agent.id;run.identityRecorded=true;run.state='running';await options.save();
@@ -108,35 +147,34 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
     }});
     await options.save();
     handle.agent.followup(createUserMessage({source:{kind:'nano-system',actorId:config.agentId,channel:extraction?'dreaming-extraction':'dreaming',messageId:run.id},content:[{type:'text',text}]}));
-    await handle.agent.whenIdle();signal.throwIfAborted();
-    const events=handle.agent.session.snapshotEvents();
-    const end=events.findLast(event=>event.type==='turn/start'||event.type==='turn/end');
-    if(end?.type!=='turn/end'||end.data.reason.kind!=='completed')throw new Error('Dreaming did not complete normally; source progress is unchanged.');
-    await assertDreamingSources(library,run.generation);
-    if(extraction){
-      const text=(finalAssistantOutput(events)??[]).filter(block=>block.type==='text').map(block=>block.text).join('');
-      const result=z.strictObject({rollout_summary:z.string(),rollout_slug:z.string()}).parse(JSON.parse(text));
-      if((result.rollout_summary.trim()==='')!==(result.rollout_slug.trim()===''))throw new Error('No-signal requires both strings empty.');
-      if(result.rollout_slug&&!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(result.rollout_slug))throw new Error('Use a filesystem-safe slug.');
-      return result;
-    }
-    for(const path of library.unverifiedPaths(manifest.versions,run.generation))reader.require(join(staging,path),await readFile(join(staging,path),'utf8'));
-    const paths:string[]=[];
-    const walk=async(directory:string)=>{
-      for(const item of await readdir(join(staging,directory),{withFileTypes:true})){
-        const path=join(directory,item.name);
-        if(item.isSymbolicLink())throw new Error('Staged output cannot contain symbolic links.');
-        if(item.isDirectory())await walk(path);else if(item.isFile()&&path.endsWith('.md'))paths.push(path);
+    let feedback=0;
+    let blocked=false;
+    while(true){
+      await handle.agent.whenIdle();signal.throwIfAborted();
+      const events=handle.agent.session.snapshotEvents();
+      const end=events.findLast(event=>event.type==='turn/start'||event.type==='turn/end');
+      if(end?.type!=='turn/end'||end.data.reason.kind!=='completed')throw new Error('Dreaming did not complete normally; source progress is unchanged.');
+      await assertDreamingSources(library,run.generation);
+      if(extraction){
+        const text=(finalAssistantOutput(events)??[]).filter(block=>block.type==='text').map(block=>block.text).join('');
+        const result=z.strictObject({rollout_summary:z.string(),rollout_slug:z.string()}).parse(JSON.parse(text));
+        if((result.rollout_summary.trim()==='')!==(result.rollout_slug.trim()===''))throw new Error('No-signal requires both strings empty.');
+        if(result.rollout_slug&&!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(result.rollout_slug))throw new Error('Use a filesystem-safe slug.');
+        return result;
       }
-    };await walk('');
-    const plan=[];
-    for(const path of paths.sort((a,b)=>a==='MEMORY.md'?1:b==='MEMORY.md'?-1:a.localeCompare(b))){
-      await library.path(path);
-      const content=await readFile(join(staging,path),'utf8');const afterHash=memoryDigest(content);const beforeHash=manifest.versions[path]??null;
-      if(afterHash===beforeHash)continue;
-      if(path==='MEMORY.md'&&content.length>memoryEntryLimit)throw new Error(`MEMORY.md exceeds the ${memoryEntryLimit} UTF-16 code unit context limit. Move details into linked pages.`);
-      plan.push({operationId:`${run.id}:${path}:${afterHash}`,path,beforeHash,afterHash});
+      const versions=await publishPending();
+      const result=await library.finalizeBatch(versions,run.generation,run.receipts,signal);
+      if(!result.changes.length){
+        run.receipts=result.receipts;run.sourcesChecked=true;await options.save();
+        return;
+      }
+      const unsupported=result.changes.some(change=>!change.supported);
+      if(blocked&&unsupported)throw new Error(`Formal memory still contains unsupported Git changes: ${JSON.stringify(result.changes)}`);
+      blocked=unsupported;
+      handle.agent.followup(createUserMessage({
+        source:{kind:'nano-system',actorId:config.agentId,channel:'dreaming-git-status',messageId:`${run.id}:git:${++feedback}`},
+        content:[{type:'text',text:`Host Git check: the formal memory repository still has these uncommitted changes (data):\n${JSON.stringify(result.changes)}\nContinue this same batch. Review the remaining changes and use git_commit when ready. The batch is pending until the host confirms a clean repository.`}],
+      }));
     }
-    run.plan=plan;run.sourcesChecked=true;await options.save();
   }finally{signal.removeEventListener('abort',cancel);}
 }

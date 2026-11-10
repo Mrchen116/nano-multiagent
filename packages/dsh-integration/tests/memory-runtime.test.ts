@@ -29,8 +29,8 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     const binding={sessionId:'memory-root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',workspace:home,revision:'1',provider:'fixture',model:'test',features:{dreaming:false,memory_curation:false,skill_creation:false},toolAllowlist:['read','write','edit','memory','memory_maintenance']}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
-    const submit = async (id: string, actorId = 'owner') => {
-      await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',content:[{type:'text',text:id}],source:{kind:'human',actorId,channel:'test',messageId:id}});
+    const submit = async (id: string, actorId = 'owner', roleAccountId?: string) => {
+      await client!.rpc.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',content:[{type:'text',text:id}],source:{kind:'human',actorId,roleAccountId,channel:roleAccountId?'feishu':'test',messageId:id}});
       await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId:id}) as {terminal?:unknown}).terminal,{timeout:8000}).toBeTruthy();
     };
     await submit('learn');
@@ -45,8 +45,8 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     expect(await readFile(rolePath,'utf8')).toContain('ask the user');
     const role = await client.rpc.request('configuration.role',{agentId:'a',workspace}) as {content:string;version:string};
     expect(role.content).toBe('');
-    expect(await client.rpc.request('configuration.role',{agentId:'a',workspace,update:{content:'Coordinate the product team and verify delivery.',version:role.version}}))
-      .toMatchObject({content:'Coordinate the product team and verify delivery.'});
+    expect(await client.rpc.request('configuration.role',{agentId:'a',workspace,update:{content:'Coordinate delivery. Use {{customer_name}} in templates.',version:role.version}}))
+      .toMatchObject({content:'Coordinate delivery. Use {{customer_name}} in templates.'});
     await writeFile(page,'Never interrupt, including urgent incidents.');
     await writeFile(entry,'# Expert memory\n[Preferences](knowledge/preferences.md)');
     await submit('use-new-memory', 'collaborator');
@@ -54,7 +54,7 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     expect(JSON.stringify(requests[0].messages)).toContain('Role agreement is unset');
     expect(JSON.stringify(requests[0].messages)).toContain('Host-verified role agreement sender for the following direct input: bound account.');
     const latest=requests.at(-1);
-    expect(JSON.stringify(latest.messages)).toContain('Coordinate the product team and verify delivery.');
+    expect(JSON.stringify(latest.messages)).toContain('Coordinate delivery. Use {{customer_name}} in templates.');
     expect(JSON.stringify(latest.messages)).toContain('Host-verified role agreement sender for the following direct input: other user.');
     const control = latest.tools.find((tool:any)=>tool.name==='memory_maintenance');
     expect(control.parameters.properties.action.enum).toEqual(['status', 'run']);
@@ -69,6 +69,12 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     expect(JSON.stringify(latest.messages)).not.toContain('fs-observation-policy');
     expect(JSON.stringify(latest.messages)).toContain('knowledge/preferences.md');
     expect(JSON.stringify(latest.messages)).toContain('verified errors or missing steps');
+    await submit('external-owner', 'feishu-open-id', 'owner');
+    const external = JSON.parse((await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').at(-1)!);
+    const externalInput = external.messages.find((message: {id:string}) => message.id === 'external-owner');
+    const inputIndex = external.messages.indexOf(externalInput);
+    expect(externalInput.source.actorId).toBe('feishu-open-id');
+    expect(external.messages[inputIndex - 1].content).toEqual([{type:'text',text:'Host-verified role agreement sender for the following direct input: bound account.'}]);
     expect((await client.rpc.request('knowledge.facts',{}) as {reviews:unknown[]}).reviews).toEqual([]);
     await client.shutdown();client=undefined;
   } catch(error) { throw new Error(`${String(error)}\n${logs}`,{cause:error}); }

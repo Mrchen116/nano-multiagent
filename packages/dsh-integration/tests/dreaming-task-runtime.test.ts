@@ -56,7 +56,8 @@ export function apply(ctx){
           ['read',{file_path:stage+'/knowledge/travel.md'}],
           ...Array.from({length:25},()=>['source_history',{action:'search',session_id:root.session_id,query:'free cancellation',limit:10}]),
           ['write',{file_path:stage+'/knowledge/travel.md',content:resumed?'Updated option, still refundable and not booked.':'Parents Saturday, budget 5000, free cancellation; not booked.'}],
-          ['write',{file_path:stage+'/MEMORY.md',content:resumed?'# Expert memory\\nUpdated [travel conditions](knowledge/travel.md).':'# Expert memory\\n[Travel conditions](knowledge/travel.md).'}]];
+          ['write',{file_path:stage+'/MEMORY.md',content:resumed?'# Expert memory\\nUpdated [travel conditions](knowledge/travel.md).':'# Expert memory\\n[Travel conditions](knowledge/travel.md).'}],
+          ['git_commit',{message:'Consolidate travel memories'}]];
         call=calls[n];
       }
     }else if(o.sessionId==='root'){

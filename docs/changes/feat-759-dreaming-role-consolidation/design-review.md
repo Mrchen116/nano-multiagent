@@ -128,3 +128,64 @@ R1-W1/W2/W3 继续关闭。聊天确认人与同一实际交流的约束不变�
 ### Recommendations
 
 无新增。
+
+## Round 5
+
+- Reviewer / target：`design_review`，同一独立 `change-design-reviewer`。受审对象为 unit worktree `codex/feat-759-dreaming-role-consolidation`（`b6f3ce423`）的 [首文档](spec.md)、[设计](design.md)、[Gateway delta](specs/gateway/agent-capabilities.md) 与 M1 批次提交增量。
+- Review mode：`full`。用户更改批次保存的核心职责、成功判据及恢复语义，并增加 M1 验收结果。本轮复核整条整合链路与用户约束，ROLE 设置、归属、前台消费和 iOS 验收沿用 `retained_from: Round 4`，提炼及相关证据沿用 R1 至 R4。
+- Started at：`2026-11-10T20:02:39+08:00`。
+- Completed at：`2026-11-10T20:05:08+08:00`。
+- Duration：`2m 29s`。
+- Verdict：**Issues Found · 0 CRITICAL / 3 WARNING**。
+
+### 覆盖与证据
+
+- **产品装配与提交职责。** 当前 `KnowledgeRuntime` 实例化 `Dreaming` 和文档库。整合在独立、受限的原生会话使用暂存工作目录，正常结束后返回宿主应用；现有 `MemoryDocuments.apply` 在单页保存后自动记录一个 Git 版本。把真实批次提交放在仅整合 Agent 可发起的固定 `git_commit` 工具，普通编辑继续只写暂存，宿主继续验证并负责正式文件发布，可以表达用户指定的动作和安全边界。工具应以成功提交、无需提交或失败的实际结果反馈；同一个原生 handle 的宿主反馈可使用既有系统来源和 `followup`，保持批次及角色快照。该内部反馈不需要新增 Work 轨迹或修改投影。每次正常结束仍由宿主独立查正式仓，Git 成功或一次普通模型结束均不能单独推进来源。[产品组装](../../../packages/dsh-integration/src/knowledge/runtime.ts#L53) · [隔离会话](../../../packages/dsh-integration/src/knowledge/dreaming-agent.ts#L31) · [现有 followup](../../../packages/dsh-integration/src/knowledge/dreaming-agent.ts#L104) · [逐页版本记录](../../../packages/dsh-integration/src/knowledge/memory-documents.ts#L199) · [现有最终回执](../../../packages/dsh-integration/src/knowledge/dreaming.ts#L422)
+- **契约与证据。** Gateway 是合适的消费者契约位置，提炼 JSON、取消不进位、来源范围、无信号以及不新增私有 `finish` 都保留。当前设计仍保护完整读取、文件哈希、首页上限、跨页保留证据、ROLE 与正式库隔离。测试计划已包含多页同一 commit、遗漏提交后的同会话反馈、清洁无变化成功及取消，尚缺下列实际失败链路。现有隔离栈、真实模型对照、Web/iOS 设置路径和 M1 的单一串行结构继续适用。证据来自源码、文档和隔离临时 Git 仓的小复现。未启动产品、服务、模拟器或模型，临时 Git 仓已清理。[新 Gateway 场景](specs/gateway/agent-capabilities.md#scenario-提炼输出与整合批次-git-提交) · [审查安排](design.md#本次审查安排) · [M1](design.md#milestones)
+
+### 历史问题闭环
+
+R1 至 R4 的 ROLE 相关问题维持关闭。此前跨页保护继续保留，批次提交改动未改正式库是单一 Dreaming 写入者的边界。
+
+### Issues
+
+**R5-W1 · 同会话继续编辑时，现有应用基准无法接受本批自己的前一次发布。** **CONFIRMED（设计）**。当前暂存 manifest 在 `prepare` 中只写一次。计划用它作为每页 `beforeHash`，正式库仅接受该哈希或目标 `afterHash`。R5 允许同批先把某页 A 发布成 B，再因正式库仍脏而将状态交还同一个 Agent。若 Agent 依据反馈将暂存页 B 改为 C，按原 manifest 计算会拿 A 校验当前正式库 B，当作外部版本冲突。当前仅测补提交原有差异也可能掩盖该缺口。设计明确第二次及后续发布使用宿主实际保存的已验证版本作基准，部分保存时只更新已保存页，保留对第三方版本的冲突保护。续步不提前把验证、Git 和来源水位标成完成。M1 验证同一 handle 在一次正式发布后再次修改同一页并提交，覆盖已应用一部分时保留真实回执的情形。[R5 应用与反馈](design.md#整合-agent-提交和宿主检查) · [manifest 写入](../../../packages/dsh-integration/src/knowledge/dreaming.ts#L336) · [固定基准](../../../packages/dsh-integration/src/knowledge/dreaming-agent.ts#L132) · [第三版本拒绝](../../../packages/dsh-integration/src/knowledge/memory-documents.ts#L209)
+
+**R5-W2 · 正式仓脏状态必须进入准入，且必须显式检查未跟踪文件。** **CONFIRMED（设计及命令复现）**。设计要求验证既有脏仓可触发整理，未明确它如何影响当前早退出。现有 `needsVerification` 只比较来源代次和 Markdown 文件哈希，运行在没有新交流/任务材料且不需验证时直接返回。若真实 index 有 staged 变化而工作树 Markdown 内容未变，或只有未跟踪非 Markdown，旧判定不会启动任何整合会话。首次版本记录失败后，已有单页 basis 也可能与脏工作树一致。另在隔离 Git 仓复现 `status.showUntrackedFiles=no` 时，裸 `git status --porcelain` 返回空，显式 `--untracked-files=all` 才得到 `?? knowledge.md`。设计需用真实正式仓状态参与准入和退出，退出检查显式纳入未跟踪文件，命令失败保持未确认。允许处理的 dirty 交给同会话，非记忆路径或不能安全提交的状态走明确阻塞或失败并保留文件，避免已知不可处理项永久唤起同一会话。M1 至少覆盖无新来源但 Git 状态脏及未跟踪检查。[R5 准入与检查](design.md#整合-agent-提交和宿主检查) · [文件 hashes 判定](../../../packages/dsh-integration/src/knowledge/memory-documents.ts#L161) · [初次版本失败与 basis](../../../packages/dsh-integration/src/knowledge/memory-documents.ts#L79) · [无来源提前返回](../../../packages/dsh-integration/src/knowledge/dreaming.ts#L208)
+
+**R5-W3 · 新的批次 Git 提交未接上原有来源保护的执行边界。** **CONFIRMED（设计）**。现有来源刷新、文件写入及单页版本记录通过同一文档库串行边界协调，`apply` 在该边界内验证来源代次、取消和目标哈希，并在返回前写 Git。R5 把提交移到多页发布之后，仅说明它在同一个工具调用内；多次异步文件发布之间，来源可以被撤销或 Agent 被停用。若直接在发布返回后提交，宿主在最终检查发现过期之前已经把撤销来源派生内容写入 Git。现有单页 Git 也隔离了普通 index 中其他路径。指定 `git_commit` 复用文档库的串行与来源校验边界，在真正提交时核对来源代次、取消状态和已验证正式文件，并且提交仅包含被授权的 Markdown 路径，不顺带带上其他预暂存内容。正式仓最终干净与业务进度仍在同批正常结束后由宿主确认。为发布后、commit 前撤销来源增加隔离证据。[R5 提交接口](design.md#整合-agent-提交和宿主检查) · [来源同步与串行发布](../../../packages/dsh-integration/src/knowledge/memory-documents.ts#L182) · [隔离 index](../../../packages/dsh-integration/src/knowledge/memory-documents.ts#L238) · [来源失效契约](../../../packages/dsh-integration/src/knowledge/dreaming-history.ts#L36)
+
+### Recommendations
+
+- **R5-R1。** 将首文档场景中「Work 中」改为同一原生整合会话，并注明沿用现有 Work 轨迹。用 native Session ID、宿主反馈、Git commit 和来源水位核对本批结果，可直接遵循用户排除 Work 轨迹改动的约束。[首文档用户场景](spec.md#用户场景)
+
+### Author Resolutions
+
+- **R5-W1 — accepted.** 真实发布成功后按路径推进本会话基线。允许同一 Agent 收到 dirty 结果后再次编辑已发布页面，回归验证包括这种后续修改及首次发布的实际文件状态。
+- **R5-W2 — accepted.** 准入与完成都读取正式仓真实 Git 状态，显式启用全部未跟踪项。状态反馈回到同一 Agent，无法由现有 Markdown 能力处理的剩余路径会阻止成功。
+- **R5-W3 — accepted.** 提交在文档串行边界核对来源、取消、实际文件版本和 Git index 路径范围。只有 Agent 的工具调用执行提交，干净核对和来源推进保留独立宿主检查。
+- **R5-R1 — accepted.** 验收沿用现有轨迹与会话 ID，首文档改为直接描述同一整合会话。
+
+## Round 6
+
+- Reviewer / target：`design_review`，同一独立 `change-design-reviewer`。受审对象为 feat-759 unit worktree（`b6f3ce423`）在 R5 后的 [提交与检查](design.md#整合-agent-提交和宿主检查)、[验收安排](design.md#本次审查安排) 和 [首文档](spec.md#用户场景) 修订。
+- Review mode：`closure`。修订闭合 R5 三项缺口与一项建议，未扩张用户范围、外部契约或阶段划分。其他设计与验收证据沿用 `retained_from: Round 5`。
+- Started at：`2026-11-10T20:06:37+08:00`。
+- Completed at：`2026-11-10T20:06:50+08:00`。
+- Duration：`13s`。
+- Verdict：**Approved · 0 CRITICAL / 0 WARNING**。
+
+### 历史问题闭环
+
+- **R5-W1 · closed。** Author 规定每页真实保存成功后推进该页验证基线，其他路径失败时保留成功部分。R5 反例中，首次发布 A→B 后，同一 handle 再从 B 修改成 C，校验以实际已保存的 B 为基准，第三方修改仍冲突。独立的 Git 完成和来源水位只在宿主确认正式仓干净后推进。审查安排加入同一会话再次编辑已发布正文并补交的用例。[修订数据流](design.md#整合-agent-提交和宿主检查) · [现有按路径回执与版本保护](../../../packages/dsh-integration/src/knowledge/memory-documents.ts#L199)
+- **R5-W2 · closed。** Author 明确真实 Git 差异独立于新来源成为整合准入，补上当前 `needsVerification` 和无来源早返回之间的缺口。正式仓退出检查指定 `--untracked-files=all`，覆盖 R5 临时 Git 仓复现的全局或仓级配置隐藏未跟踪项。宿主将实际状态反馈给同一会话，仍不可处理的路径返回阻塞并保留内容。审查安排明确包含无新来源的脏仓。[修订数据流](design.md#整合-agent-提交和宿主检查) · [现有准入分支](../../../packages/dsh-integration/src/knowledge/dreaming.ts#L208)
+- **R5-W3 · closed。** Author 将实际提交纳入现有文档串行边界，核对来源代次、运行许可、取消、真实文件版本和 index 范围，再仅提交获准的 Markdown。该边界与现有来源同步可直接复用；单页保存回执和 Agent 发起的 Git 回执分开，宿主最终仍检查干净状态和来源后才进位。实施验证中用发布后、提交前撤销来源落实“未通过检查”分支，并核对真实 Git HEAD 与来源水位，避免仅靠工具返回判断。[修订数据流](design.md#整合-agent-提交和宿主检查) · [来源同步的串行边界](../../../packages/dsh-integration/src/knowledge/memory-documents.ts#L182)
+- **R5-R1 · adopted。** 首文档改用同一 Dreaming 整合会话描述继续处理。现有轨迹与会话 ID 可以提供证据，Work 轨迹变更不在本次范围。[首文档用户场景](spec.md#用户场景)
+
+### Issues
+
+无。
+
+### Recommendations
+
+无新增。本轮只审查修订后的设计，实际提交、会话续写及来源变更由实施阶段验证。

@@ -1,13 +1,14 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { watch, type FSWatcher } from 'node:fs';
-import { mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { FileSystem } from '@deepseek-ai/dsh-fs';
 import { atomicWrite } from './files.js';
 
 export const memoryEntryLimit = 8000;
 export type DocumentVersions = Record<string, string>;
+export interface DocumentGitChange { path: string; status: string; supported: boolean }
 export interface SourceEligibility { revision: string; allowed: string[]; excluded: string[] }
 export interface DocumentOperation { operationId: string; path: string; beforeHash: string | null; content: string }
 export interface DocumentReceipt {
@@ -21,12 +22,18 @@ interface DocumentState {
 }
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-function command(cwd: string, args: string[], input?: string, extraEnv?: Record<string, string>): Promise<string> {
+const splitNul = (text: string) => text.split('\0').filter(Boolean);
+
+function command(cwd: string, args: string[], input?: string, extraEnv?: Record<string, string>,
+  {raw = false, signal}: {raw?: boolean; signal?: AbortSignal} = {}): Promise<string> {
   return new Promise((accept, reject) => {
-    const child = spawn('git', args, { cwd, env: { ...process.env, ...extraEnv }, stdio: 'pipe' });
+    const child = spawn('git', args, { cwd, env: { ...process.env, ...extraEnv }, stdio: 'pipe', signal });
     let stdout = ''; let stderr = '';
-    child.stdout.on('data', data => { stdout += data; }); child.stderr.on('data', data => { stderr += data; });
-    child.once('error', reject); child.once('close', code => code === 0 ? accept(stdout.trim()) : reject(new Error(stderr.trim() || `git exited ${code}`)));
+    child.stdout.setEncoding('utf8').on('data', data => { stdout += data; });
+    child.stderr.setEncoding('utf8').on('data', data => { stderr += data; });
+    child.stdin.on('error', reject);
+    child.once('error', reject);
+    child.once('close', code => code === 0 ? accept(raw ? stdout : stdout.trim()) : reject(new Error(stderr.trim() || `git exited ${code}`)));
     child.stdin.end(input);
   });
 }
@@ -196,8 +203,115 @@ export class MemoryDocuments {
     });
   }
   async status() { return { generation: this.state.generation, sourcesPending: this.sourcesPending, ...(this.state.sources ? { sources: this.state.sources } : {}), receipts: Object.values(this.state.receipts), backupRoot: this.backupRoot }; }
+  /** Return the formal repository's staged, unstaged and untracked changes. */
+  async gitChanges(): Promise<DocumentGitChange[]> {
+    if (!(await lstat(join(this.root, '.git'))).isDirectory()) throw new Error('The memory Git directory is unavailable.');
+    const result = await command(this.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames'],
+      undefined, this.gitEnvironment(), {raw: true});
+    return Promise.all(splitNul(result).map(async row => {
+      const status = row.slice(0, 2); const path = row.slice(3);
+      let supported = false;
+      if (status === '??' || /^[ AM]{2}$/.test(status)) {
+        try {
+          const absolute = join(this.root, path);
+          supported = await this.path(path) === path && (await lstat(absolute)).isFile() && await realpath(absolute) === absolute;
+        } catch { /* Unsupported changes are reported to the caller without modifying them. */ }
+      }
+      return {path, status, supported};
+    }));
+  }
+  private assertBatch(generation: number, signal: AbortSignal): void {
+    signal.throwIfAborted();
+    if (this.sourcesPending || generation !== this.state.generation) throw new Error('Source generation changed or has not been verified.');
+  }
+  private async verifyBatchVersions(versions: DocumentVersions, generation: number, signal: AbortSignal): Promise<void> {
+    this.assertBatch(generation, signal);
+    await this.refresh();
+    const current = await this.versions();
+    if (Object.keys(current).length !== Object.keys(versions).length || Object.keys(current).some(path => current[path] !== versions[path]))
+      throw new Error('Document versions changed; reread the current documents.');
+    this.assertBatch(generation, signal);
+  }
+  /** Commit the checked Markdown snapshot in one real Git commit, only on an Agent request. */
+  commitBatch(message: string, versions: DocumentVersions, generation: number, signal: AbortSignal): Promise<{commit?: string}> {
+    return this.serial(async () => {
+      await this.verifyBatchVersions(versions, generation, signal);
+      const changes = await this.gitChanges();
+      if (!changes.length) return {};
+      if (changes.some(change => !change.supported || !Object.hasOwn(versions, change.path)))
+        throw new Error('The memory repository contains a change that cannot be safely committed.');
+      const paths = changes.map(change => change.path);
+      const index = join(this.root, '.git', `nano-index-${randomUUID()}`);
+      const env = this.gitEnvironment(index);
+      const run = (args: string[], input?: string) => command(this.root, ['--literal-pathspecs', ...args], input, env, {raw: true, signal});
+      const ordinary = (args: string[]) => command(this.root, ['--literal-pathspecs', ...args], undefined, this.gitEnvironment(), {raw: true, signal});
+      const indexListing = ['ls-files', '--stage', '-z', '--', ...paths];
+      try {
+        const originalIndex = await ordinary(indexListing);
+        const parent = await run(['rev-parse', '--verify', 'HEAD']).then(value => value.trim(), () => undefined);
+        this.assertBatch(generation, signal);
+        await run(parent ? ['read-tree', parent] : ['read-tree', '--empty']);
+        await run(['add', '--', ...paths]);
+        const staged = splitNul(await run(['diff', '--cached', '--name-only', '--no-renames', '-z']));
+        if (staged.some(path => !paths.includes(path))) throw new Error('The Git index contains paths outside the checked batch.');
+        const regular = splitNul(await run(indexListing)).every(row => /^100(644|755) [a-f0-9]+ 0\t/.test(row));
+        if (!regular) throw new Error('The Git index contains a non-regular document.');
+        for (const path of staged) {
+          if (digest(await run(['show', `:0:${path}`])) !== versions[path]) throw new Error('The Git index differs from the verified documents.');
+        }
+        await this.verifyBatchVersions(versions, generation, signal);
+        const head = await run(['rev-parse', '--verify', 'HEAD']).then(value => value.trim(), () => undefined);
+        if (head !== parent) throw new Error('The memory repository HEAD changed before commit.');
+        this.assertBatch(generation, signal);
+        if (staged.length) await run(['-c', 'core.hooksPath=/dev/null', 'commit', '--no-gpg-sign', '-F', '-'], message);
+        const commit = staged.length ? (await run(['rev-parse', '--verify', 'HEAD'])).trim() : undefined;
+        if (await ordinary(indexListing) !== originalIndex) throw new Error('The memory repository index changed during commit.');
+        await ordinary(['restore', '--staged', '--source=HEAD', '--', ...paths]);
+        if (commit) {
+          for (const receipt of Object.values(this.state.receipts)) {
+            if (receipt.saved && !receipt.versionRecorded && staged.includes(receipt.path) && versions[receipt.path] === receipt.afterHash) {
+              receipt.commit = commit; receipt.versionRecorded = true; delete receipt.error;
+            }
+          }
+          await this.save();
+        }
+        return commit ? {commit} : {};
+      } finally { await rm(index, { force: true }); }
+    });
+  }
+  /** Checkpoint only verified files and source policy in an actually clean Git repository. */
+  finalizeBatch(versions: DocumentVersions, generation: number, receipts: DocumentReceipt[], signal: AbortSignal): Promise<{changes: DocumentGitChange[]; receipts: DocumentReceipt[]}> {
+    return this.serial(async () => {
+      this.assertBatch(generation, signal);
+      const changes = await this.gitChanges();
+      this.assertBatch(generation, signal);
+      if (changes.length) return {changes, receipts};
+      await this.verifyBatchVersions(versions, generation, signal);
+      const env = this.gitEnvironment();
+      const head = await command(this.root, ['rev-parse', '--verify', 'HEAD'], undefined, env, {signal});
+      const recorded: DocumentReceipt[] = [];
+      for (const input of receipts) {
+        const receipt = this.state.receipts[input.operationId] ?? input;
+        if (!receipt.saved || receipt.versionRecorded || versions[receipt.path] !== receipt.afterHash) {
+          recorded.push({...receipt});
+          continue;
+        }
+        const content = await command(this.root, ['show', `${head}:${receipt.path}`], undefined, env, {raw: true, signal});
+        if (digest(content) !== receipt.afterHash) throw new Error('A saved document is missing from the verified Git version.');
+        const {error: _error, ...settled} = receipt;
+        recorded.push({...settled, versionRecorded: true, commit: head});
+      }
+      const remaining = await this.gitChanges();
+      this.assertBatch(generation, signal);
+      if (remaining.length) return {changes: remaining, receipts};
+      for (const receipt of recorded) this.state.receipts[receipt.operationId] = receipt;
+      this.state.basis = { generation, versions: {...versions} };
+      await this.save();
+      return {changes: [], receipts: recorded};
+    });
+  }
   /** Atomically apply a frozen plan; recovery accepts its after hash but never a third version. */
-  apply(operation: DocumentOperation, generation?: number, signal?: AbortSignal): Promise<DocumentReceipt> {
+  apply(operation: DocumentOperation, generation?: number, signal?: AbortSignal, options: {recordVersion?: boolean} = {}): Promise<DocumentReceipt> {
     return this.serial(async () => {
       const path = await this.path(operation.path); const afterHash = digest(operation.content);
       const old = this.state.receipts[operation.operationId];
@@ -216,7 +330,10 @@ export class MemoryDocuments {
           await this.fs.writeText(target, operation.content, info ? { kind: 'replaceIfVersion', version: info.version } : { kind: 'createIfAbsent' }, signal, this.writePolicy());
         }
         receipt.saved = true; this.dirty.add(path); await this.save();
-        receipt.commit = await this.recordVersion(path, operation.content); receipt.versionRecorded = true; delete receipt.error;
+        if (options.recordVersion !== false) {
+          receipt.commit = await this.recordVersion(path, operation.content); receipt.versionRecorded = true;
+        }
+        delete receipt.error;
       } catch (error) { receipt.error = String(error); }
       await this.save(); return { ...receipt };
     });
@@ -235,9 +352,12 @@ export class MemoryDocuments {
       this.state.receipts[operation.operationId] = receipt; await this.save(); return receipt;
     });
   }
+  private gitEnvironment(index = join(this.root, '.git/index')) {
+    return { GIT_DIR: join(this.root, '.git'), GIT_WORK_TREE: this.root, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'Nano Memory', GIT_AUTHOR_EMAIL: 'memory@localhost', GIT_COMMITTER_NAME: 'Nano Memory', GIT_COMMITTER_EMAIL: 'memory@localhost' };
+  }
   private async recordVersion(path: string, content: string): Promise<string> {
     const index = join(this.root, '.git', `nano-index-${randomUUID()}`);
-    const env = { GIT_DIR: join(this.root, '.git'), GIT_WORK_TREE: this.root, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'Nano Memory', GIT_AUTHOR_EMAIL: 'memory@localhost', GIT_COMMITTER_NAME: 'Nano Memory', GIT_COMMITTER_EMAIL: 'memory@localhost' };
+    const env = this.gitEnvironment(index);
     try {
       const parent = await command(this.root, ['rev-parse', '--verify', 'HEAD'], undefined, env).catch(() => undefined);
       await command(this.root, parent ? ['read-tree', parent] : ['read-tree', '--empty'], undefined, env);
