@@ -164,7 +164,9 @@ it('keeps a second Global available through Relay while an old child blocks reco
     step('resume A');await unlink(join(home,'hold-child'));
     await expect.poll(async()=>(await lines('model.jsonl')).some(row=>row.id===root.sessionId &&
       row.messages.some((message:{source?:{channel?:string}})=>message.source?.channel==='subagent-recovery')),{timeout:30000}).toBe(true);
-    expect((await lines('reads.jsonl')).filter(row=>row.id===child).length).toBeGreaterThan(0);
+    const reads = await lines('reads.jsonl');
+    expect(reads.filter(row => row.id === root.sessionId && row.events > 1)).toHaveLength(1);
+    expect(reads.filter(row => row.id === child).length).toBeGreaterThan(0);
     expect(errors).toEqual([]);
   } catch (error) {
     const model=(await lines('model.jsonl')).map(row=>({id:row.id,sources:row.messages.map((message:{source?:{kind?:string;channel?:string}})=>[message.source?.kind,message.source?.channel]).filter((source:unknown[])=>source[0])}));

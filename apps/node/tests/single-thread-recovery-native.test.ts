@@ -24,8 +24,22 @@ it.each(['schedule', 'task'] as const)('discovers a durable native %s admission 
   let client: RuntimeClient | undefined, product: SingleThread | undefined, logs = '';
   let taskActive = false;
   const start = async (crash: boolean) => {
-    await writeFile(fault, `import {writeFileSync} from 'node:fs'; export const name='recovery-fixture'; export const inject=['llm','agents','sessions'];
+    await writeFile(fault, `import {appendFileSync,writeFileSync} from 'node:fs'; export const name='recovery-fixture'; export const inject=['llm','agents','sessions','sessionPersistence'];
       export function apply(ctx) {
+        if (${crash}) {
+          const open = ctx.sessionPersistence.open.bind(ctx.sessionPersistence);
+          ctx.sessionPersistence.open = async (id, ...options) => {
+            const handle = await open(id, ...options);
+            if (id !== 'native-root') return handle;
+            const read = handle.read.bind(handle);
+            handle.read = async (...range) => {
+              const result = await read(...range);
+              if (result.events.length > 1) appendFileSync(process.env.DSH_HOME+'/root-reads', 'read\\n');
+              return result;
+            };
+            return handle;
+          };
+        }
         let faulting = false;
         if (${crash}) ctx.on('session/flush', session => {
           const original = session.snapshotEvents().filter(event => event.type==='agent/inbox/spliced')
@@ -88,6 +102,7 @@ it.each(['schedule', 'task'] as const)('discovers a durable native %s admission 
     }
     expect((await client!.exited).signal).toBe('SIGKILL');
     client = undefined;
+    expect(await readFile(join(home, 'root-reads'), 'utf8')).toBe('read\n');
     taskActive = false;
     const original = await readFile(join(home, 'original-admission'), 'utf8');
     expect(marks).toContainEqual({sessionId: root.sessionId, boot: crashBoot});

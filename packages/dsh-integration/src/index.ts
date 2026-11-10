@@ -290,14 +290,15 @@ export default class NanoRuntime {
     this.owned = new OwnedSessions(ctx, this.bindings, agentId => lifecycle.assertEnabled(agentId), async binding => {
       if (this.markRecovery && this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode === 'single_thread')
         await this.peer.request('session.recovery.mark', {sessionId: binding.sessionId, agentId: binding.agentId});
-    }, async (binding, observation) => {
+    }, async (binding, session) => {
       if (this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode !== 'global') return;
       const revision = lifecycle.current(binding.agentId).revision;
       const assertCurrent = () => {
         lifecycle.assertEnabled(binding.agentId);
         if (lifecycle.current(binding.agentId).revision !== revision) throw new RpcError(-32003, 'stale_lifecycle');
       };
-      const {interrupted, complete} = await descendantReader.interruptedChildren(observation);
+      const projections = ctx.get('sessionProjections')?.snapshot(session, ['subagentCatalog']);
+      const {interrupted, complete} = await descendantReader.interruptedChildren({header: session.header, projections});
       await subagentRecovery.record(binding.sessionId, interrupted, assertCurrent);
       if (!complete) throw new RpcError(-32005, 'Subagent recovery evidence is temporarily unavailable');
     });
