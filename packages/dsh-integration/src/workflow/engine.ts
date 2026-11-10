@@ -61,11 +61,12 @@ export class NanoWorkflowEngine extends WorkflowEngine {
   private readonly host: Context;
   private readonly live = new Map<string, Live>();
   private readonly budgets = new Map<string, BudgetRecord>();
-  private readonly creating = new AsyncLocalStorage<AgentConfiguration>();
+  private readonly creating = new AsyncLocalStorage<{configuration: AgentConfiguration; record: WorkflowRecord}>();
+  private readonly workChildren = new Map<string, {parentSessionId: string; runId: string}>();
   private writes = Promise.resolve();
   private pendingWrites = 0;
   private readonly undelivered = new Set<string>();
-  private readonly ready: Promise<void>;
+  readonly ready: Promise<void>;
   private stopping = false;
   constructor(
     ctx: Context,
@@ -102,14 +103,29 @@ export class NanoWorkflowEngine extends WorkflowEngine {
   /** A paused Workflow still owns unfinished work and blocks an update. */
   get busy(): boolean { return this.live.size > 0 || this.pendingWrites > 0 || this.undelivered.size > 0; }
   childConfiguration(parent: AgentConfiguration): AgentConfiguration {
-    return this.creating.getStore() ?? parent;
+    return this.creating.getStore()?.configuration ?? parent;
+  }
+  /** Persist the Work relationship before native creation publishes its parent catalog fact. */
+  async recordWorkChild(agent: Agent): Promise<void> {
+    const record = this.creating.getStore()?.record;
+    if (!record || agent.session.header.parentSession !== record.parentSessionId) return;
+    (record.workChildren ??= []).push(agent.id);
+    await this.save(record);
+    this.rememberWorkChild(record,agent.id);
+  }
+  private rememberWorkChild(record: WorkflowRecord, id: string): void {
+    if (!this.workChildren.has(id)) this.workChildren.set(id,{parentSessionId:record.parentSessionId,runId:record.id});
   }
   private async recover() {
     const storage = await this.storage;
     for (const [, budget] of storage.table("budgets").entries())
       this.budgets.set(budget.id, budget);
-    for (const [, record] of storage.table("runs").entries())
-      { this.recoveredRecords.set(record.id, record); if (record.result && !record.delivered && !record.cancelledByDisable) this.undelivered.add(record.id); }
+    for (const [, record] of storage.table("runs").entries()) {
+      this.recoveredRecords.set(record.id, record);
+      if (record.result && !record.delivered && !record.cancelledByDisable) this.undelivered.add(record.id);
+      for (const id of record.workChildren ?? []) this.rememberWorkChild(record,id);
+      for (const call of record.calls) for (const attempt of call.attempts) this.rememberWorkChild(record,attempt.id);
+    }
     for (const [id, record] of storage.table("runs").entries())
       if (record.state === "running" || record.state === "paused") {
         await storage.table("runs").put(id, {
@@ -181,12 +197,14 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     const spent = await this.spent(budget);
     return budget.target === null ? null : Math.max(0, budget.target - spent);
   }
-  /** Read child ownership without executing the budget's native history reads. */
-  async relationships(parentSessionId: string) {
-    await this.ready;
-    return [...(await this.storage).table('runs').entries()]
-      .map(([, record]) => record).filter(record => record.parentSessionId === parentSessionId)
-      .map(record => ({id:record.id,calls:record.calls}));
+  /** Read one child association without enumerating historical Workflow runs. */
+  workRelationship(parentSessionId: string, id: string): string | undefined {
+    const link = this.workChildren.get(id);
+    return link?.parentSessionId === parentSessionId ? link.runId : undefined;
+  }
+  /** Release derived links for permanently deleted native sessions. */
+  forgetWorkChildren(ids: Iterable<string>): void {
+    for (const id of ids) this.workChildren.delete(id);
   }
   async read(parent: Agent, id?: string) {
     await this.ready;
@@ -223,8 +241,9 @@ export class NanoWorkflowEngine extends WorkflowEngine {
       const phase = call.options.phase ?? "";
       phases[phase] = (phases[phase] ?? 0) + call.outputTokens;
     }
+    const {workChildren: _workChildren, ...visible} = record;
     return {
-      ...record,
+      ...visible,
       calls,
       durationMs: (record.endedAt ?? Date.now()) - record.startedAt,
       usage: {
@@ -406,7 +425,7 @@ export class NanoWorkflowEngine extends WorkflowEngine {
           modelRouteFrozen: true,
           toolAllowlist: allowed,
         };
-        const child = await this.creating.run(config, () =>
+        const child = await this.creating.run({configuration:config,record}, () =>
           this.host.subagents.start(request.subagentProvider ?? "fork", {
             parent: request.parent,
             prompt: [{ type: "text", text: prompt }],
@@ -747,7 +766,8 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     else if (action === "stop_child") await live.control.stopChild(ordinal!);
     else throw new Error("Unknown Workflow control action");
     await this.save(live.record);
-    return structuredClone(live.record);
+    const {workChildren: _workChildren, ...visible} = live.record;
+    return structuredClone(visible);
   }
   async pending() {
     await this.ready;

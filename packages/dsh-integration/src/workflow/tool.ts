@@ -12,7 +12,7 @@ import { isHumanSource } from "../input-source.js";
 
 /** Keep replay/accounting identities in storage, outside model-facing run results. */
 function presentRun(record: WorkflowRecord) {
-  const { parentSessionId: _parent, inputIds: _inputs, budgetId: _budget, ...run } = record;
+  const { parentSessionId: _parent, inputIds: _inputs, budgetId: _budget, workChildren: _children, ...run } = record;
   return { ...run, calls: run.calls.map(({ key: _key, attempts, ...call }) => ({
     ...call, attempts: attempts.map(({ id: _id, ...attempt }) => attempt),
   })) };
