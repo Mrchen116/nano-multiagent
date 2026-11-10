@@ -52,6 +52,7 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   let product = makeProduct(true);
   cleanups.push(() => product.stop());
   await product.recover();
+  await expect.poll(()=>inbox.workProcessingPending).toBe(false);
   const produced = inbox.journalSeq;
   expect(inbox.journal(0).some(event => event.type === 'tool_end')).toBe(true);
   expect(inbox.workCheckpoints('main')).toMatchObject({main: {throughSeq: 7}, child: {throughSeq: 4}});
@@ -82,6 +83,7 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   center.child.kill('SIGTERM'); await once(center.child, 'exit');
   const restarted = await start(center.dbPath);
   product = makeProduct(false); await product.recover();
+  await expect.poll(()=>inbox.workProcessingPending).toBe(false);
   expect(inbox.journalSeq).toBe(produced);
   sync = makeSync(restarted.base); sync.start();
   const small = inbox.journal(0).filter(event => !['tool_start', 'tool_end'].includes(event.type));

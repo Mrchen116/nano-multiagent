@@ -38,6 +38,10 @@ export class ExternalChannels {
   private readonly state: ExternalStore;
   private readonly connections = new Map<string, Connection>();
   private readonly admissions = new Map<string, Promise<void>>();
+  private readonly recovering = new Map<string, Promise<void>>();
+  private readonly retry = new Map<string,ReturnType<typeof setTimeout>>();
+  private readonly retryDelay = new Map<string,number>();
+  private stopping=false;
   private readonly dispatches = new Map<string, Promise<void>>();
   private flushing?: Promise<void>;
   private flushAgain = false;
@@ -104,7 +108,13 @@ export class ExternalChannels {
       } };
     input=this.options.store.admitInput(input);
     this.state.saveInbound(eventId, id, message, input);
-    const task = this.admit(eventId).finally(() => this.admissions.delete(eventId)); this.admissions.set(eventId, task); return task;
+    return this.admitOnce(eventId);
+  }
+  private admitOnce(id: string): Promise<void> {
+    const active=this.admissions.get(id);
+    if(active)return active;
+    const task=this.admit(id).finally(()=>this.admissions.delete(id));
+    this.admissions.set(id,task);return task;
   }
   private async admit(id: string) {
     const row = this.state.inbound(id)!;
@@ -140,9 +150,35 @@ export class ExternalChannels {
   image(url: string, agentId: string): { data: Buffer; mediaType: string } {
     const image = this.state.image(url, agentId); if (!image) throw new Error('Image is outside the authenticated external input'); return image;
   }
-  async recover(): Promise<void> {
-    for (const row of this.state.pendingAdmissions()) if (this.connections.has(row.agentId)) await this.admit(row.id);
-    await this.flush();
+  async recover(agentId?:string): Promise<void> {
+    if(this.stopping)return;
+    const agents=agentId===undefined ? new Set(this.state.pendingAdmissions().map(row=>row.agentId)) : [agentId];
+    await Promise.all([...agents].map(id=>this.recoverAgent(id)));
+    if(!this.stopping)await this.flush();
+  }
+
+  private recoverAgent(agentId:string):Promise<void> {
+    const active=this.recovering.get(agentId);
+    if(active)return active;
+    if(this.stopping || !this.connections.has(agentId) || !this.options.store.lifecycle.allowed(agentId))return Promise.resolve();
+    const task=(async()=>{
+      for(const row of this.state.pendingAdmissions(agentId)) {
+        if(this.stopping || !this.connections.has(agentId))return;
+        await this.admitOnce(row.id);
+      }
+      clearTimeout(this.retry.get(agentId));this.retry.delete(agentId);this.retryDelay.delete(agentId);
+    })().catch(error=>{
+      this.options.onError(error);
+      if(this.stopping || this.retry.has(agentId))return;
+      const delay=this.retryDelay.get(agentId)??1000;
+      this.retryDelay.set(agentId,Math.min(delay*2,30_000));
+      const timer=setTimeout(()=>{
+        this.retry.delete(agentId);
+        void this.recoverAgent(agentId).catch(this.options.onError);
+      },delay);
+      timer.unref();this.retry.set(agentId,timer);
+    }).finally(()=>this.recovering.delete(agentId));
+    this.recovering.set(agentId,task);return task;
   }
 
   async request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> {
@@ -394,7 +430,12 @@ export class ExternalChannels {
     const output = this.state.output(pending.outputId)!; const chat = this.state.chat(output.chatId)!;
     await this.connections.get(chat.agentId)!.updateCard(pending.platformId, approvalStatus(decision));
   }
-  async stop(): Promise<void> { await Promise.allSettled([...this.admissions.values(), ...this.dispatches.values(), this.flushing]); this.state.close(); }
+  async stop(): Promise<void> {
+    this.stopping=true;
+    for(const timer of this.retry.values())clearTimeout(timer);
+    await Promise.allSettled([...this.recovering.values(),...this.admissions.values(),...this.dispatches.values(),this.flushing]);
+    this.state.close();
+  }
 }
 function ack(type: string, payload: Record<string, unknown> = {}): ProtocolFrame { return { type: 'ack', payload: { message_type: type, ...payload } }; }
 function json(body: unknown, headers: Record<string, string> = {}): RequestInit { return { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) }; }

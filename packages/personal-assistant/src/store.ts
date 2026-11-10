@@ -332,8 +332,10 @@ export class NodeStore {
     const row = this.db.prepare('SELECT binding FROM sessions WHERE session_id=?').get(sessionId) as { binding: string } | undefined;
     return row ? JSON.parse(row.binding) as SessionBinding : undefined;
   }
-  bindings(): SessionBinding[] {
-    return (this.db.prepare('SELECT binding FROM sessions').all() as { binding: string }[]).map(row => JSON.parse(row.binding) as SessionBinding);
+  bindings(agentId?: string): SessionBinding[] {
+    const rows = agentId === undefined ? this.db.prepare('SELECT binding FROM sessions').all()
+      : this.db.prepare('SELECT binding FROM sessions WHERE agent_id=?').all(agentId);
+    return (rows as { binding: string }[]).map(row => JSON.parse(row.binding) as SessionBinding);
   }
 
   canonical(agentId: string): SessionBinding | undefined {
@@ -356,6 +358,14 @@ export class NodeStore {
 
   /** Read only deletion-operation facts, never a substitute Schedule catalog. */
   scheduleDeletions():ScheduleDeletionIntent[]{return (this.db.prepare('SELECT intent FROM schedule_deletions ORDER BY rowid').all() as {intent:string}[]).map(row=>JSON.parse(row.intent));}
+  scheduleDeletion(operationId:string):ScheduleDeletionIntent|undefined {
+    const row=this.db.prepare('SELECT intent FROM schedule_deletions WHERE operation_id=?').get(operationId) as {intent:string}|undefined;
+    return row && JSON.parse(row.intent);
+  }
+  /** Reserve an operation before allowing separate Agent recovery queues to advance. */
+  createScheduleDeletion(intent:ScheduleDeletionIntent):boolean {
+    return this.db.prepare('INSERT OR IGNORE INTO schedule_deletions VALUES(?,?)').run(intent.operationId,JSON.stringify(intent)).changes!==0;
+  }
   /** Persist an intent or independent notification receipt before proceeding. */
   saveScheduleDeletion(intent:ScheduleDeletionIntent):void{this.db.prepare('INSERT INTO schedule_deletions VALUES(?,?) ON CONFLICT(operation_id) DO UPDATE SET intent=excluded.intent').run(intent.operationId,JSON.stringify(intent));}
   control(id: string): ControlIntent | undefined {

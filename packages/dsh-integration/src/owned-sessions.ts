@@ -5,7 +5,7 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { buildForkSeed, SessionId, SessionLogOffset, SessionSeq, type SessionHeader } from '@deepseek-ai/dsh-session';
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence';
-import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
+import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query';
 import { applyChildComposition, foldSubagentDescriptor, type ContinuableSubagentDescriptorData } from '@deepseek-ai/dsh-subagent';
 import type { SessionBinding } from './index.js';
 declare module '@deepseek-ai/cordis' { interface Context { nanoSessions: OwnedSessions } }
@@ -18,7 +18,8 @@ export class OwnedSessions {
   private readonly pending = new Map<string, Promise<Agent>>();
   private readonly owners = new Map<string, string>();
   constructor(private readonly ctx: Context, private readonly bindings: Map<string, SessionBinding>, private readonly assertEnabled: (agentId: string) => void,
-    private readonly markWritable?: (binding: SessionBinding) => Promise<unknown>) {}
+    private readonly markWritable: (binding: SessionBinding) => Promise<unknown>,
+    private readonly beforeResume: (binding: SessionBinding, observation: SessionObservation) => Promise<void>) {}
 
   /** Create or resume one trusted root, coalescing Schedule and product admission. */
   resolve(sessionId: string, create = false): Promise<Agent> {
@@ -159,13 +160,19 @@ export class OwnedSessions {
     const live = this.handles.get(binding.sessionId);
     if (live) return live.agent;
     const sessionId = SessionId(binding.sessionId), preset = `nano:${binding.agentId}:${binding.revision}`;
-    let exists = true;
-    try {
-      using observation = await this.ctx.sessionQuery.observeSession(sessionId);
-      this.assertRootHeader(binding, observation.header);
-    } catch (error) {
-      if (!create || !(error instanceof SessionQueryError) || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error;
-      exists = false;
+    let exists: boolean;
+    {
+      using observation = await this.ctx.sessionQuery.observeSession(sessionId).catch(error => {
+        if (!create || !(error instanceof SessionQueryError) || error.code !== 'SESSION_QUERY_SESSION_NOT_FOUND') throw error;
+        return undefined;
+      });
+      exists = observation !== undefined;
+      if (observation) {
+        this.assertRootHeader(binding, observation.header);
+        // A live root can resume children through native tools outside OwnedSessions.
+        // Resolve both the root and managed children through this cold evidence cut.
+        await this.beforeResume(binding, observation);
+      }
     }
     this.assertEnabled(binding.agentId);
     const setup = async (ctx: Context) => {
@@ -175,7 +182,7 @@ export class OwnedSessions {
     };
     await mkdir(binding.cwd, {recursive: true});
     // A writable root can accept native work before Node sees its first event.
-    await this.markWritable?.(binding);
+    await this.markWritable(binding);
     this.assertEnabled(binding.agentId);
     const handle = exists
       ? await this.ctx.agents.resume({resumeSessionId: sessionId, setup})

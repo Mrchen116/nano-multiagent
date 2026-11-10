@@ -22,10 +22,23 @@ interface Options {
 
 /** Applies authoritative intent before any asynchronous runtime work. */
 export class NodeAgentLifecycle {
-  private readonly applying = new Map<string, {revision:number; task:Promise<void>}>();
+  private readonly applying = new Map<string, {revision:number; task:Promise<void>; failed:boolean}>();
   synchronized = false;
   constructor(private readonly options: Options) {}
   allowed(agentId: string): boolean { return this.synchronized && this.options.snapshot(agentId)?.desired === 'enabled'; }
+  /** Wait for the authoritative transition for one incoming Relay target. */
+  async waitFor(agentId: string): Promise<void> {
+    while (true) {
+      const active = this.applying.get(agentId);
+      if (!active) return;
+      try { await active.task; }
+      catch (error) {
+        // A superseding revision owns the gate even if the old transition failed.
+        const current = this.options.snapshot(agentId);
+        if (!current || current.revision === active.revision) throw error;
+      }
+    }
+  }
   async synchronize(states: AgentLifecycleSnapshot[]): Promise<void> {
     // Persist the complete barrier before any host starts or restores input.
     const reconciled = states.flatMap(state => {
@@ -59,7 +72,7 @@ export class NodeAgentLifecycle {
   private applyKnown(state: AgentLifecycleSnapshot, prior: AgentLifecycleSnapshot | undefined): Promise<void> {
     if (prior && prior.revision > state.revision) return Promise.resolve();
     const active = this.applying.get(state.agent_id);
-    if (active?.revision === state.revision) return active.task;
+    if (active?.revision === state.revision && !active.failed) return active.task;
     this.options.save(state);
     let task: Promise<void>;
     if (state.desired === 'disabled') {
@@ -76,8 +89,12 @@ export class NodeAgentLifecycle {
       }
       task = this.options.start(state.agent_id);
     }
-    this.applying.set(state.agent_id, {revision:state.revision, task});
-    void task.finally(() => { if (this.applying.get(state.agent_id)?.task === task) this.applying.delete(state.agent_id); }).catch(() => {});
+    const transition={revision:state.revision,task,failed:false};
+    this.applying.set(state.agent_id,transition);
+    void task.then(
+      ()=>{if(this.applying.get(state.agent_id)===transition)this.applying.delete(state.agent_id);},
+      ()=>{transition.failed=true;},
+    );
     return task;
   }
   /** Record ownership before product initialization can restore native agents. */

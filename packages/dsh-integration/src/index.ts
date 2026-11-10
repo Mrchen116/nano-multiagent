@@ -23,7 +23,6 @@ import { UpdateBarrier } from './update-barrier.js';
 import { RpcError, RpcPeer } from './rpc.js';
 import { recordToolPresentations } from './tool-presentation.js';
 import { scheduleEvidence } from './schedule-evidence.js';
-import { inputEvidence } from './input-evidence.js';
 import { isHumanSource } from './input-source.js';
 import { CapabilityState, needsSchedules, configurationBlocks } from './capability-state.js';
 import type { RuntimePublicationEvidence, RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
@@ -152,11 +151,6 @@ export default class NanoRuntime {
     ctx.inject(['terminals'], child => { terminals = child.terminals; child.effect(() => () => { terminals = undefined; }); });
     const lifecycle = this.lifecycle = new ColdLifecycleBarrier(ctx);
     const deletion = !inspection && config?.agentDeletion ? SessionDeletion.forRuntime(ctx, process.env.DSH_HOME!) : undefined;
-    this.owned = new OwnedSessions(ctx, this.bindings, agentId => lifecycle.assertEnabled(agentId), async binding => {
-      if (this.markRecovery && this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode === 'single_thread')
-        await this.peer.request('session.recovery.mark', {sessionId: binding.sessionId, agentId: binding.agentId});
-    });
-    ctx.provide('nanoSessions', this.owned);
     installStandaloneModelRetry(ctx);
     installLlmAttribution(ctx, sessionId => {
       let session = ctx.sessions.get(SessionId(sessionId));
@@ -190,7 +184,19 @@ export default class NanoRuntime {
     const disabled = (id: string) => { const owner = this.ownerOf(id); return owner ? lifecycle.current(owner).disabled === true : false; };
     const cancelPersisted = async (agentId: string) => {
       const owns = (id: string) => this.ownerOf(id) === agentId;
-      await (await models).cancelPersisted(owns);
+      const coldOwns=async(id:string)=>{
+        const seen=new Set<string>();
+        let sessionId:string|undefined=id;
+        while(sessionId && !seen.has(sessionId)) {
+          seen.add(sessionId);
+          const owner=this.ownerOf(sessionId);
+          if(owner)return owner===agentId;
+          const snapshot=await ctx.sessionPersistence.stat(SessionId(sessionId));
+          sessionId=snapshot?.header?.parentSession;
+        }
+        return false;
+      };
+      await (await models).cancelPersisted(owns,coldOwns);
       await (await workflow).cancelPersisted(owns);
       await (await knowledge).cancelPersisted(agentId);
     };
@@ -273,6 +279,21 @@ export default class NanoRuntime {
       if (!binding || configurationService.forAgent(agent)?.mode !== 'global') return;
       return {agentId: binding.agentId, revision: lifecycle.current(binding.agentId).revision};
     });
+    this.owned = new OwnedSessions(ctx, this.bindings, agentId => lifecycle.assertEnabled(agentId), async binding => {
+      if (this.markRecovery && this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode === 'single_thread')
+        await this.peer.request('session.recovery.mark', {sessionId: binding.sessionId, agentId: binding.agentId});
+    }, async (binding, observation) => {
+      if (this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode !== 'global') return;
+      const revision = lifecycle.current(binding.agentId).revision;
+      const assertCurrent = () => {
+        lifecycle.assertEnabled(binding.agentId);
+        if (lifecycle.current(binding.agentId).revision !== revision) throw new RpcError(-32003, 'stale_lifecycle');
+      };
+      const {interrupted, complete} = await descendantReader.interruptedChildren(observation);
+      await subagentRecovery.record(binding.sessionId, interrupted, assertCurrent);
+      if (!complete) throw new RpcError(-32005, 'Subagent recovery evidence is temporarily unavailable');
+    });
+    ctx.provide('nanoSessions', this.owned);
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -412,17 +433,6 @@ export default class NanoRuntime {
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
       for (const pending of config.pendingConfigurations ?? []) if (!deletion?.retired(pending.config.agentId)) await prepare(pending);
-      for (const binding of config.bindings) {
-        if (lifecycle.current(binding.agentId).disabled ||
-          this.configurations.get(`nano:${binding.agentId}:${binding.revision}`)?.mode !== 'global') continue;
-        try {
-          if (!await ctx.sessionPersistence.stat(SessionId(binding.sessionId))) continue;
-          const interrupted = await descendantReader.interruptedChildren(SessionId(binding.sessionId));
-          if (interrupted.length) await subagentRecovery.record(binding.sessionId, interrupted);
-        } catch (error) {
-          ctx.logger.warn(`Cannot recover subagent notices for ${binding.sessionId}: ${String(error)}`);
-        }
-      }
       this.accepting = true;
       for (const agent of config.agents) if (!deletion?.retired(agent.agentId)) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
@@ -576,7 +586,7 @@ export default class NanoRuntime {
       await workBinding(input);
       const id = SessionId(input.sessionId), fallback = (await models).fallback;
       const rootSettled = await descendantReader.settled(id, {[id]:input.afterSeq ?? -1}, () =>
-        fallback.list(id).some(run=>run.state!=='completed') || input.modelVersion!==fallback.workVersion(id), false);
+        fallback.hasActive(id) || input.modelVersion!==fallback.workVersion(id), false);
       return {rootSettled};
     });
     handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
@@ -865,10 +875,11 @@ export default class NanoRuntime {
       // Preserve the native child's identity and composition; never redirect to root.
       const revision=this.lifecycle.current(agentId).revision;
       const admitted=await ctx.attachments.admitPromptContent(content);
+      const fallback=(await models).fallback;
       this.lifecycle.assertEnabled(agentId);
       if(this.lifecycle.current(agentId).revision!==revision)throw new Error('stale_lifecycle');
       // The final evidence check and synchronous enqueue share one admission turn.
-      if(!inputEvidence(agent.session.snapshotEvents(),inputId).accepted){
+      if(!fallback.nativeEvidence(agent,inputId).accepted){
         const message:UserMessage=freezeMessage({id:MessageId(inputId),role:'user' as const,content:admitted,source:{kind:'nano-system',actorId:agentId,channel:'schedule-change',messageId:inputId,lifecycle_revision:revision}});
         if(this.tasks.passive(root.sessionId))agent.inject(message);else agent.followup(message);
       }
@@ -913,13 +924,14 @@ export default class NanoRuntime {
         const task = tasks.find(task => task.id === args.id && task.sessionId === sessionId);
         if (!task || task.status !== 'active') throw new RpcError(-32602, 'Schedule does not exist or is inactive');
         if (typeof args.inputId !== 'string' || !args.inputId.startsWith('manual-schedule:')) throw new RpcError(-32602, 'Manual schedule input identity is required');
+        const fallback = (await models).fallback;
         const agent = await this.agent(sessionId!);
-        if (!inputEvidence(agent.session.snapshotEvents(), args.inputId).accepted) {
+        if (!fallback.nativeEvidence(agent, args.inputId).accepted) {
           agent.followup(freezeMessage({ id: MessageId(args.inputId), role: 'user' as const,
             content: [{ type: 'text', text: `Manual run of an existing schedule. This is configured work, not live human permission.\nTitle: ${task.title}\nSaved instructions:\n${task.prompt}` }],
             source: { kind: 'schedule' as const, scheduleId: task.id, triggerKind: 'manual' } }));
         }
-        await this.flush(agent); return { inputId: args.inputId, ...inputEvidence(agent.session.snapshotEvents(), args.inputId) };
+        await this.flush(agent); return { inputId: args.inputId, ...fallback.nativeEvidence(agent, args.inputId) };
         } finally { this.capabilities.end(key); }
       }
       return this.cron.command(agentId, sessionId, action, args);
@@ -1107,14 +1119,15 @@ export default class NanoRuntime {
     this.lifecycle.assertEnabled(agentId);
     if ((input.lifecycle_revision ?? input.source.lifecycle_revision ?? revision) !== revision) throw new RpcError(-32003, 'stale_lifecycle');
     const agent = await this.agent(input.sessionId);
-    if (!inputEvidence(agent.session.snapshotEvents(), input.inputId).accepted) {
+    const fallback = (await this.models).fallback;
+    if (!fallback.nativeEvidence(agent, input.inputId).accepted) {
       if (!['human', 'system'].includes(input.source.kind)) throw new RpcError(-32602, 'Invalid input source');
       const content = await this.ctx.attachments.admitPromptContent(input.content);
       if (input.attachmentSources) await this.ctx.nanoTrajectoryAttachments.record(input.sessionId, content, input.attachmentSources);
       const config = this.configurations.get(agent.session.header.agentPreset!);
       if (input.source.channel === 'heartbeat' && config && this.capabilities.held(config.agentId, {kind: 'feature', name: 'heartbeat'})) return {accepted: false, busy: true};
       if (input.onlyIfIdle && (agent.status !== 'idle' || agent.inbox.nextTurn.length || agent.inbox.nextStep.length)) return { accepted: false, busy: true };
-      (await this.models).fallback.interrupt(agent);
+      fallback.interrupt(agent);
       this.lifecycle.assertEnabled(agentId);
       if (this.lifecycle.current(agentId).revision !== revision) throw new Error('stale_lifecycle');
       const source = {...input.source, admittedAt:Date.now(), lifecycle_revision: input.source.lifecycle_revision ?? input.lifecycle_revision ?? revision};
@@ -1134,7 +1147,7 @@ export default class NanoRuntime {
       else throw new RpcError(-32602, 'Invalid input mode');
     }
     await this.flush(agent);
-    return { ...inputEvidence(agent.session.snapshotEvents(), input.inputId), durable: true };
+    return { ...fallback.nativeEvidence(agent, input.inputId), durable: true };
   }
 
   private async flush(agent: Agent) {

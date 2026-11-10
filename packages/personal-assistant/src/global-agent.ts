@@ -4,6 +4,7 @@ import { PersonalAssistant } from './personal-assistant.js';
 import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader } from './screenshot-delivery.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
+import { setImmediate as yieldToIO } from 'node:timers/promises';
 import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimePublicationEvidence, RuntimeWorkPage, RuntimeWorkCatalog, MessageApprovalContext } from '@nano/product-contracts';
 import { chatAttachments, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
@@ -56,10 +57,18 @@ export class GlobalAgent {
   private receiptDrain?: Promise<void>;
   private receiptTimer?: ReturnType<typeof setTimeout>;
   private receiptBackoff=1000;
-  private recoveryTimer?: ReturnType<typeof setTimeout>;
+  private readonly agentRecoveries = new Map<string, Promise<void>>();
+  private readonly agentRetry = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly agentBackoff = new Map<string, number>();
+  private readonly childCatchup = new Map<string, SessionBinding>();
+  private childCatchupTask?: Promise<void>;
+  private readonly childCatchupStop=new AbortController();
   private recovering?:Promise<void>;
+  private readonly coldRoots = new Map<string, symbol>();
+  private readonly foregroundRecovery = new Map<string, Promise<void>>();
   private readonly controlTasks=new Map<string,Promise<void>>();
   private readonly authorities = new Set<string>();
+  private authorityEpoch?:number;
   private readonly accepting = new Map<string,Promise<void>>();
   private readonly unsubscribe: () => void;
   constructor(private readonly options: Options) {
@@ -67,7 +76,7 @@ export class GlobalAgent {
     options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
       runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload((params??{}) as Record<string,unknown>))}};
     this.options=options;
-    for(const binding of options.store.bindings())if(options.agents.some(agent=>agent.agentId===binding.agentId && agent.mode==='global'))options.inbox.workPending(binding.sessionId,true);
+    this.runtimeUnavailable(options.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
     this.controls = new SessionControls(options);
     this.personal = new PersonalAssistant(options);
     this.unsubscribe = options.runtime.onNotification((method, params) => {
@@ -92,13 +101,25 @@ export class GlobalAgent {
       }
     });
   }
+  /** Require each affected root to reconcile durable input before its next wake. */
+  runtimeUnavailable(agentIds: readonly string[]): void {
+    const cut = Symbol('runtime outage');
+    for (const binding of this.options.store.bindings()) {
+      if (!agentIds.includes(binding.agentId) || !this.options.store.lifecycle.allowed(binding.agentId)) continue;
+      this.coldRoots.set(binding.sessionId, cut);
+      this.options.inbox.workPending(binding.sessionId, true);
+    }
+  }
+
   /** Close queued wakes and abort this Agent's product calls without waiting for runtime teardown. */
   cancelAgent(agentId:string):void {
     this.options.inbox.cancelAgent(agentId,this.options.store.bindings().filter(b=>b.agentId===agentId).map(b=>b.sessionId));
     this.backgroundRequested.delete(agentId);this.waitingForIdle.delete(agentId);
+    clearTimeout(this.agentRetry.get(agentId));this.agentRetry.delete(agentId);this.agentBackoff.delete(agentId);
     for(const [id,owner] of this.callAgents)if(owner===agentId)this.calls.get(id)?.abort();
     for(const binding of this.options.store.bindings().filter(b=>b.agentId===agentId)) {
       const root = binding.sessionId;
+      this.childCatchup.delete(root);this.coldRoots.delete(root);
       this.dirty.delete(root);this.childrenDirty.delete(root);this.childTargets.delete(root);this.failedChildren.delete(root);
       clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);
       this.options.inbox.workPending(root,false);
@@ -107,7 +128,7 @@ export class GlobalAgent {
   }
   /** Pending Inbox wakes and local reconciliation/delivery block a safe update. */
   get busy(): boolean {
-    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.childDrains.size > 0 || this.childrenDirty.size > 0 || this.calls.size > 0 ||
+    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.childDrains.size > 0 || this.childrenDirty.size > 0 || this.childCatchup.size > 0 || this.calls.size > 0 ||
       this.options.agents.some(agent => agent.mode === 'global' && this.options.inbox.wakePending(agent.agentId) !== undefined);
   }
   private binding(config: AgentConfiguration): SessionBinding {
@@ -152,7 +173,7 @@ export class GlobalAgent {
     if (control && !this.options.inbox.pendingControls().some(item=>item.agent_id===input.agent_id && item.message.id===input.message.id)) return;
     const prior=control ? this.controlTasks.get(input.agent_id) : undefined;
     const task = (async()=>{await prior;await this.ingest(input);if(control)this.options.inbox.finishControl(input);})()
-      .catch(error=>{this.scheduleRecovery();throw error;}).finally(()=>{
+      .catch(error=>{this.scheduleAgentRecovery(config.agentId);throw error;}).finally(()=>{
         this.accepting.delete(key);if(this.controlTasks.get(input.agent_id)===task)this.controlTasks.delete(input.agent_id);
       });
     this.accepting.set(key,task);if(control)this.controlTasks.set(input.agent_id,task);await task;
@@ -160,10 +181,12 @@ export class GlobalAgent {
   }
   private ensureAuthority(binding: SessionBinding): Promise<void> {
     if (this.options.relay.ready === false) return Promise.resolve();
-    const key = `${this.options.authorityEpoch?.() ?? 0}:${binding.agentId}:${binding.sessionId}`;
+    const epoch=this.options.authorityEpoch?.();
+    if(this.authorityEpoch!==epoch) {this.authorities.clear();this.authorityEpoch=epoch;}
+    const key=`${binding.agentId}:${binding.sessionId}`;
     if (this.authorities.has(key)) return Promise.resolve();
     return this.options.relay.request('agent.session.ensure',{node_id:this.options.nodeId,agent_id:binding.agentId,session_id:binding.sessionId})
-      .then(()=>{this.authorities.add(key);});
+      .then(()=>{if(this.authorityEpoch===epoch)this.authorities.add(key);});
   }
   private drainReceipts(): Promise<void> {
     if (this.receiptDrain) return this.receiptDrain;
@@ -252,6 +275,7 @@ export class GlobalAgent {
       await this.controlTasks.get(config.agentId);
       if(this.options.inbox.pendingControls().some(input=>input.agent_id===config.agentId))throw new Error('Pending control intent');
       await this.controls.wait(binding.sessionId);
+      while (this.coldRoots.has(binding.sessionId)) await this.recoverRoot(binding);
       do {
       await this.recoverInterruptedWake(config,binding);
       let watermark: number | undefined;
@@ -396,44 +420,116 @@ export class GlobalAgent {
       inbox.admitBackground(config.agentId,batch.watermark);this.waitingForIdle.delete(config.agentId);
     } else if(!result.busy) throw new Error('Background notification has no durable admission ACK');
   }
-  private scheduleRecovery():void {
-    if(this.stopped || this.recoveryTimer)return;
-    this.recoveryTimer=setTimeout(()=>{this.recoveryTimer=undefined;void this.recover().catch(this.options.onError);},1000);this.recoveryTimer.unref();
+  private scheduleAgentRecovery(agentId:string):void {
+    const {store,agents}=this.options;
+    if(this.stopped || this.agentRetry.has(agentId) || !store.lifecycle.allowed(agentId))return;
+    if(!agents.some(agent=>agent.agentId===agentId))return;
+    const delay=this.agentBackoff.get(agentId)??1000;
+    this.agentBackoff.set(agentId,Math.min(delay*2,30_000));
+    const timer=setTimeout(()=>{
+      this.agentRetry.delete(agentId);
+      void this.recoverForAgent(agentId).catch(this.options.onError);
+    },delay);
+    timer.unref();this.agentRetry.set(agentId,timer);
   }
   recover():Promise<void> {
+    if(this.stopped)return Promise.resolve();
     if(this.recovering)return this.recovering;
     this.recovering=this.recoverAll().finally(()=>{this.recovering=undefined;});return this.recovering;
   }
   private async recoverAll(): Promise<void> {
     this.waitingForIdle.clear(); this.authorities.clear();
-    const receipts=this.drainReceipts();
-    const publications=Promise.all(this.options.store.bindings().filter(binding=>this.options.agents.some(agent=>agent.agentId===binding.agentId&&!agent.personal)).map(async binding=>{
-      try{await this.recoverPublications(binding);}catch(error){this.scheduleRecovery();this.options.onError(error);}
-    }));
-    await Promise.all(this.options.agents.filter(agent=>agent.mode==='global' && this.options.store.lifecycle.allowed(agent.agentId)).map(config=>this.options.store.lifecycle.run(config.agentId,undefined,async()=>{
-      try {
-        for(const input of this.options.inbox.pendingControls().filter(item=>item.agent_id===config.agentId))await this.receive(input);
-        if(config.personal)await this.restorePersonalInputs(config);
-        const binding=this.binding(config), {inbox,store,runtime}=this.options;
-        const checkpoint=inbox.workCut(binding.sessionId);
-        const background=inbox.background(config.agentId);
-        const obligations=inbox.wakePending(config.agentId)!==undefined || inbox.unreadAttention(config.agentId)!==undefined ||
-          !!background && (background.pending || background.dueAt<=Date.now()) ||
-          store.controls().some(intent=>intent.binding.agentId===config.agentId && !intent.delivered) || store.lookupInputIds(binding.sessionId).length>0;
-        if(checkpoint && !obligations) {
-          const cut=checkpoint;
-          const check=await runtime.request('session.work.check',{sessionId:binding.sessionId,afterSeq:cut.throughSeq,modelVersion:cut.modelVersion}) as {rootSettled?:boolean};
-          if(check.rootSettled) {
-            await this.ensureAuthority(binding);
-            await this.reconcile(binding,true);
-            this.armBackground();return;
-          }
-        }
-        await this.main(config);await this.controls.recover(config.agentId);await this.reconcile(binding);await this.wake(config,binding,true);
-      } catch(error) {this.scheduleRecovery();this.options.onError(error);}
-    })));
-    await this.recoverPersonalObservations(); await receipts; await this.drainReceipts();await publications;
+    await Promise.all(this.options.agents.map(config=>this.recoverForAgent(config.agentId)));
+    await this.recoverPersonalObservations(); await this.drainReceipts();
   }
+
+  /** Reconcile durable obligations after this Agent's own lifecycle and stop fences. */
+  recoverForAgent(agentId:string):Promise<void> {
+    const {store,agents}=this.options;
+    const active=this.agentRecoveries.get(agentId);
+    if(active)return active;
+    const config=agents.find(agent=>agent.agentId===agentId);
+    if(this.stopped || !config || !store.lifecycle.allowed(agentId))return Promise.resolve();
+    this.waitingForIdle.delete(agentId);
+    void this.drainReceipts();
+    const task=store.lifecycle.run(agentId,undefined,async()=>{
+      const publications=config.personal ? [] : store.bindings(agentId).map(binding=>this.recoverPublications(binding));
+      const results=await Promise.allSettled([...publications,...(config.mode==='global'?[this.restoreRoot(config)]:[])]);
+      const failure=results.find(result=>result.status==='rejected');
+      if(failure)throw failure.reason;
+      clearTimeout(this.agentRetry.get(agentId));this.agentRetry.delete(agentId);this.agentBackoff.delete(agentId);
+    }).catch(error=>{this.scheduleAgentRecovery(agentId);this.options.onError(error);})
+      .finally(()=>this.agentRecoveries.delete(agentId));
+    this.agentRecoveries.set(agentId,task);return task;
+  }
+
+  private async restoreRoot(config:AgentConfiguration):Promise<void> {
+    const {inbox,runtime,store}=this.options;
+    for(const input of inbox.pendingControls().filter(item=>item.agent_id===config.agentId))await this.receive(input);
+    if(config.personal)await this.restorePersonalInputs(config);
+    const binding=this.binding(config);
+    const checkpoint=inbox.workCut(binding.sessionId);
+    const background=inbox.background(config.agentId);
+    const obligations=inbox.wakePending(config.agentId)!==undefined || inbox.unreadAttention(config.agentId)!==undefined ||
+      !!background && (background.pending || background.dueAt<=Date.now()) ||
+      store.pendingControls(config.agentId).length>0 || store.lookupInputIds(binding.sessionId).length>0;
+    if(checkpoint && !obligations) {
+      const outage=this.coldRoots.get(binding.sessionId);
+      const check=await runtime.request('session.work.check',{sessionId:binding.sessionId,afterSeq:checkpoint.throughSeq,
+        modelVersion:checkpoint.modelVersion}) as {rootSettled?:boolean};
+      if(check.rootSettled) {
+        await this.ensureAuthority(binding);
+        if(this.coldRoots.get(binding.sessionId)===outage)this.coldRoots.delete(binding.sessionId);
+        this.catchUpChildWork(binding);this.armBackground();return;
+      }
+    }
+    await this.main(config);
+    await this.recoverRoot(binding);
+    await this.wake(config,binding,true);
+  }
+  private recoverRoot(binding: SessionBinding): Promise<void> {
+    const id = binding.sessionId;
+    const active = this.foregroundRecovery.get(id);
+    if (active) return active;
+    const outage = this.coldRoots.get(id);
+    const task = (async () => {
+      this.options.inbox.workPending(id, true);
+      await this.controls.recover(binding.agentId);
+      await this.reconcileRoot(binding);
+      if (this.coldRoots.get(id) === outage) {
+        this.coldRoots.delete(id);
+        this.catchUpChildWork(binding);
+      }
+    })().finally(() => this.foregroundRecovery.delete(id));
+    this.foregroundRecovery.set(id, task);
+    return task;
+  }
+
+  private catchUpChildWork(binding: SessionBinding): void {
+    if(this.stopped || !this.options.store.lifecycle.allowed(binding.agentId))return;
+    this.childCatchup.set(binding.sessionId,binding);
+    this.updateWorkPending(binding.sessionId);
+    if(this.childCatchupTask)return;
+    this.childCatchupTask=(async()=>{
+      while(!this.stopped && this.childCatchup.size) {
+        await yieldToIO(undefined,{signal:this.childCatchupStop.signal}).catch(error=>{
+          if(!this.stopped)throw error;
+        });
+        const next=this.childCatchup.values().next().value;
+        if(!next || this.stopped)break;
+        this.childCatchup.delete(next.sessionId);
+        const {lifecycle}=this.options.store;
+        if(lifecycle.allowed(next.agentId))
+          await lifecycle.run(next.agentId,undefined,()=>this.reconcile(next,true)).catch(this.options.onError);
+      }
+    })().finally(()=>{
+      this.childCatchupTask=undefined;
+      const pending=this.childCatchup.values().next().value;
+      if(pending && !this.stopped)this.catchUpChildWork(pending);
+    });
+    void this.childCatchupTask.catch(this.options.onError);
+  }
+
   /** Consume persisted source events without changing the owner's read receipts. */
   recoverPersonalObservations(): Promise<void> {
     if (this.options.relay.ready === false) return Promise.resolve();
@@ -886,8 +982,8 @@ export class GlobalAgent {
     }
   }
   private updateWorkPending(root: string): void {
-    const pending=this.dirty.has(root) || this.drains.has(root) || this.childrenDirty.has(root) ||
-      this.childDrains.has(root) || !!this.childTargets.get(root)?.size || this.failedChildren.has(root);
+    const pending=this.coldRoots.has(root) || this.dirty.has(root) || this.drains.has(root) || this.childrenDirty.has(root) ||
+      this.childCatchup.has(root) || this.childDrains.has(root) || !!this.childTargets.get(root)?.size || this.failedChildren.has(root);
     this.options.inbox.workPending(root,pending);
     if (!pending) {
       clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);
@@ -1128,8 +1224,11 @@ export class GlobalAgent {
     await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });
   }
   async stop(): Promise<void> {
-    this.stopped=true; clearTimeout(this.backgroundTimer);clearTimeout(this.receiptTimer);clearTimeout(this.recoveryTimer);
+    this.stopped=true; clearTimeout(this.backgroundTimer);clearTimeout(this.receiptTimer);
     for (const timer of this.workRetries.values()) clearTimeout(timer);
     this.workRetries.clear();
+    for(const timer of this.agentRetry.values())clearTimeout(timer);
+    this.agentRetry.clear();this.childCatchup.clear();this.childCatchupStop.abort();
+    await Promise.allSettled([this.childCatchupTask,...this.agentRecoveries.values()]);
     await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.childDrains.values(), ...this.waking.values()]); await this.receiptDrain; await this.recovering; await Promise.allSettled(this.accepting.values()); }
 }

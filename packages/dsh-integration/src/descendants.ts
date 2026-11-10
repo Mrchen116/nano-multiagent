@@ -141,23 +141,28 @@ export class DescendantReader {
     return rows;
   }
 
-  /** Read the latest crash interruption of each supported direct child without activating it. */
-  async interruptedChildren(rootId: SessionId): Promise<{id: SessionId; turnEnd: number}[]> {
-    const {catalog} = await this.observe(rootId, rootId);
+  /** Find direct-child interruptions at the cold root's native catalog cut. */
+  async interruptedChildren(root: SessionObservation): Promise<{
+    interrupted: {id: SessionId; turnEnd: number}[];
+    complete: boolean;
+  }> {
+    const children = root.projections?.values.subagentCatalog;
+    if (!children) throw new SubagentError('Recovery requires the native subagentCatalog projection', 'SUBAGENT_CONTROL_PROJECTIONS_UNAVAILABLE');
     const interrupted: {id: SessionId; turnEnd: number}[] = [];
-    for (const child of catalog.children) {
+    let complete = true;
+    for (const child of children) {
       if (child.mode === 'unknown') continue;
       try {
-        const {catalog: observed} = await this.observe(child.id, rootId, {requireInterruption: true});
-        if (observed.interruptedTurnEnd != null && !this.ctx.agents.get(child.id)) {
-          interrupted.push({id: child.id, turnEnd: observed.interruptedTurnEnd});
-        }
+        const {catalog} = await this.observe(child.id, root.header.id, {requireInterruption: true});
+        if (catalog.interruptedTurnEnd != null && !this.ctx.agents.get(child.id))
+          interrupted.push({id: child.id, turnEnd: catalog.interruptedTurnEnd});
       } catch (error) {
-        if (!(error instanceof SessionQueryError)) throw error;
-        this.ctx.logger.warn(`Cannot inspect subagent ${child.id} for interruption: ${error.message}`);
+        if (error instanceof SessionQueryError && error.code === 'SESSION_QUERY_SESSION_NOT_FOUND') continue;
+        complete = false;
+        this.ctx.logger.warn(`Cannot inspect subagent ${child.id} for interruption: ${String(error)}`);
       }
     }
-    return interrupted;
+    return {interrupted, complete};
   }
 
   /** Check saved cuts without hydrating Agents or opening history bodies.
