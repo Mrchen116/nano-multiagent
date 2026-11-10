@@ -1,15 +1,23 @@
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
-import type { Agent } from '@deepseek-ai/dsh-agent';
+import { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent';
 import type { ToolExecution } from '@deepseek-ai/dsh-tools';
-import { createUserMessage } from '@deepseek-ai/dsh-llm';
+import { createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm';
+import { joinContextSections, renderContextSections } from '@deepseek-ai/dsh-system-prompt';
+import { currentWindow } from 'dsh-agent-context';
 import * as ObservationPolicy from '@deepseek-ai/dsh-fs-observation-policy';
 import type {} from '../policy/approval.js';
 import { isHumanSource } from '../input-source.js';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
-import { MemoryDocuments, type SourceEligibility } from './memory-documents.js';
+import { MemoryDocuments, type DocumentVersions, type SourceEligibility } from './memory-documents.js';
 import { resolveRoleFile, roleDocument, roleLimit, rolePath } from './role-document.js';
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'runtime-context': { kind: 'runtime-context' } & ContextFormed;
+  }
+}
 
 interface Options {
   configOf(agent: Agent): AgentConfiguration | undefined;
@@ -20,11 +28,34 @@ interface Options {
 }
 interface MaintenanceArguments { action: 'status' | 'run'; request_ref?: string; importLegacy?: boolean }
 const inside = (root: string, path: string) => { const rel = relative(root, path); return rel === '' || !rel.startsWith('..') && !isAbsolute(rel); };
+const entrySection = 'nano-document-memory-entry';
+const changedPagesPrefix = 'These pages changed since your previous model request; reread before the next relevant decision: ';
+const entryPreviewPrefix = 'Key memory exceeds the inline limit.';
+const oversizedEntry = (path: string) => `Key memory is too long to include here. Read ${path} for the current contents.`;
+
+function savedEntry(agent: Agent) {
+  const messages = agent.session.deriveMessages();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const source = messages[i]!.source;
+    if (source.kind === 'compact-checkpoint') break;
+    if (source.kind !== 'runtime-context' || source.form !== 'snapshot') continue;
+    const sections = source.sections;
+    const entry = sections.find(section => section.name === entrySection);
+    if (entry) return entry.text;
+    // Sessions created before this change stored the entry after four guidance paragraphs.
+    const combined = sections.find(section => section.name === 'nano-document-memory');
+    if (combined) {
+      const text = combined.text.split('\n\n').slice(4).join('\n\n');
+      const notice = text.lastIndexOf('\n\n' + changedPagesPrefix);
+      if (text) return notice > text.lastIndexOf('</memory_content>') ? text.slice(0, notice) : text;
+    }
+  }
+}
 
 /** Integrates current document memory with native requests and actual file tool outcomes. */
 export class DocumentMemory {
   private readonly libraries = new Map<string, { workspace: string; value: Promise<MemoryDocuments> }>();
-  private readonly seen = new WeakMap<Agent, Record<string, string>>();
+  private readonly seen = new WeakMap<Agent, { current?: DocumentVersions; previous?: DocumentVersions }>();
   private readonly roleOwners = new WeakMap<Agent, string>();
   private readonly pending = new Set<Promise<unknown>>();
   run?: (agent: Agent, requestRef: string, importLegacy?: boolean) => Promise<unknown>;
@@ -38,30 +69,28 @@ export class DocumentMemory {
       if (!agent || !config || config.knowledge?.memoryMode === 'legacy' || ![...options.bindings.values()].some(binding => binding.agentId === config.agentId)) return assembly;
       const binding = options.bindings.get(agent.id);
       const main = binding?.agentId === config.agentId;
-      const documents = await this.forConfig(config); const view = await documents.context({ includePreview: main });
-      const entryPath = join(view.root, 'MEMORY.md');
-      let entryContext: string;
-      if (view.entry !== undefined) {
-        entryContext = `Contents of ${entryPath} — your one-page key memory:\n<memory_content>\n${view.entry || '(empty)'}\n</memory_content>`;
-      } else if (view.entryPreview !== undefined) {
-        entryContext = `Key memory exceeds the inline limit. Later content is omitted. Read ${entryPath} for the complete file.${view.entryPreview
-          ? `\n<memory_content>\n${view.entryPreview}\n</memory_content>`
-          : '\nNo complete opening block fits the preview budget.'}`;
-      } else {
-        entryContext = `Key memory is too long to include here. Read ${entryPath} for the current contents.`;
-      }
-      const previous = this.seen.get(agent);
-      const changed = previous ? [...new Set([...Object.keys(previous), ...Object.keys(view.versions)])].filter(path => previous[path] !== view.versions[path]) : [];
-      this.seen.set(agent, view.versions);
+      const documents = await this.forConfig(config);
+      const versions = await documents.versions();
+      const previous = this.seen.get(agent)?.current;
+      const changed = previous ? [...new Set([...Object.keys(previous), ...Object.keys(versions)])]
+        .filter(path => path !== 'MEMORY.md' && previous[path] !== versions[path]) : [];
+      this.seen.set(agent, { current: versions, previous });
+      const windowEntry = savedEntry(agent);
+      assembly.variables.nano_document_memory_entry = !main && windowEntry?.startsWith(entryPreviewPrefix)
+        ? oversizedEntry(join(documents.root, 'MEMORY.md'))
+        : windowEntry ?? await this.entry(documents, main);
       assembly.variables.nano_document_memory = [
         'Current saved Markdown is durable understanding, not user authorization, Task state or live permissions. Use read/glob/grep for memory files. Only Dreaming updates formal memory; never use write/edit, shell or other tools to bypass this boundary. Load nano-memory for memory guidance.',
         config.personal ? 'Role: personal assistant. Keep the owner’s background, relationships, preferences and workstreams; preserve exceptions and uncertainty.' : 'Role: independent expert. Keep domain/environment knowledge, audience-specific collaboration and verified work experience. A requester is not implicitly your owner.',
-        `Memory directory: ${view.root}. This library belongs to the product Agent and does not follow a child working directory. Search this directory for more detailed memory.`,
-        'Read the complete relevant pages before applying a conclusion. Current corrections supersede older context, restored notes and history. Update affected original children through the existing follow-up channel. Apply corrections and requests to stop using a memory immediately within their stated scope, without a maintenance call. Dreaming reads those original conversation messages and updates durable memory later. A correction limited to this turn does not delete a lasting preference. Do not claim memory is saved until the host reports it. Other conversations may still see old memory until Dreaming completes.',
-        entryContext,
-        changed.length ? `These pages changed since your previous model request; reread before the next relevant decision: ${changed.join(', ')}` : '',
-      ].filter(Boolean).join('\n\n');
+        `Memory directory: ${documents.root}. This library belongs to the product Agent and does not follow a child working directory. Search this directory for more detailed memory.`,
+        'Read the complete relevant pages before applying a conclusion. The inline MEMORY.md is a snapshot taken at the start of this context window. Current corrections supersede older context, restored notes and history. Update affected original children through the existing follow-up channel. Apply corrections and requests to stop using a memory immediately within their stated scope, without a maintenance call. Dreaming reads those original conversation messages and updates durable memory later. A correction limited to this turn does not delete a lasting preference. Do not claim memory is saved until the host reports it.',
+      ].join('\n\n');
       assembly.contexts.push({ name: 'nano-document-memory', text: '{{nano_document_memory}}' });
+      assembly.contexts.push({ name: entrySection, text: '{{nano_document_memory_entry}}' });
+      if (changed.length) {
+        assembly.variables.nano_changed_memory_pages = changedPagesPrefix + changed.join(', ');
+        assembly.contexts.push({ name: 'nano-changed-memory-pages', text: '{{nano_changed_memory_pages}}' });
+      }
       if (main) {
         const role = await this.readRole(config, true);
         if (role) {
@@ -99,6 +128,23 @@ export class DocumentMemory {
       }
       return assembly;
     });
+    ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
+      const seq = agent.session.seq;
+      const decision = await next();
+      const seen = this.seen.get(agent);
+      if (!seen || decision.kind !== 'enter' || !decision.startsRequestSeries || currentWindow(agent.session).end_seq < seq) return decision;
+      // Native pressure rollover commits inside pre-step, after the old window was assembled.
+      // Compare detail changes to the same baseline when assembling this request again.
+      this.seen.set(agent, { current: seen.previous });
+      const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent, signal));
+      if (assembly.variables.nano_document_memory_entry === undefined) return decision;
+      const sections = renderContextSections(assembly);
+      const snapshot = createUserMessage({
+        source: { kind: 'runtime-context', form: 'snapshot', sections },
+        content: [{ type: 'text', text: joinContextSections(sections) }],
+      });
+      return { ...decision, messages: [snapshot, ...decision.messages.filter(message => message.source.kind !== 'runtime-context')] };
+    }, { prepend: true });
     ctx.on('agent/pre-step', async ({ agent }, next) => {
       const decision = await next();
       const owner = this.roleOwners.get(agent);
@@ -130,6 +176,19 @@ export class DocumentMemory {
       if (exec.name !== 'read') throw new Error('Only Dreaming may update formal memory. Use current corrections in this conversation; request memory_maintenance run when the user asks to save them.');
       return next();
     });
+  }
+  private async entry(documents: MemoryDocuments, main: boolean) {
+    const view = await documents.context({ includePreview: main });
+    const path = join(view.root, 'MEMORY.md');
+    if (view.entry !== undefined) {
+      return `Contents of ${path} — your one-page key memory:\n<memory_content>\n${view.entry || '(empty)'}\n</memory_content>`;
+    }
+    if (view.entryPreview !== undefined) {
+      return `${entryPreviewPrefix} Later content is omitted. Read ${path} for the complete file.${view.entryPreview
+        ? `\n<memory_content>\n${view.entryPreview}\n</memory_content>`
+        : '\nNo complete opening block fits the preview budget.'}`;
+    }
+    return oversizedEntry(path);
   }
   /** Resolve by trusted business owner; all descendants share this fixed root. */
   async forConfig(config: AgentConfiguration): Promise<MemoryDocuments> {

@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { Context } from '@deepseek-ai/cordis';
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local';
@@ -24,19 +25,23 @@ const original = (inputId: string): Original => ({ inputId, conversationId: 'wir
 // Controlled Anthropic SSE proves real native assembly/serialization and actual
 // tool consumption, not autonomous model behavior. Two cells are not a cross product.
 it.each([
-  { label: 'default document / empty allowlist / native window reset', legacy: false, windows: true },
-  { label: 'explicit legacy / creator denylist / native summarization', legacy: true, windows: false },
-])('revalidates Memory, fixed P9/creator and Task scope on HTTP after $label', async ({ legacy, windows }) => {
+  { label: 'default document / empty allowlist / native window reset', legacy: false, windows: true, modelRequested: false },
+  { label: 'default document / model-requested window reset', legacy: false, windows: true, modelRequested: true },
+  { label: 'explicit legacy / creator denylist / native summarization', legacy: true, windows: false, modelRequested: false },
+])('revalidates Memory, fixed P9/creator and Task scope on HTTP after $label', async ({ legacy, windows, modelRequested }) => {
   const prefix = join(tmpdir(), 'nano-context-revalidation-wire-');
   const home = await mkdtemp(prefix);
   const requests: Wire[] = [], consumed = new Set<string>(), committed: any[] = [];
   const originals = new Map<string, Original>();
   let client: RuntimeClient | undefined, logs = '', summarizing = false, armed = false, toolsSent = false;
+  let requestNewWindow = false;
   const binding = { sessionId: 'wire-session', agentId: 'wire-revalidation', ownerId: 'wire-owner', revision: '1', cwd: home };
   let prepareCalls = 0, snapshotCalls = 0;
   const cell = legacy ? 'LEGACY' : 'DOCUMENT';
   const documentMarker = 'DOCUMENT_ONLY_VALID_ENTRY_679', legacyMarker = 'LEGACY_ONLY_ENTRY_679';
+  const updatedMarker = 'DOCUMENT_UPDATED_ENTRY_759';
   const readMarker = 'DOCUMENT_OFF_ACTUAL_READ_679';
+  const entry = join(home, '.nanoassistant/memory/MEMORY.md');
   const page = join(home, '.nanoassistant/memory/knowledge/preferences.md');
   const packaged = fileURLToPath(new URL('../../personal-assistant/assets/skills/skill-creator/', import.meta.url));
   const packagedBody = (await readFile(join(packaged, 'SKILL.md'), 'utf8')).replace(/^---\n[\s\S]*?\n---\n/, '').trim();
@@ -45,12 +50,19 @@ it.each([
     let raw = ''; for await (const chunk of req) raw += chunk;
     requests.push({ raw, body: JSON.parse(raw), method: req.method, path: req.url, summary: summarizing,
       root: String(req.headers['x-session-id']), session: String(req.headers['x-agent-session-id']) });
-    const calls = !summarizing && !toolsSent;
+    const rollover = requestNewWindow;
+    requestNewWindow = false;
+    if (rollover) {
+      await writeFile(page, 'Updated detail during the tool round');
+      // The real library receives external writes through its filesystem watcher.
+      await delay(400);
+    }
+    const calls = !summarizing && (!toolsSent || rollover);
     if (calls) toolsSent = true;
     // No second execution loop: finish the scripted responsibility before native
     // turn-stopping consults the product projection for automatic continuation.
     if (!calls && !summarizing) armed = false;
-    const blocks = calls ? [
+    const blocks = rollover ? [{ type: 'tool_use', id: 'rollover-' + cell, name: 'new_context', input: {} }] : calls ? [
       { type: 'tool_use', id: 'creator-' + cell, name: 'skill', input: { name: 'skill-creator' } },
       ...(!legacy ? [{ type: 'tool_use', id: 'read-' + cell, name: 'read', input: { file_path: page } }] : []),
     ] : [{ type: 'text', text: summarizing ? 'CONTROLLED_NATIVE_SUMMARY_' + cell : 'CONTROLLED_DONE_' + cell }];
@@ -80,7 +92,7 @@ it.each([
     await expect.poll(() => consumed.has(item.inputId)).toBe(true);
     return requests.slice(first);
   };
-  const assembly = (request: Wire) => {
+  const assembly = (request: Wire, expectedMemory = legacy ? legacyMarker : documentMarker) => {
     const visible = strings([request.body.system, request.body.messages]);
     expect(request).toMatchObject({ root: binding.sessionId, session: binding.sessionId, method: 'POST', summary: false });
     expect(request.path).toMatch(/^\/v1\/messages(?:[?]|$)/);
@@ -98,7 +110,7 @@ it.each([
     expect(visible).toContain('<available_skills>');
     expect(visible).not.toContain('USER_CREATOR_REPLACEMENT_679');
     expect(visible).not.toContain('OPTIONAL_UNSELECTED_679');
-    expect(visible).toContain(legacy ? legacyMarker : documentMarker);
+    expect(visible).toContain(expectedMemory);
     expect(visible).not.toContain(legacy ? documentMarker : legacyMarker);
     const names = request.body.tools.map((tool: any) => tool.name);
     expect(names).toEqual(expect.arrayContaining(['skill', 'read', 'task_graph']));
@@ -134,7 +146,7 @@ it.each([
     const documents = await MemoryDocuments.open(home, 'expert', new LocalFileSystem(new Context(), { cwd: home, diffBasisMaxBytes: 10485760 }));
     try {
       await documents.apply({ operationId: 'preferences', path: 'knowledge/preferences.md', beforeHash: null, content: readMarker });
-      await writeFile(join(home, '.nanoassistant/memory/MEMORY.md'), '# Expert memory\n\n' + documentMarker + '\n\n[Preferences](knowledge/preferences.md)\n');
+      await writeFile(entry, '# Expert memory\n\n' + documentMarker + '\n\n[Preferences](knowledge/preferences.md)\n');
       await documents.checkpoint(await documents.versions(), 0);
     } finally { await documents.close(); }
     const legacyRoot = join(home, '.nanoassistant/memory-legacy');
@@ -153,45 +165,50 @@ it.each([
       apiKeyEnv: 'NANO_TEST_KEY', baseURL: 'http://127.0.0.1:' + port, models: [{ id: 'fixture', contextWindow: 100000 }],
       retryPolicy: { mode: 'normal', maxRetries: 0 } } } } }, { id: 'nano-compaction', config: { retainTokens: 0, maxTokens: 256 } },
       { insert: [{ id: 'native-tools', name: join(home, 'native-tools.mjs') }] }]);
-    client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
-    client.rpc.handle('product.task_context.prepare', request => {
-      identity(request); prepareCalls++;
-      const messages = [...originals.values()].filter(item => !consumed.has(item.inputId));
-      // Activate the fixture Task inside the submitted turn. session.ensure's
-      // asynchronous idle check must not race the human input into a prior turn.
-      if (messages.length) armed = true;
-      return { messages, revoked: [] };
-    });
-    client.rpc.handle('product.task_context.commit', request => {
-      identity(request);
-      for (const evidence of (request as any).evidence) if (originals.has(evidence.inputId)) {
-        expect(evidence.content).toEqual(originals.get(evidence.inputId)!.content);
-        consumed.add(evidence.inputId); committed.push(evidence);
-      }
-      return {confirmed:(request as any).evidence.filter((item:any)=>consumed.has(item.inputId)).map((item:any)=>({
-        inputId:item.inputId,consumedSeq:item.consumedSeq,status:'consumed',
-      }))};
-    });
-    client.rpc.handle('product.task_execution.snapshot', request => {
-      identity(request); snapshotCalls++;
-      return (armed ? { kind: 'continue', tasks: [{ graph_id: 'wire-graph', node_id: 'wire-node', title: taskTitle, status: 'waiting', revision: 1,
-        updated_at: '2026-10-30T12:00:00Z', conversation: { id: 'wire-fixed-task-chat' }, relative_url: '/tasks/wire-graph' }],
-        repair_task_ids: ['wire-graph/wire-node'], reason: 'cron_disabled', repairs: [{ graph_id: 'wire-graph', node_id: 'wire-node',
-          schedule_id: 'missing-schedule', checked_at: '2026-10-30T12:00:00Z', reason_code: 'missing', reason: 'The linked Schedule could not be found.' }] }
-        : { kind: 'quiescent', tasks: [], repair_task_ids: [] }) satisfies TaskExecutionSnapshot;
-    });
-    const config = { agentId: 'wire-revalidation', revision: '1', mode: 'global', workspace: home, provider: 'wire', model: 'fixture',
-      systemPrompt: 'WIRE_PERSONA_' + cell, approval: { enabled: false },
-      ...(legacy ? { knowledge: { memoryMode: 'legacy' } } : {}),
-      features: { intelligent_ui: false, task_graph: true, dreaming: false, memory_curation: legacy, skill_creation: false, cron_scheduling: false, heartbeat: false },
-      toolAllowlist: ['skill', 'read', 'task_graph', ...(!legacy ? ['memory_maintenance'] : [])],
-      skillRoots: [{ path: skills, source: 'workspace' }, { path: builtin, source: 'builtin' }], skillSelection: legacy
-        ? { mode: 'explicit_denylist', names: ['skill-creator', 'optional'] } : { mode: 'explicit_allowlist', names: [] } };
-    await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [binding] });
-    await client.rpc.request('session.ensure', binding);
+    const connect = async () => {
+      const runtime = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
+      client = runtime;
+      runtime.rpc.handle('product.task_context.prepare', request => {
+        identity(request); prepareCalls++;
+        const messages = [...originals.values()].filter(item => !consumed.has(item.inputId));
+        // Activate the fixture Task inside the submitted turn. session.ensure's
+        // asynchronous idle check must not race the human input into a prior turn.
+        if (messages.length) armed = true;
+        return { messages, revoked: [] };
+      });
+      runtime.rpc.handle('product.task_context.commit', request => {
+        identity(request);
+        for (const evidence of (request as any).evidence) if (originals.has(evidence.inputId)) {
+          expect(evidence.content).toEqual(originals.get(evidence.inputId)!.content);
+          consumed.add(evidence.inputId); committed.push(evidence);
+        }
+        return {confirmed:(request as any).evidence.filter((item:any)=>consumed.has(item.inputId)).map((item:any)=>({
+          inputId:item.inputId,consumedSeq:item.consumedSeq,status:'consumed',
+        }))};
+      });
+      runtime.rpc.handle('product.task_execution.snapshot', request => {
+        identity(request); snapshotCalls++;
+        return (armed ? { kind: 'continue', tasks: [{ graph_id: 'wire-graph', node_id: 'wire-node', title: taskTitle, status: 'waiting', revision: 1,
+          updated_at: '2026-10-30T12:00:00Z', conversation: { id: 'wire-fixed-task-chat' }, relative_url: '/tasks/wire-graph' }],
+          repair_task_ids: ['wire-graph/wire-node'], reason: 'cron_disabled', repairs: [{ graph_id: 'wire-graph', node_id: 'wire-node',
+            schedule_id: 'missing-schedule', checked_at: '2026-10-30T12:00:00Z', reason_code: 'missing', reason: 'The linked Schedule could not be found.' }] }
+          : { kind: 'quiescent', tasks: [], repair_task_ids: [] }) satisfies TaskExecutionSnapshot;
+      });
+      const config = { agentId: binding.agentId, revision: '1', mode: 'global', workspace: home, provider: 'wire', model: 'fixture',
+        systemPrompt: 'WIRE_PERSONA_' + cell, approval: { enabled: false },
+        ...(legacy ? { knowledge: { memoryMode: 'legacy' } } : {}),
+        features: { intelligent_ui: false, task_graph: true, dreaming: false, memory_curation: legacy, skill_creation: false, cron_scheduling: false, heartbeat: false },
+        toolAllowlist: ['skill', 'read', 'task_graph', ...(!legacy ? ['memory_maintenance'] : [])],
+        skillRoots: [{ path: skills, source: 'workspace' }, { path: builtin, source: 'builtin' }], skillSelection: legacy
+          ? { mode: 'explicit_denylist', names: ['skill-creator', 'optional'] } : { mode: 'explicit_allowlist', names: [] } };
+      await runtime.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [binding] });
+      await runtime.rpc.request('session.ensure', binding);
+      return runtime;
+    };
+    const runtime = await connect();
     if (!windows) {
-      await client.rpc.request('plugins.manage', { action: 'set_bundle', agentId: config.agentId, target: 'dsh-agent-context', enabled: false });
-      await expect.poll(async () => (await client!.rpc.request('plugins.manage', { agentId: config.agentId, action: 'list_bundles' }) as {pending?: unknown}).pending).toBeUndefined();
+      await runtime.rpc.request('plugins.manage', { action: 'set_bundle', agentId: binding.agentId, target: 'dsh-agent-context', enabled: false });
+      await expect.poll(async () => (await runtime.rpc.request('plugins.manage', { agentId: binding.agentId, action: 'list_bundles' }) as {pending?: unknown}).pending).toBeUndefined();
     }
     const initial = await submit('before-' + cell);
     expect(initial).toHaveLength(2); initial.forEach(assembly);
@@ -204,10 +221,41 @@ it.each([
     if (!legacy) expect(strings(results.find((block: any) => block.tool_use_id === 'read-' + cell))).toContain(readMarker);
     assertSources((await observe()).events, 'before-' + cell);
 
+    if (!legacy) {
+      await writeFile(entry, '# Expert memory\n\n' + updatedMarker);
+      const [sameWindow] = await submit('same-window-' + cell);
+      assembly(sameWindow!);
+      expect(strings(sameWindow!.body.messages)).not.toContain(updatedMarker);
+      expect(strings(sameWindow!.body.messages)).not.toContain('These pages changed');
+      const normalize = (messages: any[]) => JSON.parse(JSON.stringify(messages, (key, value) => key === 'cache_control' ? undefined : value));
+      const previous = normalize(initial[1]!.body.messages);
+      expect(normalize(sameWindow!.body.messages).slice(0, previous.length)).toEqual(previous);
+      if (!modelRequested) {
+        await runtime.shutdown();
+        await connect();
+        const [restored] = await submit('restored-window-' + cell);
+        assembly(restored!);
+        expect(strings(restored!.body.messages)).not.toContain(updatedMarker);
+      }
+    }
+
+    if (modelRequested) {
+      requestNewWindow = true;
+      const [beforeRollover, afterRollover] = await submit('request-window-' + cell);
+      expect(strings(beforeRollover!.body.messages)).not.toContain(updatedMarker);
+      const messages = afterRollover!.body.messages;
+      expect(strings(messages)).toContain('Context reset reason: model-requested');
+      const latestSnapshot = messages.findLast((message: unknown) => strings(message).includes('Current runtime context'));
+      expect(strings(latestSnapshot)).toContain(updatedMarker);
+      expect(strings(latestSnapshot)).not.toContain(documentMarker);
+      expect(strings(latestSnapshot)).toContain('decision: knowledge/preferences.md');
+      return;
+    }
+
     const beforeCompact = requests.length; summarizing = true;
     try {
       // The public native command, not a fabricated compaction/summary event.
-      expect(await client.rpc.request('session.command', { sessionId: binding.sessionId, id: 'real-compact-' + cell, action: 'compact', argument: 'AUTHORITY_FOCUS_679' })).toMatchObject({success: true});
+      expect(await client!.rpc.request('session.command', { sessionId: binding.sessionId, id: 'real-compact-' + cell, action: 'compact', argument: 'AUTHORITY_FOCUS_679' })).toMatchObject({success: true});
     } finally { summarizing = false; }
     expect(requests.slice(beforeCompact)).toHaveLength(windows ? 0 : 1);
     if (!windows) {
@@ -217,7 +265,7 @@ it.each([
     }
     expect((await observe()).events.filter(event => event.type === 'compaction/summary')).toHaveLength(1);
     const after = await submit('after-' + cell);
-    expect(after).toHaveLength(1); assembly(after[0]!);
+    expect(after).toHaveLength(1); assembly(after[0]!, legacy ? legacyMarker : updatedMarker);
     expect(strings(after[0]!.body.messages)).toContain('TASK_ORIGINAL_task-after-' + cell);
     expect(strings(after[0]!.body.messages)).toContain(windows ? 'Context reset reason: manual' : 'CONTROLLED_NATIVE_SUMMARY_' + cell);
     assertSources((await observe()).events, 'after-' + cell);
