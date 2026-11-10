@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-738
+> 对齐: feat-757
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -324,6 +324,11 @@ Gateway 首次连一个尚无 owner 的 IM 节点时需确认绑定。默认打�
 #### Scenario: 重复与失败
 - WHEN 安装重跑或下载/依赖步骤失败
 - THEN 保留现有节点和数据，显示继续/恢复方法，不切换到未准备好的版本。
+
+#### Scenario: macOS 安装准备 Computer Use
+- **WHEN** 用户通过 Nano 安装入口安装带有 Computer Use Skill 的 macOS 版本
+- **THEN** 安装器准备官方 CuaDriver CLI，已有官方 CuaDriver 应用时复用
+- **AND** Agent 的 Shell 可调用该 CLI，屏幕录制与辅助功能权限仍由 macOS 管理
 
 ### Requirement: 受管电脑按一次明确授权安全切换固定版本
 
