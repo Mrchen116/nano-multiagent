@@ -47,6 +47,10 @@ export class GlobalAgent {
   private readonly dirty = new Set<string>();
   private readonly childDrains = new Map<string, Promise<void>>();
   private readonly childrenDirty = new Set<string>();
+  private readonly childTargets = new Map<string, Set<string>>();
+  private readonly failedChildren = new Map<string, {discover:boolean; targets:Set<string>}>();
+  private readonly workBackoff = new Map<string,number>();
+  private readonly workRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly calls = new Map<string, AbortController>();
   private readonly callAgents = new Map<string,string>();
   private receiptDrain?: Promise<void>;
@@ -57,7 +61,6 @@ export class GlobalAgent {
   private readonly controlTasks=new Map<string,Promise<void>>();
   private readonly authorities = new Set<string>();
   private readonly accepting = new Map<string,Promise<void>>();
-  private readonly reconciliation = new Map<string, number>();
   private readonly unsubscribe: () => void;
   constructor(private readonly options: Options) {
     const relay=options.relay,runtime=options.runtime;
@@ -69,15 +72,23 @@ export class GlobalAgent {
     this.personal = new PersonalAssistant(options);
     this.unsubscribe = options.runtime.onNotification((method, params) => {
       if (method === 'product.cancel') { this.calls.get((params as { operationId: string }).operationId)?.abort(); return; }
-      if (method !== 'session.event' && method !== 'model.changed' && method !== 'session.status') return;
-      const data = params as { sessionId: string; rootSessionId?: string; status?: string };
+      if (method !== 'session.event' && method !== 'model.changed' && method !== 'session.status' && method !== 'session.work.changed') return;
+      const data = params as { sessionId: string; rootSessionId?: string; status?: string; childId?: string; workChild?:boolean };
       const binding = options.store.bindingForSession(data.rootSessionId ?? data.sessionId);
       const config = options.agents.find(agent => agent.agentId === binding?.agentId && agent.mode === 'global');
       if (!binding || !config) return;
-      if (method === 'session.event' || method === 'model.changed') this.reconcile(binding).catch(options.onError);
+      const childId = method === 'session.work.changed' ? data.childId : data.workChild && data.sessionId !== binding.sessionId ? data.sessionId : undefined;
+      if (childId) {
+        const targets = this.childTargets.get(binding.sessionId) ?? new Set<string>();
+        targets.add(childId);
+        this.childTargets.set(binding.sessionId,targets);
+        this.drainChildren(binding).catch(options.onError);
+      } else if ((method === 'session.event' || method === 'model.changed') && data.sessionId === binding.sessionId) {
+        this.reconcileRoot(binding).catch(options.onError);
+      }
       if (method === 'session.status' && data.status === 'idle') {
         this.waitingForIdle.delete(config.agentId); this.wake(config, binding, true).catch(options.onError);
-        this.reconcile(binding).catch(options.onError);
+        this.reconcileRoot(binding).catch(options.onError);
       }
     });
   }
@@ -87,7 +98,10 @@ export class GlobalAgent {
     this.backgroundRequested.delete(agentId);this.waitingForIdle.delete(agentId);
     for(const [id,owner] of this.callAgents)if(owner===agentId)this.calls.get(id)?.abort();
     for(const binding of this.options.store.bindings().filter(b=>b.agentId===agentId)) {
-      this.dirty.delete(binding.sessionId);this.childrenDirty.delete(binding.sessionId);this.options.inbox.workPending(binding.sessionId,false);
+      const root = binding.sessionId;
+      this.dirty.delete(root);this.childrenDirty.delete(root);this.childTargets.delete(root);this.failedChildren.delete(root);
+      clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);
+      this.options.inbox.workPending(root,false);
     }
     this.armBackground();
   }
@@ -871,18 +885,42 @@ export class GlobalAgent {
       this.confirmPublication(binding,{operationId:publication.id,callId},publication.target,text,status.payload,callPosition(call));
     }
   }
+  private updateWorkPending(root: string): void {
+    const pending=this.dirty.has(root) || this.drains.has(root) || this.childrenDirty.has(root) ||
+      this.childDrains.has(root) || !!this.childTargets.get(root)?.size || this.failedChildren.has(root);
+    this.options.inbox.workPending(root,pending);
+    if (!pending) {
+      clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);
+    }
+    this.options.onWork?.();
+  }
+  private retryWork(binding: SessionBinding): void {
+    const root = binding.sessionId;
+    if (this.stopped || this.workRetries.has(root) || !this.options.store.lifecycle.allowed(binding.agentId)) return;
+    const delay=this.workBackoff.get(root) ?? 1000;
+    this.workBackoff.set(root,Math.min(delay*2,30_000));
+    const timer=setTimeout(()=>{
+      this.workRetries.delete(root);
+      const failed=this.failedChildren.get(root);
+      if (failed) {
+        this.failedChildren.delete(root);
+        if (failed.discover) this.childrenDirty.add(root);
+        if (failed.targets.size) this.childTargets.set(root,new Set([...(this.childTargets.get(root) ?? []),...failed.targets]));
+      }
+      if (this.dirty.has(root)) this.reconcileRoot(binding).catch(this.options.onError);
+      if (this.childrenDirty.has(root) || this.childTargets.get(root)?.size) this.drainChildren(binding).catch(this.options.onError);
+    },delay);
+    timer.unref();this.workRetries.set(root,timer);
+  }
   private async reconcile(binding: SessionBinding, childrenOnly=false): Promise<void> {
-    const root=binding.sessionId,generation=(this.reconciliation.get(root)??0)+1;
-    this.reconciliation.set(root,generation);this.options.inbox.workPending(root,true);this.options.onWork?.();
-    try {
-      await Promise.all([childrenOnly?this.drains.get(root):this.reconcileRoot(binding), this.reconcileChildren(binding)]);
-      if(this.reconciliation.get(root)===generation) {this.options.inbox.workPending(root,false);this.options.onWork?.();}
-    }catch(error){this.scheduleRecovery();throw error;}
+    this.childrenDirty.add(binding.sessionId);
+    await Promise.all([childrenOnly?this.drains.get(binding.sessionId):this.reconcileRoot(binding),this.drainChildren(binding).catch(this.options.onError)]);
   }
   // Separate drains let Work recover root and child histories independently.
   private reconcileRoot(binding: SessionBinding): Promise<void> {
-    this.dirty.add(binding.sessionId);
-    const prior = this.drains.get(binding.sessionId); if (prior) return prior;
+    const root=binding.sessionId;
+    this.dirty.add(root);
+    const prior = this.drains.get(root); if (prior) return prior;
     const task = (async () => {
       while (this.dirty.delete(binding.sessionId)) {
         const {inbox,runtime}=this.options;
@@ -891,8 +929,11 @@ export class GlobalAgent {
         await this.projectRootPage(binding,page);
         if (page.more) this.dirty.add(binding.sessionId);
       }
-    })().finally(() => this.drains.delete(binding.sessionId));
-    this.drains.set(binding.sessionId, task); return task;
+    })().catch(error=>{
+      if (this.options.store.lifecycle.allowed(binding.agentId)) {this.dirty.add(root);this.retryWork(binding);}
+      throw error;
+    }).finally(() => {this.drains.delete(root);this.updateWorkPending(root);});
+    this.drains.set(root, task);this.updateWorkPending(root);return task;
   }
   private async projectRootPage(binding: SessionBinding, result: RuntimeWorkPage, stopped = false): Promise<void> {
     const {store,inbox}=this.options;
@@ -936,13 +977,43 @@ export class GlobalAgent {
     inbox.appendAfterWork(fact, event.seq);
   }
 
-  private reconcileChildren(binding: SessionBinding): Promise<void> {
-    this.childrenDirty.add(binding.sessionId);
-    const prior = this.childDrains.get(binding.sessionId); if (prior) return prior;
+  private drainChildren(binding: SessionBinding): Promise<void> {
+    const root=binding.sessionId;
+    const prior = this.childDrains.get(root); if (prior) return prior;
     const task = (async () => {
-      while (this.childrenDirty.delete(binding.sessionId)) await this.projectChildren(binding);
-    })().finally(() => this.childDrains.delete(binding.sessionId));
-    this.childDrains.set(binding.sessionId, task); return task;
+      const failed = new Set<string>();
+      let retryDiscovery=false;
+      try {
+        for (;;) {
+          const discover = this.childrenDirty.delete(root);
+          const targets = this.childTargets.get(root);
+          if (!discover && !targets?.size) break;
+          this.childTargets.delete(root);
+          if (discover) {
+            try {await this.projectChildren(binding,this.options.runtime.request,undefined,failed);} catch (error) {
+              retryDiscovery=true;
+              this.options.onError(error);
+            }
+          }
+          for (const id of targets ?? []) {
+            try {
+              const catalog=await this.options.runtime.request('session.work.targets',{sessionId:root,childId:id}) as RuntimeWorkCatalog;
+              await this.projectChildRows(binding,catalog,this.options.runtime.request);
+              failed.delete(id);this.failedChildren.get(root)?.targets.delete(id);
+            } catch(error) {failed.add(id);this.options.onError(error);}
+          }
+        }
+      } finally {
+        if (this.options.store.lifecycle.allowed(binding.agentId)) {
+          const deferred=this.failedChildren.get(root);
+          if (retryDiscovery || failed.size || deferred?.discover || deferred?.targets.size) {
+            this.failedChildren.set(root,{discover:retryDiscovery || !!deferred?.discover,targets:new Set([...(deferred?.targets ?? []),...failed])});
+            this.retryWork(binding);
+          } else this.failedChildren.delete(root);
+        }
+      }
+    })().finally(() => {this.childDrains.delete(root);this.updateWorkPending(root);});
+    this.childDrains.set(root,task);this.updateWorkPending(root);return task;
   }
   private modelNotices(binding: SessionBinding, runs: ModelRunProjection[]) {
     const facts:ReturnType<GlobalAgent['workEvent']>[]=[];
@@ -954,47 +1025,63 @@ export class GlobalAgent {
     }
     return facts;
   }
-  private async projectChildren(root: SessionBinding, read = this.options.runtime.request, stoppedRevision?: number): Promise<void> {
-    const {inbox}=this.options;
+  private async projectChildren(root: SessionBinding, read: Options['runtime']['request'], stoppedRevision?: number, failed?: Set<string>): Promise<void> {
     let afterId:string|undefined, incomplete=false;
     do {
       const catalog=await read('session.work.children',{sessionId:root.sessionId,afterId,stoppedRevision}) as RuntimeWorkCatalog;
-      for (const child of catalog.children) {
-        if (child.kind!=='child') { if(child.reason!=='unsupported') incomplete=true; continue; }
-        const binding={...root,sessionId:child.id};
-        const registered=this.workEvent(binding,'registered',{type:'session_registered',payload:{
-          scope:child.workflowRunId?'workflow':'subagent',workflow_run_id:child.workflowRunId,parent_session_id:child.parentId,
-          child_agent_id:child.id,title:child.label??child.id,description:child.label,
-        }});
-        let prior=inbox.workCut(child.id);
-        if (prior?.throughSeq===child.throughSeq && prior?.modelVersion===child.modelVersion) continue;
-        let more:boolean;
-        do {
-          // Old checkpoints did not keep the open child prefix locally.
-          const afterSeq=prior && (prior.localReplay ? prior.throughSeq : prior.replayFrom-1);
-          const page=await read('session.work.child',{sessionId:root.sessionId,childId:child.id,afterSeq,
-            replayFrom:prior?.replayFrom,modelVersion:prior?.modelVersion,stoppedRevision}) as RuntimeWorkPage;
-          if (!page.durable) throw new Error('No durable child event barrier');
-          more=page.more;
-          if (more && page.throughSeq<=(afterSeq??-1)) throw new Error('Work child page did not advance');
-          const facts=[registered,...this.modelNotices(binding,page.modelRuns)];
-          const raw=[...inbox.workOpenEvents(child.id),...page.events];
-          const events=logicalEvents(workSuffix(raw,prior),page.modelRuns,true);
-          for (const event of events) {
-            const projected=projectWorkEvent(child.id,event,events,true);
-            if (projected) {
-              const {turn,...fact}=projected;
-              facts.push(this.workEvent(binding,`runtime:${event.seq}`,fact,turn,event.time));
-            }
-          }
-          prior={...workCheckpoint(root.sessionId,page.throughSeq,events,page.modelVersion),localReplay:true};
-          inbox.commitWork(child.id,prior,facts,page.events);
-          this.options.onWork?.();
-        } while (more);
-      }
+      incomplete=await this.projectChildRows(root,catalog,read,stoppedRevision,failed) || incomplete;
       afterId=catalog.next;
     } while (afterId!==undefined);
     if (incomplete) throw new Error('Work descendant records are not yet available');
+  }
+  private async projectChildRows(root: SessionBinding, catalog: RuntimeWorkCatalog, read: Options['runtime']['request'], stoppedRevision?: number, failed?: Set<string>): Promise<boolean> {
+    let incomplete=false;
+    for (const child of catalog.children) {
+      if (child.kind!=='child') { if(child.reason!=='unsupported') incomplete=true; continue; }
+      if (failed?.has(child.parentId)) {failed.add(child.id);continue;}
+      try {
+        await this.projectChild(root,child,read,stoppedRevision);
+      } catch (error) {
+        if (!failed) throw error;
+        failed.add(child.id);this.options.onError(error);
+      }
+    }
+    return incomplete;
+  }
+
+  private async projectChild(root: SessionBinding, child: RuntimeWorkCatalog['children'][number],
+    read: Options['runtime']['request'], stoppedRevision?:number): Promise<void> {
+    const {inbox}=this.options;
+    const binding={...root,sessionId:child.id};
+    const registered=this.workEvent(binding,'registered',{type:'session_registered',payload:{
+      scope:child.workflowRunId?'workflow':'subagent',workflow_run_id:child.workflowRunId,parent_session_id:child.parentId,
+      child_agent_id:child.id,title:child.label??child.id,description:child.label,
+    }});
+    let prior=inbox.workCut(child.id);
+    if (prior && child.throughSeq!==undefined && prior.throughSeq===child.throughSeq && prior.modelVersion===child.modelVersion) return;
+    let more:boolean;
+    do {
+      // Old checkpoints did not keep the open child prefix locally.
+      const afterSeq=prior && (prior.localReplay ? prior.throughSeq : prior.replayFrom-1);
+      const page=await read('session.work.child',{sessionId:root.sessionId,childId:child.id,afterSeq,
+        replayFrom:prior?.replayFrom,modelVersion:prior?.modelVersion,stoppedRevision}) as RuntimeWorkPage;
+      if (!page.durable) throw new Error('No durable child event barrier');
+      more=page.more;
+      if (more && page.throughSeq<=(afterSeq??-1)) throw new Error('Work child page did not advance');
+      const facts=[registered,...this.modelNotices(binding,page.modelRuns)];
+      const raw=[...inbox.workOpenEvents(child.id),...page.events];
+      const events=logicalEvents(workSuffix(raw,prior),page.modelRuns,true);
+      for (const event of events) {
+        const projected=projectWorkEvent(child.id,event,events,true);
+        if (projected) {
+          const {turn,...fact}=projected;
+          facts.push(this.workEvent(binding,`runtime:${event.seq}`,fact,turn,event.time));
+        }
+      }
+      prior={...workCheckpoint(root.sessionId,page.throughSeq,events,page.modelVersion),localReplay:true};
+      inbox.commitWork(child.id,prior,facts,page.events);
+      this.options.onWork?.();
+    } while (more);
   }
 
   /** Pull final durable facts after native stop, without activating the target or sending receipts. */
@@ -1042,5 +1129,7 @@ export class GlobalAgent {
   }
   async stop(): Promise<void> {
     this.stopped=true; clearTimeout(this.backgroundTimer);clearTimeout(this.receiptTimer);clearTimeout(this.recoveryTimer);
+    for (const timer of this.workRetries.values()) clearTimeout(timer);
+    this.workRetries.clear();
     await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.childDrains.values(), ...this.waking.values()]); await this.receiptDrain; await this.recovering; await Promise.allSettled(this.accepting.values()); }
 }

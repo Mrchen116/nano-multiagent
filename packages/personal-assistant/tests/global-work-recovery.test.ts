@@ -5,6 +5,44 @@ import { GlobalAgent } from '../src/global-agent.js';
 import { logicalEvents } from '../src/presentation.js';
 import { projectWorkEvent } from '../src/work-projection.js';
 
+it('reconciles only the changed Global execution after initial recovery', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  let notify!: (method: string, value: unknown) => void;
+  const calls: string[] = [];
+  const errors: unknown[] = [];
+  let failNext=false;
+  const changed = {kind:'child',id:'child',parentId:'main',throughSeq:4,modelVersion:'done'};
+  const product = new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
+    runtime:{onNotification:listener=>{notify=listener;return ()=>{};},request:async(method)=>{
+      calls.push(method);
+      if(method==='session.work.children')return {children:[]};
+      if(method==='session.work.targets') {
+        if(failNext) {failNext=false;throw Error('parent flush failed');}
+        return {children:[changed]};
+      }
+      return {durable:true,events:[],throughSeq:4,modelVersion:'done',modelRuns:[]};
+    }},relay:{ready:false,request:async()=>({type:'ack',payload:{}})},image:async()=>'',onError:error=>errors.push(error)});
+  try {
+    await product.recover(); calls.length=0;
+    notify('session.event',{sessionId:'main',rootSessionId:'main',event:{seq:5,type:'step/start'}});
+    await expect.poll(()=>inbox.workProcessingPending).toBe(false);
+    expect(calls).toEqual(['session.work.root']);
+    calls.length=0;
+    notify('session.work.changed',{sessionId:'main',rootSessionId:'main',childId:'child'});
+    await expect.poll(()=>inbox.workCut('child')).toMatchObject({throughSeq:4});
+    expect(calls).toEqual(['session.work.targets','session.work.child']);
+    calls.length=0;failNext=true;
+    notify('session.work.changed',{sessionId:'main',rootSessionId:'main',childId:'child'});
+    await expect.poll(()=>errors).toHaveLength(1);
+    notify('session.event',{sessionId:'main',rootSessionId:'main',event:{seq:6,type:'step/start'}});
+    await expect.poll(()=>calls.includes('session.work.root')).toBe(true);
+    expect(inbox.workProcessingPending).toBe(true);
+    await expect.poll(()=>inbox.workProcessingPending,{timeout:3000}).toBe(false);
+    expect(calls).toEqual(['session.work.targets','session.work.root','session.work.targets']);
+  } finally {await product.stop();inbox.close();store.close();}
+});
+
 it('retains child processing positions when the GlobalAgent is recreated, without treating Work ACK as processing', async () => {
   const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
   store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});

@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto';
+import { RpcError } from './rpc.js';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
-import type { ModelRunProjection, RuntimeEvent, RuntimeWorkPage } from '@nano/product-contracts';
+import type { ModelRunProjection, RuntimeEvent, RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
 
 export const workPageBytes = 1024 * 1024;
 export const workPageItems = 256;
@@ -51,4 +53,63 @@ export async function workPage(input: {
     if (bytes >= workPageBytes) break;
   }
   return {durable:true, events, modelRuns:[...modelRuns.values()], modelVersion, throughSeq, more: throughSeq < head};
+}
+
+interface CatalogScan {
+  iterator: AsyncIterator<RuntimeWorkChild>;
+  stoppedRevision?: number;
+  last?: RuntimeWorkCatalog;
+  input?: string;
+  pending?: RuntimeWorkChild;
+}
+
+/** One recoverable in-memory catalog walk per root. Durable event checkpoints survive a lost scan. */
+export class WorkCatalogPages {
+  private readonly scans = new Map<string,CatalogScan>();
+
+  async forget(root: string): Promise<void> {
+    const scan = this.scans.get(root);
+    this.scans.delete(root);
+    await scan?.iterator.return?.();
+  }
+
+  async read(root: string, cursor: string | undefined, stoppedRevision: number | undefined,
+    open: () => AsyncIterator<RuntimeWorkChild>): Promise<RuntimeWorkCatalog> {
+    let scan = this.scans.get(root);
+    if (cursor === undefined) {
+      await this.forget(root);
+      scan = {iterator:open(),stoppedRevision};
+      this.scans.set(root,scan);
+    } else {
+      if (!scan || scan.stoppedRevision !== stoppedRevision) throw new RpcError(-32005,'Work catalog position changed');
+      if (scan.input === cursor && scan.last) return scan.last;
+      if (scan.last?.next !== cursor) throw new RpcError(-32005,'Work catalog position changed');
+    }
+
+    const reply: RuntimeWorkCatalog = {children:[]};
+    let bytes = 128;
+    try {
+      for (;;) {
+        if (!scan.pending) {
+          const next = await scan.iterator.next();
+          if (next.done) break;
+          scan.pending = next.value;
+        }
+        const size = jsonBytes(scan.pending);
+        if (reply.children.length && (reply.children.length >= workPageItems || bytes + size > workPageBytes)) {
+          reply.next = randomUUID();
+          break;
+        }
+        reply.children.push(scan.pending);
+        scan.pending = undefined;
+        bytes += size;
+      }
+      scan.last = reply;
+      scan.input = cursor;
+      return reply;
+    } catch (error) {
+      await this.forget(root);
+      throw error;
+    }
+  }
 }

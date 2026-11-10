@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
-import { jsonBytes, workPage, workPageBytes } from '../src/work-page.js';
+import { jsonBytes, workPage, workPageBytes, WorkCatalogPages } from '../src/work-page.js';
 
 it('starts after the durable cursor, removes request snapshots and lets one large fact make progress', async () => {
   const body='中'.repeat(workPageBytes / 2);
@@ -21,4 +21,36 @@ it('starts after the durable cursor, removes request snapshots and lets one larg
   expect(large).toMatchObject({throughSeq:51,more:true,events:[events[1]]});
   expect(jsonBytes(large)).toBeGreaterThan(workPageBytes);
   expect(await read(51)).toMatchObject({throughSeq:52,more:false,events:[events[2]]});
+});
+
+it('walks a catalog once, replays an acknowledged page, and restarts an interrupted scan without dropping rows', async () => {
+  const pages=new WorkCatalogPages();
+  let visits=0;
+  async function* catalog(fail=false) {
+    for (let i=0;i<1000;i++) {
+      if (fail && i===300) throw Error('catalog failed during second page');
+      visits++;
+      yield {kind:'child' as const,id:String(i),parentId:'root'};
+    }
+  }
+  const first=await pages.read('root',undefined,undefined,()=>catalog(true));
+  await expect(pages.read('root',first.next,undefined,()=>catalog())).rejects.toThrow('second page');
+  await expect(pages.read('root',first.next,undefined,()=>catalog())).rejects.toThrow('position changed');
+  visits=0;
+  const start=await pages.read('root',undefined,undefined,()=>catalog());
+  await expect(pages.read('root',first.next,undefined,()=>catalog())).rejects.toThrow('position changed');
+  await expect(pages.read('root',start.next,1,()=>catalog())).rejects.toThrow('position changed');
+  const next=await pages.read('root',start.next,undefined,()=>catalog());
+  const beforeReplay=visits;
+  await expect(pages.read('root',start.next,undefined,()=>catalog())).resolves.toEqual(next);
+  expect(visits).toBe(beforeReplay);
+  const result=[...start.children,...next.children];
+  let cursor=next.next;
+  while (cursor) {
+    const page=await pages.read('root',cursor,undefined,()=>catalog());
+    result.push(...page.children);
+    cursor=page.next;
+  }
+  expect(result.map(child=>child.id)).toEqual(Array.from({length:1000},(_,i)=>String(i)));
+  expect(visits).toBe(1000);
 });
