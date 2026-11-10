@@ -30,12 +30,38 @@ function readSaved(key: string): SavedView {
   catch { return { selected: null, expanded: {}, scroll: 0 }; }
 }
 
+type WorkPaging = { cursor: string; loading: boolean; error: Error | null; load(): void };
+
+function WorkEarlierTurns({ loading, error, load }: WorkPaging) {
+  const end = useRef<HTMLDivElement>(null);
+  const started = useRef(false);
+  const loadPage = useRef(load);
+  useEffect(() => { loadPage.current = load; }, [load]);
+  useEffect(() => {
+    const marker = end.current;
+    if (!marker || loading || error || started.current) return;
+    const observer = new IntersectionObserver(entries => {
+      if (started.current || !entries.some(entry => entry.isIntersecting)) return;
+      started.current = true;
+      observer.disconnect();
+      loadPage.current();
+    }, { root: marker.closest(".im-agent-panel"), rootMargin: "0px 0px 160px 0px" });
+    observer.observe(marker);
+    return () => observer.disconnect();
+  }, [loading, error]);
+
+  return <div ref={end} className="im-work-page-end">
+    {loading ? <small role="status">{tr("正在加载工作记录…")}</small>
+      : error && <p role="alert">{error.message} <button type="button" onClick={load}>{tr("重试")}</button></p>}
+  </div>;
+}
+
 function WorkTurnList({ turns, anchors, renderTurn, nextTurnId, earlier, history }: {
   turns: WorkTurn[];
   anchors: WorkFocus[];
   renderTurn(turn: WorkTurn): ReactNode;
   nextTurnId?: string | null;
-  earlier?: {loading: boolean; load(): void};
+  earlier?: WorkPaging;
   history?: ReturnType<typeof useWorkHistory>;
 }) {
   const ordinary = new Set(turns.map(turn => turn.turn_id));
@@ -60,8 +86,8 @@ function WorkTurnList({ turns, anchors, renderTurn, nextTurnId, earlier, history
   const firstGap = gaps.indexOf(true);
   const tail = merged.at(-1);
   const before = history && (firstGap >= 1 ? merged[firstGap - 1].turn_id : tail && neighbor(tail) ? tail.turn_id : undefined);
-  const paging = history ? before && {loading: history.loading, load: () => history.load(before)} : earlier;
-  const more = paging && <button className="im-work-earlier" type="button" disabled={paging.loading} onClick={paging.load}>{tr("更早轮次")}</button>;
+  const paging = history ? before && {cursor: before, loading: history.loading, error: history.error, load: () => history.load(before)} : earlier;
+  const more = paging && <WorkEarlierTurns key={JSON.stringify([tail?.session_id, paging.cursor])} {...paging} />;
   return <>
     {merged.map((turn, i) => <Fragment key={turn.turn_id}>
       {firstGap === i && more}
@@ -69,7 +95,6 @@ function WorkTurnList({ turns, anchors, renderTurn, nextTurnId, earlier, history
       {renderTurn(turn)}
     </Fragment>)}
     {firstGap === -1 && more}
-    {history?.error && <p role="alert">{history.error.message}</p>}
   </>;
 }
 
@@ -298,7 +323,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
   </>;
   return <WorkNavigationContext.Provider value={{ returnUrl: `${location.pathname}?view=work`, beforeLeave: save, names, people }}>
     <div ref={root} className="im-work" data-testid="agent-work-panel">
-      {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError ? <div role="alert" className="im-work-state">{viewQuery.error.message}{!(viewQuery.error instanceof AgentExecutionDeletedError) && <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button>}</div> : view && <>
+      {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError && !viewQuery.isFetchNextPageError ? <div role="alert" className="im-work-state">{viewQuery.error.message}{!(viewQuery.error instanceof AgentExecutionDeletedError) && <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button>}</div> : view && <>
         <div className="im-work-toolbar">
           <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode} onClick={showRecords}>{tr('工作记录')}</button><button role="tab" aria-selected={nativeMode} onClick={() => showNative(saved.selected || focus?.session_id || view.main_session_id)}>{tr('原生轨迹')}</button></div>
           {nativeMode && <label className="im-native-execution"><span>{tr('当前执行')}</span><select aria-label="当前执行" value={shownNative ?? ''} onChange={event => showNative(event.target.value)}>{view.main_session_id && <option value={view.main_session_id}>{tr('主 Agent')}</option>}{sessions.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id === shownNative && activeNative?.base === nativeSession && activeNative.label ? activeNative.label : tr(sessionTitle(session))}</option>)}{shownNative && shownNative !== view.main_session_id && !sessions.some(session => session.session_id === shownNative) && <option value={shownNative}>{activeNative?.label || tr(sessionTitle(selected))}</option>}</select>{catalogMore}</label>}
@@ -321,16 +346,16 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
         <div className={`im-work-grid ${saved.selected ? "with-child" : ""}`}>
           <section className="im-work-trace"><header className="im-work-section-head"><h3>{tr("主 Agent")}</h3><small>{tr("最新轮次在前 · 轮次内部按实际顺序")}</small></header>
             {mainTurns.length || mainAnchors.length ? <WorkTurnList turns={mainTurns} anchors={mainAnchors} history={separate ? mainHistory : undefined} renderTurn={renderTurn} nextTurnId={viewQuery.data?.pages.at(-1)?.next_turn_id}
-              earlier={viewQuery.hasNextPage ? {loading: viewQuery.isFetchingNextPage, load: () => void viewQuery.fetchNextPage()} : undefined} />
+              earlier={viewQuery.hasNextPage ? {cursor: viewQuery.data?.pages.at(-1)?.next_cursor ?? "", loading: viewQuery.isFetchingNextPage, error: viewQuery.isFetchNextPageError ? viewQuery.error : null, load: () => void viewQuery.fetchNextPage()} : undefined} />
               : <p className="im-work-state">{tr("暂无工作记录。符合配置的新消息会进入收件箱。")}</p>}
           </section>
           {saved.selected && <aside className="im-work-child"><button className="im-work-back" onClick={() => selectChild(null)}>{tr("← 返回主轨迹")}</button><header><div><h3>{tr(sessionTitle(selected))}</h3><small>{tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子 Agent" : selected?.scope || "关联执行")} · {saved.selected}</small></div><button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button></header>
             <button type="button" onClick={() => showNative(saved.selected)}>{tr('查看原生轨迹')}</button>
-            {childQuery.isError || metadata.isError ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => { void childQuery.refetch(); if (separate) void metadata.refetch(); }}>{tr("重试")}</button></p>
+            {(childQuery.isError && !childQuery.isFetchNextPageError) || metadata.isError ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => { void childQuery.refetch(); if (separate) void metadata.refetch(); }}>{tr("重试")}</button></p>
               : childTurns.length || childAnchors.length ? <WorkTurnList turns={childTurns} anchors={childAnchors} history={separate ? childHistory : undefined} renderTurn={renderTurn} nextTurnId={childQuery.data?.pages.at(-1)?.next_turn_id}
-                earlier={childQuery.hasNextPage ? {loading: childQuery.isFetchingNextPage, load: () => void childQuery.fetchNextPage()} : undefined} />
+                earlier={childQuery.hasNextPage ? {cursor: childQuery.data?.pages.at(-1)?.next_cursor ?? "", loading: childQuery.isFetchingNextPage, error: childQuery.isFetchNextPageError ? childQuery.error : null, load: () => void childQuery.fetchNextPage()} : undefined} />
               : childQuery.isLoading ? <p role="status">{tr("加载子轨迹…")}</p> : <p>{tr("尚未报告执行轮次")}</p>}
-            {!childQuery.isError && (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
+            {(!childQuery.isError || childQuery.isFetchNextPageError) && (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
           </aside>}
         </div>
         {separate && view.main_session_id ? <SessionControls key={view.main_session_id} agentId={agentId} sessionId={view.main_session_id} title="控制记录" /> : <SessionFacts items={view.control_items} title="控制记录" />}

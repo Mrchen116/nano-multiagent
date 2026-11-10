@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLocation, useNavigate } from "react-router-dom";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLanguage } from "../../../i18n";
 import { AgentWorkPanel } from "./agent-work-panel";
 import type { WorkFocus, WorkView } from "./agent-work-api";
@@ -12,6 +12,12 @@ vi.mock("../../../realtime/user-stream", () => ({ subscribeUserStream: mocks.sub
 vi.mock('./agent-trajectory', () => ({AgentTrajectory: () => <p>Native trajectory</p>}));
 let view: WorkView;
 let focus: WorkFocus | null;
+const observed = new Map<Element, IntersectionObserverCallback>();
+const earlierPage = (container: ParentNode = document) => container.querySelector<HTMLElement>(".im-work-page-end")!;
+const reachEarlierPage = (marker = earlierPage(), visible = true) => {
+  const callback = observed.get(marker)!;
+  act(() => callback([{isIntersecting: visible}] as IntersectionObserverEntry[], {} as IntersectionObserver));
+};
 const focusPath = (url: string) => url.includes("/work/focus?");
 const reply = (turn = view.turns[0], newer_turn_id: string | null = null): WorkFocus => ({turn, newer_turn_id});
 function ChatTarget() { const location = useLocation(); const navigate = useNavigate(); return <div><p>Real chat route</p><button onClick={() => navigate(location.state.workReturnUrl)}>Return to work</button></div>; }
@@ -21,6 +27,15 @@ function renderWork(entry = "/settings/agents/global?view=work") {
   return { ...render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>), router };
 }
 beforeEach(() => {
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(private callback: IntersectionObserverCallback) {}
+    observe(target: Element) { observed.set(target, this.callback); }
+    disconnect() {
+      for (const [target, callback] of observed) {
+        if (callback === this.callback) observed.delete(target);
+      }
+    }
+  });
   Object.defineProperty(window, "matchMedia", {configurable:true, value: vi.fn(() => ({matches:false}))});
   setLanguage("zh");
   sessionStorage.clear(); mocks.subscribe.mockReset(); mocks.subscribe.mockReturnValue(() => {}); mocks.fetch.mockReset();
@@ -28,6 +43,8 @@ beforeEach(() => {
   view = { root_agent_id: "global", main_session_id: "main", revision: 1, node_connection_state: "online", main_execution: "running", latest_main_usage: null, other_executions: [], next_cursor: null, turns: [{ session_id: "main", turn_id: "turn", seq: 1, status: "running", origin: "user", trigger: { kind: "inbox" }, model_id: "fixture", usage: null, next_items_cursor: null, items: [{ item_id: "tool:read", seq: 1, kind: "tool", payload: { id: "read", name: "inbox", status: "running", input: { action: "read", target: "group-a" }, detail: { action: "read", target: "group-a" } } }] }] };
   mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []} : focusPath(url) ? {focus} : view), { status: 200 }));
 });
+
+afterEach(() => { vi.unstubAllGlobals(); observed.clear(); });
 
 describe("Agent work view", () => {
   it("opens and scrolls to the reply's recorded wake, including a different reply in the same Agent", async () => {
@@ -49,7 +66,7 @@ describe("Agent work view", () => {
     expect(document.getElementById('work-turn-main-new-turn')).toBeInTheDocument();
     expect(document.getElementById('work-turn-main-new-turn')).not.toHaveAttribute('open');
     expect(screen.queryByText('中间轮次尚未加载')).not.toBeInTheDocument();
-    expect(document.getElementById('work-turn-main-old-turn')?.nextElementSibling).toBe(screen.getByRole('button', {name: '更早轮次'}));
+    expect(document.getElementById('work-turn-main-old-turn')?.nextElementSibling).toBe(earlierPage());
     expect(await screen.findByRole('button', {name: /inbox/})).toBeVisible();
     await waitFor(() => expect(scroll).toHaveBeenCalled());
     expect(screen.queryByRole('button', {name: '关闭子轨迹'})).not.toBeInTheDocument();
@@ -79,12 +96,12 @@ describe("Agent work view", () => {
     });
     const {router} = renderWork('/settings/agents/global?view=work&message_id=A');
     const card = (id: number) => document.getElementById(`work-turn-main-${id}`);
-    const earlier = () => screen.getByRole('button', {name: '更早轮次'});
+    const earlier = () => earlierPage();
     const gaps = () => screen.queryAllByText('中间轮次尚未加载');
     await waitFor(() => expect(card(7)).toHaveAttribute('open'));
     expect(requested).toEqual([null]);
     expect(card(11)?.nextElementSibling).toBe(earlier());
-    fireEvent.click(earlier());
+    reachEarlierPage(earlier());
     await waitFor(() => expect(card(9)).toBeInTheDocument());
     expect(requested).toEqual([null, '11']);
     expect(gaps()).toHaveLength(1); // The one missing turn is 8, even though sequence positions are sparse.
@@ -99,18 +116,18 @@ describe("Agent work view", () => {
     await waitFor(() => expect(card(7)).toHaveAttribute('open'));
     expect(requested).toEqual([null, '11']);
 
-    fireEvent.click(earlier());
+    reachEarlierPage(earlier());
     await waitFor(() => expect(card(8)).toBeInTheDocument());
     expect(gaps()).toHaveLength(1);
     expect(card(7)?.nextElementSibling).toBe(earlier());
-    fireEvent.click(earlier());
+    reachEarlierPage(earlier());
     await waitFor(() => expect(card(5)).toBeInTheDocument());
-    fireEvent.click(earlier());
+    reachEarlierPage(earlier());
     await waitFor(() => expect(card(4)).toBeInTheDocument());
     expect(gaps()).toHaveLength(0);
     expect(requested).toEqual([null, '11', '9', '7', '5']);
     expect(document.querySelectorAll('#work-turn-main-3')).toHaveLength(1);
-    fireEvent.click(earlier());
+    reachEarlierPage(earlier());
     await waitFor(() => expect(card(1)).toBeInTheDocument());
     expect(requested.at(-1)).toBe('3');
   });
@@ -131,7 +148,7 @@ describe("Agent work view", () => {
     expect(card(latest - 1)).toBeInTheDocument();
     expect(card(1)).toHaveAttribute('open');
     expect(mocks.fetch.mock.calls.filter(([url]) => focusPath(String(url)))).toHaveLength(1);
-    const earlier = screen.getByRole('button', {name: '更早轮次'});
+    const earlier = earlierPage();
     const gap = screen.queryByText('中间轮次尚未加载');
     if (latest === 3) {
       expect(gap).not.toBeInTheDocument();
@@ -161,9 +178,9 @@ describe("Agent work view", () => {
     expect(document.getElementById('work-turn-main-turn')).toBeInTheDocument();
     const child = screen.getByRole('button', {name: '关闭子轨迹'}).closest('aside')!;
     const gap = await within(child).findByText('中间轮次尚未加载');
-    const earlier = within(child).getByRole('button', {name: '更早轮次'});
+    const earlier = earlierPage(child);
     expect(earlier.nextElementSibling).toBe(gap);
-    fireEvent.click(earlier);
+    reachEarlierPage(earlier);
     await waitFor(() => expect(document.getElementById('work-turn-retired-2')).toBeInTheDocument());
     expect(within(child).queryByText('中间轮次尚未加载')).not.toBeInTheDocument();
   });
@@ -533,7 +550,7 @@ it("refreshes only the separate head and opened active detail, and fills a new h
   expect(await screen.findByText("Original second item")).toBeVisible();
 
   for (const id of [8, 6, 4]) {
-    fireEvent.click(screen.getByRole("button", {name: "更早轮次"}));
+    reachEarlierPage();
     await waitFor(() => expect(card(id)).toBeInTheDocument());
   }
   const oldRequests = () => requested.filter(url => url.includes("before_turn=") || url.includes("after_seq=")).length;
@@ -551,9 +568,9 @@ it("refreshes only the separate head and opened active detail, and fills a new h
   expect(card(4)).toBeInTheDocument();
   expect(await screen.findByText("中间轮次尚未加载")).toBeInTheDocument();
   expect(oldRequests()).toBe(originalReadCount);
-  fireEvent.click(screen.getByRole("button", {name: "更早轮次"}));
+  reachEarlierPage();
   await waitFor(() => expect(card(14)).toBeInTheDocument());
-  fireEvent.click(screen.getByRole("button", {name: "更早轮次"}));
+  reachEarlierPage();
   await waitFor(() => expect(card(12)).toBeInTheDocument());
   expect(screen.queryByText("中间轮次尚未加载")).not.toBeInTheDocument();
   expect(requested.filter(url => url.includes("before_turn=")).every(url => url.includes("/sessions/main/turns?"))).toBe(true);
@@ -563,7 +580,7 @@ it("refreshes only the separate head and opened active detail, and fills a new h
   notify();
   await waitFor(() => expect(card(10, "replacement")).toBeInTheDocument());
   expect(card(10)).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", {name: "更早轮次"}));
+  reachEarlierPage();
   await waitFor(() => expect(card(8, "replacement")).toBeInTheDocument());
   expect(requested.at(-1)).toContain("/sessions/replacement/turns?");
 });

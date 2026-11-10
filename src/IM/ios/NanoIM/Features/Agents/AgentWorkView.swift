@@ -10,7 +10,8 @@ struct AgentWorkView: View {
     @State private var loaded = false
     @State private var error: String?
     @State private var executionDeleted = false
-    @State private var loadingMore = false
+    @State private var loadingEarlier: Set<String> = []
+    @State private var earlierErrors: [String: String] = [:]
     @State private var history: [String: AgentWorkHistory] = [:]
     @State private var headTurnIDs = Set<String>()
     @State private var headUpdate = 0
@@ -82,7 +83,7 @@ struct AgentWorkView: View {
                 let displayed = visibleTurns
                 ForEach(Array(displayed.enumerated()), id: \.element.id) { index, turn in
                     if index > 0 && executionHistory?.hasGap(after: displayed[index - 1], before: turn) == true {
-                        earlierButton(displayed[index - 1].turn_id)
+                        earlierPage(displayed[index - 1])
                         Text(L("中间轮次尚未加载", "Turns between these records have not loaded")).font(.caption).foregroundStyle(.secondary)
                     }
                     AgentWorkTurnView(client: client, agentID: agentID, turn: turn, sessions: root?.other_executions ?? [], online: online,
@@ -90,7 +91,7 @@ struct AgentWorkView: View {
                         active: headTurnIDs.contains(turn.id) && ["running", "waiting_permission", "unknown"].contains(turn.status), headUpdate: headUpdate)
                 }
                 if loaded && displayed.isEmpty && !executionDeleted { Text(L("尚未报告执行轮次", "No reported turns")) }
-                if let last = displayed.last, executionHistory?.hasEarlier(after: last) == true { earlierButton(last.turn_id) }
+                if let last = displayed.last, executionHistory?.hasEarlier(after: last) == true { earlierPage(last) }
             }
             if separate, let executionID {
                 Section(L("控制记录", "Control records")) { AgentWorkControls(client: client, base: base, sessionID: executionID).id(executionID) }
@@ -111,8 +112,23 @@ struct AgentWorkView: View {
             } label: { VStack(alignment: .leading) { Text(session.label); Text(agentScopeName(session.scope)).font(.caption).foregroundStyle(.secondary) } }
         }
     }
-    private func earlierButton(_ before: String) -> some View {
-        Button(L("更早轮次", "Earlier turns")) { Task { await loadMore(before) } }.disabled(loadingMore)
+    private func earlierPage(_ turn: AgentWorkTurn) -> some View {
+        VStack(alignment: .leading) {
+            if loadingEarlier.contains(turn.id) {
+                ProgressView()
+            } else if let error = earlierErrors[turn.id] {
+                ErrorNotice(message: error)
+                Button(L("重试", "Retry")) { Task { await loadMore(turn) } }
+            } else {
+                Color.clear.frame(height: 1).accessibilityHidden(true)
+            }
+        }
+        .id("earlier:" + turn.id)
+        .listRowSeparator(.hidden)
+        .onAppear {
+            guard earlierErrors[turn.id] == nil else { return }
+            Task { await loadMore(turn) }
+        }
     }
     private func refresh() async {
         guard !refreshing, !executionDeleted else { return }
@@ -153,17 +169,18 @@ struct AgentWorkView: View {
             }
         }
     }
-    private func loadMore(_ before: String) async {
-        guard !loadingMore, let id = executionID else { return }
+    private func loadMore(_ turn: AgentWorkTurn) async {
+        guard executionID == turn.session_id, loadingEarlier.insert(turn.id).inserted else { return }
+        defer { loadingEarlier.remove(turn.id) }
+        let id = turn.session_id
         let useCatalog = separate
         let pagePath = base + "/sessions/" + agentSegment(id) + "/turns"
-        loadingMore = true; defer { loadingMore = false }
         do {
-            let page: AgentWorkPage = try await client.get(pagePath, query: (useCatalog ? summaryQuery : []) + [URLQueryItem(name: "before_turn", value: before)])
+            let page: AgentWorkPage = try await client.get(pagePath, query: (useCatalog ? summaryQuery : []) + [URLQueryItem(name: "before_turn", value: turn.turn_id)])
             guard !executionDeleted, loaded, executionID == id, separate == useCatalog, useCatalog == (page.catalog == "separate") else { return }
-            history[id, default: AgentWorkHistory()].merge(page, before: before)
-            error = nil
-        } catch { self.error = agentError(error) }
+            history[id, default: AgentWorkHistory()].merge(page, before: turn.turn_id)
+            earlierErrors[turn.id] = nil
+        } catch { earlierErrors[turn.id] = agentError(error) }
     }
     private func loadCatalog(reset: Bool = false) async {
         guard separate, !catalogLoading else { return }

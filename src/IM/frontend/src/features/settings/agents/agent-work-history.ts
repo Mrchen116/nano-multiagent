@@ -37,7 +37,8 @@ export function useWorkHistory(agentId: string, sessionId: string | null | undef
   const visible = useMemo(() => head ? merge(history, head) : history, [head, history]);
   return {
     history: visible,
-    loading: older.isPending, error: older.error,
+    loading: older.isPending && older.variables?.queryKey[2] === sessionId,
+    error: older.variables?.queryKey[2] === sessionId ? older.error : null,
     load: (before: string) => older.mutate({before, queryKey: key, base: path}),
   };
 }
