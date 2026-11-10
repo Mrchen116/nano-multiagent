@@ -11,7 +11,7 @@ extension InteractionDraftLifecycleTests {
         await reopened.interactionDrafts.awaitPendingDiscard("chat")
         let through = await transport.discards
         XCTAssertEqual(through, ["2026-11-01T10:00:00.001Z"], "The leave barrier must restore ownership even before a foreground recovery pass")
-        reopened.clear(); runtime.chat.clear()
+        reopened.resetProjection(); runtime.chat.resetProjection()
     }
 
     func testClearingStoreAlsoFencesExplicitSubmissionWaitingForDraftFlush() async throws {
@@ -22,7 +22,7 @@ extension InteractionDraftLifecycleTests {
             try await runtime.chat.submitInteraction("chat", input: InteractionReplyInput(source_message_id: runtime.message.id, state: runtime.state), key: "cleared-attempt")
         }
         let started = await transport.waitForGatedSave(); XCTAssertTrue(started)
-        runtime.chat.clear()
+        runtime.chat.resetProjection()
         await transport.releaseSave()
         do { _ = try await submission.value; XCTFail("Cleared interaction submission resumed") }
         catch { XCTAssertTrue(error is CancellationError) }

@@ -27,8 +27,36 @@ struct ChatListView: View {
             NanoSearchField(text: $search, prompt: L("搜索聊天", "Search conversations"))
                 .listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 8, trailing: 20))
             if !store.connectionText.isEmpty { Text(store.connectionText).font(.caption).foregroundStyle(.secondary) }
-            if let error = store.listError { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await store.loadConversations() } } }
-            if !store.listLoaded && store.listError == nil { ProgressView(L("正在加载聊天…", "Loading conversations…")) }
+            if let reason = store.storageDegradedReason {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L("本次没有本地缓存", "No local cache this time")).font(.callout.weight(.semibold))
+                    Text(reason).font(.caption).foregroundStyle(.secondary)
+                    Button(L("重试", "Retry")) { Task { await store.retryStorage() } }
+                }.listRowSeparator(.hidden)
+            }
+            if store.pendingCount > 0 {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L("\(store.pendingCount) 条未确认的发送", "\(store.pendingCount) unconfirmed sends")).font(.callout.weight(.semibold))
+                    Text(L("连接后会核对：仍在的会话可在其中查看，已无权访问的会被清除。",
+                           "Checked once connected: sends in conversations you can still access stay visible, the rest are cleared."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }.listRowSeparator(.hidden)
+            }
+            if store.listPhase == .failed || (store.listPhase == .loadingFirst && store.listError != nil) {
+                loadFailure
+            } else if store.listPhase == .loadingFirst {
+                // A5: the count above is the whole story before the first successful sync; a
+                // placeholder conversation row would be a row that cannot be opened.
+                if store.pendingCount > 0 {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(L("本地还没有可显示的会话", "No conversations saved locally yet")).font(.callout)
+                        Text(L("正在从服务器读取上次的会话列表…", "Reading your conversation list from the server…")).font(.caption).foregroundStyle(.secondary)
+                    }.listRowSeparator(.hidden)
+                } else { ProgressView(L("正在加载聊天…", "Loading conversations…")) }
+            }
+            if let error = store.listError, store.listPhase == .loaded || store.listPhase == .empty {
+                ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await store.loadConversations() } }
+            }
             Group {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -67,7 +95,7 @@ struct ChatListView: View {
                 .swipeActions(edge: .leading, allowsFullSwipe: false) { if chat.can_write != false { Button { patch(chat, "is_pinned", !chat.is_pinned) } label: { Label(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin"), systemImage: "pin") }.tint(NanoTheme.accent) } }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) { if chat.can_write != false { Button { patch(chat, "is_muted", !chat.is_muted) } label: { Label(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute"), systemImage: "bell.slash") }.tint(.gray) } }
             }
-            if filtered.isEmpty, store.listError == nil, store.listLoaded {
+            if filtered.isEmpty, store.listPhase == .empty {
                 ContentUnavailableView(search.isEmpty ? L("暂无聊天", "No conversations") : L("没有找到聊天", "No matching conversations"), systemImage: search.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass", description: Text(search.isEmpty ? L("使用右上角 + 创建聊天。", "Use + to start a conversation.") : L("试试其他名称或关键词。", "Try another name or keyword.")))
             }
         }.nanoList().nanoRootTitle(L("聊天", "Chats"))
@@ -77,7 +105,16 @@ struct ChatListView: View {
                 Button { newChat = true } label: { Image(systemName: "plus") }.accessibilityLabel(L("新建聊天", "New conversation"))
             } }
             .sheet(isPresented: $newChat) { NewChatView(client: store.client, userID: store.user.id) { chat in newChat = false; Task { await store.loadConversations() }; open(chat.id) } }
-            .sheet(isPresented: $distill) { DistillView(store: store) { id, text in store.drafts[id] = text; distill = false; open(id) } }
+            .sheet(isPresented: $distill) { DistillView(store: store) { id, text in store.setDraft(id, text); distill = false; open(id) } }
+    }
+    /// A3. A first load with nothing to show must not claim "no conversations" — it may be the
+    /// network or the service, and the two say different things.
+    private var loadFailure: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(L("无法加载聊天", "Could not load chats"), systemImage: "cloud").font(.callout.weight(.semibold))
+            Text(ChatConnectionText.loadFailureBody(store.connection)).font(.caption).foregroundStyle(.secondary)
+            Button(L("重试", "Retry")) { Task { await store.loadConversations() } }
+        }.listRowSeparator(.hidden)
     }
     private func categoryButton(_ value: String, _ title: String) -> some View {
         Button { category = value } label: {

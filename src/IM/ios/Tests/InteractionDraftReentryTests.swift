@@ -4,7 +4,7 @@ import XCTest
 extension InteractionDraftLifecycleTests {
     func testReattachingSavedCardRestoresRendererAndRejectsDetachedPage() async throws {
         let (runtime, _) = try await fixture()
-        defer { runtime.chat.clear() }
+        defer { runtime.chat.resetProjection() }
         let detached = runtime.webID
         runtime.leave()
         await runtime.load()
@@ -29,7 +29,7 @@ extension InteractionDraftLifecycleTests {
 
     private func checkUnresolvedReentry(status: Int) async throws {
         let (runtime, transport) = try await fixture()
-        defer { runtime.chat.clear() }
+        defer { runtime.chat.resetProjection() }
         await transport.setStatus(status)
         if status == 409 { await transport.setReadStatus(503) }
         try await edit(runtime, "fri")
@@ -71,7 +71,7 @@ extension InteractionDraftLifecycleTests {
 
     func testDetachingDuringActionSaveRejectsTheOldPageAndReleasesBusyState() async throws {
         let (runtime, transport) = try await fixture()
-        defer { runtime.chat.clear() }
+        defer { runtime.chat.resetProjection() }
         await transport.gateNextSave(timestamp: "2026-11-01T10:00:00.002Z")
         try await edit(runtime, "thu")
         let detached = runtime.webID
@@ -103,7 +103,7 @@ extension InteractionDraftLifecycleTests {
             gate = wrapped
             return wrapped
         })
-        defer { runtime.chat.clear() }
+        defer { runtime.chat.resetProjection() }
         let detached = runtime.webID
         let action = Task {
             try await runtime.webRequest(.object(["type": .string("tool"), "name": .string("SendToChat"), "args": .object(["message": .string("already admitted before detaching")])]), generation: detached)
@@ -128,7 +128,7 @@ extension InteractionDraftLifecycleTests {
 
     func testReattachingDuringSavePreservesItsSuccessfulOwnershipWatermark() async throws {
         let (runtime, transport) = try await fixture()
-        defer { runtime.chat.clear() }
+        defer { runtime.chat.resetProjection() }
         let savedAt = "2026-11-01T10:00:00.002Z"
         await transport.gateNextSave(timestamp: savedAt)
         try await edit(runtime, "thu")

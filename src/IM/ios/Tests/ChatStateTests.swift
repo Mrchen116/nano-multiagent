@@ -28,43 +28,45 @@ final class ChatStateTests: XCTestCase {
             let data: [String: Any] = ["op": "event", "event_type": type, "event_id": id, "data": payload]
             return try JSONDecoder().decode(UserEvent.self, from: JSONSerialization.data(withJSONObject: data))
         }
-        store.consume(try event("message.sent", 1))
+        await store.consume(try event("message.sent", 1))
         XCTAssertEqual(store.banner?.conversationID, "chat")
         store.banner = nil
-        store.consume(try event("message.created", 2))
+        await store.consume(try event("message.created", 2))
         XCTAssertNil(store.banner)
-        store.consume(try event("message.created", 3, kind: "agent"))
+        await store.consume(try event("message.created", 3, kind: "agent"))
         XCTAssertEqual(store.banner?.conversationID, "chat")
         store.banner = nil
-        store.consume(try event("message.sent", 4, kind: "agent"))
-        store.consume(try event("message.sent", 5, sender: "user"))
+        await store.consume(try event("message.sent", 4, kind: "agent"))
+        await store.consume(try event("message.sent", 5, sender: "user"))
         XCTAssertNil(store.banner)
         store.conversations[0].is_muted = true
-        store.consume(try event("message.sent", 6))
+        await store.consume(try event("message.sent", 6))
         XCTAssertNil(store.banner)
         store.conversations[0].is_muted = false; store.selectedID = "chat"
-        store.consume(try event("message.sent", 7))
+        await store.consume(try event("message.sent", 7))
         XCTAssertNil(store.banner)
         store.selectedID = nil
-        store.consume(try event("message.sent", 7))
+        await store.consume(try event("message.sent", 7))
         XCTAssertNil(store.banner)
-        store.consume(try event("message.created", 8, pa: "actual-pa"))
+        await store.consume(try event("message.created", 8, pa: "actual-pa"))
         XCTAssertEqual(store.banner?.conversationID, "chat")
         store.banner = nil
-        store.consume(try event("message.created", 9, sender: "user", pa: "own-pa"))
+        await store.consume(try event("message.created", 9, sender: "user", pa: "own-pa"))
         XCTAssertNil(store.banner)
-        store.clear()
+        store.resetProjection()
     }
 
     func testMembershipControlWithoutCursorRemovesCachedContentAndDraft() async throws {
-        let store = try await makeStore()
+        // The cursor-free frame cannot tell a rename from a removal, so the detail response is
+        // the only authority: it says 404 here.
+        let store = try await makeStore(detail: Data("{}".utf8), detailStatus: 404)
         store.timelines["chat"] = [try message(1)]
         store.drafts["chat"] = "private draft"
         store.attachments["chat"] = [ChatAttachment(url: "/im/v1/uploads/private")]
         store.uploadDrafts["chat"] = [AttachmentUpload(data: Data("private".utf8), fileName: "private.txt", contentType: "text/plain", error: "failed")]
         store.pending["chat"] = PendingSend(content: "unsent", attachments: [])
         let event = try JSONDecoder().decode(UserEvent.self, from: Data(#"{"op":"event","event_type":"conversation.membership_changed","data":{"conversation_id":"chat"}}"#.utf8))
-        store.consume(event)
+        await store.consume(event)
         XCTAssertNil(store.timelines["chat"])
         await store.loadConversations()
         XCTAssertNil(store.timelines["chat"])
@@ -72,24 +74,25 @@ final class ChatStateTests: XCTestCase {
         XCTAssertNil(store.attachments["chat"])
         XCTAssertNil(store.uploadDrafts["chat"])
         XCTAssertNil(store.pending["chat"])
-        store.clear()
+        store.resetProjection()
     }
 
     func testMembershipRenameKeepsDraftAndRestoresAuthorizedConversation() async throws {
         let list = Data(#"{"items":[{"id":"chat","title":"Renamed","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}]}"#.utf8)
-        let store = try await makeStore(list: list)
+        let detail = Data(#"{"id":"chat","title":"Renamed","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now","can_write":true}"#.utf8)
+        let store = try await makeStore(list: list, detail: detail)
         store.timelines["chat"] = [try message(1)]
         store.drafts["chat"] = "keep this draft"
         store.attachments["chat"] = [ChatAttachment(url: "/im/v1/uploads/own")]
         let event = try JSONDecoder().decode(UserEvent.self, from: Data(#"{"op":"event","event_type":"conversation.membership_changed","data":{"conversation_id":"chat"}}"#.utf8))
-        store.consume(event)
+        await store.consume(event)
         await store.loadConversations()
         XCTAssertEqual(store.drafts["chat"], "keep this draft")
         XCTAssertEqual(store.attachments["chat"]?.count, 1)
         XCTAssertEqual(store.conversations.first?.title, "Renamed")
         await store.loadChat("chat")
         XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1"])
-        store.clear()
+        store.resetProjection()
     }
 
     func testPublicVisitorAndDissolvedHistorySurviveSidebarRefreshUntilAccessIsRevoked() async throws {
@@ -112,7 +115,7 @@ final class ChatStateTests: XCTestCase {
             await store.loadConversations()
             XCTAssertNil(store.inspectedConversation)
             XCTAssertNil(store.timelines["chat"])
-            store.clear()
+            store.resetProjection()
         }
     }
 
@@ -128,13 +131,15 @@ final class ChatStateTests: XCTestCase {
         XCTAssertNil(store.pending["chat"])
         XCTAssertNil(store.timelines["chat"])
         XCTAssertEqual(store.drafts["chat"], "must not send")
-        store.clear()
+        store.resetProjection()
     }
 
-    private func makeStore(list: Data = Data(#"{"items":[]}"#.utf8)) async throws -> ChatStore {
+    private func makeStore(list: Data = Data(#"{"items":[]}"#.utf8), detail: Data? = nil,
+                           detailStatus: Int = 200) async throws -> ChatStore {
         let pair = TokenPair(access_token: "test", refresh_token: "test", user: user)
         let page = try JSONEncoder().encode(MessagePage(items: [try message(1)]))
-        let transport = HistoryTransport(pair: try JSONEncoder().encode(pair), latest: page, bridge: page, list: list)
+        let transport = HistoryTransport(pair: try JSONEncoder().encode(pair), latest: page, bridge: page,
+                                         list: list, detail: detail, detailStatus: detailStatus)
         let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport, credentials: ChatTestCredentials(), sendAttempts: attemptStore)
         _ = try await session.login(username: "user", password: "test")
         return ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
@@ -155,7 +160,7 @@ final class ChatStateTests: XCTestCase {
         XCTAssertEqual(store.before["chat"], "m1")
         let cursors = await transport.cursors
         XCTAssertEqual(cursors, [nil, "m62"])
-        store.clear()
+        store.resetProjection()
     }
 
     func testExecutionCleanupOnReconnectDiscardsOldPagesAndRestoresReadingPosition() async throws {
@@ -182,7 +187,7 @@ final class ChatStateTests: XCTestCase {
         XCTAssertNil(store.timelines["chat"]?.first?.message?.thinking)
         XCTAssertEqual(store.timelines["chat"]?.first?.message?.content, prior.message?.content)
         XCTAssertEqual(store.restoreReadingPositions["chat"], "m1")
-        store.clear()
+        store.resetProjection()
     }
 
     func testLostSendResponseRequiresExplicitRetryWithSameKeyAndNoDuplicateHistory() async throws {
@@ -214,7 +219,7 @@ final class ChatStateTests: XCTestCase {
         XCTAssertNil(store.pending["chat"])
         XCTAssertEqual(store.drafts["chat"], "a newer draft")
         XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1"])
-        store.clear()
+        store.resetProjection()
     }
 
     func testFailedUploadBlocksNormalSendAndTextOnlyKeepsEveryAttachment() async throws {
@@ -239,7 +244,7 @@ final class ChatStateTests: XCTestCase {
         XCTAssertEqual(store.attachments["chat"]?.count, 2)
         let bytes = await transport.uploadBodies
         XCTAssertEqual(bytes, [Data("retry me".utf8), Data("retry me".utf8)])
-        store.clear()
+        store.resetProjection()
     }
 
     func testUploadRetryWaitsForRetryAfterThenKeepsFileUntilSuccess() async throws {
@@ -257,14 +262,14 @@ final class ChatStateTests: XCTestCase {
         XCTAssertEqual(retried.count, 2)
         XCTAssertTrue(store.uploadDrafts["chat"]?.isEmpty == true)
         XCTAssertEqual(store.attachments["chat"]?.count, 1)
-        store.clear()
+        store.resetProjection()
     }
 
     func testUploadFinishedAfterStoreClearCannotRestorePrivateDraft() async throws {
         let (store, transport) = try await makeUploadStore(statuses: [200], gated: true)
         let task = Task { await store.addUpload("chat", data: Data("private".utf8), name: "private.txt", type: "text/plain") }
         await transport.waitForUpload()
-        store.clear()
+        store.resetProjection()
         await transport.releaseUpload()
         await task.value
         XCTAssertTrue(store.attachments.isEmpty)
@@ -287,7 +292,7 @@ final class ChatStateTests: XCTestCase {
                 XCTAssertEqual(store.uploadDrafts["chat"]?.first?.uploading, false)
                 XCTAssertNotNil(store.uploadDrafts["chat"]?.first?.error)
             }
-            store.clear()
+            store.resetProjection()
         }
     }
 
@@ -378,7 +383,11 @@ private actor HistoryTransport: HTTPTransport {
     var detail: Data?
     var detailStatus = 200
     func revokeDetail() { detailStatus = 404 }
-    init(pair: Data, latest: Data, bridge: Data, list: Data = Data(#"{"items":[]}"#.utf8), detail: Data? = nil) { self.pair = pair; self.latest = latest; self.bridge = bridge; self.list = list; self.detail = detail }
+    init(pair: Data, latest: Data, bridge: Data, list: Data = Data(#"{"items":[]}"#.utf8), detail: Data? = nil,
+         detailStatus: Int = 200) {
+        self.pair = pair; self.latest = latest; self.bridge = bridge; self.list = list
+        self.detail = detail; self.detailStatus = detailStatus
+    }
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let url = request.url!
         let body: Data

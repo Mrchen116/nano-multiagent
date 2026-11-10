@@ -17,11 +17,34 @@ struct SendAttemptStore: Sendable {
     }
 
     func load(origin: URL, userID: String) throws -> [SendAttempt] {
-        let owner = ownerDirectory(origin, userID)
-        guard FileManager.default.fileExists(atPath: owner.path) else { return [] }
-        return try FileManager.default.contentsOfDirectory(at: owner, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "json" }
-            .map { try JSONDecoder().decode(SendAttempt.self, from: Data(contentsOf: $0)) }
+        try attemptFiles(origin: origin, userID: userID).map { try attempt(at: $0) }
+    }
+
+    /// Per-file import view. Only a genuinely missing directory means no attempts; failed
+    /// enumeration must abort the import transaction instead of permanently recording empty.
+    func attemptFiles(origin: URL, userID: String) throws -> [URL] {
+        let entries: [URL]
+        do {
+            entries = try FileManager.default.contentsOfDirectory(at: ownerDirectory(origin, userID), includingPropertiesForKeys: nil)
+        } catch {
+            if isMissing(error) { return [] }
+            throw error
+        }
+        return entries.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    private func isMissing(_ error: Error) -> Bool {
+        let value = error as NSError
+        if value.domain == NSPOSIXErrorDomain { return value.code == Int(POSIXErrorCode.ENOENT.rawValue) }
+        // Foundation can present ENOTDIR as a high-level "no such file" error. Inspect the
+        // underlying cause before accepting absence; a blocked ancestor is recoverable IO.
+        if let underlying = value.userInfo[NSUnderlyingErrorKey] as? NSError { return isMissing(underlying) }
+        return value.domain == NSCocoaErrorDomain
+            && (value.code == NSFileReadNoSuchFileError || value.code == NSFileNoSuchFileError)
+    }
+
+    func attempt(at file: URL) throws -> SendAttempt {
+        try JSONDecoder().decode(SendAttempt.self, from: Data(contentsOf: file))
     }
 
     /// Persist before POST; failure leaves the composer editable and sends nothing.
@@ -47,14 +70,25 @@ struct SendAttemptStore: Sendable {
 
     func remove(origin: URL, userID: String, conversationID: String? = nil) throws {
         if let conversationID {
-            for name in ["draft-watermarks", "draft-discard-intents"] {
-                var values = try loadDraftMap(name, origin: origin, userID: userID)
-                if values.removeValue(forKey: conversationID) != nil { try saveDraftMap(values, name: name, origin: origin, userID: userID) }
-            }
+            try removeDraftLedger(origin: origin, userID: userID, conversationID: conversationID)
             for attempt in try load(origin: origin, userID: userID) where attempt.conversationID == conversationID {
                 try remove(attempt, origin: origin, userID: userID)
             }
         } else { try removeIfPresent(ownerDirectory(origin, userID)) }
+    }
+
+    /// The card ledger lives alongside the legacy files but has its own cleanup lifetime.
+    func removeDraftLedger(origin: URL, userID: String, conversationID: String? = nil) throws {
+        for name in ["draft-watermarks", "draft-discard-intents"] {
+            if let conversationID {
+                var values = try loadDraftMap(name, origin: origin, userID: userID)
+                if values.removeValue(forKey: conversationID) != nil {
+                    try saveDraftMap(values, name: name, origin: origin, userID: userID)
+                }
+            } else {
+                try removeIfPresent(ownerDirectory(origin, userID).appendingPathComponent(name))
+            }
+        }
     }
 
     /// Watermarks share the attempt owner's protected lifetime, but are not send attempts.

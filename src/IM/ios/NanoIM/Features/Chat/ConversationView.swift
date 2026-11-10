@@ -33,7 +33,9 @@ struct ConversationView: View {
     }
     private var uploads: [AttachmentUpload] { store.uploadDrafts[conversationID] ?? [] }
     private var uploading: Bool { uploads.contains(where: \.uploading) }
-    private var draft: Binding<String> { Binding(get: { store.drafts[conversationID] ?? "" }, set: { store.drafts[conversationID] = $0 }) }
+    // Durable pending consumes the ordinary draft, but its frozen content still owns the
+    // disabled composer until confirmation. Newer ordinary edits stay separate behind it.
+    private var draft: Binding<String> { Binding(get: { store.pending[conversationID]?.content ?? store.drafts[conversationID] ?? "" }, set: { store.setDraft(conversationID, $0) }) }
     var body: some View {
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
         VStack(spacing: 0) {
@@ -45,6 +47,31 @@ struct ConversationView: View {
             ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
+                        // A confirmed access loss is not a missing cache or a connection
+                        // problem; the dedicated revocation notice below owns that state.
+                        if items.isEmpty && !store.revokedChats.contains(conversationID) {
+                            if store.timelinePhase(conversationID) == .needsConnection {
+                                VStack(spacing: 8) {
+                                    Label(L("需要连接后才能读取内容", "A connection is needed to read this conversation"), systemImage: "antenna.radiowaves.left.and.right")
+                                        .font(.callout)
+                                    Text(L("这个会话还没有保存到本机。连上网络后会自动加载。", "This conversation is not saved on this device yet. It loads automatically once you are connected."))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    Button(L("重试", "Retry")) { Task { await store.loadChat(conversationID) } }
+                                }.frame(maxWidth: .infinity).padding(.vertical, 24)
+                            } else if store.timelinePhase(conversationID) == .empty {
+                                Text(L("还没有消息", "No messages yet"))
+                                    .font(.callout).foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 24)
+                                    .accessibilityIdentifier("conversation.empty")
+                            } else {
+                                ProgressView(L("正在加载聊天…", "Loading conversation…")).frame(maxWidth: .infinity).padding(.vertical, 24)
+                            }
+                        }
+                        if store.olderNeedsNetwork.contains(conversationID) {
+                            // B2: the local window was trimmed; offline scrolling must not be
+                            // mistaken for "this is the beginning of the conversation".
+                            Text(L("更早消息需要连接后才能读取", "Earlier messages need a connection")).font(.caption).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
+                        }
                         if store.before[conversationID] != nil {
                             Button(L("更早的消息", "Earlier messages")) {
                                 let anchor = items.first?.id
@@ -108,7 +135,7 @@ struct ConversationView: View {
             if store.revokedChats.contains(conversationID) {
                 Text(L("此聊天已不可访问。", "This conversation is no longer accessible.")).font(.caption).foregroundStyle(.secondary).padding().frame(maxWidth: .infinity).background(.bar)
             } else if store.checkingAccess.contains(conversationID) {
-                VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.loadConversations(); await store.loadChat(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
+                VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.retryAccess(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
             } else if let conversation, conversation.can_write == false {
                 VStack {
                     Text(conversation.is_observer == true ? L("Agent 协作 · 只读", "Agent collaboration · read only") : conversation.dissolved_at != nil ? L("已解散群历史 · 只读", "Dissolved group history · read only") : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
@@ -131,9 +158,7 @@ struct ConversationView: View {
             ChatInfoView(store: store, conversationID: conversationID, openChat: openChat)
         } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel(L("聊天详情", "Conversation details")) } }
         .task(id: conversationID) {
-            store.selectedID = conversationID
-            await store.inspectConversation(conversationID)
-            await store.loadChat(conversationID)
+            await store.openConversation(conversationID)
             do { let result: ItemsPage<ChatCommandSet> = try await store.client.get("/im/v1/conversations/\(conversationID.pathComponent)/commands"); commands = result.items }
             catch { /* Commands are optional when a target device is offline; message sending remains available. */ }
         }
@@ -156,7 +181,11 @@ struct ConversationView: View {
             focusRequest = ComposerFocusRequest(selection: NSRange(location: (request.text as NSString).length, length: 0))
             store.composeRequest = nil
         }
-        .onDisappear { if store.selectedID == conversationID { store.selectedID = nil } }
+        .onDisappear {
+            if store.selectedID == conversationID { store.selectedID = nil }
+            // Leaving is a draft flush point: the next screen may be a different account.
+            Task { await store.flushDrafts() }
+        }
         .onChange(of: photo) { _, selected in Task { await uploadPhoto(selected) } }
         .onChange(of: draft.wrappedValue) { _, _ in dismissedCompletion = false }
         .photosPicker(isPresented: $pickingPhoto, selection: $photo, matching: .images)

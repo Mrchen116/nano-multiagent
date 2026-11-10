@@ -10,7 +10,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
     func testComposerSynchronizesLatestDraftAndSendsFromTheSameClick() async throws {
         let (runtime, transport) = try await fixture()
         let chat = runtime.chat
-        defer { chat.clear() }
+        defer { chat.resetProjection() }
         await transport.setRemote("thu", updatedAt: t3)
         await transport.setStatus(409)
         try await edit(runtime, "fri")
@@ -38,12 +38,12 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         let posts = await transport.posts
         XCTAssertEqual(posts.first?["content"], .string("original question"))
         XCTAssertEqual(runtime.chat.drafts["chat"], "new draft typed while saving")
-        runtime.chat.clear()
+        runtime.chat.resetProjection()
     }
 
     func testFailedConflictRefreshRetainsTheMessageAndTheNextSendRetriesTheRead() async throws {
         let (runtime, transport) = try await fixture()
-        defer { runtime.chat.clear() }
+        defer { runtime.chat.resetProjection() }
         await transport.setStatus(409)
         await transport.setReadStatus(503)
         try await edit(runtime, "fri")
@@ -83,7 +83,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         let posts = await transport.posts, events = await transport.events
         XCTAssertEqual(posts.count, 1)
         XCTAssertEqual(events.suffix(2), ["saved:card", "send"])
-        runtime.chat.clear()
+        runtime.chat.resetProjection()
     }
 
     func testLeaveFlushesBeforeDiscardAndRestoresOwnedMaximumAcrossStoreRecreation() async throws {
@@ -108,7 +108,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         await reopened.interactionDrafts.awaitPendingDiscard("chat")
         let all = await transport.discards
         XCTAssertEqual(all, [t2, t2])
-        reopened.clear(); runtime.chat.clear()
+        reopened.resetProjection(); runtime.chat.resetProjection()
     }
 
     func testFailedLeaveUsesOnlyPreviouslyConfirmedWatermark() async throws {
@@ -122,7 +122,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         let through = await transport.discards
         XCTAssertEqual(through, [t1])
         XCTAssertEqual(runtime.state["$slot"], .string("fri"))
-        runtime.chat.clear()
+        runtime.chat.resetProjection()
     }
 
     func testTimedOutLeaveDoesNotCancelPutAndLateSuccessRediscardsOnlyThatEdit() async throws {
@@ -153,7 +153,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         await runtime.chat.interactionDrafts.awaitPendingDiscard("chat")
         let final = await transport.discards
         XCTAssertEqual(final.last, t3)
-        runtime.chat.clear()
+        runtime.chat.resetProjection()
     }
 
     func testObservedOtherDeviceDraftNeverAdvancesOrCreatesDiscardOwnership() async throws {
@@ -176,7 +176,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         await runtime.chat.interactionDrafts.awaitPendingDiscard("chat")
         let owned = await transport.discards
         XCTAssertEqual(owned, [t1], "Never clear the observed, newer other-device watermark")
-        runtime.chat.clear()
+        runtime.chat.resetProjection()
     }
 
     func testDiscard404And501AreSilentAndDoNotBlockOrdinarySending() async throws {
@@ -193,7 +193,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
             XCTAssertEqual(posts.count, 1)
             XCTAssertNil(runtime.chat.errors["chat"])
             XCTAssertNotNil(runtime.chat.interactionDrafts.watermarks["chat"])
-            runtime.chat.clear()
+            runtime.chat.resetProjection()
         }
     }
 
@@ -213,7 +213,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         await first.chat.interactionDrafts.awaitPendingDiscard("chat")
         let through = await transport.discards
         XCTAssertEqual(through, [t2])
-        first.chat.clear()
+        first.chat.resetProjection()
     }
 
     func testClearingStoreFencesWaitingComposerAndLateDraftAcknowledgementsWithoutRecreatingPrivateState() async throws {
@@ -222,7 +222,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         runtime.chat.drafts["chat"] = "old question awaiting card save"
         let save = Task { await runtime.chat.send("chat") }
         let started = await transport.waitForGatedSave(); XCTAssertTrue(started)
-        runtime.chat.clear()
+        runtime.chat.resetProjection()
         await transport.releaseSave(); _ = await save.value
         let posts = await transport.posts; XCTAssertTrue(posts.isEmpty, "A cleared store must not resume its waiting composer send")
         XCTAssertTrue(runtime.chat.interactionDrafts.watermarks.isEmpty)
@@ -240,7 +240,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         let posts = await transport.posts
         XCTAssertEqual(posts.count, 1)
         XCTAssertNil(posts.first?.objectValue?["interaction_contexts"])
-        runtime.chat.clear()
+        runtime.chat.resetProjection()
     }
 
     func testDurableWatermarksAreCappedAccountAndServiceIsolatedAndRemovedOnLogout() async throws {
@@ -260,7 +260,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         XCTAssertNil(try disk.loadDraftWatermarks(origin: origin, userID: "viewer")["chat-129"])
         _ = await runtime.client.session.signOut()
         XCTAssertTrue(try disk.loadDraftWatermarks(origin: origin, userID: "viewer").isEmpty)
-        runtime.chat.clear()
+        runtime.chat.resetProjection()
     }
 
     func testForegroundRetriesOnlyAnExplicitLeaveIntentNotEverySavedDraft() async throws {
@@ -288,7 +288,7 @@ final class InteractionDraftLifecycleTests: XCTestCase {
         await confirmed.interactionDrafts.foreground(activeConversation: nil)
         let done = await transport.discards
         XCTAssertEqual(done, retried, "A confirmed discard must not become a fresh discard on every launch")
-        runtime.chat.clear(); reopened.clear(); retry.clear(); confirmed.clear()
+        runtime.chat.resetProjection(); reopened.resetProjection(); retry.resetProjection(); confirmed.resetProjection()
     }
 
     func edit(_ runtime: InteractiveRuntime, _ slot: String) async throws {
