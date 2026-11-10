@@ -15,7 +15,7 @@ async function flushDelivery(queue: DeliveryQueue) {
       const response = await authFetch("/im/v1/message-receipts", {
         method: "POST", body: JSON.stringify({ message_ids: ids })
       }).catch(() => undefined);
-      if (response && (response.ok || (response.status >= 400 && response.status < 500 && ![408, 429].includes(response.status)))) {
+      if (response && (response.ok || (response.status >= 400 && response.status < 500 && ![401, 408, 429].includes(response.status)))) {
         for (const id of ids) queue.pending.delete(id);
         delay = 1000;
       } else if (delivery === queue) {

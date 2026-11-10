@@ -2186,12 +2186,16 @@ describe("ChatWorkspacePage — integration", () => {
   it("keeps paginated history when receipts change and shows the full group in a scrollable card", async () => {
     const newestPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`new-${idx + 1}`, idx + 50));
     const olderPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`old-${idx + 1}`, idx, `older ${idx + 1}`));
+    const olderReceipt = { recipient_id: "bob", display_name: "Bob", status: "sent" };
     let receiptStatus = "sent";
     fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        if (url.endsWith("/messages/old-1")) {
+          return jsonResponse({ message: { ...olderPage[0], receipts: [{ ...olderReceipt, status: "read" }] }, execution_cleanup_revision: 0 });
+        }
         if (url.includes("before_message_id=new-1")) {
-          return jsonResponse({ items: olderPage, next_before_message_id: null });
+          return jsonResponse({ items: [{ ...olderPage[0], receipts: [olderReceipt] }, ...olderPage.slice(1)], next_before_message_id: null });
         }
         const items = newestPage.map((message, index) => index === 48 ? { ...message, receipts: Array.from({ length: 12 }, (_, idx) => ({
           recipient_id: `member-${idx + 1}`, display_name: `Member ${idx + 1}`, status: receiptStatus
@@ -2254,6 +2258,10 @@ describe("ChatWorkspacePage — integration", () => {
     expect(panel.closest(".chat-pane-messages")).toBeNull();
     expect(panel).toHaveClass("overflow-y-auto");
     expect(within(panel).getByText("Member 12")).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.click(screen.getByRole("button", { name: "Sent, awaiting delivery" }));
+    const olderPanel = await screen.findByRole("dialog", { name: "Read" });
+    expect(within(olderPanel).getByText("Bob")).toBeInTheDocument();
   });
 
   it("does not issue duplicate older-history requests for the same cursor before loading state commits", async () => {

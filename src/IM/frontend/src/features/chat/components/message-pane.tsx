@@ -1710,21 +1710,38 @@ function ContextMenu({
   );
 }
 
-function MessageReceipt({ receipts }: { receipts: NonNullable<Message["receipts"]> }) {
+function MessageReceipt({ receipts: cached, load }: {
+  receipts: NonNullable<Message["receipts"]>;
+  load?: (signal: AbortSignal) => Promise<Message>;
+}) {
   const { t } = useTranslation();
   const trigger = useRef<HTMLButtonElement>(null);
   const [position, setPosition] = useState<React.CSSProperties>();
+  const [fetched, setFetched] = useState<Message["receipts"]>();
+  const loadRef = useRef(load);
+  loadRef.current = load;
   useEffect(() => {
     if (!position) return;
+    const request = new AbortController();
+    void loadRef.current?.(request.signal).then(message => {
+      if (!request.signal.aborted) setFetched(message.receipts);
+    }).catch(() => {});
     const timeline = trigger.current?.closest(".chat-pane-messages");
     const close = () => setPosition(undefined);
     timeline?.addEventListener("scroll", close);
     window.addEventListener("resize", close);
     return () => {
+      request.abort();
       timeline?.removeEventListener("scroll", close);
       window.removeEventListener("resize", close);
     };
   }, [position]);
+  const order = { sent: 0, received: 1, read: 2 };
+  const fetchedById = new Map(fetched?.map(receipt => [receipt.recipient_id, receipt]));
+  const receipts = cached.map(receipt => {
+    const current = fetchedById.get(receipt.recipient_id);
+    return current && order[current.status] >= order[receipt.status] ? current : receipt;
+  });
   const status = receipts.some(receipt => receipt.status === "sent") ? "sent"
     : receipts.some(receipt => receipt.status === "received") ? "received" : "read";
   const Icon = status === "sent" ? Check : CheckCheck;
@@ -2158,7 +2175,8 @@ function MessageBubble({
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span className="relative inline-flex items-center gap-1">
             <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
-            {isUser && !!message.receipts?.length && <MessageReceipt receipts={message.receipts} />}
+            {isUser && !!message.receipts?.length && <MessageReceipt receipts={message.receipts}
+              load={historyProcess && (signal => historyProcess.load(message.id, signal))} />}
           </span>
           {message.interaction_reply && deliveryStatus === "pending" && <span role="status">{t("chat.interactive.queued")}</span>}
           {deliveryStatus === "running" && (

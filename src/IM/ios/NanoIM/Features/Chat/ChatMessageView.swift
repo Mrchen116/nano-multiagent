@@ -103,7 +103,8 @@ struct ChatMessageView: View {
                 .foregroundStyle(NanoTheme.ink).textSelection(.enabled)
                 .overlay(alignment: .bottomTrailing) {
                     if !receipts.isEmpty {
-                        MessageReceiptButton(receipts: receipts).padding(.bottom, 4)
+                        MessageReceiptButton(cached: receipts, client: client, conversationID: message.conversation_id, messageID: message.id)
+                            .padding(.bottom, 4)
                     }
                 }
     }
@@ -152,8 +153,19 @@ struct ChatMessageView: View {
 }
 
 private struct MessageReceiptButton: View {
-    let receipts: [MessageReceipt]
+    let cached: [MessageReceipt]
+    let client: IMClient
+    let conversationID: String
+    let messageID: String
     @State private var showDetails = false
+    @State private var fetched: [String: MessageReceipt] = [:]
+
+    private var receipts: [MessageReceipt] {
+        cached.map { receipt in
+            guard let current = fetched[receipt.id], current.status.order >= receipt.status.order else { return receipt }
+            return current
+        }
+    }
 
     private var status: MessageReceipt.Status {
         if receipts.contains(where: { $0.status == .sent }) { return .sent }
@@ -180,6 +192,12 @@ private struct MessageReceiptButton: View {
             .foregroundStyle(NanoTheme.ink)
             .frame(width: 252)
             .presentationCompactAdaptation(.popover)
+            .task {
+                struct Detail: Decodable, Sendable { let message: ChatMessage }
+                let detail: Detail? = try? await client.get("/im/v1/conversations/\(conversationID.pathComponent)/messages/\(messageID.pathComponent)")
+                guard !Task.isCancelled, let detail else { return }
+                fetched = Dictionary(uniqueKeysWithValues: (detail.message.receipts ?? []).map { ($0.id, $0) })
+            }
         }
     }
 
@@ -204,6 +222,14 @@ private struct MessageReceiptButton: View {
 }
 
 private extension MessageReceipt.Status {
+    var order: Int {
+        switch self {
+        case .sent: 0
+        case .received: 1
+        case .read: 2
+        }
+    }
+
     var title: String {
         switch self {
         case .sent: L("待送达", "Pending")
