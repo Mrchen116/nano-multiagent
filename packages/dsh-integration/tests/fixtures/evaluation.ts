@@ -64,7 +64,8 @@ export function apply(ctx){
         cities.has(o.sessionId)?['write',{file_path:stage+'/knowledge/city.md',content:'You live in '+cities.get(o.sessionId)+'. Former city: Berlin.'}]:undefined,
         cities.has(o.sessionId)?['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n[Current city: '+cities.get(o.sessionId)+'](knowledge/city.md)'}]:undefined,
         ['conversations',{action:'search',target:chat,query:'LONG_MESSAGE_END'}],
-        ['conversations',{action:'search',target:chat,query:'UNTRIGGERED_LAST_UPDATE'}]
+        ['conversations',{action:'search',target:chat,query:'UNTRIGGERED_LAST_UPDATE'}],
+        ['git_commit',{message:'Consolidate verified city memory'}]
       ][n];
     }else if(process.env.EVALUATION_CHAT_ONLY){
       const result=id=>{const m=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId===id);return m&&!m.isError?JSON.parse(m.content[0].text):undefined;};

@@ -208,10 +208,14 @@ export class MemoryDocuments {
     if (!(await lstat(join(this.root, '.git'))).isDirectory()) throw new Error('The memory Git directory is unavailable.');
     const result = await command(this.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames'],
       undefined, this.gitEnvironment(), {raw: true});
-    return Promise.all(splitNul(result).map(async row => {
-      const status = row.slice(0, 2); const path = row.slice(3);
+    const changes = splitNul(result).map(row => ({status:row.slice(0, 2), path:row.slice(3)}));
+    const untracked = new Set(changes.filter(change => change.status === '??').map(change => change.path));
+    return Promise.all(changes.map(async ({status, path}) => {
+      // HEAD may already contain a newly committed page if updating the
+      // ordinary index was interrupted. The file must still exist below.
+      const indexNeedsRepair = status === 'D ' && untracked.has(path);
       let supported = false;
-      if (status === '??' || /^[ AM]{2}$/.test(status)) {
+      if (status === '??' || /^[ AM]{2}$/.test(status) || indexNeedsRepair) {
         try {
           const absolute = join(this.root, path);
           supported = await this.path(path) === path && (await lstat(absolute)).isFile() && await realpath(absolute) === absolute;
@@ -240,7 +244,7 @@ export class MemoryDocuments {
       if (!changes.length) return {};
       if (changes.some(change => !change.supported || !Object.hasOwn(versions, change.path)))
         throw new Error('The memory repository contains a change that cannot be safely committed.');
-      const paths = changes.map(change => change.path);
+      const paths = [...new Set(changes.map(change => change.path))];
       const index = join(this.root, '.git', `nano-index-${randomUUID()}`);
       const env = this.gitEnvironment(index);
       const run = (args: string[], input?: string) => command(this.root, ['--literal-pathspecs', ...args], input, env, {raw: true, signal});
@@ -251,7 +255,13 @@ export class MemoryDocuments {
         const parent = await run(['rev-parse', '--verify', 'HEAD']).then(value => value.trim(), () => undefined);
         this.assertBatch(generation, signal);
         await run(parent ? ['read-tree', parent] : ['read-tree', '--empty']);
-        await run(['add', '--', ...paths]);
+        for (const path of paths) {
+          const content = await readFile(join(this.root, path), 'utf8');
+          if (digest(content) !== versions[path]) throw new Error('Document versions changed before Git staging.');
+          // Match the verified bytes even if Git clean filters would rewrite them.
+          const blob = (await run(['hash-object', '-w', '--stdin'], content)).trim();
+          await run(['update-index', '--add', '--cacheinfo', '100644', blob, path]);
+        }
         const staged = splitNul(await run(['diff', '--cached', '--name-only', '--no-renames', '-z']));
         if (staged.some(path => !paths.includes(path))) throw new Error('The Git index contains paths outside the checked batch.');
         const regular = splitNul(await run(indexListing)).every(row => /^100(644|755) [a-f0-9]+ 0\t/.test(row));

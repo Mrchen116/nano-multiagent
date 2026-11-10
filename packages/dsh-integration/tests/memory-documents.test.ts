@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FileSystem } from '@deepseek-ai/dsh-fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -225,6 +226,33 @@ describe('Agent-initiated Git batches', () => {
     expect(await documents.commitBatch('No content difference', versions, 0, signal())).toEqual({});
     expect(await documents.gitChanges()).toEqual([]);
     expect(git(root, 'rev-parse', 'HEAD')).toBe(before);
+  });
+
+  it('commits the exact verified Markdown bytes when Git would normalize line endings', async () => {
+    const {documents, root} = await library();
+    const path = 'windows.md';
+    const content = 'Line one.\r\nLine two.\r\n';
+    git(root, 'config', 'core.autocrlf', 'true');
+    await writeFile(join(root, path), content);
+    const versions = {...await documents.versions(), [path]: createHash('sha256').update(content).digest('hex')};
+    const {commit} = await documents.commitBatch('Keep verified Markdown', versions, 0, signal());
+    expect(commit).toBe(git(root, 'rev-parse', 'HEAD'));
+    expect(execFileSync('git', ['show', `HEAD:${path}`], {cwd:root,encoding:'utf8'})).toBe(content);
+    expect(await documents.gitChanges()).toEqual([]);
+  });
+
+  it('repairs the ordinary index after an already committed new document', async () => {
+    const {documents, root} = await library();
+    const path = 'knowledge/new.md';
+    await documents.apply({operationId:'recorded', path, beforeHash:null, content:'Already committed.'});
+    const head = git(root, 'rev-parse', 'HEAD');
+    // Equivalent to interruption after updating HEAD with the private index.
+    git(root, 'rm', '--cached', '--', path);
+    expect(git(root, 'status', '--porcelain', '--untracked-files=all').split('\n')).toEqual([`D  ${path}`, `?? ${path}`]);
+    expect(await documents.commitBatch('Reconcile the memory index', await documents.versions(), 0, signal())).toEqual({});
+    expect(await documents.gitChanges()).toEqual([]);
+    expect(git(root, 'rev-parse', 'HEAD')).toBe(head);
+    expect(await readFile(join(root, path), 'utf8')).toBe('Already committed.');
   });
 
   it('refuses to commit live changes based on source eligibility revoked after publication', async () => {
