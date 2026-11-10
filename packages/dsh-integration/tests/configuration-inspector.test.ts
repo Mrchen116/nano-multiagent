@@ -83,20 +83,34 @@ it('fences an in-flight generation and releases capacity after last-waiter cance
   expect(await readdir(root)).toEqual([]);
 },15000);
 
-it('reclaims a live blocked worker after SIGKILL of its owner, then successfully inspects again',async()=>{
+it.each([false, true])('reclaims the inspection group after owner SIGKILL (blocked: %s)',async blocked=>{
   const {home,root,input}=await fixture();
   const plugin=join(home,'hang.mjs'),marker=join(home,'entered'),ownerFile=join(home,'owner.mjs');
-  await writeFile(plugin,`import {writeFileSync} from 'node:fs';export const name='blocking-fixture';export function apply(){writeFileSync(${JSON.stringify(marker)},'entered');while(true){}}`);
+  await writeFile(plugin,`
+    import {spawn} from 'node:child_process';
+    import {writeFileSync} from 'node:fs';
+    export const name='owner-exit-fixture';
+    export async function apply() {
+      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {stdio: 'ignore'});
+      writeFileSync(${JSON.stringify(marker)}, String(child.pid));
+      ${blocked ? 'while (true) {}' : 'await new Promise(resolve => setTimeout(resolve, 60_000));'}
+    }
+  `);
   await writeFile(ownerFile,`import {ConfigurationInspector} from ${JSON.stringify(resolve('packages/dsh-integration/lib/client.js'))};const inspector=new ConfigurationInspector({root:${JSON.stringify(root)},timeoutMs:60000});await inspector.inspect(${JSON.stringify({...input,profilePatch:[{insert:[{id:'blocking-fixture',name:plugin}]}]})});`);
   const owner=spawn(process.execPath,[ownerFile],{stdio:'ignore'});
   const exited=new Promise(resolve=>owner.once('exit',resolve));
   cleanups.push(async()=>{owner.kill('SIGKILL');await exited;});
   await waitForFile(marker);
   const directories=await readdir(root);
-  const lease=JSON.parse(await readFile(join(root,directories[0]!,'inspection.json'),'utf8'));
+  const leasePath=join(root,directories[0]!,'inspection.json');
+  const lease=JSON.parse(await readFile(leasePath,'utf8'));
   cleanups.push(async()=>{try{process.kill(-lease.pid,'SIGKILL');}catch{}});
+  const pluginPid=Number(await readFile(marker,'utf8'));
+  expect(processAlive(lease.pid)).toBe(true);
+  expect(processAlive(pluginPid)).toBe(true);
   owner.kill('SIGKILL');await exited;
-  expect(()=>process.kill(lease.pid,0)).not.toThrow();
+  await expect.poll(()=>[processAlive(lease.pid), processAlive(pluginPid)],{timeout:3000}).toEqual([false,false]);
+  expect(JSON.parse(await readFile(leasePath,'utf8'))).toEqual(lease);
   const restarted=new ConfigurationInspector({root});cleanups.push(()=>restarted.close());
   await restarted.initialize();
   expect(processAlive(lease.pid)).toBe(false);
