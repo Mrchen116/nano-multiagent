@@ -530,8 +530,8 @@ export class Messaging {
     };
   }
   /** Decode an authenticated HTTP send and run its transactional business command. */
-  async sendMessage(req:FastifyRequest):Promise<ChatMessage> {
-    const actor=this.principal(req),q=query(req),id=params(req).conversation_id;
+  async sendMessage(req:FastifyRequest, actor=this.principal(req)):Promise<ChatMessage> {
+    const q=query(req),id=params(req).conversation_id;
     const principal=sendPrincipal(actor);
     const key=req.headers['idempotency-key'];
     if(typeof id!=='string'||q.agent_id!==undefined&&typeof q.agent_id!=='string'||key!==undefined&&typeof key!=='string')fail(422,'invalid message route');
@@ -582,7 +582,7 @@ export class Messaging {
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), timezone, reply_to:replyTo, publish:false });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), timezone, reply_to:replyTo, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
@@ -603,7 +603,7 @@ export class Messaging {
     const content = this.validateReferences(p, id, prepared.content);
     const timezone = b.timezone === undefined ? one(this.db, 'SELECT timezone FROM users WHERE id=?', p.id)?.timezone ?? null : this.updateUserTimezone(p.id, b.timezone);
     const message = transaction(this.db, () => {
-      const m = this.insertMessage(id, p.id, 'user', content, [], key, 'pending', { timezone, interaction_reply: prepared.snapshot, publish: false });
+      const m = this.insertMessage(id, p.id, 'user', content, [], key, 'pending', { timezone, interaction_reply: prepared.snapshot, publish: false, trackReceipts: true });
       this.interactions.submit(p.id, m.id, prepared);
       this.enqueueRelays(m, key);
       return m;
@@ -673,9 +673,10 @@ export class Messaging {
       const background = contexts.filter(context => context.agent_id === a.agent_id);
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
       const mentioned = [...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : []), ...(m.reply_to?.sender.type==='agent' ? [m.reply_to.sender.id] : [])])];
-      const agentReceipt = m.sender_type==='user' && !m.pa_agent_id && a.work_mode==='global'
-        && a.agent_id!==contextOnlyAgentId && (c.type!=='group' || a.group_reply_policy==='always' || mentioned.includes(a.agent_id))
-        && !one(this.db,'SELECT 1 FROM personal_agent_bindings WHERE agent_id=?',a.agent_id);
+      const agentReceipt = m.receipts_requested && this.db.prepare(`
+        SELECT 1 FROM message_receipts r JOIN users u ON u.id=r.recipient_id
+        WHERE r.message_id=? AND u.username=?
+      `).get(m.id,'agent:'+a.agent_id);
       const payload = {lifecycle_revision:lifecycle(this.db,a.agent_id).revision,relay_task_id:id,idempotency_key:relayKey,conversation_id:c.id,agent_id:a.agent_id,
         message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
           conversation_type:c.type,mentioned_agent_ids:mentioned,participant_agent_ids:agents.map(a=>a.agent_id),
@@ -993,11 +994,32 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     db.prepare(
       "UPDATE conversation_participants SET last_read_message_id=?,unread_count=(SELECT COUNT(*) FROM messages WHERE conversation_id=? AND rowid>? AND sender_user_id!=?) WHERE conversation_id=? AND user_id=?",
     ).run(body(req).last_read_message_id, id, m.rowid, p.id, id, p.id);
+    if (db.prepare(`
+      UPDATE message_receipts SET status=2 WHERE recipient_id=? AND status<2 AND message_id IN
+        (SELECT id FROM messages WHERE conversation_id=? AND rowid<=?)
+    `).run(p.id,id,m.rowid).changes) s.event(id,null,'message.receipts_changed',{});
     return s.conversation(id, p.id);
+  });
+  app.post('/im/v1/message-receipts', req => {
+    const p = ctx.identity.authenticateRequest(req);
+    const ids: unknown = body(req).message_ids;
+    if (!Array.isArray(ids) || ids.length>100 || !ids.every(id=>typeof id==='string')) fail(400,'invalid message IDs');
+    const changed = transaction(db, () => all(db,`
+      UPDATE message_receipts SET status=1 WHERE recipient_id=? AND status=0
+        AND message_id IN (SELECT value FROM json_each(?))
+        AND EXISTS (SELECT 1 FROM messages m JOIN conversation_participants cp
+          ON cp.conversation_id=m.conversation_id AND cp.user_id=? WHERE m.id=message_id)
+      RETURNING message_id
+    `,p.id,JSON.stringify(ids),p.id));
+    const conversations = new Set(changed.map(row=>s.records.find(row.message_id)?.conversation_id));
+    for (const id of conversations) if (id) s.event(id,null,'message.receipts_changed',{});
+    return {ok:true};
   });
   app.post("/im/v1/conversations/:conversation_id/messages", async (req, reply) => {
     reply.code(201);
-    return s.sendMessage(req);
+    const principal = s.principal(req);
+    const message = await s.sendMessage(req,principal);
+    return principal.kind==='gateway' ? message : s.records.senderView(message,principal.id);
   });
   app.get('/im/v1/conversations/:conversation_id/messages/:message_id/interaction-state', req => s.interactions.readDraft(req));
   app.put('/im/v1/conversations/:conversation_id/messages/:message_id/interaction-state', req => s.interactions.writeDraft(req));
@@ -1013,8 +1035,9 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   });
   app.get('/im/v1/conversations/:conversation_id/messages/:message_id', req => {
     const {conversation_id, message_id}=params(req);
-    s.access(s.principal(req),conversation_id,query(req).agent_id);
-    return {message:s.records.conversationMessage(conversation_id,message_id),execution_cleanup_revision:executionCleanupRevision(ctx,conversation_id)};
+    const principal = s.principal(req);
+    s.access(principal,conversation_id,query(req).agent_id);
+    return {message:s.records.senderView(s.records.conversationMessage(conversation_id,message_id),principal.id),execution_cleanup_revision:executionCleanupRevision(ctx,conversation_id)};
   });
   app.get("/im/v1/conversations/:conversation_id/messages", (req) => {
     const p = s.principal(req),
@@ -1055,7 +1078,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
           before_message_id: row.id,
           applied_at: b.applied_at,
         });
-      items.push({ type: "message", message: q.view === "summary" ? s.records.historySummary(id,row.id) : s.message(row.id) });
+      const message = q.view === "summary" ? s.records.historySummary(id,row.id) : s.message(row.id);
+      items.push({ type: "message", message: s.records.senderView(message,p.id) });
     }
     return { items, next_before_message_id: more ? page[0]!.id : null, execution_cleanup_revision:executionCleanupRevision(ctx,id) };
   });

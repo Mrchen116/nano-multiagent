@@ -6,6 +6,7 @@ import { authFetch, authFetchJson } from "../auth/auth-fetch";
 import { useAuthStore } from "../auth/auth-store";
 import { browserTimezone } from "../auth/user-timezone";
 import { i18n } from "../../i18n";
+import { confirmMessageDelivery } from "../../realtime/user-stream/delivery-receipts";
 import type {
   Actor,
   Attachment,
@@ -57,7 +58,12 @@ export async function listMessages(
   if (opts.view) params.set("view", opts.view);
   const qs = params.toString();
   const url = `/im/v1/conversations/${encodeURIComponent(conversationId)}/messages${qs ? `?${qs}` : ""}`;
-  return authFetchJson<ListMessagesResult>(url, opts.signal ? {signal:opts.signal} : undefined, "listMessages");
+  const viewer = useAuthStore.getState().user?.id;
+  const page = await authFetchJson<ListMessagesResult>(url, opts.signal ? {signal:opts.signal} : undefined, "listMessages");
+  if (viewer && useAuthStore.getState().user?.id === viewer && !opts.signal?.aborted) {
+    confirmMessageDelivery(page.items.flatMap(item => item.type === "message" ? [item.message] : []));
+  }
+  return page;
 }
 
 export function getMessageDetail(conversationId: string, messageId: string, signal: AbortSignal) {

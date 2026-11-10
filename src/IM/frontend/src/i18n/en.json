@@ -1067,10 +1067,10 @@
       "imageClose": "Close",
       "copySuccess": "Copied",
       "copyError": "Copy failed. Please try again.",
-      "agentReceipt": {
-        "sent": "Sent, awaiting Agent receipt",
-        "received": "Received by Agent",
-        "read": "Read by Agent"
+      "receipt": {
+        "sent": "Sent, awaiting delivery",
+        "received": "Delivered",
+        "read": "Read"
       },
       "messageActions": "Message actions",
       "moreActions": "More actions",

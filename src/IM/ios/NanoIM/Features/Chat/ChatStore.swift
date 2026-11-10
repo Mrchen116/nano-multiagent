@@ -691,6 +691,9 @@ final class ChatStore {
             guard await isCurrent(request), revision == (executionCleanupRevisions[id] ?? 0) else { return }
             try await applyPage(id, page: page, older: older, request: request)
             guard await isCurrent(request), revision == (executionCleanupRevisions[id] ?? 0) else { return }
+            confirmMessageDelivery(page.items.compactMap(\.message).filter {
+                $0.receipts_requested == true && $0.sender_user_id != user.id
+            }.map(\.id))
             if older || before[id] == nil { before[id] = page.next_before_message_id }
             if !older, let anchor {
                 pendingReadingPositions[id] = nil
@@ -805,7 +808,22 @@ final class ChatStore {
             banner = ChatBanner(conversationID: chat)
         }
         await persistEvent(event)
+        if event.event_type == "message.created", data["receipts_requested"].boolValue == true,
+           data["sender_user_id"].stringValue != user.id, let id = data["message_id"].stringValue {
+            confirmMessageDelivery([id])
+        }
         scheduleRefresh()
+    }
+
+    private func confirmMessageDelivery(_ ids: [String]) {
+        guard !ids.isEmpty else { return }
+        Task { [client] in
+            struct Acknowledgment: Decodable, Sendable { let ok: Bool }
+            for start in stride(from: 0, to: ids.count, by: 100) {
+                let batch = Array(ids[start..<min(start + 100, ids.count)])
+                let _: Acknowledgment? = try? await client.send("/im/v1/message-receipts", body: ["message_ids": batch])
+            }
+        }
     }
 
     private func persistEvent(_ event: UserEvent) async {

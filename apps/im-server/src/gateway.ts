@@ -566,17 +566,16 @@ export class Gateway {
       const input = JSON.parse(relay.payload_json);
       const targetAgent = this.requireAgent(c, input.agent_id);
       s.access({ ...c, kind: "gateway" }, relay.conversation_id, targetAgent.agent_id);
-      if (p.delivery_status === 'read') {
-        if (input.metadata?.agent_receipt && relay.status !== 'cancelled') transaction(db, () => {
-          if (db.prepare('INSERT OR IGNORE INTO relay_message_reads VALUES(?)').run(relay.relay_task_id).changes) {
-            s.event(relay.conversation_id, relay.message_id, 'relay.delivery_receipt', {
-              relay_task_id: relay.relay_task_id, agent_id: targetAgent.agent_id, receipt_stage: 'read',
-            });
-          }
-        });
-        return ack({relay_task_id:p.relay_task_id});
+      if (!['sent','accepted','completed','failed','read'].includes(p.delivery_status)) fail(400,'invalid_delivery_status');
+      if (input.metadata?.agent_receipt && relay.status !== 'cancelled' && p.delivery_status !== 'failed') {
+        const stage = p.delivery_status === 'read' ? 2 : 1;
+        if (db.prepare(`
+          UPDATE message_receipts SET status=? WHERE message_id=? AND status<?
+            AND recipient_id=(SELECT id FROM users WHERE username=?)
+        `).run(stage,relay.message_id,stage,'agent:'+targetAgent.agent_id).changes)
+          s.event(relay.conversation_id,relay.message_id,'message.receipts_changed',{});
       }
-      if (!['sent','accepted','completed','failed'].includes(p.delivery_status)) fail(400,'invalid_delivery_status');
+      if (p.delivery_status === 'read') return ack({relay_task_id:p.relay_task_id});
       if (relay.status === 'completed' || relay.status === 'failed' || relay.receipt_status === p.delivery_status || (relay.receipt_status==='accepted' && p.delivery_status==='sent')) return ack({relay_task_id:p.relay_task_id});
       if (relay.status === "cancelled") return ack({relay_task_id:p.relay_task_id});
       db.prepare(

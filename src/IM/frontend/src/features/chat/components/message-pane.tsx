@@ -1710,15 +1710,15 @@ function ContextMenu({
   );
 }
 
-function AgentReceipt({ receipts }: { receipts: NonNullable<Message["agent_receipts"]> }) {
+function MessageReceipt({ receipts }: { receipts: NonNullable<Message["receipts"]> }) {
   const { t } = useTranslation();
   const status = receipts.some(receipt => receipt.status === "sent") ? "sent"
     : receipts.some(receipt => receipt.status === "received") ? "received" : "read";
   const Icon = status === "sent" ? Check : CheckCheck;
   const labels = receipts.map(receipt => ({
-    id: receipt.agent_id,
-    text: receipts.length === 1 ? t(`chat.messagePane.agentReceipt.${receipt.status}`)
-      : `${receipt.display_name} · ${t(`chat.messagePane.agentReceipt.${receipt.status}`)}`
+    id: receipt.recipient_id,
+    text: receipts.length === 1 ? t(`chat.messagePane.receipt.${receipt.status}`)
+      : `${receipt.display_name} · ${t(`chat.messagePane.receipt.${receipt.status}`)}`
   }));
 
   return (
@@ -2115,7 +2115,7 @@ function MessageBubble({
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span className="relative inline-flex items-center gap-1">
             <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
-            {isUser && !!message.agent_receipts?.length && <AgentReceipt receipts={message.agent_receipts} />}
+            {isUser && !!message.receipts?.length && <MessageReceipt receipts={message.receipts} />}
           </span>
           {message.interaction_reply && deliveryStatus === "pending" && <span role="status">{t("chat.interactive.queued")}</span>}
           {deliveryStatus === "running" && (
@@ -2135,7 +2135,7 @@ function MessageBubble({
               ⏱ {elapsedDisplay}
             </span>
           )}
-          {deliveryStatus === "failed" && (
+          {deliveryStatus === "failed" && (!isUser || !message.receipts?.length) && (
             <span className="text-[oklch(0.55 0.15 25)]">{t("chat.messagePane.failed")}</span>
           )}
 

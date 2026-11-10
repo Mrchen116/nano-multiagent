@@ -189,7 +189,8 @@ export class GlobalAgent {
     return this.options.relay.request('agent.session.ensure',{node_id:this.options.nodeId,agent_id:binding.agentId,session_id:binding.sessionId})
       .then(()=>{if(this.authorityEpoch===epoch)this.authorities.add(key);});
   }
-  private async drainReceipts(): Promise<void> {
+  /** Reconcile the shared node receipt outbox for IM and Feishu. */
+  async drainReceipts(): Promise<void> {
     await Promise.all([this.drainReceiptQueue('im'), this.drainReceiptQueue('feishu')]);
   }
   private drainReceiptQueue(channel: 'im' | 'feishu'): Promise<void> {

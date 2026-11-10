@@ -198,6 +198,12 @@ export class InboxStore {
     `).all(channel ?? null, Number(channel === 'feishu')) as {input:string;status:string}[])
       .map(row=>({input:JSON.parse(row.input) as RelayInput,status:row.status}));
   }
+  /** Enqueue a native session's receipt without adding the message to the Global Inbox. */
+  queueNativeReceipt(input: RelayInput, read: boolean): void {
+    this.db.prepare('INSERT OR IGNORE INTO relay_receipts(id,agent_id,message_id,input,status,read_pending) VALUES(?,?,?,?,?,?)')
+      .run(input.relay_task_id,input.agent_id,input.message.id,JSON.stringify(input),'sent',Number(read));
+    if (read) this.db.prepare('UPDATE relay_receipts SET read_pending=1 WHERE id=? AND read_pending=0').run(input.relay_task_id);
+  }
   /** Advance all relay identities for a message without regressing a terminal receipt. */
   settleRelay(input: RelayInput, status: string): void {
     if (this.deletedAgent(input.agent_id)) return;
@@ -208,7 +214,7 @@ export class InboxStore {
   /** Close a revoked obligation without recording a remote acceptance. */
   rejectRelay(id:string):void {this.db.prepare('UPDATE relay_receipts SET confirmed=-1 WHERE id=?').run(id);}
   confirmRelay(id: string, status: string): void {
-    if (status === 'read') this.db.prepare('UPDATE relay_receipts SET read_pending=0 WHERE id=?').run(id);
+    if (status === 'read') this.db.prepare('UPDATE relay_receipts SET read_pending=2 WHERE id=?').run(id);
     else this.db.prepare('UPDATE relay_receipts SET confirmed=1 WHERE id=? AND status=?').run(id,status);
   }
   pendingControls(): RelayInput[] {return (this.db.prepare('SELECT input FROM relay_controls WHERE done=0 ORDER BY rowid').all() as {input:string}[]).map(row=>JSON.parse(row.input) as RelayInput);}
@@ -515,9 +521,9 @@ export class InboxStore {
         if (count === this.parts(JSON.parse(row.payload) as RelayInput, row.seq).length) {
           this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(fragment.seq);
           const input = JSON.parse(row.payload) as RelayInput;
-          if (!row.consumed && input.metadata.agent_receipt) {
+          if (!row.consumed) {
             this.db.prepare(`UPDATE relay_receipts SET read_pending=1
-              WHERE agent_id=? AND message_id=? AND json_extract(input,'$.metadata.agent_receipt')=1`)
+              WHERE agent_id=? AND message_id=? AND read_pending=0 AND json_extract(input,'$.metadata.agent_receipt')=1`)
               .run(input.agent_id,input.message.id);
           }
           if (turn !== undefined) this.db.prepare('INSERT OR IGNORE INTO ingestions VALUES(?,?,?)').run(fragment.seq, session, turn);

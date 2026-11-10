@@ -63,6 +63,6 @@ export function registerMessageAttemptRoutes(app: FastifyInstance, ctx: ImContex
     if (!access.is_member) fail(404, 'message attempt not found');
     const message = one(ctx.db, 'SELECT id FROM messages WHERE conversation_id=? AND caller_idempotency_key=? AND sender_user_id=? AND sender_type=\'user\'', cid, key, principal.id);
     if (!message) fail(404, 'message attempt not found');
-    return ctx.messaging.message(message.id);
+    return ctx.messaging.records.senderView(ctx.messaging.message(message.id),principal.id);
   });
 }

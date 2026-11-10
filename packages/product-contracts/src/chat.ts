@@ -108,8 +108,9 @@ export function projectChatReplyContext(reply: ChatReplyReference) {
   };
 }
 
-export interface AgentMessageReceipt {
-  agent_id: string;
+/** The sender's view of one recipient's confirmed message progress. */
+export interface MessageReceipt {
+  recipient_id: string;
   display_name: string;
   status: 'sent' | 'received' | 'read';
 }
@@ -124,7 +125,8 @@ export interface ChatMessage {
   reply_process: ChatProcessItem[]; permission_requests: ChatPermission[]; token_usage: ChatUsage | null;
   system_notice: unknown; interaction_reply: InteractionSnapshot | null; interactive?: MessageInteractive;
   update_wait?: 'updating' | 'recovery_required' | null;
-  agent_receipts?: AgentMessageReceipt[];
+  receipts_requested?: true;
+  receipts?: MessageReceipt[];
   pa_agent_id?: string;
   delegation?: {agent_id: string; authorized_by: string; display_name: string; label: string};
   /** Internal non-enumerable projection details, never copied into client JSON. */

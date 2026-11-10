@@ -241,9 +241,13 @@ CREATE TABLE IF NOT EXISTS relay_tasks (
     FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
-CREATE TABLE IF NOT EXISTS relay_message_reads (
-    relay_task_id TEXT PRIMARY KEY REFERENCES relay_tasks(relay_task_id) ON DELETE CASCADE
+CREATE TABLE IF NOT EXISTS message_receipts (
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    recipient_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (message_id, recipient_id)
 );
+CREATE INDEX IF NOT EXISTS message_receipts_recipient ON message_receipts(recipient_id, status, message_id);
 CREATE TABLE IF NOT EXISTS agent_message_dispatch_log (
     dispatch_request_key TEXT PRIMARY KEY,
     source_agent_id TEXT NOT NULL,
