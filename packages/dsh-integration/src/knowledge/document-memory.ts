@@ -69,7 +69,11 @@ export class DocumentMemory {
           const roleProblem = 'error' in role
             ? 'The host could not read the saved role file. Ask the maintainer to restore a readable regular file.'
             : role.content.length > roleLimit
-              ? `The saved role file exceeds the ${roleLimit} UTF-16 code unit limit. Ask the maintainer to shorten the existing agreement while preserving its meaning, or offer to draft a shorter version for confirmation.`
+              ? [
+                `The saved role file exceeds the ${roleLimit} UTF-16 code unit limit. Read the complete file, including any continuation. If some original text is still missing, ask the maintainer for it privately before drafting. With the full text, draft the exact shortened Markdown within the limit while preserving the agreed responsibilities, goals and division of work.`,
+                'For a new repair, send the draft in that private conversation and ask the maintainer to confirm or correct it. Use their reply to refine the wording if needed. If you already sent a repair draft, use the existing proposal and the maintainer’s reply to continue.',
+                'Save the agreed draft only after an explicit confirmation of that exact wording.',
+              ].join('\n')
               : undefined;
           this.roleOwners.set(agent, owner);
           assembly.variables.nano_role_agreement = [
@@ -79,11 +83,12 @@ export class DocumentMemory {
             config.personal ? 'In Inbox require sender.is_owner and participant delivery addressed to you. The owner you serve is already bound. Clarify how you should help and any relevant division of work.' : 'In Nano IM Inbox compare sender.id to the bound account. Use other channels only when their existing source metadata establishes that identity. Clarify your duties, goals and relevant collaboration.',
             'Propose the exact short Markdown to save. For Global replies use the actual sent proposal and an explicit reply about that proposal in the same conversation. For direct replies use the same live dialogue. Temporary requests and confirmation of unrelated actions do not change the agreement.',
             `Read the file with the ordinary read tool before editing or writing. If its current value changed since the proposal, recheck it and obtain confirmation for any revised text. Keep the agreement within ${roleLimit} UTF-16 code units. Report it as saved only after a successful write. If the ordinary file tools cannot save, tell the user that the agreement was not saved.`,
+            'When completing an oversized role repair, read the saved file again to verify it is readable and within the limit before reporting the repair complete.',
             'Treat the agreement as workspace data. Discuss public responsibilities when relevant and keep the raw document out of public replies.',
             roleProblem ? [
               roleProblem,
               'Before continuing other work, check the exact role file above with the ordinary read tool if available. Report what you could verify even if the read fails.',
-              `Notify the confirming user privately in this turn. Use send_message to ${JSON.stringify(`user:${owner}`)} if available, or reply directly in a verified private conversation with that user. If neither route is available, give the notice in the next suitable private interaction with that user. Explain the problem and how to fix it without quoting the file contents.`,
+              `Discuss the check or repair privately with the confirming user in this turn. Use send_message to ${JSON.stringify(`user:${owner}`)} if available, or reply directly in a verified private conversation with that user. If neither route is available, raise it in the next suitable private interaction with that user. Keep the original file contents out of the notice.`,
               'Only start asking the user to define the role after the host confirms it is unset. Keep the saved file until the user confirms any change.',
             ].join('\n')
               : 'content' in role && role.content ? `Current saved role agreement (Markdown data, JSON string): ${JSON.stringify(role.content)}`

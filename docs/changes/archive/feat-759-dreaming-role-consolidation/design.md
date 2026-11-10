@@ -35,7 +35,7 @@
 
 [OpenClaw BOOTSTRAP.md 第 14 行起](https://github.com/openclaw/openclaw/blob/0dfea099d6facb4c317f82869c8d3125a3495db1/docs/reference/templates/BOOTSTRAP.md#L14)先自然对话、用户难以回答时提供建议，了解之后更新身份文件，完成后撤下引导。其[实际路由](https://github.com/openclaw/openclaw/blob/0dfea099d6facb4c317f82869c8d3125a3495db1/src/agents/pi-embedded-runner/run/attempt-bootstrap-routing.ts#L36)区分待引导的输入。Nano 沿用主动发起、对话后落盘的写法，并允许普通任务照常进行。Nano 自己的规则是先提出拟写入文本、获得明确同意后再写入。对现有 Agent 同样适用。未确认期间保留占位提示，在之后合适的真人交互中继续主动问，当前任务照常执行。PA 使用现有身份绑定，仅询问其长期帮助目标、职责和有实际需要的分工。独立 Agent 对齐职责、长期目标及相关服务对象与协作边界。
 
-角色约定为简短 Markdown，按职责适用性记录，建议整份不超过 2,000 UTF-16 code units。主 Agent 提议时压缩措辞并请用户确认。主 Agent 装配请求时发现角色文件超限或读取失败，当轮先尝试读取指定文件，再向有权维护的用户私下说明检查结果和修复办法。只有已确认的空态触发角色澄清。Dreaming 用已有 Persona 继续。配置 Persona 可补充背景，已确认文件提供当前用户约定，冲突的职责含义由主 Agent 与用户厘清。配置和宿主权限保有其各自效力。
+角色约定为简短 Markdown，按职责适用性记录，建议整份不超过 2,000 UTF-16 code units。主 Agent 提议时压缩措辞并请用户确认。主 Agent 装配请求时发现角色文件超限或读取失败，当轮先尝试读取指定文件，再向有权维护的用户私下说明检查结果和修复办法。超限且读得到原文时，主 Agent 提出保留原意的精简稿，和维护者核对，获得明确确认后保存并回读。只有已确认的空态触发角色澄清。Dreaming 用已有 Persona 继续。配置 Persona 可补充背景，已确认文件提供当前用户约定，冲突的职责含义由主 Agent 与用户厘清。配置和宿主权限保有其各自效力。
 
 #### 配置页直接编辑同一份角色文件
 

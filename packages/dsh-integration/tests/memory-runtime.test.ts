@@ -55,6 +55,7 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     expect(JSON.stringify(requests[0].messages)).toContain('Host-verified role agreement sender for the following direct input: bound account.');
     const latest=requests.at(-1);
     expect(JSON.stringify(latest.messages)).toContain('Coordinate delivery. Use {{customer_name}} in templates.');
+    expect(JSON.stringify(latest.messages)).toContain('When completing an oversized role repair, read the saved file again');
     expect(JSON.stringify(latest.messages)).toContain('Host-verified role agreement sender for the following direct input: other user.');
     const control = latest.tools.find((tool:any)=>tool.name==='memory_maintenance');
     expect(control.parameters.properties.action.enum).toEqual(['status', 'run']);
@@ -85,7 +86,10 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     await submit('check-oversized-role', 'collaborator');
     const tooLong = await currentContext('Role agreement file:');
     expect(tooLong).toContain('exceeds the 2000 UTF-16 code unit limit');
-    expect(tooLong).toContain('shorten the existing agreement while preserving its meaning');
+    expect(tooLong).toContain('draft the exact shortened Markdown');
+    expect(tooLong).toContain('send the draft in that private conversation and ask the maintainer to confirm or correct it');
+    expect(tooLong).toContain('after an explicit confirmation');
+    expect(tooLong).toContain('read the saved file again');
     expect(tooLong).toContain('Before continuing other work, check');
     expect(tooLong).toContain('send_message to "user:owner"');
     expect(tooLong).not.toContain('OVERSIZED_ROLE_BODY');
@@ -100,6 +104,7 @@ it('rejects foreground writes and checkpoint while refreshing host-applied memor
     const unavailable = await currentContext('Role agreement file:');
     expect(unavailable).toContain('could not read the saved role file');
     expect(unavailable).toContain('restore a readable regular file');
+    expect(unavailable).not.toContain('draft the exact shortened Markdown');
     expect(unavailable).toContain('Before continuing other work, check');
     expect(unavailable).toContain('send_message to "user:owner"');
     expect(unavailable).not.toContain('Role agreement is unset');
