@@ -1,3 +1,4 @@
+import {DatabaseSync} from 'node:sqlite';
 import {expect,it} from 'vitest';
 import {start,bind,connect} from './helpers.js';
 
@@ -54,6 +55,14 @@ it('projects Global Agent receipt stages separately from the relay lifecycle', a
   await receipt('sent');
   expect((await history()).receipts).toMatchObject([{ recipient_id: input.payload.participants.find((actor: any) => actor.id === 'global').user_id, status: 'received' }]);
   await receipt('read');
+  const db = new DatabaseSync(f.dbPath, { readOnly: true });
+  try {
+    const events = db.prepare(`SELECT message_id FROM conversation_events
+      WHERE conversation_id=? AND event_type='message.receipts_changed'`).all(conversation.body.id);
+    expect(events).toEqual([{ message_id: null }, { message_id: null }]);
+  } finally {
+    db.close();
+  }
   await receipt('failed');
   expect((await history()).receipts).toMatchObject([{ recipient_id: input.payload.participants.find((actor: any) => actor.id === 'global').user_id, status: 'read' }]);
 });

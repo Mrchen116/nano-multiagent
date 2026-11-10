@@ -5,8 +5,6 @@
 // only fields the chat UI actually consumes are declared, so the compiler
 // catches drift if the backend renames a field we depend on.
 
-import type { MessageReceipt } from "@nano/product-contracts";
-
 export type ConversationKind =
   | "direct-agent"
   | "direct-user"
@@ -14,6 +12,12 @@ export type ConversationKind =
   | "agent-network";
 
 export type DeliveryStatus = "pending" | "sent" | "running" | "completed" | "failed";
+
+interface MessageReceipt {
+  recipient_id: string;
+  display_name: string;
+  status: "sent" | "received" | "read";
+}
 
 export type ToolCallStatus = "running" | "completed" | "failed";
 

@@ -573,7 +573,8 @@ export class Gateway {
           UPDATE message_receipts SET status=? WHERE message_id=? AND status<?
             AND recipient_id=(SELECT id FROM users WHERE username=?)
         `).run(stage,relay.message_id,stage,'agent:'+targetAgent.agent_id).changes)
-          s.event(relay.conversation_id,relay.message_id,'message.receipts_changed',{});
+          // A receipt refreshes the chat without changing the message version used by frozen reads.
+          s.event(relay.conversation_id,null,'message.receipts_changed',{});
       }
       if (p.delivery_status === 'read') return ack({relay_task_id:p.relay_task_id});
       if (relay.status === 'completed' || relay.status === 'failed' || relay.receipt_status === p.delivery_status || (relay.receipt_status==='accepted' && p.delivery_status==='sent')) return ack({relay_task_id:p.relay_task_id});
