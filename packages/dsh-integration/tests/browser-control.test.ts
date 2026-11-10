@@ -211,6 +211,17 @@ it('reports unchanged when the readback matches the read text', async () => {
   expect(result.effect).toBe('unchanged');
 });
 
+it('does not infer a page change from a query-filtered baseline and an unfiltered readback', async () => {
+  const driver = new BrowserFixtureDriver({ text: 'Full page: Increment', queryText: 'Increment' });
+  const control = controlFor(driver);
+  const agent = openAgent('agent-a');
+
+  const read = await control.read(agent, undefined, { query: 'Increment' });
+  expect(read.text).toBe('Increment');
+  await expect(control.act(agent, undefined, { action: 'click', read_id: read.read_id, ref: 'p1:0' }))
+    .resolves.toMatchObject({ dispatched: true, effect: 'unverifiable', text_after: 'Full page: Increment' });
+});
+
 it('requests a screenshot for scroll by default and saves it in the Agent workspace', async () => {
   const driver = new BrowserFixtureDriver({ url: 'https://example.com', title: 'Example', screenshot: png(2400, 1464) });
   const control = controlFor(driver);

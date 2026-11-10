@@ -185,7 +185,8 @@ export class BrowserControl {
       const page = await this.snapshot(instance, bound, tab, args.query, args.screenshot === true);
       const maxChars = Math.min(args.max_chars ?? DEFAULT_READ_CHARS, MAX_READ_CHARS);
       const text = page.text.slice(0, maxChars);
-      const record = instance.reads.mint({ ...tab, url: page.url, title: page.title || tab.title }, page.text);
+      // Action readback is unfiltered, so only compare text from a full read.
+      const record = instance.reads.mint({ ...tab, url: page.url, title: page.title || tab.title }, args.query ? undefined : page.text);
       const screenshot = await this.saveScreenshot(workspace, productAgentId, page.screenshot);
       const events = await this.inspectWindows(instance);
       const base = {
@@ -260,7 +261,8 @@ export class BrowserControl {
         observed = { url: readback.url, title: readback.title, active: afterTab.active };
         textAfter = readback.text.slice(0, DEFAULT_READ_CHARS);
         screenshotBase64 = readback.screenshot;
-        effect = readback.url !== baselineUrl || baselineText !== undefined && readback.text !== baselineText ? 'changed' : 'unchanged';
+        if (readback.url !== baselineUrl || baselineText !== undefined && readback.text !== baselineText) effect = 'changed';
+        else if (args.action === 'open' || baselineText !== undefined) effect = 'unchanged';
       } catch (error) {
         if (isBrowserError(error) && ['browser_session_lost', 'browser_foreground_release_failed'].includes(error.browserCode)) throw error;
         effect = 'unverifiable';

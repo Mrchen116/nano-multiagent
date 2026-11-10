@@ -25,7 +25,7 @@ export interface ReadRecord {
   url: string;
   title: string;
   active: boolean;
-  text: string;
+  text: string | undefined;
 }
 
 function text(value: unknown): string {
@@ -71,7 +71,7 @@ export class ReadRegistry {
   private counter = 0;
   private current?: ReadRecord;
 
-  mint(tab: DriverTab, pageText: string): ReadRecord {
+  mint(tab: DriverTab, pageText: string | undefined): ReadRecord {
     this.counter += 1;
     this.current = { readId: `r${this.counter}`, url: tab.url, title: tab.title, active: tab.active, text: pageText };
     return this.current;

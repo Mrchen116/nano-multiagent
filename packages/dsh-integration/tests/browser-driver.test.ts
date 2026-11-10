@@ -94,6 +94,18 @@ it('keeps structured refusals distinct and preserves code and hint', async () =>
   });
 });
 
+it('rejects a trusted click outcome with effect refused and no status envelope', async () => {
+  const hint = 'The trusted input route was refused.';
+  const client = new DriverClient({ spawn: fakeSpawn([{
+    stdout: JSON.stringify({ effect: 'refused', route: 'trusted_input', hint }),
+  }]).spawn });
+
+  await expect(client.call('browser_click', { ref: 'p1:0' })).rejects.toMatchObject({
+    code: 'browser_driver_refused',
+    details: { hint },
+  });
+});
+
 it('kills a hung child on timeout and reports an unknown page state', async () => {
   vi.useFakeTimers();
   const fake = fakeSpawn([{ hang: true }]);

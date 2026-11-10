@@ -108,7 +108,7 @@ export class DriverClient implements BrowserDriverLike {
       throw browserError('browser_driver_malformed', `${tool} 返回的 JSON 不是对象：${excerpt(run.stdout)}`);
     }
     const value = parsed as Record<string, unknown>;
-    if (value.status === 'refused' || value.refusal) {
+    if (value.status === 'refused' || value.effect === 'refused' || value.refusal) {
       const refusal = value.refusal as { code?: unknown; message?: unknown } | undefined;
       throw browserError('browser_driver_refused', `${tool} 被驱动拒绝：${String(refusal?.code ?? 'refused')} ${String(refusal?.message ?? '')}`.trim(), {
         refusalCode: refusal?.code,

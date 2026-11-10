@@ -48,6 +48,7 @@ export interface FakeWindowState {
   url?: string;
   title?: string;
   textOnClick?: string;
+  queryText?: string;
   navigateUrl?: string;
   navigateText?: string;
   preparePid?: string;
@@ -91,7 +92,7 @@ export class BrowserFixtureDriver extends ScriptedDriver {
           // the page text/elements live in top-level outline/refs.
           return {
             snapshot: { format: 'semantic_v2', complete: true, omitted: [], node_budget: 250 },
-            outline: state.text,
+            outline: (args.query && state.queryText) || state.text,
             refs: [{ ref: 'p1:0', role: 'button', name: 'Increment', actions: ['click', 'pointer'] }],
             content_refs: [{ ref: 'p1:0', role: 'button', name: 'Increment' }],
             ...(state.screenshot ? { screenshot_png_b64: state.screenshot, screenshot_width: 2400, screenshot_height: 1464, mime_type: 'image/png' } : {}),
