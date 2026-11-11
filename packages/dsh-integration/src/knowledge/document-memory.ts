@@ -85,30 +85,32 @@ export class DocumentMemory {
           const owner = config.personal?.ownerId ?? binding.ownerId;
           const confirmer = config.personal ? 'owner' : 'bound administrator';
           const privateContact = `Contact your ${confirmer} privately in this turn. Use send_message to ${JSON.stringify(`user:${owner}`)} if available, or reply in a verified private conversation with them. If neither is possible, bring it up the next time you can speak privately.`;
+          const agreementPath = rolePath(documents.workspace);
           let currentAgreement: string;
           if ('error' in role) {
             currentAgreement = [
+              `Role agreement file: ${agreementPath}.`,
               'The host could not read the saved role file. Check it with the ordinary read tool first.',
               privateContact,
               'Explain what you could verify, even if the read fails, and agree on how to restore a readable regular file.',
             ].join(' ');
           } else if (role.content.length > roleLimit) {
             currentAgreement = [
+              `Role agreement file: ${agreementPath}.`,
               `The saved role file exceeds the ${roleLimit} UTF-16 code unit limit. Read the complete original first.`,
               privateContact,
               'Ask them for any missing text. Draft a shorter version that preserves the original meaning and send it privately. Continue from the existing draft if you already sent one. Save only after they explicitly confirm the exact text, then read the saved file again to verify that it is readable and within the limit.',
             ].join(' ');
           } else if (role.content) {
-            currentAgreement = `Your confirmed role agreement:\n\n<role_content>\n${role.content}\n</role_content>`;
+            currentAgreement = `Contents of ${agreementPath} — your confirmed role agreement:\n<role_content>\n${role.content}\n</role_content>`;
           } else {
-            currentAgreement = `Role agreement is unset. Contact your ${confirmer} immediately and ask them to clarify your long-term role. You must ask every time you speak with them until the agreement is confirmed and saved.`;
+            currentAgreement = `Role agreement file: ${agreementPath}.\n\nRole agreement is unset. Contact your ${confirmer} immediately and ask them to clarify your long-term role. You must ask every time you speak with them until the agreement is confirmed and saved.`;
           }
           this.roleOwners.set(agent, owner);
           assembly.variables.nano_role_agreement = [
             config.personal
               ? 'ROLE.md records how your owner wants you to help over time. Use it to understand what they want ongoing support with, what you should follow up on proactively, and what they handle themselves.'
               : 'ROLE.md records the long-term responsibilities, goals, and division of work you agreed on with your administrator. Use it to decide what you own, what you need to deliver, and what other collaborators are responsible for.',
-            `Role agreement file: ${rolePath(documents.workspace)}.`,
             'When establishing or revising the agreement, load nano-role-agreement with the skill tool if available before guiding the conversation.',
             `You may propose changes to an existing agreement when you identify a need, or when your ${confirmer} (${JSON.stringify(owner)}) requests a change. Explain the reason and the proposed changes. Verify their identity using the system-provided sender information. Save only after sending them the exact Markdown and receiving their explicit confirmation of that draft in the same conversation. Read the current file before writing. If you need to revise the confirmed draft, send the new version for confirmation. Keep the text within ${roleLimit} UTF-16 code units and tell them whether the write succeeded.`,
             currentAgreement,
