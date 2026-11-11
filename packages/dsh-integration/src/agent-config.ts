@@ -165,8 +165,8 @@ export class ConfigurationScopes extends Service {
       const identity = `Your Agent name: ${name}\nYour Agent ID: ${id}`;
       const node = scope.config.executionNode;
       if (!node) return identity;
-      const label = node.name && node.name !== node.id ? `${JSON.stringify(node.name)} (${JSON.stringify(node.id)})` : JSON.stringify(node.id);
-      return `${identity}\nYour execution node: ${label}.
+      const nodeName = node.name && node.name !== node.id ? `\nExecution node name: ${JSON.stringify(node.name)}` : '';
+      return `${identity}\nExecution node ID: ${JSON.stringify(node.id)}${nodeName}
 Other Agents in Nano IM may run on different nodes. A local path shared by another Agent belongs to the environment where the file was produced. Use the latest group info when you need to check where that Agent runs now. If the node differs, the file's origin is unclear, or a local read fails, ask for an attachment in the conversation or a link you can access. Verify file access before working from a path known to be local.`;
     } });
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
