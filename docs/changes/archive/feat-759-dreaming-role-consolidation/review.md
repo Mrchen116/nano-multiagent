@@ -100,3 +100,6 @@
 作者真实 Web 操作：隔离 daily 栈（团队 seed 因能力目录 504 未完成）中创建 `role-ui-check`，填写两行角色，进入配置页读到相同内容，再独立保存修订角色；页面显示 Role agreement saved，普通配置仍 No changes。实际窄屏画面中职责说明、正文、独立保存按钮相邻，旧 Custom Instructions 已不存在。只观察 Web；iOS 本轮为编译/合同测试，未重复真人界面旅程。测试 Agent 没有聊天/模型调用，现场随后停止并回收。
 
 完整本地基线验证：TS/runtime 235 文件 1,334 测、Web 122 文件 1,185 测、Python 非 E2E 135 测、全库 typecheck、ruff 与文档检查通过。上列修复之后补跑受影响的定向验证，不因仅新增说明和错误路径而重复全部成功套件。额外 Global Inbox 回归已通过；群延迟发送 fixture 适配当前 ID 后缀与审核器身份后真实链路也通过（33.46s），未改产品逻辑。
+
+
+定向复验 `ffcc243aa`：独立审查者确认 C2/D1 关闭、Context 结论保留，指出 C1/C3 各有剩余路径。C1 在 ordinary runtime 尚未恢复时，立即重试可能从配置队列启动 runtime，而 onReady 又等待恢复该队列。修复为携初始角色的 ordinary prepare 在离线时直接抛出 pending；由既有 supervisor 恢复后重放，避免互等，专门分区测试验证不会从该调用启动 runtime。C3 Web 清空原先仍发空串；修复为省略空白初始值（非空保留原文），补清空后第二次创建请求断言。两组后台 19/19、Web 创建 16/16 通过；iOS 最终构建通过。

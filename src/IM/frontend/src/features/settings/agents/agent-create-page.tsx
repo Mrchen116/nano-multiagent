@@ -65,7 +65,7 @@ function normalizeDraft(draft: CreateAgentFormState, modelOptions: ModelOption[]
     agent_id: normalizeText(draft.agent_id),
     display_name: normalizeText(draft.display_name),
     description: normalizeText(draft.description),
-    initial_role: draft.initial_role ?? "",
+    initial_role: draft.initial_role?.trim() ? draft.initial_role : undefined,
     features: draft.features ?? {},
     skills: normalizeAllowlist(draft.skills),
     tool_allowlist: normalizeAllowlist(draft.tool_allowlist),

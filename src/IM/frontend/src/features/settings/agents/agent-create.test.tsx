@@ -799,6 +799,10 @@ describe("agent create prompt preview", () => {
     expect(await screen.findByText(/This workspace already has a different role agreement/)).toBeInTheDocument();
     expect(screen.getByLabelText(/^Initial role agreement/)).toHaveValue("New proposed responsibilities");
     expect(screen.queryByText(/configuration has changed/i)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^Initial role agreement/), {target: {value: ""}});
+    fireEvent.click(screen.getByRole("button", {name: /^Create agent$/i}));
+    await waitFor(() => expect(apiMocks.createNodeAgentMock).toHaveBeenCalledTimes(2));
+    expect(apiMocks.createNodeAgentMock.mock.calls[1][1].initial_role).toBeUndefined();
   });
 
   it("previews selected skills without sending the initial role", async () => {

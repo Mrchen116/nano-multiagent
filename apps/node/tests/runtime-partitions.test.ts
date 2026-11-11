@@ -183,3 +183,21 @@ it('fences A callbacks and collections without blocking B in their shared host',
   expect(await port.request('workflow.pending',{})).toEqual([{id:'b',parentSessionId:'root-b'}]);
   expect(errors).toHaveLength(1);
 });
+
+it('does not start ordinary recovery from an initial-ROLE retry that recovery itself must await', async () => {
+  const {runtime, ordinary} = fixture();
+  await runtime.start();
+  ordinary.available = false;
+  let starts = 0;
+  ordinary.start = async () => { starts++; ordinary.available = true; };
+  const intent = {operationId: 'create', fingerprint: 'create-role', config: config('fresh'), initialRole: 'Coordinate releases.'};
+  await expect(runtime.request('configuration.prepare', intent)).rejects.toThrow('Runtime recovery pending');
+  expect(starts).toBe(0);
+  expect(ordinary.calls).toEqual([]);
+  // Supervisor recovery makes the host ready before replaying the retained creation intent.
+  ordinary.available = true;
+  ordinary.result['configuration.prepare'] = {ready: true};
+  expect(await runtime.request('configuration.prepare', intent)).toEqual({ready: true});
+  expect(ordinary.calls.at(-1)).toEqual({method: 'configuration.prepare', params: intent});
+  await runtime.shutdown();
+});
