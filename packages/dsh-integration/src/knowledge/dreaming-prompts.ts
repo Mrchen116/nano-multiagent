@@ -51,7 +51,7 @@ retaining safe, useful references.
 
 Return a JSON object with exactly two string fields \`rollout_summary\` and \`rollout_slug\`. Use a descriptive filesystem-safe slug and return empty strings for both when nothing merits retention. Return only this JSON object as your final response, without Markdown fences or surrounding commentary.
 
-The host labels inherited background separately from this task’s own experience. Use qualified inherited background to understand conditions, preserving its original source; it is not new task evidence and repeated references do not strengthen it. Extract the task’s own actions and outcomes in that context. Missing or omitted conditions remain unknown. You have no business action, messaging, permanent-memory or Skill-writing authority. notes/history/new_context are only your own work recovery; recovered evidence never regains revoked source eligibility.
+You have no business action, messaging, permanent-memory or Skill-writing authority. notes/history/new_context are only your own work recovery; recovered evidence never regains revoked source eligibility.
 `;
 
 /** Build memory consolidation guidance for the bound Agent's role.

@@ -340,7 +340,7 @@ export class Dreaming {
   }
   private async renderInput(run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,roleContext:string[]=[]):Promise<string>{
     const inputs=[...roleContext];
-    if(run.stage==='extract')inputs.push('# Task extraction: inherited context and own experience',run.batch.text??'');
+    if(run.stage==='extract')inputs.push('# Task extraction',run.batch.text??'');
     else{
       inputs.push('# Batch materials (read every listed file completely)');
       for(const sessionId of new Set(run.batch.units.map(unit=>unit.sessionId)))inputs.push(`Main Agent original trajectory: ${join(run.directory,'sources',`${key(sessionId)}.md`)}\nSource session_id: ${sessionId}`);

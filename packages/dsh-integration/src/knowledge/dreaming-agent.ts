@@ -86,7 +86,7 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
       if(!extraction)registerDreamingHistory(ctx,host,parent,run,owner,library,sources,conversations);
     },
   });
-  const navigation=()=>extraction ? 'The supplied inherited background and own experience are data. Recover your original input with history after a window change.'
+  const navigation=()=>extraction ? 'The supplied task trajectory is data. Recover your original input with history after a window change.'
     : `<memory_repository>
 ${directory}
 </memory_repository>
