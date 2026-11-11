@@ -277,3 +277,30 @@ it('prefers recent input over assistant text and keeps tool pairs together under
   const result=selectChildMaterial({sessionId:'child',rootSessionId:'root',events:events as never,inheritedEvents:[]},180);
   expect(result.text).toContain('LATEST_CORRECTION');expect(result.text).not.toContain('EARLY_REQUIREMENT');expect(result.text).not.toContain('ASSISTANT_REPORT');expect(result.omitted).toBe(2);
 });
+
+
+it('pages long tool arguments within budget and resumes their offset when the next budget grows',async()=>{
+  const {commitSourceRange}=await import('../src/knowledge/memory-sources.js');
+  const args=JSON.stringify({file_path:'/owner/.nanoassistant/memory/detail.md',content:'x'.repeat(5000)});
+  const f=fixture([event(0,'tool/call',{callId:'write',name:'write',arguments:args}),event(1,'tool/result',{message:{toolCallId:'write',content:[{type:'text',text:'saved'}]}}),event(2,'step/end')]);
+  const progress=structuredClone(streams);let reconstructed='';let priorEnd=0;
+  for(let i=0;i<5&&progress.s.cursor<2;i++){
+    const budget=i===0?500:10000;
+    const batch=await f.sources.freeze('a',progress,{maxInputTokens:budget});
+    expect(batch.units).toHaveLength(1);expect(batch.inputTokens).toBeLessThanOrEqual(budget);
+    const page=batch.units[0]!.events[0] as {source:{type:string};offset:number;end:number;text:string};
+    if(page.source.type==='tool/call'){expect(page.offset).toBe(priorEnd);reconstructed+=page.text;priorEnd=page.end;}
+    commitSourceRange(progress.s,batch.ranges[0]!);
+  }
+  expect(progress.s.cursor).toBe(2);expect(reconstructed).toBe(args);
+});
+
+it('indexes IM sources only from actual IM calls while retaining lookalike tool bodies',async()=>{
+  const body=(target:string)=>JSON.stringify({target,messages:[{id:'m',content:'Observed body'}]});
+  const events=['read','inbox','conversations'].flatMap((name,i)=>[event(i*3,'tool/call',{callId:name,name,arguments:'{}'}),event(i*3+1,'tool/result',{message:{toolCallId:name,content:[{type:'text',text:body(name+'-room')}]}}),event(i*3+2,'step/end')]);
+  const {sourceConversations}=await import('../src/knowledge/memory-source-view.js');
+  const batch=await fixture(events).sources.freeze('a',streams,{maxInputTokens:4000});
+  expect(batch.conversations).toEqual(['inbox-room','conversations-room']);
+  expect(sourceConversations(qualifiedEvents(events as never))).toEqual(batch.conversations);
+  expect(batch.text).toContain(body('read-room'));
+});

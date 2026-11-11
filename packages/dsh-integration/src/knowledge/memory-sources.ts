@@ -44,9 +44,9 @@ const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(valu
 function materialSegments(values: readonly unknown[]): Array<{messageId:string;text:string;source:unknown}> {
   return values.flatMap((value,index)=>{
     const record=value as Record<string,unknown>;
-    const {content,...source}=record;
+    const {content,arguments:toolArguments,...source}=record;
     return [{messageId:String(record.messageId??String(record.seq??index)),
-      text:typeof content==='string'?content:renderMaterial([{content}]).replace(/^\{\}\n/,''),source}];
+      text:record.type==='tool/call' ? String(toolArguments ?? '') : typeof content==='string'?content:renderMaterial([{content}]),source}];
   });
 }
 
@@ -82,19 +82,19 @@ export class MemorySources {
         if (observation.source === 'live') {
           if (!live || this.ctx.sessions.get(id) !== live || !await this.ctx.sessions.flush(live)) throw new Error('Observed source cut could not be durably certified.');
         } else if (!observation.revision) throw new Error('Cold source has no durable revision.');
-        const pending = new Set<string>(); const calls = new Set<string>();
+        const pending = new Set<string>(); const calls = new Map<string,SessionEvent>();
         let start = Math.max(progress.cursor, progress.baseline); let through = start; let selected: unknown[] = [];
         let stopped = false; let continuation: SourceContinuation | undefined;
         for (const event of events) {
           if (typeof event.surfaceOp === 'object' && event.surfaceOp.op === 'replace') { result.filtered++; continue; }
           if (event.type === 'tool/call') {
             pending.add(event.data.callId);
-            calls.add(event.data.callId);
+            calls.set(event.data.callId,event);
             selected.push(nativeMaterial(event, locators[event.seq]));
           } else if (event.type === 'tool/result') {
             pending.delete(event.data.message.toolCallId);
             if (!calls.has(event.data.message.toolCallId)) { result.blocked.push({ sessionId: id, reason: 'Unpaired result; source prefix is incomplete.' }); stopped = true; break; }
-            (result.conversations ??= []).push(...sourceConversations([event]));
+            (result.conversations ??= []).push(...sourceConversations([calls.get(event.data.message.toolCallId)!,event]));
             selected.push(nativeMaterial(event, locators[event.seq]));
           } else if (event.type === 'user/message') {
             const source = event.data.source;
@@ -108,7 +108,7 @@ export class MemorySources {
             if (content.length) selected.push(nativeMaterial(event, locators[event.seq]));
           } else if (event.type === 'step/end' && pending.size === 0) {
             const tokens = estimateInputTokens(JSON.stringify(selected));
-            if (tokens > options.maxInputTokens) {
+            if (tokens > options.maxInputTokens || progress.continuation && start === progress.cursor) {
               const segments = materialSegments(selected);
               const saved = progress.continuation;
               const candidate = saved?.segment ?? 0;
@@ -126,7 +126,7 @@ export class MemorySources {
                 end -= Math.max(1, Math.ceil((end - offset) / 10));
                 pageEvents = [{...pageEvents[0]!,end,text:characters.slice(offset,end).join('')}];
               }
-              if (end > offset || characters.length===0) {
+              if ((end > offset || characters.length===0) && estimateInputTokens(JSON.stringify(pageEvents)) <= remaining) {
                 const segmentComplete = end === characters.length;
                 const complete = segmentComplete && segment === segments.length-1;
                 result.units.push({ id: `${id}:${start + 1}-${event.seq}:message-${segment}-${offset}-${end}`, sessionId:id,start,through:event.seq,

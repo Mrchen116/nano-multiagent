@@ -50,12 +50,19 @@ export function safeBoundary(events: readonly SessionEvent[], cutoff = Infinity)
 
 /** Original conversation IDs from already-qualified material, never model-supplied scope. */
 export function sourceConversations(events:readonly SessionEvent[]):string[]{
-  return [...new Set(events.flatMap(event=>{
-    if(event.type==='user/message' && 'conversationId' in event.data.source)return [String(event.data.source.conversationId)];
-    if(event.type!=='tool/result')return [];
-    try{
+  const conversations = new Set<string>();
+  const calls = new Map<string,string>();
+  for (const event of events) {
+    if (event.type === 'user/message' && 'conversationId' in event.data.source) conversations.add(String(event.data.source.conversationId));
+    if (event.type === 'tool/call') calls.set(event.data.callId,event.data.name);
+    if (event.type !== 'tool/result' || !['inbox','conversations'].includes(calls.get(event.data.message.toolCallId) ?? '')) continue;
+    try {
       const body=JSON.parse(event.data.message.content.filter(block=>block.type==='text').map(block=>block.text).join('\n'));
-      return Array.isArray(body.messages)?body.messages.map((message:Record<string,unknown>)=>String(message.conversation_id??message.target??body.conversation_id??body.target??body.source??'')).filter(Boolean):[];
-    }catch{return [];}
-  }))];
+      if (Array.isArray(body.messages)) for (const message of body.messages) {
+        const conversation=String(message.conversation_id??message.target??body.conversation_id??body.target??body.source??'');
+        if (conversation) conversations.add(conversation);
+      }
+    } catch { /* The original result remains in the trajectory even without an IM index. */ }
+  }
+  return [...conversations];
 }
