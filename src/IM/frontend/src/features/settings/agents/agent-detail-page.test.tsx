@@ -920,6 +920,36 @@ describe("agent behavior settings", () => {
     act(() => useAuthStore.setState({user: originalUser}));
   });
 
+  it("does not offer to discard and switch agents while a combined save is running", async () => {
+    const user = userEvent.setup();
+    const state = makeDetailState();
+    const originalUser = useAuthStore.getState().user;
+    useAuthStore.setState({user: {id: "owner-1", username: "owner"} as never});
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
+    let finishRole!: (value: {content: string; version: string}) => void;
+    apiMocks.saveAgentRoleMock.mockImplementation(() => new Promise(resolve => { finishRole = resolve; }));
+    apiMocks.updateAgentConfigMock.mockResolvedValue({...state.config, description: "Edited description", profile_version: 2});
+    const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    client.setQueryData(["personal-agent", "owner-1"], {binding: {agent_id: "my-pa", display_name: "My assistant", status: "active"}, creation: null});
+    const view = renderDetailPage(client);
+    try {
+      await user.type(await screen.findByLabelText("Role agreement"), "Edited role");
+      await user.clear(screen.getByLabelText("Description"));
+      await user.type(screen.getByLabelText("Description"), "Edited description");
+      await user.click(screen.getByRole("button", {name: "Save Agent"}));
+      await waitFor(() => expect(apiMocks.saveAgentRoleMock).toHaveBeenCalledTimes(1));
+      await user.click(screen.getByRole("button", {name: "My assistant"}));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(apiMocks.navigateMock).not.toHaveBeenCalled();
+      expect(apiMocks.updateAgentConfigMock).not.toHaveBeenCalled();
+      await act(async () => finishRole({content: "Edited role", version: "v2"}));
+      await waitFor(() => expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.getByRole("button", {name: "Save Agent"})).toBeDisabled());
+      await user.click(screen.getByRole("button", {name: "My assistant"}));
+      expect(apiMocks.navigateMock).toHaveBeenCalledWith("/settings/agents/my-pa");
+    } finally { view.unmount(); useAuthStore.setState({user: originalUser}); }
+  });
+
   it("opens the stable prompt preview on demand", async () => {
     apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
 

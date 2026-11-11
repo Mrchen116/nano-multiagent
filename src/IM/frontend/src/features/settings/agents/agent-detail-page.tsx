@@ -1503,7 +1503,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   }
 
   function selectAgent(nextID: string) {
-    if (nextID === agentId) return;
+    if (nextID === agentId || roleEditor.saving || mutation.isPending) return;
     if (isDirty) setPendingAgent(nextID);
     else navigate(`/settings/agents/${encodeURIComponent(nextID)}`);
   }
@@ -2114,7 +2114,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
             <div className="chat-modal-body"><p className="m-0 text-sm text-slate-600">{t("agents.create.unsavedExitBody")}</p></div>
             <footer className="chat-modal-footer bg-white">
               <button className="chat-modal-btn-ghost" type="button" onClick={() => setPendingAgent(null)}>{t("agents.create.keepEditing")}</button>
-              <button className="chat-modal-btn-primary" type="button" onClick={() => navigate(`/settings/agents/${encodeURIComponent(pendingAgent)}`)}>{t("agents.create.leaveWithoutSaving")}</button>
+              <button className="chat-modal-btn-primary" type="button" disabled={roleEditor.saving || mutation.isPending} onClick={() => navigate(`/settings/agents/${encodeURIComponent(pendingAgent)}`)}>{t("agents.create.leaveWithoutSaving")}</button>
             </footer>
           </section>
         </div>
