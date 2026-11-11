@@ -189,3 +189,11 @@ R1 至 R4 的 ROLE 相关问题维持关闭。此前跨页保护继续保留，�
 ### Recommendations
 
 无新增。本轮只审查修订后的设计，实际提交、会话续写及来源变更由实施阶段验证。
+
+## Round 7 · 2026-11-11 · ROLE 单一用户入口增量
+
+独立审查者：role_unification_design_review。范围：统一用户角色配置及一次性部署迁移；未受影响内容沿用 Round 6。
+
+结论：Approved，0 CRITICAL / 0 WARNING。旧 Persona delta 与 PA 默认指导/创建入口契约缺口已补齐。初始角色沿用 prepare → persist → apply，通过原生 CAS 落盘；已持久化后的恢复不重新初始化。部署提示词覆盖内容保留、精确默认文案去重、冲突、备份、幂等与恢复，不增加兼容逻辑。
+
+Author resolution：接受该结论；实现与隔离验证按修订设计执行，尚未执行生产迁移。设计批准不替代实际客户端、Context 与迁移验证。

@@ -10,7 +10,6 @@ it('commits each successful prefix, then freezes a fresh target after a later ba
   const rolePath=join(home,'.nanoassistant/ROLE.md');
   const firstRole='Initial agreement for the test Agent: plan the rollout.\n\nPreserve the "no restart" restriction.';
   const updatedRole='Updated agreement for the test Agent: verify the rollout.';
-  const persona='Configured role background: specialist in deployment evidence.\n\nDistinguish "reported" from verified outcomes.';
   await mkdir(join(home,'.nanoassistant'),{recursive:true});
   await writeFile(rolePath,firstRole);
   await writeFile(join(home,'fixture.mjs'),`
@@ -56,7 +55,7 @@ export function apply(ctx){
       return {workspace};
     });
     const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
-    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,provider:'deepseek-official',model:'deepseek-flash',systemPrompt:persona,features:{dreaming:false},knowledge:{dreaming:{maxInputTokens:1000}},toolAllowlist:['read','write','edit','memory_maintenance'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
+    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},knowledge:{dreaming:{maxInputTokens:1000}},toolAllowlist:['read','write','edit','memory_maintenance'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
     const submit=async(id:string,text=id)=>{
       await client!.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
@@ -81,7 +80,7 @@ export function apply(ctx){
     expect(material(requests[0])).not.toContain(updatedRole);
     expect(material(requests[1])).toContain(`<role_content>\n${updatedRole}\n</role_content>`);
     expect(material(requests[1])).not.toContain(firstRole);
-    expect(requests.every((request:any)=>material(request).includes(`<custom_instructions>\n${persona}\n</custom_instructions>`))).toBe(true);
+    expect(requests.every((request:any)=>!material(request).includes('<custom_instructions>'))).toBe(true);
     const recovery=JSON.parse(await readFile(join(home,'recovered-role.json'),'utf8'));
     expect(recovery).toMatchObject({role:'tool',toolCallId:'recover-role'});
     expect(recovery.isError).not.toBe(true);

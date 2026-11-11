@@ -123,3 +123,32 @@ Dreaming 整合 Agent 主动提交一批记忆。系统每次在它正常结束�
 ## 范围与非目标
 
 覆盖现行文档记忆模式下的 PA 与独立 Agent。沿用现有提炼、整合与保存流程，现有记忆在后续正常运行中按相关主题渐进整理。执行 Agent 主动写正式记忆或 Memory notes 的议题另见 [#515](https://github.com/Mrchen116/nano-multiagent/issues/515)。
+
+## 2026-11-11 用户确认：统一用户角色入口
+
+原话：“好，改吧。后向兼容不做，按照skill只需要写个一次性部署prompt到时候部署的时候一次性迁移”。此前已确认：PA 默认服务指导移到系统设定，不提供编辑框；用户长期职责、目标、分工与服务约定统一写 ROLE。普通 Global 同样不保留独立 Custom Instructions。现有用户内容不能丢失，部署时一次性迁移；本次不授权生产迁移或部署。
+
+### Requirement: ROLE 是唯一用户长期角色编辑入口
+
+#### Scenario: 查看与修改现有 Agent
+- **WHEN** 管理者打开 Web 或 iOS 的 Agent 配置
+- **THEN** 可以查看、编辑和保存角色约定，不再看到或提交独立 Custom Instructions；普通配置保存不改写 ROLE。
+
+#### Scenario: 创建独立 Agent
+- **WHEN** 用户在客户端或通过 PA 确认创建一个带初始角色约定的 Agent
+- **THEN** 创建结果包含实际保存到该 Agent 工作区的角色约定；同一创建请求恢复不覆盖之后已修改的 ROLE，也不重复创建 Agent。
+- **AND** 未填写角色时沿用未设置引导；复用已有工作区时不静默覆盖既有 ROLE。
+
+### Requirement: PA 默认服务指导由系统维护
+
+#### Scenario: 主请求和 Dreaming 使用角色背景
+- **WHEN** PA 发起主请求或长期记忆整合
+- **THEN** 系统提供 PA 基础服务定位与共享 Global 分工；用户个性化约定来自 ROLE。独立 Global 不获得 PA 专属服务段。
+- **AND** 不再注入单独的用户配置 Persona / custom_instructions；用户服务习惯可在 ROLE 表达，仍遵循产品角色与权限边界。
+
+### Requirement: 旧配置只进行一次性部署迁移
+
+#### Scenario: 部署包含本变更的版本
+- **WHEN** 部署 Agent 已获得对应版本的部署授权
+- **THEN** 按 deployment-prompt.md 备份并把需要保留的用户内容迁移到 ROLE，去除旧配置来源；运行时代码不兼容读取旧字段、不启动自动迁移。
+- **AND** 不覆盖已确认约定、不静默截断超过上限的用户内容；不把生产写入式功能测试作为迁移完成条件。

@@ -12,7 +12,6 @@ from ._recording import (
     StubLLMStack,
     _load_records,
     _message_blob,
-    _system_blob,
     stub_im_user,
     stub_llm_stack,
 )
@@ -30,7 +29,7 @@ def test_group_mentions_route_to_peer_and_leave_unmentioned_peer_idle(
     client.create_agent(
         node,
         "group-b",
-        custom_prompt="FIXTURE_GROUP_B",
+        initial_role="FIXTURE_GROUP_B",
         default_model=stub_llm_stack.llm_model,
     )
     user_b = next(
@@ -39,7 +38,7 @@ def test_group_mentions_route_to_peer_and_leave_unmentioned_peer_idle(
     client.create_agent(
         node,
         "group-a",
-        custom_prompt=f"FIXTURE_GROUP_A target={user_b}",
+        initial_role=f"FIXTURE_GROUP_A target={user_b}",
         default_model=stub_llm_stack.llm_model,
     )
     chat = client.create_group_conversation(["group-a", "group-b"])
@@ -59,7 +58,7 @@ def test_group_mentions_route_to_peer_and_leave_unmentioned_peer_idle(
     assert f'target_id="{user_b}"' in a[0]["content"]
     record = Path(stub_llm_stack.record_path)
     b_requests = [
-        r for r in _load_records(record) if "FIXTURE_GROUP_B" in _system_blob(r)
+        r for r in _load_records(record) if "FIXTURE_GROUP_B" in _message_blob(r)
     ]
     assert b_requests and "GROUP_RELAY" in _message_blob(b_requests[-1])
 
@@ -77,5 +76,5 @@ def test_group_mentions_route_to_peer_and_leave_unmentioned_peer_idle(
     assert not any(
         "GROUP_SOLO" in _message_blob(r)
         for r in _load_records(record)
-        if "FIXTURE_GROUP_B" in _system_blob(r)
+        if "FIXTURE_GROUP_B" in _message_blob(r)
     )

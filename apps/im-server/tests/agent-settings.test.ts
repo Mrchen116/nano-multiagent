@@ -61,7 +61,7 @@ it('keeps ROLE owner-only and writes the workspace version separately from Agent
     expect(tooLong.json()).toMatchObject({detail: {code: 'role_too_long'}});
     expect((await app.inject({method: 'PUT', url, payload: {...update, workspace: '/other'}})).statusCode).toBe(422);
     expect(request).toHaveBeenCalledTimes(3);
-    expect(one(db, 'SELECT profile_version,custom_prompt FROM agent_profiles')).toMatchObject({profile_version: 1, custom_prompt: null});
+    expect(one(db, 'SELECT profile_version FROM agent_profiles')).toMatchObject({profile_version: 1});
     expect(one(db, 'SELECT * FROM agent_settings_snapshots')).toBeUndefined();
   } finally { await app.close(); }
 });

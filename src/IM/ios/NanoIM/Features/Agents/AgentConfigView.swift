@@ -74,7 +74,6 @@ struct AgentConfigView: View {
                             DisclosureGroup(L("查看服务端配置", "Inspect server configuration")) {
                                 Text(currentConfig.display_name).font(.headline)
                                 Text(currentConfig.description)
-                                Text(currentConfig.custom_prompt ?? "")
                                 Text(L("模型", "Model") + ": " + (currentConfig.default_model ?? "—"))
                                 Text(L("备用模型", "Fallbacks") + ": " + currentConfig.model_fallbacks.joined(separator: ", "))
                                 Text(L("工具", "Tools") + ": " + currentConfig.tool_allowlist.filter { $0 != "memory" }.joined(separator: ", "))
@@ -183,7 +182,6 @@ struct AgentEditorFields: View {
     var showProfile = true
     var showModels = true
     var showCapabilities = true
-    var showInstructions = true
     var configurationDisabled = false
     var roleEditor: AgentRoleEditor?
     @State private var addingFallback = ""
@@ -250,11 +248,6 @@ struct AgentEditorFields: View {
                 ForEach(models.filter { $0.name != (draft.default_model.isEmpty ? capabilities?.platform_default_model : draft.default_model) && !draft.model_fallbacks.contains($0.name) }) { Text($0.displayLabel).tag($0.name) }
             }.disabled(capabilities == nil)
             .onChange(of: addingFallback) { _, value in if !value.isEmpty { draft.model_fallbacks.append(value); addingFallback = "" } }
-            }
-        } }
-        if showCapabilities && showInstructions { Section(L("指令与能力", "Instructions and capabilities")) {
-            DisclosureGroup(L("自定义指令", "Custom instructions")) {
-                TextEditor(text: $draft.custom_prompt).frame(minHeight: 160).accessibilityLabel(L("自定义指令", "Custom instructions"))
             }
         } }
         }.disabled(configurationDisabled)

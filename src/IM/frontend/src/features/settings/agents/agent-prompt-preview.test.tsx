@@ -99,7 +99,6 @@ function makeAgentState(opts: {
       owner_id: "owner-1",
       display_name: "Preview Agent",
       description: "",
-      custom_prompt: "",
       features: opts.configFeatures ?? {},
       skills: [],
       tool_allowlist: [] as string[],

@@ -10,7 +10,7 @@ import {requireSettingsNodeOnline} from './agent-settings.js';
 
 const fields = {
   agent_id:'Required stable unique Agent ID. Keep it unchanged while recovering this request.',
-  display_name:'Required visible name.',description:'Short purpose description.',custom_prompt:'Complete agreed responsibilities and instructions; do not copy unrelated private history.',
+  display_name:'Required visible name.',description:'Short purpose description.',initial_role:'Initial long-term role agreement, at most 2,000 UTF-16 code units. Saved once to workspace ROLE.md; do not copy unrelated private history.',
   work_mode:'single_thread (separate chat contexts) or global (one continuous cross-chat Agent). Omit to use global.',
   default_model:'A model name from capabilities.models, or null to inherit platform_default_model.',
   model_fallbacks:'Ordered model names, excluding the primary model.',reasoning_effort:'A level declared by the chosen model, or null for its default.',

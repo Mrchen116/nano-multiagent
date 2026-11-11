@@ -79,7 +79,6 @@ function makeDetailState(agentId: string, displayName: string) {
       owner_id: "owner-1",
       display_name: displayName,
       description: "",
-      custom_prompt: "",
       skills: [],
       tool_allowlist: [],
       group_reply_policy: "MENTION",

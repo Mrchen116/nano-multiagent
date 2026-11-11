@@ -10,6 +10,8 @@ const apiMocks = vi.hoisted(() => ({
   getAgentDetailStateMock: vi.fn(),
   isMobileMock: vi.fn(() => false),
   updateAgentConfigMock: vi.fn(),
+  getAgentRoleMock: vi.fn().mockResolvedValue({content: "", version: null}),
+  saveAgentRoleMock: vi.fn(),
   createConversationMock: vi.fn(),
   listAgentsMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
@@ -54,6 +56,8 @@ vi.mock("./im-agent-config-api", async () => ({
   getAgentCapabilityUsage: vi.fn().mockResolvedValue({ checked_at: "now", active_tasks: 0, active_schedules: 0, busy: [] }),
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
   updateAgentConfig: apiMocks.updateAgentConfigMock,
+  getAgentRole: apiMocks.getAgentRoleMock,
+  saveAgentRole: apiMocks.saveAgentRoleMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
   listNodes: apiMocks.listNodesMock,
   promptPreview: apiMocks.promptPreviewMock,
@@ -92,6 +96,8 @@ afterEach(() => {
   setLanguage("en");
   apiMocks.getAgentDetailStateMock.mockReset();
   apiMocks.updateAgentConfigMock.mockReset();
+  apiMocks.getAgentRoleMock.mockReset().mockResolvedValue({content: "", version: null});
+  apiMocks.saveAgentRoleMock.mockReset();
   apiMocks.createConversationMock.mockReset();
   apiMocks.listAgentsMock.mockReset();
   apiMocks.listAgentSummariesMock.mockReset();
@@ -791,7 +797,6 @@ describe("agent behavior settings", () => {
     overrides: {
       features?: Array<{ key: string; label_i18n: string; help_i18n: string; default_on: boolean; available: boolean; requires: { features: string[]; tools: string[]; skills: string[] } }>;
       configFeatures?: Record<string, boolean>;
-      customPrompt?: string;
     } = {}
   ) {
     return {
@@ -800,7 +805,6 @@ describe("agent behavior settings", () => {
         owner_id: "owner-1",
         display_name: "Core Planner",
         description: "",
-        custom_prompt: overrides.customPrompt ?? "",
         features: overrides.configFeatures ?? {},
         skills: [],
         tool_allowlist: overrides.features?.flatMap((f) => f.requires.tools) ?? [],
@@ -881,49 +885,39 @@ describe("agent behavior settings", () => {
     await waitFor(() => expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith("agent-core-1",expect.objectContaining({features:{dreaming:false},tool_allowlist:tools})));
   });
 
-  it("saves custom instructions with the selected features", async () => {
+  it("keeps role saving independent of ordinary configuration and preview", async () => {
     const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeDetailState({ configFeatures: { memory_curation: true, skill_creation: true } })
-    );
-    apiMocks.updateAgentConfigMock.mockResolvedValue({
-      agent_id: "agent-core-1",
-      owner_id: "owner-1",
-      display_name: "Core Planner",
-      description: "",
-      custom_prompt: "我是法律顾问",
-      features: { memory_curation: true, skill_creation: true },
-      skills: [],
-      tool_allowlist: ["memory", "skill_manage"],
-      group_reply_policy: "MENTION",
-      default_model: null,
-      workspace_root: "/tmp",
-      workspace_is_default: false,
-      profile_version: 2,
-      node_id: "node-1",
-      node_name: "MacBook",
-      node_status: "online",
-      updated_at: "2026-03-13T10:01:00Z"
-    });
-
+    const state = makeDetailState();
+    const originalUser = useAuthStore.getState().user;
+    useAuthStore.setState({ user: { id: "owner-1", username: "owner" } as never });
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
+    apiMocks.getAgentRoleMock.mockResolvedValue({content: "Original role", version: "v1"});
+    apiMocks.saveAgentRoleMock.mockResolvedValue({content: "Edited role", version: "v2"});
+    apiMocks.updateAgentConfigMock.mockResolvedValue({...state.config, description: "New description", profile_version: 2});
     renderDetailPage();
-    await screen.findByRole("heading", { name: "Core Planner" });
-
-    const customTextarea = screen.getByLabelText(/Custom Instructions/i);
-    await user.clear(customTextarea);
-    await user.type(customTextarea, "我是法律顾问");
-
-    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
-
-    await waitFor(() => {
-      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
-        "agent-core-1",
-        expect.objectContaining({
-          custom_prompt: "我是法律顾问",
-          features: expect.any(Object)
-        })
-      );
-    });
+    const role = await screen.findByLabelText("Role agreement");
+    expect(screen.queryByLabelText(/Custom Instructions/i)).not.toBeInTheDocument();
+    await user.clear(role);
+    await user.type(role, "Edited role");
+    await user.clear(screen.getByLabelText("Description"));
+    await user.type(screen.getByLabelText("Description"), "New description");
+    await user.click(screen.getByRole("button", {name: /Save Agent/i}));
+    await waitFor(() => expect(apiMocks.updateAgentConfigMock).toHaveBeenCalled());
+    const config = apiMocks.updateAgentConfigMock.mock.calls.at(-1)![1];
+    expect(config).not.toHaveProperty("custom_prompt");
+    expect(config).not.toHaveProperty("initial_role");
+    expect(config).not.toHaveProperty("role");
+    expect(apiMocks.saveAgentRoleMock).not.toHaveBeenCalled();
+    expect(role).toHaveValue("Edited role");
+    await user.click(screen.getByRole("button", {name: /Preview stable system prompt/i}));
+    await waitFor(() => expect(apiMocks.promptPreviewMock).toHaveBeenCalled());
+    const preview = apiMocks.promptPreviewMock.mock.calls.at(-1)![1];
+    expect(preview).not.toHaveProperty("custom_prompt");
+    expect(preview).not.toHaveProperty("initial_role");
+    await user.click(screen.getByRole("button", {name: "Save role agreement"}));
+    await waitFor(() => expect(apiMocks.saveAgentRoleMock).toHaveBeenCalledWith("agent-core-1", {content: "Edited role", version: "v1"}));
+    expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledTimes(1);
+    act(() => useAuthStore.setState({user: originalUser}));
   });
 
   it("opens the stable prompt preview on demand", async () => {
@@ -960,7 +954,6 @@ describe("agent prompt preview", () => {
         owner_id: "owner-1",
         display_name: "Mem Agent",
         description: "",
-        custom_prompt: "",
         features: {},
         skills: [],
         tool_allowlist: ["memory"] as string[],
@@ -1103,7 +1096,6 @@ describe("feature tool linkage with an empty allowlist", () => {
       owner_id: "owner-1",
       display_name: overrides.display_name ?? "Bugfix Agent",
       description: "",
-      custom_prompt: "",
       features: {} as Record<string, boolean>,
       skills: [] as string[],
       tool_allowlist: overrides.tool_allowlist ?? ([] as string[]),
@@ -1269,7 +1261,6 @@ describe("explicit empty tool allowlist", () => {
       owner_id: "owner-1",
       display_name: "Core Planner",
       description: "",
-      custom_prompt: "",
       skills: [] as string[],
       tool_allowlist: toolAllowlist,
       group_reply_policy: "MENTION" as const,

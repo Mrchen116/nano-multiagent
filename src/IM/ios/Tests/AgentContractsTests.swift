@@ -23,7 +23,7 @@ struct AgentContractsTests {
     }
 
     @Test func configPatchPreservesEmptyExplicitSelectionsAndModelOrder() throws {
-        let response = #"{"agent_id":"a","owner_id":"u","node_id":"n","display_name":"Agent","description":"","skills":[],"skills_selection_mode":"explicit_allowlist","tool_allowlist":[],"group_reply_policy":"NO_REPLY","default_model":null,"model_fallbacks":["second","third"],"reasoning_effort":null,"work_mode":"single_thread","workspace_root":"/workspace/a","workspace_is_default":false,"profile_version":8,"features":{"heartbeat":true},"custom_prompt":"Keep this","heartbeat_json":"{\"every\":\"45m\",\"active_hours\":{\"start\":\"09:00\",\"end\":\"18:00\",\"timezone\":\"Asia/Shanghai\"}}"}"#
+        let response = #"{"agent_id":"a","owner_id":"u","node_id":"n","display_name":"Agent","description":"","skills":[],"skills_selection_mode":"explicit_allowlist","tool_allowlist":[],"group_reply_policy":"NO_REPLY","default_model":null,"model_fallbacks":["second","third"],"reasoning_effort":null,"work_mode":"single_thread","workspace_root":"/workspace/a","workspace_is_default":false,"profile_version":8,"features":{"heartbeat":true},"heartbeat_json":"{\"every\":\"45m\",\"active_hours\":{\"start\":\"09:00\",\"end\":\"18:00\",\"timezone\":\"Asia/Shanghai\"}}"}"#
         let config = try JSONDecoder().decode(AgentConfig.self, from: Data(response.utf8))
         let encoded = try JSONEncoder().encode(config.draft.payload(version: config.profile_version))
         let body = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
@@ -46,21 +46,37 @@ struct AgentContractsTests {
         #expect(caps.models.first?.displayLabel == "研究模型 · 团队服务")
         #expect(caps.models.first?.name == "m")
         var draft = AgentDraft()
+        draft.initial_role = "Help compare evidence"
         draft.agent_id = "worker"; draft.display_name = "Worker"; draft.work_mode = "global"
         draft.skills_selection_mode = "default_discovery"; draft.workspace_root = "/repo"
         let create = draft.payload(creating: true, customWorkspace: true, confirmed: true)
+        #expect(create["initial_role"] == .string("Help compare evidence"))
+        #expect(create["custom_prompt"] == nil)
+        #expect(draft.payload(version: 1)["initial_role"] == nil)
+        #expect(draft.payload(version: 1)["custom_prompt"] == nil)
         #expect(create["confirm_existing_workspace"] == .bool(true))
         #expect(create["workspace_root"] == .string("/repo"))
         #expect(create["work_mode"] == .string("global"))
         #expect(create["skills_selection_mode"] == .string("default_discovery"))
         #expect(create["tool_allowlist"] == .array(["conversations", "inbox", "send_message", "subagent"].map(JSONValue.string)))
         let preview = draft.previewPayload(capabilities: caps, creating: true, customWorkspace: true)
+        #expect(preview["initial_role"] == nil)
+        #expect(preview["custom_prompt"] == nil)
         #expect(preview["skill_ids"] == .array([.string("guide")]))
         #expect(preview["tool_ids"] == create["tool_allowlist"])
         #expect(preview["scenario"] == .string("direct"))
         #expect(preview["workspace_mode"] == .string("custom"))
         draft.skills_selection_mode = "explicit_allowlist"
         #expect(draft.previewPayload(capabilities: caps, creating: false, customWorkspace: false)["skill_ids"] == .array([]))
+    }
+
+    @Test func initialRoleUsesUTF16LimitAndEmptyCreationOmitsIt() {
+        var draft = AgentDraft()
+        #expect(draft.payload(creating: true)["initial_role"] == nil)
+        draft.initial_role = String(repeating: "😀", count: 1000)
+        #expect(draft.initialRoleIsValid)
+        draft.initial_role += "x"
+        #expect(!draft.initialRoleIsValid)
     }
 
     @Test func skillDenylistKeepsNewSkillsEnabledAndHiddenDisables() {

@@ -39,7 +39,6 @@ const BASE_RAW = {
   profile_version: 1,
   updated_at: null,
   features: {},
-  custom_prompt: null,
   heartbeat_json: null,
 };
 
@@ -220,7 +219,6 @@ describe("workspace creation transport", () => {
 
     await nodePromptPreview("node-1", {
       features: {},
-      custom_prompt: "",
       workspace_mode: "custom",
       workspace_root: "/srv/agent-new",
       agent_id_hint: "agent-new",
@@ -262,7 +260,7 @@ describe("Agent configuration response errors", () => {
 describe("updateAgentConfig public prompt shape", () => {
   const mockedFetch = vi.mocked(authFetch);
 
-  it("sends only the canonical custom prompt field", async () => {
+  it("sends configuration without role or retired prompt fields", async () => {
     mockedFetch.mockResolvedValue(
       new Response(JSON.stringify(BASE_RAW), {
         status: 200,
@@ -274,7 +272,6 @@ describe("updateAgentConfig public prompt shape", () => {
       profile_version: 1,
       display_name: "Test",
       description: "",
-      custom_prompt: "Visible role",
       skills: [],
       tool_allowlist: [],
       group_reply_policy: "MENTION",
@@ -284,7 +281,8 @@ describe("updateAgentConfig public prompt shape", () => {
 
     const options = mockedFetch.mock.calls.at(-1)?.[1] as RequestInit;
     const body = JSON.parse(String(options.body)) as Record<string, unknown>;
-    expect(body.custom_prompt).toBe("Visible role");
+    expect(body).not.toHaveProperty("custom_prompt");
+    expect(body).not.toHaveProperty("initial_role");
     expect(body.reasoning_effort).toBe("high");
     expect(body).not.toHaveProperty("system_prompt");
   });

@@ -74,3 +74,14 @@
 - 作者按 agent-context-review 核对 PA / Global 实际 HTTP 请求；独立审查者 dreaming_role_context_review 按 change-code-review 审查 `6eb6daaa4` 后的六文件补丁，findings 为空、契约 aligned。构建通过；dreaming-runtime、dreaming-cycle-runtime 两文件 7 项通过；文档检查通过（初次系统 Python 缺 PyYAML，改用现有项目 venv 后通过）。
 - 三个全新隔离 Agent 用相同合成经历，Dreaming 使用真实 `codexOAuth:gpt-6.1-sol`。发布协调 ROLE 先突出交接和约束；编译性能 ROLE 先突出基准有效性并分开协作与个人偏好；未设置 ROLE 的 PA 先保留主人的持续帮助偏好，技术经验进入 workstreams。三批均 completed，分别保存 3、4、3 页，模型实际调用 git_commit 并通过宿主检查。均保留用户报告、未独立复现的证据限定；没有聊天或派工工具调用。
 - 真实模型样本显示重点和组织方式的差异，不证明全库质量显著提升，也未单独隔离系统角色段落的因果贡献。前台响应及 IM relay 为 fixture，非生产或 Web 端到端验收。完整请求、输出、页面和脚本保存在本机可视化目录 `role-perspective-evidence/`；测试端口、运行时、工作区已回收。HTML 仍只展示 Global 首次收信、PA 首次收信及两类 Dreaming 的 PR 前后对照。
+
+
+## 2026-11-11 增量：统一到 ROLE（实施验证，独立审查待收口）
+
+范围：删除用户 custom_prompt/Persona 与 Dreaming custom_instructions，PA 默认服务指导进入系统角色；Web/iOS 创建通过一次性 initial_role 保存 ROLE，既有 ROLE 独立编辑。后向兼容不做，部署迁移仅由 [deployment-prompt.md](deployment-prompt.md) 约定。
+
+- Web 7 个相关套件 105/105，最终创建与预览相关 44/44；TypeScript 通过。iOS arm64/x86_64 模拟器构建及 AgentContractsTests 11/11 通过，专用模拟器与构建目录已回收。这些是组件/协议验证，不冒称原生 UI 旅程。
+- IM/Node/PA 创建和恢复：初始 11 文件 125 测通过，追加 3 文件 24 测通过；完整类型检查及文档检查通过。
+- Runtime 首批 6 文件中 25 通过、2 个测试超时；相同代码低并发重跑相关 16/16 通过。第二批发现两个测试 fixture 问题：把 PA 根默认职责错误地期望于 worker，以及新创建测试没有关掉依赖能力的默认 Feature。按真实职责边界与合法配置修正后，相关 10/10 通过，其余 41 个相关测试原已通过。未将首轮失败隐藏为首次全绿。
+- 重新捕获 Global/PA 的第一条产品 Inbox 请求、读取工具结果后的请求、自动 Dreaming 请求（各 3 个实际 HTTP 请求）：PA 系统服务指导只在 PA 系统角色中出现；ROLE 在主请求中跟随文件路径原样展示，在 Dreaming 中作为背景数据；不再出现 custom_instructions/Persona。系统职责仍包含长期负责、委派完整事项、执行者拥有实现验证、主 Agent 对外协作交付。Dreaming 继续区分背景与本次原始证据，不继承主 Agent 的业务执行任务。完整请求和脚本在本机 evidence/role-unification-20261111 与可视化 context-comparison-evidence；模型与 IM relay 为受控替身，不是模型质量实验。
+- 隔离迁移演练使用合成 SQLite、配置和工作区：6 种已准备内容方案（原样 PA 默认、空 Global、自定义、默认加附加、已有相同 ROLE、无冲突合并）、角色写入后中断恢复、重复执行、后续编辑停止覆盖、配置不变量及一致备份回滚均通过。冲突/超限需要人工确认方案，已审阅提示词，不宣称脚本能自动判断语义冲突。脚本与结果在本机 `role-unification-20261111/feat759-role-migration-check.py`、`migration-check.json`。未执行生产迁移。

@@ -269,17 +269,6 @@ describe("encrypted channel control", () => {
   });
 });
 describe("recoverable config operations and HTTP boundary", () => {
-  it("matches the existing Python candidate hash including non-ASCII text", () => {
-    expect(
-      candidateFingerprint({
-        agent_id: "a",
-        display_name: "中文😀",
-        skills: [],
-        custom_prompt: "职责",
-        heartbeat_json: '{"every":"30m"}',
-      }),
-    ).toBe("2bb798132ba2284d21b57f6d5913f82a6eb525c4a838112473759e682c06016e");
-  });
   it("creates canonical agent identity once and persists applied receipt recovery", async () => {
     const { db, ctx } = fixture(),
       ops = new ConfigOperations(configurationDependencies(ctx));
@@ -357,7 +346,6 @@ describe("recoverable config operations and HTTP boundary", () => {
         work_mode: "single_thread",
         workspace_root: "/agent",
         features: {intelligent_ui:false,task_graph:false,dreaming:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false},
-        custom_prompt: null,
         heartbeat_json: null,
       };
     await expect(ops.update(p, candidate, "o1")).rejects.toMatchObject({

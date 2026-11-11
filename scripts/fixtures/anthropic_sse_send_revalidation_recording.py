@@ -37,7 +37,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         guardian = any(
             tool["name"].startswith("guardian_") for tool in body.get("tools", [])
         )
-        role = re.search(r"COUNTING_AGENT ([ABCD])", _text(body.get("system", [])))
+        context = "\n".join(
+            _text(message.get("content", [])) for message in body.get("messages", [])
+        )
+        role = re.search(r"COUNTING_AGENT ([ABCD])", context)
         with self.lock:
             with open(self.record_path, "a", encoding="utf-8") as handle:
                 handle.write(

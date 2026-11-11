@@ -46,6 +46,15 @@ def test_new_run_does_not_inherit_project_edits_or_owner_skills(tmp_path: Path) 
     assert "previous-run-edit" not in (new_workspace / "project/brief.md").read_text()
     assert not (new_owner / "skills/previous-run/SKILL.md").exists()
     assert old_skill.read_text() == "old skill"
+    for agent in new["agents"]:
+        assert "custom_prompt" not in agent and "initial_role" not in agent
+        role = (Path(agent["workspace_root"]) / ".nanoassistant/ROLE.md").read_text()
+        assert str(new_workspace / "project") in role
+        assert {
+            "daily-product": "你是 P",
+            "daily-engineering": "你是 E",
+            "daily-quality": "你是 Q",
+        }[agent["agent_id"]] in role
     policy = yaml.safe_load((new_owner / "config.yaml").read_text())["auto_mode"]
     assert policy["rules"] == "codex" and policy["enabled"] is True
     assert policy["dangerously_skip_permissions"] is False

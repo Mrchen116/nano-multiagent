@@ -247,11 +247,15 @@ it('checks ROLE workspace ownership across configured and prepared Agent paths b
     await config.removeAgent('pa', 'delete-pa', undefined, () => []);
     expect(await config.roleWorkspace('ordinary')).toBe(workspace);
 
-    await config.resolve(canonicalAgentConfiguration({
+    const pending = await config.resolve(canonicalAgentConfiguration({
       agent_id: 'pending', workspace_root: alias,
       features: {intelligent_ui: false, task_graph: false, dreaming: false},
     }), true);
     expect(await config.roleWorkspace('ordinary')).toBeNull();
+    expect(await config.creationRoleWorkspace(pending)).toBeNull();
+    expect(await config.creationRoleWorkspace(config.current('legacy')!)).toBeNull();
+    const fresh = await config.resolve(canonicalAgentConfiguration({agent_id:'fresh',workspace_root:join(home,'fresh'),features:{intelligent_ui:false,task_graph:false,dreaming:false}}),true);
+    expect(await config.creationRoleWorkspace(fresh)).toBe(await realpath(fresh.workspace_root!));
     config.releaseWorkspace('pending');
     expect(await config.roleWorkspace('ordinary')).toBe(workspace);
   } finally { await rm(home, {recursive: true, force: true}); }

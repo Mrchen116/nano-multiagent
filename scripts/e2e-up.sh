@@ -237,7 +237,7 @@ elif [[ -n "${NANO_MULTIAGENT_E2E_MODEL:-}" ]]; then
   python3 "$SCRIPT_DIR/e2e_catalog.py" "$WT_CFG"
 fi
 
-# Pre-create each agent's workspace dir; Gateway refuses to start otherwise.
+# Prepare isolated workspaces and consume fixture-only initial roles before Node reads its config.
 python3 - "$WT_CFG" "$WORKSPACE_DIR" <<'PY'
 import os, sys, yaml
 cfg_path, wsd = sys.argv[1], sys.argv[2]
@@ -245,6 +245,14 @@ with open(cfg_path) as f: cfg = yaml.safe_load(f)
 os.makedirs(wsd, exist_ok=True)
 for agent in cfg.get("agents", []):
     os.makedirs(agent["workspace_root"], exist_ok=True)
+    initial_role = agent.pop("initial_role", None)
+    if initial_role is not None:
+        directory = os.path.join(agent["workspace_root"], ".nanoassistant")
+        os.makedirs(directory, exist_ok=True)
+        with open(os.path.join(directory, "ROLE.md"), "w", encoding="utf-8") as role:
+            role.write(initial_role)
+with open(cfg_path, "w", encoding="utf-8") as output:
+    yaml.safe_dump(cfg, output, allow_unicode=True, sort_keys=False)
 PY
 
 # ─── start TypeScript IM ─────────────────────────────────────────────────

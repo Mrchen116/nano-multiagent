@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -53,6 +54,15 @@ def _message_blob(request: dict) -> str:
                 elif isinstance(block, str):
                     parts.append(block)
     return "\n".join(parts)
+
+
+def _current_role_content(request: dict) -> str:
+    """Read the last role update; earlier role context remains in chat history."""
+    roles = re.findall(
+        r"<role_content>\n(.*?)\n</role_content>", _message_blob(request), re.S
+    )
+    assert roles, "request has no saved ROLE context"
+    return roles[-1]
 
 
 def _tool_names(request: dict) -> set[str]:
@@ -141,19 +151,6 @@ def _rewrite_llm_to_stub(
         yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
-
-
-def _wait_gateway_custom_prompt(
-    path: Path, custom_prompt: str, *, timeout: float = 30.0
-) -> dict:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-        for agent in payload.get("agents") or []:
-            if agent.get("custom_prompt") == custom_prompt:
-                return agent
-        time.sleep(0.2)
-    raise AssertionError(f"Gateway YAML did not receive custom prompt: {path}")
 
 
 def _read_pid(path: Path) -> int | None:

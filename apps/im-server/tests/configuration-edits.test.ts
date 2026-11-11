@@ -109,7 +109,7 @@ it('admits the PA rename after a different pending edit is definitively rejected
 it.each(['current', 'legacy'])('only lets the original creation request claim its %s receipt', async format => {
   const {app, ctx, db} = settings();
   db.exec("INSERT INTO nodes(node_id,owner_id,node_name,status) VALUES('other','o1','Other','online'),('bob','o2','Bob','online')");
-  const original = {agent_id:'b',display_name:'Alpha',workspace_root:'/alpha',group_reply_policy:'manual',description:'original'};
+  const original = {agent_id:'b',display_name:'Alpha',workspace_root:'/alpha',group_reply_policy:'manual',description:'original',initial_role:'Help with design.'};
   const create = (fields = {}, node = 'n', user = 'u1') => app.inject({
     method:'POST',url:`/im/v1/nodes/${node}/agents`,headers:{'x-user':user},payload:{...original,...fields},
   });
@@ -132,6 +132,7 @@ it.each(['current', 'legacy'])('only lets the original creation request claim it
     confirmed = true;
     expect((await create({display_name:'Bravo',workspace_root:'/bravo'})).statusCode).toBe(409);
     expect((await create({description:'different'})).statusCode).toBe(409);
+    expect((await create({initial_role:'Another role'})).statusCode).toBe(409);
     expect((await create({confirm_existing_workspace:true})).statusCode).toBe(409);
     expect((await create({}, 'other')).statusCode).toBe(409);
     expect((await create({}, 'n', 'u2')).statusCode).toBe(404);

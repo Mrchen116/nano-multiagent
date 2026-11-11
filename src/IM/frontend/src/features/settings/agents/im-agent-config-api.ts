@@ -41,7 +41,6 @@ export interface AgentConfig {
   // feat-379-M3: per-agent feature flags (key → bool); absent in old IM responses → treat as {}
   features?: Record<string, boolean>;
   // feat-379-M3: user custom instructions appended as pa.user_custom segment
-  custom_prompt?: string | null;
   // feat-394 M9-E: heartbeat carries only cadence; enable lives in features["heartbeat"].
   heartbeat?: HeartbeatConfig;
   // feat-394 M9-E: cron field removed — no per-agent cron config; enable in features["cron_scheduling"].
@@ -161,9 +160,9 @@ export interface NodeAgentCreateRequest {
   owner_id: string;
   display_name: string;
   description: string;
-  // feat-379-M3: per-agent feature flags for new agents
+  initial_role?: string;
+  // Per-agent feature flags for new agents
   features?: Record<string, boolean>;
-  custom_prompt?: string | null;
   skills: string[];
   skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist";
   tool_allowlist: string[];
@@ -187,7 +186,6 @@ export interface UpdateAgentConfigRequest {
   description: string;
   // feat-379-M3: per-agent feature flags; omitted → server keeps existing
   features?: Record<string, boolean>;
-  custom_prompt?: string | null;
   // feat-394 M9-E: heartbeat carries only cadence; enable in features["heartbeat"].
   heartbeat?: HeartbeatConfig;
   // feat-394 M9-E: cron removed from update request; enable in features["cron_scheduling"].
@@ -717,9 +715,7 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       profile_version: next.profile_version,
       display_name: next.display_name,
       description: next.description,
-      // feat-379-M3: pass features and custom_prompt when present
       ...(next.features !== undefined ? { features: next.features } : {}),
-      ...(next.custom_prompt !== undefined ? { custom_prompt: next.custom_prompt } : {}),
       // feat-394 M9-E: pass heartbeat cadence when present; enable is in features.
       ...(next.heartbeat !== undefined ? { heartbeat: next.heartbeat } : {}),
       // feat-394 M9-E: cron has no config object; enable is in features["cron_scheduling"].
@@ -803,7 +799,6 @@ export async function promptPreview(
   agentId: string,
   body: {
     features: Record<string, boolean>;
-    custom_prompt: string;
     tool_ids?: string[];
     work_mode?: "single_thread" | "global";
     skill_ids?: string[];
@@ -832,7 +827,6 @@ export async function nodePromptPreview(
   nodeId: string,
   body: {
     features: Record<string, boolean>;
-    custom_prompt: string;
     tool_ids?: string[];
     work_mode?: "single_thread" | "global";
     skill_ids?: string[];

@@ -39,7 +39,7 @@ export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
     display_name: text(payload.display_name) ?? agentId, skills, skills_selection_mode: mode,
     tool_allowlist: strings(payload.tool_allowlist), group_reply_policy: text(payload.group_reply_policy) ?? 'manual',
     default_model: text(payload.default_model), model_fallbacks: strings(payload.model_fallbacks), reasoning_effort: text(payload.reasoning_effort),
-    workspace_root: text(payload.workspace_root), custom_prompt: text(payload.custom_prompt), heartbeat_json: heartbeatJson,
+    workspace_root: text(payload.workspace_root), heartbeat_json: heartbeatJson,
     features: payload.features && typeof payload.features === 'object' && !Array.isArray(payload.features)
       ? Object.fromEntries(Object.entries(payload.features).filter((pair): pair is [string, boolean] => typeof pair[1] === 'boolean' && !['memory_curation', 'skill_creation'].includes(pair[0]))) : {} as Record<string, boolean>,
   };

@@ -18,11 +18,10 @@ describe("shared capability selection contract", () => {
     });
   }
   it("restores a rejected feature without replacing unrelated draft edits", () => {
-    const draft = { description: "new description", custom_prompt: "new instructions", features: Object.fromEntries(fixtures.definitions.map(f => [f.key, false])), tool_allowlist: [], skills: [], skills_selection_mode: "explicit_denylist" };
+    const draft = { description: "new description", features: Object.fromEntries(fixtures.definitions.map(f => [f.key, false])), tool_allowlist: [], skills: [], skills_selection_mode: "explicit_denylist" };
     const caps = { features: fixtures.definitions, tools: fixtures.definitions.flatMap(f => f.requires.tools).map(name => ({ name, description: "" })), skills: [{name: "nano-interactive-ui", description: ""}], fixed_tools: [] };
     const result = restoreBlockedCapabilities(draft, [{code: "active_tasks", target: {kind: "feature", name: "task_graph"}}], caps as never);
     expect(result.description).toBe("new description");
-    expect(result.custom_prompt).toBe("new instructions");
     expect(result.features.task_graph).toBe(true);
     expect(result.features.cron_scheduling).toBe(true);
   });

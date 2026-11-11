@@ -38,7 +38,7 @@ import { skillCatalog } from './capabilities.js';
 import * as SelectedSkills from './capabilities.js';
 import { createScope } from '@deepseek-ai/dsh-scope';
 import { KnowledgeRuntime } from './knowledge/runtime.js';
-import { roleDocument } from './knowledge/role-document.js';
+import { initializeRoleDocument, roleDocument } from './knowledge/role-document.js';
 import { NativeModelSetup } from './model-setup.js';
 import { ModelPolicy } from './model-policy.js';
 import { NativeHistory } from './history.js';
@@ -72,7 +72,6 @@ export interface AgentConfiguration {
   modelRouteFrozen?: boolean;
   workflow?: { outputTokenTarget?: number; sizeGuideline?: string };
   modelFallbacks?: { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }[];
-  systemPrompt?: string;
   features?: Record<string, boolean>;
   toolAllowlist?: string[];
   skillSelection?: { mode: 'default_discovery' | 'explicit_allowlist' | 'explicit_denylist'; names: string[] };
@@ -821,12 +820,23 @@ export default class NanoRuntime {
       }
       return {checked_at: new Date().toISOString(), active_schedules: schedules.filter(task => task.status === 'active').length, busy};
     };
-    const prepare = async (input: {operationId: string; fingerprint: string; config: AgentConfiguration}) => {
+    const prepare = async (input: {operationId: string; fingerprint: string; config: AgentConfiguration; initialRole?: string}) => {
       if (!input.operationId || !input.fingerprint) throw new RpcError(-32602, 'Configuration operation identity is required');
       const previous = [...this.configurations.values()].find(config => config.agentId === input.config.agentId);
       const catalog = await preview(input.config, input.config.workspace ?? previous?.workspace ?? process.cwd(), true) as {tools: {name: string}[]; skills: {name: string}[]};
-      return this.capabilities.prepare(input, previous, {tools: catalog.tools.map(tool => tool.name), skills: catalog.skills.map(skill => skill.name)},
+      const prepared = await this.capabilities.prepare(input, previous, {tools: catalog.tools.map(tool => tool.name), skills: catalog.skills.map(skill => skill.name)},
         async () => previous ? {...await usage(input.config.agentId), toolSelectionBusy: this.capabilities.busy(input.config.agentId, true)} : {active_schedules: 0, busy: []});
+      if (prepared.ready && input.initialRole !== undefined) {
+        const workspace = input.config.workspace && await realpath(input.config.workspace).catch(() => null);
+        const role = workspace && input.config.knowledge?.memoryMode !== 'legacy'
+          ? await initializeRoleDocument(ctx.fs, workspace, input.initialRole)
+          : {error: 'role_unavailable' as const};
+        if ('error' in role) {
+          this.capabilities.release(input.config.agentId, input.operationId);
+          return {ready: false, error_code: role.error, message: 'Initial ROLE could not be saved'};
+        }
+      }
+      return prepared;
     };
     // The editor asks which selections are in use, not whether native workers are active.
     handle('configuration.usage', value => usage((value as {agentId: string}).agentId, true));

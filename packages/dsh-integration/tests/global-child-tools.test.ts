@@ -142,7 +142,7 @@ it.each([false,true])('gives Global workers native work tools and native nested 
   });
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
   const config={agentId:'worker-owner',displayName:'ROOT_IDENTITY_SENTINEL',revision:'1',mode:'global',workspace:home,
-    systemPrompt:'ROOT_PERSONA_SENTINEL',provider:'fixture',model:'fixture',toolAllowlist:['subagent','send_message','read','write','skill',...(personal?['agent_creation']:[])],
+    provider:'fixture',model:'fixture',toolAllowlist:['subagent','send_message','read','write','skill',...(personal?['agent_creation']:[])],
     skillRoots:[{path:join(home,'skills'),source:'workspace'}],skillSelection:{mode:'explicit_allowlist',names:['nano-interactive-ui','worker-old']},
     features:{task_graph:false,intelligent_ui:true,memory_curation:false,skill_creation:false,heartbeat:true,cron_scheduling:false},
     approval:{dangerouslySkipPermissions:true},...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{})};
@@ -176,6 +176,7 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
       const system=JSON.stringify(row.system);
       expect(system.includes('sender.is_owner')).toBe(personal);
       expect(system.includes('delivery=observer')).toBe(personal);
+      expect(system.includes('pursue goals across work and everyday life')).toBe(personal && row.depth === 0);
     }
     const rootSystem = JSON.stringify(root.system);
     if (personal) {
@@ -198,7 +199,7 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
     await expect.poll(()=>wire.some(row=>row.depth===2&&!row.fork)).toBe(true);
     const second=wire.find(row=>row.depth===2&&!row.fork)!;
     const secondContext=JSON.stringify([second.system,second.messages]);
-    for(const forbidden of ['ROOT_IDENTITY_SENTINEL','ROOT_PERSONA_SENTINEL','You are an internal execution agent','You execute an internal task for','main Agent owns public delivery','Heartbeat is a system wake','Role: personal assistant','Role: independent expert'])expect(secondContext).not.toContain(forbidden);
+    for(const forbidden of ['ROOT_IDENTITY_SENTINEL','You are an internal execution agent','You execute an internal task for','pursue goals across work and everyday life','main Agent owns public delivery','Heartbeat is a system wake','Role: personal assistant','Role: independent expert'])expect(secondContext).not.toContain(forbidden);
     expect(secondContext).toContain('WORKSPACE_INSTRUCTIONS_SENTINEL');expect(secondContext).toContain('Your parent agent id is');
     for(const row of [first,second]){
       const names=row.tools.map(tool=>tool.name);expect(names).not.toContain('inbox');expect(names).not.toContain('conversations');
@@ -280,7 +281,7 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
       }
     };
     await replay('root-settings', () => apply('root-settings', {
-      systemPrompt:'ROOT_PERSONA_CHANGED',toolAllowlist:config.toolAllowlist.filter(name=>name!=='write'),
+      toolAllowlist:config.toolAllowlist.filter(name=>name!=='write'),
     }), [[],[]]);
     await replay('rename', () => apply('rename', {displayName:'ROOT_RENAMED_SENTINEL'}), [['system'],[]]);
     await replay('feature', () => apply('feature', {features:{...config.features,intelligent_ui:false}}), [['system'],[]]);

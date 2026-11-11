@@ -4,7 +4,7 @@ import { start, bind } from "./helpers.js";
 
 it("transports configuration receipts, encrypted channel manifests and global Work over the real socket", async () => {
   const f = await start(),
-    g = await bind(f, "node-a", {assistant: {skills: [], tool_allowlist: ["task_graph","read"], display_name: "Local title", default_model: "deepseek:test", custom_prompt: "Local prompt", reasoning_effort: "high", approval_mode: "codex", features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:true}}});
+    g = await bind(f, "node-a", {assistant: {skills: [], tool_allowlist: ["task_graph","read"], display_name: "Local title", default_model: "deepseek:test", reasoning_effort: "high", approval_mode: "codex", features: {intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:true}}});
   const mirror = await f.http(
     "GET",
     "/im/v1/agents/assistant/config?source=mirror",
@@ -12,7 +12,7 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
     f.tokens.alice,
   );
   expect(mirror.status, mirror.body).toBe(200);
-  expect(mirror.body).toMatchObject({display_name: "Local title", default_model: "deepseek:test", custom_prompt: "Local prompt", reasoning_effort: "high", approval_mode: "codex", features: {heartbeat: true}});
+  expect(mirror.body).toMatchObject({display_name: "Local title", default_model: "deepseek:test", reasoning_effort: "high", approval_mode: "codex", features: {heartbeat: true}});
   const updated = f.http(
     "PATCH",
     "/im/v1/agents/assistant/config",
@@ -325,7 +325,7 @@ it('keeps malformed configuration receipts unconfirmed and recovers the original
   const f = await start(), g = await bind(f, 'receipt-node', {assistant:{skills:[],features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false,cron_scheduling:false,heartbeat:false}}});
   const before = await f.http('GET','/im/v1/agents/assistant/config?source=mirror',undefined,f.tokens.alice);
   expect(before.status,before.body).toBe(200);
-  const saving = f.http('PATCH','/im/v1/agents/assistant/config',{...before.body,display_name:'Recovered config',custom_prompt:'保留来源和正文',model_fallbacks:['fallback-a','fallback-b']},f.tokens.alice);
+  const saving = f.http('PATCH','/im/v1/agents/assistant/config',{...before.body,display_name:'Recovered config',model_fallbacks:['fallback-a','fallback-b']},f.tokens.alice);
   const apply = await Promise.race([g.frames.next(frame => frame.type === 'agent.config.apply'),saving.then(response=>{throw new Error('save returned before apply: '+JSON.stringify(response));})]);
   const malformed = {node_id:g.node,request_id:apply.payload.request_id,operation_id:apply.payload.operation_id,candidate_fingerprint:apply.payload.candidate_fingerprint,status:'applied',agent:{...apply.payload.agent,skills:42}};
   await g.frames.send('agent.config.apply.result',malformed);
@@ -345,6 +345,6 @@ it('keeps malformed configuration receipts unconfirmed and recovers the original
   await g.frames.send('agent.config.operation.status.result',{node_id:g.node,request_id:retry.payload.request_id,operation_id:apply.payload.operation_id,candidate_fingerprint:apply.payload.candidate_fingerprint,status:'applied',agent:apply.payload.agent,peer_metadata:{future:'preserved'}});
   const recovered = await recovering;
   expect(recovered.status,recovered.body).toBe(200);
-  expect(recovered.body).toMatchObject({display_name:'Recovered config',profile_version:before.body.profile_version+1,custom_prompt:'保留来源和正文',model_fallbacks:['fallback-a','fallback-b']});
+  expect(recovered.body).toMatchObject({display_name:'Recovered config',profile_version:before.body.profile_version+1,model_fallbacks:['fallback-a','fallback-b']});
   expect(g.frames.queue.some(frame=>frame.type==='agent.config.apply')).toBe(false);
 });

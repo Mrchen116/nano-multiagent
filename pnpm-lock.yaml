@@ -225,9 +225,6 @@ importers:
       '@deepseek-ai/dsh-permission-presets':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(1489a79f98e16e336ccc634555797cd6)
-      '@deepseek-ai/dsh-persona':
-        specifier: 0.2.1-alpha.1
-        version: 0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-system-prompt@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-scope@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)))
       '@deepseek-ai/dsh-plugin-manager':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(c189bbc5b72e595f998867be020c022f)

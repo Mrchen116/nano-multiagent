@@ -75,7 +75,7 @@ for arm in ("a", "b"):
     agent = copy.deepcopy(template)
     agent.update(
         agent_id="coord-" + arm, title="Coord " + arm.upper(),
-        custom_prompt="你长期负责这个项目。可以分派独立任务，用已明确的要求回答子 Agent。影响产品范围且现有授权未覆盖时问用户。",
+        initial_role="你长期负责这个项目。可以分派独立任务，用已明确的要求回答子 Agent。影响产品范围且现有授权未覆盖时问用户。",
         default_model="codexOAuth:gpt-6.1-sol", reasoning_effort="high",
     )
     source["agents"].append(agent)

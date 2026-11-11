@@ -209,7 +209,7 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 
 #### Scenario: IM 请求当前 Agent 配置时返回 live 快照
 - **WHEN** IM 服务请求某 Agent 的当前配置
-- **THEN** Gateway 返回该 Agent 的 live 配置快照(display_name / skills / tool_allowlist / group_reply_policy / default_model / workspace_root / features / custom_prompt)，其中 `custom_prompt` 是唯一公开的 Agent 专属说明字段
+- **THEN** Gateway 返回该 Agent 的 live 配置快照(display_name / skills / tool_allowlist / group_reply_policy / default_model / workspace_root / features)，角色正文由工作区 ROLE 文件的独立接口读写，不属于 live 配置快照
 
 #### Scenario: IM 经 RPC 请求读取 HEARTBEAT.md 预览内容（feat-394-M13 决策 G）
 - **WHEN** IM 服务下发 `node.heartbeat.md.request`（含 agent_id / workspace_root）

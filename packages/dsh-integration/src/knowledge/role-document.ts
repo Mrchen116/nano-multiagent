@@ -61,3 +61,20 @@ export async function roleDocument(fs: FileSystem, workspace: string, update?: R
     return { error: 'role_unavailable' };
   }
 }
+
+/** Save a creation draft before configuration persistence, without replacing an existing agreement.
+ *
+ * Args:
+ *   fs: Native filesystem provider used by Agent file tools.
+ *   workspace: Canonical, unshared workspace checked by the owning Node.
+ *   content: User-provided initial role, retained across creation retries.
+ * Returns:
+ *   Saved role view or a conflict/read/write error.
+ */
+export async function initializeRoleDocument(fs: FileSystem, workspace: string, content: string): Promise<RoleResult> {
+  if (content.length > roleLimit) return {error: 'role_too_long'};
+  const current = await roleDocument(fs, workspace);
+  if ('error' in current || current.content === content) return current;
+  if (current.content) return {error: 'role_conflict'};
+  return roleDocument(fs, workspace, {content, version: current.version});
+}

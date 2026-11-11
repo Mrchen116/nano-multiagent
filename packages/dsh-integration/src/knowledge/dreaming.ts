@@ -215,13 +215,11 @@ export class Dreaming {
         const parentPrompt=await parent.ctx.systemPrompt.assemble({scope:parent,signal:work.controller.signal});
         const systemRole=renderPrompt({...parentPrompt,sections:parentPrompt.sections.filter(section=>
           ['nano-product-identity','nano-global-mode','nano-communication','nano-personal-agent'].includes(section.name))});
-        const persona=currentConfig.systemPrompt?.trim();
         const role=await this.readRole?.(currentConfig);
         const roleContext=[
           '<main_agent_background>',
           `<system_role>\n${systemRole}\n</system_role>`,
           `<role_content>\n${role || 'No confirmed role text is available in this batch.'}\n</role_content>`,
-          ...(persona ? [`<custom_instructions>\n${persona}\n</custom_instructions>`] : []),
           '</main_agent_background>',
         ];
         // Reuse the main Agent's current role definitions; freeze all background with this batch for budgeting and recovery.

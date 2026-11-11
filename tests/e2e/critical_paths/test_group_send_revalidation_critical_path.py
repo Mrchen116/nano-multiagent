@@ -68,7 +68,7 @@ def test_delayed_group_sends_reread_new_messages_before_counting(
                         ],
                         False,
                     ),
-                    "custom_prompt": f"COUNTING_AGENT {role}",
+                    "initial_role": f"COUNTING_AGENT {role}",
                 },
             )
             assert response.is_success, response.text

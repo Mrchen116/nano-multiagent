@@ -65,7 +65,7 @@ function normalizeDraft(draft: CreateAgentFormState, modelOptions: ModelOption[]
     agent_id: normalizeText(draft.agent_id),
     display_name: normalizeText(draft.display_name),
     description: normalizeText(draft.description),
-    custom_prompt: (draft.custom_prompt ?? "").trim(),
+    initial_role: draft.initial_role ?? "",
     features: draft.features ?? {},
     skills: normalizeAllowlist(draft.skills),
     tool_allowlist: normalizeAllowlist(draft.tool_allowlist),
@@ -78,13 +78,14 @@ function normalizeDraft(draft: CreateAgentFormState, modelOptions: ModelOption[]
 }
 
 function validateDraft(draft: CreateAgentFormState, t: (key: string) => string) {
-  const errors: Partial<Record<"agent_id" | "display_name", string>> = {};
+  const errors: Partial<Record<"agent_id" | "display_name" | "initial_role", string>> = {};
   if (!draft.agent_id) {
     errors.agent_id = t("agents.form.errors.agentIdRequired");
   } else if (!/^[a-z0-9_-]+$/.test(draft.agent_id)) {
     errors.agent_id = t("agents.form.errors.agentIdInvalid");
   }
   if (!draft.display_name) errors.display_name = t("agents.form.errors.displayNameRequired");
+  if ((draft.initial_role ?? "").length > 2000) errors.initial_role = t("agents.form.behavior.initialRoleTooLong");
   return errors;
 }
 
@@ -105,7 +106,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   owner_id: "",
   display_name: "",
   description: "",
-  custom_prompt: "",
+  initial_role: "",
   features: {},
   skills: [],
   skills_selection_mode: "explicit_denylist",
@@ -120,9 +121,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   confirm_existing_workspace: false
 };
 
-// feat-379-M5 (ISSUE-1): Behavior card for agent creation — same design as agent-detail-page.tsx
-// BehaviorCard component. Custom Instructions (custom_prompt) + Features toggles + Group Reply
-// Policy + collapsible Preview panel.
+// Creation keeps the initial role separate from stable prompt preview.
 interface CreateBehaviorCardProps {
   draft: CreateAgentFormState;
   inheritedRules?: "nano" | "codex" | "dsh" | null;
@@ -131,7 +130,7 @@ interface CreateBehaviorCardProps {
   workspaceMode: WorkspaceMode;
   workspaceRoot: string | null;
   onApprovalModeChange: (value: ApprovalMode) => void;
-  onCustomPromptChange: (value: string) => void;
+  onInitialRoleChange: (value: string) => void;
   onFeatureToggle: (key: string, value: boolean) => void;
   onPolicyChange: (value: string) => void;
 }
@@ -144,7 +143,7 @@ function CreateBehaviorCard({
   workspaceMode,
   workspaceRoot,
   onApprovalModeChange,
-  onCustomPromptChange,
+  onInitialRoleChange,
   onFeatureToggle,
   onPolicyChange
 }: CreateBehaviorCardProps) {
@@ -171,7 +170,6 @@ function CreateBehaviorCard({
     try {
       const text = await nodePromptPreview(selectedNodeId, {
         features: effectiveFeatures,
-        custom_prompt: draft.custom_prompt ?? "",
         tool_ids: draft.tool_allowlist ?? [],
         ...(draft.work_mode ? { work_mode: draft.work_mode } : {}),
         skill_ids: draft.skills ?? [],
@@ -189,7 +187,6 @@ function CreateBehaviorCard({
   }, [
     selectedNodeId,
     effectiveFeatures,
-    draft.custom_prompt,
     draft.tool_allowlist,
     draft.work_mode,
     draft.skills,
@@ -206,7 +203,6 @@ function CreateBehaviorCard({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     previewOpen,
-    draft.custom_prompt,
     draft.features,
     draft.tool_allowlist,
     draft.work_mode,
@@ -231,19 +227,22 @@ function CreateBehaviorCard({
         <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
       </div>
 
-      {/* Custom Instructions — optional textarea; empty is valid */}
+      {/* Initial role is saved only by the creation request. */}
       <ApprovalModeField inheritedRules={inheritedRules} value={draft.approval_mode} onChange={onApprovalModeChange} />
 
       <div className="im-agent-field">
-        <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
+        <Label.Root htmlFor="initial-role">{t("agents.form.behavior.initialRole")}</Label.Root>
         <textarea
-          id="custom-instructions"
+          id="initial-role"
+          aria-invalid={(draft.initial_role ?? "").length > 2000}
+          aria-describedby="initial-role-help"
           className="im-agent-textarea"
-          value={draft.custom_prompt ?? ""}
-          placeholder={t("agents.form.behavior.customInstructionsPlaceholder")}
+          value={draft.initial_role ?? ""}
+          placeholder={t("agents.form.behavior.initialRolePlaceholder")}
           rows={4}
-          onChange={(e) => onCustomPromptChange(e.target.value)}
+          onChange={(e) => onInitialRoleChange(e.target.value)}
         />
+        <p id="initial-role-help" className="im-agent-field-help" role={(draft.initial_role ?? "").length > 2000 ? "alert" : undefined}>{t((draft.initial_role ?? "").length > 2000 ? "agents.form.behavior.initialRoleTooLong" : "agents.form.behavior.initialRoleHelp")}</p>
       </div>
 
       {/* Features section — rendered only when capabilities list is non-empty */}
@@ -639,7 +638,7 @@ export function AgentCreatePage() {
     footerStatusText = errorMessage;
   } else if (hasSubmitted && hasValidationErrors) {
     footerStatusClass = "im-agent-footer-status error";
-    footerStatusText = t("agents.form.errors.required");
+    footerStatusText = validationErrors.initial_role ?? t("agents.form.errors.required");
   } else if (hasSubmitted && !isNodeOnline) {
     footerStatusClass = "im-agent-footer-status error";
     footerStatusText = `${nodeLabel}: ${nodeStatus}`;
@@ -944,7 +943,7 @@ export function AgentCreatePage() {
           ) : null}
         </section>
 
-        {/* feat-379-M5 (ISSUE-1): Behavior card — Custom Instructions + Features + Preview */}
+        {/* Initial role, features and stable prompt preview. */}
         {capabilityEditor.toast}
         <CreateBehaviorCard
           draft={draft}
@@ -958,10 +957,10 @@ export function AgentCreatePage() {
             setErrorMessage(null);
             setDraft({ ...draft, approval_mode: value });
           }}
-          onCustomPromptChange={(value) => {
+          onInitialRoleChange={(value) => {
             setErrorMessage(null);
             setIsDirty(true);
-            setDraft({ ...draft, custom_prompt: value });
+            setDraft({ ...draft, initial_role: value });
           }}
           onFeatureToggle={(key, value) => {
             setErrorMessage(null);

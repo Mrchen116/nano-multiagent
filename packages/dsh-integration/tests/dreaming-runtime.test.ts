@@ -68,6 +68,8 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     }
     expect(roleBackground).toContain('They do not inherit your conversations or memory');
     expect(roleBackground.includes("You are the owner's personal assistant")).toBe(personal);
+    expect(roleBackground.includes("pursue goals across work and everyday life")).toBe(personal);
+    expect(initialText).not.toContain("<custom_instructions>");
     expect(roleBackground).toContain('No confirmed role text is available in this batch.');
     expect(roleBackground).not.toContain('<memory_content>');
     expect(roleBackground).not.toContain('nano-role-agreement skill');

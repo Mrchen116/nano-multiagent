@@ -29,7 +29,7 @@ it('keeps empty business tools and Skills empty while retaining context manageme
     const disabledCatalog = await client.rpc.request('configuration.catalog', { config: { ...config, agentId: 'new-agent', features: { task_graph: false, memory_curation: false, skill_creation: false, cron_scheduling: false } }, cwd: home }) as typeof catalog;
     expect(disabledCatalog.tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['task_graph', 'memory', 'skill_manage', 'schedule_create', 'schedule_history']));
     expect(catalog.skills.map(skill => skill.name)).toContain('local-skill');
-    const preview = await client.rpc.request('configuration.preview', { config: { ...config, systemPrompt: 'PREVIEW_ONLY_581' }, cwd: home }) as { prompt: string; tools: string[]; skills: unknown[] };
+    const preview = await client.rpc.request('configuration.preview', { config: { ...config, displayName: 'PREVIEW_ONLY_581' }, cwd: home }) as { prompt: string; tools: string[]; skills: unknown[] };
     expect(preview.prompt).toContain('PREVIEW_ONLY_581');
     expect(preview.tools.sort()).toEqual(contextTools);
     expect(preview.skills).toEqual([]);
@@ -55,7 +55,7 @@ it('keeps empty business tools and Skills empty while retaining context manageme
     expect((await client.rpc.request('session.observe', {sessionId:'session-a'}) as {status:string}).status).toBe('running');
     expect((await read('a')).tools.sort()).toEqual([...contextTools, 'read', 'skill'].sort());
     let applied = false;
-    const pending = client.rpc.request('configuration.apply', { ...config, revision: '3', toolAllowlist: ['write'], systemPrompt: 'AFTER_IDLE_581' }).then(() => { applied = true; });
+    const pending = client.rpc.request('configuration.apply', { ...config, revision: '3', toolAllowlist: ['write'], displayName: 'AFTER_IDLE_581' }).then(() => { applied = true; });
     await expect.poll(async () => (await read('a')).tools.sort(), {timeout:8000}).toEqual(contextTools);
     expect((await read('a')).skills).toEqual([]);
     expect(JSON.stringify((await read('a')).prompt)).not.toContain('AFTER_IDLE_581');

@@ -19,7 +19,6 @@ export type AgentConfigurationFields = {
   work_mode?: string;
   workspace_root?: string | null;
   features?: Record<string, boolean>;
-  custom_prompt?: string | null;
   heartbeat_json?: string | null;
   personal_agent?: PersonalAgentIdentity;
   workspace_is_default?: boolean | null;
@@ -29,6 +28,8 @@ export type AgentConfigurationFields = {
 
 /** Durable intent identity is separate from the transport request identity. */
 export interface ConfigurationIntent {
+  /** One-time creation input, never a saved Agent configuration field. */
+  initial_role?: string;
   operation_id: string;
   candidate_fingerprint: string;
   expected_previous_fingerprint: string | null;
@@ -63,7 +64,7 @@ function record(value: unknown): Record<string, unknown> {
 export function parseAgentConfigurationFields(value: unknown): AgentConfigurationFields {
   const p = record(value);
   for (const key of ['agent_id','work_mode','create_operation_id'] as const) field(p, key, text);
-  for (const key of ['display_name','skills_selection_mode','group_reply_policy','default_model','reasoning_effort','workspace_root','custom_prompt','heartbeat_json'] as const) field(p, key, nullableText);
+  for (const key of ['display_name','skills_selection_mode','group_reply_policy','default_model','reasoning_effort','workspace_root','heartbeat_json'] as const) field(p, key, nullableText);
   for (const key of ['tool_allowlist','model_fallbacks'] as const) field(p, key, strings);
   field(p, 'skills', value => value === null || strings(value));
   field(p, 'approval_mode', value => value === null || value === 'cc' || value === 'codex');

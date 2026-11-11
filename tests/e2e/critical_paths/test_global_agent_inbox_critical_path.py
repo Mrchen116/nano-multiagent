@@ -168,7 +168,7 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
                         "cron_scheduling": False,
                         "heartbeat": False,
                     },
-                    "custom_prompt": "Isolated deterministic collaboration regression.",
+                    "initial_role": "Isolated deterministic collaboration regression.",
                 },
             )
             assert response.is_success, response.text

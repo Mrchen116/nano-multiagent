@@ -19,7 +19,6 @@ struct AgentConfig: Codable, Sendable, Equatable {
     var workspace_is_default: Bool?
     var profile_version: Int
     var features: [String: Bool]
-    var custom_prompt: String?
     var heartbeat_json: String?
 
     var draft: AgentDraft {
@@ -31,7 +30,6 @@ struct AgentConfig: Codable, Sendable, Equatable {
         value.default_model = default_model ?? ""; value.model_fallbacks = model_fallbacks
         value.reasoning_effort = reasoning_effort ?? ""; value.work_mode = work_mode
         value.workspace_root = workspace_root ?? ""; value.features = features
-        value.custom_prompt = custom_prompt ?? ""
         if let data = heartbeat_json?.data(using: .utf8), let heartbeat = try? JSONDecoder().decode(AgentHeartbeat.self, from: data) {
             value.heartbeat = heartbeat
         }
@@ -63,7 +61,8 @@ struct AgentDraft: Equatable, Sendable {
     var fixed_tools: [String] = []
     var tool_allowlist: [String] = []
     var features: [String: Bool] = [:]
-    var custom_prompt = ""
+    var initial_role = ""
+    var initialRoleIsValid: Bool { initial_role.utf16.count <= 2000 }
     var group_reply_policy = "manual"
     var heartbeat = AgentHeartbeat()
 
@@ -82,12 +81,13 @@ struct AgentDraft: Equatable, Sendable {
             "reasoning_effort": reasoning_effort.isEmpty ? .null : .string(reasoning_effort),
             "skills": .array(skills.map(JSONValue.string)), "skills_selection_mode": .string(skills_selection_mode),
             "tool_allowlist": .array(effectiveTools.map(JSONValue.string)),
-            "features": .object(features.mapValues(JSONValue.bool)), "custom_prompt": .string(custom_prompt),
+            "features": .object(features.mapValues(JSONValue.bool)),
             "group_reply_policy": .string(group_reply_policy)
         ]
         if let version { body["profile_version"] = .number(Double(version)) }
         if let data = try? JSONEncoder().encode(heartbeat), let value = try? JSONDecoder().decode(JSONValue.self, from: data) { body["heartbeat"] = value }
         if creating {
+            if !initial_role.isEmpty { body["initial_role"] = .string(initial_role) }
             body["agent_id"] = .string(agent_id.trimmingCharacters(in: .whitespacesAndNewlines))
             body["work_mode"] = .string(work_mode)
             body["workspace_root"] = customWorkspace ? .string(workspace_root.trimmingCharacters(in: .whitespacesAndNewlines)) : .null
@@ -97,7 +97,7 @@ struct AgentDraft: Equatable, Sendable {
     }
     func previewPayload(capabilities: AgentCapabilities?, creating: Bool, customWorkspace: Bool) -> [String: JSONValue] {
         let skillIDs = skills_selection_mode == "default_discovery" ? capabilities?.skills.map(\.name) ?? [] : skills
-        var body: [String: JSONValue] = ["scenario": .string("direct"), "features": .object(features.mapValues(JSONValue.bool)), "custom_prompt": .string(custom_prompt), "tool_ids": .array(effectiveTools.map(JSONValue.string)), "skill_ids": .array(skillIDs.map(JSONValue.string)), "skills_selection_mode": .string(skills_selection_mode), "work_mode": .string(work_mode)]
+        var body: [String: JSONValue] = ["scenario": .string("direct"), "features": .object(features.mapValues(JSONValue.bool)), "tool_ids": .array(effectiveTools.map(JSONValue.string)), "skill_ids": .array(skillIDs.map(JSONValue.string)), "skills_selection_mode": .string(skills_selection_mode), "work_mode": .string(work_mode)]
         body["heartbeat_enabled"] = .bool(features["heartbeat"] ?? false)
         body["cron_enabled"] = .bool(features["cron_scheduling"] ?? false)
         if creating {

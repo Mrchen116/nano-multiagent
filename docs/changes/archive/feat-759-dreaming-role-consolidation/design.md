@@ -113,3 +113,24 @@ Web 和原生 iOS 的现有 Agent 配置页在“自定义指令”附近提供�
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | M1-role-and-consolidation | 角色约定、同轮记忆重组与批次提交 | 无 | 串行 | `packages/dsh-integration/`、现有记忆指导资产、`apps/{node,im-server}/`、Web/iOS Agent 配置与相关测试 | [reviewer] 用户能经配置页直接修改角色，或在对话中补齐和确认角色约定，主 Agent 与 Dreaming 分别正确消费。配置页显示真实保存结果且保留冲突草稿。任务保真与长期提炼在对照样本中可分别观察，旧 Wiki 实际被重组，首页适合注入，必要时只更新正文。[worker] 保留实际请求/暂存/回执证据及同模型对照；覆盖 PA/专家、配置页权限与冲突、未确认与后续更新、普通 child/fork、恢复、预算、证据与应用边界、实际整批 Git 提交与同会话重试，保留 iOS 模拟器独立保存、重开和冲突保留草稿的操作证据。 |
+
+## 2026-11-11 修订：ROLE 单一用户配置来源
+
+本节覆盖上文有关用户可编辑 Persona / Custom Instructions 的旧设计。用户已批准在现有 PR 内完成，不建立另一套生命周期。
+
+- 删除产品 custom_prompt 字段、Web/iOS 配置框及预览参数、Node 到运行时 systemPrompt 映射，删除运行时产品 Persona 注入。PA 默认服务文案从 IM 创建初值移入 `nano-personal-agent` 的根 Agent 系统提示；内部执行者继续使用内部任务角色，普通 Global 不获得 PA 服务段。
+- 主 Agent 继续读取 `.nanoassistant/ROLE.md`；Dreaming 背景只包含 `<system_role>` 与 `<role_content>`，不再包含 `<custom_instructions>`。PA 服务默认值进入系统角色选取，换窗恢复沿用当前冻结批次。
+- 创建时可提交初始角色，使用创建请求持久意图和目标节点实际工作区落盘；ROLE 正文不成为长期配置镜像，普通配置更新不写 ROLE。确认保存已有 ROLE 仍走既有版本冲突接口。具体创建事务接线以同节审定补充为准。
+- [一次性部署提示词](deployment-prompt.md)负责旧字段和已保存角色的迁移，不加入产品启动迁移、旧字段fallback或双写。用户改过的内容需要保留；原样系统默认文案去重；冲突/超限须保留原始备份并由维护者明确处理，不能静默丢弃。
+
+### 本次验证与审查
+
+复用现有配置、创建、ROLE API与原生Context测试，覆盖初始ROLE落盘/创建恢复、普通配置不覆盖角色、PA系统服务指导与Global差异、主/子作用域、Dreaming只有两类角色背景。用真实隔离请求抓取检查主Agent与Dreaming实际内容，并检查Web/iOS角色唯一编辑入口；不新增大流程。使用合成旧配置/ROLE副本验证一次性迁移、重复执行与失败恢复。最终独立代码审查包含契约、Context与部署提示词；未执行的客户端体验明确列出，不以类型检查替代。当前修订待本次独立设计审查。
+
+### 初始角色的创建事务接线
+
+创建 HTTP / PA configuration 接受可选 `initial_role`（2,000 UTF-16以内）；它只保留在 IM 创建 candidate_json 与 `ConfigurationIntent.initial_role` / Node 创建 receipt 中，作为一次创建的持久意图，不进入 CanonicalAgentConfiguration、长期 profile、YAML 或普通配置 fingerprint。重复 create 的内容一致性及 operation_id 复用检查显式比较 initial_role；普通 apply 拒绝该字段。
+
+Node 在已有 prepare 路径确认创建对象尚未存在于已持久化配置时，校验已解析工作区不共享、不为legacy，向 `configuration.prepare` 传 `initialRole`。Runtime 先完成原 capability prepare；ready 后复用 `roleDocument` 原生文件版本API：读取目标，只允许缺失/空白/占位符时以观测版本写入；已是完全相同文本视为崩溃后重试成功；不同非空文件返回 role_conflict，保留原文。失败释放已有prepare hold并返回明确拒绝。后续persist/apply沿用原创建回执。
+
+若进程在ROLE保存后、配置persist前中断，同一意图可恢复；如果已persist，则不再初始化ROLE，避免重试覆盖用户后续修改。创建时初始ROLE不合法或冲突不得报created。复用已有目录的确认不等同于允许覆盖其ROLE。客户端创建页用角色约定代替原自定义指令；已创建对象继续使用独立ROLE版本API，普通配置/预览不携带ROLE草稿。

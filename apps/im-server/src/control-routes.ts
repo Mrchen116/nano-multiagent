@@ -53,7 +53,6 @@ function settingsError(code: string) {
 function previewInput(b: Row): NodeInput<'node.prompt.preview.request'> {
   return {
     features: b.features ?? {},
-    custom_prompt: b.custom_prompt ?? null,
     tool_ids: b.tool_ids ?? [],
     scenario: b.scenario ?? "direct",
     skill_ids: b.skill_ids ?? [],
@@ -310,7 +309,6 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
                 "agent_id",
                 "workspace_root",
                 "features",
-                "custom_prompt",
                 "heartbeat_json",
                 "work_mode",
               ].includes(k)
@@ -340,7 +338,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         features: b.features ?? previous.features,
       };
       if ("approval_mode" in b) c.approval_mode = b.approval_mode;
-      for (const k of ["reasoning_effort", "custom_prompt", "heartbeat_json"] as const)
+      for (const k of ["reasoning_effort", "heartbeat_json"] as const)
         if (k in b && (k === "reasoning_effort" || b[k] !== null)) c[k] = b[k];
       if (b.heartbeat != null && !("heartbeat_json" in b))
         c.heartbeat_json = JSON.stringify(b.heartbeat);

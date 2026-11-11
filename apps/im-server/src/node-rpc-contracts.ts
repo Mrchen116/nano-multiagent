@@ -17,7 +17,6 @@ export interface CapabilitiesResult extends NodeCapabilities { capabilities?: No
 interface AgentTarget { agent_id: string; workspace_root?: string | null }
 interface PreviewInput {
   features: Record<string, boolean>;
-  custom_prompt: string | null;
   tool_ids: string[];
   skill_ids: string[];
   skills_selection_mode: string;

@@ -50,7 +50,6 @@
     "@deepseek-ai/dsh-llm-pi-ai": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-llm-retry": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-permission-presets": "0.2.1-alpha.1",
-    "@deepseek-ai/dsh-persona": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-plugin-manager": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-ptc-runtime": "0.2.1-alpha.1",
     "@deepseek-ai/dsh-sandbox-policy": "0.2.1-alpha.1",

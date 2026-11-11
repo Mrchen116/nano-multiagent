@@ -238,7 +238,8 @@ describe("agent create page", () => {
     expect(await screen.findByRole("heading", { name: /New agent/i })).toBeInTheDocument();
 
     expect(screen.getByLabelText(/Owning Node/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/^Custom Instructions/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Initial role agreement/)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/Custom Instructions/i)).not.toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /Global mode/ })).toBeChecked();
     if (workMode === "global") {
       await user.click(screen.getByRole("radio", { name: /Global mode/ }));
@@ -253,7 +254,7 @@ describe("agent create page", () => {
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "runtime-created helper" } });
-    fireEvent.change(screen.getByLabelText(/^Custom Instructions/), { target: { value: "You are Agent New." } });
+    fireEvent.change(screen.getByLabelText(/^Initial role agreement/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /plan/i }));
     await user.click(screen.getByRole("button", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
@@ -274,7 +275,7 @@ describe("agent create page", () => {
         owner_id: "",
         display_name: "Agent New",
         description: "runtime-created helper",
-        custom_prompt: "You are Agent New.",
+        initial_role: "You are Agent New.",
         features: {},
         skills: ["plan"],
         skills_selection_mode: "explicit_denylist",
@@ -335,6 +336,46 @@ describe("agent create page", () => {
 
     expect(await screen.findByText(/Agent ID is required/i)).toBeInTheDocument();
     expect(screen.getByText(/Display name is required/i)).toBeInTheDocument();
+    expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
+    expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
+  });
+
+  it("rejects an initial role exceeding 2,000 UTF-16 units", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+
+    apiMocks.getNodeCreateStateMock.mockResolvedValue({
+      node: {
+        node_id: "node-1",
+        owner_id: "owner-1",
+        node_name: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 0,
+        version: "1.0.0"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [],
+        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
+        platform_default_model: "codex_oauth:gpt-5.5",
+      }
+    });
+
+    const { router } = renderCreatePage();
+
+    await screen.findByRole("heading", { name: /New agent/i });
+    fireEvent.change(screen.getByLabelText(/^Agent ID/), {target: {value: "role-agent"}});
+    fireEvent.change(screen.getByLabelText(/^Display Name/), {target: {value: "Role agent"}});
+    fireEvent.change(screen.getByLabelText(/^Initial role agreement/), {target: {value: "😀".repeat(1000) + "x"}});
+    await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
+
+    expect(screen.getByLabelText(/^Initial role agreement/)).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getAllByText(/initial role exceeds/i).length).toBeGreaterThan(0);
     expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
     expect(router.state.location.pathname).toBe("/settings/nodes/node-1/agents/new");
   });
@@ -553,7 +594,7 @@ describe("agent create page", () => {
 
     fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
-    fireEvent.change(screen.getByLabelText(/^Custom Instructions/), { target: { value: "You are Agent New." } });
+    fireEvent.change(screen.getByLabelText(/^Initial role agreement/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/409.*agent already exists/i)).toBeInTheDocument();
@@ -745,7 +786,7 @@ describe("agent create prompt preview", () => {
     });
   }
 
-  it("passes the draft skill selection to the preview API", async () => {
+  it("previews selected skills without sending the initial role", async () => {
     const user = userEvent.setup();
     mockNodes();
     mockCreateState();
@@ -755,6 +796,7 @@ describe("agent create prompt preview", () => {
     await screen.findByText(/Select a node/i);
 
     const previewToggle = await screen.findByRole("button", { name: /Preview stable system prompt/i });
+    fireEvent.change(screen.getByLabelText(/^Initial role agreement/), {target: {value: "Unsaved initial role"}});
     await user.click(previewToggle);
 
     await waitFor(() => {
@@ -770,6 +812,8 @@ describe("agent create prompt preview", () => {
       workspace_mode?: string;
       workspace_root?: string | null;
     };
+    expect(body).not.toHaveProperty("initial_role");
+    expect(body).not.toHaveProperty("custom_prompt");
     expect(body).toHaveProperty("skill_ids");
     expect(body.work_mode).toBe("global");
     expect(body.workspace_mode).toBe("default");

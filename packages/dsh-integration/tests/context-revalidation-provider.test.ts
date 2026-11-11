@@ -100,7 +100,7 @@ it.each([
     // These packages come from native contributors, not test-created system messages.
     expect(visible).toContain('Messages and public delivery');
     for (const term of ['inbox_result', 'observation=live', 'observation=restored', 'external-user mapping', 'send_message_result', 'send_user_message_result']) expect(visible).not.toContain(term);
-    expect(visible).toContain('WIRE_PERSONA_' + cell);
+    expect(visible).toContain('WIRE_IDENTITY_' + cell);
     expect(visible).toContain('Task ownership and changes');
     expect(visible).toContain('Automatic continuation does not grant authority');
     expect(visible).toContain(taskTitle);
@@ -195,7 +195,7 @@ it.each([
           : { kind: 'quiescent', tasks: [], repair_task_ids: [] }) satisfies TaskExecutionSnapshot;
       });
       const config = { agentId: binding.agentId, revision: '1', mode: 'global', workspace: home, provider: 'wire', model: 'fixture',
-        systemPrompt: 'WIRE_PERSONA_' + cell, approval: { enabled: false },
+        displayName: 'WIRE_IDENTITY_' + cell, approval: { enabled: false },
         ...(legacy ? { knowledge: { memoryMode: 'legacy' } } : {}),
         features: { intelligent_ui: false, task_graph: true, dreaming: false, memory_curation: legacy, skill_creation: false, cron_scheduling: false, heartbeat: false },
         toolAllowlist: ['skill', 'read', 'task_graph', ...(!legacy ? ['memory_maintenance'] : [])],

@@ -20,7 +20,7 @@ agents:
   - agent_id: e2e
     title: E2E Agent
     workspace_root: /tmp/nano-e2e-workspace/e2e
-    custom_prompt: You are the isolated E2E test agent. Reply concisely.
+    initial_role: You are the isolated E2E test agent. Reply concisely.
     default_model: deepseek:deepseek-v4-flash
     work_mode: single_thread
     # Explicit tools survive registration/config sync; omitted lists canonicalize to [].
@@ -56,7 +56,7 @@ agents:
   - agent_id: e2e-peer
     title: E2E Peer Agent
     workspace_root: /tmp/nano-e2e-workspace/e2e-peer
-    custom_prompt: You are the peer in isolated E2E group-chat tests. Reply concisely.
+    initial_role: You are the peer in isolated E2E group-chat tests. Reply concisely.
     default_model: deepseek:deepseek-v4-flash
     group_reply_policy: mention_only
     work_mode: single_thread
@@ -73,7 +73,7 @@ agents:
   - agent_id: e2e-global
     title: E2E Global Agent
     workspace_root: /tmp/nano-e2e-workspace/e2e-global
-    custom_prompt: You are the isolated global E2E test agent. Reply concisely to the source conversation.
+    initial_role: You are the isolated global E2E test agent. Reply concisely to the source conversation.
     default_model: deepseek:deepseek-v4-flash
     work_mode: global
     group_reply_policy: mention_only

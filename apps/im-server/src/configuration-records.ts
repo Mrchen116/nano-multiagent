@@ -17,7 +17,6 @@ export interface AgentProfileRecord {
   workspace_is_default: number | null;
   profile_version: number;
   updated_at: string;
-  custom_prompt: string | null;
   heartbeat_json: string | null;
   skills_json: string;
   skills_selection_mode: string | null;

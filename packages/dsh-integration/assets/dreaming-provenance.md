@@ -39,7 +39,7 @@ it does not copy personal instances, create Muse's separate cards/schedulers, or
 claim knowledge of its hidden runtime prompt.
 
 Consolidation selects its focus using the bound Agent's PA or expert role and
-supplies the confirmed workspace role agreement and configured persona separately
+supplies the confirmed workspace role agreement separately
 as background data. The PA interaction-reflection wording remains. The expert
 variant focuses on domain and project changes, environment conditions, verified
 work lessons and collaboration. Both use the same evidence and proactive

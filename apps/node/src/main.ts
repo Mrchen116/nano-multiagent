@@ -548,7 +548,14 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
       return {ready: false, error_code: 'capability_in_use', message: 'Heartbeat is active', blocks: [{code: 'capability_busy', target: {kind: 'feature', name: 'heartbeat'}}]};
     }
     try {
-      return await runtime.request('configuration.prepare', {operationId: intent.operation_id, fingerprint: intent.candidate_fingerprint, config: configuration.runtime(candidate)}) as import('@nano/personal-assistant').ConfigurationPreparation;
+      // A persisted creation may already have a later user edit: only initialize before the first config write.
+      const initialRole = configuration.current(candidate.agent_id) ? undefined : intent.initial_role;
+      if (initialRole !== undefined && !await configuration.creationRoleWorkspace(candidate)) {
+        heartbeat.release(candidate.agent_id, intent.operation_id);
+        return {ready:false, error_code:'role_unavailable', message:'Initial role requires an exclusive document workspace'};
+      }
+      return await runtime.request('configuration.prepare', {operationId: intent.operation_id, fingerprint: intent.candidate_fingerprint,
+        config: configuration.runtime(candidate), ...(initialRole === undefined ? {} : {initialRole})}) as import('@nano/personal-assistant').ConfigurationPreparation;
     } catch { heartbeat.release(candidate.agent_id, intent.operation_id); return {ready: false, error_code: 'capability_usage_unavailable', message: 'Unable to confirm capability usage'}; }
   },
   release: async (candidate, intent) => {

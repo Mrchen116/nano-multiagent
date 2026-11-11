@@ -19,7 +19,7 @@ description: "仅主 PA：主人明确要求创建长期独立 Agent，或正在
 
 使用 `action="create"`，提供确定的 `node_id`、`configuration`、原始主人消息的 `source_message_id`，以及这次业务创建的稳定 `request_key`。可用原始创建消息 ID 作 request_key；重试、恢复和 status 始终使用同一 key，不使用每次变化的 tool-call ID。source_message_id 必须来自真实 Inbox/聊天记录，不得编造；“那就创建吧”可承接同一对话中已确定的配置。
 
-configuration 的字段、合法值和默认草稿以 options 为准。将确认的职责写入 custom_prompt，不复制无关私人聊天、记忆或密钥。运行能力须满足该电脑目录中的 Feature 依赖。新 Agent 不继承你的 PA 身份、主人聊天访问或代表发送权限。
+configuration 的字段、合法值和默认草稿以 options 为准。将确认的长期职责写入 initial_role（最多 2,000 UTF-16 单元）；创建时写入目标工作区的 .nanoassistant/ROLE.md，之后以该文件为唯一角色来源，不复制无关私人聊天、记忆或密钥。运行能力须满足该电脑目录中的 Feature 依赖。新 Agent 不继承你的 PA 身份、主人聊天访问或代表发送权限。
 
 - **created**：只有这个状态表示实际创建已确认。说明名字、职责、真实所在电脑，并给出返回的 `urls.chat` 和 `urls.settings`。不自动发送第一个任务，也不设置用户未要求的定时任务。
 - **pending / unknown**：说明尚未确认，调用 `action="status"` 和原 request_key。不要换 key、换 Agent ID 或换电脑再创建。

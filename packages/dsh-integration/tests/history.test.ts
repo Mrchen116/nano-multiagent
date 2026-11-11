@@ -20,7 +20,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     revision: "1",
     provider: "fixture",
     model: "test",
-    systemPrompt: "ORIGINAL_PERSONA",
+    displayName: "ORIGINAL_IDENTITY",
     features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false },
     toolAllowlist: ["read"],
   };
@@ -133,7 +133,7 @@ it("forks a native message with its configuration and compacted prefix, independ
       ...config,
       revision: "2",
       model: "next",
-      systemPrompt: "NEW_PERSONA",
+      displayName: "NEW_IDENTITY",
       toolAllowlist: ["write"],
     };
     await client!.rpc.request("configuration.apply", config);
@@ -165,7 +165,7 @@ it("forks a native message with its configuration and compacted prefix, independ
       tools: ["get_context_remaining", "history", "new_context", "notes", "read"],
     });
     expect(JSON.stringify(await capabilities(fork.sessionId))).toContain(
-      "ORIGINAL_PERSONA",
+      "ORIGINAL_IDENTITY",
     );
     await submit(fork.sessionId, "fork-only");
     expect(JSON.stringify(await observe(binding.sessionId))).not.toContain(
@@ -179,7 +179,7 @@ it("forks a native message with its configuration and compacted prefix, independ
       JSON.stringify(request.messages).includes("CHILD_FROM_HISTORY"),
     );
     expect(childRequest?.model).toBe("test");
-    expect(JSON.stringify(childRequest)).toContain("ORIGINAL_PERSONA");
+    expect(JSON.stringify(childRequest)).toContain("ORIGINAL_IDENTITY");
     expect(requests.at(-1).model).toBe("test");
     expect(JSON.stringify(requests.at(-1).messages)).toContain(
       "Context reset reason: manual",
@@ -206,7 +206,7 @@ it("forks a native message with its configuration and compacted prefix, independ
       tools: ["get_context_remaining", "history", "new_context", "notes", "read"],
     });
     expect(JSON.stringify(await capabilities(fork.sessionId))).toContain(
-      "ORIGINAL_PERSONA",
+      "ORIGINAL_IDENTITY",
     );
     expect(await readFile(legacy, "utf8")).toBe("legacy copy must stay untouched");
     await submit(fork.sessionId, "cold-fork");
@@ -220,7 +220,7 @@ it("forks a native message with its configuration and compacted prefix, independ
       tools: ["get_context_remaining", "history", "new_context", "notes", "write"],
     });
     expect(JSON.stringify(await capabilities(fork.sessionId))).toContain(
-      "NEW_PERSONA",
+      "NEW_IDENTITY",
     );
     await client!.shutdown();
     client = undefined;

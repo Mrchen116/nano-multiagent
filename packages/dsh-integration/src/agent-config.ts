@@ -9,7 +9,6 @@ import type { Agent } from '@deepseek-ai/dsh-agent';
 import * as Skills from './capabilities.js';
 import { ToolSelection } from './capabilities.js';
 import { mountExtensions } from './extensions.js';
-import * as Persona from '@deepseek-ai/dsh-persona';
 import * as GlobalMode from './global-mode.js';
 import * as ContextOrder from './context-order.js';
 import * as TaskGraphs from './features/task-graphs.js';
@@ -23,7 +22,7 @@ import { WorkspaceExtensions, type PluginCommand } from './workspace-tools.js';
 
 type Fiber = ReturnType<Context['plugin']>;
 interface PresetScope { agentId: string; ctx: Context; features: Map<string, Fiber> }
-interface AgentScope { agent: Agent; config: AgentConfiguration; workspace?: string; persona?: Fiber; skills?: Fiber }
+interface AgentScope { agent: Agent; config: AgentConfiguration; workspace?: string; skills?: Fiber }
 declare module '@deepseek-ai/cordis' { interface Context { nanoConfiguration: ConfigurationScopes } }
 
 /** Keeps inherited tool contributions filterable and history configuration Agent-local. */
@@ -166,7 +165,6 @@ export class ConfigurationScopes extends Service {
         : `Your Agent name: ${name}\nYour Agent ID: ${id}`;
     } });
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
-    if (config.systemPrompt && !internal) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }
     scope.skills = agent.ctx.plugin(Skills, config); await scope.skills.await();
     if (internal && role !== 'subagent') GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global', role === 'worker' || role === 'worker-fork');
     else if (!internal && config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
@@ -193,10 +191,6 @@ export class ConfigurationScopes extends Service {
     this.tools.update(next.agentId);
   }
   async setConfiguration(next: AgentConfiguration): Promise<void> {
-    for (const scope of this.agents.values()) if (scope.config.agentId === next.agentId && scope.config.systemPrompt !== next.systemPrompt) {
-      await scope.persona?.dispose(); scope.persona = undefined;
-      if (next.systemPrompt && !isOrdinaryChild(scope.agent) && globalWorkRole(scope.agent, scope.config) !== 'worker-fork') { scope.persona = scope.agent.ctx.plugin(Persona, { prefix: next.systemPrompt }); await scope.persona.await(); }
-    }
     for (const config of this.allConfigurations()) if (config.agentId === next.agentId) {
       for (const key of Object.keys(config)) delete (config as unknown as Record<string, unknown>)[key];
       Object.assign(config, next);

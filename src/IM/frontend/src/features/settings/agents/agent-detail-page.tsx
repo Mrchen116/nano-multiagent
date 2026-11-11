@@ -72,7 +72,6 @@ function normalizeAgentConfig(
     ...config,
     display_name: normalizeText(config.display_name),
     description: normalizeText(config.description),
-    custom_prompt: (config.custom_prompt ?? "").trim(),
     features: config.features ?? {},
     skills: normalizeAllowlist(config.skills),
     tool_allowlist: normalizeAllowlist(config.tool_allowlist),
@@ -132,7 +131,7 @@ function formatUpdatedAt(value?: string | null) {
   return new Date(value).toLocaleString();
 }
 
-// feat-379-M3: Behavior card — features checkbox group + custom_prompt textarea + collapsible preview.
+// Behavior card with independent role editor, feature controls and stable prompt preview.
 // Uses the same checkbox idiom as allowlist-selector.tsx (appearance:none + :checked → --im-accent)
 // and the same collapsible pattern as tool-calls-panel.tsx (aria-expanded + ▸/▾ + class toggle).
 interface BehaviorCardProps {
@@ -144,7 +143,6 @@ interface BehaviorCardProps {
   inheritedRules?: "nano" | "codex" | "dsh" | null;
   capabilityFeatures: AgentFeature[];
   onApprovalModeChange: (value: ApprovalMode) => void;
-  onCustomPromptChange: (value: string) => void;
   roleEditor: ReactNode;
   onFeatureToggle: (key: string, value: boolean) => void;
   onPolicyChange: (value: string) => void;
@@ -159,7 +157,6 @@ function BehaviorCard({
   capabilityFeatures,
   inheritedRules,
   onApprovalModeChange,
-  onCustomPromptChange,
   roleEditor,
   onFeatureToggle,
   onPolicyChange
@@ -195,7 +192,6 @@ function BehaviorCard({
     try {
       const text = await promptPreview(agentId, {
         features: effectiveFeatures,
-        custom_prompt: draft.custom_prompt ?? "",
         tool_ids: draft.tool_allowlist ?? [],
         ...(draft.work_mode === "global" ? { work_mode: "global" as const } : {}),
         skill_ids: draft.skills,
@@ -207,7 +203,7 @@ function BehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [readOnly, agentId, effectiveFeatures, draft.custom_prompt, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
+  }, [readOnly, agentId, effectiveFeatures, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
 
   // Debounce preview re-fetch when draft changes while preview is open.
   useEffect(() => {
@@ -216,7 +212,7 @@ function BehaviorCard({
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readOnly, previewOpen, draft.custom_prompt, draft.features, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
+  }, [readOnly, previewOpen, draft.features, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {
@@ -234,20 +230,6 @@ function BehaviorCard({
       </div>
 
       <ApprovalModeField inheritedRules={inheritedRules} disabled={readOnly} value={draft.approval_mode} onChange={onApprovalModeChange} />
-
-      <div className="im-agent-field">
-        <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
-        <textarea
-          disabled={readOnly}
-          id="custom-instructions"
-          className="im-agent-textarea"
-          value={draft.custom_prompt ?? ""}
-          placeholder={t("agents.form.behavior.customInstructionsPlaceholder")}
-
-          rows={4}
-          onChange={(e) => onCustomPromptChange(e.target.value)}
-        />
-      </div>
 
       {roleEditor}
 
@@ -1898,11 +1880,6 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
             setSaved(false);
             setErrorMessage(null);
             setDraft({ ...draft, approval_mode: value });
-          }}
-          onCustomPromptChange={(value) => {
-            setSaved(false);
-            setErrorMessage(null);
-            setDraft({ ...draft, custom_prompt: value });
           }}
           onFeatureToggle={(key, value) => {
             setErrorMessage(null);
