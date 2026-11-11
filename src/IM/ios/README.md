@@ -71,6 +71,8 @@ xcodebuild build-for-testing -jobs 2 -project src/IM/ios/NanoIM.xcodeproj \
 
 输出 `NanoIM.xcarchive` 和 `NanoIM-unsigned.ipa`。未签名 IPA 供 AltStore Classic 重新签名，不能直接当作已安装验证。Xcode 真机调试需在 Signing & Capabilities 选择自己的 Personal Team；不要提交账户、证书或本机签名设置。
 
+从 Mac mini 放入 iCloud Drive、无线侧载及真机版本核对见 [nano-ios-install](../../../.agents/skills/nano-ios-install/SKILL.md)。
+
 免费签名的续签和到期时间应以 AltStore 实际记录为准。该版本不使用 APNs，后台或关闭时不承诺新消息提醒；回前台重新同步。
 
 ## 代码与验证边界
