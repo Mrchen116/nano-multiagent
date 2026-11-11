@@ -255,6 +255,7 @@ it.each([
       expect(strings(messages)).toContain('Context reset reason: model-requested');
       expect(strings(messages)).not.toContain(documentMarker);
       expect(strings(messages).split(updatedMarker)).toHaveLength(2);
+      expect(strings(messages).split('<context_window>\n')).toHaveLength(2);
       const latestSnapshot = messages.findLast((message: unknown) => strings(message).includes('Current runtime context'));
       expect(strings(latestSnapshot)).toContain(updatedMarker);
       expect(strings(latestSnapshot)).not.toContain(documentMarker);
@@ -279,6 +280,7 @@ it.each([
     if (!legacy && windows) {
       expect(strings(after[0]!.body.messages)).not.toContain(documentMarker);
       expect(strings(after[0]!.body.messages).split(updatedMarker)).toHaveLength(2);
+      expect(strings(after[0]!.body.messages).split('<context_window>\n')).toHaveLength(2);
     }
     expect(strings(after[0]!.body.messages)).toContain('TASK_ORIGINAL_task-after-' + cell);
     expect(strings(after[0]!.body.messages)).toContain(windows ? 'Context reset reason: manual' : 'CONTROLLED_NATIVE_SUMMARY_' + cell);

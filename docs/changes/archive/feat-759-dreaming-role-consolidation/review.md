@@ -52,3 +52,10 @@
 - 修复位于独立 dsh-agent-context 组件，检查点仅含窗口导航和恢复提示，主动换窗与 overflow 重试恢复一次当前上下文。手动和 turn-stopping 换窗由下一请求装配。Nano 删除换窗补偿并接入 0.3.0-rc.10。组件无需了解 Nano 的记忆文件。依赖变更见 https://github.com/Mrchen116/dsh-agent-context/pull/6 。
 - 原生组件 40 项测试通过，Nano 请求重校验、前台记忆、子 Agent 记忆和缓存前缀共 8 项通过。PA、Global 各 16 轮 HTTP 回放覆盖手动与压力换窗，同窗第 11 轮和重启后仍使用 A，换窗首请求仅一份 B，详情变化及下一请求仍仅一份 B。另验证手动换窗后、首请求前改成 C，该请求读取 C，随后重启仍仅一份 C 和 ROLE。
 - 独立 change-code-review 审查者 checkpoint_review 检查两仓 diff 和原生 RuntimeContextProjection，结论通过。修复前后请求位于本机 /private/tmp/nano-role-wire-evidence 与 /private/tmp/nano-role-wire-fixed，测试资源已回收。HTTP 响应为受控 provider，未测服务商缓存命中量。
+
+## PR #520 窗口标识与整体 Context 补验
+
+- 用户指出 rc.10 检查点与当前快照仍各带窗口标识。rc.11 删除检查点窗口段，窗口身份统一从当前快照提供。原生 40 项测试及 Nano 5 项请求/前缀测试通过。
+- PA、Global 的手动/压力换窗各跑 16 轮 HTTP 请求，逐轮验证窗口段、首页、ROLE 单份。另使用默认工具和实际内置 Skill 目录回放，通读首窗、换窗首请求和下一请求的 system/messages/tools。换窗首请求为恢复提示、当前上下文、Skills 目录、绑定发送者、用户输入五条消息；下一请求仅追加回复和新输入。
+- 作者与独立 agent-context-review 检查来源、当前权限、ROLE、记忆和动态技能目录的对应关系。发现共用 system 的旧句仍把职责归入 Memory，现已改为背景与经验；Skills 引导均有目录名称和工具入口。测试正文的 discussion-only 要求保留，history 的 window/item 参数及 notes 恢复入口可用。
+- 既有 history 工具对 private contents 的保密措辞可能影响模型概述恢复的用户原话，记为范围外语义疑点，未观察到实际误用。此次验证实际 HTTP 内容，响应由受控 provider 返回，未声称真实模型的任务恢复或缓存命中评测。完整请求位于本机 /private/tmp/nano-context-whole-review，并已更新 HTML 展示。
