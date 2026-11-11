@@ -47,6 +47,7 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
   });
   const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
   const config={agentId:'a',displayName:'Prefix Agent',revision:'1',workspace:home,mode,provider:'wire',model:'fixture',systemPrompt:'PARENT_PERSONA_PREFIX: respond to the source conversation.',
+    executionNode:{id:'node-air',name:'Air'},
     toolAllowlist:['subagent_fork','send_message','inbox','conversations','task_graph','personal_sources','schedule_run','schedule_history'],
     features:{task_graph:true,intelligent_ui:true,dreaming:false,cron_scheduling:true},approval:{dangerouslySkipPermissions:true},
     ...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{}),
@@ -77,6 +78,8 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{wire:{api:'anthropic-messages',baseURL:`http://127.0.0.1:${(server.address() as any).port}`,apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture',contextWindow:200000}]}}}},{insert:[{id:'prefix-fixture',name:join(home,'fixture.mjs')}]}]);
     await start();
     const first=await submit('empty');
+    expect(system(first.parent).some((block: {text?:string}) =>
+      block.text?.includes('Your execution node: "Air" ("node-air").'))).toBe(true);
     expect(JSON.stringify(first.child.messages)).not.toContain('PREFIX_COMMAND_empty');
     const completedParent=requests.filter(r=>r.session==='root').at(-1)!.body;
     const seeded=await submit('seeded');

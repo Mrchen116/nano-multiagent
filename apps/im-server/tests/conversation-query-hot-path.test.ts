@@ -30,6 +30,33 @@ it.each([false, true])('reads only requested chats without discovery (personal=%
   expect(sources).not.toHaveBeenCalled();
 });
 
+it.each(['single_thread', 'global'])('projects current execution nodes only for authorized group members (%s)', mode => {
+  const { db, query } = fixture(false);
+  db.prepare("UPDATE agent_profiles SET work_mode=? WHERE agent_id='a'").run(mode);
+  db.prepare("UPDATE conversations SET type='group',visibility='public' WHERE id='chat'").run();
+  db.prepare("INSERT INTO nodes(node_id,owner_id,node_name,status) VALUES('remote','o2','Node','offline'),('unnamed','o2','unnamed','online')").run();
+  for (const [id, owner, node] of [['near', 'o1', 'n'], ['far', 'o2', 'remote'], ['unlabelled', 'o2', 'unnamed'], ['private-peer', 'o2', 'remote']]) {
+    db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES(?,?,?,?,datetime('now'))")
+      .run(id, `agent:${id}`, id, owner);
+    db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at) VALUES(?,?,?,?,datetime('now'),datetime('now'))")
+      .run(id, owner, node, id);
+    db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat',?)").run(id);
+  }
+  db.prepare(`INSERT INTO personal_agent_bindings VALUES
+    ('owner-pa','o1','u1','near','n',1,'owner-direct','Near','create','active',NULL,datetime('now')),
+    ('peer-pa','o2','u2','private-peer','remote',1,'peer-direct','Peer','create','active',NULL,datetime('now'))`).run();
+  const info = { action: 'info', target: 'chat' };
+  expect(query(info).members.every((member: any) => !member.execution_node)).toBe(true);
+  expect(query({ ...info, include_execution_nodes: true }).members).toEqual(expect.arrayContaining([
+    expect.objectContaining({ user_id: 'near', execution_node: { relation: 'same', name: 'Node' } }),
+    expect.objectContaining({ user_id: 'far', execution_node: { relation: 'different', name: 'Node' } }),
+    expect.objectContaining({ user_id: 'unlabelled', execution_node: { relation: 'different' } }),
+    expect.objectContaining({ user_id: 'private-peer', execution_node: { relation: 'unknown' } }),
+  ]));
+  db.prepare("DELETE FROM conversation_participants WHERE conversation_id='chat' AND user_id='a1'").run();
+  expect(query({ ...info, include_execution_nodes: true }).members.every((member: any) => !member.execution_node)).toBe(true);
+});
+
 it('retains the owner observer title in a targeted PA history read', () => {
   const { db, ctx, query, listing, sources } = fixture(true);
   db.prepare("DELETE FROM conversation_participants WHERE conversation_id='peer' AND user_id='u1'").run();

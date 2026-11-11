@@ -5,6 +5,27 @@ import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
 import type { RelayInput } from '@nano/product-contracts';
 
 const quotedPublication = JSON.stringify({reply_to_message_id:'original',text:'收到'});
+
+it('resolves current group info from the ordinary root binding and preserves the peer projection', async () => {
+  const store = new NodeStore(':memory:', 'owner');
+  const inbox = new InboxStore(':memory:');
+  store.bind({agentId:'a',sessionId:'main',conversationId:'c_group',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  const member = {user_id:'peer',execution_node:{relation:'different',name:'Mini'}};
+  const request = vi.fn(async () => ({type:'conversation.query.result',payload:{ok:true,result:{target:'c_group',members:[member]}}}));
+  const product = new GlobalAgent({nodeId:'node',ownerId:'owner',
+    agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'single_thread'}],store,inbox,
+    runtime:{onNotification:()=>()=>{},request:async()=>({})},relay:{request},image:async()=>'',onError:()=>{}});
+  try {
+    const result = await product.call({method:'conversations',args:{action:'info',target:'current'},operationId:'info',callId:'info',
+      sessionId:'main',rootSessionId:'main',agentId:'a',ownerId:'owner'});
+    expect(request).toHaveBeenCalledWith('conversation.query', expect.objectContaining({action:'info',target:'c_group',include_execution_nodes:true}));
+    expect(result).toMatchObject({target:'c_group',members:[member]});
+  } finally {
+    await product.stop();
+    inbox.close();
+    store.close();
+  }
+});
 it.each([
  {found:true,body:'already reviewed reply',text:'already reviewed reply'},
  {found:false,body:'already reviewed reply',text:'already reviewed reply'},

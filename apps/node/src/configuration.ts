@@ -104,6 +104,7 @@ export class NodeConfiguration {
     // A missing mode here is a pre-existing local record, not a new Agent: keep
     // reading it as single_thread so an upgrade cannot silently convert it.
     return { agentId: agent.agent_id, displayName: String(('title' in agent ? agent.title : undefined) ?? agent.display_name ?? agent.agent_id), workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
+      executionNode: { id: this.value.node.node_id, name: this.value.node.node_name },
       ...(canonical.personal_agent ? {personal: canonical.personal_agent} : {}),
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model: selected.id ?? model,
       ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}), systemPrompt: agent.custom_prompt ?? undefined,

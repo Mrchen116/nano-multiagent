@@ -161,9 +161,13 @@ export class ConfigurationScopes extends Service {
     if (role !== 'subagent') agent.ctx.systemPrompt.section({ name: 'nano-product-identity', order: 5, interpolate: false, text: () => {
       const name = JSON.stringify(scope.config.displayName ?? scope.config.agentId);
       const id = JSON.stringify(scope.config.agentId);
-      return internal
-        ? `You are an internal subagent of this product Agent:\nAgent name: ${name}\nAgent ID: ${id}`
-        : `Your Agent name: ${name}\nYour Agent ID: ${id}`;
+      if (internal) return `You are an internal subagent of this product Agent:\nAgent name: ${name}\nAgent ID: ${id}`;
+      const identity = `Your Agent name: ${name}\nYour Agent ID: ${id}`;
+      const node = scope.config.executionNode;
+      if (!node) return identity;
+      const label = node.name && node.name !== node.id ? `${JSON.stringify(node.name)} (${JSON.stringify(node.id)})` : JSON.stringify(node.id);
+      return `${identity}\nYour execution node: ${label}.
+Other Agents in Nano IM may run on different nodes. A local path shared by another Agent belongs to the environment where the file was produced. Use the latest group info when you need to check where that Agent runs now. If the node differs, the file's origin is unclear, or a local read fails, ask for an attachment in the conversation or a link you can access. Verify file access before working from a path known to be local.`;
     } });
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
     if (config.systemPrompt && !internal) { scope.persona = agent.ctx.plugin(Persona, { prefix: config.systemPrompt }); await scope.persona.await(); }

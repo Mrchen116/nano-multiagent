@@ -728,7 +728,12 @@ export class GlobalAgent {
           throw new Error('Memory history requires a read-only action and a trusted bounded source');
         return await this.query(binding, { ...call.args, memory_cutoff: cutoff, memory_after: afterTime });
       }
-      if (call.method === 'conversations') return await this.query(binding, call.args);
+      if (call.method === 'conversations') {
+        if (call.args.action !== 'info') return await this.query(binding, call.args);
+        const mode = this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode;
+        const target = mode === 'single_thread' && call.args.target === 'current' ? binding.conversationId : call.args.target;
+        return await this.query(binding, { ...call.args, target, include_execution_nodes: true });
+      }
       if (call.method === 'schedule.run' || call.method === 'schedule.history') {
         if (call.sessionId !== call.rootSessionId) throw new Error('Schedules belong to a main Session');
         const config = this.options.agents.find(agent => agent.agentId === binding.agentId);

@@ -6,6 +6,7 @@ export * from './agent-deletion.js';
 export interface AgentConfiguration {
   agentId: string;
   displayName?: string;
+  executionNode?: { id: string; name?: string };
   /** Server-issued personal identity; ordinary Agent configuration cannot grant this role. */
   personal?: PersonalAgentIdentity;
   revision: string;
