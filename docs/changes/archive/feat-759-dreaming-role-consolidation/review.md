@@ -103,3 +103,10 @@
 
 
 定向复验 `ffcc243aa`：独立审查者确认 C2/D1 关闭、Context 结论保留，指出 C1/C3 各有剩余路径。C1 在 ordinary runtime 尚未恢复时，立即重试可能从配置队列启动 runtime，而 onReady 又等待恢复该队列。修复为携初始角色的 ordinary prepare 在离线时直接抛出 pending；由既有 supervisor 恢复后重放，避免互等，专门分区测试验证不会从该调用启动 runtime。C3 Web 清空原先仍发空串；修复为省略空白初始值（非空保留原文），补清空后第二次创建请求断言。两组后台 19/19、Web 创建 16/16 通过；iOS 最终构建通过。
+
+
+### ROLE 增量最终结论
+
+独立审查者在 `5b5633f8fb1e7397dca658d3f7598fb82463ec00` 定向复验：C1/C3 关闭，C2/D1 与 Context 原结论保留，无新发现。审查者用 Node 24.22.1、实际 RuntimePartitions / ConfigurationOperations、内存 SQLite 与受控 runtime 重跑此前互等复现：写入后回包丢失保留 pending，立即重试不启动 runtime；就绪后恢复 applied，同一角色只写一次。Web 空白值的最终 JSON 省略已核实。
+
+交付增量已归并 current specs，PR #520 继续面向 develop，不自动合入或部署。生产迁移尚未执行。所有本轮隔离服务、端口、专用 iOS 模拟器及临时构建/运行目录已回收；受保护的合成原始请求、迁移演练与摘要长期保留在本机 `~/.local/share/nano-multiagent/evidence/role-unification-20261111/`，不含运行凭据。保留开发 worktree 供 PR 审阅，合入后再按规则清理。
