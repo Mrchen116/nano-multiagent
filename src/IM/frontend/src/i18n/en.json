@@ -525,7 +525,6 @@
           "title": "Role agreement",
           "help": "Long-term responsibilities, goals, and who does what. Future Agent requests and Dreaming batches use the saved agreement.",
           "unset": "No role agreement saved. The Agent will ask you to define one.",
-          "save": "Save role agreement",
           "saved": "Role agreement saved.",
           "loading": "Loading role agreement…",
           "unavailable": "The current role agreement is unavailable.",

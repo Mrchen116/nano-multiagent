@@ -378,32 +378,27 @@ it.each(["transport", "envelope"] as const)("preserves a last successful usage r
 });
 
 
-it("saves role and ordinary configuration separately", async () => {
+it("saves role and ordinary configuration with one Save Agent action", async () => {
   config.owner_id = "user-1";
   open();
   const editor = await screen.findByRole("textbox", {name: "Role agreement"}, {timeout: 5000});
-  expect(editor).toHaveValue("");
+  expect(screen.queryByRole("button", {name: "Save role agreement"})).not.toBeInTheDocument();
   fireEvent.change(editor, {target:{value:"Coordinate the team's long-term planning."}});
   fireEvent.change(screen.getByLabelText("Display Name"), {target:{value:"New name"}});
-  const ordinarySave = screen.getByRole("button", {name:"Save Agent"});
-  await waitFor(() => expect(ordinarySave).toBeEnabled());
-  fireEvent.click(ordinarySave);
+  const save = screen.getByRole("button", {name:"Save Agent"});
+  await waitFor(() => expect(save).toBeEnabled());
+  fireEvent.click(save);
   await waitFor(() => expect(patches()).toHaveLength(1));
-  expect(roleWrites()).toHaveLength(0);
-  expect(editor).toHaveValue("Coordinate the team's long-term planning.");
-  const roleSave = screen.getByRole("button", {name:"Save role agreement"});
-  await waitFor(() => expect(roleSave).toBeEnabled());
-  fireEvent.click(roleSave);
-  expect(await screen.findByText("Role agreement saved.", {}, {timeout: 5000})).toBeVisible();
-  expect(patches()).toHaveLength(1);
+  expect(roleWrites()).toHaveLength(1);
   expect(JSON.parse(roleWrites()[0]![1].body)).toEqual({content:"Coordinate the team's long-term planning.", version:null});
+  await waitFor(() => expect(save).toBeDisabled());
 }, 15_000);
 
 it("blocks an oversized role draft until it fits the save limit", async () => {
   config.owner_id = "user-1";
   open();
   const editor = await screen.findByRole("textbox", {name: "Role agreement"});
-  const save = screen.getByRole("button", {name: "Save role agreement"});
+  const save = screen.getByRole("button", {name: "Save Agent"});
   fireEvent.change(editor, {target: {value: "💡".repeat(1000) + "x"}});
   expect(editor).toHaveAttribute("aria-invalid", "true");
   expect(save).toBeDisabled();
@@ -420,11 +415,11 @@ it("keeps the role draft and shows the latest saved agreement after a conflict",
   expect(editor).toHaveValue("Original role");
   fireEvent.change(editor, {target:{value:"My draft"}});
   role = {content:"Changed in chat", version:"current"};
-  fireEvent.click(screen.getByRole("button", {name:"Save role agreement"}));
+  fireEvent.click(screen.getByRole("button", {name:"Save Agent"}));
   expect(await screen.findByText("Changed in chat", {}, {timeout: 5000})).toBeVisible();
   expect(editor).toHaveValue("My draft");
   expect(roleWrites()).toHaveLength(1);
-  const roleSave = screen.getByRole("button", {name:"Save role agreement"});
+  const roleSave = screen.getByRole("button", {name:"Save Agent"});
   await waitFor(() => expect(roleSave).toBeEnabled());
   fireEvent.click(roleSave);
   expect(await screen.findByText("Role agreement saved.", {}, {timeout: 5000})).toBeVisible();
@@ -446,5 +441,58 @@ it("keeps a role draft offline and refreshes the file before unlocking save", as
   expect(await screen.findByText("Updated during outage", {}, {timeout: 5000})).toBeVisible();
   expect(editor).toHaveValue("Draft during outage");
   expect(roleWrites()).toHaveLength(0);
-  await waitFor(() => expect(screen.getByRole("button", {name:"Save role agreement"})).toBeEnabled());
+  await waitFor(() => expect(screen.getByRole("button", {name:"Save Agent"})).toBeEnabled());
 }, 15_000);
+
+it("saves a role-only change without resubmitting configuration and discards role edits", async () => {
+  config.owner_id = "user-1";
+  open();
+  const editor = await screen.findByRole("textbox", {name: "Role agreement"});
+  fireEvent.change(editor, {target: {value: "Help with long-term planning."}});
+  const save = screen.getByRole("button", {name: "Save Agent"});
+  await waitFor(() => expect(save).toBeEnabled());
+  fireEvent.click(save);
+  await waitFor(() => expect(roleWrites()).toHaveLength(1));
+  await waitFor(() => expect(save).toBeDisabled());
+  expect(patches()).toHaveLength(0);
+  fireEvent.change(editor, {target: {value: "Unsaved revision"}});
+  fireEvent.click(screen.getByRole("button", {name: /Discard/i}));
+  expect(editor).toHaveValue("Help with long-term planning.");
+  expect(save).toBeDisabled();
+});
+
+it("keeps both drafts after a role conflict without submitting ordinary configuration", async () => {
+  config.owner_id = "user-1";
+  open();
+  const editor = await screen.findByRole("textbox", {name: "Role agreement"});
+  fireEvent.change(editor, {target: {value: "Role draft"}});
+  fireEvent.change(screen.getByLabelText("Display Name"), {target: {value: "Name draft"}});
+  role = {content: "Updated elsewhere", version: "new-version"};
+  fireEvent.click(screen.getByRole("button", {name: "Save Agent"}));
+  expect(await screen.findByText("Updated elsewhere")).toBeVisible();
+  expect(editor).toHaveValue("Role draft");
+  expect(screen.getByLabelText("Display Name")).toHaveValue("Name draft");
+  expect(patches()).toHaveLength(0);
+});
+
+it("retries only unsaved configuration if it fails after the role was saved", async () => {
+  config.owner_id = "user-1";
+  const originalSave = save;
+  save = () => json({code: "config_save_failed", message: "Configuration save failed"}, 503);
+  open();
+  const editor = await screen.findByRole("textbox", {name: "Role agreement"});
+  fireEvent.change(editor, {target: {value: "Saved role"}});
+  fireEvent.change(screen.getByLabelText("Display Name"), {target: {value: "Name draft"}});
+  fireEvent.click(screen.getByRole("button", {name: "Save Agent"}));
+  expect(await screen.findByTestId("agent-save-error")).toHaveTextContent("Configuration save failed");
+  expect(roleWrites()).toHaveLength(1);
+  expect(editor).toHaveValue("Saved role");
+  expect(screen.getByLabelText("Display Name")).toHaveValue("Name draft");
+  save = originalSave;
+  const button = screen.getByRole("button", {name: "Save Agent"});
+  await waitFor(() => expect(button).toBeEnabled());
+  fireEvent.click(button);
+  await waitFor(() => expect(patches()).toHaveLength(2));
+  expect(roleWrites()).toHaveLength(1);
+  await waitFor(() => expect(button).toBeDisabled());
+});

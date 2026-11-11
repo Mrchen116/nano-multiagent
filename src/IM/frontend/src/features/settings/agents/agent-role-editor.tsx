@@ -52,10 +52,11 @@ export function useAgentRoleEditor(agentId: string, online: boolean) {
       setDraft(next === current.content ? null : {content: next, version: draft ? draft.version : current.version});
       if (next === current.content || message === "saved" || message === "tooLong") setMessage(null);
     },
-    save() {
+    discard() { setDraft(null); setMessage(null); },
+    async save() {
       if (!available || !dirty || content.length > roleLimit) return;
       setMessage(null);
-      save.mutate({content, version: current.version});
+      await save.mutateAsync({content, version: current.version});
     },
   };
 }
@@ -81,11 +82,6 @@ export function AgentRoleEditor({editor}: {editor: ReturnType<typeof useAgentRol
           disabled={!editor.available}
           onChange={event => editor.edit(event.target.value)}
         />
-        <div>
-          <button type="button" className="im-btn im-btn-muted" disabled={!editor.available || !editor.dirty || editor.tooLong} onClick={editor.save}>
-            {editor.saving ? t("agents.detail.saving") : label("save")}
-          </button>
-        </div>
       </>}
       {!editor.available && !editor.saving && <p className="im-agent-field-help" role="status">{label(editor.loading ? "loading" : "unavailable")}</p>}
       {!editor.available && editor.canReload && <div>

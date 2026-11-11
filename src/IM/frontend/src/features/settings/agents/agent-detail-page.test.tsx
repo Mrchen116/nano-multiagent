@@ -885,7 +885,7 @@ describe("agent behavior settings", () => {
     await waitFor(() => expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith("agent-core-1",expect.objectContaining({features:{dreaming:false},tool_allowlist:tools})));
   });
 
-  it("keeps role saving independent of ordinary configuration and preview", async () => {
+  it("saves role and configuration together while keeping role out of the config payload and preview", async () => {
     const user = userEvent.setup();
     const state = makeDetailState();
     const originalUser = useAuthStore.getState().user;
@@ -907,15 +907,15 @@ describe("agent behavior settings", () => {
     expect(config).not.toHaveProperty("custom_prompt");
     expect(config).not.toHaveProperty("initial_role");
     expect(config).not.toHaveProperty("role");
-    expect(apiMocks.saveAgentRoleMock).not.toHaveBeenCalled();
+    expect(apiMocks.saveAgentRoleMock).toHaveBeenCalledWith("agent-core-1", {content: "Edited role", version: "v1"});
+    expect(screen.queryByRole("button", {name: "Save role agreement"})).not.toBeInTheDocument();
     expect(role).toHaveValue("Edited role");
     await user.click(screen.getByRole("button", {name: /Preview stable system prompt/i}));
     await waitFor(() => expect(apiMocks.promptPreviewMock).toHaveBeenCalled());
     const preview = apiMocks.promptPreviewMock.mock.calls.at(-1)![1];
     expect(preview).not.toHaveProperty("custom_prompt");
     expect(preview).not.toHaveProperty("initial_role");
-    await user.click(screen.getByRole("button", {name: "Save role agreement"}));
-    await waitFor(() => expect(apiMocks.saveAgentRoleMock).toHaveBeenCalledWith("agent-core-1", {content: "Edited role", version: "v1"}));
+    expect(apiMocks.saveAgentRoleMock).toHaveBeenCalledTimes(1);
     expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledTimes(1);
     act(() => useAuthStore.setState({user: originalUser}));
   });

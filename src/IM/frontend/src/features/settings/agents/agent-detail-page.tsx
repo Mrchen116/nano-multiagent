@@ -1334,7 +1334,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   const canManageRole = !!self && detailQuery.data?.config.owner_id === self;
   const roleEditor = useAgentRoleEditor(agentId, canManageRole && !inactive && activeSection === "config" && !settings.connectionReadOnly && !deleting);
   const confirmationPending = applyPending || !!detailQuery.data?.pendingOperation;
-  const readOnly = settings.readOnly || confirmationPending || deleting;
+  const readOnly = settings.readOnly || confirmationPending || deleting || roleEditor.saving;
   const settingsReason = confirmationPending && (!settings.reason || settings.reason === 'refreshingEditable') ? 'pending' : settings.reason;
 
   useEffect(() => {
@@ -1375,16 +1375,28 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   const missingAllowedSkills = (draft?.skills_selection_mode ?? ((draft?.skills.length ?? 0) > 0 ? "explicit_allowlist" : "default_discovery")) === "explicit_allowlist" ? missingSkills : [];
   const catalogCurrent = detailQuery.data?.liveCapabilities === true && !readOnly;
   const catalogInvalid = catalogCurrent && (missingModels.length > 0 || missingTools.length > 0 || missingAllowedSkills.length > 0);
-  const isDirty = !!(draft && baseConfig.current && !sameEditableConfig(draft, baseConfig.current));
-  const versionConflict = isDirty && baseConfig.current?.profile_version !== detailQuery.data?.config.profile_version;
+  const configDirty = !!(draft && baseConfig.current && !sameEditableConfig(draft, baseConfig.current));
+  const isDirty = configDirty || roleEditor.dirty;
+  const versionConflict = configDirty && baseConfig.current?.profile_version !== detailQuery.data?.config.profile_version;
   const queryErrorDetail =
     detailQuery.error instanceof Error
       ? detailQuery.error.message.split(" failed: ").at(-1) ?? detailQuery.error.message
       : "Unable to load this agent.";
 
+  function markSaved() {
+    setSaved(true);
+    setHasAttemptedSave(false);
+    if (savedResetTimer.current) clearTimeout(savedResetTimer.current);
+    savedResetTimer.current = setTimeout(() => {
+      setSaved(false);
+      savedResetTimer.current = null;
+    }, 1800);
+  }
+
+  const configSaveBlocked = readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict || catalogInvalid || hasStaleReasoning;
   const mutation = useMutation({
     mutationFn: (next: AgentConfigFormState) => {
-      if (readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict) throw new Error(t("agents.settings.refreshing"));
+      if (settings.readOnly || confirmationPending || deleting || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict) throw new Error(t("agents.settings.refreshing"));
       const {
         updated_at: _updatedAt,
         owner_id: _ownerId,
@@ -1401,8 +1413,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
     onSuccess: async (updated) => {
       setApplyPending(false);
       setErrorMessage(null);
-      setSaved(true);
-      setHasAttemptedSave(false);
+      markSaved();
       if (updated && capabilities) {
         const nextConfig = {
           ...updated,
@@ -1422,11 +1433,6 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
       void queryClient.invalidateQueries({ queryKey: ["personal-agent"] });
       void queryClient.invalidateQueries({ queryKey: ["contacts"] });
       void queryClient.invalidateQueries({ queryKey: ["public-agents"] });
-      if (savedResetTimer.current) clearTimeout(savedResetTimer.current);
-      savedResetTimer.current = setTimeout(() => {
-        setSaved(false);
-        savedResetTimer.current = null;
-      }, 1800);
     },
     onError: (error) => {
       setSaved(false);
@@ -1498,11 +1504,13 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
 
   function selectAgent(nextID: string) {
     if (nextID === agentId) return;
-    if (isDirty || roleEditor.dirty) setPendingAgent(nextID);
+    if (isDirty) setPendingAgent(nextID);
     else navigate(`/settings/agents/${encodeURIComponent(nextID)}`);
   }
 
   function handleDiscard() {
+    roleEditor.discard();
+    setSaved(false);
     if (detailQuery.data?.config) {
       const config = !readOnly ? detailQuery.data.config : baseConfig.current;
       if (!config) return;
@@ -1595,22 +1603,31 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
       : t("agents.form.errors.required");
   } else if (confirmationPending) {
     footerStatusText = t("agents.form.access.reasoning.applyPending");
-  } else if (mutation.isPending) {
+  } else if (mutation.isPending || roleEditor.saving) {
     footerStatusClass = "im-agent-footer-status";
     footerStatusText = t("agents.detail.saving");
-  } else if (saved) {
+  } else if (saved && !isDirty) {
     footerStatusClass = "im-agent-footer-status saved";
     footerStatusText = t("agents.detail.saved");
   } else if (isDirty) {
     footerStatusClass = "im-agent-footer-status dirty";
     footerStatusText = t("agents.detail.unsavedChanges");
   }
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  const saveBlocked = mutation.isPending || roleEditor.saving || applyPending || !isDirty
+    || (configDirty && configSaveBlocked)
+    || (roleEditor.dirty && (!roleEditor.available || roleEditor.tooLong));
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setHasAttemptedSave(true);
     setErrorMessage(null);
-    if (readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict || catalogInvalid || hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
-    mutation.mutate(normalizedDraft);
+    if (saveBlocked || (configDirty && hasValidationErrors) || !normalizedDraft) return;
+    setSaved(false);
+    if (roleEditor.dirty) {
+      try { await roleEditor.save(); }
+      catch { return; } // The role field retains its draft and reports the failure.
+    }
+    if (configDirty) mutation.mutate(normalizedDraft);
+    else markSaved();
   }
 
   const detailPanel = (
@@ -2074,7 +2091,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
               <button
                 className="im-btn im-btn-muted"
                 type="button"
-                disabled={mutation.isPending || applyPending}
+                disabled={mutation.isPending || roleEditor.saving || applyPending}
                 onClick={handleDiscard}
               >
                 {t("agents.detail.discard")}
@@ -2083,9 +2100,9 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
             <button
               className="im-btn im-btn-primary"
               type="submit"
-              disabled={readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict || catalogInvalid || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
+              disabled={saveBlocked}
             >
-              {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
+              {mutation.isPending || roleEditor.saving ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
             </button>
           </div>
         </footer>
