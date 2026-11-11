@@ -10,7 +10,7 @@ it('resolves current group info from the ordinary root binding and preserves the
   const store = new NodeStore(':memory:', 'owner');
   const inbox = new InboxStore(':memory:');
   store.bind({agentId:'a',sessionId:'main',conversationId:'c_group',ownerId:'owner',cwd:'/tmp',revision:'1'});
-  const member = {user_id:'peer',execution_node:{relation:'different',name:'Mini'}};
+  const member = {user_id:'peer',execution_node:{id:'node-mini',name:'Mini'}};
   const request = vi.fn(async () => ({type:'conversation.query.result',payload:{ok:true,result:{target:'c_group',members:[member]}}}));
   const product = new GlobalAgent({nodeId:'node',ownerId:'owner',
     agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'single_thread'}],store,inbox,

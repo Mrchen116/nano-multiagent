@@ -4,6 +4,8 @@
 
 ## Changelog
 
+- 2026-11-11 (M1) 用户反馈后将群聊查询的节点关系字段简化为节点身份。设备名可重名，模型使用节点 ID 判断。
+
 ## 现状分析
 
 - Node 的 `Configuration.runtime` 用本地配置组装 `AgentConfiguration`，DSH integration 在产品身份段向 root Agent 提供自身名称与 ID。Node 已有用于注册的设备 ID 与名称，文件工具在当前执行环境的工作区中运行。[Node 配置](../../../apps/node/src/configuration.ts) · [身份段](../../../packages/dsh-integration/src/agent-config.ts)
@@ -14,14 +16,14 @@
 
 1. **在既有产品身份段说明自身节点和本地路径语义。** Node 将配置中的节点 ID 和名称作为运行配置传入 DSH integration。新请求的 root Agent 看到简短可信的自身身份与协作规则，规则随系统提示保留。节点信息来自平台配置，不从消息正文、hostname 或 cwd 推断。无节点配置的非产品运行保留现有行为。
 2. **普通与 Global root 都按需调用 `conversations(info)`。** 普通 root 用 `target="current"`，宿主从 session binding 解析为该群；Global 使用 Inbox 提供的来源 target。普通 Agent 若关闭查询工具，仍有多机文件规则，无法确认归属时走共享副本。消息 relay、Inbox、历史和会话列表沿用现有载荷。
-3. **IM 按请求方生成相对关系。** 仅在 Agent 已加入的原生群聊详情中扩展 Agent 成员。字段 `execution_node` 形如 `{relation: "same" | "different" | "unknown", name?: string}`。以节点 ID 比较，展示名用于辨认。自身身份可显示自己的配置 ID 和设备名，同伴信息限于相对关系与获准公开的设备名。
+3. **IM 返回可见同伴的节点身份。** 仅在 Agent 已加入的原生群聊详情中扩展 Agent 成员。`execution_node` 形如 `{id: string, name?: string}`，与自身提示使用同一节点 ID。Agent 根据双方 ID 判断是否同节点，设备名可重名。
 
 ## 接口、数据流与 Context 生命周期
 
 1. Node 从注册使用的 `node_id`、`node_name` 构造可选的 `executionNode`，经 `AgentConfiguration` 交给 DSH integration。创建或恢复 root 时，在 `agent/created` 中选出历史配置之后，把当前 `desired.executionNode` 覆盖到执行配置，再组装产品身份段。历史分支保留原有模型、工作区等选择，当前节点身份取自本次启动的 Node。名称缺失时自身身份仍可使用当前配置的节点 ID。普通子 Agent 和内部 work fork 沿用原有工具限制。
 2. 模型公开调用的 `conversations(info)` 由宿主在现有 `conversation.query` 请求中标记需要节点投影。普通模式仅为该 action 解析 `target="current"`，按已验证的 session binding 取会话 ID。IM 在现有请求者身份、PA 来源授权及会话访问验证之后，额外要求查询 Agent 本身是目标原生群聊的有效成员。仅可公开浏览或通过 PA 观察权限访问的群照常返回已有成员字段。Inbox 内部取标题、发送审核和 Dreaming 历史查询沿用原调用形状。
-3. IM 用有效 Agent profile 与同 owner 的节点记录确认归属。对跨 owner 普通公司 Agent，沿用公开联系人设备名的可见范围，包括请求方 owner 具备有效公司访问资格、对方 Agent 可见且仍可用。同 owner 的个人助手沿用该 owner 的设备管理可见性。其他 owner 的个人助手和缺少有效绑定或设备查看资格的成员返回 `unknown`，无设备名。优先用设备别名，其次用登记的设备名。候选名与节点 ID 相同时省略该名，避免把注册回退值当作公开设备名。设备离线仍可返回已知归属。保留现有成员身份和 mention 字段。
-4. 查询返回当前设备关系。模型需要在本次任务中使用路径时取最新结果，查询失败、缺字段或最新结果未知时按未知处理。当前关系不追溯文件产生时的节点。历史文件归属无从确认时，请同伴重新提供可读副本。旧工具结果可随会话恢复，按旧观察解释。升级后旧 IM 返回缺字段，模型仍按未知处理。
+3. IM 用有效 Agent profile 与同 owner 的节点记录确认归属。对跨 owner 普通公司 Agent，沿用公开联系人设备名的可见范围，包括请求方 owner 具备有效公司访问资格、对方 Agent 可见且仍可用。同 owner 的个人助手沿用该 owner 的设备管理可见性。其他 owner 的个人助手和缺少有效绑定或设备查看资格的成员省略 `execution_node`。优先用设备别名，其次用登记的设备名。候选名与 ID 相同时省略重复名称。设备离线仍可返回已知归属。保留现有成员身份和 mention 字段。
+4. 查询返回同伴当前的设备身份。模型需要在本次任务中使用路径时取最新结果，查询失败或缺字段时按未知处理。当前身份不追溯文件产生时的节点。历史文件归属无从确认时，请同伴重新提供可读副本。旧工具结果可随会话恢复，按旧观察解释。升级后旧 IM 返回缺字段，模型仍按未知处理。
 
 ### 模型看到什么
 
@@ -36,7 +38,7 @@ or the path's origin is unclear, ask for a conversation attachment or an
 accessible link. For a path known to be local, verify that you can read it.
 ```
 
-两种模式都从本次 `conversations(info)` 的成员行读取 `"execution_node":{"relation":"different","name":"Mini"}`。工具说明按模式给出当前群的 target 来源，以及字段所指的时点和缺省语义。成员与设备名作为结构化数据交付。
+两种模式都从本次 `conversations(info)` 的成员行读取 `"execution_node":{"id":"node-mini","name":"Mini"}`。工具说明按模式给出当前群的 target 来源，以及字段所指的时点和缺省语义。
 
 ## 本次审查安排
 

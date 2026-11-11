@@ -106,7 +106,7 @@ export class Work {
       main_execution: connection.node_connection_state === 'offline' && ['running', 'waiting_permission'].includes(view.main_execution) ? 'unknown' : view.main_execution,
     };
   }
-  private memberExecutionNode(requester: Row, viewer: Row | undefined, agentId: string) {
+  private memberExecutionNode(viewer: Row | undefined, agentId: string) {
     const peer = one(this.db, `
       SELECT ap.*, n.alias, n.node_name,
         EXISTS(SELECT 1 FROM personal_agent_bindings p WHERE p.agent_id=ap.agent_id) AS personal
@@ -114,14 +114,14 @@ export class Work {
       JOIN nodes n ON n.node_id=ap.node_id AND n.owner_id=ap.owner_id
       WHERE ap.agent_id=?
     `, agentId);
-    if (!peer || !agentAvailable(this.db, peer)) return { relation: "unknown" };
-    if (peer.owner_id !== requester.owner_id &&
+    if (!peer || !agentAvailable(this.db, peer)) return;
+    if (peer.owner_id !== viewer?.owner_id &&
       (peer.personal || peer.space_id !== "company:default" || !canAccessSpace(viewer, peer.space_id))) {
-      return { relation: "unknown" };
+      return;
     }
     const name = peer.alias?.trim() || peer.node_name?.trim();
     return {
-      relation: peer.node_id === requester.node_id ? "same" : "different",
+      id: peer.node_id,
       ...(name && name !== peer.node_id ? { name } : {}),
     };
   }
@@ -223,13 +223,16 @@ export class Work {
         type: target.type,
         channel: target.external_source ?? "web",
         visibility:target.visibility,is_member:target.is_member,can_write:target.can_write,dissolved_at:target.dissolved_at,
-        members: members(p.target).map((m) => ({
-          user_id: m.id,
-          name: m.name,
-          type: m.kind,
-          mention: `<mention type="user" target_id="${m.id}"/>`,
-          ...(includeExecutionNodes && m.agent_id ? { execution_node: this.memberExecutionNode(agent, viewer, m.agent_id) } : {}),
-        })),
+        members: members(p.target).map((m) => {
+          const node = includeExecutionNodes && m.agent_id ? this.memberExecutionNode(viewer, m.agent_id) : undefined;
+          return {
+            user_id: m.id,
+            name: m.name,
+            type: m.kind,
+            mention: `<mention type="user" target_id="${m.id}"/>`,
+            ...(node ? { execution_node: node } : {}),
+          };
+        }),
       };
     }
     const identity: Row = {

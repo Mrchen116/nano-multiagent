@@ -116,3 +116,37 @@
 ### Recommendations
 
 无。
+
+## Round 4
+
+- Reviewer target: `/root/design_reviewer`，继续独立设计审查。实现基线 `88cc20b16`。复审的首文档 / design / Gateway delta / IM delta blob 为 `11bf7fefe3` / `a049a1d468` / `a0c18af709` / `11bd5776e7`。
+- review_mode: `delta`。
+- mode_reason: 用户收敛了 `conversations(info)` 的一个模型可见字段。影响范围是查询成员结果的形状、节点标识的披露边界及判断依据。两种模式的调用入口、宿主权限、M1 验收旅程及依赖范围均保留。
+- started_at: 2026-11-11T17:10:20+08:00。
+- completed_at: 2026-11-11T17:11:15+08:00（近似）。
+- duration: 约 55 秒。
+- Verdict: **Approved**（0 CRITICAL / 0 WARNING）。
+
+### Coverage
+
+- **模型可见身份。** 已修订的首文档记录用户去掉 `relation` 的决定与重名问题。Node 的 [runtime 配置](../../../apps/node/src/configuration.ts#L103)使用注册时的配置 ID，[产品身份段](../../../packages/dsh-integration/src/agent-config.ts#L161)将它明确交给 root。IM 的 [成员查询](../../../apps/im-server/src/work.ts#L109)从有同 owner 节点记录的 Agent profile 获取同一命名空间的 ID。设备显示名来自别名或登记名称，无唯一约束。测试方案分别覆盖同名异 ID、同节点、缺字段及可用节点无名称。
+- **ID 语义与权限。** [默认初始化](../../../apps/node/src/bootstrap.ts#L26)把随机设备 ID 与主机显示名分别存储，[IM 以 node_id 作主键](../../../apps/im-server/src/schema.sql#L101)。运行认证校验 [独立 token 哈希](../../../apps/im-server/src/identity.ts#L634)，[设备换绑](../../../apps/im-server/src/identity.ts#L950)轮转凭据与 epoch。此 ID 是同一 IM 内的稳定节点标识，具有跨结果关联同一设备的能力。当前公开联系人投影的跨 owner 范围曾提供普通公司 Agent 的名称，新增 ID 的披露仅在受授权的已加入原生群模型查询中发生。此前 R1-W1 的可见性判定仍适用，R1 对 ID 经 name 意外下发的判断由本轮用户认可的显式 id 取代。同/异 owner PA、未加入公开群、Dreaming、内部查询和失效 profile 均沿原门控；缺权限或有效绑定时省略整个对象。与 [实际已实现的过滤边界](../../../apps/im-server/src/work.ts#L210)对照，变更可以限定在字段投影和工具说明。
+- **Context 与契约。** 对照 [普通/Global 共用的模型调用分支](../../../packages/personal-assistant/src/global-agent.ts#L731)，新形状能让模型比较本次 root 提示和本次成员结果。最新查询仍只说明当前归属，历史路径来源仍需独立判断。两份 ADDED delta 与首文档和设计一致，保留文件读取失败恢复及共享副本复核。设计已更新，受审实现基线仍返回旧 relation，实施时需把成员投影和模型工具说明同步切换。未运行候选实现或 provider 行为。
+
+`retained_from: Round 2`：目标解析、可信请求者身份、历史 root 当前节点覆盖、路径时效与交接、权限查询点及单 M1 范围未变。`retained_from: Round 3`：默认验收角色、隔离双节点与附件前置未变，离线设备名仍可选。
+
+### 历史问题闭环
+
+R3 无开放项。R1-W1 仍 closed，旧报告中限制模型端获取节点 ID 的判断由本轮显式节点身份决策取代。
+
+### Issues
+
+无。
+
+### Recommendations
+
+**R4-R1。** 工具说明可直接写「用 `execution_node.id` 与自身节点 ID 比较，名称可重名。缺少可用 ID 时按未知处理」，便于沿同一语义读取旧工具结果和混合版本响应。无需双写字段或增加迁移。
+
+### Author Resolutions
+
+- **R4-R1 · accepted.** `conversations` 工具说明明确使用最新的同伴节点 ID 与自身 ID 比较，提示名称可重名，并将缺少节点 ID 或查询失败解释为归属未知。

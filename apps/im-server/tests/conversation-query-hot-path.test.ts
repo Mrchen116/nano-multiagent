@@ -47,12 +47,13 @@ it.each(['single_thread', 'global'])('projects current execution nodes only for 
     ('peer-pa','o2','u2','private-peer','remote',1,'peer-direct','Peer','create','active',NULL,datetime('now'))`).run();
   const info = { action: 'info', target: 'chat' };
   expect(query(info).members.every((member: any) => !member.execution_node)).toBe(true);
-  expect(query({ ...info, include_execution_nodes: true }).members).toEqual(expect.arrayContaining([
-    expect.objectContaining({ user_id: 'near', execution_node: { relation: 'same', name: 'Node' } }),
-    expect.objectContaining({ user_id: 'far', execution_node: { relation: 'different', name: 'Node' } }),
-    expect.objectContaining({ user_id: 'unlabelled', execution_node: { relation: 'different' } }),
-    expect.objectContaining({ user_id: 'private-peer', execution_node: { relation: 'unknown' } }),
+  const members = query({ ...info, include_execution_nodes: true }).members;
+  expect(members).toEqual(expect.arrayContaining([
+    expect.objectContaining({ user_id: 'near', execution_node: { id: 'n', name: 'Node' } }),
+    expect.objectContaining({ user_id: 'far', execution_node: { id: 'remote', name: 'Node' } }),
+    expect.objectContaining({ user_id: 'unlabelled', execution_node: { id: 'unnamed' } }),
   ]));
+  expect(members.find((member: any) => member.user_id === 'private-peer')).not.toHaveProperty('execution_node');
   db.prepare("DELETE FROM conversation_participants WHERE conversation_id='chat' AND user_id='a1'").run();
   expect(query({ ...info, include_execution_nodes: true }).members.every((member: any) => !member.execution_node)).toBe(true);
 });
