@@ -118,14 +118,20 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     const oldReads = later.flatMap(request => request.messages)
       .filter(message => message.role === 'tool' && message.toolCallId === 'fixture-2' && !message.isError);
     expect(oldReads.some(message => message.content[0].text.includes('LONG_MESSAGE_END'))).toBe(true);
+    const directories=new Map<string,any[]>();
+    const systems=new Set<string>();
     for (const request of prepareRequests) {
+      systems.add(JSON.stringify(request.messages.filter((message:any)=>message.role==='system')));
       const plain = request.messages.flatMap((message: {content:Array<{type:string;text?:string}>}) => message.content)
         .filter((block: {type:string}) => block.type === 'text').map((block: {text:string}) => block.text).join('\n');
-      const directory = JSON.parse(plain.match(/Source directory \(data\): (\[[^\n]*\])/)![1]!);
+      const source=plain.match(/Source directory \(data\): (\[[^\n]*\])/);
+      if(source)directories.set(request.sessionId,JSON.parse(source[1]!));
+      const directory=directories.get(request.sessionId)!;
       expect(directory).toHaveLength(1);
       expect(directory[0].session_id).toBe(identity.rootSessionId);
       expect(Date.parse(directory[0].available_before)).toBeLessThanOrEqual(request.logicalTime);
     }
+    expect(systems.size).toBe(1);
     expect(requests).toContain('EVALUATION_RECOVERY');
     expect(requests).toContain('I moved to Paris.');
     const answerRequests = (await readFile(answerAudit.requests, 'utf8')).trim().split('\n').map(line => JSON.parse(line));

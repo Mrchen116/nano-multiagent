@@ -50,7 +50,7 @@ it.each(['generation','third-version'])('retires a stale %s plan without overwri
     await f.library.checkpoint(await f.library.versions(),0);
     const d=f.make();await d.recover();
     expect(await d.start(f.parent,false)).toMatchObject({reason:'no_eligible_increment'});
-    expect(f.runs.get('frozen')).toMatchObject({state:'failed'});
+    expect(f.runs.get('frozen')).toMatchObject({state:reason==='third-version'?'partial':'failed'});
     expect(f.owners.get('YQ').streams.s.cursor).toBe(-1);
     if(reason==='third-version')expect(await readFile(join(f.library.root,'knowledge/lesson.md'),'utf8')).toBe('Human correction survives.');
   }finally{await f.close();}

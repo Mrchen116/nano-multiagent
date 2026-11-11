@@ -197,6 +197,24 @@ describe('native Git batch observation', () => {
     expect((await documents.observeBatch(observed.versions, 'no-change')).receipts).toEqual([]);
   });
 
+  it('settles earlier uncommitted receipts when a later run only commits existing files',async()=>{
+    const {documents,root}=await library();const initial=await documents.versions();
+    await writeFile(join(root,'pending.md'),'Retained after failure.');
+    const first=await documents.observeBatch(initial,'failed');
+    expect(first.receipts[0]?.versionRecorded).toBe(false);
+    const head=commit(root);
+    const resumed=await documents.observeBatch(first.versions,'retry');
+    expect(resumed.receipts).toEqual([]);
+    expect((await documents.status()).receipts.find(receipt=>receipt.operationId==='failed:pending.md')).toMatchObject({versionRecorded:true,commit:head});
+  });
+
+  it('returns dirty invalid paths for the same Agent to repair before validating the clean repository',async()=>{
+    const {documents,root}=await library();const initial=await documents.versions();
+    await rm(join(root,'MEMORY.md'));await writeFile(join(root,'scratch.txt'),'Temporary scratch.');
+    const observed=await documents.observeBatch(initial,'repair');
+    expect((await documents.finalizeBatch(observed.versions,0,observed.receipts,signal())).changes).toEqual(expect.arrayContaining([expect.objectContaining({path:'MEMORY.md'}),expect.objectContaining({path:'scratch.txt',supported:false})]));
+  });
+
   it('records already committed results after cancellation or source revocation, retaining all files', async () => {
     const {documents, root, workspace} = await library();
     const allowed = await documents.syncSources({revision:'1', allowed:['chat-a'], excluded:[]});

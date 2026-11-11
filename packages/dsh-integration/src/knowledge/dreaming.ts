@@ -349,8 +349,11 @@ export class Dreaming {
         const text=await readFile(summary.path,'utf8');if(memoryDigest(text)!==summary.hash)throw new Error('Task summary changed before snapshot.');
         inputs.push(`${summary.noSignal?'No-signal replacement; old summary retired':owner.integrated[summary.sessionId]?'Updated summary; replaces the same source':'New task summary'}: ${join(run.directory,'summaries',`${key(summary.sessionId)}.md`)}\nSource session_id: ${summary.sessionId}`);
       }
-      const view=await library.context();
-      inputs.push(`Contents of ${join(view.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${view.entry??'Read the complete entry at this path.'}\n</memory_content>`);
+      const view=await library.context().catch(async error=>{
+        if(error.code!=='ENOENT')throw error;
+        return {root:library.root,versions:await library.versions(),entry:undefined,missing:true};
+      });
+      inputs.push(`Contents of ${join(view.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${'missing' in view?'MEMORY.md is missing. Restore a concise entry from the current pages and this batch before completing.':view.entry??'Read the complete entry at this path.'}\n</memory_content>`);
       const unverified=library.unverifiedPaths(view.versions,run.generation);
       if(unverified.length)inputs.push(`Existing pages awaiting verification: ${JSON.stringify(unverified)}. Read these before completing this batch.`);
       inputs.push(`# Omitted or deferred sources (data)\n${JSON.stringify(run.batch.blocked)}`);
@@ -402,7 +405,7 @@ export class Dreaming {
   private summary(run:DreamingRun):string{
     if(run.stage==='extract')return `任务经历提炼 ${run.state}；${run.state==='completed'?(run.summaries[0]?.noSignal?'无值得保留的新信号，旧摘要退役':'已保存任务复盘，尚未整合进正式记忆'):'未生成有效的新版本'}。${run.error??''}`;
     const saved=run.receipts.filter(receipt=>receipt.saved).length;const git=run.receipts.filter(receipt=>receipt.saved&&!receipt.versionRecorded).length;
-    return `Dreaming ${run.state}: 本批交流${run.state==='completed'?'已整理':'未完成'}；使用 ${run.summaries.length} 份任务复盘；实际变更 ${saved} 页；${run.state==='completed'?'本批成功进度已登记':'整理进度未推进'}。${git?`${git} 页内容已保存，Git 提交尚未确认。`:''}${run.batch.blocked.length?`另有 ${run.batch.blocked.length} 个源范围待处理。`:''}${run.error??''}`;
+    return `Dreaming ${run.state}: 本批交流${run.state==='completed'?'已整理':'未完成'}；使用 ${run.summaries.length} 份任务复盘；实际变更 ${saved} 页；${run.state==='completed'?'正式仓已提交且干净，本批成功进度已登记':'整理进度未推进'}。${git?`${git} 页内容已保存，Git 提交尚未确认。`:''}${run.batch.blocked.length?`另有 ${run.batch.blocked.length} 个源范围待处理。`:''}${run.error??''}`;
   }
   private async publish(run:DreamingRun,handle?:AgentHandle){
     if(handle){handle.agent.session.append('user/message',createUserMessage({source:{kind:'nano-system',actorId:run.agentId,channel:'dreaming-receipt',messageId:`${run.id}:receipt`},content:[{type:'text',text:`Host memory/Git receipt (authoritative outcome): ${run.summary}`}]}),{surfaceOp:'append'});await this.ctx.sessions.flush(handle.agent.session);}
@@ -447,7 +450,7 @@ export class Dreaming {
       if(run.childSessionId&&!run.identityRecorded)await this.repairIdentity(run);
       // Only the formal worktree is reused by a fresh batch after interruption.
       if(run.endedAt&&this.now()-run.endedAt>7*86400000&&['completed','partial','failed','cancelled'].includes(run.state)){
-        for(const path of ['sources','summaries','legacy'])await rm(join(run.directory,path),{recursive:true,force:true});
+        for(const path of ['input','input.md','staging','sources','summaries','legacy'])await rm(join(run.directory,path),{recursive:true,force:true});
       }
       if(run.stage==='consolidate'&&run.state==='completed'){
         const owner=domain.table('owners').get(key(run.agentId));if(owner?.protocol===2)await this.commitProgress(run,owner);

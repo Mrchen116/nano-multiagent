@@ -273,6 +273,13 @@ export class MemoryDocuments {
       let snapshot: Awaited<ReturnType<MemoryDocuments['headSnapshot']>> | undefined;
       let gitError: string | undefined;
       try { snapshot = await this.headSnapshot(); } catch (error) { gitError = String(error); }
+      // A later batch may commit unchanged files left by an interrupted run.
+      for (const receipt of Object.values(this.state.receipts)) {
+        if (receipt.saved && !receipt.versionRecorded && snapshot && !snapshot.unsupported.includes(receipt.path) &&
+            (versions[receipt.path] ?? null) === receipt.afterHash && (snapshot.versions[receipt.path] ?? null) === receipt.afterHash) {
+          receipt.versionRecorded = true; receipt.commit = snapshot.head; delete receipt.error;
+        }
+      }
       const receipts: DocumentReceipt[] = [];
       for (const path of [...new Set([...Object.keys(before), ...Object.keys(versions)])].sort()) {
         const beforeHash = before[path] ?? null; const afterHash = versions[path] ?? null;
@@ -323,10 +330,10 @@ export class MemoryDocuments {
   finalizeBatch(versions: DocumentVersions, generation: number, receipts: DocumentReceipt[], signal: AbortSignal): Promise<{changes: DocumentGitChange[]; receipts: DocumentReceipt[]}> {
     return this.serial(async () => {
       this.assertBatch(generation, signal);
-      await this.verifyRepositoryShape(receipts);
       const changes = await this.gitChanges();
       this.assertBatch(generation, signal);
       if (changes.length) return {changes, receipts};
+      await this.verifyRepositoryShape(receipts);
       await this.verifyBatchVersions(versions, generation, signal);
       const snapshot = await this.headSnapshot(signal);
       if (snapshot.unsupported.length) throw new Error(`Unsupported memory document in Git: ${snapshot.unsupported.join(', ')}`);

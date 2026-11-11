@@ -55,7 +55,7 @@ export function renderMaterial(events: readonly unknown[]): string {
     }
     const {seq: _seq,sessionId: _sessionId,history: locator,type,time,content,...metadata} = record;
     const history = locator as HistoryLocator | undefined;
-    const heading = [type,typeof time === 'number' && Number.isFinite(time) ? new Date(time).toISOString() : undefined,history?.item_id === undefined ? undefined : `item_id=${history.item_id}`].filter(Boolean).join(' · ');
+    const heading = [type,typeof time === 'number' && Number.isFinite(time) ? new Date(time).toISOString() : typeof time === 'string' ? time : undefined,history?.item_id === undefined ? undefined : `item_id=${history.item_id}`].filter(Boolean).join(' · ');
     if (content && typeof content === 'object' && !Array.isArray(content) && Array.isArray((content as {messages?:unknown[]}).messages)) {
       const {messages,...envelope} = content as {messages:RecordValue[]};
       return [heading ? `### ${heading}` : '',metadataText(metadata),`Conversation: ${JSON.stringify(envelope)}`,renderMaterial(messages)].filter(Boolean).join('\n');
@@ -69,7 +69,10 @@ export function nativeMaterial(event: SessionEvent, history?: HistoryLocator): R
   const base = {seq:event.seq,time:event.time,type:event.type,history};
   if (event.type === 'user/message') return {...base,messageId:event.data.id,source:event.data.source,
     evidence:isHumanSource(event.data.source)?'host_attested_human':'agent_or_delegated_task_input_not_human_authorization',content:event.data.content};
-  if (event.type === 'assistant/message') return {...base,evidence:'assistant_self_report',content:event.data.message.content};
+  if (event.type === 'assistant/message') {
+    const content=event.data.message.content.filter(block=>block.type==='text');
+    return content.length ? {...base,evidence:'assistant_self_report',content} : undefined;
+  }
   if (event.type === 'tool/call') return {...base,callId:event.data.callId,name:event.data.name,arguments:event.data.arguments};
   if (event.type === 'tool/result') {
     let content: unknown = event.data.message.content;

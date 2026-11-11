@@ -6,7 +6,7 @@ import { expect, it } from 'vitest';
 import {stripContextItemId} from 'dsh-agent-context';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it.each(['unread-write', 'failed-read-write', 'normal-stop', 'body-only', 'legacy-oversized-index', 'oversized-index', 'model-error', 'cancelled'])(
+it.each(['unread-write', 'failed-read-write', 'normal-stop', 'body-only', 'legacy-oversized-index', 'oversized-index', 'model-error', 'cancelled', 'missing-entry'])(
   'checks actual direct edits and source progress after %s', async mode => {
     const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
     const home = await mkdtemp(join(tmpdir(), 'nano-dreaming-incomplete-'));
@@ -16,7 +16,7 @@ import { appendFileSync } from 'node:fs';
 export const name = 'incomplete-fixture';
 export const inject = ['llm', 'agents'];
 export function apply(ctx) {
-  const steps = new Map();
+  const steps = new Map();let brokenSession;
   ctx.on('llm/stream', async function* (request) {
     appendFileSync(process.env.DSH_HOME + '/requests.jsonl', JSON.stringify(request) + '\\n');
     const step = steps.get(request.sessionId) || 0;
@@ -31,7 +31,9 @@ export function apply(ctx) {
         if (mode === 'cancelled') ctx.agents.get(request.sessionId).cancel({kind:'hook',reason:'Fixture cancellation'});
         throw new Error('Fixture model failure');
       }
-      const calls = ${JSON.stringify(mode)} === 'unread-write' ? [write]
+      if(mode==='missing-entry'&&!brokenSession)brokenSession=request.sessionId;
+      if(mode==='missing-entry'&&request.sessionId===brokenSession&&step===1)throw new Error('Interrupted after removing entry');
+      const calls = mode==='missing-entry' ? (request.sessionId===brokenSession ? [['bash',{description:'Remove entry before interrupted reconstruction',command:'rm -- MEMORY.md'}]] : [['write',{file_path:stage+'/MEMORY.md',content:'# Restored entry'}]]) : ${JSON.stringify(mode)} === 'unread-write' ? [write]
         : mode === 'failed-read-write' ? [['read', { file_path: stage + '/missing.md' }], write]
         : ['body-only', 'legacy-oversized-index', 'oversized-index'].includes(mode) ? [
             ['read', {file_path: stage + '/MEMORY.md'}],
@@ -55,8 +57,8 @@ export function apply(ctx) {
     } else {
       const input = request.messages.findLast(m => m.role === 'user' && m.source?.actorId === 'owner');
       const text = input?.content.find(b => b.type === 'text')?.text;
-      if (['before', 'maintain', 'after'].includes(text) && !request.messages.some(m => m.role === 'tool' && m.toolCallId === text))
-        call = ['memory_maintenance', text === 'maintain' ? { action: 'run', request_ref: text } : { action: 'status' }];
+      if (['before', 'maintain', 'after','repair'].includes(text) && !request.messages.some(m => m.role === 'tool' && m.toolCallId === text))
+        call = ['memory_maintenance', ['maintain','repair'].includes(text) ? { action: 'run', request_ref: text } : { action: 'status' }];
       if (call) call.push(text);
     }
     if (call) {
@@ -91,7 +93,7 @@ export function apply(ctx) {
       await submit('maintain'); await submit('after');
       const facts = await client.rpc.request('knowledge.facts', {}) as { reviews: Array<{ status: string; summary: string }> };
       expect(facts.reviews).toHaveLength(1);
-      const failed = ['oversized-index', 'model-error', 'cancelled'].includes(mode);
+      const failed = ['oversized-index', 'model-error', 'cancelled','missing-entry'].includes(mode);
       expect(facts.reviews[0]).toMatchObject({ status: failed ? 'partial' : 'completed' });
       if (failed) {
         expect(facts.reviews[0]!.summary).toContain(mode === 'oversized-index' ? 'MEMORY.md exceeds' : 'did not complete');
@@ -103,7 +105,8 @@ export function apply(ctx) {
       } else {
         await expect(body).rejects.toMatchObject({code:'ENOENT'});
       }
-      expect(await readFile(entry, 'utf8')).toBe(mode==='oversized-index'?'记'.repeat(8001):['model-error','cancelled'].includes(mode)?'Unsupported overwrite':original);
+      if(mode==='missing-entry')await expect(readFile(entry,'utf8')).rejects.toMatchObject({code:'ENOENT'});
+      else expect(await readFile(entry, 'utf8')).toBe(mode==='oversized-index'?'记'.repeat(8001):['model-error','cancelled'].includes(mode)?'Unsupported overwrite':original);
       const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       const latest = requests.filter(request => request.sessionId === 'root').at(-1);
       const status = (id: string) => JSON.parse(stripContextItemId(latest.messages.find((message: any) => message.role === 'tool' && message.toolCallId === id).content).filter(block => block.type === 'text').map(block => block.text).join('\n'));
@@ -137,6 +140,12 @@ export function apply(ctx) {
           .toEqual(['knowledge/new.md', 'knowledge/second.md']);
       }
       if (['unread-write', 'failed-read-write'].includes(mode)) expect(maintenance.at(-1).messages.some((message: any) => message.role === 'tool' && message.isError)).toBe(true);
+      if(mode==='missing-entry'){
+        await submit('repair');
+        const repaired=await client.rpc.request('knowledge.facts',{}) as {reviews:any[]};
+        expect(repaired.reviews.at(-1).status).toBe('completed');
+        expect(await readFile(entry,'utf8')).toBe('# Restored entry');
+      }
       await client.shutdown(); client = undefined;
     } finally {
       if (client) { client.process.kill('SIGKILL'); await client.exited; }

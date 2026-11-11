@@ -155,7 +155,7 @@ Consumer 为提炼 Agent 与整合 Dreaming Agent。提炼仍一次接收选定�
 - 整合 Agent cwd 为正式记忆仓，开放 native read/write/edit/glob/grep/bash、source_history、可用 conversations 与原生上下文恢复工具。删除自定义 git_commit 及 staging 发布；普通主 Agent 正式记忆禁止写入的既有边界不变。
 - Bash 沿用 DSH 公开原生工具与配置的 sandbox，不增加 shell 解析器或私有运行时接入，不宣称配置未提供的 OS 隔离。提示明确正式仓是唯一写入目标，来源目录只读；Bash 通过公开 @deepseek-ai/dsh-tool-bash 在 Dreaming scope 配置 enableRunInBackground=false、promoteOnTimeout=false；命令超时或取消时停止进程，本轮前台完成后才允许终态检查，不改变普通 Agent 的后台能力。原生文件工具仍限制正式仓写、批次和记忆目录读。
 - Agent 读现有页、同轮写承接页再缩减来源页并修链，自行执行普通 git add/commit（一组相关更新一个 commit），不要求每页提交。Git 作者通过仓库本地配置或命令显式配置；不依赖宿主用户全局配置。
-- 正常结束后宿主观察真实文件版本与 Git 状态，验证 MEMORY.md 上限、受支持文档形态及当前来源资格。若未提交变更，反馈检查结果给同一 Agent，继续后重新检查；正式仓干净且有效才标成功。删除/重命名属于正常 wiki 重组，应被真实版本比较和 Git 状态支持。
+- 正常结束后宿主观察真实文件版本与 Git 状态，验证本轮新增/改写 MEMORY.md 的上限（既有超长首页未改时仍可只整理正文）、受支持文档形态及当前来源资格。若未提交变更，反馈检查结果给同一 Agent，继续后重新检查；正式仓干净且有效才标成功。删除/重命名属于正常 wiki 重组，应被真实版本比较和 Git 状态支持。
 - 同一正式仓保持单写者。取消、异常、检查失败保留已经实际修改/提交的内容，未成功批次不推进来源进度；下批从正式仓实际状态继续，不回滚、不重放旧应用计划。回执报告真实文件与 Git 观察结果。无改动且仓库干净可以成功。
 
 ### 实施及验收

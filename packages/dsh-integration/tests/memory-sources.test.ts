@@ -236,3 +236,22 @@ it('keeps child references in the original parent and child windows despite acti
   expect(material?.text).not.toContain('Old input');
   expect(selectChildMaterial(material!,4000).text).toBe(material!.text);
 });
+
+
+it('preserves the original IM timestamp separately from the tool execution time',()=>{
+  const text=renderMaterial([{type:'tool/result',time:Date.parse('2026-11-11T07:00:00Z'),callId:'read-inbox',content:{target:'group:release',messages:[{id:'m1',time:'2026-11-11T02:00:00Z',sender:{id:'owner'},content:'Do not restart.'}]}}]);
+  expect(text).toContain('2026-11-11T07:00:00.000Z');
+  expect(text).toContain('2026-11-11T02:00:00Z');
+  expect(text).toContain('group:release');
+});
+
+
+it('does not leak assistant tool blocks when their paired result cannot fit',()=>{
+  const events=[event(0,'assistant/message',{message:{content:[{type:'tool-call',id:'send',name:'send_message',arguments:'{"target":"agent:other"}'}]}}),
+    event(1,'tool/call',{callId:'send',name:'send_message',arguments:{target:'agent:other'}}),
+    event(2,'tool/result',{message:{toolCallId:'send',isError:true,content:[{type:'text',text:'Permission denied. '.repeat(500)}]}})];
+  const small=selectChildMaterial({sessionId:'child',rootSessionId:'root',events:events as never,inheritedEvents:[]},200);
+  expect(small.text).not.toContain('agent:other');
+  const full=selectChildMaterial({sessionId:'child',rootSessionId:'root',events:events as never,inheritedEvents:[]},10000);
+  expect(full.text).toContain('agent:other');expect(full.text).toContain('Permission denied.');
+});

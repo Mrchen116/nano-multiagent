@@ -110,3 +110,22 @@
 独立审查者在 `5b5633f8fb1e7397dca658d3f7598fb82463ec00` 定向复验：C1/C3 关闭，C2/D1 与 Context 原结论保留，无新发现。审查者用 Node 24.22.1、实际 RuntimePartitions / ConfigurationOperations、内存 SQLite 与受控 runtime 重跑此前互等复现：写入后回包丢失保留 pending，立即重试不启动 runtime；就绪后恢复 applied，同一角色只写一次。Web 空白值的最终 JSON 省略已核实。
 
 交付增量已归并 current specs，PR #520 继续面向 develop，不自动合入或部署。生产迁移尚未执行。所有本轮隔离服务、端口、专用 iOS 模拟器及临时构建/运行目录已回收；受保护的合成原始请求、迁移演练与摘要长期保留在本机 `~/.local/share/nano-multiagent/evidence/role-unification-20261111/`，不含运行凭据。保留开发 worktree 供 PR 审阅，合入后再按规则清理。
+
+## 2026-11-11 Dreaming 输入与直接提交增量
+
+设计 Gate 2 Round 9 Approved。实施初版 `66ae2e2ec`，独立 code/context reviewer `dreaming_input_code_context_review` 审查 `89ef39c0..66ae2e2ec`，亲读 Global/PA 实际 wire 首次、Inbox 结果后、Dreaming 首次和批次文件读取后请求；判定 implementation-mismatch，六项 confirmed：
+
+| ID | 问题 | Author resolution |
+|---|---|---|
+| D-CTX-01 | 嵌套 IM 字符串时间丢失 | 接受；保留 ISO 字符串时间及独立工具执行时间，加入渲染回归。 |
+| D-CTX-02 | 原生 read 单行截断无法靠行分页恢复 | 接受；prompt 明确用 Bash 有界字符分片续读，native runtime 用例先经历真实 read 截断再读出尾部。 |
+| D-CTX-03 | assistant tool-call 块绕过配对工具预算 | 接受；assistant 只选文本，无文本不占其优先预算，工具调用与结果仍成组；加入小预算拒绝结果反例。 |
+| D-GIT-01 | 删除首页后失败使下一批无法启动 | 接受；维护输入明确缺失首页及恢复要求，同进程删除后失败再修复用例覆盖。 |
+| D-GIT-02 | 未提交非法路径在状态反馈前被仓形校验终止 | 接受；先反馈真实 Git dirty 路径，clean 后再验证文档形态。 |
+| D-GIT-03 | 后批只补提交时旧保存回执仍显示未提交 | 接受；观察实际 HEAD 时补齐内容仍匹配的旧回执，成功摘要明确正式仓干净。 |
+
+原生 Bash 使用公开 scope 配置禁后台/超时提升，超时及取消后无延迟写入测试通过；普通 Agent 仍开放原有后台参数。既有未修改超长首页例外保留，设计已明确，不将本次只更新详情变成强制重写首页。
+
+模型材料与调用发生变化，评测 fixture 同步改为原生 Bash 读取真实文件、普通 Git 提交及动态范围恢复；保留长消息跨批次、100 次模型调用预算和换窗/未来证据边界。样本材料预算从 1000 调整为 2000，以涵盖新增定位开销，长消息仍必须分页；不增加运行时代码兼容。
+
+本轮全量首次运行暴露旧 fixture 和本机运行时超时；保存原始日志，不把首次结果宣称通过。修复后冻结版本重新验证。最终独立复验与完整结果在下节追加。
