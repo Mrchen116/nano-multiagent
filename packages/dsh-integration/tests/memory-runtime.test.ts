@@ -62,9 +62,9 @@ it.each([false, true])('assembles the role agreement and protects formal memory 
       .findLast((block: {text?: string}) => block.text?.includes('<role_content>'))?.text;
     expect(savedAgreement).toContain(`Contents of ${rolePath} — your confirmed role agreement:\n<role_content>\nCoordinate delivery. Use {{customer_name}} in templates.\n</role_content>`);
     expect(savedAgreement).toContain(personal ? 'how your owner wants you to help over time' : 'what you need to deliver');
-    expect(savedAgreement).toContain('You may propose changes to an existing agreement when you identify a need');
-    expect(savedAgreement).toContain('Save only after sending them the exact Markdown and receiving their explicit confirmation');
-    expect(savedAgreement).toContain(`when your ${confirmer} ("owner") requests a change`);
+    expect(savedAgreement).toContain(`Before establishing ROLE.md or discussing changes requested by your ${confirmer} ("owner") or proposed by you, load and follow the nano-role-agreement skill.`);
+    expect(savedAgreement).not.toContain('Verify their identity using');
+    expect(savedAgreement).not.toContain('Save only after sending them the exact Markdown');
     expect(savedAgreement).not.toContain('You must ask every time');
     expect(savedAgreement).not.toContain('read the saved file again');
     expect(JSON.stringify(latest.messages)).toContain('Host-verified role agreement sender for the following direct input: other user.');

@@ -111,8 +111,7 @@ export class DocumentMemory {
             config.personal
               ? 'ROLE.md records how your owner wants you to help over time. Use it to understand what they want ongoing support with, what you should follow up on proactively, and what they handle themselves.'
               : 'ROLE.md records the long-term responsibilities, goals, and division of work you agreed on with your administrator. Use it to decide what you own, what you need to deliver, and what other collaborators are responsible for.',
-            'When establishing or revising the agreement, load nano-role-agreement with the skill tool if available before guiding the conversation.',
-            `You may propose changes to an existing agreement when you identify a need, or when your ${confirmer} (${JSON.stringify(owner)}) requests a change. Explain the reason and the proposed changes. Verify their identity using the system-provided sender information. Save only after sending them the exact Markdown and receiving their explicit confirmation of that draft in the same conversation. Read the current file before writing. If you need to revise the confirmed draft, send the new version for confirmation. Keep the text within ${roleLimit} UTF-16 code units and tell them whether the write succeeded.`,
+            `Before establishing ROLE.md or discussing changes requested by your ${confirmer} (${JSON.stringify(owner)}) or proposed by you, load and follow the nano-role-agreement skill.`,
             currentAgreement,
           ].join('\n\n');
           assembly.contexts.push({ name: 'nano-role-agreement', text: '{{nano_role_agreement}}' });
