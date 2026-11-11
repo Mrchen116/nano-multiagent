@@ -32,6 +32,7 @@ export function apply(ctx){
    await log('reviews.jsonl',{action,input,tools:o.tools?.map(t=>t.name),messages:o.messages,effort:o.reasoningEffort});
    const scenario=action.arguments.scenario;const count=(attempts.get(scenario)??0)+1;attempts.set(scenario,count);
    if(scenario==='overflow'&&!overflowed){overflowed=true;yield{type:'finish',reason:{kind:'error',failure:{code:'CONTEXT_WINDOW_EXCEEDED',message:'overflow'}}};return;}
+   if(scenario==='connection-exhausted'){yield{type:'finish',reason:{kind:'error',failure:${JSON.stringify({code:'SERVER',status:502,message:'502 '+JSON.stringify({error:{type:'upstream_connection_error',message:'ConnectError: reviewer offline'}})})}}};return;}
    if(scenario==='exhausted'||scenario==='retry'&&count===1){yield{type:'block-end',index:0,block:{type:'text',text:'FAILED_PARTIAL'}};yield{type:'finish',reason:{kind:'error',failure:{code:'SERVER',status:503,message:'temporary failure'}}};return;}
    if(action.arguments.scenario==='deadline'&&!inspections.has(pending.id)){inspections.add(pending.id);yield{type:'block-end',index:0,block:{type:'tool-call',id:pending.id+'-read',name:'read',arguments:JSON.stringify({file_path:'evidence.txt',offset:295,limit:10})}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
    if(['cancel','deadline'].includes(action.arguments.scenario)){await log('waiting.jsonl',{});await new Promise(resolve=>{if(o.signal.aborted)resolve();else o.signal.addEventListener('abort',resolve,{once:true});});}
@@ -59,7 +60,7 @@ export function apply(ctx){
     const config={agentId:'a',revision:'1',provider:'fixture',model:'main',mode:'global',extensions:{workspace:join(home,'plugins.json')},features:{memory_curation:false,skill_creation:false},approval:{...approvalDefaults,globalRoot:home,reviewer:{provider:'fixture',model:'review'}}};
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'parent',agentId:'a',revision:'1',ownerId:'owner',cwd:home});
-    for(const scenario of ['first','inspect','parallel','invalid','after-failure','overflow','retry','exhausted']){
+    for(const scenario of ['first','inspect','parallel','invalid','after-failure','overflow','retry','exhausted','connection-exhausted']){
       await client.rpc.request('session.submit',{sessionId:'parent',inputId:scenario,mode:'followup',content:[{type:'text',text:scenario}],source:{kind:'human',actorId:'owner',channel:'test',messageId:scenario}});
       await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'parent',inputId:scenario}) as any).terminal,{timeout:10000}).toBeTruthy();
     }
@@ -88,11 +89,13 @@ export function apply(ctx){
     const parallel=(await lines('parallel.jsonl'))[0];expect(parallel.map((r:any)=>[r.decision.behavior,r.decision.reason])).toEqual([['allow','parallel-a'],['deny','parallel-b']]);expect(parallel.map((r:any)=>r.metadata.contextMode).sort()).toEqual(['delta','fork']);expect(new Set(parallel.map((r:any)=>r.metadata.sessionId)).size).toBe(2);
     expect(reviews.filter(r=>r.action.arguments.scenario==='retry')).toHaveLength(2);
     expect(reviews.filter(r=>r.action.arguments.scenario==='exhausted')).toHaveLength(3);
+    expect(reviews.filter(r=>r.action.arguments.scenario==='connection-exhausted')).toHaveLength(3);
     expect(reviews.filter(r=>r.action.arguments.scenario==='invalid')).toHaveLength(2);
     const recovered=reviews.findLast(r=>r.action.arguments.scenario==='overflow');
     expect(recovered.input).toContain('<original_instructions>');expect(recovered.input).toContain('\"messageId\":\"first\"');
     expect(JSON.stringify(reviews.findLast(r=>r.action.arguments.scenario==='retry').messages)).not.toContain('FAILED_PARTIAL');
     const created=await lines('agents.jsonl'),disposed=await lines('disposed.jsonl');
+    expect(disposed.flatMap(row=>row.retries).some(retry=>retry.policyKey==='nano:model-connection')).toBe(false);
     expect(created.some(row=>row.seeded)).toBe(true);expect(disposed.length).toBeGreaterThan(0);expect(disposed.some(row=>row.retries.some((retry:any)=>retry.failure.code==='SERVER'))).toBe(true);
   }catch(error){const observation=client?await client.rpc.request('session.observe',{sessionId:'parent'}).then((x:any)=>({approvals:x.approvals,results:x.events.filter((e:any)=>e.type==='tool/result')})).catch(()=>null):null;throw new Error(String(error)+'\n'+logs+'\n'+JSON.stringify(observation),{cause:error});}
   finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}

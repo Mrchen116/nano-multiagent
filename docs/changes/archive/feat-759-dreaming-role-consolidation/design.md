@@ -169,4 +169,4 @@ Consumer 为提炼 Agent 与整合 Dreaming Agent。提炼仍一次接收选定�
 
 ### Dreaming 断网续跑补修
 
-Dreaming 提炼与整合复用既有模型建连失败等待策略；在通用 Agent 创建入口挂载，不再受 Nano preset 筛选限制。不新增 Dreaming 专属重试、计时器或恢复队列；错误识别、退避和取消边界不变，普通流式失败继续原有有界重试。
+Dreaming 提炼与整合复用既有模型建连失败等待策略；在通用 Agent 创建入口按原 Nano preset 或 Dreaming 既有会话 ID 前缀挂载，独立审核仍沿用专属策略。不新增 Dreaming 专属重试、计时器或恢复队列；错误识别、退避和取消边界不变，普通流式失败继续原有有界重试。

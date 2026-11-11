@@ -316,9 +316,9 @@ export default class NanoRuntime {
     ctx.on('agent/created', async ({ agent, source }) => {
       const agentId = this.ownerOf(agent.id);
       if (agentId) { lifecycle.assertEnabled(agentId); await lifecycle.clean(agentId, agent, source === 'resume'); }
-      // Maintenance Agents have no Nano preset but share the same model connection policy.
-      attachModelConnectionRetry(agent, takeConnectionFailure);
       const preset = agent.session.header.agentPreset;
+      // Dreaming has no Nano preset; independent reviewers retain their own retry policy.
+      if (preset?.startsWith('nano:') || agent.id.startsWith('dreaming-')) attachModelConnectionRetry(agent, takeConnectionFailure);
       if (!preset?.startsWith('nano:')) return;
       const desired = this.configurations.get(preset);
       if (!desired) throw new Error(`Missing Nano configuration for ${preset}`);
