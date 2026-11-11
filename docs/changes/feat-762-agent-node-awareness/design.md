@@ -30,8 +30,7 @@
 当前身份段只提供 Agent 名称和 ID。改动后可增加如下内容，文案以真实请求可读性验证。
 
 ```text
-Execution node ID: "node-air"
-Execution node name: "Air"
+Execution node: id="node-air", name="Air"
 Other Agents in Nano IM can run on different nodes. A path another Agent
 shares refers to the environment where the file was produced. Use the
 latest group info to check where that Agent runs now. If the node differs

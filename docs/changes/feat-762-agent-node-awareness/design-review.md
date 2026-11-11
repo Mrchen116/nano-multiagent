@@ -150,4 +150,4 @@ R3 无开放项。R1-W1 仍 closed，旧报告中限制模型端获取节点 ID 
 ### Author Resolutions
 
 - **R4-R1 · accepted.** `conversations` 工具说明明确使用最新的同伴节点 ID 与自身 ID 比较，提示名称可重名，并将缺少节点 ID 或查询失败解释为归属未知。
-- **retained_from: Round 4.** 根据用户反馈，自身节点提示将同一 ID 和名称分别标注为 `Execution node ID` 和 `Execution node name`。身份来源、查询结果与可见性沿用本轮审查。
+- **retained_from: Round 4.** 根据用户反馈，自身节点提示在同一行用 `id` 和 `name` 标注。身份来源、查询结果与可见性沿用本轮审查。
