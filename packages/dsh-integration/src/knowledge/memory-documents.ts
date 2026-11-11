@@ -1,16 +1,19 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { watch, type FSWatcher } from 'node:fs';
-import { mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { FileSystem } from '@deepseek-ai/dsh-fs';
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import { atomicWrite } from './files.js';
 
+export const memoryEntryLimit = 8000;
 export type DocumentVersions = Record<string, string>;
+export interface DocumentGitChange { path: string; status: string; supported: boolean }
 export interface SourceEligibility { revision: string; allowed: string[]; excluded: string[] }
 export interface DocumentOperation { operationId: string; path: string; beforeHash: string | null; content: string }
 export interface DocumentReceipt {
-  operationId: string; path: string; beforeHash: string | null; afterHash: string;
+  operationId: string; path: string; beforeHash: string | null; afterHash: string | null;
   saved: boolean; versionRecorded: boolean; commit?: string; error?: string;
 }
 interface DocumentState {
@@ -20,12 +23,31 @@ interface DocumentState {
 }
 const digest = (text: string) => createHash('sha256').update(text).digest('hex');
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-function command(cwd: string, args: string[], input?: string, extraEnv?: Record<string, string>): Promise<string> {
+const splitNul = (text: string) => text.split('\0').filter(Boolean);
+
+function memoryEntryPreview(text: string): string {
+  let end = 0;
+  for (const block of fromMarkdown(text).children) {
+    for (const part of block.type === 'list' ? block.children : [block]) {
+      const offset = part.position?.end.offset;
+      if (offset === undefined || offset > memoryEntryLimit) return text.slice(0, end);
+      // A heading belongs with the content it introduces.
+      if (part.type !== 'heading') end = offset;
+    }
+  }
+  return text.slice(0, end);
+}
+
+function command(cwd: string, args: string[], input?: string, extraEnv?: Record<string, string>,
+  {raw = false, signal}: {raw?: boolean; signal?: AbortSignal} = {}): Promise<string> {
   return new Promise((accept, reject) => {
-    const child = spawn('git', args, { cwd, env: { ...process.env, ...extraEnv }, stdio: 'pipe' });
+    const child = spawn('git', args, { cwd, env: { ...process.env, ...extraEnv }, stdio: 'pipe', signal });
     let stdout = ''; let stderr = '';
-    child.stdout.on('data', data => { stdout += data; }); child.stderr.on('data', data => { stderr += data; });
-    child.once('error', reject); child.once('close', code => code === 0 ? accept(stdout.trim()) : reject(new Error(stderr.trim() || `git exited ${code}`)));
+    child.stdout.setEncoding('utf8').on('data', data => { stdout += data; });
+    child.stderr.setEncoding('utf8').on('data', data => { stderr += data; });
+    child.stdin.on('error', reject);
+    child.once('error', reject);
+    child.once('close', code => code === 0 ? accept(raw ? stdout : stdout.trim()) : reject(new Error(stderr.trim() || `git exited ${code}`)));
     child.stdin.end(input);
   });
 }
@@ -149,12 +171,17 @@ export class MemoryDocuments {
     }
     return Object.fromEntries(Object.entries(this.hashes).sort(([a], [b]) => a.localeCompare(b)));
   }
-  /** Read current saved memory; background verification does not hide foreground knowledge. */
-  async context() {
+  /** Read current saved memory; background verification does not hide foreground knowledge.
+   *
+   * Args:
+   *   options: Request a complete-block prefix of an oversized entry for the main Agent.
+   */
+  async context({ includePreview = false } = {}) {
     const versions = await this.versions();
     const entry = await readFile(join(this.root, 'MEMORY.md'), 'utf8');
-    return { role: this.role, root: this.root, versions,
-      entry: entry.length <= 8000 ? entry : undefined,
+    const fits = entry.length <= memoryEntryLimit;
+    return { role: this.role, root: this.root, versions, entry: fits ? entry : undefined,
+      entryPreview: includePreview && !fits ? memoryEntryPreview(entry) : undefined,
       backupRoot: this.backupRoot };
   }
   /** Tell Dreaming whether saved pages need checking before its next publication. */
@@ -195,8 +222,143 @@ export class MemoryDocuments {
     });
   }
   async status() { return { generation: this.state.generation, sourcesPending: this.sourcesPending, ...(this.state.sources ? { sources: this.state.sources } : {}), receipts: Object.values(this.state.receipts), backupRoot: this.backupRoot }; }
+  /** Return the formal repository's staged, unstaged and untracked changes. */
+  async gitChanges(): Promise<DocumentGitChange[]> {
+    if (!(await lstat(join(this.root, '.git'))).isDirectory()) throw new Error('The memory Git directory is unavailable.');
+    const result = await command(this.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames'],
+      undefined, this.gitEnvironment(), {raw: true});
+    const changes = splitNul(result).map(row => ({status:row.slice(0, 2), path:row.slice(3)}));
+    return Promise.all(changes.map(async ({status, path}) => {
+      let supported = false;
+      if (status === '??' || /^[ AMD]{2}$/.test(status)) {
+        try {
+          const absolute = join(this.root, path);
+          const info = await lstat(absolute).catch(error => {
+            if (error.code === 'ENOENT') return undefined;
+            throw error;
+          });
+          supported = await this.path(path) === path && (info
+            ? info.isFile() && await realpath(absolute) === absolute
+            : status.includes('D'));
+        } catch { /* Unsupported changes are reported without modifying them. */ }
+      }
+      return {path, status, supported};
+    }));
+  }
+  private async headSnapshot(signal?: AbortSignal) {
+    const env = this.gitEnvironment();
+    const head = await command(this.root, ['rev-parse', '--verify', 'HEAD'], undefined, env, {signal});
+    const rows = splitNul(await command(this.root, ['ls-tree', '-r', '-z', head], undefined, env, {raw:true, signal}));
+    const versions: DocumentVersions = {};
+    const unsupported: string[] = [];
+    for (const row of rows) {
+      const separator = row.indexOf('\t');
+      const path = row.slice(separator + 1);
+      const regular = /^100(644|755) blob /.test(row);
+      if (!regular || !path.endsWith('.md') || path.split('/').some(part => part.startsWith('.'))) unsupported.push(path);
+      if (regular) versions[path] = digest(await command(this.root, ['show', `${head}:${path}`], undefined, env, {raw:true, signal}));
+    }
+    return {head, versions, unsupported};
+  }
+  /** Observe settled native edits, including failures, without advancing verification.
+   *
+   * Args:
+   *   before: Document hashes captured before this run edited the formal library.
+   *   runId: Durable identity for this run's per-path receipts.
+   */
+  observeBatch(before: DocumentVersions, runId: string): Promise<{versions: DocumentVersions; receipts: DocumentReceipt[]}> {
+    return this.serial(async () => {
+      await this.refresh();
+      const versions = await this.versions();
+      let snapshot: Awaited<ReturnType<MemoryDocuments['headSnapshot']>> | undefined;
+      let gitError: string | undefined;
+      try { snapshot = await this.headSnapshot(); } catch (error) { gitError = String(error); }
+      // A later batch may commit unchanged files left by an interrupted run.
+      for (const receipt of Object.values(this.state.receipts)) {
+        if (receipt.saved && !receipt.versionRecorded && snapshot && !snapshot.unsupported.includes(receipt.path) &&
+            (versions[receipt.path] ?? null) === receipt.afterHash && (snapshot.versions[receipt.path] ?? null) === receipt.afterHash) {
+          receipt.versionRecorded = true; receipt.commit = snapshot.head; delete receipt.error;
+        }
+      }
+      const receipts: DocumentReceipt[] = [];
+      for (const path of [...new Set([...Object.keys(before), ...Object.keys(versions)])].sort()) {
+        const beforeHash = before[path] ?? null; const afterHash = versions[path] ?? null;
+        if (beforeHash === afterHash) continue;
+        // An unsupported replacement (for example a symlink) is not a saved deletion.
+        const saved = afterHash !== null || await lstat(join(this.root, path)).then(() => false, error => {
+          if (error.code === 'ENOENT') return true;
+          throw error;
+        });
+        const versionRecorded = saved && !!snapshot && !snapshot.unsupported.includes(path) && (snapshot.versions[path] ?? null) === afterHash;
+        const receipt: DocumentReceipt = {operationId:`${runId}:${path}`, path, beforeHash, afterHash, saved, versionRecorded,
+          ...(versionRecorded ? {commit:snapshot!.head} : {}), ...(gitError ? {error:gitError} : {})};
+        this.state.receipts[receipt.operationId] = receipt; receipts.push(receipt);
+      }
+      await this.save();
+      return {versions, receipts};
+    });
+  }
+  private async verifyRepositoryShape(receipts: DocumentReceipt[]): Promise<void> {
+    const walk = async (directory: string) => {
+      for (const item of await readdir(join(this.root, directory), {withFileTypes:true})) {
+        if (!directory && item.name === '.git') continue;
+        const path = join(directory, item.name);
+        if (item.name.startsWith('.') || (!item.isDirectory() && (!item.isFile() || !path.endsWith('.md'))))
+          throw new Error(`Unsupported memory document: ${path}`);
+        if (item.isDirectory()) await walk(path);
+      }
+    };
+    await walk('');
+    const entryPath = join(this.root, 'MEMORY.md');
+    if (!(await lstat(entryPath).catch(() => undefined))?.isFile()) throw new Error('MEMORY.md must exist as a regular document.');
+    if (receipts.some(receipt => receipt.path === 'MEMORY.md') && (await readFile(entryPath, 'utf8')).length > memoryEntryLimit)
+      throw new Error(`MEMORY.md exceeds ${memoryEntryLimit} characters.`);
+  }
+  private assertBatch(generation: number, signal: AbortSignal): void {
+    signal.throwIfAborted();
+    if (this.sourcesPending || generation !== this.state.generation) throw new Error('Source generation changed or has not been verified.');
+  }
+  private async verifyBatchVersions(versions: DocumentVersions, generation: number, signal: AbortSignal): Promise<void> {
+    this.assertBatch(generation, signal);
+    await this.refresh();
+    const current = await this.versions();
+    if (Object.keys(current).length !== Object.keys(versions).length || Object.keys(current).some(path => current[path] !== versions[path]))
+      throw new Error('Document versions changed; reread the current documents.');
+    this.assertBatch(generation, signal);
+  }
+  /** Checkpoint only verified files and source policy in an actually clean Git repository. */
+  finalizeBatch(versions: DocumentVersions, generation: number, receipts: DocumentReceipt[], signal: AbortSignal): Promise<{changes: DocumentGitChange[]; receipts: DocumentReceipt[]}> {
+    return this.serial(async () => {
+      this.assertBatch(generation, signal);
+      const changes = await this.gitChanges();
+      this.assertBatch(generation, signal);
+      if (changes.length) return {changes, receipts};
+      await this.verifyRepositoryShape(receipts);
+      await this.verifyBatchVersions(versions, generation, signal);
+      const snapshot = await this.headSnapshot(signal);
+      if (snapshot.unsupported.length) throw new Error(`Unsupported memory document in Git: ${snapshot.unsupported.join(', ')}`);
+      if (Object.keys(snapshot.versions).length !== Object.keys(versions).length ||
+          Object.keys(versions).some(path => snapshot.versions[path] !== versions[path]))
+        throw new Error('A saved document is missing from the verified Git version.');
+      const recorded = receipts.map(receipt => {
+        if (!receipt.saved || (versions[receipt.path] ?? null) !== receipt.afterHash) return {...receipt};
+        const {error: _error, ...settled} = receipt;
+        return {...settled, versionRecorded:true, commit:snapshot.head};
+      });
+      const remaining = await this.gitChanges();
+      await this.verifyBatchVersions(versions, generation, signal);
+      if (remaining.length) return {changes: remaining, receipts};
+      if (await command(this.root, ['rev-parse', '--verify', 'HEAD'], undefined, this.gitEnvironment(), {signal}) !== snapshot.head)
+        throw new Error('The memory repository HEAD changed during verification.');
+      this.assertBatch(generation, signal);
+      for (const receipt of recorded) this.state.receipts[receipt.operationId] = receipt;
+      this.state.basis = { generation, versions: {...versions} };
+      await this.save();
+      return {changes: [], receipts: recorded};
+    });
+  }
   /** Atomically apply a frozen plan; recovery accepts its after hash but never a third version. */
-  apply(operation: DocumentOperation, generation?: number, signal?: AbortSignal): Promise<DocumentReceipt> {
+  apply(operation: DocumentOperation, generation?: number, signal?: AbortSignal, options: {recordVersion?: boolean} = {}): Promise<DocumentReceipt> {
     return this.serial(async () => {
       const path = await this.path(operation.path); const afterHash = digest(operation.content);
       const old = this.state.receipts[operation.operationId];
@@ -215,7 +377,10 @@ export class MemoryDocuments {
           await this.fs.writeText(target, operation.content, info ? { kind: 'replaceIfVersion', version: info.version } : { kind: 'createIfAbsent' }, signal, this.writePolicy());
         }
         receipt.saved = true; this.dirty.add(path); await this.save();
-        receipt.commit = await this.recordVersion(path, operation.content); receipt.versionRecorded = true; delete receipt.error;
+        if (options.recordVersion !== false) {
+          receipt.commit = await this.recordVersion(path, operation.content); receipt.versionRecorded = true;
+        }
+        delete receipt.error;
       } catch (error) { receipt.error = String(error); }
       await this.save(); return { ...receipt };
     });
@@ -234,9 +399,12 @@ export class MemoryDocuments {
       this.state.receipts[operation.operationId] = receipt; await this.save(); return receipt;
     });
   }
+  private gitEnvironment(index = join(this.root, '.git/index')) {
+    return { GIT_DIR: join(this.root, '.git'), GIT_WORK_TREE: this.root, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'Nano Memory', GIT_AUTHOR_EMAIL: 'memory@localhost', GIT_COMMITTER_NAME: 'Nano Memory', GIT_COMMITTER_EMAIL: 'memory@localhost' };
+  }
   private async recordVersion(path: string, content: string): Promise<string> {
     const index = join(this.root, '.git', `nano-index-${randomUUID()}`);
-    const env = { GIT_DIR: join(this.root, '.git'), GIT_WORK_TREE: this.root, GIT_INDEX_FILE: index, GIT_AUTHOR_NAME: 'Nano Memory', GIT_AUTHOR_EMAIL: 'memory@localhost', GIT_COMMITTER_NAME: 'Nano Memory', GIT_COMMITTER_EMAIL: 'memory@localhost' };
+    const env = this.gitEnvironment(index);
     try {
       const parent = await command(this.root, ['rev-parse', '--verify', 'HEAD'], undefined, env).catch(() => undefined);
       await command(this.root, parent ? ['read-tree', parent] : ['read-tree', '--empty'], undefined, env);

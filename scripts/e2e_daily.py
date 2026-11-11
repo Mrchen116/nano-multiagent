@@ -69,8 +69,8 @@ def prepare(config_path: Path, *, model_override: str | None = None) -> None:
             workspace_root=str(workspace / role["agent_id"]),
             approval_mode="codex",
             model_fallbacks=[],
-            custom_prompt=team["shared_prompt"].format(project=project)
-            + role["custom_prompt"],
+            initial_role=team["shared_role"].format(project=project)
+            + role["initial_role"],
         )
         agent["features"]["heartbeat"] = False
         config["agents"].append(agent)
@@ -95,7 +95,9 @@ def prepare(config_path: Path, *, model_override: str | None = None) -> None:
     )
     shutil.copytree(TEMPLATE / "project", project)
     for agent in config["agents"]:
-        Path(agent["workspace_root"]).mkdir()
+        role_file = Path(agent["workspace_root"]) / ".nanoassistant" / "ROLE.md"
+        role_file.parent.mkdir(parents=True)
+        role_file.write_text(agent.pop("initial_role"), encoding="utf-8")
     config_path.write_text(
         yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )

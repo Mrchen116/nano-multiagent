@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, stat, symlink, realpath } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -218,4 +218,45 @@ it('checks an in-flight Agent workspace reservation before removing an exclusive
     expect(await config.deletionWorkspace('d',[])).toBeUndefined();
     expect((await NodeConfiguration.read(path)).current('b')).toBeDefined();
   } finally { await rm(home,{recursive:true,force:true}); }
+});
+
+
+it('checks ROLE workspace ownership across configured and prepared Agent paths before any session exists', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-role-ownership-'));
+  try {
+    const workspace = await realpath(home);
+    const alias = join(home, 'alias');
+    await symlink(workspace, alias, 'dir');
+    const path = join(home, 'node.json');
+    await writeFile(path, JSON.stringify({
+      node: {user_id: 'owner'},
+      agents: [
+        {agent_id: 'ordinary', workspace_root: workspace},
+        {agent_id: 'pa', workspace_root: alias, work_mode: 'global', personal_agent: {
+          bindingId: 'binding', ownerId: 'owner', conversationId: 'conversation', epoch: 1,
+        }},
+        {agent_id: 'legacy', workspace_root: join(home, 'legacy'), knowledge: {memoryMode: 'legacy'}},
+      ],
+      llm: {default_model: 'test', providers: [{name: 'test', models: [{name: 'test'}]}]},
+    }));
+    const config = await NodeConfiguration.read(path);
+    expect(await config.roleWorkspace('ordinary')).toBeNull();
+    expect(await config.roleWorkspace('pa')).toBeNull();
+    expect(await config.roleWorkspace('legacy')).toBeNull();
+    expect(await config.roleWorkspace('absent')).toBeNull();
+    await config.removeAgent('pa', 'delete-pa', undefined, () => []);
+    expect(await config.roleWorkspace('ordinary')).toBe(workspace);
+
+    const pending = await config.resolve(canonicalAgentConfiguration({
+      agent_id: 'pending', workspace_root: alias,
+      features: {intelligent_ui: false, task_graph: false, dreaming: false},
+    }), true);
+    expect(await config.roleWorkspace('ordinary')).toBeNull();
+    expect(await config.creationRoleWorkspace(pending)).toBeNull();
+    expect(await config.creationRoleWorkspace(config.current('legacy')!)).toBeNull();
+    const fresh = await config.resolve(canonicalAgentConfiguration({agent_id:'fresh',workspace_root:join(home,'fresh'),features:{intelligent_ui:false,task_graph:false,dreaming:false}}),true);
+    expect(await config.creationRoleWorkspace(fresh)).toBe(await realpath(fresh.workspace_root!));
+    config.releaseWorkspace('pending');
+    expect(await config.roleWorkspace('ordinary')).toBe(workspace);
+  } finally { await rm(home, {recursive: true, force: true}); }
 });

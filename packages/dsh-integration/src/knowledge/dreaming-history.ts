@@ -29,7 +29,7 @@ export function sourceDirectory(run: DreamingRun, owner: DreamingOwner): SourceR
     baseline:summary.baseline, through:summary.through,
     cutoff:run.batch.ranges.some(range => range.sessionId === summary.rootSessionId && (range.through > range.start || range.continuation))
       ? run.batch.cutoffs![summary.rootSessionId]! : run.target.children[summary.sessionId]!.time,
-    purpose:'Original evidence for this task summary'}));
+    purpose:'Original evidence for this subagent trajectory summary'}));
   return [...roots, ...children];
 }
 
@@ -54,7 +54,7 @@ export function registerDreamingHistory(ctx: Context, host: Context, parent: Age
       chain.push({id,snapshot});id=snapshot.header.parentSession;
     }
     const ancestor=directory.find(item=>item.session_id===id)!;
-    if(ancestor.session_id===ancestor.root_session_id)throw new Error('Only descendants of a supplied task summary may be expanded.');
+    if(ancestor.session_id===ancestor.root_session_id)throw new Error('Only descendants of a supplied subagent trajectory summary may be expanded.');
     let parent=await sources.snapshot(ancestor.session_id);let scope=ancestor;
     for(const child of chain.reverse()){
       const relation=parent.events.findLast(event=>event.type==='subagent/catalog'&&event.data.childId===child.id&&event.data.mode!=='unknown'&&event.seq<=scope.through&&event.time<=scope.cutoff);
@@ -68,7 +68,7 @@ export function registerDreamingHistory(ctx: Context, host: Context, parent: Age
     return scope;
   };
   ctx.tools.register({name:'source_history',
-    description:'Read original business evidence from the supplied source directory, including active and older windows and returned trusted task descendants. This is distinct from history, which restores your own maintenance work. Use list_windows/list_items/search to find original window_id/item_id; read supports Unicode continuation. Current source permissions and the frozen batch boundary apply before search/pagination. Missing or omitted records are unknown, never proof of completion.',
+    description:'Read original business evidence from the supplied source directory, including active and older windows and returned trusted task descendants. This is distinct from history, which restores your own maintenance work. Use list_windows/list_items/search to find original window_id/item_id; read supports Unicode continuation. The original execution scope and frozen batch boundary apply before search/pagination. Missing or omitted records are unknown, never proof of completion.',
     parameters:{type:'object',properties:{
       action:{enum:['list_windows','list_items','search','read']},session_id:{type:'string'},window_id:{type:'string'},item_id:{type:'string'},
       role:{type:'string'},tool_name:{type:'string'},query:{type:'string'},recent_first:{type:'boolean'},limit:{type:'integer',minimum:1,maximum:100},
@@ -82,10 +82,9 @@ export function registerDreamingHistory(ctx: Context, host: Context, parent: Age
       const snapshot = await sources.snapshot(scope.session_id);
       if (scope.session_id === scope.root_session_id ? snapshot.header.origin === 'subagent'
         : snapshot.header.origin !== 'subagent' || snapshot.header.parentSession !== (scope.parent_session_id??scope.root_session_id)) throw new Error('Source identity changed.');
-      const status = await library.status();
       const events = snapshot.events.filter(event => event.seq <= scope.through && event.time <= scope.cutoff &&
         (marker(event) || event.seq > Math.max(scope.baseline, snapshot.inheritedEventCount - 1)));
-      const qualified = qualifiedEvents(events, {sources:status.sources});
+      const qualified = qualifiedEvents(events);
       const view = createHistoryView(scope.session_id, qualified);
       const {action,session_id,window_id,item_id,offset_chars,limit_chars,cursor,...query} = args;
       const tokenScope = createHash('sha256').update(JSON.stringify({scope,generation:run.generation,action,window_id,query})).digest('hex');

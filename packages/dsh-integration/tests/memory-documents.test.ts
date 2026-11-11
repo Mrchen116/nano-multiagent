@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FileSystem } from '@deepseek-ai/dsh-fs';
-import { mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { rename, symlink, mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
@@ -158,4 +159,131 @@ it('retains verified unrelated pages for scoped edits but invalidates all pages 
   expect(documents.unverifiedPaths(versions,0)).toEqual(['knowledge/a.md']);
   await documents.syncSources({revision:'revoked',allowed:[],excluded:['source']});
   expect(documents.unverifiedPaths(versions,(await documents.status()).generation)).toEqual(Object.keys(versions));
+});
+
+describe('native Git batch observation', () => {
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  const commit = (root: string) => {
+    git(root, 'add', '-A');
+    git(root, '-c', 'user.name=Memory test', '-c', 'user.email=memory@test.local', 'commit', '-qm', 'Organize memory');
+    return git(root, 'rev-parse', 'HEAD');
+  };
+  const signal = () => new AbortController().signal;
+
+  it('observes native additions, edits, moves and deletions without advancing verification', async () => {
+    const {documents, root} = await library();
+    await writeFile(join(root, 'old.md'), 'Move this knowledge.');
+    await writeFile(join(root, 'remove.md'), 'Obsolete knowledge.');
+    commit(root);
+    const before = await documents.observeBatch(await documents.versions(), 'setup');
+    await documents.finalizeBatch(before.versions, 0, before.receipts, signal());
+    await rename(join(root, 'old.md'), join(root, 'moved.md'));
+    await rm(join(root, 'remove.md'));
+    await writeFile(join(root, 'new page.md'), 'New knowledge.');
+    await writeFile(join(root, 'MEMORY.md'), '# Updated memory\n');
+    const pending = await documents.observeBatch(before.versions, 'native');
+    expect(pending.receipts).toHaveLength(5);
+    expect(pending.receipts.every(receipt => receipt.saved && !receipt.versionRecorded)).toBe(true);
+    expect(pending.receipts.filter(receipt => receipt.afterHash === null).map(receipt => receipt.path)).toEqual(['old.md', 'remove.md']);
+    expect((await documents.gitChanges()).every(change => change.supported)).toBe(true);
+    expect((await documents.finalizeBatch(pending.versions, 0, pending.receipts, signal())).changes).toHaveLength(5);
+    const head = commit(root);
+    const observed = await documents.observeBatch(before.versions, 'native');
+    expect(observed.receipts.every(receipt => receipt.saved && receipt.versionRecorded && receipt.commit === head)).toBe(true);
+    expect(await documents.needsVerification()).toBe(true);
+    const finalized = await documents.finalizeBatch(observed.versions, 0, observed.receipts, signal());
+    expect(finalized.changes).toEqual([]);
+    expect(await documents.needsVerification()).toBe(false);
+    expect((await documents.observeBatch(observed.versions, 'no-change')).receipts).toEqual([]);
+  });
+
+  it('settles earlier uncommitted receipts when a later run only commits existing files',async()=>{
+    const {documents,root}=await library();const initial=await documents.versions();
+    await writeFile(join(root,'pending.md'),'Retained after failure.');
+    const first=await documents.observeBatch(initial,'failed');
+    expect(first.receipts[0]?.versionRecorded).toBe(false);
+    const head=commit(root);
+    const resumed=await documents.observeBatch(first.versions,'retry');
+    expect(resumed.receipts).toEqual([]);
+    expect((await documents.status()).receipts.find(receipt=>receipt.operationId==='failed:pending.md')).toMatchObject({versionRecorded:true,commit:head});
+  });
+
+  it('returns dirty invalid paths for the same Agent to repair before validating the clean repository',async()=>{
+    const {documents,root}=await library();const initial=await documents.versions();
+    await rm(join(root,'MEMORY.md'));await writeFile(join(root,'scratch.txt'),'Temporary scratch.');
+    const observed=await documents.observeBatch(initial,'repair');
+    expect((await documents.finalizeBatch(observed.versions,0,observed.receipts,signal())).changes).toEqual(expect.arrayContaining([expect.objectContaining({path:'MEMORY.md'}),expect.objectContaining({path:'scratch.txt',supported:false})]));
+  });
+
+  it('records already committed results after cancellation or source revocation, retaining all files', async () => {
+    const {documents, root, workspace} = await library();
+    const allowed = await documents.syncSources({revision:'1', allowed:['chat-a'], excluded:[]});
+    const before = await documents.versions();
+    await writeFile(join(root, 'saved.md'), 'Saved evidence.');
+    const head = commit(root);
+    await writeFile(join(root, 'pending.md'), 'Uncommitted evidence.');
+    await documents.syncSources({revision:'2', allowed:[], excluded:['chat-a']});
+    const observed = await documents.observeBatch(before, 'interrupted');
+    expect(observed.receipts).toEqual(expect.arrayContaining([
+      expect.objectContaining({path:'saved.md', saved:true, versionRecorded:true, commit:head}),
+      expect.objectContaining({path:'pending.md', saved:true, versionRecorded:false}),
+    ]));
+    await expect(documents.finalizeBatch(observed.versions, allowed.generation, observed.receipts, signal())).rejects.toThrow(/generation/);
+    const cancelled = new AbortController(); cancelled.abort();
+    await expect(documents.finalizeBatch(observed.versions, (await documents.status()).generation, observed.receipts, cancelled.signal)).rejects.toThrow();
+    await documents.close();
+    const reopened = await MemoryDocuments.open(workspace, 'personal', fs); cleanups.push(() => reopened.close());
+    expect((await reopened.status()).receipts).toEqual(expect.arrayContaining(observed.receipts));
+    expect(await readFile(join(root, 'pending.md'), 'utf8')).toBe('Uncommitted evidence.');
+    expect(await reopened.needsVerification()).toBe(true);
+  });
+
+  it('reports untracked files despite Git configuration and accepts staged rename as add/delete', async () => {
+    const {documents, root} = await library();
+    await writeFile(join(root, 'old.md'), 'Knowledge.'); commit(root);
+    git(root, 'config', 'status.showUntrackedFiles', 'no');
+    await rename(join(root, 'old.md'), join(root, 'new.md'));
+    git(root, 'add', '-A');
+    await writeFile(join(root, 'manual.txt'), 'Unsupported.');
+    expect(await documents.gitChanges()).toEqual([
+      {path:'new.md', status:'A ', supported:true},
+      {path:'old.md', status:'D ', supported:true},
+      {path:'manual.txt', status:'??', supported:false},
+    ]);
+  });
+
+  it.each(['text', 'hidden', 'symlink', 'missing-entry', 'oversized-entry'])('rejects committed invalid repository shape: %s', async kind => {
+    const {documents, root} = await library();
+    const before = await documents.versions();
+    if (kind === 'text') await writeFile(join(root, 'manual.txt'), 'Not a document.');
+    if (kind === 'hidden') await writeFile(join(root, '.hidden.md'), 'Hidden document.');
+    if (kind === 'symlink') await symlink('MEMORY.md', join(root, 'alias.md'));
+    if (kind === 'missing-entry') await rm(join(root, 'MEMORY.md'));
+    if (kind === 'oversized-entry') await writeFile(join(root, 'MEMORY.md'), 'x'.repeat(8001));
+    commit(root);
+    const observed = await documents.observeBatch(before, kind);
+    expect(await documents.gitChanges()).toEqual([]);
+    await expect(documents.finalizeBatch(observed.versions, 0, observed.receipts, signal())).rejects.toThrow(/document|MEMORY.md/);
+  });
+
+  it('does not mistake a clean Git conversion for matching actual document bytes', async () => {
+    const {documents, root} = await library();
+    const before = await documents.versions();
+    git(root, 'config', 'core.autocrlf', 'true');
+    await writeFile(join(root, 'windows.md'), 'Line one.\r\nLine two.\r\n');
+    commit(root);
+    const observed = await documents.observeBatch(before, 'converted');
+    expect(await documents.gitChanges()).toEqual([]);
+    expect(observed.receipts[0]).toMatchObject({saved:true, versionRecorded:false});
+    await expect(documents.finalizeBatch(observed.versions, 0, observed.receipts, signal())).rejects.toThrow(/Git version/);
+  });
+
+  it('allows an unchanged preexisting oversized entry while checking other updates', async () => {
+    const {documents, root} = await library();
+    await writeFile(join(root, 'MEMORY.md'), 'x'.repeat(8001)); commit(root);
+    const before = (await documents.observeBatch(await documents.versions(), 'preexisting')).versions;
+    await writeFile(join(root, 'body.md'), 'Verified update.'); commit(root);
+    const observed = await documents.observeBatch(before, 'body-only');
+    expect((await documents.finalizeBatch(observed.versions, 0, observed.receipts, signal())).changes).toEqual([]);
+  });
 });

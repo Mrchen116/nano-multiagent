@@ -8,7 +8,7 @@ import {MemoryDocuments} from '../src/knowledge/memory-documents.js';
 import {RuntimeClient,prepareProfile} from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it('refreshes the same native child after host-applied correction and pending/revoked source authority',async()=>{
+it('keeps the child window snapshot while ordinary reads see the updated entry',async()=>{
   const home=await mkdtemp(join(tmpdir(),'memory-child-refresh-'));let client:RuntimeClient|undefined;let logs='';
   const library=await MemoryDocuments.open(home,'expert',new LocalFileSystem(new Context(),{cwd:home,diffBasisMaxBytes:10485760}));
   await library.apply({operationId:'entry',path:'MEMORY.md',beforeHash:(await library.versions())['MEMORY.md']!,content:'# Expert memory\nOLD PERMISSION: public updates permitted.'});
@@ -42,13 +42,14 @@ if(child&&n<2){await writeFile(process.env.DSH_HOME+'/waiting-'+n,'ready');while
     expect(new Set(child.map(request=>request.sessionId)).size).toBe(1);expect(child).toHaveLength(4);
     expect(JSON.stringify(child[0].messages)).toContain('OLD PERMISSION');
     expect(JSON.stringify(child[1])).not.toContain('source_eligibility_pending');
-    expect(JSON.stringify(child[1])).toContain('CURRENT: private only.');
+    expect(JSON.stringify(child[1].messages.findLast((message:any)=>message.source?.kind==='runtime-context'))).toContain('OLD PERMISSION');
     expect(JSON.stringify(child[2])).not.toContain('entry_basis_stale');
     expect(JSON.stringify(child[2])).not.toContain('Source generation:');
     expect(await readFile(join(home,'.nanoassistant/memory/MEMORY.md'),'utf8')).toBe('# Expert memory\nCURRENT: private only.');
     expect(JSON.stringify(child[3])).toContain('Only Dreaming');
     const currentSystem=child[2].messages.filter((message:any)=>message.role==='system');
-    expect(JSON.stringify(child[2].messages.findLast((message:any)=>message.source?.kind==='runtime-context'))).toContain('CURRENT: private only.');
+    expect(JSON.stringify(child[2].messages.findLast((message:any)=>message.source?.kind==='runtime-context'))).toContain('OLD PERMISSION');
+    expect(JSON.stringify(child[2].messages.filter((message:any)=>message.role==='tool'))).toContain('CURRENT: private only.');
     expect(JSON.stringify(currentSystem)).not.toContain('entry_basis_stale');
   }catch(error){throw new Error(String(error)+'\n'+logs,{cause:error});}
   finally{if(client){await client.shutdown();}await rm(home,{recursive:true,force:true});}

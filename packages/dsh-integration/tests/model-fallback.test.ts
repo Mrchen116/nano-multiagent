@@ -92,7 +92,7 @@ it('continues one admitted input on the backup and restores successful sticky se
     await start();
     expect((await submit('two')).terminal).toMatchObject({ kind: 'completed' });
     config.revision = '2';
-    await client!.rpc.request('configuration.apply', { ...config, systemPrompt: 'Updated prompt, same routes' });
+    await client!.rpc.request('configuration.apply', { ...config, displayName: 'Updated prompt, same routes' });
     expect((await submit('three')).terminal).toMatchObject({ kind: 'completed' });
     config.revision = '3';
     config.modelFallbacks.push({ provider: 'fixture', model: 'primary', reasoningEffort: 'high' });

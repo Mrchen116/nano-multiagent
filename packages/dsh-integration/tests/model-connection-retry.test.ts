@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createServer as createTcpServer } from 'node:net';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -10,12 +10,12 @@ import { workDescendants } from './helpers/work-history.js';
 
 type ModelApi = 'anthropic-messages' | 'openai-completions' | 'openai-responses';
 
-function configureProvider(home: string, baseURL: string, api: ModelApi) {
+function configureProvider(home: string, baseURL: string, api: ModelApi, observer?: string) {
   return prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: {
     api, baseURL, apiKeyEnv: 'NANO_TEST_KEY',
     models: [{ id: 'fixture', contextWindow: 100000 }],
     retryPolicy: { mode: 'normal', maxRetries: 1, backoff: { initialDelayMs: 5, maxDelayMs: 5, jitterRatio: 0 } },
-  } } } }]);
+  } } } }, ...(observer ? [{ insert: [{ id: 'connection-observer', name: observer }] }] : [])]);
 }
 
 async function ensureRoot(client: RuntimeClient, home: string, toolAllowlist: string[] = []) {
@@ -232,3 +232,103 @@ it('waits when the TLS peer closes before the connection is established', async 
     await rm(home, { recursive: true, force: true });
   }
 }, 15000);
+
+it('keeps Dreaming on its original step through connection loss and permits cancellation', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'nano-dreaming-connection-'));
+  let client: RuntimeClient | undefined;
+  let inputId = 'experience';
+  let phase: 'offline' | 'recovered' | 'server-error' = 'offline';
+  const children = new Map<string, string>();
+  const server = createServer(async (req, res) => {
+    let raw = '';
+    for await (const chunk of req) raw += chunk;
+    const { messages } = JSON.parse(raw);
+    const session = String(req.headers['x-agent-session-id']);
+    const blocks = messages.flatMap((message: any) => Array.isArray(message.content) ? message.content : []);
+    const hasResult = (id: string) => blocks.some((block: any) => block.type === 'tool_result' && block.tool_use_id === id);
+    let call: { name: string; input: object; id: string } | undefined;
+    if (session === 'root') {
+      if (inputId !== 'experience' && !hasResult(inputId)) {
+        call = { name: 'memory_maintenance', input: { action: 'run', request_ref: inputId }, id: inputId };
+      }
+    } else {
+      children.set(inputId, session);
+      if (inputId === 'maintain' && !hasResult('save-once')) {
+        call = { name: 'bash', id: 'save-once', input: {
+          description: 'Save and commit a lesson before the connection fails',
+          command: "printf 'Remember once\\n' >> recovery.md && git add -- recovery.md && git -c user.name=Nano -c user.email=memory@localhost commit -m recovery",
+        } };
+      } else if (phase !== 'recovered') {
+        res.writeHead(502, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: phase === 'offline'
+          ? { type: 'upstream_connection_error', message: inputId === 'cancel-maintain' ? 'ConnectError: controlled cancel route' : 'ConnectError: controlled offline route' }
+          : { type: 'upstream_http_error', message: 'Upstream service error' } }));
+        return;
+      }
+    }
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    const emit = (type: string, data: object) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
+    emit('message_start', { message: { id: 'fixture', type: 'message', role: 'assistant', model: 'fixture', content: [], stop_reason: null, usage: { input_tokens: 20, output_tokens: 0 } } });
+    emit('content_block_start', { index: 0, content_block: call
+      ? { type: 'tool_use', id: call.id, name: call.name, input: {} }
+      : { type: 'text', text: 'Completed original work.' } });
+    if (call) emit('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(call.input) } });
+    emit('content_block_stop', { index: 0 });
+    emit('message_delta', { delta: { stop_reason: call ? 'tool_use' : 'end_turn', stop_sequence: null }, usage: { output_tokens: 5 } });
+    emit('message_stop', {});
+    res.end();
+  });
+  const observeChild = async () => ({ events: (await readFile(join(home, 'events.jsonl'), 'utf8'))
+    .trim().split('\n').map(line => JSON.parse(line)).filter(row => row.sessionId === children.get(inputId)).map(row => row.event) as Awaited<ReturnType<typeof observeRoot>>['events'] });
+  const reviews = async () => (await client!.rpc.request('knowledge.facts', {}) as any).reviews;
+  try {
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const observer = join(home, 'observer.mjs');
+    await writeFile(observer, `import {appendFileSync} from 'node:fs';
+export const inject = ['agents'];
+export function apply(ctx) { ctx.on('session/event', (session, event) => {
+  appendFileSync(process.env.DSH_HOME+'/events.jsonl', JSON.stringify({sessionId:session.id,event})+'\\n');
+  if (event.type === 'llm/retry' && event.data.failure.message.includes('controlled cancel route')) {
+    setTimeout(() => ctx.agents.get(session.id)?.cancel({kind:'hook',reason:'test cancellation'}), 100);
+  }
+}); }`);
+    await configureProvider(home, `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`, 'anthropic-messages', observer);
+    client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' } });
+    await ensureRoot(client, home, ['memory_maintenance']);
+    await submit(client, inputId);
+    await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'root', inputId }) as any).terminal?.kind).toBe('completed');
+    inputId = 'maintain';
+    await submit(client, inputId);
+    await expect.poll(() => children.has(inputId)).toBe(true);
+    await expect.poll(async () => (await observeChild()).events.filter(e => e.type === 'llm/retry').map(e => e.data.mode), { timeout: 8000 }).toEqual(['always', 'always']);
+    const waiting = await observeChild();
+    const retries = waiting.events.filter(e => e.type === 'llm/retry');
+    expect(retries.map(e => e.data)).toEqual([
+      expect.objectContaining({ turn: 1, step: 2, retry: 1, delayMs: 5000 }),
+      expect.objectContaining({ turn: 1, step: 2, retry: 2, delayMs: 10000 }),
+    ]);
+    expect(waiting.events.filter(e => e.type === 'turn/end')).toHaveLength(0);
+    phase = 'recovered';
+    await expect.poll(async () => (await reviews()).map((r: any) => r.status), { timeout: 13000 }).toEqual(['completed']);
+    expect(await readFile(join(home, '.nanoassistant/memory/recovery.md'), 'utf8')).toBe('Remember once\n');
+    await expect.poll(async () => (await observeRoot(client!)).status).toBe('idle');
+
+    inputId = 'cancel-maintain'; phase = 'offline';
+    await submit(client, inputId);
+    await expect.poll(() => children.has(inputId)).toBe(true);
+    await expect.poll(async () => (await observeChild()).events.find(e => e.type === 'llm/retry')?.data.mode).toBe('always');
+    await expect.poll(async () => (await observeChild()).events.find(e => e.type === 'turn/end')?.data.reason.kind).toBe('aborted');
+    await expect.poll(async () => (await observeRoot(client!)).status).toBe('idle');
+
+    inputId = 'server-error'; phase = 'server-error';
+    await submit(client, inputId);
+    await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'root', inputId }) as any).terminal).toBeTruthy();
+    expect((await reviews()).find((r: any) => r.childSessionId === children.get(inputId))?.status).toBe('failed');
+    await client.shutdown(); client = undefined;
+  } finally {
+    if (client) { client.process.kill('SIGKILL'); await client.exited; }
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(home, { recursive: true, force: true });
+  }
+}, 35000);

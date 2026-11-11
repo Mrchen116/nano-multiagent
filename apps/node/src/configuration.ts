@@ -14,7 +14,7 @@ import { normalizeKnowledge, canonicalAgentConfiguration, agentConfigurationFing
 export interface LocalAgent extends Record<string, unknown> {
   agent_id: string; workspace_root: string; work_mode?: 'single_thread' | 'global';
   approval_mode?: 'cc' | 'codex' | null;
-  default_model?: string; custom_prompt?: string; features?: Record<string, boolean>;
+  default_model?: string; features?: Record<string, boolean>;
   group_reply_policy?: string; reasoning_effort?: string; heartbeat?: Record<string, unknown>;
 }
 export interface NodeConfigurationFile {
@@ -106,7 +106,7 @@ export class NodeConfiguration {
     return { agentId: agent.agent_id, displayName: String(('title' in agent ? agent.title : undefined) ?? agent.display_name ?? agent.agent_id), workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
       ...(canonical.personal_agent ? {personal: canonical.personal_agent} : {}),
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model: selected.id ?? model,
-      ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}), systemPrompt: agent.custom_prompt ?? undefined,
+      ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}),
       modelFallbacks: (canonical.model_fallbacks ?? []).map(model => {
         const provider = this.value.llm.providers.find(provider => provider.models.some(candidate => candidate.name === model));
         if (!provider) throw new Error(`No configured provider for fallback ${model}`);
@@ -161,6 +161,38 @@ export class NodeConfiguration {
     return this.serialize(async()=>{ this.runtime(candidate); await this.write(candidate); });
   }
   releaseWorkspace(agentId: string): void { this.preparedWorkspaces.delete(agentId); }
+
+  /** Resolve the role workspace against every Agent on this node, including other runtime partitions. */
+  roleWorkspace(agentId: string): Promise<string | null> {
+    return this.serialize(async () => {
+      const agent = this.value.agents.find(item => item.agent_id === agentId);
+      if (!agent || normalizeKnowledge(agent.knowledge).memoryMode === 'legacy') return null;
+      return this.exclusiveRoleWorkspace(agentId, agent.workspace_root);
+    });
+  }
+
+  /** Validate an initial role against the prepared, unpublished creation workspace.
+   *
+   * Args:
+   *   candidate: Resolved creation configuration awaiting persistence.
+   * Returns:
+   *   Canonical exclusive document workspace, or null when role editing is unavailable.
+   */
+  creationRoleWorkspace(candidate: CanonicalAgentConfiguration): Promise<string | null> {
+    return this.serialize(async () => {
+      if (this.runtime(candidate).knowledge?.memoryMode === 'legacy' || !candidate.workspace_root) return null;
+      return this.exclusiveRoleWorkspace(candidate.agent_id, candidate.workspace_root);
+    });
+  }
+
+  private async exclusiveRoleWorkspace(agentId: string, path: string): Promise<string | null> {
+    const workspace = await realpath(path).catch(() => null);
+    if (!workspace) return null;
+    const others = this.value.agents.filter(item => item.agent_id !== agentId).map(item => item.workspace_root);
+    const assigned = await Promise.all(others.map(path => realpath(path).catch(() => resolve(path))));
+    const reserved = [...this.preparedWorkspaces].some(([id, item]) => id !== agentId && item.path === workspace);
+    return reserved || assigned.includes(workspace) ? null : workspace;
+  }
 
   /** Offer removal only for directories this node created specifically for this Agent. */
   deletionWorkspace(agentId: string, pending: CanonicalAgentConfiguration[]): Promise<AgentWorkspaceWitness | undefined> {
@@ -257,7 +289,7 @@ export class NodeConfiguration {
     const previous = this.value.agents.find(agent => agent.agent_id === candidate.agent_id);
     const agent: LocalAgent = { ...previous, ...candidate, ...local, work_mode: candidate.work_mode as LocalAgent['work_mode'],
       workspace_root: candidate.workspace_root!, title: candidate.display_name, default_model: candidate.default_model ?? undefined,
-      custom_prompt: candidate.custom_prompt ?? undefined, reasoning_effort: candidate.reasoning_effort ?? undefined,
+      reasoning_effort: candidate.reasoning_effort ?? undefined,
       heartbeat: candidate.heartbeat_json ? JSON.parse(candidate.heartbeat_json) as Record<string, unknown> : undefined };
     delete agent.heartbeat_json;
     const created = this.preparedWorkspaces.get(agent.agent_id)?.created;

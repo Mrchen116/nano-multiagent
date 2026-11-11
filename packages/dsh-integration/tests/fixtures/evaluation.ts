@@ -28,7 +28,7 @@ export async function fixtureOptions(root: string): Promise<NanoEvaluationOption
 export const name='memory-evaluation-fixture';
 export const inject=['llm','sessionPersistence'];
 export function apply(ctx){
-  const steps=new Map(),cities=new Map(),targets=new Map();
+  const steps=new Map(),cities=new Map(),targets=new Map(),scopes=new Map();
   const open=ctx.sessionPersistence.open.bind(ctx.sessionPersistence);
   ctx.sessionPersistence.open=async(...args)=>{
     const h=await open(...args);
@@ -41,19 +41,28 @@ export function apply(ctx){
   };
   ctx.on('llm/stream',async function*(o){
     if(process.env.EVALUATION_HANG==='1'){await new Promise(resolve=>o.signal.addEventListener('abort',resolve,{once:true}));return;}
-    const n=steps.get(o.sessionId)||0;steps.set(o.sessionId,n+1);
-    const all=JSON.stringify(o.messages);
+    let n=steps.get(o.sessionId)||0;steps.set(o.sessionId,n+1);
+    let all=JSON.stringify(o.messages);
     let call;
     if(String(o.sessionId).startsWith('dreaming-')){
       const plain=o.messages.map(m=>(m.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('')).join('\\n');
-      const stage=plain.match(/Editable copy: (.+?)\\. Only edit/)[1];
+      if(plain.includes('<memory_repository>'))scopes.set(o.sessionId,{stage:plain.match(/<memory_repository>\\n([^\\n]+)\\n<\\/memory_repository>/)[1],plain});
+      const scope=scopes.get(o.sessionId),stage=scope.stage;
+      if(n===0){
+        const paths=[...scope.plain.matchAll(/Main Agent original trajectory: ([^\\n]+)/g)].map(m=>m[1]);
+        yield {type:'block-end',index:0,block:{type:'tool-call',id:'material-read',name:'bash',arguments:JSON.stringify({description:'Read the selected original trajectory files',command:paths.length?'cat '+paths.map(path=>JSON.stringify(path)).join(' '):'true'})}};
+        yield {type:'finish',reason:{kind:'tool-calls'}};return;
+      }
+      n--;
       if(all.includes('I moved to Paris.'))cities.set(o.sessionId,'Paris');
       else if(!cities.has(o.sessionId)&&all.includes('I live in Berlin.'))cities.set(o.sessionId,'Berlin');
       else if(!cities.has(o.sessionId)){const known=all.match(/You live in (Berlin|Paris)\\./);if(known)cities.set(o.sessionId,known[1]);}
-      const chat=JSON.parse(plain.match(/IM source directory \\(data\\): (\\[[^\\n]*\\])/)[1])[0];
-      const source=JSON.parse(plain.match(/Source directory \\(data\\): (\\[[^\\n]*\\])/)[1])[0].session_id;
+      const chat=JSON.parse(scope.plain.match(/IM source directory \\(data\\): (\\[[^\\n]*\\])/)[1])[0];
+      const source=JSON.parse(scope.plain.match(/Source directory \\(data\\): (\\[[^\\n]*\\])/)[1])[0].session_id;
       const found=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId==='fixture-1');
       const item=found&&!found.isError?JSON.parse(found.content[0].text).items[0]:undefined;
+      const existing=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId==='fixture-8'&&!m.isError);
+      const needsCommit=cities.has(o.sessionId)&&!existing?.content.some(block=>block.text?.includes('You live in '+cities.get(o.sessionId)+'. Former city: Berlin.'));
       call=[['source_history',{action:'list_windows',session_id:source}],
         ['source_history',{action:'search',session_id:source,query:'LONG_MESSAGE_END',limit:10,max_chars_per_item:4000}],
         item?['source_history',{action:'read',session_id:source,window_id:item.window_id,item_id:item.item_id,limit_chars:20000}]:['source_history',{action:'list_windows',session_id:source}],
@@ -64,7 +73,8 @@ export function apply(ctx){
         cities.has(o.sessionId)?['write',{file_path:stage+'/knowledge/city.md',content:'You live in '+cities.get(o.sessionId)+'. Former city: Berlin.'}]:undefined,
         cities.has(o.sessionId)?['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n[Current city: '+cities.get(o.sessionId)+'](knowledge/city.md)'}]:undefined,
         ['conversations',{action:'search',target:chat,query:'LONG_MESSAGE_END'}],
-        ['conversations',{action:'search',target:chat,query:'UNTRIGGERED_LAST_UPDATE'}]
+        ['conversations',{action:'search',target:chat,query:'UNTRIGGERED_LAST_UPDATE'}],
+        needsCommit?['bash',{description:'Commit the verified city memory batch',command:'git add -- . && git -c user.name=Nano -c user.email=memory@localhost commit -m city'}]:undefined
       ][n];
     }else if(process.env.EVALUATION_CHAT_ONLY){
       const result=id=>{const m=o.messages.findLast(m=>m.role==='tool'&&m.toolCallId===id);return m&&!m.isError?JSON.parse(m.content[0].text):undefined;};
@@ -109,6 +119,6 @@ export function apply(ctx){
     environment: { NANO_TEST_KEY: 'fixture', EVALUATION_FORBIDDEN_PATH: forbidden, EVALUATION_ROOT: root },
     providerPatch: [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'test' }] } } } },
       { insert: [{ id: 'evaluation-fixture', name: path }] }],
-    knowledge: { dreaming: { maxInputTokens: 1000 } },
+    knowledge: { dreaming: { maxInputTokens: 2000 } },
   };
 }

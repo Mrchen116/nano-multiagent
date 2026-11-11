@@ -1,3 +1,4 @@
+import {personalAgentDefaultInstructions} from './personal-agent-defaults.js';
 import { createHash } from 'node:crypto';
 import { modelInteractiveContent, type MessageInteractive } from '@nano/product-contracts';
 import type { ImageBlock } from '@deepseek-ai/dsh-llm';
@@ -190,7 +191,9 @@ export function apply(ctx: Context, config: AgentConfiguration): void {
   if (!config.personal) return;
   ctx.systemPrompt.section({name:'nano-personal-agent',order:805,text:({agent}) => personalInboxSourceInstructions + '\n\n' + (isInternalExecution(agent)
     ? `You execute an internal task for the owner's personal assistant. Preserve the original senders, addressees, source permissions and the owner's limits. An owner's promise to someone else is not automatically delegated work. Ask your parent for conversation facts or source-policy changes and return findings, drafts and evidence to it. Only the bound root PA queries product conversations, delivers public replies or represents the owner. Historical owner instructions retain only their original scope, subject to correction and withdrawal.`
-    : `You are the owner's personal assistant, using the ordinary Global tools, Skills, plugins and permission rules.
+    : `${personalAgentDefaultInstructions}
+
+You are the owner's personal assistant, using the ordinary Global tools, Skills, plugins and permission rules.
 
 Read and attribute sources
 Inbox check lists target, name, unread, conversation_type and delivery. Inbox read places target, name, conversation_type, delivery and channel at page level; each message carries its sender, time and original content. Use conversations info/read/search for members, addressees and history when needed. Both incoming and owner-sent messages are observable facts.

@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-738
+> 对齐: feat-759
 > 上级: [IM Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
@@ -59,14 +59,14 @@ Agent 新建页与编辑页的主模型选择器仍在原位置。备用模型�
 
 ### Requirement: Agent 配置中心可读可改，版本乐观锁，新运行配置由既有聊天下一轮新回复采用
 
-前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、有序 `model_fallbacks`、其可空 `reasoning_effort`、可见的 Custom Instructions (`custom_prompt`)、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。完整配置不在已进行的整轮中切换；可调用工具的取消选择例外地立即收缩，新增工具仍等待当前执行空闲后的完整配置应用，不中断已开始的工具调用。IM 自有字段在 live 快照合并时仍以持久值为准。公开 Agent profile 和能力目录都不提供 `system_prompt` 或上游请求参数。缺省或空的 `model_fallbacks` 与从未配置等价。
+前端经 `/im/v1/agents/*` 读写 Agent 展示与运行配置，配置以 `profile_version` 乐观锁持久化。展示字段更新立即反映在 UI；model、有序 `model_fallbacks`、其可空 `reasoning_effort`、skills、tools 与运行 features 等配置由 Gateway 在每个既有聊天下一轮新回复开始时采用，并保持该聊天历史。完整配置不在已进行的整轮中切换；可调用工具的取消选择例外地立即收缩，新增工具仍等待当前执行空闲后的完整配置应用，不中断已开始的工具调用。IM 自有字段在 live 快照合并时仍以持久值为准。公开 Agent profile 和能力目录都不提供 `system_prompt` 或上游请求参数。缺省或空的 `model_fallbacks` 与从未配置等价。
 
 本次取消选择若会撤销仍被开启 Feature、有效业务责任或正在执行的工具调用需要的能力，保存先被拒绝；只有通过依赖与占用校验的变更才进入上述生效流程。普通运行中不因此阻止无关配置更新。
 
 #### Scenario: 读配置暴露稳定字段集
 - **WHEN** 前端读取 Agent 配置
 - **THEN** 响应保留既有稳定配置字段、可空 `reasoning_effort`、有序 `model_fallbacks` 及 profile version
-- **AND** 专属人设只以可见的 `custom_prompt` 返回，不含 profile `system_prompt`
+- **AND** 角色正文通过独立 ROLE 接口读取，配置不含 `custom_prompt` 或 `system_prompt`
 
 #### Scenario: 新离线请求不产生配置操作
 - **GIVEN** Agent 所属节点当前不可达
@@ -129,24 +129,19 @@ Agent 新建页与编辑页的主模型选择器仍在原位置。备用模型�
 - **WHEN** 前端读取某 Agent 的 heartbeat cadence
 - **THEN** 返回该 Agent 的真实 `heartbeat.every` 配置值；未配置时体现为默认 `30m`
 
-### Requirement: Agent 专属说明只有可见的 Custom Instructions，预览覆盖全部稳定公开配置
+### Requirement: Agent 用户角色约定唯一入口与系统配置预览
 
-Agent owner 通过 Custom Instructions 管理该 Agent 的专属职责或约束；它是公开 profile 唯一会改变专属人设的文本。提示词预览使用已保存或当前草稿的同一 `custom_prompt`、features、tools 与 skills 组装稳定提示词，并明确排除群聊、记忆等仅在运行时才确定的上下文。
+#### Scenario: 查看与编辑用户角色
+- **WHEN** 管理者在Web或iOS创建、查看或编辑Agent
+- **THEN** 只提供角色约定入口，不提供独立Custom Instructions，不读写custom_prompt。ROLE 通过独立版本接口持久化，普通配置 API 不覆盖其正文；Web 配置页统一通过 Save Agent 提交本页已修改字段。
 
-#### Scenario: 留空的 Custom Instructions 没有隐藏专属人设
-- **WHEN** owner 打开或保存 Agent 配置，Custom Instructions 为空
-- **THEN** Agent 不带任何由公开 Agent profile 注入的专属说明
+#### Scenario: 稳定系统配置预览
+- **WHEN** 管理者查看提示词预览
+- **THEN** 展示适用系统角色与所选能力；PA服务默认指导由系统提供。预览不把未保存ROLE当作已生效内容，明确排除运行时角色文件、记忆和聊天。
 
-#### Scenario: 预览可检查当前稳定专属说明
-- **WHEN** owner 展开提示词预览，或编辑 Custom Instructions 后再次查看预览
-- **THEN** 预览包含该 Agent 已保存或待保存的专属说明和已选能力配置
-- **AND** 页面明确说明群聊、记忆等运行时内容不在预览内
-
-#### Scenario: 退休字段不能影响升级后的新回复
-- **GIVEN** 某旧 profile、conversation snapshot 或 Gateway YAML 仍带 `system_prompt`
-- **WHEN** 新版本读取 Agent 配置、同步 profile 或开始下一轮新回复
-- **THEN** 该字段不被读取、展示、迁入 Custom Instructions 或传入运行时
-- **AND** 已知生产存量的删除由发布操作完成，不属于 IM/Gateway 的自动迁移
+#### Scenario: 一次性迁移退休用户配置
+- **WHEN** 获授权部署新版
+- **THEN** 按unit部署提示词将应保留的旧用户指令归入ROLE，去除旧字段；产品不自动迁移或兼容读取custom_prompt/system_prompt。
 
 ### Requirement: Agent 配置保存与聊天实际采用状态分离
 
@@ -334,6 +329,12 @@ operation-id 广告都不是可认领证据；任意一次正常 profile 更新�
 - **WHEN** 任意用户对 A 发送创建请求，或 Gateway 广告不存在/不匹配的 operation id
 - **THEN** IM 返回 409，不派发恢复式创建，也不改变 A 的 owner、root、provenance 或展示字段
 
+#### Scenario: 初始角色与创建结果一致
+- **WHEN** 用户通过客户端或PA提交带initial_role的创建请求
+- **THEN** 仅在目标workspace实际保存该角色后才确认创建成功；正文不得超过2,000 UTF-16单元。未填写时保留工作区现行约定；新空工作区保持角色未设置。
+- **AND** 初始角色仅在持久创建意图中保留，不成为长期配置副本。重复请求必须匹配同一初始角色，创建完成后的恢复不覆盖后续用户编辑。
+- **AND** 复用已有工作区时，不覆盖不同的非空ROLE，冲突有明确结果。普通配置更新不能提交initial_role。
+
 ### Requirement: 桌面 Agent 页面提供连续导航，并保护新建草稿
 
 桌面端从 Agent 列表或节点入口进入新建页，以及打开或切换既有 Agent 详情时，保持 Agent 导航栏。详情请求处于 loading 或 initial error 时，导航栏仍可用，内容区显示局部 loading/error 状态与可重试操作；移动端保持单栏流程。用户一旦编辑新建表单，任何站内离开操作都必须先确认，避免草稿因误触丢失。
@@ -390,7 +391,7 @@ agent 的 workspace_root 在创建时确定(`agent.create` 由节点分配 / `no
 
 #### Scenario: 配置更新不重置 workspace_root
 - **GIVEN** agent X 的 profile workspace_root 为非默认路径 P
-- **WHEN** 调用 update config 接口修改其他字段(如 custom_prompt),payload 不含 workspace_root
+- **WHEN** 调用 update config 接口修改其他字段(如 default_model),payload 不含 workspace_root
 - **THEN** 返回成功,workspace_root 仍为 P
 
 #### Scenario: update config 携带 workspace_root 被忽略
@@ -1122,3 +1123,24 @@ Agent 设置通过独立“插件”页签管理当前 workspace 的已安装 DS
 - **WHEN** 删除完成后查看原聊天、共享任务或 Agent 列表
 - **THEN** Agent 不再出现在可用列表或新聊天候选中，已有聊天不再向其投递工作，重连或重启不恢复它
 - **AND** 原有 IM 消息、聊天附件、发送者身份与共享任务按原权限可读；有权用户打开已删除执行的旧链接时能看到记录已删除
+
+### Requirement: Agent 配置页可直接编辑工作区角色约定
+
+#### Scenario: 管理者直接读写角色
+- **WHEN** PA 主人或独立 Agent 的管理者在 Web 或原生 iOS 打开使用文档记忆的 Agent 配置页
+- **THEN** 页面可读取工作区现行角色约定并提供编辑入口。本人主动保存就是对这份约定的确认。
+- **AND** 保存成功表示节点已保存 `.nanoassistant/ROLE.md`。清空后页面显示未设置，主 Agent 恢复主动对齐。Web 使用页面底部的 Save Agent 统一提交角色及普通配置修改，不提供独立角色保存按钮；仅修改角色时不重提普通配置，放弃修改同时清除两类草稿。原生 iOS 保留既有保存交互。
+- **AND** Web 先保存已修改角色，再保存已修改配置；角色失败保留两类草稿，配置失败保留配置草稿并显示错误，不把整个页面报为保存成功。重试只提交仍未保存的修改。
+
+#### Scenario: 草稿超过角色约定长度上限
+- **WHEN** 角色约定草稿超过 2,000 个 UTF-16 码元
+- **THEN** Web 和原生 iOS 显示长度提示并禁用保存。直接提交超限内容时，服务端拒绝写入。
+
+#### Scenario: 编辑期间角色变化或节点不可用
+- **GIVEN** 用户有未保存的角色草稿
+- **WHEN** 文件版本变化、读取失败、连接断开或保存结果未确认
+- **THEN** 保留草稿，显示可确认的状态。获取当前版本后，由用户核对再主动保存，旧草稿不自动覆盖现行文件。
+
+#### Scenario: 角色约定是管理者专用内容
+- **WHEN** 非管理者浏览公开资料或请求角色设置
+- **THEN** 不获得约定正文或编辑能力。节点当前无法读取时，页面不会将未取得的数据视为未设置。

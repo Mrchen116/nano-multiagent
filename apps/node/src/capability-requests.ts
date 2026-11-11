@@ -54,7 +54,7 @@ export class CapabilityRequests {
         return;
       }
       const candidate = configuration.runtime({...current,agent_id:agentId ?? 'preview',workspace_root:workspace,
-        ...(preview ? {features:payload.features as Record<string,boolean>,custom_prompt:payload.custom_prompt as string,
+        ...(preview ? {features:payload.features as Record<string,boolean>,
           tool_allowlist:payload.tool_ids as string[] ?? [],skills:payload.skill_ids as string[] ?? [],
           skills_selection_mode:payload.skills_selection_mode as 'explicit_denylist' | 'explicit_allowlist' ?? 'explicit_denylist',work_mode:payload.work_mode as 'single_thread' | 'global'} : {}),
       });

@@ -34,8 +34,10 @@ vi.mock("./agents-rail-desktop", () => ({
   )
 }));
 
-vi.mock("./im-agent-config-api", () => ({
+vi.mock("./im-agent-config-api", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./im-agent-config-api")>(),
   getAgentDetailState: mocks.getAgentDetailState,
+  getAgentRole: vi.fn().mockResolvedValue({ content: "", version: null }),
   updateAgentConfig: mocks.updateAgentConfig
 }));
 
@@ -77,7 +79,6 @@ function makeDetailState(agentId: string, displayName: string) {
       owner_id: "owner-1",
       display_name: displayName,
       description: "",
-      custom_prompt: "",
       skills: [],
       tool_allowlist: [],
       group_reply_policy: "MENTION",

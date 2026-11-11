@@ -1,11 +1,11 @@
 import { defineDomain, domainTable, type DomainSpec, type DomainTableSpec } from '@deepseek-ai/dsh-storage-domain';
 import { z } from 'zod';
 import type { StreamProgress, FrozenBatch, CycleTarget } from './memory-sources.js';
-import type { DocumentOperation, DocumentReceipt } from './memory-documents.js';
+import type { DocumentReceipt } from './memory-documents.js';
 
 export interface DreamingOwner {
   protocol: 2;
-  activationAt: number; streams: Record<string, StreamProgress>; seen: string[]; rotation: number;
+  activationAt: number; streams: Record<string, StreamProgress>; rotation: number;
   integrated: Record<string, string>;
   lastAttempt?: number; lastSuccessAutomatic?: number; retryAt?: number; failures: number;
 }
@@ -17,8 +17,7 @@ export interface DreamingRun {
   at: number; endedAt?: number; generation: number; directory: string; batch: FrozenBatch;
   target: CycleTarget; summaries: TaskSummary[];
   importLegacy?: boolean; sourcesChecked?: boolean;
-  planRetired?: boolean;
-  plan?: Array<Omit<DocumentOperation, 'content'> & { afterHash: string }>; receipts: DocumentReceipt[]; summary?: string; error?: string;
+  receipts: DocumentReceipt[]; summary?: string; error?: string;
 }
 
 export const dreamingStageTitles: Record<DreamingRun['stage'], string> = {

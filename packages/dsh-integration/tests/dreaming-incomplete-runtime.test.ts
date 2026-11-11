@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -5,8 +6,8 @@ import { expect, it } from 'vitest';
 import {stripContextItemId} from 'dsh-agent-context';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it.each(['unread-write', 'failed-read-write', 'normal-stop', 'missing-index', 'model-error', 'cancelled'])(
-  'accepts only valid normally completed staging after %s', async mode => {
+it.each(['unread-write', 'failed-read-write', 'normal-stop', 'body-only', 'legacy-oversized-index', 'oversized-index', 'model-error', 'cancelled', 'missing-entry'])(
+  'checks actual direct edits and source progress after %s', async mode => {
     const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
     const home = await mkdtemp(join(tmpdir(), 'nano-dreaming-incomplete-'));
     let client: InstanceType<typeof RuntimeClient> | undefined;
@@ -15,7 +16,7 @@ import { appendFileSync } from 'node:fs';
 export const name = 'incomplete-fixture';
 export const inject = ['llm', 'agents'];
 export function apply(ctx) {
-  const steps = new Map();
+  const steps = new Map();let brokenSession;
   ctx.on('llm/stream', async function* (request) {
     appendFileSync(process.env.DSH_HOME + '/requests.jsonl', JSON.stringify(request) + '\\n');
     const step = steps.get(request.sessionId) || 0;
@@ -23,23 +24,41 @@ export function apply(ctx) {
     let call;
     if (request.sessionId.startsWith('dreaming-')) {
       const text = request.messages.flatMap(m => m.content || []).filter(b => b.type === 'text').map(b => b.text).join('\\n');
-      const stage = text.match(/Editable copy: (.+?)\\. Only edit/)[1];
+      const stage = text.match(/<memory_repository>\\n([^\\n]+)\\n<\\/memory_repository>/)[1];
       const write = ['write', { file_path: stage + '/MEMORY.md', content: 'Unsupported overwrite' }];
       const mode = ${JSON.stringify(mode)};
       if (step === 2 && ['model-error', 'cancelled'].includes(mode)) {
         if (mode === 'cancelled') ctx.agents.get(request.sessionId).cancel({kind:'hook',reason:'Fixture cancellation'});
         throw new Error('Fixture model failure');
       }
-      const calls = ${JSON.stringify(mode)} === 'unread-write' ? [write]
+      if(mode==='missing-entry'&&!brokenSession)brokenSession=request.sessionId;
+      if(mode==='missing-entry'&&request.sessionId===brokenSession&&step===1)throw new Error('Interrupted after removing entry');
+      const calls = mode==='missing-entry' ? (request.sessionId===brokenSession ? [['bash',{description:'Remove entry before interrupted reconstruction',command:'rm -- MEMORY.md'}]] : [['write',{file_path:stage+'/MEMORY.md',content:'# Restored entry'}]]) : ${JSON.stringify(mode)} === 'unread-write' ? [write]
         : mode === 'failed-read-write' ? [['read', { file_path: stage + '/missing.md' }], write]
-        : mode === 'missing-index' ? [['write', {file_path: stage + '/knowledge/new.md', content: 'Staged lesson without navigation update'}]]
+        : ['body-only', 'legacy-oversized-index', 'oversized-index'].includes(mode) ? [
+            ['read', {file_path: stage + '/MEMORY.md'}],
+            ['write', {file_path: stage + '/knowledge/new.md', content: 'A detail that belongs only on the topic page.'}],
+            ...(mode === 'body-only' ? [['write', {file_path: stage + '/knowledge/second.md', content: 'Another related detail.'}]] : []),
+            ...(mode === 'oversized-index' ? [['write', {file_path: stage + '/MEMORY.md', content: '记'.repeat(8001)}]] : []),
+          ]
         : ['model-error', 'cancelled'].includes(mode) ? [['read', {file_path: stage + '/MEMORY.md'}], write] : [];
       call = calls[step];
+      const status = request.messages.findLast(message => message.source?.channel === 'dreaming-git-status');
+      if (status && !request.messages.some(message => message.toolCallId === 'batch-commit')) {
+        const second = stage + '/knowledge/second.md';
+        if (mode === 'body-only' && !request.messages.some(message => message.toolCallId === 'read-published')) {
+          call = ['read', {file_path: second}, 'read-published'];
+        } else if (mode === 'body-only' && !request.messages.some(message => message.toolCallId === 'update-published')) {
+          call = ['write', {file_path: second, content: 'Updated detail after status feedback.'}, 'update-published'];
+        } else {
+          call = ['bash', {description:'Commit the related memory batch',command:'git add -- . && git -c user.name=Nano -c user.email=memory@localhost commit -m "Consolidate related memories"'}, 'batch-commit'];
+        }
+      }
     } else {
       const input = request.messages.findLast(m => m.role === 'user' && m.source?.actorId === 'owner');
       const text = input?.content.find(b => b.type === 'text')?.text;
-      if (['before', 'maintain', 'after'].includes(text) && !request.messages.some(m => m.role === 'tool' && m.toolCallId === text))
-        call = ['memory_maintenance', text === 'maintain' ? { action: 'run', request_ref: text } : { action: 'status' }];
+      if (['before', 'maintain', 'after','repair'].includes(text) && !request.messages.some(m => m.role === 'tool' && m.toolCallId === text))
+        call = ['memory_maintenance', ['maintain','repair'].includes(text) ? { action: 'run', request_ref: text } : { action: 'status' }];
       if (call) call.push(text);
     }
     if (call) {
@@ -68,18 +87,26 @@ export function apply(ctx) {
       await submit('experience-one'); await submit('experience-two'); await submit('before');
       const progressPath = join(home, 'storages/nano_dreaming/owners/YQ.json');
       const beforeProgress = JSON.parse(await readFile(progressPath, 'utf8')).record.streams;
-      const original = await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8');
+      const entry = join(home, '.nanoassistant/memory/MEMORY.md');
+      if (mode === 'legacy-oversized-index') await writeFile(entry, '# Existing key memory\n' + 'Old detailed note.\n'.repeat(500));
+      const original = await readFile(entry, 'utf8');
       await submit('maintain'); await submit('after');
       const facts = await client.rpc.request('knowledge.facts', {}) as { reviews: Array<{ status: string; summary: string }> };
       expect(facts.reviews).toHaveLength(1);
-      const failed = ['missing-index', 'model-error', 'cancelled'].includes(mode);
-      expect(facts.reviews[0]).toMatchObject({ status: failed ? 'failed' : 'completed' });
+      const failed = ['oversized-index', 'model-error', 'cancelled','missing-entry'].includes(mode);
+      expect(facts.reviews[0]).toMatchObject({ status: failed ? 'partial' : 'completed' });
       if (failed) {
-        expect(facts.reviews[0]!.summary).toContain(mode === 'missing-index' ? 'Synchronize MEMORY.md' : 'did not complete');
+        expect(facts.reviews[0]!.summary).toContain(mode === 'oversized-index' ? 'MEMORY.md exceeds' : 'did not complete');
         expect(facts.reviews[0]!.summary).toContain('整理进度未推进');
       }
-      await expect(readFile(join(home, '.nanoassistant/memory/knowledge/new.md'))).rejects.toMatchObject({code:'ENOENT'});
-      expect(await readFile(join(home, '.nanoassistant/memory/MEMORY.md'), 'utf8')).toBe(original);
+      const body = readFile(join(home, '.nanoassistant/memory/knowledge/new.md'), 'utf8');
+      if (['body-only', 'legacy-oversized-index', 'oversized-index'].includes(mode)) {
+        await expect(body).resolves.toBe('A detail that belongs only on the topic page.');
+      } else {
+        await expect(body).rejects.toMatchObject({code:'ENOENT'});
+      }
+      if(mode==='missing-entry')await expect(readFile(entry,'utf8')).rejects.toMatchObject({code:'ENOENT'});
+      else expect(await readFile(entry, 'utf8')).toBe(mode==='oversized-index'?'记'.repeat(8001):['model-error','cancelled'].includes(mode)?'Unsupported overwrite':original);
       const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       const latest = requests.filter(request => request.sessionId === 'root').at(-1);
       const status = (id: string) => JSON.parse(stripContextItemId(latest.messages.find((message: any) => message.role === 'tool' && message.toolCallId === id).content).filter(block => block.type === 'text').map(block => block.text).join('\n'));
@@ -97,8 +124,28 @@ export function apply(ctx) {
         expect(result.maintenance.backlog.global.units).toBeGreaterThanOrEqual(0);
       }
       const maintenance = requests.filter(request => request.sessionId.startsWith('dreaming-'));
-      expect(JSON.stringify(maintenance[0].messages)).toContain('experience-one');
+      const materialPath=maintenance[0].messages.flatMap((m:any)=>m.content??[]).map((b:any)=>b.text??'').join('\n').match(/Main Agent original trajectory: ([^\n]+)/)![1];
+      expect(await readFile(materialPath,'utf8')).toContain('experience-one');
+      if (mode === 'body-only') {
+        const memory = join(home, '.nanoassistant/memory');
+        const feedback = maintenance.filter(request => request.messages.some((message: any) => message.source?.channel === 'dreaming-git-status'));
+        expect(feedback).not.toHaveLength(0);
+        expect(feedback[0].sessionId).toBe(maintenance[0].sessionId);
+        expect(JSON.stringify(feedback[0].messages)).toContain('knowledge/second.md');
+        expect(await readFile(join(memory,'knowledge/second.md'),'utf8')).toBe('Updated detail after status feedback.');
+        expect(execFileSync('git', ['status', '--porcelain'], {cwd:memory,encoding:'utf8'})).toBe('');
+        expect(execFileSync('git', ['rev-list', '--count', 'HEAD'], {cwd:memory,encoding:'utf8'}).trim()).toBe('2');
+        expect(execFileSync('git', ['log', '-1', '--format=%s'], {cwd:memory,encoding:'utf8'}).trim()).toBe('Consolidate related memories');
+        expect(execFileSync('git', ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD'], {cwd:memory,encoding:'utf8'}).trim().split('\n'))
+          .toEqual(['knowledge/new.md', 'knowledge/second.md']);
+      }
       if (['unread-write', 'failed-read-write'].includes(mode)) expect(maintenance.at(-1).messages.some((message: any) => message.role === 'tool' && message.isError)).toBe(true);
+      if(mode==='missing-entry'){
+        await submit('repair');
+        const repaired=await client.rpc.request('knowledge.facts',{}) as {reviews:any[]};
+        expect(repaired.reviews.at(-1).status).toBe('completed');
+        expect(await readFile(entry,'utf8')).toBe('# Restored entry');
+      }
       await client.shutdown(); client = undefined;
     } finally {
       if (client) { client.process.kill('SIGKILL'); await client.exited; }

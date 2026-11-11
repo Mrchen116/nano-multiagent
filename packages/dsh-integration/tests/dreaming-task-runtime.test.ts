@@ -11,7 +11,7 @@ it.each(['valid','invalid-json','missing-field','one-empty','unsafe-slug'])('val
 import {appendFile,writeFile} from 'node:fs/promises';
 export const inject=['llm','subagents','agents'];
 export function apply(ctx){
-  let child;let resumed=false;let withdrawn=false;let consolidationFailed=false;const steps=new Map();
+  let child;let resumed=false;let withdrawn=false;let consolidationFailed=false;const steps=new Map();const scope=new Map();
   ctx.on('agent/pre-step',async({agent,messages,signal},next)=>{
     if(agent.id==='root'){
       const last=messages.findLast(m=>m.role==='user'&&m.source?.actorId==='owner');
@@ -45,10 +45,10 @@ export function apply(ctx){
         if (${JSON.stringify(mode)} === 'unsafe-slug') output=JSON.stringify({rollout_summary:'Summary',rollout_slug:'../travel'});
       }else if(!consolidationFailed){consolidationFailed=true;throw new Error('Simulated consolidation failure');}
       else{
-        const stage=text.match(/Editable copy: (.+?)\\. Only edit/)[1];
-        const directory=JSON.parse(text.match(/Source directory \\(data\\): ([^\\n]+)/)[1]);
+        if(text.includes('<memory_repository>'))scope.set(o.sessionId,{stage:text.match(/<memory_repository>\\n([^\\n]+)\\n<\\/memory_repository>/)[1],files:[...text.matchAll(/(?:Main Agent original trajectory|New subagent trajectory summary|Updated subagent trajectory summary; replaces the same source|Subagent trajectory summary with no signal; old summary retired): ([^\\n]+)/g)].map(m=>m[1]),directory:JSON.parse(text.match(/Source directory \\(data\\): ([^\\n]+)/)[1])});
+        const {stage,directory,files}=scope.get(o.sessionId);
         const root=directory.find(item=>item.purpose.startsWith('Global'));
-        const calls=[['read',{file_path:stage+'/MEMORY.md'}],
+        const calls=[...files.map(path=>['bash',{description:'Read the selected batch evidence file',command:'cat '+JSON.stringify(path)}]),['read',{file_path:stage+'/MEMORY.md'}],
           ['source_history',{action:'search',session_id:root.session_id,query:'free cancellation',limit:10}],
           ['notes',{action:'write',path:'progress.md',text:'Verified inherited cancellation condition; no booking evidence.'}],
           ['new_context',{}],['notes',{action:'read',path:'progress.md'}],
@@ -56,7 +56,8 @@ export function apply(ctx){
           ['read',{file_path:stage+'/knowledge/travel.md'}],
           ...Array.from({length:25},()=>['source_history',{action:'search',session_id:root.session_id,query:'free cancellation',limit:10}]),
           ['write',{file_path:stage+'/knowledge/travel.md',content:resumed?'Updated option, still refundable and not booked.':'Parents Saturday, budget 5000, free cancellation; not booked.'}],
-          ['write',{file_path:stage+'/MEMORY.md',content:resumed?'# Expert memory\\nUpdated [travel conditions](knowledge/travel.md).':'# Expert memory\\n[Travel conditions](knowledge/travel.md).'}]];
+          ['write',{file_path:stage+'/MEMORY.md',content:resumed?'# Expert memory\\nUpdated [travel conditions](knowledge/travel.md).':'# Expert memory\\n[Travel conditions](knowledge/travel.md).'}],
+          ['bash',{description:'Commit the travel memory batch',command:'git add -- MEMORY.md knowledge && git -c user.name=Nano -c user.email=memory@localhost commit -m travel'}]];
         call=calls[n];
       }
     }else if(o.sessionId==='root'){
@@ -112,6 +113,8 @@ export function apply(ctx){
     expect(JSON.stringify(extraction.messages)).toContain('Inherited background');
     expect(JSON.stringify(extraction.messages)).toContain('free cancellation');
     expect(JSON.stringify(extraction.messages)).toContain('Own experience');
+    expect(JSON.stringify(extraction.messages)).not.toContain('<role_content>');
+    expect(JSON.stringify(extraction.messages)).not.toContain('<custom_instructions>');
     expect(extraction.tools.map((tool:any)=>tool.name)).not.toContain('write');
     expect(extraction.tools.map((tool:any)=>tool.name)).not.toContain('finish');
     expect(requests.filter(r=>extractionIds(requests).has(r.sessionId))).toHaveLength(1);
@@ -119,7 +122,7 @@ export function apply(ctx){
     const maintenance=requests.filter(r=>r.sessionId.startsWith('dreaming-')&&!extractionIds(requests).has(r.sessionId));
     expect(JSON.stringify(maintenance.map(request=>request.messages))).not.toMatch(/; events \d+–\d+; version=/);
     expect(Math.max(...[...new Set(maintenance.map(r=>r.sessionId))].map(id=>maintenance.filter(r=>r.sessionId===id).length))).toBeGreaterThan(24);
-    expect(maintenance.some(r=>r.messages.some((m:any)=>m.role==='tool'&&m.toolCallId==='step-5'&&!m.isError))).toBe(true);
+    expect(maintenance.some(r=>r.messages.some((m:any)=>m.role==='tool'&&!m.isError&&JSON.stringify(m).includes('free cancellation')))).toBe(true);
     expect(maintenance.some(r=>JSON.stringify(r.messages).includes('Verified inherited cancellation condition'))).toBe(true);
     await submit('resume-child');await submit('maintain-update');
     requests=await readRequests();expect(extractionIds(requests).size).toBe(2);
@@ -131,7 +134,7 @@ export function apply(ctx){
     expect(reviews.filter((review:any)=>review.status==='completed').length).toBeGreaterThanOrEqual(4);
     await submit('withdraw-child');await submit('maintain-withdrawn');
     requests=await readRequests();expect(extractionIds(requests).size).toBe(3);
-    expect(requests.some(r=>JSON.stringify(r.messages).includes('No-signal replacement; old summary retired'))).toBe(true);
+    expect(requests.some(r=>JSON.stringify(r.messages).includes('Subagent trajectory summary with no signal; old summary retired'))).toBe(true);
     reviews=(await client.rpc.request('knowledge.facts',{}) as any).reviews;
     expect(reviews.some((review:any)=>review.status==='completed'&&review.summary?.includes('无值得保留的新信号'))).toBe(true);
   }catch(error){await writeFile('/tmp/feat676-task-debug.jsonl',await readFile(join(home,'requests.jsonl'),'utf8').catch(()=>''));if(client)await writeFile('/tmp/feat676-task-debug-facts.json',JSON.stringify(await client.rpc.request('knowledge.facts',{})));throw new Error(`${String(error)}\n${logs}`,{cause:error});}
@@ -161,7 +164,7 @@ export function apply(ctx){
   const last=r.messages.findLast(m=>m.source?.actorId==='owner');
   const input=r.messages.filter(m=>m.source?.channel==='dreaming').flatMap(m=>m.content||[]).map(b=>b.text||'').join('\\n');
   const recovered=r.messages.find(m=>m.role==='tool'&&m.toolCallId==='recover-original');
-  if(input.includes('SUMMARY-END-')&&!recovered){
+  if(input.includes('subagent trajectory summary:')&&!recovered){
    yield{type:'block-end',index:0,block:{type:'tool-call',id:'recover-original',name:'source_history',arguments:JSON.stringify({action:'search',session_id:'root',query:'GLOBAL-START',limit:1})}};
    yield{type:'finish',reason:{kind:'tool-calls'}};
   }else if(r.sessionId==='root'&&last?.source.messageId==='maintain'&&!r.messages.some(m=>m.toolCallId==='maintain')){
@@ -199,7 +202,11 @@ export function apply(ctx){
     expect(extraction).toHaveLength(3);
     const consolidation=requests.filter(r=>!extraction.includes(r));
     const batches=consolidation.filter((r:any,index:number)=>consolidation.findIndex((item:any)=>item.sessionId===r.sessionId)===index);
-    const text=batches.map(material);
+    const text=await Promise.all(batches.map(async request=>{
+      const index=material(request);
+      const paths=[...index.matchAll(/(?:Main Agent original trajectory|New subagent trajectory summary|Updated subagent trajectory summary; replaces the same source|Subagent trajectory summary with no signal; old summary retired): ([^\n]+)/g)].map(match=>match[1]!);
+      return (await Promise.all(paths.map(path=>readFile(path,'utf8')))).join('\n');
+    }));
     if(oversized){
       expect(reviews.at(-1).summary).toContain('summary does not fit');
       expect(text.join('\n')).not.toContain('GLOBAL-END');
@@ -214,7 +221,7 @@ export function apply(ctx){
     const directory=(r:any)=>JSON.parse(r.messages.flatMap((m:any)=>m.content??[]).map((b:any)=>b.text??'').join('\n').match(/Source directory \(data\): (.+?)\n/)![1]);
     for(const i of summaries){
       const source=directory(batches[i]);
-      expect(source.filter((item:any)=>item.purpose==='Original evidence for this task summary')).toHaveLength(1);
+      expect(source.filter((item:any)=>item.purpose==='Original evidence for this subagent trajectory summary')).toHaveLength(1);
       expect(source.find((item:any)=>item.purpose.startsWith('Global'))).toEqual(directory(batches[0]).find((item:any)=>item.purpose.startsWith('Global')));
     }
     expect(consolidation.filter(r=>r.messages.some((m:any)=>m.toolCallId==='recover-original'&&!m.isError&&JSON.stringify(m).includes('GLOBAL-START')))).toHaveLength(3);

@@ -6,17 +6,19 @@ import {configurationOperations} from '../src/configuration-assembly.js';
 import {reportAgentDeletion} from '../src/agent-deletion.js';
 
 const configuration = {agent_id:'english-coach',display_name:'English coach',group_reply_policy:'manual',
-  custom_prompt:'Help the owner practise spoken English.',work_mode:'global',skills:[],tool_allowlist:[],
+  initial_role:'Help the owner practise spoken English.',work_mode:'global',skills:[],tool_allowlist:[],
   features:{intelligent_ui:false,task_graph:false,dreaming:false,cron_scheduling:false,heartbeat:false}};
 
 function setup() {
   const f=personalFixture();
   connectFixtureGateway(f);
   const receipts=new Map<string,any>();
+  const intents:any[]=[];
   let pending=false;
   f.ctx.gateway.request=async(_node,method,args)=>{
     if(method==='node.capabilities.resolve') return {capabilities:{models:[{name:'model'}],skills:[],tools:[],features:[],platform_default_model:'model'}};
     if(method==='agent.create') {
+      intents.push(args);
       if(!receipts.has(args.operation_id))receipts.set(args.operation_id,{status:'applied',operation_id:args.operation_id,
         candidate_fingerprint:args.candidate_fingerprint,agent:{...args.agent,workspace_root:`/agents/${args.agent.agent_id}`,workspace_is_default:true}});
       return pending?null:receipts.get(args.operation_id);
@@ -27,14 +29,14 @@ function setup() {
   const source=f.ctx.messaging.insertMessage('chat','u1','user','Create an English coach using the options we agreed.',[],'create-request','completed');
   const call=(extra:Record<string,unknown>)=>f.service.handle(f.principal,'pa.agent.creation',{...f.args,...extra});
   const create={action:'create',request_key:'english-request',source_message_id:source.id,configuration};
-  return {...f,call,create,receipts,pending:(value:boolean)=>{pending=value;}};
+  return {...f,call,create,receipts,intents,pending:(value:boolean)=>{pending=value;}};
 }
 
 it('queries real owner-scoped options and creates one durable independently usable Agent',async()=>{
   const f=setup();
   const options=await f.call({action:'options'});
   expect(options).toMatchObject({node_id:'n',recommended_node_id:'n',capabilities:{platform_default_model:'model'}});
-  expect(options.configuration_fields).toHaveProperty('custom_prompt');
+  expect(options.configuration_fields).toHaveProperty('initial_role');
   // The PA-facing recommendation must match the creation default users get.
   expect(options.defaults).toMatchObject({work_mode:'global'});
   expect(options.nodes.map((node:any)=>node.node_id)).toEqual(['n']);
@@ -46,6 +48,10 @@ it('queries real owner-scoped options and creates one durable independently usab
   const repeated=await f.call(f.create);
   expect(repeated.agent.agent_id).toBe(created.agent.agent_id);
   expect(f.receipts.size).toBe(1);
+  expect(f.intents[0].initial_role).toBe(configuration.initial_role);
+  expect(f.intents[0].agent).not.toHaveProperty('initial_role');
+  expect(created.agent).not.toHaveProperty('initial_role');
+  await expect(f.call({...f.create,configuration:{...configuration,initial_role:'Different role'}})).rejects.toMatchObject({statusCode:409});
   await expect(f.call({...f.create,configuration:{...configuration,display_name:'Different'}})).rejects.toMatchObject({statusCode:409});
 });
 
@@ -104,14 +110,14 @@ it('rejects a new offline request without producing an operation or switching co
   expect(f.receipts.size).toBe(0);
 });
 
-it('preserves rejected configuration reasons and never claims a conflicting existing Agent',async()=>{
+it.each(['workspace_confirmation_required','role_conflict'])('preserves rejected creation reason %s and never claims a conflicting existing Agent',async code=>{
   const f=setup();
   await expect(f.call({...f.create,configuration:{...configuration,agent_id:'a'}})).rejects.toMatchObject({statusCode:409});
   expect(await f.call({action:'status',request_key:'english-request'})).toMatchObject({status:'not_started'});
   f.ctx.gateway.request=async(_node,method,args)=>method==='agent.create'?{operation_id:args.operation_id,
-    candidate_fingerprint:args.candidate_fingerprint,status:'rejected',error_code:'workspace_confirmation_required',message:'Confirm the existing directory'}:null;
+    candidate_fingerprint:args.candidate_fingerprint,status:'rejected',error_code:code,message:'Creation requires user action'}:null;
   const rejected=await f.call({...f.create,request_key:'directory-request',configuration:{...configuration,workspace_root:'/existing'}});
-  expect(rejected).toMatchObject({status:'rejected',error:{code:'workspace_confirmation_required',message:'Confirm the existing directory'}});
+  expect(rejected).toMatchObject({status:'rejected',error:{code,message:'Creation requires user action'}});
   expect(await f.call({action:'status',request_key:'directory-request'})).toMatchObject({status:'rejected'});
 });
 

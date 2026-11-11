@@ -46,7 +46,7 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
     emit('message_stop',{});res.end();
   });
   const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
-  const config={agentId:'a',displayName:'Prefix Agent',revision:'1',workspace:home,mode,provider:'wire',model:'fixture',systemPrompt:'PARENT_PERSONA_PREFIX: respond to the source conversation.',
+  const config={agentId:'a',displayName:'Prefix Agent',revision:'1',workspace:home,mode,provider:'wire',model:'fixture',
     toolAllowlist:['subagent_fork','send_message','inbox','conversations','task_graph','personal_sources','schedule_run','schedule_history'],
     features:{task_graph:true,intelligent_ui:true,dreaming:false,cron_scheduling:true},approval:{dangerouslySkipPermissions:true},
     ...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{}),

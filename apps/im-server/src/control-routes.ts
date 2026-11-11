@@ -6,7 +6,7 @@ import {registerAgentDeletionRoutes} from './agent-deletion.js';
 import {registerAgentLifecycleRoutes} from './agent-lifecycle.js';
 import {activeTaskCount, registerTaskGraphRoutes} from './task-graphs.js';
 import {registerChannelRoutes} from './channels.js';
-import {configurationDisplay, readSettingsSnapshot, writeSettingsSnapshot, settingsConnection, settingsReadCurrent,
+import {configurationDisplay, readSettingsSnapshot, writeSettingsSnapshot, settingsConnection, settingsBindingCurrent, settingsReadCurrent,
   settingsSectionDisplay, requireSettingsNodeOnline, type SettingsSection, type SettingsRead} from './agent-settings.js';
 import {profileResponse, fromProfile, gatewayKeys, optionalText, stringList, selection, copyConfigurationField} from './control.js';
 import {configurationOperations} from './configuration-assembly.js';
@@ -53,7 +53,6 @@ function settingsError(code: string) {
 function previewInput(b: Row): NodeInput<'node.prompt.preview.request'> {
   return {
     features: b.features ?? {},
-    custom_prompt: b.custom_prompt ?? null,
     tool_ids: b.tool_ids ?? [],
     scenario: b.scenario ?? "direct",
     skill_ids: b.skill_ids ?? [],
@@ -74,7 +73,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
   registerAgentLifecycleRoutes(app,ctx);
   registerAgentDeletionRoutes(app,ctx);
   app.addHook('onRequest', async (req, reply) => {
-    if (/^\/im\/v1\/agents\/[^/]+\/(settings|config|capabilities|plugins|heartbeat-md|cron\/jobs|skills\/usage|channels)(?:[/?]|$)/.test(req.url))
+    if (/^\/im\/v1\/agents\/[^/]+\/(settings|config|capabilities|plugins|heartbeat-md|role|cron\/jobs|skills\/usage|channels)(?:[/?]|$)/.test(req.url))
       reply.header('Cache-Control','private, no-store');
   });
   const ops = configurationOperations(ctx);
@@ -310,7 +309,6 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
                 "agent_id",
                 "workspace_root",
                 "features",
-                "custom_prompt",
                 "heartbeat_json",
                 "work_mode",
               ].includes(k)
@@ -340,7 +338,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         features: b.features ?? previous.features,
       };
       if ("approval_mode" in b) c.approval_mode = b.approval_mode;
-      for (const k of ["reasoning_effort", "custom_prompt", "heartbeat_json"] as const)
+      for (const k of ["reasoning_effort", "heartbeat_json"] as const)
         if (k in b && (k === "reasoning_effort" || b[k] !== null)) c[k] = b[k];
       if (b.heartbeat != null && !("heartbeat_json" in b))
         c.heartbeat_json = JSON.stringify(b.heartbeat);
@@ -445,6 +443,30 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
     });
     return previewResponse(r.preview);
   });
+  app.route({method: ['GET', 'PUT'], url: '/im/v1/agents/:agent_id/role', handler: async req => {
+    const profile = settingsProfile(req);
+    const connection = settingsConnection(ctx, profile);
+    const node = profile.node_id;
+    const unavailable = {code: 'role_unavailable', message: 'The current role agreement could not be confirmed.'};
+    const tooLong = {code: 'role_too_long', message: 'The role agreement must fit within 2,000 characters.'};
+    if (!node || !connection || ctx.updates?.gate(node)) fail(503, unavailable);
+    const command: NodeInput<'node.agent.role.request'> = {agent_id: profile.agent_id};
+    if (req.method === 'PUT') {
+      const input = req.body;
+      if (!isRecord(input) || typeof input.content !== 'string' || input.version !== null && typeof input.version !== 'string'
+        || Object.keys(input).some(key => key !== 'content' && key !== 'version')) fail(422, 'A role agreement and its file version are required.');
+      if (input.content.length > 2000) fail(422, tooLong);
+      command.update = {content: input.content, version: input.version};
+    }
+    const result = await gatewayRequest(ctx, node, 'node.agent.role.request', command);
+    if (!result || !settingsBindingCurrent(ctx, profile, settingsProfile(req), connection)) fail(503, unavailable);
+    if ('error' in result) {
+      if (result.error === 'role_conflict') fail(409, {code: result.error, message: 'The role agreement changed. Reload it before saving.'});
+      if (result.error === 'role_too_long') fail(422, tooLong);
+      fail(503, unavailable);
+    }
+    return {content: result.role.content, version: result.role.version};
+  }});
   app.get("/im/v1/agents/:agent_id/heartbeat-md", async (req) => {
     const u = await user(req),
       p = requireProfile(ctx, controlRouteId(req, 'agent_id'), u.owner_id);

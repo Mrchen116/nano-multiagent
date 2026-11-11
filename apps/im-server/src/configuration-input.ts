@@ -5,6 +5,7 @@ import {isRecord} from './node-rpc-values.js';
 /** Business candidate: no SQL columns, transport IDs, or arbitrary field indexing. */
 export interface ConfigurationCandidate extends AgentConfigurationFields {
   agent_id: string;
+  initial_role?: string;
   description?: string;
   owner_id?: string;
   space_id?: string;
@@ -15,6 +16,7 @@ interface ConfigurationWriteFields extends Omit<AgentConfigurationFields, 'work_
   features?: Record<string, boolean> | null;
 }
 export interface CreateConfigurationInput extends ConfigurationWriteFields {
+  initial_role?: string;
   agent_id: string;
   display_name: string;
   group_reply_policy: string;
@@ -42,6 +44,7 @@ export function parseConfigurationInput(value: unknown, create: true): CreateCon
 export function parseConfigurationInput(value: unknown, create?: false): UpdateConfigurationInput;
 export function parseConfigurationInput(value: unknown, create = false): CreateConfigurationInput | UpdateConfigurationInput {
   const p = isRecord(value) ? value : {};
+  if ('initial_role' in p && (!create || typeof p.initial_role !== 'string' || p.initial_role.length > 2000)) fail(422, 'initial_role is creation-only text of at most 2000 UTF-16 code units');
   if (['knowledge', 'memoryMode', 'memory_mode', 'legacyMemory', 'dreaming'].some(key => key in p)) fail(422, 'Memory mode and maintenance budgets are file-only settings');
   for (const key of create ? ['agent_id','display_name','group_reply_policy'] : ['display_name','group_reply_policy']) {
     if (typeof p[key] !== 'string' || !p[key].trim()) fail(422, `${key} is required`);
@@ -72,7 +75,7 @@ export function parseConfigurationInput(value: unknown, create = false): CreateC
     ...(typeof p.description === 'string' ? {description:p.description} : {})};
   if (create) {
     if (typeof p.agent_id !== 'string') fail(422, 'agent_id is required');
-    return {...input,agent_id:p.agent_id};
+    return {...input,agent_id:p.agent_id,...(typeof p.initial_role === 'string' ? {initial_role:p.initial_role} : {})};
   }
   if (typeof p.profile_version !== 'number') fail(422, 'invalid profile_version');
   return {...input,profile_version:p.profile_version,...('heartbeat' in p ? {heartbeat:p.heartbeat} : {})};
@@ -85,7 +88,8 @@ export function storedConfigurationCandidate(json: string): ConfigurationCandida
   if (!fields.agent_id || !isRecord(value)) throw new Error('Invalid stored configuration candidate');
   for (const key of ['description','owner_id','space_id']) if (value[key] !== undefined && typeof value[key] !== 'string') throw new Error(`Invalid stored configuration ${key}`);
   if (value.node_id != null && typeof value.node_id !== 'string') throw new Error('Invalid stored configuration node');
-  return {...fields,agent_id:fields.agent_id};
+  if (value.initial_role !== undefined && (typeof value.initial_role !== 'string' || value.initial_role.length > 2000)) throw new Error('Invalid stored initial_role');
+  return {...fields,agent_id:fields.agent_id,...(typeof value.initial_role === 'string' ? {initial_role:value.initial_role} : {})};
 }
 
 /** Read the configured resource identity from the HTTP router, never a Row cast. */

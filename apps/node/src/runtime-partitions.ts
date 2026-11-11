@@ -267,6 +267,9 @@ export class RuntimePartitions implements RuntimePort {
       const candidate = (method === 'configuration.prepare' ? value.config : params) as AgentConfiguration;
       // Preparing a candidate must not change what a crashed child initializes from.
       partition = this.routeConfiguration(candidate);
+      // Ordinary onReady recovers the same configuration queue. Do not start it from a pending ROLE creation in that queue.
+      if (method === 'configuration.prepare' && value.initialRole !== undefined && partition.key === 'ordinary' && !partition.runtime.available)
+        throw new Error('Runtime recovery pending; initial ROLE outcome may be unknown');
       if (this.started && !partition.runtime.available) await this.startPartition(partition);
     } else if (['configuration.preview', 'configuration.catalog'].includes(method) && value.config) {
       const candidate = value.config as AgentConfiguration;

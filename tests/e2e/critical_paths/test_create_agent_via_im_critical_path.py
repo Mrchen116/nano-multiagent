@@ -13,7 +13,6 @@ from ._recording import (
     StubLLMStack,
     _wait_records,
     _message_blob,
-    _system_blob,
     stub_im_user,
     stub_llm_stack,
 )
@@ -68,7 +67,6 @@ def test_agent_created_via_im_preserves_context_across_restart(
             f"/im/v1/nodes/{node_id}/prompt-preview",
             json={
                 "agent_id_hint": new_agent_id,
-                "custom_prompt": "PREVIEW_WORKSPACE_SENTINEL",
                 "features": dict.fromkeys(
                     [
                         "heartbeat",
@@ -83,7 +81,8 @@ def test_agent_created_via_im_preserves_context_across_restart(
             },
         )
         preview.raise_for_status()
-        assert "PREVIEW_WORKSPACE_SENTINEL" in preview.json()["prompt"]
+        assert preview.json()["prompt"]
+        assert "<role_content>" not in preview.json()["prompt"]
         assert preview_root.is_dir()
         assert new_agent_id not in {
             agent["agent_id"] for agent in im_user.list_agents()
@@ -93,7 +92,7 @@ def test_agent_created_via_im_preserves_context_across_restart(
         node_id,
         new_agent_id,
         display_name=f"E2E New {new_agent_id}",
-        custom_prompt="CREATED_AGENT_INSTRUCTIONS",
+        initial_role="CREATED_AGENT_INSTRUCTIONS",
         default_model=e2e_stack.llm_model,
     )
     workspace_root = Path(created["workspace_root"]).resolve()
@@ -101,6 +100,13 @@ def test_agent_created_via_im_preserves_context_across_restart(
         (Path(e2e_stack.wt_dir) / ".gateway-workspace").resolve()
     )
     assert workspace_root.is_dir()
+    assert (
+        workspace_root / ".nanoassistant/ROLE.md"
+    ).read_text() == "CREATED_AGENT_INSTRUCTIONS"
+    assert (
+        im_user.get_agent_role(new_agent_id)["content"] == "CREATED_AGENT_INSTRUCTIONS"
+    )
+    assert "custom_prompt" not in created and "initial_role" not in created
 
     # 落地上线信号:新 agent 出现在 IM agent 列表。
     im_user.wait_for_agent_listed(new_agent_id, timeout=40)
@@ -132,5 +138,5 @@ def test_agent_created_via_im_preserves_context_across_restart(
     blob = _message_blob(after)
     assert blob.index(sentinel) < blob.index(second) < blob.index(third)
     assert "ACK-1" in blob and "ACK-2" in blob
-    assert "CREATED_AGENT_INSTRUCTIONS" in _system_blob(after)
+    assert "CREATED_AGENT_INSTRUCTIONS" in _message_blob(after)
     assert after.get("tools") == before.get("tools")

@@ -94,6 +94,14 @@ function decode<K extends NodeCommand>(command: K, value: unknown): NodeOutput<K
       }
       break;
     case 'node.heartbeat.md.request': field(p, 'content', text); break;
+    case 'node.agent.role.request':
+      if (p.error !== undefined) {
+        if (!['role_conflict','role_unavailable','role_too_long'].some(code => code === p.error) || p.role !== undefined) invalid();
+      } else {
+        const role = record(p.role);
+        if (!text(role.content) || !nullableText(role.version)) invalid();
+      }
+      break;
     case 'node.cron.jobs.request': field(p, 'jobs', Array.isArray); field(p, 'error', text); break;
     case 'node.cron.delete.request': field(p, 'deleted', boolean); break;
     case 'node.distill.prompt.request':

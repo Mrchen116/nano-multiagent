@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { MemorySources, renderMaterial } from '../src/knowledge/memory-sources.js';
+import { createHistoryView } from 'dsh-agent-context';
+import { qualifiedEvents } from '../src/knowledge/memory-source-view.js';
+import { MemorySources, renderMaterial, selectChildMaterial } from '../src/knowledge/memory-sources.js';
 
-const event = (seq: number, type: string, data: unknown = {}) => ({ seq, type, data });
+const event = (seq: number, type: string, data: any = {}) => ({ seq, time: 1700000000000 + seq, type, data: data.message ? {...data,message:{source:{kind:type === 'tool/result' ? 'tool' : 'model'},...data.message}} : data });
 const human = (seq: number, text: string) => event(seq, 'user/message', { id: `m-${seq}`, source: { kind: 'user', actorId: 'owner', channel: 'test', messageId: `m-${seq}` }, content: [{ type: 'text', text }] });
 function fixture(events: any[], options: { inherited?: number; onFlush?: (count: number) => void; cold?: boolean } = {}) {
   let count = 0; let leases = 0;
@@ -38,30 +40,30 @@ describe('certified bounded memory sources', () => {
     expect(batch.ranges[0]?.through).toBe(5); expect(JSON.stringify(batch.units)).toContain('exit 1'); expect(JSON.stringify(batch.units)).not.toContain('Inherited');
     expect(JSON.stringify(batch.units)).not.toContain('pending'); expect(batch.blocked).toHaveLength(1);
   });
-  it('does not learn replaced output a second time or treat a memory read as experience', async () => {
-    const events = [human(0, 'Work'), event(1, 'tool/call', { callId: 'read', name: 'read', arguments: '{"file_path":"/owner/.nanoassistant/memory/MEMORY.md"}' }), event(2, 'tool/result', { message: { toolCallId: 'read', content: [{ type: 'text', text: 'OLD MEMORY' }] } }), event(3, 'step/end'), event(4, 'tool/result', { surfaceOp: { op: 'replace' }, message: { toolCallId: 'read', content: [{ type: 'text', text: 'REPLACED MEMORY' }] } }), event(5, 'step/end')];
+  it('keeps memory reads as recorded experience without replaying native display replacements', async () => {
+    const events = [human(0, 'Work'), event(1, 'tool/call', { callId: 'read', name: 'read', arguments: '{"file_path":"/owner/.nanoassistant/memory/MEMORY.md"}' }), event(2, 'tool/result', { message: { toolCallId: 'read', content: [{ type: 'text', text: 'OLD MEMORY' }] } }), event(3, 'step/end'), {...event(4, 'tool/result', { message: { toolCallId: 'read', content: [{ type: 'text', text: 'REPLACED MEMORY' }] } }),surfaceOp:{op:'replace'}}, event(5, 'step/end')];
     const batch = await fixture(events).sources.freeze('a', streams, { maxInputTokens: 2000 });
-    expect(JSON.stringify(batch.units)).not.toContain('MEMORY'); expect(batch.ranges[0]?.through).toBe(5);
+    expect(batch.text).toContain('OLD MEMORY'); expect(batch.text).not.toContain('REPLACED MEMORY'); expect(batch.ranges[0]?.through).toBe(5);
   });
-  it('deduplicates an observed IM revision, preserves revisions, and filters revoked source messages', async () => {
+  it('preserves repeated IM reads and revisions exactly as the Agent observed them', async () => {
     const result = (seq: number, id: string, content: string) => [event(seq, 'tool/call', { callId: id, name: 'inbox', arguments: '{}' }), event(seq + 1, 'tool/result', { message: { toolCallId: id, content: [{ type: 'text', text: JSON.stringify({ target: 'room', messages: [{ id: 'message', sender: { type: 'user' }, content }] }) }] } }), event(seq + 2, 'step/end')];
     const batch = await fixture([...result(0, 'one', 'First'), ...result(3, 'dup', 'First'), ...result(6, 'new', 'Corrected')], { cold: true }).sources.freeze('a', streams, { maxInputTokens: 3000 });
-    expect(batch.units.flatMap(unit => unit.fingerprints)).toHaveLength(2);
-    const revoked = await fixture(result(0, 'one', 'Do not read')).sources.freeze('a', streams, { maxInputTokens: 3000, sources: { revision: 'r', allowed: [], excluded: ['room'] } });
-    expect(JSON.stringify(revoked.units)).not.toContain('Do not read');
+    expect(batch.text!.match(/First/g)).toHaveLength(2); expect(batch.text).toContain('Corrected');
+    const revoked = await fixture(result(0, 'one', 'Do not read')).sources.freeze('a', streams, { maxInputTokens: 3000 });
+    expect(revoked.text).toContain('Do not read');
   });
 });
 
-it('waits for every Inbox fragment, then deduplicates the full message against a historical read', async () => {
+it('preserves separate Inbox fragment returns and a subsequent full historical read', async () => {
   const page = (seq: number, id: string, message: any, name = 'inbox') => [event(seq, 'tool/call', {callId:id,name,arguments:'{}'}),event(seq+1,'tool/result',{message:{toolCallId:id,content:[{type:'text',text:JSON.stringify({target:'room',messages:[message]})}]}}),event(seq+2,'step/end')];
   const base={id:'m',sender:{id:'u',type:'user',name:'User',is_owner:true}};
   const first=page(0,'part1',{...base,partial:true,part:1,parts:2,content:[{type:'text',text:'Private '}]});
   const blocked=await fixture(first).sources.freeze('a',streams,{maxInputTokens:4000});
-  expect(blocked.units).toEqual([]);expect(blocked.ranges[0]?.through).toBe(-1);
+  expect(blocked.units).toHaveLength(1);expect(blocked.ranges[0]?.through).toBe(2);
   const second=page(3,'part2',{...base,partial:true,part:2,parts:2,content:[{type:'text',text:'only.'}]});
   const history=page(6,'history',{...base,sender:{id:'u',type:'user',name:'Different presentation'},content:[{type:'text',text:'Private only.'}]},'conversations');
   const batch=await fixture([...first,...second,...history]).sources.freeze('a',streams,{maxInputTokens:4000});
-  expect(batch.units.flatMap(unit=>unit.fingerprints)).toHaveLength(1);
+  expect(batch.units).toHaveLength(3); expect(batch.text).toContain('"partial":true'); expect(batch.text).toContain('"part":2');
   expect(batch.ranges[0]?.through).toBe(8);
   expect(JSON.stringify(batch.units)).toContain('Private only.');
 });
@@ -114,8 +116,10 @@ it('discovers unreported direct tasks, retains inherited conditions and excludes
   expect(tasks[0]?.text).toContain('Must be refundable');
   expect(tasks[0]?.text).toContain('not booked');
   expect(tasks[0]?.text).not.toContain('Future child');
-  expect(tasks[0]?.text).toContain('session_id=s; item_id=0');
-  expect(tasks[0]?.through).toBe(4);
+  expect(tasks[0]?.text).toContain('session_id=s\n');
+  expect(tasks[0]?.text).toContain('window_id=s:initial');
+  expect(tasks[0]?.text).toContain('item_id=0');
+  expect(tasks[0]?.through).toBe(4); expect(tasks[0]?.omitted).toBe(0); expect(tasks[0]?.text).not.toContain('Additional records omitted');
 });
 
 it('cuts child results at an earlier root batch and re-extracts the full activation range on later batches',async()=>{
@@ -133,38 +137,170 @@ it('cuts child results at an earlier root batch and re-extracts the full activat
   expect(await f.sources.children('a',{...target,activationAt:135},late,{maxInputTokens:2000})).not.toEqual(material);
 });
 
-it('keeps original IDs while removing revoked messages before source queries',async()=>{
+it('keeps original IDs and unmodified mixed-conversation tool returns',async()=>{
   const {qualifiedEvents}=await import('../src/knowledge/memory-source-view.js');
   const events:any[]=[{...event(10,'tool/call',{callId:'read',name:'conversations',arguments:'{}'}),time:100},{...event(11,'tool/result',{message:{toolCallId:'read',content:[{type:'text',text:JSON.stringify({messages:[{id:'good',conversation_id:'allowed',content:'visible'},{id:'bad',conversation_id:'revoked',content:'secret'}]})}]}}),time:101}];
-  const view=qualifiedEvents(events,{sources:{revision:'r',allowed:['allowed'],excluded:['revoked']}});
+  const view=qualifiedEvents(events);
   expect(view.map(item=>item.seq)).toEqual([10,11]);
   expect(JSON.stringify(view)).toContain('visible');
-  expect(JSON.stringify(view)).not.toContain('secret');
+  expect(view).toEqual(events);
 });
 
-it('continues each original Unicode Inbox message with its own identity and body offset',async()=>{
+it('pages an oversized Unicode tool return without changing its original JSON body',async()=>{
   const {commitSourceRange}=await import('../src/knowledge/memory-sources.js');
-  const first='父母同行，免费取消。🌈'.repeat(180);const second='后续更正：改为周日。🌤'.repeat(180);
-  const messages=[{id:'first',sender:{id:'u',type:'user'},content:first},{id:'second',sender:{id:'u',type:'user'},content:second}];
-  const f=fixture([event(0,'tool/call',{callId:'inbox',name:'inbox',arguments:'{}'}),event(1,'tool/result',{message:{toolCallId:'inbox',content:[{type:'text',text:JSON.stringify({target:'room',name:'Family trip',delivery:'observer',conversation_type:'group',channel:'web',messages})}]}}),event(2,'step/end')],{cold:true});
-  const progress=structuredClone(streams);const bodies=new Map<string,string>();
-  for(let n=0;n<40&&progress.s.cursor<2;n++){
+  const original=JSON.stringify({target:'room',messages:[{id:'first',content:'父母同行，免费取消。🌈'.repeat(180)},{id:'second',content:'后续更正：改为周日。🌤'.repeat(180)}]});
+  const f=fixture([event(0,'tool/call',{callId:'inbox',name:'inbox',arguments:'{}'}),event(1,'tool/result',{message:{toolCallId:'inbox',content:[{type:'text',text:original}]}}),event(2,'step/end')],{cold:true});
+  const progress=structuredClone(streams);let body='';
+  for(let n=0;n<60&&progress.s.cursor<2;n++){
     const batch=await f.sources.freeze('a',progress,{maxInputTokens:500});
-    expect(batch.units).toHaveLength(1);
-    const part=batch.units[0]!.events[0] as {messageId:string;text:string;offset:number;end:number;total:number};
-    bodies.set(part.messageId,(bodies.get(part.messageId)??'')+part.text);
-    if(part.messageId==='first'||part.messageId==='second'){
-      expect(Array.from(part.text).length).toBe(part.end-part.offset);
-      expect(batch.text).toContain('Family trip');expect(batch.text).toContain('observer');
-      expect(batch.text).toContain('room');expect(batch.text).toContain('group');expect(batch.text).toContain('web');
-    }
+    expect(batch.units).toHaveLength(1);expect(batch.inputTokens).toBeLessThanOrEqual(500);
+    const part=batch.units[0]!.events[0] as {source:{type:string};text:string;offset:number;end:number};
+    if(part.source.type==='tool/result')body+=part.text;
+    expect(Array.from(part.text).length).toBe(part.end-part.offset);
     commitSourceRange(progress.s,batch.ranges[0]!);
     if(progress.s.continuation)expect(progress.s.cursor).toBe(-1);
   }
-  expect(progress.s.cursor).toBe(2);expect(bodies.get('first')).toBe(first);expect(bodies.get('second')).toBe(second);
+  expect(progress.s.cursor).toBe(2);expect(body).toBe(original);
 });
 
 it('preserves the outer Inbox conversation and observation identity in direct material',()=>{
   const text=renderMaterial([{type:'tool/result',content:{target:'room',name:'Family trip',delivery:'observer',conversation_type:'group',channel:'web',messages:[{id:'m1',sender:{id:'u'},content:'Conditional preference'}]}}]);
   for(const value of ['room','Family trip','observer','group','web','m1','Conditional preference'])expect(text).toContain(value);
+});
+
+
+it('renders native windows once and uses only readable History items for messages and calls', async () => {
+  const events = [human(0, 'Before window'), event(1, 'step/end'),
+    event(2, 'compaction/start', {compactionId:'c'}), event(3, 'compaction/summary', {compactionId:'c',summary:[]}), event(4, 'compaction/end', {compactionId:'c'}),
+    human(5, 'Read the inbox'),
+    event(6, 'assistant/message', {message:{content:[{type:'text',text:'Reading messages.'},{type:'tool-call',id:'in',name:'inbox',arguments:'{"action":"read","target":"room"}'}]}}),
+    event(7, 'tool/call', {callId:'in',name:'inbox',arguments:'{"action":"read","target":"room"}'}),
+    event(8, 'tool/result', {message:{toolCallId:'in',content:[{type:'text',text:JSON.stringify({target:'room',delivery:'observer',messages:[{id:'im1',sender:{id:'owner',type:'user'},content:'Only refundable'}]})}]}}),
+    event(9, 'tool/call', {callId:'send',name:'send_message',arguments:'{"target":"agent:other","text":"Ask first"}'}),
+    event(10, 'tool/result', {message:{toolCallId:'send',isError:true,content:[{type:'text',text:'Permission denied'}]}}),event(11,'step/end')];
+  const batch = await fixture(events).sources.freeze('a', streams, {maxInputTokens:4000});
+  const text = batch.text!;
+  expect(text.match(/session_id=s(?:\n|;)/g)).toHaveLength(1);
+  expect(text.match(/window_id=s:2/g)).toHaveLength(1);
+  expect(text).toContain('2023-11-14T22:13:20.005Z');
+  expect(text).toContain('item_id=6');
+  expect(text).not.toContain('item_id=7');
+  expect(text).not.toContain('item_id=9');
+  expect(text).not.toMatch(/events \d|"sessionId"|"seq"/);
+  for (const value of ['inbox','callId','in','send_message','agent:other','Permission denied','observer','owner','im1','Only refundable']) expect(text).toContain(value);
+  const child = selectChildMaterial({sessionId:'s',rootSessionId:'parent',events:events as never,inheritedEvents:[]},4000).text;
+  expect(child).toContain('window_id=s:2');
+  expect(child).not.toContain('item_id=7');
+  expect(child).not.toContain('item_id=9');
+  expect(child).toContain('Own experience');
+  expect(child).toContain('send_message');
+  expect(child).toContain('agent:other');
+  const view = createHistoryView('s', qualifiedEvents(events as never));
+  let windowId = '';
+  for (const line of text.split('\n')) {
+    if (line.startsWith('## window_id=')) windowId = line.slice('## window_id='.length);
+    const itemId = /item_id=(\S+)/.exec(line)?.[1];
+    if (itemId) expect(() => view.read(windowId, itemId)).not.toThrow();
+  }
+  const later = [...events,human(12,'Later same window'),event(13,'step/end')];
+  const increment = await fixture(later).sources.freeze('a',{s:{baseline:1,cursor:11}},{maxInputTokens:4000});
+  expect(increment.text).toContain('window_id=s:2');
+  expect(increment.text).toContain('item_id=12');
+  expect(increment.text).not.toContain('Before window');
+});
+
+
+it('keeps child references in the original parent and child windows despite activation and inheritance cuts', async () => {
+  const events = [human(0,'Old input'),event(1,'step/end'),event(2,'compaction/start',{compactionId:'c'}),
+    event(3,'compaction/summary',{compactionId:'c',summary:[]}),event(4,'compaction/end',{compactionId:'c'}),
+    human(5,'Inherited condition'),event(6,'step/end'),event(7,'subagent/catalog',{mode:'continuable',childId:'child',childCreatedAt:1700000000007}),event(8,'step/end')];
+  const own = [human(7,'Own task'),event(8,'step/end')];
+  const ctx = {sessions:{get:()=>undefined},sessionQuery:{observeSession:async(id:string)=>({
+    source:'prepared',revision:'disk',header:id==='s'?{cwd:'/owner',origin:'root'}:{cwd:'/task',origin:'subagent',parentSession:'s'},
+    events:id==='s'?events:[...events.slice(0,7),...own],inheritedEventCount:id==='s'?0:7,cursor:8,[Symbol.dispose]:()=>{},
+  })}};
+  const sources = new MemorySources(ctx as never,new Map([['s',{sessionId:'s',agentId:'a',ownerId:'owner',cwd:'/owner',revision:'1'}]]));
+  const progress = {s:{baseline:4,cursor:8}};
+  const target = await sources.freezeTarget('a',progress,1700000000005);
+  const batch = await sources.freeze('a',progress,{target,maxInputTokens:4000});
+  const [material] = await sources.children('a',target,batch,{maxInputTokens:4000});
+  expect(material?.text).toContain('window_id=s:2');
+  expect(material?.text).toContain('window_id=child:2');
+  expect(material?.text).toContain('item_id=5');
+  expect(material?.text).toContain('item_id=7');
+  expect(material?.text).not.toContain('Old input');
+  expect(selectChildMaterial(material!,4000).text).toBe(material!.text);
+});
+
+
+it('preserves the original IM timestamp separately from the tool execution time',()=>{
+  const text=renderMaterial([{type:'tool/result',time:Date.parse('2026-11-11T07:00:00Z'),callId:'read-inbox',content:{target:'group:release',messages:[{id:'m1',time:'2026-11-11T02:00:00Z',sender:{id:'owner'},content:'Do not restart.'}]}}]);
+  expect(text).toContain('2026-11-11T07:00:00.000Z');
+  expect(text).toContain('2026-11-11T02:00:00Z');
+  expect(text).toContain('group:release');
+});
+
+
+it('does not leak assistant tool blocks when their paired result cannot fit',()=>{
+  const events=[event(0,'assistant/message',{message:{content:[{type:'tool-call',id:'send',name:'send_message',arguments:'{"target":"agent:other"}'}]}}),
+    event(1,'tool/call',{callId:'send',name:'send_message',arguments:{target:'agent:other'}}),
+    event(2,'tool/result',{message:{toolCallId:'send',isError:true,content:[{type:'text',text:'Permission denied. '.repeat(500)}]}})];
+  const small=selectChildMaterial({sessionId:'child',rootSessionId:'root',events:events as never,inheritedEvents:[]},200);
+  expect(small.text).not.toContain('agent:other');
+  const full=selectChildMaterial({sessionId:'child',rootSessionId:'root',events:events as never,inheritedEvents:[]},10000);
+  expect(full.text).toContain('agent:other');expect(full.text).toContain('Permission denied.');
+});
+
+
+it('labels main-Agent delegation and messages without relabelling humans or peers',()=>{
+  const input=event(0,'user/message',{id:'task',source:{kind:'user'},content:[{type:'text',text:'Delegated requirement'}]});
+  const message=(seq:number,senderSessionId:string)=>event(seq,'user/message',{id:`m${seq}`,source:{kind:'agent-message',form:'relay',senderSessionId},content:[{type:'text',text:`Message from ${senderSessionId}`}]});
+  const events=[input,message(1,'root'),message(2,'peer'),human(3,'Direct human correction')];
+  const material=selectChildMaterial({sessionId:'child',rootSessionId:'root',events:events as never,inheritedEvents:[]},10000);
+  expect(material.text.match(/\[main agent\]/g)).toHaveLength(2);
+  expect(material.text.match(/\[other agent\]/g)).toHaveLength(1);
+  expect(material.text.match(/\[human user\]/g)).toHaveLength(1);
+  expect(material.text).not.toContain('evidence:');expect(material.text).not.toContain('Additional records omitted');
+});
+
+it('retains every tool name, directory read and non-JSON result unchanged in both consumers',async()=>{
+  const names=['skill','notes','history','memory_maintenance','read'];
+  const events=names.flatMap((name,i)=>[event(i*3,'tool/call',{callId:name,name,arguments:'{ "file_path": "/owner/.nanoassistant/memory/MEMORY.md" }'}),event(i*3+1,'tool/result',{message:{toolCallId:name,content:[{type:'text',text:`  original ${name} result\n  untouched`}]}}),event(i*3+2,'step/end')]);
+  const batch=await fixture(events).sources.freeze('a',streams,{maxInputTokens:10000});
+  const child=selectChildMaterial({sessionId:'s',rootSessionId:'root',events:qualifiedEvents(events as never),inheritedEvents:[]},10000);
+  for(const text of [batch.text!,child.text])for(const name of names)expect(text).toContain(`  original ${name} result\n  untouched`);
+  expect(child.text.replace(/^Own experience\n\n/, '')).toBe(batch.text);
+});
+
+it('prefers recent input over assistant text and keeps tool pairs together under budget',()=>{
+  const events=[event(0,'user/message',{id:'task',source:{kind:'user'},content:[{type:'text',text:'EARLY_REQUIREMENT '+ 'x'.repeat(300)}]}),event(1,'assistant/message',{message:{content:[{type:'text',text:'ASSISTANT_REPORT '+ 'x'.repeat(300)}]}}),event(2,'user/message',{id:'correction',source:{kind:'user'},content:[{type:'text',text:'LATEST_CORRECTION '+ 'x'.repeat(300)}]})];
+  const result=selectChildMaterial({sessionId:'child',rootSessionId:'root',events:events as never,inheritedEvents:[]},180);
+  expect(result.text).toContain('LATEST_CORRECTION');expect(result.text).not.toContain('EARLY_REQUIREMENT');expect(result.text).not.toContain('ASSISTANT_REPORT');expect(result.omitted).toBe(2);
+});
+
+
+it('pages long tool arguments within budget and resumes their offset when the next budget grows',async()=>{
+  const {commitSourceRange}=await import('../src/knowledge/memory-sources.js');
+  const args=JSON.stringify({file_path:'/owner/.nanoassistant/memory/detail.md',content:'x'.repeat(5000)});
+  const f=fixture([event(0,'tool/call',{callId:'write',name:'write',arguments:args}),event(1,'tool/result',{message:{toolCallId:'write',content:[{type:'text',text:'saved'}]}}),event(2,'step/end')]);
+  const progress=structuredClone(streams);let reconstructed='';let priorEnd=0;
+  for(let i=0;i<5&&progress.s.cursor<2;i++){
+    const budget=i===0?500:10000;
+    const batch=await f.sources.freeze('a',progress,{maxInputTokens:budget});
+    expect(batch.units).toHaveLength(1);expect(batch.inputTokens).toBeLessThanOrEqual(budget);
+    const page=batch.units[0]!.events[0] as {source:{type:string};offset:number;end:number;text:string};
+    if(page.source.type==='tool/call'){expect(page.offset).toBe(priorEnd);reconstructed+=page.text;priorEnd=page.end;}
+    commitSourceRange(progress.s,batch.ranges[0]!);
+  }
+  expect(progress.s.cursor).toBe(2);expect(reconstructed).toBe(args);
+});
+
+it('indexes IM sources only from actual IM calls while retaining lookalike tool bodies',async()=>{
+  const body=(target:string)=>JSON.stringify({target,messages:[{id:'m',content:'Observed body'}]});
+  const events=['read','inbox','conversations'].flatMap((name,i)=>[event(i*3,'tool/call',{callId:name,name,arguments:'{}'}),event(i*3+1,'tool/result',{message:{toolCallId:name,content:[{type:'text',text:body(name+'-room')}]}}),event(i*3+2,'step/end')]);
+  const {sourceConversations}=await import('../src/knowledge/memory-source-view.js');
+  const batch=await fixture(events).sources.freeze('a',streams,{maxInputTokens:4000});
+  expect(batch.conversations).toEqual(['inbox-room','conversations-room']);
+  expect(sourceConversations(qualifiedEvents(events as never))).toEqual(batch.conversations);
+  expect(batch.text).toContain(body('read-room'));
 });

@@ -70,7 +70,6 @@ function agentState(feature: typeof HEARTBEAT | typeof CRON): AgentDetailState {
       owner_id: "owner-1",
       display_name: "Settings Agent",
       description: "",
-      custom_prompt: "",
       features: {},
       skills: [],
       tool_allowlist: [] as string[],

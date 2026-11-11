@@ -92,7 +92,7 @@ export function apply(ctx) {
     registerNoopTaskHosts(client);
     await client.rpc.request('initialize',{protocol:1,bindings:[],agents:[{
       agentId:'a',displayName:'Cache wire',revision:'1',workspace:home,mode:'global',provider:'wire',model:'fixture',
-      systemPrompt:'CACHE_WIRE_SYSTEM',toolAllowlist:['cache_probe'],features:{dreaming:false},
+      displayName:'CACHE_WIRE_SYSTEM',toolAllowlist:['cache_probe'],features:{dreaming:false},
       approval:{dangerouslySkipPermissions:true},
       ...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{}),
     }]});

@@ -2,6 +2,7 @@ import type { MessageSource, MessageSourceMap } from '@deepseek-ai/dsh-llm';
 
 interface NanoInputIdentity {
   actorId: string;
+  roleAccountId?: string;
   channel: string;
   messageId: string;
   contextEnvelope?: string;

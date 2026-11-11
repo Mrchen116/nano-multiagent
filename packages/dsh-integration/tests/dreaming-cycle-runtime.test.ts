@@ -1,4 +1,4 @@
-import {mkdtemp,readFile,rm,writeFile} from 'node:fs/promises';
+import {mkdir,mkdtemp,readFile,realpath,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {expect,it} from 'vitest';
@@ -7,17 +7,34 @@ import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('commits each successful prefix, then freezes a fresh target after a later batch fails',async()=>{
   const home=await mkdtemp(join(tmpdir(),'dreaming-cycle-'));let client:RuntimeClient|undefined;
+  const rolePath=join(home,'.nanoassistant/ROLE.md');
+  const firstRole='Initial agreement for the test Agent: plan the rollout.\n\nPreserve the "no restart" restriction.';
+  const updatedRole='Updated agreement for the test Agent: verify the rollout.';
+  await mkdir(join(home,'.nanoassistant'),{recursive:true});
+  await writeFile(rolePath,firstRole);
   await writeFile(join(home,'fixture.mjs'),`
-import {appendFile} from 'node:fs/promises';
+import {appendFile,writeFile} from 'node:fs/promises';
 export const inject=['llm'];
 export function apply(ctx){
- const jobs=new Map();let failed=false;
+ const jobs=new Map();const steps=new Map();let failed=false;
  ctx.on('llm/stream',async function*(o){
   let call;
   if(String(o.sessionId).startsWith('dreaming-')){
    if(!jobs.has(o.sessionId)){
     jobs.set(o.sessionId,jobs.size+1);
     await appendFile(process.env.DSH_HOME+'/inputs.jsonl',JSON.stringify({id:o.sessionId,messages:o.messages})+'\\n');
+   }
+   if(jobs.get(o.sessionId)===1){
+    const step=steps.get(o.sessionId)||0;steps.set(o.sessionId,step+1);
+    if(step===0){
+     await writeFile(${JSON.stringify(rolePath)},${JSON.stringify(updatedRole)});
+     call=['new_context',{},'switch-window'];
+    }else if(step===1){
+     call=['history',{action:'search',query:'Initial agreement for the test Agent'},'recover-role'];
+    }else if(step===2){
+     const recovered=o.messages.find(m=>m.role==='tool'&&m.toolCallId==='recover-role');
+     await writeFile(process.env.DSH_HOME+'/recovered-role.json',JSON.stringify(recovered??null));
+    }
    }
    if(jobs.get(o.sessionId)===2&&!failed){failed=true;throw new Error('Simulated failed batch');}
   }else{
@@ -32,6 +49,11 @@ export function apply(ctx){
     await prepareProfile(home,[{insert:[{id:'cycle-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home});
     registerNoopTaskHosts(client);
+    const workspace=await realpath(home);
+    client.rpc.handle('knowledge.role.workspace',value=>{
+      expect(value).toMatchObject({agentId:'a'});
+      return {workspace};
+    });
     const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},knowledge:{dreaming:{maxInputTokens:1000}},toolAllowlist:['read','write','edit','memory_maintenance'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
@@ -50,9 +72,23 @@ export function apply(ctx){
     expect(reviews.slice(2).every((r:any)=>r.status==='completed')).toBe(true);
     const requests=(await readFile(join(home,'inputs.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const material=(request:any)=>request.messages.filter((m:any)=>m.role==='user'&&m.source?.channel==='dreaming').map((m:any)=>m.content.map((b:any)=>b.text??'').join('')).join('');
-    expect(material(requests[0])).toContain('SOURCE-0');
-    expect(requests.slice(2).map(material).join('\n')).not.toContain('SOURCE-0');
-    expect(requests.slice(2).map(material).join('\n')).toContain('SOURCE-LATER');
-    expect(material(requests[1])).not.toContain('SOURCE-LATER');
+    const sources=await Promise.all(requests.map(async request=>{
+      const paths=[...material(request).matchAll(/Main Agent original trajectory: ([^\n]+)/g)].map(match=>match[1]!);
+      return (await Promise.all(paths.map(path=>readFile(path,'utf8')))).join('\n');
+    }));
+    expect(sources[0]).toContain('SOURCE-0');
+    expect(sources.slice(2).join('\n')).not.toContain('SOURCE-0');
+    expect(sources.slice(2).join('\n')).toContain('SOURCE-LATER');
+    expect(sources[1]).not.toContain('SOURCE-LATER');
+    expect(material(requests[0])).toContain(`<role_content>\n${firstRole}\n</role_content>`);
+    expect(material(requests[0])).not.toContain(updatedRole);
+    expect(material(requests[1])).toContain(`<role_content>\n${updatedRole}\n</role_content>`);
+    expect(material(requests[1])).not.toContain(firstRole);
+    expect(requests.every((request:any)=>!material(request).includes('<custom_instructions>'))).toBe(true);
+    const recovery=JSON.parse(await readFile(join(home,'recovered-role.json'),'utf8'));
+    expect(recovery).toMatchObject({role:'tool',toolCallId:'recover-role'});
+    expect(recovery.isError).not.toBe(true);
+    expect(JSON.stringify(recovery.content)).toContain(firstRole.split('\n')[0]);
+    expect(JSON.stringify(recovery.content)).not.toContain(updatedRole);
   }finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },60000);

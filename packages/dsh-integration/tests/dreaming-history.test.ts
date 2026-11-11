@@ -24,13 +24,13 @@ function fixture(){
   return {tools,calls,parent,revoke:()=>{generation++;}};
 }
 
-it('preserves native window/item identities, Unicode reads and source filtering before search or pagination',async()=>{
+it('preserves native window/item identities, Unicode reads and original observed payloads before search or pagination',async()=>{
   const f=fixture();const query=(args:any)=>f.tools.get('source_history').execute({session_id:'root',...args});
   const windows=await query({action:'list_windows',recent_first:false});
   expect(Object.keys(windows.allowed_range).sort()).toEqual(['available_before','purpose','session_id']);
   expect(windows.allowed_range.available_before).toBe(new Date(109).toISOString());
   expect(windows.items.map((w:any)=>w.window_id)).toEqual(['root:initial','root:2']);
-  expect(await query({action:'search',query:'SECRET'})).toMatchObject({items:[]});
+  expect((await query({action:'search',query:'SECRET'})).items).toHaveLength(2);
   expect(await query({action:'search',query:'FUTURE'})).toMatchObject({items:[]});
   expect(await query({action:'search',query:'Before activation'})).toMatchObject({items:[]});
   const first=await query({action:'list_items',limit:1,recent_first:false});
@@ -40,8 +40,8 @@ it('preserves native window/item identities, Unicode reads and source filtering 
   expect(next.items[0]).toMatchObject({item_id:'5',window_id:'root:2'});
   await expect(query({action:'search',query:'changed',limit:1,recent_first:false,cursor:first.next_cursor})).rejects.toThrow('different source');
   const mixed=await query({action:'search',query:'Visible',role:'tool',tool_name:'conversations'});
-  expect(mixed.items).toHaveLength(1);expect(JSON.stringify(mixed)).not.toContain('SECRET');
-  await expect(query({action:'read',window_id:'root:2',item_id:'6'})).rejects.toThrow('not_found');
+  expect(mixed.items).toHaveLength(1);expect(JSON.stringify(mixed)).toContain('SECRET');
+  expect(await query({action:'read',window_id:'root:2',item_id:'6'})).toMatchObject({content:'SECRET revoked'});
   await expect(query({action:'list_items',session_id:'foreign'})).rejects.toThrow('outside');
   f.revoke();await expect(query({action:'read',window_id:'root:initial',item_id:'1'})).rejects.toThrow('eligibility changed');
 });

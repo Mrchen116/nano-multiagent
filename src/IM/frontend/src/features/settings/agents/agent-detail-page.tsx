@@ -27,6 +27,7 @@ import {
 } from "./model-reasoning-field";
 import { fallbacksAfterPrimaryChange, ModelFallbackField } from "./model-fallback-field";
 import { AgentPluginsPanel } from "./agent-plugins-panel";
+import { AgentRoleEditor, useAgentRoleEditor } from "./agent-role-editor";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
 import { AgentWorkPanel } from "./agent-work-panel";
@@ -71,7 +72,6 @@ function normalizeAgentConfig(
     ...config,
     display_name: normalizeText(config.display_name),
     description: normalizeText(config.description),
-    custom_prompt: (config.custom_prompt ?? "").trim(),
     features: config.features ?? {},
     skills: normalizeAllowlist(config.skills),
     tool_allowlist: normalizeAllowlist(config.tool_allowlist),
@@ -131,7 +131,7 @@ function formatUpdatedAt(value?: string | null) {
   return new Date(value).toLocaleString();
 }
 
-// feat-379-M3: Behavior card — features checkbox group + custom_prompt textarea + collapsible preview.
+// Behavior card with independent role editor, feature controls and stable prompt preview.
 // Uses the same checkbox idiom as allowlist-selector.tsx (appearance:none + :checked → --im-accent)
 // and the same collapsible pattern as tool-calls-panel.tsx (aria-expanded + ▸/▾ + class toggle).
 interface BehaviorCardProps {
@@ -143,7 +143,7 @@ interface BehaviorCardProps {
   inheritedRules?: "nano" | "codex" | "dsh" | null;
   capabilityFeatures: AgentFeature[];
   onApprovalModeChange: (value: ApprovalMode) => void;
-  onCustomPromptChange: (value: string) => void;
+  roleEditor: ReactNode;
   onFeatureToggle: (key: string, value: boolean) => void;
   onPolicyChange: (value: string) => void;
 }
@@ -157,7 +157,7 @@ function BehaviorCard({
   capabilityFeatures,
   inheritedRules,
   onApprovalModeChange,
-  onCustomPromptChange,
+  roleEditor,
   onFeatureToggle,
   onPolicyChange
 }: BehaviorCardProps) {
@@ -192,7 +192,6 @@ function BehaviorCard({
     try {
       const text = await promptPreview(agentId, {
         features: effectiveFeatures,
-        custom_prompt: draft.custom_prompt ?? "",
         tool_ids: draft.tool_allowlist ?? [],
         ...(draft.work_mode === "global" ? { work_mode: "global" as const } : {}),
         skill_ids: draft.skills,
@@ -204,7 +203,7 @@ function BehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [readOnly, agentId, effectiveFeatures, draft.custom_prompt, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
+  }, [readOnly, agentId, effectiveFeatures, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
 
   // Debounce preview re-fetch when draft changes while preview is open.
   useEffect(() => {
@@ -213,7 +212,7 @@ function BehaviorCard({
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readOnly, previewOpen, draft.custom_prompt, draft.features, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
+  }, [readOnly, previewOpen, draft.features, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {
@@ -230,22 +229,9 @@ function BehaviorCard({
         <h3 className="im-agent-card-title">{t("agents.form.behavior.title")}</h3>
       </div>
 
-      {/* Custom Instructions are the only public per-agent prompt input. */}
       <ApprovalModeField inheritedRules={inheritedRules} disabled={readOnly} value={draft.approval_mode} onChange={onApprovalModeChange} />
 
-      <div className="im-agent-field">
-        <Label.Root htmlFor="custom-instructions">{t("agents.form.behavior.customInstructions")}</Label.Root>
-        <textarea
-          disabled={readOnly}
-          id="custom-instructions"
-          className="im-agent-textarea"
-          value={draft.custom_prompt ?? ""}
-          placeholder={t("agents.form.behavior.customInstructionsPlaceholder")}
-
-          rows={4}
-          onChange={(e) => onCustomPromptChange(e.target.value)}
-        />
-      </div>
+      {roleEditor}
 
       {!capabilitiesKnown && capabilityFeatures.length === 0 && <div className="im-agent-field" data-testid="features-section">
         <span className="text-[13px] font-semibold text-slate-900">{t("agents.form.behavior.features")}</span>
@@ -1345,8 +1331,10 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   const currentDeletion = closed && deletion.query.data?.revision === lifecycleState?.revision;
   const deleting = Boolean(deletion.query.data?.operation);
   const detailQuery = settings.query;
+  const canManageRole = !!self && detailQuery.data?.config.owner_id === self;
+  const roleEditor = useAgentRoleEditor(agentId, canManageRole && !inactive && activeSection === "config" && !settings.connectionReadOnly && !deleting);
   const confirmationPending = applyPending || !!detailQuery.data?.pendingOperation;
-  const readOnly = settings.readOnly || confirmationPending || deleting;
+  const readOnly = settings.readOnly || confirmationPending || deleting || roleEditor.saving;
   const settingsReason = confirmationPending && (!settings.reason || settings.reason === 'refreshingEditable') ? 'pending' : settings.reason;
 
   useEffect(() => {
@@ -1387,16 +1375,28 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   const missingAllowedSkills = (draft?.skills_selection_mode ?? ((draft?.skills.length ?? 0) > 0 ? "explicit_allowlist" : "default_discovery")) === "explicit_allowlist" ? missingSkills : [];
   const catalogCurrent = detailQuery.data?.liveCapabilities === true && !readOnly;
   const catalogInvalid = catalogCurrent && (missingModels.length > 0 || missingTools.length > 0 || missingAllowedSkills.length > 0);
-  const isDirty = !!(draft && baseConfig.current && !sameEditableConfig(draft, baseConfig.current));
-  const versionConflict = isDirty && baseConfig.current?.profile_version !== detailQuery.data?.config.profile_version;
+  const configDirty = !!(draft && baseConfig.current && !sameEditableConfig(draft, baseConfig.current));
+  const isDirty = configDirty || roleEditor.dirty;
+  const versionConflict = configDirty && baseConfig.current?.profile_version !== detailQuery.data?.config.profile_version;
   const queryErrorDetail =
     detailQuery.error instanceof Error
       ? detailQuery.error.message.split(" failed: ").at(-1) ?? detailQuery.error.message
       : "Unable to load this agent.";
 
+  function markSaved() {
+    setSaved(true);
+    setHasAttemptedSave(false);
+    if (savedResetTimer.current) clearTimeout(savedResetTimer.current);
+    savedResetTimer.current = setTimeout(() => {
+      setSaved(false);
+      savedResetTimer.current = null;
+    }, 1800);
+  }
+
+  const configSaveBlocked = readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict || catalogInvalid || hasStaleReasoning;
   const mutation = useMutation({
     mutationFn: (next: AgentConfigFormState) => {
-      if (readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict) throw new Error(t("agents.settings.refreshing"));
+      if (settings.readOnly || confirmationPending || deleting || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict) throw new Error(t("agents.settings.refreshing"));
       const {
         updated_at: _updatedAt,
         owner_id: _ownerId,
@@ -1413,8 +1413,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
     onSuccess: async (updated) => {
       setApplyPending(false);
       setErrorMessage(null);
-      setSaved(true);
-      setHasAttemptedSave(false);
+      markSaved();
       if (updated && capabilities) {
         const nextConfig = {
           ...updated,
@@ -1434,11 +1433,6 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
       void queryClient.invalidateQueries({ queryKey: ["personal-agent"] });
       void queryClient.invalidateQueries({ queryKey: ["contacts"] });
       void queryClient.invalidateQueries({ queryKey: ["public-agents"] });
-      if (savedResetTimer.current) clearTimeout(savedResetTimer.current);
-      savedResetTimer.current = setTimeout(() => {
-        setSaved(false);
-        savedResetTimer.current = null;
-      }, 1800);
     },
     onError: (error) => {
       setSaved(false);
@@ -1509,12 +1503,14 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   }
 
   function selectAgent(nextID: string) {
-    if (nextID === agentId) return;
+    if (nextID === agentId || roleEditor.saving || mutation.isPending) return;
     if (isDirty) setPendingAgent(nextID);
     else navigate(`/settings/agents/${encodeURIComponent(nextID)}`);
   }
 
   function handleDiscard() {
+    roleEditor.discard();
+    setSaved(false);
     if (detailQuery.data?.config) {
       const config = !readOnly ? detailQuery.data.config : baseConfig.current;
       if (!config) return;
@@ -1607,22 +1603,31 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
       : t("agents.form.errors.required");
   } else if (confirmationPending) {
     footerStatusText = t("agents.form.access.reasoning.applyPending");
-  } else if (mutation.isPending) {
+  } else if (mutation.isPending || roleEditor.saving) {
     footerStatusClass = "im-agent-footer-status";
     footerStatusText = t("agents.detail.saving");
-  } else if (saved) {
+  } else if (saved && !isDirty) {
     footerStatusClass = "im-agent-footer-status saved";
     footerStatusText = t("agents.detail.saved");
   } else if (isDirty) {
     footerStatusClass = "im-agent-footer-status dirty";
     footerStatusText = t("agents.detail.unsavedChanges");
   }
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  const saveBlocked = mutation.isPending || roleEditor.saving || applyPending || !isDirty
+    || (configDirty && configSaveBlocked)
+    || (roleEditor.dirty && (!roleEditor.available || roleEditor.tooLong));
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setHasAttemptedSave(true);
     setErrorMessage(null);
-    if (readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict || catalogInvalid || hasValidationErrors || hasStaleReasoning || applyPending || !isDirty || !normalizedDraft) return;
-    mutation.mutate(normalizedDraft);
+    if (saveBlocked || (configDirty && hasValidationErrors) || !normalizedDraft) return;
+    setSaved(false);
+    if (roleEditor.dirty) {
+      try { await roleEditor.save(); }
+      catch { return; } // The role field retains its draft and reports the failure.
+    }
+    if (configDirty) mutation.mutate(normalizedDraft);
+    else markSaved();
   }
 
   const detailPanel = (
@@ -1882,6 +1887,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
         <BehaviorCard
           agentId={agentId}
           draft={draft}
+          roleEditor={canManageRole && <AgentRoleEditor editor={roleEditor} />}
           inheritedRules={capabilities.inherited_approval_rules}
           capabilityFeatures={capabilities.features ?? []}
           capabilitiesKnown={detailQuery.data?.liveCapabilities === true}
@@ -1891,11 +1897,6 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
             setSaved(false);
             setErrorMessage(null);
             setDraft({ ...draft, approval_mode: value });
-          }}
-          onCustomPromptChange={(value) => {
-            setSaved(false);
-            setErrorMessage(null);
-            setDraft({ ...draft, custom_prompt: value });
           }}
           onFeatureToggle={(key, value) => {
             setErrorMessage(null);
@@ -2090,7 +2091,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
               <button
                 className="im-btn im-btn-muted"
                 type="button"
-                disabled={mutation.isPending || applyPending}
+                disabled={mutation.isPending || roleEditor.saving || applyPending}
                 onClick={handleDiscard}
               >
                 {t("agents.detail.discard")}
@@ -2099,9 +2100,9 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
             <button
               className="im-btn im-btn-primary"
               type="submit"
-              disabled={readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict || catalogInvalid || mutation.isPending || applyPending || hasStaleReasoning || !isDirty}
+              disabled={saveBlocked}
             >
-              {mutation.isPending ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
+              {mutation.isPending || roleEditor.saving ? t("agents.detail.saving") : t("agents.detail.saveAgent")}
             </button>
           </div>
         </footer>
@@ -2113,7 +2114,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
             <div className="chat-modal-body"><p className="m-0 text-sm text-slate-600">{t("agents.create.unsavedExitBody")}</p></div>
             <footer className="chat-modal-footer bg-white">
               <button className="chat-modal-btn-ghost" type="button" onClick={() => setPendingAgent(null)}>{t("agents.create.keepEditing")}</button>
-              <button className="chat-modal-btn-primary" type="button" onClick={() => navigate(`/settings/agents/${encodeURIComponent(pendingAgent)}`)}>{t("agents.create.leaveWithoutSaving")}</button>
+              <button className="chat-modal-btn-primary" type="button" disabled={roleEditor.saving || mutation.isPending} onClick={() => navigate(`/settings/agents/${encodeURIComponent(pendingAgent)}`)}>{t("agents.create.leaveWithoutSaving")}</button>
             </footer>
           </section>
         </div>

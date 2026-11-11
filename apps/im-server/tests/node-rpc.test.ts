@@ -14,7 +14,7 @@ it('correlates by command and connection and preserves receipt metadata', async 
   const {rpc, connection, sent} = fixture();
   const result = rpc.request('node', 'agent.config.apply', {request_id:'request',operation_id:'operation',candidate_fingerprint:'fingerprint',expected_previous_fingerprint:'previous',agent:{agent_id:'agent'}});
   expect(sent[0]).toMatchObject({type:'agent.config.apply',payload:{request_id:'request',operation_id:'operation'}});
-  const receipt = {request_id:'request',operation_id:'operation',candidate_fingerprint:'fingerprint',status:'applied',agent:{agent_id:'agent',custom_prompt:'职责'},extension:{future:true}};
+  const receipt = {request_id:'request',operation_id:'operation',candidate_fingerprint:'fingerprint',status:'applied',agent:{agent_id:'agent',display_name:'职责'},extension:{future:true}};
   expect(rpc.accept({}, 'agent.config.apply.result', receipt)).toBe(false);
   expect(rpc.accept(connection, 'agent.created', receipt)).toBe(false);
   expect(rpc.accept(connection, 'agent.config.apply.result', receipt)).toBe(true);

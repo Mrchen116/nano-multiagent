@@ -28,6 +28,63 @@ it('returns saved settings without a node inspection or granting save readiness'
   } finally {await app.close();}
 });
 
+it('keeps ROLE owner-only and writes the workspace version separately from Agent configuration', async () => {
+  const {app, ctx, db} = setup();
+  const url = '/im/v1/agents/a/role';
+  let stored = {content: 'Current role', version: 'file-1'};
+  const request = vi.fn(async (_node, _action, {update}) => {
+    if (update && update.version !== stored.version) return {error: 'role_conflict'};
+    if (update) stored = {content: update.content, version: 'file-2'};
+    return {role: stored};
+  });
+  ctx.gateway.request = request;
+  try {
+    expect((await app.inject({url, headers: {'x-user': 'u2'}})).statusCode).toBe(404);
+    expect((await app.inject({method: 'PUT', url, headers: {'x-user': 'u2'}, payload: stored})).statusCode).toBe(404);
+    expect(request).not.toHaveBeenCalled();
+    const read = await app.inject(url);
+    expect(read.statusCode).toBe(200);
+    expect(read.json()).toEqual(stored);
+    expect(read.headers['cache-control']).toBe('private, no-store');
+    expect(request).toHaveBeenLastCalledWith('n', 'node.agent.role.request', {agent_id: 'a'});
+
+    const update = {content: 'New role', version: 'file-1'};
+    const save = await app.inject({method: 'PUT', url, payload: update});
+    expect(save.statusCode).toBe(200);
+    expect(save.json()).toEqual({content: 'New role', version: 'file-2'});
+    expect(request).toHaveBeenLastCalledWith('n', 'node.agent.role.request', {agent_id: 'a', update});
+    const stale = await app.inject({method: 'PUT', url, payload: update});
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({detail: {code: 'role_conflict'}});
+    const tooLong = await app.inject({method: 'PUT', url, payload: {content: '😀'.repeat(1001), version: 'file-2'}});
+    expect(tooLong.statusCode).toBe(422);
+    expect(tooLong.json()).toMatchObject({detail: {code: 'role_too_long'}});
+    expect((await app.inject({method: 'PUT', url, payload: {...update, workspace: '/other'}})).statusCode).toBe(422);
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(one(db, 'SELECT profile_version FROM agent_profiles')).toMatchObject({profile_version: 1});
+    expect(one(db, 'SELECT * FROM agent_settings_snapshots')).toBeUndefined();
+  } finally { await app.close(); }
+});
+
+it('never returns late ROLE text or reports an unconfirmed write as saved', async () => {
+  const {app, ctx, connection} = setup();
+  const url = '/im/v1/agents/a/role';
+  try {
+    ctx.gateway.nodes.clear();
+    const offline = await app.inject(url);
+    expect(offline.statusCode).toBe(503);
+    expect(offline.json()).toMatchObject({detail: {code: 'role_unavailable'}});
+    ctx.gateway.nodes.set('n', connection);
+    ctx.gateway.request = async () => {
+      ctx.gateway.nodes.set('n', {...connection});
+      return {role: {content: 'PRIVATE', version: 'old-connection'}};
+    };
+    const late = await app.inject({method: 'PUT', url, payload: {content: 'draft', version: null}});
+    expect(late.statusCode).toBe(503);
+    expect(late.body).not.toContain('PRIVATE');
+  } finally { await app.close(); }
+});
+
 it('keeps older Gateway capabilities without optional Features editable',async()=>{
   const {app,ctx}=setup();
   const {features: _features,...legacy}=capabilities;

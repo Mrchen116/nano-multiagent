@@ -19,13 +19,14 @@ import { KnowledgeFiles, type MemoryChange, type SkillChange } from './files.js'
 import { knowledgeDomain, type KnowledgeDomain, type KnowledgeFact, type KnowledgeKind, type KnowledgeReview } from './state.js';
 import { Dreaming } from './dreaming.js';
 import { DocumentMemory } from './document-memory.js';
+import { roleLimit } from './role-document.js';
 import { ReviewFiles } from './review-files.js';
 import { reviewReadings } from './review-readings.js';
 import { withKnowledgeRun } from '../trajectory-runs.js';
 import { policyAsset } from '../policy/rules.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoKnowledge: KnowledgeRuntime } }
-interface Options { configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>; notify(): void; held?(agentId: string, kind: KnowledgeKind): boolean }
+interface Options { configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>; roleWorkspace?(agentId: string): Promise<string | null>; notify(): void; held?(agentId: string, kind: KnowledgeKind): boolean }
 const storageKey = (value: string) => Buffer.from(value).toString('base64url');
 interface Batch { root: string; name: string }
 interface Active { controller: AbortController; task: Promise<void>; agentId: string; rootSessionId: string; kinds: KnowledgeKind[]; source: 'F3' | 'F4'; turn: number; batch?: Batch; reads: ReviewFiles }
@@ -53,7 +54,10 @@ export class KnowledgeRuntime extends Service {
     super(ctx, 'nanoKnowledge'); this.host = ctx; this.state = ctx.storageDomain.open(knowledgeDomain);
     const held = (agentId: string) => this.stopping || this.updateHeld || options.held?.(agentId, 'memory') === true;
     this.documents = new DocumentMemory(ctx, { ...options, held });
-    this.dreaming = new Dreaming(ctx, this.documents, { ...options, held });
+    this.dreaming = new Dreaming(ctx, this.documents, { ...options, held }, async config => {
+      const role = await this.documents.readRole(config);
+      return role && 'content' in role && role.content.length <= roleLimit ? role.content || undefined : undefined;
+    });
     this.documents.maintenanceStatus = agentId => this.dreaming.status(agentId);
     ctx.effect(() => async () => { await this.stop(); await (await this.state).close(); });
     ctx.on('agent/created', ({ agent }) => {

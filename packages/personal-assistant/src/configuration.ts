@@ -43,9 +43,10 @@ export class ConfigurationOperations {
   private async perform(kind: string, intent: Intent): Promise<ConfigurationResult> {
     const reject = (code: string, message: string) => ({ operation_id: intent.operation_id, candidate_fingerprint: intent.candidate_fingerprint, status: 'rejected', error_code: code, message });
     if (!intent.operation_id || !intent.candidate_fingerprint || !intent.agent) return reject('invalid_agent_config', 'Missing operation identity or candidate');
+    if (intent.initial_role !== undefined && (kind !== 'create' || typeof intent.initial_role !== 'string' || intent.initial_role.length > 2000)) return reject('invalid_agent_config', 'initial_role is creation-only text of at most 2000 UTF-16 code units');
     let receipt = this.get(intent.operation_id);
     if (receipt) {
-      if (receipt.kind !== kind || receipt.intent.candidate_fingerprint !== intent.candidate_fingerprint || receipt.intent.expected_previous_fingerprint !== intent.expected_previous_fingerprint) return reject('operation_id_reused', 'Operation identity is already bound to a different intent');
+      if (receipt.kind !== kind || receipt.intent.candidate_fingerprint !== intent.candidate_fingerprint || receipt.intent.expected_previous_fingerprint !== intent.expected_previous_fingerprint || receipt.intent.initial_role !== intent.initial_role) return reject('operation_id_reused', 'Operation identity is already bound to a different intent');
       if (receipt.status !== 'pending') return this.result(receipt);
     } else {
       try {

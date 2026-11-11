@@ -85,7 +85,7 @@ def _json_result(results: dict, call: str) -> dict:
     result = results[call]
     if result.get("is_error"):
         raise ValueError(f"{call} failed: {result}")
-    return json.loads(_text(result["content"]))
+    return json.loads(re.sub(r"\n\[id: \d+\]\s*$", "", _text(result["content"])))
 
 
 def _foreground(body: dict) -> bytes:

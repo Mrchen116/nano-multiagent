@@ -17,7 +17,6 @@ export interface CapabilitiesResult extends NodeCapabilities { capabilities?: No
 interface AgentTarget { agent_id: string; workspace_root?: string | null }
 interface PreviewInput {
   features: Record<string, boolean>;
-  custom_prompt: string | null;
   tool_ids: string[];
   skill_ids: string[];
   skills_selection_mode: string;
@@ -53,6 +52,8 @@ export interface SetupCommand {
   models?: {id: string; display_name?: string; context_window?: number; max_tokens?: number; input?: string[]}[];
 }
 interface SkillUsage {skills?: unknown[]; heatmap_data?: unknown[]; health?: Record<string, unknown>}
+interface AgentRole {content: string; version: string | null}
+type AgentRoleError = 'role_conflict' | 'role_unavailable' | 'role_too_long';
 
 /** All center-initiated RPCs; unsolicited node events do not use this port. */
 export interface NodeCommandMap {
@@ -69,6 +70,7 @@ export interface NodeCommandMap {
   'node.skills.usage.request': {input: AgentTarget; output: {usage?: SkillUsage; error?: string}};
   'agent.capability-usage.request': {input: {agent_id: string}; output: {usage?: {checked_at: string; active_schedules: number; busy: {kind: string; name: string}[]}; error?: unknown}};
   'node.heartbeat.md.request': {input: AgentTarget; output: {content?: string}};
+  'node.agent.role.request': {input: {agent_id: string; update?: AgentRole}; output: {role: AgentRole} | {error: AgentRoleError}};
   'node.cron.jobs.request': {input: AgentTarget; output: {jobs?: unknown[]; error?: string}};
   'node.cron.delete.request': {input: AgentTarget & {job_id: string;actor_user_id:string;operation_id:string}; output: {deleted?: boolean}};
   'node.setup.request': {input: SetupCommand; output: Record<string, unknown>};
@@ -103,6 +105,7 @@ export const nodeResponseTypes = {
   'node.skills.usage.request': 'node.skills.usage',
   'agent.capability-usage.request': 'agent.capability-usage',
   'node.heartbeat.md.request': 'node.heartbeat.md',
+  'node.agent.role.request': 'node.agent.role',
   'node.cron.jobs.request': 'node.cron.jobs',
   'node.cron.delete.request': 'node.cron.delete',
   'node.setup.request': 'node.setup',

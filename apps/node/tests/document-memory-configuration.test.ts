@@ -24,7 +24,7 @@ it.each(['explicit_allowlist', 'explicit_denylist'])('normalizes retired switche
     expect(runtime.skillRoots).toContainEqual({path:builtinSkillsRoot,source:'builtin'});
     expect(projectCapabilities({tools:[],skills:[{name:'skill-creator',description:'fixed'}]},config.value,runtime).features.map(feature=>feature.key)).not.toContain('dreaming');
     expect(projectCapabilities({tools:[],skills:[{name:'skill-creator',description:'fixed'}]},config.value,runtime).skills).toEqual([]);
-    await config.persist(canonicalAgentConfiguration({...current,custom_prompt:'edited',knowledge:{memoryMode:'document',legacyMemory:{enabled:true}}}));
+    await config.persist(canonicalAgentConfiguration({...current,display_name:'edited',knowledge:{memoryMode:'document',legacyMemory:{enabled:true}}}));
     const restored = await NodeConfiguration.read(path);
     expect(restored.runtime(restored.current('a')!).knowledge).toMatchObject(knowledge);
     expect((load(await readFile(path,'utf8')) as NodeConfigurationFile).agents[0].knowledge).toMatchObject(knowledge);
@@ -54,7 +54,7 @@ it('keeps automatic Dreaming available without expanding explicit foreground too
     const path=join(home,'node.json');
     await writeFile(path,JSON.stringify({node:{},agents:[{agent_id:'a',workspace_root:home,tool_allowlist:['read'],features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:false}}],llm:{default_model:'test',providers:[{name:'test',models:[{name:'test'}]}]}}));
     const config=await NodeConfiguration.read(path);
-    const candidate=await config.resolve({...config.current('a')!,custom_prompt:'new'},false);
+    const candidate=await config.resolve({...config.current('a')!,display_name:'new'},false);
     await config.persist(candidate);
     const runtime=config.runtime(config.current('a')!);
     expect(runtime.toolAllowlist).toEqual(['read']);

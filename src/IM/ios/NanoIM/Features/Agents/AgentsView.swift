@@ -221,7 +221,7 @@ struct AgentCreateView: View {
     @State private var confirmWorkspace = false
     @State private var confirmLeave = false
     @State private var preview: AgentPrompt?
-    private var canCreate: Bool { !busy && !pending && !selectedNode.isEmpty && capabilities?.models.isEmpty == false && !draft.agent_id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !draft.display_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (!customWorkspace || !draft.workspace_root.isEmpty) && nodes.first(where: { $0.id == selectedNode })?.status == "online" }
+    private var canCreate: Bool { !busy && !pending && draft.initialRoleIsValid && !selectedNode.isEmpty && capabilities?.models.isEmpty == false && !draft.agent_id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !draft.display_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (!customWorkspace || !draft.workspace_root.isEmpty) && nodes.first(where: { $0.id == selectedNode })?.status == "online" }
 
     var body: some View {
         Form {
@@ -245,8 +245,10 @@ struct AgentCreateView: View {
                         Text(L("写作与内容策划", "Writing and planning")).tag("writing")
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(L("希望它如何协助你", "How should it help you?")).font(.caption).foregroundStyle(NanoTheme.muted)
-                        TextField(L("说明目标或偏好，可稍后调整", "Describe goals or preferences; edit later"), text: $draft.custom_prompt, axis: .vertical).lineLimit(2...5)
+                        Text(L("初始角色约定", "Initial role agreement")).font(.caption).foregroundStyle(NanoTheme.muted)
+                        TextField(L("说明目标或偏好，可稍后调整", "Describe goals or preferences; edit later"), text: $draft.initial_role, axis: .vertical).lineLimit(2...5).accessibilityLabel(L("初始角色约定", "Initial role agreement"))
+                        Text(L("创建时保存，之后可在角色约定中修改。", "Saved on creation; edit later in Role agreement.")).font(.caption).foregroundStyle(.secondary)
+                        if !draft.initialRoleIsValid { Text(L("初始角色约定超过 2,000 个 UTF-16 码元上限。", "The initial role exceeds the 2,000 UTF-16 unit limit.")).font(.caption).foregroundStyle(.red) }
                     }
                 } header: { Text(L("让它帮你做什么？", "What should it help with?")) }
                 Section(L("运行位置", "Run on")) {
@@ -272,7 +274,7 @@ struct AgentCreateView: View {
                         else { Text(L("使用电脑默认目录", "Use the computer's default directory")).font(.callout).foregroundStyle(.secondary) }
                     }
                 }
-                if advanced { AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability, showProfile: false, showModels: false, showInstructions: false) }
+                if advanced { AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability, showProfile: false, showModels: false) }
                 }.disabled(pending)
                 Section {
                     if let error { ErrorNotice(message: error) }
@@ -301,7 +303,7 @@ struct AgentCreateView: View {
         .onChange(of: purpose) { _, value in
             let instruction = value == "research" ? L("整理资料并比较方案，说明依据和待确认事项。", "Research and compare options, explaining evidence and open questions.") : value == "writing" ? L("协助构思、写作和修改，保留事实与原意。", "Help plan, write and revise while preserving facts and intent.") : ""
             draft.description = value == "research" ? L("研究与资料比较", "Research and comparison") : value == "writing" ? L("写作与内容策划", "Writing and planning") : ""
-            draft.custom_prompt = instruction
+            draft.initial_role = instruction
         }
     }
     private func openCreatedChat(_ agent: AgentConfig) async {
@@ -342,6 +344,7 @@ struct AgentCreateView: View {
         do { created = try await client.send("/im/v1/nodes/\(agentSegment(selectedNode))/agents", body: draft.payload(creating: true, customWorkspace: customWorkspace, confirmed: confirmed)) }
         catch {
             if let api = error as? APIError, api.code == "workspace_confirmation_required" { confirmWorkspace = true }
+            else if let api = error as? APIError, api.code == "role_conflict" { self.error = L("这个工作区已有不同的角色约定。清空初始角色可保留现有约定，或选择另一个工作区。", "This workspace already has a different role agreement. Leave the initial role empty to keep it, or choose another workspace.") }
             else { self.error = agentError(error) }
             if (error as? APIError)?.code == "config_apply_pending" || !(error is APIError) { pending = true }
         }
@@ -366,7 +369,7 @@ struct AgentTextSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    if preview { Text(L("当前草稿的稳定提示词；不包含群聊、心跳及本轮运行时上下文。", "Stable prompt for the current draft; excludes group, heartbeat, and current-turn runtime context.")).font(.callout).foregroundStyle(.secondary) }
+                    if preview { Text(L("当前草稿的稳定提示词；不包含角色约定、群聊、心跳及本轮运行时上下文。", "Stable prompt for the current draft; excludes role agreement, group, heartbeat, and current-turn runtime context.")).font(.callout).foregroundStyle(.secondary) }
                     Text(text.isEmpty ? L("文件不存在或内容为空", "The file is absent or empty") : text).font(.system(.body, design: .monospaced)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
                 }.padding()
             }.navigationTitle(title).toolbar { Button(L("完成", "Done")) { dismiss() } }

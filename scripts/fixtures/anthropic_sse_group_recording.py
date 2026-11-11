@@ -17,15 +17,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with open(os.environ["NANO_FIXTURE_RECORD_PATH"], "a") as output:
             output.write(json.dumps(body, ensure_ascii=False) + "\n")
-        system = json.dumps(body.get("system"), ensure_ascii=False)
         messages = json.dumps(body.get("messages"), ensure_ascii=False)
-        if "FIXTURE_GROUP_B" in system:
+        if "FIXTURE_GROUP_B" in messages:
             reply = "GROUP_B_RECEIVED"
-        elif "FIXTURE_GROUP_A" in system:
+        elif "FIXTURE_GROUP_A" in messages:
             if "GROUP_SOLO" in messages:
                 reply = "GROUP_A_ONLY"
             else:
-                target = re.search(r"FIXTURE_GROUP_A target=([\w-]+)", system)
+                target = re.search(r"FIXTURE_GROUP_A target=([\w-]+)", messages)
                 if not target:
                     self.send_error(422, "missing group B user identity")
                     return

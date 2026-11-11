@@ -51,7 +51,6 @@ export const gatewayKeys: (keyof AgentConfigurationFields)[] = [
   "work_mode",
   "workspace_root",
   "features",
-  "custom_prompt",
   "heartbeat_json",
 ];
 /** Copy a present public field while retaining key/value correlation and omission. */
@@ -75,7 +74,6 @@ export function gatewayCandidate(c: AgentConfigurationFields): AgentConfiguratio
     features: Object.fromEntries(
       Object.entries(c.features ?? {}).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean" && !["memory_curation", "skill_creation"].includes(entry[0])),
     ),
-    custom_prompt: optionalText(c.custom_prompt),
     heartbeat_json: heartbeat(c.heartbeat_json),
   };
   if (c.personal_agent) p.personal_agent = c.personal_agent;
@@ -99,7 +97,7 @@ export function candidateFingerprint(c: AgentConfigurationFields): string {
     .update(serializeCandidateJson(Object.fromEntries(keys.map((k) => [k, p[k] ?? null]))))
     .digest("hex");
 }
-export interface AgentProfileView extends ConfigurationCandidate {
+export interface AgentProfileView extends Omit<ConfigurationCandidate, 'initial_role'> {
   owner_id: string;
   space_id: string;
   node_id: string | null;
@@ -113,7 +111,6 @@ export interface AgentProfileView extends ConfigurationCandidate {
   workspace_root: string | null;
   profile_version: number;
   updated_at: string;
-  custom_prompt: string | null;
   heartbeat_json: string | null;
   skills: string[] | null;
   skills_selection_mode: string | null;
@@ -141,7 +138,7 @@ export function profileResponse(p: AgentProfileRecord, mirror = false): AgentPro
     display_name:p.display_name, description:p.description, group_reply_policy:p.group_reply_policy,
     default_model:p.default_model, reasoning_effort:p.reasoning_effort, approval_mode:p.approval_mode,
     work_mode:p.work_mode, workspace_root:p.workspace_root, profile_version:p.profile_version,
-    updated_at:p.updated_at, custom_prompt:p.custom_prompt, heartbeat_json:p.heartbeat_json,
+    updated_at:p.updated_at, heartbeat_json:p.heartbeat_json,
     skills:skills?.filter(name => name !== 'skill-creator') ?? null, skills_selection_mode:mirror ? skillMode : selection(skillMode, skills),
     tool_allowlist:storedStrings(p.tool_allowlist_json), model_fallbacks:storedStrings(p.model_fallbacks_json),
     features:storedFeatures(p.features_json),
@@ -161,6 +158,7 @@ function pending(): never {
   });
 }
 const safeRejections = new Set([
+  'role_conflict', 'role_unavailable', 'role_too_long',
   'capability_in_use', 'invalid_capability_dependencies', 'capability_unavailable', 'capability_usage_unavailable',
   "agent_id_already_exists",
   "invalid_agent_config",
@@ -251,7 +249,8 @@ export class ConfigOperations {
   }
   private async request(op: ConfigOperationRecord) {
     this.authorize(op.owner_id, op.node_id, op.agent_id);
-    const c = gatewayCandidate(storedConfigurationCandidate(op.candidate_json));
+    const candidate = storedConfigurationCandidate(op.candidate_json);
+    const c = gatewayCandidate(candidate);
     const binding = configurationPersonalBinding(this.dependencies.db,op.agent_id,op.owner_id,op.node_id);
     if(binding) c.personal_agent={bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch};
     else delete c.personal_agent;
@@ -262,6 +261,7 @@ export class ConfigOperations {
       ["create","restore"].includes(op.operation_kind) ? "agent.create" : "agent.config.apply",
       {
         operation_id: op.operation_id,
+        ...(op.operation_kind === 'create' && candidate.initial_role !== undefined ? {initial_role:candidate.initial_role} : {}),
         candidate_fingerprint: op.candidate_fingerprint,
         expected_previous_fingerprint: op.expected_previous_fingerprint,
         agent: c,
@@ -469,19 +469,18 @@ export class ConfigOperations {
         c.workspace_root ?? null,
         c.workspace_is_default == null ? null : +c.workspace_is_default,
         JSON.stringify(c.features ?? {}),
-        c.custom_prompt ?? null,
         c.heartbeat_json ?? null,
       ];
       if (existing) {
         const changed = db
           .prepare(
-            "UPDATE agent_profiles SET display_name=?,description=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,group_reply_policy=?,default_model=?,model_fallbacks_json=?,reasoning_effort=?,approval_mode=?,work_mode=?,workspace_root=?,workspace_is_default=?,features_json=?,custom_prompt=?,heartbeat_json=?,profile_version=profile_version+1,registration_seed=0,pending_create_operation_id=NULL,updated_at=? WHERE agent_id=? AND profile_version=?",
+            "UPDATE agent_profiles SET display_name=?,description=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,group_reply_policy=?,default_model=?,model_fallbacks_json=?,reasoning_effort=?,approval_mode=?,work_mode=?,workspace_root=?,workspace_is_default=?,features_json=?,heartbeat_json=?,profile_version=profile_version+1,registration_seed=0,pending_create_operation_id=NULL,updated_at=? WHERE agent_id=? AND profile_version=?",
           )
           .run(...vals, now(), op.agent_id, existing.profile_version);
         if (!changed.changes) fail(409, "profile_version conflict");
       } else
         db.prepare(
-          "INSERT INTO agent_profiles(display_name,description,skills_json,skills_selection_mode,tool_allowlist_json,group_reply_policy,default_model,model_fallbacks_json,reasoning_effort,approval_mode,work_mode,workspace_root,workspace_is_default,features_json,custom_prompt,heartbeat_json,agent_id,owner_id,node_id,profile_version,created_at,updated_at,space_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
+          "INSERT INTO agent_profiles(display_name,description,skills_json,skills_selection_mode,tool_allowlist_json,group_reply_policy,default_model,model_fallbacks_json,reasoning_effort,approval_mode,work_mode,workspace_root,workspace_is_default,features_json,heartbeat_json,agent_id,owner_id,node_id,profile_version,created_at,updated_at,space_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
         ).run(...vals, op.agent_id, op.owner_id, op.node_id, now(), now(), defaultSpace(ownerAccount(db, op.owner_id)!));
       db.prepare(
         "INSERT OR IGNORE INTO users(id,username,display_name,owner_id,created_at) VALUES(?,?,?,?,?)",

@@ -225,9 +225,6 @@ importers:
       '@deepseek-ai/dsh-permission-presets':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(1489a79f98e16e336ccc634555797cd6)
-      '@deepseek-ai/dsh-persona':
-        specifier: 0.2.1-alpha.1
-        version: 0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-system-prompt@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-scope@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)))
       '@deepseek-ai/dsh-plugin-manager':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(c189bbc5b72e595f998867be020c022f)
@@ -294,6 +291,9 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(a9ea758212795dc8e7250a25629605cf)
+      '@deepseek-ai/dsh-tool-bash':
+        specifier: 0.2.1-alpha.1
+        version: 0.2.1-alpha.1(878d44fdfce16f7060c84e5cd2625403)
       '@deepseek-ai/dsh-tool-schedule':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-schedule@0.2.1-alpha.1(1483e8af16593fb46bded664de8f1cf7))(@deepseek-ai/dsh-subagent@0.2.1-alpha.1(bae771969584ed3cbfa1bcb28998d965))(@deepseek-ai/dsh-tools@0.2.1-alpha.1(6990646b5580becf37a10a1fe3d5469e))
@@ -331,11 +331,14 @@ importers:
         specifier: 1.2.0
         version: 1.2.0
       dsh-agent-context:
-        specifier: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.9/dsh-agent-context-0.3.0-rc.9.tgz
-        version: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.9/dsh-agent-context-0.3.0-rc.9.tgz(e60875a13089a6f902c1cdefff010b06)
+        specifier: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.11/dsh-agent-context-0.3.0-rc.11.tgz
+        version: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.11/dsh-agent-context-0.3.0-rc.11.tgz(e60875a13089a6f902c1cdefff010b06)
       js-yaml:
         specifier: 4.1.0
         version: 4.1.0
+      mdast-util-from-markdown:
+        specifier: 2.1.0
+        version: 2.1.0
       proper-lockfile:
         specifier: 4.1.2
         version: 4.1.2
@@ -4568,9 +4571,9 @@ packages:
   domutils@3.2.2:
     resolution: {integrity: sha512-6kZKyUajlDuqlHKVX1w7gyslj9MPIXzIFiz/rGu35uC1wMi+kMhQwGhl4lt9unC9Vb9INnY9Z3/ZA3+FhASLaw==}
 
-  dsh-agent-context@https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.9/dsh-agent-context-0.3.0-rc.9.tgz:
-    resolution: {integrity: sha512-Ne3CiiV+n4D+R2wuN/xLYpxlqsWAZAUu4JqipcCuFoAlEkNKXYXKNcJreOxwZoIGlhMCbKdAR2ATZYxrYERflg==, tarball: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.9/dsh-agent-context-0.3.0-rc.9.tgz}
-    version: 0.3.0-rc.9
+  dsh-agent-context@https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.11/dsh-agent-context-0.3.0-rc.11.tgz:
+    resolution: {integrity: sha512-/F5fYwPSzVDF6TC0SYzXFxE33Q3jHMooPfx2r0fAzEleKFMlXYzJ6Ree0Jay2MMnXLYd1H/pwsW1lTIb/ZAb/g==, tarball: https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.11/dsh-agent-context-0.3.0-rc.11.tgz}
+    version: 0.3.0-rc.11
     engines: {node: '>=22.19'}
     peerDependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1
@@ -10647,7 +10650,7 @@ snapshots:
       domelementtype: 2.3.0
       domhandler: 5.0.3
 
-  dsh-agent-context@https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.9/dsh-agent-context-0.3.0-rc.9.tgz(e60875a13089a6f902c1cdefff010b06):
+  dsh-agent-context@https://github.com/Mrchen116/dsh-agent-context/releases/download/v0.3.0-rc.11/dsh-agent-context-0.3.0-rc.11.tgz(e60875a13089a6f902c1cdefff010b06):
     dependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.10-alpha.1)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
       '@deepseek-ai/dsh-agent': 0.2.1-alpha.1(bc8e1a234d16d0329e7a818df1caf030)

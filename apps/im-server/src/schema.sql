@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     profile_version INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
-, is_stale INTEGER NOT NULL DEFAULT 0, staled_at TEXT, features_json TEXT NOT NULL DEFAULT '{}', custom_prompt TEXT, heartbeat_json TEXT);
+, is_stale INTEGER NOT NULL DEFAULT 0, staled_at TEXT, features_json TEXT NOT NULL DEFAULT '{}', heartbeat_json TEXT);
 CREATE TABLE IF NOT EXISTS agent_create_operations (
     operation_id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,

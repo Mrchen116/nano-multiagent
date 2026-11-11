@@ -191,7 +191,6 @@ class IMClient:
             "reasoning_effort": current.get("reasoning_effort"),
             "skills_selection_mode": current.get("skills_selection_mode"),
             "features": dict(current.get("features") or {}),
-            "custom_prompt": current.get("custom_prompt"),
         }
         # heartbeat_json 只在显式传入时放进 body:PATCH 的 model_validator 见到
         # heartbeat_json=None 键存在时,会把 heartbeat dict 形式 pop 掉、不转换
@@ -212,11 +211,29 @@ class IMClient:
         resp.raise_for_status()
         return resp.json()
 
+    def get_agent_role(self, agent_id: str) -> dict[str, Any]:
+        """Read the current workspace ROLE and its optimistic version."""
+        response = self._http.get(
+            f"/im/v1/agents/{agent_id}/role", headers=self._auth_headers
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def update_agent_role(self, agent_id: str, content: str) -> dict[str, Any]:
+        """Save a role through its independent, version-checked workspace API."""
+        current = self.get_agent_role(agent_id)
+        response = self._http.put(
+            f"/im/v1/agents/{agent_id}/role",
+            headers=self._auth_headers,
+            json={"content": content, "version": current["version"]},
+        )
+        response.raise_for_status()
+        return response.json()
+
     def preview_agent_prompt(
         self,
         agent_id: str,
         *,
-        custom_prompt: str | None,
         features: dict[str, bool] | None = None,
         tool_ids: list[str] | None = None,
         skill_ids: list[str] | None = None,
@@ -226,7 +243,6 @@ class IMClient:
             f"/im/v1/agents/{agent_id}/prompt-preview",
             headers=self._auth_headers,
             json={
-                "custom_prompt": custom_prompt,
                 "features": features or {},
                 "tool_ids": tool_ids or [],
                 "skill_ids": skill_ids or [],
@@ -243,7 +259,8 @@ class IMClient:
         agent_id: str,
         *,
         display_name: str | None = None,
-        custom_prompt: str = "",
+        initial_role: str = "",
+        work_mode: str = "single_thread",
         group_reply_policy: str = "MENTION",
         tool_allowlist: list[str] | None = None,
         skills: list[str] | None = None,
@@ -259,7 +276,8 @@ class IMClient:
             "agent_id": agent_id,
             "owner_id": self.owner_id,
             "display_name": display_name or agent_id,
-            "custom_prompt": custom_prompt,
+            "initial_role": initial_role,
+            "work_mode": work_mode,
             "group_reply_policy": group_reply_policy,
             "tool_allowlist": tool_allowlist or [],
             "skills": skills or [],

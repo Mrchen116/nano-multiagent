@@ -84,7 +84,7 @@ function purgeCenterExecution(ctx: ImContext, id: string): string[] {
     apply_error_message=NULL,applied_at=COALESCE(applied_at,datetime('now')) WHERE agent_id=?`).run(id);
   db.prepare(`UPDATE agent_profiles SET is_stale=1,staled_at=datetime('now'),description='',workspace_root=NULL,
     workspace_is_default=NULL,default_model=NULL,model_fallbacks_json='[]',reasoning_effort=NULL,approval_mode=NULL,
-    custom_prompt=NULL,features_json='{}',skills_json='[]',skills_selection_mode=NULL,tool_allowlist_json='[]',heartbeat_json=NULL
+    features_json='{}',skills_json='[]',skills_selection_mode=NULL,tool_allowlist_json='[]',heartbeat_json=NULL
     WHERE agent_id=?`).run(id);
   return affected;
 }

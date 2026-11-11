@@ -21,6 +21,7 @@ struct AgentConfigView: View {
     @State private var lifecycleUserID: String?
     @State private var lifecycleContact: Contact?
     @State private var deleting = false
+    @State private var roleHasUnsavedChanges = false
     private var dirty: Bool {
         guard let config else { return false }
         var baseline = config.draft; baseline.fixed_tools = draft.fixed_tools
@@ -41,7 +42,11 @@ struct AgentConfigView: View {
                                        })
             }
             if let config {
-                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability).disabled(pending || busy || conflicted || deleting)
+                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability,
+                                  configurationDisabled: pending || busy || conflicted || deleting,
+                                  roleEditor: AgentRoleEditor(client: client, agentID: agentID,
+                                                              online: lifecycleContact?.status == "online" && !deleting,
+                                                              hasUnsavedChanges: $roleHasUnsavedChanges))
                 AgentHeartbeatFields(draft: $draft, client: client, agentID: agentID).disabled(pending || busy || conflicted || deleting)
                 Section {
                     DisclosureGroup(L("配置归属", "Configuration")) {
@@ -69,7 +74,6 @@ struct AgentConfigView: View {
                             DisclosureGroup(L("查看服务端配置", "Inspect server configuration")) {
                                 Text(currentConfig.display_name).font(.headline)
                                 Text(currentConfig.description)
-                                Text(currentConfig.custom_prompt ?? "")
                                 Text(L("模型", "Model") + ": " + (currentConfig.default_model ?? "—"))
                                 Text(L("备用模型", "Fallbacks") + ": " + currentConfig.model_fallbacks.joined(separator: ", "))
                                 Text(L("工具", "Tools") + ": " + currentConfig.tool_allowlist.filter { $0 != "memory" }.joined(separator: ", "))
@@ -105,8 +109,8 @@ struct AgentConfigView: View {
             Button(busy ? L("保存中", "Saving") : L("保存", "Save")) { Task { await save() } }
                 .fontWeight(.semibold).disabled(config == nil || busy || pending || conflicted || deleting || !dirty || draft.display_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } }
-        .navigationBarBackButtonHidden(dirty || pending)
-        .toolbar { if dirty || pending { ToolbarItem(placement: .navigation) { Button(L("返回", "Back")) { confirmLeave = true } } } }
+        .navigationBarBackButtonHidden(dirty || pending || roleHasUnsavedChanges)
+        .toolbar { if dirty || pending || roleHasUnsavedChanges { ToolbarItem(placement: .navigation) { Button(L("返回", "Back")) { confirmLeave = true } } } }
         .confirmationDialog(L("离开并放弃未保存草稿？", "Leave and discard unsaved draft?"), isPresented: $confirmLeave, titleVisibility: .visible) { Button(L("离开", "Leave"), role: .destructive) { dismiss() } }
         .sheet(item: $preview) { value in AgentTextSheet(title: L("提示词预览", "Prompt preview"), text: value.prompt, preview: true) }
         .task { lifecycleUserID = await client.session.currentUser()?.id; await load() }
@@ -178,11 +182,13 @@ struct AgentEditorFields: View {
     var showProfile = true
     var showModels = true
     var showCapabilities = true
-    var showInstructions = true
+    var configurationDisabled = false
+    var roleEditor: AgentRoleEditor?
     @State private var addingFallback = ""
     private var models: [AgentModelOption] { capabilities?.models ?? [] }
     private var reasoning: AgentModelOption.Reasoning? { models.first { $0.name == (draft.default_model.isEmpty ? capabilities?.platform_default_model : draft.default_model) }?.reasoning }
     var body: some View {
+        Group {
         Group {
         if showProfile { Section(L("基本资料", "Profile")) {
             VStack(alignment: .leading, spacing: 7) {
@@ -244,12 +250,9 @@ struct AgentEditorFields: View {
             .onChange(of: addingFallback) { _, value in if !value.isEmpty { draft.model_fallbacks.append(value); addingFallback = "" } }
             }
         } }
-        if showCapabilities {
-        if showInstructions { Section(L("指令与能力", "Instructions and capabilities")) {
-            DisclosureGroup(L("自定义指令", "Custom instructions")) {
-                TextEditor(text: $draft.custom_prompt).frame(minHeight: 160).accessibilityLabel(L("自定义指令", "Custom instructions"))
-            }
-        } }
+        }.disabled(configurationDisabled)
+        if let roleEditor { roleEditor }
+        if showCapabilities { Group {
         Section {
             DisclosureGroup(L("工具", "Tools") + " · \(draft.tool_allowlist.filter { $0 != "memory" }.count)") {
                 if let capabilities {
@@ -296,7 +299,8 @@ struct AgentEditorFields: View {
                 }
             }
         }
-        } }
+        }.disabled(configurationDisabled) }
+        }
         .onChange(of: draft.default_model) { _, _ in
             draft.reasoning_effort = ""
             draft.model_fallbacks.removeAll { $0 == (draft.default_model.isEmpty ? capabilities?.platform_default_model : draft.default_model) }
