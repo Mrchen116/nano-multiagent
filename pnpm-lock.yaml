@@ -291,6 +291,9 @@ importers:
       '@deepseek-ai/dsh-token-meter':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(a9ea758212795dc8e7250a25629605cf)
+      '@deepseek-ai/dsh-tool-bash':
+        specifier: 0.2.1-alpha.1
+        version: 0.2.1-alpha.1(878d44fdfce16f7060c84e5cd2625403)
       '@deepseek-ai/dsh-tool-schedule':
         specifier: 0.2.1-alpha.1
         version: 0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-llm@0.2.1-alpha.1(@deepseek-ai/cordis@4.0.5-alpha.1))(@deepseek-ai/dsh-schedule@0.2.1-alpha.1(1483e8af16593fb46bded664de8f1cf7))(@deepseek-ai/dsh-subagent@0.2.1-alpha.1(bae771969584ed3cbfa1bcb28998d965))(@deepseek-ai/dsh-tools@0.2.1-alpha.1(6990646b5580becf37a10a1fe3d5469e))

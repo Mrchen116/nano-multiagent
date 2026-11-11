@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { MemorySources, renderMaterial } from '../src/knowledge/memory-sources.js';
+import { createHistoryView } from 'dsh-agent-context';
+import { qualifiedEvents } from '../src/knowledge/memory-source-view.js';
+import { MemorySources, renderMaterial, selectChildMaterial } from '../src/knowledge/memory-sources.js';
 
-const event = (seq: number, type: string, data: unknown = {}) => ({ seq, type, data });
+const event = (seq: number, type: string, data: any = {}) => ({ seq, time: 1700000000000 + seq, type, data: data.message ? {...data,message:{source:{kind:type === 'tool/result' ? 'tool' : 'model'},...data.message}} : data });
 const human = (seq: number, text: string) => event(seq, 'user/message', { id: `m-${seq}`, source: { kind: 'user', actorId: 'owner', channel: 'test', messageId: `m-${seq}` }, content: [{ type: 'text', text }] });
 function fixture(events: any[], options: { inherited?: number; onFlush?: (count: number) => void; cold?: boolean } = {}) {
   let count = 0; let leases = 0;
@@ -114,7 +116,9 @@ it('discovers unreported direct tasks, retains inherited conditions and excludes
   expect(tasks[0]?.text).toContain('Must be refundable');
   expect(tasks[0]?.text).toContain('not booked');
   expect(tasks[0]?.text).not.toContain('Future child');
-  expect(tasks[0]?.text).toContain('session_id=s; item_id=0');
+  expect(tasks[0]?.text).toContain('session_id=s\n');
+  expect(tasks[0]?.text).toContain('window_id=s:initial');
+  expect(tasks[0]?.text).toContain('item_id=0');
   expect(tasks[0]?.through).toBe(4);
 });
 
@@ -167,4 +171,68 @@ it('continues each original Unicode Inbox message with its own identity and body
 it('preserves the outer Inbox conversation and observation identity in direct material',()=>{
   const text=renderMaterial([{type:'tool/result',content:{target:'room',name:'Family trip',delivery:'observer',conversation_type:'group',channel:'web',messages:[{id:'m1',sender:{id:'u'},content:'Conditional preference'}]}}]);
   for(const value of ['room','Family trip','observer','group','web','m1','Conditional preference'])expect(text).toContain(value);
+});
+
+
+it('renders native windows once and uses only readable History items for messages and calls', async () => {
+  const events = [human(0, 'Before window'), event(1, 'step/end'),
+    event(2, 'compaction/start', {compactionId:'c'}), event(3, 'compaction/summary', {compactionId:'c',summary:[]}), event(4, 'compaction/end', {compactionId:'c'}),
+    human(5, 'Read the inbox'),
+    event(6, 'assistant/message', {message:{content:[{type:'text',text:'Reading messages.'},{type:'tool-call',id:'in',name:'inbox',arguments:'{"action":"read","target":"room"}'}]}}),
+    event(7, 'tool/call', {callId:'in',name:'inbox',arguments:'{"action":"read","target":"room"}'}),
+    event(8, 'tool/result', {message:{toolCallId:'in',content:[{type:'text',text:JSON.stringify({target:'room',delivery:'observer',messages:[{id:'im1',sender:{id:'owner',type:'user'},content:'Only refundable'}]})}]}}),
+    event(9, 'tool/call', {callId:'send',name:'send_message',arguments:'{"target":"agent:other","text":"Ask first"}'}),
+    event(10, 'tool/result', {message:{toolCallId:'send',isError:true,content:[{type:'text',text:'Permission denied'}]}}),event(11,'step/end')];
+  const batch = await fixture(events).sources.freeze('a', streams, {maxInputTokens:4000});
+  const text = batch.text!;
+  expect(text.match(/session_id=s(?:\n|;)/g)).toHaveLength(1);
+  expect(text.match(/window_id=s:2/g)).toHaveLength(1);
+  expect(text).toContain('2023-11-14T22:13:20.005Z');
+  expect(text).toContain('item_id=6');
+  expect(text).not.toContain('item_id=7');
+  expect(text).not.toContain('item_id=9');
+  expect(text).not.toMatch(/events \d|"sessionId"|"seq"/);
+  for (const value of ['inbox','callId','in','send_message','agent:other','Permission denied','observer','owner','im1','Only refundable']) expect(text).toContain(value);
+  const child = selectChildMaterial({sessionId:'s',rootSessionId:'parent',events:events as never,inheritedEvents:[]},4000).text;
+  expect(child).toContain('window_id=s:2');
+  expect(child).not.toContain('item_id=7');
+  expect(child).not.toContain('item_id=9');
+  expect(child).toContain('Own experience');
+  expect(child).toContain('send_message');
+  expect(child).toContain('agent:other');
+  const view = createHistoryView('s', qualifiedEvents(events as never, {}));
+  let windowId = '';
+  for (const line of text.split('\n')) {
+    if (line.startsWith('## window_id=')) windowId = line.slice('## window_id='.length);
+    const itemId = /item_id=(\S+)/.exec(line)?.[1];
+    if (itemId) expect(() => view.read(windowId, itemId)).not.toThrow();
+  }
+  const later = [...events,human(12,'Later same window'),event(13,'step/end')];
+  const increment = await fixture(later).sources.freeze('a',{s:{baseline:1,cursor:11}},{maxInputTokens:4000});
+  expect(increment.text).toContain('window_id=s:2');
+  expect(increment.text).toContain('item_id=12');
+  expect(increment.text).not.toContain('Before window');
+});
+
+
+it('keeps child references in the original parent and child windows despite activation and inheritance cuts', async () => {
+  const events = [human(0,'Old input'),event(1,'step/end'),event(2,'compaction/start',{compactionId:'c'}),
+    event(3,'compaction/summary',{compactionId:'c',summary:[]}),event(4,'compaction/end',{compactionId:'c'}),
+    human(5,'Inherited condition'),event(6,'step/end'),event(7,'subagent/catalog',{mode:'continuable',childId:'child',childCreatedAt:1700000000007}),event(8,'step/end')];
+  const own = [human(7,'Own task'),event(8,'step/end')];
+  const ctx = {sessions:{get:()=>undefined},sessionQuery:{observeSession:async(id:string)=>({
+    source:'prepared',revision:'disk',header:id==='s'?{cwd:'/owner',origin:'root'}:{cwd:'/task',origin:'subagent',parentSession:'s'},
+    events:id==='s'?events:[...events.slice(0,7),...own],inheritedEventCount:id==='s'?0:7,cursor:8,[Symbol.dispose]:()=>{},
+  })}};
+  const sources = new MemorySources(ctx as never,new Map([['s',{sessionId:'s',agentId:'a',ownerId:'owner',cwd:'/owner',revision:'1'}]]));
+  const progress = {s:{baseline:4,cursor:8}};
+  const target = await sources.freezeTarget('a',progress,1700000000005);
+  const batch = await sources.freeze('a',progress,{target,maxInputTokens:4000});
+  const [material] = await sources.children('a',target,batch,{maxInputTokens:4000});
+  expect(material?.text).toContain('window_id=s:2');
+  expect(material?.text).toContain('window_id=child:2');
+  expect(material?.text).toContain('item_id=5');
+  expect(material?.text).toContain('item_id=7');
+  expect(material?.text).not.toContain('Old input');
+  expect(selectChildMaterial(material!,4000).text).toBe(material!.text);
 });

@@ -7,7 +7,7 @@ import {stripContextItemId} from 'dsh-agent-context';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it.each(['unread-write', 'failed-read-write', 'normal-stop', 'body-only', 'legacy-oversized-index', 'oversized-index', 'model-error', 'cancelled'])(
-  'accepts only valid normally completed staging after %s', async mode => {
+  'checks actual direct edits and source progress after %s', async mode => {
     const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
     const home = await mkdtemp(join(tmpdir(), 'nano-dreaming-incomplete-'));
     let client: InstanceType<typeof RuntimeClient> | undefined;
@@ -24,7 +24,7 @@ export function apply(ctx) {
     let call;
     if (request.sessionId.startsWith('dreaming-')) {
       const text = request.messages.flatMap(m => m.content || []).filter(b => b.type === 'text').map(b => b.text).join('\\n');
-      const stage = text.match(/Editable copy: (.+?)\\. Only edit/)[1];
+      const stage = text.match(/<memory_repository>\\n([^\\n]+)\\n<\\/memory_repository>/)[1];
       const write = ['write', { file_path: stage + '/MEMORY.md', content: 'Unsupported overwrite' }];
       const mode = ${JSON.stringify(mode)};
       if (step === 2 && ['model-error', 'cancelled'].includes(mode)) {
@@ -49,7 +49,7 @@ export function apply(ctx) {
         } else if (mode === 'body-only' && !request.messages.some(message => message.toolCallId === 'update-published')) {
           call = ['write', {file_path: second, content: 'Updated detail after status feedback.'}, 'update-published'];
         } else {
-          call = ['git_commit', {message:'Consolidate related memories'}, 'batch-commit'];
+          call = ['bash', {description:'Commit the related memory batch',command:'git add -- . && git -c user.name=Nano -c user.email=memory@localhost commit -m "Consolidate related memories"'}, 'batch-commit'];
         }
       }
     } else {
@@ -92,18 +92,18 @@ export function apply(ctx) {
       const facts = await client.rpc.request('knowledge.facts', {}) as { reviews: Array<{ status: string; summary: string }> };
       expect(facts.reviews).toHaveLength(1);
       const failed = ['oversized-index', 'model-error', 'cancelled'].includes(mode);
-      expect(facts.reviews[0]).toMatchObject({ status: failed ? 'failed' : 'completed' });
+      expect(facts.reviews[0]).toMatchObject({ status: failed ? 'partial' : 'completed' });
       if (failed) {
         expect(facts.reviews[0]!.summary).toContain(mode === 'oversized-index' ? 'MEMORY.md exceeds' : 'did not complete');
         expect(facts.reviews[0]!.summary).toContain('整理进度未推进');
       }
       const body = readFile(join(home, '.nanoassistant/memory/knowledge/new.md'), 'utf8');
-      if (['body-only', 'legacy-oversized-index'].includes(mode)) {
+      if (['body-only', 'legacy-oversized-index', 'oversized-index'].includes(mode)) {
         await expect(body).resolves.toBe('A detail that belongs only on the topic page.');
       } else {
         await expect(body).rejects.toMatchObject({code:'ENOENT'});
       }
-      expect(await readFile(entry, 'utf8')).toBe(original);
+      expect(await readFile(entry, 'utf8')).toBe(mode==='oversized-index'?'记'.repeat(8001):['model-error','cancelled'].includes(mode)?'Unsupported overwrite':original);
       const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       const latest = requests.filter(request => request.sessionId === 'root').at(-1);
       const status = (id: string) => JSON.parse(stripContextItemId(latest.messages.find((message: any) => message.role === 'tool' && message.toolCallId === id).content).filter(block => block.type === 'text').map(block => block.text).join('\n'));
@@ -121,7 +121,8 @@ export function apply(ctx) {
         expect(result.maintenance.backlog.global.units).toBeGreaterThanOrEqual(0);
       }
       const maintenance = requests.filter(request => request.sessionId.startsWith('dreaming-'));
-      expect(JSON.stringify(maintenance[0].messages)).toContain('experience-one');
+      const materialPath=maintenance[0].messages.flatMap((m:any)=>m.content??[]).map((b:any)=>b.text??'').join('\n').match(/Main Agent original trajectory: ([^\n]+)/)![1];
+      expect(await readFile(materialPath,'utf8')).toContain('experience-one');
       if (mode === 'body-only') {
         const memory = join(home, '.nanoassistant/memory');
         const feedback = maintenance.filter(request => request.messages.some((message: any) => message.source?.channel === 'dreaming-git-status'));

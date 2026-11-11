@@ -197,3 +197,17 @@ R1 至 R4 的 ROLE 相关问题维持关闭。此前跨页保护继续保留，�
 结论：Approved，0 CRITICAL / 0 WARNING。旧 Persona delta 与 PA 默认指导/创建入口契约缺口已补齐。初始角色沿用 prepare → persist → apply，通过原生 CAS 落盘；已持久化后的恢复不重新初始化。部署提示词覆盖内容保留、精确默认文案去重、冲突、备份、幂等与恢复，不增加兼容逻辑。
 
 Author resolution：接受该结论；实现与隔离验证按修订设计执行，尚未执行生产迁移。设计批准不替代实际客户端、Context 与迁移验证。
+
+
+## Round 8 · 2026-11-11 · 输入与直接 Git 提交
+
+Reviewer: dreaming_input_design_review；delta，89ef39c + 本次四份文档。Issues Found，0 CRITICAL / 2 WARNING。
+
+- R8-W1 confirmed：原生 Bash 默认允许后台且超时提升后台，whenIdle 不能证明 shell 已停止。要求用公开配置在 Dreaming scope 禁用两者，并验证取消/超时无后续写入。
+- R8-W2 confirmed：delta 末尾为设计散文，旧 Scenario 仍写宿主保存，预算未区分文件正文和索引。要求归并为正式 Requirement/Scenario 并消除旧契约冲突。
+
+Author Resolutions：均 accepted。design 明确 native tool scope 的 enableRunInBackground=false / promoteOnTimeout=false 和进程生命周期用例；delta 已改既有提交及预算 Scenario，补保真、动态材料及单写者 Scenario，删除散文。其余角色视角、资格检查、现有提炼/整合结构、失败保留正式文件和部署副本验收继续有效。待独立复验。
+
+## Round 9 · 输入与直接 Git 提交复验
+
+Reviewer: dreaming_input_design_review；closure，89ef39c + 修订文档；2026-11-11T15:34:46+08:00。Approved，0 CRITICAL / 0 WARNING。R8-W1 公开 Bash scope 配置及生命周期验证已闭合；R8-W2 delta 已归并为完整 Scenario 并消除保存/预算冲突。其余覆盖 retained from Round 8。Author 接受，进入实施。

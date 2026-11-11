@@ -12,7 +12,7 @@ and own events directly, and returns the same two strings in the final JSON resp
 The host parses and validates it after normal completion. The pinned DSH public API
 does not expose provider-native JSON Schema output; Nano does not replace it with
 another completion tool. Empty strings retain the original no-signal meaning. The host owns
-scope, source versions, staging, receipts and persistence.
+scope, source versions, read-only batch materials, native Bash commits, receipts and persistence.
 
 Consolidation adapts Codex's tests for grounding claims, preserving preference
 scope and selecting knowledge that will help on a related future task. Nano uses

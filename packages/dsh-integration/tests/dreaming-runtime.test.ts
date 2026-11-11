@@ -8,7 +8,7 @@ import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 it.each([{personal:false,automatic:false},{personal:true,automatic:false},{personal:false,automatic:true}])('runs isolated Dreaming with real reads, application and a host receipt (personal=$personal, automatic=$automatic)', async ({personal,automatic}) => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
   const home = await mkdtemp(join(tmpdir(), 'nano-dreaming-runtime-')); let client: InstanceType<typeof RuntimeClient> | undefined; let logs='';
-  await writeFile(join(home,'fixture.mjs'), `import {appendFileSync} from 'node:fs'; export const name='dream-fixture'; export const inject=['llm']; export function apply(ctx){ctx.on('session/disposed',session=>{if(String(session.id).startsWith('dreaming-'))appendFileSync(process.env.DSH_HOME+'/disposed.jsonl',JSON.stringify(session.id)+'\\n');},{global:true});const steps=new Map();ctx.on('llm/stream',async function*(o){appendFileSync(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify(o)+'\\n');const n=steps.get(o.sessionId)||0;steps.set(o.sessionId,n+1);let call;if(String(o.sessionId).startsWith('dreaming-')){const all=o.messages.map(m=>(m.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('')).join('\\n');const units=[];const stage=all.match(/Editable copy: (.+?)\\. Only edit/)[1];const calls=[...units.map(u=>['read',{file_path:u.path}]),['read',{file_path:stage+'/MEMORY.md'}],['read',{file_path:stage+'/knowledge/dream.md'}],['write',{file_path:stage+'/knowledge/dream.md',content:'Verified lesson: compare actual tool outcomes with assistant claims.'}],['write',{file_path:stage+'/MEMORY.md',content:'# Expert memory\\n\\n[Verified lesson](knowledge/dream.md)'}],['git_commit',{message:'Consolidate verified lessons'}]];call=calls[n];}else{const last=o.messages.findLast(m=>m.role==='user'&&m.source?.actorId==='owner');if(last?.content.some(b=>b.text==='maintain')&&!o.messages.some(m=>m.role==='tool'&&m.toolCallId==='manual-run'))call=['memory_maintenance',{action:'run',request_ref:'maintain'}];}if(call){yield {type:'block-end',index:0,block:{type:'tool-call',id:String(o.sessionId).startsWith('dreaming-')?'dream-'+n:'manual-run',name:call[0],arguments:JSON.stringify(call[1])}};yield {type:'finish',reason:{kind:'tool-calls'}};}else{yield {type:'block-end',index:0,block:{type:'text',text:'Experience recorded.'}};yield {type:'finish',reason:{kind:'stop'}};}});}`);
+  await writeFile(join(home,'fixture.mjs'), `import {appendFileSync} from 'node:fs'; export const name='dream-fixture'; export const inject=['llm']; export function apply(ctx){ctx.on('session/disposed',session=>{if(String(session.id).startsWith('dreaming-'))appendFileSync(process.env.DSH_HOME+'/disposed.jsonl',JSON.stringify(session.id)+'\\n');},{global:true});const steps=new Map();ctx.on('llm/stream',async function*(o){appendFileSync(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify(o)+'\\n');const n=steps.get(o.sessionId)||0;steps.set(o.sessionId,n+1);let call;if(String(o.sessionId).startsWith('dreaming-')){const all=o.messages.map(m=>(m.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('')).join('\\n');const units=[...all.matchAll(/Main Agent original trajectory: ([^\\n]+)/g)].map(m=>({path:m[1]}));const stage=all.match(/<memory_repository>\\n([^\\n]+)\\n<\\/memory_repository>/)[1];const calls=[...units.map(u=>['bash',{description:'Read the full batch source evidence',command:'cat '+JSON.stringify(u.path)}]),['read',{file_path:stage+'/MEMORY.md'}],['read',{file_path:stage+'/knowledge/dream.md'}],['write',{file_path:stage+'/knowledge/dream.md',content:'Verified lesson: compare actual tool outcomes with assistant claims.'}],['write',{file_path:stage+'/MEMORY.md',content:'# Expert memory\\n\\n[Verified lesson](knowledge/dream.md)'}],['bash',{description:'Commit the verified memory batch',command:'git add -- MEMORY.md knowledge && git -c user.name=Nano -c user.email=memory@localhost commit -m consolidation'}]];call=calls[n];}else{const last=o.messages.findLast(m=>m.role==='user'&&m.source?.actorId==='owner');if(last?.content.some(b=>b.text==='maintain')&&!o.messages.some(m=>m.role==='tool'&&m.toolCallId==='manual-run'))call=['memory_maintenance',{action:'run',request_ref:'maintain'}];}if(call){yield {type:'block-end',index:0,block:{type:'tool-call',id:String(o.sessionId).startsWith('dreaming-')?'dream-'+n:'manual-run',name:call[0],arguments:JSON.stringify(call[1])}};yield {type:'finish',reason:{kind:'tool-calls'}};}else{yield {type:'block-end',index:0,block:{type:'text',text:'Experience recorded.'}};yield {type:'finish',reason:{kind:'stop'}};}});}`);
   try {
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}},{insert:[{id:'dream-fixture',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});
@@ -35,7 +35,7 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     if(personal)expect(refreshes).toBeGreaterThanOrEqual(2);
     else expect(refreshes).toBe(0);
     expect(facts.reviews).toEqual([expect.objectContaining({kind:'dreaming',status:'completed'})]);
-    expect(facts.reviews[0].summary).toContain('保存 2/2 页');
+    expect(facts.reviews[0].summary).toContain('实际变更 2 页');
     expect(await readFile(join(home,'.nanoassistant/memory/knowledge/dream.md'),'utf8')).toContain('actual tool outcomes');
     const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     if(automatic){
@@ -43,17 +43,20 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
       expect(foreground.tools.map((tool:any)=>tool.name).filter((name:string)=>['write','edit','memory_maintenance','git_commit'].includes(name))).toEqual([]);
     }
     const maintenance=requests.filter(request=>request.sessionId.startsWith('dreaming-'));
-    const commitResult=maintenance.at(-1).messages.find((message:any)=>message.toolCallId==='dream-4');
+    const commitResult=maintenance.at(-1).messages.find((message:any)=>message.role==='tool'&&message.toolName==='bash') ?? maintenance.at(-1).messages.filter((message:any)=>message.role==='tool').at(-1);
     expect(commitResult).toBeDefined();
     expect(commitResult.isError).not.toBe(true);
     expect(JSON.stringify(maintenance)).toContain('END-OF-VERIFIED-SOURCE');
     expect(JSON.stringify(maintenance)).not.toContain('line truncated to');
     const input = maintenance[0].messages.find((message:any)=>message.source?.channel==='dreaming');
-    expect(input.content.map((block:any)=>block.text).join('')).toContain('Long source outcome. '.repeat(300)+'END-OF-VERIFIED-SOURCE');
+    expect(input.content.map((block:any)=>block.text).join('')).not.toContain('END-OF-VERIFIED-SOURCE');
+    expect(input.content.map((block:any)=>block.text).join('')).toContain('Main Agent original trajectory:');
+    expect(JSON.stringify(maintenance[0].messages.filter((message:any)=>message.role==='system'))).not.toContain(home);
+    expect(maintenance[0].tools.map((tool:any)=>tool.name)).not.toContain('git_commit');
     expect(JSON.stringify(maintenance[0].messages).includes('input.md')).toBe(false);
     await expect(readFile(join(home,'.nanoassistant/maintenance/dreaming',facts.reviews[0].id,'input.md'))).rejects.toMatchObject({code:'ENOENT'});
     const names=maintenance[0].tools.map((tool:any)=>tool.name);
-    expect(names).toEqual(expect.arrayContaining(['read','write','edit','source_history','git_commit','notes','history','new_context','get_context_remaining']));
+    expect(names).toEqual(expect.arrayContaining(['read','write','edit','source_history','bash','notes','history','new_context','get_context_remaining']));
     expect(names).not.toContain('finish');
     const initialText=JSON.stringify(maintenance[0].messages);
     const parentCapabilities = await client.rpc.request('session.capabilities', {sessionId:binding.sessionId}) as {prompt:{sections:Array<{name:string;text:string}>}};
@@ -71,7 +74,7 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     expect(roleBackground.includes("pursue goals across work and everyday life")).toBe(personal);
     expect(initialText).not.toContain("<custom_instructions>");
     expect(roleBackground).toContain('No confirmed role text is available in this batch.');
-    expect(roleBackground).not.toContain('<memory_content>');
+    expect(roleBackground).toContain('<memory_content>');
     expect(roleBackground).not.toContain('nano-role-agreement skill');
     const personalReflection='Consider what recent interactions reveal about relevant changes in the user’s goals';
     const expertReflection='Consider what recent work reveals about relevant domain and project changes';
@@ -105,7 +108,7 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     const warm = await readTrajectory();
     expect(JSON.stringify(warm)).toContain('Experience recorded.');
     expect(JSON.stringify(warm)).toContain('nano-dreaming');
-    expect(JSON.stringify(warm)).toContain('Host application receipt');
+    expect(JSON.stringify(warm)).toContain('Host memory/Git receipt');
     // Durable viewer identity does not publish a model-manageable child.
     expect(await workDescendants(client.rpc, { sessionId: binding.sessionId })).toEqual([]);
     await client.shutdown();
@@ -176,11 +179,16 @@ ctx.on('llm/stream',async function*(request){
     const stages=requests.filter(r=>r.sessionId.startsWith('dreaming-'));
     expect(stages.length).toBeLessThanOrEqual(maxBatches);
     const input=(r:any)=>r.messages.filter((m:any)=>m.source?.channel==='dreaming').map((m:any)=>m.content.map((b:any)=>b.text??'').join('')).join('');
-    expect(Math.max(...stages.map(r=>Buffer.byteLength(input(r),'utf8')/3))).toBeGreaterThan(fixed?30000:90000);
-    expect(stages.map(input).join('\n')).toContain('SOURCE-END');
+    const materials=await Promise.all(stages.map(async request=>{
+      const paths=[...input(request).matchAll(/Main Agent original trajectory: ([^\n]+)/g)].map(match=>match[1]!);
+      return (await Promise.all(paths.map(path=>readFile(path,'utf8')))).join('\n');
+    }));
+    expect(Math.max(...materials.map(text=>Buffer.byteLength(text,'utf8')/3))).toBeGreaterThan(fixed?30000:90000);
+    expect(materials.join('\n')).toContain('SOURCE-END');
+    expect(stages.map(input).join('\n')).not.toContain('SOURCE-END');
     if(fixed){
       expect(stages[0].tools.find((tool:any)=>tool.name==='read').description).toContain('固'.repeat(fixed));
-      expect(Math.max(...stages.map(r=>Buffer.byteLength(input(r),'utf8')/3))).toBeLessThan(60000);
+      expect(Math.max(...materials.map(text=>Buffer.byteLength(text,'utf8')/3))).toBeLessThan(60000);
     }
     for(const request of stages){
       const full=JSON.stringify({system:request.system,messages:request.messages,tools:request.tools});

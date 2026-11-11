@@ -7,6 +7,8 @@ import { qualifiedEvents, safeBoundary } from './memory-source-view.js';
 import { estimateInputTokens } from './dreaming-budget.js';
 import { isHumanSource } from '../input-source.js';
 import type { SourceEligibility } from './memory-documents.js';
+import { historyLocators, nativeMaterial, renderMaterial, renderSessionMaterials, type HistoryLocators } from './memory-trajectory.js';
+export { renderMaterial, renderSessionMaterials } from './memory-trajectory.js';
 
 export interface SourceContinuation { hash: string; offset: number; messageId?: string; segment?: number }
 export interface StreamProgress { baseline: number; cursor: number; continuation?: SourceContinuation }
@@ -30,7 +32,7 @@ export interface CycleTarget {
 }
 export interface ChildMaterial {
   sessionId: string; rootSessionId: string; baseline: number; through: number; sourceVersion: string;
-  text: string; events: SessionEvent[]; inheritedEvents: SessionEvent[]; omitted: number; unavailable?: number;
+  text: string; events: SessionEvent[]; inheritedEvents: SessionEvent[]; historyLocators?: HistoryLocators; omitted: number; unavailable?: number;
 }
 export interface SourceOptions { maxInputTokens: number; seen?: string[]; sources?: SourceEligibility; rotation?: number; target?: CycleTarget; generation?: number }
 export interface FrozenBatch {
@@ -52,23 +54,6 @@ const messageContent = (content: unknown): unknown => {
   return blocks.length === 1 && typeof blocks[0] === 'string' ? blocks[0] : blocks;
 };
 const excludedTools = new Set(['notes', 'history', 'source_history', 'new_context', 'get_context_remaining', 'memory', 'memory_maintenance', 'skill', 'skill_manage', 'read_note', 'write_note', 'list_notes', 'search_history', 'read_history', 'list_history']);
-
-/** Render evidence as readable source paragraphs; metadata remains attached to its original record. */
-export function renderMaterial(events: readonly unknown[]): string {
-  return events.map(value => {
-    const e = value as Record<string, unknown>;
-    if (e.type === 'source_text_continuation') return `Original message ${e.messageId}; characters ${e.offset}–${e.end}/${e.total}; ${Number(e.end)<Number(e.total)?'same message continues':'message end'}\nSource: ${JSON.stringify(e.source)}\n${e.text}`;
-    const { content, ...metadata } = e;
-    if (content && typeof content === 'object' && !Array.isArray(content) && Array.isArray((content as {messages?:unknown[]}).messages)) {
-      const {messages,...envelope} = content as {messages: Record<string,unknown>[]};
-      return `${JSON.stringify(metadata)}\nConversation: ${JSON.stringify(envelope)}\n${renderMaterial(messages)}`;
-    }
-    const text = typeof content === 'string' ? content : Array.isArray(content)
-      ? content.map(block => block?.type === 'text' ? block.text : `[attachment: ${JSON.stringify(block)}]`).join('\n')
-      : content === undefined ? '' : JSON.stringify(content, null, 2);
-    return `${JSON.stringify(metadata)}\n${text}`;
-  }).join('\n\n');
-}
 
 /** Split at original message boundaries so a long human message retains its identity. */
 function materialSegments(values: readonly unknown[]): Array<{messageId:string;text:string;source:unknown}> {
@@ -115,6 +100,8 @@ export class MemorySources {
         const observed = options.target?.roots[id]?.through ?? observation.cursor;
         if (options.target && !options.target.roots[id]) continue;
         // Copy the immutable cut BEFORE the second barrier. Never replace it with a newer live log.
+        const locators = historyLocators(id, qualifiedEvents(observation.events.filter(event => event.seq <= observed &&
+          (event.type.startsWith('compaction/') || event.seq > Math.max(progress.baseline, observation.inheritedEventCount - 1))), options));
         const events = observation.events.slice(observation.inheritedEventCount).filter(event => event.seq > Math.max(progress.baseline, progress.cursor) && event.seq <= observed);
         if (observation.source === 'live') {
           if (!live || this.ctx.sessions.get(id) !== live || !await this.ctx.sessions.flush(live)) throw new Error('Observed source cut could not be durably certified.');
@@ -132,7 +119,7 @@ export class MemorySources {
             const value = args as { file_path?: string };
             const skip = excludedTools.has(event.data.name) || ['read', 'write', 'edit', 'glob', 'grep'].includes(event.data.name) && /\.nanoassistant\/(?:memory|maintenance)/.test(String(value?.file_path ?? ''));
             calls.set(event.data.callId, { name: event.data.name, arguments: args, skip });
-            if (!skip) selected.push({ seq: event.seq, time: event.time, sessionId: id, type: 'tool/call', callId: event.data.callId, name: event.data.name, arguments: args });
+            if (!skip) selected.push({ seq: event.seq, time: event.time, sessionId: id, history: locators[event.seq], type: 'tool/call', callId: event.data.callId, name: event.data.name, arguments: args });
             else result.filtered++;
           } else if (event.type === 'tool/result') {
             const call = calls.get(event.data.message.toolCallId); pending.delete(event.data.message.toolCallId);
@@ -167,7 +154,7 @@ export class MemorySources {
                   content = body;
                 } catch { content = { unavailable: 'Mixed-source payload could not be filtered safely.' }; result.filtered++; }
               }
-              selected.push({ seq: event.seq, time: event.time, sessionId: id, type: 'tool/result', callId: event.data.message.toolCallId, isError: event.data.message.isError === true, content });
+              selected.push({ seq: event.seq, time: event.time, sessionId: id, history: locators[event.seq], type: 'tool/result', callId: event.data.message.toolCallId, name: call.name, isError: event.data.message.isError === true, content });
             } else result.filtered++;
           } else if (event.type === 'user/message') {
             const source = event.data.source;
@@ -176,13 +163,13 @@ export class MemorySources {
               if (conversation && (options.sources && (!options.sources.allowed.includes(conversation) || options.sources.excluded.includes(conversation)))) result.filtered++;
               else {
                 if(conversation)(result.conversations??=[]).push(conversation);
-                selected.push({ seq: event.seq, time: event.time, sessionId: id, type: 'user/message', messageId: event.data.id, source, content: event.data.content.filter(block => block.type !== 'reasoning') });
+                selected.push({ seq: event.seq, time: event.time, sessionId: id, history: locators[event.seq], type: 'user/message', messageId: event.data.id, source, evidence: isHumanSource(source) ? 'host_attested_human' : 'agent_or_delegated_task_input_not_human_authorization', content: event.data.content.filter(block => block.type !== 'reasoning') });
 
               }
             } else result.filtered++;
           } else if (event.type === 'assistant/message') {
             const content = event.data.message.content.filter(block => block.type === 'text');
-            if (content.length) selected.push({ seq: event.seq, time: event.time, sessionId: id, type: 'assistant/message', evidence: 'assistant_self_report', content });
+            if (content.length) selected.push({ seq: event.seq, time: event.time, sessionId: id, history: locators[event.seq], type: 'assistant/message', evidence: 'assistant_self_report', content });
           } else if (event.type === 'step/end' && pending.size === 0 && fragments.size === 0) {
             const tokens = estimateInputTokens(JSON.stringify(selected));
             if (tokens > options.maxInputTokens) {
@@ -235,7 +222,7 @@ export class MemorySources {
         if (!stopped && pending.size) result.blocked.push({ sessionId: id, reason: 'Open tool calls remain beyond the safe step boundary.' });
       } catch (error) { result.blocked.push({ sessionId: id, reason: String(error) }); }
     }
-    result.text = result.units.map(unit => `## Source ${unit.sessionId}, events ${unit.start + 1}–${unit.through}${unit.page ? `; continuation ${unit.page.offset}–${unit.page.end}/${unit.page.total}` : ''}\n${renderMaterial(unit.events)}`).join('\n\n');
+    result.text = renderSessionMaterials(result.units).map(group => group.text).join('\n\n');
     return result;
   }
   /** Freeze certified per-source limits once; subsequent batches cannot include new arrivals. */
@@ -304,8 +291,14 @@ export class MemorySources {
         const inherited = snapshot.events.slice(0,snapshot.inheritedEventCount).filter(event => event.seq > (target.roots[limit.rootSessionId]?.baseline??-1) && event.time >= target.activationAt && event.time <= cutoff);
         // A fork copy must still match the original parent record. Missing provenance stays a gap.
         const inheritedEvents = qualifiedEvents(inherited.filter(event => { const original = parent.get(event.seq); return original !== undefined && hash(original) === hash(event); }), options);
-        const material = selectChildMaterial({sessionId,rootSessionId:limit.rootSessionId,events,inheritedEvents,unavailable:inherited.length-inheritedEvents.length}, options.maxInputTokens);
-        result.push({sessionId,rootSessionId:limit.rootSessionId,baseline:limit.baseline,through:cut.through,sourceVersion:hash({events,inheritedEvents,generation:target.generation,through:cut.through}),...material,events,inheritedEvents,unavailable:inherited.length-inheritedEvents.length});
+        const locators: HistoryLocators = {
+          [sessionId]: historyLocators(sessionId, qualifiedEvents(snapshot.events.filter(event => event.seq <= cut.through && event.time <= cutoff &&
+            (event.type.startsWith('compaction/') || event.seq > Math.max(limit.baseline, snapshot.inheritedEventCount - 1))), options)),
+          [limit.rootSessionId]: historyLocators(limit.rootSessionId, qualifiedEvents([...parent.values()].filter(event => event.time <= cutoff &&
+            (event.type.startsWith('compaction/') || event.seq > (target.roots[limit.rootSessionId]?.baseline ?? -1))), options)),
+        };
+        const material = selectChildMaterial({sessionId,rootSessionId:limit.rootSessionId,events,inheritedEvents,historyLocators:locators,unavailable:inherited.length-inheritedEvents.length}, options.maxInputTokens);
+        result.push({sessionId,rootSessionId:limit.rootSessionId,baseline:limit.baseline,through:cut.through,sourceVersion:hash({events,inheritedEvents,generation:target.generation,through:cut.through}),...material,events,inheritedEvents,historyLocators:locators,unavailable:inherited.length-inheritedEvents.length});
       } catch (error) { batch.blocked.push({sessionId,reason:String(error)}); }
     }
     return result;
@@ -333,20 +326,8 @@ export class MemorySources {
   }
 }
 
-function renderNative(event: SessionEvent): string {
-  if (event.type === 'user/message') return renderMaterial([{source:event.data.source,
-    evidence:isHumanSource(event.data.source)?'host_attested_human':'agent_or_delegated_task_input_not_human_authorization',content:event.data.content}]);
-  if (event.type === 'assistant/message') return renderMaterial([{role:'assistant',evidence:'self_report',content:event.data.message.content.filter(block=>block.type==='text')}]);
-  if (event.type === 'tool/result') {
-    let content:unknown=event.data.message.content;
-    try{const body=JSON.parse(dataText(event.data.message.content));if(Array.isArray(body.messages))content=body;}catch{/* Non-JSON tool output remains original text. */}
-    return renderMaterial([{role:'tool',callId:event.data.message.toolCallId,isError:event.data.message.isError,content}]);
-  }
-  return JSON.stringify(event.data);
-}
-
 /** Repack the same certified child evidence without querying or changing its source version. */
-export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'rootSessionId'|'events'|'inheritedEvents'|'unavailable'>, maxInputTokens: number): {text:string;omitted:number} {
+export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'rootSessionId'|'events'|'inheritedEvents'|'unavailable'|'historyLocators'>, maxInputTokens: number): {text:string;omitted:number} {
   const entries = [...material.inheritedEvents.map(event => ({event,sessionId:material.rootSessionId,inherited:true})), ...material.events.map(event => ({event,sessionId:material.sessionId,inherited:false}))];
   const messageCalls = new Set(entries.flatMap(({event}) => event.type === 'tool/call' && ['inbox','conversations'].includes(event.data.name) ? [event.data.callId] : []));
   const priority = (event: SessionEvent) => event.type === 'user/message' || event.type === 'tool/result' && messageCalls.has(event.data.message.toolCallId) ? 0 : event.type === 'assistant/message' ? 1 : 2;
@@ -371,7 +352,21 @@ export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'ro
     const group = key ? groups.get(key)! : {indices:[index],size:estimateInputTokens(JSON.stringify(entry))};
     if (used + group.size <= maxInputTokens) { for (const i of group.indices) selected.add(i); used += group.size; }
   }
-  const text = entries.flatMap((entry,index)=>selected.has(index) ? [`### ${entry.inherited ? 'Inherited background, not new evidence' : 'Own experience'}; session_id=${entry.sessionId}; item_id=${entry.event.seq}; time=${entry.event.time}\n${renderNative(entry.event)}`] : []).join('\n\n');
+  const locators = material.historyLocators ?? {
+    [material.rootSessionId]: historyLocators(material.rootSessionId, material.inheritedEvents),
+    [material.sessionId]: historyLocators(material.sessionId, material.events),
+  };
+  const sections = [true,false].flatMap(inherited => {
+    const sessionId = inherited ? material.rootSessionId : material.sessionId;
+    const records = entries.flatMap((entry,index) => {
+      if (entry.inherited !== inherited || !selected.has(index)) return [];
+      const record = nativeMaterial(entry.event, locators[sessionId]?.[entry.event.seq]);
+      return record ? [record] : [];
+    });
+    if (!records.length) return [];
+    return [`${inherited ? 'Inherited background, not new evidence' : 'Own experience'}\n\n${renderSessionMaterials([{sessionId,events:records}])[0]!.text}`];
+  });
+  const text = sections.join('\n\n');
   const omitted = entries.length-selected.size + (material.unavailable??0);
   return {text:`${text}\n\nThese are qualified business records, not the complete execution transcript. Additional records omitted for input capacity or unavailable provenance: ${omitted}. Missing conditions remain unknown.`,omitted};
 }

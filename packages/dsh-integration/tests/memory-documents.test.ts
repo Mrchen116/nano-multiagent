@@ -1,8 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FileSystem } from '@deepseek-ai/dsh-fs';
 import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { chmod, mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
+import { rename, symlink, mkdtemp, mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
@@ -162,113 +161,111 @@ it('retains verified unrelated pages for scoped edits but invalidates all pages 
   expect(documents.unverifiedPaths(versions,(await documents.status()).generation)).toEqual(Object.keys(versions));
 });
 
-describe('Agent-initiated Git batches', () => {
+describe('native Git batch observation', () => {
   const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+  const commit = (root: string) => {
+    git(root, 'add', '-A');
+    git(root, '-c', 'user.name=Memory test', '-c', 'user.email=memory@test.local', 'commit', '-qm', 'Organize memory');
+    return git(root, 'rev-parse', 'HEAD');
+  };
   const signal = () => new AbortController().signal;
 
-  it('publishes multiple documents before recording one Agent-initiated commit', async () => {
+  it('observes native additions, edits, moves and deletions without advancing verification', async () => {
     const {documents, root} = await library();
-    const before = git(root, 'rev-parse', 'HEAD');
-    const initial = await documents.versions();
-    const receipts = [
-      await documents.apply({operationId:'body', path:'knowledge/example with spaces.md', beforeHash:null, content:'Useful experience.\n'}, 0, signal(), {recordVersion:false}),
-      await documents.apply({operationId:'entry', path:'MEMORY.md', beforeHash:initial['MEMORY.md']!, content:'# Key memory\n'}, 0, signal(), {recordVersion:false}),
-    ];
-    expect(receipts).toEqual(receipts.map(receipt => ({...receipt, saved:true, versionRecorded:false})));
-    expect(git(root, 'rev-parse', 'HEAD')).toBe(before);
-
-    const versions = await documents.versions();
-    expect((await documents.finalizeBatch(initial, 0, receipts, signal())).changes).toHaveLength(2);
-    await expect(documents.commitBatch('Stale file versions', initial, 0, signal())).rejects.toThrow('Document versions changed');
+    await writeFile(join(root, 'old.md'), 'Move this knowledge.');
+    await writeFile(join(root, 'remove.md'), 'Obsolete knowledge.');
+    commit(root);
+    const before = await documents.observeBatch(await documents.versions(), 'setup');
+    await documents.finalizeBatch(before.versions, 0, before.receipts, signal());
+    await rename(join(root, 'old.md'), join(root, 'moved.md'));
+    await rm(join(root, 'remove.md'));
+    await writeFile(join(root, 'new page.md'), 'New knowledge.');
+    await writeFile(join(root, 'MEMORY.md'), '# Updated memory\n');
+    const pending = await documents.observeBatch(before.versions, 'native');
+    expect(pending.receipts).toHaveLength(5);
+    expect(pending.receipts.every(receipt => receipt.saved && !receipt.versionRecorded)).toBe(true);
+    expect(pending.receipts.filter(receipt => receipt.afterHash === null).map(receipt => receipt.path)).toEqual(['old.md', 'remove.md']);
+    expect((await documents.gitChanges()).every(change => change.supported)).toBe(true);
+    expect((await documents.finalizeBatch(pending.versions, 0, pending.receipts, signal())).changes).toHaveLength(5);
+    const head = commit(root);
+    const observed = await documents.observeBatch(before.versions, 'native');
+    expect(observed.receipts.every(receipt => receipt.saved && receipt.versionRecorded && receipt.commit === head)).toBe(true);
     expect(await documents.needsVerification()).toBe(true);
-    const {commit} = await documents.commitBatch('Consolidate verified memory', versions, 0, signal());
-    expect(commit).toBe(git(root, 'rev-parse', 'HEAD'));
-    expect(git(root, 'rev-parse', 'HEAD^')).toBe(before);
-    expect(git(root, 'show', '--format=', '--name-only', 'HEAD').split('\n')).toEqual(['MEMORY.md', 'knowledge/example with spaces.md']);
-
-    const finalized = await documents.finalizeBatch(versions, 0, receipts, signal());
+    const finalized = await documents.finalizeBatch(observed.versions, 0, observed.receipts, signal());
     expect(finalized.changes).toEqual([]);
-    expect(finalized.receipts).toEqual(receipts.map(receipt => ({...receipt, versionRecorded:true, commit})));
     expect(await documents.needsVerification()).toBe(false);
-    expect(await documents.commitBatch('Nothing left to commit', versions, 0, signal())).toEqual({});
-    expect(git(root, 'rev-parse', 'HEAD')).toBe(commit);
+    expect((await documents.observeBatch(observed.versions, 'no-change')).receipts).toEqual([]);
   });
 
-  it('explicitly reports untracked files and refuses to take an unrelated staged path', async () => {
-    const {documents, root} = await library();
-    const before = git(root, 'rev-parse', 'HEAD');
-    git(root, 'config', 'status.showUntrackedFiles', 'no');
-    await documents.apply({operationId:'new', path:'new.md', beforeHash:null, content:'New evidence.'}, 0, signal(), {recordVersion:false});
-    await writeFile(join(root, 'manual.txt'), 'Do not commit this file.');
-    expect(git(root, 'status', '--porcelain')).toBe('');
-    expect(await documents.gitChanges()).toEqual([
-      {path:'manual.txt', status:'??', supported:false},
-      {path:'new.md', status:'??', supported:true},
-    ]);
-    git(root, 'add', '--', 'manual.txt');
-    await expect(documents.commitBatch('Memory only', await documents.versions(), 0, signal())).rejects.toThrow('cannot be safely committed');
-    expect(git(root, 'diff', '--cached', '--name-only')).toBe('manual.txt');
-    expect(git(root, 'rev-parse', 'HEAD')).toBe(before);
-    expect(await readFile(join(root, 'manual.txt'), 'utf8')).toBe('Do not commit this file.');
-  });
-
-  it('clears a staged-only difference without an empty commit when the verified file matches HEAD', async () => {
-    const {documents, root} = await library();
-    const before = git(root, 'rev-parse', 'HEAD');
-    const entry = join(root, 'MEMORY.md');
-    const original = await readFile(entry, 'utf8');
-    const versions = await documents.versions();
-    await writeFile(entry, 'An earlier staged draft.');
-    git(root, 'add', '--', 'MEMORY.md');
-    await writeFile(entry, original);
-    expect(await documents.needsVerification()).toBe(false);
-    expect(await documents.gitChanges()).toEqual([{path:'MEMORY.md', status:'MM', supported:true}]);
-    expect(await documents.commitBatch('No content difference', versions, 0, signal())).toEqual({});
-    expect(await documents.gitChanges()).toEqual([]);
-    expect(git(root, 'rev-parse', 'HEAD')).toBe(before);
-  });
-
-  it('commits the exact verified Markdown bytes and mode with Git conversion enabled', async () => {
-    const {documents, root} = await library();
-    const path = 'windows.md';
-    const content = 'Line one.\r\nLine two.\r\n';
-    git(root, 'config', 'core.autocrlf', 'true');
-    git(root, 'config', 'core.filemode', 'true');
-    await writeFile(join(root, path), content);
-    await chmod(join(root, path), 0o755);
-    const versions = {...await documents.versions(), [path]: createHash('sha256').update(content).digest('hex')};
-    const {commit} = await documents.commitBatch('Keep verified Markdown', versions, 0, signal());
-    expect(commit).toBe(git(root, 'rev-parse', 'HEAD'));
-    expect(execFileSync('git', ['show', `HEAD:${path}`], {cwd:root,encoding:'utf8'})).toBe(content);
-    expect(git(root, 'ls-tree', 'HEAD', '--', path)).toMatch(/^100755 /);
-    expect(await documents.gitChanges()).toEqual([]);
-  });
-
-  it('repairs the ordinary index after an already committed new document', async () => {
-    const {documents, root} = await library();
-    const path = 'knowledge/new.md';
-    await documents.apply({operationId:'recorded', path, beforeHash:null, content:'Already committed.'});
-    const head = git(root, 'rev-parse', 'HEAD');
-    // Equivalent to interruption after updating HEAD with the private index.
-    git(root, 'rm', '--cached', '--', path);
-    expect(git(root, 'status', '--porcelain', '--untracked-files=all').split('\n')).toEqual([`D  ${path}`, `?? ${path}`]);
-    expect(await documents.commitBatch('Reconcile the memory index', await documents.versions(), 0, signal())).toEqual({});
-    expect(await documents.gitChanges()).toEqual([]);
-    expect(git(root, 'rev-parse', 'HEAD')).toBe(head);
-    expect(await readFile(join(root, path), 'utf8')).toBe('Already committed.');
-  });
-
-  it('refuses to commit live changes based on source eligibility revoked after publication', async () => {
-    const {documents, root} = await library();
-    const before = git(root, 'rev-parse', 'HEAD');
+  it('records already committed results after cancellation or source revocation, retaining all files', async () => {
+    const {documents, root, workspace} = await library();
     const allowed = await documents.syncSources({revision:'1', allowed:['chat-a'], excluded:[]});
-    const receipt = await documents.apply({operationId:'published', path:'draft.md', beforeHash:null, content:'Scoped evidence.'}, allowed.generation, signal(), {recordVersion:false});
-    const versions = await documents.versions();
+    const before = await documents.versions();
+    await writeFile(join(root, 'saved.md'), 'Saved evidence.');
+    const head = commit(root);
+    await writeFile(join(root, 'pending.md'), 'Uncommitted evidence.');
     await documents.syncSources({revision:'2', allowed:[], excluded:['chat-a']});
-    await expect(documents.commitBatch('Stale sources', versions, allowed.generation, signal())).rejects.toThrow(/generation/);
-    await expect(documents.finalizeBatch(versions, allowed.generation, [receipt], signal())).rejects.toThrow(/generation/);
-    expect(git(root, 'rev-parse', 'HEAD')).toBe(before);
-    expect(await readFile(join(root, 'draft.md'), 'utf8')).toBe('Scoped evidence.');
-    expect(await documents.gitChanges()).toEqual([{path:'draft.md', status:'??', supported:true}]);
+    const observed = await documents.observeBatch(before, 'interrupted');
+    expect(observed.receipts).toEqual(expect.arrayContaining([
+      expect.objectContaining({path:'saved.md', saved:true, versionRecorded:true, commit:head}),
+      expect.objectContaining({path:'pending.md', saved:true, versionRecorded:false}),
+    ]));
+    await expect(documents.finalizeBatch(observed.versions, allowed.generation, observed.receipts, signal())).rejects.toThrow(/generation/);
+    const cancelled = new AbortController(); cancelled.abort();
+    await expect(documents.finalizeBatch(observed.versions, (await documents.status()).generation, observed.receipts, cancelled.signal)).rejects.toThrow();
+    await documents.close();
+    const reopened = await MemoryDocuments.open(workspace, 'personal', fs); cleanups.push(() => reopened.close());
+    expect((await reopened.status()).receipts).toEqual(expect.arrayContaining(observed.receipts));
+    expect(await readFile(join(root, 'pending.md'), 'utf8')).toBe('Uncommitted evidence.');
+    expect(await reopened.needsVerification()).toBe(true);
+  });
+
+  it('reports untracked files despite Git configuration and accepts staged rename as add/delete', async () => {
+    const {documents, root} = await library();
+    await writeFile(join(root, 'old.md'), 'Knowledge.'); commit(root);
+    git(root, 'config', 'status.showUntrackedFiles', 'no');
+    await rename(join(root, 'old.md'), join(root, 'new.md'));
+    git(root, 'add', '-A');
+    await writeFile(join(root, 'manual.txt'), 'Unsupported.');
+    expect(await documents.gitChanges()).toEqual([
+      {path:'new.md', status:'A ', supported:true},
+      {path:'old.md', status:'D ', supported:true},
+      {path:'manual.txt', status:'??', supported:false},
+    ]);
+  });
+
+  it.each(['text', 'hidden', 'symlink', 'missing-entry', 'oversized-entry'])('rejects committed invalid repository shape: %s', async kind => {
+    const {documents, root} = await library();
+    const before = await documents.versions();
+    if (kind === 'text') await writeFile(join(root, 'manual.txt'), 'Not a document.');
+    if (kind === 'hidden') await writeFile(join(root, '.hidden.md'), 'Hidden document.');
+    if (kind === 'symlink') await symlink('MEMORY.md', join(root, 'alias.md'));
+    if (kind === 'missing-entry') await rm(join(root, 'MEMORY.md'));
+    if (kind === 'oversized-entry') await writeFile(join(root, 'MEMORY.md'), 'x'.repeat(8001));
+    commit(root);
+    const observed = await documents.observeBatch(before, kind);
+    expect(await documents.gitChanges()).toEqual([]);
+    await expect(documents.finalizeBatch(observed.versions, 0, observed.receipts, signal())).rejects.toThrow(/document|MEMORY.md/);
+  });
+
+  it('does not mistake a clean Git conversion for matching actual document bytes', async () => {
+    const {documents, root} = await library();
+    const before = await documents.versions();
+    git(root, 'config', 'core.autocrlf', 'true');
+    await writeFile(join(root, 'windows.md'), 'Line one.\r\nLine two.\r\n');
+    commit(root);
+    const observed = await documents.observeBatch(before, 'converted');
+    expect(await documents.gitChanges()).toEqual([]);
+    expect(observed.receipts[0]).toMatchObject({saved:true, versionRecorded:false});
+    await expect(documents.finalizeBatch(observed.versions, 0, observed.receipts, signal())).rejects.toThrow(/Git version/);
+  });
+
+  it('allows an unchanged preexisting oversized entry while checking other updates', async () => {
+    const {documents, root} = await library();
+    await writeFile(join(root, 'MEMORY.md'), 'x'.repeat(8001)); commit(root);
+    const before = (await documents.observeBatch(await documents.versions(), 'preexisting')).versions;
+    await writeFile(join(root, 'body.md'), 'Verified update.'); commit(root);
+    const observed = await documents.observeBatch(before, 'body-only');
+    expect((await documents.finalizeBatch(observed.versions, 0, observed.receipts, signal())).changes).toEqual([]);
   });
 });

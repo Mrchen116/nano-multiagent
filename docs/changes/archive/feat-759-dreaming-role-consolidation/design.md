@@ -134,3 +134,32 @@ Web 和原生 iOS 的现有 Agent 配置页在“自定义指令”附近提供�
 Node 在已有 prepare 路径确认创建对象尚未存在于已持久化配置时，校验已解析工作区不共享、不为legacy，向 `configuration.prepare` 传 `initialRole`。Runtime 先完成原 capability prepare；ready 后复用 `roleDocument` 原生文件版本API：读取目标，只允许缺失/空白/占位符时以观测版本写入；已是完全相同文本视为崩溃后重试成功；不同非空文件返回 role_conflict，保留原文。失败释放已有prepare hold并返回明确拒绝。后续persist/apply沿用原创建回执。
 
 若进程在ROLE保存后、配置persist前中断，同一意图可恢复；如果已persist，则不再初始化ROLE，避免重试覆盖用户后续修改。创建时初始ROLE不合法或冲突不得报created。复用已有目录的确认不等同于允许覆盖其ROLE。客户端创建页用角色约定代替原自定义指令；已创建对象继续使用独立ROLE版本API，普通配置/预览不携带ROLE草稿。
+
+## 2026-11-11 修订：保真材料、动态输入与直接 Git 提交
+
+本节以用户最新确认方案为准，覆盖上文涉及暂存应用计划、专用 `git_commit`、内联全部整合材料和 Persona 的旧描述；既有 ROLE-only 修订继续有效。范围为同一 M1、同一 PR。
+
+### 输入及消费生命周期
+
+Consumer 为提炼 Agent 与整合 Dreaming Agent。提炼仍一次接收选定轨迹，输出现有摘要 JSON；整合仍是一个可换窗的 Agent，不增加分析或整理阶段。
+
+- 固定 system message 只含阶段职责、工具使用和证据/编辑规则。实际角色背景、文件路径、来源范围和批次目录进入 dynamic user message；保留原生窗口信息机制。固定工具 schema 不随批次材料变化。
+- 整合 user message 包含 `<system_role>`、`<role_content>`、当前短 MEMORY.md、正式记忆路径、材料索引及本批资格/截点/缺口。主轨迹按真实来源 session/window 分组写入批次 `sources/`；选中子任务摘要写入 `summaries/`，索引说明新增、更新、无信号及来源。正文不重复内联。明确先完整阅读本批选中材料，必要时原生分页/换窗，再整合。既有详情页按需读，来源补查仍用 source_history/conversations。
+- 批次目录是只读来源，与正式 Git 仓分开。文件化不取消逻辑材料预算：原始记录继续按既有预算冻结，子摘要按正文大小计入，超限的来源保持待处理；不因索引短就吞入所有材料。退出前源资格复核，只有完成并通过检查才推进对应截点。
+- 提炼和整合使用同一种保真轨迹格式：保留真实 role、工具名、参数、返回、call id、Inbox 读取过程及 IM 身份/聊天定位；不能把 Inbox 结果变成直接 USER 输入，不能语义化 send_message 目标。session/window 元数据每组一次，时间用 ISO；不展示内部 events 范围，不编造主题。
+- History 定位仅来自真实 History view。独立 tool/call event 不能假充可读取 item；如能关联 assistant message 则引用该消息，否则只保留 call id。定位三元组为 session_id/window_id/item_id。Inherited background 与 Own experience 保持区分、原始来源可回查。
+- 子轨迹预算优先级保持：输入与 Inbox/conversations 结果、助手文本、其他工具；同层最近优先，调用/结果成组，输出恢复时间顺序。未选内容不伪装为完整轨迹。
+
+### 编辑、Git 与失败边界
+
+- 整合 Agent cwd 为正式记忆仓，开放 native read/write/edit/glob/grep/bash、source_history、可用 conversations 与原生上下文恢复工具。删除自定义 git_commit 及 staging 发布；普通主 Agent 正式记忆禁止写入的既有边界不变。
+- Bash 沿用 DSH 公开原生工具与配置的 sandbox，不增加 shell 解析器或私有运行时接入，不宣称配置未提供的 OS 隔离。提示明确正式仓是唯一写入目标，来源目录只读；Bash 通过公开 @deepseek-ai/dsh-tool-bash 在 Dreaming scope 配置 enableRunInBackground=false、promoteOnTimeout=false；命令超时或取消时停止进程，本轮前台完成后才允许终态检查，不改变普通 Agent 的后台能力。原生文件工具仍限制正式仓写、批次和记忆目录读。
+- Agent 读现有页、同轮写承接页再缩减来源页并修链，自行执行普通 git add/commit（一组相关更新一个 commit），不要求每页提交。Git 作者通过仓库本地配置或命令显式配置；不依赖宿主用户全局配置。
+- 正常结束后宿主观察真实文件版本与 Git 状态，验证 MEMORY.md 上限、受支持文档形态及当前来源资格。若未提交变更，反馈检查结果给同一 Agent，继续后重新检查；正式仓干净且有效才标成功。删除/重命名属于正常 wiki 重组，应被真实版本比较和 Git 状态支持。
+- 同一正式仓保持单写者。取消、异常、检查失败保留已经实际修改/提交的内容，未成功批次不推进来源进度；下批从正式仓实际状态继续，不回滚、不重放旧应用计划。回执报告真实文件与 Git 观察结果。无改动且仓库干净可以成功。
+
+### 实施及验收
+
+仍为 M1：共享渲染器及来源测试可独立实施；主 Agent 集成材料文件化、预算、Bash/正式仓与回执。先窄测试再扩展受影响 runtime/source/document/recovery/budget 测试。检查真实原生请求的 system/user 分块、材料读取与工具语义，覆盖 Bash 超时/取消后无活动写入进程、同一 Agent 未提交反馈、删除/移动、取消/失败不推进、来源失效、预算与换窗。测试全部隔离。更新 Global/PA 首条 Inbox 和 Dreaming 的 PR 前后 HTML，明确受控 provider 捕获与真实模型质量评估的区别。
+
+选用独立 design review；实施后合并 code review、最终 delta 校对与 agent-context-review，依据请求与运行证据审查，不另增固定评审队列。部署沿用 [一次性部署提示词](deployment-prompt.md)，停旧维护任务后切换，保留实际正式库；不提供运行时旧 staging 兼容。

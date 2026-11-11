@@ -72,10 +72,14 @@ export function apply(ctx){
     expect(reviews.slice(2).every((r:any)=>r.status==='completed')).toBe(true);
     const requests=(await readFile(join(home,'inputs.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const material=(request:any)=>request.messages.filter((m:any)=>m.role==='user'&&m.source?.channel==='dreaming').map((m:any)=>m.content.map((b:any)=>b.text??'').join('')).join('');
-    expect(material(requests[0])).toContain('SOURCE-0');
-    expect(requests.slice(2).map(material).join('\n')).not.toContain('SOURCE-0');
-    expect(requests.slice(2).map(material).join('\n')).toContain('SOURCE-LATER');
-    expect(material(requests[1])).not.toContain('SOURCE-LATER');
+    const sources=await Promise.all(requests.map(async request=>{
+      const paths=[...material(request).matchAll(/Main Agent original trajectory: ([^\n]+)/g)].map(match=>match[1]!);
+      return (await Promise.all(paths.map(path=>readFile(path,'utf8')))).join('\n');
+    }));
+    expect(sources[0]).toContain('SOURCE-0');
+    expect(sources.slice(2).join('\n')).not.toContain('SOURCE-0');
+    expect(sources.slice(2).join('\n')).toContain('SOURCE-LATER');
+    expect(sources[1]).not.toContain('SOURCE-LATER');
     expect(material(requests[0])).toContain(`<role_content>\n${firstRole}\n</role_content>`);
     expect(material(requests[0])).not.toContain(updatedRole);
     expect(material(requests[1])).toContain(`<role_content>\n${updatedRole}\n</role_content>`);

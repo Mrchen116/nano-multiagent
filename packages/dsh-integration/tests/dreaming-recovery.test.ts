@@ -50,7 +50,7 @@ it.each(['generation','third-version'])('retires a stale %s plan without overwri
     await f.library.checkpoint(await f.library.versions(),0);
     const d=f.make();await d.recover();
     expect(await d.start(f.parent,false)).toMatchObject({reason:'no_eligible_increment'});
-    expect(f.runs.get('frozen')).toMatchObject({state:'failed',planRetired:true});
+    expect(f.runs.get('frozen')).toMatchObject({state:'failed'});
     expect(f.owners.get('YQ').streams.s.cursor).toBe(-1);
     if(reason==='third-version')expect(await readFile(join(f.library.root,'knowledge/lesson.md'),'utf8')).toBe('Human correction survives.');
   }finally{await f.close();}
@@ -68,13 +68,13 @@ it.each(['staging-only','published-body','committed-before-checkpoint'])('preser
       run.receipts=[receipt];
     }
     if(phase==='committed-before-checkpoint'){
-      await f.library.commitBatch('Consolidate lesson',await f.library.versions(),0,new AbortController().signal);
+      git('add','--','.');git('-c','user.name=Nano','-c','user.email=memory@localhost','commit','-m','Consolidate lesson');
       expect(git('log','-1','--format=%s')).toBe('Consolidate lesson');
     }
     const previousHead=git('rev-parse','HEAD');
     const restarted=f.make();
     await restarted.recover();
-    expect(f.runs.get('frozen')).toMatchObject({state:phase==='staging-only'?'failed':'partial',planRetired:true});
+    expect(f.runs.get('frozen')).toMatchObject({state:phase==='staging-only'?'failed':'partial'});
     expect(f.owners.get('YQ').streams.s.cursor).toBe(-1);
     expect(f.owners.get('YQ').seen).toEqual([]);
     expect(git('rev-parse','HEAD')).toBe(previousHead);
