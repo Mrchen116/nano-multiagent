@@ -167,3 +167,10 @@
 - HTML 四个页签现全部来自实际 HTTP 请求。Global／PA 各从空历史走同一条 Inbox 酒店条件 → 普通 subagent 读取报价及 send_message 回报 → 子轨迹摘要 → Dreaming 主轨迹与摘要文件链路。主会话未启用 fork。审查者亲读两套请求并对照两次 Inbox 正文，确认材料及读取结果原样保留，来源标签与会话关系一致。模型和 IM relay 是受控替身，不证明真实模型记忆质量；主→子后续消息的标签有定向输入测试，此连贯抓包未覆盖该交互或跨窗补读。
 - 本地证据在 `~/.local/share/nano-multiagent/evidence/dreaming-input-20261111/original-trajectories/`。短轨迹捕获版本为 `92dd6f75a`，后续修复只影响 IM 索引辨认、超长分页及旧部分进度，原捕获结论保留；HTML 标示当前实现。页面内容及关联校验通过，未重复此前受策略阻止的本地浏览器视觉预览。
 - 一次性部署提示补充旧格式未完成分页的切换：备份后清 continuation、保留 cursor/baseline，只重读未完成 step；退休 seen 可删除，不加入运行时兼容。主 Agent 和独立审查者均在模拟 owner 状态验证完整 JSON 重读及正确推进；未修改实际 KV 或生产。所有本轮临时运行资源已回收，保留证据及 PR worktree，既有用户试用服务未动。
+
+### Dreaming 复用建连失败等待策略（2026-11-11）
+
+- 用户要求 Dreaming 接入已有断网续跑，不新增一套重试。原 `agent/created` 在 Nano preset 筛选后才挂载 `attachModelConnectionRetry`，无 preset 的提炼／整合 Agent 被跳过。现将原调用移至筛选之前；分类、退避、取消及普通错误预算均不变。
+- 新增隔离 RuntimeClient + HTTP provider 故障注入回归。修复前原生事件只有 `mode: normal`，无法达到持续等待断言；修复后同一 Dreaming 会话的 turn 1 / step 2 连续产生 5 秒、10 秒建连等待，恢复后批次 completed，断网前 Bash 写入和提交只执行一次。另验证原生 Agent 取消可以结束等待，普通服务 502 仍有界失败。此为真实 DSH 跨进程、受控 HTTP 响应，不是拔网线或真实模型质量测试。
+- 构建和文档检查通过。相关六套件首轮 29/30 通过，失败为新增测试修改时误改旧 fixture 引用，修正后完整 `model-connection-retry.test.ts` 5/5 通过；另外五套件的 25 项结果保留，产品实现未再变化。新用例开发期间曾因测试错误地取消父会话而超时，后改为直接取消 Dreaming 原生 Agent，未把父取消语义纳入此次改动。
+- 独立审查与最终提交状态见后续记录。无生产变更；临时 RuntimeClient、HTTP 端口与测试工作区已回收。

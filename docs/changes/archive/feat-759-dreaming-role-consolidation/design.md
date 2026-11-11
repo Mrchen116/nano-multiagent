@@ -166,3 +166,7 @@ Consumer 为提炼 Agent 与整合 Dreaming Agent。提炼仍一次接收选定�
 仍为 M1：共享渲染器及来源测试可独立实施；主 Agent 集成材料文件化、预算、Bash/正式仓与回执。先窄测试再扩展受影响 runtime/source/document/recovery/budget 测试。检查真实原生请求的 system/user 分块、材料读取与工具语义，覆盖 Bash 超时/取消后无活动写入进程、同一 Agent 未提交反馈、删除/移动、取消/失败不推进、来源失效、预算与换窗。测试全部隔离。更新 Global/PA 首条 Inbox 和 Dreaming 的 PR 前后 HTML，明确受控 provider 捕获与真实模型质量评估的区别。
 
 选用独立 design review；实施后合并 code review、最终 delta 校对与 agent-context-review，依据请求与运行证据审查，不另增固定评审队列。部署沿用 [一次性部署提示词](deployment-prompt.md)，停旧维护任务后切换，保留实际正式库；不提供运行时旧 staging 兼容。
+
+### Dreaming 断网续跑补修
+
+Dreaming 提炼与整合复用既有模型建连失败等待策略；在通用 Agent 创建入口挂载，不再受 Nano preset 筛选限制。不新增 Dreaming 专属重试、计时器或恢复队列；错误识别、退避和取消边界不变，普通流式失败继续原有有界重试。

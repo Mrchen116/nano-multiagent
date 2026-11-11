@@ -316,6 +316,8 @@ export default class NanoRuntime {
     ctx.on('agent/created', async ({ agent, source }) => {
       const agentId = this.ownerOf(agent.id);
       if (agentId) { lifecycle.assertEnabled(agentId); await lifecycle.clean(agentId, agent, source === 'resume'); }
+      // Maintenance Agents have no Nano preset but share the same model connection policy.
+      attachModelConnectionRetry(agent, takeConnectionFailure);
       const preset = agent.session.header.agentPreset;
       if (!preset?.startsWith('nano:')) return;
       const desired = this.configurations.get(preset);
@@ -326,7 +328,6 @@ export default class NanoRuntime {
       if (desired.personal) { config.personal = desired.personal; assertPersonalConfiguration(config); }
       await scopes.attachAgent(agent, config);
       await (await approval).attach(agent, config);
-      attachModelConnectionRetry(agent, takeConnectionFailure);
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
       history.attach(agent, config, () => modelPolicy.route(agent));
       if (agentId) lifecycle.assertEnabled(agentId);
