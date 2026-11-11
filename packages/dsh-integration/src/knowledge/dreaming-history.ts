@@ -29,7 +29,7 @@ export function sourceDirectory(run: DreamingRun, owner: DreamingOwner): SourceR
     baseline:summary.baseline, through:summary.through,
     cutoff:run.batch.ranges.some(range => range.sessionId === summary.rootSessionId && (range.through > range.start || range.continuation))
       ? run.batch.cutoffs![summary.rootSessionId]! : run.target.children[summary.sessionId]!.time,
-    purpose:'Original evidence for this task summary'}));
+    purpose:'Original evidence for this subagent trajectory summary'}));
   return [...roots, ...children];
 }
 
@@ -54,7 +54,7 @@ export function registerDreamingHistory(ctx: Context, host: Context, parent: Age
       chain.push({id,snapshot});id=snapshot.header.parentSession;
     }
     const ancestor=directory.find(item=>item.session_id===id)!;
-    if(ancestor.session_id===ancestor.root_session_id)throw new Error('Only descendants of a supplied task summary may be expanded.');
+    if(ancestor.session_id===ancestor.root_session_id)throw new Error('Only descendants of a supplied subagent trajectory summary may be expanded.');
     let parent=await sources.snapshot(ancestor.session_id);let scope=ancestor;
     for(const child of chain.reverse()){
       const relation=parent.events.findLast(event=>event.type==='subagent/catalog'&&event.data.childId===child.id&&event.data.mode!=='unknown'&&event.seq<=scope.through&&event.time<=scope.cutoff);

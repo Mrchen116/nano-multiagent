@@ -347,7 +347,7 @@ export class Dreaming {
       for(const sessionId of new Set(run.batch.units.map(unit=>unit.sessionId)))inputs.push(`Main Agent original trajectory: ${join(run.directory,'sources',`${key(sessionId)}.md`)}\nSource session_id: ${sessionId}`);
       for(const summary of run.summaries){
         const text=await readFile(summary.path,'utf8');if(memoryDigest(text)!==summary.hash)throw new Error('Task summary changed before snapshot.');
-        inputs.push(`${summary.noSignal?'No-signal replacement; old summary retired':owner.integrated[summary.sessionId]?'Updated summary; replaces the same source':'New task summary'}: ${join(run.directory,'summaries',`${key(summary.sessionId)}.md`)}\nSource session_id: ${summary.sessionId}`);
+        inputs.push(`${summary.noSignal?'Subagent trajectory summary with no signal; old summary retired':owner.integrated[summary.sessionId]?'Updated subagent trajectory summary; replaces the same source':'New subagent trajectory summary'}: ${join(run.directory,'summaries',`${key(summary.sessionId)}.md`)}\nSource session_id: ${summary.sessionId}`);
       }
       const view=await library.context().catch(async error=>{
         if(error.code!=='ENOENT')throw error;
@@ -356,7 +356,6 @@ export class Dreaming {
       inputs.push(`Contents of ${join(view.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${'missing' in view?'MEMORY.md is missing. Restore a concise entry from the current pages and this batch before completing.':view.entry??'Read the complete entry at this path.'}\n</memory_content>`);
       const unverified=library.unverifiedPaths(view.versions,run.generation);
       if(unverified.length)inputs.push(`Existing pages awaiting verification: ${JSON.stringify(unverified)}. Read these before completing this batch.`);
-      inputs.push(`# Omitted or deferred sources (data)\n${JSON.stringify(run.batch.blocked)}`);
     }
     if(run.importLegacy){
       const {legacy}=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8'));
