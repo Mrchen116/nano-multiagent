@@ -121,7 +121,7 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     const directories=new Map<string,any[]>();
     const systems=new Set<string>();
     for (const request of prepareRequests) {
-      systems.add(JSON.stringify(request.messages.filter((message:any)=>message.role==='system')));
+      systems.add(JSON.stringify(request.messages.filter((message:any)=>message.role==='system').flatMap((message:any)=>message.content)));
       const plain = request.messages.flatMap((message: {content:Array<{type:string;text?:string}>}) => message.content)
         .filter((block: {type:string}) => block.type === 'text').map((block: {text:string}) => block.text).join('\n');
       const source=plain.match(/Source directory \(data\): (\[[^\n]*\])/);
