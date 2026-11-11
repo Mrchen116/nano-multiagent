@@ -123,7 +123,7 @@ export class Dreaming {
       let imported: Partial<DreamingOwner> | undefined;
       try { imported = JSON.parse(await readFile(join(library.workspace, '.nanoassistant/maintenance/dreaming-state.json'), 'utf8')) as DreamingOwner; }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-      const owner: DreamingOwner = { protocol: 2, integrated: {}, activationAt: imported?.activationAt ?? this.now(), streams: imported?.streams ?? await this.sources.baseline(config.agentId), seen: [], rotation: 0, failures: 0 };
+      const owner: DreamingOwner = { protocol: 2, integrated: {}, activationAt: imported?.activationAt ?? this.now(), streams: imported?.streams ?? await this.sources.baseline(config.agentId), rotation: 0, failures: 0 };
       await table.put(key(config.agentId), owner); return owner;
     })();
     this.owners.set(config.agentId, promise);
@@ -185,8 +185,7 @@ export class Dreaming {
       let importPending=importLegacy;
       while(true){
         signal.throwIfAborted();await assertDreamingSources(library,target.generation);
-        const policy=await library.status();
-        const options={maxInputTokens:budget,seen:owner.seen,sources:policy.sources,rotation:owner.rotation++,target};
+        const options={maxInputTokens:budget,rotation:owner.rotation++,target};
         let batch=deferred ? {...deferred.batch,id:randomUUID(),units:[],text:'',inputTokens:0} : await this.sources.freeze(config.agentId,owner.streams,options);
         let materials=deferred ? [] : await this.sources.children(config.agentId,target,batch,options);
         const includeConversations=()=>{batch.conversations=[...new Set([...(batch.conversations??[]),...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents]))])];};
@@ -394,7 +393,6 @@ export class Dreaming {
   }
   private async commitProgress(run:DreamingRun,owner:DreamingOwner){
     for(const range of run.batch.ranges)if(owner.streams[range.sessionId])commitSourceRange(owner.streams[range.sessionId]!,range);
-    owner.seen=[...new Set([...owner.seen,...run.batch.units.flatMap(unit=>unit.fingerprints)])];
     for(const summary of run.summaries)owner.integrated[summary.sessionId]=summary.sourceVersion;
     await this.saveOwner(run.agentId,owner);
   }
@@ -430,7 +428,7 @@ export class Dreaming {
     try{limit=await dreamingInputLimit(this.ctx,config);}
     catch(error){return {active:this.active.has(agentId),backlog:{state:'model_capacity_unavailable',scope:'unavailable',reason:String(error)}};}
     const target=await this.sources.freezeTarget(agentId,owner.streams,owner.activationAt,{generation:policy.generation});
-    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),seen:owner.seen,sources:policy.sources,rotation:owner.rotation,target};
+    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),rotation:owner.rotation,target};
     const batch=await this.sources.freeze(agentId,owner.streams,options);
     const materials=await this.sources.children(agentId,target,{...batch,ranges:[],cutoffs:{}},options);
     const summaries=(await this.domain).table('summaries');

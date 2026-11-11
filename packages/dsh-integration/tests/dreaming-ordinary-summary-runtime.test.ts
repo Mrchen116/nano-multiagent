@@ -67,7 +67,7 @@ export function apply(ctx){
     expect(extraction).toBeDefined();
     const material=extraction.messages.filter((m:any)=>m.role==='user').flatMap((m:any)=>m.content).map((b:any)=>b.text??'').join('\n');
     expect(material).toContain('Own experience');expect(material).toContain('4200');
-    expect(material).toContain('agent_or_delegated_task_input_not_human_authorization');
+    expect(material).toContain('[main agent]');
     expect(material).not.toContain('Inherited background, not new evidence');
     expect(material).not.toContain('host_attested_human');
     expect(material).not.toContain('ROOT_ONLY_CONTEXT_SENTINEL');

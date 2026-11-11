@@ -144,10 +144,13 @@ Node 在已有 prepare 路径确认创建对象尚未存在于已持久化配置
 Consumer 为提炼 Agent 与整合 Dreaming Agent。提炼仍一次接收选定轨迹，输出现有摘要 JSON；整合仍是一个可换窗的 Agent，不增加分析或整理阶段。
 
 - 固定 system message 只含阶段职责、工具使用和证据/编辑规则。实际角色背景、文件路径、来源范围和批次目录进入 dynamic user message；保留原生窗口信息机制。固定工具 schema 不随批次材料变化。
-- 整合 user message 包含 `<system_role>`、`<role_content>`、当前短 MEMORY.md、正式记忆路径、材料索引及本批资格/截点。主轨迹按真实来源 session/window 分组写入批次 `sources/`；选中子任务摘要写入 `summaries/`，索引明确标注 Subagent trajectory summary，说明新增、更新、无信号及来源。正文不重复内联。调度缺口留在宿主状态中，不再向模型注入全局 omitted/deferred 清单；材料自身的局部截断和选材说明保留。明确先完整阅读本批选中材料，必要时原生分页/换窗，再整合。既有详情页按需读，来源补查仍用 source_history/conversations。
+- 整合 user message 包含 `<system_role>`、`<role_content>`、当前短 MEMORY.md、正式记忆路径、材料索引及本批资格/截点。主轨迹按真实来源 session/window 分组写入批次 `sources/`；选中子任务摘要写入 `summaries/`，索引明确标注 Subagent trajectory summary，说明新增、更新、无信号及来源。正文不重复内联。调度缺口留在宿主状态中，不再向模型注入全局 omitted/deferred 清单；材料存在实际裁剪时才附简短说明，不输出零遗漏提示。明确先完整阅读本批选中材料，必要时原生分页/换窗，再整合。既有详情页按需读，来源补查仍用 source_history/conversations。
 - 批次目录是只读来源，与正式 Git 仓分开。文件化不取消逻辑材料预算：原始记录继续按既有预算冻结，子摘要按正文大小计入，超限的来源保持待处理；不因索引短就吞入所有材料。退出前源资格复核，只有完成并通过检查才推进对应截点。
 - 提炼和整合使用同一种保真轨迹格式：保留真实 role、工具名、参数、返回、call id、Inbox 读取过程及 IM 身份/聊天定位；不能把 Inbox 结果变成直接 USER 输入，不能语义化 send_message 目标。session/window 元数据每组一次，时间用 ISO；不展示内部 events 范围，不编造主题。
 - History 定位仅来自真实 History view。独立 tool/call event 不能假充可读取 item；如能关联 assistant message 则引用该消息，否则只保留 call id。定位三元组为 session_id/window_id/item_id。Inherited background 与 Own experience 保持区分、原始来源可回查。
+- 不按工具名／目录路径过滤执行记录；Inbox/conversations 工具返回原文保留，不做来源删选、消息去重、JSON 重排或片段合并。主轨迹与子轨迹共用 nativeMaterial/renderMaterial；重复读取保留为重复动作。删除已无用途的消息 fingerprint/seen 状态。来源补读使用同一记录视图，IM 实时补查权限不变。
+- 短标签区分 human user、main agent、other agent、assistant、tool call/result；主 Agent 标签由已知子会话委派关系及真实 senderSessionId 判断，不能仅由 user role 推断。删除 evidence 的授权解释。超长主轨迹仍按连续批次／原文分页处理，工具 JSON 不按内部消息拆分。
+
 - 子轨迹预算优先级保持：输入与 Inbox/conversations 结果、助手文本、其他工具；同层最近优先，调用/结果成组，输出恢复时间顺序。未选内容不伪装为完整轨迹。
 
 ### 编辑、Git 与失败边界

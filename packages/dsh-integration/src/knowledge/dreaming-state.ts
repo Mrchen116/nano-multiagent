@@ -5,7 +5,7 @@ import type { DocumentReceipt } from './memory-documents.js';
 
 export interface DreamingOwner {
   protocol: 2;
-  activationAt: number; streams: Record<string, StreamProgress>; seen: string[]; rotation: number;
+  activationAt: number; streams: Record<string, StreamProgress>; rotation: number;
   integrated: Record<string, string>;
   lastAttempt?: number; lastSuccessAutomatic?: number; retryAt?: number; failures: number;
 }

@@ -51,37 +51,35 @@ export function renderMaterial(events: readonly unknown[]): string {
   return events.map(value => {
     const record = value as RecordValue;
     if (record.type === 'source_text_continuation') {
-      return `${renderMaterial([record.source])}\nOriginal message ${record.messageId}; characters ${record.offset}–${record.end}/${record.total}; ${Number(record.end)<Number(record.total)?'same message continues':'message end'}\n${record.text}`;
+      return `${renderMaterial([record.source])}\nRecord continuation; characters ${record.offset}–${record.end}/${record.total}; ${Number(record.end)<Number(record.total)?'record continues':'record end'}\n${record.text}`;
     }
-    const {seq: _seq,sessionId: _sessionId,history: locator,type,time,content,...metadata} = record;
+    const {seq: _seq,sessionId: _sessionId,history: locator,type,label,time,content,...metadata} = record;
     if (type === 'tool/result' && metadata.isError === false) delete metadata.isError;
     const history = locator as HistoryLocator | undefined;
-    const heading = [type,typeof time === 'number' && Number.isFinite(time) ? new Date(time).toISOString() : typeof time === 'string' ? time : undefined,history?.item_id === undefined ? undefined : `item_id=${history.item_id}`].filter(Boolean).join(' · ');
-    if (content && typeof content === 'object' && !Array.isArray(content) && Array.isArray((content as {messages?:unknown[]}).messages)) {
-      const {messages,...envelope} = content as {messages:RecordValue[]};
-      return [heading ? `### ${heading}` : '',metadataText(metadata),`Conversation: ${JSON.stringify(envelope)}`,renderMaterial(messages)].filter(Boolean).join('\n');
-    }
-    return [heading ? `### ${heading}` : '',metadataText(metadata),contentText(content)].filter(Boolean).join('\n');
+    const kind = label ?? ({'tool/call':'tool call','tool/result':'tool result','assistant/message':'assistant'}[String(type)] ?? type);
+    const heading = [kind ? `[${kind}]` : undefined,typeof time === 'number' && Number.isFinite(time) ? new Date(time).toISOString() : typeof time === 'string' ? time : undefined,history?.item_id === undefined ? undefined : `item_id=${history.item_id}`].filter(Boolean).join(' · ');
+    return [heading,metadataText(metadata),contentText(content)].filter(Boolean).join('\n');
   }).join('\n\n');
 }
 
 /** Preserve native roles, full tool payloads and provenance in the shared record format. */
-export function nativeMaterial(event: SessionEvent, history?: HistoryLocator): RecordValue | undefined {
+export function nativeMaterial(event: SessionEvent, history?: HistoryLocator, context?: {mainAgentSessionId:string;delegated:boolean}): RecordValue | undefined {
   const base = {seq:event.seq,time:event.time,type:event.type,history};
-  if (event.type === 'user/message') return {...base,messageId:event.data.id,source:event.data.source,
-    evidence:isHumanSource(event.data.source)?'host_attested_human':'agent_or_delegated_task_input_not_human_authorization',content:event.data.content};
+  if (event.type === 'user/message') {
+    const source = event.data.source;
+    const fromMain = context && (source.kind === 'agent-message' && source.senderSessionId === context.mainAgentSessionId ||
+      context.delegated && source.kind === 'user' && !isHumanSource(source));
+    const label = isHumanSource(source) ? 'human user' : fromMain ? 'main agent' :
+      ['user','agent-message','subagent-settled'].includes(source.kind) ? 'other agent' : 'harness context';
+    return {...base,label,messageId:event.data.id,source,content:event.data.content.filter(block=>block.type!=='reasoning')};
+  }
   if (event.type === 'assistant/message') {
     const content=event.data.message.content.filter(block=>block.type==='text');
-    return content.length ? {...base,evidence:'assistant_self_report',content} : undefined;
+    return content.length ? {...base,label:'assistant',content} : undefined;
   }
   if (event.type === 'tool/call') return {...base,callId:event.data.callId,name:event.data.name,arguments:event.data.arguments};
   if (event.type === 'tool/result') {
-    let content: unknown = event.data.message.content;
-    try {
-      const body = JSON.parse(event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('\n'));
-      if (Array.isArray(body.messages)) content = body;
-    } catch { /* Non-JSON output retains its original blocks. */ }
-    return {...base,callId:event.data.message.toolCallId,isError:event.data.message.isError === true,content};
+    return {...base,callId:event.data.message.toolCallId,isError:event.data.message.isError === true,content:event.data.message.content};
   }
   return undefined;
 }

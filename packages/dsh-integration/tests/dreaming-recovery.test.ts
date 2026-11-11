@@ -15,7 +15,7 @@ import {foldSubagentDescriptor} from '@deepseek-ai/dsh-subagent';
 async function fixture(){
   const workspace=await mkdtemp(join(tmpdir(),'dreaming-recovery-'));
   const library=await MemoryDocuments.open(workspace,'expert',new LocalFileSystem(new Context(),{cwd:workspace,diffBasisMaxBytes:10485760}));
-  const owners=new Map<string,any>([['YQ',{protocol:2,activationAt:0,streams:{s:{baseline:-1,cursor:-1}},seen:[],integrated:{},rotation:0,failures:0}]]);
+  const owners=new Map<string,any>([['YQ',{protocol:2,activationAt:0,streams:{s:{baseline:-1,cursor:-1}},integrated:{},rotation:0,failures:0}]]);
   const runs=new Map<string,any>();const summaries=new Map();const cleanup:Array<()=>void>=[];
   const ctx={llm:{resolveModelInfo:async()=>({context:{contextWindow:256000}})},storageDomain:{open:async()=>({table:(name:string)=>{const rows=name==='owners'?owners:name==='runs'?runs:summaries;return {get:(id:string)=>rows.get(id),put:async(id:string,value:any)=>{rows.set(id,structuredClone(value));},entries:()=>rows.entries()};}})},
     on:()=>{},effect:(f:()=>()=>void)=>cleanup.push(f()),nanoTrajectoryRuns:{finishMaintenance:async()=>{}},sessions:{get:()=>undefined},sessionQuery:{}};
@@ -36,7 +36,7 @@ async function fixture(){
   }
   await writeFile(join(directory,'manifest.json'),JSON.stringify({versions}));
   runs.set('frozen',{id:'frozen',agentId:'a',rootSessionId:'s',mode:'manual',stage:'consolidate',cycleId:'cycle',state:'applying',at:Date.now(),generation:0,directory,
-    batch:{id:'frozen',units:[{id:'unit',sessionId:'s',start:-1,through:1,events:[],fingerprints:['source:revision']}],ranges:[{sessionId:'s',start:-1,through:1,observed:1}],blocked:[],filtered:0,inputTokens:0},
+    batch:{id:'frozen',units:[{id:'unit',sessionId:'s',start:-1,through:1,events:[]}],ranges:[{sessionId:'s',start:-1,through:1,observed:1}],blocked:[],filtered:0,inputTokens:0},
     target:{roots:{},children:{},blocked:[],generation:0,activationAt:0},summaries:[],receipts:[],plan,sourcesChecked:true});
   return {workspace,library,owners,runs,make,ctx,lesson,originalPath,parent:{id:'s',ctx:{tools:{get:()=>true}}} as never,
     close:async()=>{for(const fn of cleanup)fn();await library.close();await rm(workspace,{recursive:true,force:true});}};
@@ -76,7 +76,6 @@ it.each(['staging-only','published-body','committed-before-checkpoint'])('preser
     await restarted.recover();
     expect(f.runs.get('frozen')).toMatchObject({state:phase==='staging-only'?'failed':'partial'});
     expect(f.owners.get('YQ').streams.s.cursor).toBe(-1);
-    expect(f.owners.get('YQ').seen).toEqual([]);
     expect(git('rev-parse','HEAD')).toBe(previousHead);
     expect(await readFile(join(f.library.root,f.originalPath),'utf8')).toBe(f.lesson);
     const destination=readFile(join(f.library.root,'knowledge/lesson.md'),'utf8');

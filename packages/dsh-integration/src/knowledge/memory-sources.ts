@@ -3,10 +3,9 @@ import type { Context } from '@deepseek-ai/cordis';
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
 import type { SessionBinding } from '../index.js';
-import { qualifiedEvents, safeBoundary } from './memory-source-view.js';
+import { qualifiedEvents, safeBoundary, sourceConversations } from './memory-source-view.js';
 import { estimateInputTokens } from './dreaming-budget.js';
 import { isHumanSource } from '../input-source.js';
-import type { SourceEligibility } from './memory-documents.js';
 import { historyLocators, nativeMaterial, renderMaterial, renderSessionMaterials, type HistoryLocators } from './memory-trajectory.js';
 export { renderMaterial, renderSessionMaterials } from './memory-trajectory.js';
 
@@ -22,7 +21,7 @@ export function commitSourceRange(progress: StreamProgress, range: FrozenBatch['
 }
 export interface MemoryUnit {
   id: string; sessionId: string; start: number; through: number;
-  events: unknown[]; fingerprints: string[]; page?: { offset: number; end: number; total: number; hash: string };
+  events: unknown[]; page?: { offset: number; end: number; total: number; hash: string };
 }
 export interface CycleTarget {
   generation: number; activationAt: number;
@@ -34,40 +33,19 @@ export interface ChildMaterial {
   sessionId: string; rootSessionId: string; baseline: number; through: number; sourceVersion: string;
   text: string; events: SessionEvent[]; inheritedEvents: SessionEvent[]; historyLocators?: HistoryLocators; omitted: number; unavailable?: number;
 }
-export interface SourceOptions { maxInputTokens: number; seen?: string[]; sources?: SourceEligibility; rotation?: number; target?: CycleTarget; generation?: number }
+export interface SourceOptions { maxInputTokens: number; rotation?: number; target?: CycleTarget; generation?: number }
 export interface FrozenBatch {
   id: string; units: MemoryUnit[]; ranges: Array<{ sessionId: string; start: number; through: number; observed: number; continuation?: SourceContinuation }>;
   conversations?: string[]; text?: string; cutoffs?: Record<string, number>; historyThrough?: Record<string, number>; filtered: number; blocked: Array<{ sessionId: string; reason: string }>; inputTokens: number;
 }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
-const dataText = (content: readonly { type: string; text?: string }[]) => content.filter(block => block.type === 'text').map(block => block.text ?? '').join('\n');
-const messageContent = (content: unknown): unknown => {
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return content;
-  const blocks: unknown[] = [];
-  for (const block of content) {
-    if (block?.type === 'text') {
-      if (typeof blocks.at(-1) === 'string') blocks[blocks.length - 1] += String(block.text ?? '');
-      else blocks.push(String(block.text ?? ''));
-    } else blocks.push(block);
-  }
-  return blocks.length === 1 && typeof blocks[0] === 'string' ? blocks[0] : blocks;
-};
-const excludedTools = new Set(['notes', 'history', 'source_history', 'new_context', 'get_context_remaining', 'memory', 'memory_maintenance', 'skill', 'skill_manage', 'read_note', 'write_note', 'list_notes', 'search_history', 'read_history', 'list_history']);
 
-/** Split at original message boundaries so a long human message retains its identity. */
+/** Split oversized records without parsing or rewriting tool payloads. */
 function materialSegments(values: readonly unknown[]): Array<{messageId:string;text:string;source:unknown}> {
   return values.flatMap((value,index)=>{
     const record=value as Record<string,unknown>;
-    const body=record.content as {messages?:Record<string,unknown>[]} | undefined;
-    if(body && !Array.isArray(body) && typeof body==='object' && Array.isArray(body.messages)){
-      const {messages,...envelope}=body;
-      return messages.map((message,i)=>({messageId:String(message.id??message.message_id??`${record.seq}:${i}`),
-        text:typeof message.content==='string'?message.content:renderMaterial([{content:message.content}]).replace(/^\{\}\n/,''),
-        source:{...record,content:undefined,conversation:envelope,message:{...message,content:undefined}}}));
-    }
     const {content,...source}=record;
-    return [{messageId:String(record.messageId??`${record.sessionId}:${record.seq??index}`),
+    return [{messageId:String(record.messageId??String(record.seq??index)),
       text:typeof content==='string'?content:renderMaterial([{content}]).replace(/^\{\}\n/,''),source}];
   });
 }
@@ -80,17 +58,15 @@ export class MemorySources {
    * Args:
    *   agentId: Trusted business owner, never an arbitrary model-provided identity.
    *   streams: Previously committed baselines and cursors.
-   *   options: Input budget, deduplication receipts and current source eligibility.
+   *   options: Input budget and frozen source boundaries.
    * Returns:
    *   Immutable material, source ranges and explicit gaps; no cursor is committed here.
    */
   async freeze(agentId: string, streams: Record<string, StreamProgress>, options: SourceOptions): Promise<FrozenBatch> {
     const result: FrozenBatch = { id: randomUUID(), units: [], ranges: [], filtered: 0, blocked: [], inputTokens: 0 };
-    const seen = new Set(options.seen ?? []);
     const roots = [...this.bindings.values()].filter(binding => binding.agentId === agentId && streams[binding.sessionId]).sort((a, b) => a.sessionId.localeCompare(b.sessionId));
     const rotation = roots.length ? (options.rotation ?? 0) % roots.length : 0;
     for (const binding of [...roots.slice(rotation), ...roots.slice(0, rotation)]) {
-      const streamSeen = new Set(seen);
       const id = SessionId(binding.sessionId); const progress = streams[id]!;
       try {
         const live = this.ctx.sessions.get(id);
@@ -101,76 +77,36 @@ export class MemorySources {
         if (options.target && !options.target.roots[id]) continue;
         // Copy the immutable cut BEFORE the second barrier. Never replace it with a newer live log.
         const locators = historyLocators(id, qualifiedEvents(observation.events.filter(event => event.seq <= observed &&
-          (event.type.startsWith('compaction/') || event.seq > Math.max(progress.baseline, observation.inheritedEventCount - 1))), options));
+          (event.type.startsWith('compaction/') || event.seq > Math.max(progress.baseline, observation.inheritedEventCount - 1)))));
         const events = observation.events.slice(observation.inheritedEventCount).filter(event => event.seq > Math.max(progress.baseline, progress.cursor) && event.seq <= observed);
         if (observation.source === 'live') {
           if (!live || this.ctx.sessions.get(id) !== live || !await this.ctx.sessions.flush(live)) throw new Error('Observed source cut could not be durably certified.');
         } else if (!observation.revision) throw new Error('Cold source has no durable revision.');
-        const fragments = new Map<string, { total: number; parts: Map<number, Record<string, unknown>> }>();
-        const pending = new Set<string>(); const calls = new Map<string, { name: string; arguments: unknown; skip: boolean }>();
-        let start = Math.max(progress.cursor, progress.baseline); let through = start; let selected: unknown[] = []; let fingerprints: string[] = [];
+        const pending = new Set<string>(); const calls = new Set<string>();
+        let start = Math.max(progress.cursor, progress.baseline); let through = start; let selected: unknown[] = [];
         let stopped = false; let continuation: SourceContinuation | undefined;
         for (const event of events) {
           if (typeof event.surfaceOp === 'object' && event.surfaceOp.op === 'replace') { result.filtered++; continue; }
           if (event.type === 'tool/call') {
             pending.add(event.data.callId);
-            let args: unknown;
-            try { args = JSON.parse(event.data.arguments); } catch { args = event.data.arguments; }
-            const value = args as { file_path?: string };
-            const skip = excludedTools.has(event.data.name) || ['read', 'write', 'edit', 'glob', 'grep'].includes(event.data.name) && /\.nanoassistant\/(?:memory|maintenance)/.test(String(value?.file_path ?? ''));
-            calls.set(event.data.callId, { name: event.data.name, arguments: args, skip });
-            if (!skip) selected.push({ seq: event.seq, time: event.time, sessionId: id, history: locators[event.seq], type: 'tool/call', callId: event.data.callId, name: event.data.name, arguments: args });
-            else result.filtered++;
+            calls.add(event.data.callId);
+            selected.push(nativeMaterial(event, locators[event.seq]));
           } else if (event.type === 'tool/result') {
-            const call = calls.get(event.data.message.toolCallId); pending.delete(event.data.message.toolCallId);
-            if (!call) { result.blocked.push({ sessionId: id, reason: 'Unpaired result; source prefix is incomplete.' }); stopped = true; break; }
-            if (!call.skip) {
-              let content: unknown = event.data.message.content;
-              if (['inbox', 'conversations'].includes(call.name) && !event.data.message.isError) {
-                try {
-                  const body = JSON.parse(dataText(event.data.message.content)) as { source?: string; target?: string; conversation_id?: string; messages?: Array<Record<string, unknown>> };
-                  if (Array.isArray(body.messages)) body.messages = body.messages.flatMap(original => {
-                    let message = original;
-                    const conversation = String(message.conversation_id ?? message.target ?? body.conversation_id ?? body.target ?? body.source ?? '');
-                    const messageId = String(message.id ?? message.message_id ?? '');
-                    if (options.sources && (!options.sources.allowed.includes(conversation) || options.sources.excluded.includes(conversation))) { result.filtered++; return []; }
-                    if (message.partial) {
-                      const part = Number(message.part); const total = Number(message.parts);
-                      const fragmentKey = `${conversation}:${messageId}`;
-                      const group = fragments.get(fragmentKey) ?? { total, parts: new Map<number, Record<string, unknown>>() };
-                      fragments.set(fragmentKey, group);
-                      if (!Number.isInteger(part) || part < 1 || part > total || group.total !== total) return [];
-                      group.parts.set(part, message);
-                      if (group.parts.size !== total) return [];
-                      message = { ...message, partial: false, content: Array.from({length: total}, (_, i) => group.parts.get(i + 1)!.content).flat() };
-                      message.content = messageContent(message.content);
-                      delete message.part; delete message.parts; fragments.delete(fragmentKey);
-                    }
-                    const sender = message.sender as {id?: string; type?: string} | undefined;
-                    const identity = `${conversation}:${messageId}:${String(message.revision ?? hash({ content: messageContent(message.content), sender: {id:sender?.id,type:sender?.type} }))}`;
-                    if (streamSeen.has(identity)) { result.filtered++; return []; }
-                    streamSeen.add(identity); fingerprints.push(identity); (result.conversations??=[]).push(conversation); return [message];
-                  });
-                  content = body;
-                } catch { content = { unavailable: 'Mixed-source payload could not be filtered safely.' }; result.filtered++; }
-              }
-              selected.push({ seq: event.seq, time: event.time, sessionId: id, history: locators[event.seq], type: 'tool/result', callId: event.data.message.toolCallId, name: call.name, isError: event.data.message.isError === true, content });
-            } else result.filtered++;
+            pending.delete(event.data.message.toolCallId);
+            if (!calls.has(event.data.message.toolCallId)) { result.blocked.push({ sessionId: id, reason: 'Unpaired result; source prefix is incomplete.' }); stopped = true; break; }
+            (result.conversations ??= []).push(...sourceConversations([event]));
+            selected.push(nativeMaterial(event, locators[event.seq]));
           } else if (event.type === 'user/message') {
             const source = event.data.source;
             if (isHumanSource(source) || source.kind === 'agent-message' || source.kind === 'subagent-settled') {
               const conversation = 'conversationId' in source ? String(source.conversationId) : '';
-              if (conversation && (options.sources && (!options.sources.allowed.includes(conversation) || options.sources.excluded.includes(conversation)))) result.filtered++;
-              else {
-                if(conversation)(result.conversations??=[]).push(conversation);
-                selected.push({ seq: event.seq, time: event.time, sessionId: id, history: locators[event.seq], type: 'user/message', messageId: event.data.id, source, evidence: isHumanSource(source) ? 'host_attested_human' : 'agent_or_delegated_task_input_not_human_authorization', content: event.data.content.filter(block => block.type !== 'reasoning') });
-
-              }
+              if(conversation)(result.conversations??=[]).push(conversation);
+              selected.push(nativeMaterial(event, locators[event.seq]));
             } else result.filtered++;
           } else if (event.type === 'assistant/message') {
             const content = event.data.message.content.filter(block => block.type === 'text');
-            if (content.length) selected.push({ seq: event.seq, time: event.time, sessionId: id, history: locators[event.seq], type: 'assistant/message', evidence: 'assistant_self_report', content });
-          } else if (event.type === 'step/end' && pending.size === 0 && fragments.size === 0) {
+            if (content.length) selected.push(nativeMaterial(event, locators[event.seq]));
+          } else if (event.type === 'step/end' && pending.size === 0) {
             const tokens = estimateInputTokens(JSON.stringify(selected));
             if (tokens > options.maxInputTokens) {
               const segments = materialSegments(selected);
@@ -194,7 +130,7 @@ export class MemorySources {
                 const segmentComplete = end === characters.length;
                 const complete = segmentComplete && segment === segments.length-1;
                 result.units.push({ id: `${id}:${start + 1}-${event.seq}:message-${segment}-${offset}-${end}`, sessionId:id,start,through:event.seq,
-                  events:pageEvents,fingerprints:complete?fingerprints:[],page:{offset,end,total:characters.length,hash:bodyHash} });
+                  events:pageEvents,page:{offset,end,total:characters.length,hash:bodyHash} });
                 result.inputTokens += estimateInputTokens(JSON.stringify(pageEvents));
                 if(complete)through=event.seq;
                 else if(segmentComplete){const next=segments[segment+1]!;continuation={hash:hash(next.text),offset:0,messageId:next.messageId,segment:segment+1};}
@@ -207,18 +143,16 @@ export class MemorySources {
               result.blocked.push({ sessionId: id, reason: 'Next complete unit exceeds the remaining input budget.' }); stopped = true; break;
             }
             if (selected.length) {
-              result.units.push({ id: `${id}:${start + 1}-${event.seq}`, sessionId: id, start, through: event.seq, events: selected, fingerprints });
+              result.units.push({ id: `${id}:${start + 1}-${event.seq}`, sessionId: id, start, through: event.seq, events: selected });
               result.inputTokens += tokens;
-              for (const identity of fingerprints) seen.add(identity);
             }
-            through = event.seq; start = through; selected = []; fingerprints = [];
+            through = event.seq; start = through; selected = [];
           } else result.filtered++;
         }
         result.cutoffs ??= {};
         const boundary = events.find(event => event.seq === (continuation ? result.units.at(-1)?.through : through));
         result.cutoffs[id] = boundary?.time ?? options.target?.roots[id]?.time ?? 0;
         result.ranges.push({ sessionId: id, start: progress.cursor, through, observed, ...(continuation ? { continuation } : {}) });
-        if (!stopped && fragments.size) result.blocked.push({ sessionId: id, reason: 'An observed Inbox message has unread fragments.' });
         if (!stopped && pending.size) result.blocked.push({ sessionId: id, reason: 'Open tool calls remain beyond the safe step boundary.' });
       } catch (error) { result.blocked.push({ sessionId: id, reason: String(error) }); }
     }
@@ -282,7 +216,7 @@ export class MemorySources {
         const own = snapshot.events.slice(snapshot.inheritedEventCount).filter(event => event.seq > limit.baseline && event.seq <= limit.through);
         const cut = safeBoundary(own, cutoff);
         if (cut.through <= limit.baseline) continue;
-        const events = qualifiedEvents(own.filter(event => event.seq <= cut.through), options);
+        const events = qualifiedEvents(own.filter(event => event.seq <= cut.through));
         let parent = parents.get(limit.rootSessionId);
         if (!parent) {
           parent = new Map((await this.snapshot(limit.rootSessionId)).events.map(event => [event.seq, event]));
@@ -290,15 +224,16 @@ export class MemorySources {
         }
         const inherited = snapshot.events.slice(0,snapshot.inheritedEventCount).filter(event => event.seq > (target.roots[limit.rootSessionId]?.baseline??-1) && event.time >= target.activationAt && event.time <= cutoff);
         // A fork copy must still match the original parent record. Missing provenance stays a gap.
-        const inheritedEvents = qualifiedEvents(inherited.filter(event => { const original = parent.get(event.seq); return original !== undefined && hash(original) === hash(event); }), options);
+        const matchedInherited = inherited.filter(event => { const original = parent.get(event.seq); return original !== undefined && hash(original) === hash(event); });
+        const inheritedEvents = qualifiedEvents(matchedInherited);
         const locators: HistoryLocators = {
           [sessionId]: historyLocators(sessionId, qualifiedEvents(snapshot.events.filter(event => event.seq <= cut.through && event.time <= cutoff &&
-            (event.type.startsWith('compaction/') || event.seq > Math.max(limit.baseline, snapshot.inheritedEventCount - 1))), options)),
+            (event.type.startsWith('compaction/') || event.seq > Math.max(limit.baseline, snapshot.inheritedEventCount - 1))))),
           [limit.rootSessionId]: historyLocators(limit.rootSessionId, qualifiedEvents([...parent.values()].filter(event => event.time <= cutoff &&
-            (event.type.startsWith('compaction/') || event.seq > (target.roots[limit.rootSessionId]?.baseline ?? -1))), options)),
+            (event.type.startsWith('compaction/') || event.seq > (target.roots[limit.rootSessionId]?.baseline ?? -1))))),
         };
-        const material = selectChildMaterial({sessionId,rootSessionId:limit.rootSessionId,events,inheritedEvents,historyLocators:locators,unavailable:inherited.length-inheritedEvents.length}, options.maxInputTokens);
-        result.push({sessionId,rootSessionId:limit.rootSessionId,baseline:limit.baseline,through:cut.through,sourceVersion:hash({events,inheritedEvents,generation:target.generation,through:cut.through}),...material,events,inheritedEvents,historyLocators:locators,unavailable:inherited.length-inheritedEvents.length});
+        const material = selectChildMaterial({sessionId,rootSessionId:limit.rootSessionId,events,inheritedEvents,historyLocators:locators,unavailable:inherited.length-matchedInherited.length}, options.maxInputTokens);
+        result.push({sessionId,rootSessionId:limit.rootSessionId,baseline:limit.baseline,through:cut.through,sourceVersion:hash({events,inheritedEvents,generation:target.generation,through:cut.through}),...material,events,inheritedEvents,historyLocators:locators,unavailable:inherited.length-matchedInherited.length});
       } catch (error) { batch.blocked.push({sessionId,reason:String(error)}); }
     }
     return result;
@@ -329,7 +264,7 @@ export class MemorySources {
 /** Repack the same certified child evidence without querying or changing its source version. */
 export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'rootSessionId'|'events'|'inheritedEvents'|'unavailable'|'historyLocators'>, maxInputTokens: number): {text:string;omitted:number} {
   const entries = [...material.inheritedEvents.map(event => ({event,sessionId:material.rootSessionId,inherited:true})), ...material.events.map(event => ({event,sessionId:material.sessionId,inherited:false}))]
-    .filter(({event})=>event.type!=='assistant/message'||event.data.message.content.some(block=>block.type==='text'))
+    .filter(({event})=>event.type==='user/message'||event.type==='tool/call'||event.type==='tool/result'||event.type==='assistant/message'&&event.data.message.content.some(block=>block.type==='text'))
     .map(entry=>entry.event.type==='assistant/message'?{...entry,event:{...entry.event,data:{...entry.event.data,message:{...entry.event.data.message,content:entry.event.data.message.content.filter(block=>block.type==='text')}}}}:entry);
   const messageCalls = new Set(entries.flatMap(({event}) => event.type === 'tool/call' && ['inbox','conversations'].includes(event.data.name) ? [event.data.callId] : []));
   const priority = (event: SessionEvent) => event.type === 'user/message' || event.type === 'tool/result' && messageCalls.has(event.data.message.toolCallId) ? 0 : event.type === 'assistant/message' ? 1 : 2;
@@ -362,7 +297,7 @@ export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'ro
     const sessionId = inherited ? material.rootSessionId : material.sessionId;
     const records = entries.flatMap((entry,index) => {
       if (entry.inherited !== inherited || !selected.has(index)) return [];
-      const record = nativeMaterial(entry.event, locators[sessionId]?.[entry.event.seq]);
+      const record = nativeMaterial(entry.event, locators[sessionId]?.[entry.event.seq], {mainAgentSessionId:material.rootSessionId,delegated:!inherited && material.sessionId !== material.rootSessionId});
       return record ? [record] : [];
     });
     if (!records.length) return [];
@@ -370,5 +305,5 @@ export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'ro
   });
   const text = sections.join('\n\n');
   const omitted = entries.length-selected.size + (material.unavailable??0);
-  return {text:`${text}\n\nThese are qualified business records, not the complete execution transcript. Additional records omitted for input capacity or unavailable provenance: ${omitted}. Missing conditions remain unknown.`,omitted};
+  return {text: omitted ? `${text}\n\nAdditional records omitted for input capacity or unavailable provenance: ${omitted}.` : text,omitted};
 }

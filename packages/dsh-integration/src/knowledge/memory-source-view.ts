@@ -1,50 +1,27 @@
-import { createHash } from 'node:crypto';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import { isHumanSource } from '../input-source.js';
-import type { SourceEligibility } from './memory-documents.js';
 
-const excludedTools = new Set(['memory', 'memory_maintenance', 'skill', 'skill_manage', 'notes', 'history', 'source_history', 'new_context', 'get_context_remaining']);
-/** Keep original event identity while removing maintenance and unauthorized mixed-source content. */
-export function qualifiedEvents(events: readonly SessionEvent[], options: { sources?: SourceEligibility }): SessionEvent[] {
-  const allowed = (id: string) => (!options.sources || options.sources.allowed.includes(id) && !options.sources.excluded.includes(id));
-  const callNames = new Map<string, string>();
-  for (const event of events) if (event.type === 'tool/call' && !callNames.has(event.data.callId)) callNames.set(event.data.callId, event.data.name);
-  const calls = new Map<string, boolean>();
-  const messages = new Set<string>();
+/** Keep original event identity while selecting model-visible messages and paired tool records. */
+export function qualifiedEvents(events: readonly SessionEvent[]): SessionEvent[] {
+  const calls = new Set<string>();
   return events.flatMap<SessionEvent>(original => {
     if (typeof original.surfaceOp === 'object' && original.surfaceOp.op === 'replace') return [];
     const event = structuredClone(original);
     if (event.type === 'user/message') {
       const source = event.data.source;
       if (!isHumanSource(source) && source.kind !== 'user' && source.kind !== 'agent-message' && source.kind !== 'subagent-settled') return [];
-      if ('conversationId' in source && !allowed(String(source.conversationId))) return [];
       return [{...event,data:{...event.data,content:event.data.content.filter(block => block.type !== 'reasoning')}}];
     }
     if (event.type === 'assistant/message') {
-      const content = event.data.message.content.filter(block => block.type === 'text' || block.type === 'tool-call' &&
-        !excludedTools.has(block.name) && !/\.nanoassistant\/(?:memory|maintenance)/.test(block.arguments));
+      const content = event.data.message.content.filter(block => block.type === 'text' || block.type === 'tool-call');
       return content.length ? [{...event,data:{...event.data,message:{...event.data.message,content}}}] : [];
     }
     if (event.type === 'tool/call') {
-      const permitted = !excludedTools.has(event.data.name) && !/\.nanoassistant\/(?:memory|maintenance)/.test(event.data.arguments);
-      calls.set(event.data.callId, permitted);
-      return permitted ? [event] : [];
+      calls.add(event.data.callId);
+      return [event];
     }
     if (event.type === 'tool/result') {
-      if (!calls.get(event.data.message.toolCallId)) return [];
-      if (['inbox','conversations'].includes(callNames.get(event.data.message.toolCallId) ?? '')) {
-        try {
-          const body = JSON.parse(event.data.message.content.filter(block => block.type === 'text').map(block => block.text).join('\n'));
-          if (Array.isArray(body.messages)) body.messages = body.messages.filter((message: Record<string, unknown>) => {
-            const conversation=String(message.conversation_id ?? message.target ?? body.conversation_id ?? body.target ?? body.source ?? '');
-            if(!allowed(conversation))return false;
-            const sender=message.sender as {id?:string;type?:string}|undefined;
-            const identity=JSON.stringify([conversation,message.id??message.message_id,message.revision??createHash('sha256').update(JSON.stringify({content:message.content,sender:{id:sender?.id,type:sender?.type}})).digest('hex')]);
-            if(messages.has(identity))return false;messages.add(identity);return true;
-          });
-          return [{...event,data:{...event.data,message:{...event.data.message,content:[{type:'text' as const,text:JSON.stringify(body)}]}}}];
-        } catch { return []; }
-      }
+      if (!calls.has(event.data.message.toolCallId)) return [];
       return [event];
     }
     // Window markers preserve native history locators; they carry no business claims.
