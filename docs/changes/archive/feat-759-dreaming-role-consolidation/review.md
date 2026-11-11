@@ -174,3 +174,4 @@
 - 新增隔离 RuntimeClient + HTTP provider 故障注入回归。修复前原生事件只有 `mode: normal`，无法达到持续等待断言；修复后同一 Dreaming 会话的 turn 1 / step 2 连续产生 5 秒、10 秒建连等待，恢复后批次 completed，断网前 Bash 写入和提交只执行一次。另验证原生 Agent 取消可以结束等待，普通服务 502 仍有界失败。此为真实 DSH 跨进程、受控 HTTP 响应，不是拔网线或真实模型质量测试。
 - 构建和文档检查通过。相关六套件首轮 29/30 通过，失败为新增测试修改时误改旧 fixture 引用，修正后完整 `model-connection-retry.test.ts` 5/5 通过；另外五套件的 25 项结果保留，产品实现未再变化。新用例开发期间曾因测试错误地取消父会话而超时，后改为直接取消 Dreaming 原生 Agent，未把父取消语义纳入此次改动。
 - 独立审查者 `dreaming_connection_review` 对 `ccfeb8b4f..d92c05e1b` 复现一项阻塞：无条件挂载会接管 `nano-codex-reviewer` 的专属错误重试。受控真实 DSH 审核探针显示同一步出现第三次 `always` 建连重试，超过审核自身两次上限。修复将挂载限定为原 Nano preset 与既有 `dreaming-` 会话，新增真实审核场景：连续建连失败仅三次请求，且没有 `nano:model-connection` 事件。原生 `Agent.cancel` 用例仅证明等待可被取消，不宣称聊天父会话的停止会取消 Dreaming。最终复验见后续记录。无生产变更；临时 RuntimeClient、HTTP 端口与测试工作区已回收。
+- 最终修复 `7b0311fd0` 构建通过，断网与原生审核两套件 8/8 通过。独立审查者完成 `d92c05e1b..7b0311fd0` closure，原阻塞 CLOSED、无存活 findings、corrected-delta aligned；直接恢复用例覆盖整合，提炼共享同一创建入口，由代码核对和既有提炼回归提供覆盖。最终文档收口不改变实现或测试。
