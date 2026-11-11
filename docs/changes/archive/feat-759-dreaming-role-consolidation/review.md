@@ -157,3 +157,13 @@
 - 同一委派明确转交需要的条件，普通子 Agent 读取合成文件，再实际调用 `send_message(agent_id="root")` 回报。摘要输入包含委派、读取、回报及其结果，均属于子 Agent 自身经历；委派中引用的条件标为 agent/delegated input，不冒充系统直接见到的真人原话。
 - 主会话另放一条未转交的 sentinel；子 Agent 请求和摘要均不含它，也没有继承背景正文或 `host_attested_human` 标记。新增普通入口回归测试保护该边界。PR 前后两套捕获用例通过，正文已亲读；临时测试脚本、原始请求和日志在 `dreaming-input-20261111/ordinary-extraction/`，运行资源已回收。
 - 初始捕获脚本错误地覆盖所有 Agent 的工具展示配置，导致 root 创建异常以及 Dreaming 重复配置冲突；删除该测试覆盖、沿用默认组合后通过。没有为此修改产品代码或启用 fork。
+
+### 原文轨迹、来源短标签与连贯请求展示
+
+- 受审增量 `e126a7bca..92dd6f75a`，修复 `92dd6f75a..9c755862b8`，executed_base 仍为 `480436600`。用户确认工具原文、重复读取和调用语义优先：取消按工具名／记忆目录及会话来源删改轨迹；Inbox/conversations 不去重、不重排、不合并片段。主／子轨迹共用转换，`[main agent]` 区分真实委派与主 Agent 来信，其余采用来源短标签，删除 evidence 权限解释。广泛 Dreaming prompt 精简继续搁置。
+- 保留子轨迹的输入及 Inbox 优先、同层最近优先、调用结果成组和源顺序；主轨迹连续分页。没有实际遗漏时不生成说明，继承中的非消息事件不计为证据缺口。超长调用参数与返回原文都能分页，预算提升不重发已完成片段。
+- 构建及记忆相关 15 文件 85 项通过；最终审查修复后 3 文件 25 项通过，文档检查通过。更新了已有去重、消息合并、来源删选测试的失效预期，新增短标签、原文一致性、长参数预算和真实 IM 目录回归保护。
+- 独立审查者 `trajectory_patch_review` 使用 code review + agent-context-review，发现并复现两个阻塞：普通工具 JSON 被误作 IM 索引、长写入参数通过空分页正文绕过预算。主 Agent 修复后，审查者独立重跑原探针及超大纯元数据页，均关闭；最终 corrected-delta aligned、无未关闭 finding。历史轨迹原文、实时 IM 权限和运行中来源 generation 失效在 canonical/delta 中分别说明。
+- HTML 四个页签现全部来自实际 HTTP 请求。Global／PA 各从空历史走同一条 Inbox 酒店条件 → 普通 subagent 读取报价及 send_message 回报 → 子轨迹摘要 → Dreaming 主轨迹与摘要文件链路。主会话未启用 fork。审查者亲读两套请求并对照两次 Inbox 正文，确认材料及读取结果原样保留，来源标签与会话关系一致。模型和 IM relay 是受控替身，不证明真实模型记忆质量；主→子后续消息的标签有定向输入测试，此连贯抓包未覆盖该交互或跨窗补读。
+- 本地证据在 `~/.local/share/nano-multiagent/evidence/dreaming-input-20261111/original-trajectories/`。短轨迹捕获版本为 `92dd6f75a`，后续修复只影响 IM 索引辨认、超长分页及旧部分进度，原捕获结论保留；HTML 标示当前实现。页面内容及关联校验通过，未重复此前受策略阻止的本地浏览器视觉预览。
+- 一次性部署提示补充旧格式未完成分页的切换：备份后清 continuation、保留 cursor/baseline，只重读未完成 step；退休 seen 可删除，不加入运行时兼容。主 Agent 和独立审查者均在模拟 owner 状态验证完整 JSON 重读及正确推进；未修改实际 KV 或生产。所有本轮临时运行资源已回收，保留证据及 PR worktree，既有用户试用服务未动。
