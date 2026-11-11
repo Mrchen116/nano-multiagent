@@ -44,3 +44,11 @@
 
 - 过长文件先核对原文，再由主 Agent 向维护者主动提出保留原意的限长稿。隔离 GPT‑6.1 Sol 对 3,082 码元的测试文件先读并发出完整 82 码元精简稿，确认前文件未变。测试维护者在同一会话明确确认后，实际工具顺序为 read、write、read。保存内容与提议一致，回读后才报告修复。
 - 独立复核确认修复回读要求保留在通用角色上下文中，写入后即使文件变为合规状态，下一次模型请求仍有该指令。读取无法取得完整原文时，先与维护者补齐。后端定向 32 项及文档检查通过。
+
+## PR #520 记忆快照与换窗去重补验
+
+- 用户确认详情页变化无需提醒。移除逐请求版本扫描和变更通知，同窗复用首页快照。
+- ce4e692c9 的 HTTP 回放复现 PA、Global 手动及压力换窗同时发送 A、B，详情页通知出现和消失又追加两份 B。
+- 修复位于独立 dsh-agent-context 组件，检查点仅含窗口导航和恢复提示，主动换窗与 overflow 重试恢复一次当前上下文。手动和 turn-stopping 换窗由下一请求装配。Nano 删除换窗补偿并接入 0.3.0-rc.10。组件无需了解 Nano 的记忆文件。依赖变更见 https://github.com/Mrchen116/dsh-agent-context/pull/6 。
+- 原生组件 40 项测试通过，Nano 请求重校验、前台记忆、子 Agent 记忆和缓存前缀共 8 项通过。PA、Global 各 16 轮 HTTP 回放覆盖手动与压力换窗，同窗第 11 轮和重启后仍使用 A，换窗首请求仅一份 B，详情变化及下一请求仍仅一份 B。另验证手动换窗后、首请求前改成 C，该请求读取 C，随后重启仍仅一份 C 和 ROLE。
+- 独立 change-code-review 审查者 checkpoint_review 检查两仓 diff 和原生 RuntimeContextProjection，结论通过。修复前后请求位于本机 /private/tmp/nano-role-wire-evidence 与 /private/tmp/nano-role-wire-fixed，测试资源已回收。HTTP 响应为受控 provider，未测服务商缓存命中量。

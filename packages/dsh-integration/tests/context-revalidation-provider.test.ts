@@ -222,6 +222,14 @@ it.each([
     assertSources((await observe()).events, 'before-' + cell);
 
     if (!legacy) {
+      await writeFile(page, 'Changed detail without changing the memory entry');
+      await delay(400);
+      const entryCopies = strings(initial[1]!.body.messages).split(documentMarker).length;
+      for (const input of ['detail-changed-', 'detail-following-']) {
+        const [request] = await submit(input + cell);
+        expect(strings(request!.body.messages)).not.toContain('These pages changed');
+        expect(strings(request!.body.messages).split(documentMarker)).toHaveLength(entryCopies);
+      }
       await writeFile(entry, '# Expert memory\n\n' + updatedMarker);
       const [sameWindow] = await submit('same-window-' + cell);
       assembly(sameWindow!);
@@ -245,10 +253,12 @@ it.each([
       expect(strings(beforeRollover!.body.messages)).not.toContain(updatedMarker);
       const messages = afterRollover!.body.messages;
       expect(strings(messages)).toContain('Context reset reason: model-requested');
+      expect(strings(messages)).not.toContain(documentMarker);
+      expect(strings(messages).split(updatedMarker)).toHaveLength(2);
       const latestSnapshot = messages.findLast((message: unknown) => strings(message).includes('Current runtime context'));
       expect(strings(latestSnapshot)).toContain(updatedMarker);
       expect(strings(latestSnapshot)).not.toContain(documentMarker);
-      expect(strings(latestSnapshot)).toContain('decision: knowledge/preferences.md');
+      expect(strings(messages)).not.toContain('These pages changed');
       return;
     }
 
@@ -266,6 +276,10 @@ it.each([
     expect((await observe()).events.filter(event => event.type === 'compaction/summary')).toHaveLength(1);
     const after = await submit('after-' + cell);
     expect(after).toHaveLength(1); assembly(after[0]!, legacy ? legacyMarker : updatedMarker);
+    if (!legacy && windows) {
+      expect(strings(after[0]!.body.messages)).not.toContain(documentMarker);
+      expect(strings(after[0]!.body.messages).split(updatedMarker)).toHaveLength(2);
+    }
     expect(strings(after[0]!.body.messages)).toContain('TASK_ORIGINAL_task-after-' + cell);
     expect(strings(after[0]!.body.messages)).toContain(windows ? 'Context reset reason: manual' : 'CONTROLLED_NATIVE_SUMMARY_' + cell);
     assertSources((await observe()).events, 'after-' + cell);

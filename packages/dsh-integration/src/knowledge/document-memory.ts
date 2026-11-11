@@ -1,16 +1,14 @@
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
-import { assembleContextFor, type Agent } from '@deepseek-ai/dsh-agent';
+import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ToolExecution } from '@deepseek-ai/dsh-tools';
 import { createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm';
-import { joinContextSections, renderContextSections } from '@deepseek-ai/dsh-system-prompt';
-import { currentWindow } from 'dsh-agent-context';
 import * as ObservationPolicy from '@deepseek-ai/dsh-fs-observation-policy';
 import type {} from '../policy/approval.js';
 import { isHumanSource } from '../input-source.js';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
-import { MemoryDocuments, type DocumentVersions, type SourceEligibility } from './memory-documents.js';
+import { MemoryDocuments, type SourceEligibility } from './memory-documents.js';
 import { resolveRoleFile, roleDocument, roleLimit, rolePath } from './role-document.js';
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -55,7 +53,6 @@ function savedEntry(agent: Agent) {
 /** Integrates current document memory with native requests and actual file tool outcomes. */
 export class DocumentMemory {
   private readonly libraries = new Map<string, { workspace: string; value: Promise<MemoryDocuments> }>();
-  private readonly seen = new WeakMap<Agent, { current?: DocumentVersions; previous?: DocumentVersions }>();
   private readonly roleOwners = new WeakMap<Agent, string>();
   private readonly pending = new Set<Promise<unknown>>();
   run?: (agent: Agent, requestRef: string, importLegacy?: boolean) => Promise<unknown>;
@@ -70,11 +67,6 @@ export class DocumentMemory {
       const binding = options.bindings.get(agent.id);
       const main = binding?.agentId === config.agentId;
       const documents = await this.forConfig(config);
-      const versions = await documents.versions();
-      const previous = this.seen.get(agent)?.current;
-      const changed = previous ? [...new Set([...Object.keys(previous), ...Object.keys(versions)])]
-        .filter(path => path !== 'MEMORY.md' && previous[path] !== versions[path]) : [];
-      this.seen.set(agent, { current: versions, previous });
       const windowEntry = savedEntry(agent);
       assembly.variables.nano_document_memory_entry = !main && windowEntry?.startsWith(entryPreviewPrefix)
         ? oversizedEntry(join(documents.root, 'MEMORY.md'))
@@ -87,10 +79,6 @@ export class DocumentMemory {
       ].join('\n\n');
       assembly.contexts.push({ name: 'nano-document-memory', text: '{{nano_document_memory}}' });
       assembly.contexts.push({ name: entrySection, text: '{{nano_document_memory_entry}}' });
-      if (changed.length) {
-        assembly.variables.nano_changed_memory_pages = changedPagesPrefix + changed.join(', ');
-        assembly.contexts.push({ name: 'nano-changed-memory-pages', text: '{{nano_changed_memory_pages}}' });
-      }
       if (main) {
         const role = await this.readRole(config, true);
         if (role) {
@@ -130,23 +118,6 @@ export class DocumentMemory {
       }
       return assembly;
     });
-    ctx.on('agent/pre-step', async ({ agent, signal }, next) => {
-      const seq = agent.session.seq;
-      const decision = await next();
-      const seen = this.seen.get(agent);
-      if (!seen || decision.kind !== 'enter' || !decision.startsRequestSeries || currentWindow(agent.session).end_seq < seq) return decision;
-      // Native pressure rollover commits inside pre-step, after the old window was assembled.
-      // Compare detail changes to the same baseline when assembling this request again.
-      this.seen.set(agent, { current: seen.previous });
-      const assembly = await ctx.systemPrompt.assemble(assembleContextFor(agent, signal));
-      if (assembly.variables.nano_document_memory_entry === undefined) return decision;
-      const sections = renderContextSections(assembly);
-      const snapshot = createUserMessage({
-        source: { kind: 'runtime-context', form: 'snapshot', sections },
-        content: [{ type: 'text', text: joinContextSections(sections) }],
-      });
-      return { ...decision, messages: [snapshot, ...decision.messages.filter(message => message.source.kind !== 'runtime-context')] };
-    }, { prepend: true });
     ctx.on('agent/pre-step', async ({ agent }, next) => {
       const decision = await next();
       const owner = this.roleOwners.get(agent);
