@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ToolExecution } from '@deepseek-ai/dsh-tools';
-import { createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm';
+import type { ContextFormed } from '@deepseek-ai/dsh-llm';
 import * as ObservationPolicy from '@deepseek-ai/dsh-fs-observation-policy';
 import type {} from '../policy/approval.js';
 import { isHumanSource } from '../input-source.js';
@@ -53,7 +53,7 @@ function savedEntry(agent: Agent) {
 /** Integrates current document memory with native requests and actual file tool outcomes. */
 export class DocumentMemory {
   private readonly libraries = new Map<string, { workspace: string; value: Promise<MemoryDocuments> }>();
-  private readonly roleOwners = new WeakMap<Agent, string>();
+  private readonly roleAgents = new WeakSet<Agent>();
   private readonly pending = new Set<Promise<unknown>>();
   run?: (agent: Agent, requestRef: string, importLegacy?: boolean) => Promise<unknown>;
   maintenanceStatus?: (agentId: string) => Promise<unknown>;
@@ -62,7 +62,7 @@ export class DocumentMemory {
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
       const config = agent && options.configOf(agent);
-      if (agent) this.roleOwners.delete(agent);
+      if (agent) this.roleAgents.delete(agent);
       if (!agent || !config || config.knowledge?.memoryMode === 'legacy' || ![...options.bindings.values()].some(binding => binding.agentId === config.agentId)) return assembly;
       const binding = options.bindings.get(agent.id);
       const main = binding?.agentId === config.agentId;
@@ -106,7 +106,7 @@ export class DocumentMemory {
           } else {
             currentAgreement = `Role agreement file: ${agreementPath}.\n\nRole agreement is unset. Contact your ${confirmer} immediately and ask them to clarify your long-term role. You must ask every time you speak with them until the agreement is confirmed and saved.`;
           }
-          this.roleOwners.set(agent, owner);
+          this.roleAgents.add(agent);
           assembly.variables.nano_role_agreement = [
             config.personal
               ? 'ROLE.md records how your owner wants you to help over time. Use it to understand what they want ongoing support with, what you should follow up on proactively, and what they handle themselves.'
@@ -119,30 +119,12 @@ export class DocumentMemory {
       }
       return assembly;
     });
-    ctx.on('agent/pre-step', async ({ agent }, next) => {
-      const decision = await next();
-      const owner = this.roleOwners.get(agent);
-      if (decision.kind !== 'enter' || !owner) return decision;
-      const binding = options.bindings.get(agent.id);
-      if (!binding) return decision;
-      // Separate host provenance from the original message. History and Dreaming
-      // can still distinguish the unchanged human input from this system note.
-      return { ...decision, messages: decision.messages.flatMap(message => {
-        if (!isHumanSource(message.source)) return [message];
-        const sender = (message.source.roleAccountId ?? message.source.actorId) === owner ? 'bound account' : 'other user';
-        const label = createUserMessage({
-          source: { kind: 'nano-system', actorId: binding.agentId, channel: 'role-agreement-source', messageId: message.source.messageId },
-          content: [{ type: 'text', text: `Host-verified role agreement sender for the following direct input: ${sender}.` }],
-        });
-        return [label, message];
-      }) };
-    });
     ctx.on('tools/execute', async (exec, next) => {
       const agent = exec.agent; const config = agent && options.configOf(agent);
       const arg = exec.arguments as { file_path?: string };
       if (!agent || !config || config.knowledge?.memoryMode === 'legacy' || !['read', 'write', 'edit'].includes(exec.name) || typeof arg.file_path !== 'string') return next();
       const documents = await this.forConfig(config); const absolute = resolve(agent.session.header.cwd!, arg.file_path);
-      if (exec.name === 'read' && this.roleOwners.has(agent) && absolute === rolePath(documents.workspace) && !await resolveRoleFile(ctx.fs, documents.workspace)) {
+      if (exec.name === 'read' && this.roleAgents.has(agent) && absolute === rolePath(documents.workspace) && !await resolveRoleFile(ctx.fs, documents.workspace)) {
         throw new Error('The role path is not a regular file in the assigned workspace.');
       }
       const target = await ctx.fs.resolve(absolute); const canonical = ctx.fs.processPath(target);

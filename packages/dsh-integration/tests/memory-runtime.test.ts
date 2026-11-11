@@ -56,7 +56,7 @@ it.each([false, true])('assembles the role agreement and protects formal memory 
     const confirmer = personal ? 'owner' : 'bound administrator';
     expect(JSON.stringify(requests[0].messages)).toContain(`Contact your ${confirmer} immediately`);
     expect(JSON.stringify(requests[0].messages)).toContain('You must ask every time you speak with them');
-    expect(JSON.stringify(requests[0].messages)).toContain('Host-verified role agreement sender for the following direct input: bound account.');
+    expect(JSON.stringify(requests[0].messages)).not.toContain('Host-verified role agreement sender');
     const latest=requests.at(-1);
     const savedAgreement = latest.messages.flatMap((message: {content?: Array<{text?: string}>}) => message.content ?? [])
       .findLast((block: {text?: string}) => block.text?.includes('<role_content>'))?.text;
@@ -67,7 +67,7 @@ it.each([false, true])('assembles the role agreement and protects formal memory 
     expect(savedAgreement).not.toContain('Save only after sending them the exact Markdown');
     expect(savedAgreement).not.toContain('You must ask every time');
     expect(savedAgreement).not.toContain('read the saved file again');
-    expect(JSON.stringify(latest.messages)).toContain('Host-verified role agreement sender for the following direct input: other user.');
+    expect(JSON.stringify(latest.messages)).not.toContain('Host-verified role agreement sender');
     const control = latest.tools.find((tool:any)=>tool.name==='memory_maintenance');
     expect(control.parameters.properties.action.enum).toEqual(['status', 'run']);
     expect(control.parameters.properties).not.toHaveProperty('paths');
@@ -84,9 +84,9 @@ it.each([false, true])('assembles the role agreement and protects formal memory 
     await submit('external-owner', 'feishu-open-id', 'owner');
     const external = JSON.parse((await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').at(-1)!);
     const externalInput = external.messages.find((message: {id:string}) => message.id === 'external-owner');
-    const inputIndex = external.messages.indexOf(externalInput);
     expect(externalInput.source.actorId).toBe('feishu-open-id');
-    expect(external.messages[inputIndex - 1].content).toEqual([{type:'text',text:'Host-verified role agreement sender for the following direct input: bound account.'}]);
+    expect(externalInput.source.roleAccountId).toBe('owner');
+    expect(external.messages.some((message: {source?: {channel?: string}}) => message.source?.channel === 'role-agreement-source')).toBe(false);
     const currentContext = async (fragment: string) => {
       const request = JSON.parse((await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').at(-1)!);
       return request.messages.flatMap((message: {content?: Array<{text?: string}>}) => message.content ?? [])
