@@ -59,3 +59,10 @@
 - PA、Global 的手动/压力换窗各跑 16 轮 HTTP 请求，逐轮验证窗口段、首页、ROLE 单份。另使用默认工具和实际内置 Skill 目录回放，通读首窗、换窗首请求和下一请求的 system/messages/tools。换窗首请求为恢复提示、当前上下文、Skills 目录、绑定发送者、用户输入五条消息；下一请求仅追加回复和新输入。
 - 作者与独立 agent-context-review 检查来源、当前权限、ROLE、记忆和动态技能目录的对应关系。发现共用 system 的旧句仍把职责归入 Memory，现已改为背景与经验；Skills 引导均有目录名称和工具入口。测试正文的 discussion-only 要求保留，history 的 window/item 参数及 notes 恢复入口可用。
 - 既有 history 工具对 private contents 的保密措辞可能影响模型概述恢复的用户原话，记为范围外语义疑点，未观察到实际误用。此次验证实际 HTTP 内容，响应由受控 provider 返回，未声称真实模型的任务恢复或缓存命中评测。完整请求位于本机 /private/tmp/nano-context-whole-review，并已更新 HTML 展示。
+
+## PR #520 产品 Inbox 请求补验与证据边界更正
+
+- 用户指出此前展示中的直达用户正文绕过了产品 Inbox。上述 16 轮回放直接使用 `session.submit`，验证了底层装配与前缀，但不能代表完整产品消息流；此前五条消息的描述仅对应该测试入口，不能作为产品上下文合理性的验收结论。
+- `79e25f569` 已移除额外的 ROLE 发送者标签。此版本新增本机隔离回放，经实际 `GlobalAgent.receive`、Inbox 存储、产品工具桥接和 DSH 捕获 HTTP 请求。Global、PA 各覆盖首次请求、Inbox 读取后的请求、手动换窗首请求及其读取后请求，合计 8 份；正常结束，无异步错误。
+- 换窗首请求依次为恢复提示、当前上下文、Skills 目录、Inbox 系统通知；下一请求追加 assistant 的 inbox 调用和 user 角色的 tool_result。用户正文只存在于成功的工具结果，PA sender 含 is_owner；未追加直达用户正文或 ROLE 身份标签，窗口、首页与 ROLE 无重复。
+- IM relay 和模型响应为受控 fixture，非 Web/IM 端到端测试，也不证明模型自主选择。HTML 默认切换到产品 Inbox 样本，旧直输样本明确降为底层验证。完整请求和回放脚本保存在本机可视化目录的 `inbox-context-evidence/`；临时运行时、数据库、workspace 与监听端口已回收。
