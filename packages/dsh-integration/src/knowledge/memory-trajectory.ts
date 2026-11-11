@@ -54,6 +54,7 @@ export function renderMaterial(events: readonly unknown[]): string {
       return `${renderMaterial([record.source])}\nOriginal message ${record.messageId}; characters ${record.offset}–${record.end}/${record.total}; ${Number(record.end)<Number(record.total)?'same message continues':'message end'}\n${record.text}`;
     }
     const {seq: _seq,sessionId: _sessionId,history: locator,type,time,content,...metadata} = record;
+    if (type === 'tool/result' && metadata.isError === false) delete metadata.isError;
     const history = locator as HistoryLocator | undefined;
     const heading = [type,typeof time === 'number' && Number.isFinite(time) ? new Date(time).toISOString() : typeof time === 'string' ? time : undefined,history?.item_id === undefined ? undefined : `item_id=${history.item_id}`].filter(Boolean).join(' · ');
     if (content && typeof content === 'object' && !Array.isArray(content) && Array.isArray((content as {messages?:unknown[]}).messages)) {
