@@ -66,3 +66,11 @@
 - `79e25f569` 已移除额外的 ROLE 发送者标签。此版本新增本机隔离回放，经实际 `GlobalAgent.receive`、Inbox 存储、产品工具桥接和 DSH 捕获 HTTP 请求。Global、PA 各覆盖首次请求、Inbox 读取后的请求、手动换窗首请求及其读取后请求，合计 8 份；正常结束，无异步错误。
 - 换窗首请求依次为恢复提示、当前上下文、Skills 目录、Inbox 系统通知；下一请求追加 assistant 的 inbox 调用和 user 角色的 tool_result。用户正文只存在于成功的工具结果，PA sender 含 is_owner；未追加直达用户正文或 ROLE 身份标签，窗口、首页与 ROLE 无重复。
 - IM relay 和模型响应为受控 fixture，非 Web/IM 端到端测试，也不证明模型自主选择。HTML 默认切换到产品 Inbox 样本，旧直输样本明确降为底层验证。完整请求和回放脚本保存在本机可视化目录的 `inbox-context-evidence/`；临时运行时、数据库、workspace 与监听端口已回收。
+
+## PR #520 补齐系统角色视角
+
+- 依据用户确认的目标，将整合开头改为为主 Agent 的未来工作保留和组织信息；系统角色、Persona、ROLE 共同提供选择视角。原始经历决定事实、适用范围和不确定性。
+- 每批通过主 Agent 的公开 `systemPrompt.assemble` / `renderPrompt` 复用当前产品身份、Global 分工与 PA 角色段落，作为主 Agent 背景注入；不复制工具 schema、Skills 目录或前台记忆快照，不扩大 Dreaming 工具。未设置 ROLE 仍有系统角色定义。预算和恢复继续使用同一批次快照。
+- 作者按 agent-context-review 核对 PA / Global 实际 HTTP 请求；独立审查者 dreaming_role_context_review 按 change-code-review 审查 `6eb6daaa4` 后的六文件补丁，findings 为空、契约 aligned。构建通过；dreaming-runtime、dreaming-cycle-runtime 两文件 7 项通过；文档检查通过（初次系统 Python 缺 PyYAML，改用现有项目 venv 后通过）。
+- 三个全新隔离 Agent 用相同合成经历，Dreaming 使用真实 `codexOAuth:gpt-6.1-sol`。发布协调 ROLE 先突出交接和约束；编译性能 ROLE 先突出基准有效性并分开协作与个人偏好；未设置 ROLE 的 PA 先保留主人的持续帮助偏好，技术经验进入 workstreams。三批均 completed，分别保存 3、4、3 页，模型实际调用 git_commit 并通过宿主检查。均保留用户报告、未独立复现的证据限定；没有聊天或派工工具调用。
+- 真实模型样本显示重点和组织方式的差异，不证明全库质量显著提升，也未单独隔离系统角色段落的因果贡献。前台响应及 IM relay 为 fixture，非生产或 Web 端到端验收。完整请求、输出、页面和脚本保存在本机可视化目录 `role-perspective-evidence/`；测试端口、运行时、工作区已回收。HTML 仍只展示 Global 首次收信、PA 首次收信及两类 Dreaming 的 PR 前后对照。

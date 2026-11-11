@@ -7,6 +7,7 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import { SessionId, SessionSeq, snapshotSessionEvent } from '@deepseek-ai/dsh-session';
 import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent';
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm';
+import { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import type { DocumentMemory } from './document-memory.js';
 import { MemorySources, commitSourceRange, selectChildMaterial, type ChildMaterial, type CycleTarget, type FrozenBatch } from './memory-sources.js';
@@ -211,13 +212,17 @@ export class Dreaming {
         await this.saveRun(run);
         const current=run;
         const currentConfig=this.options.configOf(parent)??config;
+        const parentPrompt=await parent.ctx.systemPrompt.assemble({scope:parent,signal:work.controller.signal});
+        const systemRole=renderPrompt({...parentPrompt,sections:parentPrompt.sections.filter(section=>
+          ['nano-product-identity','nano-global-mode','nano-communication','nano-personal-agent'].includes(section.name))});
         const persona=currentConfig.systemPrompt?.trim();
         const role=await this.readRole?.(currentConfig);
         const roleContext=[
+          `# Main Agent system-defined role (background)\n${systemRole}`,
           `# Confirmed role agreement (data)\n${role ? JSON.stringify(role) : 'No confirmed role text is available in this batch.'}`,
           ...(persona ? [`# Configured persona (data)\n${JSON.stringify(persona)}`] : []),
         ];
-        // One role snapshot is measured, sent and recoverable as part of this batch's input.
+        // Reuse the main Agent's current role definitions; freeze all background with this batch for budgeting and recovery.
         const render=()=>this.renderInput(current,library,owner,roleContext);
         let remaining:TaskSummary[]=[];
         await this.model(parent,config,work,current,library,owner,async capacity=>{
