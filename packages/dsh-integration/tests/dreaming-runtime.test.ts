@@ -58,7 +58,9 @@ it.each([{personal:false,automatic:false},{personal:true,automatic:false},{perso
     const initialText=JSON.stringify(maintenance[0].messages);
     const parentCapabilities = await client.rpc.request('session.capabilities', {sessionId:binding.sessionId}) as {prompt:{sections:Array<{name:string;text:string}>}};
     const roleBackground = maintenance[0].messages.find((message:any)=>message.source?.channel==='dreaming').content.map((block:any)=>block.text??'').join('');
-    expect(roleBackground).toContain('# Main Agent system-defined role (background)');
+    expect(roleBackground).toContain('<main_agent_background>\n\n<system_role>\n');
+    expect(roleBackground).toContain('</system_role>\n\n<role_content>\n');
+    expect(roleBackground).toContain('</role_content>\n\n</main_agent_background>');
     for (const name of ['nano-global-mode', ...(personal ? ['nano-personal-agent'] : [])]) {
       const section = parentCapabilities.prompt.sections.find(section=>section.name===name);
       expect(section).toBeDefined();

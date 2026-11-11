@@ -8,9 +8,9 @@ import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 it('commits each successful prefix, then freezes a fresh target after a later batch fails',async()=>{
   const home=await mkdtemp(join(tmpdir(),'dreaming-cycle-'));let client:RuntimeClient|undefined;
   const rolePath=join(home,'.nanoassistant/ROLE.md');
-  const firstRole='Initial agreement for the test Agent: plan the rollout.';
+  const firstRole='Initial agreement for the test Agent: plan the rollout.\n\nPreserve the "no restart" restriction.';
   const updatedRole='Updated agreement for the test Agent: verify the rollout.';
-  const persona='Configured role background: specialist in deployment evidence.';
+  const persona='Configured role background: specialist in deployment evidence.\n\nDistinguish "reported" from verified outcomes.';
   await mkdir(join(home,'.nanoassistant'),{recursive:true});
   await writeFile(rolePath,firstRole);
   await writeFile(join(home,'fixture.mjs'),`
@@ -77,15 +77,15 @@ export function apply(ctx){
     expect(requests.slice(2).map(material).join('\n')).not.toContain('SOURCE-0');
     expect(requests.slice(2).map(material).join('\n')).toContain('SOURCE-LATER');
     expect(material(requests[1])).not.toContain('SOURCE-LATER');
-    expect(material(requests[0])).toContain('# Confirmed role agreement (data)\n'+JSON.stringify(firstRole));
+    expect(material(requests[0])).toContain(`<role_content>\n${firstRole}\n</role_content>`);
     expect(material(requests[0])).not.toContain(updatedRole);
-    expect(material(requests[1])).toContain('# Confirmed role agreement (data)\n'+JSON.stringify(updatedRole));
+    expect(material(requests[1])).toContain(`<role_content>\n${updatedRole}\n</role_content>`);
     expect(material(requests[1])).not.toContain(firstRole);
-    expect(requests.every((request:any)=>material(request).includes('# Configured persona (data)\n'+JSON.stringify(persona)))).toBe(true);
+    expect(requests.every((request:any)=>material(request).includes(`<custom_instructions>\n${persona}\n</custom_instructions>`))).toBe(true);
     const recovery=JSON.parse(await readFile(join(home,'recovered-role.json'),'utf8'));
     expect(recovery).toMatchObject({role:'tool',toolCallId:'recover-role'});
     expect(recovery.isError).not.toBe(true);
-    expect(JSON.stringify(recovery.content)).toContain(firstRole);
+    expect(JSON.stringify(recovery.content)).toContain(firstRole.split('\n')[0]);
     expect(JSON.stringify(recovery.content)).not.toContain(updatedRole);
   }finally{if(client)await client.shutdown();await rm(home,{recursive:true,force:true});}
 },60000);

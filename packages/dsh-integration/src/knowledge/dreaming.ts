@@ -218,9 +218,11 @@ export class Dreaming {
         const persona=currentConfig.systemPrompt?.trim();
         const role=await this.readRole?.(currentConfig);
         const roleContext=[
-          `# Main Agent system-defined role (background)\n${systemRole}`,
-          `# Confirmed role agreement (data)\n${role ? JSON.stringify(role) : 'No confirmed role text is available in this batch.'}`,
-          ...(persona ? [`# Configured persona (data)\n${JSON.stringify(persona)}`] : []),
+          '<main_agent_background>',
+          `<system_role>\n${systemRole}\n</system_role>`,
+          `<role_content>\n${role || 'No confirmed role text is available in this batch.'}\n</role_content>`,
+          ...(persona ? [`<custom_instructions>\n${persona}\n</custom_instructions>`] : []),
+          '</main_agent_background>',
         ];
         // Reuse the main Agent's current role definitions; freeze all background with this batch for budgeting and recovery.
         const render=()=>this.renderInput(current,library,owner,roleContext);
