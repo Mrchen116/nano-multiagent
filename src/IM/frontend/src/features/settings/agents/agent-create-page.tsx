@@ -546,7 +546,9 @@ export function AgentCreatePage() {
         return;
       }
       setErrorMessage(
-        status === 409
+        code === "role_conflict"
+          ? t("agents.form.behavior.initialRoleConflict")
+          : status === 409
           ? t("agents.form.access.reasoning.saveConflict", { detail: `${status}: ${detail}` })
           : detail,
       );

@@ -34,9 +34,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             return
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        guardian = any(
-            tool["name"].startswith("guardian_") for tool in body.get("tools", [])
-        )
+        guardian = _text(body.get("system", [])).startswith(
+            "You are judging one planned coding-agent action."
+        ) or any(tool["name"].startswith("guardian_") for tool in body.get("tools", []))
         context = "\n".join(
             _text(message.get("content", [])) for message in body.get("messages", [])
         )

@@ -786,6 +786,21 @@ describe("agent create prompt preview", () => {
     });
   }
 
+  it("explains an existing ROLE conflict while preserving the creation draft", async () => {
+    mockNodes();
+    mockCreateState();
+    apiMocks.createNodeAgentMock.mockRejectedValue(Object.assign(new Error("create failed: 409"), {code: "role_conflict"}));
+    renderCreatePage();
+    await screen.findByRole("heading", {name: /New agent/i});
+    fireEvent.change(screen.getByLabelText(/^Agent ID/), {target: {value: "role-conflict"}});
+    fireEvent.change(screen.getByLabelText(/^Display Name/), {target: {value: "Role conflict"}});
+    fireEvent.change(screen.getByLabelText(/^Initial role agreement/), {target: {value: "New proposed responsibilities"}});
+    fireEvent.click(screen.getByRole("button", {name: /^Create agent$/i}));
+    expect(await screen.findByText(/This workspace already has a different role agreement/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Initial role agreement/)).toHaveValue("New proposed responsibilities");
+    expect(screen.queryByText(/configuration has changed/i)).not.toBeInTheDocument();
+  });
+
   it("previews selected skills without sending the initial role", async () => {
     const user = userEvent.setup();
     mockNodes();

@@ -519,6 +519,7 @@
         "initialRole": "Initial role agreement",
         "initialRolePlaceholder": "Describe this Agent’s responsibilities and how it should help you",
         "initialRoleHelp": "Optional. Saved when the Agent is created; edit it later in Role agreement. Limit: 2,000 UTF-16 units.",
+        "initialRoleConflict": "This workspace already has a different role agreement. Leave the initial role empty to keep it, or choose another workspace.",
         "initialRoleTooLong": "The initial role exceeds the 2,000 UTF-16 unit limit.",
         "roleAgreement": {
           "title": "Role agreement",

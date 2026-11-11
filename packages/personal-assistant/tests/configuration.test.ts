@@ -1,7 +1,7 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -140,4 +140,29 @@ it('preserves initial ROLE as a creation intent through restart and rejects chan
     expect(await operations.handle('apply',{...intent,operation_id:'edit',expected_previous_fingerprint:intent.candidate_fingerprint})).toMatchObject({status:'rejected',error_code:'invalid_agent_config'});
     expect(await operations.handle('create',{...intent,operation_id:'too-long',initial_role:'😀'.repeat(1001)})).toMatchObject({status:'rejected',error_code:'invalid_agent_config'});
   } finally {await operations.close();await rm(directory,{recursive:true,force:true});}
+});
+
+it('keeps creation pending when the initial-role write succeeds but the runtime preparation reply is lost', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'nano-role-reply-lost-'));
+  const role = join(directory, 'ROLE.md');
+  const candidate = canonicalAgentConfiguration({agent_id: 'new', workspace_root: directory});
+  const intent = {operation_id: 'lost-reply', expected_previous_fingerprint: null, candidate_fingerprint: agentConfigurationFingerprint(candidate), agent: candidate, initial_role: 'Coordinate releases.'};
+  let current: typeof candidate | undefined;
+  let first = true;
+  const operations = new ConfigurationOperations(join(directory, 'ops.sqlite3'), {
+    current: () => current, resolve: async value => value,
+    prepare: async (_candidate, operation) => {
+      if (first) { first = false; await writeFile(role, operation.initial_role!); throw new Error('Connection closed; operation outcome may be unknown'); }
+      expect(await readFile(role, 'utf8')).toBe(operation.initial_role);
+      return {ready: true};
+    },
+    persist: async value => { current = value; }, apply: async () => {},
+  });
+  try {
+    await expect(operations.handle('create', intent)).rejects.toThrow('outcome may be unknown');
+    expect(operations.status(intent.operation_id)).toMatchObject({status: 'pending'});
+    expect(current).toBeUndefined();
+    expect(await operations.handle('create', intent)).toMatchObject({status: 'applied', agent: candidate});
+    expect(await readFile(role, 'utf8')).toBe(intent.initial_role);
+  } finally { await operations.close(); await rm(directory, {recursive: true, force: true}); }
 });

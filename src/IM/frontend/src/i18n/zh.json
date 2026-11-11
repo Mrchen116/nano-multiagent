@@ -518,6 +518,7 @@
         "initialRole": "初始角色约定",
         "initialRolePlaceholder": "说明这个 Agent 的职责，以及希望它如何协助你",
         "initialRoleHelp": "可选。创建时保存，之后可在角色约定中修改；上限为 2,000 个 UTF-16 码元。",
+        "initialRoleConflict": "这个工作区已有不同的角色约定。清空初始角色可保留现有约定，或选择另一个工作区。",
         "initialRoleTooLong": "初始角色约定超过 2,000 个 UTF-16 码元上限。",
         "roleAgreement": {
           "title": "角色约定",

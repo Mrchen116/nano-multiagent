@@ -344,6 +344,7 @@ struct AgentCreateView: View {
         do { created = try await client.send("/im/v1/nodes/\(agentSegment(selectedNode))/agents", body: draft.payload(creating: true, customWorkspace: customWorkspace, confirmed: confirmed)) }
         catch {
             if let api = error as? APIError, api.code == "workspace_confirmation_required" { confirmWorkspace = true }
+            else if let api = error as? APIError, api.code == "role_conflict" { self.error = L("这个工作区已有不同的角色约定。清空初始角色可保留现有约定，或选择另一个工作区。", "This workspace already has a different role agreement. Leave the initial role empty to keep it, or choose another workspace.") }
             else { self.error = agentError(error) }
             if (error as? APIError)?.code == "config_apply_pending" || !(error is APIError) { pending = true }
         }

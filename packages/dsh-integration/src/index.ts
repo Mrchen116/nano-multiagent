@@ -833,7 +833,9 @@ export default class NanoRuntime {
           : {error: 'role_unavailable' as const};
         if ('error' in role) {
           this.capabilities.release(input.config.agentId, input.operationId);
-          return {ready: false, error_code: role.error, message: 'Initial ROLE could not be saved'};
+          return {ready: false, error_code: role.error, message: role.error === 'role_conflict'
+            ? 'This workspace already has a different role agreement. Leave the initial role empty to keep it, or choose another workspace.'
+            : 'Initial ROLE could not be saved'};
         }
       }
       return prepared;

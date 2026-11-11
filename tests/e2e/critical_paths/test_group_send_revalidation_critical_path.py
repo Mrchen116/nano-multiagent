@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import httpx
@@ -15,7 +16,9 @@ from ._recording import StubLLMStack, _load_records, stub_im_user, stub_llm_stac
 
 def _results(request: dict) -> dict[str, dict]:
     return {
-        block["tool_use_id"]: json.loads(block["content"])
+        block["tool_use_id"]: json.loads(
+            re.sub(r"\n\[id: \d+\]\s*$", "", block["content"])
+        )
         for message in request["messages"]
         if isinstance(message["content"], list)
         for block in message["content"]

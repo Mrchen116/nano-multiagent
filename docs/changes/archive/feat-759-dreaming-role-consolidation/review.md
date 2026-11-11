@@ -85,3 +85,18 @@
 - Runtime 首批 6 文件中 25 通过、2 个测试超时；相同代码低并发重跑相关 16/16 通过。第二批发现两个测试 fixture 问题：把 PA 根默认职责错误地期望于 worker，以及新创建测试没有关掉依赖能力的默认 Feature。按真实职责边界与合法配置修正后，相关 10/10 通过，其余 41 个相关测试原已通过。未将首轮失败隐藏为首次全绿。
 - 重新捕获 Global/PA 的第一条产品 Inbox 请求、读取工具结果后的请求、自动 Dreaming 请求（各 3 个实际 HTTP 请求）：PA 系统服务指导只在 PA 系统角色中出现；ROLE 在主请求中跟随文件路径原样展示，在 Dreaming 中作为背景数据；不再出现 custom_instructions/Persona。系统职责仍包含长期负责、委派完整事项、执行者拥有实现验证、主 Agent 对外协作交付。Dreaming 继续区分背景与本次原始证据，不继承主 Agent 的业务执行任务。完整请求和脚本在本机 evidence/role-unification-20261111 与可视化 context-comparison-evidence；模型与 IM relay 为受控替身，不是模型质量实验。
 - 隔离迁移演练使用合成 SQLite、配置和工作区：6 种已准备内容方案（原样 PA 默认、空 Global、自定义、默认加附加、已有相同 ROLE、无冲突合并）、角色写入后中断恢复、重复执行、后续编辑停止覆盖、配置不变量及一致备份回滚均通过。冲突/超限需要人工确认方案，已审阅提示词，不宣称脚本能自动判断语义冲突。脚本与结果在本机 `role-unification-20261111/feat759-role-migration-check.py`、`migration-check.json`。未执行生产迁移。
+
+
+### 统一 ROLE · 独立审查与修复
+
+审查者 role_unification_code_review，validated_at `349e6bc728e5073bc0a57083222737ceda66c2f7`，executed_base `480436600632866d188221df654ecb9af4d031ed`。代码/delta 和非视觉 Context 合并审查。本轮新增范围，不重新审未改部分。
+
+- Context：独立通过。审查者亲读 Global/PA 首次、Inbox 后续和 Dreaming 完整相关输入及四条实链路出站请求；固定 PA 指导、系统 Global 分工、ROLE 与原始经历清晰区分，未见旧 Persona/custom_instructions。创建重启保留初始 ROLE；配置和 fork 历史保留旧快照，最新快照明确替代，符合现有 ROLE 更新规则。受控模型响应，不作为真实模型理解或完整 daily 验收。
+- R7-C1（P2）：ROLE 写入后丢失 prepare 回包，Node 将未知结果转成永久拒绝。修复：仅带初始角色的 prepare 传输异常继续抛出，让已有 receipt 保持 pending；明确业务拒绝照常返回。补回包丢失后同意图继续的定向测试；普通无角色配置错误路径不变。
+- R7-C2（P2）：部署说明漏掉 legacy memoryMode 不读 ROLE。修复：准备阶段枚举模式，此类对象有需保留用户说明时，在删旧字段前停止批次；先明确切换 document 的部署决定或保留旧部署，不自动迁模式、不兼容读取。此限制属于部署计划审阅，合成脚本不声称能自动判断迁移语义。
+- R7-C3（P2）：已有目录角色冲突被显示成通用配置刷新。修复：runtime 返回有含义的说明，Web/iOS 创建页单独解释保留现行约定（清空初始草稿）或换目录，并保留草稿。Web 补角色冲突与保留草稿测试。
+- R7-D1（P3）：current 与 delta 中“未填写则未设置”限定错误。修复：省略初始值保留现行约定，新空目录才未设置。
+
+作者真实 Web 操作：隔离 daily 栈（团队 seed 因能力目录 504 未完成）中创建 `role-ui-check`，填写两行角色，进入配置页读到相同内容，再独立保存修订角色；页面显示 Role agreement saved，普通配置仍 No changes。实际窄屏画面中职责说明、正文、独立保存按钮相邻，旧 Custom Instructions 已不存在。只观察 Web；iOS 本轮为编译/合同测试，未重复真人界面旅程。测试 Agent 没有聊天/模型调用，现场随后停止并回收。
+
+完整本地基线验证：TS/runtime 235 文件 1,334 测、Web 122 文件 1,185 测、Python 非 E2E 135 测、全库 typecheck、ruff 与文档检查通过。上列修复之后补跑受影响的定向验证，不因仅新增说明和错误路径而重复全部成功套件。额外 Global Inbox 回归已通过；群延迟发送 fixture 适配当前 ID 后缀与审核器身份后真实链路也通过（33.46s），未改产品逻辑。
