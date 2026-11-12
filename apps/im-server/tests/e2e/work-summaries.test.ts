@@ -73,6 +73,22 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   expect((await read('?catalog=separate&limit=2')).body.turns.map((turn: {session_id: string}) => turn.session_id)).toEqual(['root', 'root']);
   expect((await read('/focus?message_id=old-reply&catalog=separate')).body.focus.turn.turn_id).toBe('first');
 
+  await append([
+    ['root', 'control_result', {command: 'compact', status: 'completed'}, 'last'],
+    ['root', 'control_result', {command: 'compact', status: 'failed', manual: true, error: 'Compaction was interrupted'}],
+  ]);
+  const compactPage = (await read(prefix.replace('limit=2', 'limit=1'))).body;
+  const compact = compactPage.turns[0];
+  expect(compact).toMatchObject({origin: 'context_compaction', status: 'failed', started_at: recent,
+    items: [{kind: 'control_result', payload: {manual: true, error: 'Compaction was interrupted'}}]});
+  expect((await read(prefix + '&before_seq=' + compactPage.next_cursor)).body.turns[0].turn_id).toBe('last');
+  const sessionPage = '/sessions/root/turns?catalog=separate&view=summary&limit=1';
+  expect((await read(sessionPage)).body.next_cursor).toBe(compact.turn_id);
+  expect((await read(sessionPage + '&before_turn=' + compact.turn_id)).body.turns[0].turn_id).toBe('last');
+  expect((await read('/sessions/root/turns/last/items?view=preview')).body.items).toEqual(expect.arrayContaining([
+    expect.objectContaining({kind: 'control_result', payload: expect.objectContaining({status: 'completed'})}),
+  ]));
+
   expect((await status(true)).status).toBe(200);
   const syncing = await read('/activity');
   expect(syncing.status, syncing.body).toBe(200);

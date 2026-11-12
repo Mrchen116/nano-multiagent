@@ -125,6 +125,8 @@
   padding-inline-start: 12px;
 }
 .im-work-timeline-turn .im-work-items > li { position: relative; padding-block: 3px; }
+.im-work-timeline-turn .im-work-compaction { padding:6px 0; }
+.im-work-compaction p { margin:4px 0 0; overflow-wrap:anywhere; }
 .im-work .im-work-event-time {
   position: absolute;
   inset-inline-start: calc(-1 * var(--event-gutter) - 12px);

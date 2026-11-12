@@ -25,6 +25,21 @@ type WorkSummarySession = {
   turn_id: string | null;
   last_active_at: string | null;
 };
+type CompactionRow = WorkTurnRecord & {control_payload: string};
+export const standaloneCompaction = "turn_id='' AND kind='control_result' AND json_extract(payload,'$.command')='compact'";
+
+/** Read turnless compactions as timeline entries without creating fake execution turns. */
+export function standaloneCompactions(db: DatabaseSync, session: string, before: number, limit: number): CompactionRow[] {
+  return all(db, `SELECT session_id,item_id AS turn_id,seq,
+      json_object('command','compact','status',json_extract(payload,'$.status'),
+        'manual',json(CASE WHEN json_type(payload,'$.manual')='true' THEN 'true' ELSE 'false' END),'error',substr(json_extract(payload,'$.error'),1,512),
+        'text',substr(json_extract(payload,'$.text'),1,512)) AS control_payload,
+      json_object('session_id',session_id,'turn_id',item_id,'origin','context_compaction',
+        'status',COALESCE(json_extract(payload,'$.status'),'unknown'),'usage',NULL,'started_at',observed_at) AS payload
+    FROM agent_work_items WHERE session_id=? AND ${standaloneCompaction} AND seq<?
+    ORDER BY seq DESC LIMIT ?`, session, before, limit) as CompactionRow[];
+}
+
 type TimelineRow = WorkTurnRecord & {scope: string; maintenance_stage?: string | null; maintenance_title?: string | null};
 type WorkWindowUsage = {total_tokens: number | null; reported_turns: number; missing_turns: number};
 type WorkGraphNode = WorkSummarySession & {ancestor_only: boolean; usage: WorkWindowUsage};
@@ -40,12 +55,12 @@ const summaryFields = `s.session_id,s.parent_session_id,s.scope,substr(json_extr
 export class WorkSummaries {
   constructor(private readonly db: DatabaseSync) {}
 
-  /** Read the next continuous prefix of main and Dreaming turns by global journal position.
+  /** Read the next continuous prefix of main turns, Dreaming and standalone compactions by journal position.
    *
    * Args:
    *   root: Authorized product Agent.
    *   main: Registered main execution whose maintenance belongs in the timeline.
-   *   before: Exclusive position shared by both streams.
+   *   before: Exclusive position shared by all streams.
    *   limit: Maximum number of rows to return.
    */
   timeline(root: string, main: string, before: number, limit: number) {
@@ -62,7 +77,9 @@ export class WorkSummaries {
       JOIN agent_work_turns t ON t.session_id=e.session_id AND t.turn_id=e.turn_id
       WHERE e.root_agent_id=? AND e.revision<? AND e.type IN (${startTypes}) AND json_extract(e.payload,'$.origin')='dreaming'
       ORDER BY e.revision DESC LIMIT ?`, main, root, before, limit + 1) as TimelineRow[];
-    const rows = [...mainRows, ...maintenanceRows].sort((a, b) => b.seq - a.seq);
+    const compactions = standaloneCompactions(this.db, main, before, limit + 1)
+      .map(row => ({...row, scope: 'global_main'}));
+    const rows: TimelineRow[] = [...mainRows, ...maintenanceRows, ...compactions].sort((a, b) => b.seq - a.seq);
     return {
       rows: rows.slice(0, limit),
       next_cursor: rows.length > limit ? String(rows[limit - 1]!.seq) : null,

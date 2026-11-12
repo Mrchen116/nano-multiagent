@@ -662,6 +662,9 @@ END;
 CREATE TABLE IF NOT EXISTS task_lifecycle_schedules (agent_id TEXT NOT NULL,schedule_id TEXT NOT NULL,graph_id TEXT NOT NULL,node_id TEXT NOT NULL,PRIMARY KEY(agent_id,schedule_id));
 
 CREATE INDEX IF NOT EXISTS agent_work_turns_sequence ON agent_work_turns(session_id,seq DESC);
+CREATE INDEX IF NOT EXISTS agent_work_items_standalone_compaction
+  ON agent_work_items(session_id,seq DESC)
+  WHERE turn_id='' AND kind='control_result' AND json_extract(payload,'$.command')='compact';
 CREATE INDEX IF NOT EXISTS agent_work_items_sequence ON agent_work_items(session_id,turn_id,seq);
 CREATE INDEX IF NOT EXISTS agent_work_sessions_catalog ON agent_work_sessions(root_agent_id,session_id);
 CREATE INDEX IF NOT EXISTS agent_work_sessions_current_main ON agent_work_sessions(root_agent_id,session_id)

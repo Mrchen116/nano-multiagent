@@ -743,6 +743,7 @@
       "关联执行 · ": "Linked executions · ",
       "子执行": "Child execution",
       "执行记录": "Execution records",
+      "上下文压缩": "Context compaction",
       "暂无控制记录": "No control records",
       "控制记录": "Control records",
       "Cron 实际投递": "Cron delivery",

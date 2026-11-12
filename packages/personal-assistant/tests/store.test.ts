@@ -139,6 +139,18 @@ it('bounds presenter-less summaries without losing their complete output', () =>
 });
 
 
+it('keeps standalone compaction separate from the previous round and preserves a numbered owner', () => {
+  const start = {seq: 1, time: 1, type: 'turn/start', data: {turn: 7}};
+  const manual = {seq: 4, time: 4, type: 'compaction/end', data: {turn: null, sourceCommandId: 'cmd', error: 'interrupted'}};
+  expect(projectWorkEvent('main', manual, [start, manual])).toEqual({
+    type: 'control_result', turn: undefined, payload: {command: 'compact', status: 'failed', manual: true, error: 'interrupted'},
+  });
+  const automatic = {seq: 2, time: 2, type: 'compaction/end', data: {turn: 7}};
+  expect(projectWorkEvent('main', automatic, [start, automatic])).toEqual({
+    type: 'control_result', turn: 7, payload: {command: 'compact', status: 'completed'},
+  });
+});
+
 it('retains cumulative cache hit counts and denominator in Work turn usage', () => {
   const events = [
     {seq:1,time:1,type:'assistant/message',data:{turn:1,usage:{inputTokens:10,cacheReadTokens:20,outputTokens:3}}},

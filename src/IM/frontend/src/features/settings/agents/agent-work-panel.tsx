@@ -655,6 +655,14 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
         if (item.detail_deferred && deferredDetail) return <li ref={detailRef} className="im-work-deferred-item" key={item.item_id}>
           {eventTime}<span>{str(p.text) || str(p.content) || str(p.summary) || item.kind}</span>{deferredDetail}
         </li>;
+        if (item.kind === "control_result" && p.command === "compact") {
+          const label = <><strong>{tr("上下文压缩")}</strong>{p.manual === true && <> · /compact</>}
+            <span className={p.status === "failed" ? "im-work-error" : "im-work-muted"}> · {statusLabel(str(p.status) || "unknown")}</span></>;
+          const detail = str(p.error) || str(p.text);
+          return <li ref={detailRef} className="im-work-compaction" key={item.item_id}>
+            {eventTime}{detail ? <details><summary>{label}</summary><p>{detail}</p></details> : label}
+          </li>;
+        }
         if (item.kind === "permission") return <li ref={detailRef} key={item.item_id}>{eventTime}<PermissionCard request={p as unknown as PermissionRequest} endpoint={`${workBase(agentId)}/permissions/${encodeURIComponent(str(p.request_id))}`} disabled={!online} onResolved={refresh} /></li>;
         if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind)) return <li ref={detailRef} className="im-work-body" key={item.item_id}>{eventTime}{str(p.reasoning_content) && <details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey, event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.reasoning_content)}</p></details>}{(str(p.text) || str(p.content) || str(p.delta) || str(p.source_session_id)) && <div className="im-work-assistant"><header className="im-work-message-head"><strong>{tr(p.source_kind === "subagent-settled" ? "子执行返回" : p.source_kind === "agent-message" ? "Agent 消息" : "Agent 正文")}</strong>{str(p.source_session_id) && <button type="button" className="im-work-child-link" onClick={() => onChild(str(p.source_session_id))}>{tr("查看关联执行")}<span aria-hidden="true">↗</span></button>}</header><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{str(p.text) || str(p.content) || str(p.delta)}</ReactMarkdown></div>}{backgroundRows(p.background_returns, itemKey)}</li>;
         if (["thinking", "thinking_delta", "reasoning"].includes(item.kind)) return <li ref={detailRef} key={item.item_id}>{eventTime}<details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey,event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.text) || str(p.content) || str(p.reasoning_content)}</p></details></li>;
@@ -703,6 +711,9 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
       {cursor && <button type="button" disabled={pages.isFetching} onClick={load}>{tr("加载更多过程")}</button>}{pages.error && <p role="alert">{pages.error.message}<button type="button" onClick={() => void pages.refetch()}>{tr("重试")}</button></p>}
     </div>;
   const id = turnElementId(turn.session_id, turn.turn_id);
+  if (turn.origin === "context_compaction" && turn.items[0]) return <article id={id} ref={row} className="im-work-turn im-work-timeline-turn">
+    <ul className="im-work-items">{renderItem(turn.items[0])}</ul>
+  </article>;
   if (preview) return <article id={id} ref={row} tabIndex={-1} className="im-work-turn im-work-timeline-turn">
     <header>{header}</header>{body}
   </article>;

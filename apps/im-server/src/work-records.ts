@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields } from '@nano/product-contracts';
 import { all, one, now, fail, transaction } from './context.js';
 import { agentAvailable } from './identity.js';
-import { WorkSummaries } from './work-summaries.js';
+import { standaloneCompaction, standaloneCompactions, WorkSummaries } from './work-summaries.js';
 import type { WorkSessionRecord, WorkEventRecord, WorkTurnRecord, WorkItemRecord, WorkItemView, WorkSessionView, WorkTurnData, WorkItemData, WorkItemsPage, WorkTurnsPage, WorkTurnView, WorkFocus, WorkRecordView, WorkCatalogFilter, WorkCatalogPage } from './work-record-types.js';
 
 // The planner can otherwise favor a broader root index before fresh statistics exist.
@@ -585,16 +585,20 @@ export class WorkRecords {
           "SELECT seq FROM agent_work_turns WHERE session_id=? AND turn_id=?",
           session,
           before,
-        )?.seq
+        )?.seq ?? (separate ? one(this.db, `SELECT seq FROM agent_work_items
+          WHERE session_id=? AND item_id=? AND ${standaloneCompaction}`, session, before)?.seq : undefined)
       : Number.MAX_SAFE_INTEGER;
     if (anchor === undefined) fail(400, "invalid_cursor");
-    const rows = all(
+    const turnRows = all(
       this.db,
       "SELECT * FROM agent_work_turns WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?",
       session,
       anchor,
       limit + 1,
     ) as WorkTurnRecord[];
+    const rows = separate
+      ? [...turnRows, ...standaloneCompactions(this.db, session, anchor, limit + 1)].sort((a, b) => b.seq - a.seq)
+      : turnRows;
     return {
       turns: rows.slice(0, limit).map(row => this.turnView(root, registered.scope, row, summary, separate)),
       control_items: separate ? [] : this.items(root, session, "").items,
@@ -604,6 +608,12 @@ export class WorkRecords {
   }
   private turnView(root: string, scope: string, row: WorkTurnRecord, summary: boolean, separate: boolean): WorkTurnView {
     const turn = {...JSON.parse(row.payload) as WorkTurnData, scope, seq: row.seq};
+    if ('control_payload' in row) {
+      return {...turn, items: [{
+        item_id: row.turn_id, seq: row.seq, revision: row.seq, kind: 'control_result',
+        observed_at: turn.started_at ?? null, payload: JSON.parse(String(row.control_payload)),
+      }], next_items_cursor: null};
+    }
     if (separate) return {...turn, items: [], next_items_cursor: null, items_deferred: true};
     if (!summary) {
       const page = this.items(root, row.session_id, row.turn_id);

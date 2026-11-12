@@ -729,6 +729,30 @@ it("loads combined history at the visible boundary and offers retry after a fail
   expect(earlierPage()).toBeNull();
 });
 
+it("shows standalone and in-round compaction in Work", async () => {
+  const started_at = "2026-11-12T08:00:00Z";
+  const compaction = (item_id: string, seq: number, payload: Record<string, unknown>) => ({
+    item_id, seq, observed_at: started_at, kind: "control_result",
+    payload: {command: "compact", ...payload},
+  });
+  const round = {...view.turns[0], started_at, seq: 2, items: [
+    {...view.turns[0].items[0], seq: 1},
+    compaction("automatic", 3, {status: "completed"}),
+  ]};
+  const standalone = {...round, turn_id: "manual", seq: 4, origin: "context_compaction", usage: null,
+    items: [compaction("manual", 4, {status: "failed", manual: true, error: "Compaction was interrupted"})]};
+  view = {...view, timeline: "combined", catalog: "separate", turns: [standalone, round]};
+  renderWork();
+  const manual = await screen.findByText("/compact", {exact: false});
+  const details = manual.closest("details")!;
+  expect(details.querySelector("summary")).toHaveTextContent(/上下文压缩.*失败/);
+  expect(screen.getByText("Compaction was interrupted")).not.toBeVisible();
+  details.open = true;
+  expect(screen.getByText("Compaction was interrupted")).toBeVisible();
+  const article = screen.getByRole("heading", {name: "Inbox 唤醒"}).closest("article")!;
+  expect(within(article).getByText("上下文压缩").closest("li")).toHaveTextContent("已完成");
+});
+
 it("opens nested delegation from its real graph node and restores the chosen window", async () => {
   const node = (session_id: string, parent_session_id: string | null, title: string, total_tokens: number) => ({
     session_id, parent_session_id, title, status: "completed", usage: {total_tokens, reported_turns: 1, missing_turns: 0},

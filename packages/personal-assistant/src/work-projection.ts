@@ -3,6 +3,19 @@ import { tokenUsage, toolPresentation, modelAt } from './presentation.js';
 
 /** The same native facts render main and child execution without treating drafts as public replies. */
 export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events: RuntimeEvent[], child = false): (WorkFact & { turn?: number }) | undefined {
+  if (event.type === 'compaction/end') {
+    const {turn, sourceCommandId, error} = event.data;
+    return {
+      type: 'control_result',
+      turn: typeof turn === 'number' ? turn : undefined,
+      payload: {
+        command: 'compact',
+        status: typeof error === 'string' ? 'failed' : 'completed',
+        ...(typeof sourceCommandId === 'string' ? {manual: true} : {}),
+        ...(typeof error === 'string' ? {error: error.slice(0, 512)} : {}),
+      },
+    };
+  }
   const turn = typeof event.data.turn === 'number' ? event.data.turn : events.findLast(candidate => candidate.seq < event.seq && candidate.type === 'turn/start')?.data.turn as number | undefined;
   if (event.type === 'turn/start') {
     const nextEnd = events.find(candidate => candidate.seq > event.seq && candidate.type === 'turn/end')?.seq ?? Infinity;
