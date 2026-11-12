@@ -88,16 +88,29 @@
 
 | 条件 | 固定值/判据 |
 |---|---|
-| 环境 | 同一本轮iPhone17Pro模拟器/iOS26.4、默认字号/竖屏、键盘关闭；同Xcode26.4.1、同Debug配置/优化级别、同fixture数据库/图片/卡片source。原生UI基线产品树45babb2b49e3；允许在两版共用无行为变化的测量harness/signpost，绑定各自实际SHA。 |
+| 环境 | 同一本轮iPhone17Pro模拟器/iOS26.4.1（23E254a；SDK/xctestrun标签26.4）、默认字号/竖屏、键盘关闭；同Xcode26.4.1、同Debug配置/优化级别、同fixture数据库/图片/卡片source。原生UI基线产品树45babb2b49e3；允许在两版共用无行为变化的测量harness/signpost，绑定各自实际SHA。 |
 | 负载 | 两会话各300消息，完全相同base Markdown文本量；控制组纯文本，混合组在相同消息附2张nano-iui-1卡片/2受保护PNG，末卡有唯一真实尾标。初页241–300，实际通过Earlier加载181–240、121–180、061–120、001–060，UI见001且API页边界对账才算300历史已加载。 |
 | 冷/暖 | 冷为进程终止后，同已预热本地300消息窗口重启，renderer/AST是新内存，不把首次空库等同暖重开；暖为同进程立即重访相同范围。两版均从同样已确认的SQLite窗口开始，远程媒体无持久缓存承诺。首次无缓存进入另作功能旅程，不混入性能样本。 |
-| 动作 | 各组从已确认真实尾部开始，6次同方向/速度的fast swipe读历史，再6次回尾；另从同一历史marker范围点击Latest一次。重置起点与等待已知卡片完成在测量区间外，不用长途程序动画制造表面流畅。 |
+| 动作 | 各组从已确认真实尾部开始，6次同方向/速度的fast swipe读历史，再6次向尾方向手势；逐次及终点真实frame保留，不能仅凭反向6次就宣称成功回尾。另从同一历史marker范围点击Latest一次，必须按下列真实尾部与时延标准完成；Latest/动态尺寸跟随的终点要求不减免。重置起点与等待已知卡片完成在测量区间外，不用长途程序动画制造表面流畅。 |
 | 样本 | 每组先1次discarded warmup，再5次measured，冷/暖分列；保留每次值、中位和min/max，不给5样本伪p95，失败样本不丢。达到下述边界但受噪声影响时只追加一组5次等条件复核，仍不确定则inconclusive，不无限挑好样本。 |
 | 尾部完成 | 唯一最终尾标的完整frame位于nav.maxY到composer.minY有效视口内，3次间隔约200ms观察均在内且相对Y漂移≤4pt；随后卡片/图片或输入区再次改高仍恢复尾部。这个稳定窗口仅用于测试判定，不是产品固定延迟。 |
 | 操作时延 | 同步记录Latest handler→尾部几何可见signpost（不是触摸→屏幕呈现）与XCTest命令→稳定尾部外部墙钟（含automation同步开销，分列不混算）。已加载/渲染内容的handler→tail中位≤500ms、最大≤1s；新挂载卡片的最终tail≤3s、最后height revision后的纠正≤1s。按钮即时取得跟随且旧定位不抢回是独立必过行为。 |
 | 滚动代价 | 主要指标为App定向XCTHitchMetric的hitch duration ratio（ms/s），辅以scrollingAndDecelerationMetric、XCTCPUMetric(application:)与XCTMemoryMetric(application:)；必要时用本轮sim的Animation Hitches/Time Profiler解释与请求时序的相关性。不能把runner CPU或空metric当App结果。 |
 
-**退出规则**：原生连续旅程必须全部通过。滚动候选hitch ratio中位不得超过基线中位加`max(1ms/s, 基线的10%)`；若基线中位>5ms/s（本轮明显停顿工作阈值，不是行业标准），候选须至少降低20%且≤5ms/s。App CPU/峰值内存中位不回归超过15%，超界须解释并以对照证明不增加阅读停顿/内存压力，否则不能退出。基线未复现hitch时，只能给『此负载下未复现真实帧停顿』的限定结论；候选仍须取得非空原生metric且hitch ratio≤5ms/s、操作时延达标、无上述回归，不能声称找到用户手机版本卡顿根因。指标不支持时尝试Animation Hitches等效测量；必要原生停顿/操作测量均无法取得、样本触及负载不明或持续不稳定，整体性能结论inconclusive并阻止归档/交付为已完成，交owner决定而非自行降标。
+**原生 hitch 退出规则（平台支持时）**：原生连续旅程必须全部通过。滚动候选hitch ratio中位不得超过基线中位加`max(1ms/s, 基线的10%)`；若基线中位>5ms/s（本轮明显停顿工作阈值，不是行业标准），候选须至少降低20%且≤5ms/s。App CPU/峰值内存中位不回归超过15%，超界须解释并以对照证明不增加阅读停顿/内存压力，否则不能退出。基线未复现hitch时，只能给『此负载下未复现真实帧停顿』的限定结论；候选仍须取得非空原生metric且hitch ratio≤5ms/s、操作时延达标、无上述回归，不能声称找到用户手机版本卡顿根因。
+
+#### R3：本机 hitch 不支持时的有界验证分支（待独立复核）
+
+实际同机基线的5个CPU/内存/scroll样本非空，但XCTHitchMetric没有hitch系列，不能记作0。Animation Hitches真机具备的能力不能推到模拟器：本轮实际`record`退出2，原始日志`/private/tmp/nano-ios-763-evidence/baseline-animation-hitches-support.log`明确`Hitches is not supported on this platform.`；命令、exit receipt和App/corpus hash见同目录`baseline-native-measurement-binding.json`。以下是主Agent在既有工程授权内批准探索的**验证方法变更**，不是用户新要求、不是性能通过，也不把可见停滞伪称Apple hitch等价值。
+
+1. **一次能力探针**：基线测量helper释放独占sim/CPU后，只做一次最长15秒的`Game Performance`（如模板实际不支持则结束，不连换模板）的本轮App采样，检查原始track/schema和非空行。只有能绑定本轮App/Simulator画面、实际present时刻及预期显示deadline的track，才可另交原非作者判断是否保持原生hitch规则；GPU命令提交、SwiftUI update、FPS均值或空表不成立。探针不能取得这三项就转下一分支，不无限寻找trace。
+2. **独立真实捕获链校准**：不改产品renderer、不用私有hook，也不靠分析器人工复制帧作唯一positive。临时无网络校准App在同一sim实际绘制匀速标尺/至少3个可追踪纹理区、逐帧序号与单调时钟；negative持续运动，positive在真实主线程按已记录单调起止时间各注入3次50/100/200ms冻结。使用与后续产品相同的`simctl io <UDID> recordVideo --codec=h264`原始MOV、像素分辨率/窗口设置/host条件；不转固定fps、不用文件标称fps作源帧率。保存每个原始sample的PTS、duration、尺寸、分析器版本及冻结事件时间。
+3. **在看任何候选可见停滞分析前冻结精度**：只从校准结果按50→100ms顺序选择最小合格档`X`；档位合格要求同档及以上全部3次positive均检出、时长误差不超过`max(1个实际采样间隔,25ms)`，且negative不存在任何≥X的假停滞。200ms只检出而100ms不可靠不够评价本目标，本分支失败。PTS必须严格递增，无倒退；活动画面样本间隔p99≤X/3且最大≤X/2，至少3个纹理区位移一致。捕获间隔缺口不算产品停滞，造成区间不可判定，必须保留失败样本。误差、eligible window算法、ROI/patch规则、X及采集/分析hash形成独立校准receipt，由原非作者复核后才可分析候选；不能按候选好坏调整档位/阈值。
+4. **完整预期运动区间、采集扰动与正常静止**：同校准App交错不录制/录制各3次等长运动，从其单调display-link回调间隔和冻结日志检验录制扰动；录制不得新增≥X源回调停顿，回调间隔p99中位回归不得超过15%，否则校准失败。产品每次12个swipe的完整预期活动/减速区间，必须在候选分析前由独立XCTest实际输入event及预先冻结的边界规则定义，并与原MOV PTS建立≤X/3误差绑定；不是从候选哪些帧已在运动反推区间。开始未响应、中途停住、停后继续都在完整应评估区间内，不能因其没有位移就剔除。所有应评估区间须逐段全覆盖，任何一段采样/分类/追踪不明使整sample无效；“每swipe至少有一个平滑片段”不算覆盖。静止等候、反向过渡、首尾边界和自然减速低于追踪分辨率的合法排除，须有独立输入/几何边界及冻结规则支撑，逐段列明，不能因像素停住循环推断“已减速结束”。校准App除匀速冻结外，必须用**同一窗口算法**覆盖预定开始不响应、运动中冻结、冻结后继续、匀速→减速及触界/窗口边界positive/negative，证明≥X positives未被eligibility切掉；缺公开event精度或独立边界依据就校准失败，而不是缩小区间。正文运动由至少3处patch的一致位移验证；局部card/caret/spinner变化不算正文运动。原始帧索引与PTS必须能回查所有区间、合法排除及每个检出段。
+5. **产品同负载比较与独立门槛**：仍保留上表300×2真实加载、冷暖、12次同轨迹swipe、1discard+5retained、真实尾部/Latest时延与CPU/内存15%门槛。视频组与既有CPU/内存组分开等条件执行，基线/候选都录像，禁止并发构建等重活；记录真实host负载而不宣称绝对空闲。以明确命名的`Simulator captured visible stall (≥X ms)`报告每次有效运动秒数、停滞次数/时长/最长段及原始PTS，不沿用5ms/s hitch阈值。候选每个保留样本在全部合格窗口内均不得有≥X停滞；基线若有停滞则报告是否改善，基线无停滞只能说此负载/精度下两版均未观察到，不能声称优化根因。不得以均值掩盖单个候选长停顿。一个样本采样/追踪无效即保留为无效；只可按原协议追加一组5次复核，仍无效或候选真实停滞未消除则不能通过。
+6. **失败及证明边界**：有限探针/校准/事件时间绑定任一不能成立，必要流畅性证据仍inconclusive，阻止以“已完成”归档；向主Agent带回实际已完成功能、未证明部分和建议，由其负责产品交付取舍。校准成立也只支持本Mac/本sim/该负载≥Xms的捕获可见停滞判断；不能推出iPhone呈现、16ms单帧hitch、Apple hitch ratio≤5ms/s、用户原手机卡顿根因。原生连续功能、尾部/时延及CPU/内存不得由此豁免。
+
+依据边界：[Apple hitch定义](https://developer.apple.com/documentation/xcode/understanding-hitches-in-your-app)、[WWDC2020 hitches](https://developer.apple.com/videos/play/wwdc2020/10077/)、[CMSampleBuffer PTS](https://developer.apple.com/documentation/coremedia/cmsamplebuffergetpresentationtimestamp(_:))。`simctl recordVideo`只承诺display QuickTime capture，不承诺逐vsync；本分支必须靠真实校准而不是引用PTS名称补足保证。
 
 优先核实重复日期/时间分隔计算、Markdown解析、可见已读请求/回包投影以及WebView挂载。仅在同负载测量支持时改该私有路径，可采用消息内容键的有界/视图生命周期缓存、聚合幂等已读等；授权/状态更新不能缓存掉。若性能修复需要改业务语义或新公共边界，先修订受审设计再实施。无稳定收益的候选不合入，不把正确定位等价于无掉帧。
 
@@ -155,7 +168,7 @@
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-continuity | 连续聊天状态与原生验证 | 无 | 串行集成 | ChatPhases/ChatStore/UserStream、ChatList/Conversation及私有策略、测量支持的局部呈现、Tests/UITests、ios-client delta | [reviewer] 短重连零反馈且不位移，持续失败一处诚实可恢复；Chats重进尾部、动态增高/键盘跟随、上翻/详情/前后台不抢位、旧定位不覆盖最新；原生信息层级协调；D5冻结负载/样本的真实尾部、时延、hitch与CPU/内存退出规则全部成立，缺决定性测量不退出。[worker] 策略边界、timer取消/epoch、WS失败退避、healthyWS+HTTP失败再成功、HTTP-only成功不清WS故障、操作错误单测；真实UI连续旅程含缓存重入/高卡片/分页竞态/历史上下文；300实际加载边界、冷暖5样本metrics/请求/必要profile绑定SHA；原生build+受影响单测、CI等价检查；不更改权限/发送/媒体持久边界。 |
+| M1-continuity | 连续聊天状态与原生验证 | 无 | 串行集成 | ChatPhases/ChatStore/UserStream、ChatList/Conversation及私有策略、测量支持的局部呈现、Tests/UITests、ios-client delta | [reviewer] 短重连零反馈且不位移，持续失败一处诚实可恢复；Chats重进尾部、动态增高/键盘跟随、上翻/详情/前后台不抢位、旧定位不覆盖最新；原生信息层级协调；D5冻结负载/样本的真实尾部、时延、CPU/内存与平台支持的hitch规则或经独立校准复核的R3可见停滞规则全部成立，缺决定性测量不退出。[worker] 策略边界、timer取消/epoch、WS失败退避、healthyWS+HTTP失败再成功、HTTP-only成功不清WS故障、操作错误单测；真实UI连续旅程含缓存重入/高卡片/分页竞态/历史上下文；300实际加载边界、冷暖5样本metrics/请求/必要profile绑定SHA；原生build+受影响单测、CI等价检查；不更改权限/发送/媒体持久边界。 |
 
 ## 交付路径差异
 

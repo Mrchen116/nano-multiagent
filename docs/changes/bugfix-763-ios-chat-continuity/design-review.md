@@ -196,3 +196,111 @@ D3/D4 对以下设计决定表达充分，可以指导实现，不要求在 Gate
 ### Author Resolutions
 
 Author 已完整核实 R2 与受审设计，无实质异议；0 CRITICAL / 0 WARNING，Gate2通过。R2之后仅追加本确认，不改incident/design/delta/骨架；独立原生体验和性能仍待实施验证。沿用主Agent确认的独立unit分支交付，不直推develop。
+
+## Round 3
+
+### Metadata
+
+- reviewer：原独立 delegated `change-design-reviewer`，session `07871190-134a-4121-bbb7-e2ac47b16be7`；未参与受审设计或实现创作。
+- runtime：未指定/声称固定模型或 effort；未调用产品模型。
+- review_mode：`delta`。
+- mode_reason：本轮只改变 D5 测量方法和 M1 对应退出分支，不改用户目标、产品接口或连接/滚动决定；重点重新审查替代方法的可证伪性、时间绑定、窗口覆盖、可比性和证明边界。
+- target：`/private/tmp/nano-ios-chat-continuity` / `unit/bugfix-763-ios-chat-continuity`；HEAD `ed5248dc1fa74358ac74b65f9a98589cc4142d8d` 加冻结的未提交 design 修订，SHA256 `d1f1b83c49ea4e22541843db6a3d2cfeb87e2a5222b8de05a06d3d3d3f3615fb`。implementation 及其他在途文件不是本轮审批对象。
+- started_at：`2026-11-12T14:04:45+08:00`；completed_at：`2026-11-12T14:05:40+08:00`；duration：`00:00:55`（可复核时钟读数区间）。
+- abilities：`change-design-reviewer`、`performance-review`（方案模式；此前已加载，沿用官方证据边界）。
+- 执行边界：只读研究/设计审查并追加本报告，未起 trace/build/test/GUI/录屏/模拟器，不占用 helper 的独占测量资源，不改受审对象。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 1 WARNING。R3 替代测量分支暂未批准实施。**
+
+有界能力探针、真实采集链校准、预先冻结 X、独立 receipt、不能成立就 inconclusive 的结构合理。它不是 Apple hitch 的数值等价物，也没有声称是。但完整预期运动区间与“合格窗口”的关系仍存在实质漏检通路，应修订后复核。
+
+### Coverage 与证据
+
+- 已完整读取新 D5 `85-115`、对应 M1 `171`，核对 git diff 仅新增 R3 六条和 M1 分支绑定；incident/delta 无本轮修改。`retained_from: Round 2`：既有产品目标、current/delta、D1–D4 生命周期/所有权方案、300×2实际加载、冷暖、动作/样本、真实尾部和 Latest 时延、CPU/内存边界及其他必要原生旅程。它们不因 hitch 工具不可用而被豁免。
+- 原始 `baseline-animation-hitches-support.log:1-7` 已直接读取，实际提示平台不支持；空 hitch 不能作为零值。Apple 的 hitch 定义涉及预期与实际呈现，视频 sample PTS 名称不自带原 App vsync 保证；相关官方资料和本机 simctl help 的边界已在本轮前只读研究中核实。R3 正确承认这些限制。
+- 一次 ≤15s Game Performance probe 有次数/时间/非空数据与 target/present/deadline判据，不把模板存在当能力已证实；不得取得就有限转支，合理。
+- 校准 App 与产品 renderer 隔离，不借私有 hook 或降低实际负载加速；真实主线程冻结比只在分析器复制帧更能检测采集链问题。50/100ms 最小合格档、同档以上 positives 全检出、negative 无假停滞、误差与采样间隔、3对录制扰动、严格递增 PTS、≤X/3 事件绑定、分析 hash 和候选分析前 receipt 独立复核，形成可证伪的 fail-closed 结构。
+- 采集是否逐帧输出、时钟映射及 ≤X/3 事件精度能否在本机真正满足仍未知；设计允许由校准失败作 inconclusive，没有宣称已实现或通过。capture 对源图形的扰动也不能只用 callback 无回归证明不存在；本轮允许它作为有限校准条件，不将 callback 间隔升级为 presented 帧。
+- 候选每个保留样本不得有 ≥X 的合格停滞，比均值不回归更明确；但零停滞只能在充分覆盖的预期运动范围内成立，现有覆盖判据未确保这一点（R3-W1）。
+- 正确保留本 Mac / sim / 负载 / 检测下限限定，不推出真机、单帧 hitch、Apple ratio 或原手机根因。无须改 consumer delta，也没有新增产品界面原型需求。
+
+### 历史问题闭环
+
+R1-W1/W2 在 Round 2 的设计层关闭状态保留；R3 是实际工具限制后的新验证分支，不把旧 Approved 当新分支已经通过。当前 implementation review 的 CODE-763 findings 不由本轮处理或关闭。
+
+### Issues
+
+#### R3-W1 — 每个 swipe 存在合格片段，不足以证明完整运动过程无可见停滞
+
+- severity：**WARNING**；status：**open**。
+- 位置：`design.md:108-110`，R3 第3–5条，尤其第4条“任何一次无有效可判定运动窗口”与第5条“全部合格窗口内”。
+- 证据/反例：一个 swipe 开始后明显不响应 ≥X，之后平滑移动；或先移动、中间卡住、末段继续移动。现规则允许只取其有可靠位移的短片段作为该 swipe 的“有效窗口”，把开始无位移或中间低运动段归入未合格/自然减速区间。每次 swipe 仍各有一个窗口，候选“全部合格窗口零停滞”仍可能成立，却漏掉最应检出的卡顿。至少3 patch和前后同向能验证已选择的运动，不能证明选择过程未切掉停顿；匀速控制 App 的 freezes 被检出也不自动证明产品减速/输入边界的 eligible 算法无此漏洞。
+- 未修后果：候选的坏片段可能因其坏而失去资格，构成只统计平滑部分的选择偏差。原协议的“不能只挑流畅段”意图正确，但目前可执行覆盖判据不足以强制它。
+- 需修订：候选分析前定义每次 swipe 的完整预期活动/减速区间，边界来自独立输入事件和预先冻结的规则，而非候选画面有没有移动；所有应评估区间必须被覆盖，无法分类/追踪的片段使整 sample 无效，不能只丢片段。自然减速到阈值以下、首尾等合法排除需有独立依据和可审查的边界，不能据像素停住就循环推断“非运动”。校准用同样的窗口算法验证开始不响应、中途冻结、冻结后继续及实际减速/边界案例，证明 positives 未被 eligibility 排除；若公开事件/时间绑定无法支持完整区间，就按原 fail-closed 规则判分支失败，不降标准。
+
+### Recommendations
+
+无额外门禁或工具套餐要求。校准 App/采集链本身仍是后续独立 receipt 的对象；本轮不要求先做真实重任务来审方案。父层已接受 R3-W1 方向，但修订尚未成为本轮受审版本，因此仍为 open。
+
+### Author Resolutions
+
+- **R3-W1 — accepted**：D5 R3第4条改为候选分析前以独立输入event/冻结规则界定完整活动+减速区间并建立≤X/3的MOV绑定，所有应评估片段必须全覆盖；开始不响应、中间停住、恢复运动不能因无位移退出eligibility。未知片段使整sample无效，合法首尾/减速/反向排除须独立依据。校准同一窗口算法覆盖开始/中段/恢复、匀速到减速与触界positive/negative；公开event/时间/边界证据不足即分支失败，不降标。只改该验证方法消歧，用户目标与其他D5不变。交原非作者复核，不自行关闭。
+
+## Round 4
+
+### Metadata
+
+- reviewer：原独立 delegated `change-design-reviewer`，session `07871190-134a-4121-bbb7-e2ac47b16be7`；未参与受审设计或实现创作。
+- runtime：未指定/声称固定模型或 effort；本轮未调用产品模型。
+- review_mode：`closure`。
+- mode_reason：针对 R3-W1 的完整区间、排除依据与校准窗口消歧；没有改变其余测量门槛、用户需求、产品接口或 M1 范围。按 closure 核对旧反例是否仍能满足新规则，不重开未受影响的设计。
+- target：`/private/tmp/nano-ios-chat-continuity` / `unit/bugfix-763-ios-chat-continuity`，HEAD `ed5248dc1fa74358ac74b65f9a98589cc4142d8d` 加冻结 design，SHA256 `9738e6f4b4c7a9fefeb3dc1e48bcc138ae5c69020d508d3516653cb2983da7f2`。其他 working-tree 实现与测试修改不作为本轮审批对象。
+- started_at：`2026-11-12T14:15:57+08:00`；completed_at：`2026-11-12T14:16:36+08:00`；duration：`00:00:39`（本轮首个可复核时钟至结论冻结，不含此前材料读取）。
+- abilities：`change-design-reviewer`、`performance-review`（设计模式）。
+- 执行边界：仅静态读取、版本核对和追加本报告；未运行 trace/build/test/录屏/GUI/模拟器，未改受审设计、实现或测试，未提交或 push。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。R3-W1 在设计层关闭；R3 有界验证方法分支可按其条件实施。**
+
+本结论不表示捕获链校准已通过，也不表示可见停滞、原生 hitch、功能体验或性能验收通过。独立校准 receipt 仍须满足已定规则并由非作者复核，才能分析候选；不能取得事件精度、完整区间或决定性测量时仍按 D5 判 inconclusive，不能借本次 Approved 退出 M1。
+
+### Coverage 与证据
+
+- 已完整重读当前 `design.md:1-175`、本报告历史 Round 及 R3 Author Resolution；核对冻结 design hash、HEAD 和 git diff。`incident.md` 与 unit delta 相对 HEAD 无修改。定向变化在 `design.md:109`，没有改 R3 第1–3、5–6条或其余 D5 数值门槛。
+- **R3-W1 关闭依据**：第4条现要求独立实际输入 event 和候选分析前冻结的边界规则定义每个 swipe 的完整活动/减速区间，并以 ≤X/3 误差绑定 MOV PTS。窗口不是由候选有位移的片段反推；开始未响应、中途停住及恢复仍必须留在完整应评估范围内。因此原有“仅保留起始停顿之后或中途冻结之外的平滑片段”反例不再满足设计。
+- 全部应评估区间逐段覆盖，任何一段采样、分类或追踪不明使整 sample 无效；合法的等候、反向、首尾及低分辨率减速排除必须逐段给出独立输入/几何边界与冻结规则，明确禁止用像素停住循环推断减速结束。这使第5条“全部合格窗口零 ≥X 停滞”不再允许通过选择性窗口规避坏片段。
+- 校准明确复用同一窗口算法，覆盖开始不响应、运动中冻结、恢复、匀速至减速和触界/窗口边界的 positive/negative，并证明 ≥X positives 未被 eligibility 排除。不支持公开 event 精度或独立边界依据即校准失败，不能改为缩小区间。实际能否做到仍需后续 receipt，不在设计轮提前宣称可用。
+- `retained_from: Round 3`：一次有界 Game Performance probe、真实捕获链校准、50/100ms 最小合格档、采样/误差/扰动条件、候选分析前独立 receipt、每个保留样本零合格停滞、失败即 inconclusive、非 Apple hitch/非真机证明边界。保留理由是这些条件本轮未变，窗口修订没有削弱它们。
+- `retained_from: Round 2`：D1–D4、用户/权限/媒体/发送不变量、canonical/delta 对齐、产品组装与模块责任、原生体验证据安排，以及 D5 的 300×2 实际加载、冷暖、动作/样本、真实尾部/Latest 时延、CPU/内存门槛。保留理由是本轮不改这些产品路径或要求；在途实现仍需单独代码/体验/性能审查。
+- 只读重核 `baseline-native-measurement-binding.json:1-40`：绑定同一本轮 UDID、产品基线/fixture 与实际 Animation Hitches exit 2；文件明确空 hitch 不是零，支持 R3 的问题背景，但不构成新校准通过证据。
+- **环境事实更正交接（非指标变更）**：主 Agent 转述 helper postflight 核实，同一 UDID 两版实际使用 iOS **26.4.1 / 23E254a** runtime，SDK/xctestrun 标签为 26.4，并未中途换设备。本 reviewer 未独立读取该 postflight 原始 runtime 回执，故按有来源的交接记录而非自证测量；冻结设计现有 `26.4` 环境文字尚待 author 对应更正。只更正该已核实事实、不换 runtime/UDID/指标/路径时属事实整理，不因本轮待更正文案新增设计阻断。
+
+### 历史问题闭环
+
+| ID | Author Resolution | 本轮核实证据 | 状态 |
+|---|---|---|---|
+| R3-W1 | 完整活动/减速区间由独立 event/冻结规则定义；全覆盖、未知整 sample 无效；合法排除有独立依据；同算法校准边界 positives/negatives；不足即失败 | `design.md:109` 明确封闭开始/中途 stall 被 eligibility 切掉的原反例，并与第3条候选分析前 receipt、第5–6条 fail-closed 相接 | **closed（设计层）** |
+
+R1-W1/W2 保持 Round 2 的设计层关闭状态；不改变历史 Round 原结论。本轮不关闭任何 implementation finding，也不把 helper 完成组数视作最终性能通过。
+
+### Issues
+
+无新增 CRITICAL / WARNING；无仍开放的设计 finding。
+
+### Recommendations
+
+无新增可选工具套餐或门禁。后续只按已批准方案核查实际能力探针/校准 receipt；保留无法证明时停止并报告 inconclusive 的路径，不以实现成本或模板名称替代证据。
+
+### Author Confirmation
+
+Author完整核实R4与受审方案，接受设计层关闭，未把它记作校准或体验通过。R4后仅更正同一设备实际runtime事实（已直接读postflight原始JSON：26.4.1/23E254a，SDK标签26.4），并按reviewer建议消歧固定动作：6次向尾手势保留真实终点frame，不把反向次数当已回尾；独立Latest及动态尺寸真实尾部/时延目标保持。此澄清交原非作者定向核查是否保持R4，未自行据现有metrics宣布完成。
+
+### Retained-diff 核查（Round 4 后事实/歧义整理）
+
+- 原独立 reviewer `07871190-134a-4121-bbb7-e2ac47b16be7` 于 `2026-11-12T14:23:28+08:00` 起静态定向核对；HEAD 仍为 `ed5248dc1fa74358ac74b65f9a98589cc4142d8d`，当前 design SHA256 `04000c0cf9cc174939d5940594c8509a67ea7443f7637c29c643d06ff6e7aa2c`。不另开设计 Round，**retained_from: Round 4，Approved / 0 CRITICAL / 0 WARNING 保持**。
+- `design.md:91` 是 runtime 事实精确化，不是换设备/系统的测量条件变更。本次已独立读取 `baseline-metrics-postflight-proof.json:3,42-45`：同一 UDID 的路径、runtime identifier `iOS-26-4`、实际 version `26.4.1` / build `23E254a`。这补足 R4 当时仅按父层交接记录的证据，不回写历史。
+- `design.md:94` 将“6次回尾”消歧为固定的6次向尾输入动作并保留逐次/终点真实 frame，明确动作次数不证明成功到尾；独立 Latest 仍须达到原真实尾标、稳定窗口及原时延，动态尺寸跟随终点不减免（`96-97`、D3/D4 与 M1 未改）。这是区分性能动作执行与功能成功断言，没有把停在284改判为尾部成功，也没有减免原 Latest/动态尾部目标。两版真实加载范围、相同输入、实际路径与终点仍须如实报告，现有非空 CPU/内存仅支持其实际走过的测量路径，不能替代连续旅程或流畅性通过。
+- R3 完整窗口/校准/时间绑定/失败即 inconclusive 及其他数值门槛保持；本核查未复核 calibration helper 的 SDK 调查或新几何诊断产物，不据没有时钟保证的 manifest timestamp+PTS 推导精度，也不据诊断一次未复现关闭 keyboard blank。未执行运行时操作或实现修改。
