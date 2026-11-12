@@ -110,3 +110,89 @@ D3/D4 对以下设计决定表达充分，可以指导实现，不要求在 Gate
 - **R1-W1 — accepted**：D5冻结两组300消息/同文本、2卡2图及真实加载页边界；固定同模拟器/配置/冷暖定义、动作、warmup+5样本、波动复测上限；定义真实尾部稳定窗口、handler→tail与外部墙钟区别、hitch/CPU/内存指标及明确退出/阻止退出规则。M1同步绑定全部D5判据。仍无原生测量结论，不冒充实施通过。
 - **R1-W2 — accepted**：D1/D2与接口段改为raw实时传输由run/terminal独占、校正错误按surface相关scope独立持有/清除；成功读只清对应scope，fullsync/access recovery不写rawonline；raw真实退避自动重连，scope仅承诺显式重试或既有正常校正，不虚构自动重试。timer/stop/reset/epoch规则和healthyWS+HTTP失败成功、HTTP-only成功但WS仍失败的回归写入M1。
 - 同时将默认44pt导航slot改为按Dynamic Type适配、同字号下状态切换不改高度，避免固定高度裁切；不改变已定导航反馈位置/信息层级。以上是实质修订，交原独立reviewer复审，未自行关闭Gate2。
+
+## Round 2
+
+### Metadata
+
+- reviewer：原独立 delegated `change-design-reviewer`，session `07871190-134a-4121-bbb7-e2ac47b16be7`；未参与受审设计修订或实现，延续 Round 1 独立身份。
+- reviewer runtime：不支持显式 model / effort 参数，不声明固定模型；本轮未调用产品模型。
+- reviewer_target：同一 worktree / branch，HEAD `aab91da798f815e2064a866b6932c0b0da1c113e`；基线仍为 `45babb2b49e314754c6ca390f4ca3da61fe9f107`。
+- review_mode：`full`。
+- mode_reason：不是仅勾选旧问题关闭；本轮实质改变连接展示私有输入边界、故障恢复所有权和 M1 性能退出规则，另有 Dynamic Type 导航适配，按 full 重新核查全部决定及覆盖。未改变的源码事实和契约证据明确 retained，不冒充重跑真实旅程。
+- started_at：`2026-11-12T11:47:26+08:00`。
+- completed_at：`2026-11-12T11:49:43+08:00`。
+- duration：`00:02:17`（本轮首个可复核时钟读数至结论冻结）。
+- 专项：继续使用前端体验 / 产品旅程的设计与证据方案判断、性能设计审查、codebase-design；模型 Context 无变化，无需新增 Context 范围。
+- 版本/边界核实：相对 R1 target 仅 `design.md` 的实质修订及 `design-review.md` 的 R1/Author Resolutions；incident、delta、M1 骨架、canonical 与实现均未改。审查开始时 working tree clean。本轮只向本报告追加 Round 2，无服务/模拟器启动、运行演练、实现、提交或 push。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。R1-W1、R1-W2 均在设计层关闭。**
+
+受审设计现在能指导实施与独立裁决，没有发现会使下游实质走偏的未解决设计问题。此结论是 Gate 2 设计结论，**不是原生体验、性能收益或实现验收通过**；D5/M1 的决定性测量仍须在实施闭环取得，不得以此次 Approved 替代。
+
+### Coverage 与证据
+
+#### 1. 需求、版本、delta 与产品组装
+
+- 完整重读修订后的 `design.md:1-162` 和本报告 R1 / Author Resolutions；复核 `incident.md:44-89`、完整 delta `specs/im/ios-client.md:1-79` 与空 `M1-continuity/.gitkeep`。Git 对比确认需求、delta、canonical 和源码没有变化。
+- `retained_from: Round 1`：首文档全部用户约束与 canonical 对齐、AppModel/RootTabs → Chats/ConversationView 实际入口、UserStream/本地 repository/动态 WebView 与图片路径、权限/发送/媒体边界、delta 的完整 MODIFIED 与正确 canonical target。保留理由是相关文件及产品组装未变，本轮变更不另造数据源、schema、服务端 API 或 Context 入口。
+- 本轮再次读取 `ChatStore.swift:381-448,658-747,904-951`，核对新故障所有权与实际 run、HTTP 读取、access recovery 的落点，而非仅采纳 Author Resolution。
+- 714/716 不重开；首文档/设计/实现仍在本 unit branch → PR develop，不改变拒绝直推后的边界。无需部署迁移文件。
+
+#### 2. 连接来源、恢复、文案和生命周期
+
+`design.md:53-66,104-109` 现在明确三个不同责任：
+
+1. run / 明确 terminal 结果持有 raw 连接状态，sync + WebSocket ping 确认后才 online / attempt 归零；后台读取不得回写 raw 健康。
+2. list / detail(id) / timeline(id) / access 校正故障独立记录连续失败起点；只在当前 surface 合成，读取成功只清其负责的 scope，full sync / access recovery 不能清未校正的 timeline 或 WS 故障。
+3. 业务发送/上传/访问结果仍由对象自身反馈，不用连接静默隐藏；raw 真有 run 退避才承诺“自动重试”，单次 HTTP 校正失败提供真实 scope 的显式重试，不虚构后台循环。
+
+原有 `ChatStore.swift:920` 的 HTTP-only online 点被设计明确列入“检查所有 online 写入点”，不再作为绕过 D2 的例外。stop / 新 run 的 deadline 重新注册、reset / 退出清 scope、时钟及任务、旧 epoch 禁止回填均已规定；M1 同步要求 healthy-WS/HTTP 失败成功与 HTTP-only/WS 未恢复的验证。`updateTransport / readFailed / readSucceeded / presentation(surface)` 是有实际调用方的小私有边界，相比新增泛化网络 coordinator 更贴近现有 Store 生命周期，未额外引入公共机制。
+
+#### 3. 滚动所有权、动态尺寸与返回
+
+`retained_from: Round 1`：D3/D4 未改；重新核对修订后的全文仍保留 followLatest / readingHistory、tracking 与真实用户位移区分、latest 推进 revision、分页/清理恢复不得抢后操作、有效视口与真实尾部、历史 id+相对偏移、删除锚点不复活，以及单一 SwiftUI adapter。
+
+新增 scope 错误只改变同字号下固定的导航 slot，不插内容行，不改变上述定位所有权；失败/恢复计时也不应重建消息、输入或键盘。M1 仍要求动态增高/键盘、读历史、详情/foreground 返回、旧定位竞争的连续原生证据。没有因修 R1-W2 而缩减滚动目标。
+
+#### 4. 性能协议的可执行性与可判定性
+
+`design.md:85-102` 及 M1 `158` 已把“有测量”改成有边界的可复核协议：
+
+- 同模拟器/iOS、字号、竖屏、键盘、Xcode、Debug、source/fixture；基线产品树和测量 harness 均绑定实际 SHA。
+- 两组各 300、同 base Markdown，混合组两卡两受保护 PNG；UI 的真实 Earlier 加载与 API 页边界双核对，不仅 seed DB 就声称已触及大历史。实际 `ChatAPI.swift:4-7` 请求 60 条，`ChatRepository.swift:65-68,369-372` 保留 300 窗口，与协议规模可对上。
+- 冷启动采用相同已确认本地窗口而不是空库对暖缓存；确定滚动/Latest 起点，warmup 与 5 measured 分开，保留每次值、中位与范围，失败样本不剔除，额外复核次数有上限。
+- 三次约 200ms 观察和 4pt 漂移判定的是测试稳定尾部，不是产品固定延迟；handler→tail 与 XCTest 外部墙钟分列，既有内容与新挂载卡片分别有时延界限，不伪称触摸到呈现延迟。
+- hitch ratio 有明确无回归边界、基线明显停顿时的改善门槛；CPU/内存回归与例外须解释并有对照，不能靠减少必要内容/授权工作换收益。
+- 非空原生指标、负载触及、操作时延为必需；无法取得等效指标或样本持续不稳明确为 inconclusive 并阻止作为已完成交付，不再以“限制清楚”替代退出。基线未复现时只作该负载限定结论，不冒充原手机根因。
+
+为验证所选测量入口不是假定存在，本轮只读核实本机 Xcode 的 XCTest 公开 headers：`XCTMetric.h:211-219,265-269,376-386` 声明 scrollingAndDecelerationMetric 与 iOS 26 XCTHitchMetric；`XCTMetric+UIAutomation.h:12-40,60-72` 声明 application 定向 CPU / memory / hitch 初始化。**这仅证明 API/target 能力有静态依据，不证明模拟器会产出非空 hitch 数据**；后者仍按 D5 fallback / inconclusive 规则在实施时核实。
+
+这些值是本 unit 的工程工作阈值，不是行业或真机保证；不需要把它们写入长期 delta。本轮没有替作者提前做基线测量，也没有降低测量门禁。
+
+#### 5. 导航体验、旅程证据与实施资源
+
+- `design.md:57` 从永久固定 44pt 改为默认约 44pt、按 Dynamic Type 适配、同字号状态切换高度固定，保持标题/辅助 slot 一贯布局与静默时无文字/图标/可访问噪音。没有引入新业务流程，不要求另造 HTML 原型。
+- `retained_from: Round 1`：独占 IM / 专用模拟器、真实登录入口、凭据/manifest、健康检查、获准短长断开恢复及清理责任的 runbook，和 frontend / journey / code / performance 的必要覆盖。M1 现显式绑定全部 D5 退出条件及新增状态边界测试，串行集成范围仍成立。
+- 父层交接称 300×2 fixture 的 API/DB 已核实、baseline 原生与 journey 构建成功；本 reviewer 未读取其运行原始产物，因此只作资源准备进展，不据此宣称 App 内观察或性能已完成。真实截图/连续操作、导航长标题/大字号、输入/键盘不跳及性能数均仍未验证，须在实施 review 保留。
+
+### 历史问题闭环
+
+| ID | Author Resolution | 本轮核实证据 | 状态 |
+|---|---|---|---|
+| R1-W1 | 冻结实际负载/冷暖/样本/动作与可判定尾部、时延、hitch、CPU/内存及不能退出条件，M1 同步 | 受审 design D5 `85-102`、M1 `158`；60 条 API / 300 本地窗口与 XCTest 公开测量 API 只读核实；不再允许零必要测量即完成 | **closed（设计层）** |
+| R1-W2 | raw 与读取 scope 分离，成功仅清负责 scope，所有 online 点收归 run/terminal，文案按真实重试 owner，补 lifecycle/竞争测试 | 受审 design D1/D2 `53-66`、接口 `106`、M1 `158`；对实际 run / loadChat / access recovery 路径独立核对后，原两种反例已有明确落点与预期 | **closed（设计层）** |
+
+### Issues
+
+无新增 CRITICAL / WARNING；无仍开放的设计 finding。Round 1 的历史结论保持不变，本轮关闭状态不回写旧 Round。
+
+### Recommendations
+
+无新增建议。实施时按已批准方案取得本轮真实原生与性能证据；若指标/fixture或业务边界需实质改变，应记录差异并重新判断设计影响，不能借本轮 Approved 默默降标。
+
+### Author Resolutions
+
+Author 已完整核实 R2 与受审设计，无实质异议；0 CRITICAL / 0 WARNING，Gate2通过。R2之后仅追加本确认，不改incident/design/delta/骨架；独立原生体验和性能仍待实施验证。沿用主Agent确认的独立unit分支交付，不直推develop。
