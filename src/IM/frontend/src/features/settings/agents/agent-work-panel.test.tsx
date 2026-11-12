@@ -715,6 +715,9 @@ it("loads combined history at the visible boundary and offers retry after a fail
   renderWork();
   await screen.findByText("Inbox 唤醒");
   const boundary = earlierPage();
+  for (const label of ["控制记录", "关联执行"]) {
+    expect(screen.getByText(label).compareDocumentPosition(boundary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
   reachEarlierPage(boundary, false);
   expect(attempts).toBe(0);
   reachEarlierPage(boundary);

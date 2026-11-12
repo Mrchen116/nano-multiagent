@@ -195,11 +195,14 @@ function SessionControls({agentId, sessionId, title}: {agentId: string; sessionI
     queryFn: ({pageParam, signal}) => workRequest<WorkItemsPage>(`${workSessionPath(agentId, sessionId)}/controls?after_seq=${pageParam}`, signal),
     getNextPageParam: page => page.next_cursor ?? undefined,
   });
+  const items = pages.data?.pages.flatMap(page => page.items)
+    .filter(item => item.kind !== "control_result" || item.payload.command !== "new");
   return <details className="im-work-other" onToggle={event => {if (event.target === event.currentTarget) setOpen(event.currentTarget.open);}}>
     <summary>{tr(title)}</summary>
     {pages.isLoading && <p role="status">{tr("正在加载工作记录…")}</p>}
     {pages.isError && <p role="alert">{pages.error.message}<button onClick={() => void pages.refetch()}>{tr("重试")}</button></p>}
-    {pages.data?.pages.flatMap(page => page.items).filter(item => item.kind !== "control_result" || item.payload.command !== "new").map(item =>
+    {open && items?.length === 0 && !pages.hasNextPage && !pages.isError && <p className="im-work-muted">{tr("暂无控制记录")}</p>}
+    {items?.map(item =>
       <SessionFacts key={item.item_id} items={[item]} title={str(item.payload.command) || item.kind} />)}
     {pages.hasNextPage && <button type="button" disabled={pages.isFetching} onClick={() => void pages.fetchNextPage()}>{tr("加载更多")}</button>}
   </details>;
@@ -476,6 +479,14 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
         }}>{tr("查看最新轮次")}</button>}
         {online && view.record_sync_state !== "current" && <p className="im-work-callout" role="status">{tr(view.record_sync_state === "catching_up" ? "工作记录正在补齐，当前显示已保存内容。" : "当前显示已保存记录，最新进度尚未确认。")}</p>}
         <div className="im-work-latest im-work-card"><Usage value={view.latest_main_usage} label="最近已报告的主上下文" />{view.main_execution === "running" && <small>{tr("新统计尚未报告时沿用最近轮次")}</small>}</div>
+        <div className="im-work-record-links">
+          {(!continuous || !saved.selected) && (separate && view.main_session_id ? <SessionControls key={view.main_session_id} agentId={agentId} sessionId={view.main_session_id} title="控制记录" /> : <SessionFacts items={view.control_items} title="控制记录" />)}
+          {(!continuous || !saved.selected) && (separate || sessions.length > 0) && <details className="im-work-other" onToggle={event => {if (event.target === event.currentTarget) setCatalogOpen(event.currentTarget.open);}}>
+            <summary>{tr("关联执行")}{!separate && ` · ${sessions.length}`}</summary>
+            {sessions.map(session => <button type="button" key={session.session_id} onClick={() => selectChild(session.session_id)}>{tr(sessionTitle(session))} <small>{session.session_id}</small></button>)}
+            {catalogMore}
+          </details>}
+        </div>
         <div className={`im-work-grid ${saved.selected ? "with-child" : ""}`}>
           {(!continuous || !saved.selected) && <section className="im-work-trace"><header className="im-work-section-head"><h3>{tr("主 Agent")}</h3><small>{tr("最新轮次在前 · 轮次内部按实际顺序")}</small></header>
             {mainTurns.length || mainAnchors.length ? <WorkTurnList turns={mainTurns} anchors={mainAnchors} history={separate ? mainHistory : undefined} continuous={continuous} renderTurn={renderTurn} nextTurnId={viewQuery.data?.pages.at(-1)?.next_turn_id}
@@ -484,20 +495,14 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
           </section>}
           {saved.selected && <aside className="im-work-child"><button className="im-work-back" onClick={() => selectChild(null)}>{tr(continuous ? "← 返回发起位置" : "← 返回主轨迹")}</button><header><div><h3>{tr(sessionTitle(selected))}</h3><small>{tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子 Agent" : selected?.scope || "关联执行")} · {saved.selected}</small></div><button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button></header>
             <button type="button" onClick={() => showNative(saved.selected)}>{tr('查看原生轨迹')}</button>
+            {!workAccessLost(childQuery.error) && !workAccessLost(metadata.error) && (!childQuery.isError || childQuery.isFetchNextPageError) && (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
             {childQuery.isRefetchError && childQuery.data && <p role="status">{childQuery.error.message} <button type="button" onClick={() => void childQuery.refetch()}>{tr("重试")}</button></p>}
             {workAccessLost(childQuery.error) || workAccessLost(metadata.error) || (childQuery.isError && !childQuery.data) || (metadata.isError && !metadata.data) ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => { void childQuery.refetch(); if (separate) void metadata.refetch(); }}>{tr("重试")}</button></p>
               : childTurns.length || childAnchors.length ? <WorkTurnList turns={childTurns} anchors={childAnchors} history={separate ? childHistory : undefined} continuous={continuous} renderTurn={renderTurn} nextTurnId={childQuery.data?.pages.at(-1)?.next_turn_id}
                 earlier={childQuery.hasNextPage ? {cursor: childQuery.data?.pages.at(-1)?.next_cursor ?? "", loading: childQuery.isFetchingNextPage, error: childQuery.isFetchNextPageError ? childQuery.error : null, load: () => void childQuery.fetchNextPage()} : undefined} />
               : childQuery.isLoading ? <p role="status">{tr("加载子轨迹…")}</p> : <p>{tr("尚未报告执行轮次")}</p>}
-            {!workAccessLost(childQuery.error) && !workAccessLost(metadata.error) && (!childQuery.isError || childQuery.isFetchNextPageError) && (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
           </aside>}
         </div>
-        {(!continuous || !saved.selected) && (separate && view.main_session_id ? <SessionControls key={view.main_session_id} agentId={agentId} sessionId={view.main_session_id} title="控制记录" /> : <SessionFacts items={view.control_items} title="控制记录" />)}
-        {(!continuous || !saved.selected) && (separate || sessions.length > 0) && <details className="im-work-other" onToggle={event => {if (event.target === event.currentTarget) setCatalogOpen(event.currentTarget.open);}}>
-          <summary>{tr("关联执行")}{!separate && ` · ${sessions.length}`}</summary>
-          {sessions.map(session => <button type="button" key={session.session_id} onClick={() => selectChild(session.session_id)}>{tr(sessionTitle(session))} <small>{session.session_id}</small></button>)}
-          {catalogMore}
-        </details>}
         </div>
       </>}
     </div>
