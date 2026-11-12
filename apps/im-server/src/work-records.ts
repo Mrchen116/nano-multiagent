@@ -498,9 +498,22 @@ export class WorkRecords {
   items(root: string, session: string, turn: string, after = 0, limit = 100, afterRevision?: number, watermarked = false, preview = false): WorkItemsPage {
     this.session(root, session);
     const order = afterRevision === undefined ? 'seq' : 'revision';
-    // Test stored byte length before returning any existing raw body to JavaScript.
+    // Older tools can predate stored previews. Project only the visible page's
+    // compact headers in SQLite without transferring raw results or reindexing history.
     const sql = preview ? `SELECT i.session_id,i.turn_id,i.item_id,i.seq,i.kind,i.observed_at,i.revision,
-        CASE WHEN octet_length(i.payload) <= ${workItemPreviewBytes} THEN i.payload ELSE p.payload END AS payload,
+        CASE WHEN octet_length(i.payload) <= ${workItemPreviewBytes} THEN i.payload
+          WHEN p.payload IS NOT NULL THEN p.payload
+          WHEN i.kind='tool' THEN json_object(
+            'id', substr(i.item_id,6),
+            'name', substr(json_extract(i.payload,'$.name'),1,120),
+            'status', json_extract(i.payload,'$.status'),
+            'reason', json_extract(i.payload,'$.reason'),
+            'duration_ms', json_extract(i.payload,'$.duration_ms'),
+            'output', substr(json_extract(i.payload,'$.output'),1,320),
+            'child_session_id', coalesce(json_extract(i.payload,'$.child_session_id'),json_extract(i.payload,'$.detail.child_session_id')),
+            'detail', json_object('delegation_kind',json_extract(i.payload,'$.detail.delegation_kind'))
+          )
+        END AS payload,
         octet_length(i.payload) > ${workItemPreviewBytes} AS detail_deferred
       FROM agent_work_items i LEFT JOIN agent_work_item_previews p
         ON p.session_id=i.session_id AND p.turn_id=i.turn_id AND p.item_id=i.item_id AND p.revision=i.revision`

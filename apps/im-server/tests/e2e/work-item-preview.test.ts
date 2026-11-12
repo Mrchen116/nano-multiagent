@@ -34,7 +34,7 @@ it('bounds visible and changed Work item previews while keeping authorized exact
   const db = new DatabaseSync(f.dbPath);
   try {
     db.prepare("UPDATE agent_work_items SET item_id=?,kind='tool',payload=? WHERE session_id=? AND turn_id=? AND item_id='message:short-18'")
-      .run(legacyId, JSON.stringify({id: 'legacy', output: large}), main, turn);
+      .run(legacyId, JSON.stringify({id: 'legacy', name: 'skill', status: 'completed', duration_ms: 52, output: large}), main, turn);
     db.exec("UPDATE users SET membership_status='pending',personal_space_enabled=1 WHERE id='outsider'");
   } finally { db.close(); }
 
@@ -48,7 +48,8 @@ it('bounds visible and changed Work item previews while keeping authorized exact
   expect(first.items.every((preview: unknown) => Buffer.byteLength(JSON.stringify(preview)) <= 4096)).toBe(true);
 
   const next = (await read(`?view=preview&after_seq=${first.next_cursor}`)).body;
-  expect(next.items).toEqual([expect.objectContaining({item_id: legacyId, payload: {}, detail_deferred: true, has_exact_child: true})]);
+  expect(next.items).toEqual([expect.objectContaining({item_id: legacyId, payload: expect.objectContaining({name: "skill", status: "completed", duration_ms: 52}), detail_deferred: true, has_exact_child: true})]);
+  expect(next.items[0].payload.output).toBe(large.slice(0, 320));
   const currentDetail = '/' + encodeURIComponent(item.item_id);
   expect((await read(currentDetail)).body).toMatchObject({item_id: item.item_id, payload: {output: large}});
   expect((await read('/' + encodeURIComponent(legacyId))).body).toMatchObject({item_id: legacyId, payload: {output: large}});

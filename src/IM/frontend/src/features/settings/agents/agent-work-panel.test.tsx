@@ -663,13 +663,18 @@ it("finds a late exact child on demand for an already loaded tool", async () => 
 it("reads only visible Work previews and loads the exact tool body when expanded", async () => {
   const main = {...view.turns[0], items: [], items_deferred: true, started_at: "2026-11-12T08:00:00Z"};
   const dreaming = {...main, seq: 2, session_id: "maintenance", origin: "dreaming", status: "failed",
-    maintenance_stage: "consolidate", tool_count: 0, model_request_state: "none", usage: {total_tokens: 15}};
+    maintenance_stage: "consolidate", tool_count: 0, model_request_state: "none", usage: {total_tokens: 15},
+    items_deferred: false, items: [{item_id: "closing", seq: 6, kind: "message", payload: {text: "Saved Dreaming result"}}]};
   const preview = {item_id: "tool:read", seq: 7, revision: 7, kind: "tool", detail_deferred: true,
     payload: {id: "read", name: "report_lookup", status: "completed", output: "Read report"}};
+  const sent = {item_id: "tool:send", seq: 8, revision: 8, kind: "tool",
+    payload: {id: "send", name: "send_message", status: "completed", work_facts: [
+      {type: "message_sent", conversation_id: "group-a", message_id: "committed"},
+    ]}};
   view = {...view, timeline: "combined", catalog: "separate", turns: [dreaming, main]};
   mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
     url === "/im/v1/conversations" ? {items: []}
-    : url.includes("/items?") ? {items: [preview], revision: 7, next_cursor: null}
+    : url.includes("/items?") ? {items: [preview, sent], revision: 8, next_cursor: null}
     : url.endsWith("/items/tool%3Aread") ? {...preview, detail_deferred: undefined, payload: {...preview.payload, input: {path: "/report.md"}, detail: {text: "actual stored report body"}}}
     : view
   ), {status: 200}));
@@ -679,12 +684,16 @@ it("reads only visible Work previews and loads the exact tool body when expanded
   expect(screen.getByText("0 次工具")).toBeVisible();
   expect(screen.getByText("15 tok")).toBeVisible();
   expect(screen.getByText("未发起模型请求")).toBeVisible();
+  expect(screen.getByText("Saved Dreaming result")).toBeVisible();
+  expect(screen.getByRole("button", {name: "查看 Dreaming 轨迹"})).toBeVisible();
   expect(mocks.fetch.mock.calls.some(([url]) => url.includes("/items?"))).toBe(false);
 
   reachEarlierPage(work.closest("article")!);
   const read = await screen.findByRole("button", {name: /report_lookup.*Read report/});
   expect(mocks.fetch.mock.calls.some(([url]) => url.includes("/items?view=preview&after_seq=0"))).toBe(true);
   expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith("/items/tool%3Aread"))).toBe(false);
+  const sentRow = screen.getByRole("button", {name: /send_message.*调用完成/}).closest("li")!;
+  expect(within(sentRow).getByRole("link", {name: "原消息"})).toHaveAttribute("href", "/chat/group-a?message_id=committed");
   fireEvent.click(read);
   expect(await screen.findByText("actual stored report body")).toBeVisible();
   expect(screen.getByText("/report.md")).toBeVisible();

@@ -5,7 +5,7 @@ import { ConversationToolCard } from "../../chat/components/conversation-tool-ca
 import { ToolDetailBody } from "../../chat/components/tool-detail-renderers";
 import { formatDuration } from "../../chat/components/tool-calls-panel";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
-import { formatWorkTokens, tr, WorkEventTime } from "./agent-work-text";
+import { formatWorkDuration, formatWorkTokens, tr, WorkEventTime } from "./agent-work-text";
 import type { WorkItem } from "./agent-work-api";
 
 const text = (v: unknown) => typeof v === "string" ? v : "";
@@ -51,7 +51,7 @@ function WorkToolSection({title, children}: {title: string; children: ReactNode}
 }
 
 /** Work cards share presenter data and detail rendering, with their own visual hierarchy. */
-export function WorkTool({ call, expanded, onExpandedChange, detailFooter, childLink, observedAt, previewOnly, itemRef, timeline }: { call: ToolCall; expanded?: boolean; onExpandedChange?: (open: boolean) => void; detailFooter?: ReactNode; childLink?: ReactNode; observedAt?: string; previewOnly?: boolean; itemRef?: Ref<HTMLLIElement>; timeline?: boolean }) {
+export function WorkTool({ call, expanded, onExpandedChange, detailFooter, childLink, originalLinks, observedAt, previewOnly, itemRef, timeline }: { call: ToolCall; expanded?: boolean; onExpandedChange?: (open: boolean) => void; detailFooter?: ReactNode; childLink?: ReactNode; originalLinks?: ReactNode[]; observedAt?: string; previewOnly?: boolean; itemRef?: Ref<HTMLLIElement>; timeline?: boolean }) {
   useTranslation();
   const navigation = useContext(WorkNavigationContext);
   const names = navigation?.names ?? {};
@@ -63,6 +63,7 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
   if (call.name === "inbox" && input.action) summary = input.action === "check" ? tr("查看待读来源") : `${tr("读取新消息")} ${target}`;
   if (call.name === "conversations" && input.action) summary = input.action === "list" ? `${tr("查找聊天")} · ${text(input.query)}` : `${tr("回查历史")} ${target}`;
   if (call.name === "send_message" && !input.agent_id && target) summary = `${tr("发送到")} ${target}`;
+  if (timeline && call.name === "notes" && text(input.path)) summary = text(input.path);
   const sendError = call.name === "send_message" && text(detail.status) && !["ok", "sent", "held_for_revalidation", "pending_revalidation"].includes(text(detail.status)) ? text(detail.status) : "";
   const error = Boolean(sendError) || Boolean(detail.error) || detail.success === false || call.status === "failed";
   const pending = call.status === "running";
@@ -90,17 +91,20 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
   return <li ref={itemRef} className="im-work-tool-group" data-testid="process-item">
     {timeline && observedAt && <WorkEventTime value={observedAt} />}
     <div className="im-work-tool">
+    <div className={timeline ? "im-work-tool-line" : undefined}>
     <button type="button" className="im-work-tool-head" aria-expanded={expanded ?? false} onClick={() => onExpandedChange?.(!expanded)}>
       <span className="im-work-tool-icon" aria-hidden="true">{timeline ? <span className="im-work-tool-chevron" /> : icons[call.name] || "◇"}</span>
       <span className="im-work-tool-name"><strong>{call.name}</strong><span className="im-work-tool-summary">{summary}</span></span>
       <span className="im-work-tool-meta">
         {(call.approval === "user_allow" || denied) && <span className="im-work-status-label">{tr(denied ? "已拒绝" : "已授权")}</span>}
         <span className={error ? "im-work-error" : "im-work-muted"}>{status}</span>
-        {labels[business] && <span className="im-work-status-label">{tr(labels[business])}</span>}
+        {labels[business] && <span className={timeline ? undefined : "im-work-status-label"}>{timeline && <span aria-hidden="true"> · </span>}{tr(labels[business])}</span>}
         {!timeline && observedAt && <time dateTime={observedAt}>{new Date(observedAt).toLocaleTimeString(undefined, {hour12: false})}</time>}
-        {typeof call.duration_ms === "number" && <span>{timeline && <span aria-hidden="true"> · </span>}{formatDuration(call.duration_ms)}</span>}
+        {typeof call.duration_ms === "number" && <span>{timeline && <span aria-hidden="true"> · </span>}{timeline ? formatWorkDuration(call.duration_ms) : formatDuration(call.duration_ms)}</span>}
       </span>
     </button>
+    {timeline && (childLink || Boolean(originalLinks?.length)) && <div className="im-work-tool-actions">{originalLinks}{childLink}</div>}
+    </div>
     {expanded && <div className="im-work-tool-body">
       {previewOnly ? detailFooter : <>
         <WorkToolSection title="调用">
@@ -130,7 +134,7 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
         </WorkToolSection>
         {detailFooter && <WorkToolSection title="来源">{detailFooter}</WorkToolSection>}
       </>}
-    </div>}{childLink && <footer className="im-work-link-footer">{childLink}</footer>}</div>
+    </div>}{!timeline && childLink && <footer className="im-work-link-footer">{childLink}</footer>}</div>
   </li>;
 }
 
@@ -140,7 +144,7 @@ export function WorkBackground({ value, expanded, onExpandedChange, detailFooter
 }
 
 /** Context is the last input; output and cache counters accumulate within this turn. */
-export function WorkUsage({ value, label = "本轮统计", compact = false }: { value: (Partial<TokenUsage> & {total_tokens?: number}) | null; label?: string; compact?: boolean }) {
+export function WorkUsage({ value, label = "本轮统计", compact = false, showCompactTotal = true }: { value: (Partial<TokenUsage> & {total_tokens?: number}) | null; label?: string; compact?: boolean; showCompactTotal?: boolean }) {
   useTranslation();
   if (typeof value?.context_used !== "number" || typeof value.output !== "number") return <span className="im-work-muted">{typeof value?.total_tokens === "number" ? `${value.total_tokens.toLocaleString()} tok` : tr("Token 未报告")}</span>;
   const fmt = (n: number) => n.toLocaleString();
@@ -150,6 +154,6 @@ export function WorkUsage({ value, label = "本轮统计", compact = false }: { 
     <summary>{compact ? <span className="im-work-usage-line">
       <span>{tr(label)}</span> · {tr("上下文")} {fmt(value.context_used)}
       {percent !== null && ` · ${percent}%`}
-      {typeof value.total_tokens === "number" && <> · <span title={`${fmt(value.total_tokens)} tok`}>{formatWorkTokens(value.total_tokens)} tok</span></>}
+      {showCompactTotal && typeof value.total_tokens === "number" && <> · <span title={`${fmt(value.total_tokens)} tok`}>{formatWorkTokens(value.total_tokens)} tok</span></>}
     </span> : <><span>{tr(label)}</span><strong>{fmt(value.context_used)}</strong><span className="im-work-meter"><i style={{width:`${Math.min(percent ?? 0,100)}%`}} /></span><small>{percent === null ? tr("上下文窗口未报告") : `${percent}%`}</small>{label === "本轮统计" && typeof value.total_tokens === "number" && <small>{fmt(value.total_tokens)} tok</small>}<span className="im-work-usage-toggle">{tr("统计详情")}</span></>}</summary><div className="im-work-usage-details"><dl><div><dt>{tr("上下文")}</dt><dd>{fmt(value.context_used)}</dd><small>{value.context_window ? `/ ${fmt(value.context_window)}` : tr("上下文窗口未报告")}</small></div><div><dt>{tr("本轮输出")}</dt><dd>{fmt(value.output)}</dd></div><div><dt>{tr("缓存命中")}</dt><dd>{cache}</dd></div></dl><p>{tr("上下文取本轮最近一次输入，输出为本轮累计；主、子执行分别统计，不代表计费总量。")}</p></div></details>;
 }

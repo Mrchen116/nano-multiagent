@@ -9,6 +9,16 @@ export function formatWorkTokens(tokens: number) {
   return tokens.toLocaleString(i18n.language);
 }
 
+export function formatWorkDuration(ms: number) {
+  const seconds = ms >= 1000;
+  const value = seconds ? ms / 1000 : ms;
+  if (i18n.language.startsWith("zh")) return seconds ? `${value.toFixed(2)} 秒` : `${value} 毫秒`;
+  return value.toLocaleString(i18n.language, {
+    style: "unit", unit: seconds ? "second" : "millisecond", unitDisplay: "long",
+    minimumFractionDigits: seconds ? 2 : 0, maximumFractionDigits: seconds ? 2 : 0,
+  });
+}
+
 export function WorkEventTime({ value }: { value: string }) {
   return <time className="im-work-event-time" dateTime={value}>{new Date(value).toLocaleTimeString(i18n.language, {
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,

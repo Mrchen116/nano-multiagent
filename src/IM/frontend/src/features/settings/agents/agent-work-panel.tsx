@@ -9,7 +9,7 @@ import { subscribeUserStream } from "../../../realtime/user-stream";
 import type { BackgroundReturn, PermissionRequest, TokenUsage, ToolCall } from "../../chat/chat-types";
 import { formatDuration } from "../../chat/components/tool-calls-panel";
 import { WorkTool, WorkBackground, WorkUsage, withVisibleReasoning } from "./agent-work-presenters";
-import { tr, WorkEventTime } from "./agent-work-text";
+import { formatWorkDuration, tr, WorkEventTime } from "./agent-work-text";
 import { i18n, useTranslation } from "../../../i18n";
 import { PermissionCard } from "../../chat/components/permission-card";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
@@ -25,7 +25,7 @@ type SavedView = { selected: string | null; expanded: Record<string, boolean>; s
 const str = (value: unknown) => typeof value === "string" ? value : "";
 const obj = (value: unknown): Record<string, unknown> => value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const turnElementId = (session: string, turn: string) => `work-turn-${encodeURIComponent(session)}-${encodeURIComponent(turn)}`;
-const statusLabel = (status: string) => tr({ running: "运行中", waiting_permission: "等待授权", completed: "已完成", failed: "失败", interrupted: "已中断", unknown: "状态未知", idle: "空闲" }[status] ?? status);
+const statusLabel = (status: string) => tr({ running: "运行中", waiting_permission: "等待授权", completed: "已完成", failed: "失败", partial: "部分完成", cancelled: "已取消", interrupted: "已中断", unknown: "状态未知", idle: "空闲" }[status] ?? status);
 
 function readSaved(key: string): SavedView {
   try { return JSON.parse(sessionStorage.getItem(key) ?? "null") ?? { selected: null, expanded: {}, scroll: 0 }; }
@@ -433,26 +433,11 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
     showGraph();
   };
   const renderTurn = (turn: WorkTurn) => {
-    if (continuous && (turn.origin === "dreaming" || turn.maintenance_stage)) {
-      const stage = turn.maintenance_stage || str(turn.trigger?.stage);
-      const label = stage === "extract" ? tr("提取任务摘要") : stage === "consolidate" ? tr("整合长期记忆") : tr("自动整理记忆");
-      const title = !stage && turn.maintenance_title ? turn.maintenance_title : `Dreaming · ${label}`;
-      return <article id={turnElementId(turn.session_id, turn.turn_id)} className="im-work-maintenance">
-        <header><strong>{title}</strong><span className={`im-work-status-label ${turn.status}`}>{statusLabel(turn.status)}</span></header>
-        <div className="im-work-maintenance-meta">
-          <span>{turn.tool_count === undefined ? tr("工具次数未报告") : `${turn.tool_count} ${tr("次工具")}`}</span>
-          <span>{turn.model_request_state === "none" ? tr("未发起模型请求") : turn.model_id || tr("模型未报告")}</span>
-          <span>{typeof turn.usage?.total_tokens === "number" ? `${turn.usage.total_tokens.toLocaleString(i18n.language)} tok` : tr("Token 未报告")}</span>
-        </div>
-        {turn.error?.message && <p className="im-work-error">{turn.error.message}</p>}
-        <button type="button" className="im-work-child-link" onClick={() => showNative(turn.session_id)}>{tr("查看原生轨迹")} ↗</button>
-      </article>;
-    }
     const main = turn.session_id === view?.main_session_id;
     const head = main ? view : childQuery.data?.pages[0];
     const active = !nativeMode && head?.turns.some(item => item.turn_id === turn.turn_id) && ["running", "waiting_permission", "unknown"].includes(turn.status);
     return <Turn key={`${turn.session_id}:${turn.turn_id}`} turn={turn} agentId={agentId} online={online} separate={separate}
-      sessions={sessions} expanded={saved.expanded} expand={expand} onChild={selectChild} refresh={refresh}
+      sessions={sessions} expanded={saved.expanded} expand={expand} onChild={selectChild} refresh={refresh} onNative={showNative}
       activity={active} preview={continuous ? loadPreview : undefined} visible={!nativeMode && !graphMode} headUpdate={nativeMode || graphMode ? 0 : main ? viewQuery.dataUpdatedAt : childQuery.dataUpdatedAt}
       focusToken={!nativeMode && focus?.session_id === turn.session_id && focus?.turn_id === turn.turn_id ? replyFocusToken : undefined} />;
   };
@@ -515,9 +500,9 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
   </WorkNavigationContext.Provider>;
 }
 
-function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refresh, focusToken, separate, activity, headUpdate, preview, visible}: {
+function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refresh, focusToken, separate, activity, headUpdate, preview, visible, onNative}: {
   turn: WorkTurn; agentId: string; online?: boolean; sessions: WorkSession[]; expanded: Record<string, boolean>;
-  expand(key: string, open: boolean): void; onChild(id: string): void; refresh(): void; focusToken?: string;
+  expand(key: string, open: boolean): void; onChild(id: string): void; onNative(id: string): void; refresh(): void; focusToken?: string;
   separate: boolean; activity?: boolean; headUpdate: number; preview?: PreviewLoader; visible: boolean;
 }) {
   const key = `${turn.session_id}:${turn.turn_id}`;
@@ -627,14 +612,14 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
         if (item.kind === "tool" && str(p.name)) {
           const call = { ...p, input: p.input ?? p.arguments ?? {}, output: p.output ?? p.summary } as unknown as ToolCall;
           const childId = str(p.child_session_id) || str(obj(p.detail).child_session_id);
-          const callId = str(p.id) || str(p.call_id) || str(p.tool_call_id);
+          const callId = str(p.id) || str(p.call_id) || str(p.tool_call_id) || (item.item_id.startsWith("tool:") ? item.item_id.slice(5) : "");
           const agent = str(obj(p.detail).agent_id) || str(obj(p.input ?? p.arguments).agent_id);
           const exact = sessions.filter(s => callId && s.parent_session_id === turn.session_id && s.parent_tool_call_id === callId);
           const children = childId ? sessions.filter(s => s.session_id === childId) : exact.length ? exact
             : sessions.filter(s => agent && s.parent_session_id === turn.session_id && s.child_agent_id === agent);
           const filter = {parent_session_id: turn.session_id, ...(callId ? {tool_call_id: callId} : {}), ...(agent ? {child_agent_id: agent} : {})};
           const delegation = item.has_exact_child || agent || /agent|workflow/.test(call.name ?? "");
-          const link = childId ? <WorkLink id={childId} session={children[0]} label="查看子执行" onChild={onChild} />
+          const link = childId ? <WorkLink id={childId} session={preview ? undefined : children[0]} label="查看子执行" onChild={onChild} />
             : separate && delegation && (callId || agent) ? <LegacyWorkLinks agentId={agentId} filter={filter} onChild={onChild} label="查看子执行" />
             : children.map(child => <WorkLink key={child.session_id} id={child.session_id} session={child} label="查看子执行" distinguish={children.length > 1} onChild={onChild} />);
           // An exact link can arrive after this historical item was loaded.
@@ -642,13 +627,21 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
             ? <LegacyWorkLinks agentId={agentId} filter={{parent_session_id: turn.session_id, tool_call_id: callId}} onChild={onChild} label="查看子执行" />
             : null;
           const facts = Array.isArray(p.work_facts) ? p.work_facts.filter(fact => obj(fact).type !== "inbox_read_committed") : [];
+          const deliveries = preview ? facts.map(obj).filter(fact => fact.type === "message_sent") : [];
+          const originals = new Map(deliveries.flatMap(fact => {
+            const target = str(fact.conversation_id) || str(fact.target);
+            const message = str(fact.message_id);
+            return target && !target.startsWith("local:") && message
+              ? [[JSON.stringify([target, message]), <WorkThreadLink key={JSON.stringify([target, message])}
+                  conversationId={target} messageId={message}>{tr("原消息")} <span aria-hidden="true">↗</span></WorkThreadLink>] as const] : [];
+          }));
           const sources = deferredDetail || facts.length > 0 || lateLink ? <>{deferredDetail}
-            {facts.length > 0 && <WorkFacts facts={facts} displayedText={[str(obj(call.input).text), str(obj(call.input).message), str(obj(call.detail).text), str(call.output)]} />}
+            {facts.length > 0 && <WorkFacts facts={facts} rowOriginals={originals} displayedText={[str(obj(call.input).text), str(obj(call.input).message), str(obj(call.detail).text), str(call.output)]} />}
             {lateLink}
           </> : undefined;
           return <WorkTool key={item.item_id} itemRef={detailRef} call={call} observedAt={item.observed_at} timeline={Boolean(preview)}
             previewOnly={Boolean(item.detail_deferred)} expanded={expanded[itemKey] ?? false}
-            onExpandedChange={open => expand(itemKey, open)} detailFooter={sources} childLink={link} />;
+            onExpandedChange={open => expand(itemKey, open)} detailFooter={sources} childLink={link} originalLinks={[...originals.values()]} />;
         }
         if (item.detail_deferred && deferredDetail) return <li ref={detailRef} className="im-work-deferred-item" key={item.item_id}>
           {eventTime}<span>{str(p.text) || str(p.content) || str(p.summary) || item.kind}</span>{deferredDetail}
@@ -664,17 +657,25 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
         // Lifecycle/configuration events remain in the journal, not the user-facing trace.
         return null;
   };
-  const title = tr(turnTitle(separate ? {...turn, items} : turn));
+  const dreaming = Boolean(preview && (turn.origin === "dreaming" || turn.maintenance_stage));
+  const stage = turn.maintenance_stage || str(turn.trigger?.stage);
+  const maintenanceLabel = stage === "extract" ? "提取任务摘要" : stage === "consolidate" ? "整合长期记忆" : "自动整理记忆";
+  const title = dreaming ? (!stage && turn.maintenance_title) || `Dreaming · ${tr(maintenanceLabel)}`
+    : tr(turnTitle(separate ? {...turn, items} : turn));
   const label = <span className={`im-work-status-label ${status}`}>{statusLabel(status)}</span>;
   const timing = <>
     <span>{turn.started_at ? new Date(turn.started_at).toLocaleTimeString(i18n.language, {hour12:false}) : tr("时间未报告")}{turn.finished_at ? ` — ${new Date(turn.finished_at).toLocaleTimeString(i18n.language, {hour12:false})}` : ""}</span>
-    {(!separate || pages.data || typeof turn.tool_count === "number") && <span>{turn.tool_count ?? items.filter(item => item.kind === "tool").length}{turn.tool_count === undefined && cursor ? "+" : ""} {tr("次工具")}</span>}
+    {dreaming && turn.tool_count === undefined ? <span>{tr("工具次数未报告")}</span>
+      : (!separate || pages.data || typeof turn.tool_count === "number") && <span>{turn.tool_count ?? items.filter(item => item.kind === "tool").length}{turn.tool_count === undefined && cursor ? "+" : ""} {tr("次工具")}</span>}
   </>;
-  const model = turn.model_id || tr("模型未报告");
+  const model = dreaming && turn.model_request_state === "none" ? tr("未发起模型请求") : turn.model_id || tr("模型未报告");
   const header = preview ? <>
-    <div className="im-work-turn-title"><h3>{title}</h3>{label}</div>
+    <div className="im-work-turn-title"><h3>{title}</h3>{label}{dreaming &&
+      <button type="button" className="im-work-dreaming-link" onClick={() => onNative(turn.session_id)}>{tr("查看 Dreaming 轨迹")} <span aria-hidden="true">↗</span></button>}</div>
     <div className="im-work-turn-summary-meta">{timing}
       <details className="im-work-execution-id"><summary>{model}</summary><code>{turn.turn_id}</code></details>
+      {dreaming && <span>{typeof turn.usage?.total_tokens === "number" ? `${turn.usage.total_tokens.toLocaleString(i18n.language)} tok`
+        : tr(turn.model_request_state === "none" ? "无 token 消耗" : "Token 未报告")}</span>}
     </div>
   </> : <><strong>{title}</strong><div className="im-work-turn-summary-meta">{timing}{label}</div></>;
   const body = <div className="im-work-turn-body">
@@ -685,7 +686,9 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
           expanded={item.kind === "tool" && Boolean(str(item.payload.name)) && Boolean(expanded[`${key}:${item.item_id}`])}
           reveal={() => expand(`${key}:${item.item_id}`, true)} render={renderItem} /> : renderItem(item))}</ul>
       {turn.error?.message && <p className="im-work-error">{turn.error.code && `${turn.error.code}: `}{turn.error.message}</p>}
-      <footer className="im-work-turn-footer"><Usage value={turn.usage} label="本轮统计" compact={Boolean(preview)} />{typeof turn.elapsed_ms === "number" && <small>{formatDuration(turn.elapsed_ms)}</small>}
+      <footer className="im-work-turn-footer">{(!dreaming || typeof turn.usage?.context_used === "number" && typeof turn.usage.output === "number") &&
+        <Usage value={turn.usage} label="本轮统计" compact={Boolean(preview)} showCompactTotal={!dreaming} />}
+        {typeof turn.elapsed_ms === "number" && <small>{preview ? `${tr("轮次耗时")} · ${formatWorkDuration(turn.elapsed_ms)}` : formatDuration(turn.elapsed_ms)}</small>}
       </footer>
       {separate && (changes.data?.next_cursor || changes.isError) && <button type="button" disabled={changes.isFetching} onClick={() => void changes.refetch()}>{tr(changes.isError ? "重试" : "加载更多更新")}</button>}
       {cursor && <button type="button" disabled={pages.isFetching} onClick={load}>{tr("加载更多过程")}</button>}{pages.error && <p role="alert">{pages.error.message}<button type="button" onClick={() => void pages.refetch()}>{tr("重试")}</button></p>}
@@ -739,7 +742,7 @@ function DeferredWorkItem({item, path, agentId, visible, expanded, reveal, rende
     }}>{tr(detail.isError ? "重试" : "加载原文")}</button>, observe);
 }
 
-function WorkFacts({facts, displayedText}: {facts: unknown[]; displayedText: string[]}) {
+function WorkFacts({facts, displayedText, rowOriginals}: {facts: unknown[]; displayedText: string[]; rowOriginals: ReadonlyMap<string, ReactNode>}) {
   const seen = new Set<string>();
   return <>{facts.map((raw, index) => {
     const fact = obj(raw);
@@ -753,7 +756,7 @@ function WorkFacts({facts, displayedText}: {facts: unknown[]; displayedText: str
     return <div key={id || index} className="im-work-tool-fact">
       <p>{tr(fact.type === "draft_withheld" ? "原草稿 · 未发送" : fact.type === "dispatch_confirmed" ? "已确认派工" : "实际投递确认")}</p>
       {text && !displayedText.includes(text) && <pre className="chat-tool-call-pre">{text}</pre>}
-      {target && <WorkThreadLink conversationId={target} messageId={message}>{tr(message ? "原消息" : "目标聊天")}</WorkThreadLink>}
+      {target && !rowOriginals.has(JSON.stringify([target, message])) && <WorkThreadLink conversationId={target} messageId={message}>{tr(message ? "原消息" : "目标聊天")}</WorkThreadLink>}
       {refs.map((ref, i) => <WorkThreadLink key={i} conversationId={str(ref.conversation_id)} messageId={str(ref.message_id)}>{str(ref.name) || tr("新消息")}</WorkThreadLink>)}
     </div>;
   })}</>;
