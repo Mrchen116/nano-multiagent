@@ -35,7 +35,9 @@ final class ChatLocalFirstTests: XCTestCase {
         await store.loadConversations()
         XCTAssertEqual(store.conversations.count, 2, "a failed request keeps the local content")
         XCTAssertEqual(store.listPhase, .loaded, "and must not fall back to a full-screen loader")
-        XCTAssertNotNil(store.listError)
+        XCTAssertNil(store.listError, "a correction failure does not reuse business-operation errors")
+        XCTAssertNotNil(store.continuity.readFailures[.list])
+        store.stop()
     }
 
     func testFirstSnapshotIsTheOnlyAuthorityForAbsence() async throws {
@@ -126,7 +128,8 @@ final class ChatLocalFirstTests: XCTestCase {
 
         await store.consume(try membershipEvent("chat"))
         XCTAssertFalse(store.revokedChats.contains("chat"), "a transport failure is not a revocation")
-        XCTAssertEqual(store.connection, .offline(attempt: 0, nextRetryAt: nil))
+        XCTAssertEqual(store.connection, .localOnly, "a read failure cannot change real-time transport health")
+        XCTAssertNotNil(store.continuity.readFailures[.access("chat")])
         let repository = try XCTUnwrap(store.repository)
         let actual = try await repository.conversations().map(\.id)
         XCTAssertEqual(actual, ["chat"])
@@ -219,6 +222,10 @@ final class ChatLocalFirstTests: XCTestCase {
         let (store, stub) = try await makeStore()
         await seed(store, conversations: ["chat"], messages: 1)
         store.selectedID = "chat"
+        store.connection = .offline(attempt: 2, nextRetryAt: nil)
+        let transportSince = store.continuity.transportSince
+        await stub.failMessages(URLError(.timedOut))
+        await store.loadChat("chat")
         await stub.setDetail(nil, status: 503)
         let row = try JSONSerialization.jsonObject(with: JSONEncoder().encode(try conversation("chat")))
         await stub.hold("/im/v1/sync", body: try JSONSerialization.data(withJSONObject: ["items": [row], "max_event_id": 20]))
@@ -234,11 +241,15 @@ final class ChatLocalFirstTests: XCTestCase {
         XCTAssertFalse(store.checkingAccess.contains("chat"))
         XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1"])
         let reads = await stub.messageReadCount()
-        XCTAssertEqual(reads, 0, "full sync restores the local page without fetching its history again")
+        XCTAssertEqual(reads, 1, "only the deliberately failed timeline correction read history")
+        XCTAssertEqual(store.connection, .offline(attempt: 2, nextRetryAt: nil), "access recovery cannot heal the real-time transport")
+        XCTAssertEqual(store.continuity.transportSince, transportSince)
+        XCTAssertNil(store.continuity.readFailures[.access("chat")])
+        XCTAssertNotNil(store.continuity.readFailures[.timeline("chat")], "full sync did not correct the failed timeline read")
         store.stop()
     }
 
-    func testFullSyncPublishesOnlineBeforeASocketTicketReturns() async throws {
+    func testFullSyncDoesNotPublishOnlineBeforeASocketTicketReturns() async throws {
         let (store, stub) = try await makeStore()
         let row = try JSONSerialization.jsonObject(with: JSONEncoder().encode(try conversation("chat")))
         await stub.setSync(try JSONSerialization.data(withJSONObject: ["items": [row], "max_event_id": 20]))
@@ -246,7 +257,7 @@ final class ChatLocalFirstTests: XCTestCase {
         await stub.hold("/im/v1/auth/ws-ticket", body: Data("{}".utf8))
         let run = Task { await store.run() }
         await stub.waitUntilHeld()
-        XCTAssertEqual(store.connection, .online, "a successful durable sync is not gated by another connection stage")
+        XCTAssertNotEqual(store.connection, .online, "HTTP success does not prove real-time recovery")
         XCTAssertEqual(store.conversations.map(\.id), ["chat"])
         run.cancel(); store.stop()
         await stub.release()
@@ -579,12 +590,13 @@ actor StubTransport: HTTPTransport {
     private var messagePages: [String: Data] = [:]
     private var messageFailure: URLError?
     private var heldPath: String?
+    private var heldBefore: String?
     private var heldBody = Data()
     private var held: CheckedContinuation<Void, Never>?
     private var didHold = false
     private var waiting: CheckedContinuation<Void, Never>?
 
-    func hold(_ path: String, body: Data) { heldPath = path; heldBody = body; didHold = false }
+    func hold(_ path: String, body: Data, before: String? = nil) { heldPath = path; heldBody = body; heldBefore = before; didHold = false }
     func waitUntilHeld() async {
         if didHold { return }
         await withCheckedContinuation { waiting = $0 }
@@ -607,7 +619,8 @@ actor StubTransport: HTTPTransport {
 
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let url = request.url!
-        if heldPath == url.path {
+        let queryBefore = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "before_message_id" }?.value
+        if heldPath == url.path, heldBefore == nil || heldBefore == queryBefore {
             let body = heldBody
             heldPath = nil; didHold = true
             waiting?.resume(); waiting = nil
@@ -617,6 +630,7 @@ actor StubTransport: HTTPTransport {
         if url.path == "/im/v1/auth/me" {
             return (try JSONEncoder().encode(JSONDecoder().decode(TokenPair.self, from: pair).user), response(url, 200))
         }
+        if url.path == "/im/v1/auth/ws-ticket" { return (Data(#"{"ticket":"test-ticket"}"#.utf8), response(url, 200)) }
         if url.path.contains("/auth/") { return (pair, response(url, 200)) }
         if url.path == "/im/v1/sync" { return (syncData, response(url, 200)) }
         if url.path.hasSuffix("/messages") {
