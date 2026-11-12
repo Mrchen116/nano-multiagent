@@ -11,8 +11,7 @@ struct ConversationView: View {
     @State private var pickingPhoto = false
     @State private var importing = false
     @State private var commands: [ChatCommandSet] = []
-    @State private var bottomVisible = true
-    @State private var firstLoaded = false
+    @State private var scrollState = ChatScrollCoordinator()
     @State private var confirmFork: ChatMessage?
     @State private var operationError: String?
     @State private var selection = NSRange(location: 0, length: 0)
@@ -22,7 +21,6 @@ struct ConversationView: View {
     @State private var dismissedCompletion = false
     @State private var copied = false
     @State private var loadingHistory = false
-    @State private var viewport = CGRect.zero
     @ScaledMetric(relativeTo: .body) private var mentionRowHeight = 48.0
     @ScaledMetric(relativeTo: .body) private var commandRowHeight = 80.0
     private var conversation: Conversation? { store.inspectedConversation?.id == conversationID ? store.inspectedConversation : store.conversations.first { $0.id == conversationID } }
@@ -37,6 +35,7 @@ struct ConversationView: View {
     // disabled composer until confirmation. Newer ordinary edits stay separate behind it.
     private var draft: Binding<String> { Binding(get: { store.pending[conversationID]?.content ?? store.drafts[conversationID] ?? "" }, set: { store.setDraft(conversationID, $0) }) }
     var body: some View {
+        @Bindable var scroll = scrollState
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
         VStack(spacing: 0) {
             ForEach((conversation?.participants ?? []).filter { $0.type == "agent" }, id: \.id) { agent in
@@ -44,7 +43,6 @@ struct ConversationView: View {
             }
             if !store.connectionText.isEmpty { Text(store.connectionText).font(.caption).foregroundStyle(.secondary).padding(6) }
             if let error = store.errors[conversationID] ?? operationError { ErrorNotice(message: error).padding(10) }
-            ScrollViewReader { scroll in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         // A confirmed access loss is not a missing cache or a connection
@@ -74,9 +72,13 @@ struct ConversationView: View {
                         }
                         if store.before[conversationID] != nil {
                             Button(L("更早的消息", "Earlier messages")) {
-                                let anchor = items.first?.id
+                                let revision = scrollState.paginationStarted()
                                 loadingHistory = true
-                                Task { await store.loadChat(conversationID, older: true); if let anchor { scroll.scrollTo(anchor, anchor: .top) }; loadingHistory = false }
+                                Task {
+                                    await store.loadChat(conversationID, older: true)
+                                    scrollState.paginationFinished(revision: revision)
+                                    loadingHistory = false
+                                }
                             }.disabled(loadingHistory).frame(maxWidth: .infinity)
                             if loadingHistory { ProgressView(L("正在加载历史…", "Loading history…")).frame(maxWidth: .infinity) }
                         }
@@ -92,44 +94,61 @@ struct ConversationView: View {
                                     .id(item.id).contextMenu { messageActions(message) }
                                     .accessibilityElement(children: .contain)
                                     .accessibilityActions { messageActions(message) }
+                                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in
+                                        scrollState.rowChanged(item.id, frame: frame)
+                                    }
+                                    .onDisappear { scrollState.rowDisappeared(item.id) }
                                     .onGeometryChange(for: Bool.self) { geometry in
                                         let frame = geometry.frame(in: .global)
+                                        let viewport = scrollState.viewport
                                         return frame.intersection(viewport).height >= min(44, frame.height) && !viewport.isEmpty
                                     } action: { _, visible in
-                                        if visible {
-                                            if !bottomVisible { store.recordReadingPosition(message.id, in: conversationID) }
-                                            Task { await store.markRead(conversationID, messageID: message.id) }
-                                        }
+                                        if visible { Task { await store.markRead(conversationID, messageID: message.id) } }
                                     }
                             } else {
                                 Label(L("Agent 配置已更新", "Agent configuration updated"), systemImage: "slider.horizontal.3").font(.caption).foregroundStyle(.secondary).id(item.id)
                             }
                         }
                         Color.clear.frame(height: 1).id("bottom")
-                    }.padding()
+                            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in
+                                scrollState.tailChanged(frame)
+                            }
+                            .onDisappear { scrollState.tailDisappeared() }
+                    }.padding().scrollTargetLayout()
                 }
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in viewport = frame }
-                // Lazy row recycling is not viewport visibility, especially while the composer resizes.
-                .onScrollGeometryChange(for: Bool.self) { geometry in
-                    geometry.visibleRect.maxY >= geometry.contentSize.height - 24
-                } action: { _, visible in
-                    bottomVisible = visible
-                    if visible { store.recordReadingPosition(nil, in: conversationID) }
+                .scrollPosition($scroll.position)
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .defaultScrollAnchor(.bottom, for: .alignment)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in
+                    scrollState.viewportChanged(frame)
+                }
+                .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
+                    scrollState.geometryChanged(geometry)
+                }
+                .onScrollPhaseChange { _, phase, context in
+                    scrollState.phaseChanged(phase, geometry: context.geometry)
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if !bottomVisible { Button { scroll.scrollTo("bottom", anchor: .bottom) } label: { Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle()) }.padding().accessibilityLabel(L("最新消息", "Latest messages")) }
+                    if scrollState.showLatest {
+                        Button { scrollState.latest() } label: {
+                            Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle())
+                        }.padding().accessibilityLabel(L("最新消息", "Latest messages"))
+                            .accessibilityIdentifier("conversation.latest")
+                    }
                 }
-                .onChange(of: items.count) { _, _ in
-                    if bottomVisible || !firstLoaded { scroll.scrollTo("bottom", anchor: .bottom); firstLoaded = true }
-                }
+                .onChange(of: items.map(\.id), initial: true) { _, ids in scrollState.contentChanged(validIDs: Set(ids)) }
                 .onChange(of: store.restoreReadingPositions[conversationID]) { _, anchor in
                     if let anchor {
-                        scroll.scrollTo(anchor, anchor: .center)
+                        scrollState.restore(anchor)
                         store.restoreReadingPositions[conversationID] = nil
                     }
                 }
-                .onChange(of: items.last?.message?.content) { _, _ in if bottomVisible { scroll.scrollTo("bottom", anchor: .bottom) } }
-            }
+                .onAppear {
+                    scrollState.invalidateRestoration = { store.recordReadingPosition(nil, in: conversationID) }
+                    scrollState.readingAnchorChanged = { store.recordReadingPosition($0, in: conversationID) }
+                    scrollState.appeared()
+                }
+                .onDisappear { scrollState.disappeared() }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if store.revokedChats.contains(conversationID) {
