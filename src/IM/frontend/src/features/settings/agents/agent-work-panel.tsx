@@ -66,28 +66,28 @@ type PreviewLoader = ReturnType<typeof createPreviewLoader>;
 
 type WorkPaging = { cursor: string; loading: boolean; error: Error | null; load(): void };
 
-function WorkEarlierTurns({ loading, error, load, manual }: WorkPaging & { manual?: boolean }) {
+function WorkEarlierTurns({ loading, error, load }: WorkPaging) {
   const end = useRef<HTMLDivElement>(null);
   const started = useRef(false);
   const loadPage = useRef(load);
   useEffect(() => { loadPage.current = load; }, [load]);
   useEffect(() => {
     const marker = end.current;
-    if (!marker || manual || loading || error || started.current) return;
+    if (!marker || loading || error || started.current) return;
     const observer = new IntersectionObserver(entries => {
       if (started.current || !entries.some(entry => entry.isIntersecting)) return;
       started.current = true;
       observer.disconnect();
       loadPage.current();
-    }, { root: marker.closest(".im-agent-panel"), rootMargin: "0px 0px 160px 0px" });
+    }, { root: marker.closest(".im-agent-panel") });
     observer.observe(marker);
     return () => observer.disconnect();
-  }, [manual, loading, error]);
+  }, [loading, error]);
 
   return <div ref={end} className="im-work-page-end">
     {loading ? <small role="status">{tr("正在加载工作记录…")}</small>
       : error ? <p role="alert">{error.message} <button type="button" onClick={load}>{tr("重试")}</button></p>
-      : manual && <button type="button" className="im-work-child-link" onClick={load}>{tr("加载更早记录")}</button>}
+      : null}
   </div>;
 }
 
@@ -127,7 +127,7 @@ function WorkTurnList({ turns, anchors, renderTurn, nextTurnId, earlier, history
   const boundary = firstGap >= 1 ? merged[firstGap - 1] : tail && neighbor(tail) ? tail : undefined;
   const before = boundary && identity(boundary);
   const paging = history ? before && {cursor: before, loading: history.loading, error: history.error, load: () => history.load(before)} : earlier;
-  const more = paging && <WorkEarlierTurns key={JSON.stringify([tail?.session_id, paging.cursor])} {...paging} manual={continuous} />;
+  const more = paging && <WorkEarlierTurns key={JSON.stringify([tail?.session_id, paging.cursor])} {...paging} />;
   const day = (turn: WorkTurn | undefined) => {
     const timestamp = turn?.started_at || turn?.finished_at;
     return timestamp ? new Date(timestamp).toLocaleDateString(i18n.language, {month: "long", day: "numeric", weekday: "short"}) : "";

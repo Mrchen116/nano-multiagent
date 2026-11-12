@@ -700,6 +700,32 @@ it("reads only visible Work previews and loads the exact tool body when expanded
   expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith("/items/tool%3Aread"))).toBe(true);
 });
 
+it("loads combined history at the visible boundary and offers retry after a failure", async () => {
+  const head = {...view.turns[0], seq: 4, turn_id: "latest"};
+  const older = {...head, seq: 2, turn_id: "earlier"};
+  view = {...view, timeline: "combined", catalog: "separate", turns: [head], next_turn_seq: 2};
+  let attempts = 0;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url === "/im/v1/conversations") return new Response(JSON.stringify({items: []}));
+    if (!url.includes("before_seq=4")) return new Response(JSON.stringify(view));
+    attempts += 1;
+    return attempts === 1 ? new Response("Unavailable", {status: 503})
+      : new Response(JSON.stringify({turns: [older], next_turn_seq: null}));
+  });
+  renderWork();
+  await screen.findByText("Inbox 唤醒");
+  const boundary = earlierPage();
+  reachEarlierPage(boundary, false);
+  expect(attempts).toBe(0);
+  reachEarlierPage(boundary);
+  const retry = await screen.findByRole("button", {name: "重试"});
+  expect(attempts).toBe(1);
+  fireEvent.click(retry);
+  await waitFor(() => expect(document.getElementById("work-turn-main-earlier")).toBeVisible());
+  expect(attempts).toBe(2);
+  expect(earlierPage()).toBeNull();
+});
+
 it("opens nested delegation from its real graph node and restores the chosen window", async () => {
   const node = (session_id: string, parent_session_id: string | null, title: string, total_tokens: number) => ({
     session_id, parent_session_id, title, status: "completed", usage: {total_tokens, reported_turns: 1, missing_turns: 0},
