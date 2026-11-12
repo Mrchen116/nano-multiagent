@@ -1,5 +1,9 @@
 # feat-759: Review
 
+## 上下文对照页面
+
+[打开 PR 前后的请求上下文对照](dreaming-prompt-diff.html)。这是本次讨论使用的独立 HTML，下载后可直接在浏览器打开；包含 Global、PA 首条消息、普通子 Agent 轨迹摘要及 Dreaming 的实际消息块对照。页面保留原对照内容，样本为隔离合成数据，比较基线为 `480436600` → `b23b66164`，不是生产会话记录或最终合并提交的重新抓包。
+
 ## 范围与版本
 
 - 对照 [需求](spec.md)、[设计](design.md) 和 [Gate 2 审查](design-review.md)，核对角色约定的读取与写入、Web 和 iOS 人工编辑、记忆层级与重组提示，以及 Dreaming 提交和恢复。
