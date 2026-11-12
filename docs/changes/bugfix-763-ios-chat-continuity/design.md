@@ -54,14 +54,16 @@
 
 - 已有内容时，普通 starting/syncing/offline/unavailable 从首次连续不可用起静默5秒。这个值是工程初值，不是用户指定或行业标准；原生短3秒/长12秒演练校正。
 - 同一不可用期间的 syncing/offline/HTTP成功但WS失败不重置静默时钟，也不轮播文案；只有完整恢复或终止账号状态结束该期间。
-- 持续不可用后只有一处『连接暂不可用，自动重试中』辅助反馈，可点击查看上次更新时间/重试。Chats 现有 nanoRootTitle 实为 inline 自绘 principal，并非 large title；两页统一用固定44pt高 principal 内的标题与辅助 slot，标题/slot始终保留布局、静默slot无文字/图标且不可访问。持续故障仅填充slot，不改列表/消息可用高度与输入。长标题截断/大字号保持返回与主操作可达，详情可完整读；不能仅凭navigationSubtitle API存在就宣称其不会重排。不插 List / VStack 内容行。
+- 持续不可用后只有一处『连接暂不可用，自动重试中』辅助反馈，可点击查看上次更新时间/重试。Chats 现有 nanoRootTitle 实为 inline 自绘 principal，并非 large title；两页统一用同一 principal 内的标题与辅助 slot，默认约44pt高并按Dynamic Type适配、同字号下状态切换高度固定；标题/slot始终保留布局，静默slot无文字/图标且不可访问。持续故障仅填充slot，不改列表/消息可用高度与输入。长标题截断/大字号保持返回与主操作可达，详情可完整读；不能仅凭navigationSubtitle API存在就宣称其不会重排。不插 List / VStack 内容行。
 - 首次无缓存失败由现有内容区错误状态独占反馈，不再叠加全局连接状态；撤销/登录失效/发送失败仍按各自对象提示。
-- 将读取错误和业务操作错误分清：传输/服务不可用的后台校正错误进入连接策略，不把 `errors` 通用文本过滤来隐藏发送失败。没有内容的错误仍使 phase 进入 needsConnection/failed；forbidden/access/stale-write 不伪装网络。
+- 将读取错误和业务操作错误分清：后台校正失败按 list / detail(id) / timeline(id) / access scope 保存失败种类与连续失败起点，不写实时传输健康、不复用 `errors`。导航仅合成当前surface相关读取scope与实时传输故障；仅HTTP校正失败时文案为『暂时无法更新，轻点重试』，点击重试实际失败的读取，不宣称后台存在自动重试。对应成功读取仅清自己的scope；full sync可清其实际覆盖的list/access scope，不能清尚未校正的timeline。无缓存失败由内容phase读取专属错误；业务发送/上传/访问错误仍在原对象，forbidden/access/stale-write不伪装网络。
 - 拒绝『小图标代替文字』『每次重试插入不同状态行』『所有错误静默』。
 
 ### D2. online 与退避归零推迟到 sync 完成且实时传输确认可用
 
-UserStream 在 ticket / socket resume 之外等待一次 WebSocket ping 成功确认握手；随后 ChatStore 才 online 并归零 attempt。HTTP同步完成仍更新内容/lastFullAt，不借此宣称实时恢复。失败保留指数退避（1/2/4…30秒与 Retry-After 上限取大）；取消、账号失效、epoch 保持原有语义。不会等待有业务消息才算在线，也不新增服务端 ack API。
+`ConnectionState`只由run的实时连接生命周期（以及明确terminal账号结果）拥有；读取成功/失败不得把健康socket改offline或把未恢复socket改online。UserStream在ticket / socket resume之外等待一次WebSocket ping成功确认握手；随后ChatStore才online并归零attempt。HTTP同步完成仍更新内容/lastFullAt，不借此宣称实时恢复。失败保留指数退避（1/2/4…30秒与Retry-After取大）；取消、账号失效、epoch保持原有语义。不会等待有业务消息才算在线，也不新增服务端ack API。
+
+后台读取的scope故障与raw传输正交：① healthy WS + HTTP失败，保留rawonline，仅该surface的scope在静默后显示『暂时无法更新，轻点重试』；同scope成功重试立即清除，不残留offline。② HTTP sync或scheduleAccessRecovery成功只清它们覆盖的scope，即使rawWS仍失败也不能结束raw不可用时钟；检查所有online写入点，不只改run。③ raw故障由run实际退避自动重连，scope故障由显式导航重试、该读取下一次正常校正或已有有界access recovery恢复；文案据真实owner表达，不为此新增通用网络coordinator。④ stop取消展示timer和旧任务；新run重新注册当前仍相关的展示deadline；reset/退出清除全部scope、时钟与恢复任务，旧epoch回包不能清/写新owner的状态。禁止catch业务发送错误改变raw或静默处理。
 
 ### D3. 单一滚动策略保存用户意图、目标代次和当前可见阅读锚点
 
@@ -82,13 +84,26 @@ UserStream 在 ticket / socket resume 之外等待一次 WebSocket ping 成功�
 
 ### D5. 先测量实际阅读路径，只做有证据的局部性能修复
 
-比较同一模拟器、相同历史规模和正文负载的基线与候选：纯文字/高卡片、冷/暖进入、上翻/远距最新。先保留基线构建，再用 XCUITest 连续旅程截图/计时与 `XCTOSSignpostMetric.scrollingAndDecelerationMetric`、适用的 CPU / wall-clock 指标；需要归因时用 xctrace Time Profiler 对齐主线程和本轮请求计数/时间。模拟器图形指标不可用时明确工具限制，改用实际可取得的原生 CPU/主线程和操作时序，不虚报FPS。
+冻结以下可比较协议，不以更小加载范围或未渲染卡片换快：
 
-优先核实重复日期/时间分隔计算、Markdown解析、可见已读请求/回包投影以及 WebView挂载。仅在同负载测量支持时改该私有路径，可采用消息内容键的有界/视图生命周期缓存、聚合幂等已读等；授权/状态更新不能缓存掉。若性能修复需要改业务语义或新公共边界，先修订受审设计再实施。没有稳定收益的候选不合入；性能调查仍报告实测结论与限制，不把正确定位等价于无掉帧。
+| 条件 | 固定值/判据 |
+|---|---|
+| 环境 | 同一本轮iPhone17Pro模拟器/iOS26.4、默认字号/竖屏、键盘关闭；同Xcode26.4.1、同Debug配置/优化级别、同fixture数据库/图片/卡片source。原生UI基线产品树45babb2b49e3；允许在两版共用无行为变化的测量harness/signpost，绑定各自实际SHA。 |
+| 负载 | 两会话各300消息，完全相同base Markdown文本量；控制组纯文本，混合组在相同消息附2张nano-iui-1卡片/2受保护PNG，末卡有唯一真实尾标。初页241–300，实际通过Earlier加载181–240、121–180、061–120、001–060，UI见001且API页边界对账才算300历史已加载。 |
+| 冷/暖 | 冷为进程终止后，同已预热本地300消息窗口重启，renderer/AST是新内存，不把首次空库等同暖重开；暖为同进程立即重访相同范围。两版均从同样已确认的SQLite窗口开始，远程媒体无持久缓存承诺。首次无缓存进入另作功能旅程，不混入性能样本。 |
+| 动作 | 各组从已确认真实尾部开始，6次同方向/速度的fast swipe读历史，再6次回尾；另从同一历史marker范围点击Latest一次。重置起点与等待已知卡片完成在测量区间外，不用长途程序动画制造表面流畅。 |
+| 样本 | 每组先1次discarded warmup，再5次measured，冷/暖分列；保留每次值、中位和min/max，不给5样本伪p95，失败样本不丢。达到下述边界但受噪声影响时只追加一组5次等条件复核，仍不确定则inconclusive，不无限挑好样本。 |
+| 尾部完成 | 唯一最终尾标的完整frame位于nav.maxY到composer.minY有效视口内，3次间隔约200ms观察均在内且相对Y漂移≤4pt；随后卡片/图片或输入区再次改高仍恢复尾部。这个稳定窗口仅用于测试判定，不是产品固定延迟。 |
+| 操作时延 | 同步记录Latest handler→尾部几何可见signpost（不是触摸→屏幕呈现）与XCTest命令→稳定尾部外部墙钟（含automation同步开销，分列不混算）。已加载/渲染内容的handler→tail中位≤500ms、最大≤1s；新挂载卡片的最终tail≤3s、最后height revision后的纠正≤1s。按钮即时取得跟随且旧定位不抢回是独立必过行为。 |
+| 滚动代价 | 主要指标为App定向XCTHitchMetric的hitch duration ratio（ms/s），辅以scrollingAndDecelerationMetric、XCTCPUMetric(application:)与XCTMemoryMetric(application:)；必要时用本轮sim的Animation Hitches/Time Profiler解释与请求时序的相关性。不能把runner CPU或空metric当App结果。 |
+
+**退出规则**：原生连续旅程必须全部通过。滚动候选hitch ratio中位不得超过基线中位加`max(1ms/s, 基线的10%)`；若基线中位>5ms/s（本轮明显停顿工作阈值，不是行业标准），候选须至少降低20%且≤5ms/s。App CPU/峰值内存中位不回归超过15%，超界须解释并以对照证明不增加阅读停顿/内存压力，否则不能退出。基线未复现hitch时，只能给『此负载下未复现真实帧停顿』的限定结论；候选仍须取得非空原生metric且hitch ratio≤5ms/s、操作时延达标、无上述回归，不能声称找到用户手机版本卡顿根因。指标不支持时尝试Animation Hitches等效测量；必要原生停顿/操作测量均无法取得、样本触及负载不明或持续不稳定，整体性能结论inconclusive并阻止归档/交付为已完成，交owner决定而非自行降标。
+
+优先核实重复日期/时间分隔计算、Markdown解析、可见已读请求/回包投影以及WebView挂载。仅在同负载测量支持时改该私有路径，可采用消息内容键的有界/视图生命周期缓存、聚合幂等已读等；授权/状态更新不能缓存掉。若性能修复需要改业务语义或新公共边界，先修订受审设计再实施。无稳定收益的候选不合入，不把正确定位等价于无掉帧。
 
 ## 接口与数据流
 
-- 连接展示策略：`update(state, now)`保留连续不可用起点；`presentation(now, hasContent)`返回静默或稳定辅助文案；clock/timer可注入测试，不每帧重算/每秒改内容。Store 生命周期取消旧timer、防止退出后回填。
+- 连接展示策略：`updateTransport(state, now)`与`readFailed(scope, failure, now)` / `readSucceeded(scope)`保留各连续故障起点；`presentation(surface, now, hasContent)`按当前页面相关scope返回静默或稳定辅助文案。原始健康不被读取scope回写；clock/timer可注入测试，只在最早未显示deadline调度一次，不每帧/每秒改内容。Store生命周期取消旧timer、防止退出后回填。
 - 原生连接反馈组件只消费展示结果与 retry action，错误详情按需展开；Charts/会话共享策略，不共享重复错误行。
 - 滚动策略输入为 initial / userInteraction / latest / geometry / visibleAnchor / pendingRestore；输出 latest 或 anchorCorrection，revision 包含定位所有权。SwiftUI adapter 独占 `ScrollPosition` 调用。
 - 清理阅读锚点沿用 repository 的 revision fence；用户切最新时同时使旧 pending/restore 无效，网络补页仍只按合法消息合并，不应为了位置取消必要权限校正。
@@ -140,7 +155,7 @@ UserStream 在 ticket / socket resume 之外等待一次 WebSocket ping 成功�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-continuity | 连续聊天状态与原生验证 | 无 | 串行集成 | ChatPhases/ChatStore/UserStream、ChatList/Conversation及私有策略、测量支持的局部呈现、Tests/UITests、ios-client delta | [reviewer] 短重连零反馈且不位移，持续失败一处诚实可恢复；Chats重进尾部、动态增高/键盘跟随、上翻/详情/前后台不抢位、旧定位不覆盖最新；原生信息层级协调；实测卡顿因果与性能对照及限制清楚。[worker] 策略边界、timer取消/epoch、WS失败退避与操作错误单测；真实UI连续旅程含缓存重入/高卡片/分页竞态/历史上下文；相同fixture基线候选metrics/请求/必要profile；原生build+受影响单测、CI等价检查；不更改权限/发送/媒体持久边界。 |
+| M1-continuity | 连续聊天状态与原生验证 | 无 | 串行集成 | ChatPhases/ChatStore/UserStream、ChatList/Conversation及私有策略、测量支持的局部呈现、Tests/UITests、ios-client delta | [reviewer] 短重连零反馈且不位移，持续失败一处诚实可恢复；Chats重进尾部、动态增高/键盘跟随、上翻/详情/前后台不抢位、旧定位不覆盖最新；原生信息层级协调；D5冻结负载/样本的真实尾部、时延、hitch与CPU/内存退出规则全部成立，缺决定性测量不退出。[worker] 策略边界、timer取消/epoch、WS失败退避、healthyWS+HTTP失败再成功、HTTP-only成功不清WS故障、操作错误单测；真实UI连续旅程含缓存重入/高卡片/分页竞态/历史上下文；300实际加载边界、冷暖5样本metrics/请求/必要profile绑定SHA；原生build+受影响单测、CI等价检查；不更改权限/发送/媒体持久边界。 |
 
 ## 交付路径差异
 
