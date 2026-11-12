@@ -41,7 +41,6 @@ struct ConversationView: View {
             ForEach((conversation?.participants ?? []).filter { $0.type == "agent" }, id: \.id) { agent in
                 AgentLifecycleChatNotice(client: store.client, agent: agent)
             }
-            if !store.connectionText.isEmpty { Text(store.connectionText).font(.caption).foregroundStyle(.secondary).padding(6) }
             if let error = store.errors[conversationID] ?? operationError { ErrorNotice(message: error).padding(10) }
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
@@ -52,7 +51,7 @@ struct ConversationView: View {
                                 VStack(spacing: 8) {
                                     Label(L("需要连接后才能读取内容", "A connection is needed to read this conversation"), systemImage: "antenna.radiowaves.left.and.right")
                                         .font(.callout)
-                                    Text(L("这个会话还没有保存到本机。连上网络后会自动加载。", "This conversation is not saved on this device yet. It loads automatically once you are connected."))
+                                    Text(store.readFailureBody(.timeline(conversationID)))
                                         .font(.caption).foregroundStyle(.secondary)
                                     Button(L("重试", "Retry")) { Task { await store.loadChat(conversationID) } }
                                 }.frame(maxWidth: .infinity).padding(.vertical, 24)
@@ -171,8 +170,8 @@ struct ConversationView: View {
         .background(NanoTheme.canvas)
         .overlay(alignment: .top) { if copied { Label(L("已复制正文", "Message copied"), systemImage: "checkmark.circle.fill").font(.callout).padding(12).background(.regularMaterial, in: Capsule()).padding(.top, 8) } }
         .task(id: copied) { if copied { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { copied = false } } }
-        .navigationTitle(conversation?.title ?? L("聊天", "Conversation"))
-        .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+        .chatContinuityTitle(conversation?.title ?? L("聊天", "Conversation"), store: store, surface: .conversation(conversationID))
+        .toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink {
             ChatInfoView(store: store, conversationID: conversationID, openChat: openChat)
         } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel(L("聊天详情", "Conversation details")) } }
