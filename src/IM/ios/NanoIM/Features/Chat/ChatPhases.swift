@@ -21,6 +21,8 @@ enum ChatTimelinePhase: Equatable, Sendable {
     case loaded
     case empty
     case needsConnection
+    /// A completed protocol/local read failure is not an ongoing load or a network diagnosis.
+    case failed
 }
 
 /// How the connection stands, independent of what is on screen.
@@ -195,6 +197,7 @@ struct ChatScopedReadFailure: Equatable, Sendable {
     let since: Date
     var failure: ChatFailure
     var message: String
+    var isTemporary: Bool
 }
 
 /// A value policy owns continuous failure periods, not retry attempts or view lifetimes.
@@ -212,10 +215,10 @@ struct ChatConnectionContinuity: Sendable {
         if terminal { readFailures = [:] }
     }
 
-    mutating func readFailed(_ scope: ChatReadScope, failure: ChatFailure, message: String, now: Date) {
+    mutating func readFailed(_ scope: ChatReadScope, failure: ChatFailure, message: String, now: Date, isTemporary: Bool = true) {
         guard !terminal else { return }
         readFailures[scope] = ChatScopedReadFailure(since: readFailures[scope]?.since ?? now,
-                                                   failure: failure, message: message)
+                                                   failure: failure, message: message, isTemporary: isTemporary)
     }
 
     mutating func readSucceeded(_ scope: ChatReadScope) { readFailures[scope] = nil }

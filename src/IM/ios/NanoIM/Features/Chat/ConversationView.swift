@@ -37,6 +37,7 @@ struct ConversationView: View {
     var body: some View {
         @Bindable var scroll = scrollState
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
+        let timelinePhase = store.timelinePhase(conversationID)
         VStack(spacing: 0) {
             ForEach((conversation?.participants ?? []).filter { $0.type == "agent" }, id: \.id) { agent in
                 AgentLifecycleChatNotice(client: store.client, agent: agent)
@@ -47,15 +48,15 @@ struct ConversationView: View {
                         // A confirmed access loss is not a missing cache or a connection
                         // problem; the dedicated revocation notice below owns that state.
                         if items.isEmpty && !store.revokedChats.contains(conversationID) {
-                            if store.timelinePhase(conversationID) == .needsConnection {
+                            if timelinePhase == .needsConnection || timelinePhase == .failed {
                                 VStack(spacing: 8) {
-                                    Label(L("需要连接后才能读取内容", "A connection is needed to read this conversation"), systemImage: "antenna.radiowaves.left.and.right")
+                                    Label(timelinePhase == .needsConnection ? L("需要连接后才能读取内容", "A connection is needed to read this conversation") : L("无法读取聊天内容", "Could not load this conversation"), systemImage: timelinePhase == .needsConnection ? "antenna.radiowaves.left.and.right" : "exclamationmark.circle")
                                         .font(.callout)
                                     Text(store.readFailureBody(.timeline(conversationID)))
                                         .font(.caption).foregroundStyle(.secondary)
                                     Button(L("重试", "Retry")) { Task { await store.loadChat(conversationID) } }
                                 }.frame(maxWidth: .infinity).padding(.vertical, 24)
-                            } else if store.timelinePhase(conversationID) == .empty {
+                            } else if timelinePhase == .empty {
                                 Text(L("还没有消息", "No messages yet"))
                                     .font(.callout).foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity).padding(.vertical, 24)

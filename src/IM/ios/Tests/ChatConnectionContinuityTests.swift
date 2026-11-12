@@ -48,6 +48,37 @@ final class ChatConnectionContinuityTests: XCTestCase {
 }
 
 extension ChatLocalFirstTests {
+    func testMalformedCorrectionFinishesLoadingWithoutReplacingBusinessErrors() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["a"], messages: 0)
+        store.connection = .online
+        store.errors["a"] = "unsent business operation"
+        store.listError = "failed pin operation"
+        await stub.setMessages(Data("{}".utf8))
+        await stub.setList(Data("{}".utf8))
+        await store.loadChat("a")
+        await store.loadConversations()
+        XCTAssertEqual(store.timelinePhase("a"), .failed, "A malformed successful response is a completed failed read, not an endless spinner or network diagnosis")
+        XCTAssertEqual(store.continuity.readFailures[.timeline("a")]?.isTemporary, false)
+        XCTAssertNotNil(store.continuity.readFailures[.timeline("a")])
+        XCTAssertNotNil(store.continuity.readFailures[.list])
+        XCTAssertEqual(store.connection, .online)
+        XCTAssertEqual(store.errors["a"], "unsent business operation")
+        XCTAssertEqual(store.listError, "failed pin operation")
+        let chat = try conversation("a")
+        await stub.setList(try JSONSerialization.data(withJSONObject: ["items": [JSONSerialization.jsonObject(with: JSONEncoder().encode(chat))]]))
+        await stub.setMessages(Data(#"{"items":[]}"#.utf8))
+        await store.loadConversations()
+        await store.loadChat("a")
+        XCTAssertNil(store.continuity.readFailures[.list])
+        XCTAssertNil(store.continuity.readFailures[.timeline("a")])
+        XCTAssertEqual(store.timelinePhase("a"), .empty)
+        XCTAssertEqual(store.errors["a"], "unsent business operation")
+        XCTAssertEqual(store.listError, "failed pin operation")
+        store.resetProjection()
+        try await store.repository?.close()
+    }
+
     func testHealthySocketReadFailureStaysScopedAndRetryClearsOnlyThatRead() async throws {
         let (store, stub) = try await makeStore()
         await seed(store, conversations: ["a"], messages: 1)

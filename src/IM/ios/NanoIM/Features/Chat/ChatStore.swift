@@ -149,7 +149,7 @@ final class ChatStore {
 
     func readFailureBody(_ scope: ChatReadScope) -> String {
         if let failure = continuity.readFailures[scope] {
-            if case .unavailable = failure.failure {
+            if failure.isTemporary, case .unavailable = failure.failure {
                 return ChatConnectionText.loadFailureBody(.unavailable(status: 503))
             }
             return failure.message
@@ -188,18 +188,13 @@ final class ChatStore {
             connection = failure.connection ?? connection
             return
         }
-        // Business refusals and local persistence failures retain their object-level errors;
-        // they are not network health and must not disappear into the quiet period.
+        // Protocol/local correction failures also belong to the read, not to a failed send or
+        // pin operation. Their no-cache state must finish without diagnosing a network fault.
+        // Known authority refusals are handled by the caller before reaching this adapter.
         let status = (error as? APIError)?.status
         let temporary = error is URLError || status == 0 || status == 408 || status == 429 || status.map { (500...599).contains($0) } == true
-        guard temporary else {
-            switch scope {
-            case .list: listError = error.localizedDescription
-            case .detail(let id), .timeline(let id), .access(let id): errors[id] = error.localizedDescription
-            }
-            return
-        }
-        continuity.readFailed(scope, failure: failure, message: error.localizedDescription, now: continuityTiming.now())
+        continuity.readFailed(scope, failure: failure, message: error.localizedDescription,
+                              now: continuityTiming.now(), isTemporary: temporary)
         scheduleContinuityDeadline()
     }
 
@@ -241,7 +236,9 @@ final class ChatStore {
     func timelinePhase(_ id: String) -> ChatTimelinePhase {
         if (timelines[id] ?? []).contains(where: { $0.message != nil }) { return .loaded }
         if receivedTimelineResults.contains(id) { return .empty }
-        if continuity.readFailures[.timeline(id)] != nil || continuity.readFailures[.detail(id)] != nil { return .needsConnection }
+        if let failure = continuity.readFailures[.timeline(id)] {
+            return failure.isTemporary ? .needsConnection : .failed
+        }
         switch connection {
         case .offline, .unavailable: return .needsConnection
         default: return .loadingFirst
