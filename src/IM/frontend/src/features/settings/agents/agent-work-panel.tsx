@@ -9,7 +9,7 @@ import { subscribeUserStream } from "../../../realtime/user-stream";
 import type { BackgroundReturn, PermissionRequest, TokenUsage, ToolCall } from "../../chat/chat-types";
 import { formatDuration } from "../../chat/components/tool-calls-panel";
 import { WorkTool, WorkBackground, WorkUsage, withVisibleReasoning } from "./agent-work-presenters";
-import { tr } from "./agent-work-text";
+import { tr, WorkEventTime } from "./agent-work-text";
 import { i18n, useTranslation } from "../../../i18n";
 import { PermissionCard } from "../../chat/components/permission-card";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
@@ -130,7 +130,7 @@ function WorkTurnList({ turns, anchors, renderTurn, nextTurnId, earlier, history
   const more = paging && <WorkEarlierTurns key={JSON.stringify([tail?.session_id, paging.cursor])} {...paging} manual={continuous} />;
   const day = (turn: WorkTurn | undefined) => {
     const timestamp = turn?.started_at || turn?.finished_at;
-    return timestamp ? new Date(timestamp).toLocaleDateString(i18n.language, {month: "long", day: "numeric", year: "numeric"}) : "";
+    return timestamp ? new Date(timestamp).toLocaleDateString(i18n.language, {month: "long", day: "numeric", weekday: "short"}) : "";
   };
   return <>
     {merged.map((turn, i) => <Fragment key={turnElementId(turn.session_id, turn.turn_id)}>
@@ -206,7 +206,7 @@ function SessionControls({agentId, sessionId, title}: {agentId: string; sessionI
 }
 
 /** Durable main/child timeline. Visual state survives a real Chat navigation. */
-export function AgentWorkPanel({ agentId }: { agentId: string }) {
+export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentName?: string }) {
   useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
@@ -472,7 +472,7 @@ export function AgentWorkPanel({ agentId }: { agentId: string }) {
           <div className="im-work-toolbar-status">{!nativeMode && <span>{tr("主 Agent")} · {statusLabel(online ? view.main_execution : "unknown")}</span>}{!online && <span className="im-work-error">{tr("节点离线")}</span>}</div>
         </div>
         {nativeMode && <AgentTrajectory key={nativeSelectionVersion} onActiveSessionChange={onActiveNative} rootSessionId={view.main_session_id} initialTitle={nativeSession === view.main_session_id ? tr('主 Agent') : tr(sessionTitle(sessions.find(item => item.session_id === nativeSession) ?? selected))} agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} />}
-        {continuous && <WorkDelegation agentId={agentId} visible={graphMode} openSession={openGraphSession} />}
+        {continuous && <WorkDelegation agentId={agentId} agentName={agentName} visible={graphMode} openSession={openGraphSession} />}
         <div hidden={nativeMode || graphMode}>
         {graphReturn.current && <button type="button" className="im-work-child-link" onClick={backToGraph}>{tr("← 返回派工关系")}</button>}
         {messageId && (focusQuery.isError || focusQuery.data === null) && <p className="im-work-callout" role="status">{focusQuery.error instanceof AgentExecutionDeletedError ? focusQuery.error.message : tr("该回复的工作记录尚未同步或不可用。")}</p>}
@@ -621,6 +621,7 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
   })}</ul>;
   const renderItem = (item: WorkItem, deferredDetail?: ReactNode, detailRef?: Ref<HTMLLIElement>) => {
         const p = item.payload;
+        const eventTime = preview && item.observed_at && <WorkEventTime value={item.observed_at} />;
         if (!item.detail_deferred && ["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind) && !str(p.reasoning_content) && !str(p.text) && !str(p.content) && !str(p.delta) && !str(p.source_session_id) && !(Array.isArray(p.background_returns) && p.background_returns.length)) return null;
         const itemKey = `${key}:${item.item_id}`;
         if (item.kind === "tool" && str(p.name)) {
@@ -645,34 +646,46 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
             {facts.length > 0 && <WorkFacts facts={facts} displayedText={[str(obj(call.input).text), str(obj(call.input).message), str(obj(call.detail).text), str(call.output)]} />}
             {lateLink}
           </> : undefined;
-          return <WorkTool key={item.item_id} itemRef={detailRef} call={call} observedAt={item.observed_at}
+          return <WorkTool key={item.item_id} itemRef={detailRef} call={call} observedAt={item.observed_at} timeline={Boolean(preview)}
             previewOnly={Boolean(item.detail_deferred)} expanded={expanded[itemKey] ?? false}
             onExpandedChange={open => expand(itemKey, open)} detailFooter={sources} childLink={link} />;
         }
         if (item.detail_deferred && deferredDetail) return <li ref={detailRef} className="im-work-deferred-item" key={item.item_id}>
-          <span>{str(p.text) || str(p.content) || str(p.summary) || item.kind}</span>{deferredDetail}
+          {eventTime}<span>{str(p.text) || str(p.content) || str(p.summary) || item.kind}</span>{deferredDetail}
         </li>;
-        if (item.kind === "permission") return <li ref={detailRef} key={item.item_id}><PermissionCard request={p as unknown as PermissionRequest} endpoint={`${workBase(agentId)}/permissions/${encodeURIComponent(str(p.request_id))}`} disabled={!online} onResolved={refresh} /></li>;
-        if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind)) return <li ref={detailRef} className="im-work-body" key={item.item_id}>{str(p.reasoning_content) && <details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey, event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.reasoning_content)}</p></details>}{(str(p.text) || str(p.content) || str(p.delta) || str(p.source_session_id)) && <div className="im-work-assistant"><header className="im-work-message-head"><strong>{tr(p.source_kind === "subagent-settled" ? "子执行返回" : p.source_kind === "agent-message" ? "Agent 消息" : "Agent 正文")}</strong>{str(p.source_session_id) && <button type="button" className="im-work-child-link" onClick={() => onChild(str(p.source_session_id))}>{tr("查看关联执行")}<span aria-hidden="true">↗</span></button>}</header><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{str(p.text) || str(p.content) || str(p.delta)}</ReactMarkdown></div>}{backgroundRows(p.background_returns, itemKey)}</li>;
-        if (["thinking", "thinking_delta", "reasoning"].includes(item.kind)) return <li ref={detailRef} key={item.item_id}><details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey,event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.text) || str(p.content) || str(p.reasoning_content)}</p></details></li>;
-        if (item.kind === "cron_delivery" || item.kind === "cron_trigger") return <li ref={detailRef} key={item.item_id}><SessionFacts items={[item]} /></li>;
-        if (item.kind === "injection_consumed" && (str(p.source_session_id) || Array.isArray(p.background_returns) && p.background_returns.length > 0)) return <li ref={detailRef} key={item.item_id}>{str(p.source_session_id) && <WorkLink id={str(p.source_session_id)} label="查看关联执行" onChild={onChild} />}{backgroundRows(p.background_returns, itemKey)}</li>;
-        if (item.kind === "background_return") return <li ref={detailRef} key={item.item_id}>{backgroundRows([p], itemKey)}</li>;
-        if (item.kind === "injection_consumed" && Number(p.user_message_count) > 0) return <li ref={detailRef} className="im-work-assistant" key={item.item_id}>{tr("运行中收到补充输入")}</li>;
-        if (item.kind === "recording_degraded") return <li ref={detailRef} className="im-work-callout" key={item.item_id}>{tr("工作记录存在缺口")}</li>;
+        if (item.kind === "permission") return <li ref={detailRef} key={item.item_id}>{eventTime}<PermissionCard request={p as unknown as PermissionRequest} endpoint={`${workBase(agentId)}/permissions/${encodeURIComponent(str(p.request_id))}`} disabled={!online} onResolved={refresh} /></li>;
+        if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind)) return <li ref={detailRef} className="im-work-body" key={item.item_id}>{eventTime}{str(p.reasoning_content) && <details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey, event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.reasoning_content)}</p></details>}{(str(p.text) || str(p.content) || str(p.delta) || str(p.source_session_id)) && <div className="im-work-assistant"><header className="im-work-message-head"><strong>{tr(p.source_kind === "subagent-settled" ? "子执行返回" : p.source_kind === "agent-message" ? "Agent 消息" : "Agent 正文")}</strong>{str(p.source_session_id) && <button type="button" className="im-work-child-link" onClick={() => onChild(str(p.source_session_id))}>{tr("查看关联执行")}<span aria-hidden="true">↗</span></button>}</header><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{str(p.text) || str(p.content) || str(p.delta)}</ReactMarkdown></div>}{backgroundRows(p.background_returns, itemKey)}</li>;
+        if (["thinking", "thinking_delta", "reasoning"].includes(item.kind)) return <li ref={detailRef} key={item.item_id}>{eventTime}<details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey,event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.text) || str(p.content) || str(p.reasoning_content)}</p></details></li>;
+        if (item.kind === "cron_delivery" || item.kind === "cron_trigger") return <li ref={detailRef} key={item.item_id}>{eventTime}<SessionFacts items={[item]} /></li>;
+        if (item.kind === "injection_consumed" && (str(p.source_session_id) || Array.isArray(p.background_returns) && p.background_returns.length > 0)) return <li ref={detailRef} key={item.item_id}>{eventTime}{str(p.source_session_id) && <WorkLink id={str(p.source_session_id)} label="查看关联执行" onChild={onChild} />}{backgroundRows(p.background_returns, itemKey)}</li>;
+        if (item.kind === "background_return") return <li ref={detailRef} key={item.item_id}>{eventTime}{backgroundRows([p], itemKey)}</li>;
+        if (item.kind === "injection_consumed" && Number(p.user_message_count) > 0) return <li ref={detailRef} className="im-work-assistant" key={item.item_id}>{eventTime}{tr("运行中收到补充输入")}</li>;
+        if (item.kind === "recording_degraded") return <li ref={detailRef} className="im-work-callout" key={item.item_id}>{eventTime}{tr("工作记录存在缺口")}</li>;
         // Lifecycle/configuration events remain in the journal, not the user-facing trace.
         return null;
   };
-  const header = <><strong>{tr(turnTitle(separate ? {...turn, items} : turn))}</strong><div className="im-work-turn-summary-meta"><span>{turn.started_at ? new Date(turn.started_at).toLocaleTimeString(i18n.language, {hour12:false}) : tr("时间未报告")}{turn.finished_at ? ` — ${new Date(turn.finished_at).toLocaleTimeString(i18n.language, {hour12:false})}` : ""}</span>{(!separate || pages.data || typeof turn.tool_count === "number") && <span>{turn.tool_count ?? items.filter(item => item.kind === "tool").length}{turn.tool_count === undefined && cursor ? "+" : ""} {tr("次工具")}</span>}<span className={`im-work-status-label ${status}`}>{statusLabel(status)}</span></div></>;
-  const body = <div className="im-work-turn-body"><div className="im-work-turn-meta">{!preview && <code>{turn.turn_id}</code>}<span>{turn.model_id || tr("模型未报告")}</span></div>
+  const title = tr(turnTitle(separate ? {...turn, items} : turn));
+  const label = <span className={`im-work-status-label ${status}`}>{statusLabel(status)}</span>;
+  const timing = <>
+    <span>{turn.started_at ? new Date(turn.started_at).toLocaleTimeString(i18n.language, {hour12:false}) : tr("时间未报告")}{turn.finished_at ? ` — ${new Date(turn.finished_at).toLocaleTimeString(i18n.language, {hour12:false})}` : ""}</span>
+    {(!separate || pages.data || typeof turn.tool_count === "number") && <span>{turn.tool_count ?? items.filter(item => item.kind === "tool").length}{turn.tool_count === undefined && cursor ? "+" : ""} {tr("次工具")}</span>}
+  </>;
+  const model = turn.model_id || tr("模型未报告");
+  const header = preview ? <>
+    <div className="im-work-turn-title"><h3>{title}</h3>{label}</div>
+    <div className="im-work-turn-summary-meta">{timing}
+      <details className="im-work-execution-id"><summary>{model}</summary><code>{turn.turn_id}</code></details>
+    </div>
+  </> : <><strong>{title}</strong><div className="im-work-turn-summary-meta">{timing}{label}</div></>;
+  const body = <div className="im-work-turn-body">
+      {!preview && <div className="im-work-turn-meta"><code>{turn.turn_id}</code><span>{model}</span></div>}
       {turn.items_deferred && pages.isLoading && <p role="status">{tr("正在加载工作记录…")}</p>}
       <ul className="im-work-items">{items.map(item => item.detail_deferred ?
         <DeferredWorkItem key={item.item_id} item={item} path={path} agentId={agentId} visible={visible}
           expanded={item.kind === "tool" && Boolean(str(item.payload.name)) && Boolean(expanded[`${key}:${item.item_id}`])}
           reveal={() => expand(`${key}:${item.item_id}`, true)} render={renderItem} /> : renderItem(item))}</ul>
       {turn.error?.message && <p className="im-work-error">{turn.error.code && `${turn.error.code}: `}{turn.error.message}</p>}
-      <footer className="im-work-turn-footer"><Usage value={turn.usage} label="本轮统计" />{typeof turn.elapsed_ms === "number" && <small>{formatDuration(turn.elapsed_ms)}</small>}
-        {preview && <details className="im-work-execution-id"><summary>{tr("执行信息")}</summary><code>{turn.turn_id}</code></details>}
+      <footer className="im-work-turn-footer"><Usage value={turn.usage} label="本轮统计" compact={Boolean(preview)} />{typeof turn.elapsed_ms === "number" && <small>{formatDuration(turn.elapsed_ms)}</small>}
       </footer>
       {separate && (changes.data?.next_cursor || changes.isError) && <button type="button" disabled={changes.isFetching} onClick={() => void changes.refetch()}>{tr(changes.isError ? "重试" : "加载更多更新")}</button>}
       {cursor && <button type="button" disabled={pages.isFetching} onClick={load}>{tr("加载更多过程")}</button>}{pages.error && <p role="alert">{pages.error.message}<button type="button" onClick={() => void pages.refetch()}>{tr("重试")}</button></p>}

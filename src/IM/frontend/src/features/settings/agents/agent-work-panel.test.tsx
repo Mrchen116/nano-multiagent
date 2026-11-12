@@ -709,12 +709,12 @@ it("opens nested delegation from its real graph node and restores the chosen win
   fireEvent.click(await screen.findByRole("tab", {name: "派工关系"}));
   expect(await screen.findByText("900 tok")).toBeVisible();
   expect(screen.getByText("40 tok")).toBeVisible();
-  fireEvent.click(screen.getByRole("button", {name: "最近 2 小时"}));
+  fireEvent.change(screen.getByRole("combobox", {name: "活动范围"}), {target: {value: "2h"}});
   fireEvent.click(await screen.findByRole("button", {name: /Second child.*10 tok/}));
   expect(await screen.findByRole("heading", {name: "Second child"})).toBeVisible();
   expect(screen.queryByRole("heading", {name: "主 Agent"})).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", {name: "← 返回派工关系"}));
-  expect(screen.getByRole("button", {name: "最近 2 小时"})).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("combobox", {name: "活动范围"})).toHaveValue("2h");
 });
 
 it("retains saved records through transient refresh failure and hides them when Work access is revoked", async () => {

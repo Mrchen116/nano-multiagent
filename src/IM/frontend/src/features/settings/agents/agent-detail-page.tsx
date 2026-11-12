@@ -1741,7 +1741,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
       </div>}
       <div className={`im-agent-panel-body im-agent-detail-body ${activeSection === "work" ? "im-agent-work-body" : activeSection === "config" ? "im-settings-config" : ""}`}>
         {activeSection === "work" && draft.work_mode === "global" ? (
-          <AgentWorkPanel agentId={agentId} />
+          <AgentWorkPanel agentId={agentId} agentName={draft.display_name} />
         ) : activeSection === "skills" ? (
           <AgentSkillsUsagePanel agentId={agentId} />
         ) : activeSection === "plugins" ? (
