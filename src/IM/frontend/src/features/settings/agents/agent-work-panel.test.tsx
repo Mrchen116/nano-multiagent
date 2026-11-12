@@ -391,7 +391,7 @@ describe("Agent work view", () => {
     renderWork();
     fireEvent.click(await screen.findByText("Inbox 唤醒"));
     expect(screen.getAllByText("Token 未报告").length).toBeGreaterThan(0);
-    expect(screen.getByText(/节点离线，正在显示已保存记录/)).toBeInTheDocument();
+    expect(screen.getByText("节点离线 · 已保存记录")).toBeInTheDocument();
     const allow = await screen.findByRole("button", { name: /Allow once|允许一次|允许/ });
     expect(allow).toBeDisabled();
   });
@@ -495,7 +495,7 @@ it.each([
   ['online', undefined, '当前显示已保存记录，最新进度尚未确认。'],
   ['online', 'unknown', '当前显示已保存记录，最新进度尚未确认。'],
   ['online', 'current', undefined],
-  ['offline', 'catching_up', '节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。'],
+  ['offline', 'catching_up', undefined],
 ] as const)('shows saved-record completeness for %s / %s without changing reported usage', async (connection, state, text) => {
   view={...view,node_connection_state:connection,record_sync_state:state,latest_main_usage:{turn_id:'turn',context_used:42,output:7}};
   const result=renderWork();

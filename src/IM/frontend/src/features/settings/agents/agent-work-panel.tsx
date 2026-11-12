@@ -454,7 +454,12 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
         <div className="im-work-toolbar">
           <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode && !graphMode} onClick={showRecords}>{tr('工作记录')}</button>{continuous && <button role="tab" aria-selected={graphMode} onClick={showGraph}>{tr('派工关系')}</button>}<button role="tab" aria-selected={nativeMode} onClick={() => showNative(saved.selected || focus?.session_id || view.main_session_id)}>{tr('原生轨迹')}</button></div>
           {nativeMode && <label className="im-native-execution"><span>{tr('当前执行')}</span><select aria-label="当前执行" value={shownNative ?? ''} onChange={event => showNative(event.target.value)}>{view.main_session_id && <option value={view.main_session_id}>{tr('主 Agent')}</option>}{sessions.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id === shownNative && activeNative?.base === nativeSession && activeNative.label ? activeNative.label : tr(sessionTitle(session))}</option>)}{shownNative && shownNative !== view.main_session_id && !sessions.some(session => session.session_id === shownNative) && <option value={shownNative}>{activeNative?.label || tr(sessionTitle(selected))}</option>}</select>{catalogMore}</label>}
-          <div className="im-work-toolbar-status">{!nativeMode && <span>{tr("主 Agent")} · {statusLabel(online ? view.main_execution : "unknown")}</span>}{!online && <span className="im-work-error">{tr("节点离线")}</span>}</div>
+          <div className="im-work-toolbar-status" role="status">
+            {online && !nativeMode && <span>{tr("主 Agent")} · {statusLabel(view.main_execution)}</span>}
+            {!online && <span className="im-work-offline">
+              {tr(!nativeMode && !graphMode ? "节点离线 · 已保存记录" : "节点离线")}
+            </span>}
+          </div>
         </div>
         {nativeMode && <AgentTrajectory key={nativeSelectionVersion} onActiveSessionChange={onActiveNative} rootSessionId={view.main_session_id} initialTitle={nativeSession === view.main_session_id ? tr('主 Agent') : tr(sessionTitle(sessions.find(item => item.session_id === nativeSession) ?? selected))} agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} />}
         {continuous && <WorkDelegation agentId={agentId} agentName={agentName} visible={graphMode} openSession={openGraphSession} />}
@@ -469,7 +474,6 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
           const scroller = root.current?.closest(".im-agent-panel");
           if (scroller) scroller.scrollTop = 0;
         }}>{tr("查看最新轮次")}</button>}
-        {!online && <p className="im-work-callout" role="status">{tr("节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。")}</p>}
         {online && view.record_sync_state !== "current" && <p className="im-work-callout" role="status">{tr(view.record_sync_state === "catching_up" ? "工作记录正在补齐，当前显示已保存内容。" : "当前显示已保存记录，最新进度尚未确认。")}</p>}
         <div className="im-work-latest im-work-card"><Usage value={view.latest_main_usage} label="最近已报告的主上下文" />{view.main_execution === "running" && <small>{tr("新统计尚未报告时沿用最近轮次")}</small>}</div>
         <div className={`im-work-grid ${saved.selected ? "with-child" : ""}`}>
