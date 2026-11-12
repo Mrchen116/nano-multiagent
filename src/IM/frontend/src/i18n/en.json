@@ -1072,6 +1072,7 @@
       "copy": "Copy",
       "reply": "Reply",
       "viewOriginal": "View original message",
+      "viewReplyWork": "View execution record for this reply",
       "copyMessage": "Copy",
       "copyCode": "Copy code",
       "imageLoading": "Image loading…",
@@ -1249,7 +1250,6 @@
       "pin": "Pin chat",
       "mute": "Mute chat"
     },
-    "viewWork": "View Work",
     "interactive": {
       "title": "Interactive reply",
       "fallback": "This interactive reply cannot be displayed. Ask the Agent to regenerate it in the chat.",

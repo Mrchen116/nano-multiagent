@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, CheckCheck, Copy, GitFork, Reply } from "lucide-react";
+import { Check, CheckCheck, Copy, GitFork, ListTree, Reply } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -1134,6 +1134,16 @@ export function MessagePane({
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, [slashOpen]);
 
+  function workHrefFor(message: Message) {
+    const { sender } = message;
+    if (
+      sender.type !== "agent" ||
+      !(message.work_record_deleted || globalAgentIds.includes(sender.id)) ||
+      (message.delegation && message.delegation.authorized_by !== selfUserId)
+    ) return undefined;
+    return `/settings/agents/${encodeURIComponent(sender.id)}?view=work&message_id=${encodeURIComponent(message.id)}`;
+  }
+
   const activeSurface = activeMessageAction;
   const activeMessage = activeSurface
     ? messages.find((m) => m.id === activeSurface.messageId)
@@ -1251,7 +1261,7 @@ export function MessagePane({
                     message={m}
                     historyProcess={historyProcess}
                     selfUserId={selfUserId}
-                    workAgentId={m.sender.type === "agent" && (m.work_record_deleted || globalAgentIds.includes(m.sender.id)) && (!m.delegation || m.delegation.authorized_by===selfUserId) ? m.sender.id : undefined}
+                    workHref={workHrefFor(m)}
                     nodeName={agentNodeNames[m.sender.id]}
                     conversationId={conversation.id}
                     readOnly={conversation.can_write === false}
@@ -1398,6 +1408,8 @@ export function MessagePane({
         >
           <MessageActionList
             message={activeMessage}
+            workHref={workHrefFor(activeMessage)}
+            onOpenWork={dismissActionSurface}
             onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
             copyAvailable={activeSurface.bodyElement !== null}
             isDirectChat={isDirectChat}
@@ -1449,6 +1461,8 @@ export function MessagePane({
             {activeMessage && activeSurface && (
               <MessageActionList
                 message={activeMessage}
+                workHref={workHrefFor(activeMessage)}
+                onOpenWork={dismissActionSurface}
                 onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
                 copyAvailable={activeSurface.bodyElement !== null}
                 isDirectChat={isDirectChat}
@@ -1526,6 +1540,8 @@ function MessageActionList({
   agentOnline = false,
   forkPending = false,
   surface = "context-menu",
+  workHref,
+  onOpenWork,
   onCopy,
   onFork,
   onReply,
@@ -1536,6 +1552,8 @@ function MessageActionList({
   agentOnline?: boolean;
   forkPending?: boolean;
   surface?: "toolbar" | "context-menu" | "action-sheet";
+  workHref?: string;
+  onOpenWork?: () => void;
   onReply?: () => void;
   onCopy: () => void;
   onFork: () => void;
@@ -1566,6 +1584,7 @@ function MessageActionList({
   const layout = surface === "toolbar" ? "horizontal" : "vertical";
   const itemRole = surface === "context-menu" ? "menuitem" : undefined;
   const isCompact = surface !== "toolbar";
+  const workLabel = t("chat.messagePane.viewReplyWork");
 
   return (
     <div className={`chat-message-actions chat-message-actions--${layout}`} role="group" aria-label={t("chat.messagePane.messageActions")} data-testid={`message-actions-${message.id}`}>
@@ -1602,6 +1621,18 @@ function MessageActionList({
             <span className="chat-message-action-reason">{forkReason}</span>
           )}
         </button>
+      )}
+      {workHref && (
+        <Link
+          to={workHref}
+          role={itemRole}
+          className="chat-message-action"
+          onClick={onOpenWork}
+          aria-label={workLabel}
+          title={isCompact ? undefined : workLabel}
+        >
+          {isCompact ? workLabel : <ListTree size={16} strokeWidth={1.8} aria-hidden="true" />}
+        </Link>
       )}
     </div>
   );
@@ -1800,7 +1831,7 @@ function MessageBubble({
   message,
   historyProcess,
   selfUserId,
-  workAgentId,
+  workHref,
   nodeName,
   availableMessageIds,
   conversationId,
@@ -1825,7 +1856,7 @@ function MessageBubble({
   interactiveSubmissionId?: string;
   onInteractionSend(input: InteractionReplyInput, key: string): Promise<unknown>;
   selfUserId?: string | null;
-  workAgentId?: string;
+  workHref?: string;
   nodeName?: string;
   availableMessageIds?: ReadonlySet<string>;
   conversationId: string;
@@ -1877,7 +1908,7 @@ function MessageBubble({
   const forkAvailable = forkEligible && agentOnline && !forkPending;
   const hasCopyableBody = Boolean(message.content);
   const replyAvailable=!readOnly && Boolean(onReply) && canReply(message);
-  const hasMessageActions = hasCopyableBody || forkEligible || replyAvailable;
+  const hasMessageActions = hasCopyableBody || forkEligible || replyAvailable || Boolean(workHref);
 
   const [shownAttachments, setShownAttachments] = useState<ReadonlyMap<string, number>>(() => new Map());
   const onAttachmentVisibility = useCallback((url: string, visible: boolean) => {
@@ -2147,7 +2178,6 @@ function MessageBubble({
               />
             ))}
 
-          {workAgentId && <Link className="chat-work-link" to={`/settings/agents/${encodeURIComponent(workAgentId)}?view=work&message_id=${encodeURIComponent(message.id)}`}>{t("chat.viewWork")} →</Link>}
           {/* Desktop fine-pointer / keyboard toolbar. */}
           {hasMessageActions && (
             <div
@@ -2163,6 +2193,7 @@ function MessageBubble({
                 agentOnline={agentOnline}
                 forkPending={forkPending}
                 surface="toolbar"
+                workHref={workHref}
                 onReply={replyAvailable ? ()=>onReply?.(message) : undefined}
                 onCopy={handleCopy}
                 onFork={handleFork}
