@@ -659,3 +659,82 @@ it("finds a late exact child on demand for an already loaded tool", async () => 
   expect(await screen.findByText("Late exact child")).toBeVisible();
   expect(calls.find(url => url.includes("/work/sessions?"))).toContain("tool_call_id=read");
 });
+
+it("reads only visible Work previews and loads the exact tool body when expanded", async () => {
+  const main = {...view.turns[0], items: [], items_deferred: true, started_at: "2026-11-12T08:00:00Z"};
+  const dreaming = {...main, seq: 2, session_id: "maintenance", origin: "dreaming", status: "failed",
+    maintenance_stage: "consolidate", tool_count: 0, model_request_state: "none", usage: {total_tokens: 15}};
+  const preview = {item_id: "tool:read", seq: 7, revision: 7, kind: "tool", detail_deferred: true,
+    payload: {id: "read", name: "report_lookup", status: "completed", output: "Read report"}};
+  view = {...view, timeline: "combined", catalog: "separate", turns: [dreaming, main]};
+  mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
+    url === "/im/v1/conversations" ? {items: []}
+    : url.includes("/items?") ? {items: [preview], revision: 7, next_cursor: null}
+    : url.endsWith("/items/tool%3Aread") ? {...preview, detail_deferred: undefined, payload: {...preview.payload, input: {path: "/report.md"}, detail: {text: "actual stored report body"}}}
+    : view
+  ), {status: 200}));
+  renderWork();
+  const work = await screen.findByText("Inbox 唤醒");
+  expect(screen.getByText(/Dreaming · 整合长期记忆/)).toBeVisible();
+  expect(screen.getByText("0 次工具")).toBeVisible();
+  expect(screen.getByText("15 tok")).toBeVisible();
+  expect(screen.getByText("未发起模型请求")).toBeVisible();
+  expect(mocks.fetch.mock.calls.some(([url]) => url.includes("/items?"))).toBe(false);
+
+  reachEarlierPage(work.closest("article")!);
+  const read = await screen.findByRole("button", {name: /report_lookup.*Read report/});
+  expect(mocks.fetch.mock.calls.some(([url]) => url.includes("/items?view=preview&after_seq=0"))).toBe(true);
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith("/items/tool%3Aread"))).toBe(false);
+  fireEvent.click(read);
+  expect(await screen.findByText("actual stored report body")).toBeVisible();
+  expect(screen.getByText("/report.md")).toBeVisible();
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith("/items/tool%3Aread"))).toBe(true);
+});
+
+it("opens nested delegation from its real graph node and restores the chosen window", async () => {
+  const node = (session_id: string, parent_session_id: string | null, title: string, total_tokens: number) => ({
+    session_id, parent_session_id, title, status: "completed", usage: {total_tokens, reported_turns: 1, missing_turns: 0},
+  });
+  view = {...view, timeline: "combined", catalog: "separate", record_sync_state: "current"};
+  mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
+    url === "/im/v1/conversations" ? {items: []}
+    : url.includes("/work/delegation") ? {main_session_id: "main", record_sync_state: "current", nodes: [
+      node("main", null, "Parent", 900), node("child", "main", "First child", 40), node("nested", "child", "Second child", 10),
+    ], next_cursor: null}
+    : url.includes("/sessions/nested/turns") ? {turns: [], next_cursor: null}
+    : url.endsWith("/sessions/nested") ? {session_id: "nested", scope: "subagent", title: "Second child"}
+    : view
+  ), {status: 200}));
+  renderWork();
+  fireEvent.click(await screen.findByRole("tab", {name: "派工关系"}));
+  expect(await screen.findByText("900 tok")).toBeVisible();
+  expect(screen.getByText("40 tok")).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "最近 2 小时"}));
+  fireEvent.click(await screen.findByRole("button", {name: /Second child.*10 tok/}));
+  expect(await screen.findByRole("heading", {name: "Second child"})).toBeVisible();
+  expect(screen.queryByRole("heading", {name: "主 Agent"})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "← 返回派工关系"}));
+  expect(screen.getByRole("button", {name: "最近 2 小时"})).toHaveAttribute("aria-pressed", "true");
+});
+
+it("retains saved records through transient refresh failure and hides them when Work access is revoked", async () => {
+  let status = 200;
+  view = {...view, timeline: "combined", catalog: "separate"};
+  mocks.fetch.mockImplementation(async (url: string) => url === "/im/v1/conversations"
+    ? new Response(JSON.stringify({items: []}))
+    : new Response(JSON.stringify(status === 200 ? view : {detail: "work unavailable"}), {status}));
+  renderWork();
+  expect(await screen.findByText("Inbox 唤醒")).toBeVisible();
+  const notify = () => act(() => mocks.subscribe.mock.calls[0][0].onEvent({
+    eventType: "agent.work.updated", payload: {agent_id: "global"},
+  }));
+  status = 503;
+  notify();
+  expect(await screen.findByText(/工作记录读取失败.*503/)).toBeVisible();
+  expect(screen.getByText("Inbox 唤醒")).toBeVisible();
+
+  status = 403;
+  notify();
+  expect(await screen.findByRole("alert")).toHaveTextContent(/403/);
+  expect(screen.queryByText("Inbox 唤醒")).not.toBeInTheDocument();
+});

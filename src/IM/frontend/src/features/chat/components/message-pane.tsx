@@ -1,3 +1,4 @@
+import { AgentActivityPopover, type AgentActivityAnchor } from "./agent-activity-popover";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, CheckCheck, Copy, GitFork, ListTree, Reply } from "lucide-react";
 import React, {
@@ -163,6 +164,7 @@ export interface MessagePaneProps {
   configLabel?: string;
   onPreferenceChange?(patch: { is_pinned?: boolean; is_muted?: boolean }): Promise<unknown>;
   globalAgentIds?: string[];
+  manageableWorkAgentIds?: string[];
   agentNodeNames?: Record<string, string>;
   /** Reports each rejected attachment to the page-level error owner. */
   /**
@@ -278,6 +280,7 @@ export function MessagePane({
   configLabel,
   onPreferenceChange,
   globalAgentIds = [],
+  manageableWorkAgentIds = [],
   agentNodeNames = {},
   onDraftSeedConsumed,
   composerStore
@@ -1134,6 +1137,26 @@ export function MessagePane({
     return () => document.removeEventListener("mousedown", onDocMouseDown);
   }, [slashOpen]);
 
+  const [activityAnchor, setActivityAnchor] = useState<AgentActivityAnchor | null>(null);
+  const closeActivity = useCallback(() => {
+    setActivityAnchor(current => {
+      current?.element.focus({preventScroll: true});
+      return null;
+    });
+  }, []);
+  useEffect(() => { setActivityAnchor(null); }, [conversation.id]);
+  const openActivity = useCallback((next: AgentActivityAnchor) => {
+    setActivityAnchor(current => current?.element === next.element ? null : next);
+  }, []);
+  const directAgent = conversation.type === "direct" ? conversation.participants.find(participant =>
+    participant.type === "agent" && !participant.is_deleted && globalAgentIds.includes(participant.id)) : undefined;
+  const headerAvatar = <Avatar
+    initials={kind === "direct-agent" ? (agentInitials ?? avatarName.slice(0, 2)) : avatarName.slice(0, 2)}
+    color={kind === "direct-agent" ? (agentColor ?? colorForAgentSeed(avatarName)) : colorForAgentSeed(avatarName)}
+    size={34}
+    status={kind === "direct-agent" ? nodeStatus : null}
+  />;
+
   function workHrefFor(message: Message) {
     const { sender } = message;
     if (
@@ -1159,16 +1182,16 @@ export function MessagePane({
             </svg>
           </button>
         )}
-        {conversation.type === "group" ? (
-          <GroupAvatar size={34} label={t("chat.list.filters.group")} />
-        ) : (
-          <Avatar
-            initials={kind === "direct-agent" ? (agentInitials ?? avatarName.slice(0, 2)) : avatarName.slice(0, 2)}
-            color={kind === "direct-agent" ? (agentColor ?? colorForAgentSeed(avatarName)) : colorForAgentSeed(avatarName)}
-            size={34}
-            status={kind === "direct-agent" ? nodeStatus : null}
-          />
-        )}
+        {conversation.type === "group" ? <GroupAvatar size={34} label={t("chat.list.filters.group")} />
+          : directAgent ? <button
+            type="button"
+            className="chat-agent-activity-trigger"
+            aria-label={t("chat.agentActivity.trigger", {name: directAgent.display_name ?? directAgent.id})}
+            aria-haspopup="dialog"
+            aria-expanded={activityAnchor?.agentId === directAgent.id && activityAnchor.element.dataset.activityAnchor === "header"}
+            data-activity-anchor="header"
+            onClick={event => openActivity({agentId: directAgent.id, name: directAgent.display_name ?? directAgent.id, element: event.currentTarget})}
+          >{headerAvatar}</button> : headerAvatar}
         <div className="chat-pane-header-body">
           <h2 className="chat-pane-title">{conversation.title}</h2>
           <div className="chat-pane-header-meta">
@@ -1262,6 +1285,8 @@ export function MessagePane({
                     historyProcess={historyProcess}
                     selfUserId={selfUserId}
                     workHref={workHrefFor(m)}
+                    onActivity={m.sender.type === "agent" && !m.work_record_deleted && globalAgentIds.includes(m.sender.id) ? openActivity : undefined}
+                    activityExpanded={activityAnchor?.element.dataset.activityAnchor === m.id}
                     nodeName={agentNodeNames[m.sender.id]}
                     conversationId={conversation.id}
                     readOnly={conversation.can_write === false}
@@ -1388,6 +1413,8 @@ export function MessagePane({
         </AttachmentDropzone>
       </form>}
 
+      {activityAnchor && globalAgentIds.includes(activityAnchor.agentId) && <AgentActivityPopover
+        key={activityAnchor.agentId} anchor={activityAnchor} canConfigure={manageableWorkAgentIds.includes(activityAnchor.agentId)} onClose={closeActivity} />}
       {/* feat-484-M1: single pane-level copy snackbar / live region. */}
       {copyNotice && (
         <div
@@ -1832,6 +1859,8 @@ function MessageBubble({
   historyProcess,
   selfUserId,
   workHref,
+  onActivity,
+  activityExpanded,
   nodeName,
   availableMessageIds,
   conversationId,
@@ -1857,6 +1886,8 @@ function MessageBubble({
   onInteractionSend(input: InteractionReplyInput, key: string): Promise<unknown>;
   selfUserId?: string | null;
   workHref?: string;
+  onActivity?(anchor: AgentActivityAnchor): void;
+  activityExpanded?: boolean;
   nodeName?: string;
   availableMessageIds?: ReadonlySet<string>;
   conversationId: string;
@@ -2056,6 +2087,13 @@ function MessageBubble({
         : null
     : null;
 
+  const messageAvatar = <span
+    data-testid={`message-avatar-${message.id}`}
+    className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
+    style={{ backgroundColor: senderColor, color: foregroundForAvatar(senderColor) }}
+    aria-hidden
+  >{initials}</span>;
+
   if (isSystem) {
     const noticeText = formatSystemNotice(t, message.system_notice, isDirectChat);
     return (
@@ -2072,16 +2110,15 @@ function MessageBubble({
       data-message-id={message.id}
       className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}
     >
-      {(!isUser || message.pa_agent_id) && (
-        <span
-          data-testid={`message-avatar-${message.id}`}
-          className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
-          style={{ backgroundColor: senderColor, color: foregroundForAvatar(senderColor) }}
-          aria-hidden
-        >
-          {initials}
-        </span>
-      )}
+      {(!isUser || message.pa_agent_id) && (onActivity ? <button
+        type="button"
+        className="chat-agent-activity-trigger"
+        aria-label={t("chat.agentActivity.trigger", {name: message.sender.display_name ?? message.sender.id})}
+        aria-haspopup="dialog"
+        aria-expanded={Boolean(activityExpanded)}
+        data-activity-anchor={message.id}
+        onClick={event => onActivity({agentId: message.sender.id, name: message.sender.display_name ?? message.sender.id, element: event.currentTarget})}
+      >{messageAvatar}</button> : messageAvatar)}
       <div className="chat-bubble-column flex flex-col min-w-0">
         {(!isUser || message.pa_agent_id) && (
           <div className="chat-bubble-meta" aria-label={message.pa_agent_id ? t('pa.senderLabel', {name:message.sender.display_name ?? message.sender.id}) : undefined}>

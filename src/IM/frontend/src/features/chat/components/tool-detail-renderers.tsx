@@ -638,7 +638,7 @@ function isResultPending(call: ToolCall, detail: ToolDetail): boolean {
  * a detail get the generic key/value card; rows without detail degrade to the
  * raw output string (historical messages).
  */
-export function ToolDetailBody({ call }: { call: ToolCall }) {
+export function ToolDetailBody({ call, renderResult }: { call: ToolCall; renderResult?(result: ToolDetail): ReactNode }) {
   const detail = call.detail;
   const input = call.input && typeof call.input === "object" ? call.input as ToolDetail : {};
   if (call.name === "inbox" || call.name === "conversations") return <ConversationToolCard call={call} />;
@@ -670,6 +670,7 @@ export function ToolDetailBody({ call }: { call: ToolCall }) {
         />
       );
     }
+    if (renderResult) return renderResult(detail);
     return <>{Object.keys(input).length > 0 && <details><summary>调用参数</summary><GenericCard detail={input} /></details>}<GenericCard detail={detail} /></>;
   }
   // No detail (historical message / presenter-less tool with empty result):
