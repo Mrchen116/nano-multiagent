@@ -1173,7 +1173,7 @@ export function MessagePane({
     : null;
 
   return (
-    <section className="chat-pane" aria-label={conversation.title}>
+    <section className={activeSurface ? "chat-pane chat-pane--message-actions-open" : "chat-pane"} aria-label={conversation.title}>
       <header className="chat-pane-header">
         {onBack && (
           <button type="button" className="chat-pane-back" onClick={onBack} aria-label="Back">

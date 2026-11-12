@@ -2553,6 +2553,11 @@ body {
   pointer-events: none;
 }
 
+/* The open menu or sheet owns the message actions, including keyboard focus. */
+.chat-pane--message-actions-open .chat-message-toolbar {
+  display: none;
+}
+
 .chat-message-more {
   display: none;
   align-items: center;

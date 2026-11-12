@@ -100,7 +100,7 @@ describe("MessagePane", () => {
     const reply = SAMPLE_MESSAGES[1];
     render(<MemoryRouter><MessagePane conversation={DIRECT_CONV} messages={[reply, {...reply, id: 'older/reply?', content: 'Older reply'}]} globalAgentIds={['a-planner']} mentionCandidates={[]} onSend={() => {}} /></MemoryRouter>);
     const links = screen.getAllByRole('toolbar').flatMap(toolbar =>
-      within(toolbar).queryAllByRole('link', {name: /execution record for this reply|查看这条回复的执行记录/i})
+      within(toolbar).queryAllByRole('link', {name: /^(Execution record|执行记录)$/i})
     );
     expect(document.querySelector('.chat-work-link')).toBeNull();
     expect(links.map(link => link.getAttribute('href'))).toEqual([
@@ -118,7 +118,7 @@ describe("MessagePane", () => {
     const rightClick = createEvent.contextMenu(bubble, {button: 2, buttons: 2});
     Object.defineProperty(rightClick, "pointerType", {value: "mouse"});
     fireEvent(bubble, rightClick);
-    const action = screen.getByRole("menuitem", {name: /execution record for this reply|查看这条回复的执行记录/i});
+    const action = screen.getByRole("menuitem", {name: /^(Execution record|执行记录)$/i});
     expect(action).toHaveAttribute("href", "/settings/agents/a-planner?view=work&message_id=m2");
     expect(action).toHaveFocus();
   });
