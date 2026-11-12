@@ -2,11 +2,36 @@ import type { DatabaseSync } from 'node:sqlite';
 import { decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields } from '@nano/product-contracts';
 import { all, one, now, fail, transaction } from './context.js';
 import { agentAvailable } from './identity.js';
-import type { WorkSessionRecord, WorkEventRecord, WorkTurnRecord, WorkItemRecord, WorkSessionView, WorkTurnData, WorkItemData, WorkItemsPage, WorkTurnsPage, WorkTurnView, WorkFocus, WorkRecordView, WorkCatalogFilter, WorkCatalogPage } from './work-record-types.js';
+import { WorkSummaries } from './work-summaries.js';
+import type { WorkSessionRecord, WorkEventRecord, WorkTurnRecord, WorkItemRecord, WorkItemView, WorkSessionView, WorkTurnData, WorkItemData, WorkItemsPage, WorkTurnsPage, WorkTurnView, WorkFocus, WorkRecordView, WorkCatalogFilter, WorkCatalogPage } from './work-record-types.js';
 
 // The planner can otherwise favor a broader root index before fresh statistics exist.
 const currentMainSql = `SELECT session_id FROM agent_work_sessions INDEXED BY agent_work_sessions_current_main
   WHERE root_agent_id=? AND scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0 LIMIT 1`;
+
+const workItemPreviewBytes = 4 * 1024;
+const previewIdentityFields = ['id', 'call_id', 'tool_call_id', 'message_id', 'source_session_id'] as const;
+const previewFields = [
+  ...previewIdentityFields, 'name', 'tool_name', 'label', 'emoji', 'role', 'status', 'duration_ms',
+  'reason', 'source_kind', 'text', 'output',
+] as const;
+type WorkPreviewRow = Omit<WorkItemRecord, 'payload'> & {payload: string | null; detail_deferred?: number};
+
+/** Select display facts without recursively copying arguments or structured results. */
+function previewPayload(payload: WorkItemData, budget = workItemPreviewBytes): WorkItemData {
+  const preview: WorkItemData = {};
+  for (const key of previewFields) {
+    const value = payload[key];
+    if (typeof value === 'string') {
+      // Link identities stay exact. Large labels and text get a plain fragment.
+      const identity = previewIdentityFields.some(field => field === key);
+      preview[key] = identity ? value : value.slice(0, key === 'text' || key === 'output' ? 320 : 120);
+    } else if (key === 'duration_ms' && typeof value === 'number') preview.duration_ms = value;
+    else continue;
+    if (Buffer.byteLength(JSON.stringify(preview)) > budget) delete preview[key];
+  }
+  return preview;
+}
 
 /** Look up a removed Work position and reject incompatible retries.
  * Args:
@@ -24,19 +49,25 @@ export function workRedaction(db: DatabaseSync, node: string, journal: string, s
 
 /** Own the atomic Work journal and its persisted public projection. */
 export class WorkRecords {
+  readonly summaries: WorkSummaries;
+
   constructor(readonly db: DatabaseSync) {
+    this.summaries = new WorkSummaries(db);
     db.exec(`CREATE TABLE IF NOT EXISTS work_sync_redactions (
       node_id TEXT NOT NULL, journal_id TEXT NOT NULL, seq INTEGER NOT NULL,
       event_id TEXT NOT NULL UNIQUE, root_agent_id TEXT NOT NULL, operation_id TEXT NOT NULL,
       PRIMARY KEY(node_id,journal_id,seq));`);
-    for (const r of all(db, "SELECT session_id,turn_id,payload FROM agent_work_turns") as Pick<WorkTurnRecord, "session_id" | "turn_id" | "payload">[]) {
-      const p: WorkTurnData = JSON.parse(r.payload);
-      if (["running", "waiting_permission"].includes(p.status))
-        db
-          .prepare("UPDATE agent_work_turns SET payload=? WHERE session_id=? AND turn_id=?")
-          .run(JSON.stringify({ ...p, status: "unknown" }), r.session_id, r.turn_id);
-    }
+    db.exec(`UPDATE agent_work_turns INDEXED BY agent_work_turns_active_status
+      SET payload=json_set(payload,'$.status','unknown')
+      WHERE json_extract(payload,'$.status') IN ('running','waiting_permission','unknown')
+      AND json_extract(payload,'$.status')!='unknown'`);
   }
+
+  /** Return the current main execution without reading the Agent's full catalog. */
+  mainSessionId(root: string): string | null {
+    return one(this.db, currentMainSql, root)?.session_id ?? null;
+  }
+
   /** Read one registered execution under its product root.
    * Args:
    *   root: Authorized product Agent identity.
@@ -329,6 +360,11 @@ export class WorkRecords {
         error: p.error,
         model_id: p.model ?? turn.model_id,
       });
+      if (turn.origin === 'dreaming') {
+        const {tool_count, model_request_state} = p;
+        if (typeof tool_count === 'number' && Number.isSafeInteger(tool_count) && tool_count >= 0) turn.tool_count = tool_count;
+        if (model_request_state === 'none' || model_request_state === 'requested') turn.model_request_state = model_request_state;
+      }
       if (p.usage)
         turn.usage = {
           ...p.usage,
@@ -422,6 +458,7 @@ export class WorkRecords {
       payload.text = (payload.text ?? "") + (fact.payload.text ?? fact.payload.delta ?? "");
     else Object.assign(payload, p);
     payload.seq = old?.seq ?? revision;
+    const serialized = JSON.stringify(payload);
     this.db
       .prepare(
         "INSERT INTO agent_work_items VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(session_id,turn_id,item_id) DO UPDATE SET payload=excluded.payload,revision=excluded.revision",
@@ -433,9 +470,17 @@ export class WorkRecords {
         payload.seq,
         itemKind,
         e.observed_at ?? null,
-        JSON.stringify(payload),
+        serialized,
         revision,
       );
+    if (Buffer.byteLength(serialized) > workItemPreviewBytes) {
+      this.db.prepare(`INSERT INTO agent_work_item_previews VALUES(?,?,?,?,?)
+        ON CONFLICT(session_id,turn_id,item_id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload`)
+        .run(session, turnId, id, revision, JSON.stringify(previewPayload(payload)));
+    } else if (old && Buffer.byteLength(old.payload) > workItemPreviewBytes) {
+      this.db.prepare('DELETE FROM agent_work_item_previews WHERE session_id=? AND turn_id=? AND item_id=?')
+        .run(session, turnId, id);
+    }
   }
   /** Page decoded items for a registered execution.
    * Args:
@@ -444,33 +489,70 @@ export class WorkRecords {
    *   turn: Logical turn, or an empty string for control records.
    *   after: Exclusive item sequence cursor.
    *   limit: Maximum number of returned items.
+   *   afterRevision: Exclusive change cursor when following an active turn.
+   *   watermarked: Include the revision and exact child-link state with the page.
+   *   preview: Defer large bodies while preserving the full-item cursor.
    * Returns:
    *   Public items and the next page cursor.
    */
-  items(root: string, session: string, turn: string, after = 0, limit = 100, afterRevision?: number, watermarked = false): WorkItemsPage {
+  items(root: string, session: string, turn: string, after = 0, limit = 100, afterRevision?: number, watermarked = false, preview = false): WorkItemsPage {
     this.session(root, session);
     const order = afterRevision === undefined ? 'seq' : 'revision';
-    const rows = all(
-      this.db,
-      `SELECT * FROM agent_work_items WHERE session_id=? AND turn_id=? AND ${order}>? ORDER BY ${order} LIMIT ?`,
+    // Test stored byte length before returning any existing raw body to JavaScript.
+    const sql = preview ? `SELECT i.session_id,i.turn_id,i.item_id,i.seq,i.kind,i.observed_at,i.revision,
+        CASE WHEN octet_length(i.payload) <= ${workItemPreviewBytes} THEN i.payload ELSE p.payload END AS payload,
+        octet_length(i.payload) > ${workItemPreviewBytes} AS detail_deferred
+      FROM agent_work_items i LEFT JOIN agent_work_item_previews p
+        ON p.session_id=i.session_id AND p.turn_id=i.turn_id AND p.item_id=i.item_id AND p.revision=i.revision`
+      : 'SELECT i.* FROM agent_work_items i';
+    const rows = all(this.db,
+      `${sql} WHERE i.session_id=? AND i.turn_id=? AND i.${order}>? ORDER BY i.${order} LIMIT ?`,
       session, turn, afterRevision ?? after, limit + 1,
-    ) as WorkItemRecord[];
+    ) as WorkPreviewRow[];
     const last = rows[Math.min(rows.length, limit) - 1];
     // Synchronous reads take the item page and its initial watermark together.
     const revision = afterRevision !== undefined ? last?.revision ?? afterRevision :
       watermarked ? one(this.db, 'SELECT MAX(revision) AS n FROM agent_work_items WHERE session_id=? AND turn_id=?', session, turn)?.n ?? 0 : undefined;
     return {
       ...(revision === undefined ? {} : {revision}),
-      items: rows.slice(0, limit).map(r => {
-        const payload: WorkItemData=JSON.parse(r.payload);
-        const call=payload.id ?? payload.call_id ?? payload.tool_call_id;
-        const linked=(watermarked || afterRevision !== undefined) && r.kind==='tool' && typeof call==='string' &&
-          this.exactChild(root,session,call);
-        return {item_id:r.item_id,seq:r.seq,kind:r.kind,observed_at:r.observed_at,revision:r.revision,payload,
-          ...(linked ? {has_exact_child:true} : {})};
-      }),
+      items: rows.slice(0, limit).map(row => this.itemView(root, row, watermarked || afterRevision !== undefined, preview)),
       next_cursor: rows.length > limit ? String(last![order]) : null,
     };
+  }
+
+  /** Read a single exact item after the user asks for its complete body.
+   * Args:
+   *   root: Authorized product Agent identity.
+   *   session: Registered execution identity.
+   *   turn: Logical turn that owns the item.
+   *   id: Persisted item identity returned by the preview.
+   * Returns:
+   *   The same complete item shape as the existing full page.
+   */
+  item(root: string, session: string, turn: string, id: string): WorkItemView {
+    this.session(root, session);
+    const row = one(this.db, 'SELECT * FROM agent_work_items WHERE session_id=? AND turn_id=? AND item_id=?', session, turn, id) as WorkItemRecord | undefined;
+    if (!row) fail(404, 'work_item_not_found');
+    return this.itemView(root, row, true);
+  }
+
+  private itemView(root: string, row: WorkPreviewRow, includeLink: boolean, preview = false): WorkItemView {
+    const payload: WorkItemData = row.payload === null ? {} : JSON.parse(row.payload);
+    const call = payload.id ?? payload.call_id ?? payload.tool_call_id ??
+      (preview && row.item_id.startsWith('tool:') ? row.item_id.slice('tool:'.length) : undefined);
+    const linked = includeLink && row.kind === 'tool' && typeof call === 'string' && this.exactChild(root, row.session_id, call);
+    const item: WorkItemView = {
+      item_id: row.item_id, seq: row.seq, kind: row.kind, observed_at: row.observed_at, revision: row.revision, payload,
+      ...(linked ? {has_exact_child: true} : {}),
+      ...(row.detail_deferred ? {detail_deferred: true} : {}),
+    };
+    if (preview && Buffer.byteLength(JSON.stringify(item)) > workItemPreviewBytes) {
+      item.detail_deferred = true;
+      item.payload = {};
+      const budget = workItemPreviewBytes - Buffer.byteLength(JSON.stringify(item)) + 2;
+      item.payload = previewPayload(payload, budget);
+    }
+    return item;
   }
   /** Page logical turns with their initial item pages.
    * Args:
@@ -570,14 +652,23 @@ export class WorkRecords {
    * Returns:
    *   Persisted main/child records and the node identity for the outer live-state adapter.
    */
-  view(root: string, before?: string, limit = 20, summary = false, messageId?: string, separate = false): WorkRecordView {
+  view(root: string, before?: string, limit = 20, summary = false, messageId?: string, separate = false, combinedBefore?: number): WorkRecordView {
     const sessions = separate ? [] : all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=?", root) as WorkSessionRecord[];
-    const main = (separate
-      ? one(this.db, currentMainSql, root)
-      : sessions.find(s => s.scope === "global_main" && !JSON.parse(s.payload).retired))?.session_id ?? null;
+    const main = separate ? this.mainSessionId(root)
+      : sessions.find(s => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
     const reply = messageId ? this.replyTurn(root, messageId) : undefined;
     // A message selects where to expand, not which records exist in Work.
-    const page = main ? this.turns(root, main, before, limit, summary, separate) : { turns: [], next_cursor: null, next_turn_id: null };
+    const combined = main && combinedBefore !== undefined ? this.summaries.timeline(root, main, combinedBefore, limit) : undefined;
+    const page = combined ? {
+      turns: combined.rows.map(row => ({
+        ...this.turnView(root, row.scope, row, true, true),
+        maintenance_title: row.maintenance_title ?? undefined,
+        maintenance_stage: row.maintenance_stage ?? undefined,
+      })),
+      next_cursor: combined.next_cursor,
+      next_turn_id: combined.next_turn_id,
+      next_turn_seq: combined.next_turn_seq,
+    } : main ? this.turns(root, main, before, limit, summary, separate) : {turns: [], next_cursor: null, next_turn_id: null, ...(combinedBefore !== undefined ? {next_turn_seq: null} : {})};
     let latest = null;
     for (const r of main
       ? this.db.prepare(separate
@@ -602,6 +693,7 @@ export class WorkRecords {
     if (["completed", "failed", "interrupted"].includes(state)) state = "idle";
     return {
       ...(separate ? {catalog: 'separate' as const} : {}),
+      ...(combinedBefore !== undefined ? {timeline: 'combined' as const} : {}),
       root_agent_id: root,
       main_session_id: main,
       ...(messageId ? {focus: reply ? {session_id: reply.session_id, turn_id: reply.turn_id} : null} : {}),

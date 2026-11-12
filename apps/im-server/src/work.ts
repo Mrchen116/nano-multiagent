@@ -18,6 +18,7 @@ import { conversationAccess, qualifiedUser } from "./conversation-access.js";
 import { decodeWorkBatch, WorkEventError, type WorkAppendAck, type WorkSessionFields, formatLocalTime, projectChatReplyContext } from "@nano/product-contracts";
 import type { Connection } from './gateway.js';
 import { WorkRecords } from './work-records.js';
+import type { WorkWindow } from './work-summaries.js';
 import type { WorkCatalogFilter, WorkView } from './work-record-types.js';
 /** Decode the wire batch before receipt checks or durable projection.
  * Args:
@@ -64,8 +65,11 @@ export class Work {
   catalog(root: string, after: string, limit: number, filter: WorkCatalogFilter) {
     return this.records.catalog(root, after, limit, filter);
   }
-  items(root: string, session: string, turn: string, after = 0, limit = 100, afterRevision?: number, watermarked = false) {
-    return this.records.items(root, session, turn, after, limit, afterRevision, watermarked);
+  items(root: string, session: string, turn: string, after = 0, limit = 100, afterRevision?: number, watermarked = false, preview = false) {
+    return this.records.items(root, session, turn, after, limit, afterRevision, watermarked, preview);
+  }
+  item(root: string, session: string, turn: string, id: string) {
+    return this.records.item(root, session, turn, id);
   }
   turns(root: string, session: string, before?: string, limit = 20, summary = false, separate = false) {
     const page = this.records.turns(root, session, before, limit, summary, separate);
@@ -99,13 +103,30 @@ export class Work {
       record_sync_state: this.recordSyncState(node),
     };
   }
-  view(root: string, before?: string, limit = 20, summary = false, messageId?: string, separate = false): WorkView {
-    const {node_id, ...view} = this.records.view(root, before, limit, summary, messageId, separate);
+  view(root: string, before?: string, limit = 20, summary = false, messageId?: string, separate = false, combinedBefore?: number): WorkView {
+    const {node_id, ...view} = this.records.view(root, before, limit, summary, messageId, separate, combinedBefore);
     const connection = this.connection(node_id);
     return {...view, ...connection,
       main_execution: connection.node_connection_state === 'offline' && ['running', 'waiting_permission'].includes(view.main_execution) ? 'unknown' : view.main_execution,
     };
   }
+  /** Read activity without materializing the main timeline or catalog. */
+  activity(root: string, node: string, after: string, limit: number) {
+    const connection = this.connection(node);
+    const main = this.records.mainSessionId(root);
+    return {...connection, revision: this.revision(root), main_session_id: main,
+      ...this.records.summaries.activity(root, main,
+        connection.node_connection_state === 'online' && connection.record_sync_state === 'current', after, limit)};
+  }
+
+  /** Read the delegation window under the same Agent scope as Work records. */
+  delegation(root: string, node: string, window: WorkWindow, until: string, after: string, limit: number) {
+    const connection = this.connection(node);
+    const main = this.records.mainSessionId(root);
+    return {...connection, revision: this.revision(root), main_session_id: main,
+      ...this.records.summaries.delegation(root, main, window, until, after, limit)};
+  }
+
   query(c: Row, p: Row): Row {
     if (p.keywords !== undefined && (p.query !== undefined || p.keyword !== undefined)) fail(400, 'invalid_arguments');
     if (p.keywords !== undefined && (!Array.isArray(p.keywords) || p.keywords.some((v: unknown) => typeof v !== 'string'))) fail(400, 'invalid_arguments');
@@ -432,7 +453,27 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     const q = query(req), agentId = params(req).agent_id;
     rejectDeletedExecution(ctx,ctx.identity.authenticateRequest(req),agentId,q.message_id ? 'message' : 'agent',q.message_id ?? agentId);
     const p = profile(req);
-    return w.view(p.agent_id, q.before_turn, boundedLimit(q.limit, 20, 50), q.view === 'summary', q.message_id, q.catalog === 'separate');
+    const combined = q.timeline === 'combined';
+    if (q.timeline !== undefined && (!combined || q.catalog !== 'separate' || q.before_turn !== undefined)) fail(400, 'invalid_arguments');
+    const before = combined ? integer(q.before_seq, Number.MAX_SAFE_INTEGER) : undefined;
+    return w.view(p.agent_id, q.before_turn, boundedLimit(q.limit, 20, 50), q.view === 'summary', q.message_id, q.catalog === 'separate', before);
+  });
+  app.get("/im/v1/agents/:agent_id/work/activity", (req) => {
+    const q = query(req), root = readable(req);
+    if (q.after_session !== undefined && typeof q.after_session !== 'string') fail(400, 'invalid_arguments');
+    const node = one(db, 'SELECT node_id FROM agent_profiles WHERE agent_id=?', root)!.node_id;
+    return w.activity(root, node, q.after_session ?? '', boundedLimit(q.limit, 12, 24));
+  });
+  app.get("/im/v1/agents/:agent_id/work/delegation", (req) => {
+    const q = query(req), root = readable(req);
+    const window = q.window ?? '3d';
+    const now = Date.now();
+    if ((window !== '3d' && window !== '2h') ||
+      (q.after_session !== undefined && typeof q.after_session !== 'string')) fail(400, 'invalid_arguments');
+    const time = q.until === undefined ? now : typeof q.until === 'string' ? Date.parse(q.until) : NaN;
+    if (!Number.isFinite(time) || time > now || time < 0) fail(400, 'invalid_arguments');
+    const node = one(db, 'SELECT node_id FROM agent_profiles WHERE agent_id=?', root)!.node_id;
+    return w.delegation(root, node, window, new Date(time).toISOString(), q.after_session ?? '', boundedLimit(q.limit, 24, 24));
   });
   app.get("/im/v1/agents/:agent_id/work/focus", (req) => {
     const messageId = query(req).message_id, agentId = params(req).agent_id;
@@ -463,9 +504,15 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns/:turn_id/items", (req) => {
     const p = params(req), q = query(req);
+    const preview = q.view === 'preview';
+    const watermarked = preview || q.catalog === 'separate';
     return w.items(readable(req, p.session_id), p.session_id, p.turn_id, integer(q.after_seq, 0),
-      boundedLimit(q.limit, q.catalog === 'separate' ? 20 : 100, 200),
-      q.after_revision === undefined ? undefined : integer(q.after_revision, 0), q.catalog === 'separate');
+      boundedLimit(q.limit, watermarked ? 20 : 100, preview ? 20 : 200),
+      q.after_revision === undefined ? undefined : integer(q.after_revision, 0), watermarked, preview);
+  });
+  app.get("/im/v1/agents/:agent_id/work/sessions/:session_id/turns/:turn_id/items/:item_id", (req) => {
+    const p = params(req);
+    return w.item(readable(req, p.session_id), p.session_id, p.turn_id, p.item_id);
   });
   app.post("/im/v1/agents/:agent_id/work/permissions/:request_id", async (req) => {
     const a = profile(req, true),
