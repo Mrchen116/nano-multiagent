@@ -690,6 +690,9 @@ CREATE INDEX IF NOT EXISTS agent_work_turns_active_status ON agent_work_turns(se
   WHERE json_extract(payload,'$.status') IN ('running','waiting_permission','unknown');
 CREATE INDEX IF NOT EXISTS agent_work_sessions_unclassified ON agent_work_sessions(root_agent_id,session_id)
   WHERE scope='subagent' AND json_extract(payload,'$.maintenance_kind') IS NULL AND json_type(payload,'$.child_agent_id') IS NULL;
+CREATE INDEX IF NOT EXISTS agent_work_knowledge_review_links
+  ON agent_work_events(root_agent_id,json_extract(payload,'$.child_session_id'))
+  WHERE type='session_linked' AND event_id GLOB 'knowledge-run:*';
 CREATE INDEX IF NOT EXISTS agent_work_items_latest_tool
   ON agent_work_items(session_id,turn_id,seq DESC) WHERE kind='tool';
 CREATE INDEX IF NOT EXISTS agent_work_events_dreaming

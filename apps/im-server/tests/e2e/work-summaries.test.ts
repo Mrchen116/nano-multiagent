@@ -11,12 +11,12 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   const now = Date.now();
   const recent = new Date(now - 1000).toISOString();
   const yesterday = new Date(now - 24 * 3600_000).toISOString();
-  type Fact = [session: string, type: string, payload: object, turn?: string, time?: string];
+  type Fact = [session: string, type: string, payload: object, turn?: string, time?: string, eventId?: string];
   let seq = 0;
   const append = async (facts: Fact[]) => {
-    const events = facts.map(([session_id, type, payload, turn_id, observed_at = recent]) => {
+    const events = facts.map(([session_id, type, payload, turn_id, observed_at = recent, eventId]) => {
       const position = ++seq;
-      return {seq: position, event_id: `summary-${position}`, root_agent_id: 'global', session_id, type, payload, turn_id, observed_at};
+      return {seq: position, event_id: eventId ?? `summary-${position}`, root_agent_id: 'global', session_id, type, payload, turn_id, observed_at};
     });
     const response = await g.frames.send('agent.work.append', {node_id: g.node, journal_id: journal, from_seq: events[0]!.seq, events});
     expect(response.payload.through_seq, JSON.stringify(response)).toBe(seq);
@@ -81,7 +81,13 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   const incomplete = (await read('/activity')).body;
   expect(incomplete).toMatchObject({revision: syncing.body.revision, record_sync_state: 'current',
     main_execution: 'running', latest_tool: {name: 'read', label: '读取文件', turn_id: 'last', item_id: 'tool:x'}, running_count: null});
-  await append([['unknown-link', 'session_registered', {scope: 'subagent', parent_session_id: 'root', child_agent_id: 'unknown-link'}]]);
+  await append([
+    ['unknown-link', 'session_registered', {scope: 'subagent', parent_session_id: 'root', child_agent_id: 'unknown-link'}],
+    ['root', 'session_linked', {parent_session_id: 'root', child_session_id: 'skills-review', title: '技能复盘'}, undefined, undefined, 'knowledge-run:skills-review'],
+    ['old-running', 'session_registered', {scope: 'subagent', parent_session_id: 'root', child_agent_id: 'running'}],
+    ['old-running', 'turn_started', {}, 'stale-running', yesterday],
+    ['running', 'turn_started', {}, 'current-running'],
+  ]);
   await status(false);
   expect((await read('/activity?limit=1')).body).toMatchObject({
     running_count: 1, waiting_permission_count: 1, sessions: [{session_id: 'child', parent_session_id: 'parent', status: 'waiting_permission'}], next_cursor: 'child',
@@ -99,7 +105,7 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   });
   const nextGraph = await read('/delegation?window=2h&after_session=child&until=' + encodeURIComponent(graph.body.until));
   expect(nextGraph.body).toMatchObject({from: graph.body.from, until: graph.body.until, nodes: [
-    {session_id: 'root'}, {session_id: 'running'}, {session_id: 'workflow', scope: 'workflow'},
+    {session_id: 'old-running'}, {session_id: 'root'}, {session_id: 'running'}, {session_id: 'workflow', scope: 'workflow'},
   ], next_cursor: null});
   const broad = (await read('/delegation?window=3d')).body.nodes;
   expect(broad.find((node: {session_id: string}) => node.session_id === 'parent')).toMatchObject({ancestor_only: false, usage: {total_tokens: 30}});

@@ -87,29 +87,37 @@ export class WorkSummaries {
     const main_execution = !complete ? 'unknown' : !mainState || ['completed', 'failed', 'interrupted'].includes(mainState) ? 'idle' : mainState;
     const latest_tool = main && mainTurn && ['running', 'waiting_permission'].includes(main_execution)
       ? this.latestTool(main, mainTurn.turn_id) : null;
-    const count = complete ? one(this.db, `SELECT
-      SUM(CASE WHEN ${ordinary} AND a.status='running' AND COALESCE(json_extract(t.payload,'$.origin'),'')!='dreaming' THEN 1 ELSE 0 END) AS running,
-      SUM(CASE WHEN ${ordinary} AND a.status='waiting_permission' AND COALESCE(json_extract(t.payload,'$.origin'),'')!='dreaming' THEN 1 ELSE 0 END) AS waiting,
-      SUM(CASE WHEN (s.scope='subagent' AND json_extract(s.payload,'$.maintenance_kind') IS NULL
-        AND COALESCE(json_extract(t.payload,'$.origin'),'')!='dreaming')
-        AND (a.status='unknown' OR NOT COALESCE(${ordinary},0)) THEN 1 ELSE 0 END) AS unresolved
+    const activity = `WITH ranked AS (
+      SELECT ${summaryFields},
+        CASE WHEN ${ordinary} THEN ROW_NUMBER() OVER (
+          PARTITION BY json_extract(s.payload,'$.child_agent_id') ORDER BY a.seq DESC, a.session_id DESC
+        ) END AS child_rank
       FROM agent_work_active_turns a
       JOIN agent_work_sessions s USING(session_id)
       JOIN agent_work_turns t ON t.session_id=a.session_id AND t.turn_id=a.turn_id
-      WHERE a.root_agent_id=? AND ${latestActive}`, root) : undefined;
+      WHERE a.root_agent_id=? AND ${latestActive} AND s.scope='subagent'
+        AND json_extract(s.payload,'$.maintenance_kind') IS NULL
+        AND COALESCE(json_extract(t.payload,'$.origin'),'')!='dreaming'
+    )`;
+    const count = complete ? one(this.db, `${activity}
+      SELECT COUNT(*) FILTER (WHERE child_rank=1 AND status='running') AS running,
+        COUNT(*) FILTER (WHERE child_rank=1 AND status='waiting_permission') AS waiting,
+        COUNT(*) FILTER (WHERE child_rank IS NULL OR (child_rank=1 AND status='unknown')) AS unresolved
+      FROM ranked`, root) : undefined;
     const pendingLink = complete && one(this.db, `SELECT 1 FROM agent_work_sessions s INDEXED BY agent_work_sessions_unclassified
       WHERE s.root_agent_id=? AND s.scope='subagent' AND json_extract(s.payload,'$.maintenance_kind') IS NULL
       AND json_type(s.payload,'$.child_agent_id') IS NULL AND NOT EXISTS (
         SELECT 1 FROM agent_work_turns t WHERE t.session_id=s.session_id
+      ) AND NOT EXISTS (
+        SELECT 1 FROM agent_work_events e INDEXED BY agent_work_knowledge_review_links
+        WHERE e.root_agent_id=s.root_agent_id AND json_extract(e.payload,'$.child_session_id')=s.session_id
+          AND e.type='session_linked' AND e.event_id GLOB 'knowledge-run:*'
       ) LIMIT 1`, root);
     const countsCurrent = complete && !count?.unresolved && !pendingLink;
-    const rows = all(this.db, `SELECT ${summaryFields}
-      FROM agent_work_active_turns a
-      JOIN agent_work_sessions s USING(session_id)
-      JOIN agent_work_turns t ON t.session_id=a.session_id AND t.turn_id=a.turn_id
-      WHERE a.root_agent_id=? AND a.session_id>? AND a.status IN ('running','waiting_permission') AND ${latestActive}
-      AND ${ordinary} AND COALESCE(json_extract(t.payload,'$.origin'),'')!='dreaming'
-      ORDER BY a.session_id LIMIT ?`, root, after, limit + 1) as WorkSummarySession[];
+    const rows = all(this.db, `${activity}
+      SELECT session_id,parent_session_id,scope,title,status,turn_id,last_active_at
+      FROM ranked WHERE child_rank=1 AND session_id>? AND status IN ('running','waiting_permission')
+      ORDER BY session_id LIMIT ?`, root, after, limit + 1) as WorkSummarySession[];
     const sessions = rows.slice(0, limit);
     return {
       main_execution, latest_tool,
@@ -126,10 +134,11 @@ export class WorkSummaries {
       LEFT JOIN agent_work_item_previews p USING(session_id,turn_id,item_id,revision)
       WHERE i.session_id=? AND i.turn_id=? AND i.kind='tool' ORDER BY i.seq DESC LIMIT 1`, session, turn);
     if (!item?.payload) return null;
-    const {name, label, status} = JSON.parse(item.payload);
+    const {name, label, status, output} = JSON.parse(item.payload);
+    const description = typeof label === 'string' ? label : typeof output === 'string' ? output : undefined;
     return typeof name === 'string' ? {
       name: name.slice(0, 120),
-      label: typeof label === 'string' ? label.slice(0, 240) : undefined,
+      label: description?.slice(0, 240),
       status, session_id: session, turn_id: turn, item_id: item.item_id,
     } : null;
   }
