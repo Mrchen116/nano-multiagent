@@ -61,3 +61,38 @@
 | R1-W6 | accepted | 增加 daily runbook、身份/事实来源、密集窗口和活跃压力；锁定复测夹具与指标。 |
 
 R1 后用户新增消息操作入口调整和性能关注；相应 spec/delta、界面决策和验收范围一并提交复审。
+
+## Round 2
+
+- reviewer target: `/root/work_design_review`，独立于设计作者。受审基线 `88c283d2c0c522b20a3c2fc8ecf740e6b52bbcee`。
+- review_mode: `full`
+- mode_reason: 新增消息级入口需求，Work 共享读取路径引入预览和合并分页。保留 R1 未变化的原型观察、真实组装及权限核对，并复核需求、读侧边界、delta 与验收安排。
+- started_at: 2026-11-12T16:32:40+08:00
+- completed_at: 2026-11-12T16:33:30+08:00
+- duration: 50 秒
+- verdict: **Approved**，0 CRITICAL / 0 WARNING。
+
+### Coverage
+
+- **消息入口。** [修订需求](spec.md)、[设计](design.md) 与 [Web Chat UX delta](specs/im/web-chat-ux.md) 一致。桌面 tooltip、键盘、右键和触屏复用 [MessageActionList](../../../src/IM/frontend/src/features/chat/components/message-pane.tsx#L1522) 与既有动作面，原泡底链接的真实发送者、消息 ID 和委派/删除条件可共用。现有 [动作可用性和无正文定位](../../../src/IM/frontend/src/features/chat/components/message-pane.tsx#L1875) 是实施落点。符合资格的卡片／附件可以将气泡容器作为菜单触发区，复用 [原生文本选择和交互避让](../../../src/IM/frontend/src/features/chat/components/message-pane.tsx#L1966)。现有入口的交互方式已确定，增加同一菜单中的动作可以在真实实现验收时直接对照 canonical [消息操作契约](../../specs/im/web-chat-ux.md#requirement-web-im-消息气泡支持复制与长按右键菜单)。验证应使用仅有 Work 动作的只读卡片或附件，覆盖键盘及触屏，并与真实旧回复定位连成同一旅程。
+- **职责、接口和兼容。** 中心继续持有 Work 授权、持久游标和聚合。Web 通过 opt-in 使用预览和合并读取，复用独立 focus、存量 item 及原文路径，旧客户端保持原格式。现有中心删除按 session 删除 item 的入口足以承载预览同步清理，具体随 schema 事务验证。新统计只由当前维护的 DSH 自有事件产出，经过现有 `knowledge.facts` 和 PA 投影，保留原轨迹、回执、权限和模型上下文。原型与真实入口的 R1 观察保留，实施性能、交互和真实数据仍待验收。
+- **delta 与 milestone。** 新入口是 Web 专属增量，未改既有 Work 精确定位、消息选择或配置权限。R1 时间线旅程可覆盖从消息动作进入。派工、头像与 Dreaming 验收仍在同一隔离环境内完成。无需生产迁移或额外验收阶段。
+
+### 历史问题闭环
+
+| ID | Author Resolution | 本轮核对 | 状态 |
+| --- | --- | --- | --- |
+| R1-W1 | 预览独立，正文按项取 | 20 项乘 4 KiB 上限覆盖自动首批和 revision 增量。新预览事务写入侧表，旧长项在 SQLite 截止为元数据，当前 Node SQLite 已验证 `octet_length` 按字节限制，不向 JS 返回大正文。完整旧 API 和显式详情继续可用。基线 2 MiB 首项与原 seq 修改纳入验收。 | closed |
+| R1-W2 | 事件之外补周期、恢复、前台刷新 | 只在可见浮窗沿用 Work 的 15 秒兜底，状态独立于 revision，关闭取消。可覆盖非 owner 和无新 Work 事实的进度变化。 | closed |
+| R1-W3 | 共享全局 seq 游标，精确 focus 独立 | 两路使用同一排他边界，候选各取前 N 再返回全局前 N，未返回候选仍在同游标后的范围。持久位置与展示时间分开，头部和历史游标分离，focus 以真实身份补充并保留缺口。Web 在阅读边界继续历史，现有其他客户端自动分页保留。 | closed |
+| R1-W4 | 结构化维护 kind 与存量 origin，普通运行有可信边 | [Gateway 普通 descendant 注册](../../../packages/personal-assistant/src/global-agent.ts#L1200) 已包含 child identity，维护有已保存起始 origin，Workflow 有单独身份。仅有通用链接时不推断普通类别，进度未确认不报完整计数。 | closed |
+| R1-W5 | 仅新维护结束投影，历史缺指标如实保留 | 不需要历史指标 RPC 或遍历，原生轨迹仍直接可查。成功及失败时的现有结束路径可以持久化本会话指标，并复用 PA 的幂等事件身份。完整零次与未知各自表达。验收核对历史无指标、宿主回执及 perf-751 增量。 | closed |
+| R1-W6 | 落实隔离运行和夹具 | 已链接 daily 固定角色和正式入口，交代额外身份、真实派工/Dreaming、合成进度和历史样本来源。冷、热和浏览器测量边界分别明确。密集窗口、活跃负载与 Gateway 目录访问量纳入实施对照。 | closed |
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。
