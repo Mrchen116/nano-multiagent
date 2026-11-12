@@ -9,7 +9,7 @@
 - Web 聊天用 `message-pane.tsx` 的会话头和消息头像。现有 `View Work` 通过 Agent ID 和实际发信消息 ID 跳转。Work 由 `agent-work-panel.tsx` 组装，已有主、子执行分页和原生轨迹路由。工具详情已有 `WorkTool`、`ToolDetailBody`、`NativeToolDetail` 和 `ConversationToolCard`。
 - 中心 `work.ts` 统一校验登录、空间、个人归属和删除状态；`work-records.ts` 有主执行查询、精确回复锚点、关联执行元数据、轮次状态和 usage。节点在线与 Work 同步可信度是不同信号。Work 现有 API 不能从一页目录推断全树活跃子执行数。
 - Dreaming 的宿主回执从 DSH `knowledge.facts` 经 PA `KnowledgeUpdates` 投影至独立维护会话，原生轨迹已有真实身份。当前该投影没有报告工具次数、模型和用量。原生查看器、权限、导出、轨迹数据格式沿用现有实现。
-- [perf-749](../archive/perf-749-direct-work-focus/design.md) 用持久发信关系直达旧轮次，不遍历中间历史。[perf-751](../archive/perf-751-incremental-global-descendants/design.md) 将 Gateway 子树发现和恢复改为增量。[perf-753](../archive/perf-753-bounded-work-reads/M1-work-reads/evidence/implementation.md) 将目录和正文从首屏摘要中拆出。在 15,000 轮、最新一轮约 15,000 个工具项、10 万关联执行的隔离样本里，中心头页从约 21.16 MB 降到 5,492 B，HTTP 中位数从约 2.11 s 降到 13.87 ms。该数字是历史实验，候选和本次基线另行重测。[perf-754](../perf-754-bounded-work-transfer/design.md) 正在设计独立大明细传输，本 unit 保留其兼容边界，既有投影和原文读入口继续负责大小限制与授权。
+- [perf-749](../perf-749-direct-work-focus/design.md) 用持久发信关系直达旧轮次，不遍历中间历史。[perf-751](../perf-751-incremental-global-descendants/design.md) 将 Gateway 子树发现和恢复改为增量。[perf-753](../perf-753-bounded-work-reads/M1-work-reads/evidence/implementation.md) 将目录和正文从首屏摘要中拆出。在 15,000 轮、最新一轮约 15,000 个工具项、10 万关联执行的隔离样本里，中心头页从约 21.16 MB 降到 5,492 B，HTTP 中位数从约 2.11 s 降到 13.87 ms。该数字是历史实验，候选和本次基线另行重测。[perf-754](../../perf-754-bounded-work-transfer/design.md) 正在设计独立大明细传输，本 unit 保留其兼容边界，既有投影和原文读入口继续负责大小限制与授权。
 
 ## 关键决策
 
@@ -52,7 +52,7 @@
 
 ### 隔离验收前置
 
-按 [固定日常模板](../../development/worktree-runtime.md#固定日常验收模板) 使用 `scripts/e2e-up.sh --profile daily --wt <unit worktree>`。在本轮副本以 owner nano 打开 P 的私聊和研发日常群，用产品入口生成有精确投递关系的回复和两层派工。只在隔离 IM 另建普通公司成员及待定／外部身份，按真实登录与空间资格验证 Work 可读但配置不可写、私有 PA 不可读、来源权限独立。Dreaming 用隔离 Gateway 实际触发两个阶段并检查宿主回执和指标；额外注入只有进度声明的同步恢复、离线重连和旧缺失指标，用真实中心 API 观察，标注合成与模型生成来源。交接 `.e2e-daily.json`、角色、入口、受验提交和范围，结束走隔离回收。
+按 [固定日常模板](../../../development/worktree-runtime.md#固定日常验收模板) 使用 `scripts/e2e-up.sh --profile daily --wt <unit worktree>`。在本轮副本以 owner nano 打开 P 的私聊和研发日常群，用产品入口生成有精确投递关系的回复和两层派工。只在隔离 IM 另建普通公司成员及待定／外部身份，按真实登录与空间资格验证 Work 可读但配置不可写、私有 PA 不可读、来源权限独立。Dreaming 用隔离 Gateway 实际触发两个阶段并检查宿主回执和指标；额外注入只有进度声明的同步恢复、离线重连和旧缺失指标，用真实中心 API 观察，标注合成与模型生成来源。交接 `.e2e-daily.json`、角色、入口、受验提交和范围，结束走隔离回收。
 
 基线夹具（15,000 轮、10 万关联执行、15,000 个工具项含 2 MiB 原文）已用 Node 24.22.1 在 Air 的隔离真实 Fastify / SQLite 上复测。冷首请求 5.82 ms，21 个热请求中位 0.64 ms、P95 0.86 ms，首屏摘要 5,831 B；直接读取当前首批正文 2,139,264 B、单次 9.12 ms。只有 loopback HTTP，不是浏览器渲染或生产延迟。验收在同夹具再测候选，同时增加窗口内密集活动和高活跃并发样本，记录索引候选、图节点数、字节和事件循环；复核 Gateway perf-751 旧目录随单次维护通知不扫描。覆盖预览初页和原 seq 大结果更新、两种源密度反转、同时间戳、无新事件同步转完成、非 owner 离线/恢复与关闭停止刷新。
 
