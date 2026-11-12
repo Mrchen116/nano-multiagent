@@ -301,7 +301,7 @@ export class Dreaming {
     }finally{await this.disposeHandle(work);}
   }
   private newRun(parent:Agent,config:AgentConfiguration,work:Active,library:MemoryDocuments,target:CycleTarget,cycleId:string,batch:FrozenBatch,stage:DreamingRun['stage']):DreamingRun{
-    return {id:batch.id,agentId:config.agentId,rootSessionId:parent.id,mode:work.automatic?'automatic':'manual',stage,cycleId,
+    return {id:batch.id,agentId:config.agentId,rootSessionId:parent.id,mode:work.automatic?'automatic':'manual',stage,cycleId,workVersion:1,
       state:'prepared',at:this.now(),generation:target.generation,directory:join(library.workspace,'.nanoassistant/maintenance/dreaming',batch.id),
       target,batch,summaries:[],receipts:[]};
   }
@@ -414,6 +414,8 @@ export class Dreaming {
       id: run.id, agentId: run.agentId, rootSessionId: run.rootSessionId,
       ...(run.childSessionId ? { childSessionId: run.childSessionId } : {}),
       at: run.at, kind: 'dreaming' as const, title: dreamingStageTitles[run.stage], status: run.state,
+      ...(run.workVersion === 1 ? {stage:run.stage} : {}),
+      ...(run.workMetrics ? {workMetrics:run.workMetrics} : {}),
       ...(run.summary !== undefined ? { summary: run.summary } : {}),
       ...(run.endedAt !== undefined ? { endedAt: run.endedAt } : {}),
     }));

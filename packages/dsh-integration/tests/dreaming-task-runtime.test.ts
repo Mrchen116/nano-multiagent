@@ -88,8 +88,15 @@ export function apply(ctx){
     expect(reviews).toHaveLength(2);
     const extract = reviews.find((review: any) => review.title === 'Dreaming · 提取任务摘要');
     const consolidate = reviews.find((review: any) => review.title === 'Dreaming · 整合长期记忆');
-    expect(extract).toMatchObject({ status: mode === 'valid' ? 'completed' : 'failed', childSessionId: expect.stringMatching(/^dreaming-/) });
-    expect(consolidate).toMatchObject({ status: 'failed', childSessionId: expect.stringMatching(/^dreaming-/) });
+    expect(extract).toMatchObject({
+      status: mode === 'valid' ? 'completed' : 'failed', childSessionId: expect.stringMatching(/^dreaming-/),
+      stage:'extract', workMetrics:{tool_count:0, model_request_state:'requested', model:'deepseek-flash'},
+    });
+    expect(consolidate).toMatchObject({
+      status:'failed', childSessionId:expect.stringMatching(/^dreaming-/), stage:'consolidate',
+      workMetrics:{tool_count:0, model_request_state:mode==='valid'?'requested':'none'},
+    });
+    if(mode!=='valid')expect(consolidate.workMetrics).not.toHaveProperty('model');
     expect(extract.childSessionId).not.toBe(consolidate.childSessionId);
     await client.rpc.request('trajectory.prepare', { observerId: 'dreaming-stages', rootAgentId: 'a', rootSessionId: 'root', sessionId: 'root', ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
     const runs = await client.rpc.request('trajectory.call', { observerId: 'dreaming-stages', method: 'trajectory/runs' }) as { value: import('@nano/product-contracts').TrajectoryRun[] };

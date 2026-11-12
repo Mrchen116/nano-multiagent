@@ -1,4 +1,4 @@
-import type { AgentConfiguration, RuntimePort } from '@nano/product-contracts';
+import type { AgentConfiguration, DreamingWorkMetrics, DreamingWorkStage, RuntimePort } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import type { NodeStore } from './store.js';
 import type { InboxStore } from './inbox.js';
@@ -7,7 +7,7 @@ interface Fact {
   id: string; agentId: string; rootSessionId: string; sessionId: string; turn: number;
   kind: 'memory' | 'skills'; action: string; name?: string; scope?: string; skill_root?: string; reviewId?: string;
 }
-interface Review { id: string; status: string; agentId: string; rootSessionId: string; childSessionId?: string; kind: 'memory' | 'skills' | 'combined' | 'dreaming'; title?: string; at: number; endedAt?: number; summary?: string }
+interface Review { id: string; status: string; agentId: string; rootSessionId: string; childSessionId?: string; kind: 'memory' | 'skills' | 'combined' | 'dreaming'; title?: string; at: number; endedAt?: number; summary?: string; stage?: DreamingWorkStage; workMetrics?: DreamingWorkMetrics }
 interface Options {
   partitionKey?: string;
   nodeId: string; agents: AgentConfiguration[]; runtime: RuntimePort; store: NodeStore; inbox: InboxStore;
@@ -51,10 +51,12 @@ export class KnowledgeUpdates {
       // stay demand-loaded and the model's subagent catalog stays untouched.
       const stageTitle = review.kind === 'dreaming' ? review.title : undefined;
       // Refresh old session titles through a new link without rewriting the journal.
-      const linkId = `knowledge-run:${review.id}${stageTitle ? ':stage-title' : ''}`;
+      const stage = review.kind === 'dreaming' ? review.stage : undefined;
+      const linkId = `knowledge-run:${review.id}${stage ? ':maintenance-v1' : stageTitle ? ':stage-title' : ''}`;
       this.options.inbox.append({ event_id: linkId, type: 'session_linked', root_agent_id: review.agentId,
         session_id: review.rootSessionId, observed_at: new Date(review.at).toISOString(), payload: {
           parent_session_id: review.rootSessionId, child_session_id: review.childSessionId,
+          ...(stage ? {maintenance_kind:'dreaming', maintenance_stage:stage} : {}),
           title: stageTitle ?? (review.kind === 'dreaming' ? 'Dreaming · 自动整理记忆' : review.kind === 'combined' ? '记忆与技能复盘' : review.kind === 'memory' ? '记忆整理' : '技能复盘'),
         } });
       if (review.kind === 'dreaming') {
@@ -65,8 +67,9 @@ export class KnowledgeUpdates {
           const observed_at = new Date(review.endedAt).toISOString();
           this.options.inbox.append({ ...identity, event_id: `dreaming:${review.id}:${review.endedAt}:receipt`, type: 'message', observed_at,
             payload: { message_id: `dreaming:${review.id}:receipt`, role: 'assistant', text: review.summary, source_kind: 'host_receipt' } });
-          this.options.inbox.append({ ...identity, event_id: `dreaming:${review.id}:${review.endedAt}:end`, type: 'turn_end', observed_at,
-            payload: { status: review.status, completed: review.status === 'completed', finished_at: observed_at } });
+          const metrics = review.workMetrics;
+          this.options.inbox.append({ ...identity, event_id: `dreaming:${review.id}:${review.endedAt}:end${metrics ? ':metrics-v1' : ''}`, type: 'turn_end', observed_at,
+            payload: { status: review.status, completed: review.status === 'completed', finished_at: observed_at, ...metrics } });
         }
       }
     }
