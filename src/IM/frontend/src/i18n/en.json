@@ -776,6 +776,8 @@
       "结果": "Result",
       "对象": "Object",
       "列表": "List",
+      "已发送": "Sent",
+      "成功": "Succeeded",
       "已确认派工": "Delegation confirmed",
       "提取任务摘要": "Extract task summaries",
       "整合长期记忆": "Consolidate long-term memory",

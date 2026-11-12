@@ -637,10 +637,17 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
             : separate && delegation && (callId || agent) ? <LegacyWorkLinks agentId={agentId} filter={filter} onChild={onChild} label="查看子执行" />
             : children.map(child => <WorkLink key={child.session_id} id={child.session_id} session={child} label="查看子执行" distinguish={children.length > 1} onChild={onChild} />);
           // An exact link can arrive after this historical item was loaded.
-          const lateLink = separate && !childId && !delegation && callId
+          const lateLink = separate && !preview && !childId && !delegation && callId
             ? <LegacyWorkLinks agentId={agentId} filter={{parent_session_id: turn.session_id, tool_call_id: callId}} onChild={onChild} label="查看子执行" />
             : null;
-          return <WorkTool key={item.item_id} itemRef={detailRef} call={call} observedAt={item.observed_at} previewOnly={Boolean(item.detail_deferred)} expanded={expanded[itemKey] ?? false} onExpandedChange={open => expand(itemKey, open)} detailFooter={<>{deferredDetail}{Array.isArray(p.work_facts) && p.work_facts.length > 0 && <WorkFacts facts={p.work_facts} displayedText={[str(obj(call.input).text), str(obj(call.input).message), str(obj(call.detail).text), str(call.output)]} /> }{lateLink}</>} childLink={link} />;
+          const facts = Array.isArray(p.work_facts) ? p.work_facts.filter(fact => obj(fact).type !== "inbox_read_committed") : [];
+          const sources = deferredDetail || facts.length > 0 || lateLink ? <>{deferredDetail}
+            {facts.length > 0 && <WorkFacts facts={facts} displayedText={[str(obj(call.input).text), str(obj(call.input).message), str(obj(call.detail).text), str(call.output)]} />}
+            {lateLink}
+          </> : undefined;
+          return <WorkTool key={item.item_id} itemRef={detailRef} call={call} observedAt={item.observed_at}
+            previewOnly={Boolean(item.detail_deferred)} expanded={expanded[itemKey] ?? false}
+            onExpandedChange={open => expand(itemKey, open)} detailFooter={sources} childLink={link} />;
         }
         if (item.detail_deferred && deferredDetail) return <li ref={detailRef} className="im-work-deferred-item" key={item.item_id}>
           <span>{str(p.text) || str(p.content) || str(p.summary) || item.kind}</span>{deferredDetail}
@@ -723,7 +730,6 @@ function WorkFacts({facts, displayedText}: {facts: unknown[]; displayedText: str
   const seen = new Set<string>();
   return <>{facts.map((raw, index) => {
     const fact = obj(raw);
-    if (fact.type === "inbox_read_committed") return null;
     const target = str(fact.conversation_id) || str(fact.target);
     const message = str(fact.message_id);
     const text = str(fact.text) || str(fact.draft);

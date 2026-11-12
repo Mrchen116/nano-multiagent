@@ -73,6 +73,11 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
   const prompt = text(detail.prompt) || text(input.prompt);
   const delegation = ["agent", "subagent"].includes(call.name) && prompt;
   const outgoing = call.name === "send_message" && !internalMessage;
+  const delivery = text(detail.status);
+  const deliveryLabel = {sent: "已发送", ok: "成功", pending_revalidation: "待发送", held_for_revalidation: "未发送"}[delivery];
+  const deliveryFields = Object.fromEntries(Object.entries(detail).filter(([key]) =>
+    !["status", "target", "message_id", "text", "error"].includes(key)
+  ));
   const argumentFields = Object.entries(input);
   const requestText = text(input.text) || text(input.message) || text(detail.text);
   const structuredInput = Object.fromEntries(argumentFields.filter(([key]) =>
@@ -111,7 +116,9 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
           </> : outgoing ? <>
             {(detail.error || sendError) && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message) || sendError}</p>}
             {text(detail.text) && text(detail.text) !== requestText && <pre>{text(detail.text)}</pre>}
-            {call.output && call.output !== requestText && <p>{call.output}</p>}
+            {deliveryLabel && <p>{tr(deliveryLabel)}</p>}
+            {Object.keys(deliveryFields).length > 0 && <WorkFields value={deliveryFields} />}
+            {!Object.keys(detail).length && call.output && call.output !== requestText && <pre>{call.output}</pre>}
           </> : call.name === "inbox" ? <ConversationToolCard call={call} compact />
             : <ToolDetailBody call={call} renderResult={result => <WorkFields value={result} />} />}
         </WorkToolSection>
