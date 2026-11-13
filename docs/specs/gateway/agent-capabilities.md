@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: perf-765
+> 对齐: feat-766
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -564,7 +564,20 @@ PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `ski
 #### Scenario: 下一轮切换保持进行中请求
 - **WHEN** 新策略经所属节点成功应用
 - **THEN** 既有聊天的下一轮新回复使用该策略并保留历史；正在执行的整轮与已发出的人工审批仍保持原策略和原动作关联。
+- **AND** 既有普通可接续子会话恢复后使用所属 Agent 当前已生效的审批配置，任务历史和原始委派授权证据继续可用。
 
+### Requirement: Codex Auto 对普通工作区和临时文件编辑直接放行
+
+#### Scenario: 普通 Write/Edit
+
+- **GIVEN** Codex Auto 已开启，工具自身约束允许，且没有需由模型解释的自定义审批规则
+- **WHEN** Agent 通过 DSH 原生 `edit` 或 `write` 创建或编辑当前工作区或系统临时目录内的普通文件
+- **THEN** 无需模型审核即可执行，现有工具执行约束继续生效。
+
+#### Scenario: 越界与受保护路径
+
+- **WHEN** 路径或真实目标越界、目标受保护或不能确认符合免审条件
+- **THEN** 按原工具审批流程处理。
 
 ### Requirement: CC Auto 对普通工作区文件编辑直接放行
 

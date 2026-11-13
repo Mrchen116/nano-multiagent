@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, symlink, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { workspaceFileAllowed } from '../src/policy/cc-workspace.js';
+import { workspaceFileAllowed } from '../src/policy/file-approval.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
