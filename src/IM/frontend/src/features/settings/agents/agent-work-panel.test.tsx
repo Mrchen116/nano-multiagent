@@ -794,6 +794,32 @@ it("opens nested delegation from its real graph node and restores the chosen win
   expect(screen.getByRole("combobox", {name: "活动范围"})).toHaveValue("2h");
 });
 
+it("opens saved Cron delivery from the on-demand history in delegation", async () => {
+  view = {...view, timeline: "combined", catalog: "separate", record_sync_state: "current"};
+  const session = {session_id: "cron-history", scope: "cron", title: "Saved Cron", job_id: "report"};
+  const delivery = {item_id: "sent", kind: "cron_delivery", seq: 5,
+    payload: {conversation_id: "target-chat", message_id: "sent-message", text: "Saved report"}};
+  mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
+    url === "/im/v1/conversations" ? {items: []}
+    : url.includes("/work/delegation") ? {record_sync_state: "current", nodes: [], next_cursor: null}
+    : url.includes("/work/sessions?historical=1") ? {sessions: [session], next_cursor: null}
+    : url.includes("/sessions/cron-history/controls") ? {items: [delivery], next_cursor: null}
+    : url.includes("/sessions/cron-history/turns") ? {turns: [], next_cursor: null}
+    : url.endsWith("/sessions/cron-history") ? session : view)));
+  renderWork();
+  fireEvent.click(await screen.findByRole("tab", {name: "派工关系"}));
+  expect(mocks.fetch.mock.calls.some(([url]) => url.includes("historical=1"))).toBe(false);
+  const history = screen.getByText("历史主执行与定时任务").closest("details")!;
+  history.open = true;
+  fireEvent(history, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", {name: /Saved Cron/}));
+  const deliveries = (await screen.findByText("定时任务投递记录")).closest("details")!;
+  deliveries.open = true;
+  const receipt = within(deliveries).getAllByText("Cron 实际投递")[0].closest("details")!;
+  receipt.open = true;
+  expect(within(receipt).getByRole("link", {name: "投递聊天 · 原消息"})).toHaveAttribute("href", "/chat/target-chat?message_id=sent-message");
+});
+
 it("retains saved records through transient refresh failure and hides them when Work access is revoked", async () => {
   let status = 200;
   view = {...view, timeline: "combined", catalog: "separate"};

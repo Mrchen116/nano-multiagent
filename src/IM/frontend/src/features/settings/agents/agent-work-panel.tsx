@@ -174,6 +174,7 @@ function cronTitle(trigger: unknown, jobId?: string) {
 function sessionTitle(session?: WorkSession) {
   if (session?.scope === "cron") return cronTitle(session.trigger, session.job_id);
   if (session?.scope === "workflow") return "Workflow 执行";
+  if (session?.scope === "global_main") return session.title || session.description || "历史主执行";
   return session?.description || session?.title || "关联执行";
 }
 
@@ -191,22 +192,24 @@ function SessionFacts({ items, title = "执行记录" }: { items?: WorkItem[]; t
   })}</details>;
 }
 
-function SessionControls({agentId, sessionId, title}: {agentId: string; sessionId: string; title: string}) {
+function SessionControls({agentId, sessionId, title, cronOnly = false}: {agentId: string; sessionId: string; title: string; cronOnly?: boolean}) {
   const [open, setOpen] = useState(false);
   const pages = useInfiniteQuery({
-    queryKey: ["work-controls", agentId, sessionId], enabled: open, staleTime: Infinity, initialPageParam: "0",
+    queryKey: ["work-controls", agentId, sessionId], enabled: open || cronOnly, staleTime: Infinity, initialPageParam: "0",
     queryFn: ({pageParam, signal}) => workRequest<WorkItemsPage>(`${workSessionPath(agentId, sessionId)}/controls?after_seq=${pageParam}`, signal),
     getNextPageParam: page => page.next_cursor ?? undefined,
   });
   const items = pages.data?.pages.flatMap(page => page.items)
-    .filter(item => item.kind !== "control_result" || item.payload.command !== "new");
+    .filter(item => cronOnly ? ["cron_trigger", "cron_delivery"].includes(item.kind)
+      : item.kind !== "control_result" || item.payload.command !== "new");
+  if (cronOnly && (pages.isPending || (!items?.length && !pages.hasNextPage && !pages.isError))) return null;
   return <details className="im-work-other" onToggle={event => {if (event.target === event.currentTarget) setOpen(event.currentTarget.open);}}>
     <summary>{tr(title)}</summary>
     {pages.isLoading && <p role="status">{tr("正在加载工作记录…")}</p>}
     {pages.isError && <p role="alert">{pages.error.message}<button onClick={() => void pages.refetch()}>{tr("重试")}</button></p>}
     {open && items?.length === 0 && !pages.hasNextPage && !pages.isError && <p className="im-work-muted">{tr("暂无控制记录")}</p>}
     {items?.map(item =>
-      <SessionFacts key={item.item_id} items={[item]} title={str(item.payload.command) || item.kind} />)}
+      <SessionFacts key={item.item_id} items={[item]} title={item.kind === "cron_delivery" ? "Cron 实际投递" : item.kind === "cron_trigger" ? cronTitle(item.payload.trigger, str(item.payload.job_id)) : str(item.payload.command) || item.kind} />)}
     {pages.hasNextPage && <button type="button" disabled={pages.isFetching} onClick={() => void pages.fetchNextPage()}>{tr("加载更多")}</button>}
   </details>;
 }
@@ -496,8 +499,8 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
               : <button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button>}
             </header>
             {!continuous && <button type="button" onClick={() => showNative(saved.selected)}>{tr("查看原生轨迹")}</button>}
-            {!continuous && !workAccessLost(childQuery.error) && !workAccessLost(metadata.error) && (!childQuery.isError || childQuery.isFetchNextPageError) &&
-              (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
+            {(!continuous || selected?.scope === "cron") && !workAccessLost(childQuery.error) && !workAccessLost(metadata.error) && (!childQuery.isError || childQuery.isFetchNextPageError) &&
+              (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title={continuous ? "定时任务投递记录" : "执行记录"} cronOnly={Boolean(continuous)} /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
             {childQuery.isRefetchError && childQuery.data && <p role="status">{childQuery.error.message} <button type="button" onClick={() => void childQuery.refetch()}>{tr("重试")}</button></p>}
             {workAccessLost(childQuery.error) || workAccessLost(metadata.error) || (childQuery.isError && !childQuery.data) || (metadata.isError && !metadata.data) ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => { void childQuery.refetch(); if (separate) void metadata.refetch(); }}>{tr("重试")}</button></p>
               : childTurns.length || childAnchors.length ? <WorkTurnList turns={childTurns} anchors={childAnchors} history={separate ? childHistory : undefined} continuous={continuous} renderTurn={renderTurn} nextTurnId={childQuery.data?.pages.at(-1)?.next_turn_id}

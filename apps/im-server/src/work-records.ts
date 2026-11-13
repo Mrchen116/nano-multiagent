@@ -114,6 +114,7 @@ export class WorkRecords {
     const bindings: string[] = [root, after];
     let sql = `SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND session_id>?
       AND (scope!='global_main' OR COALESCE(json_extract(payload,'$.retired'),0)!=0)`;
+    if (filter.historical) sql += " AND scope IN ('cron','global_main')";
     if (parent) { sql += ' AND parent_session_id=?'; bindings.push(parent); }
     if (mode === "exact") { sql += " AND json_extract(payload,'$.parent_tool_call_id')=?"; bindings.push(call!); }
     else if (mode === "weak") { sql += " AND json_extract(payload,'$.child_agent_id')=?"; bindings.push(agent!); }

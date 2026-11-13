@@ -66,6 +66,9 @@ it('serves authorized light summaries, exact and paged execution links, and same
   expect((await read('/sessions/child-1049')).body).toMatchObject({session_id: 'child-1049'});
   expect((await read('/sessions/retired')).body).toMatchObject({retired: true});
   expect((await read('/sessions?after_session=retired')).body).toEqual({sessions: [], next_cursor: null});
+  expect((await read('/sessions?historical=1')).body).toMatchObject({
+    sessions: [{session_id: 'retired'}], next_cursor: null,
+  });
   const scoped = `/sessions?parent_session_id=${root}&child_agent_id=worker`;
   expect((await read(scoped + '&tool_call_id=call-a')).body).toMatchObject({sessions: [{session_id: 'child-1049'}], next_cursor: null});
   const weak = (await read(scoped + '&tool_call_id=late&limit=1')).body;

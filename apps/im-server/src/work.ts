@@ -486,9 +486,10 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     const q = query(req), root = readable(req);
     for (const field of ['after_session', 'parent_session_id', 'tool_call_id', 'child_agent_id'])
       if (q[field] !== undefined && (typeof q[field] !== 'string' || !q[field])) fail(400, 'invalid_arguments');
+    if (q.historical !== undefined && (q.historical !== '1' || q.parent_session_id || q.tool_call_id || q.child_agent_id)) fail(400, 'invalid_arguments');
     if ((q.tool_call_id && !q.parent_session_id) || (q.parent_session_id && !q.tool_call_id && !q.child_agent_id)) fail(400, 'invalid_arguments');
     return w.catalog(root, q.after_session ?? '', boundedLimit(q.limit, 20, 50),
-      {parent: q.parent_session_id, call: q.tool_call_id, agent: q.child_agent_id});
+      {parent: q.parent_session_id, call: q.tool_call_id, agent: q.child_agent_id, historical: q.historical === "1"});
   });
   app.get("/im/v1/agents/:agent_id/work/sessions/:session_id", (req) => {
     const id = params(req).session_id;

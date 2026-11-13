@@ -3,7 +3,7 @@ import { Archive, LoaderCircle } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 
 import { i18n } from "../../../i18n";
-import { workAccessLost, workBase, workRequest, type WorkDelegationNode, type WorkDelegationPage } from "./agent-work-api";
+import { workAccessLost, workBase, workCatalogPath, workRequest, type WorkCatalogPage, type WorkDelegationNode, type WorkDelegationPage } from "./agent-work-api";
 import { formatWorkTokens, tr } from "./agent-work-text";
 
 type Window = WorkDelegationPage["window"];
@@ -57,6 +57,17 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
 }) {
   const [window, setWindow] = useState<Window>("3d");
   const [selected, setSelected] = useState<string>();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historical = useInfiniteQuery({
+    queryKey: ["work-historical-sessions", agentId],
+    enabled: visible && historyOpen,
+    initialPageParam: "",
+    queryFn: ({signal, pageParam}) => workRequest<WorkCatalogPage>(workCatalogPath(agentId, {
+      historical: "1", ...(pageParam ? {after_session: pageParam} : {}),
+    }), signal),
+    getNextPageParam: page => page.next_cursor || undefined,
+  });
+  const historicalSessions = workAccessLost(historical.error) ? [] : historical.data?.pages.flatMap(page => page.sessions) ?? [];
   const pages = useInfiniteQuery({
     queryKey: ["agent-work-delegation", agentId, window],
     enabled: visible,
@@ -162,5 +173,18 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
     </div>}
     {pages.hasNextPage && <button type="button" className="im-work-child-link" disabled={pages.isFetching}
       onClick={() => void pages.fetchNextPage()}>{tr("加载更多")}</button>}
+    <details className="im-work-other" onToggle={event => { if (event.target === event.currentTarget) setHistoryOpen(event.currentTarget.open); }}>
+      <summary>{tr("历史主执行与定时任务")}</summary>
+      {historyOpen && historical.isLoading && <p role="status">{tr("正在加载工作记录…")}</p>}
+      {historyOpen && historical.isError && <p role="alert">{historical.error.message} <button type="button"
+        onClick={() => historical.isFetchNextPageError ? void historical.fetchNextPage() : void historical.refetch()}>{tr("重试")}</button></p>}
+      {!historical.isError && historical.isSuccess && !historicalSessions.length && <p>{tr("暂无历史执行")}</p>}
+      {historicalSessions.map(session => <button key={session.session_id} type="button" onClick={() => openSession(session.session_id)}>
+        {session.title || session.description || (session.scope === "cron" ? "Cron" : tr("历史主执行"))}
+        <small>{session.job_id || session.session_id}</small>
+      </button>)}
+      {historical.hasNextPage && <button type="button" disabled={historical.isFetching}
+        onClick={() => void historical.fetchNextPage()}>{tr("加载更多")}</button>}
+    </details>
   </section>;
 }
