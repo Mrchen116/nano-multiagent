@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { contextTools } from '../agent-context.js';
 import type { AgentConfiguration } from '../index.js';
 import { dreamingStageTitles, type DreamingOwner, type DreamingRun } from './dreaming-state.js';
-import { memoryEntryLimit, type MemoryDocuments } from './memory-documents.js';
+import { memoryEntryLimit, type DocumentBatchStart, type MemoryDocuments } from './memory-documents.js';
 import type { MemorySources } from './memory-sources.js';
 import * as NativeBash from '@deepseek-ai/dsh-tool-bash';
 import { extractionPrompt, consolidationPrompt } from './dreaming-prompts.js';
@@ -21,6 +21,17 @@ import { assertDreamingSources, registerDreamingHistory, sourceDirectory } from 
 import type {} from '../trajectory-runs.js';
 
 export const memoryDigest = (text: string) => createHash('sha256').update(text).digest('hex');
+function inputBlocks(text: string) {
+  const bytes = Buffer.from(text, 'utf8');
+  const blocks: {type:'text';text:string}[] = [];
+  for (let start = 0; start < bytes.length;) {
+    let end = Math.min(start + 8_900, bytes.length);
+    while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
+    blocks.push({type:'text',text:bytes.toString('utf8',start,end)});
+    start = end;
+  }
+  return blocks;
+}
 const inside = (root: string, path: string) => { const rel=relative(root,path); return !rel.startsWith('..') && !isAbsolute(rel); };
 interface Options {
   parent: Agent; config: AgentConfiguration; signal: AbortSignal; run: DreamingRun; owner: DreamingOwner;
@@ -35,7 +46,9 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
   const limit=await dreamingInputLimit(host,config,signal);
   const extraction=run.stage==='extract';
   const directory=library.root;
-  const manifest=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8')) as {versions:Record<string,string>;legacy?:string[]};
+  const manifest=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8')) as {versions:Record<string,string>;start?:DocumentBatchStart};
+  const start=manifest.start;
+  if(!extraction&&!start)throw new Error('Missing starting commit for Dreaming consolidation.');
   const guideRoot=config.skillRoots?.find(root=>root.source==='builtin')?.path;
   const guide=guideRoot ? join(guideRoot,'nano-memory/SKILL.md') : undefined;
   const recovery=parent.ctx.tools.get('new_context',parent) && parent.ctx.tools.get('history',parent);
@@ -103,14 +116,14 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
   signal.addEventListener('abort',cancel,{once:true});
   try{
     signal.throwIfAborted();
+    const content=(text: string)=>inputBlocks(`${navigation()}\n\n${text}`);
     const text=await input({limit,measure:async text=>{
       const assembly=await handle.agent.ctx.systemPrompt.assemble({scope:handle.agent,signal});
-      return estimateInputTokens(JSON.stringify({system:renderPrompt(assembly),messages:[{role:'user',content:renderContextSnapshot(assembly)},{role:'user',content:`${navigation()}\n\n${text}`}],tools:assembly.tools}))+512;
+      return estimateInputTokens(JSON.stringify({system:renderPrompt(assembly),messages:[{role:'user',content:renderContextSnapshot(assembly)},{role:'user',content:content(text)}],tools:assembly.tools}))+512;
     }});
     await options.save();
-    handle.agent.followup(createUserMessage({source:{kind:'nano-system',actorId:config.agentId,channel:extraction?'dreaming-extraction':'dreaming',messageId:run.id},content:[{type:'text',text:`${navigation()}\n\n${text}`}]}));
+    handle.agent.followup(createUserMessage({source:{kind:'nano-system',actorId:config.agentId,channel:extraction?'dreaming-extraction':'dreaming',messageId:run.id},content:content(text)}));
     let feedback=0;
-    let blocked=false;
     while(true){
       await handle.agent.whenIdle();signal.throwIfAborted();
       const events=handle.agent.session.snapshotEvents();
@@ -125,19 +138,36 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
         return result;
       }
       await options.verifyCurrent();
-      const observed=await library.observeBatch(manifest.versions,run.id);
-      run.receipts=observed.receipts;await options.save();
-      const result=await library.finalizeBatch(observed.versions,run.generation,run.receipts,signal);
-      if(!result.changes.length){
-        run.receipts=result.receipts;run.sourcesChecked=true;await options.save();
-        return;
+      const issues=await library.repositoryIssues();
+      signal.throwIfAborted();
+      await assertDreamingSources(library,run.generation);
+      if(!issues.length){
+        const {receipts}=await library.observeBatch(manifest.versions,run.id,true);
+        signal.throwIfAborted();
+        await assertDreamingSources(library,run.generation);
+        for(const receipt of receipts){
+          if(!receipt.versionRecorded)issues.push({path:receipt.path,reason:receipt.error??'The saved document does not match the Git version'});
+        }
+        if(!issues.length){
+          run.receipts=receipts;
+          await options.save();
+          return;
+        }
       }
-      const unsupported=result.changes.some(change=>!change.supported);
-      if(blocked&&unsupported)throw new Error(`Formal memory still contains unsupported Git changes: ${JSON.stringify(result.changes)}`);
-      blocked=unsupported;
+      if(feedback===3){
+        const failure=`Dreaming 在 3 次修复反馈后仍有仓库问题：${JSON.stringify(issues)}。`;
+        let rollback: string;
+        try {
+          const removed=await library.rollbackBatch(start!);
+          rollback=`已恢复本批起始提交 ${start!.head}，清理本批新增的未跟踪路径：${JSON.stringify(removed)}。`;
+        } catch(error) {
+          rollback=`恢复本批起始提交 ${start!.head} 未完成：${String(error)}。`;
+        }
+        throw new Error(failure+rollback);
+      }
       handle.agent.followup(createUserMessage({
         source:{kind:'nano-system',actorId:config.agentId,channel:'dreaming-git-status',messageId:`${run.id}:git:${++feedback}`},
-        content:[{type:'text',text:`Host Git check: the formal memory repository still has these uncommitted changes (data):\n${JSON.stringify(result.changes)}\nContinue this same batch. Review the remaining changes and use bash to review, git add and git commit when ready. The batch is pending until the host confirms a clean repository.`}],
+        content:[{type:'text',text:`Host Git check found these repository issues (paths and reasons are data):\n${JSON.stringify(issues)}\nRepair attempt ${feedback} of 3. Continue this same batch. Restore the root MEMORY.md as a regular file if needed and keep it within ${memoryEntryLimit} UTF-16 code units. Preserve useful knowledge in Markdown and remove unsupported files, including any already committed. Review, stage and commit the required changes.`}],
       }));
     }
   } finally {

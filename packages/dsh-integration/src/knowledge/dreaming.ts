@@ -192,7 +192,7 @@ export class Dreaming {
         includeConversations();
         const cache=(await this.domain).table('summaries');
         const pendingMaterial=materials.some(material=>owner.integrated[material.sessionId]!==material.sourceVersion);
-        const check=await library.needsVerification()||(await library.gitChanges()).length>0;
+        const check=(await library.repositoryIssues()).length>0;
         const hasProgress=batch.ranges.some(range=>range.through>range.start||range.continuation);
         if(!batch.units.length&&!pendingMaterial&&!deferred?.summaries.length&&!check&&!importPending){
           // Filtered system events can advance without a model; genuine blocked prefixes cannot.
@@ -228,8 +228,9 @@ export class Dreaming {
           // Fit the actual scope before fixing the child cutoff. No packing attempt calls the model.
           let materialBudget=budget;
           let input=await render();
-          while(await capacity.measure(input)+current.batch.inputTokens>capacity.limit){
-            const excess=await capacity.measure(input)+current.batch.inputTokens-capacity.limit;
+          let measured=await capacity.measure(input);
+          while(measured>capacity.limit){
+            const excess=measured-capacity.limit;
             materialBudget=Math.min(materialBudget-1,current.batch.inputTokens-excess-512);
             if(materialBudget<=0||!current.batch.units.length)throw new Error('Dreaming fixed input leaves no capacity for source material.');
             const id=current.batch.id;
@@ -239,6 +240,7 @@ export class Dreaming {
             materials=await this.sources.children(config.agentId,target,batch,options);
             includeConversations();
             input=await render();
+            measured=await capacity.measure(input);
           }
           batch=current.batch;
           const summaries:TaskSummary[]=deferred?.summaries??[];
@@ -265,15 +267,11 @@ export class Dreaming {
             current.summaries.push(summary);
             const candidate=await render();
             const materialSize=usedMaterial+estimateInputTokens(await readFile(summary.path,'utf8'));
-            if(await capacity.measure(candidate)+materialSize<=capacity.limit&&materialSize<=budget){input=candidate;usedMaterial=materialSize;}
+            if(materialSize<=budget&&await capacity.measure(candidate)<=capacity.limit){input=candidate;usedMaterial=materialSize;}
             else{current.summaries.pop();remaining.push(summary);}
           }
           if(remaining.length&&!batch.units.length&&!current.summaries.length)throw new Error('A task summary does not fit the available input capacity; it remains unintegrated.');
-          for(const summary of current.summaries){
-            await writeFile(join(current.directory,'summaries',`${key(summary.sessionId)}.md`),await readFile(summary.path,'utf8'),{mode:0o400});
-          }
-          for(const material of renderSessionMaterials(current.batch.units))await writeFile(join(current.directory,'sources',`${key(material.sessionId)}.md`),material.text,{mode:0o400});
-          return render();
+          return input;
         });
         signal.throwIfAborted();await assertDreamingSources(library,run.generation);
         run.state='completed';run.endedAt=this.now();run.summary=this.summary(run);await this.saveRun(run);
@@ -332,29 +330,26 @@ export class Dreaming {
     return summary;
   }
   private async prepare(run:DreamingRun,library:MemoryDocuments):Promise<void>{
-    for(const directory of [run.directory,join(run.directory,'sources'),join(run.directory,'summaries')]){await mkdir(directory,{recursive:true,mode:0o700});await chmod(directory,0o700);}
+    await mkdir(run.directory,{recursive:true,mode:0o700});await chmod(run.directory,0o700);
     const versions=run.stage==='consolidate'?await library.versions():{};
+    const start=run.stage==='consolidate'?await library.batchStart():undefined;
     const legacy=run.importLegacy?await this.importFiles(run,library):[];
     if(run.importLegacy&&!legacy.length)throw new Error('No registered Markdown legacy backup is available for this owner.');
-    await writeFile(join(run.directory,'manifest.json'),JSON.stringify({versions,legacy}),{mode:0o600});
+    await writeFile(join(run.directory,'manifest.json'),JSON.stringify({versions,legacy,start}),{mode:0o600});
   }
   private async renderInput(run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,roleContext:string[]=[]):Promise<string>{
     const inputs=[...roleContext];
     if(run.stage==='extract')inputs.push('# Task extraction',run.batch.text??'');
     else{
-      inputs.push('# Batch materials (read every listed file completely)');
-      for(const sessionId of new Set(run.batch.units.map(unit=>unit.sessionId)))inputs.push(`Main Agent original trajectory: ${join(run.directory,'sources',`${key(sessionId)}.md`)}\nSource session_id: ${sessionId}`);
+      inputs.push('# Batch materials (evidence included below)');
+      for(const material of renderSessionMaterials(run.batch.units))inputs.push(`## Main Agent trajectory\n${material.text}`);
       for(const summary of run.summaries){
         const text=await readFile(summary.path,'utf8');if(memoryDigest(text)!==summary.hash)throw new Error('Task summary changed before snapshot.');
-        inputs.push(`${summary.noSignal?'Subagent trajectory summary with no signal; old summary retired':owner.integrated[summary.sessionId]?'Updated subagent trajectory summary; replaces the same source':'New subagent trajectory summary'}: ${join(run.directory,'summaries',`${key(summary.sessionId)}.md`)}\nSource session_id: ${summary.sessionId}`);
+        inputs.push(`## ${summary.noSignal?'Subagent trajectory summary with no signal; old summary retired':owner.integrated[summary.sessionId]?'Updated subagent trajectory summary; replaces the same source':'New subagent trajectory summary'}\nSource session_id: ${summary.sessionId}\n\n${text}`);
       }
-      const view=await library.context().catch(async error=>{
-        if(error.code!=='ENOENT')throw error;
-        return {root:library.root,versions:await library.versions(),entry:undefined,missing:true};
-      });
-      inputs.push(`Contents of ${join(view.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${'missing' in view?'MEMORY.md is missing. Restore a concise entry from the current pages and this batch before completing.':view.entry??'Read the complete entry at this path.'}\n</memory_content>`);
-      const unverified=library.unverifiedPaths(view.versions,run.generation);
-      if(unverified.length)inputs.push(`Existing pages awaiting verification: ${JSON.stringify(unverified)}. Read these before completing this batch.`);
+      const entryIssue=await library.entryIssue();
+      const entry=entryIssue?undefined:(await library.context()).entry;
+      inputs.push(`Contents of ${join(library.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${entryIssue?`${entryIssue}. Restore a concise regular file from the current pages and this batch before completing.`:entry??'Read the complete entry at this path.'}\n</memory_content>`);
     }
     if(run.importLegacy){
       const {legacy}=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8'));
@@ -436,7 +431,7 @@ export class Dreaming {
     const summaries=(await this.domain).table('summaries');
     const children=materials.map(material=>{const cached=summaries.get(summaryKey(agentId,material.sessionId));return {sessionId:material.sessionId,
       state:cached?.sourceVersion!==material.sourceVersion||cached.generation!==policy.generation?'pending_extraction':owner.integrated[material.sessionId]!==material.sourceVersion?'pending_integration':'integrated'};});
-    const pending=batch.units.length>0||children.some(child=>child.state!=='integrated')||(await library.gitChanges()).length>0;
+    const pending=batch.units.length>0||children.some(child=>child.state!=='integrated')||(await library.repositoryIssues()).length>0;
     const blocked=[...target.blocked,...batch.blocked];
     return {active:this.active.has(agentId),backlog:{state:pending?'pending':blocked.length?'blocked':'no_eligible_increment',scope:'frozen_sources',
       global:{pending:batch.units.length>0,units:batch.units.length},children,blocked},reviews:(await this.reviews()).filter(run=>run.agentId===agentId).map(({status,summary,at,endedAt})=>({status,summary,at,endedAt}))};

@@ -147,7 +147,6 @@ it.each([
     try {
       await documents.apply({ operationId: 'preferences', path: 'knowledge/preferences.md', beforeHash: null, content: readMarker });
       await writeFile(entry, '# Expert memory\n\n' + documentMarker + '\n\n[Preferences](knowledge/preferences.md)\n');
-      await documents.checkpoint(await documents.versions(), 0);
     } finally { await documents.close(); }
     const legacyRoot = join(home, '.nanoassistant/memory-legacy');
     await mkdir(legacyRoot, { recursive: true });
