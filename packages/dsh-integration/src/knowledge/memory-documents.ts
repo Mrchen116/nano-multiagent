@@ -317,8 +317,9 @@ export class MemoryDocuments {
    * Args:
    *   before: Document hashes captured before this run edited the formal library.
    *   runId: Durable identity for this run's per-path receipts.
+   *   requireVersion: Keep the observation provisional until every changed page matches Git.
    */
-  observeBatch(before: DocumentVersions, runId: string): Promise<{versions: DocumentVersions; receipts: DocumentReceipt[]}> {
+  observeBatch(before: DocumentVersions, runId: string, requireVersion = false): Promise<{versions: DocumentVersions; receipts: DocumentReceipt[]}> {
     return this.serial(async () => {
       await this.refresh();
       const versions = await this.versions();
@@ -329,13 +330,6 @@ export class MemoryDocuments {
       let snapshot: Awaited<ReturnType<MemoryDocuments['headSnapshot']>> | undefined;
       let gitError: string | undefined;
       try { if (receiptPaths.size) snapshot = await this.headSnapshot(receiptPaths); } catch (error) { gitError = String(error); }
-      // A later batch may commit unchanged files left by an interrupted run.
-      for (const receipt of Object.values(this.state.receipts)) {
-        if (receipt.saved && !receipt.versionRecorded && snapshot && !snapshot.unsupported.has(receipt.path) &&
-            (versions[receipt.path] ?? null) === receipt.afterHash && (snapshot.versions[receipt.path] ?? null) === receipt.afterHash) {
-          receipt.versionRecorded = true; receipt.commit = snapshot.head; delete receipt.error;
-        }
-      }
       const receipts: DocumentReceipt[] = [];
       for (const path of changed) {
         const beforeHash = before[path] ?? null; const afterHash = versions[path] ?? null;
@@ -347,8 +341,17 @@ export class MemoryDocuments {
         const versionRecorded = saved && !!snapshot && !snapshot.unsupported.has(path) && (snapshot.versions[path] ?? null) === afterHash;
         const receipt: DocumentReceipt = {operationId:`${runId}:${path}`, path, beforeHash, afterHash, saved, versionRecorded,
           ...(versionRecorded ? {commit:snapshot!.head} : {}), ...(gitError ? {error:gitError} : {})};
-        this.state.receipts[receipt.operationId] = receipt; receipts.push(receipt);
+        receipts.push(receipt);
       }
+      if (requireVersion && receipts.some(receipt => !receipt.versionRecorded)) return {versions, receipts};
+      // A later batch may commit unchanged files left by an interrupted run.
+      for (const receipt of Object.values(this.state.receipts)) {
+        if (receipt.saved && !receipt.versionRecorded && snapshot && !snapshot.unsupported.has(receipt.path) &&
+            (versions[receipt.path] ?? null) === receipt.afterHash && (snapshot.versions[receipt.path] ?? null) === receipt.afterHash) {
+          receipt.versionRecorded = true; receipt.commit = snapshot.head; delete receipt.error;
+        }
+      }
+      for (const receipt of receipts) this.state.receipts[receipt.operationId] = receipt;
       await this.save();
       return {versions, receipts};
     });

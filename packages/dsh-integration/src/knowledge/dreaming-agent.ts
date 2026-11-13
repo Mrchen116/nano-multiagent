@@ -142,13 +142,14 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
       signal.throwIfAborted();
       await assertDreamingSources(library,run.generation);
       if(!issues.length){
-        run.receipts=(await library.observeBatch(manifest.versions,run.id)).receipts;
+        const {receipts}=await library.observeBatch(manifest.versions,run.id,true);
         signal.throwIfAborted();
         await assertDreamingSources(library,run.generation);
-        for(const receipt of run.receipts){
+        for(const receipt of receipts){
           if(!receipt.versionRecorded)issues.push({path:receipt.path,reason:receipt.error??'The saved document does not match the Git version'});
         }
         if(!issues.length){
+          run.receipts=receipts;
           await options.save();
           return;
         }

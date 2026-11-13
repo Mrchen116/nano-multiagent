@@ -271,6 +271,9 @@ describe('native Git batch observation', () => {
     git(root, 'config', 'core.autocrlf', 'true');
     await writeFile(join(root, 'windows.md'), 'Line one.\r\nLine two.\r\n');
     commit(root);
+    const provisional = await documents.observeBatch(before, 'provisional', true);
+    expect(provisional.receipts[0]).toMatchObject({saved:true, versionRecorded:false});
+    expect((await documents.status()).receipts).toEqual([]);
     const observed = await documents.observeBatch(before, 'converted');
     expect(await documents.gitChanges()).toEqual([]);
     expect(observed.receipts[0]).toMatchObject({saved:true, versionRecorded:false});
