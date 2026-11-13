@@ -362,11 +362,9 @@ describe("Agent work view", () => {
       { item_id: "cron-delivery", kind: "cron_delivery", seq: 5, payload: { conversation_id: "target-chat", message_id: "sent-message", text: "Actual scheduled report" } }
     ] };
     mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []} : url.includes("/sessions/") ? page : view), { status: 200 }));
-    const { router } = renderWork();
-    fireEvent.click(await screen.findByText("关联执行 · 1"));
-    fireEvent.click(screen.getByRole("button", { name: `${label} · report cron-session` }));
+    const { router } = renderWork("/settings/agents/global?view=work&work_session=cron-session");
     await screen.findByText("执行记录");
-    expect(screen.getAllByText(`${label} · report`).length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText(`${label} · report`).length).toBeGreaterThanOrEqual(2);
     if (!trigger) expect(screen.queryByText(/Cron · (手动|定时)执行/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("执行记录"));
     expect(screen.getByText("Actual scheduled report")).toBeVisible();
@@ -379,10 +377,8 @@ describe("Agent work view", () => {
     view = { ...view, other_executions: [{ session_id: "workflow-session", scope: "workflow", title: "workflow:raw-title" }] };
     const page = { turns: [{ ...view.turns[0], session_id: "workflow-session", scope: "workflow", origin: "model", trigger: null, items: [] }], next_cursor: null, control_items: [] };
     mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []} : url.includes("/sessions/") ? page : view), { status: 200 }));
-    renderWork();
-    fireEvent.click(await screen.findByText("关联执行 · 1"));
-    fireEvent.click(screen.getByRole("button", { name: "Workflow 执行 workflow-session" }));
-    await waitFor(() => expect(screen.getAllByText("Workflow 执行").length).toBeGreaterThanOrEqual(3));
+    renderWork("/settings/agents/global?view=work&work_session=workflow-session");
+    await waitFor(() => expect(screen.getAllByText("Workflow 执行").length).toBeGreaterThanOrEqual(2));
     expect(screen.queryByText("workflow:raw-title")).not.toBeInTheDocument();
   });
 
@@ -716,7 +712,7 @@ it("loads combined history at the visible boundary and offers retry after a fail
   await screen.findByText("Inbox 唤醒");
   const boundary = earlierPage();
   for (const label of ["控制记录", "关联执行"]) {
-    expect(screen.getByText(label).compareDocumentPosition(boundary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText(label, {exact: true})).not.toBeInTheDocument();
   }
   reachEarlierPage(boundary, false);
   expect(attempts).toBe(0);

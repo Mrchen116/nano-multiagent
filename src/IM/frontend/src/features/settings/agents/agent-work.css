@@ -62,15 +62,6 @@
 .im-work-background>.im-work-link-footer{padding:4px 0 0}
 @media(max-width:700px){.im-work-child-link{min-height:40px}}
 
-.im-work-record-links:not(:empty) {
-  display:flex;
-  flex-wrap:wrap;
-  gap:4px 18px;
-  margin-bottom:12px;
-}
-.im-work-record-links > details { margin-top:0; }
-.im-work-record-links > details[open] { flex-basis:100%; }
-
 .im-work-page-end {
   min-height: 1px;
 }

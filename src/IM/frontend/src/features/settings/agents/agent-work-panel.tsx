@@ -303,10 +303,9 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
     queryKey: ["work-session-metadata", agentId, metadataId], enabled: separate && Boolean(metadataId && metadataId !== view?.main_session_id),
     queryFn: ({signal}) => workRequest<WorkSession>(workSessionPath(agentId, metadataId!), signal), staleTime: Infinity, retry: false,
   });
-  const [catalogOpen, setCatalogOpen] = useState(false);
   const catalogKey = ["work-catalog", agentId];
   const catalog = useInfiniteQuery({
-    queryKey: catalogKey, enabled: separate && (catalogOpen || nativeMode), initialPageParam: "", staleTime: Infinity,
+    queryKey: catalogKey, enabled: separate && nativeMode, initialPageParam: "", staleTime: Infinity,
     queryFn: ({pageParam, signal}) => workRequest<WorkCatalogPage>(workCatalogPath(agentId, pageParam ? {after_session: pageParam} : {}), signal),
     getNextPageParam: page => page.next_cursor ?? undefined,
   });
@@ -479,14 +478,6 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
         }}>{tr("查看最新轮次")}</button>}
         {online && view.record_sync_state !== "current" && <p className="im-work-callout" role="status">{tr(view.record_sync_state === "catching_up" ? "工作记录正在补齐，当前显示已保存内容。" : "当前显示已保存记录，最新进度尚未确认。")}</p>}
         <div className="im-work-latest im-work-card"><Usage value={view.latest_main_usage} label="最近已报告的主上下文" />{view.main_execution === "running" && <small>{tr("新统计尚未报告时沿用最近轮次")}</small>}</div>
-        <div className="im-work-record-links">
-          {(!continuous || !saved.selected) && (separate && view.main_session_id ? <SessionControls key={view.main_session_id} agentId={agentId} sessionId={view.main_session_id} title="控制记录" /> : <SessionFacts items={view.control_items} title="控制记录" />)}
-          {(!continuous || !saved.selected) && (separate || sessions.length > 0) && <details className="im-work-other" onToggle={event => {if (event.target === event.currentTarget) setCatalogOpen(event.currentTarget.open);}}>
-            <summary>{tr("关联执行")}{!separate && ` · ${sessions.length}`}</summary>
-            {sessions.map(session => <button type="button" key={session.session_id} onClick={() => selectChild(session.session_id)}>{tr(sessionTitle(session))} <small>{session.session_id}</small></button>)}
-            {catalogMore}
-          </details>}
-        </div>
         <div className={`im-work-grid ${saved.selected ? "with-child" : ""}`}>
           {(!continuous || !saved.selected) && <section className="im-work-trace"><header className="im-work-section-head"><h3>{tr("主 Agent")}</h3><small>{tr("最新轮次在前 · 轮次内部按实际顺序")}</small></header>
             {mainTurns.length || mainAnchors.length ? <WorkTurnList turns={mainTurns} anchors={mainAnchors} history={separate ? mainHistory : undefined} continuous={continuous} renderTurn={renderTurn} nextTurnId={viewQuery.data?.pages.at(-1)?.next_turn_id}
