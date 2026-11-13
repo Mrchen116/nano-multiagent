@@ -11,12 +11,12 @@ const files = ['.gitconfig', '.gitmodules', '.bashrc', '.bash_profile', '.zshrc'
 const codexProtectedFiles = files.map(file => file.toLowerCase());
 const canonicalAlias = (path: string) => process.platform === 'darwin' && (path === '/var' || path.startsWith('/var/')) ? `/private${path}` : path;
 const nativeRealpath = promisify(callbackRealpath.native);
-function relativeFile(root: string, target: string): string | undefined {
+function relativeFile(root: string, target: string, codex = true): string | undefined {
   const path = relative(canonicalAlias(root), canonicalAlias(target));
-  return path && path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path) ? path : undefined;
+  return path && path !== '..' && !path.startsWith(`..${sep}`) && !(codex ? isAbsolute(path) : path.startsWith(sep)) ? path : undefined;
 }
 function ordinary(root: string, target: string, codex = false): boolean {
-  const path = relativeFile(root, target);
+  const path = relativeFile(root, target, codex);
   if (!path) return false;
   const parts = (codex ? path.toLowerCase() : path).split(sep);
   const protectedFiles = codex ? codexProtectedFiles : files;

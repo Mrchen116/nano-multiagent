@@ -147,9 +147,10 @@ export class NanoApproval extends Service {
     if (messageContext?.recipient.kind === 'owner') return allow('owner_message');
     if (!policy.enabled) return this.escalate(exec, config, `Permission required for ${exec.name}`, 'manual_required');
     const cwd = agent.session.header.cwd;
-    if (cwd && policy.rules === 'codex' && (exec.name === 'edit' || exec.name === 'write')
-      && await codexFileAllowed(cwd, exec.name, exec.arguments, policy)
-      && this.ctx.tools.get(exec.name, agent) === this.ctx.tools.get(exec.name)) return allow('workspace_file');
+    if (cwd && await codexFileAllowed(cwd, exec.name, exec.arguments, policy)) {
+      const nativeTool = this.ctx.tools.get(exec.name);
+      if (nativeTool && this.ctx.tools.get(exec.name, agent) === nativeTool) return allow('workspace_file');
+    }
     const header = agent.session.requestHeader();
     const reviewer = policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model };
     const started = Date.now();
