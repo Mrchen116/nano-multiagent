@@ -6,7 +6,7 @@ import { expect, it } from 'vitest';
 import {stripContextItemId} from 'dsh-agent-context';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it.each(['unread-write', 'failed-read-write', 'normal-stop', 'committed-non-markdown', 'body-only', 'legacy-oversized-index', 'oversized-index', 'rollback-after-three', 'model-error', 'cancelled', 'missing-entry'])(
+it.each(['unread-write', 'failed-read-write', 'normal-stop', 'committed-non-markdown', 'git-conversion', 'body-only', 'legacy-oversized-index', 'oversized-index', 'rollback-after-three', 'model-error', 'cancelled', 'missing-entry'])(
   'checks actual direct edits and source progress after %s', async mode => {
     const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
     const home = await mkdtemp(join(tmpdir(), 'nano-dreaming-incomplete-'));
@@ -33,6 +33,8 @@ export function apply(ctx) {
       }
       const calls = mode === 'missing-entry'
         ? [['bash', {description:'Commit deletion of the root entry',command:'git rm -- MEMORY.md && git -c user.name=Nano -c user.email=memory@localhost commit -m "Remove entry" && git status --porcelain'}, 'commit-deletion']]
+        : mode === 'git-conversion'
+        ? [['bash', {description:'Commit a normalized Markdown page',command:"git config core.autocrlf true && printf 'A line.\\r\\n' > converted.md && git add -- converted.md && git -c user.name=Nano -c user.email=memory@localhost commit -m 'Normalize page'"}, 'normalized-page']]
         : mode === 'rollback-after-three'
         ? [['bash', {description:'Commit a change and leave new scratch files',command:"printf '%s' '# Batch edit' > MEMORY.md && git add -- MEMORY.md && git -c user.name=Nano -c user.email=memory@localhost commit -m 'Batch edit' && mkdir -p scratch && touch scratch/new.txt untracked.md"}, 'invalid-batch']]
         : mode === 'unread-write' ? [write]
@@ -61,6 +63,8 @@ export function apply(ctx) {
           }
         } else if (mode === 'missing-entry') {
           call = ['bash', {description:'Restore and commit the root entry',command:"printf '%s' '# Restored entry' > MEMORY.md && git add -- MEMORY.md && git -c user.name=Nano -c user.email=memory@localhost commit -m 'Restore entry'"}, 'batch-commit'];
+        } else if (mode === 'git-conversion') {
+          call = ['bash', {description:'Make working-tree bytes match Git',command:'git show HEAD:converted.md > converted.md'}, 'batch-commit'];
         } else if (mode === 'committed-non-markdown') {
           call = ['bash', {description:'Remove the unsupported committed file',command:'git rm -- .gitignore && git -c user.name=Nano -c user.email=memory@localhost commit -m "Remove unsupported file"'}, 'batch-commit'];
         } else {
@@ -187,6 +191,12 @@ export function apply(ctx) {
         expect(feedback?.content[0].text).toContain('{"path":".gitignore","reason":"Expected a regular Markdown file"}');
         expect(execFileSync('git', ['status','--porcelain'], {cwd:memory,encoding:'utf8'})).toBe('');
         expect(execFileSync('git', ['log','-1','--format=%s'], {cwd:memory,encoding:'utf8'}).trim()).toBe('Remove unsupported file');
+      }
+      if (mode === 'git-conversion') {
+        const feedback = maintenance.flatMap(request => request.messages).find(message => message.source?.channel === 'dreaming-git-status');
+        expect(feedback?.content[0].text).toContain('The saved document does not match the Git version');
+        expect(await readFile(join(memoryRoot,'converted.md'),'utf8')).toBe('A line.\n');
+        expect(git('status','--porcelain')).toBe('');
       }
       if (mode === 'body-only') {
         const memory = join(home, '.nanoassistant/memory');

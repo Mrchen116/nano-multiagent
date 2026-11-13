@@ -145,8 +145,13 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
         run.receipts=(await library.observeBatch(manifest.versions,run.id)).receipts;
         signal.throwIfAborted();
         await assertDreamingSources(library,run.generation);
-        await options.save();
-        return;
+        for(const receipt of run.receipts){
+          if(!receipt.versionRecorded)issues.push({path:receipt.path,reason:receipt.error??'The saved document does not match the Git version'});
+        }
+        if(!issues.length){
+          await options.save();
+          return;
+        }
       }
       if(feedback===3){
         const failure=`Dreaming 在 3 次修复反馈后仍有仓库问题：${JSON.stringify(issues)}。`;
