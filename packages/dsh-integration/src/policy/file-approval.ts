@@ -2,23 +2,26 @@ import { realpath as callbackRealpath } from 'node:fs';
 import { lstat, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { promisify } from 'node:util';
-import { dirname, basename, join, relative, resolve, sep } from 'node:path';
+import { dirname, basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ApprovalConfiguration } from '@nano/product-contracts';
 
 const directories = new Set(['.git', '.vscode', '.idea', '.claude', '.nano', '.nano-assistant', '.nanocode', '.nanoassistant', '.codex']);
 const codexProtectedDirectories = new Set(['.agents', '.aws', '.ssh']);
 const files = ['.gitconfig', '.gitmodules', '.bashrc', '.bash_profile', '.zshrc', '.zprofile', '.profile', '.mcp.json', '.ripgreprc', 'AGENTS.md', 'CLAUDE.md'];
+const codexProtectedFiles = files.map(file => file.toLowerCase());
 const canonicalAlias = (path: string) => process.platform === 'darwin' && (path === '/var' || path.startsWith('/var/')) ? `/private${path}` : path;
 const nativeRealpath = promisify(callbackRealpath.native);
-function ordinary(root: string, target: string, foldCase = false): boolean {
+function relativeFile(root: string, target: string): string | undefined {
   const path = relative(canonicalAlias(root), canonicalAlias(target));
-  if (!path || path === '..' || path.startsWith(`..${sep}`) || path.startsWith(sep)) return false;
-  const parts = (foldCase ? path.toLowerCase() : path).split(sep);
-  return !parts.some((part, index) => files.some(file => {
-    const name = foldCase ? file.toLowerCase() : file;
-    return part === name || part.startsWith(`${name}.`);
-  })
-    || foldCase && codexProtectedDirectories.has(part)
+  return path && path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path) ? path : undefined;
+}
+function ordinary(root: string, target: string, codex = false): boolean {
+  const path = relativeFile(root, target);
+  if (!path) return false;
+  const parts = (codex ? path.toLowerCase() : path).split(sep);
+  const protectedFiles = codex ? codexProtectedFiles : files;
+  return !parts.some((part, index) => protectedFiles.some(name => part === name || part.startsWith(`${name}.`))
+    || codex && codexProtectedDirectories.has(part)
     || directories.has(part) && !(part === '.claude' && parts[index + 1] === 'worktrees' && index + 2 < parts.length));
 }
 async function resolvedTarget(path: string, resolveReal: (path: string) => Promise<string> = realpath): Promise<string> {
@@ -73,13 +76,19 @@ export async function codexFileAllowed(cwd: string, name: string, args: unknown,
       throw error;
     });
     if (existing && !existing.isFile()) return false;
+    let allowed = false;
     for (const root of roots) {
       const realRoot = await nativeRealpath(root).catch(() => undefined);
-      if (realRoot && (ordinary(root, target, true) || ordinary(realRoot, target, true))
-        && ordinary(realRoot, realTarget, true)) return true;
+      if (!realRoot) continue;
+      const spelledRoot = relativeFile(root, target) ? root : realRoot;
+      const lexicalMatch = relativeFile(spelledRoot, target);
+      const realMatch = relativeFile(realRoot, realTarget);
+      // A narrower workspace root cannot hide a protected component under a temporary root.
+      if ((lexicalMatch && !ordinary(spelledRoot, target, true)) || (realMatch && !ordinary(realRoot, realTarget, true))) return false;
+      allowed ||= Boolean(lexicalMatch && realMatch);
     }
+    return allowed;
   } catch {
     return false;
   }
-  return false;
 }

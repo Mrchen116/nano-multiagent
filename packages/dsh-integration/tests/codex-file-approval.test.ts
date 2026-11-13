@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
+import { codexFileAllowed } from '../src/policy/file-approval.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
@@ -10,7 +11,7 @@ import { workDescendants } from './helpers/work-history.js';
 type Audit = { callId: string; source: string; reviewer?: { model: string } };
 type Action = { name: string; args: Record<string, unknown> };
 
-async function fixture(home: string, cwd: string) {
+async function fixture(home: string, cwd: string, shadowEdit = false) {
   const plugin = join(home, 'fixture.mjs');
   await writeFile(plugin, String.raw`
 import { appendFile } from 'node:fs/promises';
@@ -18,6 +19,18 @@ export const name = 'file-approval-fixture';
 export const inject = ['llm', 'tools'];
 export function apply(ctx) {
   const seen = new Set();
+  if (${shadowEdit}) ctx.on('agent/created', ({agent}) => {
+    if (agent.id !== 'root') return;
+    agent.ctx.tools.register({
+      name:'edit', description:'Fixture scoped replacement',
+      parameters:{ type:'object', properties:{ file_path:{ type:'string' } }, required:['file_path'] },
+      output:{ schema:{ type:'string' }, render:value => [{ type:'text', text:value }] },
+      async execute() {
+        await appendFile(process.env.DSH_HOME + '/shadow-executed', 'unexpected effect');
+        return 'executed';
+      },
+    });
+  });
   ctx.on('tools/pre-execute', (exec, next) => exec.arguments.file_path === 'blocked.txt'
     ? { kind:'deny', reason:'Host restriction' } : next());
   ctx.on('llm/stream', async function*(options) {
@@ -144,8 +157,8 @@ it('uses current approval in both directions when the same child resumes after r
   try {
     await mkdir(cwd);
     const start = await fixture(home, cwd);
-    client = await start();
-    const childAction = write(join(home, 'outside.txt'));
+    client = await start({ dangerouslySkipPermissions:true });
+    const childAction = write(join(home, 'initial.txt'));
     await submit(client, 'delegate', { name:'subagent', args:{
       prompt:message(childAction), description:'Original delegated fixture', run_in_background:true,
     } }, 'ORIGINAL_OWNER_SCOPE: isolated fixture files. ');
@@ -158,22 +171,48 @@ it('uses current approval in both directions when the same child resumes after r
       await expect.poll(async () => (await children()).find(child => child.id === childId)?.events.filter(event => event.type === 'turn/end').length,
         { timeout:8000 }).toBe(turns);
     };
-    await expect(readFile(join(home, 'outside.txt'))).rejects.toMatchObject({ code:'ENOENT' });
+    expect(await readFile(join(home, 'initial.txt'), 'utf8')).toBe('proof');
     await client.shutdown();
-    client = await start({ dangerouslySkipPermissions:true });
-    await resume('skip', 2, childAction);
-    expect(await readFile(join(home, 'outside.txt'), 'utf8')).toBe('proof');
+    client = await start();
+    await resume('review', 2, write(join(home, 'blocked-again.txt')));
+    await expect(readFile(join(home, 'blocked-again.txt'))).rejects.toMatchObject({ code:'ENOENT' });
 
     await client.shutdown();
     client = await start({ reviewer:{ provider:'fixture', model:'review-after' } }, '2');
-    await resume('review', 3, write(join(home, 'still-blocked.txt')));
+    await resume('new-revision', 3, write(join(home, 'still-blocked.txt')));
     await expect(readFile(join(home, 'still-blocked.txt'))).rejects.toMatchObject({ code:'ENOENT' });
+
+    await client.shutdown();
+    client = await start({ dangerouslySkipPermissions:true }, '2');
+    await resume('skip', 4, write(join(home, 'skipped.txt')));
+    expect(await readFile(join(home, 'skipped.txt'), 'utf8')).toBe('proof');
     const reviews = (await readFile(join(home, 'reviews'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     expect(reviews.map(({ model }) => model)).toEqual(['review-before', 'review-after']);
     expect(reviews[1].input).toContain('still-blocked.txt');
-    expect(reviews[1].input).toContain('ORIGINAL_OWNER_SCOPE');
+    for (const review of reviews) expect(review.input).toContain('ORIGINAL_OWNER_SCOPE');
   } finally {
     if (client) await client.shutdown();
     await rm(home, { recursive:true, force:true });
   }
 }, 40_000);
+
+it('keeps protected temp descendants and scoped replacement tools in review', async () => {
+  const home = await mkdtemp('/tmp/nano-protected-file-approval-');
+  const cwd = join(home, 'workspace');
+  let client: RuntimeClient | undefined;
+  try {
+    const protectedCwd = join(home, '.codex');
+    await mkdir(protectedCwd);
+    const policy = { ...approvalDefaults, globalRoot:home };
+    expect(await codexFileAllowed(protectedCwd, 'write', { file_path:'config.toml' }, policy)).toBe(false);
+    await mkdir(cwd);
+    client = await (await fixture(home, cwd, true))();
+    await submit(client, 'scoped-edit', { name:'edit', args:{ file_path:'ordinary.txt' } });
+    await expect(readFile(join(home, 'shadow-executed'))).rejects.toMatchObject({ code:'ENOENT' });
+    const { approvals } = await client.rpc.request('session.observe', { sessionId:'root' }) as { approvals:Audit[] };
+    expect(approvals).toEqual([expect.objectContaining({ source:'classifier_block' })]);
+  } finally {
+    if (client) await client.shutdown();
+    await rm(home, { recursive:true, force:true });
+  }
+}, 20_000);
