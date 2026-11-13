@@ -764,7 +764,7 @@ it("opens nested delegation from its real graph node and restores the chosen win
   view = {...view, timeline: "combined", catalog: "separate", record_sync_state: "current"};
   mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
     url === "/im/v1/conversations" ? {items: []}
-    : url.includes("/work/delegation") ? {main_session_id: "main", record_sync_state: "current", nodes: [
+    : url.includes("/work/delegation") ? {main_session_id: "main", record_sync_state: url.includes("window=2h") ? "catching_up" : "unknown", nodes: [
       node("main", null, "Parent", 900), node("child", "main", "First child", 40), node("nested", "child", "Second child", 10),
     ], next_cursor: null}
     : url.includes("/sessions/nested/turns") ? {turns: [], next_cursor: null}
@@ -774,8 +774,10 @@ it("opens nested delegation from its real graph node and restores the chosen win
   renderWork();
   fireEvent.click(await screen.findByRole("tab", {name: "派工关系"}));
   expect(await screen.findByText("900 tok")).toBeVisible();
+  expect(screen.getByText("已保存记录", {exact: true})).toHaveAttribute("role", "status");
   expect(screen.getByText("40 tok")).toBeVisible();
   fireEvent.change(screen.getByRole("combobox", {name: "活动范围"}), {target: {value: "2h"}});
+  expect(await screen.findByText("记录同步中", {exact: true})).toHaveAttribute("role", "status");
   fireEvent.click(await screen.findByRole("button", {name: /Second child.*10 tok/}));
   expect(await screen.findByRole("heading", {name: "Second child"})).toBeVisible();
   expect(screen.queryByRole("heading", {name: "主 Agent"})).not.toBeInTheDocument();

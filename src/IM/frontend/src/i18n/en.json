@@ -754,6 +754,8 @@
       "该回复的工作记录尚未同步或不可用。": "Work records for this reply have not synced yet or are unavailable.",
       "查看最新轮次": "View latest turns",
       "重试": "Retry",
+      "已保存记录": "Saved records",
+      "记录同步中": "Syncing records",
       "节点离线 · 已保存记录": "Node offline · Saved records",
       "最近已报告的主上下文": "Latest reported main context",
       "工作记录正在补齐，当前显示已保存内容。": "Work records are catching up. Showing saved content.",

@@ -1,4 +1,5 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
+import { Archive, LoaderCircle } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 import { i18n } from "../../../i18n";
@@ -70,6 +71,7 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
     getNextPageParam: page => page.next_cursor ? {after: page.next_cursor, until: page.until} : undefined,
   });
   const head = workAccessLost(pages.error) ? undefined : pages.data?.pages[0];
+  const catchingUp = head?.record_sync_state === "catching_up";
   const byId = new Map<string, WorkDelegationNode>();
   for (const page of (head && pages.data?.pages) || []) for (const node of page.nodes) {
     if (!byId.has(node.session_id) || !node.ancestor_only) byId.set(node.session_id, node);
@@ -129,7 +131,14 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
 
   return <section className="im-work-graph" hidden={!visible} aria-label={tr("派工关系")}>
     <header className="im-work-graph-toolbar">
-      {head?.from && head.until && <time dateTime={head.until}>{timestamp(head.from)} – {timestamp(head.until)}</time>}
+      <div className="im-work-graph-period">
+        {head?.from && head.until && <time dateTime={head.until}>{timestamp(head.from)} – {timestamp(head.until)}</time>}
+        {head && head.record_sync_state !== "current" && <span className="im-work-graph-sync" role="status"
+          title={tr(catchingUp ? "工作记录正在补齐，当前显示已保存内容。" : "当前显示已保存记录，最新进度尚未确认。")}>
+          {catchingUp ? <LoaderCircle aria-hidden="true" size={13} className="motion-safe:animate-spin" /> : <Archive aria-hidden="true" size={13} />}
+          {tr(catchingUp ? "记录同步中" : "已保存记录")}
+        </span>}
+      </div>
       <label className="im-work-graph-range">
         <span>{tr("活动范围")}</span>
         <select value={window} onChange={event => setWindow(event.currentTarget.value === "2h" ? "2h" : "3d")}>
@@ -141,7 +150,6 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
     {pages.isLoading && <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p>}
     {pages.isError && <p role="alert" className="im-work-callout">{pages.error.message} <button type="button"
       onClick={() => pages.isFetchNextPageError ? void pages.fetchNextPage() : void pages.refetch()}>{tr("重试")}</button></p>}
-    {head && head.record_sync_state !== "current" && <p className="im-work-callout" role="status">{tr("当前显示已保存记录，最新进度尚未确认。")}</p>}
     {head && <div className="im-work-graph-canvas">
       {byParent.get(null)?.length ? <>
         <div className="im-work-graph-columns" aria-hidden="true">
