@@ -251,6 +251,20 @@ describe('native Git batch observation', () => {
     expect(await documents.versions()).not.toHaveProperty('MEMORY.md');
   });
 
+  it('rejects ignored memory pages and committed hidden documents even when Git is clean', async () => {
+    const {documents, root} = await library();
+    await writeFile(join(root, '.git/info/exclude'), 'ignored.md\n');
+    await writeFile(join(root, 'ignored.md'), 'Not recorded in Git.');
+    await mkdir(join(root, '.hidden'));
+    await writeFile(join(root, '.hidden/page.md'), 'Outside the supported memory layout.');
+    commit(root);
+    expect(await documents.gitChanges()).toEqual([]);
+    expect(await documents.repositoryIssues()).toEqual(expect.arrayContaining([
+      {path:'ignored.md',reason:'Ignored Markdown file is not recorded in Git'},
+      {path:'.hidden',reason:'Expected a regular Markdown file'},
+    ]));
+  });
+
   it('does not mistake a clean Git conversion for matching actual document bytes', async () => {
     const {documents, root} = await library();
     const before = await documents.versions();

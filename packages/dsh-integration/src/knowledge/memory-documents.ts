@@ -238,6 +238,12 @@ export class MemoryDocuments {
   async repositoryIssues(): Promise<Array<{path: string; reason: string; status?: string}>> {
     const issues: Array<{path: string; reason: string; status?: string}> = (await this.gitChanges()).map(({path,status}) =>
       ({path,status,reason:'Uncommitted change'}));
+    // Porcelain status omits ignored files, even when they are formal memory pages.
+    const ignored = splitNul(await command(this.root, ['ls-files', '--others', '--ignored', '--exclude-standard', '-z'],
+      undefined, this.gitEnvironment(), {raw:true}));
+    for (const path of ignored) {
+      if (path.endsWith('.md')) issues.push({path,reason:'Ignored Markdown file is not recorded in Git'});
+    }
     const entryIssue = await this.entryIssue();
     if (entryIssue) issues.push({path:'MEMORY.md',reason:entryIssue});
     else {
@@ -248,7 +254,8 @@ export class MemoryDocuments {
       for (const item of await readdir(join(this.root, directory), {withFileTypes:true})) {
         if (!directory && (item.name === '.git' || item.name === 'MEMORY.md')) continue;
         const path = join(directory, item.name);
-        if (item.isDirectory()) await walk(path);
+        if (item.name.startsWith('.')) issues.push({path,reason:'Expected a regular Markdown file'});
+        else if (item.isDirectory()) await walk(path);
         else if (!item.isFile() || !path.endsWith('.md')) issues.push({path,reason:'Expected a regular Markdown file'});
       }
     };
