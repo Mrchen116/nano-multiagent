@@ -64,7 +64,7 @@ export function apply(ctx) {
         } else if (mode === 'missing-entry') {
           call = ['bash', {description:'Restore and commit the root entry',command:"printf '%s' '# Restored entry' > MEMORY.md && git add -- MEMORY.md && git -c user.name=Nano -c user.email=memory@localhost commit -m 'Restore entry'"}, 'batch-commit'];
         } else if (mode === 'git-conversion') {
-          call = ['bash', {description:'Make working-tree bytes match Git',command:'git show HEAD:converted.md > converted.md'}, 'batch-commit'];
+          call = ['bash', {description:'Make working-tree bytes match Git',command:'git config core.autocrlf false && git show HEAD:converted.md > converted.md && git add -- converted.md'}, 'batch-commit'];
         } else if (mode === 'committed-non-markdown') {
           call = ['bash', {description:'Remove the unsupported committed file',command:'git rm -- .gitignore && git -c user.name=Nano -c user.email=memory@localhost commit -m "Remove unsupported file"'}, 'batch-commit'];
         } else {
@@ -130,7 +130,7 @@ export function apply(ctx) {
       expect(facts.reviews).toHaveLength(1);
       const failed = ['model-error', 'cancelled'].includes(mode);
       const rolledBack = mode === 'rollback-after-three';
-      expect(facts.reviews[0]).toMatchObject({ status: rolledBack ? 'failed' : failed ? 'partial' : 'completed' });
+      expect(facts.reviews[0], facts.reviews[0]?.summary).toMatchObject({ status: rolledBack ? 'failed' : failed ? 'partial' : 'completed' });
       if (failed) {
         expect(facts.reviews[0]!.summary).toContain('did not complete');
         expect(facts.reviews[0]!.summary).toContain('整理进度未推进');
