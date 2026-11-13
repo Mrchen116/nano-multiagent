@@ -6,10 +6,10 @@ import type { SessionBinding } from '../index.js';
 import { qualifiedEvents, safeBoundary, sourceConversations } from './memory-source-view.js';
 import { estimateInputTokens } from './dreaming-budget.js';
 import { isHumanSource } from '../input-source.js';
-import { historyLocators, nativeMaterial, renderMaterial, renderSessionMaterials, type HistoryLocators } from './memory-trajectory.js';
+import { batchToolResult, historyLocators, nativeMaterial, renderMaterial, renderSessionMaterials, type HistoryLocators } from './memory-trajectory.js';
 export { renderMaterial, renderSessionMaterials } from './memory-trajectory.js';
 
-export interface SourceContinuation { hash: string; offset: number; messageId?: string; segment?: number }
+export interface SourceContinuation { hash: string; offset: number; messageId?: string; segment?: number; boundedToolOutput?: true }
 export interface StreamProgress { baseline: number; cursor: number; continuation?: SourceContinuation }
 /** Commit only reviewed pages; a logical unit's cursor advances after its last page. */
 export function commitSourceRange(progress: StreamProgress, range: FrozenBatch['ranges'][number]): void {
@@ -82,7 +82,7 @@ export class MemorySources {
         if (observation.source === 'live') {
           if (!live || this.ctx.sessions.get(id) !== live || !await this.ctx.sessions.flush(live)) throw new Error('Observed source cut could not be durably certified.');
         } else if (!observation.revision) throw new Error('Cold source has no durable revision.');
-        const pending = new Set<string>(); const calls = new Map<string,SessionEvent>();
+        const pending = new Set<string>(); const calls = new Map<string,Extract<SessionEvent,{type:'tool/call'}>>();
         let start = Math.max(progress.cursor, progress.baseline); let through = start; let selected: unknown[] = [];
         let stopped = false; let continuation: SourceContinuation | undefined;
         for (const event of events) {
@@ -93,9 +93,13 @@ export class MemorySources {
             selected.push(nativeMaterial(event, locators[event.seq]));
           } else if (event.type === 'tool/result') {
             pending.delete(event.data.message.toolCallId);
-            if (!calls.has(event.data.message.toolCallId)) { result.blocked.push({ sessionId: id, reason: 'Unpaired result; source prefix is incomplete.' }); stopped = true; break; }
-            (result.conversations ??= []).push(...sourceConversations([calls.get(event.data.message.toolCallId)!,event]));
-            selected.push(nativeMaterial(event, locators[event.seq]));
+            const call = calls.get(event.data.message.toolCallId);
+            if (!call) { result.blocked.push({ sessionId: id, reason: 'Unpaired result; source prefix is incomplete.' }); stopped = true; break; }
+            (result.conversations ??= []).push(...sourceConversations([call,event]));
+            // Older continuations were computed against full tool output.
+            selected.push(progress.continuation && start === progress.cursor && !progress.continuation.boundedToolOutput
+              ? nativeMaterial(event, locators[event.seq])
+              : batchToolResult(event, call.data.name, locators[event.seq]));
           } else if (event.type === 'user/message') {
             const source = event.data.source;
             if (isHumanSource(source) || source.kind === 'agent-message' || source.kind === 'subagent-settled') {
@@ -111,6 +115,7 @@ export class MemorySources {
             if (tokens > options.maxInputTokens || progress.continuation && start === progress.cursor) {
               const segments = materialSegments(selected);
               const saved = progress.continuation;
+              const boundedToolOutput = !saved || saved.boundedToolOutput ? {boundedToolOutput:true as const} : {};
               const candidate = saved?.segment ?? 0;
               const matches = segments[candidate] && saved?.messageId === segments[candidate]!.messageId && saved.hash === hash(segments[candidate]!.text);
               const segment = matches ? candidate : 0;
@@ -133,8 +138,8 @@ export class MemorySources {
                   events:pageEvents,page:{offset,end,total:characters.length,hash:bodyHash} });
                 result.inputTokens += estimateInputTokens(JSON.stringify(pageEvents));
                 if(complete)through=event.seq;
-                else if(segmentComplete){const next=segments[segment+1]!;continuation={hash:hash(next.text),offset:0,messageId:next.messageId,segment:segment+1};}
-                else continuation={hash:bodyHash,offset:end,messageId:item.messageId,segment};
+                else if(segmentComplete){const next=segments[segment+1]!;continuation={hash:hash(next.text),offset:0,messageId:next.messageId,segment:segment+1,...boundedToolOutput};}
+                else continuation={hash:bodyHash,offset:end,messageId:item.messageId,segment,...boundedToolOutput};
               }
               result.blocked.push({ sessionId:id,reason:'Original message material continues on the next bounded page; the complete-step cursor advances only after every segment.' });
               stopped = true; break;
@@ -273,35 +278,49 @@ export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'ro
     const callId = event.type === 'tool/call' ? event.data.callId : event.type === 'tool/result' ? event.data.message.toolCallId : undefined;
     return callId ? JSON.stringify([entry.sessionId, entry.inherited, callId]) : undefined;
   };
+  const locators = material.historyLocators ?? {
+    [material.rootSessionId]: historyLocators(material.rootSessionId, material.inheritedEvents),
+    [material.sessionId]: historyLocators(material.sessionId, material.events),
+  };
+  const toolNames = new Map<string, string>();
+  for (const entry of entries) {
+    if (entry.event.type === 'tool/call') toolNames.set(groupKey(entry)!, entry.event.data.name);
+  }
+  const records = entries.map(entry => {
+    const {event,sessionId,inherited} = entry;
+    const locator = locators[sessionId]?.[event.seq];
+    return event.type === 'tool/result'
+      ? batchToolResult(event, toolNames.get(groupKey(entry)!), locator)
+      : nativeMaterial(event, locator, {mainAgentSessionId:material.rootSessionId,delegated:!inherited && material.sessionId !== material.rootSessionId});
+  });
+  const sizes = entries.map((entry, index) => {
+    const content = records[index]?.content;
+    const event = entry.event;
+    return estimateInputTokens(JSON.stringify(event.type === 'tool/result' && typeof content === 'string'
+      ? {...entry,event:{...event,data:{...event.data,message:{...event.data.message,content}}}}
+      : entry));
+  });
   const groups = new Map<string, {indices:number[];size:number}>();
   for (const [index, entry] of entries.entries()) {
     const key = groupKey(entry);
     if (!key) continue;
     const group = groups.get(key) ?? {indices:[],size:0};
     group.indices.push(index);
-    group.size += estimateInputTokens(JSON.stringify(entry));
+    group.size += sizes[index]!;
     groups.set(key, group);
   }
   const selected = new Set<number>(); let used = 0;
   for (const {index,entry} of entries.map((entry,index)=>({entry,index})).sort((a,b)=>priority(a.entry.event)-priority(b.entry.event) || b.entry.event.time-a.entry.event.time)) {
     if (selected.has(index)) continue;
     const key = groupKey(entry);
-    const group = key ? groups.get(key)! : {indices:[index],size:estimateInputTokens(JSON.stringify(entry))};
+    const group = key ? groups.get(key)! : {indices:[index],size:sizes[index]!};
     if (used + group.size <= maxInputTokens) { for (const i of group.indices) selected.add(i); used += group.size; }
   }
-  const locators = material.historyLocators ?? {
-    [material.rootSessionId]: historyLocators(material.rootSessionId, material.inheritedEvents),
-    [material.sessionId]: historyLocators(material.sessionId, material.events),
-  };
   const sections = [true,false].flatMap(inherited => {
     const sessionId = inherited ? material.rootSessionId : material.sessionId;
-    const records = entries.flatMap((entry,index) => {
-      if (entry.inherited !== inherited || !selected.has(index)) return [];
-      const record = nativeMaterial(entry.event, locators[sessionId]?.[entry.event.seq], {mainAgentSessionId:material.rootSessionId,delegated:!inherited && material.sessionId !== material.rootSessionId});
-      return record ? [record] : [];
-    });
-    if (!records.length) return [];
-    return [`${inherited ? 'Inherited background, not new evidence' : 'Own experience'}\n\n${renderSessionMaterials([{sessionId,events:records}])[0]!.text}`];
+    const selectedRecords = records.filter((_, index) => entries[index]!.inherited === inherited && selected.has(index));
+    if (!selectedRecords.length) return [];
+    return [`${inherited ? 'Inherited background, not new evidence' : 'Own experience'}\n\n${renderSessionMaterials([{sessionId,events:selectedRecords}])[0]!.text}`];
   });
   const text = sections.join('\n\n');
   const omitted = entries.length-selected.size + (material.unavailable??0);
