@@ -21,11 +21,11 @@
 
 [设计第 5 行](design.md#L5) 指向既有普通文件检查及新文件祖先解析。当前辅助函数先以 `path.resolve` 折叠父目录段，再调用 `fs/promises.realpath`。锁定 DSH 的 `dsh-fs-local/lib/index.js` 中，`localDisplayPath` 在 POSIX 保留物理父目录遍历，`resolveLocalTarget` 使用 `realpath.native`。路径中遇到符号链接再返回上级时，审批候选可能显示为 cwd 内文件，原生工具却命中范围外目标。本机只读对照也确认普通 Node realpath 保留 `aGeNtS.mD` 的传入大小写，而 native realpath 返回受保护文件名 `AGENTS.md`。现有根比较还缺少 `/tmp` 与 `/private/tmp` 这组别名的统一处理，本机的 `tmpdir()` 另指向 `/var/folders/…`，所以生产样本的直接 `/private/tmp` 路径不能靠现有 cwd 检查覆盖。
 
-请在 Codex 设计中明确使用与原生执行一致的真实路径及根别名处理。无法确认的物理遍历交回审核。隔离 fixture 覆盖两种临时路径拼写、带父目录段的符号链接以及适用卷上的受保护名称大小写别名，同时保留原 CC 行为。[现有路径判断](../../../packages/dsh-integration/src/policy/cc-workspace.ts#L5)
+请在 Codex 设计中明确使用与原生执行一致的真实路径及根别名处理。无法确认的物理遍历交回审核。隔离 fixture 覆盖两种临时路径拼写、带父目录段的符号链接以及适用卷上的受保护名称大小写别名，同时保留原 CC 行为。[现有路径判断](https://github.com/Mrchen116/nano-multiagent/blob/a82e5e85f3626d981307626bf6d3cb8ceb3b7b58/packages/dsh-integration/src/policy/cc-workspace.ts#L5)
 
 #### R1-W1 · WARNING · 自定义环境事实需要保留 Codex 审核
 
-[设计第 5 行](design.md#L5) 沿用既有自定义规则条件，但 CC 快速路径只检查 `allow`、`softDeny`、`hardDeny`。Codex 把 `environment` 一并交给审核模型，用来判断目标是否为生产、共享或敏感位置。只配置了这类事实时，直接复用 CC 条件会绕过审批所需事实。请明确 Codex 的自定义配置条件包含非默认 `environment`，并以只有该字段的配置覆盖原有审核链路。[CC 条件](../../../packages/dsh-integration/src/policy/cc-workspace.ts#L33) · [Codex 规则组装](../../../packages/dsh-integration/src/policy/codex-context.ts#L30)
+[设计第 5 行](design.md#L5) 沿用既有自定义规则条件，但 CC 快速路径只检查 `allow`、`softDeny`、`hardDeny`。Codex 把 `environment` 一并交给审核模型，用来判断目标是否为生产、共享或敏感位置。只配置了这类事实时，直接复用 CC 条件会绕过审批所需事实。请明确 Codex 的自定义配置条件包含非默认 `environment`，并以只有该字段的配置覆盖原有审核链路。[CC 条件](https://github.com/Mrchen116/nano-multiagent/blob/a82e5e85f3626d981307626bf6d3cb8ceb3b7b58/packages/dsh-integration/src/policy/cc-workspace.ts#L33) · [Codex 规则组装](../../../packages/dsh-integration/src/policy/codex-context.ts#L30)
 
 #### R1-W2 · WARNING · 恢复审批需要覆盖历史配置选择的所有分支
 
