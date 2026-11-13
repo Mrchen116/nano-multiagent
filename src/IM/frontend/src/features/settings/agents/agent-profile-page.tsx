@@ -156,7 +156,7 @@ export function AgentProfilePage() {
         </nav>
       </header>
       <div className={`im-agent-panel-body im-agent-detail-body ${work ? "im-agent-work-body" : ""}`}>
-        {work ? <AgentWorkPanel agentId={agent.agent_id!} /> : (
+        {work ? <AgentWorkPanel agentId={agent.agent_id!} agentName={agent.display_name} /> : (
           <section className="im-settings-overview" aria-label={t("agents.publicProfile")}>
             <dl className="im-settings-metadata">
               <div><dt>{t("agents.mode")}</dt><dd>{t(agent.role === "personal" ? "pa.label" : agent.work_mode === "global" ? "agents.globalMode" : "agents.threadMode")}</dd></div>

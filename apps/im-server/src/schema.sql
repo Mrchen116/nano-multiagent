@@ -429,6 +429,11 @@ CREATE TABLE IF NOT EXISTS agent_work_items (
  session_id TEXT, turn_id TEXT, item_id TEXT, seq INTEGER, kind TEXT,
  observed_at TEXT, payload TEXT NOT NULL, revision INTEGER,
  PRIMARY KEY(session_id,turn_id,item_id));
+CREATE TABLE IF NOT EXISTS agent_work_item_previews (
+ session_id TEXT NOT NULL, turn_id TEXT NOT NULL, item_id TEXT NOT NULL,
+ revision INTEGER NOT NULL, payload TEXT NOT NULL,
+ PRIMARY KEY(session_id,turn_id,item_id),
+ FOREIGN KEY(session_id,turn_id,item_id) REFERENCES agent_work_items(session_id,turn_id,item_id) ON DELETE CASCADE);
 CREATE INDEX IF NOT EXISTS task_graphs_owner ON task_graphs(owner_id,updated_at DESC,graph_id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_config_operation_per_agent
 ON agent_config_operations(agent_id)
@@ -657,6 +662,9 @@ END;
 CREATE TABLE IF NOT EXISTS task_lifecycle_schedules (agent_id TEXT NOT NULL,schedule_id TEXT NOT NULL,graph_id TEXT NOT NULL,node_id TEXT NOT NULL,PRIMARY KEY(agent_id,schedule_id));
 
 CREATE INDEX IF NOT EXISTS agent_work_turns_sequence ON agent_work_turns(session_id,seq DESC);
+CREATE INDEX IF NOT EXISTS agent_work_items_standalone_compaction
+  ON agent_work_items(session_id,seq DESC)
+  WHERE turn_id='' AND kind='control_result' AND json_extract(payload,'$.command')='compact';
 CREATE INDEX IF NOT EXISTS agent_work_items_sequence ON agent_work_items(session_id,turn_id,seq);
 CREATE INDEX IF NOT EXISTS agent_work_sessions_catalog ON agent_work_sessions(root_agent_id,session_id);
 CREATE INDEX IF NOT EXISTS agent_work_sessions_current_main ON agent_work_sessions(root_agent_id,session_id)
@@ -674,6 +682,59 @@ CREATE INDEX IF NOT EXISTS conversation_events_time ON conversation_events(creat
 CREATE INDEX IF NOT EXISTS conversation_events_by_chat ON conversation_events(conversation_id,event_id,created_at);
 
 CREATE INDEX IF NOT EXISTS pa_source_events_event ON pa_source_events(source_event_id,binding_id);
+-- Work activity looks at the active subset, including old executions that
+-- began before the delegation graph's selected time window.
+CREATE TABLE IF NOT EXISTS agent_work_active_turns (
+  root_agent_id TEXT NOT NULL, session_id TEXT NOT NULL, turn_id TEXT NOT NULL,
+  seq INTEGER NOT NULL, status TEXT NOT NULL, PRIMARY KEY(session_id,turn_id));
+CREATE INDEX IF NOT EXISTS agent_work_active_turns_root
+  ON agent_work_active_turns(root_agent_id,session_id);
+CREATE INDEX IF NOT EXISTS agent_work_turns_active_status ON agent_work_turns(session_id,seq DESC)
+  WHERE json_extract(payload,'$.status') IN ('running','waiting_permission','unknown');
+CREATE INDEX IF NOT EXISTS agent_work_sessions_unclassified ON agent_work_sessions(root_agent_id,session_id)
+  WHERE scope='subagent' AND json_extract(payload,'$.maintenance_kind') IS NULL AND json_type(payload,'$.child_agent_id') IS NULL;
+CREATE INDEX IF NOT EXISTS agent_work_knowledge_review_links
+  ON agent_work_events(root_agent_id,json_extract(payload,'$.child_session_id'))
+  WHERE type='session_linked' AND event_id GLOB 'knowledge-run:*';
+CREATE INDEX IF NOT EXISTS agent_work_items_latest_tool
+  ON agent_work_items(session_id,turn_id,seq DESC) WHERE kind='tool';
+CREATE INDEX IF NOT EXISTS agent_work_events_dreaming
+  ON agent_work_events(root_agent_id,revision DESC,session_id,turn_id)
+  WHERE type IN ('turn_started','turn_start') AND json_extract(payload,'$.origin')='dreaming';
+CREATE INDEX IF NOT EXISTS agent_work_events_activity_window
+  ON agent_work_events(root_agent_id,(CASE WHEN type IN ('turn_started','turn_start')
+    THEN COALESCE(json_extract(payload,'$.started_at'),observed_at)
+    ELSE COALESCE(json_extract(payload,'$.finished_at'),observed_at) END),session_id,turn_id,type)
+  WHERE type IN ('turn_started','turn_start','turn_end','run_completed','run_failed','run_cancelled');
+CREATE INDEX IF NOT EXISTS agent_work_events_session_window
+  ON agent_work_events(root_agent_id,session_id,(CASE WHEN type IN ('turn_started','turn_start')
+    THEN COALESCE(json_extract(payload,'$.started_at'),observed_at)
+    ELSE COALESCE(json_extract(payload,'$.finished_at'),observed_at) END),turn_id,type)
+  WHERE type IN ('turn_started','turn_start','turn_end','run_completed','run_failed','run_cancelled');
+CREATE TRIGGER IF NOT EXISTS agent_work_active_turn_insert AFTER INSERT ON agent_work_turns
+  WHEN json_extract(NEW.payload,'$.status') IN ('running','waiting_permission','unknown')
+BEGIN
+  INSERT INTO agent_work_active_turns SELECT root_agent_id,NEW.session_id,NEW.turn_id,NEW.seq,json_extract(NEW.payload,'$.status')
+  FROM agent_work_sessions WHERE session_id=NEW.session_id;
+END;
+CREATE TRIGGER IF NOT EXISTS agent_work_active_turn_status AFTER UPDATE OF payload ON agent_work_turns
+  WHEN json_extract(OLD.payload,'$.status') IS NOT json_extract(NEW.payload,'$.status')
+BEGIN
+  DELETE FROM agent_work_active_turns WHERE session_id=NEW.session_id AND turn_id=NEW.turn_id;
+  INSERT INTO agent_work_active_turns SELECT root_agent_id,NEW.session_id,NEW.turn_id,NEW.seq,json_extract(NEW.payload,'$.status')
+  FROM agent_work_sessions WHERE session_id=NEW.session_id AND json_extract(NEW.payload,'$.status') IN ('running','waiting_permission','unknown');
+END;
+CREATE TRIGGER IF NOT EXISTS agent_work_active_turn_delete AFTER DELETE ON agent_work_turns
+BEGIN
+  DELETE FROM agent_work_active_turns WHERE session_id=OLD.session_id AND turn_id=OLD.turn_id;
+END;
+-- Older databases only seed their active subset, so historical completed turns
+-- stay untouched. Newly appended changes maintain this index in the Work transaction.
+INSERT OR IGNORE INTO agent_work_active_turns
+  SELECT s.root_agent_id,t.session_id,t.turn_id,t.seq,json_extract(t.payload,'$.status')
+  FROM agent_work_turns t INDEXED BY agent_work_turns_active_status JOIN agent_work_sessions s USING(session_id)
+  WHERE json_extract(t.payload,'$.status') IN ('running','waiting_permission','unknown');
+
 CREATE INDEX IF NOT EXISTS agent_work_events_root ON agent_work_events(root_agent_id);
 CREATE INDEX IF NOT EXISTS agent_work_events_reply
   ON agent_work_events(root_agent_id,json_extract(payload,'$.message_id'),revision)

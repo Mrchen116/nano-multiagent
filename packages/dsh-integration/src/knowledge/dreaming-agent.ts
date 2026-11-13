@@ -43,6 +43,7 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
     ...(recovery ? [...contextTools] : [])];
   const sessionId=SessionId(`dreaming-${run.id}`);
   const label=dreamingStageTitles[run.stage];
+  let requestedModel: string | undefined;
   const handle=await host.agents.create({sessionId,parentAgent:parent,
     meta:{cwd:directory,parentSession:parent.id,origin:'subagent'},signal,
     agentOptions:{provider:config.provider,model:config.model,...(config.reasoningEffort ? {reasoningEffort:ReasoningEffortId(config.reasoningEffort)} : {}),maxTokens:8192},
@@ -67,6 +68,9 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
           if(size>limit)throw new Error(`Dreaming first input exceeds its model budget (${size} > ${limit}); source progress is unchanged.`);
           firstRequest=false;
         }
+        // Source packing can run extraction in this async context. Only a
+        // request carrying this stage's session identity proves it used a model.
+        if(request.sessionId===sessionId)requestedModel=request.model;
         yield* next();
       },{prepend:true});
       ctx.on('tools/pre-execute',async(exec,next)=>{
@@ -136,5 +140,29 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
         content:[{type:'text',text:`Host Git check: the formal memory repository still has these uncommitted changes (data):\n${JSON.stringify(result.changes)}\nContinue this same batch. Review the remaining changes and use bash to review, git add and git commit when ready. The batch is pending until the host confirms a clean repository.`}],
       }));
     }
-  }finally{signal.removeEventListener('abort',cancel);}
+  } finally {
+    signal.removeEventListener('abort',cancel);
+    // Read the current empty-seeded session once after cancellation can no
+    // longer add events. Parent and other maintenance sessions stay untouched.
+    await handle.agent.whenIdle();
+    let toolCount = 0;
+    let totalTokens = 0;
+    let reportedUsage = false;
+    let completeTotals = true;
+    for (const event of handle.agent.session.snapshotEvents()) {
+      if (event.type === 'tool/call') toolCount++;
+      if (event.type === 'assistant/message' && event.data.usage) {
+        reportedUsage = true;
+        const total = event.data.usage.totalTokens;
+        if (total === undefined) completeTotals = false;
+        else totalTokens += total;
+      }
+    }
+    run.workMetrics = {
+      tool_count: toolCount,
+      model_request_state: requestedModel === undefined ? 'none' : 'requested',
+      ...(requestedModel === undefined ? {} : {model:requestedModel}),
+      ...(reportedUsage && completeTotals ? {usage:{total_tokens:totalTokens}} : {}),
+    };
+  }
 }

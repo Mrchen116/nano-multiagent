@@ -2553,6 +2553,11 @@ body {
   pointer-events: none;
 }
 
+/* The open menu or sheet owns the message actions, including keyboard focus. */
+.chat-pane--message-actions-open .chat-message-toolbar {
+  display: none;
+}
+
 .chat-message-more {
   display: none;
   align-items: center;
@@ -2616,6 +2621,7 @@ body {
   font-size: 0.82rem;
   padding: 7px 9px;
   text-align: left;
+  text-decoration: none;
   min-height: 32px;
 }
 
@@ -5742,7 +5748,6 @@ body {
   z-index: 101; width: min(400px, calc(100vw - 32px));
 }
 
-.chat-work-link { display: inline-flex; margin-top: 10px; font-size: 12px; color: var(--im-accent); }
 
 .im-agent-profile-details { margin: 0; }
 .im-agent-profile-details dt { font-size: 0.78rem; font-weight: 600; }

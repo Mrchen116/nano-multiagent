@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { NodeStore } from '../src/store.js';
 import { tokenUsage, toolPresentation } from '../src/presentation.js';
-import { projectWorkEvent } from '../src/work-projection.js';
+import { projectWorkEvent, workCheckpoint, workSuffix } from '../src/work-projection.js';
 
 it('removes only the retired Agent command receipts with mixed legacy result formats', () => {
   const store = new NodeStore(':memory:', 'o');
@@ -138,6 +138,27 @@ it('bounds presenter-less summaries without losing their complete output', () =>
   expect(toolPresentation(result, [call, result])?.detail).toMatchObject({content: output});
 });
 
+
+it('projects compaction metrics even when the standalone receipt crosses pages', () => {
+  const start = {seq: 1, time: 1000, type: 'compaction/start', data: {compactionId: 'compact', turn: null}};
+  const summary = {seq: 2, time: 1030, type: 'compaction/summary', data: {
+    compactionId: 'compact', shadowedTokenCount: 5230, summary: [{type: 'text', text: 'Private checkpoint'}],
+  }};
+  const checkpoint = workCheckpoint('main', 2, [start, summary]);
+  expect(checkpoint.replayFrom).toBe(3);
+  expect(JSON.stringify(checkpoint)).not.toContain('Private checkpoint');
+  const manual = {seq: 3, time: 1042, type: 'compaction/end', data: {compactionId: 'compact', turn: null, sourceCommandId: 'cmd'}};
+  const suffix = workSuffix([manual], checkpoint);
+  expect(projectWorkEvent('main', manual, suffix)).toEqual({
+    type: 'control_result', turn: undefined,
+    payload: {command: 'compact', status: 'completed', manual: true, duration_ms: 42, replaced_tokens: 5230},
+  });
+  expect(workCheckpoint('main', 3, suffix).compaction).toBeUndefined();
+  const automatic = {...manual, data: {compactionId: 'compact', turn: 7, error: 'interrupted'}};
+  expect(projectWorkEvent('main', automatic, [start, summary, automatic])).toEqual({
+    type: 'control_result', turn: 7, payload: {command: 'compact', status: 'failed', error: 'interrupted', duration_ms: 42},
+  });
+});
 
 it('retains cumulative cache hit counts and denominator in Work turn usage', () => {
   const events = [

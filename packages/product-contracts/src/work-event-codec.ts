@@ -46,7 +46,9 @@ export function decodeWorkEvent(value: unknown): DecodedWorkEvent {
         fields(p, ['parent_session_id'], nullable(text)); fields(p, ['retired', 'historical_only'], boolean); break;
       case 'session_linked':
         if (!['parent_session_id', 'child_session_id'].every(key => typeof p[key] === 'string' && !!p[key])) throw new WorkEventError('invalid_event');
-        fields(p, ['parent_session_id', 'child_session_id', 'workflow_run_id', 'title', 'description'], text); break;
+        fields(p, ['parent_session_id', 'child_session_id', 'workflow_run_id', 'title', 'description'], text);
+        fields(p, ['maintenance_kind'], value => value === 'dreaming');
+        fields(p, ['maintenance_stage'], value => value === 'extract' || value === 'consolidate'); break;
       case 'turn_started': case 'turn_start':
         fields(p, ['origin'], text); fields(p, ['model', 'model_id', 'started_at'], nullable(text));
         fields(p, ['lifecycle_revision'], number); fields(p, ['trigger'], nullable(workObject));
@@ -54,6 +56,8 @@ export function decodeWorkEvent(value: unknown): DecodedWorkEvent {
       case 'turn_end': case 'run_completed': case 'run_failed': case 'run_cancelled':
         fields(p, ['status', 'model', 'finished_at'], nullable(text)); fields(p, ['stop_reason'], text); fields(p, ['completed'], boolean);
         fields(p, ['elapsed_ms', 'duration_ms', 'context_window'], nullable(number)); fields(p, ['usage'], nullable(workObject));
+        fields(p, ['tool_count'], value => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
+        fields(p, ['model_request_state'], value => value === 'none' || value === 'requested');
         if (workObject(p.usage)) fields(p.usage, ['context_used', 'output', 'context_window', 'prompt_tokens', 'completion_tokens', 'total_tokens', 'total', 'cache_read_tokens', 'cache_total_input_tokens'], number); break;
       case 'model_selected': fields(p, ['model'], text); break;
       case 'tool_start': case 'tool_end':

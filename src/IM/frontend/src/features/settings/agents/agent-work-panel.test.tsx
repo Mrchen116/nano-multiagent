@@ -362,11 +362,9 @@ describe("Agent work view", () => {
       { item_id: "cron-delivery", kind: "cron_delivery", seq: 5, payload: { conversation_id: "target-chat", message_id: "sent-message", text: "Actual scheduled report" } }
     ] };
     mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []} : url.includes("/sessions/") ? page : view), { status: 200 }));
-    const { router } = renderWork();
-    fireEvent.click(await screen.findByText("关联执行 · 1"));
-    fireEvent.click(screen.getByRole("button", { name: `${label} · report cron-session` }));
+    const { router } = renderWork("/settings/agents/global?view=work&work_session=cron-session");
     await screen.findByText("执行记录");
-    expect(screen.getAllByText(`${label} · report`).length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText(`${label} · report`).length).toBeGreaterThanOrEqual(2);
     if (!trigger) expect(screen.queryByText(/Cron · (手动|定时)执行/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("执行记录"));
     expect(screen.getByText("Actual scheduled report")).toBeVisible();
@@ -379,10 +377,8 @@ describe("Agent work view", () => {
     view = { ...view, other_executions: [{ session_id: "workflow-session", scope: "workflow", title: "workflow:raw-title" }] };
     const page = { turns: [{ ...view.turns[0], session_id: "workflow-session", scope: "workflow", origin: "model", trigger: null, items: [] }], next_cursor: null, control_items: [] };
     mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []} : url.includes("/sessions/") ? page : view), { status: 200 }));
-    renderWork();
-    fireEvent.click(await screen.findByText("关联执行 · 1"));
-    fireEvent.click(screen.getByRole("button", { name: "Workflow 执行 workflow-session" }));
-    await waitFor(() => expect(screen.getAllByText("Workflow 执行").length).toBeGreaterThanOrEqual(3));
+    renderWork("/settings/agents/global?view=work&work_session=workflow-session");
+    await waitFor(() => expect(screen.getAllByText("Workflow 执行").length).toBeGreaterThanOrEqual(2));
     expect(screen.queryByText("workflow:raw-title")).not.toBeInTheDocument();
   });
 
@@ -391,7 +387,7 @@ describe("Agent work view", () => {
     renderWork();
     fireEvent.click(await screen.findByText("Inbox 唤醒"));
     expect(screen.getAllByText("Token 未报告").length).toBeGreaterThan(0);
-    expect(screen.getByText(/节点离线，正在显示已保存记录/)).toBeInTheDocument();
+    expect(screen.getByText("节点离线 · 已保存记录")).toBeInTheDocument();
     const allow = await screen.findByRole("button", { name: /Allow once|允许一次|允许/ });
     expect(allow).toBeDisabled();
   });
@@ -495,7 +491,7 @@ it.each([
   ['online', undefined, '当前显示已保存记录，最新进度尚未确认。'],
   ['online', 'unknown', '当前显示已保存记录，最新进度尚未确认。'],
   ['online', 'current', undefined],
-  ['offline', 'catching_up', '节点离线，正在显示已保存记录。活动执行状态未知，授权暂不可处理。'],
+  ['offline', 'catching_up', undefined],
 ] as const)('shows saved-record completeness for %s / %s without changing reported usage', async (connection, state, text) => {
   view={...view,node_connection_state:connection,record_sync_state:state,latest_main_usage:{turn_id:'turn',context_used:42,output:7}};
   const result=renderWork();
@@ -658,4 +654,190 @@ it("finds a late exact child on demand for an already loaded tool", async () => 
   fireEvent.click(screen.getByRole("button", {name: "查看子执行"}));
   expect(await screen.findByText("Late exact child")).toBeVisible();
   expect(calls.find(url => url.includes("/work/sessions?"))).toContain("tool_call_id=read");
+});
+
+it("reads only visible Work previews and loads the exact tool body when expanded", async () => {
+  const main = {...view.turns[0], items: [], items_deferred: true, started_at: "2026-11-12T08:00:00Z"};
+  const dreaming = {...main, seq: 2, session_id: "maintenance", origin: "dreaming", status: "failed",
+    maintenance_stage: "consolidate", tool_count: 0, model_request_state: "none", usage: {total_tokens: 15},
+    items_deferred: false, items: [{item_id: "closing", seq: 6, kind: "message", payload: {text: "Saved Dreaming result"}}]};
+  const preview = {item_id: "tool:read", seq: 7, revision: 7, kind: "tool", detail_deferred: true,
+    payload: {id: "read", name: "report_lookup", status: "completed", output: "Read report"}};
+  const sent = {item_id: "tool:send", seq: 8, revision: 8, kind: "tool",
+    payload: {id: "send", name: "send_message", status: "completed", work_facts: [
+      {type: "message_sent", conversation_id: "group-a", message_id: "committed"},
+    ]}};
+  view = {...view, timeline: "combined", catalog: "separate", turns: [dreaming, main]};
+  mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
+    url === "/im/v1/conversations" ? {items: []}
+    : url.includes("/items?") ? {items: [preview, sent], revision: 8, next_cursor: null}
+    : url.endsWith("/items/tool%3Aread") ? {...preview, detail_deferred: undefined, payload: {...preview.payload, input: {path: "/report.md"}, detail: {text: "actual stored report body"}}}
+    : view
+  ), {status: 200}));
+  renderWork();
+  const work = await screen.findByText("Inbox 唤醒");
+  expect(screen.getByText(/Dreaming · 整合长期记忆/)).toBeVisible();
+  expect(screen.getByText("0 次工具")).toBeVisible();
+  expect(screen.getByText("15 tok")).toBeVisible();
+  expect(screen.getByText("未发起模型请求")).toBeVisible();
+  expect(screen.getByText("Saved Dreaming result")).toBeVisible();
+  expect(screen.getByRole("button", {name: "查看 Dreaming 轨迹"})).toBeVisible();
+  expect(mocks.fetch.mock.calls.some(([url]) => url.includes("/items?"))).toBe(false);
+
+  reachEarlierPage(work.closest("article")!);
+  const read = await screen.findByRole("button", {name: /report_lookup.*Read report/});
+  expect(mocks.fetch.mock.calls.some(([url]) => url.includes("/items?view=preview&after_seq=0"))).toBe(true);
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith("/items/tool%3Aread"))).toBe(false);
+  const sentRow = screen.getByRole("button", {name: /send_message.*调用完成/}).closest("li")!;
+  expect(within(sentRow).getByRole("link", {name: "原消息"})).toHaveAttribute("href", "/chat/group-a?message_id=committed");
+  fireEvent.click(read);
+  expect(await screen.findByText("actual stored report body")).toBeVisible();
+  expect(screen.getByText("/report.md")).toBeVisible();
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith("/items/tool%3Aread"))).toBe(true);
+});
+
+it("loads combined history at the visible boundary and offers retry after a failure", async () => {
+  const head = {...view.turns[0], seq: 4, turn_id: "latest"};
+  const older = {...head, seq: 2, turn_id: "earlier"};
+  view = {...view, timeline: "combined", catalog: "separate", turns: [head], next_turn_seq: 2};
+  let attempts = 0;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url === "/im/v1/conversations") return new Response(JSON.stringify({items: []}));
+    if (!url.includes("before_seq=4")) return new Response(JSON.stringify(view));
+    attempts += 1;
+    return attempts === 1 ? new Response("Unavailable", {status: 503})
+      : new Response(JSON.stringify({turns: [older], next_turn_seq: null}));
+  });
+  renderWork();
+  await screen.findByText("Inbox 唤醒");
+  const boundary = earlierPage();
+  for (const label of ["控制记录", "关联执行"]) {
+    expect(screen.queryByText(label, {exact: true})).not.toBeInTheDocument();
+  }
+  reachEarlierPage(boundary, false);
+  expect(attempts).toBe(0);
+  reachEarlierPage(boundary);
+  const retry = await screen.findByRole("button", {name: "重试"});
+  expect(attempts).toBe(1);
+  fireEvent.click(retry);
+  await waitFor(() => expect(document.getElementById("work-turn-main-earlier")).toBeVisible());
+  expect(attempts).toBe(2);
+  expect(earlierPage()).toBeNull();
+});
+
+it("shows standalone and in-round compaction in Work", async () => {
+  const started_at = "2026-11-12T08:00:00Z";
+  const compaction = (item_id: string, seq: number, payload: Record<string, unknown>) => ({
+    item_id, seq, observed_at: started_at, kind: "control_result",
+    payload: {command: "compact", ...payload},
+  });
+  const round = {...view.turns[0], started_at, seq: 2, items: [
+    {...view.turns[0].items[0], seq: 1},
+    compaction("automatic", 3, {status: "completed", duration_ms: 42, replaced_tokens: 5230}),
+  ]};
+  const standalone = {...round, turn_id: "manual", seq: 4, origin: "context_compaction", usage: null,
+    items: [compaction("manual", 4, {status: "failed", manual: true, error: "Compaction was interrupted"})]};
+  view = {...view, timeline: "combined", catalog: "separate", turns: [standalone, round]};
+  renderWork();
+  const manual = await screen.findByText("/compact", {exact: false});
+  const details = manual.closest("details")!;
+  expect(details.querySelector("summary")).toHaveTextContent(/上下文压缩.*失败/);
+  expect(screen.getByText("Compaction was interrupted")).not.toBeVisible();
+  details.open = true;
+  expect(screen.getByText("Compaction was interrupted")).toBeVisible();
+  const article = screen.getByRole("heading", {name: "Inbox 唤醒"}).closest("article")!;
+  const completed = within(article).getByText("上下文压缩").closest("details")!;
+  expect(completed.querySelector("summary")).toHaveTextContent("已完成");
+  completed.open = true;
+  expect(within(completed).getByText("42 毫秒")).toBeVisible();
+  expect(within(completed).getByText("5,230 tok")).toBeVisible();
+});
+
+it("opens nested delegation from its real graph node and restores the chosen window", async () => {
+  const node = (session_id: string, parent_session_id: string | null, title: string, total_tokens: number) => ({
+    session_id, parent_session_id, title, status: "completed", usage: {total_tokens, reported_turns: 1, missing_turns: 0},
+  });
+  view = {...view, timeline: "combined", catalog: "separate", record_sync_state: "current", latest_main_usage: {turn_id: "turn", context_used: 42, output: 7}};
+  mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
+    url === "/im/v1/conversations" ? {items: []}
+    : url.includes("/work/delegation") ? {main_session_id: "main", record_sync_state: url.includes("window=2h") ? "catching_up" : "unknown", nodes: [
+      node("main", null, "Parent", 900), node("child", "main", "First child", 40), node("nested", "child", "Second child", 10),
+    ], next_cursor: null}
+    : url.includes("/sessions/nested/turns") ? {turns: [], next_cursor: null}
+    : url.endsWith("/sessions/nested") ? {session_id: "nested", scope: "subagent", title: "Second child"}
+    : view
+  ), {status: 200}));
+  const {router} = renderWork();
+  expect(await screen.findByText("主上下文（最近报告）")).toBeVisible();
+  fireEvent.click(screen.getByRole("tab", {name: "派工关系"}));
+  expect(await screen.findByText("900 tok")).toBeVisible();
+  expect(screen.getByText("已保存记录", {exact: true})).toHaveAttribute("role", "status");
+  expect(screen.getByText("40 tok")).toBeVisible();
+  expect(document.querySelectorAll(".im-work-graph-edges path[marker-end]")).toHaveLength(2);
+  fireEvent.change(screen.getByRole("combobox", {name: "活动范围"}), {target: {value: "2h"}});
+  expect(await screen.findByText("记录同步中", {exact: true})).toHaveAttribute("role", "status");
+  fireEvent.click(await screen.findByRole("button", {name: /Second child.*10 tok/}));
+  expect(await screen.findByRole("heading", {name: "Second child"})).toBeVisible();
+  expect(screen.queryByRole("heading", {name: "主 Agent"})).not.toBeInTheDocument();
+  expect(screen.queryByText("主上下文（最近报告）")).not.toBeInTheDocument();
+  expect(screen.queryByText("执行记录", {exact: true})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "← 返回发起位置"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "关闭子轨迹"})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "查看原生轨迹"}));
+  expect(await screen.findByText("Native trajectory")).toBeVisible();
+  expect(new URLSearchParams(router.state.location.search).get("execution")).toBe("nested");
+  expect(screen.queryByRole("combobox", {name: "当前执行"})).not.toBeInTheDocument();
+  expect(mocks.fetch.mock.calls.some(([url]) => url.includes("/work/sessions?"))).toBe(false);
+  fireEvent.click(screen.getByRole("tab", {name: "工作记录"}));
+  expect(await screen.findByRole("heading", {name: "Second child"})).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "← 返回派工关系"}));
+  expect(screen.getByRole("combobox", {name: "活动范围"})).toHaveValue("2h");
+});
+
+it("opens saved Cron delivery from the on-demand history in delegation", async () => {
+  view = {...view, timeline: "combined", catalog: "separate", record_sync_state: "current"};
+  const session = {session_id: "cron-history", scope: "cron", title: "Saved Cron", job_id: "report"};
+  const delivery = {item_id: "sent", kind: "cron_delivery", seq: 5,
+    payload: {conversation_id: "target-chat", message_id: "sent-message", text: "Saved report"}};
+  mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
+    url === "/im/v1/conversations" ? {items: []}
+    : url.includes("/work/delegation") ? {record_sync_state: "current", nodes: [], next_cursor: null}
+    : url.includes("/work/sessions?historical=1") ? {sessions: [session], next_cursor: null}
+    : url.includes("/sessions/cron-history/controls") ? {items: [delivery], next_cursor: null}
+    : url.includes("/sessions/cron-history/turns") ? {turns: [], next_cursor: null}
+    : url.endsWith("/sessions/cron-history") ? session : view)));
+  renderWork();
+  fireEvent.click(await screen.findByRole("tab", {name: "派工关系"}));
+  expect(mocks.fetch.mock.calls.some(([url]) => url.includes("historical=1"))).toBe(false);
+  const history = screen.getByText("历史主执行与定时任务").closest("details")!;
+  history.open = true;
+  fireEvent(history, new Event("toggle"));
+  fireEvent.click(await screen.findByRole("button", {name: /Saved Cron/}));
+  const deliveries = (await screen.findByText("定时任务投递记录")).closest("details")!;
+  deliveries.open = true;
+  const receipt = within(deliveries).getAllByText("Cron 实际投递")[0].closest("details")!;
+  receipt.open = true;
+  expect(within(receipt).getByRole("link", {name: "投递聊天 · 原消息"})).toHaveAttribute("href", "/chat/target-chat?message_id=sent-message");
+});
+
+it("retains saved records through transient refresh failure and hides them when Work access is revoked", async () => {
+  let status = 200;
+  view = {...view, timeline: "combined", catalog: "separate"};
+  mocks.fetch.mockImplementation(async (url: string) => url === "/im/v1/conversations"
+    ? new Response(JSON.stringify({items: []}))
+    : new Response(JSON.stringify(status === 200 ? view : {detail: "work unavailable"}), {status}));
+  renderWork();
+  expect(await screen.findByText("Inbox 唤醒")).toBeVisible();
+  const notify = () => act(() => mocks.subscribe.mock.calls[0][0].onEvent({
+    eventType: "agent.work.updated", payload: {agent_id: "global"},
+  }));
+  status = 503;
+  notify();
+  expect(await screen.findByText(/工作记录读取失败.*503/)).toBeVisible();
+  expect(screen.getByText("Inbox 唤醒")).toBeVisible();
+
+  status = 403;
+  notify();
+  expect(await screen.findByRole("alert")).toHaveTextContent(/403/);
+  expect(screen.queryByText("Inbox 唤醒")).not.toBeInTheDocument();
 });
