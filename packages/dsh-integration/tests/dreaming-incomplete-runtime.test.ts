@@ -6,7 +6,7 @@ import { expect, it } from 'vitest';
 import {stripContextItemId} from 'dsh-agent-context';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it.each(['unread-write', 'failed-read-write', 'normal-stop', 'committed-non-markdown', 'body-only', 'legacy-oversized-index', 'oversized-index', 'model-error', 'cancelled', 'missing-entry'])(
+it.each(['unread-write', 'failed-read-write', 'normal-stop', 'committed-non-markdown', 'body-only', 'legacy-oversized-index', 'oversized-index', 'rollback-after-three', 'model-error', 'cancelled', 'missing-entry'])(
   'checks actual direct edits and source progress after %s', async mode => {
     const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
     const home = await mkdtemp(join(tmpdir(), 'nano-dreaming-incomplete-'));
@@ -33,23 +33,32 @@ export function apply(ctx) {
       }
       const calls = mode === 'missing-entry'
         ? [['bash', {description:'Commit deletion of the root entry',command:'git rm -- MEMORY.md && git -c user.name=Nano -c user.email=memory@localhost commit -m "Remove entry" && git status --porcelain'}, 'commit-deletion']]
+        : mode === 'rollback-after-three'
+        ? [['bash', {description:'Commit a change and leave new scratch files',command:"printf '%s' '# Batch edit' > MEMORY.md && git add -- MEMORY.md && git -c user.name=Nano -c user.email=memory@localhost commit -m 'Batch edit' && mkdir -p scratch && touch scratch/new.txt untracked.md"}, 'invalid-batch']]
         : mode === 'unread-write' ? [write]
         : mode === 'failed-read-write' ? [['read', { file_path: stage + '/missing.md' }], write]
         : ['body-only', 'legacy-oversized-index', 'oversized-index'].includes(mode) ? [
             ['read', {file_path: stage + '/MEMORY.md'}],
             ['write', {file_path: stage + '/knowledge/new.md', content: 'A detail that belongs only on the topic page.'}],
             ...(mode === 'body-only' ? [['write', {file_path: stage + '/knowledge/second.md', content: 'Another related detail.'}]] : []),
-            ...(mode === 'oversized-index' ? [['write', {file_path: stage + '/MEMORY.md', content: '记'.repeat(8001)}]] : []),
+            ...(mode === 'oversized-index' ? [['write', {file_path: stage + '/MEMORY.md', content: '🌈'.repeat(4001)}]] : []),
           ]
         : ['model-error', 'cancelled'].includes(mode) ? [['read', {file_path: stage + '/MEMORY.md'}], write] : [];
       call = calls[step];
       const status = request.messages.findLast(message => message.source?.channel === 'dreaming-git-status');
+      const feedbackCount = request.messages.filter(message => message.source?.channel === 'dreaming-git-status').length;
       if (status && !request.messages.some(message => message.toolCallId === 'batch-commit')) {
         const second = stage + '/knowledge/second.md';
         if (mode === 'body-only' && !request.messages.some(message => message.toolCallId === 'read-published')) {
           call = ['read', {file_path: second}, 'read-published'];
         } else if (mode === 'body-only' && !request.messages.some(message => message.toolCallId === 'update-published')) {
           call = ['write', {file_path: second, content: 'Updated detail after status feedback.'}, 'update-published'];
+        } else if (mode === 'rollback-after-three') {
+          call = undefined;
+        } else if (mode === 'oversized-index' || mode === 'legacy-oversized-index') {
+          if (mode === 'legacy-oversized-index' || feedbackCount === 3) {
+            call = ['bash', {description:'Shorten the entry and commit the repair',command:"printf '%s' '# Short entry' > MEMORY.md && git add -- . && git -c user.name=Nano -c user.email=memory@localhost commit -m 'Shorten entry'"}, 'batch-commit'];
+          }
         } else if (mode === 'missing-entry') {
           call = ['bash', {description:'Restore and commit the root entry',command:"printf '%s' '# Restored entry' > MEMORY.md && git add -- MEMORY.md && git -c user.name=Nano -c user.email=memory@localhost commit -m 'Restore entry'"}, 'batch-commit'];
         } else if (mode === 'committed-non-markdown') {
@@ -100,12 +109,24 @@ export function apply(ctx) {
         execFileSync('git', ['-c', 'user.name=Nano', '-c', 'user.email=memory@localhost', 'commit', '-m', 'Seed unsupported file'], {cwd});
         expect(execFileSync('git', ['status','--porcelain'], {cwd,encoding:'utf8'})).toBe('');
       }
+      const memoryRoot = join(home, '.nanoassistant/memory');
+      const git = (...args: string[]) => execFileSync('git', args, {cwd:memoryRoot,encoding:'utf8'}).trim();
+      if (mode === 'rollback-after-three') {
+        await writeFile(join(memoryRoot, 'previous.md'), 'Earlier successful batch.');
+        git('add','--','previous.md');
+        git('-c','user.name=Nano','-c','user.email=memory@localhost','commit','-m','Earlier successful batch');
+        await writeFile(join(memoryRoot, 'preexisting.md'), 'Preexisting untracked file.');
+        await writeFile(join(memoryRoot, 'staged-before.md'), 'Preexisting staged file.');
+        git('add','--','staged-before.md');
+      }
+      const startHead = git('rev-parse','HEAD');
       const original = await readFile(entry, 'utf8');
       await submit('maintain'); await submit('after');
       const facts = await client.rpc.request('knowledge.facts', {}) as { reviews: Array<{ status: string; summary: string }> };
       expect(facts.reviews).toHaveLength(1);
       const failed = ['model-error', 'cancelled'].includes(mode);
-      expect(facts.reviews[0]).toMatchObject({ status: failed ? 'partial' : 'completed' });
+      const rolledBack = mode === 'rollback-after-three';
+      expect(facts.reviews[0]).toMatchObject({ status: rolledBack ? 'failed' : failed ? 'partial' : 'completed' });
       if (failed) {
         expect(facts.reviews[0]!.summary).toContain('did not complete');
         expect(facts.reviews[0]!.summary).toContain('整理进度未推进');
@@ -116,7 +137,7 @@ export function apply(ctx) {
       } else {
         await expect(body).rejects.toMatchObject({code:'ENOENT'});
       }
-      expect(await readFile(entry, 'utf8')).toBe(mode==='missing-entry'?'# Restored entry':mode==='oversized-index'?'记'.repeat(8001):['model-error','cancelled'].includes(mode)?'Unsupported overwrite':original);
+      expect(await readFile(entry, 'utf8')).toBe(mode==='missing-entry'?'# Restored entry':['oversized-index','legacy-oversized-index'].includes(mode)?'# Short entry':['model-error','cancelled'].includes(mode)?'Unsupported overwrite':original);
       const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       const latest = requests.filter(request => request.sessionId === 'root').at(-1);
       const status = (id: string) => JSON.parse(stripContextItemId(latest.messages.find((message: any) => message.role === 'tool' && message.toolCallId === id).content).filter(block => block.type === 'text').map(block => block.text).join('\n'));
@@ -124,7 +145,7 @@ export function apply(ctx) {
       expect(status('before').maintenance.backlog).toMatchObject({ state: 'pending', scope: 'frozen_sources' });
       expect(status('before').maintenance.backlog.global.pending).toBe(true);
       const afterProgress = JSON.parse(await readFile(progressPath, 'utf8')).record.streams;
-      if (failed) expect(afterProgress).toEqual(beforeProgress);
+      if (failed || rolledBack) expect(afterProgress).toEqual(beforeProgress);
       else expect(afterProgress).not.toEqual(beforeProgress);
       for (const id of ['before', 'after']) {
         const result = status(id);
@@ -137,6 +158,28 @@ export function apply(ctx) {
       const material=maintenance[0].messages.flatMap((m:any)=>m.content??[]).map((b:any)=>b.text??'').join('');
       expect(material).toContain('experience-one');
       expect(material).not.toContain('Existing pages awaiting verification');
+      if (rolledBack || mode === 'oversized-index') {
+        expect(new Set(maintenance.map(request => request.sessionId)).size).toBe(1);
+        const feedback = new Map(maintenance.flatMap(request => request.messages)
+          .filter(message => message.source?.channel === 'dreaming-git-status')
+          .map(message => [message.source.messageId, message.content[0].text]));
+        expect(feedback.size).toBe(3);
+        if (rolledBack) {
+          expect(git('rev-parse','HEAD')).toBe(startHead);
+          expect(git('status','--porcelain')).toBe('?? preexisting.md\n?? staged-before.md');
+          expect(await readFile(join(memoryRoot,'previous.md'),'utf8')).toBe('Earlier successful batch.');
+          expect(await readFile(join(memoryRoot,'preexisting.md'),'utf8')).toBe('Preexisting untracked file.');
+          expect(await readFile(join(memoryRoot,'staged-before.md'),'utf8')).toBe('Preexisting staged file.');
+          await expect(readFile(join(memoryRoot,'scratch/new.txt'),'utf8')).rejects.toMatchObject({code:'ENOENT'});
+          await expect(readFile(join(memoryRoot,'untracked.md'),'utf8')).rejects.toMatchObject({code:'ENOENT'});
+          expect(facts.reviews[0]!.summary).toContain('scratch/new.txt');
+          expect(facts.reviews[0]!.summary).toContain('已恢复本批起始提交 '+startHead);
+        } else {
+          expect([...feedback.values()].every(text => String(text).includes('8002 UTF-16 code units; limit is 8000'))).toBe(true);
+          expect(git('show','HEAD:MEMORY.md')).toBe('# Short entry');
+          expect(git('status','--porcelain')).toBe('');
+        }
+      }
       if (mode === 'committed-non-markdown') {
         const memory = join(home, '.nanoassistant/memory');
         expect(new Set(maintenance.map(request => request.sessionId)).size).toBe(1);

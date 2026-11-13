@@ -332,9 +332,10 @@ export class Dreaming {
   private async prepare(run:DreamingRun,library:MemoryDocuments):Promise<void>{
     await mkdir(run.directory,{recursive:true,mode:0o700});await chmod(run.directory,0o700);
     const versions=run.stage==='consolidate'?await library.versions():{};
+    const start=run.stage==='consolidate'?await library.batchStart():undefined;
     const legacy=run.importLegacy?await this.importFiles(run,library):[];
     if(run.importLegacy&&!legacy.length)throw new Error('No registered Markdown legacy backup is available for this owner.');
-    await writeFile(join(run.directory,'manifest.json'),JSON.stringify({versions,legacy}),{mode:0o600});
+    await writeFile(join(run.directory,'manifest.json'),JSON.stringify({versions,legacy,start}),{mode:0o600});
   }
   private async renderInput(run:DreamingRun,library:MemoryDocuments,owner:DreamingOwner,roleContext:string[]=[]):Promise<string>{
     const inputs=[...roleContext];

@@ -10,6 +10,7 @@ import { atomicWrite } from './files.js';
 export const memoryEntryLimit = 8000;
 export type DocumentVersions = Record<string, string>;
 export interface DocumentGitChange { path: string; status: string; supported: boolean }
+export interface DocumentBatchStart { head: string; untracked: string[] }
 export interface SourceEligibility { revision: string; allowed: string[]; excluded: string[] }
 export interface DocumentOperation { operationId: string; path: string; beforeHash: string | null; content: string }
 export interface DocumentReceipt {
@@ -239,6 +240,10 @@ export class MemoryDocuments {
       ({path,status,reason:'Uncommitted change'}));
     const entryIssue = await this.entryIssue();
     if (entryIssue) issues.push({path:'MEMORY.md',reason:entryIssue});
+    else {
+      const length = (await readFile(join(this.root, 'MEMORY.md'), 'utf8')).length;
+      if (length > memoryEntryLimit) issues.push({path:'MEMORY.md',reason:`MEMORY.md has ${length} UTF-16 code units; limit is ${memoryEntryLimit}`});
+    }
     const walk = async (directory: string) => {
       for (const item of await readdir(join(this.root, directory), {withFileTypes:true})) {
         if (!directory && (item.name === '.git' || item.name === 'MEMORY.md')) continue;
@@ -249,6 +254,42 @@ export class MemoryDocuments {
     };
     await walk('');
     return issues;
+  }
+  private gitHead(): Promise<string> {
+    return command(this.root, ['rev-parse', '--verify', 'HEAD'], undefined, this.gitEnvironment());
+  }
+  private async untrackedPaths(): Promise<string[]> {
+    // Include ignored paths so newly created scratch files can be cleaned too.
+    return splitNul(await command(this.root, ['ls-files', '--others', '-z'], undefined, this.gitEnvironment(), {raw:true}));
+  }
+  /** Capture the starting commit and paths already outside that commit. */
+  async batchStart(): Promise<DocumentBatchStart> {
+    const head = await this.gitHead();
+    const staged = splitNul(await command(this.root,
+      ['diff', '--cached', '--name-only', '--diff-filter=A', '--no-renames', '-z', head, '--'],
+      undefined, this.gitEnvironment(), {raw:true}));
+    return {head, untracked:[...await this.untrackedPaths(), ...staged]};
+  }
+  /** Restore this batch's starting commit and remove untracked paths created by the batch. */
+  rollbackBatch(start: DocumentBatchStart): Promise<string[]> {
+    return this.serial(async () => {
+      const env = this.gitEnvironment();
+      // A mixed reset keeps preexisting untracked files even if the Agent staged or committed them.
+      await command(this.root, ['reset', '--mixed', start.head], undefined, env);
+      const existing = new Set(start.untracked);
+      const added = async () => (await this.untrackedPaths()).filter(path => !existing.has(path));
+      const removed = await added();
+      if (removed.length) await command(this.root, ['--literal-pathspecs', 'clean', '-ffdx', '--', ...removed], undefined, env);
+      await command(this.root, ['checkout-index', '--all', '--force'], undefined, env);
+      await this.refresh();
+      const head = await this.gitHead();
+      const tracked = (await this.gitChanges()).filter(change => change.status !== '??');
+      const remaining = await added();
+      if (head !== start.head || tracked.length || remaining.length) {
+        throw new Error(`HEAD=${head}; tracked changes=${JSON.stringify(tracked)}; new untracked paths=${JSON.stringify(remaining)}`);
+      }
+      return removed;
+    });
   }
   private async headSnapshot(paths: ReadonlySet<string>) {
     const env = this.gitEnvironment();

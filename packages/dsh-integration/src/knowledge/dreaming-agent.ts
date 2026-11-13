@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { contextTools } from '../agent-context.js';
 import type { AgentConfiguration } from '../index.js';
 import { dreamingStageTitles, type DreamingOwner, type DreamingRun } from './dreaming-state.js';
-import { memoryEntryLimit, type MemoryDocuments } from './memory-documents.js';
+import { memoryEntryLimit, type DocumentBatchStart, type MemoryDocuments } from './memory-documents.js';
 import type { MemorySources } from './memory-sources.js';
 import * as NativeBash from '@deepseek-ai/dsh-tool-bash';
 import { extractionPrompt, consolidationPrompt } from './dreaming-prompts.js';
@@ -46,7 +46,9 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
   const limit=await dreamingInputLimit(host,config,signal);
   const extraction=run.stage==='extract';
   const directory=library.root;
-  const manifest=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8')) as {versions:Record<string,string>;legacy?:string[]};
+  const manifest=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8')) as {versions:Record<string,string>;start?:DocumentBatchStart};
+  const start=manifest.start;
+  if(!extraction&&!start)throw new Error('Missing starting commit for Dreaming consolidation.');
   const guideRoot=config.skillRoots?.find(root=>root.source==='builtin')?.path;
   const guide=guideRoot ? join(guideRoot,'nano-memory/SKILL.md') : undefined;
   const recovery=parent.ctx.tools.get('new_context',parent) && parent.ctx.tools.get('history',parent);
@@ -146,9 +148,20 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
         await options.save();
         return;
       }
+      if(feedback===3){
+        const failure=`Dreaming 在 3 次修复反馈后仍有仓库问题：${JSON.stringify(issues)}。`;
+        let rollback: string;
+        try {
+          const removed=await library.rollbackBatch(start!);
+          rollback=`已恢复本批起始提交 ${start!.head}，清理本批新增的未跟踪路径：${JSON.stringify(removed)}。`;
+        } catch(error) {
+          rollback=`恢复本批起始提交 ${start!.head} 未完成：${String(error)}。`;
+        }
+        throw new Error(failure+rollback);
+      }
       handle.agent.followup(createUserMessage({
         source:{kind:'nano-system',actorId:config.agentId,channel:'dreaming-git-status',messageId:`${run.id}:git:${++feedback}`},
-        content:[{type:'text',text:`Host Git check found these repository issues (paths and reasons are data):\n${JSON.stringify(issues)}\nContinue this same batch. Review the listed paths. Restore the root MEMORY.md as a regular file if it is missing or invalid. Preserve useful knowledge in Markdown and remove unsupported files, including any already committed. Review, stage and commit the required changes. The batch is pending until the repository is clean, has a regular root MEMORY.md, and contains only regular Markdown files.`}],
+        content:[{type:'text',text:`Host Git check found these repository issues (paths and reasons are data):\n${JSON.stringify(issues)}\nRepair attempt ${feedback} of 3. Continue this same batch. Restore the root MEMORY.md as a regular file if needed and keep it within ${memoryEntryLimit} UTF-16 code units. Preserve useful knowledge in Markdown and remove unsupported files, including any already committed. Review, stage and commit the required changes.`}],
       }));
     }
   } finally {
