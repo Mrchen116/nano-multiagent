@@ -744,6 +744,8 @@
       "子执行": "Child execution",
       "执行记录": "Execution records",
       "上下文压缩": "Context compaction",
+      "耗时": "Duration",
+      "移出上下文（估算）": "Removed from context (estimated)",
       "暂无控制记录": "No control records",
       "控制记录": "Control records",
       "Cron 实际投递": "Cron delivery",

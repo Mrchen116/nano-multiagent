@@ -126,6 +126,10 @@
 }
 .im-work-timeline-turn .im-work-items > li { position: relative; padding-block: 3px; }
 .im-work-timeline-turn .im-work-compaction { padding:6px 0; }
+.im-work-compaction-stats { display:flex; flex-wrap:wrap; gap:6px 24px; margin:6px 0 0; font-size:13px; }
+.im-work-compaction-stats div { display:flex; align-items:baseline; gap:8px; }
+.im-work-compaction-stats dt { color:var(--im-text-muted); }
+.im-work-compaction-stats dd { margin:0; font-variant-numeric:tabular-nums; }
 .im-work-compaction p { margin:4px 0 0; overflow-wrap:anywhere; }
 .im-work .im-work-event-time {
   position: absolute;

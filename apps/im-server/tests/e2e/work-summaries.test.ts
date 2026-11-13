@@ -75,12 +75,12 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
 
   await append([
     ['root', 'control_result', {command: 'compact', status: 'completed'}, 'last'],
-    ['root', 'control_result', {command: 'compact', status: 'failed', manual: true, error: 'Compaction was interrupted'}],
+    ['root', 'control_result', {command: 'compact', status: 'failed', manual: true, duration_ms: 42, error: 'Compaction was interrupted'}],
   ]);
   const compactPage = (await read(prefix.replace('limit=2', 'limit=1'))).body;
   const compact = compactPage.turns[0];
   expect(compact).toMatchObject({origin: 'context_compaction', status: 'failed', started_at: recent,
-    items: [{kind: 'control_result', payload: {manual: true, error: 'Compaction was interrupted'}}]});
+    items: [{kind: 'control_result', payload: {manual: true, duration_ms: 42, error: 'Compaction was interrupted'}}]});
   expect((await read(prefix + '&before_seq=' + compactPage.next_cursor)).body.turns[0].turn_id).toBe('last');
   const sessionPage = '/sessions/root/turns?catalog=separate&view=summary&limit=1';
   expect((await read(sessionPage)).body.next_cursor).toBe(compact.turn_id);

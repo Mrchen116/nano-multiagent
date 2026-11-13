@@ -737,7 +737,7 @@ it("shows standalone and in-round compaction in Work", async () => {
   });
   const round = {...view.turns[0], started_at, seq: 2, items: [
     {...view.turns[0].items[0], seq: 1},
-    compaction("automatic", 3, {status: "completed"}),
+    compaction("automatic", 3, {status: "completed", duration_ms: 42, replaced_tokens: 5230}),
   ]};
   const standalone = {...round, turn_id: "manual", seq: 4, origin: "context_compaction", usage: null,
     items: [compaction("manual", 4, {status: "failed", manual: true, error: "Compaction was interrupted"})]};
@@ -750,7 +750,11 @@ it("shows standalone and in-round compaction in Work", async () => {
   details.open = true;
   expect(screen.getByText("Compaction was interrupted")).toBeVisible();
   const article = screen.getByRole("heading", {name: "Inbox 唤醒"}).closest("article")!;
-  expect(within(article).getByText("上下文压缩").closest("li")).toHaveTextContent("已完成");
+  const completed = within(article).getByText("上下文压缩").closest("details")!;
+  expect(completed.querySelector("summary")).toHaveTextContent("已完成");
+  completed.open = true;
+  expect(within(completed).getByText("42 毫秒")).toBeVisible();
+  expect(within(completed).getByText("5,230 tok")).toBeVisible();
 });
 
 it("opens nested delegation from its real graph node and restores the chosen window", async () => {

@@ -658,9 +658,18 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
         if (item.kind === "control_result" && p.command === "compact") {
           const label = <><strong>{tr("上下文压缩")}</strong>{p.manual === true && <> · /compact</>}
             <span className={p.status === "failed" ? "im-work-error" : "im-work-muted"}> · {statusLabel(str(p.status) || "unknown")}</span></>;
-          const detail = str(p.error) || str(p.text);
+          const error = str(p.error);
+          const duration = typeof p.duration_ms === "number" ? formatWorkDuration(p.duration_ms) : "";
+          const replaced = typeof p.replaced_tokens === "number" ? p.replaced_tokens.toLocaleString(i18n.language) : "";
           return <li ref={detailRef} className="im-work-compaction" key={item.item_id}>
-            {eventTime}{detail ? <details><summary>{label}</summary><p>{detail}</p></details> : label}
+            {eventTime}{error || duration || replaced ? <details>
+              <summary>{label}</summary>
+              {(duration || replaced) && <dl className="im-work-compaction-stats">
+                {duration && <div><dt>{tr("耗时")}</dt><dd>{duration}</dd></div>}
+                {replaced && <div><dt>{tr("移出上下文（估算）")}</dt><dd>{replaced} tok</dd></div>}
+              </dl>}
+              {error && <p className="im-work-error">{error}</p>}
+            </details> : label}
           </li>;
         }
         if (item.kind === "permission") return <li ref={detailRef} key={item.item_id}>{eventTime}<PermissionCard request={p as unknown as PermissionRequest} endpoint={`${workBase(agentId)}/permissions/${encodeURIComponent(str(p.request_id))}`} disabled={!online} onResolved={refresh} /></li>;

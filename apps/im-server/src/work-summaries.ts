@@ -33,7 +33,8 @@ export function standaloneCompactions(db: DatabaseSync, session: string, before:
   return all(db, `SELECT session_id,item_id AS turn_id,seq,
       json_object('command','compact','status',json_extract(payload,'$.status'),
         'manual',json(CASE WHEN json_type(payload,'$.manual')='true' THEN 'true' ELSE 'false' END),'error',substr(json_extract(payload,'$.error'),1,512),
-        'text',substr(json_extract(payload,'$.text'),1,512)) AS control_payload,
+        'duration_ms',json_extract(payload,'$.duration_ms'),
+        'replaced_tokens',json_extract(payload,'$.replaced_tokens')) AS control_payload,
       json_object('session_id',session_id,'turn_id',item_id,'origin','context_compaction',
         'status',COALESCE(json_extract(payload,'$.status'),'unknown'),'usage',NULL,'started_at',observed_at) AS payload
     FROM agent_work_items WHERE session_id=? AND ${standaloneCompaction} AND seq<?
