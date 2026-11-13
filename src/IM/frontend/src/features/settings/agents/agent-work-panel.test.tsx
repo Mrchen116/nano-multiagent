@@ -767,7 +767,7 @@ it("opens nested delegation from its real graph node and restores the chosen win
     : url.endsWith("/sessions/nested") ? {session_id: "nested", scope: "subagent", title: "Second child"}
     : view
   ), {status: 200}));
-  renderWork();
+  const {router} = renderWork();
   expect(await screen.findByText("主上下文（最近报告）")).toBeVisible();
   fireEvent.click(screen.getByRole("tab", {name: "派工关系"}));
   expect(await screen.findByText("900 tok")).toBeVisible();
@@ -783,6 +783,13 @@ it("opens nested delegation from its real graph node and restores the chosen win
   expect(screen.queryByText("执行记录", {exact: true})).not.toBeInTheDocument();
   expect(screen.queryByRole("button", {name: "← 返回发起位置"})).not.toBeInTheDocument();
   expect(screen.queryByRole("button", {name: "关闭子轨迹"})).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", {name: "查看原生轨迹"}));
+  expect(await screen.findByText("Native trajectory")).toBeVisible();
+  expect(new URLSearchParams(router.state.location.search).get("execution")).toBe("nested");
+  expect(screen.queryByRole("combobox", {name: "当前执行"})).not.toBeInTheDocument();
+  expect(mocks.fetch.mock.calls.some(([url]) => url.includes("/work/sessions?"))).toBe(false);
+  fireEvent.click(screen.getByRole("tab", {name: "工作记录"}));
+  expect(await screen.findByRole("heading", {name: "Second child"})).toBeVisible();
   fireEvent.click(screen.getByRole("button", {name: "← 返回派工关系"}));
   expect(screen.getByRole("combobox", {name: "活动范围"})).toHaveValue("2h");
 });

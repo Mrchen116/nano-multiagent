@@ -31,7 +31,7 @@ function TrajectoryStack({ agentId, sessionId, initialTitle, positions, onBack, 
   }, []);
   if (revoked) return <div className="im-work-state" role="alert">访问资格已失效，轨迹内容已清除 <button onClick={onBack}>返回工作记录</button></div>;
   return <div className="im-native-stack">
-    {frames.length > 1 && <div className="im-trajectory-path"><button aria-label="返回发起点" onClick={() => setFrames(current => current.slice(0, -1))}>← 返回发起点</button><nav aria-label="执行来源">{frames.map((item, index) => <span key={index}>{index > 0 && <i aria-hidden="true">›</i>}{item.label || '子执行'}</span>)}</nav></div>}
+    {frames.length > 1 && <div className="im-trajectory-path"><button aria-label="返回发起点" onClick={() => setFrames(current => current.slice(0, -1))}>← 返回发起点</button><nav aria-label="执行来源">{frames.map((item, index) => <span key={index}>{index > 0 && <i aria-hidden="true">›</i>}{(index === 0 ? initialTitle || item.label : item.label) || '子执行'}</span>)}</nav></div>}
     {frames.map((target, index) => <div className="im-trajectory-layer" hidden={index !== frames.length - 1} key={`${index}:${target.sessionId}:${target.runId ?? ''}`}>
       <TrajectoryFrame agentId={agentId} target={target} active={index === frames.length - 1} positions={positions} onBack={onBack} onNavigate={navigate} onRevoked={invalidate} />
     </div>)}

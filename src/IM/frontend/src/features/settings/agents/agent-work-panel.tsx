@@ -13,7 +13,7 @@ import { formatWorkDuration, tr, WorkEventTime } from "./agent-work-text";
 import { i18n, useTranslation } from "../../../i18n";
 import { PermissionCard } from "../../chat/components/permission-card";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
-import { AgentExecutionDeletedError, workAccessLost, workBase, workCatalogPath, workRequest, workSessionPath, type WorkCatalogPage, type WorkItemsPage, type WorkFocus, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
+import { AgentExecutionDeletedError, workAccessLost, workBase, workRequest, workSessionPath, type WorkItemsPage, type WorkFocus, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
 import "./agent-work.css";
 import { useWorkHistory, workHistoryTurnKey } from './agent-work-history';
 import { LegacyWorkLinks, WorkLink } from './agent-work-links';
@@ -270,7 +270,6 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
   const [nativeSelectionVersion, setNativeSelectionVersion] = useState(0);
   const [activeNative, setActiveNative] = useState<{base: string | null; sessionId: string; label?: string} | null>(null);
   const onActiveNative = useCallback((sessionId: string, label?: string) => setActiveNative({base:nativeSession,sessionId,label}), [nativeSession]);
-  const shownNative = activeNative?.base === nativeSession ? activeNative.sessionId : nativeSession;
   const showNative = (sessionId?: string | null) => {
     setNativeSelectionVersion(value => value + 1);
     setActiveNative(null);
@@ -301,19 +300,17 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
     queryFn: ({pageParam, signal}) => workRequest<WorkTurnPage>(`${childPath}/turns?view=summary${separate ? "&catalog=separate" : ""}${pageParam ? `&before_turn=${encodeURIComponent(pageParam)}` : ""}`, signal),
     getNextPageParam: page => separate ? undefined : page.next_cursor ?? undefined,
   });
-  const metadataId = nativeMode ? shownNative : saved.selected;
+  const metadataId = nativeMode ? nativeSession : saved.selected;
   const metadata = useQuery({
     queryKey: ["work-session-metadata", agentId, metadataId], enabled: separate && Boolean(metadataId && metadataId !== view?.main_session_id),
     queryFn: ({signal}) => workRequest<WorkSession>(workSessionPath(agentId, metadataId!), signal), staleTime: Infinity, retry: false,
   });
-  const catalogKey = ["work-catalog", agentId];
-  const catalog = useInfiniteQuery({
-    queryKey: catalogKey, enabled: separate && nativeMode, initialPageParam: "", staleTime: Infinity,
-    queryFn: ({pageParam, signal}) => workRequest<WorkCatalogPage>(workCatalogPath(agentId, pageParam ? {after_session: pageParam} : {}), signal),
-    getNextPageParam: page => page.next_cursor ?? undefined,
-  });
-  const sessions = separate ? catalog.data?.pages.flatMap(page => page.sessions) ?? [] : view?.other_executions ?? [];
+  const sessions = separate ? [] : view?.other_executions ?? [];
   const selected = separate ? metadata.data : sessions.find(s => s.session_id === saved.selected);
+  const nativeTitle = nativeSession === view?.main_session_id ? tr("主 Agent")
+    : tr(sessionTitle(separate ? metadata.data : sessions.find(session => session.session_id === nativeSession)));
+  const currentNativeTitle = activeNative?.base === nativeSession && activeNative.sessionId !== nativeSession
+    ? activeNative.label || tr("子执行") : nativeTitle;
   const online = view?.node_connection_state === "online";
   const mainHistory = useWorkHistory(agentId, separate ? view?.main_session_id ?? (continuous ? "combined" : null) : null, separate ? view : undefined,
     continuous ? workBase(agentId) : view?.main_session_id ? workSessionPath(agentId, view.main_session_id) : "", continuous);
@@ -446,19 +443,13 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
       activity={active} preview={continuous ? loadPreview : undefined} visible={!nativeMode && !graphMode} headUpdate={nativeMode || graphMode ? 0 : main ? viewQuery.dataUpdatedAt : childQuery.dataUpdatedAt}
       focusToken={!nativeMode && focus?.session_id === turn.session_id && focus?.turn_id === turn.turn_id ? replyFocusToken : undefined} />;
   };
-  const catalogMore = separate && <>
-    {catalog.isLoading && <small role="status">{tr("正在加载工作记录…")}</small>}
-    {catalog.isError && <p role="alert">{catalog.error.message}<button type="button" onClick={() => void catalog.refetch()}>{tr("重试")}</button></p>}
-    {catalog.data && <button type="button" disabled={catalog.isFetching} onClick={() => void client.resetQueries({queryKey: catalogKey, exact: true})}>{tr("刷新目录")}</button>}
-    {catalog.hasNextPage && <button type="button" disabled={catalog.isFetching} onClick={() => void catalog.fetchNextPage()}>{tr("加载更多")}</button>}
-  </>;
   return <WorkNavigationContext.Provider value={{ returnUrl: `${location.pathname}?view=work`, beforeLeave: save, names, people }}>
     <div ref={root} className={`im-work${continuous ? " im-work-continuous" : ""}`} data-testid="agent-work-panel">
       {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError && !view && !viewQuery.isFetchNextPageError ? <div role="alert" className="im-work-state">{viewQuery.error.message}{!(viewQuery.error instanceof AgentExecutionDeletedError) && <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button>}</div> : view && <>
         {viewQuery.isRefetchError && <p className="im-work-callout" role="status">{viewQuery.error.message} <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button></p>}
         <div className="im-work-toolbar">
-          <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode && !graphMode} onClick={showRecords}>{tr('工作记录')}</button>{continuous && <button role="tab" aria-selected={graphMode} onClick={showGraph}>{tr('派工关系')}</button>}<button role="tab" aria-selected={nativeMode} onClick={() => showNative(saved.selected || focus?.session_id || view.main_session_id)}>{tr('原生轨迹')}</button></div>
-          {nativeMode && <label className="im-native-execution"><span>{tr('当前执行')}</span><select aria-label="当前执行" value={shownNative ?? ''} onChange={event => showNative(event.target.value)}>{view.main_session_id && <option value={view.main_session_id}>{tr('主 Agent')}</option>}{sessions.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id === shownNative && activeNative?.base === nativeSession && activeNative.label ? activeNative.label : tr(sessionTitle(session))}</option>)}{shownNative && shownNative !== view.main_session_id && !sessions.some(session => session.session_id === shownNative) && <option value={shownNative}>{activeNative?.label || tr(sessionTitle(selected))}</option>}</select>{catalogMore}</label>}
+          <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode && !graphMode} onClick={showRecords}>{tr('工作记录')}</button>{continuous && <button role="tab" aria-selected={graphMode} onClick={showGraph}>{tr('派工关系')}</button>}<button role="tab" aria-selected={nativeMode} onClick={() => { if (!nativeMode) showNative(saved.selected || focus?.session_id || view.main_session_id); }}>{tr('原生轨迹')}</button></div>
+          {nativeMode && nativeSession && <span className="im-native-current">{currentNativeTitle}</span>}
           <div className="im-work-toolbar-status" role="status">
             {online && !nativeMode && (graphMode || !continuous || !saved.selected) && <span>{tr("主 Agent")} · {statusLabel(view.main_execution)}</span>}
             {!online && <span className="im-work-offline">
@@ -466,7 +457,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
             </span>}
           </div>
         </div>
-        {nativeMode && <AgentTrajectory key={nativeSelectionVersion} onActiveSessionChange={onActiveNative} rootSessionId={view.main_session_id} initialTitle={nativeSession === view.main_session_id ? tr('主 Agent') : tr(sessionTitle(sessions.find(item => item.session_id === nativeSession) ?? selected))} agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} />}
+        {nativeMode && <AgentTrajectory key={nativeSelectionVersion} onActiveSessionChange={onActiveNative} rootSessionId={view.main_session_id} initialTitle={nativeTitle} agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} />}
         {continuous && <WorkDelegation agentId={agentId} agentName={agentName} visible={graphMode} openSession={openGraphSession} />}
         <div hidden={nativeMode || graphMode}>
         {graphReturn.current && !saved.selected && <button type="button" className="im-work-child-link" onClick={backToGraph}>{tr("← 返回派工关系")}</button>}
