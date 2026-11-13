@@ -21,6 +21,17 @@ import { assertDreamingSources, registerDreamingHistory, sourceDirectory } from 
 import type {} from '../trajectory-runs.js';
 
 export const memoryDigest = (text: string) => createHash('sha256').update(text).digest('hex');
+function inputBlocks(text: string) {
+  const bytes = Buffer.from(text, 'utf8');
+  const blocks: {type:'text';text:string}[] = [];
+  for (let start = 0; start < bytes.length;) {
+    let end = Math.min(start + 8_900, bytes.length);
+    while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
+    blocks.push({type:'text',text:bytes.toString('utf8',start,end)});
+    start = end;
+  }
+  return blocks;
+}
 const inside = (root: string, path: string) => { const rel=relative(root,path); return !rel.startsWith('..') && !isAbsolute(rel); };
 interface Options {
   parent: Agent; config: AgentConfiguration; signal: AbortSignal; run: DreamingRun; owner: DreamingOwner;
@@ -103,12 +114,13 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
   signal.addEventListener('abort',cancel,{once:true});
   try{
     signal.throwIfAborted();
+    const content=(text: string)=>inputBlocks(`${navigation()}\n\n${text}`);
     const text=await input({limit,measure:async text=>{
       const assembly=await handle.agent.ctx.systemPrompt.assemble({scope:handle.agent,signal});
-      return estimateInputTokens(JSON.stringify({system:renderPrompt(assembly),messages:[{role:'user',content:renderContextSnapshot(assembly)},{role:'user',content:`${navigation()}\n\n${text}`}],tools:assembly.tools}))+512;
+      return estimateInputTokens(JSON.stringify({system:renderPrompt(assembly),messages:[{role:'user',content:renderContextSnapshot(assembly)},{role:'user',content:content(text)}],tools:assembly.tools}))+512;
     }});
     await options.save();
-    handle.agent.followup(createUserMessage({source:{kind:'nano-system',actorId:config.agentId,channel:extraction?'dreaming-extraction':'dreaming',messageId:run.id},content:[{type:'text',text:`${navigation()}\n\n${text}`}]}));
+    handle.agent.followup(createUserMessage({source:{kind:'nano-system',actorId:config.agentId,channel:extraction?'dreaming-extraction':'dreaming',messageId:run.id},content:content(text)}));
     let feedback=0;
     let blocked=false;
     while(true){

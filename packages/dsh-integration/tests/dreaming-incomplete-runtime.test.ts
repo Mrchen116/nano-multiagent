@@ -124,8 +124,8 @@ export function apply(ctx) {
         expect(result.maintenance.backlog.global.units).toBeGreaterThanOrEqual(0);
       }
       const maintenance = requests.filter(request => request.sessionId.startsWith('dreaming-'));
-      const materialPath=maintenance[0].messages.flatMap((m:any)=>m.content??[]).map((b:any)=>b.text??'').join('\n').match(/Main Agent original trajectory: ([^\n]+)/)![1];
-      expect(await readFile(materialPath,'utf8')).toContain('experience-one');
+      const material=maintenance[0].messages.flatMap((m:any)=>m.content??[]).map((b:any)=>b.text??'').join('');
+      expect(material).toContain('experience-one');
       if (mode === 'body-only') {
         const memory = join(home, '.nanoassistant/memory');
         const feedback = maintenance.filter(request => request.messages.some((message: any) => message.source?.channel === 'dreaming-git-status'));

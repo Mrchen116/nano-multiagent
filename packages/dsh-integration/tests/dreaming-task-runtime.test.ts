@@ -45,10 +45,10 @@ export function apply(ctx){
         if (${JSON.stringify(mode)} === 'unsafe-slug') output=JSON.stringify({rollout_summary:'Summary',rollout_slug:'../travel'});
       }else if(!consolidationFailed){consolidationFailed=true;throw new Error('Simulated consolidation failure');}
       else{
-        if(text.includes('<memory_repository>'))scope.set(o.sessionId,{stage:text.match(/<memory_repository>\\n([^\\n]+)\\n<\\/memory_repository>/)[1],files:[...text.matchAll(/(?:Main Agent original trajectory|New subagent trajectory summary|Updated subagent trajectory summary; replaces the same source|Subagent trajectory summary with no signal; old summary retired): ([^\\n]+)/g)].map(m=>m[1]),directory:JSON.parse(text.match(/Source directory \\(data\\): ([^\\n]+)/)[1])});
-        const {stage,directory,files}=scope.get(o.sessionId);
+        if(text.includes('<memory_repository>'))scope.set(o.sessionId,{stage:text.match(/<memory_repository>\\n([^\\n]+)\\n<\\/memory_repository>/)[1],directory:JSON.parse(text.match(/Source directory \\(data\\): ([^\\n]+)/)[1])});
+        const {stage,directory}=scope.get(o.sessionId);
         const root=directory.find(item=>item.purpose.startsWith('Global'));
-        const calls=[...files.map(path=>['bash',{description:'Read the selected batch evidence file',command:'cat '+JSON.stringify(path)}]),['read',{file_path:stage+'/MEMORY.md'}],
+        const calls=[['read',{file_path:stage+'/MEMORY.md'}],
           ['source_history',{action:'search',session_id:root.session_id,query:'free cancellation',limit:10}],
           ['notes',{action:'write',path:'progress.md',text:'Verified inherited cancellation condition; no booking evidence.'}],
           ['new_context',{}],['notes',{action:'read',path:'progress.md'}],
@@ -171,7 +171,7 @@ export function apply(ctx){
   const last=r.messages.findLast(m=>m.source?.actorId==='owner');
   const input=r.messages.filter(m=>m.source?.channel==='dreaming').flatMap(m=>m.content||[]).map(b=>b.text||'').join('\\n');
   const recovered=r.messages.find(m=>m.role==='tool'&&m.toolCallId==='recover-original');
-  if(input.includes('subagent trajectory summary:')&&!recovered){
+  if(input.includes('## New subagent trajectory summary')&&!recovered){
    yield{type:'block-end',index:0,block:{type:'tool-call',id:'recover-original',name:'source_history',arguments:JSON.stringify({action:'search',session_id:'root',query:'GLOBAL-START',limit:1})}};
    yield{type:'finish',reason:{kind:'tool-calls'}};
   }else if(r.sessionId==='root'&&last?.source.messageId==='maintain'&&!r.messages.some(m=>m.toolCallId==='maintain')){
@@ -209,11 +209,7 @@ export function apply(ctx){
     expect(extraction).toHaveLength(3);
     const consolidation=requests.filter(r=>!extraction.includes(r));
     const batches=consolidation.filter((r:any,index:number)=>consolidation.findIndex((item:any)=>item.sessionId===r.sessionId)===index);
-    const text=await Promise.all(batches.map(async request=>{
-      const index=material(request);
-      const paths=[...index.matchAll(/(?:Main Agent original trajectory|New subagent trajectory summary|Updated subagent trajectory summary; replaces the same source|Subagent trajectory summary with no signal; old summary retired): ([^\n]+)/g)].map(match=>match[1]!);
-      return (await Promise.all(paths.map(path=>readFile(path,'utf8')))).join('\n');
-    }));
+    const text=batches.map(material);
     if(oversized){
       expect(reviews.at(-1).summary).toContain('summary does not fit');
       expect(text.join('\n')).not.toContain('GLOBAL-END');
