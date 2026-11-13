@@ -162,7 +162,11 @@ export class MemoryDocuments {
     this.dirty.add('MEMORY.md');
     for (const path of [...this.dirty]) {
       this.dirty.delete(path);
-      try { await this.path(path); this.hashes[path] = digest(await readFile(join(this.root, path), 'utf8')); }
+      try {
+        const absolute = join(this.root, path);
+        if (!(await lstat(absolute)).isFile()) { delete this.hashes[path]; continue; }
+        await this.path(path); this.hashes[path] = digest(await readFile(absolute, 'utf8'));
+      }
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') delete this.hashes[path]; else throw error; }
     }
     return Object.fromEntries(Object.entries(this.hashes).sort(([a], [b]) => a.localeCompare(b)));
@@ -220,13 +224,24 @@ export class MemoryDocuments {
       return {path, status, supported};
     }));
   }
+  /** Identify a missing or invalid root entry without following symbolic links. */
+  async entryIssue(): Promise<string | undefined> {
+    try {
+      if (!(await lstat(join(this.root, 'MEMORY.md'))).isFile()) return 'MEMORY.md must be a regular file';
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      return 'MEMORY.md is missing from the repository root';
+    }
+  }
   /** Report repository issues that the current Dreaming Agent can repair. */
   async repositoryIssues(): Promise<Array<{path: string; reason: string; status?: string}>> {
     const issues: Array<{path: string; reason: string; status?: string}> = (await this.gitChanges()).map(({path,status}) =>
       ({path,status,reason:'Uncommitted change'}));
+    const entryIssue = await this.entryIssue();
+    if (entryIssue) issues.push({path:'MEMORY.md',reason:entryIssue});
     const walk = async (directory: string) => {
       for (const item of await readdir(join(this.root, directory), {withFileTypes:true})) {
-        if (!directory && item.name === '.git') continue;
+        if (!directory && (item.name === '.git' || item.name === 'MEMORY.md')) continue;
         const path = join(directory, item.name);
         if (item.isDirectory()) await walk(path);
         else if (!item.isFile() || !path.endsWith('.md')) issues.push({path,reason:'Expected a regular Markdown file'});

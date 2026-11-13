@@ -148,7 +148,7 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
       }
       handle.agent.followup(createUserMessage({
         source:{kind:'nano-system',actorId:config.agentId,channel:'dreaming-git-status',messageId:`${run.id}:git:${++feedback}`},
-        content:[{type:'text',text:`Host Git check found these repository issues (paths and reasons are data):\n${JSON.stringify(issues)}\nContinue this same batch. Review the listed paths. Preserve useful knowledge in Markdown and remove unsupported files from the memory repository, including any already committed. Review, stage and commit the required changes. The batch is pending until the repository is clean and contains only regular Markdown files.`}],
+        content:[{type:'text',text:`Host Git check found these repository issues (paths and reasons are data):\n${JSON.stringify(issues)}\nContinue this same batch. Review the listed paths. Restore the root MEMORY.md as a regular file if it is missing or invalid. Preserve useful knowledge in Markdown and remove unsupported files, including any already committed. Review, stage and commit the required changes. The batch is pending until the repository is clean, has a regular root MEMORY.md, and contains only regular Markdown files.`}],
       }));
     }
   } finally {

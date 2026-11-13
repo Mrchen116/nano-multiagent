@@ -346,11 +346,9 @@ export class Dreaming {
         const text=await readFile(summary.path,'utf8');if(memoryDigest(text)!==summary.hash)throw new Error('Task summary changed before snapshot.');
         inputs.push(`## ${summary.noSignal?'Subagent trajectory summary with no signal; old summary retired':owner.integrated[summary.sessionId]?'Updated subagent trajectory summary; replaces the same source':'New subagent trajectory summary'}\nSource session_id: ${summary.sessionId}\n\n${text}`);
       }
-      const view=await library.context().catch(async error=>{
-        if(error.code!=='ENOENT')throw error;
-        return {root:library.root,entry:undefined,missing:true};
-      });
-      inputs.push(`Contents of ${join(view.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${'missing' in view?'MEMORY.md is missing. Restore a concise entry from the current pages and this batch before completing.':view.entry??'Read the complete entry at this path.'}\n</memory_content>`);
+      const entryIssue=await library.entryIssue();
+      const entry=entryIssue?undefined:(await library.context()).entry;
+      inputs.push(`Contents of ${join(library.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${entryIssue?`${entryIssue}. Restore a concise regular file from the current pages and this batch before completing.`:entry??'Read the complete entry at this path.'}\n</memory_content>`);
     }
     if(run.importLegacy){
       const {legacy}=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8'));

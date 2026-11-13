@@ -16,7 +16,7 @@ import { appendFileSync } from 'node:fs';
 export const name = 'incomplete-fixture';
 export const inject = ['llm', 'agents'];
 export function apply(ctx) {
-  const steps = new Map();let brokenSession;
+  const steps = new Map();
   ctx.on('llm/stream', async function* (request) {
     appendFileSync(process.env.DSH_HOME + '/requests.jsonl', JSON.stringify(request) + '\\n');
     const step = steps.get(request.sessionId) || 0;
@@ -31,9 +31,9 @@ export function apply(ctx) {
         if (mode === 'cancelled') ctx.agents.get(request.sessionId).cancel({kind:'hook',reason:'Fixture cancellation'});
         throw new Error('Fixture model failure');
       }
-      if(mode==='missing-entry'&&!brokenSession)brokenSession=request.sessionId;
-      if(mode==='missing-entry'&&request.sessionId===brokenSession&&step===1)throw new Error('Interrupted after removing entry');
-      const calls = mode==='missing-entry' ? (request.sessionId===brokenSession ? [['bash',{description:'Remove entry before interrupted reconstruction',command:'rm -- MEMORY.md'}]] : [['write',{file_path:stage+'/MEMORY.md',content:'# Restored entry'}]]) : ${JSON.stringify(mode)} === 'unread-write' ? [write]
+      const calls = mode === 'missing-entry'
+        ? [['bash', {description:'Commit deletion of the root entry',command:'git rm -- MEMORY.md && git -c user.name=Nano -c user.email=memory@localhost commit -m "Remove entry" && git status --porcelain'}, 'commit-deletion']]
+        : mode === 'unread-write' ? [write]
         : mode === 'failed-read-write' ? [['read', { file_path: stage + '/missing.md' }], write]
         : ['body-only', 'legacy-oversized-index', 'oversized-index'].includes(mode) ? [
             ['read', {file_path: stage + '/MEMORY.md'}],
@@ -50,6 +50,8 @@ export function apply(ctx) {
           call = ['read', {file_path: second}, 'read-published'];
         } else if (mode === 'body-only' && !request.messages.some(message => message.toolCallId === 'update-published')) {
           call = ['write', {file_path: second, content: 'Updated detail after status feedback.'}, 'update-published'];
+        } else if (mode === 'missing-entry') {
+          call = ['bash', {description:'Restore and commit the root entry',command:"printf '%s' '# Restored entry' > MEMORY.md && git add -- MEMORY.md && git -c user.name=Nano -c user.email=memory@localhost commit -m 'Restore entry'"}, 'batch-commit'];
         } else if (mode === 'committed-non-markdown') {
           call = ['bash', {description:'Remove the unsupported committed file',command:'git rm -- .gitignore && git -c user.name=Nano -c user.email=memory@localhost commit -m "Remove unsupported file"'}, 'batch-commit'];
         } else {
@@ -102,7 +104,7 @@ export function apply(ctx) {
       await submit('maintain'); await submit('after');
       const facts = await client.rpc.request('knowledge.facts', {}) as { reviews: Array<{ status: string; summary: string }> };
       expect(facts.reviews).toHaveLength(1);
-      const failed = ['model-error', 'cancelled','missing-entry'].includes(mode);
+      const failed = ['model-error', 'cancelled'].includes(mode);
       expect(facts.reviews[0]).toMatchObject({ status: failed ? 'partial' : 'completed' });
       if (failed) {
         expect(facts.reviews[0]!.summary).toContain('did not complete');
@@ -114,8 +116,7 @@ export function apply(ctx) {
       } else {
         await expect(body).rejects.toMatchObject({code:'ENOENT'});
       }
-      if(mode==='missing-entry')await expect(readFile(entry,'utf8')).rejects.toMatchObject({code:'ENOENT'});
-      else expect(await readFile(entry, 'utf8')).toBe(mode==='oversized-index'?'记'.repeat(8001):['model-error','cancelled'].includes(mode)?'Unsupported overwrite':original);
+      expect(await readFile(entry, 'utf8')).toBe(mode==='missing-entry'?'# Restored entry':mode==='oversized-index'?'记'.repeat(8001):['model-error','cancelled'].includes(mode)?'Unsupported overwrite':original);
       const requests = (await readFile(join(home, 'requests.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
       const latest = requests.filter(request => request.sessionId === 'root').at(-1);
       const status = (id: string) => JSON.parse(stripContextItemId(latest.messages.find((message: any) => message.role === 'tool' && message.toolCallId === id).content).filter(block => block.type === 'text').map(block => block.text).join('\n'));
@@ -158,11 +159,16 @@ export function apply(ctx) {
           .toEqual(['knowledge/new.md', 'knowledge/second.md']);
       }
       if (['unread-write', 'failed-read-write'].includes(mode)) expect(maintenance.at(-1).messages.some((message: any) => message.role === 'tool' && message.isError)).toBe(true);
-      if(mode==='missing-entry'){
-        await submit('repair');
-        const repaired=await client.rpc.request('knowledge.facts',{}) as {reviews:any[]};
-        expect(repaired.reviews.at(-1).status).toBe('completed');
-        expect(await readFile(entry,'utf8')).toBe('# Restored entry');
+      if (mode === 'missing-entry') {
+        const memory = join(home, '.nanoassistant/memory');
+        expect(new Set(maintenance.map(request => request.sessionId)).size).toBe(1);
+        const feedback = maintenance.flatMap(request => request.messages).find(message => message.source?.channel === 'dreaming-git-status');
+        const issues = JSON.parse(feedback.content[0].text.split('\n')[1]);
+        expect(issues).toEqual([{path:'MEMORY.md',reason:'MEMORY.md is missing from the repository root'}]);
+        const git = (...args: string[]) => execFileSync('git', args, {cwd:memory,encoding:'utf8'}).trim();
+        expect(git('diff-tree', '--no-commit-id', '--name-status', '-r', 'HEAD^')).toBe('D\tMEMORY.md');
+        expect(git('show', 'HEAD:MEMORY.md')).toBe('# Restored entry');
+        expect(git('status','--porcelain')).toBe('');
       }
       await client.shutdown(); client = undefined;
     } finally {

@@ -241,6 +241,16 @@ describe('native Git batch observation', () => {
     ));
   });
 
+  it.each(['directory', 'symlink'])('reports a root entry replaced by a %s', async kind => {
+    const {documents, root} = await library();
+    const entry = join(root, 'MEMORY.md');
+    await rm(entry);
+    if (kind === 'directory') await mkdir(entry);
+    else await symlink('other.md', entry);
+    expect(await documents.repositoryIssues()).toContainEqual({path:'MEMORY.md',reason:'MEMORY.md must be a regular file'});
+    expect(await documents.versions()).not.toHaveProperty('MEMORY.md');
+  });
+
   it('does not mistake a clean Git conversion for matching actual document bytes', async () => {
     const {documents, root} = await library();
     const before = await documents.versions();
