@@ -505,7 +505,8 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
               : <button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button>}
             </header>
             {!continuous && <button type="button" onClick={() => showNative(saved.selected)}>{tr("查看原生轨迹")}</button>}
-            {!workAccessLost(childQuery.error) && !workAccessLost(metadata.error) && (!childQuery.isError || childQuery.isFetchNextPageError) && (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
+            {!continuous && !workAccessLost(childQuery.error) && !workAccessLost(metadata.error) && (!childQuery.isError || childQuery.isFetchNextPageError) &&
+              (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
             {childQuery.isRefetchError && childQuery.data && <p role="status">{childQuery.error.message} <button type="button" onClick={() => void childQuery.refetch()}>{tr("重试")}</button></p>}
             {workAccessLost(childQuery.error) || workAccessLost(metadata.error) || (childQuery.isError && !childQuery.data) || (metadata.isError && !metadata.data) ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => { void childQuery.refetch(); if (separate) void metadata.refetch(); }}>{tr("重试")}</button></p>
               : childTurns.length || childAnchors.length ? <WorkTurnList turns={childTurns} anchors={childAnchors} history={separate ? childHistory : undefined} continuous={continuous} renderTurn={renderTurn} nextTurnId={childQuery.data?.pages.at(-1)?.next_turn_id}

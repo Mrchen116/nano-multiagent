@@ -780,6 +780,7 @@ it("opens nested delegation from its real graph node and restores the chosen win
   expect(await screen.findByRole("heading", {name: "Second child"})).toBeVisible();
   expect(screen.queryByRole("heading", {name: "主 Agent"})).not.toBeInTheDocument();
   expect(screen.queryByText("主上下文（最近报告）")).not.toBeInTheDocument();
+  expect(screen.queryByText("执行记录", {exact: true})).not.toBeInTheDocument();
   expect(screen.queryByRole("button", {name: "← 返回发起位置"})).not.toBeInTheDocument();
   expect(screen.queryByRole("button", {name: "关闭子轨迹"})).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", {name: "← 返回派工关系"}));
