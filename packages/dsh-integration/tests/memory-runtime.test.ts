@@ -20,7 +20,7 @@ it.each([false, true])('assembles the role agreement and protects formal memory 
   await seed.apply({operationId:'unrelated',path:'knowledge/unrelated.md',beforeHash:null,content:'An unrelated already verified topic.'});
   await seed.apply({operationId:'preferences',path:'knowledge/preferences.md',beforeHash:null,content:'Public updates only.'});
   await symlink(join(home, '.nanoassistant/memory'), alias);
-  await seed.checkpoint(await seed.versions(),0); await seed.close();
+  await seed.close();
   await writeFile(join(home, 'fixture.mjs'), `import {appendFileSync} from 'node:fs'; export const name='memory-fixture'; export const inject=['llm']; export function apply(ctx) { const steps=new Map(); ctx.on('llm/stream',async function*(o) { appendFileSync(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify(o)+'\\n'); const last=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&m.source.actorId);const n=steps.get(last?.id)||0;steps.set(last?.id,n+1);const input=last?.content.find(b=>b.type==='text')?.text;const calls=input==='learn'?${JSON.stringify(calls)}:input==='check-unreadable-role'?[['read',{file_path:${JSON.stringify(rolePath)}}]]:[];if(n<calls.length){const [name,args]=calls[n];yield {type:'block-end',index:0,block:{type:'tool-call',id:last.id+'-'+n,name,arguments:JSON.stringify(args)}};yield {type:'finish',reason:{kind:'tool-calls'}};}else{yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};} }); }`);
   try {
     await prepareProfile(home, [{id:'llm-pi-ai',config:{providers:{fixture:{api:'openai-completions',baseURL:'http://127.0.0.1:9',apiKeyEnv:'NANO_TEST_KEY',models:[{id:'test'}]}}}}, {insert:[{id:'memory-fixture',name:join(home,'fixture.mjs')}]}]);

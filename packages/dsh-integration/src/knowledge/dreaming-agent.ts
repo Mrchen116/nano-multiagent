@@ -122,7 +122,6 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
     await options.save();
     handle.agent.followup(createUserMessage({source:{kind:'nano-system',actorId:config.agentId,channel:extraction?'dreaming-extraction':'dreaming',messageId:run.id},content:content(text)}));
     let feedback=0;
-    let blocked=false;
     while(true){
       await handle.agent.whenIdle();signal.throwIfAborted();
       const events=handle.agent.session.snapshotEvents();
@@ -137,19 +136,19 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
         return result;
       }
       await options.verifyCurrent();
-      const observed=await library.observeBatch(manifest.versions,run.id);
-      run.receipts=observed.receipts;await options.save();
-      const result=await library.finalizeBatch(observed.versions,run.generation,run.receipts,signal);
-      if(!result.changes.length){
-        run.receipts=result.receipts;run.sourcesChecked=true;await options.save();
+      const issues=await library.repositoryIssues();
+      signal.throwIfAborted();
+      await assertDreamingSources(library,run.generation);
+      if(!issues.length){
+        run.receipts=(await library.observeBatch(manifest.versions,run.id)).receipts;
+        signal.throwIfAborted();
+        await assertDreamingSources(library,run.generation);
+        await options.save();
         return;
       }
-      const unsupported=result.changes.some(change=>!change.supported);
-      if(blocked&&unsupported)throw new Error(`Formal memory still contains unsupported Git changes: ${JSON.stringify(result.changes)}`);
-      blocked=unsupported;
       handle.agent.followup(createUserMessage({
         source:{kind:'nano-system',actorId:config.agentId,channel:'dreaming-git-status',messageId:`${run.id}:git:${++feedback}`},
-        content:[{type:'text',text:`Host Git check: the formal memory repository still has these uncommitted changes (data):\n${JSON.stringify(result.changes)}\nContinue this same batch. Review the remaining changes and use bash to review, git add and git commit when ready. The batch is pending until the host confirms a clean repository.`}],
+        content:[{type:'text',text:`Host Git check found these repository issues (paths and reasons are data):\n${JSON.stringify(issues)}\nContinue this same batch. Review the listed paths. Preserve useful knowledge in Markdown and remove unsupported files from the memory repository, including any already committed. Review, stage and commit the required changes. The batch is pending until the repository is clean and contains only regular Markdown files.`}],
       }));
     }
   } finally {

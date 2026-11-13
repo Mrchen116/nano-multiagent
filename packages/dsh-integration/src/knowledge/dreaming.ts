@@ -192,7 +192,7 @@ export class Dreaming {
         includeConversations();
         const cache=(await this.domain).table('summaries');
         const pendingMaterial=materials.some(material=>owner.integrated[material.sessionId]!==material.sourceVersion);
-        const check=await library.needsVerification()||(await library.gitChanges()).length>0;
+        const check=(await library.repositoryIssues()).length>0;
         const hasProgress=batch.ranges.some(range=>range.through>range.start||range.continuation);
         if(!batch.units.length&&!pendingMaterial&&!deferred?.summaries.length&&!check&&!importPending){
           // Filtered system events can advance without a model; genuine blocked prefixes cannot.
@@ -348,11 +348,9 @@ export class Dreaming {
       }
       const view=await library.context().catch(async error=>{
         if(error.code!=='ENOENT')throw error;
-        return {root:library.root,versions:await library.versions(),entry:undefined,missing:true};
+        return {root:library.root,entry:undefined,missing:true};
       });
       inputs.push(`Contents of ${join(view.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${'missing' in view?'MEMORY.md is missing. Restore a concise entry from the current pages and this batch before completing.':view.entry??'Read the complete entry at this path.'}\n</memory_content>`);
-      const unverified=library.unverifiedPaths(view.versions,run.generation);
-      if(unverified.length)inputs.push(`Existing pages awaiting verification: ${JSON.stringify(unverified)}. Read these before completing this batch.`);
     }
     if(run.importLegacy){
       const {legacy}=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8'));
@@ -434,7 +432,7 @@ export class Dreaming {
     const summaries=(await this.domain).table('summaries');
     const children=materials.map(material=>{const cached=summaries.get(summaryKey(agentId,material.sessionId));return {sessionId:material.sessionId,
       state:cached?.sourceVersion!==material.sourceVersion||cached.generation!==policy.generation?'pending_extraction':owner.integrated[material.sessionId]!==material.sourceVersion?'pending_integration':'integrated'};});
-    const pending=batch.units.length>0||children.some(child=>child.state!=='integrated')||(await library.gitChanges()).length>0;
+    const pending=batch.units.length>0||children.some(child=>child.state!=='integrated')||(await library.repositoryIssues()).length>0;
     const blocked=[...target.blocked,...batch.blocked];
     return {active:this.active.has(agentId),backlog:{state:pending?'pending':blocked.length?'blocked':'no_eligible_increment',scope:'frozen_sources',
       global:{pending:batch.units.length>0,units:batch.units.length},children,blocked},reviews:(await this.reviews()).filter(run=>run.agentId===agentId).map(({status,summary,at,endedAt})=>({status,summary,at,endedAt}))};

@@ -6,7 +6,7 @@ import { expect, it } from 'vitest';
 import {stripContextItemId} from 'dsh-agent-context';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it.each(['unread-write', 'failed-read-write', 'normal-stop', 'body-only', 'legacy-oversized-index', 'oversized-index', 'model-error', 'cancelled', 'missing-entry'])(
+it.each(['unread-write', 'failed-read-write', 'normal-stop', 'committed-non-markdown', 'body-only', 'legacy-oversized-index', 'oversized-index', 'model-error', 'cancelled', 'missing-entry'])(
   'checks actual direct edits and source progress after %s', async mode => {
     const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
     const home = await mkdtemp(join(tmpdir(), 'nano-dreaming-incomplete-'));
@@ -50,6 +50,8 @@ export function apply(ctx) {
           call = ['read', {file_path: second}, 'read-published'];
         } else if (mode === 'body-only' && !request.messages.some(message => message.toolCallId === 'update-published')) {
           call = ['write', {file_path: second, content: 'Updated detail after status feedback.'}, 'update-published'];
+        } else if (mode === 'committed-non-markdown') {
+          call = ['bash', {description:'Remove the unsupported committed file',command:'git rm -- .gitignore && git -c user.name=Nano -c user.email=memory@localhost commit -m "Remove unsupported file"'}, 'batch-commit'];
         } else {
           call = ['bash', {description:'Commit the related memory batch',command:'git add -- . && git -c user.name=Nano -c user.email=memory@localhost commit -m "Consolidate related memories"'}, 'batch-commit'];
         }
@@ -89,14 +91,21 @@ export function apply(ctx) {
       const beforeProgress = JSON.parse(await readFile(progressPath, 'utf8')).record.streams;
       const entry = join(home, '.nanoassistant/memory/MEMORY.md');
       if (mode === 'legacy-oversized-index') await writeFile(entry, '# Existing key memory\n' + 'Old detailed note.\n'.repeat(500));
+      if (mode === 'committed-non-markdown') {
+        const cwd = join(home, '.nanoassistant/memory');
+        await writeFile(join(cwd, '.gitignore'), 'scratch.txt');
+        execFileSync('git', ['add', '--', '.gitignore'], {cwd});
+        execFileSync('git', ['-c', 'user.name=Nano', '-c', 'user.email=memory@localhost', 'commit', '-m', 'Seed unsupported file'], {cwd});
+        expect(execFileSync('git', ['status','--porcelain'], {cwd,encoding:'utf8'})).toBe('');
+      }
       const original = await readFile(entry, 'utf8');
       await submit('maintain'); await submit('after');
       const facts = await client.rpc.request('knowledge.facts', {}) as { reviews: Array<{ status: string; summary: string }> };
       expect(facts.reviews).toHaveLength(1);
-      const failed = ['oversized-index', 'model-error', 'cancelled','missing-entry'].includes(mode);
+      const failed = ['model-error', 'cancelled','missing-entry'].includes(mode);
       expect(facts.reviews[0]).toMatchObject({ status: failed ? 'partial' : 'completed' });
       if (failed) {
-        expect(facts.reviews[0]!.summary).toContain(mode === 'oversized-index' ? 'MEMORY.md exceeds' : 'did not complete');
+        expect(facts.reviews[0]!.summary).toContain('did not complete');
         expect(facts.reviews[0]!.summary).toContain('整理进度未推进');
       }
       const body = readFile(join(home, '.nanoassistant/memory/knowledge/new.md'), 'utf8');
@@ -126,6 +135,15 @@ export function apply(ctx) {
       const maintenance = requests.filter(request => request.sessionId.startsWith('dreaming-'));
       const material=maintenance[0].messages.flatMap((m:any)=>m.content??[]).map((b:any)=>b.text??'').join('');
       expect(material).toContain('experience-one');
+      expect(material).not.toContain('Existing pages awaiting verification');
+      if (mode === 'committed-non-markdown') {
+        const memory = join(home, '.nanoassistant/memory');
+        expect(new Set(maintenance.map(request => request.sessionId)).size).toBe(1);
+        const feedback = maintenance.flatMap(request => request.messages).find(message => message.source?.channel === 'dreaming-git-status');
+        expect(feedback?.content[0].text).toContain('{"path":".gitignore","reason":"Expected a regular Markdown file"}');
+        expect(execFileSync('git', ['status','--porcelain'], {cwd:memory,encoding:'utf8'})).toBe('');
+        expect(execFileSync('git', ['log','-1','--format=%s'], {cwd:memory,encoding:'utf8'}).trim()).toBe('Remove unsupported file');
+      }
       if (mode === 'body-only') {
         const memory = join(home, '.nanoassistant/memory');
         const feedback = maintenance.filter(request => request.messages.some((message: any) => message.source?.channel === 'dreaming-git-status'));

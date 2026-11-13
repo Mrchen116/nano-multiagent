@@ -19,7 +19,7 @@ export interface DreamingRun {
   mode: 'automatic' | 'manual'; state: 'prepared' | 'running' | 'applying' | 'completed' | 'partial' | 'failed' | 'cancelled';
   at: number; endedAt?: number; generation: number; directory: string; batch: FrozenBatch;
   target: CycleTarget; summaries: TaskSummary[];
-  importLegacy?: boolean; sourcesChecked?: boolean;
+  importLegacy?: boolean;
   receipts: DocumentReceipt[]; summary?: string; error?: string;
 }
 
