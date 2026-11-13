@@ -1,6 +1,6 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Archive, LoaderCircle } from "lucide-react";
-import { useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 
 import { i18n } from "../../../i18n";
 import { workAccessLost, workBase, workRequest, type WorkDelegationNode, type WorkDelegationPage } from "./agent-work-api";
@@ -13,15 +13,15 @@ const states: Record<string, string> = {
   interrupted: "已中断", unknown: "状态未知", idle: "空闲",
 };
 
-function DelegationEdges({diagram, parents, visible}: {
-  diagram: RefObject<HTMLDivElement | null>;
+function DelegationEdges({parents, visible}: {
   parents: Map<string, string>;
   visible: boolean;
 }) {
   const marker = useId();
+  const svg = useRef<SVGSVGElement>(null);
   const [paths, setPaths] = useState<string[]>([]);
   useLayoutEffect(() => {
-    const element = diagram.current;
+    const element = svg.current?.parentElement;
     if (!element || !visible) return;
     const nodes = [...element.querySelectorAll<HTMLElement>("[data-work-node]")];
     const draw = () => {
@@ -42,9 +42,9 @@ function DelegationEdges({diagram, parents, visible}: {
     resize.observe(element);
     nodes.forEach(node => resize.observe(node));
     return () => resize.disconnect();
-  }, [diagram, parents, visible]);
+  }, [parents, visible]);
 
-  return <svg className="im-work-graph-edges" aria-hidden="true">
+  return <svg ref={svg} className="im-work-graph-edges" aria-hidden="true">
     <defs><marker id={marker} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M 1 1 L 7 4 L 1 7" />
     </marker></defs>
@@ -57,7 +57,6 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
 }) {
   const [window, setWindow] = useState<Window>("3d");
   const [selected, setSelected] = useState<string>();
-  const diagram = useRef<HTMLDivElement>(null);
   const pages = useInfiniteQuery({
     queryKey: ["agent-work-delegation", agentId, window],
     enabled: visible,
@@ -155,8 +154,8 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
         <div className="im-work-graph-columns" aria-hidden="true">
           <span>{tr("主 Agent")}</span><span>{tr("直接派工")}</span><span>{tr("继续派工")}</span>
         </div>
-        <div ref={diagram} className="im-work-graph-diagram">
-          <DelegationEdges diagram={diagram} parents={parentsById} visible={visible} />
+        <div className="im-work-graph-diagram">
+          <DelegationEdges parents={parentsById} visible={visible} />
           <ul className="im-work-graph-tree">{byParent.get(null)?.map(node => renderNode(node, new Set()))}</ul>
         </div>
       </> : <p className="im-work-state">{tr("这个时间范围内没有派工记录。")}</p>}

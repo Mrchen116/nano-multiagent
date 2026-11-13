@@ -757,7 +757,7 @@ it("opens nested delegation from its real graph node and restores the chosen win
   const node = (session_id: string, parent_session_id: string | null, title: string, total_tokens: number) => ({
     session_id, parent_session_id, title, status: "completed", usage: {total_tokens, reported_turns: 1, missing_turns: 0},
   });
-  view = {...view, timeline: "combined", catalog: "separate", record_sync_state: "current"};
+  view = {...view, timeline: "combined", catalog: "separate", record_sync_state: "current", latest_main_usage: {turn_id: "turn", context_used: 42, output: 7}};
   mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
     url === "/im/v1/conversations" ? {items: []}
     : url.includes("/work/delegation") ? {main_session_id: "main", record_sync_state: url.includes("window=2h") ? "catching_up" : "unknown", nodes: [
@@ -768,15 +768,20 @@ it("opens nested delegation from its real graph node and restores the chosen win
     : view
   ), {status: 200}));
   renderWork();
-  fireEvent.click(await screen.findByRole("tab", {name: "派工关系"}));
+  expect(await screen.findByText("主上下文（最近报告）")).toBeVisible();
+  fireEvent.click(screen.getByRole("tab", {name: "派工关系"}));
   expect(await screen.findByText("900 tok")).toBeVisible();
   expect(screen.getByText("已保存记录", {exact: true})).toHaveAttribute("role", "status");
   expect(screen.getByText("40 tok")).toBeVisible();
+  expect(document.querySelectorAll(".im-work-graph-edges path[marker-end]")).toHaveLength(2);
   fireEvent.change(screen.getByRole("combobox", {name: "活动范围"}), {target: {value: "2h"}});
   expect(await screen.findByText("记录同步中", {exact: true})).toHaveAttribute("role", "status");
   fireEvent.click(await screen.findByRole("button", {name: /Second child.*10 tok/}));
   expect(await screen.findByRole("heading", {name: "Second child"})).toBeVisible();
   expect(screen.queryByRole("heading", {name: "主 Agent"})).not.toBeInTheDocument();
+  expect(screen.queryByText("主上下文（最近报告）")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "← 返回发起位置"})).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", {name: "关闭子轨迹"})).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", {name: "← 返回派工关系"}));
   expect(screen.getByRole("combobox", {name: "活动范围"})).toHaveValue("2h");
 });

@@ -156,7 +156,10 @@ function turnTitle(turn: WorkTurn) {
   if (turn.scope === "workflow") return "Workflow 执行";
   if (type === "background_task") {
     const returns = turn.items.flatMap(item => Array.isArray(item.payload.background_returns) ? item.payload.background_returns.map(obj) : item.kind === "background_return" ? [item.payload] : []);
-    if (turn.scope === "subagent" && returns.length === 0 && !turn.has_background_returns && !trigger.task_type) return turn.description || "子 Agent 执行";
+    if (turn.scope === "subagent" && returns.length === 0 && !turn.has_background_returns && !trigger.task_type) {
+      const sourceKind = str(obj(trigger.source).kind);
+      return turn.description || (sourceKind === "agent-message" ? "收到 Agent 消息" : sourceKind === "subagent-settled" ? "收到子 Agent 结果" : "子 Agent 执行");
+    }
     const taskType = str(trigger.task_type) || str(returns[0]?.task_type) || str(turn.background_task_type);
     return ({ agent: "收到子 Agent 结果", subagent: "收到子 Agent 结果", bash: "收到后台 Bash 结果", workflow: "收到 Workflow 结果" }[taskType] ?? "收到后台结果");
   }
@@ -457,7 +460,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
           <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode && !graphMode} onClick={showRecords}>{tr('工作记录')}</button>{continuous && <button role="tab" aria-selected={graphMode} onClick={showGraph}>{tr('派工关系')}</button>}<button role="tab" aria-selected={nativeMode} onClick={() => showNative(saved.selected || focus?.session_id || view.main_session_id)}>{tr('原生轨迹')}</button></div>
           {nativeMode && <label className="im-native-execution"><span>{tr('当前执行')}</span><select aria-label="当前执行" value={shownNative ?? ''} onChange={event => showNative(event.target.value)}>{view.main_session_id && <option value={view.main_session_id}>{tr('主 Agent')}</option>}{sessions.map(session => <option key={session.session_id} value={session.session_id}>{session.session_id === shownNative && activeNative?.base === nativeSession && activeNative.label ? activeNative.label : tr(sessionTitle(session))}</option>)}{shownNative && shownNative !== view.main_session_id && !sessions.some(session => session.session_id === shownNative) && <option value={shownNative}>{activeNative?.label || tr(sessionTitle(selected))}</option>}</select>{catalogMore}</label>}
           <div className="im-work-toolbar-status" role="status">
-            {online && !nativeMode && <span>{tr("主 Agent")} · {statusLabel(view.main_execution)}</span>}
+            {online && !nativeMode && (graphMode || !continuous || !saved.selected) && <span>{tr("主 Agent")} · {statusLabel(view.main_execution)}</span>}
             {!online && <span className="im-work-offline">
               {tr(!nativeMode && !graphMode ? "节点离线 · 已保存记录" : "节点离线")}
             </span>}
@@ -466,7 +469,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
         {nativeMode && <AgentTrajectory key={nativeSelectionVersion} onActiveSessionChange={onActiveNative} rootSessionId={view.main_session_id} initialTitle={nativeSession === view.main_session_id ? tr('主 Agent') : tr(sessionTitle(sessions.find(item => item.session_id === nativeSession) ?? selected))} agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} />}
         {continuous && <WorkDelegation agentId={agentId} agentName={agentName} visible={graphMode} openSession={openGraphSession} />}
         <div hidden={nativeMode || graphMode}>
-        {graphReturn.current && <button type="button" className="im-work-child-link" onClick={backToGraph}>{tr("← 返回派工关系")}</button>}
+        {graphReturn.current && !saved.selected && <button type="button" className="im-work-child-link" onClick={backToGraph}>{tr("← 返回派工关系")}</button>}
         {messageId && (focusQuery.isError || focusQuery.data === null) && <p className="im-work-callout" role="status">{focusQuery.error instanceof AgentExecutionDeletedError ? focusQuery.error.message : tr("该回复的工作记录尚未同步或不可用。")}</p>}
         {focus && <button type="button" onClick={() => {
           const next = new URLSearchParams(location.search);
@@ -477,15 +480,31 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
           if (scroller) scroller.scrollTop = 0;
         }}>{tr("查看最新轮次")}</button>}
         {online && view.record_sync_state !== "current" && <p className="im-work-callout" role="status">{tr(view.record_sync_state === "catching_up" ? "工作记录正在补齐，当前显示已保存内容。" : "当前显示已保存记录，最新进度尚未确认。")}</p>}
-        <div className="im-work-latest im-work-card"><Usage value={view.latest_main_usage} label="最近已报告的主上下文" />{view.main_execution === "running" && <small>{tr("新统计尚未报告时沿用最近轮次")}</small>}</div>
+        {(!continuous || !saved.selected) && <div className="im-work-latest im-work-card">
+          <Usage value={view.latest_main_usage} label={continuous ? "主上下文（最近报告）" : "最近已报告的主上下文"}
+            compact={continuous} showCompactTotal={false} />
+          {view.main_execution === "running" && <small>{tr("新统计尚未报告时沿用最近轮次")}</small>}
+        </div>}
         <div className={`im-work-grid ${saved.selected ? "with-child" : ""}`}>
-          {(!continuous || !saved.selected) && <section className="im-work-trace"><header className="im-work-section-head"><h3>{tr("主 Agent")}</h3><small>{tr("最新轮次在前 · 轮次内部按实际顺序")}</small></header>
+          {(!continuous || !saved.selected) && <section className="im-work-trace" aria-label={tr("主 Agent")}>
+            {!continuous && <header className="im-work-section-head"><h3>{tr("主 Agent")}</h3><small>{tr("最新轮次在前 · 轮次内部按实际顺序")}</small></header>}
             {mainTurns.length || mainAnchors.length ? <WorkTurnList turns={mainTurns} anchors={mainAnchors} history={separate ? mainHistory : undefined} continuous={continuous} renderTurn={renderTurn} nextTurnId={viewQuery.data?.pages.at(-1)?.next_turn_id}
               earlier={viewQuery.hasNextPage ? {cursor: viewQuery.data?.pages.at(-1)?.next_cursor ?? "", loading: viewQuery.isFetchingNextPage, error: viewQuery.isFetchNextPageError ? viewQuery.error : null, load: () => void viewQuery.fetchNextPage()} : undefined} />
               : <p className="im-work-state">{tr("暂无工作记录。符合配置的新消息会进入收件箱。")}</p>}
           </section>}
-          {saved.selected && <aside className="im-work-child"><button className="im-work-back" onClick={() => selectChild(null)}>{tr(continuous ? "← 返回发起位置" : "← 返回主轨迹")}</button><header><div><h3>{tr(sessionTitle(selected))}</h3><small>{tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子 Agent" : selected?.scope || "关联执行")} · {saved.selected}</small></div><button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button></header>
-            <button type="button" onClick={() => showNative(saved.selected)}>{tr('查看原生轨迹')}</button>
+          {saved.selected && <aside className="im-work-child">
+            <button type="button" className="im-work-back" onClick={() => selectChild(null)}>{tr(!continuous ? "← 返回主轨迹"
+              : parentPositions.current.length ? "← 返回发起位置" : graphReturn.current ? "← 返回派工关系" : "← 返回主工作记录")}</button>
+            <header><div>
+              <h3>{tr(sessionTitle(selected))}</h3>
+              <small>{tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子 Agent" : selected?.scope || "关联执行")}{!continuous && ` · ${saved.selected}`}</small>
+              {continuous && <details className="im-work-child-id"><summary>{tr("执行标识")}</summary><code>{saved.selected}</code></details>}
+            </div>
+            {continuous
+              ? <button className="im-work-child-native" type="button" onClick={() => showNative(saved.selected)}>{tr("查看原生轨迹")}</button>
+              : <button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button>}
+            </header>
+            {!continuous && <button type="button" onClick={() => showNative(saved.selected)}>{tr("查看原生轨迹")}</button>}
             {!workAccessLost(childQuery.error) && !workAccessLost(metadata.error) && (!childQuery.isError || childQuery.isFetchNextPageError) && (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title="执行记录" /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
             {childQuery.isRefetchError && childQuery.data && <p role="status">{childQuery.error.message} <button type="button" onClick={() => void childQuery.refetch()}>{tr("重试")}</button></p>}
             {workAccessLost(childQuery.error) || workAccessLost(metadata.error) || (childQuery.isError && !childQuery.data) || (metadata.isError && !metadata.data) ? <p role="alert">{tr("关联执行不可访问 ")}<button type="button" onClick={() => { void childQuery.refetch(); if (separate) void metadata.refetch(); }}>{tr("重试")}</button></p>
@@ -620,7 +639,7 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
           const filter = {parent_session_id: turn.session_id, ...(callId ? {tool_call_id: callId} : {}), ...(agent ? {child_agent_id: agent} : {})};
           const delegation = item.has_exact_child || agent || /agent|workflow/.test(call.name ?? "");
           const link = childId ? <WorkLink id={childId} session={preview ? undefined : children[0]} label="查看子执行" onChild={onChild} />
-            : separate && delegation && (callId || agent) ? <LegacyWorkLinks agentId={agentId} filter={filter} onChild={onChild} label="查看子执行" />
+            : separate && delegation && (callId || agent) ? <LegacyWorkLinks agentId={agentId} filter={filter} onChild={onChild} label={call.name === "send_message" && !item.has_exact_child ? "选择关联执行" : "查看子执行"} />
             : children.map(child => <WorkLink key={child.session_id} id={child.session_id} session={child} label="查看子执行" distinguish={children.length > 1} onChild={onChild} />);
           // An exact link can arrive after this historical item was loaded.
           const lateLink = separate && !preview && !childId && !delegation && callId

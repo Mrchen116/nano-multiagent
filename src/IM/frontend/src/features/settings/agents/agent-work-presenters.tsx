@@ -59,10 +59,17 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
   const input = record(call.input), detail = record(call.detail);
   const targetId = text(input.target) || text(input.to) || text(detail.target);
   const target = names[targetId] || people[targetId] || text(detail.target_name) || targetId;
-  let summary = text(call.output);
+  const output = text(call.output);
+  const internalMessage = call.name === "send_message" && Boolean(input.agent_id);
+  const structuredOutput = /^\s*(?:\{\s*["}]|\[\s*(?:["{\[\]\d-]|true\b|false\b|null\b))/.test(output);
+  let summary = timeline && structuredOutput ? "" : output;
   if (call.name === "inbox" && input.action) summary = input.action === "check" ? tr("查看待读来源") : `${tr("读取新消息")} ${target}`;
   if (call.name === "conversations" && input.action) summary = input.action === "list" ? `${tr("查找聊天")} · ${text(input.query)}` : `${tr("回查历史")} ${target}`;
-  if (call.name === "send_message" && !input.agent_id && target) summary = `${tr("发送到")} ${target}`;
+  if (call.name === "send_message" && !internalMessage && target) summary = `${tr("发送到")} ${target}`;
+  if (timeline && internalMessage) {
+    const recipient = text(detail.target_name) || people[text(input.agent_id)];
+    summary = recipient ? `${tr("补充给")} ${recipient}` : tr("发送 Agent 消息");
+  }
   if (timeline && call.name === "notes" && text(input.path)) summary = text(input.path);
   const sendError = call.name === "send_message" && text(detail.status) && !["ok", "sent", "held_for_revalidation", "pending_revalidation"].includes(text(detail.status)) ? text(detail.status) : "";
   const error = Boolean(sendError) || Boolean(detail.error) || detail.success === false || call.status === "failed";
@@ -70,14 +77,15 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
   const denied = call.approval === "user_deny" || call.reason === "denied";
   const business = ["continuable", "background"].includes(text(detail.delegation_kind)) ? "async_launched" : text(detail.status);
   const labels: Record<string, string> = { async_launched: "子执行已启动", message_queued: "补充已排队", held_for_revalidation: "未发送", pending_revalidation: "待发送" };
-  const internalMessage = call.name === "send_message" && Boolean(input.agent_id);
   const prompt = text(detail.prompt) || text(input.prompt);
   const delegation = ["agent", "subagent"].includes(call.name) && prompt;
   const outgoing = call.name === "send_message" && !internalMessage;
   const delivery = text(detail.status);
   const deliveryLabel = {sent: "已发送", ok: "成功", pending_revalidation: "待发送", held_for_revalidation: "未发送"}[delivery];
+  const messageId = text(detail.messageId) || text(detail.message_id);
+  const internalResult = Object.fromEntries(Object.entries(detail).filter(([key]) => !["content", "error", "messageId", "message_id"].includes(key)));
   const deliveryFields = Object.fromEntries(Object.entries(detail).filter(([key]) =>
-    !["status", "target", "message_id", "text", "error"].includes(key)
+    !["status", "target", "messageId", "message_id", "text", "error"].includes(key)
   ));
   const argumentFields = Object.entries(input);
   const requestText = text(input.text) || text(input.message) || text(detail.text);
@@ -94,7 +102,7 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
     <div className={timeline ? "im-work-tool-line" : undefined}>
     <button type="button" className="im-work-tool-head" aria-expanded={expanded ?? false} onClick={() => onExpandedChange?.(!expanded)}>
       <span className="im-work-tool-icon" aria-hidden="true">{timeline ? <span className="im-work-tool-chevron" /> : icons[call.name] || "◇"}</span>
-      <span className="im-work-tool-name"><strong>{call.name}</strong><span className="im-work-tool-summary">{summary}</span></span>
+      <span className="im-work-tool-name"><strong>{call.name}</strong>{summary && <span className="im-work-tool-summary">{summary}</span>}</span>
       <span className="im-work-tool-meta">
         {(call.approval === "user_allow" || denied) && <span className="im-work-status-label">{tr(denied ? "已拒绝" : "已授权")}</span>}
         <span className={error ? "im-work-error" : "im-work-muted"}>{status}</span>
@@ -122,11 +130,15 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
             {text(detail.output_file) && <p className="im-work-muted">{tr("结果文件")}：<code>{text(detail.output_file)}</code></p>}
           </> : internalMessage ? <>
             {text(detail.content) && <pre>{text(detail.content)}</pre>}
+            {messageId && <WorkFields value={{[tr("消息 ID")]: messageId}} />}
+            {Object.keys(internalResult).length > 0 && <WorkFields value={internalResult} />}
+            {!Object.keys(detail).length && output && <pre>{output}</pre>}
             {detail.error && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message)}</p>}
           </> : outgoing ? <>
             {(detail.error || sendError) && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message) || sendError}</p>}
             {text(detail.text) && text(detail.text) !== requestText && <pre>{text(detail.text)}</pre>}
             {deliveryLabel && <p>{tr(deliveryLabel)}</p>}
+            {messageId && <WorkFields value={{[tr("消息 ID")]: messageId}} />}
             {Object.keys(deliveryFields).length > 0 && <WorkFields value={deliveryFields} />}
             {!Object.keys(detail).length && call.output && call.output !== requestText && <pre>{call.output}</pre>}
           </> : call.name === "inbox" ? <ConversationToolCard call={call} compact />
@@ -152,7 +164,7 @@ export function WorkUsage({ value, label = "本轮统计", compact = false, show
   const cache = value.cache_read_tokens != null && value.cache_total_input_tokens != null ? `${fmt(value.cache_read_tokens)} (${value.cache_total_input_tokens ? Math.round(value.cache_read_tokens / value.cache_total_input_tokens * 100) : 0}%)` : tr("未报告");
   return <details className={`im-work-usage${compact ? " im-work-usage--compact" : ""}`}>
     <summary>{compact ? <span className="im-work-usage-line">
-      <span>{tr(label)}</span> · {tr("上下文")} {fmt(value.context_used)}
+      <span>{tr(label)}</span> · {label === "本轮统计" && `${tr("上下文")} `}{fmt(value.context_used)}
       {percent !== null && ` · ${percent}%`}
       {showCompactTotal && typeof value.total_tokens === "number" && <> · <span title={`${fmt(value.total_tokens)} tok`}>{formatWorkTokens(value.total_tokens)} tok</span></>}
     </span> : <><span>{tr(label)}</span><strong>{fmt(value.context_used)}</strong><span className="im-work-meter"><i style={{width:`${Math.min(percent ?? 0,100)}%`}} /></span><small>{percent === null ? tr("上下文窗口未报告") : `${percent}%`}</small>{label === "本轮统计" && typeof value.total_tokens === "number" && <small>{fmt(value.total_tokens)} tok</small>}<span className="im-work-usage-toggle">{tr("统计详情")}</span></>}</summary><div className="im-work-usage-details"><dl><div><dt>{tr("上下文")}</dt><dd>{fmt(value.context_used)}</dd><small>{value.context_window ? `/ ${fmt(value.context_window)}` : tr("上下文窗口未报告")}</small></div><div><dt>{tr("本轮输出")}</dt><dd>{fmt(value.output)}</dd></div><div><dt>{tr("缓存命中")}</dt><dd>{cache}</dd></div></dl><p>{tr("上下文取本轮最近一次输入，输出为本轮累计；主、子执行分别统计，不代表计费总量。")}</p></div></details>;
