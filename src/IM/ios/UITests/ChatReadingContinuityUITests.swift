@@ -75,17 +75,26 @@ final class ChatReadingContinuityUITests: XCTestCase {
     }
 
     func testEarlierCompletionCannotReclaimLatest() throws {
-        let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "markdown" })
+        let title = try NativeChatFixture.required("NANO_UI_EARLIER_RACE_TITLE")
+        let tail = try NativeChatFixture.required("NANO_UI_PAGINATION_TAIL")
         try driver.launchAndLogin()
-        try driver.open(conversation)
-        try driver.seekEarlier(maxSwipes: 180)
+        let row = driver.app.staticTexts.matching(NSPredicate(format: "label == %@", title)).firstMatch
+        try driver.require(row.waitForExistence(timeout: 8), "The fresh pagination-race conversation must exist")
+        row.tap()
+        try driver.require(driver.stableTail(tail, timeout: 10), "Begin at the actual latest message")
+        driver.app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 80, dy: 30)).tap()
+        driver.pause(1)
+        try driver.seekEarlier(maxSwipes: 12)
         driver.app.buttons["Earlier messages"].tap()
         let latest = driver.app.buttons["Latest messages"]
         try driver.require(latest.waitForExistence(timeout: 5), "History offers a real Latest action")
+        let latestStart = Date().timeIntervalSince1970
         latest.tap()
-        try driver.require(driver.stableTail(conversation.tail), "Latest owns the final geometry after Earlier")
-        driver.pause(1)
-        try driver.require(driver.stableTail(conversation.tail), "Late page/layout updates cannot reclaim the old reading anchor")
+        driver.record("earlier-race-latest-tap", ["unixSeconds": latestStart])
+        try driver.require(driver.stableTail(tail), "Latest owns the final geometry after Earlier")
+        // Let the fixture's held response arrive, then observe its resulting layout.
+        driver.pause(4.5)
+        try driver.require(driver.stableTail(tail), "Late page/layout updates cannot reclaim the old reading anchor")
         driver.capture("candidate-earlier-then-latest-still-tail", tree: true)
     }
 
