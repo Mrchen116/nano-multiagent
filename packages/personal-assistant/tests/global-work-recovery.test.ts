@@ -282,7 +282,7 @@ it('projects model delivery sidecars before acknowledging them and replays a los
 });
 
 
-it('retains a migrated non-attention wake until model receipt, including an interrupted admission',async()=>{
+it.each(['interrupted','error','aborted'])('retains a migrated non-attention wake through %s until model receipt',async terminal=>{
   const home=mkdtempSync(join(tmpdir(),'nano-legacy-wake-')),path=join(home,'inbox.db');
   const store=new NodeStore(':memory:','owner');let inbox=new InboxStore(path);
   const input:RelayInput={agent_id:'a',conversation_id:'group',relay_task_id:'legacy',idempotency_key:'legacy',metadata:{conversation_type:'group',agent_receipt:true},message:{id:'legacy',content:'original',sender_type:'user',sender_user_id:'owner',attachments:[]}};
@@ -302,8 +302,9 @@ it('retains a migrated non-attention wake until model receipt, including an inte
     }},relay:{request:async(type,args:any)=>({type:'ack',payload:type==='conversation.query'?{ok:true,result:{conversations:args.targets.map((target:string)=>({target,name:target}))}}:{}})}});
   try{
     await product.recover();expect(submitted).toEqual(['inbox-wake:a:1:delivery-recovery']);expect(inbox.legacyReceiptWake('a')).toBe(1);
-    admitted.set(submitted[0]!,{accepted:true,acceptedSeq:10,terminal:{kind:'interrupted'}});
+    admitted.set(submitted[0]!,{accepted:true,acceptedSeq:10,terminal:{kind:terminal}});
     product.runtimeUnavailable(['a']);await product.recover();
+    if(terminal==='aborted'){expect(submitted).toHaveLength(1);return;}
     expect(submitted).toEqual(['inbox-wake:a:1:delivery-recovery','inbox-wake:a:1:delivery-recovery:recovery:10']);
     expect(inbox.legacyReceiptWake('a')).toBe(1);
     delivered=[submitted[1]!];notify('session.event',{sessionId:'main'});

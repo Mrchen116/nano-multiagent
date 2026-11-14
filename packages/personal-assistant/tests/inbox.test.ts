@@ -359,9 +359,9 @@ it('does not treat a legacy node-admission sent receipt as model delivery', () =
     expect(store.pendingRelays().map(row=>row.status)).toEqual(['accepted']);
     expect(store.legacyReceiptWake('alice')).toBe(1);
     store.confirmRelay('relay-old','accepted');
-    store.notification('alice','main','inbox-wake:alice:1:delivery-recovery',snapshot=>JSON.stringify(snapshot));
+    store.notification('alice','main','inbox-wake:alice:2',snapshot=>JSON.stringify(snapshot));
     expect(store.legacyReceiptWake('alice')).toBe(1);
-    store.deliverNotifications('alice','main',['inbox-wake:alice:1:delivery-recovery']);
+    store.deliverNotifications('alice','main',['inbox-wake:alice:2']);
     expect(store.pendingRelays().map(row=>row.status)).toEqual(['sent']);
     store.close(); migrate(); store = new InboxStore(path);
     expect(store.pendingRelays().map(row=>row.status)).toEqual(['sent']);

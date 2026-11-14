@@ -366,7 +366,7 @@ export class GlobalAgent {
         sources: sources.map(({ requires_attention: _attention, ...source }) => source),
       })), !!config.personal);
   }
-  private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
+  private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding,recoverErrors=false): Promise<void> {
     const legacy = this.options.inbox.legacyReceiptWake(config.agentId);
     if (legacy !== undefined) {
       let inputId = `inbox-wake:${config.agentId}:${legacy}:delivery-recovery`;
@@ -378,7 +378,7 @@ export class GlobalAgent {
           if (!result.accepted || !result.durable) throw new Error('Legacy delivery notification has no durable admission ACK');
           break;
         }
-        if (prior.terminal?.kind !== 'interrupted') break;
+        if (prior.terminal?.kind !== 'interrupted' && !(recoverErrors && prior.terminal?.kind === 'error')) break;
         if (!Number.isSafeInteger(prior.acceptedSeq)) throw new Error('Interrupted legacy notice has no acceptance sequence');
         inputId = `${inputId}:recovery:${prior.acceptedSeq}`;
       }
@@ -551,6 +551,7 @@ export class GlobalAgent {
     }
     await this.main(config);
     await this.recoverRoot(binding);
+    await this.recoverInterruptedWake(config,binding,true);
     await this.wake(config,binding,true);
   }
   private recoverRoot(binding: SessionBinding): Promise<void> {

@@ -258,9 +258,11 @@ export class InboxStore {
           AND message_id IN (SELECT message_id FROM inbox WHERE agent_id=? AND seq IN (SELECT value FROM json_each(?)))`)
           .run(agentId,agentId,notice.seqs);
         this.db.prepare('UPDATE inbox_notifications SET delivered=1 WHERE session_id=? AND input_id=?').run(sessionId,inputId);
-        const legacy = this.legacyReceiptWake(agentId);
-        if (legacy !== undefined && inputId.startsWith(`inbox-wake:${agentId}:${legacy}:delivery-recovery`)) this.confirmLegacyReceiptWake(agentId);
+
       }
+      const legacy = this.legacyReceiptWake(agentId);
+      if (legacy !== undefined && !this.db.prepare(`SELECT 1 FROM inbox i JOIN relay_receipts r ON r.agent_id=i.agent_id AND r.message_id=i.message_id
+        WHERE i.agent_id=? AND i.seq<=? AND i.consumed=0 AND r.status='accepted' LIMIT 1`).get(agentId,legacy)) this.confirmLegacyReceiptWake(agentId);
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
