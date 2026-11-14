@@ -6,7 +6,7 @@ import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it('confirms only notices in a responding model request, across queueing, failure, cancellation and restart', async () => {
+it.each(['http-error','empty-block','partial-content'])('confirms actual model content across %s, queueing, cancellation and restart', async failure => {
   const home = await mkdtemp(join(tmpdir(), 'nano-inbox-wire-'));
   const requests: {body: any; response: ServerResponse}[] = [];
   const server = createServer(async (request, response) => {
@@ -47,10 +47,21 @@ it('confirms only notices in a responding model request, across queueing, failur
     await expect.poll(() => requests.length).toBe(1);
     expect(JSON.stringify(requests[0]!.body.messages)).toContain('Notification inbox-wake:a:failed');
     expect(await receipts()).toEqual([]);
-    requests[0]!.response.writeHead(500,{'content-type':'application/json'});
-    requests[0]!.response.end(JSON.stringify({error:{type:'server_error',message:'unavailable'}}));
+    const first = requests[0]!.response;
+    if (failure === 'http-error') {
+      first.writeHead(500,{'content-type':'application/json'});
+      first.end(JSON.stringify({error:{type:'server_error',message:'unavailable'}}));
+    } else {
+      first.writeHead(200,{'content-type':'text/event-stream'});
+      const emit = (type:string,data:object) => first.write(`event: ${type}\ndata: ${JSON.stringify({type,...data})}\n\n`);
+      emit('message_start',{message:{id:'partial',type:'message',role:'assistant',model:'fixture',content:[],usage:{input_tokens:20,output_tokens:0}}});
+      emit('content_block_start',{index:0,content_block:{type:'text',text:''}});
+      if (failure === 'partial-content') emit('content_block_delta',{index:0,delta:{type:'text_delta',text:'Seen.'}});
+      emit('content_block_stop',{index:0}); first.end();
+    }
     await expect.poll(async () => (await observe()).status).toBe('idle');
-    expect(await receipts()).toEqual([]);
+    expect(await receipts()).toEqual(failure === 'partial-content' ? ['inbox-wake:a:failed'] : []);
+    await confirm(await receipts());
 
     await submit('inbox-wake:a:cancelled');
     await expect.poll(() => requests.length).toBe(2);

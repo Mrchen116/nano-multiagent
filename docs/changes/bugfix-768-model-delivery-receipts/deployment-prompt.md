@@ -4,7 +4,7 @@
 
 ## 旧状态与目标
 
-旧中心的 Agent 收件人 status=1 不能证明模型已收到提醒；节点未消费 Inbox 对应的 sent 也不能作为证据。迁移将这些历史未读送达事实退回待送达，保留 status=2 的已读及真人收件人状态。节点保存恢复标记，随后用新冻结快照重新提醒模型，取得有效模型响应后再推进 sent。脚本不删除消息、Inbox 内容、会话历史或工具执行记录。
+旧中心的 Global Agent 收件人 status=1 不能证明模型已收到提醒；节点未消费 Inbox 对应的 sent 也不能作为证据。迁移将这些历史未读送达事实退回待送达，保留 status=2 的已读及真人、single_thread 收件人状态。节点保存恢复标记，随后用新冻结快照重新提醒模型，取得有效模型响应后再推进 sent。脚本不删除消息、Inbox 内容、会话历史或工具执行记录。
 
 执行工具是 `scripts/migrate_model_delivery_receipts.py`，仅 Python 标准库，选择 `--kind center` 或 `--kind inbox`；各库用 `model-delivery-receipts-v1` 标记保持幂等，不在每次启动时重复整理历史。节点的正常恢复逻辑消费一次性恢复标记。
 

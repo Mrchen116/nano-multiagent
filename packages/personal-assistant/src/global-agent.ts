@@ -369,9 +369,19 @@ export class GlobalAgent {
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
     const legacy = this.options.inbox.legacyReceiptWake(config.agentId);
     if (legacy !== undefined) {
-      const result = await this.submitWake(config,binding,`inbox-wake:${config.agentId}:${legacy}:delivery-recovery`) as {accepted?:boolean;durable?:boolean};
-      if (!result.accepted || !result.durable) throw new Error('Legacy delivery notification has no durable admission ACK');
-      this.options.inbox.confirmLegacyReceiptWake(config.agentId);
+      let inputId = `inbox-wake:${config.agentId}:${legacy}:delivery-recovery`;
+      for (;;) {
+        const prior = await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted?:boolean;acceptedSeq?:number;terminal?:{kind?:string}};
+        if (!prior.accepted) {
+          this.options.inbox.discardNotification(binding.sessionId,inputId);
+          const result = await this.submitWake(config,binding,inputId) as {accepted?:boolean;durable?:boolean};
+          if (!result.accepted || !result.durable) throw new Error('Legacy delivery notification has no durable admission ACK');
+          break;
+        }
+        if (prior.terminal?.kind !== 'interrupted') break;
+        if (!Number.isSafeInteger(prior.acceptedSeq)) throw new Error('Interrupted legacy notice has no acceptance sequence');
+        inputId = `${inputId}:recovery:${prior.acceptedSeq}`;
+      }
     }
     if(this.options.inbox.unreadAttention(config.agentId)===undefined)return;
     const watermark=Math.max(this.options.inbox.watermark(config.agentId),this.options.inbox.admittedWake(config.agentId));
@@ -460,9 +470,11 @@ export class GlobalAgent {
     const batch=inbox.background(config.agentId);
     if(!batch) {this.waitingForIdle.delete(config.agentId);return;}
     const inputId=`inbox-background:${config.agentId}:${batch.watermark}`;
-    if(batch.pending && !batch.unread) {
+    if(batch.pending) {
       const prior=await runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted:boolean};
-      if(!prior.accepted) {inbox.admitBackground(config.agentId,batch.watermark,Date.now(),false);this.waitingForIdle.delete(config.agentId);return;}
+      if(prior.accepted) {inbox.admitBackground(config.agentId,batch.watermark);this.waitingForIdle.delete(config.agentId);return;}
+      inbox.discardNotification(binding.sessionId,inputId);
+      if(!batch.unread) {inbox.admitBackground(config.agentId,batch.watermark,Date.now(),false);this.waitingForIdle.delete(config.agentId);return;}
     }
     inbox.prepareBackground(config.agentId,batch.watermark);
     const summary=await this.inboxSummary(config,binding,inputId);
@@ -471,7 +483,8 @@ export class GlobalAgent {
       source:{kind:'system',actorId:config.agentId,channel:'inbox-background',messageId:inputId}}) as {accepted:boolean;durable?:boolean;busy?:boolean};
     if(result.accepted && result.durable) {
       inbox.admitBackground(config.agentId,batch.watermark);this.waitingForIdle.delete(config.agentId);
-    } else if(!result.busy) throw new Error('Background notification has no durable admission ACK');
+    } else if(result.busy) inbox.discardNotification(binding.sessionId,inputId);
+    else throw new Error('Background notification has no durable admission ACK');
   }
   private scheduleAgentRecovery(agentId:string):void {
     const {store,agents}=this.options;

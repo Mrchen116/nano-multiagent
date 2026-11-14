@@ -229,7 +229,7 @@ export class InboxStore {
     const row = this.db.prepare('SELECT value FROM metadata WHERE key=?').get(`receipt-recovery:${agentId}`) as {value:string}|undefined;
     return row ? Number(row.value) : undefined;
   }
-  confirmLegacyReceiptWake(agentId: string): void {
+  private confirmLegacyReceiptWake(agentId: string): void {
     this.db.prepare('DELETE FROM metadata WHERE key=?').run(`receipt-recovery:${agentId}`);
   }
   /** Freeze exactly the unread inputs represented by one native Inbox notification. */
@@ -241,6 +241,10 @@ export class InboxStore {
     this.db.prepare('INSERT INTO inbox_notifications(session_id,input_id,agent_id,seqs,summary) VALUES(?,?,?,?,?)')
       .run(sessionId,inputId,agentId,JSON.stringify(seqs),summary);
     return summary;
+  }
+  /** Discard a snapshot only after the runtime proves it was not admitted. */
+  discardNotification(sessionId: string, inputId: string): void {
+    this.db.prepare('DELETE FROM inbox_notifications WHERE session_id=? AND input_id=? AND delivered=0').run(sessionId,inputId);
   }
   /** Project durable model-response evidence onto the notification's frozen inputs. */
   deliverNotifications(agentId: string, sessionId: string, inputIds: string[]): void {
@@ -254,6 +258,8 @@ export class InboxStore {
           AND message_id IN (SELECT message_id FROM inbox WHERE agent_id=? AND seq IN (SELECT value FROM json_each(?)))`)
           .run(agentId,agentId,notice.seqs);
         this.db.prepare('UPDATE inbox_notifications SET delivered=1 WHERE session_id=? AND input_id=?').run(sessionId,inputId);
+        const legacy = this.legacyReceiptWake(agentId);
+        if (legacy !== undefined && inputId.startsWith(`inbox-wake:${agentId}:${legacy}:delivery-recovery`)) this.confirmLegacyReceiptWake(agentId);
       }
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }

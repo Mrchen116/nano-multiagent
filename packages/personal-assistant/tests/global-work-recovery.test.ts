@@ -1,3 +1,8 @@
+import {execFileSync} from 'node:child_process';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
 import { expect, it } from 'vitest';
 import type { RelayInput } from '@nano/product-contracts';
 import { NodeStore } from '../src/store.js';
@@ -274,4 +279,34 @@ it('projects model delivery sidecars before acknowledging them and replays a los
     await expect.poll(()=>receipts.filter(row=>row.status==='sent')).toEqual([{id:'first',status:'sent'}]);
     expect(receipts.filter(row=>row.id==='later')).toEqual([{id:'later',status:'accepted'}]);
   } finally {await product.stop();inbox.close();store.close();}
+});
+
+
+it('retains a migrated non-attention wake until model receipt, including an interrupted admission',async()=>{
+  const home=mkdtempSync(join(tmpdir(),'nano-legacy-wake-')),path=join(home,'inbox.db');
+  const store=new NodeStore(':memory:','owner');let inbox=new InboxStore(path);
+  const input:RelayInput={agent_id:'a',conversation_id:'group',relay_task_id:'legacy',idempotency_key:'legacy',metadata:{conversation_type:'group',agent_receipt:true},message:{id:'legacy',content:'original',sender_type:'user',sender_user_id:'owner',attachments:[]}};
+  inbox.acceptRelay(input,false);inbox.close();
+  const db=new DatabaseSync(path);db.exec("UPDATE relay_receipts SET status='sent',confirmed=1");db.close();
+  execFileSync('python3',['scripts/migrate_model_delivery_receipts.py','apply','--kind','inbox','--database',path,'--writers-stopped']);
+  inbox=new InboxStore(path);store.bind({agentId:'a',sessionId:'main',conversationId:'global:a',ownerId:'owner',cwd:'/tmp',revision:'1'});
+  const admitted=new Map<string,any>(),submitted:string[]=[];let delivered:string[]=[];let notify!:(method:string,args:any)=>void;
+  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',store,inbox,agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],image:async()=>'',onError:error=>{throw error;},
+    runtime:{onNotification:listener=>{notify=listener;return()=>{};},request:async(method,args:any)=>{
+      if(method==='session.lookup')return admitted.get(args.inputId)??{accepted:false};
+      if(method==='session.submit'){submitted.push(args.inputId);admitted.set(args.inputId,{accepted:true,acceptedSeq:10});return{accepted:true,durable:true};}
+      if(method==='session.work.children')return{children:[]};
+      if(method==='session.work.root')return{durable:true,events:[],throughSeq:-1,inboxDelivered:delivered};
+      if(method==='session.inbox-delivered.confirm'){delivered=[];return{};}
+      return{status:'idle'};
+    }},relay:{request:async(type,args:any)=>({type:'ack',payload:type==='conversation.query'?{ok:true,result:{conversations:args.targets.map((target:string)=>({target,name:target}))}}:{}})}});
+  try{
+    await product.recover();expect(submitted).toEqual(['inbox-wake:a:1:delivery-recovery']);expect(inbox.legacyReceiptWake('a')).toBe(1);
+    admitted.set(submitted[0]!,{accepted:true,acceptedSeq:10,terminal:{kind:'interrupted'}});
+    product.runtimeUnavailable(['a']);await product.recover();
+    expect(submitted).toEqual(['inbox-wake:a:1:delivery-recovery','inbox-wake:a:1:delivery-recovery:recovery:10']);
+    expect(inbox.legacyReceiptWake('a')).toBe(1);
+    delivered=[submitted[1]!];notify('session.event',{sessionId:'main'});
+    await expect.poll(()=>inbox.legacyReceiptWake('a')).toBeUndefined();
+  }finally{await product.stop();inbox.close();store.close();rmSync(home,{recursive:true,force:true});}
 });

@@ -37,7 +37,10 @@ export class InboxDelivery {
       let confirmed = false;
       for await (const chunk of next()) {
         if (!confirmed && inputIds.length && !options.signal?.aborted &&
-            ['text-delta','reasoning-delta','tool-call-delta','block-end'].includes(chunk.type)) {
+            ((chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') && chunk.text.length > 0 ||
+              chunk.type === 'tool-call-delta' && chunk.argumentsDelta.length > 0 ||
+              chunk.type === 'block-end' && (chunk.block.type === 'tool-call' ? !!chunk.block.name :
+                (chunk.block.type === 'text' || chunk.block.type === 'reasoning') && chunk.block.text.length > 0))) {
           for (const inputId of inputIds) {
             const receipt = {sessionId,inputId,pending:true};
             await self.writes.put(key(sessionId,inputId),receipt);

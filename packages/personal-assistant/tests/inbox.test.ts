@@ -238,8 +238,6 @@ it('rejects already orphaned durable reads atomically and lets valid unread mess
     const db = new DatabaseSync(path);
     db.prepare('DELETE FROM inbox WHERE message_id=?').run('removed');
     db.close();
-    const migrate = () => execFileSync('python3',['scripts/migrate_model_delivery_receipts.py','apply','--kind','inbox','--database',path,'--writers-stopped']);
-    migrate();
     store = new InboxStore(path);
     expect(store.commitRead('main', 'old-read', [{ type: 'text', text: JSON.stringify(page) }], false, 1)).toBe(false);
     expect(store.check('alice').sources).toMatchObject([{ unread: 1 }]);
@@ -362,7 +360,7 @@ it('does not treat a legacy node-admission sent receipt as model delivery', () =
     expect(store.legacyReceiptWake('alice')).toBe(1);
     store.confirmRelay('relay-old','accepted');
     store.notification('alice','main','inbox-wake:alice:1:delivery-recovery',snapshot=>JSON.stringify(snapshot));
-    store.confirmLegacyReceiptWake('alice');
+    expect(store.legacyReceiptWake('alice')).toBe(1);
     store.deliverNotifications('alice','main',['inbox-wake:alice:1:delivery-recovery']);
     expect(store.pendingRelays().map(row=>row.status)).toEqual(['sent']);
     store.close(); migrate(); store = new InboxStore(path);

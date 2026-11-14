@@ -9,6 +9,7 @@ import sqlite3
 VERSION = "model-delivery-receipts-v1"
 CENTER_ROWS = """status=1 AND recipient_id IN (
     SELECT u.id FROM users u JOIN agent_profiles a ON u.username='agent:'||a.agent_id
+    WHERE a.work_mode='global'
 )"""
 INBOX_ROWS = """status='sent' AND (agent_id,message_id) IN (
     SELECT agent_id,message_id FROM inbox WHERE consumed=0
