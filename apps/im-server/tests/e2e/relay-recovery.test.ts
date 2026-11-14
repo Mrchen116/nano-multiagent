@@ -52,6 +52,10 @@ it('projects Global Agent receipt stages separately from the relay lifecycle', a
     const response = await f.http('GET', messages, undefined, f.tokens.alice);
     return response.body.items.find((item: any) => item.message?.id === sent.body.id)?.message;
   };
+  await receipt('accepted');
+  expect((await history()).receipts).toMatchObject([{ status: 'sent' }]);
+  await receipt('completed');
+  expect((await history()).receipts).toMatchObject([{ status: 'sent' }]);
   await receipt('sent');
   expect((await history()).receipts).toMatchObject([{ recipient_id: input.payload.participants.find((actor: any) => actor.id === 'global').user_id, status: 'received' }]);
   await receipt('read');

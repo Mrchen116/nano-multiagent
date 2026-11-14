@@ -1,7 +1,7 @@
 /** Nano's sole stdio server inside an unmodified DSH profile. */
 import { personalEvidenceMessages, personalReviewAction, personalReviewImages, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
 import { randomUUID } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { OwnedSessions, OwnedSessionController } from './owned-sessions.js';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
@@ -48,6 +48,7 @@ import { CodexApproval } from './policy/codex.js';
 import * as NanoWeb from './web.js';
 import { NanoWorkflowEngine } from './workflow/engine.js';
 import { registerWorkflowTool } from './workflow/tool.js';
+import { InboxDelivery } from './inbox-delivery.js';
 import { installLlmAttribution } from './llm-attribution.js';
 import { attachModelConnectionRetry } from './model-connection-retry.js';
 import { installStandaloneModelRetry } from './standalone-model-retry.js';
@@ -56,6 +57,7 @@ import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 import { DescendantReader } from './descendants.js';
 import { SubagentRecovery } from './subagent-recovery.js';
+import { InterruptedWork } from './interrupted-work.js';
 import { SessionDeletion } from './agent-deletion.js';
 import { ownedLinks, purgeDerived } from './agent-deletion-derived.js';
 
@@ -169,6 +171,9 @@ export default class NanoRuntime {
         session = parent;
       }
       return session?.id ?? sessionId;
+    });
+    const inboxDelivery = new InboxDelivery(ctx, sessionId => this.bindings.get(sessionId)?.agentId, sessionId => {
+      this.peer.notify('session.work.changed', {sessionId,rootSessionId:sessionId});
     });
     new TrajectoryRuns(ctx);
     let configurationService: ConfigurationScopes;
@@ -302,10 +307,12 @@ export default class NanoRuntime {
       };
       const projections = ctx.get('sessionProjections')?.snapshot(session, ['subagentCatalog']);
       const {interrupted, complete} = await descendantReader.interruptedChildren({header: session.header, projections});
-      await subagentRecovery.record(binding.sessionId, interrupted, assertCurrent);
+      await subagentRecovery.record(binding.sessionId, interrupted.filter(child =>
+        projections?.values.subagentCatalog?.find(entry => entry.id === child.id)?.mode !== 'continuable'), assertCurrent);
       if (!complete) throw new RpcError(-32005, 'Subagent recovery evidence is temporarily unavailable');
     });
     ctx.provide('nanoSessions', this.owned);
+    this.interruptedWork = new InterruptedWork(ctx, descendantReader);
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -318,7 +325,8 @@ export default class NanoRuntime {
       if (agentId) { lifecycle.assertEnabled(agentId); await lifecycle.clean(agentId, agent, source === 'resume'); }
       const preset = agent.session.header.agentPreset;
       // Dreaming has no Nano preset; independent reviewers retain their own retry policy.
-      if (preset?.startsWith('nano:') || agent.id.startsWith('dreaming-')) attachModelConnectionRetry(agent, takeConnectionFailure);
+      if (preset?.startsWith('nano:') || agent.id.startsWith('dreaming-')) attachModelConnectionRetry(agent, takeConnectionFailure,
+        async (turn, signal) => (await models).fallback.canSwitchAfterFailure(agent, turn, signal));
       if (!preset?.startsWith('nano:')) return;
       const desired = this.configurations.get(preset);
       if (!desired) throw new Error(`Missing Nano configuration for ${preset}`);
@@ -398,6 +406,7 @@ export default class NanoRuntime {
         });
       });
     });
+    handle('runtime.health', async () => { await stat(process.cwd()); return {healthy:true}; });
     handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
       const config = value as { recoveryMarkers?: boolean; observationOnly?: boolean; lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; taskStopFences?: (string|{sessionId:string;stoppedAt?:string})[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
@@ -447,7 +456,10 @@ export default class NanoRuntime {
         this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: agent.agentId } }] }));
         }
       }
-      for(const stop of config.taskStopFences??[])this.tasks.interrupt(typeof stop==='string'?stop:stop.sessionId,typeof stop==='string'?undefined:stop.stoppedAt);
+      for(const stop of config.taskStopFences??[]) {
+        const id=typeof stop==='string'?stop:stop.sessionId;
+        this.tasks.interrupt(id,typeof stop==='string'?undefined:stop.stoppedAt);this.interruptedWork.stop(id,typeof stop==='string'?undefined:stop.stoppedAt);
+      }
       for(const sessionId of config.taskStops??[])this.tasks.block(sessionId,true);
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
@@ -613,7 +625,7 @@ export default class NanoRuntime {
       const id = SessionId(input.sessionId), fallback = (await models).fallback;
       const rootSettled = await descendantReader.settled(id, {[id]:input.afterSeq ?? -1}, () =>
         fallback.hasActive(id) || input.modelVersion!==fallback.workVersion(id), false);
-      return {rootSettled};
+      return {rootSettled:rootSettled && !(await inboxDelivery.pending(input.sessionId)).length && !await descendantReader.hasInterruptedDescendants(id)};
     });
     handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
     // The send path needs durable native facts, not frozen tool cards or Work projection.
@@ -655,6 +667,10 @@ export default class NanoRuntime {
       }
       return {durable:true, call, reads, throughSeq, head} satisfies RuntimePublicationEvidence;
     }, {pull:'publication'});
+    handle('session.inbox-delivered.confirm', async value => {
+      const input = value as WorkRead & {inputIds:string[]};
+      await workBinding(input); await inboxDelivery.confirm(input.sessionId,input.inputIds); return {};
+    });
     handle('session.work.root', async value => {
       const input = value as WorkRead;
       await workBinding(input);
@@ -668,8 +684,10 @@ export default class NanoRuntime {
       const {session} = await this.agent(id);
       const head = session.seq - 1;
       if (!await ctx.sessions.flush(session)) throw new RpcError(-32005, 'Root Session has no persistence barrier');
-      return projectPage(input, session.inheritedEventCount, head,
+      const page = await projectPage(input, session.inheritedEventCount, head,
         seq => session.snapshotEvents(SessionLogOffset(seq), SessionLogOffset(seq + 1))[0], policy);
+      const inboxDelivered = await inboxDelivery.pending(input.sessionId);
+      return {...page,inboxDelivered,more:page.more || inboxDelivered.length === 256};
     }, {pull:'work-root'});
     type CatalogEntry = Awaited<ReturnType<DescendantReader['targets']>>[number];
     const workChild = (entry: CatalogEntry, policy: ModelPolicy, engine: NanoWorkflowEngine): RuntimeWorkChild => {
@@ -744,6 +762,7 @@ export default class NanoRuntime {
     handle('task.execution.block', value=>{const {sessionId,blocked}=value as {sessionId:string;blocked:boolean};this.tasks.block(sessionId,blocked);return {ok:true};});
     handle('session.cancel', async value => {
       const { sessionId,stoppedAt,settleTaskContext } = value as { sessionId: string;stoppedAt?:string;settleTaskContext?:boolean };
+      this.interruptedWork.stop(sessionId,stoppedAt);
       this.tasks.interrupt(sessionId,stoppedAt);
       const agent = await this.agent(sessionId);
       (await models).cancelCommands(sessionId);
@@ -1003,6 +1022,7 @@ export default class NanoRuntime {
         const ids = new Set(sessionIds);
         await Promise.all([
           (await models).fallback.forget(ids),
+          inboxDelivery.forget(ids),
           ctx.nanoTrajectoryRuns.forget(ids),
           ctx.nanoTrajectoryAttachments.settle(ids),
           toolViews.purge(ids),
@@ -1124,6 +1144,8 @@ export default class NanoRuntime {
 
   *[Service.init]() { yield () => { this.peer.close(); for (const answer of this.approvals.values()) answer('unavailable'); }; }
 
+  private readonly interruptedWork: InterruptedWork;
+
   private async ensure(binding: SessionBinding) {
     if (!this.accepting) throw new RpcError(-32003, 'Runtime is not accepting sessions');
     const previous = this.bindings.get(binding.sessionId);
@@ -1134,6 +1156,7 @@ export default class NanoRuntime {
     if (!this.configurations.has(preset)) throw new RpcError(-32002, 'Unknown configuration revision');
     this.bindings.set(binding.sessionId, binding);
     const agent = await this.owned.resolve(binding.sessionId, true);
+    if (config?.mode === 'global') await this.interruptedWork.recover(agent, {agentId:binding.agentId,revision:this.lifecycle.current(binding.agentId).revision});
     await this.flush(agent);
     void this.tasks.poke(agent);
     return { sessionId: agent.id, revision: binding.revision };

@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RpcPeer } from './rpc.js';
+import { RuntimeHealth, terminateRuntimeTree } from './runtime-health.js';
 import {load as loadYaml} from 'js-yaml';
 import {ConfigurationInspector, type ConfigurationInspection} from './configuration-inspector.js';
 export {ConfigurationInspector, InspectionError, type ConfigurationInspection} from './configuration-inspector.js';
@@ -102,8 +103,7 @@ interface SupervisorOptions {
   onError: (error: unknown) => void;
   stopTimeoutMs?: number;
   inspector?: ConfigurationInspector;
-
-
+  health?: {intervalMs?: number; timeoutMs?: number; tickMs?: number};
 }
 
 /** Restarts the execution process while the node retains inbound and delivery facts. */
@@ -116,6 +116,7 @@ export class RuntimeSupervisor {
   private recovery?: Promise<void>;
   private timer?: ReturnType<typeof setTimeout>;
   private wakeTimer?: () => void;
+  private health?: RuntimeHealth;
   private readonly handlers = new Map<string, (params: unknown) => unknown | Promise<unknown>>();
   private readonly listeners = new Set<(method: string, params: unknown) => void>();
   constructor(private readonly options: SupervisorOptions) {}
@@ -157,30 +158,56 @@ export class RuntimeSupervisor {
     this.client = client;
     for (const [method, handler] of this.handlers) this.installHandler(client, method, handler);
     client.rpc.onNotification((method, params) => { if (this.client !== client || this.stopping) return; for (const listener of this.listeners) listener(method, params); });
-    try {
-      await this.options.initialize(client.rpc);
-      if (this.stopping || this.client !== client) return;
-      this.ready = true;
-      await this.options.onReady();
-    } catch (error) {
-      if (this.stopping || this.client !== client) return;
-      this.ready = false;
-      await this.options.onUnavailable?.();
-      client.process.kill('SIGTERM');
-      await client.exited;
-      throw error;
-    }
+    let failed = false, unhealthy = false;
+    let settleLaunch!: () => void;
+    const launched = new Promise<void>(resolve => { settleLaunch = resolve; });
+    let health: RuntimeHealth | undefined;
     void client.exited.then(async () => {
-      if (this.stopping || this.client !== client) return;
+      health?.close();
+      await launched;
+      if (failed || this.stopping || this.client !== client) return;
       this.ready = false;
       await this.options.onUnavailable?.();
       if (this.stopping || this.client !== client) return;
       this.options.onError(new Error('DSH runtime exited; recovering persisted sessions'));
       this.recovery = this.recover();
     }).catch(this.options.onError);
+    try {
+      await this.options.initialize(client.rpc);
+      if (this.stopping || this.client !== client) return;
+      this.ready = true;
+      health = this.health = new RuntimeHealth(
+        async () => {
+          const result = await client.rpc.request('runtime.health', {});
+          if (this.client === client && !this.stopping) this.restarts = 0;
+          return result;
+        },
+        () => {
+          if (this.stopping || this.client !== client) return;
+          unhealthy = true;
+          this.ready = false;
+          this.options.onError(new Error('DSH filesystem health deadline exceeded; recycling runtime'));
+          // Graceful disposal needs FS progress. Kill this detached runtime's
+          // process group so its ordinary tool children cannot keep executing.
+          const pid = client.process.pid;
+          if (pid) void terminateRuntimeTree(pid).catch(this.options.onError);
+        }, this.options.health);
+      await this.options.onReady();
+    } catch (error) {
+      // A health-triggered exit is handled by the single exit recovery owner.
+      if (unhealthy || this.stopping || this.client !== client) return;
+      failed = true;
+      health?.close();
+      this.ready = false;
+      await this.options.onUnavailable?.();
+      client.process.kill('SIGTERM');
+      await client.exited;
+      throw error;
+    } finally { settleLaunch(); }
   }
+
   private async recover(): Promise<void> {
-    // Three automatic attempts per node lifetime; repeated crashes remain visibly unavailable.
+    // Bound consecutive failures; successful filesystem probes reset the budget.
     while (!this.stopping && this.restarts < 3) {
       const delay = [250, 1000, 4000][this.restarts++]!;
       await new Promise<void>(resolve => { this.wakeTimer = resolve; this.timer = setTimeout(resolve, delay); });
@@ -209,6 +236,7 @@ export class RuntimeSupervisor {
   }
   async shutdown(): Promise<void> {
     this.stopping = true;
+    this.health?.close();
     this.ready = false;
     await this.options.onUnavailable?.();
     if (this.timer) clearTimeout(this.timer);

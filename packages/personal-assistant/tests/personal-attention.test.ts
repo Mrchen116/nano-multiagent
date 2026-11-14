@@ -10,7 +10,7 @@ function fixture(onStatus?: () => void) {
   const submitted:Record<string,any>[]=[];const methods:string[]=[];const seen=new Set<string>();
   const observations:Record<string,any>[]=[];const errors:unknown[]=[];const excluded=new Set<string>(),foreign=new Set<string>();let loseAck=false;
   let running=false, race=false;let listener:(method:string,data:any)=>void=()=>{};
-  const source=(target:unknown)=>({allowed:true,is_owner:!foreign.has(String(target)),delivery:target==='background'?'observer':'participant',conversation_type:target==='group'?'group':'direct',channel:'web'});
+  const source=(target:unknown)=>({allowed:true,is_owner:!foreign.has(String(target)),delivery:String(target).startsWith('background')?'observer':'participant',conversation_type:target==='group'?'group':'direct',channel:'web'});
   const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:error=>{errors.push(error);},
     runtime:{onNotification:fn=>{listener=fn;return()=>{};},request:async(method,args:any)=>{
       methods.push(method);
@@ -28,7 +28,7 @@ function fixture(onStatus?: () => void) {
     }},
     relay:{ready:true,request:async(type,args:any)=>{
       if(type==='agent.work.append')return {type:'ack',payload:{through_seq:args.events.at(-1).seq}};
-      const result=type==='pa.source.admit'?source(args.conversation_id):type==='pa.observations.read'?{items:observations.splice(0)}:type==='pa.sources'?{policy:{revision:1},items:['own','group','background'].map(id=>({id,excluded:excluded.has(id)}))}:type==='conversation.query'?{name:'Chat',conversations:[]} : {};
+      const result=type==='pa.source.admit'?source(args.conversation_id):type==='pa.observations.read'?{items:observations.splice(0)}:type==='pa.sources'?{policy:{revision:1},items:['own','group','background','background-keep'].map(id=>({id,excluded:excluded.has(id)}))}:type==='conversation.query'?{name:'Chat',conversations:[]} : {};
       return {type:'ack',payload:{ok:true,result}};
     }}});
   const input=(id:string,target='background',metadata:Record<string,unknown>={}):RelayInput=>({agent_id:'pa',conversation_id:target,relay_task_id:id,idempotency_key:id,metadata,
@@ -170,4 +170,19 @@ it('delivers source withdrawal as a stop-use constraint with Dreaming-owned docu
     expect(text).not.toContain('Dreaming does not perform');
     expect(f.errors).toEqual([]);
   }finally{await f.close();}
+});
+
+
+it('rebuilds an unadmitted busy snapshot after a source is revoked',async()=>{
+  vi.useFakeTimers();vi.setSystemTime(0);const f=fixture();
+  try {
+    await f.product.receive(f.input('secret','background'));
+    await f.product.receive(f.input('retained','background-keep'));
+    f.race();await vi.advanceTimersByTimeAsync(600000);
+    expect(f.submitted).toHaveLength(0);
+    f.excluded.add('background');f.idle();await vi.advanceTimersByTimeAsync(0);
+    expect(f.submitted).toHaveLength(1);
+    expect(f.submitted[0].content[0].text).not.toContain('"target":"background"');
+    expect(f.submitted[0].content[0].text).toContain('"target":"background-keep"');
+  }finally{await f.close();vi.useRealTimers();}
 });

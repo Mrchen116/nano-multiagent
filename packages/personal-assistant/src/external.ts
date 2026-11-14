@@ -204,7 +204,8 @@ export class ExternalChannels {
       const id = String(payload.relay_task_id);
       const row = this.state.inbound(id);
       if (row?.input.metadata.agent_receipt) {
-        await this.showReceipt(row, payload.delivery_status === 'read' ? 'read' : 'received');
+        if (['sent','read'].includes(String(payload.delivery_status)))
+          await this.showReceipt(row, payload.delivery_status === 'read' ? 'read' : 'received');
       } else if (['completed', 'failed'].includes(String(payload.delivery_status))) await this.removeReaction(id);
       return ack(type);
     }
