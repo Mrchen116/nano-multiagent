@@ -100,6 +100,17 @@
 - Q按原R6职责修实现：已live history直接coherent y，不发不必要Reader；真正unrealized仍保留ID后live tuple/代次门。bound时actualtail判底与captureAnchor均只读live marker，无live不退回旧cache；coalesced校正刷新button。旧mix-cache回归改为B先unrealized，仍覆盖两缓存顺序不写→live实现actualy1210。19项scroll单测全绿/exit0（`native-adapter-q-unit.xcresult`/log）。同原非作者完整读受影响delta并核hash后 `Approved SUBSET / findings=[]`，P1/P2在源码/受控排序层关闭；不是原生全路径或最终全树批准。
 - Q Journey build exit0，109源/scheme前冻后核、UITest executable绑定 `native-adapter-q-{source-before-build,build-binding}.json`；正常artifact全部20文件安装373后hash一致、无plugin，revision `7c3b192-native-adapter-q`。D首次进入前只读cache确实0条，独立0600 runner仅新增四项D合成输入；真实D原生测试与只读0→60→120 observer运行中。A12、Q clock/Latest、C/B、网络及性能仍不记通过。
 
+## 2026-11-15 接手与原生复验
+
+- 接手原 `unit/bugfix-763-ios-chat-continuity` worktree。保留 109 个源码与 scheme 文件及原 UITest runner 哈希一致的候选证据。原 Q 的 19 个滚动测试和 D 会话实际 Earlier 分页通过，完整组合运行被中断。其中两项多卡片与 Chats 重入/详情返回已有日志，不能记整个组合通过。
+- 原 Q 的 12 手势与状态栏回顶实际通过，见 `takeover-native-functional.xcresult`。修正测试对 UIKit 空输入框及长 Markdown 屏内锚点的观测。多行键盘旅程通过一次，后续构建另一次冷装卡片没有在原 3 秒窗口内呈现最终文本。纯 Markdown 上翻保持位置、点击 Latest 到达真实末尾在 `takeover-journey-current.xcresult` 通过。两种结果均保留。
+- 独立审查发现 Earlier 回执和重试范围、权限检查失败提示、重新获得权限后的陈旧提示、旧任务停止新 socket、HTTP 修正与 WS 握手串行相阻，以及滚动容器消失后的旧减速状态。实现已修正这些路径，并按新 full sync 取消旧 HTTP 修正。降级存储的公开群访客验证权限期间隐藏旧窗口，验证成功后保留已加载的历史页与游标。最后定向 72 项通过，见 `takeover-history-unit.xcresult`。目标 develop `9f900ff3b` 已合入开发分支，iOS 及本 unit 内容未因基线同步变化。
+- 实际执行短断线，专用监听关闭 3041ms 后同 PID 恢复。Chats 观测与进入会话后的静默断言通过，随后新进会话的高卡片末尾相对重新打开前的参考位置变化超过 4pt，短断线旅程整体失败。需要把新进入时的卡片测高与同一会话内已稳定的阅读位置分开观察。没有以移除失败样本或延长实际断线窗口替代验收。
+- 最后一轮大字号长断线用例在故障注入前失败。高卡片对齐真尾后，三次向历史拖动得到没有可见消息文本的滚动视口，AX 树也没有实现任何消息行。原始 `takeover-sustained-long.xcresult` 与其中的 `long-outage-no-history-anchor` 截图及 AX 记录保留。12 秒故障尚未触发，不能判断长断效果。
+- 辅助的 Game Performance 模板探针命令声明 15 秒、目标为该专用模拟器的全部进程；录制未正常完成，手动结束后只留下未完成的 trace，没有可用于比较的呈现时序或 deadline 数据。既有 XCTHitchMetric 同样没有有效系列，D5 仍待完成。保持 active unit，未归档或提交 PR。
+
+本段原始结果位于 `/private/tmp/nano-ios-763-runtime/evidence`。这些自动化结果不代表用户真机验收。
+
 ## 待执行
 
 1. 先解除纯 Markdown 连续阅读卡死并核实可复核的触发边界，完成 Earlier→Latest、当前树远距 Latest/状态栏定位所有权及短/长断连两 surface 旅程。具体隔离sim运行限制已有用户明确允许，仅沿本unit/专用373 simulator继续；不扩到生产/手机或此前独立token/WS探针。
