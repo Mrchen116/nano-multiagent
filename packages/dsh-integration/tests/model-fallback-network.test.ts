@@ -6,11 +6,13 @@ import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it.each(['provider-timeout', 'watchdog', 'unavailable-host'] as const)('uses the backup after %s and waits when the backup also stalls', async fault => {
+it.each(['provider-timeout', 'watchdog', 'unavailable-host', 'handoff-offline', 'cancel-check'] as const)('uses the backup after %s and waits when the backup also stalls', async fault => {
   const home = await mkdtemp(join(tmpdir(), 'nano-fallback-network-'));
   let client: RuntimeClient | undefined;
   let recover = false;
   const requests: string[] = [];
+  let checks = 0;
+  let releaseCheck: (() => void) | undefined;
   const server = createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
@@ -42,8 +44,10 @@ it.each(['provider-timeout', 'watchdog', 'unavailable-host'] as const)('uses the
     } } } }]);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' } });
     registerNoopTaskHosts(client);
-    client.rpc.handle('model.check', () => {
-      if (fault === 'unavailable-host') throw new Error('delivery host offline');
+    client.rpc.handle('model.check', async () => {
+      checks++;
+      if (fault === 'unavailable-host' || (fault === 'handoff-offline' && checks === 2)) throw new Error('delivery host offline');
+      if (fault === 'cancel-check') await new Promise<void>(resolve => { releaseCheck = resolve; });
       return { published: false };
     });
     const binding = { sessionId: 'root', agentId: 'a', revision: '1', ownerId: 'owner', cwd: home };
@@ -59,8 +63,20 @@ it.each(['provider-timeout', 'watchdog', 'unavailable-host'] as const)('uses the
       source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: 'one' },
     });
     const observe = async () => await client!.rpc.request('session.observe', { sessionId: 'root' }) as any;
+    if (fault === 'cancel-check') {
+      await expect.poll(() => checks, { timeout: 5000 }).toBe(1);
+      let cancelled = false;
+      const cancellation = client.rpc.request('session.cancel', { sessionId: 'root' }).then(() => { cancelled = true; });
+      await expect.poll(() => cancelled, { timeout: 1500 }).toBe(true);
+      releaseCheck!();
+      await cancellation;
+      expect((await client.rpc.request('session.lookup', { sessionId: 'root', inputId: 'one' }) as any).terminal.kind).toBe('aborted');
+      await client.shutdown();
+      client = undefined;
+      return;
+    }
     if (fault !== 'unavailable-host') {
-      await expect.poll(() => requests.includes('backup'), { timeout: 5000 }).toBe(true);
+      await expect.poll(() => requests.includes('backup'), { timeout: 12000 }).toBe(true);
     }
     await expect.poll(async () => (await observe()).events.filter((event: any) => event.type === 'llm/retry')
       .map((event: any) => event.data.mode), { timeout: 3000 }).toEqual(['always']);
@@ -76,9 +92,10 @@ it.each(['provider-timeout', 'watchdog', 'unavailable-host'] as const)('uses the
     await client.shutdown();
     client = undefined;
   } finally {
+    releaseCheck?.();
     if (client) { client.process.kill('SIGKILL'); await client.exited; }
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
     await rm(home, { recursive: true, force: true });
   }
-}, 20000);
+}, 30000);

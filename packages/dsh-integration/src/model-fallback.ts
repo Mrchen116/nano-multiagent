@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { addAbortListener } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { ModelRunProjection } from '@nano/product-contracts';
 import {
   defineDomain,
@@ -342,15 +344,27 @@ export class ModelFallback {
     }
   }
   /** Check whether a stalled request can safely use the remaining configured backup chain. */
-  async canSwitchAfterFailure(agent: Agent, turn: number): Promise<boolean> {
+  async canSwitchAfterFailure(agent: Agent, turn: number, signal: AbortSignal): Promise<boolean> {
     const config = this.agents.get(agent.id)?.config;
     const run = this.runsBySession.get(agent.id)?.forAttempt(turn);
     if (!config || !run || !this.canSwitch(agent, config, run)) return false;
     try {
-      return !(await this.host.check(agent, run)).published;
+      return !(await this.checkPublished(agent, run, signal)).published;
     } catch {
       // An offline delivery host cannot establish that switching is safe; keep the live task waiting.
       return false;
+    }
+  }
+  private async checkPublished(agent: Agent, run: ModelRun, signal: AbortSignal): Promise<{ published: boolean }> {
+    signal.throwIfAborted();
+    let listener: ReturnType<typeof addAbortListener> | undefined;
+    const cancelled = new Promise<never>((_resolve, reject) => {
+      listener = addAbortListener(signal, () => reject(signal.reason));
+    });
+    try {
+      return await Promise.race([this.host.check(agent, run), cancelled]);
+    } finally {
+      listener?.[Symbol.dispose]();
     }
   }
   private canSwitch(agent: Agent, config: AgentConfiguration, run: ModelRun): boolean {
@@ -403,8 +417,19 @@ export class ModelFallback {
           throw new Error('Fallback turn has no persistence barrier');
         await this.checkpoint();
         if (!valid() || signal.aborted) return;
-        const published = await this.host.check(agent, run);
-        if (!valid() || signal.aborted) return;
+        let published: { published: boolean } | undefined;
+        let retryDelayMs = 5000;
+        while (valid() && !signal.aborted && !published) {
+          try {
+            published = await this.checkPublished(agent, run, signal);
+          } catch {
+            if (!valid() || signal.aborted) return;
+            // Delivery can disconnect between the request precheck and the persisted handoff.
+            await delay(retryDelayMs, undefined, { signal });
+            retryDelayMs = Math.min(retryDelayMs * 2, 60000);
+          }
+        }
+        if (!valid() || signal.aborted || !published) return;
         if (published.published) {
           this.host.select(agent, undefined);
           this.finish(run, run.terminal);
@@ -457,6 +482,7 @@ export class ModelFallback {
         }
       });
     })().catch((error) => {
+      if (!valid()) return;
       this.host.select(agent, undefined);
       this.finish(run, { kind: 'error', error: { code: 'PERSISTENCE', message: String(error) } });
     });

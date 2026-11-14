@@ -25,7 +25,7 @@ function upstreamConnectionFailed(failure: LlmFailure): boolean {
 
 /** Keep network recovery waits within the live DSH step, with a separate retry budget. */
 export function attachModelConnectionRetry(agent: Agent, takeConnectionFailure: (signal: AbortSignal) => boolean,
-  canSwitchAfterFailure: (turn: number) => Promise<boolean> = async () => false): void {
+  canSwitchAfterFailure: (turn: number, signal: AbortSignal) => Promise<boolean> = async () => false): void {
   let state: { signal: AbortSignal; step: number; retryId: RetryId; retry: number; delayMs: number } | undefined;
   agent.ctx.on('agent/request-error', async ({ turn, step, provider, signal, failure }, next) => {
     const connectionFailed = takeConnectionFailure(signal);
@@ -33,7 +33,7 @@ export function attachModelConnectionRetry(agent: Agent, takeConnectionFailure: 
     const timedOut = failure.code === 'TIMEOUT' && failure.status === undefined &&
       /^pi-ai stream idle timeout after \d+ms$/.test(failure.message);
     if (!connectionFailed && !timedOut && !upstreamConnectionFailed(failure)) return next();
-    if (timedOut && await canSwitchAfterFailure(turn)) return next();
+    if (!connectionFailed && timedOut && await canSwitchAfterFailure(turn, signal)) return next();
     signal.throwIfAborted();
     if (state?.signal !== signal || state.step !== step) {
       state = { signal, step, retryId: RetryId(randomUUID()), retry: 0, delayMs: initialDelayMs };
