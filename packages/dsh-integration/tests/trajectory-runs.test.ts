@@ -41,7 +41,7 @@ async function fixture() {
       if(text==='child-fail')throw new Error('controlled child failure');
       if(text==='child-cancel'){ctx.agents.get(o.sessionId).cancel({kind:'hook',reason:'controlled cancellation'});}
       if(text==='resident'){await new Promise(resolve=>held.set(o.sessionId,resolve));}
-      if(text==='child-hold'){await new Promise((resolve,reject)=>{o.signal.addEventListener('abort',()=>reject(o.signal.reason),{once:true});});}
+      if(text==='child-hold'||text==='child-nested-hold'&&seen.has(key)){await new Promise((resolve,reject)=>{o.signal.addEventListener('abort',()=>reject(o.signal.reason),{once:true});});}
       const call=(id,name,args)=>({type:'block-end',index:id==='fork-call'?1:0,block:{type:'tool-call',id,name,arguments:JSON.stringify(args)}});
       let calls=[];
       if(!seen.has(key)){
@@ -54,6 +54,9 @@ async function fixture() {
         if(text==='release')calls=[call(user.id+'-release','fixture_release',{})];
         if(text.startsWith('drain:'))calls=[call(user.id+'-drain','fixture_drain',{id:text.slice(6)})];
         if(['fail','cancel'].includes(text))calls=[call(text+'-call','subagent_fork',{prompt:'child-'+text,description:text,run_in_background:false})];
+        if(text==='fork-crash')calls=[call(user.id+'-fork','subagent_fork',{prompt:'child-hold',description:'Interrupted fork'})];
+        if(text==='nested-crash')calls=[call(user.id+'-nested','subagent',{prompt:'child-nested-hold',description:'Nested interrupted work',run_in_background:true})];
+        if(text==='child-nested-hold')calls=[call(user.id+'-grandchild','subagent',{prompt:'child-hold',description:'Nested interrupted leaf',run_in_background:true})];
         if(text==='crash')calls=[call(user.id+'-crash','subagent',{prompt:'child-hold',description:text,run_in_background:true,backgroundMode:'continuable'})];
       }
       if(calls.length){for(const item of calls)yield item;yield{type:'finish',reason:{kind:'tool-calls'}};return;}
@@ -165,49 +168,32 @@ it('keeps a continuable residency open across messages and records separate cold
   finally { await f.close(); }
 }, 30000);
 
-it('preserves failed/cancelled terminals and reports a killed process run as unknown on restart', async () => {
+it('resumes both interrupted child levels without new user input while preserving failed and cancelled terminals', async () => {
   const f = await fixture();
   try {
     await f.submit('fail'); await f.submit('cancel');
     expect((await f.runs()).map(run => [run.stopReason, run.state])).toEqual([['error', 'failed'], ['aborted', 'cancelled']]);
-    await f.submit('crash');
-    await expect.poll(async () => (await f.runs()).length).toBe(3);
-    const before = await f.runs();
-    expect(before.at(-1)).toMatchObject({ state: 'running', delegation: 'background' });
-    const child = before.at(-1)!.sessionId;
-    await expect.poll(async () => (await f.events(child)).some(event => event.type === 'request/header')).toBe(true);
+    await f.submit('nested-crash');
+    await expect.poll(async () => (await f.requests()).filter(row => row.messages.some((m:any) => m.content.some((b:any) => b.text === 'child-hold'))).length).toBeGreaterThan(0);
+    const before = await f.runs(), child = before.at(-1)!.sessionId;
+    const all = await workDescendants(f.client().rpc,{sessionId:'root'});
+    const grandchild = all.find(entry => entry.parentId === child)!.id;
     f.client().process.kill('SIGKILL'); await f.client().exited;
-    const requestsBeforeRestart = (await f.requests()).length;
-    await f.start(false); await f.prepare();
-    expect(await f.runs()).toEqual(before.map(run => run.state === 'running' ? { ...run, state: 'unknown' } : run));
-    const notice = {id: child, turnEnd: expect.any(Number)};
-    expect(await f.notices()).toBeUndefined();
-    await f.ensure();
-    expect(await f.notices()).toMatchObject({pending: [notice]});
-    f.client().process.kill('SIGKILL'); await f.client().exited;
-    await f.start(false);
-    expect(await f.notices()).toMatchObject({pending: [notice]});
-    expect(await f.client().rpc.request('update.prepare', {operationId: 'pending-notice'})).toEqual({ready: true});
-    expect(await f.client().rpc.request('update.release', {operationId: 'pending-notice'})).toEqual({released: true});
-    expect(await f.requests()).toHaveLength(requestsBeforeRestart);
-    await f.submit('normal heartbeat trigger', 'heartbeat');
-    const resumed = (await f.requests()).slice(requestsBeforeRestart);
-    expect(resumed.map(request => request.sessionId)).toEqual(['root']);
-    expect(resumed[0].messages.filter((message: any) => message.source?.channel === 'subagent-recovery')).toEqual([expect.objectContaining({
-      source: expect.objectContaining({kind: 'nano-system'}),
-      content: expect.arrayContaining([
-        {type: 'text', text: `Background subagent ${child} ended abnormally (interrupted) before it finished.`},
-        {type: 'text', text: 'It left no closing message.'},
-      ]),
-    })]);
-    f.client().process.kill('SIGKILL'); await f.client().exited;
-    await f.start(false);
-    await f.submit('new user trigger');
-    expect(await f.notices()).toMatchObject({pending: [], delivered: {[child]: expect.any(Number)}});
-    expect((await f.events('root')).filter(event => event.type === 'user/message' && event.data.source.channel === 'subagent-recovery')).toHaveLength(1);
-  } catch (error) { throw new Error(`${error}\n${f.logs()}`, { cause: error }); }
-  finally { await f.close(); }
-}, 30000);
+    const count = (await f.requests()).length;
+    await f.start(false); await f.ensure(); await f.prepare();
+    await expect.poll(async () => new Set((await f.requests()).slice(count).map(row=>row.sessionId)).size).toBe(2);
+    const resumed = (await f.requests()).slice(count);
+    expect(new Set(resumed.map(row=>row.sessionId))).toEqual(new Set([child,grandchild]));
+    for (const row of resumed) expect(row.messages.some((m:any)=>m.source?.channel==='runtime-recovery' && m.content[0].text.includes('original authorization'))).toBe(true);
+    await expect.poll(async () => (await f.events(child)).findLast(event=>event.type==='turn/end')?.data.reason.kind).toBe('completed');
+    await expect.poll(async () => (await f.events(grandchild)).findLast(event=>event.type==='turn/end')?.data.reason.kind).toBe('completed');
+    expect((await f.runs()).slice(0,2).map(run=>run.state)).toEqual(['failed','cancelled']);
+    const settled=(await f.requests()).length;
+    f.client().process.kill('SIGKILL');await f.client().exited;await f.start();
+    expect(await f.requests()).toHaveLength(settled);
+  } catch(error) {throw new Error(`${error}\n${f.logs()}`,{cause:error});}
+  finally {await f.close();}
+},30000);
 
 
 it('retries a partial crash cut before a managed child can replace interruption evidence', async () => {
@@ -229,17 +215,35 @@ it('retries a partial crash cut before a managed child can replace interruption 
       content: [{type: 'text', text: 'Managed child work'}],
     });
     await expect(notify()).rejects.toThrow('Subagent recovery evidence is temporarily unavailable');
-    expect(await f.notices()).toMatchObject({pending: [{id: children[0]}]});
+    expect(await f.notices()).toBeUndefined();
     expect(await f.requests()).toHaveLength(requestsBeforeRestart);
 
     await f.restoreChildObservation();
     expect(await notify()).toMatchObject({durable: true});
-    expect((await f.notices()).pending.map((notice: any) => notice.id)).toEqual(children);
-    await f.submit('normal trigger');
-    const root = (await f.requests()).slice(requestsBeforeRestart).find(request => request.sessionId === 'root');
-    const notices = root.messages.filter((message: any) => message.source?.channel === 'subagent-recovery');
-    expect(notices.map((message: any) => message.id.split(':')[1])).toEqual(children);
+    await f.ensure();
+    await expect.poll(async () => (await f.requests()).slice(requestsBeforeRestart).some(request=>request.sessionId===children[1] && request.messages.some((m:any)=>m.source?.channel==='runtime-recovery'))).toBe(true);
+    // The first child already received explicit managed work; it is not restarted again.
+    expect((await f.requests()).slice(requestsBeforeRestart).filter(request=>request.sessionId===children[0])).toHaveLength(1);
   } catch (error) { throw new Error(`${error}
 ${f.logs()}`, { cause: error }); }
   finally { await f.close(); }
 }, 30000);
+
+
+it('returns an interrupted one-shot assignment to its original root without pretending to resume the fork',async()=>{
+ const f=await fixture();
+ try{
+  await f.client().rpc.request('session.submit',{sessionId:'root',inputId:'fork-crash',mode:'followup',content:[{type:'text',text:'fork-crash'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'fork-crash'}});
+  await expect.poll(async()=>(await f.requests()).filter(row=>row.sessionId!=='root').length).toBe(1);
+  const child=(await f.requests()).find(row=>row.sessionId!=='root').sessionId;
+  expect((await workDescendants(f.client().rpc,{sessionId:'root'})).some(row=>row.id===child)).toBe(true);
+  f.client().process.kill('SIGKILL');await f.client().exited;const count=(await f.requests()).length;
+  await f.start();
+  await expect.poll(async()=>((await f.client().rpc.request('session.observe',{sessionId:'root'})) as any).status).toBe('idle');
+  const resumed=(await f.requests()).slice(count);
+  expect(resumed).toHaveLength(1);expect(resumed[0].sessionId).toBe('root');
+  expect(resumed[0].messages.filter((m:any)=>m.source?.channel==='runtime-recovery')).toEqual(expect.arrayContaining([expect.objectContaining({content:expect.arrayContaining([expect.objectContaining({text:expect.stringContaining('could not be resumed in place')})])})]));
+  const settled=(await f.requests()).length;f.client().process.kill('SIGKILL');await f.client().exited;await f.start();
+  expect(await f.requests()).toHaveLength(settled);
+ }finally{await f.close();}
+},30000);

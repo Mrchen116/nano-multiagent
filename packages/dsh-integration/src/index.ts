@@ -57,6 +57,7 @@ import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 import { DescendantReader } from './descendants.js';
 import { SubagentRecovery } from './subagent-recovery.js';
+import { InterruptedWork } from './interrupted-work.js';
 import { SessionDeletion } from './agent-deletion.js';
 import { ownedLinks, purgeDerived } from './agent-deletion-derived.js';
 
@@ -306,10 +307,12 @@ export default class NanoRuntime {
       };
       const projections = ctx.get('sessionProjections')?.snapshot(session, ['subagentCatalog']);
       const {interrupted, complete} = await descendantReader.interruptedChildren({header: session.header, projections});
-      await subagentRecovery.record(binding.sessionId, interrupted, assertCurrent);
+      await subagentRecovery.record(binding.sessionId, interrupted.filter(child =>
+        projections?.values.subagentCatalog?.find(entry => entry.id === child.id)?.mode !== 'continuable'), assertCurrent);
       if (!complete) throw new RpcError(-32005, 'Subagent recovery evidence is temporarily unavailable');
     });
     ctx.provide('nanoSessions', this.owned);
+    this.interruptedWork = new InterruptedWork(ctx, this.owned, descendantReader);
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -453,7 +456,10 @@ export default class NanoRuntime {
         this.unregisterPresets.push(await ctx.agentPresets.register({ id, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: agent.agentId } }] }));
         }
       }
-      for(const stop of config.taskStopFences??[])this.tasks.interrupt(typeof stop==='string'?stop:stop.sessionId,typeof stop==='string'?undefined:stop.stoppedAt);
+      for(const stop of config.taskStopFences??[]) {
+        const id=typeof stop==='string'?stop:stop.sessionId;
+        this.tasks.interrupt(id,typeof stop==='string'?undefined:stop.stoppedAt);this.interruptedWork.stop(id,typeof stop==='string'?undefined:stop.stoppedAt);
+      }
       for(const sessionId of config.taskStops??[])this.tasks.block(sessionId,true);
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
@@ -756,6 +762,7 @@ export default class NanoRuntime {
     handle('task.execution.block', value=>{const {sessionId,blocked}=value as {sessionId:string;blocked:boolean};this.tasks.block(sessionId,blocked);return {ok:true};});
     handle('session.cancel', async value => {
       const { sessionId,stoppedAt,settleTaskContext } = value as { sessionId: string;stoppedAt?:string;settleTaskContext?:boolean };
+      this.interruptedWork.stop(sessionId,stoppedAt);
       this.tasks.interrupt(sessionId,stoppedAt);
       const agent = await this.agent(sessionId);
       (await models).cancelCommands(sessionId);
@@ -1137,6 +1144,8 @@ export default class NanoRuntime {
 
   *[Service.init]() { yield () => { this.peer.close(); for (const answer of this.approvals.values()) answer('unavailable'); }; }
 
+  private readonly interruptedWork: InterruptedWork;
+
   private async ensure(binding: SessionBinding) {
     if (!this.accepting) throw new RpcError(-32003, 'Runtime is not accepting sessions');
     const previous = this.bindings.get(binding.sessionId);
@@ -1147,6 +1156,7 @@ export default class NanoRuntime {
     if (!this.configurations.has(preset)) throw new RpcError(-32002, 'Unknown configuration revision');
     this.bindings.set(binding.sessionId, binding);
     const agent = await this.owned.resolve(binding.sessionId, true);
+    if (config?.mode === 'global') await this.interruptedWork.recover(agent, {agentId:binding.agentId,revision:this.lifecycle.current(binding.agentId).revision});
     await this.flush(agent);
     void this.tasks.poke(agent);
     return { sessionId: agent.id, revision: binding.revision };
