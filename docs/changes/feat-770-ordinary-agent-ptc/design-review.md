@@ -103,3 +103,60 @@ R1-W1 在设计层面关闭；没有新增 findings。此结论仅批准方案�
 ### Author Resolutions
 
 - 接受 Round 2 的 Approved；已核实 R1-W1 的完整恢复路径、范围边界和验证投影，无未关闭实质问题。审查后仅追加本结论，spec/design/delta/骨架未作实质修改。Gate 2 文档审查完成；本轮不进入实施或生产切换。
+
+## Round 3
+
+### Metadata
+
+- reviewer_target: `/root/ptc_design_review`（原独立 reviewer）
+- review_mode: `full`
+- mode_reason: 用户将范围内默认值改为 PTC，并将 Dreaming 整合纳入范围；需求、运行消费者、维护权限链与 M1 退出标准有实质变化。复审全部需求覆盖，复用未变代码的既有公开 API 证据，不仅核旧 finding。
+- started_at: `2026-11-15T07:58:24+09:00`
+- completed_at: `2026-11-15T07:59:30+09:00`
+- duration: 约 1 分 6 秒。
+- baseline: checkout HEAD `3e77928a0b37f0b99299554b4e0879accf328fdd`，本轮受审为冻结的 spec/design/delta 工作区修订及既有 M1 骨架。已核实涉及 integration、Node configuration 和 product-contracts configuration 的运行时代码相对 `be23e8fc7` 无 diff。
+- capabilities: agent-context-review、performance-review 设计模式；只读源码/文档核验，未安装依赖、未启动服务、未改受审产物。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。**
+
+方案已覆盖“普通执行与 Dreaming 整合默认 PTC、提炼保持原模式、配置文件 false 回退、无 IM 网页选项”的新决定。未发现会使下游实施实质走偏的未解决设计问题。此结论只批准当前方案，不表示默认 PTC 已经生效、运行验证通过、测得性能收益或获准实施/部署。
+
+### Coverage 与证据
+
+1. **最新用户决定与范围。** 亲自读取本轮 spec、design、delta 的完整变更。spec 澄清保留用户原话并明确替代此前 opt-in/native 默认；`design.md:51–70` 将缺失/true、false、Global/PA 主会话、普通独立/worker、Dreaming 两阶段、审核、Workflow 与 fork 分开定义。旧配置缺失值的首次安全装配和历史 native fork 继承也有明确语义，没有将新默认偷偷解释为所有角色都切换。仍无实施、生产切换或部署授权。
+
+2. **默认值、回退与现有接线。** R1 核实的 features canonical/fingerprint/Node 配置通路仍适用；本轮明确要求 partial edit 保留 false，配置回退通过既有 operation 生效，不新增 UI/第二套存储。普通业务继续由 ConfigurationScopes/ToolSelection 负责，有效 bash 资格、scope 模式冲突、真实 catalog/preview 与安全更新边界仍有验证。整合另从 owner 配置读取同一值，在 stage 创建时固定；后续批次读新配置，当前批次依原完成/取消规则结束。`dreaming.ts:484–488` 当前配置取消逻辑只针对禁用维护等条件，不需要为展示回退新增粗暴的立即中断机制。
+
+3. **Dreaming 实际创建路径。** 重新核对 `dreaming-agent.ts:44–103`：`run.stage === 'extract'` 决定阶段；整合加载自己的 `NativeBash`，目前两阶段 `presentAs('native')`，维护工具和 prompt/filter 在 setup 局部装配。`index.ts:322–346` 在没有 nano preset 时返回，证实这些实例不经过普通 ConfigurationScopes/NanoApproval。设计把模式切换留在 `runDreamingAgent` setup，没有误靠普通 ToolSelection 自动覆盖维护实例，也没有为了 PTC 引入整套业务配置。当前 `dreaming.ts:378–395` 的 model/dispose 调用链承接阶段执行与清理；这一职责分配可落实。
+
+4. **整合模型输入与提炼不变。** 当前 `dreaming-agent.ts:71–76` 的 assemble filter 会删掉非 tool:* SDK section 和 allowed 列表之外的 run_code；新“Dreaming 仅整合阶段切换”段明确要求先限定底层工具，再保留该 scope 的 PTC 指导、SDK 与外层工具，未将 presentAs 一行修改误当完整实现。`dreaming-agent.ts:120–123` 的 measure 与首次 llm/stream 检查都基于最终请求，设计把 SDK/指导开销纳入两处预算。提炼仍 native、只具原有恢复能力、消费宿主材料并保持最终 JSON 校验；没有给提炼增加程序执行或业务回查能力。动态批次材料/角色背景与固定规则的原分层保持。
+
+5. **维护权限与程序执行边界。** `dreaming-agent.ts:88–102` 当前维护 gate 先遵守 downstream 决策，再检查取消、allowed、generation 和文件路径，Bash 已直接采用部署 sandbox。修订对外层 run_code 单列阶段/取消/generation/部署权限检查；子调用仍过原工具与路径/来源 gate，SDK 不暴露被禁止业务工具。设计准确说明 raw Node 与既有 Bash 的程序执行信任边界，未声称文件 bindings guard 能确定性拦截所有 Node syscall，也未假称整合存在 NanoApproval 全程序审核。普通业务完整程序审核及子调用审核仍按 R1 已审方案执行。复用现有 runtime/维护 gate 合理，不需要另造 runtime 或轨迹分析服务。
+
+6. **单写者、终止与 Git 完成。** 重新对照 current `agent-capabilities.md` 的“原生维护工具与单写者”“提炼输出与整合批次 Git 提交”“连续批次和独立进度”，及 `dreaming-agent.ts:129–183`、`dreaming.ts:272–299`。修订保留前台 Bash、runtime/命令取消完成后才释放写者、正常结束后最多三次 Git 修复、仍失败回到起始提交、异常结束保留真实文件/Git，以及宿主核验成功才推进来源。整合仅改变工具编排方式，不改变正式记忆写者、发布事实或来源进度 owner。raw Node 脱离当前调用的进程被指导禁止，runtime 清理与前台命令的实际终止列入实施验证；没有提前声称该运行验证已通过。
+
+7. **回查、恢复与旧 finding。** `ptc_history` 继续不接受任意 session_id，以调用者自身/实际继承持久事件为范围。新整合消费者只读维护自身回执，业务事实仍走 source_history 冻结目录；history 恢复模型输入，三条入口用途明确。共同 helper 只复用配对/分页，不合并权限。整合提示、SDK、失败后的下一请求和换窗均列入 Context 观察；普通会话关闭后的历史工具仍保留。R1-W1 的成功子调用未输出即 outer 失败案例及不重复副作用要求保留，新增消费者没有重开原缺口。
+
+8. **性能与验证安排。** 原三类普通执行同条件对照继续包含审核消耗、缓存与总墙钟。新增整合 A/B 使用同一冻结批次、同一起始记忆仓副本、固定复用提炼产物，分开测整合成本，并同时检查记忆质量/来源/Git/失败状态，能隔离本次模式变化。真实请求验证新增两阶段 schema、SDK/run_code 过滤、首轮预算、来源失效、自身回执、回退、前台 Bash 与 runtime 清理；真实旅程/M1 覆盖整合与原普通任务。无需方案阶段运行尚不存在的实现；实际收益与权限/取消行为仍待实施证据。
+
+9. **delta、milestone 与交付边界。** delta 仍锚定 gateway agent-capabilities，新增消费者和回退默认语义与 spec 一致；保留既有正式仓、来源、单写者和失败规则，没有把模式切换写成另一个记忆系统。单 M1 将普通执行、审核、整合装配、原始证据与恢复一起交付，新增阶段验证已纳入其退出标准。无历史数据迁移，不需要一次性数据迁移 prompt；设计如实说明未来部署新版本时缺失配置即默认生效，但本轮没有执行该部署。无新增视觉决定，无需原型；隔离验收与资源回收要求保持。
+
+10. **retained_from: Round 1 / Round 2。** R1 的 DSH `0.2.1-alpha.1` 公开 presentAs、SDK、Node fresh-process/deadline、PTC start/settle 事件和 ApprovalSources 配对证据继续有效；R2 的 ptc_history 发现/读取与本 session 范围证据继续有效。运行代码和依赖基线没有变化，本轮实际扩展检查其新增 Dreaming consumer 及默认值影响，没有重新运行无关工具或把旧 native 默认结论 retained 到新需求。
+
+### 历史问题闭环
+
+- **R1-W1 — closed，保留 Round 2 的设计闭环。** 新范围复用同一 ptc_history 恢复机制，整合有独立且明确的自身 scope；原普通恢复与追问案例未删减。实测要求继续留在 M1。本轮不回写 R1/R2 的结论。
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。未为新增默认或维护消费者增加未经需要的架构、运行实验或审批步骤。
+
+### Author Resolutions
+
+- 接受 Round 3 的 Approved；已核对默认值、文件回退、Dreaming 阶段范围、独立维护权限及恢复链，未发现实质异议。受审 spec/design/delta/骨架不再修改；仅将原 Round 2 Author Resolutions 恢复到对应 Round 末尾并追加本结论，属于报告归属整理，不改变旧判断。Gate 2 完成，本轮仅交付修订方案，不实施或部署。
