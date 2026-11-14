@@ -188,6 +188,15 @@ export class DescendantReader {
     return true;
   }
 
+  /** A settled parent must still activate cold interrupted delegated work. */
+  async hasInterruptedDescendants(rootId: SessionId): Promise<boolean> {
+    for await (const entry of this.catalog(rootId)) {
+      if (entry.kind !== 'child') return true;
+      if (!this.ctx.agents.get(entry.id) && this.catalogs.get(entry.id)?.interruptedTurnEnd != null) return true;
+    }
+    return false;
+  }
+
   /** Walk native lineage without attaching event bodies to catalog rows. */
   catalog(rootId: SessionId): AsyncIterable<Descendant> { return this.scan(rootId); }
 

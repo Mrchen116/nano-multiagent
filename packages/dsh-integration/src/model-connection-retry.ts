@@ -23,11 +23,22 @@ function upstreamConnectionFailed(failure: LlmFailure): boolean {
   }
 }
 
-/** Keep connection waits within the live DSH step, with a separate retry budget. */
-export function attachModelConnectionRetry(agent: Agent, takeConnectionFailure: (signal: AbortSignal) => boolean): void {
+/** Recognize the locked adapter's local idle watchdog, excluding provider-reported timeouts. */
+export function isModelStreamIdleTimeout(failure: { code: string; message: string; status?: number } | undefined): boolean {
+  return failure?.code === 'TIMEOUT' && failure.status === undefined &&
+    /^pi-ai stream idle timeout after \d+ms$/.test(failure.message);
+}
+
+/** Keep network recovery waits within the live DSH step, with a separate retry budget. */
+export function attachModelConnectionRetry(agent: Agent, takeConnectionFailure: (signal: AbortSignal) => boolean,
+  canSwitchAfterFailure: (turn: number, signal: AbortSignal) => Promise<boolean> = async () => false): void {
   let state: { signal: AbortSignal; step: number; retryId: RetryId; retry: number; delayMs: number } | undefined;
   agent.ctx.on('agent/request-error', async ({ turn, step, provider, signal, failure }, next) => {
-    if (!takeConnectionFailure(signal) && !upstreamConnectionFailed(failure)) return next();
+    const connectionFailed = takeConnectionFailure(signal);
+    // Sleep can leave a request silent until its watchdog expires without a socket error.
+    const timedOut = isModelStreamIdleTimeout(failure);
+    if (!connectionFailed && !timedOut && !upstreamConnectionFailed(failure)) return next();
+    if (!connectionFailed && timedOut && await canSwitchAfterFailure(turn, signal)) return next();
     signal.throwIfAborted();
     if (state?.signal !== signal || state.step !== step) {
       state = { signal, step, retryId: RetryId(randomUUID()), retry: 0, delayMs: initialDelayMs };

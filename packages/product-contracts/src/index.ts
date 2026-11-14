@@ -108,6 +108,8 @@ export * from './task-execution.js';
 /** Private runtime Work protocol; a page advances only over the included durable prefix. */
 export interface RuntimeWorkPage {
   durable: true;
+  /** Durable Inbox notification deliveries awaiting product projection acknowledgement. */
+  inboxDelivered?: string[];
   events: RuntimeEvent[];
   modelRuns: ModelRunProjection[];
   modelVersion: string;

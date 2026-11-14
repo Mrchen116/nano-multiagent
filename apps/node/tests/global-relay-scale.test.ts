@@ -162,8 +162,8 @@ it('keeps a second Global available through Relay while an old child blocks reco
     expect(traffic.find(frame=>frame.type==='node.register')?.payload.agents).toHaveLength(50);
 
     step('resume A');await unlink(join(home,'hold-child'));
-    await expect.poll(async()=>(await lines('model.jsonl')).some(row=>row.id===root.sessionId &&
-      row.messages.some((message:{source?:{channel?:string}})=>message.source?.channel==='subagent-recovery')),{timeout:30000}).toBe(true);
+    await expect.poll(async()=>(await lines('model.jsonl')).some(row=>row.id===child &&
+      row.messages.some((message:{source?:{channel?:string}})=>message.source?.channel==='runtime-recovery')),{timeout:30000}).toBe(true);
     const reads = await lines('reads.jsonl');
     expect(reads.filter(row => row.id === root.sessionId && row.events > 1)).toHaveLength(1);
     expect(reads.filter(row => row.id === child).length).toBeGreaterThan(0);

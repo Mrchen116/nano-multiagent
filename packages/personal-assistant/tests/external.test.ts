@@ -258,7 +258,7 @@ it('describes selected external targets in chat order with aliases, deduplicatio
   } finally {await external.stop();store.close();}
 });
 
-it('sets a Global Feishu receipt after Inbox admission and replaces it only on read', async () => {
+it('sets a Global Feishu receipt after model delivery and replaces it only on read', async () => {
   const store = new NodeStore(':memory:', 'owner');
   const inbox = new InboxStore(':memory:');
   const reactions = vi.fn(async (_messageId: string, prior?: string, emoji?: string) => prior ? undefined : `reaction-${emoji}`);
@@ -280,12 +280,17 @@ it('sets a Global Feishu receipt after Inbox admission and replaces it only on r
     });
     expect(reactions).not.toHaveBeenCalled();
     const received = inbox.pendingRelays('feishu')[0]!;
-    expect(received.status).toBe('sent');
+    expect(received.status).toBe('accepted');
     const deliver = (status: string) => external.request('node.delivery_receipt', {
       relay_task_id: received.input.relay_task_id, delivery_status: status,
     });
     await deliver(received.status);
     inbox.confirmRelay(received.input.relay_task_id, received.status);
+    expect(reactions).not.toHaveBeenCalled();
+    inbox.notification('a','main','inbox-wake:a:1',snapshot=>JSON.stringify(snapshot));
+    inbox.deliverNotifications('a','main',['inbox-wake:a:1']);
+    await deliver('sent');
+    inbox.confirmRelay(received.input.relay_task_id,'sent');
     expect(reactions.mock.calls).toEqual([['message', undefined, 'CRY']]);
 
     const page = inbox.read('a', 'main', 'read', {target: received.input.conversation_id});

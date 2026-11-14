@@ -60,7 +60,7 @@ Gateway 经 `/im/ws/gateway` 上行 `agent.config.boundary`，将某聊天真正
 
 ### Requirement: 消息中继与流式回复幂等,投递回执推进状态
 
-以下消息及显式投递的幂等、回执规则继续适用。global 入站 recipient 的 completed 仅表示已持久交给 Inbox，不代表主 Agent 已阅读或完成工作；无模型运行期间的预建回复气泡，后续发言是显式发送的独立消息。工作进展见 [agent-work](agent-work.md)。
+以下消息及显式投递的幂等、回执规则继续适用。 Global Inbox 的 `accepted` 仅确认节点持久接纳并停止相同输入重投，不推进用户可见已送达；`sent` 和 `read` 分别依据[逐人回执](conversations-messages.md#requirement-真人发送的普通聊天消息提供逐人回执)的模型送达与读取事实推进，不能把 transport ACK 当作模型接收。global 入站 recipient 的 completed 仅表示已持久交给 Inbox，不代表主 Agent 已阅读或完成工作；无模型运行期间的预建回复气泡，后续发言是显式发送的独立消息。工作进展见 [agent-work](agent-work.md)。
 
 同一消息以相同 `idempotency_key` 重复中继时,IM 复用同一 relay 任务,**不产生重复消息/重复投递**。同一 Agent 流式回复增量以稳定 `idempotency_key` 重传时,IM 只追加和发布一次,因此 Gateway 在 ACK 丢失后重连补发不会使用户看到重复正文。Gateway 上行 `node.delivery_receipt` 把对应消息的 `delivery_status` 沿 `sent` → `completed` 推进, 并回流到前端可见的消息投递状态。
 
