@@ -46,6 +46,7 @@ async function fixture() {
       let calls=[];
       if(!seen.has(key)){
         seen.add(key);
+        if(user?.source?.channel==='runtime-recovery'&&o.sessionId!=='root')calls=[call('return-'+user.id,'send_message',{agent_id:ctx.agents.get(o.sessionId).session.header.parentSession,message:'resumed-result '+o.sessionId})];
         if(text==='parallel')calls=[call('spawn-call','subagent',{prompt:'nested',description:'Ordinary work',run_in_background:false}),call('fork-call','subagent_fork',{prompt:'fork-leaf',description:'Fork work'})];
         if(text==='nested')calls=[call('nested-call','subagent',{prompt:'leaf',description:'Nested work',run_in_background:false})];
         if(text==='leaf')calls=[call('too-deep','subagent',{prompt:'unreachable',description:'Third level',run_in_background:false})];
@@ -54,6 +55,7 @@ async function fixture() {
         if(text==='release')calls=[call(user.id+'-release','fixture_release',{})];
         if(text.startsWith('drain:'))calls=[call(user.id+'-drain','fixture_drain',{id:text.slice(6)})];
         if(['fail','cancel'].includes(text))calls=[call(text+'-call','subagent_fork',{prompt:'child-'+text,description:text,run_in_background:false})];
+        if(text==='fork-tree-crash')calls=[call(user.id+'-fork-tree','subagent_fork',{prompt:'child-nested-hold',description:'Interrupted fork tree'}),call('fork-call','subagent',{prompt:'child-hold',description:'Resumable sibling',run_in_background:true})];
         if(text==='fork-crash')calls=[call(user.id+'-fork','subagent_fork',{prompt:'child-hold',description:'Interrupted fork'})];
         if(text==='nested-crash')calls=[call(user.id+'-nested','subagent',{prompt:'child-nested-hold',description:'Nested interrupted work',run_in_background:true})];
         if(text==='child-nested-hold')calls=[call(user.id+'-grandchild','subagent',{prompt:'child-hold',description:'Nested interrupted leaf',run_in_background:true})];
@@ -181,12 +183,14 @@ it('resumes both interrupted child levels without new user input while preservin
     f.client().process.kill('SIGKILL'); await f.client().exited;
     const count = (await f.requests()).length;
     await f.start(false); await f.ensure(); await f.prepare();
-    await expect.poll(async () => new Set((await f.requests()).slice(count).map(row=>row.sessionId)).size).toBe(2);
+    await expect.poll(async () => new Set((await f.requests()).slice(count).map(row=>row.sessionId)).size).toBe(3);
     const resumed = (await f.requests()).slice(count);
-    expect(new Set(resumed.map(row=>row.sessionId))).toEqual(new Set([child,grandchild]));
-    for (const row of resumed) expect(row.messages.some((m:any)=>m.source?.channel==='runtime-recovery' && m.content[0].text.includes('original authorization'))).toBe(true);
+    expect(new Set(resumed.map(row=>row.sessionId))).toEqual(new Set(['root',child,grandchild]));
+    for (const row of resumed.filter(row=>row.sessionId!=='root')) expect(row.messages.some((m:any)=>m.source?.channel==='runtime-recovery' && m.content[0].text.includes('original authorization'))).toBe(true);
     await expect.poll(async () => (await f.events(child)).findLast(event=>event.type==='turn/end')?.data.reason.kind).toBe('completed');
     await expect.poll(async () => (await f.events(grandchild)).findLast(event=>event.type==='turn/end')?.data.reason.kind).toBe('completed');
+    expect(resumed.some(row=>row.sessionId==='root'&&JSON.stringify(row.messages).includes('resumed-result'))).toBe(true);
+    for(const id of [child,grandchild])expect((await f.events(id)).some(event=>event.type==='tool/result'&&event.data.message.toolCallId.startsWith('return-')&&!event.data.message.isError)).toBe(true);
     expect((await f.runs()).slice(0,2).map(run=>run.state)).toEqual(['failed','cancelled']);
     const settled=(await f.requests()).length;
     f.client().process.kill('SIGKILL');await f.client().exited;await f.start();
@@ -230,19 +234,20 @@ ${f.logs()}`, { cause: error }); }
 }, 30000);
 
 
-it('returns an interrupted one-shot assignment to its original root without pretending to resume the fork',async()=>{
+it.each(['fork-crash','fork-tree-crash'])('returns %s to its original root without blocking resumable siblings',async scenario=>{
  const f=await fixture();
  try{
-  await f.client().rpc.request('session.submit',{sessionId:'root',inputId:'fork-crash',mode:'followup',content:[{type:'text',text:'fork-crash'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'fork-crash'}});
-  await expect.poll(async()=>(await f.requests()).filter(row=>row.sessionId!=='root').length).toBe(1);
+  await f.client().rpc.request('session.submit',{sessionId:'root',inputId:scenario,mode:'followup',content:[{type:'text',text:scenario}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'fork-crash'}});
+  await expect.poll(async()=>(await f.requests()).filter(row=>row.sessionId!=='root').length).toBeGreaterThanOrEqual(scenario==='fork-crash'?1:3);
   const child=(await f.requests()).find(row=>row.sessionId!=='root').sessionId;
-  expect((await workDescendants(f.client().rpc,{sessionId:'root'})).some(row=>row.id===child)).toBe(true);
+  const descendants=await workDescendants(f.client().rpc,{sessionId:'root'});expect(descendants.some(row=>row.id===child)).toBe(true);
   f.client().process.kill('SIGKILL');await f.client().exited;const count=(await f.requests()).length;
   await f.start();
   await expect.poll(async()=>((await f.client().rpc.request('session.observe',{sessionId:'root'})) as any).status).toBe('idle');
   const resumed=(await f.requests()).slice(count);
-  expect(resumed).toHaveLength(1);expect(resumed[0].sessionId).toBe('root');
-  expect(resumed[0].messages.filter((m:any)=>m.source?.channel==='runtime-recovery')).toEqual(expect.arrayContaining([expect.objectContaining({content:expect.arrayContaining([expect.objectContaining({text:expect.stringContaining('could not be resumed in place')})])})]));
+  if(scenario==='fork-crash'){expect(resumed).toHaveLength(1);expect(resumed[0].sessionId).toBe('root');}
+  else {const sibling=descendants.find(row=>row.kind==='child'&&row.parentId==='root'&&row.mode==='continuable')!;await expect.poll(async()=>(await f.requests()).slice(count).some(row=>row.sessionId===sibling.id)).toBe(true);}
+  expect(resumed.find(row=>row.sessionId==='root')!.messages.filter((m:any)=>m.source?.channel==='runtime-recovery')).toEqual(expect.arrayContaining([expect.objectContaining({content:expect.arrayContaining([expect.objectContaining({text:expect.stringContaining('could not be resumed in place')})])})]));
   const settled=(await f.requests()).length;f.client().process.kill('SIGKILL');await f.client().exited;await f.start();
   expect(await f.requests()).toHaveLength(settled);
  }finally{await f.close();}

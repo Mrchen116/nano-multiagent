@@ -312,7 +312,7 @@ export default class NanoRuntime {
       if (!complete) throw new RpcError(-32005, 'Subagent recovery evidence is temporarily unavailable');
     });
     ctx.provide('nanoSessions', this.owned);
-    this.interruptedWork = new InterruptedWork(ctx, this.owned, descendantReader);
+    this.interruptedWork = new InterruptedWork(ctx, descendantReader);
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -625,7 +625,7 @@ export default class NanoRuntime {
       const id = SessionId(input.sessionId), fallback = (await models).fallback;
       const rootSettled = await descendantReader.settled(id, {[id]:input.afterSeq ?? -1}, () =>
         fallback.hasActive(id) || input.modelVersion!==fallback.workVersion(id), false);
-      return {rootSettled:rootSettled && !(await inboxDelivery.pending(input.sessionId)).length};
+      return {rootSettled:rootSettled && !(await inboxDelivery.pending(input.sessionId)).length && !await descendantReader.hasInterruptedDescendants(id)};
     });
     handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
     // The send path needs durable native facts, not frozen tool cards or Work projection.
