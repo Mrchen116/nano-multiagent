@@ -112,7 +112,22 @@
 
 本段原始结果位于 `/private/tmp/nano-ios-763-runtime/evidence`。这些自动化结果不代表用户真机验收。
 
+## 默认字号回归与独立代码复核
+
+- 用户要求取消仓库最大字号专项验收。提交 `4491692c6` 修改长期规范与本 unit 对应验证范围。以前的大字号结果保留为历史记录。
+- 默认字号短断线第一次出现会话详情 GET 的过时失败提示。真实用例修前失败、修后通过。第一次通过的 Chats 取样早于断线，调整取样后重测，实际停监听 3007 ms，Chats 6 次、会话 5 次 AX 快照完整落在同一不可用窗口，均无提示或位移。持续断线用例另行通过，覆盖 Chat 与 Chats 提示、保留历史阅读位置和输入区、恢复后提示消失。原始证据为本机 `final-coverage-{short,long}.xcresult`、短断线 `final-coverage-short-correlated.json` 及 fixture `fault-events.jsonl`。
+- 独立审查发现旧读取失败可覆盖同范围的新成功，以及降级存储时访客可能因详情读取临时失败而丢失历史。按读请求结果顺序隔离提示，并在权限未定时保持历史隐藏，继续检查实际访问权限。两项回归及独立复核均通过，delta 对应契约无须改文。移除了临时 App 诊断日志，保留 Latest 时延测量。
+- 集成基线 `9f900ff3ba355414cb442f9211c3a8e17e391428`。实现 `6dee4f33b` 上的串行原生单测为 270 通过、1 跳过、0 失败；在并行占用同一模拟器时另有一次测试进程收到 SIGKILL，保留原始结果，随后按串行重跑。证据为 `final-all-units-serial.xcresult`。文档完整性校验通过。
+- 修复前置版本的纯 Markdown 冷滚动 CPU 中位 17.89s（基线 17.79s），峰值内存中位 102845 kB（基线 91917 kB），对应 +0.6% 和 +11.9%。暖滚动中断，不能把这组局部值当作完整性能门禁。短时 Time Profiler 探针未能在进程退出前附加，保留失败日志。
+
+## 同负载定位与滚动对照
+
+- 同一混合卡片 300 条历史，真实 `H763-001` 发起一次 Latest。冷启动基线 0/5 到真尾，候选 5/5 到真尾。候选 handler 到尾部几何可见中位 58 ms（57–67 ms），XCTest 命令到三次稳定检查的中位 2.436s（2.164–2.535s）。`final-native-journeys.log` / `.xcresult` 保留该完整组、普通 Markdown 与混合卡片的远距 Latest 功能通过。全套命令随后在试图向已预热的 300 条历史再加载 Earlier 时主动中止，此页容量前置不成立。
+- Earlier→Latest 改用独立的 120 条网络数据，首次只到 60 条。宿主仅延迟该独立会话的实际 Earlier 响应，并记录实际 hold/release。使用真实会话、状态栏到顶部、Earlier 和 Latest，原生用例通过。宿主实测响应延迟 4001 ms，Latest 命令比响应释放早 2752 ms，释放后仍停在真实尾部。证据为 `final-race-core.xcresult` 和 `pagination-race-correlated.json`。
+
+- 300 条纯 Markdown 暖滚动同机复验（每版 5 个保留样本）：基线/候选的 App CPU 中位为 11.526/11.546s，峰值物理内存中位为 99421/96291 kB。用系统 `sample` 对第 2 个保留样本的相同起始手势窗口各采 8 秒，绑定两版实际 App PID 与 XCTest 手势区间。基线 1365 个主线程栈样本中 71 个含 `ConversationView.body`，候选 988 个中 65 个，候选另有 5 个含滚动协调器；调用栈计数可重叠，采样数不同，不能推出精确 CPU 或帧延迟差。该窗口内两版各有 8 次已读 POST，服务端最长 5.6/17.8 ms，未见历史/详情 GET。这组证据表明该次暖滚动没有等待新一页消息，仍不足以归因用户手机的帧停顿或排除混合卡片代价。原始样本、时钟对账和指标见本机 `markdown-warm-pair-summary.jsonl` 与对应 `.sample`。
+
 ## 待执行
 
-1. 先解除纯 Markdown 连续阅读卡死并核实可复核的触发边界，完成 Earlier→Latest、当前树远距 Latest/状态栏定位所有权及短/长断连两 surface 旅程。具体隔离sim运行限制已有用户明确允许，仅沿本unit/专用373 simulator继续；不扩到生产/手机或此前独立token/WS探针。
-2. 独立静态review已派原非作者reviewer；真实体验/旅程/性能证据齐后补同一review收口。归并delta与本地CI、归档、PR develop/远端CI；不merge/部署。
+1. 完成剩余冷热滚动和跳尾矩阵，核查是否真实超过回归门槛。
+2. 完成剩余原生功能验收，结论齐备后做 canonical 归并、CI 对照、归档和 develop PR。
