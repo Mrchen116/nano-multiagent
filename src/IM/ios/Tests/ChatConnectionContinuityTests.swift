@@ -276,6 +276,12 @@ extension ChatLocalFirstTests {
         let stream = UserStream(client: fixture.client, makeSocket: { _ in socket })
         let store = ChatStore(client: fixture.client, user: fixture.user, stream: stream)
         store.selectedID = chat.id
+        let earlier = TimelineItem(type: "message", message: try message(1, conversation: chat.id))
+        let latest = TimelineItem(type: "message", message: try message(2, conversation: chat.id))
+        store.timelines[chat.id] = [earlier, latest]
+        store.before[chat.id] = earlier.id
+        await stub.setMessages(try JSONEncoder().encode(MessagePage(items: [latest], next_before_message_id: latest.id)))
+        let messageReads = await stub.messageReadCount()
         await stub.hold("/im/v1/conversations/visitor", body: try JSONEncoder().encode(chat))
         let run = Task { await store.run() }
         await stub.waitUntilHeld()
@@ -289,12 +295,21 @@ extension ChatLocalFirstTests {
         await fulfillment(of: [connectionChanged], timeout: 3)
         XCTAssertTrue(store.connection.isOnline)
         XCTAssertTrue(store.checkingAccess.contains(chat.id))
+        XCTAssertEqual(store.timelines[chat.id]?.map(\.id), [earlier.id, latest.id])
         let checked = expectation(description: "the detail response resolves visitor access")
         withObservationTracking { _ = store.checkingAccess } onChange: { checked.fulfill() }
         await stub.release()
         await fulfillment(of: [checked], timeout: 3)
         XCTAssertFalse(store.checkingAccess.contains(chat.id))
         XCTAssertFalse(store.revokedChats.contains(chat.id))
+        XCTAssertEqual(store.timelines[chat.id]?.map(\.id), [earlier.id, latest.id])
+        XCTAssertEqual(store.before[chat.id], earlier.id)
+        for _ in 0..<100 {
+            if await stub.messageReadCount() > messageReads { break }
+            await Task.yield()
+        }
+        let readCount = await stub.messageReadCount()
+        XCTAssertEqual(readCount - messageReads, 1)
         run.cancel(); store.stop()
         await run.value
         observePing.cancel()

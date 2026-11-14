@@ -642,8 +642,11 @@ final class ChatStore {
             guard token == epoch, !Task.isCancelled else { return }
             if let selectedID {
                 if !conversations.contains(where: { $0.id == selectedID }) {
-                    if checkingAccess.contains(selectedID) { await verifyAccess(selectedID) }
-                    else { await inspectConversation(selectedID) }
+                    if checkingAccess.contains(selectedID) {
+                        await verifyAccess(selectedID, preserveTimeline: true)
+                        return
+                    }
+                    await inspectConversation(selectedID)
                 }
                 guard token == epoch, !Task.isCancelled, self.selectedID == selectedID else { return }
                 await loadChat(selectedID)
@@ -732,11 +735,6 @@ final class ChatStore {
             // until the detail read resolves authority after the socket starts.
             allowed.insert(pendingDetail)
             checkingAccess.insert(pendingDetail)
-            timelines[pendingDetail] = nil
-            before[pendingDetail] = nil
-            olderNeedsNetwork.remove(pendingDetail)
-            receivedTimelineResults.remove(pendingDetail)
-            readSucceeded(.earlier(pendingDetail))
         }
         revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
@@ -1102,10 +1100,12 @@ final class ChatStore {
     /// Targeted access check for `membership_changed` (design D11): keep the list row, hold the
     /// timeline behind the existing "checking access" placeholder, and let the detail response
     /// decide. A transport failure decides nothing — the next successful sync converges.
-    private func verifyAccess(_ id: String) async {
+    private func verifyAccess(_ id: String, preserveTimeline: Bool = false) async {
         checkingAccess.insert(id)
-        timelines[id] = nil; before[id] = nil; olderNeedsNetwork.remove(id); receivedTimelineResults.remove(id)
-        readSucceeded(.earlier(id))
+        if !preserveTimeline {
+            timelines[id] = nil; before[id] = nil; olderNeedsNetwork.remove(id); receivedTimelineResults.remove(id)
+            readSucceeded(.earlier(id))
+        }
         if banner?.conversationID == id { banner = nil }
         guard let request = try? await readRequest() else { return }
         do {
@@ -1119,7 +1119,7 @@ final class ChatStore {
             checkingAccess.remove(id); revokedChats.remove(id)
             readSucceeded(.access(id))
             await loadLocalTimeline(id)
-            if timelines[id]?.isEmpty ?? true { await loadChat(id) }
+            if preserveTimeline || (timelines[id]?.isEmpty ?? true) { await loadChat(id) }
         } catch {
             guard await isCurrent(request), !(error is CancellationError) else { return }
             let failure = ChatFailure.from(error)
@@ -1138,7 +1138,7 @@ final class ChatStore {
     }
 
     /// The placeholder's retry must recheck authority, not reload a list that cannot decide absence.
-    func retryAccess(_ id: String) async { await verifyAccess(id) }
+    func retryAccess(_ id: String) async { await verifyAccess(id, preserveTimeline: timelines[id] != nil) }
 
     /// A healthy socket may never reconnect. Resolve an inconclusive membership check with
     /// bounded full-sync retries rather than leaving its placeholder there indefinitely.

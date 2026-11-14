@@ -87,11 +87,11 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
         let beforeY = try anchor.snapshot().frame.minY
         let beforeNav = driver.app.navigationBars.firstMatch.frame
         let beforeComposer = driver.app.textViews["Message"].frame
-        try driver.require(!driver.app.buttons["chat.connectionFeedback"].exists,
+        try driver.require(!feedbackButton.exists,
                            "Healthy fixture must be recovered before attributing feedback to the one-shot outage")
         driver.capture("long-outage-large-type-reading-before", tree: true)
         driver.record("owned-outage-long-ready", ["ready": true])
-        let feedback = driver.app.buttons["chat.connectionFeedback"]
+        let feedback = feedbackButton
         try driver.require(feedback.waitForExistence(timeout: 10), "Continuous unavailability must eventually have one honest navigation feedback")
         driver.capture("long-outage-large-type-conversation-feedback")
         let duringY = try anchor.snapshot().frame.minY
@@ -99,18 +99,18 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
         try driver.require(driver.app.navigationBars.firstMatch.frame == beforeNav, "Fault feedback must not resize the navigation area")
         try driver.require(driver.app.textViews["Message"].frame == beforeComposer, "Fault feedback must not resize the composer or viewport")
         try driver.require(driver.app.buttons["Conversation details"].isHittable, "Long titles and large type must keep primary navigation reachable")
-        try driver.require(driver.app.buttons.matching(identifier: "chat.connectionFeedback").count == 1,
+        try driver.require(visibleFeedbackButtons.count == 1,
                            "There is one connection feedback, never duplicated content rows")
         try driver.backToChats()
-        try driver.require(driver.app.buttons["chat.connectionFeedback"].exists,
+        try driver.require(feedbackButton.exists,
                            "The same sustained outage also has one stable Chats feedback")
         driver.capture("long-outage-large-type-Chats-feedback")
-        driver.app.buttons["chat.connectionFeedback"].tap()
+        feedbackButton.tap()
         try driver.require(driver.app.navigationBars["Connection and updates"].waitForExistence(timeout: 3), "Feedback opens truthful details and a real retry action")
         driver.capture("long-outage-connection-details", tree: true)
         driver.app.buttons["Done"].tap()
         // The one listener is restored by the host/runner; wait for actual transport recovery.
-        let cleared = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: driver.app.buttons["chat.connectionFeedback"])
+        let cleared = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: feedbackButton)
         try driver.require(XCTWaiter.wait(for: [cleared], timeout: 30) == .completed,
                            "Complete sync plus confirmed realtime recovery clears the auxiliary feedback")
         driver.capture("long-outage-large-type-Chats-recovered", tree: true)
@@ -144,6 +144,13 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
             return result
         }
     }
+
+    private var visibleFeedbackButtons: XCUIElementQuery {
+        driver.app.buttons.matching(identifier: "chat.connectionFeedback")
+            .matching(NSPredicate(format: "label MATCHES %@", ".*\\S.*"))
+    }
+
+    private var feedbackButton: XCUIElement { visibleFeedbackButtons.firstMatch }
 
     /// One public AX generation supplies both feedback and geometry, avoiding a series of
     /// live queries that could consume the entire short fault before navigating to B.

@@ -26,6 +26,8 @@ struct ConversationView: View {
     @ScaledMetric(relativeTo: .body) private var commandRowHeight = 80.0
     private var conversation: Conversation? { store.inspectedConversation?.id == conversationID ? store.inspectedConversation : store.conversations.first { $0.id == conversationID } }
     private var items: [TimelineItem] {
+        // A visitor's cached window can be retained during authority verification.
+        guard !store.checkingAccess.contains(conversationID) else { return [] }
         let timeline = store.timelines[conversationID] ?? []
         let messageIDs = Set(timeline.compactMap { $0.message?.id })
         return timeline.filter { $0.message != nil || messageIDs.contains($0.before_message_id ?? "") }
