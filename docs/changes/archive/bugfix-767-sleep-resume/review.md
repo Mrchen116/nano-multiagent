@@ -38,3 +38,7 @@ P3，既有 `/stop` 文案使用 DSH maintenance 的 idle 状态，可能在实�
 ## 后续生产观察
 
 用户补充新消息 `6eade39e15244ee9b9055f66147210bf` 入 Air Inbox seq946 后未被读取。只读核对确认旧实现仅持久入箱就发 node sent；这是用户要求纠正的回执语义缺陷，按 bugfix-768 修复。root work_recovery.pending=1，运行时内 root 已进入 turn413 step0，但持久化 cursor 停在19623，内存 session seq19626；writer.chain/draining 均 pending。原生 FS 请求798个未结算，而四个 libuv worker 与主事件循环空闲。该存活但无文件系统进展故障按 bugfix-769 修复；不能用本 unit 的模型流重试测试代替其恢复证据。调试 inspector 已关闭，临时诊断引用已移除，生产进程未重启。
+
+## 最终集成验证
+
+源码冻结 `2f420460fa54666a9b18dc651a223e24922089e2`：全仓 build、typecheck、iOS shared runtime 通过；后端全量 244 文件／1391 测试全部通过（`/tmp/nano-final-backend.log`）。Python 136 通过、28 e2e 排除，Ruff check/format 通过；文档检查通过。前端沿用本批次构建、critical audit 与全量加失败项单独复验的有效证据，前端源码未改。executed_base 与 effective_base 均为 `9f900ff3ba355414cb442f9211c3a8e17e391428`，最后 fetch 无目标分支推进；之后仅报告与整 unit 归档，源码及独立审查结论 retained。

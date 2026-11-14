@@ -23,3 +23,7 @@
 ## 证据边界
 
 生产仅只读取证：JS/stdio 有响应但异步 FS 请求与持久 writer 不再推进；具体 Node/libuv 原因未证明。测试用隔离插件阻塞真实进程 stat 的完成回调，模型是受控 provider。没有实体合盖复现，没有生产部署/迁移或生产测试消息；不宣称外部副作用 exactly-once。临时进程和数据由 fixture 回收，生产临时 inspector 已关闭。
+
+## 最终集成验证
+
+源码冻结 `2f420460fa54666a9b18dc651a223e24922089e2`：全仓 build、typecheck、iOS shared runtime 通过；后端全量 244 文件／1391 测试全部通过（`/tmp/nano-final-backend.log`）。Python 136 通过、28 e2e 排除，Ruff check/format 通过；文档检查通过。前端沿用本批次构建、critical audit 与全量加失败项单独复验的有效证据，前端源码未改。executed_base 与 effective_base 均为 `9f900ff3ba355414cb442f9211c3a8e17e391428`，最后 fetch 无目标分支推进；之后仅报告与整 unit 归档，源码及独立审查结论 retained。

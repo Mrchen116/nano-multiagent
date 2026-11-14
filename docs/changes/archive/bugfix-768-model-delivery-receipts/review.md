@@ -18,3 +18,7 @@
 初始七文件 105 项通过（`/tmp/nano-768-green.log`），旧 Gateway accepted 红测和禁用模型响应 hook 的原生红测均失败于目标断言。三种 provider 回应（HTTP 错误、空块提前结束、非空部分回应）与队列、取消、持久 ACK、重启覆盖见 `packages/dsh-integration/tests/inbox-delivery.test.ts`；当前复验日志 `/tmp/nano-769-stop-green.log`。来源撤销、冻结消息映射与投影 ACK 回归见 personal-attention、inbox、global-work-recovery；六文件联合定向 48 项通过（`/tmp/nano-769-final-narrow.log`）。最后迁移两文件 32 项通过，后续完整回归还包括 aborted 终态保护。
 
 迁移脚本不在生产运行。隔离 SQLite 功能／幂等验证通过，正式部署顺序与备份、跨库失败恢复要求见 [deployment-prompt.md](deployment-prompt.md)。本轮测试进程与临时数据库由 fixture 回收。
+
+## 最终集成验证
+
+源码冻结 `2f420460fa54666a9b18dc651a223e24922089e2`：全仓 build、typecheck、iOS shared runtime 通过；后端全量 244 文件／1391 测试全部通过（`/tmp/nano-final-backend.log`）。Python 136 通过、28 e2e 排除，Ruff check/format 通过；文档检查通过。前端沿用本批次构建、critical audit 与全量加失败项单独复验的有效证据，前端源码未改。executed_base 与 effective_base 均为 `9f900ff3ba355414cb442f9211c3a8e17e391428`，最后 fetch 无目标分支推进；之后仅报告与整 unit 归档，源码及独立审查结论 retained。
