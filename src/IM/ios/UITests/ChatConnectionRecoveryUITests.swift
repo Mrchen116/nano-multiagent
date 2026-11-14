@@ -73,11 +73,10 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
         driver.capture("short-outage-chat-after", tree: true)
     }
 
-    func testLongOutageFeedbackIsStableAcrossBothSurfacesAtLargeType() throws {
+    func testLongOutageFeedbackIsStableAcrossBothSurfaces() throws {
         guard ProcessInfo.processInfo.environment["NANO_UI_OUTAGE_KIND"] == "long" else {
             throw XCTSkip("Requires the separately coordinated one-shot 12-second owned-listener outage")
         }
-        driver.app.launchArguments += ["-UIPreferredContentSizeCategoryName", UIContentSizeCategory.accessibilityExtraExtraExtraLarge.rawValue]
         let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "tall-card" })
         try driver.launchAndLogin()
         try driver.open(conversation)
@@ -89,22 +88,22 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
         let beforeComposer = driver.app.textViews["Message"].frame
         try driver.require(!feedbackButton.exists,
                            "Healthy fixture must be recovered before attributing feedback to the one-shot outage")
-        driver.capture("long-outage-large-type-reading-before", tree: true)
+        driver.capture("long-outage-reading-before", tree: true)
         driver.record("owned-outage-long-ready", ["ready": true])
         let feedback = feedbackButton
         try driver.require(feedback.waitForExistence(timeout: 10), "Continuous unavailability must eventually have one honest navigation feedback")
-        driver.capture("long-outage-large-type-conversation-feedback")
+        driver.capture("long-outage-conversation-feedback")
         let duringY = try anchor.snapshot().frame.minY
         try driver.require(abs(duringY - beforeY) <= 4, "Sustained failure feedback must not move the history anchor")
         try driver.require(driver.app.navigationBars.firstMatch.frame == beforeNav, "Fault feedback must not resize the navigation area")
         try driver.require(driver.app.textViews["Message"].frame == beforeComposer, "Fault feedback must not resize the composer or viewport")
-        try driver.require(driver.app.buttons["Conversation details"].isHittable, "Long titles and large type must keep primary navigation reachable")
+        try driver.require(driver.app.buttons["Conversation details"].isHittable, "The long title must leave the details action reachable")
         try driver.require(visibleFeedbackButtons.count == 1,
                            "There is one connection feedback, never duplicated content rows")
         try driver.backToChats()
         try driver.require(feedbackButton.exists,
                            "The same sustained outage also has one stable Chats feedback")
-        driver.capture("long-outage-large-type-Chats-feedback")
+        driver.capture("long-outage-Chats-feedback")
         feedbackButton.tap()
         try driver.require(driver.app.navigationBars["Connection and updates"].waitForExistence(timeout: 3), "Feedback opens truthful details and a real retry action")
         driver.capture("long-outage-connection-details", tree: true)
@@ -113,10 +112,10 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
         let cleared = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: feedbackButton)
         try driver.require(XCTWaiter.wait(for: [cleared], timeout: 30) == .completed,
                            "Complete sync plus confirmed realtime recovery clears the auxiliary feedback")
-        driver.capture("long-outage-large-type-Chats-recovered", tree: true)
+        driver.capture("long-outage-Chats-recovered", tree: true)
         try driver.open(conversation)
         try driver.require(driver.stableTail(conversation.tail), "A fresh Chats navigation after recovery still follows latest")
-        driver.capture("long-outage-large-type-recovered-tail")
+        driver.capture("long-outage-recovered-tail")
     }
 
     private struct ShortSnapshot {

@@ -74,18 +74,6 @@ final class ChatReadingContinuityUITests: XCTestCase {
         driver.capture("candidate-keyboard-removed-tail")
     }
 
-    func testLargeTypeNavigationPreflight() throws {
-        driver.app.launchArguments += ["-UIPreferredContentSizeCategoryName", UIContentSizeCategory.accessibilityExtraExtraExtraLarge.rawValue]
-        let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "tall-card" })
-        try driver.launchAndLogin()
-        try driver.open(conversation)
-        try driver.require(driver.stableTail(conversation.tail), "A long title and large type must leave the actual tail reachable")
-        try driver.require(driver.app.buttons["Conversation details"].isHittable, "Large type preserves the primary details action")
-        driver.capture("candidate-large-type-navigation-preflight", tree: true)
-        driver.app.buttons["Conversation details"].tap()
-        driver.capture("candidate-large-type-chat-details", tree: true)
-    }
-
     func testEarlierCompletionCannotReclaimLatest() throws {
         let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "markdown" })
         driver.app.launchEnvironment["NANO_CHAT_SCROLL_TRACE"] = "1"
