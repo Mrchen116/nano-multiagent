@@ -107,6 +107,7 @@
 - 独立审查发现 Earlier 回执和重试范围、权限检查失败提示、重新获得权限后的陈旧提示、旧任务停止新 socket、HTTP 修正与 WS 握手串行相阻，以及滚动容器消失后的旧减速状态。实现已修正这些路径，并按新 full sync 取消旧 HTTP 修正。降级存储的公开群访客验证权限期间隐藏旧窗口，验证成功后保留已加载的历史页与游标。最后定向 72 项通过，见 `takeover-history-unit.xcresult`。目标 develop `9f900ff3b` 已合入开发分支，iOS 及本 unit 内容未因基线同步变化。
 - 实际执行短断线，专用监听关闭 3041ms 后同 PID 恢复。Chats 观测与进入会话后的静默断言通过，随后新进会话的高卡片末尾相对重新打开前的参考位置变化超过 4pt，短断线旅程整体失败。需要把新进入时的卡片测高与同一会话内已稳定的阅读位置分开观察。没有以移除失败样本或延长实际断线窗口替代验收。
 - 最后一轮大字号长断线用例在故障注入前失败。高卡片对齐真尾后，三次向历史拖动得到没有可见消息文本的滚动视口，AX 树也没有实现任何消息行。原始 `takeover-sustained-long.xcresult` 与其中的 `long-outage-no-history-anchor` 截图及 AX 记录保留。12 秒故障尚未触发，不能判断长断效果。
+- 同一产品版本加诊断日志后再次走该路径。第二次向历史拖动期间，没有自动 Latest 或历史恢复请求，列表估算高度仍从 112219pt 跳到 1401769pt，已实现的消息行短时降为 0。原始 `takeover-large-type-scroll.log` 记录了估算高度、offset、阶段和行数，可定位到惰性布局滚动期间，暂未确认 SwiftUI 内部原因。这次最终出现可见历史行并实际触发长断线，监听暂停 12003ms 后恢复，界面显示了持续不可用反馈，但读取锚点变化超过 4pt，未走完 Chats 和恢复路径。证据见 `takeover-large-type-trace-long.xcresult`、`takeover-large-type-trace-long-host.json` 和 `fault-events.jsonl`。没有把注入前的空白、估算变化或断线后的锚点偏移归为同一个已证实的原因。
 - 辅助的 Game Performance 模板探针命令声明 15 秒、目标为该专用模拟器的全部进程；录制未正常完成，手动结束后只留下未完成的 trace，没有可用于比较的呈现时序或 deadline 数据。既有 XCTHitchMetric 同样没有有效系列，D5 仍待完成。保持 active unit，未归档或提交 PR。
 
 本段原始结果位于 `/private/tmp/nano-ios-763-runtime/evidence`。这些自动化结果不代表用户真机验收。
