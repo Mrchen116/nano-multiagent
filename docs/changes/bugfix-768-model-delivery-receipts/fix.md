@@ -19,3 +19,7 @@ GlobalAgent.receive 在 Inbox 持久化后立刻发 sent，Inbox.receive 同时�
 ## 本次审查安排
 
 独立代码与 Agent Context 审查合并检查。使用真实锁定 DSH 和受控 provider，读取实际出站请求及请求返回，验证本条提醒确实出现在模型消息里，配合产品 receipt 状态核对。覆盖忙时、取消／失败、重试、恢复、提醒批次冻结映射、成功 Inbox Read 与失败／部分读取。不能以 preview、turn/start 或仅进入 llm hook 代替真正模型接收证据。
+
+## 旧数据部署
+
+历史错误送达按[一次性部署提示词](deployment-prompt.md)在停机期间纠正；中心及节点一起升级。当前任务仅实现、隔离验证和提交 PR，不执行生产迁移或部署。
