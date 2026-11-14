@@ -4,4 +4,3 @@
 - P2 读取结果次序已关闭。旧请求失败不能覆盖同范围的新成功。回归 `testLateTimelineFailureDoesNotReplaceNewerSuccessfulRead`。
 - P2 降级存储访客临时读取失败已关闭。访问资格仍待核实的访客不从已加入列表的缺席推出撤权，保留历史与分页游标。回归 `testNetworkOnlyVisitorHistorySurvivesAnotherFailedAccessCheck`。
 - 独立复审批准上述修复，delta 与实现一致。原生体验和性能状态以 [实施证据](M1-continuity/progress.md) 为准。
-
