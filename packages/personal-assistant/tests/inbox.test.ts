@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,8 +41,8 @@ it('only consumes exact durable read fragments, across restart and a frozen page
     const message = input('one', 'a'.repeat(7000));
     message.metadata.agent_receipt = true;
     store.acceptRelay(message, true);
-    expect(store.pendingRelays().map(item => item.status)).toEqual(['sent']);
-    store.confirmRelay(message.relay_task_id, 'sent');
+    expect(store.pendingRelays().map(item => item.status)).toEqual(['accepted']);
+    store.confirmRelay(message.relay_task_id, 'accepted');
     const page = store.read('alice', 'main', 'call-1', { target: 'group-a', limit: 1 });
     expect(store.blocking('alice', 'group-a')).toBe(true);
     expect(store.commitRead('main', 'call-1', [{ type: 'text', text: 'truncated' }], false)).toBe(false);
@@ -237,6 +238,8 @@ it('rejects already orphaned durable reads atomically and lets valid unread mess
     const db = new DatabaseSync(path);
     db.prepare('DELETE FROM inbox WHERE message_id=?').run('removed');
     db.close();
+    const migrate = () => execFileSync('python3',['scripts/migrate_model_delivery_receipts.py','apply','--kind','inbox','--database',path,'--writers-stopped']);
+    migrate();
     store = new InboxStore(path);
     expect(store.commitRead('main', 'old-read', [{ type: 'text', text: JSON.stringify(page) }], false, 1)).toBe(false);
     expect(store.check('alice').sources).toMatchObject([{ unread: 1 }]);
@@ -307,4 +310,63 @@ it('counts actual mentions separately from attention without consuming unread me
     expect(store.check('alice', true).sources[0]).toMatchObject({ unread: 4, mentions: 2 });
     expect(store.read('alice', 'main', 'read', { target: 'group-a' }).messages).toHaveLength(4);
   } finally { store.close(); }
+});
+
+
+it('freezes notification membership and projects delivery once across restart and relay duplicates', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'nano-inbox-delivery-'));
+  const path = join(dir, 'inbox.sqlite3');
+  let store = new InboxStore(path);
+  try {
+    const first = input('first', 'first message');
+    store.acceptRelay(first, true);
+    store.confirmRelay(first.relay_task_id, 'accepted');
+    const summary = store.notification('alice', 'main', 'inbox-wake:alice:1', snapshot => JSON.stringify(snapshot));
+    store.acceptRelay(input('later', 'arrived while the request is in flight'), true);
+    store.confirmRelay('relay-later', 'accepted');
+    expect(store.notification('alice', 'main', 'inbox-wake:alice:1', () => 'must not recreate')).toBe(summary);
+    expect(JSON.parse(summary).sources[0].unread).toBe(1);
+    expect(store.pendingRelays()).toEqual([]);
+    store.close(); store = new InboxStore(path);
+    store.deliverNotifications('bob', 'main', ['inbox-wake:alice:1']);
+    expect(store.pendingRelays()).toEqual([]);
+    store.deliverNotifications('alice', 'main', ['inbox-wake:alice:1']);
+    expect(store.pendingRelays().map(row => [row.input.message.id, row.status])).toEqual([['first', 'sent']]);
+    store.confirmRelay(first.relay_task_id, 'sent');
+    store.deliverNotifications('alice', 'main', ['inbox-wake:alice:1']);
+    expect(store.pendingRelays()).toEqual([]);
+    store.acceptRelay({...first, relay_task_id:'duplicate'}, true);
+    store.settleRelay(first, 'accepted');
+    expect(store.pendingRelays().map(row => [row.input.message.id, row.status])).toEqual([['first', 'sent']]);
+    store.confirmRelay('duplicate', 'sent');
+    store.notification('alice', 'main', 'inbox-background:alice:2', snapshot => JSON.stringify(snapshot));
+    store.deliverNotifications('alice', 'main', ['inbox-background:alice:2']);
+    expect(store.pendingRelays().map(row => [row.input.message.id, row.status])).toEqual([['later', 'sent']]);
+  } finally { store.close(); rmSync(dir, {recursive:true}); }
+});
+
+it('does not treat a legacy node-admission sent receipt as model delivery', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'nano-inbox-legacy-receipt-'));
+  const path = join(dir, 'inbox.sqlite3');
+  let store = new InboxStore(path);
+  try {
+    const original = input('old', 'previously admitted but unread');
+    store.acceptRelay(original,true); store.close();
+    const db = new DatabaseSync(path);
+    db.exec("UPDATE relay_receipts SET status='sent',confirmed=1;");
+    db.close();
+    const migrate = () => execFileSync('python3',['scripts/migrate_model_delivery_receipts.py','apply','--kind','inbox','--database',path,'--writers-stopped']);
+    migrate();
+    store = new InboxStore(path);
+    expect(store.pendingRelays().map(row=>row.status)).toEqual(['accepted']);
+    expect(store.legacyReceiptWake('alice')).toBe(1);
+    store.confirmRelay('relay-old','accepted');
+    store.notification('alice','main','inbox-wake:alice:1:delivery-recovery',snapshot=>JSON.stringify(snapshot));
+    store.confirmLegacyReceiptWake('alice');
+    store.deliverNotifications('alice','main',['inbox-wake:alice:1:delivery-recovery']);
+    expect(store.pendingRelays().map(row=>row.status)).toEqual(['sent']);
+    store.close(); migrate(); store = new InboxStore(path);
+    expect(store.pendingRelays().map(row=>row.status)).toEqual(['sent']);
+    expect(store.legacyReceiptWake('alice')).toBeUndefined();
+  } finally {store.close();rmSync(dir,{recursive:true});}
 });

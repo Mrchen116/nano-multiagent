@@ -567,7 +567,7 @@ export class Gateway {
       const targetAgent = this.requireAgent(c, input.agent_id);
       s.access({ ...c, kind: "gateway" }, relay.conversation_id, targetAgent.agent_id);
       if (!['sent','accepted','completed','failed','read'].includes(p.delivery_status)) fail(400,'invalid_delivery_status');
-      if (input.metadata?.agent_receipt && relay.status !== 'cancelled' && p.delivery_status !== 'failed') {
+      if (input.metadata?.agent_receipt && relay.status !== 'cancelled' && ['sent','read'].includes(p.delivery_status)) {
         const stage = p.delivery_status === 'read' ? 2 : 1;
         if (db.prepare(`
           UPDATE message_receipts SET status=? WHERE message_id=? AND status<?
@@ -577,7 +577,7 @@ export class Gateway {
           s.event(relay.conversation_id,null,'message.receipts_changed',{});
       }
       if (p.delivery_status === 'read') return ack({relay_task_id:p.relay_task_id});
-      if (relay.status === 'completed' || relay.status === 'failed' || relay.receipt_status === p.delivery_status || (relay.receipt_status==='accepted' && p.delivery_status==='sent')) return ack({relay_task_id:p.relay_task_id});
+      if (relay.status === 'completed' || relay.status === 'failed' || relay.receipt_status === p.delivery_status || (relay.receipt_status==='sent' && p.delivery_status==='accepted')) return ack({relay_task_id:p.relay_task_id});
       if (relay.status === "cancelled") return ack({relay_task_id:p.relay_task_id});
       db.prepare(
         "UPDATE relay_tasks SET status=?,receipt_status=?,receipt_detail=?,updated_at=? WHERE relay_task_id=?",

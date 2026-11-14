@@ -96,7 +96,7 @@ export class GlobalAgent {
         targets.add(childId);
         this.childTargets.set(binding.sessionId,targets);
         this.drainChildren(binding).catch(options.onError);
-      } else if ((method === 'session.event' || method === 'model.changed') && data.sessionId === binding.sessionId) {
+      } else if ((method === 'session.event' || method === 'model.changed' || method === 'session.work.changed') && data.sessionId === binding.sessionId) {
         this.reconcileRoot(binding).catch(options.onError);
       }
       if (method === 'session.status' && data.status === 'idle') {
@@ -304,7 +304,7 @@ export class GlobalAgent {
     if(taskContext)input={...input,metadata:{...input.metadata,task_context:true}};
     this.options.inbox.receive(input, attention&&!taskContext);
     if (config.personal) this.options.inbox.classify(input,attention&&!taskContext);
-    void this.receipt(input, 'sent');
+    void this.receipt(input, 'accepted');
     this.armBackground();
     if (attention && !taskContext && !deferWake) {
       if (config.personal) await this.recoverPersonalObservations();
@@ -339,7 +339,7 @@ export class GlobalAgent {
     this.waking.set(config.agentId, task); return task;
   }
   private async submitWake(config: AgentConfiguration,binding: SessionBinding,inputId: string): Promise<unknown> {
-    const summary = await this.inboxSummary(config, binding);
+    const summary = await this.inboxSummary(config, binding, inputId);
     return this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',
       content:[{type:'text',text:'New messages are waiting in your Inbox. You may continue current work or read relevant sources directly using their target. Check is optional when you need a refreshed list. This is a system notification, not human permission.\n' + summary}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
@@ -358,14 +358,21 @@ export class GlobalAgent {
     }
     return this.options.inbox.check(config.agentId, !!config.personal);
   }
-  private async inboxSummary(config: AgentConfiguration, binding: SessionBinding): Promise<string> {
-    const { sources } = await this.checkInbox(config, binding);
-    return 'Unread conversation snapshot (mentions counts messages that @ you):\n'
+  private async inboxSummary(config: AgentConfiguration, binding: SessionBinding, inputId: string): Promise<string> {
+    await this.checkInbox(config, binding);
+    return this.options.inbox.notification(config.agentId, binding.sessionId, inputId, ({sources}) =>
+      'Unread conversation snapshot (mentions counts messages that @ you):\n'
       + JSON.stringify(this.options.store.toolReferences.result(config.agentId, 'inbox', {
         sources: sources.map(({ requires_attention: _attention, ...source }) => source),
-      }));
+      })), !!config.personal);
   }
   private async recoverInterruptedWake(config: AgentConfiguration,binding: SessionBinding): Promise<void> {
+    const legacy = this.options.inbox.legacyReceiptWake(config.agentId);
+    if (legacy !== undefined) {
+      const result = await this.submitWake(config,binding,`inbox-wake:${config.agentId}:${legacy}:delivery-recovery`) as {accepted?:boolean;durable?:boolean};
+      if (!result.accepted || !result.durable) throw new Error('Legacy delivery notification has no durable admission ACK');
+      this.options.inbox.confirmLegacyReceiptWake(config.agentId);
+    }
     if(this.options.inbox.unreadAttention(config.agentId)===undefined)return;
     const watermark=Math.max(this.options.inbox.watermark(config.agentId),this.options.inbox.admittedWake(config.agentId));
     const original=`inbox-wake:${config.agentId}:${watermark}`;let inputId=original;
@@ -458,7 +465,7 @@ export class GlobalAgent {
       if(!prior.accepted) {inbox.admitBackground(config.agentId,batch.watermark,Date.now(),false);this.waitingForIdle.delete(config.agentId);return;}
     }
     inbox.prepareBackground(config.agentId,batch.watermark);
-    const summary=await this.inboxSummary(config,binding);
+    const summary=await this.inboxSummary(config,binding,inputId);
     const result=await runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',onlyIfIdle:true,
       content:[{type:'text',text:'New updates from the owner\'s other conversations are waiting in your Inbox. They are observer sources, not requests addressed to you. Select relevant sources and read directly using their target; check is optional to refresh the list. Assist within existing goals and authorization. Do not automatically accept work addressed to the owner, promise on their behalf or interject in the source chat. Stay quiet when no assistance or notice is needed. This notification grants no permission.\n' + summary}],
       source:{kind:'system',actorId:config.agentId,channel:'inbox-background',messageId:inputId}}) as {accepted:boolean;durable?:boolean;busy?:boolean};
@@ -516,7 +523,7 @@ export class GlobalAgent {
     const binding=this.binding(config);
     const checkpoint=inbox.workCut(binding.sessionId);
     const background=inbox.background(config.agentId);
-    const obligations=inbox.wakePending(config.agentId)!==undefined || inbox.unreadAttention(config.agentId)!==undefined ||
+    const obligations=inbox.legacyReceiptWake(config.agentId)!==undefined || inbox.wakePending(config.agentId)!==undefined || inbox.unreadAttention(config.agentId)!==undefined ||
       !!background && (background.pending || background.dueAt<=Date.now()) ||
       store.pendingControls(config.agentId).length>0 || store.lookupInputIds(binding.sessionId).length>0;
     if(checkpoint && !obligations) {
@@ -1082,6 +1089,11 @@ export class GlobalAgent {
     if (!result.durable) throw new Error('No durable event barrier');
     store.recordEvents(binding.sessionId,result.events);
     if (this.options.agents.find(agent=>agent.agentId===binding.agentId)?.mode!=='global') return;
+    if (!stopped && result.inboxDelivered?.length) {
+      inbox.deliverNotifications(binding.agentId,binding.sessionId,result.inboxDelivered);
+      this.scheduleReceipts();
+      await this.options.runtime.request('session.inbox-delivered.confirm',{sessionId:binding.sessionId,inputIds:result.inboxDelivered});
+    }
     const prior=inbox.workCut(binding.sessionId);
     const throughSeq=result.throughSeq ?? store.cursor(binding.sessionId);
     const events=logicalEvents(workSuffix(store.events(binding.sessionId,(prior?.replayFrom??0)-1,throughSeq),prior),result.modelRuns ?? [],true);

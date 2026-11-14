@@ -28,6 +28,7 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY,data TEXT);
       CREATE TABLE IF NOT EXISTS reads(session_id TEXT,call_id TEXT,fragments TEXT,body TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
       CREATE TABLE IF NOT EXISTS wakes(agent_id TEXT PRIMARY KEY,watermark INTEGER);
+      CREATE TABLE IF NOT EXISTS inbox_notifications(session_id TEXT,input_id TEXT,agent_id TEXT,seqs TEXT,summary TEXT,delivered INTEGER DEFAULT 0,PRIMARY KEY(session_id,input_id));
       CREATE TABLE IF NOT EXISTS background_wakes(agent_id TEXT PRIMARY KEY,last_notified_at INTEGER,due_at INTEGER,notified_through_seq INTEGER DEFAULT 0,submitting_through_seq INTEGER);
       CREATE TABLE IF NOT EXISTS journal(seq INTEGER PRIMARY KEY,event_id TEXT UNIQUE,event TEXT);
       CREATE INDEX IF NOT EXISTS journal_root_agent ON journal(json_extract(event,'$.root_agent_id'));
@@ -117,7 +118,7 @@ export class InboxStore {
         this.db.prepare(`DELETE FROM ${table} WHERE seq IN (SELECT seq FROM inbox WHERE agent_id=?)`).run(agentId);
       }
       this.db.prepare("DELETE FROM snapshots WHERE json_extract(data,'$.agent')=?").run(agentId);
-      for (const table of ['inbox', 'targets', 'wakes', 'background_wakes', 'relay_receipts', 'relay_controls', 'publications']) {
+      for (const table of ['inbox', 'targets', 'wakes', 'background_wakes', 'inbox_notifications', 'relay_receipts', 'relay_controls', 'publications']) {
         this.db.prepare(`DELETE FROM ${table} WHERE agent_id=?`).run(agentId);
       }
       for (const sessionId of sessionIds) {
@@ -185,8 +186,10 @@ export class InboxStore {
         if (input.metadata.personal_delivery === 'observer') this.trackBackground(input.agent_id,Date.now());
       }
       this.reviews.initialize(input);
-      this.db.prepare('INSERT OR IGNORE INTO relay_receipts(id,agent_id,message_id,input,status) VALUES(?,?,?,?,?)')
-        .run(input.relay_task_id,input.agent_id,input.message.id,JSON.stringify(input),'sent');
+      this.db.prepare(`INSERT OR IGNORE INTO relay_receipts(id,agent_id,message_id,input,status,read_pending) VALUES(?,?,?,?,
+        coalesce((SELECT status FROM relay_receipts WHERE agent_id=? AND message_id=? LIMIT 1),'accepted'),
+        coalesce((SELECT min(read_pending,1) FROM relay_receipts WHERE agent_id=? AND message_id=? LIMIT 1),0))`)
+        .run(input.relay_task_id,input.agent_id,input.message.id,JSON.stringify(input),input.agent_id,input.message.id,input.agent_id,input.message.id);
       // An identical redelivery requests the last durable receipt again.
       this.db.prepare('UPDATE relay_receipts SET confirmed=0 WHERE id=?').run(input.relay_task_id);
       if (control) this.db.prepare('INSERT OR IGNORE INTO relay_controls(agent_id,message_id,input) VALUES(?,?,?)').run(input.agent_id,input.message.id,JSON.stringify(input));
@@ -221,6 +224,40 @@ export class InboxStore {
         AND (agent_id,message_id) IN (SELECT i.agent_id,i.message_id ${scope} JOIN inbox i ON i.seq=g.seq)
     `).run(...(calls ? [JSON.stringify(calls)] : []));
   }
+  /** Identify pre-upgrade unread messages requiring a new, attributable model notification. */
+  legacyReceiptWake(agentId: string): number | undefined {
+    const row = this.db.prepare('SELECT value FROM metadata WHERE key=?').get(`receipt-recovery:${agentId}`) as {value:string}|undefined;
+    return row ? Number(row.value) : undefined;
+  }
+  confirmLegacyReceiptWake(agentId: string): void {
+    this.db.prepare('DELETE FROM metadata WHERE key=?').run(`receipt-recovery:${agentId}`);
+  }
+  /** Freeze exactly the unread inputs represented by one native Inbox notification. */
+  notification(agentId: string, sessionId: string, inputId: string, render: (snapshot: ReturnType<InboxStore['check']>) => string, personal = false): string {
+    const prior = this.db.prepare('SELECT summary FROM inbox_notifications WHERE session_id=? AND input_id=?').get(sessionId,inputId) as {summary:string}|undefined;
+    if (prior) return prior.summary;
+    const seqs = this.entries(agentId).map(row => row.seq);
+    const summary = render(this.check(agentId, personal));
+    this.db.prepare('INSERT INTO inbox_notifications(session_id,input_id,agent_id,seqs,summary) VALUES(?,?,?,?,?)')
+      .run(sessionId,inputId,agentId,JSON.stringify(seqs),summary);
+    return summary;
+  }
+  /** Project durable model-response evidence onto the notification's frozen inputs. */
+  deliverNotifications(agentId: string, sessionId: string, inputIds: string[]): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const inputId of inputIds) {
+        const notice = this.db.prepare('SELECT seqs FROM inbox_notifications WHERE agent_id=? AND session_id=? AND input_id=? AND delivered=0')
+          .get(agentId,sessionId,inputId) as {seqs:string}|undefined;
+        if (!notice) continue;
+        this.db.prepare(`UPDATE relay_receipts SET status='sent',confirmed=0 WHERE agent_id=? AND status='accepted'
+          AND message_id IN (SELECT message_id FROM inbox WHERE agent_id=? AND seq IN (SELECT value FROM json_each(?)))`)
+          .run(agentId,agentId,notice.seqs);
+        this.db.prepare('UPDATE inbox_notifications SET delivered=1 WHERE session_id=? AND input_id=?').run(sessionId,inputId);
+      }
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
   /** Enqueue a native session's receipt without adding the message to the Global Inbox. */
   queueNativeReceipt(input: RelayInput, read: boolean): void {
     this.db.prepare('INSERT OR IGNORE INTO relay_receipts(id,agent_id,message_id,input,status,read_pending) VALUES(?,?,?,?,?,?)')
@@ -231,8 +268,8 @@ export class InboxStore {
   settleRelay(input: RelayInput, status: string): void {
     if (this.deletedAgent(input.agent_id)) return;
     this.db.prepare('INSERT OR IGNORE INTO relay_receipts(id,agent_id,message_id,input,status) VALUES(?,?,?,?,?)').run(input.relay_task_id,input.agent_id,input.message.id,JSON.stringify(input),status);
-    this.db.prepare("UPDATE relay_receipts SET status=?,confirmed=0 WHERE agent_id=? AND message_id=? AND status NOT IN ('completed','failed')")
-      .run(status,input.agent_id,input.message.id);
+    this.db.prepare("UPDATE relay_receipts SET status=?,confirmed=0 WHERE agent_id=? AND message_id=? AND status NOT IN ('completed','failed') AND (? != 'accepted' OR status='accepted')")
+      .run(status,input.agent_id,input.message.id,status);
   }
   /** Close a revoked obligation without recording a remote acceptance. */
   rejectRelay(id:string):void {this.db.prepare('UPDATE relay_receipts SET confirmed=-1 WHERE id=?').run(id);}
