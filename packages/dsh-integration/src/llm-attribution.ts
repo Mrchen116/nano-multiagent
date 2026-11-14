@@ -7,6 +7,7 @@ import { DecoratorHandler, getGlobalDispatcher, setGlobalDispatcher, type Dispat
 const connectionCodes = new Set([
   'EAI_AGAIN', 'ENOTFOUND', 'ECONNREFUSED', 'EHOSTDOWN', 'EHOSTUNREACH',
   'ENETDOWN', 'ENETUNREACH', 'EADDRNOTAVAIL', 'UND_ERR_CONNECT_TIMEOUT',
+  'ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'UND_ERR_SOCKET', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT',
 ]);
 
 /** Install model HTTP attribution and return a single-use connection failure check for the native turn. */
@@ -28,15 +29,12 @@ export function installLlmAttribution(ctx: Context, rootOf: (sessionId: string) 
     headers['X-Agent-Session-Id'] = current.sessionId;
     const attributed = { ...options, headers };
     if (current.connectionFailed === undefined) return dispatch(attributed, handler);
-    // pi-ai flattens establishment errors and broken response streams into TRANSPORT.
+    // Preserve actual socket failures; a complete HTTP response with malformed SSE stays a protocol error.
     current.connectionFailed = false;
     const observed = new DecoratorHandler(handler);
     return dispatch(attributed, Object.assign(observed, {
       onResponseError(controller: Dispatcher.DispatchController, error: NodeJS.ErrnoException) {
-        current.connectionFailed = connectionCodes.has(error.code ?? '') ||
-          (error.syscall === 'connect' && error.code === 'ETIMEDOUT') ||
-          (error.code === 'ECONNRESET' &&
-            error.message === 'Client network socket disconnected before secure TLS connection was established');
+        current.connectionFailed = connectionCodes.has(error.code ?? '');
         handler.onResponseError?.(controller, error);
       },
     }));

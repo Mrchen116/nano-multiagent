@@ -10,9 +10,9 @@ import { workDescendants } from './helpers/work-history.js';
 
 type ModelApi = 'anthropic-messages' | 'openai-completions' | 'openai-responses';
 
-function configureProvider(home: string, baseURL: string, api: ModelApi, observer?: string) {
+function configureProvider(home: string, baseURL: string, api: ModelApi, observer?: string, streamIdleTimeoutMs?: number) {
   return prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: {
-    api, baseURL, apiKeyEnv: 'NANO_TEST_KEY',
+    api, baseURL, apiKeyEnv: 'NANO_TEST_KEY', streamIdleTimeoutMs,
     models: [{ id: 'fixture', contextWindow: 100000 }],
     retryPolicy: { mode: 'normal', maxRetries: 1, backoff: { initialDelayMs: 5, maxDelayMs: 5, jitterRatio: 0 } },
   } } } }, ...(observer ? [{ insert: [{ id: 'connection-observer', name: observer }] }] : [])]);
@@ -42,7 +42,7 @@ function submit(client: RuntimeClient, inputId: string) {
   });
 }
 
-it('keeps live parent and nested turns on the same step while their model connection is down', async () => {
+it.each(['closed', 'stalled'] as const)('keeps parent and nested turns through %s connections and resumes original work', async fault => {
   const home = await mkdtemp(join(tmpdir(), 'nano-model-connection-'));
   let client: RuntimeClient | undefined;
   let logs = '';
@@ -62,6 +62,16 @@ it('keeps live parent and nested turns on the same step while their model connec
     if (delegate && session === 'root') rootDelegated = true;
     if (phase === 'delegate' && !delegate) {
       parked.add(session);
+      if (session !== 'root') {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.write(`event: message_start\ndata: ${JSON.stringify({ type: 'message_start', message: {
+          id: 'unfinished', type: 'message', role: 'assistant', model: 'fixture', content: [],
+          stop_reason: null, usage: { input_tokens: 20, output_tokens: 0 },
+        } })}\n\n`);
+        res.write(`event: content_block_start\ndata: ${JSON.stringify({ type: 'content_block_start', index: 0,
+          content_block: { type: 'tool_use', id: 'unfinished', name: 'subagent', input: {} },
+        })}\n\n`);
+      }
       return;
     }
     if (phase === 'proxy-offline' || phase === 'server-error') {
@@ -102,20 +112,32 @@ it('keeps live parent and nested turns on the same step while their model connec
   try {
     await listen(0);
     const port = (server.address() as { port: number }).port;
-    await configureProvider(home, `http://127.0.0.1:${port}/v1`, 'anthropic-messages');
+    await configureProvider(home, `http://127.0.0.1:${port}/v1`, 'anthropic-messages', undefined, 1500);
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
     await ensureRoot(client, home, ['subagent']);
     const pid = client.process.pid;
     await submit(client, 'Start nested work');
     await expect.poll(() => parked.size, { timeout: 7000 }).toBe(3);
     const sessions = [...parked];
-    await close();
+    if (fault === 'closed') await close();
+    else {
+      // Suspend only this isolated DSH process while all three model streams are pending.
+      client.process.kill('SIGSTOP');
+      await new Promise(resolve => setTimeout(resolve, 1800));
+      client.process.kill('SIGCONT');
+    }
 
     const retryEvents = (events: Awaited<ReturnType<typeof observeRoot>>['events']) => events.filter(event => event.type === 'llm/retry');
     await expect.poll(async () => {
       const all = await observeAll();
       return sessions.map(id => retryEvents(all.get(id) ?? []).map(event => event.data.mode));
-    }, { timeout: 3000 }).toEqual(sessions.map(() => ['normal', 'always']));
+    }, { timeout: 5000 }).toEqual(sessions.map(() => ['always']));
+    if (fault === 'stalled') {
+      await expect.poll(async () => {
+        const all = await observeAll();
+        return sessions.map(id => retryEvents(all.get(id) ?? []).map(event => event.data.failure.code));
+      }, { timeout: 9000 }).toEqual(sessions.map(() => ['TIMEOUT', 'TIMEOUT']));
+    }
     expect((await observeRoot(client!)).status).toBe('running');
     for (const events of (await observeAll()).values()) {
       expect(events.filter(event => event.type === 'turn/end')).toHaveLength(0);
@@ -123,23 +145,29 @@ it('keeps live parent and nested turns on the same step while their model connec
 
     // Air's local LLM proxy can answer while its upstream connection is still down.
     phase = 'proxy-offline';
-    await listen(port);
+    if (fault === 'closed') await listen(port);
+    const expectedRetries = fault === 'stalled' ? 3 : 2;
     await expect.poll(async () => {
       const all = await observeAll();
       return sessions.map(id => retryEvents(all.get(id) ?? []).map(event => event.data.mode));
-    }, { timeout: 8000 }).toEqual(sessions.map(() => ['normal', 'always', 'always']));
+    }, { timeout: 14000 }).toEqual(sessions.map(() => Array(expectedRetries).fill('always')));
     for (const events of (await observeAll()).values()) {
-      const [normal, connection, proxy] = retryEvents(events);
-      expect(connection?.data).toMatchObject({ turn: normal?.data.turn, step: normal?.data.step, retry: 1, delayMs: 5000 });
-      expect(proxy?.data).toMatchObject({ turn: normal?.data.turn, step: normal?.data.step, retry: 2, delayMs: 10000 });
+      const retries = retryEvents(events);
+      const first = retries[0]!.data;
+      for (const [index, retry] of retries.entries()) {
+        expect(retry.data).toMatchObject({ turn: first.turn, step: first.step, retry: index + 1, delayMs: 5000 * 2 ** index });
+      }
     }
 
     phase = 'recovered';
     await expect.poll(async () => {
       const all = await observeAll();
       return sessions.map(id => all.get(id)?.find(event => event.type === 'turn/end' && event.data.turn === 1)?.data.reason.kind);
-    }, { timeout: 13000 }).toEqual(sessions.map(() => 'completed'));
+    }, { timeout: 24000 }).toEqual(sessions.map(() => 'completed'));
     expect(client.process.pid).toBe(pid);
+    for (const events of (await observeAll()).values()) {
+      expect(events.filter(event => event.type === 'tool/call' && event.data.callId === 'unfinished')).toHaveLength(0);
+    }
     for (const id of ['root', child!]) {
       const result = recovered.get(id)?.flatMap(message => message.content)
         .filter(block => block.type === 'tool_result' && block.tool_use_id === `delegate-${id}`);
@@ -176,7 +204,7 @@ it('keeps live parent and nested turns on the same step while their model connec
     await close();
     await rm(home, { recursive: true, force: true });
   }
-}, 35000);
+}, 65000);
 
 it.each(['openai-completions', 'openai-responses'] as const)('waits for a typed upstream 502 on %s', async api => {
   const home = await mkdtemp(join(tmpdir(), 'nano-model-proxy-'));

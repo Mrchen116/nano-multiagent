@@ -23,11 +23,14 @@ function upstreamConnectionFailed(failure: LlmFailure): boolean {
   }
 }
 
-/** Keep connection waits within the live DSH step, with a separate retry budget. */
+/** Keep network recovery waits within the live DSH step, with a separate retry budget. */
 export function attachModelConnectionRetry(agent: Agent, takeConnectionFailure: (signal: AbortSignal) => boolean): void {
   let state: { signal: AbortSignal; step: number; retryId: RetryId; retry: number; delayMs: number } | undefined;
   agent.ctx.on('agent/request-error', async ({ turn, step, provider, signal, failure }, next) => {
-    if (!takeConnectionFailure(signal) && !upstreamConnectionFailed(failure)) return next();
+    const connectionFailed = takeConnectionFailure(signal);
+    // Sleep can leave a request silent until its watchdog expires without a socket error.
+    const timedOut = failure.code === 'TIMEOUT' && failure.status === undefined;
+    if (!connectionFailed && !timedOut && !upstreamConnectionFailed(failure)) return next();
     signal.throwIfAborted();
     if (state?.signal !== signal || state.step !== step) {
       state = { signal, step, retryId: RetryId(randomUUID()), retry: 0, delayMs: initialDelayMs };
