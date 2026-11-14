@@ -1,4 +1,14 @@
 import Foundation
+import os
+
+// Temporary observation of the ordinary App connection; never logs URLs, tickets or content.
+private func traceUserStream(_ stage: String, error: Error? = nil) {
+    #if DEBUG
+    guard ProcessInfo.processInfo.environment["NANO_CHAT_STREAM_TRACE"] == "1" else { return }
+    let failure = error as NSError?
+    Logger(subsystem: "com.nano.im.chat", category: "StreamTrace").notice("763_STREAM stage=\(stage, privacy: .public) domain=\(failure?.domain ?? "none", privacy: .public) code=\(failure?.code ?? 0)")
+    #endif
+}
 
 struct UserEvent: Decodable, Sendable {
     var op: String
@@ -23,17 +33,62 @@ private struct LiveUserStreamSocket: UserStreamSocket {
     func send(_ message: URLSessionWebSocketTask.Message) async throws { try await task.send(message) }
     func receive() async throws -> URLSessionWebSocketTask.Message { try await task.receive() }
     func confirmHandshake() async throws {
-        try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                task.sendPing { error in
-                    if let error { continuation.resume(throwing: error) }
-                    else { continuation.resume() }
-                }
-            }
-            try Task.checkCancellation()
-        } onCancel: { task.cancel(with: .goingAway, reason: nil) }
+        try await awaitWebSocketPong(sendPing: { completion in task.sendPing(pongReceiveHandler: completion) },
+                                     cancel: { task.cancel(with: .goingAway, reason: nil) })
     }
     func cancel() { task.cancel(with: .goingAway, reason: nil) }
+}
+
+/// Waits for pong without depending on Foundation invoking its callback after cancellation.
+func awaitWebSocketPong(
+    sendPing: @Sendable (@escaping @Sendable (Error?) -> Void) -> Void,
+    cancel: @Sendable () -> Void
+) async throws {
+    let waiter = PongWaiter()
+    try await withTaskCancellationHandler {
+        try await withCheckedThrowingContinuation { continuation in
+            waiter.install(continuation)
+            sendPing { error in
+                waiter.resolve(error.map { .failure($0) } ?? .success(()))
+            }
+        }
+        try Task.checkCancellation()
+    } onCancel: {
+        waiter.resolve(.failure(CancellationError()))
+        cancel()
+    }
+}
+
+/// Cancellation and pong can race, including cancellation before continuation installation.
+private final class PongWaiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Error>?
+    private var result: Result<Void, Error>?
+
+    func install(_ continuation: CheckedContinuation<Void, Error>) {
+        let completed: Result<Void, Error>? = lock.withLock {
+            if let result { return result }
+            self.continuation = continuation
+            return nil
+        }
+        if let completed { continuation.resume(with: completed) }
+    }
+
+    func resolve(_ result: Result<Void, Error>) {
+        let pending: CheckedContinuation<Void, Error>? = lock.withLock {
+            guard self.result == nil else { return nil }
+            self.result = result
+            let pending = continuation
+            continuation = nil
+            return pending
+        }
+        pending?.resume(with: result)
+    }
+}
+
+struct UserStreamHandshakeTiming: Sendable {
+    var timeout: Duration = .seconds(10)
+    var sleep: @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
 }
 
 /// One foreground connection. The owning feature controls resync and reconnection.
@@ -44,15 +99,27 @@ actor UserStream {
     private let makeSocket: (@Sendable (URLRequest) -> any UserStreamSocket)?
     private var generation = UUID()
     private var ping: Task<Void, Never>?
-    init(client: IMClient, makeSocket: (@Sendable (URLRequest) -> any UserStreamSocket)? = nil) {
-        self.client = client; self.makeSocket = makeSocket
+    private var reader: Task<Void, Never>?
+    private var readiness: Task<Void, Error>?
+    private let handshakeTiming: UserStreamHandshakeTiming
+    init(client: IMClient, makeSocket: (@Sendable (URLRequest) -> any UserStreamSocket)? = nil,
+         handshakeTiming: UserStreamHandshakeTiming = .init()) {
+        self.client = client; self.makeSocket = makeSocket; self.handshakeTiming = handshakeTiming
     }
 
     func connect(after cursor: Int) async throws -> AsyncThrowingStream<UserEvent, Error> {
         stop()
         let owner = generation
         struct Ticket: Decodable, Sendable { let ticket: String }
-        let ticket: Ticket = try await client.send("/im/v1/auth/ws-ticket", body: EmptyResponse())
+        let ticket: Ticket
+        do {
+            traceUserStream("ticket-start")
+            ticket = try await client.send("/im/v1/auth/ws-ticket", body: EmptyResponse())
+            traceUserStream("ticket-received")
+        } catch {
+            traceUserStream("ticket-failed", error: error)
+            throw error
+        }
         guard owner == generation else { throw CancellationError() }
         try Task.checkCancellation()
         var url = URLComponents(url: client.baseURL, resolvingAgainstBaseURL: false)!
@@ -62,18 +129,66 @@ actor UserStream {
         request.setValue(client.baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")), forHTTPHeaderField: "Origin")
         let connection = makeSocket?(request) ?? LiveUserStreamSocket(task: transport.webSocketTask(with: request))
         socket = connection; connection.resume()
+        let (events, continuation) = AsyncThrowingStream<UserEvent, Error>.makeStream()
+        var receiveTask: Task<Void, Never>?
         do {
             try await withTaskCancellationHandler {
+                traceUserStream("resume-start")
                 try await connection.send(.string("{\"op\":\"resume\",\"after_event_id\":\(cursor)}"))
-                // resume/send can queue work before the handshake. A protocol ping confirms
-                // transport usability even when there is no business event to receive.
-                try await connection.confirmHandshake()
+                traceUserStream("resume-sent")
                 try Task.checkCancellation()
                 guard owner == generation else { throw CancellationError() }
+                // Keep one receive pump active while confirming pong. Early events are buffered,
+                // but the caller cannot mark the transport online until confirmation succeeds.
+                let task = Task {
+                    traceUserStream("receive-start")
+                    do {
+                        while !Task.isCancelled {
+                            let message = try await connection.receive()
+                            let data: Data
+                            switch message {
+                            case .data(let value): data = value
+                            case .string(let value): data = Data(value.utf8)
+                            @unknown default: continue
+                            }
+                            continuation.yield(try JSONDecoder().decode(UserEvent.self, from: data))
+                        }
+                        continuation.finish()
+                    } catch {
+                        traceUserStream("receive-failed", error: error)
+                        continuation.finish(throwing: error)
+                    }
+                }
+                receiveTask = task; reader = task
+                continuation.onTermination = { _ in task.cancel(); connection.cancel() }
+                let timing = handshakeTiming
+                let confirmation = Task {
+                    try await withThrowingTaskGroup(of: Void.self) { group in
+                        defer { group.cancelAll() }
+                        group.addTask { try await connection.confirmHandshake(); try Task.checkCancellation() }
+                        group.addTask {
+                            try await timing.sleep(timing.timeout)
+                            try Task.checkCancellation()
+                            throw URLError(.timedOut)
+                        }
+                        _ = try await group.next()
+                    }
+                }
+                readiness = confirmation
+                try await withTaskCancellationHandler {
+                    try await confirmation.value
+                } onCancel: { confirmation.cancel(); connection.cancel() }
+                traceUserStream("handshake-confirmed")
+                try Task.checkCancellation()
+                guard owner == generation else { throw CancellationError() }
+                readiness = nil
             } onCancel: { connection.cancel() }
         } catch {
+            traceUserStream("connect-failed", error: error)
+            receiveTask?.cancel()
+            continuation.finish(throwing: error)
             connection.cancel()
-            if owner == generation { socket = nil }
+            if owner == generation { socket = nil; reader = nil; readiness = nil }
             throw error
         }
         ping = Task {
@@ -82,24 +197,13 @@ actor UserStream {
                 catch { return }
             }
         }
-        return AsyncThrowingStream { continuation in
-            let task = Task {
-                do {
-                    while !Task.isCancelled {
-                        let message = try await connection.receive()
-                        let data: Data
-                        switch message {
-                        case .data(let value): data = value
-                        case .string(let value): data = Data(value.utf8)
-                        @unknown default: continue
-                        }
-                        continuation.yield(try JSONDecoder().decode(UserEvent.self, from: data))
-                    }
-                    continuation.finish()
-                } catch { continuation.finish(throwing: error) }
-            }
-            continuation.onTermination = { _ in task.cancel(); connection.cancel() }
-        }
+        return events
     }
-    func stop() { generation = UUID(); ping?.cancel(); ping = nil; socket?.cancel(); socket = nil }
+    func stop() {
+        generation = UUID()
+        readiness?.cancel(); readiness = nil
+        reader?.cancel(); reader = nil
+        ping?.cancel(); ping = nil
+        socket?.cancel(); socket = nil
+    }
 }

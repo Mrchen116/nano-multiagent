@@ -54,7 +54,7 @@ struct ChatListView: View {
                 } else { ProgressView(L("正在加载聊天…", "Loading conversations…")) }
             }
             if let error = store.listError, store.listPhase == .loaded || store.listPhase == .empty {
-                ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await store.loadConversations() } }
+                ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await store.retryListError() } }
             }
             Group {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -124,7 +124,7 @@ struct ChatListView: View {
         }.buttonStyle(.plain).accessibilityAddTraits(category == value ? .isSelected : [])
     }
     private func patch(_ chat: Conversation, _ key: String, _ value: Bool) {
-        Task { do { let _: Conversation = try await store.client.send("/im/v1/conversations/\(chat.id.pathComponent)", method: "PATCH", body: [key: value]); await store.loadConversations() } catch { store.listError = error.localizedDescription } }
+        Task { await store.updateConversationPreference(chat.id, key: key, value: value) }
     }
 }
 

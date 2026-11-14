@@ -14,9 +14,32 @@ struct ChatScrollPolicy {
     private(set) var anchor: Anchor?
     private var gestureOrigin: CGFloat?
     private var gestureMoved = false
-    var pausesCorrection: Bool { phase != .idle }
+    private(set) var nativeTop = false
+    var pausesCorrection: Bool { phase != .idle || nativeTop }
+
+    mutating func beginNativeTop() {
+        revision += 1
+        intent = .history
+        anchor = nil
+        gestureOrigin = nil
+        gestureMoved = false
+        nativeTop = true
+    }
+    mutating func endNativeTop(atBottom: Bool) {
+        nativeTop = false
+        if atBottom { intent = .latest; anchor = nil }
+    }
+    mutating func cancelNativeTop() { nativeTop = false }
+
+    mutating func endScrollSurface() {
+        phase = .idle
+        gestureOrigin = nil
+        gestureMoved = false
+        nativeTop = false
+    }
 
     mutating func latest() {
+        nativeTop = false
         revision += 1
         intent = .latest
         anchor = nil
@@ -56,7 +79,7 @@ struct ChatScrollPolicy {
     }
 
     mutating func remember(_ anchor: Anchor?) {
-        guard intent == .history, phase == .idle else { return }
+        guard intent == .history, !pausesCorrection else { return }
         self.anchor = anchor
     }
 

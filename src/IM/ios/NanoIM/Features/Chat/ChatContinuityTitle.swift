@@ -6,6 +6,7 @@ private struct ChatContinuityTitle: ViewModifier {
     let title: String
     @Bindable var store: ChatStore
     let surface: ChatConnectionSurface
+    let loadEarlier: (() async -> Void)?
     @State private var showingDetails = false
     @ScaledMetric(relativeTo: .headline) private var titleHeight = 22.0
     @ScaledMetric(relativeTo: .caption2) private var auxiliaryHeight = 16.0
@@ -22,7 +23,7 @@ private struct ChatContinuityTitle: ViewModifier {
                             .accessibilityAddTraits(.isHeader)
                         Button {
                             showingDetails = true
-                            Task { await store.retryConnectionReads(surface) }
+                            Task { await store.retryConnectionReads(surface, loadEarlier: loadEarlier) }
                         } label: {
                             Text(presentation?.text ?? " ")
                                 .font(.caption2).foregroundStyle(.secondary)
@@ -54,7 +55,7 @@ private struct ChatContinuityTitle: ViewModifier {
                                 Text(failure.value.message).font(.callout).textSelection(.enabled)
                             }
                             if !relevantFailures.isEmpty {
-                                Button(L("重试更新", "Retry update")) { Task { await store.retryConnectionReads(surface) } }
+                                Button(L("重试更新", "Retry update")) { Task { await store.retryConnectionReads(surface, loadEarlier: loadEarlier) } }
                             }
                         }
                     }
@@ -74,7 +75,8 @@ private struct ChatContinuityTitle: ViewModifier {
 }
 
 extension View {
-    func chatContinuityTitle(_ title: String, store: ChatStore, surface: ChatConnectionSurface) -> some View {
-        modifier(ChatContinuityTitle(title: title, store: store, surface: surface))
+    func chatContinuityTitle(_ title: String, store: ChatStore, surface: ChatConnectionSurface,
+                             loadEarlier: (() async -> Void)? = nil) -> some View {
+        modifier(ChatContinuityTitle(title: title, store: store, surface: surface, loadEarlier: loadEarlier))
     }
 }

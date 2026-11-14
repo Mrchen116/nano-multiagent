@@ -109,6 +109,26 @@ extension ChatLocalFirstTests {
 
 
 extension ChatLocalFirstTests {
+    func testSurfaceRetryLoadsTheFailedEarlierPageAfterAHealthyLatestRead() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["a"], messages: 0)
+        store.connection = .online
+        let latest = TimelineItem(type: "message", message: try message(2, conversation: "a"))
+        let earlier = TimelineItem(type: "message", message: try message(1, conversation: "a"))
+        await stub.setMessages(try JSONEncoder().encode(MessagePage(items: [latest], next_before_message_id: latest.id)))
+        await store.loadChat("a")
+        await stub.setMessages(Data("{}".utf8), before: latest.id)
+        await store.loadChat("a", older: true)
+        await store.loadChat("a")
+        XCTAssertEqual(store.continuity.readFailures.count, 1)
+        await stub.setMessages(try JSONEncoder().encode(MessagePage(items: [earlier], next_before_message_id: nil)), before: latest.id)
+        await store.retryConnectionReads(.conversation("a"))
+        XCTAssertEqual(store.timelines["a"]?.map(\.id), [earlier.id, latest.id])
+        XCTAssertTrue(store.continuity.readFailures.isEmpty)
+        store.resetProjection()
+        try await store.repository?.close()
+    }
+
     func testSurfaceRetryRecoversAuthorityBeforeTheFailedTimeline() async throws {
         let (store, stub) = try await makeStore()
         await seed(store, conversations: ["a"], messages: 1)
@@ -195,6 +215,55 @@ extension ChatLocalFirstTests {
         await gate.releaseAll()
         await run.value
         await stream.stop()
+        fixture.resetProjection()
+        try await fixture.repository?.close()
+    }
+
+    func testSelectedReadAndSocketReadinessDoNotWaitForEachOther() async throws {
+        let (fixture, stub) = try await makeStore()
+        let chat = try conversation("a")
+        let row = TimelineItem(type: "message", message: try message(1, conversation: chat.id))
+        let page = try JSONEncoder().encode(MessagePage(items: [row], next_before_message_id: nil))
+        let sync = try JSONSerialization.data(withJSONObject: [
+            "items": [JSONSerialization.jsonObject(with: JSONEncoder().encode(chat))],
+            "max_event_id": 0
+        ])
+        await stub.setSync(sync)
+        for handshakeSucceeds in [true, false] {
+            let ping = ContinuityGate()
+            let retry = ContinuityGate()
+            let socket = ControlledUserSocket(handshake: {
+                try await ping.sleep(0)
+                if !handshakeSucceeds { throw URLError(.networkConnectionLost) }
+            })
+            let stream = UserStream(client: fixture.client, makeSocket: { _ in socket })
+            let store = ChatStore(client: fixture.client, user: fixture.user, stream: stream,
+                                  reconnectSleep: { try await retry.sleep($0) })
+            store.selectedID = chat.id
+            await stub.hold("/im/v1/conversations/a/messages", body: page)
+            let run = Task { await store.run() }
+            await stub.waitUntilHeld()
+            let ready = expectation(description: "socket handshake starts while selected read is held")
+            let observePing = Task { await ping.waitFor(0); ready.fulfill() }
+            await fulfillment(of: [ready], timeout: 3)
+            let changed = expectation(description: "transport status publishes the handshake result")
+            withObservationTracking { _ = store.connection } onChange: { changed.fulfill() }
+            await ping.release(0)
+            await fulfillment(of: [changed], timeout: 3)
+            XCTAssertEqual(store.connection == .online, handshakeSucceeds)
+            XCTAssertNil(store.timelines[chat.id])
+            let loaded = expectation(description: "selected chat renders after releasing its HTTP response")
+            withObservationTracking { _ = store.timelines } onChange: { loaded.fulfill() }
+            await stub.release()
+            await fulfillment(of: [loaded], timeout: 3)
+            XCTAssertEqual(store.timelines[chat.id]?.map(\.id), [row.id])
+            XCTAssertEqual(store.connection == .online, handshakeSucceeds)
+            run.cancel(); store.stop()
+            await retry.releaseAll()
+            await run.value
+            observePing.cancel()
+            await stream.stop()
+        }
         fixture.resetProjection()
         try await fixture.repository?.close()
     }

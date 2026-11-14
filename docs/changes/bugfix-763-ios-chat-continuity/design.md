@@ -42,7 +42,7 @@
 原始连接状态 → 稳定展示策略 ──────────→ 导航辅助反馈（不插内容行）
 用户手势 / 最新按钮 / 新会话 → 滚动意图与代次
                               ↓
-内容尺寸 / 视口 / 可见锚点 → 单一定位仲裁 → 原生 ScrollPosition
+内容尺寸 / 视口 / 可见锚点 → 单一定位仲裁 → Reader端点/ID + 局部原子UIKit历史偏移
 旧分页 / 清理恢复 ─────────────↑（必须代次仍有效）
 ```
 
@@ -72,11 +72,20 @@
 - 新建会话 View 默认 followLatest；显式初始 anchor 到 bottom，缓存未变化也定位。详情 push/pop 与前后台不创建新滚动意图；不能在每次 onAppear 无条件 reset。
 - tracking（可能只是触碰）先暂停自动定位；只有 interacting 且实际发生用户滚动才推进 revision、提交 readingHistory 并淘汰旧任务。tracking→idle 无位移要恢复原意图，不能点一下卡片就永远停止跟随；滚动结束若实际在底部恢复 followLatest，否则 readingHistory。程序定位/动态长高本身不算主动上翻。
 - 点击最新立即切到 followLatest，推进 revision，清除旧阅读恢复意图，发出不带长动画的到底请求。不等网络、不加载全部历史。
-- 底部按钮显隐由真实几何距离与意图决定；执行 scrollTo 不算完成。最新消息尾部在扣除 safe-area / composer / keyboard 的有效视口内才算到达，容差只作按钮显隐，不用掩盖大幅不到底。
+- 底部按钮显隐由真实几何距离与意图决定；执行 scrollTo 不算完成。最新消息尾部在扣除 safe-area / composer / keyboard 的有效视口内才算到达，容差只作按钮显隐，不用掩盖大幅不到底。实际 adapter 使用已完成这些系统布局的 ScrollView global frame，不再次扣 contentInsets。
+- 最新意图的语义目标与到达确认采用有序 timeline 的实际最后消息 ID/行底边，不以 LazyVStack 估算 extent 或透明尾标的可见性代替完成。末行可高于整个视口，只要求其底边在有效视口内；新最后 ID、未实现/消失的末行使旧完成失效，空会话没有 Latest 目标。底部执行端点与语义完成分离，见 R6；边界 marker 仍保留在对应 message 之前，不改变内容顺序。
+- 外围 16pt 间距由 ScrollView 的 `.contentMargins(..., for: .scrollContent)` 管理，而非包在 target layout 内部的普通 padding。此表达在本轮真实 AX 对照修正了共享消息 wrapper 的 L0/R32 为 L16/R16；不声称已证明 SwiftUI 私有坐标实现或系统 bug。
+- **R6 私有物理 adapter 修订（取代 R5）**：R5 的 L 原生第3手势仍挂起，M去掉全部position绑定、N再去掉target-layout也仍挂起，故不能继续把“绑定必要条件”当成已证因果。O只将bottom执行目标换为固定1pt footer（保留LazyVStack间距），同12手势完成；新case也验证 untouched真尾→6次历史→不抢位→明确Latest→真尾完成。footer同时改变末子树、约19pt尾部空白和惰性估算，不能据此声称精确系统根因。R6保留这条已区分的端点路径，但不把O缺少历史y的诊断版交付。无模型/业务行为增量，`no spec delta`。
+- **统一意图，两个私有物理动作**：完全移除 `.scrollPosition`、`ScrollPosition` 与 `.scrollTargetLayout`。当前timeline的Reader只作一次性ID realization；latest请求映射到私有固定1pt末端marker，history未实现目标仍以消息ID/top realization。底部marker不算完成，只有实际最后消息行底边进入有效视口才完成/隐藏Latest。coordinator仍独占意图、revision、gesture pause、完成判定和请求合并；View不另建定位策略，卡片/图片不新增完成协议。
+- **历史精确偏移采用局部公开UIKit几何**：透明UIViewRepresentable背景marker绑定当前消息行、LazyVStack整体content-root（不是惰性子项/footer）与外层ScrollView有效viewport。adapter每次只从live content-root marker向上找最近UIScrollView，row marker必须属于同一scroll ancestor、同一window且与viewport marker相容；远历史及详情返回不依赖footer是否仍实现。不搜UIApplication/windows，不使用私有类名、反射、第二滚动容器或定时轮询。每次历史修正于同一MainActor同步调用内读取row与viewport的window rect、该scroll的contentOffset/contentSize/bounds/adjustedContentInset，计算delta并用setContentOffset(animated:false)只改y、保留x、夹到真实可滚动区间。校验不成立或marker未实现就不写；不能换成缓存几何猜测。祖先拓扑并非SwiftUI公开保证，必须有专用sim真实历史改高/分页恢复与横向证据；不成立就阻止交付而非扩大搜索。
+- **避免跨代几何（关闭CODE-763-L1的设计反例）**：ID请求前保存上述原子live snapshot；请求后只有新的同generation live snapshot改变，或该snapshot已经对齐时，才允许历史精确修正。不再把独立onGeometryChange的row frame与ScrollGeometry offset拼接作y计算。注册/解除marker、viewport/内容/scroll几何变动可调度coalesced校正；校正仍检查active、revision、attach generation和非用户滚动，marker本身没有意图。无布局变化且已对齐立即完成，不加固定等待。
+- **原生scroll-to-top有明确来源，不按动画猜用户**：自有sim/PID89581的O clock trace已证明原生上移至-116.667仍全程SwiftUI idle/latest/rev0，并被本方请求拉回；故单靠SwiftUI phase不够。不用`isScrollAnimating`推断用户（它也含程序/键盘动画），R6在上述exact UIScrollView上安装仅当前View有效的透明公开delegate forwarder，观察`scrollViewShouldScrollToTop`/`scrollViewDidScrollToTop`/`scrollViewWillBeginDragging`。原delegate的should返回false则原样拒绝、不改变意图；允许的原生top请求是与Latest同级的显式输入，立即revision++/history、清旧恢复与pending，暂停自动纠偏；didTop结束暂停并按实际位置捕获阅读锚点，随后只有明确Latest或实际回到底部才恢复跟随。本方Reader和UIKit请求全部禁用动画，且不触发shouldTop；不靠同步调用栈或固定时间区分来源。原delegate允许后，同步以exactscroll的live offset/bounds/contentSize/adjustedInset判定noop：若当前y已在topLimit+1以内，或合法可滚动range≤1，则原样返回允许但不创建暂停/新revision，不依赖already-top时可有可无的didTop；只有确有向top位移空间才创建等待。
+- forwarder先调用原delegate相应方法并保留返回值；所有其他可选selector以公开NSObject转发/`responds(to:)`透传，不接管SwiftUI的scroll/zoom行为。原delegate弱引用，adapter只持有本方proxy；安装捕获当前原delegate，不自包/不包其他聊天；若root的scroll或delegate身份改变，只在本地marker生命周期重新校验绑定，新proxy指向新原delegate，旧generation回调忽略。detach仅在delegate仍是本方proxy时还原原delegate，不覆盖外方后续替换；root/viewport失效也解除。原生top被新drag、Latest、disappear、root/delegate换代打断时取消本方暂停，旧didTop不能抢新revision。无需全局事件hook、swizzle、永久poll或私有框架依赖。此项有意替代初稿的自定no-delegate约束；接口转发与生命周期是新增集成风险，单测不得冒充原生安全。
+- ID adapter与marker生命周期均限当前View/coordinator：onAppear action安装并重调度未完成请求，不在Reader content builder中滚动；detach取消旧任务并失效旧adapter，旧generation不能清除新安装。marker弱引用且dismantle按实例核对后移除，其他聊天不共享。未安装/未解析不得把请求记为完成；用户新手势清pending ID snapshot和旧revision。原生回归包含A连续阅读/远距Latest/Earlier抢位、实际历史改高偏移、C动态横向、B键盘/导航/前后台；clock tap必须无fallback完成真实top/保留history→明确Latest真尾，键盘/动态改高是不可误转history的负例；另以新drag/Latest/详情重挂验证top中断和proxy恢复。公开API存在不等于原生功能或性能已通过。
 
 ### D4. 尺寸变化统一参与定位，历史读取保持锚点
 
-- 使用 ScrollPosition、初始 bottom anchor 与滚动几何（content size、container、insets、offset）处理惰性布局。尺寸变化后若 followLatest 且非用户交互，再向 bottom 定位；回调驱动，不用固定延迟500ms。
+- 使用同 coordinator 的一次性Reader adapter、R6局部UIKit原子历史偏移adapter、初始 bottom anchor 与滚动几何（content size、container、insets、offset）处理惰性布局。尺寸变化后若 followLatest 且非用户交互，向固定末端执行请求并以实际最后消息底边确认；回调驱动，不用固定延迟500ms。
 - 对惰性远距跳转，允许布局稳定期间继续纠正到尾部；同一布局代次合并请求，避免重复无效 scrollTo 循环。任务取消与新 revision 使旧修正失效。
 - readingHistory 时保存最上方可见稳定消息与其相对视口偏移；分页/异步增高导致该锚点移位时按偏移差校正。用户拖动期间不反向纠偏，结束后重新选锚点；卡片内部增高不无条件拉底。
 - 分页捕获当前 revision 和锚点；await 后只有 revision 未变且仍读历史时可恢复。点最新/新手势淘汰旧恢复；清理后的 store anchor 同样不能覆盖更晚用户操作。锚点被权威删除时允许取仍存续的最近阅读目标，不复活旧内容。
@@ -118,7 +127,7 @@
 
 - 连接展示策略：`updateTransport(state, now)`与`readFailed(scope, failure, now)` / `readSucceeded(scope)`保留各连续故障起点；`presentation(surface, now, hasContent)`按当前页面相关scope返回静默或稳定辅助文案。原始健康不被读取scope回写；clock/timer可注入测试，只在最早未显示deadline调度一次，不每帧/每秒改内容。Store生命周期取消旧timer、防止退出后回填。
 - 原生连接反馈组件只消费展示结果与 retry action，错误详情按需展开；Charts/会话共享策略，不共享重复错误行。
-- 滚动策略输入为 initial / userInteraction / latest / geometry / visibleAnchor / pendingRestore；输出 latest 或 anchorCorrection，revision 包含定位所有权。SwiftUI adapter 独占 `ScrollPosition` 调用。
+- 滚动策略输入为 initial / userInteraction / latest / geometry / visibleAnchor / pendingRestore；输出 latest 或 anchorCorrection，revision 包含定位所有权。coordinator独占调度；Reader adapter隐藏端点/ID realization，局部UIKit adapter隐藏marker校验、live snapshot和保留x的history y修正。两者不是新业务所有者。
 - 清理阅读锚点沿用 repository 的 revision fence；用户切最新时同时使旧 pending/restore 无效，网络补页仍只按合法消息合并，不应为了位置取消必要权限校正。
 - 无模型可见信息、工具/Skill/Prompt 或 Context 生命周期变化；无需 Context 专项。
 

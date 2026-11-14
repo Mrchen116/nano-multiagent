@@ -163,6 +163,7 @@ enum ChatReadScope: Hashable, Sendable {
     case list
     case detail(String)
     case timeline(String)
+    case earlier(String)
     case access(String)
 
     func belongs(to surface: ChatConnectionSurface) -> Bool {
@@ -170,6 +171,7 @@ enum ChatReadScope: Hashable, Sendable {
         case (.list, .list): return true
         case (.detail(let id), .conversation(let target)),
              (.timeline(let id), .conversation(let target)),
+             (.earlier(let id), .conversation(let target)),
              (.access(let id), .conversation(let target)): return id == target
         default: return false
         }

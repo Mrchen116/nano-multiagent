@@ -304,3 +304,209 @@ Author完整核实R4与受审方案，接受设计层关闭，未把它记作校
 - `design.md:91` 是 runtime 事实精确化，不是换设备/系统的测量条件变更。本次已独立读取 `baseline-metrics-postflight-proof.json:3,42-45`：同一 UDID 的路径、runtime identifier `iOS-26-4`、实际 version `26.4.1` / build `23E254a`。这补足 R4 当时仅按父层交接记录的证据，不回写历史。
 - `design.md:94` 将“6次回尾”消歧为固定的6次向尾输入动作并保留逐次/终点真实 frame，明确动作次数不证明成功到尾；独立 Latest 仍须达到原真实尾标、稳定窗口及原时延，动态尺寸跟随终点不减免（`96-97`、D3/D4 与 M1 未改）。这是区分性能动作执行与功能成功断言，没有把停在284改判为尾部成功，也没有减免原 Latest/动态尾部目标。两版真实加载范围、相同输入、实际路径与终点仍须如实报告，现有非空 CPU/内存仅支持其实际走过的测量路径，不能替代连续旅程或流畅性通过。
 - R3 完整窗口/校准/时间绑定/失败即 inconclusive 及其他数值门槛保持；本核查未复核 calibration helper 的 SDK 调查或新几何诊断产物，不据没有时钟保证的 manifest timestamp+PTS 推导精度，也不据诊断一次未复现关闭 keyboard blank。未执行运行时操作或实现修改。
+
+## Round 5
+
+### Metadata
+
+- reviewer：原独立 delegated `change-design-reviewer`，session `07871190-134a-4121-bbb7-e2ac47b16be7`；未代写受审设计或实现。此前提供的是只读风险审查反馈，不是方案/代码创作，本轮保留非作者身份。
+- runtime：执行环境未提供显式 model / effort 参数，不声明固定模型；未调用产品模型。
+- review_mode：`delta`。
+- mode_reason：实质改变 D3/D4 的私有 SwiftUI 执行 adapter，由绑定 String ID 的单一 API 改为统一仲裁下的 Reader ID 请求与无 String ID 跟踪的 y 请求；不是仅关闭旧 finding，故新增 Round。变化有界于原生执行接线及其生命周期，未改需求、策略所有权、公共接口、数据/权限边界、delta 或 M1 退出门槛；展开审查该边界及其全部波及的滚动/恢复场景，其余明确 retained。
+- target：worktree `/private/tmp/nano-ios-chat-continuity`，branch `unit/bugfix-763-ios-chat-continuity`，HEAD `7c3b1929ad4e2eb29f3ad120d91319adfa9e9c9c` 加冻结的未提交 design；design SHA256 `fc8264f365bb19de2732079f2c45c5adce80e6119f42d0599b9ed9871da45423`，开头与结论冻结时两次一致。
+- 需求/契约绑定：incident SHA256 `d101a5856fe6ed9f0320feb99e46f2dee6c4d79ce01c3aa8ba90cd34523cdb4a`；unit delta `specs/im/ios-client.md` SHA256 `f8c9a5e99a929fe1ba238ab662a336f91e68bb9c76b9a75b64c12db486aad8d9`；canonical `docs/specs/im/ios-client.md` SHA256 `86250e5a24bc0e5065621315e143d4002ec4c476a5bb02f7ef1a5459c534858e`。
+- started_at：`2026-11-13T16:11:26+08:00`；completed_at：`2026-11-13T16:16:06+08:00`；duration：`00:04:40`（首个可复核时钟至结论冻结）。
+- abilities：`change-design-reviewer`、`codebase-design`、`frontend-experience-review`（设计模式）、`product-journey-review`（验证方案判断）。D5 未变，本轮不重开性能方法审查或执行测量；无模型 Context 变化。
+- 执行边界：只读文档、公开 API 资料、产品组装与已有运行产物，仅向本报告追加 Round 5；未改首文档/design/delta/源码/测试，未运行 build/test/trace/录屏/GUI/模拟器、服务操作、提交或 push。现场源码仍是 K 临时诊断，尚无新 adapter 实现，不作为实现批准对象。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。R5 私有执行 adapter 修订在设计层通过。**
+
+新执行通道的职责、安装/解除、请求丢失防护、旧 point 与 ID 请求的先后仲裁、几何完成与取消边界已足以指导实施；未发现会让下游实质走偏的未解决设计漏洞。这不是已证明新接线可解除卡死，也不是 A/C/B、远距 Latest、恢复、网络旅程或 D5 通过。K/J/H 的失败不能转写为确定的框架内部根因；I 无绑定的诊断绿也不能作为产品修复。
+
+### Coverage 与决定性证据
+
+#### 1. 需求、delta、版本与真实落点
+
+- 完整读取当前 `incident.md:1-89`、`design.md:1-180`、unit delta `specs/im/ios-client.md:1-79`、canonical `docs/specs/im/ios-client.md:1-250`、本报告 R1–R4 及 resolutions/retained-diff；读取 `M1-continuity/progress.md:1-80` 区分旧准备记录与当前已知失败。核对 git diff，首文档、delta 与 canonical 无本轮修改；未把进度叙述当独立运行结论。
+- D3 新三条 `design.md:78-80` 与 D4 首条 `84` 是本轮实质变化；`75-77` 的有效视口、实际末行与 contentMargins 补充也在本轮读取并纳入影响检查，不仅核对新增文字存在。它们仍兑现原尾部/横向/历史需求，不新增消费者可见选择。`no spec delta` 指本次 adapter 修订不再改变既有 unit delta，不表示整个 unit 没有 delta。
+- 重新沿实际入口核实 `NanoIMApp.swift:225-246,305-320`：RootTabs 的 NavigationStack 按聊天 ID 创建 ConversationView，详情导航与前后台不是 Chats 重进。`ConversationView.swift:14,38,46-147` 持有当前 View 的 coordinator，真实 ForEach 消息 ID、行 global frame、ScrollView global frame、scroll geometry/phase、Latest、分页/restore 与 appear/disappear 都接到该实例；不是只在测试中使用 adapter。
+- 读取 `ChatScrollCoordinator.swift:1-100,180-256` 和已读 `ChatScrollPolicy.swift:1-66`，核对现有 ID 发送点确有 latest、followLatest correction、restore 与未实现历史锚点四类；新统一出口必须覆盖全部，而不是仅替换最新按钮。`ChatStore.swift:1133-1149` 的阅读/pending/restore 清理权威仍由 Store 持有，不能因 View adapter 变更取消必要历史合并/权限校正。
+
+#### 2. 证据支持的是接线边界，不是内部根因
+
+直接读取以下本轮原始日志及各自 `artifacts/<name>/binding.json`，不只采纳主 Agent 的红绿摘要：
+
+| 诊断 | 已读取的实际结果 | 证明范围 |
+|---|---|---|
+| H `target-layout-h-earlier.log:63-138` | Earlier 路径第三次历史手势后 event loop 不返回，主线程忙导致 AX 超时，单 case failed；尚未点击 Earlier | 单独禁用 target layout 不足解除此现场卡死；该 case 不是新的 12 手势 case，不能混称完整同 case 对照 |
+| I `position-binding-i-twelve.log:63-273` | 同 A 的 6 历史＋6 向尾输入全部执行，两端有 AX/截图 attachment 记录，单 case 54.332s / 0 failure，整体 TEST EXECUTE SUCCEEDED | 移除绑定的诊断路径可完成本次 bounded 操作；未验证程序 Latest/锚点定位，也不是 D5 性能样本 |
+| G `position-control-g-twelve.log:63-140` | 相同 bounded case 第三次历史手势后等待 idle 与 AX 超时，294.283s / 1 failure，整体 TEST EXECUTE FAILED | 恢复绑定后同类阻塞仍存在，支持以绑定参与路径为下一接线边界 |
+| J `user-ownership-j-twelve.log:63-141` | 第三次历史手势后 idle 超时，最终 TEST EXECUTE FAILED；runner 超时重启后的“0 tests passed”不是原 case 成功 | 仅首个真实位移写 public user-positioned 语义不足以解决；不证明 viewID 或内部 solver 的确切状态 |
+| K `automatic-handoff-k-twelve.log:63-141` | 同类第三手势后阻塞，execution allowance 超时，整体 TEST EXECUTE FAILED；同样不能把重启后的空 suite 当绿 | 首个真实位移重建 automatic String position 仍不足；不再把此小补丁保留成产品方案 |
+
+- 五份 binding 明确是 diagnostic-only，并记录具体 App 文件与 Swift source hashes。I/G 的 coordinator hash 同为 `d1764d901f54922de30fb5201516bccdcec24cec75cddc861209dcaaaca4a2e5`、Conversation hash 不同；J/K 与 G 的 Conversation hash 相同，coordinator hash 不同；H 的主要 adapter 变化在 Conversation。正文 Markdown source hash 在这些 manifest 中一致。它们支持有来源的受控变体区分，不替代完整 installed/runtime/input receipt；本轮未重新安装核验、重新提取 xcresult 或独立读这些新 attachment 画面，不升级为全旅程/性能或精确内部归因。
+- 已读 `ChatReadingContinuityUITests.swift:89-117`：bounded case 明确是功能诊断，断言响应性并保留两端图/AX，不断言六次向尾必已到真尾。这与 D5 的动作/终点区分一致，不得以它取代远距 Latest 的真实 completion。
+
+#### 3. 两通道仍需一个所有权与执行序列
+
+- **职责有界**：policy/coordinator 继续拥有意图、revision、目标选择、有效视口、完成与重试；View 提供当前 Reader 的私有执行闭包，不在 onChange/按钮中另造定位策略。复用原生 Reader/ScrollPosition 公开能力，比改数据源、为卡片另造协议或引入 UIKit 私有查找/滚动桥更局部；无需泛化公共 driver 框架。
+- **生命周期闭合**（`design.md:79`）：action 内安装，attach 后重调度，未安装不记 correction 已发；detach 取消旧任务并使旧 adapter 失效，generation 防旧回调清新实例。详情返回保留原 policy/revision，安装不被当作新进入或无条件 latest；其他聊天不共享 coordinator。这同时覆盖 initial content/restore 先于 attach 的实际调用顺序风险。
+- **双通道仲裁闭合**（`78,80`）：ID 请求前清旧 programmatic point，目标仍为当前实际 ID；ID 之后必须等新目标行/scroll 几何，不允许旧 layout 的 offset 紧接着发 y 把 jump 拉回。这里“新”是当前请求之后的观察，不能以任意旧缓存 frame 或无关回调代替。请求不等于实现/完成；合法但未实现的同 ID 随后续几何/内容重新修正。真实拖动推进 revision，同时淘汰旧任务和等待阶段，不能只取消一个 Task 却留下旧 ID→y 阶段。
+- **无变化路径也闭合**：已对齐可按当前真实 frame 结束，不为等待一个不会发生的几何变化而卡住；未对齐则仍受 D4 合并/防重复无效请求规则约束。没有用固定延迟等待布局或把一次 proxy 调用当成功。
+- **公开 API 边界已核实**：[ScrollViewReader](https://developer.apple.com/documentation/swiftui/scrollviewreader) 明确禁止 content builder 执行期间调用 proxy，只允许其中创建的 actions 使用；[ScrollPosition.init(idType:)](https://developer.apple.com/documentation/swiftui/scrollposition/init(idtype:)) 的默认类型为 Never、类型用于匹配 target layout 以更新位置，不是“无内部成本”保证；[isPositionedByUser](https://developer.apple.com/documentation/swiftui/scrollposition/ispositionedbyuser) 是公开可写且明确清除非 nil edge/point，但没有取消所有 ID 求解的保证。当前设计没有越过这些契约作成功预断。
+
+#### 4. 坐标、用户意图与体验验证覆盖
+
+- y 纠偏保留“同一 global 坐标中的行与有效视口相对误差，加到当前 contentOffset”的原语义；不将屏幕绝对 Y 直接当 content offset，也不重复扣系统 insets/contentMargins。现有 D3/D4 已明确有效视口与误差，不需要为内部接线另改 consumer contract。[contentOffset](https://developer.apple.com/documentation/swiftui/scrollgeometry/contentoffset) 可以因 inset/rubber-banding 为负或越界；[scrollTo(y:)](https://developer.apple.com/documentation/swiftui/scrollposition/scrollto(y:)) 有 clamping，仍须依真实 geometry 判完成与避免无效循环。
+- Reader 的 [scrollTo(_:anchor:)](https://developer.apple.com/documentation/swiftui/scrollviewproxy/scrollto(_:anchor:)) 显式 anchor 是目标点与视口对应点对齐，nil 不是默认 top。D3/D4 保留实际最后消息的 bottom；高于视口的末行只要求底边到达，空会话无目标、新最后 ID 或行消失使旧 completion 无效。历史未实现锚点仍按相同消息 ID 实现后恢复相对偏移，不退回透明 sentinel 或估算 extent。
+- 没有新增产品入口、按钮、说明文字或视觉取舍，不需要为内部 adapter 制造新 HTML 原型。既定箭头、消息顺序、16pt 外围留边、导航稳定反馈和键盘可达性必须保持；本轮没有新画面，因此不宣称视觉协调或横向稳定已在新接线通过。
+- `design.md:80` 明确保留 A 连续阅读、远距 Latest、C 动态横向、B 键盘/阅读与取消恢复；结合 D3/D4、incident 与 M1，仍覆盖无位移触碰不取消跟随、主动上翻中止旧定位、详情/前后台阅读保留、Chats 重进、动态增高、分页/清理迟到、未实现同 ID 恢复。纯策略/命令 seam 单测能检查序列与 generation，不能替代 SwiftUI 真实减速、lazy realization、双通道提交和真实末行完成的原生回归。这里没有把“尚待实现验证”改判为设计缺陷，也没有预先将新方案记为功能通过。
+
+#### 5. Retained 范围与退出约束
+
+- `retained_from: Round 2`：D1/D2 的 raw transport / read scope / 业务错误所有权、导航静默/稳定 slot、epoch/stop/reset、权限/发送/媒体不变量，以及完整 unit delta 的 canonical target 与未改变 Scenario。保留理由是本轮只改 View 内定位执行，不改变这些输入/恢复 owner、服务端 API、schema 或授权事实。
+- `retained_from: Round 4 + retained-diff`：全部 D5 300×2 实际加载、冷暖、固定动作/样本、真实尾部与时延、CPU/内存门槛、原生 hitch 或有界 R3 校准分支、完整运动窗口/独立时间绑定和不足即 inconclusive。设计全文与 git diff 核实这些未改；不因当前功能卡死或新 adapter 实现成本豁免性能退出条件，也不要求先跑性能来批准接线设计。
+- M1 的工作与 reviewer 退出范围仍合适；无部署迁移或生产操作，不需 deployment-prompt。原生资源已有具体 runbook/fixture/独占 UDID，授权或工具实际拒绝仍由主 Agent 依当前边界处理；本轮没有获取或消费额外运行授权。
+
+### 历史问题闭环
+
+| ID | 既有状态 | 本轮核实 | 状态 |
+|---|---|---|---|
+| R1-W1 | Round 2 设计层关闭 | D5/M1 测量和 fail-closed 条件未被 R5 改弱；无必要证据仍不能退出 | **closed（设计层，retained）** |
+| R1-W2 | Round 2 设计层关闭 | D1/D2/raw-scope 所有权及恢复约束未变，与新定位执行通道正交 | **closed（设计层，retained）** |
+| R3-W1 | Round 4 设计层关闭 | 完整运动区间、合法排除、独立校准及时间绑定条件原样保持 | **closed（设计层，retained）** |
+
+未关闭任何尚待原生复验的实现/体验缺陷；此前静态子集无 finding 也不等于 K 或新 adapter 全树通过。
+
+### Issues
+
+无新增 CRITICAL / WARNING；未发现仍开放的设计 finding。
+
+### Recommendations
+
+无新增门禁或可选工具套餐。实施按受审边界核查 attach/detach generation、先 ID 后新几何再 y、取消与真实完成，复验受影响原生旅程；若实际必须改变这些已收口的所有权/恢复决定，应回到设计，不再以连续猜测补丁替代证据。
+
+### Author Confirmation
+
+Author 完整读取 Round 5 并核对当前冻结 design，接受 Approved / 0 CRITICAL / 0 WARNING。解除本轮文档冻结并沿同一 M1 实施受审的私有 adapter；H/I/G/J/K 仅为诊断证据，K 临时补丁不保留为产品方案。本确认不改变 design、incident、delta 或任何功能/性能退出要求，不把设计批准记作原生修复通过。
+
+## Round 6
+
+### Metadata
+
+- reviewer：原独立 reviewer `07871190-134a-4121-bbb7-e2ac47b16be7`，未参与设计/产品实现创作；只读审查反馈不作为作者身份。运行环境不支持显式 model/effort 参数，未声称固定模型，未调用产品模型。
+- review_mode：`delta`。mode_reason：R6 取代 R5 的私有物理执行与几何一致性边界，加入固定 footer endpoint 和公开 UIKit live tuple；需求、公共接口、M1、D1/D2/D5 未改。展开全部新生命周期/坐标/所有权影响，未受影响项 retained，不只核 CODE-763-L1 闭环。
+- target：`/private/tmp/nano-ios-chat-continuity`，branch `unit/bugfix-763-ios-chat-continuity`，HEAD `7c3b1929ad4e2eb29f3ad120d91319adfa9e9c9c` 加冻结 design；design SHA256 `8a1763e3706b81f1ef7674d5432a53d782cbc39dc5d6f9a0fe32bd45364702b1`，两次核对一致。源码当前仍为 O/L 诊断组合，不是尚未实施的 R6 候选。
+- started_at：`2026-11-13T20:13:07+08:00`；completed_at：`2026-11-13T20:16:37+08:00`；duration：`00:03:30`（首个时钟至结论冻结）。
+- abilities：change-design-reviewer、codebase-design、frontend-experience-review（设计模式）、product-journey-review（方案覆盖）。不重开未变 D5 的测量方法。
+- 执行边界：仅本报告追加；未改 design/incident/delta/产品/测试，未运行 build/test/模拟器/服务/GUI/录屏，未读取其他私人临时材料或扩大权限。仅静态读取本 unit 源码、文档及自有 runtime/evidence。
+
+### Verdict
+
+**Issues Found — 0 CRITICAL / 2 WARNING。R6 当前冻结设计未通过，不能以本轮作为实施批准。**
+
+局部公开 UIKit live tuple 是消除 CODE-763-L1 跨源快照的可行有界方向，保 x、clamp、同 ancestor/window 校验和单一 coordinator 也合理；但历史时 footer 的可用性与已确定的原生 scroll-to-top 所有权尚未闭合。作者已接受需修订，未把口头拟补充当作冻结设计已解决。
+
+### Coverage 与证据
+
+- 完整重读当前 `design.md:1-182`，重点 D3 `72-82`、D4、接口与 M1；对照前轮已完整读取的 incident、canonical 与 unit delta，本轮再次读取新增连续性 Requirement 并通过 git diff/hash 核实其未变：incident `d101a5856fe6ed9f0320feb99e46f2dee6c4d79ce01c3aa8ba90cd34523cdb4a`、delta `f8c9a5e99a929fe1ba238ab662a336f91e68bb9c76b9a75b64c12db486aad8d9`、canonical `86250e5a24bc0e5065621315e143d4002ec4c476a5bb02f7ef1a5459c534858e`。本次 no spec delta 正确，不是取消整个 unit 原有 delta。
+- 重读原 Round 5 与 Author Confirmation、M1 progress `65-95`、当前 `ConversationView.swift:1-235` 和 `ChatScrollCoordinator.swift:1-313`；实际产品仍由 RootTabs NavigationStack 创建每聊天 View，当前 Reader 包围实际 LazyVStack，footer 是其末尾 lazy item。不是仅检查设计引用行存在。现有独立 row/scroll 通知与 OR 闸门仍是待替换来源，不将其当 R6 live tuple 实现。
+- 核对本 unit 自有 L/M/N/O 日志：L 294.084s failed、M 296.185s failed、N 310.375s failed；O 原 12 手势 52.286s passed；O 新 explicit Latest case 46.590s passed，但 clock case 17.299s failed，整体 functional command failed。O 有意缺历史 y，因此这些日志不证明 R6 功能完整、真机或性能通过；本轮未重提取 xcresult/新画面。
+- 读取指定自有 `reader-o-clock-scroll-events.json`：tap 后 offset 实际经过上方至 `-116.667`，期间 phase 一直 idle、intent latest、revision 0；连续 `correct-final-message` / `request-message` 后在 `20:01:43.735318+0800` 出现 offset `94663.333`。因此不是只凭失败断言把一个 noop 认成抢位，现有所有权输入确实漏掉本次 native 动作；不据此推断 SwiftUI 内部挂起根因。作者新交接的 isScrollAnimating 方向尚未落冻结 design，也尚无 exact-scroll native flag trace。
+- 新设计把 footer 仅作执行端点、实际 last row 作完成，两者分离不违反原尾部契约；顶部 marker、动态增高和有效视口仍保留。原子同步 row/viewport/window tuple 与同一 scroll 的 offset/insets/bounds 可消除“新 offset＋旧 row”的构造反例；不必另建滚动容器、delegate 或通用 UIKit 框架。MainActor 同步不等于布局已稳定，但后续几何驱动、代次与真实 completion 已保留，不要求在 Gate 2 先完成原生验证。
+- frontend 设计模式：无新增产品入口/按钮/文案，不要求制作新 HTML 原型；footer 的约19pt尾部拓扑变化需原生实际检查，但不能只因 endpoint 不可见就阻断。当前没有 R6 画面，不宣称视觉/横向或键盘通过。
+- 验证安排保留 A连续阅读、远距Latest/Earlier竞争、实际历史改高/分页恢复、C横向、B键盘/详情/前后台、账号/权限边界。新增 live marker 必须实测 lazy 回收/重挂和错误祖先 fail-closed；clock 不能以 swipe fallback 代替。两个 finding 关闭后仍须原生验证，不因设计修订缩小退出目标。
+- `retained_from: Round 2` 的 D1/D2、网络/raw-scope/业务错误、权限/发送/媒体与 delta 归属不变；`retained_from: Round 4/5` 的 D5 全负载、样本、数值与校准/时间绑定/inconclusive 门槛不变。无生产迁移，不需要 deployment-prompt，不创建新 Gate。
+
+### 历史问题闭环
+
+- R1-W1、R1-W2、R3-W1：保持此前设计层 closed，理由为相关设计与退出规则未改，不表示运行测量完成。
+- CODE-763-L1：R6 atomic live tuple **设计方向可解决**，但当前 R6 尚未实施，本轮不关闭实现 finding。footer 生命周期缺口也会使 live tuple 根本不可取得，见 R6-W1。
+- CODE-763-2：本次指定 clock 事件支持原生系统滚动实际被 followLatest 修正抢回；不能仍把 native phase 漏洞仅留作独立观察而给执行方案批准，见 R6-W2。
+
+### Issues
+
+#### R6-W1 — 历史精确偏移依赖可被 lazy 回收的 footer marker
+
+- severity：WARNING；位置：`design.md:80-82`。
+- 证据：当前文字仅允许从 footer UIView 向上找最近 UIScrollView；footer 位于 LazyVStack 末端，远历史或详情返回后的历史重挂不能保证该 UIView 已实现。设计同时要求 marker 不可用时不写且不能搜索别处，没有描述可用的解析/恢复路径。
+- 后果：恰在历史改高、分页和重入需要精确 y 时可能永远无法取得 adapter，合法稳定历史锚点无法纠偏；不能以 fail-closed 安全性代替必须兑现的历史恢复。
+- Author clarification：作者确认意图并非每次依赖 footer 存活，但冻结文字未表达，接受需修订；拟将识别 marker 放在非 lazy item 的 content-root background，footer 只保留 Reader endpoint，每次 snapshot 从 live root 找最近 scroll 并校验 row/window/viewport。该方向有界；须落入修订并复审，不能据口头意图关闭。
+
+#### R6-W2 — 原生动画滚动没有进入定位所有权，clock 已可被抢回
+
+- severity：WARNING；位置：`design.md:73,81-82`，尤其“clock tap 独立追踪”的未收口表述。
+- 证据：本次 clock 的实际 offset 序列和修正写入均维持 idle/latest/rev0，已发生真实 native 移动却未淘汰旧跟随；当前设计只明确 SwiftUI gesture pause/revision，新增 UIKit 只描述历史 y，不提供此路径的所有权输入/结束。
+- 后果：即使恢复 y 和 footer 路径稳定，用户系统滚到顶部仍可被自动拉回，与主动读历史不被抢位的目标冲突。
+- 必需修订：在同一局部 adapter 定义 native 动画观察何时推进 revision、暂停全部定位、如何观察结束/取消并捕获真实锚点，以及与本 adapter/Reader 程序请求的区分；不能把任意 SwiftUI `.animating` 或所有 `isScrollAnimating` 直接当用户意图。保留键盘/卡片/显式Latest的负例，避免修 clock 却破坏跟随。公开 flag 可作候选输入但存在不证明归因，exact ancestor 与实测仍须验证。作者同意本轮结束后与 R6-W1 一起修订；尚未写入冻结版本。
+
+### Recommendations
+
+无新增工具套餐或风格要求。先在原 design 收口上述两个具体边界，再按修订影响复审；不继续用诊断绿跳过历史 y 或原生所有权要求。
+
+## Round 7
+
+### Metadata
+
+- reviewer：原独立 reviewer `07871190-134a-4121-bbb7-e2ac47b16be7`；未代写受审设计或产品实现，反馈为只读审查。环境不提供显式 model/effort 参数，不声明固定模型；未调用产品模型。
+- review_mode：`delta`。mode_reason：除定向核实 R6-W1/W2 外，加入局部 UIScrollViewDelegate forwarder，实质改变原先自定的 no-delegate 技术约束，须展开其生命周期、输入归因、转发与取消影响，不能仅作两项文字 closure。产品选择、数据/公共接口、delta、M1 与 D1/D2/D5 未变。
+- target：worktree `/private/tmp/nano-ios-chat-continuity`，branch `unit/bugfix-763-ios-chat-continuity`，HEAD `7c3b1929ad4e2eb29f3ad120d91319adfa9e9c9c` 加冻结 design。初始 SHA256 `de48824caaaebbbedb3ba8332c32df4520117c0e351a399fad0dbdc1929bf5cb`；本轮提出 already-top/noop 等待边界后，作者经明确解除窄冻结自行补充 `design.md:82` 最后一句，最终受审 SHA256 **`ee5a0ea8e3c4f9ac17ab3aafd8b0d2a18e296449df3b395a41e64cc7d7cfabf2`**。结论只绑定最终版本；未回写 Round 6。
+- started_at：`2026-11-13T20:22:49+08:00`；completed_at：`2026-11-13T21:19:14+08:00`；duration：`00:56:25`（墙钟，包含等待作者窄修订与重新冻结；不是纯审查工时）。
+- abilities：change-design-reviewer、codebase-design、frontend-experience-review（设计模式）、product-journey-review（验证覆盖判断）；未重新执行未变 D5 的性能方法评审或测量。
+- 执行边界：只读本 unit 文档、真实产品接线、已有审查证据与 Apple 公开 API 文档，只向本报告追加本轮；未改 design/incident/delta/源码/测试，未运行 build/test/模拟器/服务/GUI/trace/录屏，未创建后台任务、提交或 push。当前产品仍是 O/L 临时诊断接线，不是新 adapter 实现批准对象。
+
+### Verdict
+
+**Approved — 0 CRITICAL / 0 WARNING。最终冻结设计在设计层通过。**
+
+R6-W1 的 lazy footer 依赖与 R6-W2 的原生 top 输入归属均已在设计层闭合；新增 forwarder 的责任、转发、返回值、生命周期、取消与 noop 边界足以指导实施。这里批准的是局部执行方案，不是 SwiftUI 祖先拓扑保证、delegate 集成安全、卡死根因、真实功能/体验或性能通过。
+
+### Coverage 与决定性证据
+
+#### 1. 当前事实、落点与变更范围
+
+- 完整读取初始冻结 `design.md:1-184`、incident `1-89`，读取 unit delta `40-79`、M1 progress `65-95` 与本报告 Round 5/6；作者补 noop 后重新读取完整 D3/D4 边界 `68-94` 并核对最终 hash。通过 git diff/hash 核实 incident、unit delta 与 canonical 未改：分别为 `d101a5856fe6ed9f0320feb99e46f2dee6c4d79ce01c3aa8ba90cd34523cdb4a`、`f8c9a5e99a929fe1ba238ab662a336f91e68bb9c76b9a75b64c12db486aad8d9`、`86250e5a24bc0e5065621315e143d4002ec4c476a5bb02f7ef1a5459c534858e`。本次 `no spec delta` 合理：只改原 unit 已定义的原生连续性实现边界，不取消既有 delta 或改写 current canonical。
+- 沿真实组装入口重新读取 `App/NanoIMApp.swift:225-246,305-320`、`ConversationView.swift:1-240`、`ChatScrollCoordinator.swift:1-313`、`ChatScrollPolicy.swift:1-66`。每聊天 NavigationStack/View 持有自己的 coordinator；Reader 包围实际 timeline，真实消息行、viewport、geometry/phase、Latest、分页/restore 与 appear/disappear 接到该实例。当前 footer 的确仍在 LazyVStack 尾部，现有独立 row/offset 与 OR 闸门也仍待替换，不能把设计中的 persistent marker、atomic tuple 或 forwarder 当成已实现。
+- 现有源码读取绑定：Conversation SHA256 `24e7e3b2cbf1a7bbb836474a57c05c82d69a40b1bd219c995fd56ad5b5f1c727`，coordinator `73694db3c24f8fadacd0d5a6ea31cfc623d08a0e20fbbe7433c1567ad112750d`，policy `6b3182144af8195bb4d0a9dd540354b93a460af1341be5618a1c5003f99c8b03`。它们仅用于识别本轮看到的组装与待替换边界，不作产品通过绑定。
+
+#### 2. 历史 marker 与原子几何路径
+
+- `design.md:80-81` 将解析根改为 LazyVStack 整体 background 的 live content-root，不再从可回收的末尾 lazy footer 找 scroll；footer 仅是 Reader 执行端点。当前 row 必须属于同一最近 UIScrollView、同一 window，并与有效 viewport 相容。远历史或详情返回不需 footer 仍在场，关闭 R6-W1 的具体缺口。
+- 历史 y 在同一 MainActor 同步调用中读取当前 row/viewport 的 window rect 与该 scroll 的 offset/contentSize/bounds/adjustedInset；保 x、真实范围 clamp、校验失败不写。不再将两条独立 SwiftUI 回调拼成 tuple。ID 前后快照与当前 attach generation、revision、active/gesture pause 一起仲裁，未安装/未解析不记完成，同 ID 未实现时等待 realization/新快照，已对齐不等不存在的布局变化。
+- 这些决定给出了可替换旧 OR 闸门的真实 seam，不需要新增公共 driver 框架、业务 owner、第二容器或卡片完成协议。UIKit 祖先拓扑仍是需原生验证的集成假设；设计已要求真实历史改高/分页恢复与横向证据，不成立阻止交付且不扩大为 window 搜索/私有类名/轮询。尚待验证不等于已证明设计缺陷，也不等于可提前关闭 CODE-763-L1 实现 finding。
+
+#### 3. 原生 top 的来源、转发与结束/取消
+
+- `design.md:82-84` 以 exact UIScrollView 的 `scrollViewShouldScrollToTop` 作为明确输入源，而非从 `.animating`、`isScrollAnimating`、offset 或同步调用栈猜用户。先保留原 delegate 决策；拒绝则不改 intent/revision，允许且确需移动才使旧恢复/pending 失效、revision++、进入 history 并暂停本方自动定位。Reader/UIKit 自有请求禁动画且不借 shouldTop 作为完成信号，键盘/动态改高不因此被当作上翻。
+- [Apple shouldTop 文档](https://developer.apple.com/documentation/uikit/uiscrollviewdelegate/scrollviewshouldscrolltotop(_:))明确该方法批准/拒绝 status-bar scroll-to-top，原 delegate 未实现时默认允许；不能让“未实现”无意变成拒绝。[didTop 文档](https://developer.apple.com/documentation/uikit/uiscrollviewdelegate/scrollviewdidscrolltotop(_:))说明完成后回调，already-top 时可能立即调用；[scrollsToTop 文档](https://developer.apple.com/documentation/uikit/uiscrollview/scrollstotop)另说明 already-top 时没有动作，并说明 iPhone 多个启用的 scrollview 可使手势无效。因此本轮不从 API 名称推导所有 noop 都一定有 didTop。
+- 本轮指出该边界后，作者在最终 `82` 自行补齐：原 delegate 允许后先读同 exact-scroll live tuple，已在 `topLimit+1` 内或合法 range≤1 时原样返回允许但不创建 pause/新 revision，不等待可有可无的 didTop。该句已实际重读并绑定最终 hash，不是以口头意图关闭。真正从低处向 top 的路径才进入等待；正常 didTop 结束 pause 并捕获实际阅读锚点。
+- 新 drag、Latest、disappear、root/delegate 换代都会取消本方 top pause；旧 generation/旧完成不能再夺新 revision。未将原生 top 完成当成自动恢复 latest；只有明确 Latest 或实际回到底部才跟随。这与用户最新明确意图及详情/前后台不重置阅读的目标一致。
+- forwarder 的职责限观察三项输入和透传：原 delegate 弱引用，adapter 持有本方 proxy，不自包或包另一聊天；其他可选 selector 的 `responds(to:)`/NSObject 转发保持原对象行为和返回值，不能吞掉 SwiftUI 的 scroll/zoom 方法。公开 [forwardingTarget(for:)](https://developer.apple.com/documentation/objectivec/nsobject-swift.class/forwardingtarget(for:))是未识别消息的重定向，不是任意已实现方法的自动透传；三个本方实现的方法仍需显式先调用原 delegate。[UIScrollView.delegate](https://developer.apple.com/documentation/uikit/uiscrollview/delegate) 本身为 weak，当前设计明确 proxy 的本方 owner，且不为掩盖生命周期而强持有外方 delegate。
+- 本地 marker 生命周期重新校验实际 scroll/delegate 身份；replacement 时重绑新原 delegate，旧 generation 忽略，detach 仅在 scroll.delegate 仍为本方 proxy 时还原，不覆盖外方后续替换。root/viewport 失效也解除。这是局部系统集成，不扩大为全局 hook/swizzle/私有框架或永久 poll。改变的是作者原自定 no-delegate 技术限制，不是替用户选择新产品体验；原生 replacement/rebind 与 optional-selector 透传安全仍须实证，不能凭公开 API 或 mock 绿声称已经安全。
+
+#### 4. 体验、旅程与 retained 边界
+
+- 设计层没有新增可见入口、按钮/文案或信息层级取舍；仍恢复安静连续阅读，故不为内部 adapter 制造 HTML 原型。footer 尾部约19pt拓扑/空白、16pt左右留边、导航/composer/键盘与真实末行完成仍需受审原生画面。本轮未读取新实现画面，不宣称视觉或横向稳定通过。
+- 验证范围仍包含 A 连续历史/远距Latest/Earlier竞争、实际历史改高与分页恢复、C 动态横向、B 键盘/详情/前后台。新增 source 必须在原生 clock **无 swipe fallback** 下完成真实 top、保留 history，再经明确 Latest 到真尾；同时覆盖新 drag/Latest/详情重挂中断及 proxy 恢复，键盘/动态改高是不应误转 history 的负例。策略/转发单测不能代替真实 UIKit/SwiftUI delegate、lazy realization 与实际几何结果。
+- `retained_from: Round 6`：L/M/N/O 的受控诊断与 clock 抢回事件只沿用此前已独立读取的证明范围，本轮未重新提取 xcresult/运行日志或新增 runtime evidence。O 诊断绿没有历史 y，不是新方案功能完整；O clock 失败不是 noop 的事实已由上一轮 offset/修正 trace 支持，但不证明挂起内部根因。
+- `retained_from: Round 2`：D1/D2 的传输/read-scope/业务错误所有权、静默/稳定 slot、epoch/stop/reset、权限/发送/媒体边界及 canonical delta 归属未改。
+- `retained_from: Round 4/5/6`：D5 300×2 真实加载、冷暖、固定动作与失败样本保留、真实尾部/Latest时延、CPU/内存、原生 hitch 或 R3 独立校准/完整窗口/时间绑定与不足即 inconclusive 全部未减免。M1 退出条件不因 delegate 集成成本或诊断结果降级。无 schema/服务端迁移、无生产动作，不需 deployment-prompt，也不增加新 Gate。
+
+### 历史问题闭环
+
+| ID | Author Resolution / 本轮证据 | 状态 |
+|---|---|---|
+| R6-W1 | `80-81` persistent content-root 解析 exact scroll，row/window/viewport 校验；footer 仅执行端点，历史回收/重挂不依赖其存在 | **closed（设计层）** |
+| R6-W2 | `82-84` 明确 shouldTop 来源、原返回值、真实位移/noop、history/revision/pause、didTop、取消及旧 generation 防护；原生 clock 与负例验证保留 | **closed（设计层）** |
+| R1-W1 / R1-W2 / R3-W1 | 相关 D1/D2/D5 与完整校准/退出条件不变，按此前证据 retained | **closed（设计层，retained）** |
+| CODE-763-L1 / CODE-763-2 | atomic live tuple 和 native-top source 设计覆盖原反例，但新产品尚未实施/原生验证 | **不在本轮关闭实现或体验缺陷** |
+
+### Issues
+
+无仍开放的设计 CRITICAL / WARNING。本轮 already-top/noop 缺口在最终冻结前由作者窄修订实际解决；不另造已失效 finding 或额外 Round。
+
+### Recommendations
+
+无新增工具套餐或可选门禁。按既有原生影响范围核实 marker 拓扑、proxy 转发/重绑、top 完成与中断、历史原子偏移及真实末行结果；这些是受审方案的验证义务，不是本报告预先认定已通过的实现。

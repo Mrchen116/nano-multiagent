@@ -86,7 +86,8 @@ extension ChatLocalFirstTests {
         var obsolete = try message(2, conversation: "a")
         obsolete.thinking = [ChatThinking(seq: 1, text: "must not return")]
         let body = try JSONEncoder().encode(MessagePage(items: [TimelineItem(type: "message", message: obsolete)]))
-        await stub.hold("/im/v1/conversations/a/messages", body: body)
+        if older { store.before["a"] = "m1" }
+        await stub.hold("/im/v1/conversations/a/messages", body: body, before: older ? "m1" : nil)
         let task = Task { await store.loadChat("a", older: older) }
         await stub.waitUntilHeld()
         let event = try JSONDecoder().decode(UserEvent.self, from: Data(#"{"op":"event","event_type":"conversation.execution_cleanup","event_id":5,"data":{"conversation_id":"a","execution_cleanup_revision":2}}"#.utf8))
