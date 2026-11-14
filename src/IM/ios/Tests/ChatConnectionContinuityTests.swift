@@ -268,6 +268,41 @@ extension ChatLocalFirstTests {
         try await fixture.repository?.close()
     }
 
+    func testNetworkOnlyVisitorDetailCanWaitWithoutBlockingTheSocket() async throws {
+        let (fixture, stub) = try await makeStore()
+        let chat = try conversation("visitor")
+        let ping = ContinuityGate()
+        let socket = ControlledUserSocket(handshake: { try await ping.sleep(0) })
+        let stream = UserStream(client: fixture.client, makeSocket: { _ in socket })
+        let store = ChatStore(client: fixture.client, user: fixture.user, stream: stream)
+        store.selectedID = chat.id
+        await stub.hold("/im/v1/conversations/visitor", body: try JSONEncoder().encode(chat))
+        let run = Task { await store.run() }
+        await stub.waitUntilHeld()
+        XCTAssertTrue(store.checkingAccess.contains(chat.id))
+        let ready = expectation(description: "socket starts while the visitor's detail is held")
+        let observePing = Task { await ping.waitFor(0); ready.fulfill() }
+        await fulfillment(of: [ready], timeout: 3)
+        let connectionChanged = expectation(description: "pong confirms live transport")
+        withObservationTracking { _ = store.connection } onChange: { connectionChanged.fulfill() }
+        await ping.release(0)
+        await fulfillment(of: [connectionChanged], timeout: 3)
+        XCTAssertTrue(store.connection.isOnline)
+        XCTAssertTrue(store.checkingAccess.contains(chat.id))
+        let checked = expectation(description: "the detail response resolves visitor access")
+        withObservationTracking { _ = store.checkingAccess } onChange: { checked.fulfill() }
+        await stub.release()
+        await fulfillment(of: [checked], timeout: 3)
+        XCTAssertFalse(store.checkingAccess.contains(chat.id))
+        XCTAssertFalse(store.revokedChats.contains(chat.id))
+        run.cancel(); store.stop()
+        await run.value
+        observePing.cancel()
+        await stream.stop()
+        fixture.resetProjection()
+        try await fixture.repository?.close()
+    }
+
     func testDeadlinePublishesPersistentFeedbackWithoutPolling() async throws {
         let (fixture, _) = try await makeStore()
         let clock = ContinuityClock()

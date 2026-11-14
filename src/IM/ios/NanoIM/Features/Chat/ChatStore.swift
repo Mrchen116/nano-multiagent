@@ -641,8 +641,9 @@ final class ChatStore {
             if let selectedID, interactionDrafts.failure(selectedID) != nil { _ = await flushDrafts(selectedID) }
             guard token == epoch, !Task.isCancelled else { return }
             if let selectedID {
-                if !conversations.contains(where: { $0.id == selectedID }), repository != nil {
-                    await inspectConversation(selectedID)
+                if !conversations.contains(where: { $0.id == selectedID }) {
+                    if checkingAccess.contains(selectedID) { await verifyAccess(selectedID) }
+                    else { await inspectConversation(selectedID) }
                 }
                 guard token == epoch, !Task.isCancelled, self.selectedID == selectedID else { return }
                 await loadChat(selectedID)
@@ -657,7 +658,7 @@ final class ChatStore {
         guard let repository = request.repository, let context = request.context else {
             projectionRevision = UUID()
             for (id, revision) in sync.execution_cleanup_revisions ?? [:] { observeExecutionCleanup(id, revision: revision) }
-            await reconcileNetwork(sync.items)
+            await reconcileNetwork(sync.items, deferSelectedDetail: deferSelectedDetail)
             guard request.epoch == epoch, request.discardRevision == discardReadRevision else { throw CancellationError() }
             lastFullAt = ISO8601DateFormatter().string(from: continuityTiming.now())
             return
@@ -714,16 +715,29 @@ final class ChatStore {
     }
 
     /// Pure-network fallback used while the partition cannot be opened (design D3 degraded).
-    private func reconcileNetwork(_ values: [Conversation]) async {
+    private func reconcileNetwork(_ values: [Conversation], deferSelectedDetail: Bool = false) async {
         let values = normalizingDeletedActors(values)
         let token = epoch, discardRevision = discardReadRevision
         let privateDraftIDs = await privateDraftConversationIDs()
         guard token == epoch, discardRevision == discardReadRevision else { return }
         for chat in values { observeExecutionCleanup(chat.id, revision: chat.execution_cleanup_revision ?? 0) }
-        if let id = selectedID, !values.contains(where: { $0.id == id }) { await inspectConversation(id) }
+        let selectedOutsideList = selectedID.flatMap { id in values.contains(where: { $0.id == id }) ? nil : id }
+        let pendingDetail = deferSelectedDetail ? selectedOutsideList : nil
+        if let id = selectedOutsideList, !deferSelectedDetail { await inspectConversation(id) }
         else { inspectedConversation = nil }
         var allowed = Set(values.map(\.id))
         if let inspectedConversation { allowed.insert(inspectedConversation.id) }
+        if let pendingDetail {
+            // The joined list cannot decide a visitor's access. Hide its old projection
+            // until the detail read resolves authority after the socket starts.
+            allowed.insert(pendingDetail)
+            checkingAccess.insert(pendingDetail)
+            timelines[pendingDetail] = nil
+            before[pendingDetail] = nil
+            olderNeedsNetwork.remove(pendingDetail)
+            receivedTimelineResults.remove(pendingDetail)
+            readSucceeded(.earlier(pendingDetail))
+        }
         revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
         for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values).union(privateDraftIDs) where !allowed.contains(id) {
@@ -734,7 +748,7 @@ final class ChatStore {
             await discardConversationAttempts(chat.id)
         }
         guard token == epoch, discardRevision == discardReadRevision else { return }
-        checkingAccess = []
+        checkingAccess = Set([pendingDetail].compactMap { $0 })
         conversations = values
         listPhase = values.isEmpty ? .empty : .loaded
     }
@@ -1101,7 +1115,7 @@ final class ChatStore {
             guard await isCurrent(request) else { return }
             // The open view prefers inspected detail. Publish the access check here,
             // not in the shared writer: a late /read DTO must not replace that detail.
-            if inspectedConversation?.id == id { inspectedConversation = value }
+            if inspectedConversation?.id == id || selectedID == id { inspectedConversation = value }
             checkingAccess.remove(id); revokedChats.remove(id)
             readSucceeded(.access(id))
             await loadLocalTimeline(id)

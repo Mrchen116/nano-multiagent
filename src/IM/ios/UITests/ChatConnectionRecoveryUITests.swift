@@ -166,7 +166,10 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
                                   height: max(0, composer.minY - 10 - navigation.maxY))
             tailVisible = tail.width > 0 && tail.height > 0 && viewport.contains(tail)
         }
-        let feedback = nodes.filter { $0.elementType == .button && $0.identifier == "chat.connectionFeedback" }.count
+        let feedback = nodes.filter {
+            $0.elementType == .button && $0.identifier == "chat.connectionFeedback"
+            && !$0.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.count
         let legacy = nodes.filter {
             $0.elementType == .staticText && ($0.label.hasPrefix("Connecting") || $0.label.hasPrefix("Offline. Retrying") || $0.label.hasPrefix("Service unavailable. Retrying"))
         }.count
@@ -214,10 +217,13 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
     }
 
     private func historyAnchor() throws -> XCUIElement {
-        for element in driver.app.staticTexts.allElementsBoundByIndex {
-            guard let snapshot = try? element.snapshot(), snapshot.label.contains("H763-"),
-                  driver.viewport.contains(snapshot.frame) else { continue }
-            return driver.text(snapshot.label)
+        let viewport = driver.viewport
+        let marker = #"(H763-[0-9]{3} · .*|引用块 [0-9]{3}：.*|fixture_763_[0-9]{3})"#
+        let candidates = driver.app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", marker))
+        for element in candidates.allElementsBoundByIndex {
+            guard let snapshot = try? element.snapshot(), !snapshot.frame.isEmpty,
+                  viewport.contains(snapshot.frame) else { continue }
+            return driver.app.staticTexts.matching(NSPredicate(format: "label == %@", snapshot.label)).firstMatch
         }
         driver.capture("long-outage-no-history-anchor", tree: true)
         throw NSError(domain: "ChatConnectionRecovery", code: 1,
