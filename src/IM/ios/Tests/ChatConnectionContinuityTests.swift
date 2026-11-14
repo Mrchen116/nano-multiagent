@@ -166,6 +166,22 @@ extension ChatLocalFirstTests {
         try await store.repository?.close()
     }
 
+    func testLateTimelineFailureDoesNotReplaceNewerSuccessfulRead() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["a"], messages: 0)
+        store.connection = .online
+        await stub.hold("/im/v1/conversations/a/messages", body: Data(), status: 503)
+        let old = Task { await store.loadChat("a") }
+        await stub.waitUntilHeld()
+        await store.loadChat("a")
+        await stub.release()
+        await old.value
+        XCTAssertEqual(store.timelinePhase("a"), .empty)
+        XCTAssertNil(store.continuity.readFailures[.timeline("a")])
+        store.resetProjection()
+        try await store.repository?.close()
+    }
+
     func testOnlineWaitsForPingWithoutWaitingForBusinessEvents() async throws {
         let (fixture, _) = try await makeStore()
         let gate = ContinuityGate()
@@ -264,6 +280,43 @@ extension ChatLocalFirstTests {
             observePing.cancel()
             await stream.stop()
         }
+        fixture.resetProjection()
+        try await fixture.repository?.close()
+    }
+
+    func testNetworkOnlyVisitorHistorySurvivesAnotherFailedAccessCheck() async throws {
+        let (fixture, stub) = try await makeStore()
+        let chat = try conversation("visitor")
+        let socket = ControlledUserSocket(handshake: {})
+        let stream = UserStream(client: fixture.client, makeSocket: { _ in socket })
+        let store = ChatStore(client: fixture.client, user: fixture.user, stream: stream)
+        store.selectedID = chat.id
+        let earlier = TimelineItem(type: "message", message: try message(1, conversation: chat.id))
+        let latest = TimelineItem(type: "message", message: try message(2, conversation: chat.id))
+        store.timelines[chat.id] = [earlier, latest]
+        store.before[chat.id] = earlier.id
+        await stub.setDetail(nil, status: 503)
+        await stub.setMessages(try JSONEncoder().encode(MessagePage(items: [latest], next_before_message_id: latest.id)))
+        await stub.hold("/im/v1/conversations/visitor", body: Data(), status: 503)
+        let run = Task { await store.run() }
+        await stub.waitUntilHeld()
+        let failed = expectation(description: "the visitor detail failure leaves access unknown")
+        withObservationTracking { _ = store.continuity.readFailures } onChange: { failed.fulfill() }
+        await stub.release()
+        await fulfillment(of: [failed], timeout: 3)
+        XCTAssertNotNil(store.continuity.readFailures[.access(chat.id)])
+        await store.loadConversations()
+        XCTAssertTrue(store.checkingAccess.contains(chat.id))
+        XCTAssertFalse(store.revokedChats.contains(chat.id))
+        XCTAssertEqual(store.timelines[chat.id]?.map(\.id), [earlier.id, latest.id])
+        await stub.setDetail(try JSONEncoder().encode(chat))
+        await store.retryAccess(chat.id)
+        XCTAssertFalse(store.checkingAccess.contains(chat.id))
+        XCTAssertEqual(store.timelines[chat.id]?.map(\.id), [earlier.id, latest.id])
+        XCTAssertEqual(store.before[chat.id], earlier.id)
+        run.cancel(); store.stop()
+        await run.value
+        await stream.stop()
         fixture.resetProjection()
         try await fixture.repository?.close()
     }

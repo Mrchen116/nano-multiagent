@@ -46,8 +46,6 @@ final class ChatInteractiveStabilityUITests: XCTestCase {
     private func openC() throws -> (NativeChatDriver, String) {
         let driver = try NativeChatDriver(test: self)
         self.driver = driver
-        driver.app.launchEnvironment["NANO_CHAT_SCROLL_TRACE"] = "1"
-        driver.app.launchEnvironment["NANO_CHAT_STREAM_TRACE"] = "1"
         let title = try NativeChatFixture.required("NANO_UI_INTERACTIVE_TITLE")
         let tail = try NativeChatFixture.required("NANO_UI_INTERACTIVE_TAIL")
         try driver.launchAndLogin()

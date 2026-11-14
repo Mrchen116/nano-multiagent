@@ -1,14 +1,4 @@
 import Foundation
-import os
-
-// Temporary observation of the ordinary App connection; never logs URLs, tickets or content.
-private func traceUserStream(_ stage: String, error: Error? = nil) {
-    #if DEBUG
-    guard ProcessInfo.processInfo.environment["NANO_CHAT_STREAM_TRACE"] == "1" else { return }
-    let failure = error as NSError?
-    Logger(subsystem: "com.nano.im.chat", category: "StreamTrace").notice("763_STREAM stage=\(stage, privacy: .public) domain=\(failure?.domain ?? "none", privacy: .public) code=\(failure?.code ?? 0)")
-    #endif
-}
 
 struct UserEvent: Decodable, Sendable {
     var op: String
@@ -111,15 +101,7 @@ actor UserStream {
         stop()
         let owner = generation
         struct Ticket: Decodable, Sendable { let ticket: String }
-        let ticket: Ticket
-        do {
-            traceUserStream("ticket-start")
-            ticket = try await client.send("/im/v1/auth/ws-ticket", body: EmptyResponse())
-            traceUserStream("ticket-received")
-        } catch {
-            traceUserStream("ticket-failed", error: error)
-            throw error
-        }
+        let ticket: Ticket = try await client.send("/im/v1/auth/ws-ticket", body: EmptyResponse())
         guard owner == generation else { throw CancellationError() }
         try Task.checkCancellation()
         var url = URLComponents(url: client.baseURL, resolvingAgainstBaseURL: false)!
@@ -133,15 +115,12 @@ actor UserStream {
         var receiveTask: Task<Void, Never>?
         do {
             try await withTaskCancellationHandler {
-                traceUserStream("resume-start")
                 try await connection.send(.string("{\"op\":\"resume\",\"after_event_id\":\(cursor)}"))
-                traceUserStream("resume-sent")
                 try Task.checkCancellation()
                 guard owner == generation else { throw CancellationError() }
                 // Keep one receive pump active while confirming pong. Early events are buffered,
                 // but the caller cannot mark the transport online until confirmation succeeds.
                 let task = Task {
-                    traceUserStream("receive-start")
                     do {
                         while !Task.isCancelled {
                             let message = try await connection.receive()
@@ -155,7 +134,6 @@ actor UserStream {
                         }
                         continuation.finish()
                     } catch {
-                        traceUserStream("receive-failed", error: error)
                         continuation.finish(throwing: error)
                     }
                 }
@@ -178,13 +156,11 @@ actor UserStream {
                 try await withTaskCancellationHandler {
                     try await confirmation.value
                 } onCancel: { confirmation.cancel(); connection.cancel() }
-                traceUserStream("handshake-confirmed")
                 try Task.checkCancellation()
                 guard owner == generation else { throw CancellationError() }
                 readiness = nil
             } onCancel: { connection.cancel() }
         } catch {
-            traceUserStream("connect-failed", error: error)
             receiveTask?.cancel()
             continuation.finish(throwing: error)
             connection.cancel()

@@ -592,11 +592,14 @@ actor StubTransport: HTTPTransport {
     private var heldPath: String?
     private var heldBefore: String?
     private var heldBody = Data()
+    private var heldStatus = 200
     private var held: CheckedContinuation<Void, Never>?
     private var didHold = false
     private var waiting: CheckedContinuation<Void, Never>?
 
-    func hold(_ path: String, body: Data, before: String? = nil) { heldPath = path; heldBody = body; heldBefore = before; didHold = false }
+    func hold(_ path: String, body: Data, before: String? = nil, status: Int = 200) {
+        heldPath = path; heldBody = body; heldBefore = before; heldStatus = status; didHold = false
+    }
     func waitUntilHeld() async {
         if didHold { return }
         await withCheckedContinuation { waiting = $0 }
@@ -621,11 +624,11 @@ actor StubTransport: HTTPTransport {
         let url = request.url!
         let queryBefore = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "before_message_id" }?.value
         if heldPath == url.path, heldBefore == nil || heldBefore == queryBefore {
-            let body = heldBody
+            let body = heldBody, status = heldStatus
             heldPath = nil; didHold = true
             waiting?.resume(); waiting = nil
             await withCheckedContinuation { held = $0 }
-            return (body, response(url, 200))
+            return (body, response(url, status))
         }
         if url.path == "/im/v1/auth/me" {
             return (try JSONEncoder().encode(JSONDecoder().decode(TokenPair.self, from: pair).user), response(url, 200))

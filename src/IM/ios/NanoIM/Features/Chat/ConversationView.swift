@@ -69,12 +69,12 @@ struct ConversationView: View {
                                 ProgressView(L("正在加载聊天…", "Loading conversation…")).frame(maxWidth: .infinity).padding(.vertical, 24)
                             }
                         }
-                        if store.olderNeedsNetwork.contains(conversationID) {
+                        if !store.checkingAccess.contains(conversationID) && store.olderNeedsNetwork.contains(conversationID) {
                             // B2: the local window was trimmed; offline scrolling must not be
                             // mistaken for "this is the beginning of the conversation".
                             Text(L("更早消息需要连接后才能读取", "Earlier messages need a connection")).font(.caption).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
                         }
-                        if store.before[conversationID] != nil {
+                        if !store.checkingAccess.contains(conversationID) && store.before[conversationID] != nil {
                             Button(L("更早的消息", "Earlier messages")) {
                                 Task { await loadEarlier() }
                             }.disabled(loadingHistory).frame(maxWidth: .infinity)

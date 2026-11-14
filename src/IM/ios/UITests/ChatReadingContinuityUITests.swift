@@ -76,7 +76,6 @@ final class ChatReadingContinuityUITests: XCTestCase {
 
     func testEarlierCompletionCannotReclaimLatest() throws {
         let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "markdown" })
-        driver.app.launchEnvironment["NANO_CHAT_SCROLL_TRACE"] = "1"
         try driver.launchAndLogin()
         try driver.open(conversation)
         try driver.seekEarlier(maxSwipes: 180)
@@ -93,7 +92,6 @@ final class ChatReadingContinuityUITests: XCTestCase {
     /// Bounded functional diagnosis of the same first history gestures, not a performance sample.
     func testNativeMarkdownTwelveGestureDiagnostic() throws {
         let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "markdown" })
-        driver.app.launchEnvironment["NANO_CHAT_SCROLL_TRACE"] = "1"
         try driver.launchAndLogin()
         try driver.open(conversation)
         for _ in 0..<6 { driver.swipe(history: true) }
@@ -107,7 +105,6 @@ final class ChatReadingContinuityUITests: XCTestCase {
     /// Reading ownership and an explicit Latest command are separate from return gestures.
     func testNativeMarkdownReadingAndExplicitLatest() throws {
         let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "markdown" })
-        driver.app.launchEnvironment["NANO_CHAT_SCROLL_TRACE"] = "1"
         try driver.launchAndLogin()
         try driver.open(conversation)
         // Do not repair fresh entry with Latest or a setup scroll before this assertion.
@@ -128,7 +125,6 @@ final class ChatReadingContinuityUITests: XCTestCase {
 
     func testStatusBarScrollToTopKeepsUserReading() throws {
         let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "markdown" })
-        driver.app.launchEnvironment["NANO_CHAT_SCROLL_TRACE"] = "1"
         try driver.launchAndLogin()
         try driver.open(conversation)
         try driver.require(driver.stableTail(conversation.tail), "Begin native scroll-to-top at the untouched actual tail")
@@ -159,7 +155,6 @@ final class ChatReadingContinuityUITests: XCTestCase {
         let tail = try NativeChatFixture.required("NANO_UI_PAGINATION_TAIL")
         let oldHead = try NativeChatFixture.required("NANO_UI_PAGINATION_OLD_HEAD")
         let newHead = try NativeChatFixture.required("NANO_UI_PAGINATION_NEW_HEAD")
-        driver.app.launchEnvironment["NANO_CHAT_SCROLL_TRACE"] = "1"
         try driver.launchAndLogin()
         let row = driver.app.staticTexts.matching(NSPredicate(format: "label == %@", title)).firstMatch
         try driver.require(row.waitForExistence(timeout: 8), "The dedicated fresh D conversation must exist")

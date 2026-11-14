@@ -6,8 +6,6 @@ final class ChatScrollGeometryDiagnosticUITests: XCTestCase {
     func testObserveStatusBarAndKeyboardGeometryWithoutTransportFaults() throws {
         continueAfterFailure = false
         let driver = try NativeChatDriver(test: self)
-        driver.app.launchEnvironment["NANO_CHAT_SCROLL_TRACE"] = "1"
-        driver.app.launchEnvironment["NANO_CHAT_STREAM_TRACE"] = "1"
         defer { driver.app.terminate() }
         let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "tall-card" })
         try driver.launchAndLogin()

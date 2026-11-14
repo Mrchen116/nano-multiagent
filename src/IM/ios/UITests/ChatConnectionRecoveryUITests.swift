@@ -17,11 +17,11 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
             throw XCTSkip("Requires the separately coordinated one-shot 3-second owned-listener outage")
         }
         try driver.launchAndLogin()
-        let conversation = driver.fixture.conversations[1]
-        // Populate B's real local cache and establish a conversation-specific baseline before
-        // releasing the host. No Latest/history repair is allowed, including during setup.
+        let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "markdown" })
+        // Establish cached geometry before the fault so this test measures reconnect
+        // rather than the first render of a separately tested WebKit card.
         try driver.open(conversation)
-        try driver.require(driver.stableTail(conversation.tail, timeout: 10), "Short recovery requires B's actual rendered tail before the fault")
+        try driver.require(driver.stableTail(conversation.tail, timeout: 10), "Short recovery requires the actual tail before the fault")
         let chatBaseline = try shortSnapshot(surface: "chat", conversation: conversation)
         try requireShortChat(chatBaseline, baseline: chatBaseline)
         driver.record("short-outage-chat-baseline", chatBaseline.evidence)
@@ -34,6 +34,7 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
         driver.capture("short-outage-Chats-before", tree: true)
 
         let readyAt = ProcessInfo.processInfo.systemUptime
+        let readyWallTime = Date().timeIntervalSince1970
         let deadline = readyAt + 10
         var observations: [[String: Any]] = []
         var navigation: [[String: Any]] = []
@@ -42,7 +43,7 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
         // these intervals with the verified listener's actual fault/restore receipts.
         defer {
             driver.record("short-outage-both-surfaces-observations", [
-                "readyUptime": readyAt, "deadlineUptime": deadline, "samples": observations,
+                "readyUptime": readyAt, "readyUnixSeconds": readyWallTime, "deadlineUptime": deadline, "samples": observations,
                 "navigation": navigation, "chatSampleCount": chatSamples,
                 "faultCoverage": "inconclusive-until-host-cross-correlates-actual-fault-receipts",
                 "coverageRule": "Both surfaces require a complete sample interval inside the actual same 3-second fault; otherwise inconclusive"
@@ -50,16 +51,16 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
         }
         // The host consumes exactly this one ready event; this test never starts a fault.
         driver.record("owned-outage-short-ready", ["ready": true, "uptime": readyAt])
-        // Keep the two Chats observations minimal so ordinary navigation has a chance to
-        // reach cached B during the SAME three-second outage, without extending that fault.
-        for _ in 0..<2 {
+        // Allow the host to receive the marker and signal the listener while keeping
+        // ordinary navigation inside the same three-second outage.
+        while ProcessInfo.processInfo.systemUptime < readyAt + 0.6 {
             let sample = try shortSnapshot(surface: "Chats", conversation: conversation)
             observations.append(sample.evidence)
             try requireShortChats(sample, baseline: chatsBaseline)
         }
-        navigation.append(["event": "B-row-tap-start", "surface": "Chats", "uptime": ProcessInfo.processInfo.systemUptime])
+        navigation.append(["event": "cached-row-tap-start", "surface": "Chats", "uptime": ProcessInfo.processInfo.systemUptime])
         row.tap()
-        navigation.append(["event": "B-row-tap-returned", "surface": "chat", "uptime": ProcessInfo.processInfo.systemUptime])
+        navigation.append(["event": "cached-row-tap-returned", "surface": "chat", "uptime": ProcessInfo.processInfo.systemUptime])
         // Continue beyond the five-second quiet deadline to catch any delayed retry flash.
         // Use only chat's own pre-fault baseline after leaving Chats, never its stale row.
         while ProcessInfo.processInfo.systemUptime < deadline {
@@ -69,7 +70,7 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
             try requireShortChat(sample, baseline: chatBaseline)
             driver.pause(max(0, 0.2 - (ProcessInfo.processInfo.systemUptime - sample.startedAt)))
         }
-        try driver.require(chatSamples > 0, "The bounded short observation must include cached B; fault overlap still needs host correlation")
+        try driver.require(chatSamples > 0, "The bounded observation must include the cached conversation")
         driver.capture("short-outage-chat-after", tree: true)
     }
 
@@ -77,10 +78,10 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
         guard ProcessInfo.processInfo.environment["NANO_UI_OUTAGE_KIND"] == "long" else {
             throw XCTSkip("Requires the separately coordinated one-shot 12-second owned-listener outage")
         }
-        let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "tall-card" })
+        let conversation = try XCTUnwrap(driver.fixture.conversations.first { $0.kind == "markdown" })
         try driver.launchAndLogin()
         try driver.open(conversation)
-        try driver.require(driver.stableTail(conversation.tail, timeout: 10), "Long recovery starts from a real rendered tall-card tail")
+        try driver.require(driver.stableTail(conversation.tail, timeout: 10), "Long recovery starts from the actual tail")
         for _ in 0..<3 { driver.swipe(history: true) }
         let anchor = try historyAnchor()
         let beforeY = try anchor.snapshot().frame.minY
@@ -224,7 +225,7 @@ final class ChatConnectionRecoveryUITests: XCTestCase {
 
     private func historyAnchor() throws -> XCUIElement {
         let viewport = driver.viewport
-        let marker = #"(H763-[0-9]{3} · .*|引用块 [0-9]{3}：.*|fixture_763_[0-9]{3})"#
+        let marker = #"(H763-(?!300)[0-9]{3} · .*|引用块 (?!300)[0-9]{3}：.*|fixture_763_(?!300)[0-9]{3})"#
         let candidates = driver.app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", marker))
         for element in candidates.allElementsBoundByIndex {
             guard let snapshot = try? element.snapshot(), !snapshot.frame.isEmpty,

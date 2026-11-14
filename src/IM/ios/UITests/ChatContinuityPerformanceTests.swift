@@ -43,9 +43,14 @@ final class ChatContinuityPerformanceTests: XCTestCase {
                                                       "discardedWarmup": iteration == 1,
                                                       "corpusSHA256": driver.fixture.frozen_dataset.sha256])
                 startMeasuring()
+                let scrollStart = Date()
                 for _ in 0..<6 { driver.swipe(history: true) }
                 for _ in 0..<6 { driver.swipe(history: false) }
+                let scrollEnd = Date()
                 stopMeasuring()
+                driver.record("scroll-sample-interval", ["kind": kind, "cold": cold, "iteration": iteration,
+                    "startUnixSeconds": scrollStart.timeIntervalSince1970,
+                    "endUnixSeconds": scrollEnd.timeIntervalSince1970])
                 driver.capture("\(kind)-\(cold ? "cold" : "warm")-sample-\(iteration)")
             } catch {
                 // A failed load/tail precondition remains a failed sample; never replace

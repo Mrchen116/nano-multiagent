@@ -1,5 +1,4 @@
 import SwiftUI
-import os
 
 /// The only scroll-request owner. Per-pixel geometry stays outside Observation so moving the
 /// viewport does not reparse the entire timeline or rebuild every message's Markdown body.
@@ -68,42 +67,8 @@ final class ChatScrollCoordinator {
         pendingMessageGeometry = PendingMessageGeometry(
             id: id, revision: policy.revision, generation: messageScroller.generation,
             snapshot: physicalGeometry.snapshot(for: id))
-        trace("request-message-" + id, extra: [
-            "adapterGeneration": messageScroller.generation.uuidString,
-            "nativeBeforeOffset": pendingMessageGeometry?.snapshot.map { $0.offset.y as Any } ?? NSNull(),
-            "nativeBeforeRowTop": pendingMessageGeometry?.snapshot.map { $0.row.minY as Any } ?? NSNull()
-        ])
         messageScroller.scroll(id, anchor)
         return true
-    }
-
-    // Temporary local diagnosis; remove before the delivery tree is frozen.
-    private func trace(_ event: String, extra: [String: Any] = [:]) {
-        #if DEBUG
-        guard ProcessInfo.processInfo.environment["NANO_CHAT_SCROLL_TRACE"] == "1" else { return }
-        var values: [String: Any] = [
-            "event": event, "uptime": ProcessInfo.processInfo.systemUptime,
-            "phase": String(describing: policy.phase), "intent": String(describing: policy.intent),
-            "revision": policy.revision, "nativeTop": policy.nativeTop, "nativeGeometryBound": physicalGeometry.isBound,
-            "offset": geometry?.contentOffset.y ?? 0, "height": geometry?.contentSize.height ?? 0,
-            "offsetX": geometry?.contentOffset.x ?? 0, "contentWidth": geometry?.contentSize.width ?? 0,
-            "containerHeight": geometry?.containerSize.height ?? 0,
-            "containerWidth": geometry?.containerSize.width ?? 0,
-            "insetTop": geometry?.contentInsets.top ?? 0, "insetBottom": geometry?.contentInsets.bottom ?? 0,
-            "insetLeading": geometry?.contentInsets.leading ?? 0, "insetTrailing": geometry?.contentInsets.trailing ?? 0,
-            "viewportLeft": viewport.minX, "viewportRight": viewport.maxX,
-            "viewportTop": viewport.minY, "viewportBottom": viewport.maxY,
-            "tailLeft": tail.minX, "tailRight": tail.maxX,
-            "tailTop": tail.minY, "tailBottom": tail.maxY, "rows": rows.count, "latestID": latestID ?? "",
-            "rowFrames": rows.mapValues { ["x": $0.minX, "y": $0.minY, "width": $0.width, "height": $0.height, "maxY": $0.maxY] },
-            "atBottom": atBottom, "active": active
-        ]
-        values.merge(extra) { _, new in new }
-        if let data = try? JSONSerialization.data(withJSONObject: values, options: [.sortedKeys]),
-           let text = String(data: data, encoding: .utf8) {
-            Logger(subsystem: "com.nano.im.chat", category: "ScrollTrace").notice("763_SCROLL \(text, privacy: .public)")
-        }
-        #endif
     }
 
     private struct CorrectionKey: Equatable {
@@ -149,7 +114,6 @@ final class ChatScrollCoordinator {
     }
 
     func latest() {
-        trace("latest-handler")
         correction?.cancel(); correction = nil
         policy.latest()
         nativeTopRevision = nil
@@ -173,7 +137,6 @@ final class ChatScrollCoordinator {
         timing.cancel()
         invalidateRestoration?()
         readingAnchorChanged?(nil)
-        trace("native-top-began")
     }
 
     private func nativeTopCompleted() {
@@ -181,7 +144,6 @@ final class ChatScrollCoordinator {
         nativeTopRevision = nil
         policy.endNativeTop(atBottom: atBottom)
         captureAnchor()
-        trace("native-top-completed")
         updateButton()
         scheduleCorrection()
     }
@@ -191,7 +153,6 @@ final class ChatScrollCoordinator {
         nativeTopRevision = nil
         policy.cancelNativeTop()
         lastCorrection = nil
-        trace("native-top-cancelled")
         scheduleCorrection()
     }
 
@@ -214,7 +175,6 @@ final class ChatScrollCoordinator {
         updateViewport()
         recognizeMovement(offset: value.contentOffset.y)
         updateButton()
-        trace("geometry")
         scheduleCorrection()
     }
 
@@ -229,7 +189,6 @@ final class ChatScrollCoordinator {
         }
         self.geometry = geometry
         updateViewport()
-        trace("phase-before-\(phase)")
         // SwiftUI need not deliver phase and geometry notifications in a particular order.
         // Check the last movement both before leaving a gesture and after entering one.
         recognizeMovement(offset: geometry.contentOffset.y)
@@ -248,7 +207,6 @@ final class ChatScrollCoordinator {
     func rowChanged(_ id: String, frame: CGRect) {
         rows[id] = frame
         if id == latestID { updateButton() }
-        trace("row-" + id)
         scheduleCorrection()
     }
 
@@ -354,7 +312,6 @@ final class ChatScrollCoordinator {
         guard key != lastCorrection else { return }
         if policy.intent == .latest {
             guard let latestID, !atBottom else { return }
-            trace("correct-final-message")
             if requestMessage(latestID, anchor: .bottom) { lastCorrection = key }
         } else if let anchor = policy.anchor {
             if let snapshot = anchorGeometry {
@@ -366,17 +323,8 @@ final class ChatScrollCoordinator {
                     guard pending.snapshot != snapshot else { return }
                 }
                 pendingMessageGeometry = nil
-                trace("correct-history-y", extra: ["anchorID": anchor.id,
-                    "nativeOffsetY": snapshot.offset.y, "nativeOffsetX": snapshot.offset.x,
-                    "nativeRowTop": snapshot.row.minY, "nativeViewportTop": snapshot.viewport.minY,
-                    "savedViewportY": anchor.viewportY, "nativeDelta": snapshot.delta(to: anchor.viewportY)])
                 if physicalGeometry.restore(snapshot, id: anchor.id, viewportY: anchor.viewportY) {
                     lastCorrection = key
-                    if let after = physicalGeometry.snapshot(for: anchor.id) {
-                        trace("history-y-applied", extra: ["anchorID": anchor.id,
-                            "nativeOffsetY": after.offset.y, "nativeOffsetX": after.offset.x,
-                            "nativeRowTop": after.row.minY, "nativeViewportTop": after.viewport.minY])
-                    }
                 }
             } else if validIDs.contains(anchor.id) {
                 // A large prepend/height change can unrealize a still-authoritative row.
