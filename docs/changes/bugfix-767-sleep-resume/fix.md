@@ -20,14 +20,16 @@
 
 ## 修复
 
-复用所有工作 Agent 已安装的 `agent/request-error` 等待钩子，把无 HTTP 错误状态的 TIMEOUT 纳入持续等待；HTTP dispatcher 同时保留已建立连接的 socket 断开及读写超时信号。暂停期间没有底层错误回调时，流 watchdog 的 TIMEOUT 也能进入同一恢复路径。各请求继续使用 5 秒起、最高 60 秒的退避，随原轮取消，不消耗普通重试额度。
+复用所有工作 Agent 已安装的 `agent/request-error` 等待钩子，把本地 pi-ai 流空闲 watchdog 的 TIMEOUT 纳入持续等待；HTTP dispatcher 同时保留已建立连接的 socket 断开及读写超时信号。暂停期间没有底层错误回调时，流 watchdog 的 TIMEOUT 也能进入同一恢复路径。各请求继续使用 5 秒起、最高 60 秒的退避，随原轮取消，不消耗普通重试额度。
 
-该选择也让非休眠引起的无状态请求超时持续等待，直到响应恢复或用户取消。完整 HTTP 响应内缺少终止标记等协议错误、明确的供应商错误仍使用既有策略。沿用 DSH 公开扩展点及原步骤重试，不增加另一套 Agent Loop。
+本地 watchdog 超时仍有可安全切换的备用模型时，复用 ModelFallback 的候选、工具执行、新输入与发布状态判断，沿既有路径切换；备用耗尽或不能安全切换时持续等待恢复。发布状态查询失败时保留当前任务等待。该选择也让非休眠引起的本地流停滞在备用耗尽后持续等待，直到响应恢复或用户取消。供应商流内错误即使归类 TIMEOUT，也沿用普通策略。完整 HTTP 响应内缺少终止标记等协议错误、明确的供应商错误仍使用既有策略。沿用 DSH 公开扩展点及原步骤重试，不增加另一套 Agent Loop。
 
 ## 验证
 
 扩展既有 `packages/dsh-integration/tests/model-connection-retry.test.ts`，保留其原来的协议错误、取消、TLS、三种协议及 Dreaming 保护。主 Agent 和两级子 Agent 的同一场景覆盖连接关闭与流停滞，模拟 provider 回应，使用真实锁定 DSH 子进程。暂停只作用于测试子进程。
 
-旧实现红测中，暂停恢复后的 TIMEOUT 进入 `normal` 重试，持续等待断言失败。新实现的验证结果在交付审查中记录。
+旧实现红测中，暂停恢复后的 TIMEOUT 进入 `normal` 重试，持续等待断言失败。初版修复 7 项通过。独立审查发现备用链被遮蔽、供应商流内 timeout 被误识别两项问题；新增真实 HTTP SSE 回归在初版修复上均失败，随后收窄 watchdog 来源并复用备用切换判断。最终验证结果在交付审查中记录。
 
 验证边界：SIGSTOP/SIGCONT 与受控网络故障验证进程暂停及恢复机制，本轮未进行实体合盖，也未通过生产服务执行恢复试验。生产原始故障轨迹与 macOS 电源日志用于定位触发方式。
+
+新增 `model-fallback-network.test.ts` 保护真实 pi-ai 错误归类与备用链交互。既有 `model-fallback.test.ts` 的合成 LlmError fixture 不经过这一 HTTP 适配路径，保留其配置与粘性覆盖。

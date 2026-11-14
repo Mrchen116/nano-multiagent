@@ -325,17 +325,10 @@ export class ModelFallback {
     const attempt = run.attempts.at(-1)!;
     const reason = event.data.reason;
     if (reason.kind === 'error') attempt.error = reason.error;
-    const candidates = this.candidates(config, run);
-    const newer = [...agent.inbox.nextTurn, ...agent.inbox.nextStep].some(
-      (message) => !run.inputs.includes(message.id) && message.source.kind !== 'nano-fallback',
-    );
     if (
       reason.kind === 'error' &&
       available(reason.error) &&
-      candidates.length &&
-      !newer &&
-      !this.stopped &&
-      !agent.session.snapshotEvents().some(event => event.type === 'tool/call' && run.attempts.some(attempt => attempt.turn === event.data.turn))
+      this.canSwitch(agent, config, run)
     ) {
       run.state = 'switching';
       run.terminal = reason;
@@ -347,6 +340,26 @@ export class ModelFallback {
       this.host.select(agent, undefined);
       this.finish(run, reason);
     }
+  }
+  /** Check whether a stalled request can safely use the remaining configured backup chain. */
+  async canSwitchAfterFailure(agent: Agent, turn: number): Promise<boolean> {
+    const config = this.agents.get(agent.id)?.config;
+    const run = this.runsBySession.get(agent.id)?.forAttempt(turn);
+    if (!config || !run || !this.canSwitch(agent, config, run)) return false;
+    try {
+      return !(await this.host.check(agent, run)).published;
+    } catch {
+      // An offline delivery host cannot establish that switching is safe; keep the live task waiting.
+      return false;
+    }
+  }
+  private canSwitch(agent: Agent, config: AgentConfiguration, run: ModelRun): boolean {
+    const newer = [...agent.inbox.nextTurn, ...agent.inbox.nextStep].some(
+      message => !run.inputs.includes(message.id) && message.source.kind !== 'nano-fallback',
+    );
+    return !!this.candidates(config, run).length && !newer && !this.stopped &&
+      !agent.session.snapshotEvents().some(event => event.type === 'tool/call' &&
+        run.attempts.some(attempt => attempt.turn === event.data.turn));
   }
   private candidates(config: AgentConfiguration, run: ModelRun) {
     return (config.modelFallbacks ?? []).filter(

@@ -318,7 +318,8 @@ export default class NanoRuntime {
       if (agentId) { lifecycle.assertEnabled(agentId); await lifecycle.clean(agentId, agent, source === 'resume'); }
       const preset = agent.session.header.agentPreset;
       // Dreaming has no Nano preset; independent reviewers retain their own retry policy.
-      if (preset?.startsWith('nano:') || agent.id.startsWith('dreaming-')) attachModelConnectionRetry(agent, takeConnectionFailure);
+      if (preset?.startsWith('nano:') || agent.id.startsWith('dreaming-')) attachModelConnectionRetry(agent, takeConnectionFailure,
+        async turn => (await models).fallback.canSwitchAfterFailure(agent, turn));
       if (!preset?.startsWith('nano:')) return;
       const desired = this.configurations.get(preset);
       if (!desired) throw new Error(`Missing Nano configuration for ${preset}`);
