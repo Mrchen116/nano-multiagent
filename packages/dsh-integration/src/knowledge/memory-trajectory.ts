@@ -84,6 +84,25 @@ export function nativeMaterial(event: SessionEvent, history?: HistoryLocator, co
   return undefined;
 }
 
+/** Bound ordinary tool output in batch material while keeping the original History item. */
+export function batchToolResult(event: Extract<SessionEvent, {type:'tool/result'}>, toolName: string | undefined, history?: HistoryLocator): RecordValue {
+  const record = nativeMaterial(event, history)!;
+  if (history?.item_id === undefined || !toolName || ['inbox', 'conversations', 'send_message'].includes(toolName)) return record;
+
+  // Codex Memory V2 budgets about 2,000 tokens at four UTF-8 bytes per token.
+  const limit = 8_000;
+  const bytes = Buffer.from(contentText(record.content), 'utf8');
+  if (bytes.length <= limit) return record;
+
+  const marker = '\n[Tool output clipped. Use its original History item if the omitted details matter.]\n';
+  const half = Math.floor((limit - Buffer.byteLength(marker)) / 2);
+  let head = half;
+  let tail = bytes.length - half;
+  while ((bytes[head]! & 0xc0) === 0x80) head--;
+  while ((bytes[tail]! & 0xc0) === 0x80) tail++;
+  return {...record,content:bytes.subarray(0,head).toString('utf8') + marker + bytes.subarray(tail).toString('utf8')};
+}
+
 /** Group persisted units by source session, retaining unit/page order and complete page bodies. */
 export function renderSessionMaterials(units: readonly {sessionId:string;events:readonly unknown[]}[]): Array<{sessionId:string;text:string}> {
   const sessions = new Map<string, unknown[]>();

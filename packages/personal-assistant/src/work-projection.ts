@@ -3,6 +3,26 @@ import { tokenUsage, toolPresentation, modelAt } from './presentation.js';
 
 /** The same native facts render main and child execution without treating drafts as public replies. */
 export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events: RuntimeEvent[], child = false): (WorkFact & { turn?: number }) | undefined {
+  if (event.type === 'compaction/end') {
+    const {turn, compactionId, sourceCommandId, error} = event.data;
+    const matching = (candidate: RuntimeEvent) => typeof compactionId === 'string'
+      && candidate.seq < event.seq && candidate.data.compactionId === compactionId;
+    const start = events.findLast(candidate => candidate.type === 'compaction/start' && matching(candidate));
+    const summary = typeof error === 'string' ? undefined
+      : events.findLast(candidate => candidate.type === 'compaction/summary' && matching(candidate));
+    return {
+      type: 'control_result',
+      turn: typeof turn === 'number' ? turn : undefined,
+      payload: {
+        command: 'compact',
+        status: typeof error === 'string' ? 'failed' : 'completed',
+        ...(typeof sourceCommandId === 'string' ? {manual: true} : {}),
+        ...(typeof error === 'string' ? {error: error.slice(0, 512)} : {}),
+        ...(start ? {duration_ms: event.time - start.time} : {}),
+        ...(typeof summary?.data.shadowedTokenCount === 'number' ? {replaced_tokens: summary.data.shadowedTokenCount} : {}),
+      },
+    };
+  }
   const turn = typeof event.data.turn === 'number' ? event.data.turn : events.findLast(candidate => candidate.seq < event.seq && candidate.type === 'turn/start')?.data.turn as number | undefined;
   if (event.type === 'turn/start') {
     const nextEnd = events.find(candidate => candidate.seq > event.seq && candidate.type === 'turn/end')?.seq ?? Infinity;
@@ -50,6 +70,7 @@ export interface WorkCheckpoint {
   localReplay?: boolean;
   model?: string;
   contextWindow?: number;
+  compaction?: RuntimeEvent[];
 }
 
 /** Restore only effective metadata needed by the new/open logical turn.
@@ -64,7 +85,7 @@ export function workSuffix(events: RuntimeEvent[], prior?: WorkCheckpoint): Runt
   const context:RuntimeEvent[]=[];
   if(prior?.model)context.push({seq:-2,time:0,type:'request/header',data:{header:{config:{model:prior.model}}}});
   if(prior?.contextWindow!==undefined)context.push({seq:-1,time:0,type:'request/context',data:{contextWindow:prior.contextWindow}});
-  return [...context,...events.filter(event=>event.seq>=(prior?.replayFrom??0))];
+  return [...context,...(prior?.compaction ?? []),...events.filter(event=>event.seq>=(prior?.replayFrom??0))];
 }
 
 /** Advance a cut while retaining the beginning of an unfinished logical turn.
@@ -79,11 +100,21 @@ export function workSuffix(events: RuntimeEvent[], prior?: WorkCheckpoint): Runt
  */
 export function workCheckpoint(rootSessionId:string,throughSeq:number,events:RuntimeEvent[],modelVersion?:string):WorkCheckpoint {
   let replayFrom=throughSeq+1;
+  let compaction: RuntimeEvent[] = [];
   for(const event of events) {
     if(event.type==='turn/start')replayFrom=event.seq;
     if(event.type==='turn/end')replayFrom=throughSeq+1;
+    if(event.type==='compaction/start')compaction=[event];
+    if(event.type==='compaction/summary' && compaction[0] && compaction[0].data.compactionId===event.data.compactionId) {
+      const {compactionId,shadowedTokenCount}=event.data;
+      compaction=[compaction[0],{seq:event.seq,time:event.time,type:event.type,data:{compactionId,shadowedTokenCount}}];
+    }
+    if(event.type==='compaction/end' && compaction[0]?.data.compactionId===event.data.compactionId)compaction=[];
   }
+  // Carry only small source facts when a standalone compaction crosses a page boundary.
+  compaction=compaction.filter(event=>event.seq<replayFrom);
   const context=events.findLast(event=>event.type==='request/context');
   return {rootSessionId,throughSeq,replayFrom,modelVersion,model:modelAt(events,Infinity),
+    ...(compaction.length ? {compaction} : {}),
     contextWindow:typeof context?.data.contextWindow==='number'?context.data.contextWindow:undefined};
 }

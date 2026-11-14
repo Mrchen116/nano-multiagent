@@ -12,7 +12,7 @@
 |---|---|---|
 | Personal Assistant | `~/.nanoassistant/config.yaml` | `<workspace>/.nanoassistant/config.yaml` |
 
-Gateway 的 `--config` 选择节点、Agent 和 provider 启动配置，不搬迁上述 Auto 全局根。每个 child 保留委派时的有效 Auto 配置及原始用户范围；后续委派不会把 Agent 自己声称的同意变成人工批准。
+Gateway 的 `--config` 选择节点、Agent 和 provider 启动配置，不搬迁上述 Auto 全局根。子会话创建时采用委派的有效 Auto 配置。普通可接续子会话恢复时，审批配置跟随所属 Agent 当前已生效的配置，原始授权仍按委派范围解释。
 
 相关默认值如下；已有配置无需为升级补写这些键：
 

@@ -42,10 +42,14 @@ it('serves authorized light summaries, exact and paged execution links, and same
   expect(legacy.control_items[0].payload.text).toHaveLength('large control body'.length * 4096);
   expect(modern).toMatchObject({
     catalog: 'separate', main_session_id: root, latest_main_usage: {turn_id: 'first', output: 12},
-    other_executions: [], control_items: [], next_turn_id: 'first', next_cursor: 'second',
-    turns: [{turn_id: 'second', items: [], items_deferred: true, usage: null}],
+    other_executions: [], control_items: [], next_turn_id: 'second', next_cursor: 'bounded-8',
+    turns: [{turn_id: 'bounded-8', origin: 'context_compaction', items: [{kind: 'control_result', payload: {command: 'compact'}}]}],
   });
-  expect(modern.turns[0]).not.toHaveProperty('tool_count');
+  expect(JSON.stringify(modern)).not.toContain('large control body');
+  const ordinary = (await read('?view=summary&catalog=separate&limit=1&before_turn=' + modern.next_cursor)).body;
+  expect(ordinary).toMatchObject({next_turn_id: 'first', next_cursor: 'second',
+    turns: [{turn_id: 'second', items: [], items_deferred: true, usage: null}]});
+  expect(ordinary.turns[0]).not.toHaveProperty('tool_count');
   expect((await read(`/sessions/${root}/turns?catalog=separate&before_turn=second`)).body).toMatchObject({
     catalog: 'separate', turns: [{turn_id: 'first', items: [], items_deferred: true}], control_items: [], next_cursor: null,
   });
@@ -62,6 +66,9 @@ it('serves authorized light summaries, exact and paged execution links, and same
   expect((await read('/sessions/child-1049')).body).toMatchObject({session_id: 'child-1049'});
   expect((await read('/sessions/retired')).body).toMatchObject({retired: true});
   expect((await read('/sessions?after_session=retired')).body).toEqual({sessions: [], next_cursor: null});
+  expect((await read('/sessions?historical=1')).body).toMatchObject({
+    sessions: [{session_id: 'retired'}], next_cursor: null,
+  });
   const scoped = `/sessions?parent_session_id=${root}&child_agent_id=worker`;
   expect((await read(scoped + '&tool_call_id=call-a')).body).toMatchObject({sessions: [{session_id: 'child-1049'}], next_cursor: null});
   const weak = (await read(scoped + '&tool_call_id=late&limit=1')).body;

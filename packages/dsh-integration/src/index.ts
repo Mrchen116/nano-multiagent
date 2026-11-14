@@ -14,7 +14,7 @@ import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-agent-preset-registry';
 import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt';
-import type {} from '@deepseek-ai/dsh-subagent';
+import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent';
 import type {} from '@deepseek-ai/dsh-session-query';
 import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import type {} from '@deepseek-ai/dsh-jobs';
@@ -325,6 +325,11 @@ export default class NanoRuntime {
       const scopes = await configuration;
       const parent = agent.session.header.parentSession && ctx.agents.get(agent.session.header.parentSession);
       const config = await history.configuration(agent, desired, parent ? (await workflow).childConfiguration(scopes.forAgent(parent)!) : undefined);
+      if (source === 'resume' && agent.session.header.origin === 'subagent'
+        && foldSubagentDescriptor(agent.session.snapshotEvents().filter(event => agent.session.isOwnSeq(event.seq)))?.mode === 'continuable') {
+        // Historical execution choices survive resume, but approval follows the current owner configuration.
+        config.approval = desired.approval;
+      }
       if (desired.personal) { config.personal = desired.personal; assertPersonalConfiguration(config); }
       await scopes.attachAgent(agent, config);
       await (await approval).attach(agent, config);

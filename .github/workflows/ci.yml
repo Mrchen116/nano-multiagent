@@ -85,7 +85,8 @@ jobs:
 
   backend:
     name: TypeScript backend and tooling
-    runs-on: ubuntu-latest
+    # Keep native runtime regression tests on the validated runner image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:

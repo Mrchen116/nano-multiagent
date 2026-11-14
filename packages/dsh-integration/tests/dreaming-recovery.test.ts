@@ -37,7 +37,7 @@ async function fixture(){
   await writeFile(join(directory,'manifest.json'),JSON.stringify({versions}));
   runs.set('frozen',{id:'frozen',agentId:'a',rootSessionId:'s',mode:'manual',stage:'consolidate',cycleId:'cycle',state:'applying',at:Date.now(),generation:0,directory,
     batch:{id:'frozen',units:[{id:'unit',sessionId:'s',start:-1,through:1,events:[]}],ranges:[{sessionId:'s',start:-1,through:1,observed:1}],blocked:[],filtered:0,inputTokens:0},
-    target:{roots:{},children:{},blocked:[],generation:0,activationAt:0},summaries:[],receipts:[],plan,sourcesChecked:true});
+    target:{roots:{},children:{},blocked:[],generation:0,activationAt:0},summaries:[],receipts:[],plan});
   return {workspace,library,owners,runs,make,ctx,lesson,originalPath,parent:{id:'s',ctx:{tools:{get:()=>true}}} as never,
     close:async()=>{for(const fn of cleanup)fn();await library.close();await rm(workspace,{recursive:true,force:true});}};
 }
@@ -47,7 +47,6 @@ it.each(['generation','third-version'])('retires a stale %s plan without overwri
   try{
     if(reason==='generation')f.runs.get('frozen').generation=-1;
     else await f.library.apply({operationId:'human',path:'knowledge/lesson.md',beforeHash:null,content:'Human correction survives.'});
-    await f.library.checkpoint(await f.library.versions(),0);
     const d=f.make();await d.recover();
     expect(await d.start(f.parent,false)).toMatchObject({reason:'no_eligible_increment'});
     expect(f.runs.get('frozen')).toMatchObject({state:reason==='third-version'?'partial':'failed'});

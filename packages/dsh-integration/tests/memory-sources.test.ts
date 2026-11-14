@@ -163,6 +163,29 @@ it('pages an oversized Unicode tool return without changing its original JSON bo
   expect(progress.s.cursor).toBe(2);expect(body).toBe(original);
 });
 
+it('clips ordinary output before packing Dreaming inputs and keeps the original History item',async()=>{
+  const output = 'Build started\n' + '日志🌈'.repeat(600) + 'omit this middle' + '日志🌈'.repeat(600) + '\nBuild failed';
+  const events = [
+    event(0,'tool/call',{callId:'build',name:'bash',arguments:'{"command":"build"}'}),
+    event(1,'tool/result',{message:{toolCallId:'build',isError:true,content:[{type:'text',text:output}]}}),
+    event(2,'step/end'),
+  ];
+  const batch = await fixture(events).sources.freeze('a',streams,{maxInputTokens:3000});
+  expect(batch.ranges[0]?.through).toBe(2);
+  const child = selectChildMaterial({sessionId:'child',rootSessionId:'s',events,inheritedEvents:[]},3000);
+  expect(child.omitted).toBe(0);
+  for (const text of [batch.text!,child.text]) {
+    expect(text).toContain('item_id=1');
+    expect(text).toContain('isError: true');
+    expect(text).toContain('Build started');
+    expect(text).toContain('Tool output clipped');
+    expect(text).toContain('Build failed');
+    expect(text).not.toMatch(/omit this middle|\uFFFD/);
+  }
+  const history = createHistoryView('s',events);
+  expect(JSON.stringify(history.read('s:initial','1',0,20000))).toContain('omit this middle');
+});
+
 it('preserves the outer Inbox conversation and observation identity in direct material',()=>{
   const text=renderMaterial([{type:'tool/result',content:{target:'room',name:'Family trip',delivery:'observer',conversation_type:'group',channel:'web',messages:[{id:'m1',sender:{id:'u'},content:'Conditional preference'}]}}]);
   for(const value of ['room','Family trip','observer','group','web','m1','Conditional preference'])expect(text).toContain(value);

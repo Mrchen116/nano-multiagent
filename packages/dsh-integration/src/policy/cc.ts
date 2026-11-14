@@ -1,6 +1,6 @@
 import { Service, type Context } from '@deepseek-ai/cordis';
 import { classify } from './classifier.js';
-import { workspaceFileAllowed } from './cc-workspace.js';
+import { workspaceFileAllowed } from './file-approval.js';
 import type { ApprovalReviewRequest, ApprovalReviewResult } from './types.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { ccApproval: CcApproval } }

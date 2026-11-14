@@ -4,6 +4,7 @@ export interface WorkCommonFields {
   source_refs?: unknown[] | null;
 }
 export type WorkScope = 'global_main' | 'subagent' | 'workflow' | 'cron';
+export type DreamingWorkStage = 'extract' | 'consolidate';
 export interface WorkSessionFields extends WorkCommonFields {
   scope: WorkScope;
   parent_session_id?: string | null;
@@ -17,6 +18,8 @@ export interface WorkSessionFields extends WorkCommonFields {
 export interface WorkLinkFields extends WorkCommonFields {
   parent_session_id: string;
   child_session_id: string;
+  maintenance_kind?: 'dreaming';
+  maintenance_stage?: DreamingWorkStage;
   workflow_run_id?: string;
   title?: string;
   description?: string;
@@ -52,6 +55,15 @@ export interface WorkEndFields extends WorkCommonFields {
   duration_ms?: number | null;
   usage?: WorkUsage | null;
   context_window?: number | null;
+  tool_count?: number;
+  model_request_state?: 'none' | 'requested';
+}
+/** Metrics from a settled maintenance session. Missing usage means no complete total was reported. */
+export interface DreamingWorkMetrics {
+  tool_count: number;
+  model_request_state: NonNullable<WorkEndFields['model_request_state']>;
+  model?: string;
+  usage?: {total_tokens: number};
 }
 export interface WorkToolFields extends WorkCommonFields {
   call_id?: string;

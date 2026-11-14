@@ -1,4 +1,4 @@
-import { act, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {MemoryRouter} from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -99,11 +99,28 @@ describe("MessagePane", () => {
   it('links each Global reply to its own message anchor in the same Agent Work', () => {
     const reply = SAMPLE_MESSAGES[1];
     render(<MemoryRouter><MessagePane conversation={DIRECT_CONV} messages={[reply, {...reply, id: 'older/reply?', content: 'Older reply'}]} globalAgentIds={['a-planner']} mentionCandidates={[]} onSend={() => {}} /></MemoryRouter>);
-    const links = screen.getAllByRole('link', {name: /View Work|查看 Work/});
+    const links = screen.getAllByRole('toolbar').flatMap(toolbar =>
+      within(toolbar).queryAllByRole('link', {name: /^(Execution record|执行记录)$/i})
+    );
+    expect(document.querySelector('.chat-work-link')).toBeNull();
     expect(links.map(link => link.getAttribute('href'))).toEqual([
       '/settings/agents/a-planner?view=work&message_id=m2',
       '/settings/agents/a-planner?view=work&message_id=older%2Freply%3F'
     ]);
+  });
+
+  it("opens the Work action from the menu on a read-only reply with no text", () => {
+    const reply = {...SAMPLE_MESSAGES[1], content: ""};
+    render(<MemoryRouter><MessagePane conversation={{...DIRECT_CONV, can_write: false}}
+      messages={[reply]} globalAgentIds={["a-planner"]} mentionCandidates={[]} onSend={() => {}} /></MemoryRouter>);
+
+    const bubble = screen.getByTestId("message-bubble-m2");
+    const rightClick = createEvent.contextMenu(bubble, {button: 2, buttons: 2});
+    Object.defineProperty(rightClick, "pointerType", {value: "mouse"});
+    fireEvent(bubble, rightClick);
+    const action = screen.getByRole("menuitem", {name: /^(Execution record|执行记录)$/i});
+    expect(action).toHaveAttribute("href", "/settings/agents/a-planner?view=work&message_id=m2");
+    expect(action).toHaveFocus();
   });
 
   it("renders the conversation title and each message content", () => {

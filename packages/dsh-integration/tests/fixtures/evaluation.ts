@@ -48,12 +48,6 @@ export function apply(ctx){
       const plain=o.messages.map(m=>(m.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('')).join('\\n');
       if(plain.includes('<memory_repository>'))scopes.set(o.sessionId,{stage:plain.match(/<memory_repository>\\n([^\\n]+)\\n<\\/memory_repository>/)[1],plain});
       const scope=scopes.get(o.sessionId),stage=scope.stage;
-      if(n===0){
-        const paths=[...scope.plain.matchAll(/Main Agent original trajectory: ([^\\n]+)/g)].map(m=>m[1]);
-        yield {type:'block-end',index:0,block:{type:'tool-call',id:'material-read',name:'bash',arguments:JSON.stringify({description:'Read the selected original trajectory files',command:paths.length?'cat '+paths.map(path=>JSON.stringify(path)).join(' '):'true'})}};
-        yield {type:'finish',reason:{kind:'tool-calls'}};return;
-      }
-      n--;
       if(all.includes('I moved to Paris.'))cities.set(o.sessionId,'Paris');
       else if(!cities.has(o.sessionId)&&all.includes('I live in Berlin.'))cities.set(o.sessionId,'Berlin');
       else if(!cities.has(o.sessionId)){const known=all.match(/You live in (Berlin|Paris)\\./);if(known)cities.set(o.sessionId,known[1]);}

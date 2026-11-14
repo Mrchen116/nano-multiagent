@@ -81,27 +81,40 @@ it('isolates a failed legacy migration and retries it without blocking other age
   } finally { await updates.stop(); }
 });
 
-it('updates a Dreaming Work title once without replaying its execution or notice', async () => {
+it('updates Dreaming Work titles and metrics without duplicating its host receipt', async () => {
   const home=await mkdtemp(join(tmpdir(),'nano-dreaming-work-'));
   const store=new NodeStore(join(home,'node.db'),'owner'), inbox=new InboxStore(join(home,'inbox.db'));
   store.bind({sessionId:'main',agentId:'a',conversationId:'global:a',ownerId:'owner',cwd:home,revision:'1'});
   const agent:AgentConfiguration={agentId:'a',workspace:home,revision:'1',mode:'global',provider:'test',model:'test'};
   const review={id:'dream',kind:'dreaming',status:'partial',agentId:'a',rootSessionId:'main',childSessionId:'child',at:1000,endedAt:2000,summary:'保存 1/2 页；入口待同步；未推进处理游标'};
   let title: string | undefined;
+  let stage: 'consolidate' | undefined;
+  let workMetrics: {tool_count: number; model_request_state: 'none'} | undefined;
   const updates=new KnowledgeUpdates({nodeId:'n',agents:[agent],store,inbox,onError:error=>{throw error;},im:async()=>({}),
-    runtime:{onNotification:()=>()=>{},request:async()=>({facts:[],reviews:[{...review,title}]})},relay:{request:async()=>{throw new Error('Dreaming must remain quiet');}}});
+    runtime:{onNotification:()=>()=>{},request:async()=>({facts:[],reviews:[{...review,title,stage,workMetrics}]})},relay:{request:async()=>{throw new Error('Dreaming must remain quiet');}}});
   try {
     await updates.recover();
     title = 'Dreaming · 整合长期记忆';
+    await updates.recover();
+    stage = 'consolidate';
+    workMetrics = {tool_count: 0, model_request_state: 'none'};
     await updates.recover();
     await updates.recover();
     const events=inbox.journal(0);
     expect(events.filter(event=>event.type==='session_linked').map(event=>event.payload)).toEqual([
       { parent_session_id: 'main', child_session_id: 'child', title: 'Dreaming · 自动整理记忆' },
       { parent_session_id: 'main', child_session_id: 'child', title: 'Dreaming · 整合长期记忆' },
+      { parent_session_id: 'main', child_session_id: 'child', title: 'Dreaming · 整合长期记忆',
+        maintenance_kind: 'dreaming', maintenance_stage: 'consolidate' },
     ]);
-    expect(events.find(event=>event.type==='message')).toMatchObject({session_id:'child',payload:{text:review.summary,source_kind:'host_receipt'}});
-    expect(events.find(event=>event.type==='turn_end')).toMatchObject({session_id:'child',payload:{status:'partial',completed:false}});
-    expect(events).toHaveLength(5);
+    const receipts=events.filter(event=>event.type==='message');
+    expect(receipts).toHaveLength(1);
+    expect(receipts[0]).toMatchObject({session_id:'child',payload:{text:review.summary,source_kind:'host_receipt'}});
+    expect(events.filter(event=>event.type==='turn_end')).toMatchObject([
+      {session_id:'child',turn_id:'dream',payload:{status:'partial',completed:false}},
+      {session_id:'child',turn_id:'dream',event_id:'dreaming:dream:2000:end:metrics-v1',
+        payload:{status:'partial',completed:false,tool_count:0,model_request_state:'none'}},
+    ]);
+    expect(events).toHaveLength(7);
   } finally {await updates.stop();inbox.close();store.close();await rm(home,{recursive:true,force:true});}
 });

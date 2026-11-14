@@ -12,7 +12,7 @@ it('keeps the child window snapshot while ordinary reads see the updated entry',
   const home=await mkdtemp(join(tmpdir(),'memory-child-refresh-'));let client:RuntimeClient|undefined;let logs='';
   const library=await MemoryDocuments.open(home,'expert',new LocalFileSystem(new Context(),{cwd:home,diffBasisMaxBytes:10485760}));
   await library.apply({operationId:'entry',path:'MEMORY.md',beforeHash:(await library.versions())['MEMORY.md']!,content:'# Expert memory\nOLD PERMISSION: public updates permitted.'});
-  await library.checkpoint(await library.versions(),0);await library.close();
+  await library.close();
   await writeFile(join(home,'fixture.mjs'),`import {appendFile,readFile,writeFile} from 'node:fs/promises';
 export const name='child-memory-fixture';export const inject=['llm','subagents'];
 export function apply(ctx){let launched=false;const steps=new Map();

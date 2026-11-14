@@ -73,3 +73,15 @@ it("distinguishes background launch from child completion and shows internal fol
  result.rerender(<ul><WorkTool expanded call={{id:"send",name:"send_message",status:"completed",input:{agent_id:"child",message:"Follow up instruction"},detail:{content:"message delivered to agent child"}}}/></ul>);
  expect(screen.getByText("Follow up instruction")).toBeVisible();expect(screen.getByText("message delivered to agent child")).toBeVisible();
 });
+
+it("renders send status from the structured result and leaves redundant serialized summaries out", () => {
+  setLanguage("zh");
+  render(<MemoryRouter><ul><WorkTool expanded call={{
+    id: "send", name: "send_message", status: "completed", input: {target: "chat", text: "只显示这份正文"},
+    output: '{"status":"sent","target":"chat",...',
+    detail: {status: "sent", target: "chat", message_id: "message"},
+  }} /></ul></MemoryRouter>);
+  expect(screen.getByText("已发送")).toBeVisible();
+  expect(screen.getAllByText("只显示这份正文")).toHaveLength(1);
+  expect(screen.queryByText(/"status":"sent"/)).not.toBeInTheDocument();
+});

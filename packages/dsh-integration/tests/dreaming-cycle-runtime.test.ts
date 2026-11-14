@@ -41,8 +41,8 @@ export function apply(ctx){
    const last=o.messages.findLast(m=>m.role==='user'&&m.source?.actorId==='owner');const id=last?.source.messageId;
    if(id?.startsWith('maintain')&&!o.messages.some(m=>m.role==='tool'&&m.toolCallId===id))call=['memory_maintenance',{action:'run',request_ref:id},id];
   }
-  if(call){yield{type:'block-end',index:0,block:{type:'tool-call',id:call[2],name:call[0],arguments:JSON.stringify(call[1])}};yield{type:'finish',reason:{kind:'tool-calls'}};}
-  else{yield{type:'block-end',index:0,block:{type:'text',text:'Acknowledged temporary test material.'}};yield{type:'finish',reason:{kind:'stop'}};}
+  if(call){yield{type:'block-end',index:0,block:{type:'tool-call',id:call[2],name:call[0],arguments:JSON.stringify(call[1])}};yield{type:'usage',usage:{inputTokens:3,outputTokens:2,totalTokens:5}};yield{type:'finish',reason:{kind:'tool-calls'}};}
+  else{yield{type:'block-end',index:0,block:{type:'text',text:'Acknowledged temporary test material.'}};yield{type:'usage',usage:{inputTokens:3,outputTokens:2,totalTokens:5}};yield{type:'finish',reason:{kind:'stop'}};}
  });
 }`);
   try{
@@ -65,6 +65,13 @@ export function apply(ctx){
     await submit('maintain-first');
     let reviews=(await client.rpc.request('knowledge.facts',{}) as any).reviews;
     expect(reviews.map((r:any)=>r.status)).toEqual(['completed','failed']);
+    expect(reviews[0]).toMatchObject({
+      stage:'consolidate', workMetrics:{tool_count:2, model:'deepseek-flash', model_request_state:'requested', usage:{total_tokens:15}},
+    });
+    expect(reviews[1]).toMatchObject({
+      stage:'consolidate', workMetrics:{tool_count:0, model:'deepseek-flash', model_request_state:'requested'},
+    });
+    expect(reviews[1].workMetrics).not.toHaveProperty('usage');
     await submit('arrived-later','SOURCE-LATER: arrived after the failed cycle and belongs in its fresh retry target.');
     await submit('maintain-retry');
     reviews=(await client.rpc.request('knowledge.facts',{}) as any).reviews;
@@ -72,10 +79,7 @@ export function apply(ctx){
     expect(reviews.slice(2).every((r:any)=>r.status==='completed')).toBe(true);
     const requests=(await readFile(join(home,'inputs.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const material=(request:any)=>request.messages.filter((m:any)=>m.role==='user'&&m.source?.channel==='dreaming').map((m:any)=>m.content.map((b:any)=>b.text??'').join('')).join('');
-    const sources=await Promise.all(requests.map(async request=>{
-      const paths=[...material(request).matchAll(/Main Agent original trajectory: ([^\n]+)/g)].map(match=>match[1]!);
-      return (await Promise.all(paths.map(path=>readFile(path,'utf8')))).join('\n');
-    }));
+    const sources=requests.map(material);
     expect(sources[0]).toContain('SOURCE-0');
     expect(sources.slice(2).join('\n')).not.toContain('SOURCE-0');
     expect(sources.slice(2).join('\n')).toContain('SOURCE-LATER');

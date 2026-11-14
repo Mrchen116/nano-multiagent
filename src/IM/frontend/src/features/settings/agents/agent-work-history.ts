@@ -9,34 +9,41 @@ interface History {
 
 const empty: History = {turns: [], older: {}};
 
-function merge(history: History, page: WorkTurnPage, replace = true): History {
-  const turns = new Map(history.turns.map(turn => [turn.turn_id, turn]));
+export const workHistoryTurnKey = (turn: WorkTurn, combined: boolean) => combined ? String(turn.seq) : turn.turn_id;
+
+function merge(history: History, page: WorkTurnPage, combined: boolean, replace = true): History {
+  const key = (turn: WorkTurn) => workHistoryTurnKey(turn, combined);
+  const turns = new Map(history.turns.map(turn => [key(turn), turn]));
   const older = {...history.older};
   page.turns.forEach((turn, index) => {
-    if (!replace && turns.has(turn.turn_id)) return;
-    turns.set(turn.turn_id, turn);
-    older[turn.turn_id] = page.turns[index + 1]?.turn_id ?? page.next_turn_id ?? null;
+    if (!replace && turns.has(key(turn))) return;
+    turns.set(key(turn), turn);
+    const next = page.turns[index + 1];
+    older[key(turn)] = next ? key(next) : combined ? (page.next_turn_seq == null ? null : String(page.next_turn_seq)) : page.next_turn_id ?? null;
   });
   return {turns: [...turns.values()].sort((a, b) => b.seq - a.seq), older};
 }
 
 /** Remember the neighbors reported by each read, even after the head moves. */
-export function useWorkHistory(agentId: string, sessionId: string | null | undefined, head: WorkTurnPage | undefined, path: string) {
+export function useWorkHistory(agentId: string, sessionId: string | null | undefined, head: WorkTurnPage | undefined, path: string, combined = false) {
   const client = useQueryClient();
-  const key = ["agent-work-history", agentId, sessionId] as const;
-  const history = useQuery<History>({queryKey: key, enabled: false}).data ?? empty;
+  const key = ["agent-work-history", agentId, sessionId, combined] as const;
+  const history = useQuery<History>({queryKey: key, queryFn: () => empty, enabled: false}).data ?? empty;
   useEffect(() => {
-    if (sessionId && head) client.setQueryData<History>(["agent-work-history", agentId, sessionId], current => merge(current ?? empty, head));
-  }, [agentId, client, sessionId, head]);
+    if (sessionId && head) client.setQueryData<History>(["agent-work-history", agentId, sessionId, combined], current => merge(current ?? empty, head, combined));
+  }, [agentId, client, sessionId, head, combined]);
   const older = useMutation({
     mutationFn: async ({before, queryKey, base}: {before: string; queryKey: typeof key; base: string}) => {
-      const page = await workRequest<WorkTurnPage>(`${base}/turns?view=summary&catalog=separate&before_turn=${encodeURIComponent(before)}`);
-      client.setQueryData<History>(queryKey, current => merge(current ?? empty, page, false));
+      const page = await workRequest<WorkTurnPage>(queryKey[3]
+        ? `${base}?view=summary&catalog=separate&timeline=combined&before_seq=${encodeURIComponent(before)}`
+        : `${base}/turns?view=summary&catalog=separate&before_turn=${encodeURIComponent(before)}`);
+      client.setQueryData<History>(queryKey, current => merge(current ?? empty, page, queryKey[3], false));
     },
   });
-  const visible = useMemo(() => head ? merge(history, head) : history, [head, history]);
+  const visible = useMemo(() => head ? merge(history, head, combined) : history, [head, history, combined]);
   return {
     history: visible,
+    combined,
     loading: older.isPending && older.variables?.queryKey[2] === sessionId,
     error: older.variables?.queryKey[2] === sessionId ? older.error : null,
     load: (before: string) => older.mutate({before, queryKey: key, base: path}),

@@ -18,6 +18,8 @@ export function LegacyWorkLinks({ agentId, filter, onChild, label }: {
     getNextPageParam: page => page.next_cursor ?? undefined,
   });
   const candidates = matches.data?.pages.flatMap(page => page.sessions) ?? [];
+  const first = matches.data?.pages[0];
+  const direct = first?.match_mode === "exact" && first.sessions.length === 1 && !first.next_cursor;
   const find = async () => {
     setOpened(true);
     const result = await matches.refetch();
@@ -27,7 +29,8 @@ export function LegacyWorkLinks({ agentId, filter, onChild, label }: {
   return <>
     {!opened && <button type="button" className="im-work-child-link" onClick={() => void find()}>{tr(label)}</button>}
     {opened && matches.isFetching && !candidates.length && <small role="status">{tr("正在加载工作记录…")}</small>}
-    {opened && candidates.map(session => <WorkLink key={session.session_id} session={session} id={session.session_id} label={label} distinguish onChild={onChild} />)}
+    {opened && candidates.length > 0 && !direct && <span className="im-work-link-choice">{tr("选择关联执行")}</span>}
+    {opened && candidates.map(session => <WorkLink key={session.session_id} session={session} id={session.session_id} label={label === "选择关联执行" ? "查看子执行" : label} distinguish onChild={onChild} />)}
     {opened && matches.hasNextPage && <button type="button" disabled={matches.isFetching} onClick={() => void matches.fetchNextPage()}>{tr("加载更多")}</button>}
     {opened && !matches.isFetching && (matches.isError || !candidates.length) && <span>{tr("关联执行不可访问 ")}<button type="button" onClick={() => void find()}>{tr("重试")}</button></span>}
   </>;

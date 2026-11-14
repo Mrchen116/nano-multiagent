@@ -72,7 +72,7 @@ export function registerDreamingHistory(ctx: Context, host: Context, parent: Age
     parameters:{type:'object',properties:{
       action:{enum:['list_windows','list_items','search','read']},session_id:{type:'string'},window_id:{type:'string'},item_id:{type:'string'},
       role:{type:'string'},tool_name:{type:'string'},query:{type:'string'},recent_first:{type:'boolean'},limit:{type:'integer',minimum:1,maximum:100},
-      cursor:{type:'string'},max_chars_per_item:{type:'integer',minimum:1,maximum:20000},offset_chars:{type:'integer',minimum:0},limit_chars:{type:'integer',minimum:1,maximum:20000},
+      cursor:{type:'string'},max_chars_per_item:{type:'integer',minimum:1,maximum:4000},offset_chars:{type:'integer',minimum:0},limit_chars:{type:'integer',minimum:1,maximum:20000},
     },required:['action','session_id'],additionalProperties:false},
     output:{schema:{type:'object'},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},
     execute:async raw => {

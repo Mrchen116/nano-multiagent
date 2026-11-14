@@ -1404,6 +1404,7 @@ export function ChatWorkspacePage() {
             })}
             agentNodeNames={Object.fromEntries(publicAgents.filter(a => a.node_name).map(a => [a.agent_id!, a.node_name!]))}
             globalAgentIds={publicAgents.filter(a => a.work_mode === "global" && (a.role!=='personal'||a.owner_id===selfUserId)).map(a => a.agent_id!)}
+            manageableWorkAgentIds={publicAgents.filter(a => a.work_mode === "global" && a.owner_id === selfUserId).map(a => a.agent_id!)}
             mentionCandidates={mentionCandidates}
             composerStore={composerStoreFor(selfUserId)}
             draftSeed={draftSeed}
