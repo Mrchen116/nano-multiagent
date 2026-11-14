@@ -19,6 +19,7 @@ import type { ModelRoute } from './model-policy.js';
 import { indexedInputs, inputEvidence, inputIdsForTurn } from './input-evidence.js';
 import { ModelRunIndex } from './model-run-index.js';
 import { RecordWrites } from './record-writes.js';
+import { isModelStreamIdleTimeout } from './model-connection-retry.js';
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -422,8 +423,9 @@ export class ModelFallback {
         while (valid() && !signal.aborted && !published) {
           try {
             published = await this.checkPublished(agent, run, signal);
-          } catch {
+          } catch (error) {
             if (!valid() || signal.aborted) return;
+            if (!isModelStreamIdleTimeout(run.attempts.at(-1)?.error)) throw error;
             // Delivery can disconnect between the request precheck and the persisted handoff.
             await delay(retryDelayMs, undefined, { signal });
             retryDelayMs = Math.min(retryDelayMs * 2, 60000);

@@ -6,7 +6,7 @@ import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-it.each(['provider-timeout', 'watchdog', 'unavailable-host', 'handoff-offline', 'cancel-check'] as const)('uses the backup after %s and waits when the backup also stalls', async fault => {
+it.each(['provider-timeout', 'watchdog', 'unavailable-host', 'handoff-offline', 'cancel-check', 'provider-check-error'] as const)('uses the backup after %s and waits when the backup also stalls', async fault => {
   const home = await mkdtemp(join(tmpdir(), 'nano-fallback-network-'));
   let client: RuntimeClient | undefined;
   let recover = false;
@@ -18,7 +18,7 @@ it.each(['provider-timeout', 'watchdog', 'unavailable-host', 'handoff-offline', 
     for await (const chunk of req) body += chunk;
     const { model } = JSON.parse(body);
     requests.push(model);
-    if (model === 'primary' && fault === 'provider-timeout') {
+    if (model === 'primary' && (fault === 'provider-timeout' || fault === 'provider-check-error')) {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       res.end('event: error\ndata: {"type":"error","error":{"type":"api_error","message":"Upstream generation timed out"}}\n\n');
       return;
@@ -46,7 +46,7 @@ it.each(['provider-timeout', 'watchdog', 'unavailable-host', 'handoff-offline', 
     registerNoopTaskHosts(client);
     client.rpc.handle('model.check', async () => {
       checks++;
-      if (fault === 'unavailable-host' || (fault === 'handoff-offline' && checks === 2)) throw new Error('delivery host offline');
+      if (fault === 'provider-check-error' || fault === 'unavailable-host' || (fault === 'handoff-offline' && checks === 2)) throw new Error('delivery host offline');
       if (fault === 'cancel-check') await new Promise<void>(resolve => { releaseCheck = resolve; });
       return { published: false };
     });
@@ -63,6 +63,14 @@ it.each(['provider-timeout', 'watchdog', 'unavailable-host', 'handoff-offline', 
       source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: 'one' },
     });
     const observe = async () => await client!.rpc.request('session.observe', { sessionId: 'root' }) as any;
+    if (fault === 'provider-check-error') {
+      await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'root', inputId: 'one' }) as any)
+        .terminal?.error?.code, { timeout: 5000 }).toBe('PERSISTENCE');
+      expect(requests).toEqual(['primary']);
+      await client.shutdown();
+      client = undefined;
+      return;
+    }
     if (fault === 'cancel-check') {
       await expect.poll(() => checks, { timeout: 5000 }).toBe(1);
       let cancelled = false;
