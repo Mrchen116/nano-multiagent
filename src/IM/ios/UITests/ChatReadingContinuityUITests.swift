@@ -58,13 +58,17 @@ final class ChatReadingContinuityUITests: XCTestCase {
         let originalY = try composer.snapshot().frame.minY
         composer.tap()
         try driver.require(driver.app.keyboards.firstMatch.waitForExistence(timeout: 5), "Exercise a genuine software keyboard, not a simulated inset")
+        try clearLocalDraft(composer)
+        // The simulator can expose a keyboard element before XCTest brings up
+        // visible input. A delete on the empty draft leaves it empty.
+        composer.typeText(XCUIKeyboardKey.delete.rawValue)
         let resized = XCTNSPredicateExpectation(predicate: NSPredicate { value, _ in
             guard let composer = value as? XCUIElement else { return false }
             return composer.frame.minY < originalY - 100
         }, object: composer)
         try driver.require(XCTWaiter.wait(for: [resized], timeout: 5) == .completed,
                            "Type after the real keyboard has resized the viewport")
-        try clearLocalDraft(composer)
+        try requireComposerValue("", composer: composer)
         try driver.require(driver.stableTail(conversation.tail), "Keyboard appearance keeps the actual card tail above the composer")
         driver.capture("candidate-keyboard-follow-tail", tree: true)
         let draft = "line one\nline two\nline three"
