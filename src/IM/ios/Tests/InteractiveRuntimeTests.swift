@@ -419,7 +419,7 @@ final class InteractiveRuntimeTests: XCTestCase {
         XCTAssertEqual(reads, 1, "Discarding a provisional page does not discard the draft")
     }
 
-    func testCardPresentationEvictsAnOffscreenPageAtCapacity() async throws {
+    func testCardPresentationReclaimsOffscreenPagesWithoutBlockingVisibleCards() async throws {
         let (fixture, _) = try await makeRuntime(catalog: "nano-iui-1")
         let cache = InteractiveCardPresentations()
         let entries = (0..<5).map { index in
@@ -430,13 +430,20 @@ final class InteractiveRuntimeTests: XCTestCase {
             entry.visible = true
             return entry
         }
-        for entry in entries.prefix(4) { XCTAssertTrue(cache.admit(entry, explicit: false)) }
-        XCTAssertFalse(cache.admit(entries[4], explicit: false))
+        defer { cache.clear() }
+        for entry in entries.prefix(4) { entry.activate() }
         entries[0].detach()
-        XCTAssertTrue(cache.admit(entries[4], explicit: false))
+        entries[4].activate()
         XCTAssertFalse(entries[0].admitted)
         XCTAssertEqual(entries.filter(\.admitted).count, 4)
-        cache.clear()
+
+        entries[0].visible = true
+        entries[0].activate()
+        XCTAssertTrue(entries.allSatisfy(\.attached))
+
+        entries[1].detach()
+        XCTAssertFalse(entries[1].admitted)
+        XCTAssertEqual(entries.filter(\.admitted).count, 4)
     }
 
     func testReplacingCardSourceDoesNotDisplaceUnresolvedDraft() async throws {

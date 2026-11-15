@@ -23,7 +23,9 @@ struct InteractiveCardView: View {
         self.readOnly = readOnly
         self.scroll = scroll
     }
-    private var shouldActivate: Bool { visible && scenePhase == .active && scroll?.cardRenderingPaused != true }
+    private var shouldActivate: Bool {
+        visible && scenePhase == .active && scroll?.cardRenderingPaused != true && runtime.canPresent
+    }
 
     var body: some View {
         let draftOwner = runtime.chat.interactionDrafts.runtime(runtime.message.conversation_id, messageID: runtime.message.id)
@@ -103,17 +105,10 @@ struct InteractiveCardView: View {
         let cardHeight = presentation.height
         return ZStack {
             if !presentation.ready {
-                Button {
-                    presentation.visible = visible
-                    presentation.activate(explicit: true)
-                } label: {
-                    VStack(spacing: 4) {
-                        Label(L("查看交互内容", "View interactive content"), systemImage: "square.grid.2x2")
-                            .font(.callout).lineLimit(2)
-                        if !runtime.message.attachments.isEmpty {
-                            Text(L("含附件", "Includes attachments")).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.frame(maxWidth: .infinity).padding(12)
+                RoundedRectangle(cornerRadius: 12).fill(NanoTheme.surface)
+                if visible && runtime.error == nil {
+                    ProgressView()
+                        .accessibilityLabel(L("载入交互内容…", "Loading interaction…"))
                         .visualEffect { content, geometry in
                             let center = geometry.frame(in: .global).midY
                             let top = max(center - cardHeight / 2, viewport.minY)
@@ -121,9 +116,6 @@ struct InteractiveCardView: View {
                             return content.offset(y: top < bottom ? (top + bottom) / 2 - center : 0)
                         }
                 }
-                .buttonStyle(.plain)
-                .frame(maxHeight: .infinity)
-                .background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12))
             }
             if presentation.admitted && runtime.loaded && ((visible && presentation.attached) || presentation.ready) {
                 MountedInteractiveWebView(presentation: presentation, webID: runtime.webID,

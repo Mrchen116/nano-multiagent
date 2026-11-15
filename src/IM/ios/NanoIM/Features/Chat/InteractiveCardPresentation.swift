@@ -18,17 +18,18 @@ final class InteractiveCardPresentations {
     }
 
     func size(_ identity: InteractiveCardIdentity) -> CGSize? { sizes[identity] }
-    func admit(_ entry: InteractiveCardPresentation, explicit: Bool) -> Bool {
-        if let index = entries.firstIndex(where: { $0 === entry }) {
-            entries.remove(at: index)
-        } else if entries.count >= Self.pageLimit {
-            guard let index = entries.firstIndex(where: { !$0.visible })
-                    ?? (explicit ? entries.firstIndex(where: { !$0.runtime.busy }) : nil) else { return false }
-            entries.remove(at: index).evict()
-        }
+    func admit(_ entry: InteractiveCardPresentation) {
+        entries.removeAll { $0 === entry }
         entries.append(entry)
         entry.admitted = true
-        return true
+        trimOffscreenPages()
+    }
+
+    func trimOffscreenPages() {
+        // Keep visible cards live even when the viewport fills the page cache.
+        while entries.count > Self.pageLimit, let index = entries.firstIndex(where: { !$0.visible }) {
+            entries.remove(at: index).evict()
+        }
     }
 
     func record(_ size: CGSize, for identity: InteractiveCardIdentity) {
@@ -103,8 +104,9 @@ final class InteractiveCardPresentation {
         measuredWidth = measured?.width
     }
 
-    func activate(explicit: Bool = false, checkDraft: Bool = false) {
-        guard visible, runtime.canPresent, cache?.admit(self, explicit: explicit) == true else { return }
+    func activate(checkDraft: Bool = false) {
+        guard visible, runtime.canPresent, let cache else { return }
+        cache.admit(self)
         let wasAttached = runtime.presentationLease != nil
         if !wasAttached, let coordinator, coordinator.interruptedImageLoad || coordinator.pendingImageLoads > 0 {
             releasePage()
@@ -144,6 +146,7 @@ final class InteractiveCardPresentation {
     func detach() {
         visible = false
         suspend()
+        cache?.trimOffscreenPages()
     }
 
     func suspend() {
