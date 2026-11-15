@@ -154,6 +154,9 @@ final class InteractiveCardPresentation {
             // A rejected one-shot bootstrap or initial image reply is not reusable.
             releasePage()
             runtime.retireWebPage()
+        } else {
+            // Keep the ready document available without keeping its native surface mounted.
+            page?.removeFromSuperview()
         }
     }
 
@@ -219,11 +222,13 @@ struct MountedInteractiveWebView: UIViewRepresentable {
     let presentation: InteractiveCardPresentation
     let webID: UUID
     let disabled: Bool
+    let attached: Bool
 
     func makeUIView(context: Context) -> UIView { UIView() }
 
     func updateUIView(_ host: UIView, context: Context) {
-        guard presentation.runtime.webID == webID, let page = presentation.webView() else { return }
+        guard attached, presentation.attached, presentation.runtime.webID == webID,
+              let page = presentation.webView() else { return }
         if page.superview !== host {
             page.removeFromSuperview()
             host.subviews.forEach { $0.removeFromSuperview() }

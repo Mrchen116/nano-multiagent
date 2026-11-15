@@ -382,6 +382,7 @@ final class InteractiveRuntimeTests: XCTestCase {
         let firstLease = runtime.presentationLease
         XCTAssertTrue(runtime.acceptsPresentation(generation))
         entry.detach()
+        XCTAssertNil(first.superview, "A cached WebKit document must leave the native hierarchy when offscreen")
         XCTAssertFalse(runtime.acceptsPresentation(generation))
         entry.visible = true
         entry.activate()
