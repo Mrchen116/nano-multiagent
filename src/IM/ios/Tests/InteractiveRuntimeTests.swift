@@ -411,7 +411,8 @@ final class InteractiveRuntimeTests: XCTestCase {
         entry.visible = true
         XCTAssertNil(entry.webView(), "Layout alone cannot launch a page before it has a lease")
         entry.activate()
-        XCTAssertFalse(provisional === entry.webView())
+        let replacement = try XCTUnwrap(entry.webView())
+        XCTAssertFalse(provisional === replacement)
         XCTAssertTrue(runtime.acceptsPresentation(runtime.webID))
         let reads = await transport.draftReads
         XCTAssertEqual(reads, 1, "Discarding a provisional page does not discard the draft")

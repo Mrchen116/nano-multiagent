@@ -99,6 +99,33 @@ final class ChatLocalFirstTests: XCTestCase {
         XCTAssertEqual(boundary, "m3", "The confirmed read boundary is still recorded")
     }
 
+    func testUnchangedReadAcknowledgementDoesNotInvalidateTheTimelineView() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["chat"], messages: 1)
+        await stub.setDetail(try JSONEncoder().encode(try conversation("chat")))
+        await store.openConversation("chat")
+        let value = try XCTUnwrap(store.conversations.first)
+        await stub.hold("/im/v1/conversations/chat/read", body: try JSONEncoder().encode(value))
+        let read = Task { await store.markRead("chat", messageID: "m1") }
+        await stub.waitUntilHeld()
+        withObservationTracking {
+            _ = store.conversations
+            _ = store.inspectedConversation
+        } onChange: {
+            XCTFail("An unchanged acknowledgement must not invalidate the visible conversation metadata")
+        }
+
+        await stub.release()
+        await read.value
+
+        let repository = try XCTUnwrap(store.repository)
+        let fixture = try DatabaseQueue(path: repository.location.databaseURL.path)
+        let boundary = try await fixture.read { db in
+            try String.fetchOne(db, sql: "SELECT last_read_message_id FROM read_state WHERE conversation_id = ?", arguments: ["chat"])
+        }
+        XCTAssertEqual(boundary, "m1")
+    }
+
     func testMembershipRemovalRevokesAndWritesATombstone() async throws {
         let (store, stub) = try await makeStore()
         await seed(store, conversations: ["chat"], messages: 2)

@@ -55,8 +55,15 @@ final class ChatReadingContinuityUITests: XCTestCase {
         try driver.open(conversation)
         try driver.require(driver.stableTail(conversation.tail), "Begin keyboard journey at the rendered tail")
         let composer = driver.app.textViews["Message"]
+        let originalY = try composer.snapshot().frame.minY
         composer.tap()
         try driver.require(driver.app.keyboards.firstMatch.waitForExistence(timeout: 5), "Exercise a genuine software keyboard, not a simulated inset")
+        let resized = XCTNSPredicateExpectation(predicate: NSPredicate { value, _ in
+            guard let composer = value as? XCUIElement else { return false }
+            return composer.frame.minY < originalY - 100
+        }, object: composer)
+        try driver.require(XCTWaiter.wait(for: [resized], timeout: 5) == .completed,
+                           "Type after the real keyboard has resized the viewport")
         try clearLocalDraft(composer)
         try driver.require(driver.stableTail(conversation.tail), "Keyboard appearance keeps the actual card tail above the composer")
         driver.capture("candidate-keyboard-follow-tail", tree: true)

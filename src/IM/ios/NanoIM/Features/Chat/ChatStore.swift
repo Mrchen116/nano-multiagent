@@ -858,11 +858,12 @@ final class ChatStore {
         guard (projection.execution_cleanup_revision ?? 0) >= (executionCleanupRevisions[projection.id] ?? 0) else { throw CancellationError() }
         observeExecutionCleanup(projection.id, revision: projection.execution_cleanup_revision ?? 0)
         projection = normalizingDeletedActors([projection])[0]
-        if let index = conversations.firstIndex(where: { $0.id == projection.id }) { conversations[index] = projection }
-        conversations = normalizingDeletedActors(conversations, including: [projection])
-        if let inspectedConversation {
-            self.inspectedConversation = normalizingDeletedActors([inspectedConversation], including: [projection])[0]
-        }
+        // Visible messages can return identical conversation metadata on each read.
+        // Publish one normalized projection only when it changes.
+        var updated = conversations
+        if let index = updated.firstIndex(where: { $0.id == projection.id }) { updated[index] = projection }
+        updated = normalizingDeletedActors(updated, including: [projection])
+        if updated != conversations { conversations = updated }
         return projection
     }
 
@@ -880,7 +881,10 @@ final class ChatStore {
             return value
         }
         // A list can learn a deletion in another chat while its stale detail remains open.
-        if let inspectedConversation { self.inspectedConversation = normalized(inspectedConversation) }
+        if let inspectedConversation {
+            let updated = normalized(inspectedConversation)
+            if updated != inspectedConversation { self.inspectedConversation = updated }
+        }
         return values.map(normalized)
     }
 
