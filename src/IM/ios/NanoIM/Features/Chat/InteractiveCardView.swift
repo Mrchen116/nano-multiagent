@@ -63,15 +63,14 @@ struct InteractiveCardView: View {
             runtime.openURL = { open($0) }
             if presentation == nil { await runtime.load() }
         }
-        .onGeometryChange(for: Bool.self) { geometry in
-            guard let scroll else { return false }
-            let frame = geometry.frame(in: .global)
-            return !frame.isEmpty && !scroll.viewport.isEmpty && frame.intersection(scroll.viewport).height >= min(16, frame.height)
-        } action: { _, isVisible in
+        // Use the scroll view's own visibility lifecycle so first entry does not depend
+        // on a separate geometry callback publishing the viewport before the card.
+        .onScrollVisibilityChange(threshold: 0.01) { isVisible in
+            guard let presentation else { return }
             visible = isVisible
-            presentation?.visible = isVisible
-            if isVisible, scenePhase == .active, presentation?.hasPage == true { presentation?.activate() }
-            if !isVisible { presentation?.detach() }
+            presentation.visible = isVisible
+            if isVisible, scenePhase == .active, presentation.hasPage { presentation.activate() }
+            if !isVisible { presentation.detach() }
         }
         .onChange(of: scenePhase) { _, phase in
             guard let presentation else { return }

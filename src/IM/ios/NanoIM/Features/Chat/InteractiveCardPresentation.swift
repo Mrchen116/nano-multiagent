@@ -82,7 +82,7 @@ final class InteractiveCardPresentation {
     var visible = false
     private(set) var height: CGFloat
     private var readyGeneration: UUID?
-    var ready: Bool { readyGeneration == runtime.webID }
+    var ready: Bool { runtime.loaded && readyGeneration == runtime.webID }
     var hasPage: Bool { page != nil }
     private var measuredWidth: CGFloat?
     private var width: CGFloat = 0
