@@ -125,7 +125,7 @@ struct InteractiveCardView: View {
                 .frame(maxHeight: .infinity)
                 .background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12))
             }
-            if presentation.admitted && runtime.loaded && (visible || presentation.ready) {
+            if presentation.admitted && runtime.loaded && ((visible && presentation.attached) || presentation.ready) {
                 MountedInteractiveWebView(presentation: presentation, webID: runtime.webID, disabled: runtime.webDisabled)
                     .opacity(presentation.ready ? 1 : 0)
                     .accessibilityHidden(!presentation.ready)

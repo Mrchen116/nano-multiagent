@@ -396,6 +396,27 @@ final class InteractiveRuntimeTests: XCTestCase {
         XCTAssertFalse(entry.admitted)
     }
 
+    func testProvisionalCardOnlyRemountsAfterTheBridgeIsAttached() async throws {
+        let (runtime, transport) = try await makeRuntime(source: #"root = Text("Warm card")"#, catalog: "nano-iui-1")
+        let cache = InteractiveCardPresentations()
+        let entry = InteractiveCardPresentation(identity: .init(runtime.message), runtime: runtime, cache: cache)
+        defer { cache.clear() }
+        entry.visible = true
+        entry.activate()
+        for _ in 0..<100 where !runtime.loaded { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(runtime.loaded)
+        let provisional = try XCTUnwrap(entry.webView())
+        XCTAssertFalse(entry.ready)
+        entry.detach()
+        entry.visible = true
+        XCTAssertNil(entry.webView(), "Layout alone cannot launch a page before it has a lease")
+        entry.activate()
+        XCTAssertFalse(provisional === entry.webView())
+        XCTAssertTrue(runtime.acceptsPresentation(runtime.webID))
+        let reads = await transport.draftReads
+        XCTAssertEqual(reads, 1, "Discarding a provisional page does not discard the draft")
+    }
+
     func testCardPresentationEvictsAnOffscreenPageAtCapacity() async throws {
         let (fixture, _) = try await makeRuntime(catalog: "nano-iui-1")
         let cache = InteractiveCardPresentations()

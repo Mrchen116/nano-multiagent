@@ -80,6 +80,7 @@ final class InteractiveCardPresentation {
     private weak var cache: InteractiveCardPresentations?
     var admitted = false
     var visible = false
+    private(set) var attached = false
     private(set) var height: CGFloat
     private var readyGeneration: UUID?
     var ready: Bool { runtime.loaded && readyGeneration == runtime.webID }
@@ -110,6 +111,7 @@ final class InteractiveCardPresentation {
             runtime.retireWebPage()
         }
         runtime.setPresentationAttached(true)
+        attached = true
         if !wasAttached, let page, ready {
             // The bridge stops while detached. Catch layout changes delivered during that gap.
             let lease = runtime.presentationLease
@@ -145,6 +147,7 @@ final class InteractiveCardPresentation {
     }
 
     func suspend() {
+        attached = false
         runtime.setPresentationAttached(false)
         cancelLoad()
         if page != nil && (!ready || (coordinator?.pendingImageLoads ?? 0) > 0) {
@@ -155,6 +158,7 @@ final class InteractiveCardPresentation {
     }
 
     func evict() {
+        attached = false
         runtime.setPresentationAttached(false)
         admitted = false
         cancelLoad()
@@ -179,6 +183,9 @@ final class InteractiveCardPresentation {
     func webView() -> WKWebView? {
         guard admitted, runtime.canPresent else { return nil }
         if let page, coordinator?.generation == runtime.webID { return page }
+        // A provisional document's first bridge call is one-shot. Wait until the
+        // new host has a lease before a recycled placeholder can mount a new page.
+        guard attached else { return nil }
         if let page { InteractiveWebContent.stop(page); page.removeFromSuperview() }
         let coordinator = InteractiveWebContent.Coordinator(runtime: runtime) { [weak self] height in
             self?.measured(height)
