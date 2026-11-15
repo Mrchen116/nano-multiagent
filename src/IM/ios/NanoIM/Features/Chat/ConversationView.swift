@@ -13,6 +13,7 @@ struct ConversationView: View {
     @State private var commands: [ChatCommandSet] = []
     @State private var scrollState = ChatScrollCoordinator()
     @State private var scrollAttachment: UUID?
+    @State private var cardPresentations = InteractiveCardPresentations()
     @State private var confirmFork: ChatMessage?
     @State private var operationError: String?
     @State private var selection = NSRange(location: 0, length: 0)
@@ -31,6 +32,10 @@ struct ConversationView: View {
         let timeline = store.timelines[conversationID] ?? []
         let messageIDs = Set(timeline.compactMap { $0.message?.id })
         return timeline.filter { $0.message != nil || messageIDs.contains($0.before_message_id ?? "") }
+    }
+    private var cardIdentities: Set<InteractiveCardIdentity> {
+        Set(items.compactMap(\.message).filter { $0.interactive?.catalog_version == "nano-iui-1" }
+            .map(InteractiveCardIdentity.init))
     }
     private var uploads: [AttachmentUpload] { store.uploadDrafts[conversationID] ?? [] }
     private var uploading: Bool { uploads.contains(where: \.uploading) }
@@ -87,7 +92,7 @@ struct ConversationView: View {
                                         Text(date, format: Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.year().month().day().hour().minute())
                                             .font(.caption2).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
                                     }
-                                    ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, refreshed: { Task { await store.loadChat(conversationID) } })
+                                    ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, presentations: cardPresentations, scroll: scrollState, refreshed: { Task { await store.loadChat(conversationID) } })
                                 }
                                     .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .row(item.id)))
                                     .id(item.id).contextMenu { messageActions(message) }
@@ -139,6 +144,14 @@ struct ConversationView: View {
                         scrollState.restore(anchor)
                         store.restoreReadingPositions[conversationID] = nil
                     }
+                }
+                .onChange(of: cardIdentities) { _, identities in cardPresentations.prune(identities) }
+                .onChange(of: store.interactionEpoch) { _, _ in cardPresentations.clear() }
+                .onChange(of: store.selectedID) { _, id in
+                    if id != conversationID { cardPresentations.clear() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                    cardPresentations.releaseOffscreen()
                 }
                 .onAppear {
                     scrollState.invalidateRestoration = { store.recordReadingPosition(nil, in: conversationID) }
@@ -219,6 +232,7 @@ struct ConversationView: View {
         }
         .onDisappear {
             if store.selectedID == conversationID { store.selectedID = nil }
+            cardPresentations.clear()
             // Leaving is a draft flush point: the next screen may be a different account.
             Task { await store.flushDrafts() }
         }

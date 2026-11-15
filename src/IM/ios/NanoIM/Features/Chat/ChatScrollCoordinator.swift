@@ -6,6 +6,7 @@ import SwiftUI
 final class ChatScrollCoordinator {
     @ObservationIgnored let physicalGeometry = ChatScrollGeometryAdapter()
     private(set) var showLatest = false
+    private(set) var cardRenderingPaused = false
     private(set) var viewport = CGRect.zero
     @ObservationIgnored private(set) var policy = ChatScrollPolicy()
     @ObservationIgnored var invalidateRestoration: (() -> Void)?
@@ -104,6 +105,7 @@ final class ChatScrollCoordinator {
     }
     func disappeared() {
         active = false
+        cardRenderingPaused = false
         physicalGeometry.deactivate()
         nativeTopRevision = nil
         policy.endScrollSurface()
@@ -117,6 +119,7 @@ final class ChatScrollCoordinator {
         correction?.cancel(); correction = nil
         policy.latest()
         nativeTopRevision = nil
+        cardRenderingPaused = policy.pausesCorrection
         pendingMessageGeometry = nil
         timing.beganLatest()
         lastCorrection = nil
@@ -131,6 +134,7 @@ final class ChatScrollCoordinator {
         guard active else { return }
         correction?.cancel(); correction = nil
         policy.beginNativeTop()
+        cardRenderingPaused = true
         nativeTopRevision = policy.revision
         pendingMessageGeometry = nil
         lastCorrection = nil
@@ -143,6 +147,7 @@ final class ChatScrollCoordinator {
         guard active, nativeTopRevision == policy.revision else { return }
         nativeTopRevision = nil
         policy.endNativeTop(atBottom: atBottom)
+        cardRenderingPaused = false
         captureAnchor()
         updateButton()
         scheduleCorrection()
@@ -152,6 +157,7 @@ final class ChatScrollCoordinator {
         guard nativeTopRevision != nil else { return }
         nativeTopRevision = nil
         policy.cancelNativeTop()
+        cardRenderingPaused = policy.pausesCorrection
         lastCorrection = nil
         scheduleCorrection()
     }
@@ -179,6 +185,8 @@ final class ChatScrollCoordinator {
     }
 
     func phaseChanged(_ phase: ScrollPhase, geometry: ScrollGeometry) {
+        let moving = phase != .idle || nativeTopRevision != nil
+        if cardRenderingPaused != moving { cardRenderingPaused = moving }
         let mapped: ChatScrollPolicy.Phase
         switch phase {
         case .idle: mapped = .idle

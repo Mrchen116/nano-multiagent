@@ -8,6 +8,8 @@ struct ChatMessageView: View {
     var participants: [ActorRef] = []
     var showSenderName = false
     var readOnly = false
+    var presentations: InteractiveCardPresentations?
+    var scroll: ChatScrollCoordinator?
     let refreshed: () -> Void
     @State private var showProcess = false
     private var mine: Bool { message.sender.id == selfID }
@@ -69,7 +71,9 @@ struct ChatMessageView: View {
             if !message.content.isEmpty { MarkdownView(text: ChatText.display(message.content, participants: participants), client: client) }
             if message.interactive != nil {
                 InteractiveCardView(client: client, message: message, chat: chat,
-                    readOnly: readOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil)
+                    readOnly: readOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil,
+                    presentations: presentations, scroll: scroll)
+                    .id(InteractiveCardIdentity(message))
                     .textSelection(.disabled)
             } else {
                 ForEach(message.attachments.indices, id: \.self) { index in

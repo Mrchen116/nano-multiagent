@@ -35,6 +35,7 @@ final class InteractiveRuntime {
     @ObservationIgnored private var lastConfirmedUpdate: String?
     @ObservationIgnored private var offlineFailure = false
     var editSerial: Int { edited }
+    var hasUnresolvedEdits: Bool { saved != edited }
     @ObservationIgnored private var saveTimer: Task<Void, Never>?
     @ObservationIgnored private var saveFlight: Task<Void, Never>?
     @ObservationIgnored private var saveFlightID = UUID()
@@ -46,6 +47,7 @@ final class InteractiveRuntime {
     @ObservationIgnored private var generation = UUID()
     // Recycling a page must revoke its bridge without invalidating an acknowledged draft PUT.
     private var rendererGeneration = UUID()
+    @ObservationIgnored private(set) var presentationLease: UUID? = UUID()
     @ObservationIgnored private var webSequence = 0
     @ObservationIgnored private var callerReadOnly: Bool
     @ObservationIgnored private var draftReadOnly = false
@@ -59,6 +61,31 @@ final class InteractiveRuntime {
     var hasPending: Bool { chat.interactionAttempt(message.conversation_id, sourceMessageID: message.id) != nil }
     var usesWebRenderer: Bool { message.interactive?.catalog_version == "nano-iui-1" }
     var webID: UUID { rendererGeneration }
+    var canPresent: Bool {
+        isCurrentStore && !chat.revokedChats.contains(message.conversation_id)
+            && !chat.checkingAccess.contains(message.conversation_id)
+    }
+    func acceptsPresentation(_ token: UUID) -> Bool {
+        canPresent && presentationLease != nil && !left && token == rendererGeneration
+    }
+    private func acceptsPresentation(_ token: UUID, lease: UUID?) -> Bool {
+        acceptsPresentation(token) && presentationLease == lease
+    }
+    func setPresentationAttached(_ attached: Bool) {
+        if attached {
+            if presentationLease == nil { presentationLease = UUID() }
+            left = false
+        } else {
+            presentationLease = nil
+            attachmentPreview = nil
+            pendingCompose = nil
+        }
+    }
+    func retireWebPage() {
+        rendererGeneration = UUID()
+        webSequence = 0
+        resetAttachmentPresentation()
+    }
     var webDisabled: Bool { readOnly || busy || hasPending || conflict }
     var fallbackAttachmentIndexes: [Int] {
         let shown = Set(visibleAttachmentIndexes.map { message.attachments[$0].url })
@@ -66,23 +93,46 @@ final class InteractiveRuntime {
     }
 
     func load(adoptingRemote: Bool = false) async {
-        guard isCurrentStore else { return }
+        guard canPresent else { return }
         left = false
         // Reactivation preserves an unresolved edit until the save path reconciles it.
         guard !loaded || saved == edited || (adoptingRemote && conflictColumns != nil) else { return }
+        guard await chat.interactionDrafts.finishBeforeReplacement(self) else {
+            error = L("请先同步此卡片的修改，再读取最新内容。", "Sync your card edits before loading the latest content.")
+            return
+        }
+        guard !Task.isCancelled, canPresent else { return }
         chat.interactionDrafts.register(self)
         let token = UUID(); generation = token; rendererGeneration = token
         resetAttachmentPresentation()
         sessionRevision = await client.session.revision()
+        guard !Task.isCancelled, token == generation, canPresent else { return }
         if !loaded { error = nil }
         do {
             guard let source = message.interactive, source.format == "openui", ["nano-1", "nano-iui-1"].contains(source.catalog_version) else {
                 throw APIError(status: 422, detail: L("此交互回复版本暂不支持，请更新客户端或在聊天中要求重新发送。", "This interactive version is unsupported. Update the app or ask for a new reply in the chat."))
             }
             let draft = try await client.interactionDraft(message.conversation_id, messageID: message.id)
-            guard token == generation, await current() else { return }
+            guard !Task.isCancelled, token == generation, await current() else { return }
             try applyDraft(draft, source: source.source)
-        } catch { if token == generation { self.error = error.localizedDescription } }
+        } catch { if !Task.isCancelled, token == generation { self.error = error.localizedDescription } }
+    }
+    /// A revisited warm card can check the server without navigating an unchanged page.
+    func refreshPresentationDraft() async {
+        guard let lease = presentationLease, loaded, !busy, !hasPending, saved == edited else { return }
+        let owner = generation, localRevision = revision, localEdit = edited
+        guard let source = message.interactive?.source, await current(), presentationLease == lease else { return }
+        guard let draft = try? await client.interactionDraft(message.conversation_id, messageID: message.id),
+              !Task.isCancelled, await current(), presentationLease == lease, owner == generation,
+              !busy, !hasPending, saved == edited, edited == localEdit, revision == localRevision,
+              draft.draft_revision >= revision else { return }
+        let remoteReadOnly = draft.read_only == true || draft.superseded_by != nil
+        guard draft.draft_revision != revision || remoteReadOnly != draftReadOnly
+                || (draft.submission_message_id != nil) != submitted else { return }
+        do {
+            try applyDraft(draft, source: source)
+            retireWebPage()
+        } catch { self.error = error.localizedDescription }
     }
     private func applyDraft(_ draft: InteractionDraft, source: String) throws {
         revision = draft.draft_revision; submitted = draft.submission_message_id != nil
@@ -109,7 +159,8 @@ final class InteractiveRuntime {
     }
     /// The bundled renderer supplies values, never credentials or arbitrary API access.
     func webRequest(_ request: JSONValue, generation token: UUID) async throws -> JSONValue {
-        guard usesWebRenderer, loaded, await current(), !left, token == rendererGeneration else {
+        let lease = presentationLease
+        guard usesWebRenderer, loaded, await current(), acceptsPresentation(token), presentationLease == lease else {
             throw runtimeError("This card session is no longer active")
         }
         let type = request["type"].stringValue ?? ""
@@ -118,7 +169,7 @@ final class InteractiveRuntime {
         }
         if type == "error" { error = request["message"].stringValue; return .null }
         if ["attachment-image", "attachment-open", "attachment-visible"].contains(type) {
-            return try await attachmentRequest(type, request, generation: token)
+            return try await attachmentRequest(type, request, generation: token, lease: lease)
         }
         if let value = request["state"].objectValue, let sequence = request["sequence"].intValue,
            sequence > webSequence, !webDisabled {
@@ -158,10 +209,11 @@ final class InteractiveRuntime {
         // Busy serializes actions across reloads; replacing a page must not strand its owner.
         defer { busy = false; composing = false }
         await flush()
-        guard token == rendererGeneration, await current(), !readOnly, !conflict, saved == edited else { throw runtimeError("Load the latest card before continuing") }
+        guard await current(), acceptsPresentation(token), presentationLease == lease, !readOnly, !conflict, saved == edited else { throw runtimeError("Load the latest card before continuing") }
         if name == "ComposeMessage" {
             guard let target = args["target"].stringValue, let text = args["text"].stringValue else { throw runtimeError("target and text required") }
-            try await compose(target, text: text); return .null
+            try await compose(target, text: text) { self.acceptsPresentation(token, lease: lease) }
+            return .null
         }
         guard let text = type == "tool" || name == "SendToChat" ? args["message"].stringValue : action["humanFriendlyMessage"].stringValue else { throw runtimeError("message required") }
         var details: [String: JSONValue] = ["type": .string("continue_conversation"), "message": .string(text), "label": request["label"].stringValue.map(JSONValue.string) ?? .string(L("发送到聊天", "Send to chat"))]
@@ -171,13 +223,15 @@ final class InteractiveRuntime {
         if let form = action["formState"].objectValue { submittedState.merge(form) { _, new in new } }
         let receipt = try await chat.submitInteraction(message.conversation_id,
             input: InteractionReplyInput(source_message_id: message.id, event: .object(details), state: submittedState), key: UUID().uuidString)
-        guard token == rendererGeneration, await current() else { throw runtimeError("This card session is no longer active") }
+        guard await current() else { throw runtimeError("This card session is no longer active") }
+        // The POST already succeeded, even if its originating row detached while it was in flight.
         submitted = true; saved = edited
         await syncRevision()
+        guard acceptsPresentation(token, lease: lease) else { throw runtimeError("This card session is no longer active") }
         return .object(["message_id": .string(receipt.id), "delivery_status": .string(receipt.delivery_status)])
     }
     /// Card media uses the current message and native credentials, even in read-only history.
-    private func attachmentRequest(_ type: String, _ request: JSONValue, generation token: UUID) async throws -> JSONValue {
+    private func attachmentRequest(_ type: String, _ request: JSONValue, generation token: UUID, lease: UUID?) async throws -> JSONValue {
         guard let value = request["index"].doubleValue, let position = Int(exactly: value),
               position > 0, position <= message.attachments.count else {
             throw runtimeError("This image is not attached to the message")
@@ -199,7 +253,7 @@ final class InteractiveRuntime {
             return .null
         }
         let (data, mime) = try await client.protectedResource(attachment.url)
-        guard await current(), !left, loaded, token == rendererGeneration else {
+        guard await current(), loaded, acceptsPresentation(token, lease: lease) else {
             throw runtimeError("This card session is no longer active")
         }
         guard imageTypes.contains(mime) else { throw URLError(.cannotDecodeContentData) }
@@ -293,14 +347,15 @@ final class InteractiveRuntime {
         } catch { self.error = error.localizedDescription }
     }
     /// Adoption remains local; fresh source and target access are checked at the click boundary.
-    func compose(_ target: String, text: String, replacing: Bool = false) async throws {
+    func compose(_ target: String, text: String, replacing: Bool = false, stillPresented: () -> Bool = { true }) async throws {
         guard !readOnly, !conflict else { throw runtimeError(L("此回复仅供阅读。", "This reply is read only.")) }
         let latest = try await client.interactionDraft(message.conversation_id, messageID: message.id)
         guard latest.can_interact == true, latest.read_only != true, latest.superseded_by == nil else {
             throw runtimeError(L("此回复已不可交互，请查看最新内容。", "This reply is no longer interactive. Open the latest content."))
         }
+        guard stillPresented() else { return }
         try await chat.checkComposeTarget(target)
-        guard await current() else { return }
+        guard await current(), stillPresented() else { return }
         if !replacing && chat.hasComposeConflict(target, text: text) { pendingCompose = ChatStore.ComposeRequest(target: target, text: text); return }
         chat.adoptCompose(target, text: text)
     }
@@ -383,8 +438,8 @@ final class InteractiveRuntime {
         DraftFlushResult(updatedAt: lastConfirmedUpdate, reason: conflict ? .conflict : (loaded && !readOnly && saved != edited ? .transient : nil))
     }
     func leave() {
-        left = true; rendererGeneration = UUID(); webSequence = 0
-        resetAttachmentPresentation()
+        left = true
+        retireWebPage()
         saveTimer?.cancel(); queryTask?.cancel(); queryPoll?.cancel()
         // Row recycling is not a conversation switch. The store owns discard ordering.
         Task {
@@ -443,8 +498,8 @@ final class InteractiveRuntime {
         } catch { self.error = error.localizedDescription }
     }
     private func current() async -> Bool {
-        guard isCurrentStore, let sessionRevision, await client.session.revision() == sessionRevision,
-              await client.session.currentUser()?.id == chat.user.id, !chat.revokedChats.contains(message.conversation_id) else { return false }
+        guard canPresent, let sessionRevision, await client.session.revision() == sessionRevision,
+              await client.session.currentUser()?.id == chat.user.id, canPresent else { return false }
         return true
     }
     private func receive(_ result: JSONValue) throws {

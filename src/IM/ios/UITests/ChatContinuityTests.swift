@@ -19,6 +19,30 @@ final class ChatContinuityTests: XCTestCase {
         try driver.require(driver.text("H763-").waitForExistence(timeout: 15), "The genuine message DTO must render")
         driver.capture("763-baseline-real-timeline", tree: true)
     }
+    func testDenseCardsFastRoundTripReturnsToRenderedTail() throws {
+        let title = try NativeChatFixture.required("NANO_UI_INTERACTIVE_TITLE")
+        let tail = try NativeChatFixture.required("NANO_UI_INTERACTIVE_TAIL")
+        try driver.launchAndLogin()
+        let row = driver.app.staticTexts.matching(NSPredicate(format: "label == %@", title)).firstMatch
+        try driver.require(row.waitForExistence(timeout: 8), "The dense card conversation must exist")
+        let control = driver.app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ OR label BEGINSWITH %@", "展开 10", "收起 10")).firstMatch
+        driver.record("dense-card-window-start", ["unixSeconds": Date().timeIntervalSince1970])
+        row.tap()
+        try driver.require(control.waitForExistence(timeout: 12),
+                           "Wait for the final live card to render before the scroll")
+        driver.capture("dense-cards-initial-rendered")
+        driver.record("dense-card-scroll-start", ["unixSeconds": Date().timeIntervalSince1970])
+        for _ in 0..<3 { driver.swipe(history: true) }
+        for _ in 0..<3 { driver.swipe(history: false) }
+        let latest = driver.app.buttons["Latest messages"]
+        if latest.exists && latest.isHittable { latest.tap() }
+        try driver.require(driver.stableTail(tail, timeout: 8), "Return to the actual final message")
+        try driver.require(control.waitForExistence(timeout: 8),
+                           "The final card must be interactive, not a preview")
+        driver.record("dense-card-window-end", ["unixSeconds": Date().timeIntervalSince1970])
+        driver.capture("dense-cards-return-rendered")
+    }
+
     func testLoadMarkdown300ThroughFourEarlierPages() throws { try prime300(kind: "markdown") }
     func testLoadMixed300ThroughFourEarlierPages() throws { try prime300(kind: "tall-card") }
     private func prime300(kind: String) throws {

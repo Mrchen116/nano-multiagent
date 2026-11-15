@@ -83,6 +83,23 @@ final class InteractionDraftCoordinator {
         removed.remove(runtime.message.conversation_id)
         runtimes[runtime.message.conversation_id, default: [:]][runtime.message.id] = WeakRuntime(value: runtime)
     }
+    /// Replacing a message's renderer may change its source or authority metadata.
+    /// The existing private draft owner stays in the send barrier until its edit settles.
+    func finishBeforeReplacement(_ next: InteractiveRuntime) async -> Bool {
+        let conversationID = next.message.conversation_id
+        let messageID = next.message.id
+        guard let previous = runtime(conversationID, messageID: messageID), previous !== next else { return true }
+        if previous.hasUnresolvedEdits {
+            let result = await previous.flush()
+            if result.reason != nil || previous.hasUnresolvedEdits {
+                retainUnresolved(previous)
+                return false
+            }
+        }
+        guard let current = runtime(conversationID, messageID: messageID) else { return true }
+        return current === previous || current === next
+    }
+
     func retainUnresolved(_ runtime: InteractiveRuntime) {
         guard runtime.isCurrentStore, !removed.contains(runtime.message.conversation_id) else { return }
         retained[runtime.message.conversation_id, default: [:]][runtime.message.id] = runtime
@@ -94,6 +111,7 @@ final class InteractionDraftCoordinator {
             return $0.id < $1.id
         }.first
     }
+    func failure(_ cid: String, messageID: String) -> DraftFailure? { failures[cid]?[messageID] }
     func record(_ runtime: InteractiveRuntime, reason: DraftFlushResult.Reason?, offline: Bool = false) {
         guard runtime.isCurrentStore else { return }
         let cid = runtime.message.conversation_id, id = runtime.message.id
