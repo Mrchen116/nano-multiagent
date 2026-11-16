@@ -34,12 +34,12 @@ it('keeps failed model validation on the model step and never stores the entered
  await screen.findByRole('heading', { name: 'Connect a model' });
  await screen.findByLabelText('API Key');
  await userEvent.type(screen.getByLabelText('API Key'), 'private-key-example');
- await userEvent.clear(screen.getByLabelText('Model ID'));
- await userEvent.type(screen.getByLabelText('Model ID'), 'model-one');
+ expect(screen.getByLabelText('Model')).toHaveValue('deepseek-chat');
  vi.mocked(setupNode).mockResolvedValue({ ...modelStatus, operation: { id: 'op', state: 'failed' } });
- await userEvent.click(screen.getByRole('button', { name: 'Test and save' }));
+ await userEvent.click(screen.getByRole('button', { name: 'Verify and continue' }));
  await screen.findByRole('alert');
- expect(screen.getByRole('button', { name: 'Continue →' })).toBeDisabled();
+ expect(screen.queryByRole('button', { name: 'Continue →' })).not.toBeInTheDocument();
+ expect(screen.getByRole('button', { name: 'Verify and continue' })).toBeEnabled();
  expect(screen.getByLabelText('API Key')).toHaveValue('private-key-example');
  expect(Array.from({length: localStorage.length}, (_, i) => localStorage.getItem(localStorage.key(i)!)).join(' ')).not.toContain('private-key-example');
  expect(createPersonalAgent).not.toHaveBeenCalled();
@@ -104,4 +104,62 @@ it('creates an empty personal chat without sending an old setup goal', async () 
  expect(router.state.location.pathname).toBe('/chat/existing');
  expect(router.state.location.state).toBeNull();
  expect(createConversation).not.toHaveBeenCalled();
+});
+
+it('explains assistant-status failure and retries without losing the name or creating early', async () => {
+ vi.mocked(setupNode).mockResolvedValue({...modelStatus,default_model:'m',models:[{provider:'p',model:'m'}]});
+ vi.mocked(getPersonalAgent).mockRejectedValue(new Error('unavailable'));
+ mount();
+ await screen.findByRole('button',{name:'Retry assistant status'});
+ await userEvent.clear(screen.getByLabelText('Name your assistant'));
+ await userEvent.type(screen.getByLabelText('Name your assistant'),'Poppy');
+ expect(screen.getByRole('button',{name:'Create personal assistant'})).toBeDisabled();
+ expect(screen.getByRole('alert')).toHaveTextContent('We couldn’t check your personal assistant');
+ vi.mocked(getPersonalAgent).mockResolvedValue({binding:null,policy:null});
+ await userEvent.click(screen.getByRole('button',{name:'Retry assistant status'}));
+ await waitFor(()=>expect(screen.getByRole('button',{name:'Create personal assistant'})).toBeEnabled());
+ expect(screen.getByLabelText('Name your assistant')).toHaveValue('Poppy');
+ expect(createPersonalAgent).not.toHaveBeenCalled();
+});
+
+it('continues to naming only after the first model connection has succeeded', async () => {
+ vi.mocked(setupNode).mockImplementation(async (_node,input)=> input.action==='save' ? {
+   ...modelStatus,revision:'r2',default_model:'deepseek-chat',models:[{provider:'deepseek',model:'deepseek-chat'}],
+   services:[{provider:'deepseek',display_name:'DeepSeek',source:'deepseek',native:true,credential_stored:true,models:[{name:'deepseek-chat',id:'deepseek-chat'}]}],
+   operation:{id:'verified',state:'succeeded'},
+ } : modelStatus);
+ mount();
+ await screen.findByLabelText('API Key');
+ expect(screen.queryByLabelText('Service name')).not.toBeInTheDocument();
+ expect(screen.queryByLabelText('Model display name')).not.toBeInTheDocument();
+ await userEvent.type(screen.getByLabelText('API Key'),'private-test-key');
+ await userEvent.click(screen.getByRole('button',{name:'Verify and continue'}));
+ await screen.findByRole('heading',{name:'Name your personal assistant'});
+ expect(setupNode).toHaveBeenCalledWith('device',expect.objectContaining({action:'save',source:'deepseek',api_key:'private-test-key',models:[expect.objectContaining({id:'deepseek-chat'})]}));
+ expect(createPersonalAgent).not.toHaveBeenCalled();
+});
+
+it('keeps an API draft when switching to subscription authorization and back', async () => {
+ vi.mocked(setupNode).mockResolvedValue({...modelStatus,catalog:[...modelStatus.catalog,{provider:'openai-codex',display_name:'Codex',models:[{id:'subscription-model'}]}]});
+ mount();
+ await screen.findByLabelText('API Key');
+ await userEvent.type(screen.getByLabelText('API Key'),'draft-key');
+ await userEvent.click(screen.getByRole('button',{name:'Use a ChatGPT / Codex subscription'}));
+ expect(screen.getByRole('button',{name:'Connect Codex account'})).toBeEnabled();
+ expect(screen.queryByLabelText('API Key')).not.toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'Use an API service'}));
+ expect(screen.getByLabelText('API Key')).toHaveValue('draft-key');
+ expect(vi.mocked(setupNode).mock.calls.every(([,input])=>input.action==='status')).toBe(true);
+});
+
+it('restores a pending subscription authorization after returning to setup', async () => {
+ vi.mocked(setupNode).mockResolvedValue({...modelStatus,
+   catalog:[...modelStatus.catalog,{provider:'openai-codex',display_name:'Codex',models:[{id:'subscription-model'}]}],
+   operation:{id:'pending-login',state:'waiting',url:'https://example.test/authorize',code:'ABCD'},
+ });
+ mount();
+ expect(await screen.findByRole('link',{name:'Open authorization page ↗'})).toHaveAttribute('href','https://example.test/authorize');
+ expect(screen.getByRole('button',{name:'Cancel verification'})).toBeEnabled();
+ expect(screen.getByRole('button',{name:'Use a ChatGPT / Codex subscription'})).toHaveAttribute('aria-pressed','true');
+ expect(createPersonalAgent).not.toHaveBeenCalled();
 });

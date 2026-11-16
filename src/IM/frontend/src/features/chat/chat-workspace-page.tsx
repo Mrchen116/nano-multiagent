@@ -1,5 +1,6 @@
 import { AgentLifecycleChatNotice } from '../settings/agents/agent-lifecycle';
 import { PersonalAgentDialog } from '../personal-agent/personal-agent-dialog';
+import { FirstUseWelcome } from '../onboarding/first-use-welcome';
 import { PersonalAgentCollaboration } from '../personal-agent/personal-agent-collaboration';
 import { getPersonalAgent, renamePersonalAgent } from '../personal-agent/personal-agent-api';
 import { GroupTaskPanel } from "../tasks/group-task-panel";
@@ -1272,6 +1273,8 @@ export function ChatWorkspacePage() {
 
   const showList = !isMobile || !conversationId;
   const showDetail = !isMobile || Boolean(conversationId);
+  const showFirstUseWelcome = !conversationId && personalSpace && personalAgent.isSuccess && !personalBinding
+    && conversationsQuery.isSuccess && localConversations.length === 0;
   const visibleWorkspaceError = workspaceError?.conversationId === (conversationId ?? "")
     ? workspaceError
     : null;
@@ -1327,12 +1330,12 @@ export function ChatWorkspacePage() {
           </button>
         </div>
       )}
-      {showList && (
+      {showFirstUseWelcome ? <FirstUseWelcome onNewChat={() => setShowNewChat(true)} /> : showList && (
         <ConversationSidebar
           conversations={sidebarConversations.filter(c=>c.id!==personalBinding?.conversation_id)}
           searchConversations={sidebarConversations}
           emptyLabel={personalBinding?t('pa.noOtherChats'):undefined}
-          personalAgentEntry={personalAgent.isError ? <div className="pa-entry pa-notice"><button type="button" onClick={()=>void personalAgent.refetch()}>{t('pa.retry','个人助手暂不可用 · 重试')}</button></div> : personalAgent.isSuccess && <div className="pa-entry"><button type="button" className={`chat-sidebar-row${isPersonalConversation?' chat-sidebar-row--active':''}`} aria-current={isPersonalConversation?'true':undefined} onClick={()=>personalBinding?navigate(`/chat/${personalBinding.conversation_id}`):setShowPersonalAgentSetup(true)}><span className="pa-entry-icon" aria-hidden="true">✦</span><span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title">{personalBinding?.display_name??t('pa.create','我的个人助手')}</span><span className="chat-sidebar-row-preview">{personalBinding?t('pa.role','个人助手 · 持续替你跟进'):t('pa.start','给它一个名字，开始合作')}</span></span>{(localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count??0)>0&&<span className="chat-sidebar-row-unread">{localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count}</span>}</button></div>}
+          personalAgentEntry={personalAgent.isError ? <div className="pa-entry pa-notice"><button type="button" onClick={()=>void personalAgent.refetch()}>{t('pa.retry','个人助手暂不可用 · 重试')}</button></div> : personalAgent.isSuccess && <div className="pa-entry"><button type="button" className={`chat-sidebar-row${isPersonalConversation?' chat-sidebar-row--active':''}`} aria-current={isPersonalConversation?'true':undefined} onClick={()=>personalBinding?navigate(`/chat/${personalBinding.conversation_id}`):navigate('/onboarding')}><span className="pa-entry-icon" aria-hidden="true">✦</span><span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title">{personalBinding?.display_name??t('pa.create','我的个人助手')}</span><span className="chat-sidebar-row-preview">{personalBinding?t('pa.role','个人助手 · 持续替你跟进'):t('firstUse.continue')}</span></span>{(localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count??0)>0&&<span className="chat-sidebar-row-unread">{localConversations.find(c=>c.id===personalBinding?.conversation_id)?.unread_count}</span>}</button></div>}
           selfUserId={selfUserId}
           activeConversationId={conversationId ?? null}
           onSelect={(id) => navigate(`/chat/${id}`)}
@@ -1355,7 +1358,7 @@ export function ChatWorkspacePage() {
           agents={publicAgents.map(a => ({ agent_id: a.agent_id!, display_name: a.display_name, status: a.status ?? "offline" }))}
         />
       )}
-      {showDetail && (
+      {!showFirstUseWelcome && showDetail && (
         activeConversation ? (
           <MessagePane
             lifecycleNotice={activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} deleted={actor.is_deleted} />)}
@@ -1473,7 +1476,7 @@ export function ChatWorkspacePage() {
               <div className="chat-empty-pane-icon" aria-hidden="true">💬</div>
               <p className="chat-empty-pane-title">{t("chat.messagePane.selectConversationTitle")}</p>
               <p className="chat-empty-pane-sub">{t("chat.messagePane.selectConversationSubtitle")}</p>
-              {personalSpace && <Link className="im-btn im-btn-primary mt-4" to="/onboarding">{t("onboarding.continue")}</Link>}
+              {personalSpace && !personalBinding && <Link className="im-btn im-btn-primary mt-4" to="/onboarding">{t("firstUse.continue")}</Link>}
             </div>
           )
         )

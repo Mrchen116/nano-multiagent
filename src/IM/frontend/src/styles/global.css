@@ -114,6 +114,8 @@ body {
   gap: 0.5rem;
 }
 
+.im-auth-product-link { display: inline-block; margin-top: 24px; color: var(--im-accent); font-size: 13px; text-decoration: underline; text-underline-offset: 4px; }
+
 .im-shell-internal-badge {
   font-size: 10px;
   font-weight: 600;

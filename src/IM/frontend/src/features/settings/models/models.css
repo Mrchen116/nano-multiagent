@@ -49,6 +49,14 @@
 .model-subhead { margin: 20px 0 0; padding-top: 14px; border-top: 1px solid var(--im-border); }
 .model-entry { border-bottom: 1px solid var(--im-border); padding-bottom: 12px; }
 .model-entry-fields { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) 36px; gap: 9px; align-items: end; }
+.model-entry-fields.model-entry-fields-simple { grid-template-columns: minmax(0, 1fr); }
+.model-access-options { display: flex; gap: 8px; padding-bottom: 4px; margin: 20px 0 14px; }
+.model-access-options button { flex: 1; min-height: 44px; padding: 10px 12px; font-size: 12px; border-radius: 8px; line-height: 1.5; }
+.model-access-options button[aria-pressed="true"] { border-color: var(--im-accent); color: var(--im-accent); background: var(--im-accent-soft); }
+.model-footer-first .model-primary { width: 100%; min-height: 46px; font-weight: 600; border-radius: 8px; }
+.model-first-subscription { padding: 8px 0 16px; }
+.model-first-subscription .model-subscription-fields { max-width: none; }
+.model-first-subscription .model-subscription-fields > button { width: 100%; background: var(--im-accent); color: var(--im-accent-fg); border-color: var(--im-accent); min-height: 44px; margin-top: 12px; }
 .model-entry-fields .model-remove { margin-bottom: 14px; padding: 8px 5px; border: 0; color: var(--im-text-muted); background: transparent; font-size: 18px; }
 .model-services details { margin-top: 12px; }
 .model-services summary { cursor: pointer; color: var(--im-text-muted); font-size: 12px; }

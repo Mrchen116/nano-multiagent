@@ -772,8 +772,8 @@
       "新统计尚未报告时沿用最近轮次": "Showing the latest reported turn until new statistics arrive",
       "最新轮次在前 · 轮次内部按实际顺序": "Latest turns first · Events in execution order",
       "暂无工作记录。符合配置的新消息会进入收件箱。": "No work records yet. Eligible new messages will enter the inbox.",
-      "← 返回发起位置": "\u2190 Back to launch point",
-      "← 返回派工关系": "\u2190 Back to delegation",
+      "← 返回发起位置": "← Back to launch point",
+      "← 返回派工关系": "← Back to delegation",
       "派工关系": "Delegation",
       "时间范围": "Time range",
       "活动范围": "Activity range",
@@ -792,7 +792,7 @@
       "部分完成": "Partially completed",
       "已取消": "Cancelled",
       "工具次数未报告": "Tool count not reported",
-      "正在加载原文…": "Loading full record\u2026",
+      "正在加载原文…": "Loading full record…",
       "加载原文": "Load full record",
       "执行信息": "Execution info",
       "调用": "Call",
@@ -979,8 +979,14 @@
     },
     "redesign": {
       "workMode": "Work mode",
-      "mode": {"single_thread": "Single thread", "global": "Global mode"},
-      "modeHelp": {"single_thread": "A separate context for each chat.", "global": "One ongoing context coordinates work across chats."},
+      "mode": {
+        "single_thread": "Single thread",
+        "global": "Global mode"
+      },
+      "modeHelp": {
+        "single_thread": "A separate context for each chat.",
+        "global": "One ongoing context coordinates work across chats."
+      },
       "modeFixed": "Work mode cannot be changed after creation.",
       "createIdHelp": "Lowercase letters, numbers, _ and -. Cannot be changed after creation.",
       "creating": "Creating…",
@@ -1002,7 +1008,12 @@
   },
   "chat": {
     "deletedAgent": "Agent deleted",
-    "toast": { "newMessage": "New message", "member": "Member", "agent": "Agent", "card": "Interactive card" },
+    "toast": {
+      "newMessage": "New message",
+      "member": "Member",
+      "agent": "Agent",
+      "card": "Interactive card"
+    },
     "conversationMenu": {
       "label": "Conversation menu",
       "rename": "Rename",
@@ -1854,5 +1865,213 @@
     "senderLabel": "{{name}}, sent by PA",
     "sentOnBehalf": "Sent by PA",
     "composeUnavailable": "This conversation is unavailable or you do not have permission to write."
+  },
+  "firstUse": {
+    "eyebrow": "WELCOME TO YOUR PERSONAL SPACE",
+    "title": "Your personal assistant starts here.",
+    "intro": "Make a plan, organize your ideas, and move work forward. Connect your computer and model to get your assistant ready.",
+    "setupTitle": "Get your assistant ready",
+    "accountReady": "Your account and personal space are ready",
+    "done": "Done",
+    "continue": "Continue assistant setup",
+    "resume": "Take it one step at a time. Come back and continue anytime.",
+    "progressError": "We couldn’t check your setup progress.",
+    "steps": {
+      "computer": {
+        "title": "Connect a computer",
+        "body": "Give your assistant a place to work and save files."
+      },
+      "model": {
+        "title": "Connect a model",
+        "body": "Use your API service or a supported subscription."
+      },
+      "assistant": {
+        "title": "Start working together",
+        "body": "Name your assistant and give it a first task."
+      }
+    },
+    "actions": {
+      "computer": "Connect your first computer",
+      "model": "Continue model setup",
+      "assistant": "Create your personal assistant"
+    },
+    "examplesLabel": "AFTER SETUP, TRY SOMETHING LIKE THIS",
+    "examplesTitle": "Start with one small thing.",
+    "examplesIntro": "No elaborate prompt needed. Just explain what you want to do.",
+    "examples": {
+      "plan": {
+        "title": "Plan the week ahead",
+        "prompt": "“Help me fit studying, exercise, and a deadline into this week.”"
+      },
+      "organize": {
+        "title": "Make sense of your ideas",
+        "prompt": "“I have a few project ideas. Help me prioritize and find a next step.”"
+      },
+      "start": {
+        "title": "Turn a goal into a plan",
+        "prompt": "“I want to build a personal website. Help me make a practical plan.”"
+      }
+    },
+    "examplesNote": "These are example requests. You choose what to send after setup.",
+    "peopleHint": "You can also talk to your contacts.",
+    "newChat": "Start a conversation"
+  },
+  "publicHome": {
+    "skip": "Skip to content",
+    "home": "Nano home",
+    "navigation": "Product navigation",
+    "switchLanguage": "切换到中文",
+    "signIn": "Sign in",
+    "start": "Get started",
+    "createSpace": "Create your personal space",
+    "watch": "See how it works",
+    "eyebrow": "PERSONAL HELP · SPECIALIST COLLABORATION",
+    "titleBefore": "Bring your ideas\n",
+    "titleAccent": "to life, together",
+    "titleAfter": ".",
+    "intro": "Give your personal assistant a goal and work with specialist assistants in one shared chat space. Add context, check progress, and pick up where you left off.",
+    "prerequisite": "No team approval needed. To use an assistant, connect a computer and an available model service.",
+    "nav": {
+      "how": "How it works",
+      "space": "Your workspace",
+      "start": "Getting started"
+    },
+    "demo": {
+      "title": "My personal assistant",
+      "label": "Interactive example",
+      "navigation": "Explore the workflow",
+      "steps": {
+        "ask": "Give it a goal",
+        "work": "Work together",
+        "result": "See the result"
+      },
+      "you": "You",
+      "request": "We’re introducing our new product on Friday. Help me prepare a launch plan.",
+      "assistant": "Personal assistant",
+      "next": "Show the next step",
+      "restart": "Start again",
+      "disclosure": "An illustrative workflow. No real assistants or tasks are running. Specialist assistants require separate configuration.",
+      "ask": {
+        "reply": "Let’s clarify the audience, key benefits, and schedule, then work through the plan.",
+        "planLabel": "Make the next steps clear",
+        "first": "Outline the audience and product benefits",
+        "second": "Draft the content and launch checklist",
+        "third": "Review the details and assemble the materials",
+        "caption": "Start with a goal. Add the background it needs as you talk."
+      },
+      "work": {
+        "reply": "Invite configured specialist assistants to help with the parts they know best.",
+        "research": {
+          "name": "Research assistant",
+          "task": "Organize audience needs and product benefits",
+          "state": "Researching"
+        },
+        "writing": {
+          "name": "Writing assistant",
+          "task": "Draft the launch content",
+          "state": "Drafting"
+        },
+        "review": {
+          "name": "Quality assistant",
+          "task": "Review the launch checklist",
+          "state": "Awaiting draft"
+        },
+        "caption": "Your personal assistant stays in touch as specialists contribute."
+      },
+      "result": {
+        "reply": "The plan and checklist come back to this conversation. Review them and tell us what to adjust.",
+        "document": "Product launch plan",
+        "description": "Audience · Key content · Launch checklist",
+        "caption": "Results stay in the conversation. Your feedback starts the next step."
+      }
+    },
+    "concepts": {
+      "eyebrow": "MEET YOUR AI COLLABORATORS",
+      "title": "Different roles. Shared work.",
+      "intro": "A personal assistant helps you, specialist assistants focus on their roles, and connected computers do the work. Chat brings them together.",
+      "personal": {
+        "role": "A continuing partnership",
+        "title": "Personal assistant",
+        "body": "Helps with your goals and ongoing work. It can look up conversations you participated in and can still access, and use memory to continue past work.",
+        "example": "Try: “Let’s pick up that plan. What should we do next?”"
+      },
+      "specialist": {
+        "role": "A focused area of expertise",
+        "title": "Specialist assistants",
+        "body": "Configure assistants for research, development, writing, and other roles. Invite them into a conversation to work with you and other assistants.",
+        "example": "For example, a research assistant gathers material for a writing assistant’s draft."
+      },
+      "computer": {
+        "role": "Where tasks get done",
+        "title": "Work computers",
+        "body": "Assistants use tools and handle files on the computers you connect. Talk from the web or your phone while work runs on the appropriate computer.",
+        "example": "The computer must be online to execute tasks. Files stay in its workspace."
+      }
+    },
+    "space": {
+      "eyebrow": "FROM CONVERSATION TO DELIVERY",
+      "title": "Keep the work moving.\nKeep the context with it.",
+      "intro": "Conversations, assistants, tasks, and work records belong together. Talk naturally, then look closer when you need to understand the progress.",
+      "link": "See what you need to start",
+      "context": {
+        "title": "Pick up where you left off",
+        "body": "Add goals, materials, and feedback to the same conversation. Continue with accessible history and memory."
+      },
+      "progress": {
+        "title": "See progress and ask for details",
+        "body": "Receive feedback in chat and inspect tasks and work records. Continue the conversation when something needs to change."
+      },
+      "control": {
+        "title": "Your own space, with room to collaborate",
+        "body": "Start in a personal space and apply to join a team when you need to. Joining a team does not automatically make your private chats public."
+      }
+    },
+    "setup": {
+      "eyebrow": "BEFORE YOU START",
+      "title": "Three things to get ready.",
+      "intro": "Create an account, then connect a computer and model. Setup guides you through each step, and you can leave and return anytime.",
+      "account": {
+        "title": "A personal account",
+        "body": "Register to get your own space without waiting for team approval."
+      },
+      "computer": {
+        "title": "A work computer",
+        "body": "Supports macOS and Linux, or WSL on Windows. Install and confirm the connection on your computer."
+      },
+      "model": {
+        "title": "An available model service",
+        "body": "Connect your API service or a supported subscription. Verify the connection, then create your personal assistant."
+      },
+      "note": "Already registered? Sign in to continue setup."
+    },
+    "faq": {
+      "eyebrow": "A FEW THINGS TO KNOW",
+      "title": "Clear before you begin.",
+      "ready": {
+        "question": "Can I chat with an assistant as soon as I register?",
+        "answer": "Registration creates your personal space immediately. To use an assistant, connect a computer and a model, then create your personal assistant. You can explore your space and return to setup anytime."
+      },
+      "phone": {
+        "question": "Can I use it on my phone?",
+        "answer": "Use the mobile website or iPhone client to talk to a configured assistant. Initial computer installation must be completed on the work computer."
+      },
+      "online": {
+        "question": "Does my computer need to stay on?",
+        "answer": "The relevant computer must be online while an assistant executes tasks. You can still read synchronized chat history while it is offline, and use the assistant again after reconnecting."
+      },
+      "data": {
+        "question": "Where are my conversations and files stored?",
+        "answer": "The current IM service stores accounts and conversations. Assistants execute tasks and save files in workspaces on connected computers. Relevant context is sent to your configured model service when a model is used."
+      },
+      "team": {
+        "question": "Do I have to join a team?",
+        "answer": "No. Use your personal assistant independently, then apply to join a team if you wish. Personal and team resources have their own visibility boundaries."
+      },
+      "model": {
+        "question": "Do I need to provide model access?",
+        "answer": "Yes. Provide an available API service or a supported subscription authorization. The provider determines model charges and allowances. Check your access and available allowance before connecting."
+      }
+    },
+    "footer": "A shared space for people and assistants to get things done."
   }
 }

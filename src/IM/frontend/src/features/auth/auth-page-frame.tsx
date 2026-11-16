@@ -1,4 +1,5 @@
 import { PropsWithChildren, ReactNode } from "react";
+import { Link } from 'react-router-dom';
 
 import { NanoBrand } from "../../app/shell/nano-brand";
 import { getCurrentLanguage, setLanguage, useTranslation } from "../../i18n";
@@ -16,7 +17,7 @@ export function AuthPageFrame({ kicker, title, subtitle, footer, children }: Aut
   return (
     <div className="im-auth-screen">
       <header className="im-auth-topbar">
-        <NanoBrand className="im-auth-brand" />
+        <Link to="/about" aria-label={t('publicHome.home')}><NanoBrand className="im-auth-brand" /></Link>
         <div className="im-auth-language" role="group" aria-label={t("auth.language.label")}>
           <button
             type="button"
@@ -47,6 +48,7 @@ export function AuthPageFrame({ kicker, title, subtitle, footer, children }: Aut
             <Capability icon="agents" label={t("auth.context.agents")} />
             <Capability icon="devices" label={t("auth.context.devices")} />
           </div>
+          <Link className="im-auth-product-link" to="/about">{t('publicHome.watch')} <span aria-hidden="true">↗</span></Link>
         </section>
         <section className="im-auth-card" aria-labelledby="auth-form-title">
           <header className="im-auth-header">
