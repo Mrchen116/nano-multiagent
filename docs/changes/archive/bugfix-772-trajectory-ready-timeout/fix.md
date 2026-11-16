@@ -49,7 +49,8 @@ IM 继续保留原有 15 秒未配对/未认领期限。两端配对后，如尚
 - Green：`pnpm exec vitest run apps/im-server/tests/e2e/trajectory.test.ts apps/node/tests/trajectory.test.ts`，2 文件、11 测试通过；两种配对顺序超时关闭、新观察重试收到 ready、成功后静默 31 秒仍可读。`/tmp/nano-772-green.log`。
 - `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime` 通过；Python 非 E2E 136 passed，ruff check/format 通过。
 - Web 新增可见状态回归在修前因错误态 iframe 仍可见而失败（`/tmp/nano-772-ui-red.log`），修后 8 项轨迹组件测试通过（`/tmp/nano-772-ui-green.log`）。
-- 完整 CI 与浏览器受控故障的结果由交付 review 记录，未取得证据前不计通过。
+- 隔离浏览器受控首帧故障在 30 秒显示超时并隐藏旧加载画面；解除阻塞并点击重新读取后，真实 DSH 约 2.6 秒返回 ready，同一 Dreaming 轨迹内容可见。
+- 完整门禁、独立审查与证据边界见 [review.md](review.md)。
 
 ### 测试策略
 
