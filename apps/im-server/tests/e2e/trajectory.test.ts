@@ -178,3 +178,50 @@ it('embeds a scoped prepared capability in authenticated HTML and starts the nod
   const browser=new WebSocket(f.base.replace('http:','ws:')+`/im/ws/agent-trajectory?ticket=${capability.ticket}&agent_id=global&session_id=prepared-main`,{origin:'http://127.0.0.1:8011'});cleanups.push(()=>browser.terminate());
   expect((await once(browser,'close'))[0]).toBe(1008);
 });
+
+it('bounds first-frame preparation in either pairing order and keeps successful retries open', async () => {
+  const f = await start(), device = await registeredMain(f);
+  const connect = async (nodeFirst: boolean) => {
+    const grant = await f.http('POST', '/im/v1/agents/global/trajectory/prepare', { session_id: 'prepared-main' }, f.tokens.bob);
+    expect(grant.status, grant.body).toBe(200);
+    const prepare = await device.frames.next(frame => frame.type === 'trajectory.prepare');
+    const browserUrl = f.base.replace('http:', 'ws:') + `/im/ws/agent-trajectory?ticket=${grant.body.ticket}&agent_id=global&session_id=prepared-main`;
+    const nodeUrl = f.base.replace('http:', 'ws:') + `/im/ws/node-trajectory?ticket=${prepare.payload.ticket}`;
+    const first = new WebSocket(nodeFirst ? nodeUrl : browserUrl, { origin: 'http://127.0.0.1:8011' });
+    cleanups.push(() => first.terminate());
+    await once(first, 'open');
+    const second = new WebSocket(nodeFirst ? browserUrl : nodeUrl, { origin: 'http://127.0.0.1:8011' });
+    cleanups.push(() => second.terminate());
+    const browser = nodeFirst ? second : first, node = nodeFirst ? first : second;
+    const frames = new Frames(browser);
+    await once(second, 'open');
+    return { browser, node, frames, observerId: prepare.payload.scope.observerId };
+  };
+  const stalled = await Promise.all([connect(false), connect(true)]);
+  const deadline = AbortSignal.timeout(35_000);
+  const closed = stalled.map(async ({ browser, node }) => {
+    const [browserClose, nodeClose] = await Promise.all([
+      once(browser, 'close', { signal: deadline }), once(node, 'close', { signal: deadline }),
+    ]);
+    expect(browserClose[0]).toBe(1013);
+    expect(browserClose[1].toString()).toContain('超时');
+    expect(nodeClose[0]).toBe(1013);
+  });
+  // A stalled observer must not interfere with business ACKs.
+  expect((await device.frames.send('node.heartbeat', { node_id: device.node })).type).toBe('ack');
+  await Promise.all(closed);
+  for (const reader of stalled) {
+    expect(await device.frames.next(frame => frame.type === 'trajectory.close' && frame.payload.observer_id === reader.observerId)).toBeDefined();
+  }
+  const retry = await connect(false);
+  expect(stalled.map(reader => reader.observerId)).not.toContain(retry.observerId);
+  retry.node.send(JSON.stringify({ type: 'ready', observerId: retry.observerId, version: '0.2.1-alpha.1' }));
+  expect(await retry.frames.next()).toMatchObject({ type: 'ready', observerId: retry.observerId });
+  // The readiness deadline must not become a limit on quiet, established readers.
+  await new Promise(resolve => setTimeout(resolve, 31_000));
+  expect(retry.browser.readyState).toBe(WebSocket.OPEN);
+  expect(retry.node.readyState).toBe(WebSocket.OPEN);
+  retry.browser.send(JSON.stringify({ type: 'call', requestId: 'after-deadline', method: 'session/list', params: {} }));
+  const nodeFrames = new Frames(retry.node);
+  expect(await nodeFrames.next()).toMatchObject({ requestId: 'after-deadline' });
+}, 75_000);

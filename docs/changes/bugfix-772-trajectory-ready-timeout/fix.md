@@ -39,8 +39,17 @@ Web 查看 Dreaming 原生轨迹时持续加载；刷新无效。生产轨迹文
 
 ## 修复
 
-由实施阶段回填。
+IM 继续保留原有 15 秒未配对/未认领期限。两端配对后，如尚无 ready，切换为 30 秒首帧等待；超时以 1013 和可读原因关闭两侧连接，并走现有 observer 清理。收到 ready 且浏览器已认领时取消计时器。浏览器复用已有错误提示和重新读取入口，不增加自动重试，不更改 DSH 或代理。
+
+准备阶段超时只能结束观察连接；如果旧 DSH 内部仍不返回，本次修复不重启该进程，也不宣称强制取消其底层等待。既有 Node 在迟到 prepare 返回后会关闭失效观察。
 
 ## 验证
 
-由实施阶段回填。
+- Red：同一新增测试在修前真实 IM 子进程上，两端配对后 35 秒未关闭，抛出 AbortError；`/tmp/nano-772-red.log`。
+- Green：`pnpm exec vitest run apps/im-server/tests/e2e/trajectory.test.ts apps/node/tests/trajectory.test.ts`，2 文件、11 测试通过；两种配对顺序超时关闭、新观察重试收到 ready、成功后静默 31 秒仍可读。`/tmp/nano-772-green.log`。
+- `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime` 通过；Python 非 E2E 136 passed，ruff check/format 通过。
+- 完整 CI 与浏览器受控故障的结果由交付 review 记录，未取得证据前不计通过。
+
+### 测试策略
+
+扩展既有 `apps/im-server/tests/e2e/trajectory.test.ts`，从真实 HTTP/WS 接口观察首帧超时和恢复，不读取私有 timer。原有预热复用、未认领票据、权限撤销、分片和节点代理测试 keep。新增一个连贯测试承担此前未覆盖的“配对成功不等于 ready”失败原因；不新增平行的前端计时器测试。一次性浏览器夹具与截图在本机保存，夹具运行结束删除，不提交生产轨迹副本。
