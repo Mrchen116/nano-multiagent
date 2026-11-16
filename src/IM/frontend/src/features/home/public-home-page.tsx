@@ -3,15 +3,13 @@ import { Link, Navigate } from 'react-router-dom';
 import { NanoBrand } from '../../app/shell/nano-brand';
 import { useTranslation } from '../../i18n';
 import { ProductHeader } from './product-header';
+import { ProductDemo } from './product-demo';
 import { accountEnabled, useAuthStore } from '../auth/auth-store';
 import './public-home.css';
 
 /** Explain the product before asking visitors to create an account. */
 export function PublicHomePage({ restoreSession = false }: { restoreSession?: boolean }) {
   const { t } = useTranslation();
-  const [scene, setScene] = useState(0);
-  const scenes = ['ask', 'work', 'result'] as const;
-  const current = scenes[scene];
   const [openQuestion, setOpenQuestion] = useState<number | null>(0);
   const user = useAuthStore(s => s.user);
   const hydrated = useAuthStore(s => s.hydrated);
@@ -27,38 +25,23 @@ export function PublicHomePage({ restoreSession = false }: { restoreSession?: bo
         <div className="home-hero-copy">
           <p className="home-eyebrow"><span />{t('publicHome.eyebrow')}</p>
           <h1 id="home-title">{t('publicHome.titleBefore')}<em>{t('publicHome.titleAccent')}</em>{t('publicHome.titleAfter')}</h1>
+        </div>
+        <div className="home-hero-description">
           <p className="home-lead">{t('publicHome.intro')}</p>
           <div className="home-hero-actions"><Link className="home-button" to="/register">{t('publicHome.createSpace')}<Arrow /></Link><a className="home-text-link" href="#product-demo">{t('publicHome.watch')}<span aria-hidden="true">↘</span></a></div>
           <p className="home-prerequisite">{t('publicHome.prerequisite')}</p>
         </div>
 
-        <section className="home-demo" id="product-demo" aria-labelledby="home-demo-title">
-          <div className="home-demo-top"><div><span className="home-demo-mark" aria-hidden="true">✦</span><strong id="home-demo-title">{t('publicHome.demo.title')}</strong></div><span className="home-demo-label">{t('publicHome.demo.label')}</span></div>
-          <div className="home-demo-tabs" role="tablist" aria-label={t('publicHome.demo.navigation')}>
-            {scenes.map((key, i) => <button key={key} id={`demo-tab-${key}`} role="tab" tabIndex={scene === i ? 0 : -1} aria-selected={scene === i} aria-controls="home-demo-panel" onClick={() => setScene(i)} onKeyDown={event => {
-              const next = event.key === 'ArrowRight' ? (i + 1) % scenes.length : event.key === 'ArrowLeft' ? (i + scenes.length - 1) % scenes.length : event.key === 'Home' ? 0 : event.key === 'End' ? scenes.length - 1 : null;
-              if (next === null) return;
-              event.preventDefault(); setScene(next); document.getElementById(`demo-tab-${scenes[next]}`)?.focus();
-            }}><span>0{i + 1}</span>{t(`publicHome.demo.steps.${key}`)}</button>)}
-          </div>
-          <div className="home-demo-content" role="tabpanel" id="home-demo-panel" aria-labelledby={`demo-tab-${current}`}>
-            <div className="home-demo-person"><span>{t('publicHome.demo.you')}</span><p>{t('publicHome.demo.request')}</p></div>
-            <div className="home-demo-assistant"><span className="home-demo-avatar" aria-hidden="true">✦</span><div><strong>{t('publicHome.demo.assistant')}</strong><p>{t(`publicHome.demo.${current}.reply`)}</p></div></div>
-            {scene === 0 ? <div className="home-demo-plan"><span>{t('publicHome.demo.ask.planLabel')}</span>{['first', 'second', 'third'].map((key, i) => <p key={key}><b>0{i + 1}</b>{t(`publicHome.demo.ask.${key}`)}</p>)}</div>
-              : scene === 1 ? <div className="home-demo-work">{['research', 'writing', 'review'].map(key => <div key={key}><span className="home-demo-worker-icon" aria-hidden="true"><HomeIcon name={key === 'research' ? 'search' : key === 'writing' ? 'document' : 'check'} /></span><div><strong>{t(`publicHome.demo.work.${key}.name`)}</strong><small>{t(`publicHome.demo.work.${key}.task`)}</small></div><span className="home-demo-worker-state">{t(`publicHome.demo.work.${key}.state`)}</span></div>)}</div>
-                : <div className="home-demo-result"><span className="home-demo-result-icon" aria-hidden="true"><HomeIcon name="document" /></span><div><strong>{t('publicHome.demo.result.document')}</strong><p>{t('publicHome.demo.result.description')}</p></div><span aria-hidden="true">↗</span></div>}
-          </div>
-          <div className="home-demo-bottom"><span>{t(`publicHome.demo.${current}.caption`)}</span><button onClick={() => setScene((scene + 1) % scenes.length)} aria-label={t(scene === 2 ? 'publicHome.demo.restart' : 'publicHome.demo.next')}><Arrow /></button></div>
-          <p className="home-demo-disclosure">{t('publicHome.demo.disclosure')}</p>
-        </section>
       </section>
+      <ProductDemo />
 
       <section className="home-concepts home-container" id="how-it-works" aria-labelledby="home-concepts-title">
         <div className="home-section-heading"><p className="home-eyebrow">{t('publicHome.concepts.eyebrow')}</p><h2 id="home-concepts-title">{t('publicHome.concepts.title')}</h2><p>{t('publicHome.concepts.intro')}</p></div>
-        <div className="home-concept-grid">{(['personal', 'specialist', 'computer'] as const).map((key, index) => <article key={key} className="home-concept">
-          <div className="home-concept-top"><span className="home-concept-icon"><HomeIcon name={key === 'personal' ? 'person' : key === 'specialist' ? 'team' : 'computer'} /></span><span>0{index + 1}</span></div>
+        <div className="home-concept-grid">{(['human', 'personal', 'specialist'] as const).map((key, index) => <article key={key} className="home-concept">
+          <div className="home-concept-top"><span className="home-concept-icon"><HomeIcon name={key === 'human' ? 'person' : key === 'personal' ? 'message' : 'team'} /></span><span>0{index + 1}</span></div>
           <span className="home-concept-role">{t(`publicHome.concepts.${key}.role`)}</span><h3>{t(`publicHome.concepts.${key}.title`)}</h3><p>{t(`publicHome.concepts.${key}.body`)}</p><div className="home-concept-example">{t(`publicHome.concepts.${key}.example`)}</div>
         </article>)}</div>
+        <p className="home-concept-note">{t('publicHome.concepts.note')}</p>
       </section>
 
       <section className="home-space-section" id="your-space" aria-labelledby="home-space-title"><div className="home-container home-space-layout">
@@ -74,7 +57,7 @@ export function PublicHomePage({ restoreSession = false }: { restoreSession?: bo
 
       <section className="home-faq home-container" aria-labelledby="home-faq-title">
         <div className="home-section-heading"><p className="home-eyebrow">{t('publicHome.faq.eyebrow')}</p><h2 id="home-faq-title">{t('publicHome.faq.title')}</h2></div>
-        <div className="home-faq-list">{['ready', 'phone', 'online', 'data', 'team', 'model'].map((key, index) => <div className="home-faq-item" key={key}><h3><button aria-expanded={openQuestion === index} aria-controls={`home-answer-${key}`} onClick={() => setOpenQuestion(openQuestion === index ? null : index)}>{t(`publicHome.faq.${key}.question`)}<span aria-hidden="true">{openQuestion === index ? '−' : '+'}</span></button></h3><p id={`home-answer-${key}`} hidden={openQuestion !== index}>{t(`publicHome.faq.${key}.answer`)}</p></div>)}</div>
+        <div className="home-faq-list">{['roles', 'ready', 'phone', 'online', 'data', 'team', 'model'].map((key, index) => <div className="home-faq-item" key={key}><h3><button aria-expanded={openQuestion === index} aria-controls={`home-answer-${key}`} onClick={() => setOpenQuestion(openQuestion === index ? null : index)}>{t(`publicHome.faq.${key}.question`)}<span aria-hidden="true">{openQuestion === index ? '−' : '+'}</span></button></h3><p id={`home-answer-${key}`} hidden={openQuestion !== index}>{t(`publicHome.faq.${key}.answer`)}</p></div>)}</div>
       </section>
     </main>
     <footer className="home-footer home-container"><NanoBrand /><span>{t('publicHome.footer')}</span><Link to="/login">{t('publicHome.signIn')}<span aria-hidden="true"> ↗</span></Link></footer>

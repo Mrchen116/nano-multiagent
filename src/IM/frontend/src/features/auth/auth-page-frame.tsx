@@ -22,7 +22,7 @@ export function AuthPageFrame({ kicker, title, subtitle, footer, children, inten
         <p className="im-auth-eyebrow"><span />{t('publicHome.eyebrow')}</p>
         <h2 id="auth-context-title">{t('publicHome.titleBefore')}<em>{t('publicHome.titleAccent')}</em>{t('publicHome.titleAfter')}</h2>
         <p className="im-auth-context-copy">{t(`auth.context.${intent === 'login' ? 'returning' : 'body'}`)}</p>
-        <ol className="im-auth-story">{['personal', 'specialist', 'computer'].map((key, i) => <li key={key}>
+        <ol className="im-auth-story">{['human', 'personal', 'specialist'].map((key, i) => <li key={key}>
           <span aria-hidden="true">0{i + 1}</span><div><strong>{t(`publicHome.concepts.${key}.title`)}</strong><p>{t(`auth.context.${key}`)}</p></div>
         </li>)}</ol>
         <Link className="im-auth-product-link" to="/about">← {t('auth.context.back')}</Link>
