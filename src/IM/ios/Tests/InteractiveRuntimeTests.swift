@@ -372,12 +372,17 @@ final class InteractiveRuntimeTests: XCTestCase {
         window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
         let controller = UIViewController()
         window.rootViewController = controller
-        window.makeKeyAndVisible()
         first.frame = CGRect(x: 0, y: 0, width: 360, height: 320)
         controller.view.addSubview(first)
+        window.makeKeyAndVisible()
         defer { window.isHidden = true; cache.clear() }
+
+        try await waitFor(first, "document.getElementById('root')?.textContent.includes('Warm card')")
         for _ in 0..<150 where !entry.ready { try await Task.sleep(for: .milliseconds(20)) }
-        XCTAssertTrue(entry.ready, runtime.error ?? "The native page did not publish its first height")
+        guard entry.ready else {
+            XCTFail(runtime.error ?? "The rendered card did not publish its first height to the native bridge")
+            return
+        }
         let generation = runtime.webID
         let firstLease = runtime.presentationLease
         XCTAssertTrue(runtime.acceptsPresentation(generation))
