@@ -2,10 +2,14 @@ import SwiftUI
 import Markdown
 
 /// Native blocks from the CommonMark/GFM AST; HTML is text and never executed.
-struct MarkdownView: View {
+struct MarkdownView: View, Equatable {
     let text: String
     let client: IMClient
     var baseFont: Font = .body
+    nonisolated static func == (lhs: MarkdownView, rhs: MarkdownView) -> Bool {
+        lhs.text == rhs.text && lhs.client === rhs.client && lhs.baseFont == rhs.baseFont
+    }
+
     var body: some View {
         let document = Document(parsing: text)
         VStack(alignment: .leading, spacing: 10) {
