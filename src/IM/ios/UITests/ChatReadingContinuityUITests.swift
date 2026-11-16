@@ -20,7 +20,9 @@ final class ChatReadingContinuityUITests: XCTestCase {
         driver.capture("candidate-fresh-mixed-true-tail", tree: true)
 
         for _ in 0..<6 { driver.swipe(history: true) }
-        let anchor = try visibleHistoryAnchor()
+        // The last card spans several screens. Reach a prior message before
+        // testing whether navigation preserves its reading position.
+        let anchor = try visibleHistoryAnchor(additionalSwipes: 6)
         let originalY = try anchor.element.snapshot().frame.minY
         driver.capture("candidate-reading-before-details", tree: true)
         driver.app.buttons["Conversation details"].tap()
@@ -380,17 +382,20 @@ final class ChatReadingContinuityUITests: XCTestCase {
         try driver.require(false, "A unique public Select All action must be available; counted backspace is not a cleanup substitute")
     }
 
-    private func visibleHistoryAnchor() throws -> (element: XCUIElement, marker: String) {
-        let viewport = driver.viewport
+    private func visibleHistoryAnchor(additionalSwipes: Int = 0) throws -> (element: XCUIElement, marker: String) {
         // A tall Markdown message can fill the viewport with its numbered body
         // while its header is offscreen.
         let pattern = #"(H763-(?!300)[0-9]{3} · .*|引用块 (?!300)[0-9]{3}：.*|fixture_763_(?!300)[0-9]{3})"#
         let markers = driver.app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", pattern))
-        for element in markers.allElementsBoundByIndex {
-            guard let snapshot = try? element.snapshot(), !snapshot.frame.isEmpty,
-                  viewport.contains(snapshot.frame) else { continue }
-            let anchor = driver.app.staticTexts.matching(NSPredicate(format: "label == %@", snapshot.label)).firstMatch
-            return (anchor, snapshot.label)
+        for attempt in 0...additionalSwipes {
+            if attempt > 0 { driver.swipe(history: true) }
+            let viewport = driver.viewport
+            for element in markers.allElementsBoundByIndex {
+                guard let snapshot = try? element.snapshot(), !snapshot.frame.isEmpty,
+                      viewport.contains(snapshot.frame) else { continue }
+                let anchor = driver.app.staticTexts.matching(NSPredicate(format: "label == %@", snapshot.label)).firstMatch
+                return (anchor, snapshot.label)
+            }
         }
         driver.capture("candidate-no-visible-history-anchor", tree: true)
         throw NSError(domain: "ChatReadingContinuity", code: 1,

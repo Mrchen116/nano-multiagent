@@ -346,11 +346,22 @@ final class InteractiveRuntimeTests: XCTestCase {
         for _ in 0..<100 where webView(controller.view) == nil { try await Task.sleep(for: .milliseconds(20)) }
         let view = try XCTUnwrap(webView(controller.view))
         try await waitFor(view, "document.body.innerText.includes('确认安排')")
-        let measured = try await view.evaluateJavaScript("document.getElementById('root').getBoundingClientRect().height") as? Double
-        let contentHeight = try XCTUnwrap(measured)
-        for _ in 0..<100 where abs(view.bounds.height - contentHeight) > 2 { try await Task.sleep(for: .milliseconds(20)) }
+        // WebKit can reflow text after the first DOM read when the native
+        // width settles. Compare the native frame against the current DOM.
+        var contentHeight = 0.0
+        var matchedPreviousRead = false
+        var matchedStableHeight = false
+        for _ in 0..<100 {
+            let measured = try await view.evaluateJavaScript("document.getElementById('root').getBoundingClientRect().height") as? Double
+            contentHeight = try XCTUnwrap(measured)
+            let matches = contentHeight > 0 && abs(view.bounds.height - contentHeight) <= 2
+            matchedStableHeight = matches && matchedPreviousRead
+            if matchedStableHeight { break }
+            matchedPreviousRead = matches
+            try await Task.sleep(for: .milliseconds(50))
+        }
         XCTAssertEqual(view.bounds.width, 361, accuracy: 1)
-        XCTAssertEqual(view.bounds.height, contentHeight, accuracy: 2, "The whole card must fit the native scroll flow")
+        XCTAssertTrue(matchedStableHeight, "The whole card must fit the native scroll flow (native \(view.bounds.height), DOM \(contentHeight))")
         // UIKit's CPU snapshot omits WebKit's separately composited surface.
         let image = try await view.takeSnapshot(configuration: nil)
         let attachment = XCTAttachment(image: try XCTUnwrap(image)); attachment.name = "iOS-native-chat-meeting-body"; attachment.lifetime = .keepAlways; add(attachment)
