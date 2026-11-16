@@ -269,9 +269,8 @@ final class ChatScrollCoordinator {
     }
 
     private func updateButton() {
-        let bottom = atBottom
-        if bottom { timing.reachedTail() }
-        let visible = latestID != nil && !bottom
+        if atBottom { timing.reachedTail() }
+        let visible = latestID != nil && !atBottom
         if showLatest != visible { showLatest = visible }
     }
 

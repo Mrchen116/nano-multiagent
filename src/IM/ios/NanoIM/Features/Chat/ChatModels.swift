@@ -160,12 +160,11 @@ struct PendingSend: Codable, Sendable {
 enum ChatTimelinePresentation {
     /// Group nearby messages, retaining a time marker when the local date changes.
     static func timestampMessageIDs(in items: [TimelineItem], calendar: Calendar = .current) -> Set<String> {
-        let dates = NanoDateParser()
         var result = Set<String>()
         var previous: Date?
         for item in items {
             guard let message = item.message, message.system_notice == nil,
-                  let date = dates.date(from: message.created_at) else { continue }
+                  let date = nanoDate(message.created_at) else { continue }
             if let previous {
                 if !calendar.isDate(date, inSameDayAs: previous) || date.timeIntervalSince(previous) >= 300 { result.insert(message.id) }
             } else {

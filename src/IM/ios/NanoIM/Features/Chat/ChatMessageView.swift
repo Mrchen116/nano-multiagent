@@ -68,11 +68,7 @@ struct ChatMessageView: View {
                 if let name = notice["source_agent_display_name"].stringValue { Text(name).font(.caption).foregroundStyle(.secondary) }
                 if let targets = notice["updated_targets"].arrayValue { Text(targets.compactMap(\.stringValue).joined(separator: ", ")).font(.caption) }
             }
-            if !message.content.isEmpty {
-                // Scroll and receipt updates can leave the rendered message body identical.
-                MarkdownView(text: ChatText.display(message.content, participants: participants), client: client)
-                    .equatable()
-            }
+            if !message.content.isEmpty { MarkdownView(text: ChatText.display(message.content, participants: participants), client: client) }
             if message.interactive != nil {
                 InteractiveCardView(client: client, message: message, chat: chat,
                     readOnly: readOnly || message.interactive?.read_only == true || message.interactive?.superseded_by != nil,
