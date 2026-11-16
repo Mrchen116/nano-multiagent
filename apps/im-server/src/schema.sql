@@ -425,6 +425,11 @@ CREATE TABLE IF NOT EXISTS agent_work_sessions (
 CREATE TABLE IF NOT EXISTS agent_work_turns (
  session_id TEXT, turn_id TEXT, seq INTEGER, payload TEXT NOT NULL,
  PRIMARY KEY(session_id,turn_id));
+-- An empty session key holds the Agent's total across all its main sessions.
+CREATE TABLE IF NOT EXISTS agent_work_lifetime_usage (
+ root_agent_id TEXT NOT NULL, session_id TEXT NOT NULL, ended_turns INTEGER NOT NULL,
+ reported_turns INTEGER NOT NULL, total_tokens NUMERIC NOT NULL,
+ PRIMARY KEY(root_agent_id,session_id));
 CREATE TABLE IF NOT EXISTS agent_work_items (
  session_id TEXT, turn_id TEXT, item_id TEXT, seq INTEGER, kind TEXT,
  observed_at TEXT, payload TEXT NOT NULL, revision INTEGER,

@@ -329,6 +329,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
   useEffect(() => { sessionStorage.setItem(storageKey, JSON.stringify(saved)); }, [saved, storageKey]);
   const refreshCurrent = useRef<() => void>(() => {});
   refreshCurrent.current = () => {
+    void client.invalidateQueries({queryKey: ["agent-work-delegation", agentId]}, {cancelRefetch: false});
     if (!separate) {
       void client.invalidateQueries({queryKey: ["agent-work", agentId]}, {cancelRefetch: false});
       return;

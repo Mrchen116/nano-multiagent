@@ -88,7 +88,7 @@ export class TrajectoryObservers {
   private attach(observer: Observer, socket: WebSocket): void {
     const id = observer.scope.observerId;
     observer.browser = socket;
-    if (observer.node) clearTimeout(observer.timer);
+    this.waitForReady(observer);
     socket.once('close', () => this.close(id));
     socket.on('error', () => this.close(id));
     socket.on('message', raw => {
@@ -118,8 +118,8 @@ export class TrajectoryObservers {
     const observer = this.tickets.get(ticket);
     this.tickets.delete(ticket);
     if (!observer || !this.valid(observer) || observer.node) { socket.close(1008); return; }
-    if (observer.browser) clearTimeout(observer.timer);
     observer.node = socket;
+    this.waitForReady(observer);
     socket.on('message', raw => {
       const size = Array.isArray(raw) ? raw.reduce((total, part) => total + part.byteLength, 0) : raw.byteLength;
       if (!this.valid(observer)) { this.close(observer.scope.observerId, 1008, '访问资格已失效'); return; }
@@ -140,12 +140,25 @@ export class TrajectoryObservers {
             return;
           }
         }
-        if (frame.type === 'ready') { observer.ready = true; observer.readyFrame = frame; }
+        if (frame.type === 'ready') {
+          observer.ready = true; observer.readyFrame = frame;
+          if (observer.browser) clearTimeout(observer.timer);
+        }
         if (observer.browser) this.write(observer, observer.browser, frame);
       } catch { this.close(observer.scope.observerId, 1003, '轨迹响应无效'); }
     });
     socket.on('error', () => this.close(observer.scope.observerId, 1011, '更新已中断'));
     socket.once('close', () => this.close(observer.scope.observerId, 1011, '更新已中断'));
+  }
+
+  private waitForReady(observer: Observer): void {
+    if (!observer.browser || !observer.node) return;
+    clearTimeout(observer.timer);
+    // Pairing only establishes transport; the runtime must still finish its read preparation.
+    // Once ready, quiet readers and slow history transfers have no fixed lifetime.
+    if (!observer.ready) observer.timer = setTimeout(() => {
+      this.close(observer.scope.observerId, 1013, '轨迹读取超时，请重新读取');
+    }, 30_000);
   }
 
   valid(observer: Observer): boolean {

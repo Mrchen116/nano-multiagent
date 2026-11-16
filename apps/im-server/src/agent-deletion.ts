@@ -65,6 +65,7 @@ function purgeCenterExecution(ctx: ImContext, id: string): string[] {
     SELECT root_agent_id,'session',session_id,NULL FROM agent_work_sessions WHERE root_agent_id=?`).run(id);
   for (const table of ['agent_work_items','agent_work_turns']) db.prepare(
     `DELETE FROM ${table} WHERE session_id IN (SELECT session_id FROM agent_work_sessions WHERE root_agent_id=?)`).run(id);
+  db.prepare('DELETE FROM agent_work_lifetime_usage WHERE root_agent_id=?').run(id);
   db.prepare('DELETE FROM agent_work_sessions WHERE root_agent_id=?').run(id);
   db.prepare('DELETE FROM agent_work_events WHERE root_agent_id=?').run(id);
   db.prepare("DELETE FROM agent_work_query_snapshots WHERE json_extract(data,'$.agent')=?").run(id);

@@ -1,10 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, one } from './context.js';
 import type { WorkTurnRecord } from './work-record-types.js';
+import { workEndTypes } from './work-lifetime-usage.js';
 
 const startTypes = "'turn_started','turn_start'";
-const endTypes = "'turn_end','run_completed','run_failed','run_cancelled'";
-const activityTypes = `${startTypes},${endTypes}`;
+const activityTypes = `${startTypes},${workEndTypes}`;
 const activityTime = `CASE WHEN type IN (${startTypes})
   THEN COALESCE(json_extract(payload,'$.started_at'),observed_at)
   ELSE COALESCE(json_extract(payload,'$.finished_at'),observed_at) END`;
@@ -42,8 +42,8 @@ export function standaloneCompactions(db: DatabaseSync, session: string, before:
 }
 
 type TimelineRow = WorkTurnRecord & {scope: string; maintenance_stage?: string | null; maintenance_title?: string | null};
-type WorkWindowUsage = {total_tokens: number | null; reported_turns: number; missing_turns: number};
-type WorkGraphNode = WorkSummarySession & {ancestor_only: boolean; usage: WorkWindowUsage};
+type WorkLifetimeUsage = {total_tokens: number | null; reported_turns: number; missing_turns: number};
+type WorkGraphNode = WorkSummarySession & {ancestor_only: boolean; usage: WorkLifetimeUsage};
 
 const latestTurnJoin = `LEFT JOIN agent_work_turns t ON t.session_id=s.session_id AND t.turn_id=(
   SELECT turn_id FROM agent_work_turns WHERE session_id=s.session_id ORDER BY seq DESC LIMIT 1
@@ -194,33 +194,27 @@ export class WorkSummaries {
       SELECT s.parent_session_id FROM ancestry a CROSS JOIN agent_work_sessions s USING(session_id)
       WHERE s.root_agent_id=? AND s.parent_session_id IS NOT NULL AND ((${ordinary}) OR (${workflow}))
     )
-    SELECT ${summaryFields} FROM ancestry a CROSS JOIN agent_work_sessions s USING(session_id)
-    ${latestTurnJoin} WHERE s.root_agent_id=? AND (s.scope='global_main' OR (${ordinary}) OR (${workflow}))
-    ORDER BY s.session_id`, ...entries, root, root) as WorkSummarySession[] : [];
+    SELECT ${summaryFields},CASE WHEN u.reported_turns>0 THEN u.total_tokens END AS total_tokens,
+      COALESCE(u.reported_turns,0) AS reported_turns,
+      COALESCE(u.ended_turns-u.reported_turns,0) AS missing_turns
+    FROM ancestry a CROSS JOIN agent_work_sessions s USING(session_id)
+    ${latestTurnJoin}
+    LEFT JOIN agent_work_lifetime_usage u ON u.root_agent_id=s.root_agent_id
+      AND u.session_id=CASE WHEN s.session_id=? THEN '' ELSE s.session_id END
+    WHERE s.root_agent_id=? AND (s.scope='global_main' OR (${ordinary}) OR (${workflow}))
+    ORDER BY s.session_id`, ...entries, root, main, root) as Array<WorkSummarySession & WorkLifetimeUsage> : [];
     const selectedSet = new Set(entries);
-    const reported = rows.length ? this.windowUsage(root, rows.map(row => row.session_id), from, until) : new Map<string, WorkWindowUsage>();
-    const nodes: WorkGraphNode[] = rows.map(row => ({
+    const ancestors = rows.filter(row => !selectedSet.has(row.session_id)).map(row => row.session_id);
+    const activeAncestors = new Set(ancestors.length ? all(this.db, `
+      SELECT DISTINCT session_id FROM agent_work_events INDEXED BY agent_work_events_session_window
+      WHERE root_agent_id=? AND session_id IN (${ancestors.map(() => '?').join(',')})
+      AND type IN (${activityTypes}) AND (${activityTime}) BETWEEN ? AND ?
+    `, root, ...ancestors, from, until).map(row => row.session_id) : []);
+    const nodes: WorkGraphNode[] = rows.map(({total_tokens, reported_turns, missing_turns, ...row}) => ({
       ...row,
-      ancestor_only: !selectedSet.has(row.session_id) && !reported.has(row.session_id),
-      usage: reported.get(row.session_id) ?? {total_tokens: null, reported_turns: 0, missing_turns: 0},
+      ancestor_only: !selectedSet.has(row.session_id) && !activeAncestors.has(row.session_id),
+      usage: {total_tokens, reported_turns, missing_turns},
     }));
     return {window, from, until, nodes, next_cursor: candidates.length > limit ? selected.at(-1)! : null};
-  }
-
-  private windowUsage(root: string, sessions: string[], from: string, until: string) {
-    const rows = all(this.db, `WITH activity AS (
-      SELECT session_id,turn_id,MAX(type IN (${endTypes})) AS ended
-      FROM agent_work_events INDEXED BY agent_work_events_session_window
-      WHERE root_agent_id=? AND session_id IN (${sessions.map(() => '?').join(',')})
-      AND type IN (${activityTypes}) AND (${activityTime}) BETWEEN ? AND ?
-      GROUP BY session_id,turn_id
-    ), reports AS (
-      SELECT a.session_id,a.ended,CASE WHEN a.ended AND json_type(t.payload,'$.usage.total_tokens') IN ('integer','real')
-        THEN json_extract(t.payload,'$.usage.total_tokens') END AS token
-      FROM activity a JOIN agent_work_turns t USING(session_id,turn_id)
-    )
-    SELECT session_id,SUM(token) AS total_tokens,COUNT(token) AS reported_turns,SUM(ended)-COUNT(token) AS missing_turns
-    FROM reports GROUP BY session_id`, root, ...sessions, from, until) as Array<WorkWindowUsage & {session_id: string}>;
-    return new Map(rows.map(({session_id, ...usage}) => [session_id, usage]));
   }
 }

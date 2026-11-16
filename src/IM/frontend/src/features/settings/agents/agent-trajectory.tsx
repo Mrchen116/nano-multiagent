@@ -48,6 +48,7 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
   const revision = useAuthStore(state => state.revision);
   const userId = useAuthStore(state => state.user?.id);
   const [attempt, setAttempt] = useState(0);
+  const automaticRetries = useRef(0);
   const [state, setState] = useState('loading');
   const [message, setMessage] = useState('正在连接节点并读取原生轨迹…');
   const activeRef = useRef(active);
@@ -58,6 +59,7 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
     let disposed = false, socket: WebSocket | undefined, port: MessagePort | undefined;
     let iframeReady = false, version: string | undefined, initialized = false;
     let initialCatalog: unknown;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const positionKey = `${userId}:${revision}:${sessionId}:${target.runId ?? "session"}`;
     const requests = new Set<string>();
     setState('loading'); setMessage('正在连接节点并读取原生轨迹…');
@@ -126,17 +128,27 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
         initialCatalog = undefined; version = undefined;
         for (const requestId of requests) port?.postMessage({ type: 'error', requestId, code: 'trajectory_disconnected', message: event.reason || '更新已中断' });
         requests.clear();
-        if (event.code === 1008 && initialized) { onRevoked(); }
+        if (event.code === 1013 && !initialized) {
+          // A fresh observer can recover a transient preparation failure without user action.
+          // Bound retries because reconnecting cannot repair a persistently stalled runtime.
+          if (automaticRetries.current < 2) {
+            automaticRetries.current++;
+            setState('retrying'); setMessage('正在自动恢复轨迹读取…');
+            retryTimer = setTimeout(() => setAttempt(value => value + 1), 1000);
+          } else {
+            setState('error'); setMessage('自动重试后仍无法读取轨迹，请稍后重试');
+          }
+        } else if (event.code === 1008 && initialized) { onRevoked(); }
         else { setState(initialized ? 'interrupted' : 'error'); setMessage(previous => event.reason || (initialized ? '更新已中断，当前为已加载记录' : previous)); }
       };
-      socket.onerror = () => { if (!disposed) { setState('error'); setMessage('节点连接失败，可返回工作记录或重试'); } };
+      socket.onerror = () => { if (!disposed) { setState(initialized ? 'interrupted' : 'error'); setMessage('节点连接失败，可返回工作记录或重试'); } };
     })().catch(error => { if (!disposed) { setState('error'); setMessage(error.message); } });
-    return () => { disposed = true; window.removeEventListener('message', receive); port?.close(); socket?.close(); };
+    return () => { disposed = true; clearTimeout(retryTimer); window.removeEventListener('message', receive); port?.close(); socket?.close(); };
   }, [agentId, sessionId, revision, userId, attempt, positions, target, onNavigate, onRevoked]);
 
   if (!sessionId) return <div className="im-work-state">{tr('暂无可查看的执行')} <button onClick={onBack}>{tr('返回工作记录')}</button></div>;
   return <div className="im-native-trajectory">
-    <div className="im-native-status" role="status"><span>{message}</span>{['error', 'interrupted'].includes(state) && <><button onClick={() => setAttempt(value => value + 1)}>{tr('重新读取')}</button><button onClick={onBack}>{tr('返回工作记录')}</button></>}</div>
-    <iframe key={`${sessionId}:${revision}:${attempt}`} ref={frame} title="DSH 原生执行轨迹" src={withBase('/trajectory/')} sandbox="allow-scripts" />
+    <div className="im-native-status" role="status"><span>{message}</span>{['error', 'interrupted'].includes(state) && <><button onClick={() => { automaticRetries.current = 0; setAttempt(value => value + 1); }}>{tr('重新读取')}</button><button onClick={onBack}>{tr('返回工作记录')}</button></>}</div>
+    <iframe hidden={state === 'error' || state === 'retrying'} key={`${sessionId}:${revision}:${attempt}`} ref={frame} title="DSH 原生执行轨迹" src={withBase('/trajectory/')} sandbox="allow-scripts" />
   </div>;
 }

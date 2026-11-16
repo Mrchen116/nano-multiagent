@@ -72,6 +72,7 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
     queryKey: ["agent-work-delegation", agentId, window],
     enabled: visible,
     staleTime: 30_000,
+    gcTime: 0,
     initialPageParam: null as {after: string; until: string} | null,
     queryFn: ({signal, pageParam}) => {
       const query = new URLSearchParams({window, limit: "8"});
@@ -127,13 +128,13 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
           </>}
         </span>
         <span className="im-work-graph-node-metrics">
-          {usage.total_tokens === null ? tr("Token 未报告") : <>
-            {isRoot ? `${tr("自身累计")} · ` : totalTurns > 1 ? `${totalTurns} ${tr("轮累计")} · ` : ""}
-            <span title={`${usage.total_tokens.toLocaleString(i18n.language)} tok`}>{formatWorkTokens(usage.total_tokens)} tok</span>
-          </>}
+          {`${totalTurns} ${tr("轮累计")} · `}
+          {usage.total_tokens === null ? tr("Token 未报告") :
+            <span title={`${usage.total_tokens.toLocaleString(i18n.language)} tok`}>{formatWorkTokens(usage.total_tokens)} tok</span>}
         </span>
-        {(isRoot && totalTurns > 0 || usage.missing_turns > 0 || node.ancestor_only) && <small>{node.ancestor_only
-          ? tr("仅显示派工路径") : `${usage.reported_turns}/${totalTurns} ${tr("轮次已报告")}`}</small>}
+        {(isRoot && totalTurns > 0 || usage.missing_turns > 0) &&
+          <small>{`${usage.reported_turns}/${totalTurns} ${tr("轮次已报告")}`}</small>}
+        {node.ancestor_only && <small>{tr("仅显示派工路径")}</small>}
       </button>
       {children.length > 0 && <ul>{children.map(child => renderNode(child, path))}</ul>}
     </li>;
