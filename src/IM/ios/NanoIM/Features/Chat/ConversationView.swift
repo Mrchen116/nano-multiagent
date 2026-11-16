@@ -30,10 +30,11 @@ struct ConversationView: View {
         // A visitor's cached window can be retained during authority verification.
         guard !store.checkingAccess.contains(conversationID) else { return [] }
         let timeline = store.timelines[conversationID] ?? []
+        guard timeline.contains(where: { $0.message == nil }) else { return timeline }
         let messageIDs = Set(timeline.compactMap { $0.message?.id })
         return timeline.filter { $0.message != nil || messageIDs.contains($0.before_message_id ?? "") }
     }
-    private var cardIdentities: Set<InteractiveCardIdentity> {
+    private func cardIdentities(in items: [TimelineItem]) -> Set<InteractiveCardIdentity> {
         Set(items.compactMap(\.message).filter { $0.interactive?.catalog_version == "nano-iui-1" }
             .map(InteractiveCardIdentity.init))
     }
@@ -43,6 +44,7 @@ struct ConversationView: View {
     // disabled composer until confirmation. Newer ordinary edits stay separate behind it.
     private var draft: Binding<String> { Binding(get: { store.pending[conversationID]?.content ?? store.drafts[conversationID] ?? "" }, set: { store.setDraft(conversationID, $0) }) }
     var body: some View {
+        let items = self.items
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
         let timelinePhase = store.timelinePhase(conversationID)
         VStack(spacing: 0) {
@@ -145,7 +147,7 @@ struct ConversationView: View {
                         store.restoreReadingPositions[conversationID] = nil
                     }
                 }
-                .onChange(of: cardIdentities) { _, identities in cardPresentations.prune(identities) }
+                .onChange(of: cardIdentities(in: items)) { _, identities in cardPresentations.prune(identities) }
                 .onChange(of: store.interactionEpoch) { _, _ in cardPresentations.clear() }
                 .onChange(of: store.selectedID) { _, id in
                     if id != conversationID { cardPresentations.clear() }
@@ -154,8 +156,13 @@ struct ConversationView: View {
                     cardPresentations.releaseOffscreen()
                 }
                 .onAppear {
-                    scrollState.invalidateRestoration = { store.recordReadingPosition(nil, in: conversationID) }
-                    scrollState.readingAnchorChanged = { store.recordReadingPosition($0, in: conversationID) }
+                    // The coordinator lives in this view's state. Its callbacks must not retain that state.
+                    scrollState.invalidateRestoration = { [weak store, conversationID] in
+                        store?.recordReadingPosition(nil, in: conversationID)
+                    }
+                    scrollState.readingAnchorChanged = { [weak store, conversationID] in
+                        store?.recordReadingPosition($0, in: conversationID)
+                    }
                     scrollAttachment = scrollState.attachMessageScroller { id, anchor in
                         var transaction = Transaction(animation: nil)
                         transaction.disablesAnimations = true

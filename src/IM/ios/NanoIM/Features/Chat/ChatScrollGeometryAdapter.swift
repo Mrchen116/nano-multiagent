@@ -70,10 +70,10 @@ final class ChatScrollGeometryAdapter {
     }
 
     func snapshot(for id: String) -> Snapshot? {
-        guard active, let scroll = resolvedScroll(),
-              let row = markers[.row(id)]?.view,
+        guard active, let row = markers[.row(id)]?.view,
               let viewport = markers[.viewport]?.view,
               let window = viewport.window, row.window === window,
+              let scroll = resolvedScroll(),
               nearestScroll(to: row) === scroll else { return nil }
         let rowFrame = row.convert(row.bounds, to: window)
         let viewportFrame = viewport.convert(viewport.bounds, to: window)
