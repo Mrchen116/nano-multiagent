@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { AgentTrajectory } from './agent-trajectory';
 import { useAuthStore } from '../../auth/auth-store';
 
@@ -28,6 +28,8 @@ async function connect(frame: HTMLIFrameElement, index: number) {
   act(() => Socket.instances[index].onmessage?.({ data: JSON.stringify({ type: 'ready', version: '0.2.1-alpha.1' }) }));
   message(frame, { type: 'nano-trajectory-ready' });
 }
+afterEach(() => vi.useRealTimers());
+
 beforeEach(() => {
   reads.cached.mockReset();
   reads.prepare.mockReset().mockImplementation(async () => new Response(JSON.stringify({ ticket: 'readonly-ticket', expires_at: Date.now() + 15000 })));
@@ -121,17 +123,21 @@ it('does not initialize a late iframe with catalog data after its read connectio
   await waitFor(()=>expect(Socket.instances).toHaveLength(1));
   const delivered=vi.spyOn(frame.contentWindow!,'postMessage').mockImplementation(()=>{});
   act(()=>Socket.instances[0].onmessage?.({data:JSON.stringify({type:'ready',version:'0.2.1-alpha.1',initialCatalog:{capturedAt:Date.now(),result:{ok:true,value:{items:[{sessionId:'main'}]}}}})}));
+  vi.useFakeTimers();
   act(()=>{Socket.instances[0].readyState=3;Socket.instances[0].onclose?.({code:1008,reason:'访问资格已失效'});});
   message(frame,{type:'nano-trajectory-ready'});
   expect(delivered).not.toHaveBeenCalled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+  expect(reads.prepare).toHaveBeenCalledTimes(1);
+  expect(Socket.instances).toHaveLength(1);
 });
 
 it('hides failed initial loading, restores the viewer on retry and retains initialized content on interruption', async () => {
   const { container } = render(<AgentTrajectory agentId="agent" sessionId="main" positions={{}} onBack={() => {}} />);
   const initial = container.querySelector('iframe')!;
   await waitFor(() => expect(Socket.instances).toHaveLength(1));
-  act(() => Socket.instances[0].onclose?.({ code: 1013, reason: '轨迹读取超时，请重新读取' }));
-  expect(screen.getByRole('status')).toHaveTextContent('超时');
+  act(() => Socket.instances[0].onclose?.({ code: 1011, reason: '节点读取失败' }));
+  expect(screen.getByRole('status')).toHaveTextContent('节点读取失败');
   expect(initial).not.toBeVisible();
   fireEvent.click(screen.getByRole('button', { name: '重新读取' }));
   const retried = container.querySelector('iframe')!;
@@ -141,4 +147,48 @@ it('hides failed initial loading, restores the viewer on retry and retains initi
   act(() => Socket.instances[1].onerror?.());
   expect(screen.getByRole('button', { name: '重新读取' })).toBeVisible();
   expect(retried).toBeVisible();
+});
+
+
+it('automatically opens a fresh read connection after readiness timeout and restores the viewer without a click', async () => {
+  const { container } = render(<AgentTrajectory agentId="agent" sessionId="main" positions={{}} onBack={() => {}} />);
+  await waitFor(() => expect(Socket.instances).toHaveLength(1));
+  vi.useFakeTimers();
+  act(() => Socket.instances[0].onclose?.({ code: 1013, reason: '轨迹读取超时，请重新读取' }));
+  expect(screen.getByRole('status')).toHaveTextContent('自动');
+  expect(screen.queryByRole('button', { name: '重新读取' })).toBeNull();
+  expect(container.querySelector('iframe')).not.toBeVisible();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(Socket.instances).toHaveLength(2);
+  expect(Socket.instances[0].close).toHaveBeenCalled();
+  expect(reads.prepare).toHaveBeenCalledTimes(2);
+  expect(reads.prepare.mock.calls.every(([path]) => path === '/im/v1/agents/agent/trajectory/prepare')).toBe(true);
+  vi.useRealTimers();
+  const restored = container.querySelector('iframe')!;
+  await connect(restored, 1);
+  message(restored, { type: 'viewer-status', state: 'ready' });
+  expect(restored).toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent('已连接');
+});
+
+it('bounds automatic readiness retries, allows a fresh manual cycle and cancels retries on exit', async () => {
+  const { container, unmount } = render(<AgentTrajectory agentId="agent" sessionId="main" positions={{}} onBack={() => {}} />);
+  await waitFor(() => expect(Socket.instances).toHaveLength(1));
+  vi.useFakeTimers();
+  for (let index = 0; index < 3; index++) {
+    expect(Socket.instances).toHaveLength(index + 1);
+    act(() => Socket.instances[index].onclose?.({ code: 1013, reason: '轨迹读取超时，请重新读取' }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  }
+  expect(Socket.instances).toHaveLength(3);
+  expect(container.querySelector('iframe')).not.toBeVisible();
+  expect(screen.getByRole('status')).toHaveTextContent('自动重试后仍无法读取');
+  fireEvent.click(screen.getByRole('button', { name: '重新读取' }));
+  await act(async () => {});
+  expect(Socket.instances).toHaveLength(4);
+  act(() => Socket.instances[3].onclose?.({ code: 1013, reason: '轨迹读取超时，请重新读取' }));
+  expect(screen.getByRole('status')).toHaveTextContent('自动');
+  unmount();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(Socket.instances).toHaveLength(4);
 });
