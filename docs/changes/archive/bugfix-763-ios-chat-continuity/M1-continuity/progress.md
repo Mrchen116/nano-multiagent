@@ -185,3 +185,4 @@
 - 同一轮手势后的截图显示二者最终阅读位置有差别。例如 `merge-ready-adjacent` 的第二回合，基线停在 H763-288 的 Markdown，候选已进入 H763-300 的长卡片正文，均未以反向手势的终点替代独立 Latest 的真实尾部验证。两版的固定手势相同，实际加载和可视内容会随布局及滚动行为变化。
 - 在工作区将卡片身份和删除 Actor 的扫描改为逐条遍历，并在没有已删除身份时跳过等值投影重建，独立审查确认原行为。控制宿主较接近的样本进入负载，暖组 App CPU 10.596s（+1.96%），峰值物理内存 124669 kB（+17.33%），相对上一候选的内存差仅约 426 kB。ChatStateTests 和 ChatExecutionCleanupTests 通过。本次结果仍未满足 D5，证据 `merge-ready-allocations`。
 - 额外的省分配试验未关闭峰值内存回归，产品源码回到 `1e7843ee2`，试验 diff 保留于 `merge-ready-allocations/product.patch`。Instruments Allocations 的模拟器设备入口在预计 22 秒录制后 70 秒内没有完成，只有不完整的 trace；宿主进程入口识别不到同一专用模拟器的 App PID。两种结果位于 `merge-ready-instruments`、`merge-ready-instruments-host`，暂无可归因调用栈。Actions `43799964133` 的 iOS、前端与 TypeScript 回归通过，归档检查因 active unit 待完成而红。
+- 用户确认将 15% 作为调查线，接受本轮已记录的 App 峰值内存增量并推进交付。实测输入、结果及验证范围见 [最终交付决定](../review.md#最终交付决定)。

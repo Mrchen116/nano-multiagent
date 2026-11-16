@@ -115,7 +115,9 @@
 | 操作时延 | 同步记录Latest handler→尾部几何可见signpost（不是触摸→屏幕呈现）与XCTest命令→稳定尾部外部墙钟（含automation同步开销，分列不混算）。已加载/渲染内容的handler→tail中位≤500ms、最大≤1s；新挂载卡片的最终tail≤3s、最后height revision后的纠正≤1s。按钮即时取得跟随且旧定位不抢回是独立必过行为。 |
 | 滚动代价 | 主要指标为App定向XCTHitchMetric的hitch duration ratio（ms/s），辅以scrollingAndDecelerationMetric、XCTCPUMetric(application:)与XCTMemoryMetric(application:)；必要时用本轮sim的Animation Hitches/Time Profiler解释与请求时序的相关性。不能把runner CPU或空metric当App结果。 |
 
-**原生 hitch 退出规则（平台支持时）**：原生连续旅程必须全部通过。滚动候选hitch ratio中位不得超过基线中位加`max(1ms/s, 基线的10%)`；若基线中位>5ms/s（本轮明显停顿工作阈值，不是行业标准），候选须至少降低20%且≤5ms/s。App CPU/峰值内存中位不回归超过15%，超界须解释并以对照证明不增加阅读停顿/内存压力，否则不能退出。基线未复现hitch时，只能给『此负载下未复现真实帧停顿』的限定结论；候选仍须取得非空原生metric且hitch ratio≤5ms/s、操作时延达标、无上述回归，不能声称找到用户手机版本卡顿根因。
+**原生 hitch 退出规则（平台支持时）**。原生连续旅程必须全部通过。滚动候选 hitch ratio 中位不得超过基线中位加 `max(1ms/s, 基线的10%)`。若基线中位 >5ms/s（本轮明显停顿工作阈值），候选须至少降低 20% 且 ≤5ms/s。基线未复现 hitch 时，候选仍须取得非空原生 metric、hitch ratio ≤5ms/s 且操作时延达标，结论限于本轮负载。
+
+**CPU 和内存调查线**。App CPU 或峰值物理内存中位较基线增加超过 15% 时，调查资源开销及可观察的阅读影响，记录绝对值、对照结果和未知项。合入判断依据已观察到的用户影响、功能验收以及有记录的风险判断。单独越过 15% 不阻断合入。#763 的实测结果与交付决定见 [实施审查](review.md#最终交付决定)。
 
 #### 本机模拟器的滚动测量
 
@@ -179,7 +181,7 @@
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1-continuity | 连续聊天状态与原生验证 | 无 | 串行集成 | ChatPhases/ChatStore/UserStream、ChatList/Conversation及私有策略、测量支持的局部呈现、Tests/UITests、ios-client delta | [reviewer] 短重连零反馈且不位移，持续失败一处诚实可恢复；Chats重进尾部、动态增高/键盘跟随、上翻/详情/前后台不抢位、旧定位不覆盖最新；原生信息层级协调；D5冻结负载/样本的真实尾部、时延、CPU/内存与平台支持的 hitch 数据或同负载主线程采样全部成立，缺决定性测量不退出。[worker] 策略边界、timer取消/epoch、WS失败退避、healthyWS+HTTP失败再成功、HTTP-only成功不清WS故障、操作错误单测；真实UI连续旅程含缓存重入/高卡片/分页竞态/历史上下文；300实际加载边界、冷暖5样本metrics/请求/必要profile绑定SHA；原生build+受影响单测、CI等价检查；不更改权限/发送/媒体持久边界。 |
+| M1-continuity | 连续聊天状态与原生验证 | 无 | 串行集成 | ChatPhases/ChatStore/UserStream、ChatList/Conversation及私有策略、测量支持的局部呈现、Tests/UITests、ios-client delta | [reviewer] 短重连零反馈且不位移，持续失败一处诚实可恢复；Chats重进尾部、动态增高/键盘跟随、上翻/详情/前后台不抢位、旧定位不覆盖最新；原生信息层级协调；D5 冻结负载下验证真实尾部和时延，记录 CPU/内存与平台支持的 hitch 数据或同负载主线程采样，超过调查线时记录证据、限制和交付判断。[worker] 策略边界、timer取消/epoch、WS失败退避、healthyWS+HTTP失败再成功、HTTP-only成功不清WS故障、操作错误单测；真实UI连续旅程含缓存重入/高卡片/分页竞态/历史上下文；300实际加载边界、冷暖5样本metrics/请求/必要profile绑定SHA；原生build+受影响单测、CI等价检查；不更改权限/发送/媒体持久边界。 |
 
 ## 交付路径差异
 
