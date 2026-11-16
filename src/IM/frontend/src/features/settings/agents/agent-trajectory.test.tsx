@@ -12,6 +12,7 @@ class Socket {
   readyState = 1;
   onmessage?: (event: { data: string }) => void;
   onclose?: (event: { code: number; reason: string }) => void;
+  onerror?: () => void;
   send = vi.fn();
   close = vi.fn();
   constructor(readonly url: string) { Socket.instances.push(this); }
@@ -123,4 +124,21 @@ it('does not initialize a late iframe with catalog data after its read connectio
   act(()=>{Socket.instances[0].readyState=3;Socket.instances[0].onclose?.({code:1008,reason:'访问资格已失效'});});
   message(frame,{type:'nano-trajectory-ready'});
   expect(delivered).not.toHaveBeenCalled();
+});
+
+it('hides failed initial loading, restores the viewer on retry and retains initialized content on interruption', async () => {
+  const { container } = render(<AgentTrajectory agentId="agent" sessionId="main" positions={{}} onBack={() => {}} />);
+  const initial = container.querySelector('iframe')!;
+  await waitFor(() => expect(Socket.instances).toHaveLength(1));
+  act(() => Socket.instances[0].onclose?.({ code: 1013, reason: '轨迹读取超时，请重新读取' }));
+  expect(screen.getByRole('status')).toHaveTextContent('超时');
+  expect(initial).not.toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: '重新读取' }));
+  const retried = container.querySelector('iframe')!;
+  await connect(retried, 1);
+  message(retried, { type: 'viewer-status', state: 'ready' });
+  expect(retried).toBeVisible();
+  act(() => Socket.instances[1].onerror?.());
+  expect(screen.getByRole('button', { name: '重新读取' })).toBeVisible();
+  expect(retried).toBeVisible();
 });

@@ -39,7 +39,7 @@ Web 查看 Dreaming 原生轨迹时持续加载；刷新无效。生产轨迹文
 
 ## 修复
 
-IM 继续保留原有 15 秒未配对/未认领期限。两端配对后，如尚无 ready，切换为 30 秒首帧等待；超时以 1013 和可读原因关闭两侧连接，并走现有 observer 清理。收到 ready 且浏览器已认领时取消计时器。浏览器复用已有错误提示和重新读取入口，不增加自动重试，不更改 DSH 或代理。
+IM 继续保留原有 15 秒未配对/未认领期限。两端配对后，如尚无 ready，切换为 30 秒首帧等待；超时以 1013 和可读原因关闭两侧连接，并走现有 observer 清理。收到 ready 且浏览器已认领时取消计时器。浏览器复用已有错误提示和重新读取入口；初次读取失败隐藏 iframe 的过时加载占位，已初始化后的网络错误标为 interrupted 并保留已有内容。不增加自动重试，不更改 DSH 或代理。
 
 准备阶段超时只能结束观察连接；如果旧 DSH 内部仍不返回，本次修复不重启该进程，也不宣称强制取消其底层等待。既有 Node 在迟到 prepare 返回后会关闭失效观察。
 
@@ -48,6 +48,7 @@ IM 继续保留原有 15 秒未配对/未认领期限。两端配对后，如尚
 - Red：同一新增测试在修前真实 IM 子进程上，两端配对后 35 秒未关闭，抛出 AbortError；`/tmp/nano-772-red.log`。
 - Green：`pnpm exec vitest run apps/im-server/tests/e2e/trajectory.test.ts apps/node/tests/trajectory.test.ts`，2 文件、11 测试通过；两种配对顺序超时关闭、新观察重试收到 ready、成功后静默 31 秒仍可读。`/tmp/nano-772-green.log`。
 - `pnpm build`、`pnpm typecheck`、`pnpm check:ios-runtime` 通过；Python 非 E2E 136 passed，ruff check/format 通过。
+- Web 新增可见状态回归在修前因错误态 iframe 仍可见而失败（`/tmp/nano-772-ui-red.log`），修后 8 项轨迹组件测试通过（`/tmp/nano-772-ui-green.log`）。
 - 完整 CI 与浏览器受控故障的结果由交付 review 记录，未取得证据前不计通过。
 
 ### 测试策略

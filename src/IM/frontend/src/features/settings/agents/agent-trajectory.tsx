@@ -129,7 +129,7 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
         if (event.code === 1008 && initialized) { onRevoked(); }
         else { setState(initialized ? 'interrupted' : 'error'); setMessage(previous => event.reason || (initialized ? '更新已中断，当前为已加载记录' : previous)); }
       };
-      socket.onerror = () => { if (!disposed) { setState('error'); setMessage('节点连接失败，可返回工作记录或重试'); } };
+      socket.onerror = () => { if (!disposed) { setState(initialized ? 'interrupted' : 'error'); setMessage('节点连接失败，可返回工作记录或重试'); } };
     })().catch(error => { if (!disposed) { setState('error'); setMessage(error.message); } });
     return () => { disposed = true; window.removeEventListener('message', receive); port?.close(); socket?.close(); };
   }, [agentId, sessionId, revision, userId, attempt, positions, target, onNavigate, onRevoked]);
@@ -137,6 +137,6 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
   if (!sessionId) return <div className="im-work-state">{tr('暂无可查看的执行')} <button onClick={onBack}>{tr('返回工作记录')}</button></div>;
   return <div className="im-native-trajectory">
     <div className="im-native-status" role="status"><span>{message}</span>{['error', 'interrupted'].includes(state) && <><button onClick={() => setAttempt(value => value + 1)}>{tr('重新读取')}</button><button onClick={onBack}>{tr('返回工作记录')}</button></>}</div>
-    <iframe key={`${sessionId}:${revision}:${attempt}`} ref={frame} title="DSH 原生执行轨迹" src={withBase('/trajectory/')} sandbox="allow-scripts" />
+    <iframe hidden={state === 'error'} key={`${sessionId}:${revision}:${attempt}`} ref={frame} title="DSH 原生执行轨迹" src={withBase('/trajectory/')} sandbox="allow-scripts" />
   </div>;
 }
