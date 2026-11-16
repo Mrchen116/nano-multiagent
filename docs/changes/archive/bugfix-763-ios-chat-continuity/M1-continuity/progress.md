@@ -1,0 +1,188 @@
+# M1-continuity — 实施记录
+
+## 实际起点
+
+- 默认简化实施，主执行者端到端集成；连接scope/传输子系统在独立worktree交局部helper，主执行者实现滚动；另一helper只维护共享原生harness/执行基线。不是机械分层milestone拆分，最终审查另交未参与实现者。
+- baseline product `45babb2b49e314754c6ca390f4ca3da61fe9f107`；独立worktree `/private/tmp/nano-ios-chat-continuity`，分支 `unit/bugfix-763-ios-chat-continuity`（遵主Agent在直推拒绝后确认的同一分支路径）。主checkout用户dirty保留。
+- Gate2 R2 `Approved / 0 CRITICAL / 0 WARNING`，受审 `aab91da798f8`；仅报告确认后进入实施，尚未改产品代码。
+
+## 准备与测试处置
+
+- 独立pnpm frozen install、frontend npm ci及原生baseline build / NanoIMJourney build-for-testing通过。Xcode26.4.1，iOS26.4，专用新iPhone17Pro模拟器`37326699-6680-4108-8319-D751AD931579`；尚未App内登录/截图/滚动，不能宣称体验通过。
+- 300×2专用合成IM fixture经真实API与只读DB核对，消息/卡片不是模型生成；helper正在将停进程/重启耗时不稳定的短断方式替换为仅本轮listener关闭/重开的可控演练，准备完成后才能使用。主执行者接手清理责任。
+- 保留已有权限、清理revision、本地库和发送测试；`ChatPhaseTests`原始连接描述辅助函数测试可保留，`ChatLocalFirstTests`中『离线立即显示文字』『HTTP sync成功即online』预期将按新的静默和完整实时健康语义改写，原本地先于网络的保护不删。
+- 新滚动状态/异步定位风险没有现有owner，拟新增针对可观察滚动目标的最低层策略测试；真实原生harness只承担SwiftUI实际布局/生命周期和性能，避免复制内部状态断言。既有UITests私有helper不可直接复用，新共享合成fixture helper服务连续旅程与性能case。临时测量脚本/截图不进入永久测试。
+
+## 已核实的原生基线与实施
+
+- `NanoIMBuildRevision=b5d150a0b-baseline` 的未改产品App，真实UI登录/初次进入通过。原生截图显示屏幕落在H763-292…296，Latest可见，300及终尾不在屏内；主执行者直接读图确认。这是首次进入未到尾的真实红证据，不以prime的渲染成功冒充连续性通过。附件：`/private/tmp/nano-ios-763-evidence/baseline-prime.xcresult` 与 `baseline-prime-attachments/D43643FE-DF3D-4D6B-937B-10D7A4B34B68.png`（收尾须promotion到稳定证据路径）。
+- 独占fixture runner已ready，同一个createServer/HTTP listener经本轮专有SIGUSR1/2执行3秒/12秒关闭恢复，记录真实monotonic downtime；未修改协议/代理/权限/DB。故障演练尚未消耗。
+- 滚动实现单一`ChatScrollPolicy`+小型Observation adapter独占ScrollPosition，像素级几何不发布到timeline body。跟随由意图而不是末行可见推断，tracking暂停/实际手势才失效旧restore；懒布局与行高/视口更新驱动合并纠正。历史保留稳定行+有效视口偏移；Older await不再无条件scrollTo top。尚待编译/实测，不能据代码宣称通过。
+- 300实际加载证明与同负载metrics尚在执行。基线harness修正LazyVStack回收期间的XCUI查询竞争时，完整冻结基线App bundle并以所有文件hash校验恢复；不能将候选App混入基线。
+
+## 当前实施与有效证据（2026-11-12）
+
+前文为按时间保留的准备记录，以下更新当前状态，不把当时的『尚未』当作最终缺口。
+
+- 产品冻结 `ed5248dc1fa74358ac74b65f9a98589cc4142d8d`：scroll intent/coordinator、真实WS ping恢复、读取scope与业务错误拆分、两surface固定导航slot已集成。未实施日期/Markdown/已读等猜测性性能优化。
+- 全量原生单测：219 XCTest / 0 failure / 1既有真机保护skip，另29 SwiftTesting / 0 failure。`candidate-unit-green.xcresult`及`.log`绑定该SHA。新增非网络协议读取失败回归先在7fb8740d产品+新测试取得7项真实断言失败，再在ed5248通过；不误称该red为最初基线。
+- 真正原生加载300边界已验证：两会话均实际Earlier四页，UI181→121→061→001与只读App SQLite各300条对账。共享harness冷/暖各1 discard+5 retained；原始基线App整体冻结并恢复全部20项hash，避免候选混入基线。
+- 未改产品基线远距Latest：Markdown通过；混合卡片在001→一次Latest后最终尾标仍Y3513，输入框上界779.67，是真正未到底。该次有其他构建负载，只作功能red，不作D5定量性能样本。原始 `baseline-far-latest-diagnostic.xcresult` / attachments / installed-proof.json留存。
+- 候选Journey构建通过，`NanoIMBuildRevision=ed5248dc1fa7`且无单测plugin；0600候选runner仅继承同一fixture环境，产品路径保持候选，所有App文件SHA单独记录。首轮原生smoke实际4项/3失败：远距Mixed最终tail已到，但3秒内未取得3个稳定frame；缓存重入case在首次tail稳定窗口失败，尚未走详情/前后台；真实键盘显示后消息视口确实空白，尾标不存在。`candidate-functional-smoke.xcresult` / attachments保留全部失败，不能宣称功能通过。
+- 首轮Large Type case虽然green，启动参数常量错误，实际是默认字号，**不计大字号覆盖**；一次性harness已改为UIKit公开enum.rawValue，待真实画面重验。同一混合卡片末尾实际上有Title/Text两枚同名marker，共享observer已修为选实际最末叶Text并记录全部候选，避免第一枚可见就当最终tail完成；冻结fixture不改。
+- 独立初审 CODE-763-1确认Pin/Mute业务重试成功不消费旧错误。将原View PATCH原样提取到Store后，新回归取得Pin/Mute两项有意义的XCTAssertNil失败。主修为按操作scope/owner及epoch消费其自身失败，并使错误行Retry重试真正失败的PATCH；不得恢复『任意读成功清业务错误』。真实focused green已执行：1 case / 0 failure / 0.075s，`preference-recovery-green.xcresult`与source hash绑定；这是带临时诊断的dirty source，不把旧219+29重标为最终树全套通过。同一原非作者已在当前dirty子集独立复核，CODE-763-1 CLOSED / Approved SUBSET / findings=[]；UserStream与新增5项握手测试亦静态通过子集审查并核对focused原始日志。此结论不包含滚动、键盘、实际网络恢复、UX/性能或最终冻结全树；临时诊断移除后仍须最终review。
+- 首组baseline MarkdownColdScroll已取得5个非空App CPU、peak memory与scroll-duration样本；XCTHitchMetric没有输出hitch系列（**不是0**）。备选Animation Hitches实际record返回exit2，完整日志为 `baseline-animation-hitches-support.log`：`Hitches is not supported on this platform.`。按当前D5，性能结论inconclusive，不归档为完成。有界能力探针/真实MOV捕获链校准提案经R3修正完整运动窗口漏洞后，R4独立设计复核Approved 0C/0W；不冒称Apple hitch等价值，校准/产品事件时间绑定不足仍inconclusive。该分支尚未运行，之后因用户要求直接试模拟器而让位，未降低目标/宣称通过。其余可比指标仅作部分证据继续保留。
+- 3秒/12秒故障仍未消耗。候选健康listener下出现持续raw不可用caption，是待定位实际问题；不在该前置未清时消耗故障或把旧caption归因给新fault。服务PID54838及出生时间/cwd/command/loopback监听再次核实。临时凭据和runner不入Git，原始结果须扫描实际secret后再promotion。
+
+## 后续真实观察与当前人用交接
+
+- 原计划基线8组全部各执行一次、每组实际1discard+5retained，无丢red/补跑。四scroll组CPU/peak-memory/scroll均非空；Markdown冷暖Latest各5/5真尾，Mixed冷暖各0/5、完成时延null，最终Text y3546/maxY3567仍屏外。`baseline-status.md`与`baseline-partial-matrix-summary.json`保留完整值/hostload，postflight核实全20项App原hash与两组300行。实际runtime26.4.1/23E254a（SDK标签26.4）。固定6历史+6向尾手势的Mixed末图在284，不把execution PASS当成功回尾；独立Latest真实尾标/时延目标不减免。
+- 一次纯观察原生诊断已完成，未注入故障。键盘这次实际final Text419…439、composer477.667，三帧稳定；不能关闭原先空白问题，因为诊断改变时序。普通App连接日志只记录ticket received→resume sent，42秒内没有handshake-confirmed/catch；停在ping等待是已观察边界，Foundation接收顺序/服务端响应原因仍未知，未重试此前被拒的独立credential/WS probe。
+- 数字几何日志已直接揭示adapter把系统insets重复扣除：无键盘实际ScrollView global116…779.667被算成232…685.333；有键盘实际361.667pt视口又被扣396.333而变零高。这解释了真尾仍显示Latest等错误判定；原空白的全部因果尚未复验。已准备基于真实记录的两项最窄unit regression，尚未编译/执行，产品机制未继续叠猜测补丁。
+- 用户要求“打开好模拟器给我验证也可以”后，优先交实操，不再卡在自动hitch量化。通过cua-driver实际打开专用窗口`bugfix-763-chat-continuity`，候选`ed5248-geometry-diagnostic`全部安装文件hash核对，已打开B高卡片并直接读图确认最终Text `763-END`可见。持久server配置核实为本轮loopback。明确告知仍有raw不可用caption、真尾Latest按钮、初轮keyboard/3秒失败未关，大字号与短长断线未验；不是全部修好版。
+- 交接前Cua末次验证该精确Simulator窗口focused/frontmost ordinary均true，结束driver session但不关App。**当前sim/fixture为人用保留**：没有测试/采集job运行，不build/install/launch/trace/录屏/自动驱动与用户争抢该sim；只可整理已有日志/源码。待主Agent转回实际反馈和恢复自动操作时机，不把人用交接当用户验收或整个unit完成。
+
+## 人用样本纠正（不是修复通过）
+
+- 用户指出旧示例“没有UI消息，只有markdown，没有说服力”。直接读旧source确认虽走WK，但只是Title+32个Text；不能用卡片数量反驳视觉代表性不足。新增独立C试用会话，不改原A/B600条冻结source/checksum。
+- 在用户明确“切啊”交还空档后，通过真实Messaging/Interactions注册24短历史+1张真实OpenUI看板；没有启动第二server/Delivery、重启服务、重装App、读token或网络probe。准备阶段创建扩展脚本曾被拒，实际新空档授权后才沿同事项恢复正常工具检查执行，未换法绕拒绝。receipt：`/private/tmp/nano-ios-763-runtime/visual-extension.receipt.json`。
+- 当前C `c_yyvwpn3r`“763 · C 可交互看板 · 点击展开变高”，看板有双列状态、标签、分段控件、清单、展开三路线panel及大块布局切换，全部本地@Set。8种初始状态经真实parser/evaluator验证；随后实际App点展开→panel出现/变高→收起恢复，直接读图确认。`ui-sample-handoff.png`、`ui-sample-expanded-actual.png`、`ui-sample-collapsed-actual.png`在本轮evidence保留。实际主题按钮黑色，不把设计文字“蓝色”当画面事实。
+- 已立即再次交还精确Simulator窗口focused/frontmost ordinary均true，driver session结束，当前人用保留。旧连接/Latest/键盘等失败仍未关闭。
+- C初版另发现同毫秒created_at导致iOS用随机id打平局，native次序末组22/24/UI/23；因此旧UI-763-TAIL不作为全聊天真尾验收。用户随后明确要求“消息列表里有多个UI消息我才能测”，主Agent批准C扩展与最小刷新，不重装App/重启服务/长测。现在C已44条＝10张独立真实OpenUI＋34普通消息，卡片涵盖看板、清单、表格、SVG、活动步骤、图表、人数计算、方案与检查；全部独立可展开，穿插普通消息，可连续跨屏滚动。原C旧card同ID进行明确的synthetic fixture重注册（非产品改卡API），去掉蓝色按钮文字和易被误解为原生滚动设置的radio；所有C时间戳严格1秒递增，44条created事件DTO已对齐，最后普通消息明确763-C-CHAT-END。原A/B冻结hash仍不变。回执`/private/tmp/nano-ios-763-runtime/evidence/C-multi-ui.receipt.json`。
+- 10卡初始/展开20状态通过真实parser/evaluator/schema验证。随后实际App普通Chats重进加载新C，直接读图确认09/10与完整末条END；实际向历史滚过08/09两个独立UI及中间普通消息，点击08展开出现A户外/B室内两个panel并变高，再收起恢复。实际图`multi-ui-crossscreen-actual.png`、`multi-ui-expanded-confirmed.png`、`multi-ui-loaded-actual.png`、`multi-ui-handoff.png`保留在本轮evidence。精确Simulator窗口再次验证focused/frontmost ordinary均true，driver session结束但不关App，当前人用保留，已通知主Agent立即交用户试。该样本更正不替代300×2冻结性能负载、异步动态尾部或修复通过；连接caption、真尾Latest等旧失败仍未关闭。
+
+## 人用反馈后继续诊断（当前状态）
+
+- 主 Agent 已结束上一段人用保留并交还专用模拟器。用户实际反馈“虽然能滚动到底下……也会一直闪……界面稍微被放大，左边都凸出去了”。已直接读用户截图：原生头像、Markdown 与 WK 卡片共同左移，归一化后卡片宽度不变，不能当成 Web 卡宽或 App 缩放问题。
+- 真实几何输入对应的两项 adapter regression 先取得 red（重复扣键盘 inset、真尾已可见但 Lazy extent 导致 Latest 不消失），随后仅修有效视口与可见尾判定。focused 18 项通过（10 scroll、3 continuity、5 WS handshake），不替代最终全套。`viewport-regression-red.xcresult` / `viewport-green-a.xcresult` 留存本轮 evidence。
+- WS 普通 App 路径先已观察 ticket→resume 后无确认；修为先启动唯一 receive pump，再等待可取消、有上界的 pong readiness，收到确认前缓冲事件。候选普通 App 实际出现 receive-start→handshake-confirmed、旧持续不可用 caption 消失；SDK 行为仍不等于已证明 Foundation 内部因果，未绕过此前被拒的独立凭据/WS probe。
+- 横向 trace 证明内容宽度恒定 402、左右 inset 为零，但 contentOffset.x 在 0/16 之间改变，且第一次偏移发生在任何显式 correction 之前。修有效视口后仍有永久 16pt 左移，尚未关闭。单独更改 bottom→bottomLeading、单独将 scrollTargetLayout 移到 padding 之前均未修复，已分别回退；目前独立验证无初始 ScrollPosition edge 的单变量版本，不把猜测补丁叠成最终方案。
+- 用户进一步纠正“闪动就是横向偏移的问题，一会偏移一会不偏移”：按同一消息区域左右横跳处理，不再另开亮灭/独立闪屏调查。具体 anchor/layout 竞争机制仍待工程证据，不由用户症状描述证明。
+- D（不持有初始 edge）普通 C 实测54事件：首次显式 edge 请求前x0，之后动态布局发生x16，尾左缘0；故只移除初始edge不足修复。E仅将两个edge请求换为尾部id，112次请求仍停在同一y，消息加载后的真实尾未实现；x0不是通过。E2仅将尾部改单项ForEach后原生入口case通过且真实尾可见，但trace与同代AX证明仍永久左偏：消息共同wrapper宽370/x0，对402屏幕左/右gutter为0/32，内容root宽402/x−16。静止x-range=0不等于对齐正确，未接受此候选；已据同一真实共同祖先补初始margin对称判据，后续单独验证targetLayout与padding的目标边界。
+- 新 C 原生测试直接观察精确最后一条普通消息，禁止用 Latest/手势修入口；记录至少 13 个、至少 2.4 秒 AX 样本及展开/收起后的同一参考坐标。它验证横向稳定样本，不宣称样本间绝对无瞬态。
+- 强判据在 E2/E3 真实 native 均 red（13 样本各 L0/R32、中心偏16），modifier 顺序不足修复。F 将 target layout 的普通 padding 迁到公开 ScrollView contentMargins；首次入口真实 green（13 样本 L16/R16、真尾可见、Latest0），但另一独立入口出现 sentinel 几何最后1057 与 AX 真实末条在屏内不符，Latest误现；保留失败，不以随后5次入口全绿消除它。
+- G 将同一有序最后消息 ID 同时作为定位/到达判据，删除透明 sentinel；实际 row trace 曾与 AX 末行位置吻合，完成语义不依赖另一个可回收尾标。12项 scroll unit green；旧历史测试的 B 末行原在视口内却期望仍读历史，修为视口下方后原5项锚点断言保持并通过，原失败留存。原非作者静态滚动子集 CLEAN / findings=[]，不是最终全树或体验审批。
+- G 真实 C 两 case / 0 failure：untouched初始、持久expanded状态后的真实收起归一化、展开、收起共5阶段，每阶段13个AX样本，L/R全部16/16、横向range0、Latest0；末条一直可见，Y range分别0/0/0/0/0.667pt，采样持续3.8–5.0s。直接读展开/收起真实截图，原生头像、Markdown/WK/气泡共同正常留边，末条在composer上方；不以该样本推全量无帧停顿。证据 `final-message-g-cards.xcresult`、`final-message-g-cards-observations.json`及对应attachments；键盘、历史导航、网络故障仍待本候选实际执行。
+
+## 新发现的原生阅读阻塞与实际运行限制
+
+- G 的 B 旅程取得 3 项真实 green：6 次历史手势后详情/前后台保持同一 anchor（4pt 内）、Chats 重进回真尾；真实软件键盘及三行 composer 增高后真尾可见；公开大字号参数下详情可达。`final-message-g-reading.xcresult` / `.log` 保留对应结果与截图；其中最后一项纯 Markdown Earlier case 失败，因此整次 test command exit65，不称整套通过。键盘测试删除草稿后的后续大字号截图仍有 `line one`，清空草稿的 harness postcondition 尚须核实，不能据测试 green 宣称清理成功。
+- A 的 Earlier case 在第 3 次上翻后 App 主线程不再响应，尚未点 Earlier。原始无 trace 的 run 与随后仅启用本地诊断的同一产品 G 均出现；`final-message-g-earlier-diagnostic.xcresult` / `.log` 及 `final-message-g-earlier-main-thread.{receipt.json,sample.txt}` 记录后者。已核实只 sample 本轮专用 Simulator App PID；34 个有效 main-thread 样本均在 SwiftUI/AttributeGraph lazy placement/layout 事务，AX 等主线程。不是已证明的 Apple bug，不把短 sample 当 CPU 定量。
+- `final-message-g-earlier-scroll-events.json` 共 2266 事件，前两次手势回 idle，第三次进入 decelerating 后停止回调；末 content height 32290→31738。仅 2 次 `correct-final-message`，均早于首手势，0 次 `correct-history-y`。这不支持当前现场的 history-y 纠正自反馈假说；未单独 trace 的历史 ID restore/realize 分支不能由日志绝对排除。具体触发机制仍未知，旧基线同类 12 手势曾完成，因此本次滚动修改仍有回归嫌疑，候选不可交人试用。
+- 仅为隔离 target registration，H 单变量将 `.scrollTargetLayout()` 改为 `isEnabled:false`，build exit0，revision `7c3b192-target-layout-h` 的正常 App artifact 已绑定并安装，证据 `target-layout-h-build.log` 与 `/private/tmp/nano-ios-763-runtime/artifacts/target-layout-h/binding.json`。随后同一 Earlier XCTest 调用被工具明确拒绝（引用早期只读/原生 UI 运行限制），未返回 job ID/运行输出，不把它记为执行。已停止、不换工具/runner/child 绕过；已通知主 Agent 对照实际人类原话处理。源代码一行已回退 G，**未 rebuild/reinstall G，当前 derivedData 和已安装 App 仍 H 诊断版**；H 无测试结论、不作产品修复。现存 G 正常 artifact 在 `/private/tmp/nano-ios-763-runtime/artifacts/final-message-g/NanoIM.app`；恢复安装也尚未执行。
+- 之后主 Agent 向用户实际送达具体问题“允许在该专用隔离模拟器里启动 App，执行本 unit 的上翻、跳底、键盘和重连原生回归测试吗？不涉及生产环境或手机”，用户明确答“允许”。沿同一事项恢复，未扩大到生产/手机或独立 token/WS 探针。恢复前核实唯一 booted 的专用 simulator、源 G 及安装 H 的全部 20 个 App 文件 hash；本轮 fixture 原 PID/出生时间/cwd/loopback listener 均保持。回执 `target-layout-h-resume-state.json`。随后按正常工具检查重新提交同一 H Earlier 单变量回归，实际获得 job；结果仍须按真实运行判定，不把许可当作通过。
+- 恢复后的 H Earlier 真实 exit65，仍第 3 次上翻后主线程不可响应；因此单独禁用 target layout 不足消除卡死。新 bounded 原生诊断保持同一 A/同一手势（6 次向历史、6 次向尾，不注入 scroll hook），I 仅从 G 移除 `.scrollPosition` 绑定，实际 12 手势与两端 AX/截图均完成（54.332s，exit0）；I 有意失去程序定位职责，不能作为修复。随后原样恢复绑定的 G 对照在同一 bounded case 再现卡死（294.283s，exit65）。`target-layout-h-earlier.xcresult`、`position-binding-i-twelve.xcresult`、`position-control-g-twelve.xcresult` 与各自 build/App/source binding 全保留。这将必要交互边界收窄到绑定位置参与的路径，仍不证明内部 ID resolver 原因。随后 J 首次确认 reading 位移后仅写 `isPositionedByUser = true`、K 重建自动 String position，两次原生均 exit65/同第3手势阻塞；超时重启后的0-test suite不算成功。它们均不保留为产品补丁。公开 user-positioned 契约只保证用户定位语义及清除非 nil edge/point，不保证取消所有 ID 求解。
+- D5 revision2 准备已静态完成，但公开 actual XCTest event→product MOV 的 ≤X/3 时间绑定 producer 实际缺失，validator 不等于 provider；有限 Game Performance probe 也未执行。依原 design 只能 inconclusive，不能归档完成。性能探索/新样本准备当前让位给可用功能候选，不再先跑校准掩盖原生卡死。
+
+## R5 adapter 实施及未通过的原生验证
+
+- Round5 独立 Gate2 为 Approved / 0 CRITICAL / 0 WARNING（design SHA256 `fc8264f365bb19de2732079f2c45c5adce80e6119f42d0599b9ed9871da45423`）。L 实现将四类 ID 请求全部汇入 timeline-local Reader action，默认 Never 的 ScrollPosition 仅留 y；attach/detach generation、缺 adapter 重调度、point 清理及实际拖动取消均纳入同一 coordinator。原14项 scroll 单测实际全绿（`reader-adapter-l-unit.xcresult`），不作为真实 SwiftUI 接线通过。
+- L 的108份产品/Tests/UITests/scheme源在 build 前冻结、后核实完全未变，并绑定实际 UITest executable；正常App全部20文件安装后hash匹配、无unit plugin。回执 `reader-adapter-l-{source-before-build,build-binding}.json`、`artifacts/reader-adapter-l/binding.json`。原生同 A / 同12手势 case 仍在第3历史手势卡死，XCTest实际 exit65（`reader-adapter-l-twelve.xcresult` / `.log`），不能交试用。这推翻了“只撤掉String ID跟踪即可解除现场”的修复预期，仍不证明私有框架根因。
+- 独立review给出 `CODE-763-L1` MEDIUM / PLAUSIBLE：ID后offset与row frame的独立通知可能混代，当前OR闸门允许先新offset+旧row或先新row+旧offset，发错误y；未在native证明该顺序是此次卡死根因。不能以窄单测绿关闭此风险，也不能机械改AND而阻塞合法仅row改高。
+- 当前 M 只从 L 移除 `.scrollPosition` 绑定，仍保留同一 Reader ID adapter，作为必要条件诊断；有意不兑现历史 y，因此不是完整候选。通过同一 bounded case 区分“任何 position binding”与“Reader 程序请求本身”参与，不据一次诊断绿交付。若需要改变执行边界，将先修订受审技术方案，不继续堆未证实小补丁。键盘清理harness已改为真实 Select All/删除并严格空值，但新菜单路径尚未原生验证。
+
+## R5 后续必要条件对照（均非完整产品候选）
+
+- M 完全去掉 ScrollPosition 绑定但保留 Reader，N 再去掉 target-layout registration，均在同第3历史手势后失败/exit65。故“绑定是挂起必要条件”“只删targetLayout就足够”都不成立。N 的确切专用 App PID26332/revision/hash核实后 sample exit0，258个main样本仍以 SwiftUI lazy measure/phase/layout事务为主，自有代码未见定位写入栈，不能下私有框架根因结论。
+- O 从 N 改为向额外固定1pt footer发 bottom请求；coordinator completion仍取实际最后消息 ID/row frame，history y有意不生效。原样12手势case真实通过（52.286s/exit0）。这是“固定尾端拓扑+目标路径”的可操作差异，不仅是ID改名：额外约19pt间距、末行不再是last child、惰性估算extent也改变；不以此声称已精确归因。
+- 精确PID的本sim事件已导出：L/M/N首次手势前实际末行相同、global tail bottom均763.667、有效viewport116…779.667，estimated extent32290；O同5个末尾row身份、tail bottom744.667、extent31498。O后来经过N挂起时全部8个缓存row，最近一帧各row globalY一致相差5pt（revision10）；仍不声称私有layout状态相同。`reader-n-o-oslog.json`、`reader-{n,o}-scroll-events.json`、`reader-l-m-n-o-trace-summary.json`及`reader-n-o-nearest-row-window.json`记录来源。I无对应事件导出且旧case无initial true-tail断言，不把I过推成严格同起点/必要因果。
+- 新增独立原生功能case保护“初始真尾→实际上翻→history稳定/Latest可操作→明确点击Latest→真实尾部/入口消失”，另有clock无任何swipe fallback的所有权case；旧12手势与strict Select All helper不变。Reading tests SHA256 `8e469ef8927b40ed14b87f807538cf4aa3b83815d0976bfac7e8fe09a3109538`。O-functional重新冻结108源/scheme并绑定UITest executable，正常App安装20hash匹配、无unit plugin：**A六次上翻后H763-289的实际Y保留706.667，tail不在viewport、Latest可点；明确Latest后真tail连续3样本可见且入口消失，46.590s/0failure**。这证明O不是默认定位/no-op替代程序Latest；仍不证明任意历史y。另clock case真实失败（17.299s），tap(80,30)后未见Earlier/001；直接读before/after截图视觉仍在相同末行，不把它自动归因“coordinator抢回”，需trace或对照分类。整次command exit65，不记全套通过。证据 `reader-endpoint-o-functional.xcresult` / `.log` / `-attachments/`。
+- 用户系统重开后明确“继续，刚刚重开了系统，agent中断了”。已重新核对同branch/HEAD、fixture原PID54838出生时间/cwd/listener、专用373sim booted、installed O 20hash，均保持；没有遗留bash jobs。旧授权不扩大，沿同一事项接续；不新建副本或重跑有效基线。
+
+## R6 原子原生几何与系统 top 所有权
+
+- 精确自有sim/PID89581的clock事件已核：offset确实上移至-116.667，SwiftUI全程idle/latest/rev0，随后本方correct+request拉回94663。故旧截图相同不是noop，CODE-763-2有真实事件支持；不据此推断私有layout挂起根因。`reader-o-clock-oslog.json`及`reader-o-clock-scroll-events.json`保留。
+- Round6指出lazy footer依赖和native top来源未闭合；Round7在persistent content-root、局部公开delegate透明forwarding/weak/rebind/detach、真实shouldTop来源、noop/代次取消补全后Approved0/0。设计最终SHA `ee5a0ea8e3c4f9ac17ab3aafd8b0d2a18e296449df3b395a41e64cc7d7cfabf2`；设计批准不关闭实现finding。
+- P已移除全部ScrollPosition/targetLayout，Reader使用私有固定footer端点而actuallastrow判完成；historical y通过同MainActor同步UIKit live tuple、同ancestor/window/viewport校验，保x/clamp。局部forwarder观察允许的nativeTop请求，原delegate返回值与其他optional方法透传；Latest/drag/解绑取消旧top暂停。17项scroll单测实际全绿（`native-adapter-p-unit.xcresult`/log），包含混cache顺序不写、live tuple实际原生y恢复、foreignrow、clamp/x、原delegatefalse/optionalforward、noop/replacement/latecompletion。不是原生App接线通过。P Journey build-for-testing exit0，109源/scheme前冻后核、UITest executable绑定 `native-adapter-p-{source-before-build,build-binding}.json`；正常artifact准备及原生测试待执行。
+- 新D专用120条合成会话 `c_afqtkn0l`，消息360秒间隔保证prepend不消失061 timestamp；真实Messaging创建/insert，不改A/B/C，全部旧messages+card-source hash保持。receipt `D-pagination.receipt.json`。Earlier harness仅新增正确的第一旧row061非零Y恢复→无fallbackclock001，不清AppDB/改原A/B性能语料；错误08卡下方ordinary固定Y case已删，因已定策略合法保存更上方可见卡top而非下方ordinary。D首次运行仍需cache0→60→120与实际trace核对，未宣称已通过或两物理分支必执行。
+- P functional 实际2例全绿：A untouched真尾→6次上翻→稳定history→明确Latest真尾；clock无fallback直达001、同一anchor Y209.667观察不变→明确Latest真尾（22.318s）。`native-adapter-p-functional.xcresult`/log为2tests0failure/exit0。命令中误写的12手势selector没有实际case执行，**不能记12手势绿**。
+- 独立P静态review仍给出两项MEDIUM：P1为已live且Reader/top合法noop时pending快照相等永久阻挡所需相对y；P2为didTop早于SwiftUI最后几何时缓存判底/capture可能误切latest或拉回。新增两项确定性回归在P产品实际2tests/9断言失败/exit65；分别观察A0未恢复−20、cachedtail400误latest、cached610保存−20并把live native0拉20。`native-adapter-q-red.log`保留；其后的simctl诊断收集PATH error72不是已执行断言失败原因。不把受控排序证明升级为平台真实回调顺序证据。
+- Q按原R6职责修实现：已live history直接coherent y，不发不必要Reader；真正unrealized仍保留ID后live tuple/代次门。bound时actualtail判底与captureAnchor均只读live marker，无live不退回旧cache；coalesced校正刷新button。旧mix-cache回归改为B先unrealized，仍覆盖两缓存顺序不写→live实现actualy1210。19项scroll单测全绿/exit0（`native-adapter-q-unit.xcresult`/log）。同原非作者完整读受影响delta并核hash后 `Approved SUBSET / findings=[]`，P1/P2在源码/受控排序层关闭；不是原生全路径或最终全树批准。
+- Q Journey build exit0，109源/scheme前冻后核、UITest executable绑定 `native-adapter-q-{source-before-build,build-binding}.json`；正常artifact全部20文件安装373后hash一致、无plugin，revision `7c3b192-native-adapter-q`。D首次进入前只读cache确实0条，独立0600 runner仅新增四项D合成输入；真实D原生测试与只读0→60→120 observer运行中。A12、Q clock/Latest、C/B、网络及性能仍不记通过。
+
+## 2026-11-15 接手与原生复验
+
+- 接手原 `unit/bugfix-763-ios-chat-continuity` worktree。保留 109 个源码与 scheme 文件及原 UITest runner 哈希一致的候选证据。原 Q 的 19 个滚动测试和 D 会话实际 Earlier 分页通过，完整组合运行被中断。其中两项多卡片与 Chats 重入/详情返回已有日志，不能记整个组合通过。
+- 原 Q 的 12 手势与状态栏回顶实际通过，见 `takeover-native-functional.xcresult`。修正测试对 UIKit 空输入框及长 Markdown 屏内锚点的观测。多行键盘旅程通过一次，后续构建另一次冷装卡片没有在原 3 秒窗口内呈现最终文本。纯 Markdown 上翻保持位置、点击 Latest 到达真实末尾在 `takeover-journey-current.xcresult` 通过。两种结果均保留。
+- 独立审查发现 Earlier 回执和重试范围、权限检查失败提示、重新获得权限后的陈旧提示、旧任务停止新 socket、HTTP 修正与 WS 握手串行相阻，以及滚动容器消失后的旧减速状态。实现已修正这些路径，并按新 full sync 取消旧 HTTP 修正。降级存储的公开群访客验证权限期间隐藏旧窗口，验证成功后保留已加载的历史页与游标。最后定向 72 项通过，见 `takeover-history-unit.xcresult`。目标 develop `9f900ff3b` 已合入开发分支，iOS 及本 unit 内容未因基线同步变化。
+- 实际执行短断线，专用监听关闭 3041ms 后同 PID 恢复。Chats 观测与进入会话后的静默断言通过，随后新进会话的高卡片末尾相对重新打开前的参考位置变化超过 4pt，短断线旅程整体失败。需要把新进入时的卡片测高与同一会话内已稳定的阅读位置分开观察。没有以移除失败样本或延长实际断线窗口替代验收。
+- 最后一轮大字号长断线用例在故障注入前失败。高卡片对齐真尾后，三次向历史拖动得到没有可见消息文本的滚动视口，AX 树也没有实现任何消息行。原始 `takeover-sustained-long.xcresult` 与其中的 `long-outage-no-history-anchor` 截图及 AX 记录保留。12 秒故障尚未触发，不能判断长断效果。
+- 同一产品版本加诊断日志后再次走该路径。第二次向历史拖动期间，没有自动 Latest 或历史恢复请求，列表估算高度仍从 112219pt 跳到 1401769pt，已实现的消息行短时降为 0。原始 `takeover-large-type-scroll.log` 记录了估算高度、offset、阶段和行数，可定位到惰性布局滚动期间，暂未确认 SwiftUI 内部原因。这次最终出现可见历史行并实际触发长断线，监听暂停 12003ms 后恢复，界面显示了持续不可用反馈，但读取锚点变化超过 4pt，未走完 Chats 和恢复路径。证据见 `takeover-large-type-trace-long.xcresult`、`takeover-large-type-trace-long-host.json` 和 `fault-events.jsonl`。没有把注入前的空白、估算变化或断线后的锚点偏移归为同一个已证实的原因。
+- 辅助的 Game Performance 模板探针命令声明 15 秒、目标为该专用模拟器的全部进程；录制未正常完成，手动结束后只留下未完成的 trace，没有可用于比较的呈现时序或 deadline 数据。既有 XCTHitchMetric 同样没有有效系列，D5 仍待完成。保持 active unit，未归档或提交 PR。
+
+本段原始结果位于 `/private/tmp/nano-ios-763-runtime/evidence`。这些自动化结果不代表用户真机验收。
+
+## 默认字号回归与独立代码复核
+
+- 用户要求取消仓库最大字号专项验收。提交 `4491692c6` 修改长期规范与本 unit 对应验证范围。以前的大字号结果保留为历史记录。
+- 默认字号短断线第一次出现会话详情 GET 的过时失败提示。真实用例修前失败、修后通过。第一次通过的 Chats 取样早于断线，调整取样后重测，实际停监听 3007 ms，Chats 6 次、会话 5 次 AX 快照完整落在同一不可用窗口，均无提示或位移。持续断线用例另行通过，覆盖 Chat 与 Chats 提示、保留历史阅读位置和输入区、恢复后提示消失。原始证据为本机 `final-coverage-{short,long}.xcresult`、短断线 `final-coverage-short-correlated.json` 及 fixture `fault-events.jsonl`。
+- 独立审查发现旧读取失败可覆盖同范围的新成功，以及降级存储时访客可能因详情读取临时失败而丢失历史。按读请求结果顺序隔离提示，并在权限未定时保持历史隐藏，继续检查实际访问权限。两项回归及独立复核均通过，delta 对应契约无须改文。移除了临时 App 诊断日志，保留 Latest 时延测量。
+- 集成基线 `9f900ff3ba355414cb442f9211c3a8e17e391428`。实现 `6dee4f33b` 上的串行原生单测为 270 通过、1 跳过、0 失败；在并行占用同一模拟器时另有一次测试进程收到 SIGKILL，保留原始结果，随后按串行重跑。证据为 `final-all-units-serial.xcresult`。文档完整性校验通过。
+- 修复前置版本的纯 Markdown 冷滚动 CPU 中位 17.89s（基线 17.79s），峰值内存中位 102845 kB（基线 91917 kB），对应 +0.6% 和 +11.9%。暖滚动中断，不能把这组局部值当作完整性能门禁。短时 Time Profiler 探针未能在进程退出前附加，保留失败日志。
+
+## 同负载定位与滚动对照
+
+- 同一混合卡片 300 条历史，真实 `H763-001` 发起一次 Latest。冷启动基线 0/5 到真尾，候选 5/5 到真尾。候选 handler 到尾部几何可见中位 58 ms（57–67 ms），XCTest 命令到三次稳定检查的中位 2.436s（2.164–2.535s）。`final-native-journeys.log` / `.xcresult` 保留该完整组、普通 Markdown 与混合卡片的远距 Latest 功能通过。全套命令随后在试图向已预热的 300 条历史再加载 Earlier 时主动中止，此页容量前置不成立。
+- Earlier→Latest 改用独立的 120 条网络数据，首次只到 60 条。宿主仅延迟该独立会话的实际 Earlier 响应，并记录实际 hold/release。使用真实会话、状态栏到顶部、Earlier 和 Latest，原生用例通过。宿主实测响应延迟 4001 ms，Latest 命令比响应释放早 2752 ms，释放后仍停在真实尾部。证据为 `final-race-core.xcresult` 和 `pagination-race-correlated.json`。
+
+- 300 条纯 Markdown 暖滚动同机复验（每版 5 个保留样本）：基线/候选的 App CPU 中位为 11.526/11.546s，峰值物理内存中位为 99421/96291 kB。用系统 `sample` 对第 2 个保留样本的相同起始手势窗口各采 8 秒，绑定两版实际 App PID 与 XCTest 手势区间。基线 1365 个主线程栈样本中 71 个含 `ConversationView.body`，候选 988 个中 65 个，候选另有 5 个含滚动协调器；调用栈计数可重叠，采样数不同，不能推出精确 CPU 或帧延迟差。该窗口内两版各有 8 次已读 POST，服务端最长 5.6/17.8 ms，未见历史/详情 GET。这组证据表明该次暖滚动没有等待新一页消息，仍不足以归因用户手机的帧停顿或排除混合卡片代价。原始样本、时钟对账和指标见本机 `markdown-warm-pair-summary.jsonl` 与对应 `.sample`。
+
+## 矩阵完成与集成基线
+
+- 最终原生核心回归 4 项通过，覆盖缓存重进、详情和前台返回时的历史锚点、迟到 Earlier、系统键盘/多行输入以及实际状态栏回顶。十张交互卡片会话上的首次进入和展开/收起两项也通过。两次故障使用同一循环监听路径。版本与证据见 [实施审查](../review.md)。
+- 两个实际本地 SQLite 历史窗口均核实为 `H763-001…H763-300`，只读对账在 `final-300-cache-proof.json`。完整滚动/Latest 矩阵各 5 个保留样本。Markdown 冷/暖与混合冷的 CPU 中位相对初始基线 +3.6%、+5.0%、+6.6%，峰值内存 +11.8%、+1.5%、+13.8%。
+- 混合暖滚动首轮 CPU +21.4%、峰值内存 +17.4%。按 D5 追加同条件一组 5 次，基线/候选 CPU 中位 9.980/11.233s（+12.5%），峰值内存中位 99879/103304 kB（+3.4%），原生滚动/减速区间中位均约 2.467s。候选复测分布较宽，保留两轮原始样本，不能据复测抹去首轮超线。
+- 匹配混合暖滚动的 8 秒主线程采样，基线 1220 栈样本、候选 1153，分别有 5 个含 WKWebView。候选 7 个含聊天滚动协调器。该窗仅候选有 1 次已读请求，服务端 3.6 ms。与同等手势中的布局及渲染栈一起看，未找到可以归因首轮超线的单一热点。目录 `/private/tmp/nano-ios-763-calibration` 中 `final-matrix-summary.jsonl`、`mixed-warm-pair-summary.jsonl` 与两版调用栈保存原始数据。
+- 四组 Latest 均 5/5 达到真实稳定尾部。Markdown 冷/暖 handler 最大 50/57 ms，混合冷/暖最大 67/100 ms。混合暖的测试命令到稳定尾部最长 3.867s，包含 XCTest 同步和三帧观察。首次可见 AX 在命令后 3.099s，点击事件约在命令后 0.19s 合成。未单独采集最后一次卡片高度变化到纠正的 signpost。
+- 同步 `origin/develop` 到 `be23e8fc7`。增量影响 Agent 送达回执、网关 relay、执行恢复及私有运行时协议，没有修改原生聊天、随包卡片或 fixture 请求路由。原生试验由真实 IM 服务、本机 Synthetic 消息驱动，无 Agent Gateway relay，因此这些已覆盖场景的原生证据可保留。集成的回执行为由目标分支的测试和集成校验覆盖。
+
+## 多卡片快滑与折返
+
+- 用户在同一模拟器的十卡片会话实操时观察到卡顿、频闪和迟迟卡片加载。原候选的会话日志在 59 秒内记录 69 个 WebKit 主文档起点，63 个完成，已完成导航中位 0.733s，最长 2.620s。消息正文 GET 一次，服务端处理约 10ms。原记录缺交互草稿路由计时。
+- 用户确认按渲染、草稿和消息行各自生命周期推进。实现改为会话内最多四个活跃或保留 WebView，同一卡片快返直接接回已经渲染的页面。快速手势期间使用原生占位，停稳进入视口时准备卡片。保留有限的已测宽高，冷占位保留同条消息正文和本地操作入口。已见的草稿按需要刷新，同一服务器草稿版本不换页。离屏、撤权、账号变更会废弃展示租约，交互草稿仍走原提交与冲突恢复路径。
+- 同专用 iPhone 模拟器、同十卡片数据、相同六次原生手势对照。更新前独立重建自 `3b3b34763`。首轮 32→11 次主页面加载、22→7 次完成的草稿 GET。带录屏复跑 33→11、23→7，开始滚动后 23→9、13→5。录像配套的归属 App PID 及 WebKit 进程 RSS 合计峰值约 5835→2989 MiB，识别到的同窗 WebContent 并存峰值 15→5。RSS 含共享页，不能解释为系统物理占用差。两版都走到真实尾部；录屏复跑从点入到首次捕获真实卡片的自动化路径约 5.69→2.82s，整段手势和确认未测出缩短。窗口、录屏、采样及请求分别在本机 `dense-recorded-pair-summary.jsonl`、`dense-final-{before,after}.mp4` 与对应 XCTest 结果。首轮 `dense-pair-summary.jsonl` 独立保留。
+- 测试验证卡片热返只读取草稿一次，撤权检查拒绝上一租约；覆盖池满时优先回收离屏页、群聊 409 仍由旧草稿所有者恢复、过期读取只在可观察远端版本变化时换页、确认提交记入原生状态且旧页拿不到响应。独立复审批准关闭已报告的权限和草稿问题。
+- `c17b8555f` 原生单测 275 通过、1 项真机保护测试跳过，十卡片的进入、展开/收起、快速折返通过。一次 B 键盘用例在实际输入时丢字，另一次在前置的首次卡片就绪处失败，保留失败结果。首次可见检测改用 ScrollView 自身通知，减少视口和子卡几何回调先后不一致造成的首次加载遗漏。该变动需在同十卡片和 B 冷启动上复验。
+- B 的首次卡片问题另有原生证据。在冷布局的短暂离屏之后，页面曾在展示租约恢复前约 190 ms 启动。`d5064c6ae` 将实际建页延后到已接入桥接租约之后。冷页离屏后取消，重新可见时复用已取得的草稿。针对该顺序的回归与全量原生单测合计 276 通过、1 跳过，证据 `card-lease-units.xcresult`。最终产品版本再次执行 C 的六次手势，见 `card-lease-journey.xcresult` 与 `dense-lease-summary.jsonl`。实际完成真尾和卡片控件断言，采到 10 次主页面加载和 7 次草稿读取，手势起点之后分别为 8 次和 5 次。点入至拍到首个真实卡片约 2.79s。
+- 目标分支同步至 `e0fd3b7ff9bb`，后续基线增量只涉及 Gateway 设计文档。最新原生结果使用 `d5064c6ae` 产品代码，同一个隔离 fixture 与 iPhone 17 Pro 模拟器的默认字号。
+- 最终版本的 C 首次进会话及展开、收起均通过。动作到第一次捕捉到正确卡片状态和稳定尾部的自动化墙钟上界分别为 0.72s 和 0.67s。两个连续阶段分别采 13 次，尾部纵向变化 0pt/0.33pt，横向均为 0pt。此上界从实际操作前算起，独立页面 height revision 时钟没有采到。证据为 `card-keyboard-viewport.xcresult` 的两项 C 用例。
+- B 键盘测试对比旧版 `3b3b34763` 与候选 `d5064c6ae`。两版都到达卡片真尾部，点编辑器后都在新增的软件键盘实际视口前提失败。候选截图可见光标，输入框的 y 一直为 745.7pt，屏幕没有软件键盘。宿主当时锁屏，无法经 Simulator 菜单切换测试键盘。此结果不认定为产品回归。证据为 `card-keyboard-viewport.xcresult` 与 `card-keyboard-before-reuse.xcresult`。
+- 混合冷滚动第一次进入时有上轮留下的测试草稿，没在起始窗口看到真尾。保留日志，测试在备用手势阶段中止，未形成测量样本。在 App 退出后只清理专用模拟器内确认为本轮写入的那条未发送草稿，并核实两历史库仍各 300 条。隔离 fixture 的 reset 回执是 `card-performance-fixture-draft-reset.json`。
+- 最终混合 Latest 冷暖各 5 个保留样本，皆从 H763-001 到真实卡片尾部。冷组按钮 handler 到外层尾行几何可见中位 53ms（52–54ms），暖组 58ms（53–64ms）。含 XCTest 和三次稳定截图判断的独立墙钟为冷组 1.78s（1.69–2.05s），暖组 2.04s（2.01–2.14s）。基线两组都是 0/5。最终结果见 `card-empty-Mixed{Cold,Warm}Latest.xcresult`。
+- 最终混合暖滚动测得 App CPU 中位 11.471s，峰值内存中位 106581 kB。相对初始基线 +14.7%、+7.1%，前置修订首次采样为 +21.4%、+17.4%。本次暖组进入时 B 保留上一轮测试草稿，列为不同的编辑器起点。原始样本和 UI 固定操作证据见 `card-lease-MixedWarmScroll.xcresult`。
+- 清空该条测试草稿后的混合冷滚动五个保留样本全完成。App CPU 中位 18.220s，峰值内存中位 104483 kB，相对基线 +9.9% 和 +8.2%。该次与 Latest 均从真实卡片尾部开始。原始证据 `card-empty-MixedColdScroll.xcresult`，样本与统计见 `card-final-matrix-summary.jsonl`。
+- 重启同一台隔离模拟器后，冷页桥接顺序的加强单测独立通过（`card-provisional-regression-final.xcresult`）。软件键盘用例仍失败在进入软件输入视口的前提，键盘未弹出（`card-keyboard-reboot.xcresult`）。
+- 空草稿的混合暖滚动复测在首个保留样本的手势区间内，另取 8 秒 App 主线程栈，与已保存的同负载基线对照。基线 1220 个栈样本中 8 个命中日期分组、5 个含 WKWebView；最终候选 861 个中 162 个命中日期分组、4 个含 WKWebView。候选这 8 秒服务端录到 33 次已读 POST，最长 12.4ms，无新历史页和草稿 GET。栈命中可重叠，单个窗口不能推出 CPU 占比差或帧停顿。证据见 `card-final-mixed-warm-main-thread.json` 及对应原始 `.sample`。
+- `d5064c6ae` 的空草稿混合暖滚动五个保留样本，App CPU 中位 11.961s，峰值内存 117410 kB，相对基线 +19.7%、+18.0%。保留了上次带草稿和这次空草稿数据，各自输入的差异在前文列明。这一版本的十卡片场景收益与混合暖滚动回归同时成立。
+- 对重复网络回执的观察测试，在相同 DTO 原样返回时复现了会话投影仍使观察者失效。改为计算归一化后的投影，只发布变化的会话列表和详情。HTTP 请求、SQLite 真实回执写入、清理和权限判定都经过原路径。红测结果 `card-noop-red.xcresult`，首次绿测 55 项通过（`card-noop-green.xcresult`）。独立复核核对参与者删除和撤权，批准该范围。资源收益由相同负载另测。
+- `2d4ada3d2` 在默认字号下的最终原生单测 277 通过、1 项真机保护测试跳过。十卡片首次进入、快滑折返和展开／收起三例通过。相同六次手势的原始对照为旧 `3b3b34763` 的 32 次页面加载、22 次草稿 GET，新版 11 次加载、7 次 GET。证据 `card-read-publication-units.xcresult`、`card-read-publication-journeys.xcresult` 和 `dense-read-publication-summary.jsonl`。
+- 先在已清空的编辑器发出一次删除，让 XCTest 启动可见软件键盘，再要求实际 composer 几何改变。最终产品在宿主仍锁屏时完整通过，验证窗口从 779.67pt 到键盘打开后 478.67pt、多行后 434.67pt、导航重进恢复 779.67pt，各阶段卡片尾部均真实可见且稳定。留存首轮空键盘现象及成功结果，各自标明区别。证据 `card-keyboard-real-input.xcresult`。
+- 去重后的第一组空草稿混合暖滚动 App CPU 11.521s、峰值内存 115494 kB，相对初始基线 +15.2%、+16.0%。同一个起始 8 秒手势窗的 874 个主线程栈样本没有命中日期分组；修改前该窗的 861 个样本中有 162 个命中。该对照不以单次堆栈替代五次总体资源中位。因结果靠近退出线，按 D5 追加一组不挂采样器的同条件复核。
+- `2d4ada3d2` 不挂采样器的暖滚动复测仍超线。App CPU 中位 11.524s、峰值内存中位 119671 kB（相对基线 +15.3%、+20.2%），原生滚动/减速区间中位 2.468s。保留两组五样本，证据 `card-read-publication-warm-repeat.xcresult` 及同名前缀 summary。
+- 展示权限与保留文档分别管理后，已渲染的隐藏页此前仍可能附着在 SwiftUI 保留的 UIKit 宿主中。`85e8b5a89` 使离屏时立即从原生视图拆下页面，缓存只持有已就绪文档和尺寸。重新可见时检查当前展示租约和 renderer 代际再接回同页。独立复核批准该增量，并要求真实快滑折返证明宿主重新挂载。
+- `85e8b5a89` 的全量原生单测 277 通过、1 跳过。十卡片初始尾部、快滑折返、展开收起及软件键盘均通过。密集手势实测 10 次主页面加载、7 次草稿 GET（开始手势后 8 次和 5 次）；同期原候选 32 次和 22 次。首个真实卡片出现的自动化观察为 2.75s。证据 `card-detached-surface-units.xcresult`、`card-detached-surface-journeys.xcresult`、`dense-detached-surface-summary.jsonl`。
+- 同产品五个空草稿混合暖滚动保留样本，App CPU 中位 11.540s [10.221–11.688s]，峰值内存中位 118934 kB [107007–124243 kB]。相对初始基线 +15.4%、+19.5%，离屏拆下未关闭 D5 暖组回归。单次冷进程的内存分类快照另存为 `card-detached-cold-live-footprint.txt`，它没有覆盖暖组测到的内存峰值。真正的帧停顿统计目前仍无数据。
+- `85e8b5a89` 的最终混合 Latest 从真实 H763-001 发起，冷暖各 5/5 到达实际高卡片尾标。按钮 handler 到外层尾几何可见的中位为冷 52ms、暖 61ms，按命令和三次稳定可见采样的墙钟中位为冷 1.83s、暖 1.99s。保留首轮 warmup 和五个计入样本。证据 `card-detached-surface-Mixed{Cold,Warm}Latest.xcresult` 与 `card-detached-surface-matrix-summary.jsonl`。目标仍为 `e0fd3b7ff`。本机不具备原生 hitch 系列，暂留 active unit 与 Draft PR；与用户现场一致的密集进出会话可在同一合成 fixture 继续试用。
+- 按用户反馈，卡片等待时显示原位进度指示，可见卡片停稳后自动加载。超过四页时优先回收离屏页。五张同时可见时都可开始加载，离屏后缓存回到预算。19 项交互运行时单测与十卡片首次进入、快滑折返、展开收起三项模拟器旅程通过。录屏确认占位自动换成真实卡片，普通消息在等待期间可继续阅读。本轮证据位于 `card-auto-loader`，暖滚动性能数据仍使用前序候选的记录。
+
+## 2026-11-16 合入准备
+
+- `d7244ab3e` 的远端 iOS 用例在 WebView 报告首次高度前超时，后续同一实例复用断言继而失败。改为先在已挂载 WebView 等待真实卡片正文，再检查高度桥接和页面身份。测试修订 `c1591705b` 的远端 iOS CI 通过。原始失败仍保留在 Actions 运行 `43693328154`。
+- 重跑冻结基线 `45babb2b49e3` 的 300 条混合暖滚动。测试语料和手势与候选相同，旧版为取得实际尾标做的补滚记录在计量区间外。五个样本的 App CPU 中位 10.283s（10.243–10.573s），峰值内存中位 105270 kB（102009–106826 kB）。原始证据为 `merge-ready-baseline/MixedWarmScroll.xcresult`。此前基线和负载数据继续保留。
+- 同日的 `d7244ab3e` 暖滚动 CPU 和内存中位 12.016s、120622 kB，相对本次基线 +16.8%、+14.6%。`cca1e6391` 两轮 CPU 分别 +13.1%、+14.0%，峰值内存 +15.004%、+17.7%。两种测量结果均保留。
+- 对 `cca1e6391` 的配对诊断保留七个相同样本序号和相对手势时点。App 与同一模拟器的 WebKit 进程合计占用中位约从 282 MB 降到 257 MB，最高采样值约从 286 MB 升到 321 MB。App 局部增量主要出现在小对象分配。这些是离散的进程采样，正式 App 峰值另用 XCTest。诊断基线在采完第六轮第一个时点后超时，不作为完整性能运行。证据 `merge-ready-footprint/matched-summary.json` 及对应进程报告。
+- 把原生坐标和可读性合成逐行回调的独立实验使 CPU 中位升至 18.249s，已撤出。最后候选缩减到只复用列表筛选结果和等值 Markdown 内容。首次同源工作区样本为 11.814s 和 118885 kB（+14.9%、+12.9%），对应 `merge-ready-row-input`。
+- 随后两次相邻的重启对照中，`49e9cf326` 的 App CPU 中位分别为 +6.5%、−1.5%，峰值内存为 +15.9%、+16.2%。第一轮执行时记录到其他进程造成的高宿主负载。同一个产品树的 B 会话原生用例先在长卡片首次出现的 3 秒前置失败，独立复测通过。保留 `merge-ready-same-boot-pair` 与 `merge-ready-stable-reverse`。
+- `5dd00a3d7` 将 Latest 箭头的观察范围放进按钮子视图，隔离全列表更新，并解除行回调对整份会话视图状态的捕获。独立复审核对了真实尾部与历史位置恢复。暖组 App CPU 中位 13.626s（11.633–18.612s），峰值 122506 kB（121638–125717 kB），原生滚动区间中位 2.467s。对最近两次冻结基线（106646 与 106220 kB）分别是 +14.9% 与 +15.3%。当前数据在 15% 两侧，因此安排一次紧邻的两版对照并保留前序数据。
+- 同一 `5dd00a3d7` App 通过十卡片快滑折返和纯 Markdown 阅读后显式 Latest。B 测试在 6 次手势后没有找到旧消息。截图和可访问性树证明读者已移到末张高卡片正文，真实尾标的屏幕 y 坐标仍约为 3232pt。测试允许有限次数后续手势寻找真正可见的较早消息，保留详情和前台重入的位置断言。原始证据为 `merge-ready-5dd0/journeys.xcresult`。
+- Actions `43792670712` 第一次 TypeScript 检查因未改动的 DSH 终态等待超时失败，复跑通过 TypeScript 回归后在待归档检查停止。`43796158251` TypeScript 同样走到归档检查，前端通过。iOS CI 的复用用例通过，另一个既有卡片尺寸用例只读取一次 DOM 旧高度 216pt，最终原生为 241pt。测试改为从已渲染 DOM 连续重读高度，要求两个读数均与原生高度匹配，保留宽度和只读更新断言。两项旅程／断言修订一起提交于 `628682f6a`。
+- 集成到 `b76955bf3`。本次目标分支新增的是 Agent Work 和委派用量相关文档，未触及 App 产品代码、语料或测量驱动。
+- 紧邻重启两版对照 `merge-ready-adjacent`，各 5 个保留样本，执行成功。App CPU 中位 10.392s → 11.893s（+14.44%），峰值物理内存 106253 → 124980 kB（+17.62%），滚动和减速区间中位均约 2.467s。候选保留样本进入时宿主一分钟负载约 64.6、35.4、20.7、12.1、8.4，基线对应 23.0、16.1、9.8、6.2、9.7。峰值内存超线，待进一步收敛。
+- 集成提交 `a71978f7c` 的 iOS 和前端 CI 通过，TypeScript 回归通过，仍在 active unit 检查停止（Actions `43797703918`）。同内容的本机 WebKit 两项测试各连续跑 3 次通过。B 的两项旅程在刚结束性能回合后重入均卡在冷卡片前置：三秒的采样窗口未找到真实尾标，附带的随后一次 UI 树中已经捕获真实尾标，详情和前台恢复尚未执行。本机结果见 `merge-ready-retests`。
+- 将已定位的日期分组分配单独收窄为分组扫描内复用两种 ISO 8601 解析器，保留原时间格式识别和按本地日分组规则。五个暖组实测 App CPU 中位 10.523s［9.834–10.802s］，较紧邻旧产品基线 +1.25%。峰值物理内存中位 125095 kB［115068–128666 kB］，+17.73%。CPU 收敛而 App 峰值仍超过 15%，保留 `merge-ready-timestamps` 的原始数据。
+- `1e7843ee2` 产品和测试源码通过 B 会话详情返回、回到前台后保留同一个可见历史标记、重新从 Chats 入会话到实际尾部，以及真实软件键盘和多行输入。对应 `merge-ready-timestamps/journeys.xcresult`。同源码的 TimelineTests 3 项通过。
+- `merge-ready-exact-footprint` 取第 2、3、4 次滑动回合相对起点约 2、11、30 秒的进程占用，各版九组。三类 WebKit 进程与同一专用模拟器的 App 合计，去重中位 278.0 → 251.5 MB（−9.55%），最高采样点 284.5 → 314.9 MB（+10.67%）。每个早段样本均增加。App 采样峰值与 XCTest 区间峰值分别记录，候选 heap 采样超时。独立审查说明该结果不足以证明无额外压力。
+- 同一轮手势后的截图显示二者最终阅读位置有差别。例如 `merge-ready-adjacent` 的第二回合，基线停在 H763-288 的 Markdown，候选已进入 H763-300 的长卡片正文，均未以反向手势的终点替代独立 Latest 的真实尾部验证。两版的固定手势相同，实际加载和可视内容会随布局及滚动行为变化。
+- 在工作区将卡片身份和删除 Actor 的扫描改为逐条遍历，并在没有已删除身份时跳过等值投影重建，独立审查确认原行为。控制宿主较接近的样本进入负载，暖组 App CPU 10.596s（+1.96%），峰值物理内存 124669 kB（+17.33%），相对上一候选的内存差仅约 426 kB。ChatStateTests 和 ChatExecutionCleanupTests 通过。本次结果仍未满足 D5，证据 `merge-ready-allocations`。
+- 额外的省分配试验未关闭峰值内存回归，产品源码回到 `1e7843ee2`，试验 diff 保留于 `merge-ready-allocations/product.patch`。Instruments Allocations 的模拟器设备入口在预计 22 秒录制后 70 秒内没有完成，只有不完整的 trace；宿主进程入口识别不到同一专用模拟器的 App PID。两种结果位于 `merge-ready-instruments`、`merge-ready-instruments-host`，暂无可归因调用栈。Actions `43799964133` 的 iOS、前端与 TypeScript 回归通过，归档检查因 active unit 待完成而红。
+- 用户确认将 15% 作为调查线，接受本轮已记录的 App 峰值内存增量并推进交付。实测输入、结果及验证范围见 [最终交付决定](../review.md#最终交付决定)。

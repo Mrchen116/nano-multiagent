@@ -192,7 +192,7 @@ final class InteractiveRuntimeTests: XCTestCase {
     }
 
     private func mount(_ runtime: InteractiveRuntime) -> (WKWebView, InteractiveWebContent.Coordinator, UIWindow) {
-        let coordinator = InteractiveWebContent.Coordinator(runtime: runtime, height: .constant(800))
+        let coordinator = InteractiveWebContent.Coordinator(runtime: runtime) { _ in }
         let view = coordinator.makeWebView()
         view.isOpaque = true; view.backgroundColor = .white
         let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first!
@@ -313,7 +313,7 @@ final class InteractiveRuntimeTests: XCTestCase {
         await transport.setCanInteract(true)
         await runtime.load()
         XCTAssertFalse(runtime.readOnly)
-        let oldCoordinator = InteractiveWebContent.Coordinator(runtime: runtime, height: .constant(100))
+        let oldCoordinator = InteractiveWebContent.Coordinator(runtime: runtime) { _ in }
         let oldView = oldCoordinator.makeWebView()
         await runtime.load()
         oldCoordinator.webViewWebContentProcessDidTerminate(oldView)
@@ -346,16 +346,181 @@ final class InteractiveRuntimeTests: XCTestCase {
         for _ in 0..<100 where webView(controller.view) == nil { try await Task.sleep(for: .milliseconds(20)) }
         let view = try XCTUnwrap(webView(controller.view))
         try await waitFor(view, "document.body.innerText.includes('确认安排')")
-        let measured = try await view.evaluateJavaScript("document.getElementById('root').getBoundingClientRect().height") as? Double
-        let contentHeight = try XCTUnwrap(measured)
-        for _ in 0..<100 where abs(view.bounds.height - contentHeight) > 2 { try await Task.sleep(for: .milliseconds(20)) }
+        // WebKit can reflow text after the first DOM read when the native
+        // width settles. Compare the native frame against the current DOM.
+        var contentHeight = 0.0
+        var matchedPreviousRead = false
+        var matchedStableHeight = false
+        for _ in 0..<100 {
+            let measured = try await view.evaluateJavaScript("document.getElementById('root').getBoundingClientRect().height") as? Double
+            contentHeight = try XCTUnwrap(measured)
+            let matches = contentHeight > 0 && abs(view.bounds.height - contentHeight) <= 2
+            matchedStableHeight = matches && matchedPreviousRead
+            if matchedStableHeight { break }
+            matchedPreviousRead = matches
+            try await Task.sleep(for: .milliseconds(50))
+        }
         XCTAssertEqual(view.bounds.width, 361, accuracy: 1)
-        XCTAssertEqual(view.bounds.height, contentHeight, accuracy: 2, "The whole card must fit the native scroll flow")
+        XCTAssertTrue(matchedStableHeight, "The whole card must fit the native scroll flow (native \(view.bounds.height), DOM \(contentHeight))")
         // UIKit's CPU snapshot omits WebKit's separately composited surface.
         let image = try await view.takeSnapshot(configuration: nil)
         let attachment = XCTAttachment(image: try XCTUnwrap(image)); attachment.name = "iOS-native-chat-meeting-body"; attachment.lifetime = .keepAlways; add(attachment)
         controller.rootView = content(true)
         try await waitFor(view, "document.querySelector('fieldset').disabled")
+    }
+
+    func testManagedCardReattachesTheSamePageAndDraft() async throws {
+        let (runtime, transport) = try await makeRuntime(source: #"root = Col([Title("Warm card"), Text("Reuse")])"#, catalog: "nano-iui-1")
+        let cache = InteractiveCardPresentations()
+        let entry = InteractiveCardPresentation(identity: .init(runtime.message), runtime: runtime, cache: cache)
+        entry.visible = true
+        entry.activate()
+        for _ in 0..<100 where !runtime.loaded { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(runtime.loaded)
+        let first = try XCTUnwrap(entry.webView())
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let window = UIWindow(windowScene: scene)
+        window.frame = CGRect(x: 0, y: 0, width: 393, height: 852)
+        let controller = UIViewController()
+        window.rootViewController = controller
+        first.frame = CGRect(x: 0, y: 0, width: 360, height: 320)
+        controller.view.addSubview(first)
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; cache.clear() }
+
+        try await waitFor(first, "document.getElementById('root')?.textContent.includes('Warm card')")
+        for _ in 0..<150 where !entry.ready { try await Task.sleep(for: .milliseconds(20)) }
+        guard entry.ready else {
+            XCTFail(runtime.error ?? "The rendered card did not publish its first height to the native bridge")
+            return
+        }
+        let generation = runtime.webID
+        let firstLease = runtime.presentationLease
+        XCTAssertTrue(runtime.acceptsPresentation(generation))
+        entry.detach()
+        XCTAssertNil(first.superview, "A cached WebKit document must leave the native hierarchy when offscreen")
+        XCTAssertFalse(runtime.acceptsPresentation(generation))
+        entry.visible = true
+        entry.activate()
+        XCTAssertTrue(first === entry.webView())
+        XCTAssertNotEqual(runtime.presentationLease, firstLease)
+        let reads = await transport.draftReads
+        XCTAssertEqual(reads, 1)
+        runtime.chat.checkingAccess.insert(runtime.message.conversation_id)
+        XCTAssertFalse(runtime.acceptsPresentation(generation))
+        XCTAssertNil(entry.webView())
+        cache.clear()
+        XCTAssertFalse(entry.admitted)
+    }
+
+    func testProvisionalCardOnlyRemountsAfterTheBridgeIsAttached() async throws {
+        let (runtime, transport) = try await makeRuntime(source: #"root = Text("Warm card")"#, catalog: "nano-iui-1")
+        let cache = InteractiveCardPresentations()
+        let entry = InteractiveCardPresentation(identity: .init(runtime.message), runtime: runtime, cache: cache)
+        defer { cache.clear() }
+        entry.visible = true
+        entry.activate()
+        for _ in 0..<100 where !runtime.loaded { try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertTrue(runtime.loaded)
+        let provisional = try XCTUnwrap(entry.webView())
+        XCTAssertFalse(entry.ready)
+        entry.detach()
+        entry.visible = true
+        XCTAssertNil(entry.webView(), "Layout alone cannot launch a page before it has a lease")
+        entry.activate()
+        let replacement = try XCTUnwrap(entry.webView())
+        XCTAssertFalse(provisional === replacement)
+        XCTAssertTrue(runtime.acceptsPresentation(runtime.webID))
+        let reads = await transport.draftReads
+        XCTAssertEqual(reads, 1, "Discarding a provisional page does not discard the draft")
+    }
+
+    func testCardPresentationReclaimsOffscreenPagesWithoutBlockingVisibleCards() async throws {
+        let (fixture, _) = try await makeRuntime(catalog: "nano-iui-1")
+        let cache = InteractiveCardPresentations()
+        let entries = (0..<5).map { index in
+            var message = fixture.message
+            message.id = "card-\(index)"
+            let runtime = InteractiveRuntime(client: fixture.client, message: message, chat: fixture.chat, readOnly: false)
+            let entry = InteractiveCardPresentation(identity: .init(message), runtime: runtime, cache: cache)
+            entry.visible = true
+            return entry
+        }
+        defer { cache.clear() }
+        for entry in entries.prefix(4) { entry.activate() }
+        entries[0].detach()
+        entries[4].activate()
+        XCTAssertFalse(entries[0].admitted)
+        XCTAssertEqual(entries.filter(\.admitted).count, 4)
+
+        entries[0].visible = true
+        entries[0].activate()
+        XCTAssertTrue(entries.allSatisfy(\.attached))
+
+        entries[1].detach()
+        XCTAssertFalse(entries[1].admitted)
+        XCTAssertEqual(entries.filter(\.admitted).count, 4)
+    }
+
+    func testReplacingCardSourceDoesNotDisplaceUnresolvedDraft() async throws {
+        let (initial, transport) = try await makeRuntime(catalog: "nano-iui-1")
+        await initial.load()
+        let edit: JSONValue = .object(["type": .string("state"), "touched": .bool(true), "sequence": .number(1),
+                                       "state": .object(["choice": .string("local")])])
+        _ = try await initial.webRequest(edit, generation: initial.webID)
+        await transport.failDraftWrites(true)
+        var changed = initial.message
+        changed.interactive = MessageInteractive(format: "openui", catalog_version: "nano-iui-1", source: #"root = Text("Updated")"#)
+        let replacement = InteractiveRuntime(client: initial.client, message: changed, chat: initial.chat, readOnly: false)
+        await replacement.load()
+        XCTAssertFalse(replacement.loaded)
+        let coordinator = initial.chat.interactionDrafts
+        XCTAssertTrue(coordinator.runtime(changed.conversation_id, messageID: changed.id) === initial)
+        XCTAssertTrue(initial.hasUnresolvedEdits)
+        await transport.failDraftWrites(false)
+        await replacement.load()
+        XCTAssertTrue(replacement.loaded)
+        XCTAssertFalse(initial.hasUnresolvedEdits)
+        XCTAssertEqual(replacement.state["choice"], .string("local"))
+    }
+
+    func testWarmDraftCheckOnlyReplacesAPageForANewRemoteRevision() async throws {
+        let (runtime, transport) = try await makeRuntime(catalog: "nano-iui-1")
+        await runtime.load()
+        let original = runtime.webID
+        await runtime.refreshPresentationDraft()
+        XCTAssertEqual(runtime.webID, original)
+        await transport.replaceRemoteDraft(.object(["choice": .string("other device")]))
+        await runtime.refreshPresentationDraft()
+        XCTAssertNotEqual(runtime.webID, original)
+        XCTAssertEqual(runtime.state["choice"], .string("other device"))
+    }
+
+    func testReplacingAGroupCardKeepsTheConflictOnTheOriginalDraft() async throws {
+        let (initial, transport) = try await makeRuntime(catalog: "nano-iui-1")
+        await initial.chat.inspectConversation("chat")
+        var group = try XCTUnwrap(initial.chat.inspectedConversation)
+        group.type = "group"
+        initial.chat.inspectedConversation = group
+        await initial.load()
+        let edit: JSONValue = .object(["type": .string("state"), "touched": .bool(true), "sequence": .number(1),
+                                       "state": .object(["choice": .string("local")])])
+        _ = try await initial.webRequest(edit, generation: initial.webID)
+        await transport.setConflict(true)
+        var changed = initial.message
+        changed.interactive = MessageInteractive(format: "openui", catalog_version: "nano-iui-1", source: #"root = Text("Updated")"#)
+        let replacement = InteractiveRuntime(client: initial.client, message: changed, chat: initial.chat, readOnly: false)
+        await replacement.load()
+        XCTAssertFalse(replacement.loaded)
+        let drafts = initial.chat.interactionDrafts
+        XCTAssertTrue(drafts.runtime("chat", messageID: "card") === initial)
+        XCTAssertEqual(drafts.failure("chat", messageID: "card")?.reason, .conflict)
+        _ = try await initial.describeConflict()
+        let adopted = await initial.adoptRemote()
+        XCTAssertTrue(adopted)
+        await replacement.load()
+        XCTAssertTrue(replacement.loaded)
+        XCTAssertNil(drafts.failure("chat", messageID: "card"))
     }
 
     private func waitFor(_ view: WKWebView, _ expression: String) async throws {
@@ -403,6 +568,8 @@ private actor InteractiveTestTransport: HTTPTransport {
     var puts = 0
     var sends: [JSONValue] = []
     var imageRequests: [String] = []
+    private(set) var draftReads = 0
+    private var draftWritesUnavailable = false
     private var conflict = false
     private var canInteract = true
     private var targetWritable = true
@@ -412,6 +579,8 @@ private actor InteractiveTestTransport: HTTPTransport {
     func setCanInteract(_ value: Bool) { canInteract = value }
     func setTargetWritable(_ value: Bool) { targetWritable = value }
     func setConflict(_ value: Bool) { conflict = value }
+    func failDraftWrites(_ disabled: Bool) { draftWritesUnavailable = disabled }
+    func replaceRemoteDraft(_ state: JSONValue) { revision += 1; self.state = state }
     func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let path = request.url!.path
         var status = 200, data = Data("{}".utf8)
@@ -425,9 +594,10 @@ private actor InteractiveTestTransport: HTTPTransport {
         else if path.hasSuffix("/interaction-state") {
             if request.httpMethod == "PUT" {
                 puts += 1
-                if conflict { status = 409; data = Data(#"{"detail":{"code":"interaction_draft_conflict","message":"Draft changed"}}"#.utf8) }
+                if draftWritesUnavailable { status = 503 }
+                else if conflict { status = 409; data = Data(#"{"detail":{"code":"interaction_draft_conflict","message":"Draft changed"}}"#.utf8) }
                 else { revision += 1; state = try JSONDecoder().decode(JSONValue.self, from: request.httpBody!)["state"] }
-            }
+            } else if request.httpMethod == "GET" { draftReads += 1 }
             if status == 200 { data = try JSONEncoder().encode(JSONValue.object(["draft_revision": .number(Double(revision)), "state": state, "submission_message_id": .null, "can_interact": .bool(canInteract)])) }
         } else if path.hasSuffix("/messages") && request.httpMethod == "POST" {
             sends.append(try JSONDecoder().decode(JSONValue.self, from: request.httpBody!))

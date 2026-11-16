@@ -120,6 +120,7 @@ extension InteractionDraftLifecycleTests {
         } catch {}
         XCTAssertNil(runtime.chat.interactionAttempt("chat", sourceMessageID: "card"), "The real receipt has already settled the pending send")
         XCTAssertFalse(runtime.busy, "A clean reload must not strand the previous action's busy flag")
+        XCTAssertTrue(runtime.submitted, "The native runtime records an accepted send even when the old page cannot consume its reply")
         let ready = try await runtime.webRequest(.object(["type": .string("ready")]), generation: runtime.webID)
         XCTAssertEqual(ready["disabled"], .bool(false))
         let posts = await transport.posts

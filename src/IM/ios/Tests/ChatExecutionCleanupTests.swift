@@ -12,6 +12,30 @@ private actor CleanupWriteOnce {
 
 /// The SQLite and in-memory projections must agree about execution generations.
 extension ChatLocalFirstTests {
+    func testLatestCancelsAnAlreadyCapturedCleanupBridgeAnchor() async throws {
+        let (store, stub) = try await makeStore()
+        await seed(store, conversations: ["a"], messages: 1)
+        store.recordReadingPosition("m1", in: "a")
+        var chat = try conversation("a")
+        chat.execution_cleanup_revision = 2
+        await stub.setList(try JSONSerialization.data(withJSONObject: ["items": [JSONSerialization.jsonObject(with: JSONEncoder().encode(chat))]]))
+        await store.loadConversations()
+        await stub.setMessages(try JSONEncoder().encode(MessagePage(items: [TimelineItem(type: "message", message: try message(2, conversation: "a"))], next_before_message_id: "m2", execution_cleanup_revision: 2)))
+        await stub.hold("/im/v1/conversations/a/messages", body: try JSONEncoder().encode(MessagePage(items: [TimelineItem(type: "message", message: try message(1, conversation: "a"))], execution_cleanup_revision: 2)), before: "m2")
+        let load = Task { await store.loadChat("a") }
+        await stub.waitUntilHeld()
+        store.restoreReadingPositions["a"] = "m1"
+        store.recordReadingPosition(nil, in: "a")
+        XCTAssertNil(store.restoreReadingPositions["a"])
+        store.recordReadingPosition("m2", in: "a") // A newer history gesture must not revive m1.
+        await stub.release()
+        await load.value
+        XCTAssertEqual(store.timelines["a"]?.map(\.id), ["m1", "m2"], "valid content still merges")
+        XCTAssertNil(store.restoreReadingPositions["a"], "a captured old anchor cannot override Latest")
+        store.resetProjection()
+        try await store.repository?.close()
+    }
+
     func testDurableCleanupKeepsReadingAnchorAndCannotReappearOnOfflineRestart() async throws {
         let (store, stub) = try await makeStore()
         await seed(store, conversations: ["a"], messages: 1)
@@ -62,7 +86,8 @@ extension ChatLocalFirstTests {
         var obsolete = try message(2, conversation: "a")
         obsolete.thinking = [ChatThinking(seq: 1, text: "must not return")]
         let body = try JSONEncoder().encode(MessagePage(items: [TimelineItem(type: "message", message: obsolete)]))
-        await stub.hold("/im/v1/conversations/a/messages", body: body)
+        if older { store.before["a"] = "m1" }
+        await stub.hold("/im/v1/conversations/a/messages", body: body, before: older ? "m1" : nil)
         let task = Task { await store.loadChat("a", older: older) }
         await stub.waitUntilHeld()
         let event = try JSONDecoder().decode(UserEvent.self, from: Data(#"{"op":"event","event_type":"conversation.execution_cleanup","event_id":5,"data":{"conversation_id":"a","execution_cleanup_revision":2}}"#.utf8))

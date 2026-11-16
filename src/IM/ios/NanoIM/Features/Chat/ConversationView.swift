@@ -11,8 +11,9 @@ struct ConversationView: View {
     @State private var pickingPhoto = false
     @State private var importing = false
     @State private var commands: [ChatCommandSet] = []
-    @State private var bottomVisible = true
-    @State private var firstLoaded = false
+    @State private var scrollState = ChatScrollCoordinator()
+    @State private var scrollAttachment: UUID?
+    @State private var cardPresentations = InteractiveCardPresentations()
     @State private var confirmFork: ChatMessage?
     @State private var operationError: String?
     @State private var selection = NSRange(location: 0, length: 0)
@@ -22,14 +23,20 @@ struct ConversationView: View {
     @State private var dismissedCompletion = false
     @State private var copied = false
     @State private var loadingHistory = false
-    @State private var viewport = CGRect.zero
     @ScaledMetric(relativeTo: .body) private var mentionRowHeight = 48.0
     @ScaledMetric(relativeTo: .body) private var commandRowHeight = 80.0
     private var conversation: Conversation? { store.inspectedConversation?.id == conversationID ? store.inspectedConversation : store.conversations.first { $0.id == conversationID } }
     private var items: [TimelineItem] {
+        // A visitor's cached window can be retained during authority verification.
+        guard !store.checkingAccess.contains(conversationID) else { return [] }
         let timeline = store.timelines[conversationID] ?? []
+        guard timeline.contains(where: { $0.message == nil }) else { return timeline }
         let messageIDs = Set(timeline.compactMap { $0.message?.id })
         return timeline.filter { $0.message != nil || messageIDs.contains($0.before_message_id ?? "") }
+    }
+    private func cardIdentities(in items: [TimelineItem]) -> Set<InteractiveCardIdentity> {
+        Set(items.compactMap(\.message).filter { $0.interactive?.catalog_version == "nano-iui-1" }
+            .map(InteractiveCardIdentity.init))
     }
     private var uploads: [AttachmentUpload] { store.uploadDrafts[conversationID] ?? [] }
     private var uploading: Bool { uploads.contains(where: \.uploading) }
@@ -37,28 +44,30 @@ struct ConversationView: View {
     // disabled composer until confirmation. Newer ordinary edits stay separate behind it.
     private var draft: Binding<String> { Binding(get: { store.pending[conversationID]?.content ?? store.drafts[conversationID] ?? "" }, set: { store.setDraft(conversationID, $0) }) }
     var body: some View {
+        let items = self.items
         let timestampIDs = ChatTimelinePresentation.timestampMessageIDs(in: items)
+        let timelinePhase = store.timelinePhase(conversationID)
         VStack(spacing: 0) {
             ForEach((conversation?.participants ?? []).filter { $0.type == "agent" }, id: \.id) { agent in
                 AgentLifecycleChatNotice(client: store.client, agent: agent)
             }
-            if !store.connectionText.isEmpty { Text(store.connectionText).font(.caption).foregroundStyle(.secondary).padding(6) }
             if let error = store.errors[conversationID] ?? operationError { ErrorNotice(message: error).padding(10) }
-            ScrollViewReader { scroll in
+            ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         // A confirmed access loss is not a missing cache or a connection
                         // problem; the dedicated revocation notice below owns that state.
-                        if items.isEmpty && !store.revokedChats.contains(conversationID) {
-                            if store.timelinePhase(conversationID) == .needsConnection {
+                        if items.isEmpty && !store.revokedChats.contains(conversationID)
+                            && !store.checkingAccess.contains(conversationID) {
+                            if timelinePhase == .needsConnection || timelinePhase == .failed {
                                 VStack(spacing: 8) {
-                                    Label(L("需要连接后才能读取内容", "A connection is needed to read this conversation"), systemImage: "antenna.radiowaves.left.and.right")
+                                    Label(timelinePhase == .needsConnection ? L("需要连接后才能读取内容", "A connection is needed to read this conversation") : L("无法读取聊天内容", "Could not load this conversation"), systemImage: timelinePhase == .needsConnection ? "antenna.radiowaves.left.and.right" : "exclamationmark.circle")
                                         .font(.callout)
-                                    Text(L("这个会话还没有保存到本机。连上网络后会自动加载。", "This conversation is not saved on this device yet. It loads automatically once you are connected."))
+                                    Text(store.readFailureBody(.timeline(conversationID)))
                                         .font(.caption).foregroundStyle(.secondary)
                                     Button(L("重试", "Retry")) { Task { await store.loadChat(conversationID) } }
                                 }.frame(maxWidth: .infinity).padding(.vertical, 24)
-                            } else if store.timelinePhase(conversationID) == .empty {
+                            } else if timelinePhase == .empty {
                                 Text(L("还没有消息", "No messages yet"))
                                     .font(.callout).foregroundStyle(.secondary)
                                     .frame(maxWidth: .infinity).padding(.vertical, 24)
@@ -67,16 +76,14 @@ struct ConversationView: View {
                                 ProgressView(L("正在加载聊天…", "Loading conversation…")).frame(maxWidth: .infinity).padding(.vertical, 24)
                             }
                         }
-                        if store.olderNeedsNetwork.contains(conversationID) {
+                        if !store.checkingAccess.contains(conversationID) && store.olderNeedsNetwork.contains(conversationID) {
                             // B2: the local window was trimmed; offline scrolling must not be
                             // mistaken for "this is the beginning of the conversation".
                             Text(L("更早消息需要连接后才能读取", "Earlier messages need a connection")).font(.caption).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
                         }
-                        if store.before[conversationID] != nil {
+                        if !store.checkingAccess.contains(conversationID) && store.before[conversationID] != nil {
                             Button(L("更早的消息", "Earlier messages")) {
-                                let anchor = items.first?.id
-                                loadingHistory = true
-                                Task { await store.loadChat(conversationID, older: true); if let anchor { scroll.scrollTo(anchor, anchor: .top) }; loadingHistory = false }
+                                Task { await loadEarlier() }
                             }.disabled(loadingHistory).frame(maxWidth: .infinity)
                             if loadingHistory { ProgressView(L("正在加载历史…", "Loading history…")).frame(maxWidth: .infinity) }
                         }
@@ -87,55 +94,98 @@ struct ConversationView: View {
                                         Text(date, format: Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.year().month().day().hour().minute())
                                             .font(.caption2).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
                                     }
-                                    ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, refreshed: { Task { await store.loadChat(conversationID) } })
+                                    ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, presentations: cardPresentations, scroll: scrollState, refreshed: { Task { await store.loadChat(conversationID) } })
                                 }
+                                    .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .row(item.id)))
                                     .id(item.id).contextMenu { messageActions(message) }
                                     .accessibilityElement(children: .contain)
                                     .accessibilityActions { messageActions(message) }
+                                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in
+                                        scrollState.rowChanged(item.id, frame: frame)
+                                    }
+                                    .onDisappear { scrollState.rowDisappeared(item.id) }
                                     .onGeometryChange(for: Bool.self) { geometry in
                                         let frame = geometry.frame(in: .global)
+                                        let viewport = scrollState.viewport
                                         return frame.intersection(viewport).height >= min(44, frame.height) && !viewport.isEmpty
                                     } action: { _, visible in
-                                        if visible {
-                                            if !bottomVisible { store.recordReadingPosition(message.id, in: conversationID) }
-                                            Task { await store.markRead(conversationID, messageID: message.id) }
-                                        }
+                                        if visible { Task { await store.markRead(conversationID, messageID: message.id) } }
                                     }
                             } else {
                                 Label(L("Agent 配置已更新", "Agent configuration updated"), systemImage: "slider.horizontal.3").font(.caption).foregroundStyle(.secondary).id(item.id)
                             }
                         }
-                        Color.clear.frame(height: 1).id("bottom")
-                    }.padding()
+                        Color.clear.frame(height: 1).id(ChatScrollEndpoint.latest)
+                    }
+                    .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .content))
                 }
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in viewport = frame }
-                // Lazy row recycling is not viewport visibility, especially while the composer resizes.
-                .onScrollGeometryChange(for: Bool.self) { geometry in
-                    geometry.visibleRect.maxY >= geometry.contentSize.height - 24
-                } action: { _, visible in
-                    bottomVisible = visible
-                    if visible { store.recordReadingPosition(nil, in: conversationID) }
+                .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .viewport))
+                .contentMargins(16, for: .scrollContent)
+                .defaultScrollAnchor(.bottom, for: .initialOffset)
+                .defaultScrollAnchor(.bottom, for: .alignment)
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in
+                    scrollState.viewportChanged(frame)
+                }
+                .onScrollGeometryChange(for: ScrollGeometry.self) { $0 } action: { _, geometry in
+                    scrollState.geometryChanged(geometry)
+                }
+                .onScrollPhaseChange { _, phase, context in
+                    scrollState.phaseChanged(phase, geometry: context.geometry)
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if !bottomVisible { Button { scroll.scrollTo("bottom", anchor: .bottom) } label: { Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle()) }.padding().accessibilityLabel(L("最新消息", "Latest messages")) }
+                    LatestMessagesButton(scroll: scrollState)
                 }
-                .onChange(of: items.count) { _, _ in
-                    if bottomVisible || !firstLoaded { scroll.scrollTo("bottom", anchor: .bottom); firstLoaded = true }
-                }
+                .onChange(of: items.compactMap { $0.message?.id }, initial: true) { _, ids in scrollState.contentChanged(orderedMessageIDs: ids) }
                 .onChange(of: store.restoreReadingPositions[conversationID]) { _, anchor in
                     if let anchor {
-                        scroll.scrollTo(anchor, anchor: .center)
+                        scrollState.restore(anchor)
                         store.restoreReadingPositions[conversationID] = nil
                     }
                 }
-                .onChange(of: items.last?.message?.content) { _, _ in if bottomVisible { scroll.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: cardIdentities(in: items)) { _, identities in cardPresentations.prune(identities) }
+                .onChange(of: store.interactionEpoch) { _, _ in cardPresentations.clear() }
+                .onChange(of: store.selectedID) { _, id in
+                    if id != conversationID { cardPresentations.clear() }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                    cardPresentations.releaseOffscreen()
+                }
+                .onAppear {
+                    // The coordinator lives in this view's state. Its callbacks must not retain that state.
+                    scrollState.invalidateRestoration = { [weak store, conversationID] in
+                        store?.recordReadingPosition(nil, in: conversationID)
+                    }
+                    scrollState.readingAnchorChanged = { [weak store, conversationID] in
+                        store?.recordReadingPosition($0, in: conversationID)
+                    }
+                    scrollAttachment = scrollState.attachMessageScroller { id, anchor in
+                        var transaction = Transaction(animation: nil)
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            if anchor == .bottom { proxy.scrollTo(ChatScrollEndpoint.latest, anchor: .bottom) }
+                            else { proxy.scrollTo(id, anchor: anchor) }
+                        }
+                    }
+                }
+                .onDisappear {
+                    if let scrollAttachment { scrollState.detachMessageScroller(scrollAttachment) }
+                    scrollAttachment = nil
+                }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if store.revokedChats.contains(conversationID) {
                 Text(L("此聊天已不可访问。", "This conversation is no longer accessible.")).font(.caption).foregroundStyle(.secondary).padding().frame(maxWidth: .infinity).background(.bar)
             } else if store.checkingAccess.contains(conversationID) {
-                VStack { ProgressView(L("正在确认聊天权限…", "Checking conversation access…")); Button(L("重试", "Retry")) { Task { await store.retryAccess(conversationID) } } }.padding().frame(maxWidth: .infinity).background(.bar)
+                VStack {
+                    if store.continuity.readFailures[.access(conversationID)] != nil {
+                        Text(L("无法确认聊天权限", "Could not confirm conversation access"))
+                        Text(store.readFailureBody(.access(conversationID))).font(.caption).foregroundStyle(.secondary)
+                        Button(L("重试", "Retry")) { Task { await store.retryAccess(conversationID) } }
+                    } else {
+                        ProgressView(L("正在确认聊天权限…", "Checking conversation access…"))
+                    }
+                }.padding().frame(maxWidth: .infinity).background(.bar)
             } else if let conversation, conversation.can_write == false {
                 VStack {
                     Text(conversation.is_observer == true ? L("Agent 协作 · 只读", "Agent collaboration · read only") : conversation.dissolved_at != nil ? L("已解散群历史 · 只读", "Dissolved group history · read only") : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
@@ -152,8 +202,9 @@ struct ConversationView: View {
         .background(NanoTheme.canvas)
         .overlay(alignment: .top) { if copied { Label(L("已复制正文", "Message copied"), systemImage: "checkmark.circle.fill").font(.callout).padding(12).background(.regularMaterial, in: Capsule()).padding(.top, 8) } }
         .task(id: copied) { if copied { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { copied = false } } }
-        .navigationTitle(conversation?.title ?? L("聊天", "Conversation"))
-        .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+        .chatContinuityTitle(conversation?.title ?? L("聊天", "Conversation"), store: store,
+                             surface: .conversation(conversationID), loadEarlier: loadEarlier)
+        .toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink {
             ChatInfoView(store: store, conversationID: conversationID, openChat: openChat)
         } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel(L("聊天详情", "Conversation details")) } }
@@ -183,6 +234,7 @@ struct ConversationView: View {
         }
         .onDisappear {
             if store.selectedID == conversationID { store.selectedID = nil }
+            cardPresentations.clear()
             // Leaving is a draft flush point: the next screen may be a different account.
             Task { await store.flushDrafts() }
         }
@@ -261,6 +313,15 @@ struct ConversationView: View {
         }.padding(.horizontal, 16).padding(.vertical, 10).background(NanoTheme.surface)
             .overlay(alignment: .top) { Rectangle().fill(NanoTheme.border).frame(height: 0.5) }
     }
+    private func loadEarlier() async {
+        guard !loadingHistory else { return }
+        let revision = scrollState.paginationStarted()
+        loadingHistory = true
+        await store.loadChat(conversationID, older: true)
+        scrollState.paginationFinished(revision: revision)
+        loadingHistory = false
+    }
+
     private var completion: ChatText.Completion? {
         guard editing, !composing, !dismissedCompletion, store.pending[conversationID] == nil else { return nil }
         return ChatText.completion(draft.wrappedValue, selection: selection, mentions: conversation?.type == "group")
@@ -366,6 +427,21 @@ struct ConversationView: View {
             let chat: Conversation = try await store.client.send("/im/v1/conversations/\(conversationID.pathComponent)/fork", body: ["fork_message_id": message.id])
             confirmFork = nil; await store.loadConversations(); openChat(chat.id)
         } catch { operationError = error.localizedDescription }
+    }
+}
+
+private struct LatestMessagesButton: View {
+    let scroll: ChatScrollCoordinator
+
+    var body: some View {
+        if scroll.showLatest {
+            Button { scroll.latest() } label: {
+                Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle())
+            }
+            .padding()
+            .accessibilityLabel(L("最新消息", "Latest messages"))
+            .accessibilityIdentifier("conversation.latest")
+        }
     }
 }
 

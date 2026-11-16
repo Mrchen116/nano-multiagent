@@ -14,25 +14,37 @@ struct InteractiveWebView: View {
 struct InteractiveWebContent: UIViewRepresentable {
     let runtime: InteractiveRuntime
     @Binding var height: CGFloat
-    func makeCoordinator() -> Coordinator { Coordinator(runtime: runtime, height: $height) }
-    func makeUIView(context: Context) -> WKWebView { context.coordinator.makeWebView() }
-    func updateUIView(_ view: WKWebView, context: Context) {
-        let disabled = runtime.webDisabled ? "true" : "false"
-        view.evaluateJavaScript("window.nanoSetStatus?.({disabled:\(disabled)})", completionHandler: nil)
+    func makeCoordinator() -> Coordinator {
+        let height = $height
+        return Coordinator(runtime: runtime) { height.wrappedValue = $0 }
     }
-    static func dismantleUIView(_ view: WKWebView, coordinator: Coordinator) {
+    func makeUIView(context: Context) -> WKWebView { context.coordinator.makeWebView() }
+    func updateUIView(_ view: WKWebView, context: Context) { context.coordinator.updateStatus(view, disabled: runtime.webDisabled) }
+    static func dismantleUIView(_ view: WKWebView, coordinator: Coordinator) { stop(view) }
+    static func stop(_ view: WKWebView) {
         view.stopLoading()
+        view.navigationDelegate = nil
+        view.uiDelegate = nil
         view.configuration.userContentController.removeScriptMessageHandler(forName: "intelligentUI", contentWorld: .page)
     }
 
     @MainActor final class Coordinator: NSObject, WKScriptMessageHandlerWithReply, WKNavigationDelegate, WKUIDelegate {
         let runtime: InteractiveRuntime
         let generation: UUID
-        let height: Binding<CGFloat>
-        private(set) var webView: WKWebView?
+        private let heightChanged: (CGFloat) -> Void
+        private var lastDisabled: Bool?
+        private var sentMountedStatus = false
+        private(set) var pendingImageLoads = 0
+        private(set) var interruptedImageLoad = false
         private var indexURL: URL?
-        init(runtime: InteractiveRuntime, height: Binding<CGFloat>) {
-            self.runtime = runtime; self.height = height; generation = runtime.webID
+        init(runtime: InteractiveRuntime, heightChanged: @escaping (CGFloat) -> Void) {
+            self.runtime = runtime; self.heightChanged = heightChanged; generation = runtime.webID
+        }
+
+        func updateStatus(_ view: WKWebView, disabled: Bool) {
+            guard lastDisabled != disabled else { return }
+            lastDisabled = disabled
+            view.evaluateJavaScript("window.nanoSetStatus?.({disabled:\(disabled)})", completionHandler: nil)
         }
         func makeWebView() -> WKWebView {
             let config = WKWebViewConfiguration()
@@ -44,7 +56,6 @@ struct InteractiveWebContent: UIViewRepresentable {
             view.scrollView.isScrollEnabled = false
             view.scrollView.contentInsetAdjustmentBehavior = .never
             view.navigationDelegate = self; view.uiDelegate = self
-            webView = view
             guard let index = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "IntelligentUI") else {
                 runtime.error = L("缺少交互组件资源，请重新构建客户端。", "Interactive assets are missing. Rebuild the client.")
                 return view
@@ -58,20 +69,38 @@ struct InteractiveWebContent: UIViewRepresentable {
             guard message.frameInfo.isMainFrame, message.frameInfo.request.url == indexURL else {
                 replyHandler(nil, "This frame cannot access Nano"); return
             }
+            let lease = runtime.presentationLease
+            let imageLoad = (message.body as? [String: Any])?["type"] as? String == "attachment-image"
+            if imageLoad { pendingImageLoads += 1 }
             Task {
+                defer { if imageLoad { pendingImageLoads -= 1 } }
                 var isAttachment = false
                 do {
+                    guard runtime.acceptsPresentation(generation), runtime.presentationLease == lease else {
+                        if imageLoad { interruptedImageLoad = true }
+                        replyHandler(nil, "This card is no longer active"); return
+                    }
                     let request = try JSONValue(foundationObject: message.body)
                     isAttachment = request["type"].stringValue?.hasPrefix("attachment-") == true
                     if request["type"].stringValue == "height", generation == runtime.webID,
                        let value = request["height"].doubleValue, value.isFinite, value > 0 {
-                        height.wrappedValue = CGFloat(value)
+                        heightChanged(CGFloat(value))
+                        if !sentMountedStatus, let page = message.webView {
+                            sentMountedStatus = true
+                            lastDisabled = nil
+                            updateStatus(page, disabled: runtime.webDisabled)
+                        }
                         replyHandler(NSNull(), nil); return
                     }
                     let result = try await runtime.webRequest(request, generation: generation)
+                    guard runtime.acceptsPresentation(generation), runtime.presentationLease == lease else {
+                        if imageLoad { interruptedImageLoad = true }
+                        replyHandler(nil, "This card is no longer active"); return
+                    }
                     replyHandler(result.foundationObject, nil)
                 } catch {
-                    if !isAttachment, generation == runtime.webID { runtime.error = error.localizedDescription }
+                    if imageLoad, runtime.presentationLease != lease { interruptedImageLoad = true }
+                    if !isAttachment, runtime.acceptsPresentation(generation), runtime.presentationLease == lease { runtime.error = error.localizedDescription }
                     replyHandler(nil, error.localizedDescription)
                 }
             }
@@ -80,7 +109,7 @@ struct InteractiveWebContent: UIViewRepresentable {
                      decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
             if navigationAction.targetFrame?.isMainFrame == true {
                 if navigationAction.request.url == indexURL { decisionHandler(.allow); return }
-                if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url,
+                if runtime.acceptsPresentation(generation), navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url,
                    ["http", "https"].contains(url.scheme?.lowercased() ?? "") { runtime.openURL?(url) }
                 decisionHandler(.cancel); return
             }
@@ -89,7 +118,7 @@ struct InteractiveWebContent: UIViewRepresentable {
         }
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                      for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-            if navigationAction.sourceFrame.isMainFrame, let url = navigationAction.request.url,
+            if runtime.acceptsPresentation(generation), navigationAction.sourceFrame.isMainFrame, let url = navigationAction.request.url,
                ["http", "https"].contains(url.scheme?.lowercased() ?? "") { runtime.openURL?(url) }
             return nil
         }

@@ -131,11 +131,23 @@ private struct NanoUnsavedChanges: ViewModifier {
     }
 }
 
+struct NanoDateParser {
+    private let fractionalSeconds = Self.formatter([.withInternetDateTime, .withFractionalSeconds])
+    private lazy var wholeSeconds = Self.formatter([.withInternetDateTime])
+
+    mutating func date(from value: String) -> Date? {
+        fractionalSeconds.date(from: value) ?? wholeSeconds.date(from: value)
+    }
+
+    private static func formatter(_ options: ISO8601DateFormatter.Options) -> ISO8601DateFormatter {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = options
+        return formatter
+    }
+}
+
 func nanoDate(_ value: String) -> Date? {
-    let parser = ISO8601DateFormatter()
-    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    if let date = parser.date(from: value) { return date }
-    parser.formatOptions = [.withInternetDateTime]
+    var parser = NanoDateParser()
     return parser.date(from: value)
 }
 

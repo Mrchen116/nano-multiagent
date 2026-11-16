@@ -46,21 +46,51 @@ final class ChatStore {
     /// Content phase: whether anything can be shown. Independent of the connection.
     var listPhase: ChatListPhase = .loadingFirst
     /// Connection phase: how the correction is going.
-    var connection: ConnectionState = .starting
+    var connection: ConnectionState = .starting {
+        didSet {
+            continuity.updateTransport(connection, now: continuityTiming.now())
+            scheduleContinuityDeadline()
+        }
+    }
+    private(set) var continuity = ChatConnectionContinuity()
+    @ObservationIgnored private let reconnectSleep: @Sendable (TimeInterval) async throws -> Void
+    @ObservationIgnored private let continuityTiming: ChatContinuityTiming
+    @ObservationIgnored private var continuityTimer: Task<Void, Never>?
+    @ObservationIgnored private var continuityTimerID = UUID()
+    private(set) var continuityDeadline: Date?
+    @ObservationIgnored private var continuitySuspended = false
+    private var continuityRevision = UUID()
     /// Unconfirmed sends waiting for the first successful sync to resolve their conversation.
     var pendingCount = 0
     var lastFullAt: String?
     var storage: ChatStorageState = .opening
-    var listError: String?
+    // Replacing the shared business notice also retires the old preference retry. A late
+    // successful Pin must never clear a newer draft/storage/Mute failure with the same text.
+    var listError: String? { didSet { failedPreference = nil } }
+    private struct PreferenceOperation {
+        let id: String
+        let key: String
+        let value: Bool
+        var scope: String { "\(id):\(key)" }
+    }
+    @ObservationIgnored private var failedPreference: PreferenceOperation?
+    @ObservationIgnored private var preferenceOwners: [String: UUID] = [:]
     var banner: ChatBanner?
     var checkingAccess: Set<String> = []
     private var cursor: Int?
     private var epoch = UUID()
+    @ObservationIgnored private var streamStop: Task<Void, Never>?
+    @ObservationIgnored private var foregroundCorrection: Task<Void, Never>?
+    @ObservationIgnored private var foregroundCorrectionID: UUID?
     private var projectionRevision = UUID()
     /// An authoritative discard retires reads, not unrelated frozen send ownership.
     private var discardReadRevision = UUID()
+    @ObservationIgnored private var readSequence: UInt64 = 0
+    @ObservationIgnored private var latestReadResult: [ChatReadScope: UInt64] = [:]
+
     /// Freeze the partition and snapshot generation before IO, never after a response arrives.
     private struct ReadRequest {
+        let sequence: UInt64
         let epoch: UUID
         let revision: UUID
         let discardRevision: UUID
@@ -75,7 +105,8 @@ final class ChatStore {
         let token = epoch, revision = projectionRevision, discardRevision = discardReadRevision, repository = repository
         let context = try await repository?.writeContext()
         guard token == epoch, revision == projectionRevision, discardRevision == discardReadRevision else { throw CancellationError() }
-        return ReadRequest(epoch: token, revision: revision, discardRevision: discardRevision, repository: repository, context: context)
+        readSequence += 1
+        return ReadRequest(sequence: readSequence, epoch: token, revision: revision, discardRevision: discardRevision, repository: repository, context: context)
     }
 
     private func isCurrent(_ request: ReadRequest) async -> Bool {
@@ -124,20 +155,135 @@ final class ChatStore {
         return nil
     }
 
+    func connectionPresentation(_ surface: ChatConnectionSurface) -> ChatConnectionPresentation? {
+        _ = continuityRevision // One deadline wake invalidates observation, not a per-second ticker.
+        let hasContent: Bool
+        switch surface {
+        case .list: hasContent = listPhase == .loaded || listPhase == .empty
+        case .conversation(let id):
+            hasContent = !checkingAccess.contains(id) && (timelinePhase(id) == .loaded || timelinePhase(id) == .empty)
+        }
+        return continuity.presentation(surface: surface, now: continuityTiming.now(), hasContent: hasContent)
+    }
+
+    func readFailureBody(_ scope: ChatReadScope) -> String {
+        if let failure = continuity.readFailures[scope] {
+            if failure.isTemporary, case .unavailable = failure.failure {
+                return ChatConnectionText.loadFailureBody(.unavailable(status: 503))
+            }
+            return failure.message
+        }
+        return ChatConnectionText.loadFailureBody(connection)
+    }
+
+    /// Retry only corrections that actually failed on this surface. Transport reconnect is
+    /// owned by run's existing backoff, never by an extra UI reconnect loop.
+    func retryConnectionReads(_ surface: ChatConnectionSurface, loadEarlier: (() async -> Void)? = nil) async {
+        let scopes: [ChatReadScope]
+        switch surface {
+        case .list: scopes = [.list]
+        case .conversation(let id): scopes = [.access(id), .detail(id), .timeline(id), .earlier(id)]
+        }
+        let failed = Set(continuity.readFailures.keys)
+        let token = epoch
+        // Authority must recover before loadChat, which correctly refuses reads while access
+        // is inconclusive. Dictionary iteration could otherwise make Retry silently skip it.
+        for scope in scopes where failed.contains(scope) {
+            guard token == epoch, !Task.isCancelled else { return }
+            guard continuity.readFailures[scope] != nil else { continue }
+            switch scope {
+            case .list: await loadConversations()
+            case .detail(let id): await inspectConversation(id)
+            case .timeline(let id): await loadChat(id)
+            case .earlier(let id):
+                if let loadEarlier { await loadEarlier() }
+                else { await loadChat(id, older: true) }
+            case .access(let id): await retryAccess(id)
+            }
+        }
+    }
+
+    private func acceptReadResult(_ scope: ChatReadScope, request: ReadRequest) -> Bool {
+        guard request.epoch == epoch, request.sequence >= (latestReadResult[scope] ?? 0) else { return false }
+        latestReadResult[scope] = request.sequence
+        return true
+    }
+
+    private func recordReadFailure(_ scope: ChatReadScope, error: Error, request: ReadRequest) {
+        guard !(error is CancellationError), (error as? ChatRepositoryError) != .staleWrite else { return }
+        let failure = ChatFailure.from(error)
+        if failure == .unauthorized || failure == .deactivated {
+            connection = failure.connection ?? connection
+            return
+        }
+        guard acceptReadResult(scope, request: request) else { return }
+        // Protocol/local correction failures also belong to the read, not to a failed send or
+        // pin operation. Their no-cache state must finish without diagnosing a network fault.
+        // Known authority refusals are handled by the caller before reaching this adapter.
+        let status = (error as? APIError)?.status
+        let temporary = error is URLError || status == 0 || status == 408 || status == 429 || status.map { (500...599).contains($0) } == true
+        continuity.readFailed(scope, failure: failure, message: error.localizedDescription,
+                              now: continuityTiming.now(), isTemporary: temporary)
+        scheduleContinuityDeadline()
+    }
+
+    private func readSucceeded(_ scope: ChatReadScope, request: ReadRequest? = nil) {
+        if let request, !acceptReadResult(scope, request: request) { return }
+        continuity.readSucceeded(scope)
+        scheduleContinuityDeadline()
+    }
+
+    private func fullSyncSucceeded(_ request: ReadRequest) {
+        readSucceeded(.list, request: request)
+        for scope in Array(continuity.readFailures.keys) {
+            if case .access(let id) = scope, !checkingAccess.contains(id) { readSucceeded(scope, request: request) }
+        }
+    }
+
+    private func cancelContinuityDeadline() {
+        continuityTimerID = UUID()
+        continuityTimer?.cancel(); continuityTimer = nil; continuityDeadline = nil
+    }
+
+    private func scheduleContinuityDeadline() {
+        guard !continuitySuspended else { return }
+        let now = continuityTiming.now()
+        let deadline = continuity.nextDeadline(after: now)
+        guard deadline != continuityDeadline else { return }
+        cancelContinuityDeadline()
+        guard let deadline else { return }
+        continuityDeadline = deadline
+        let timerID = continuityTimerID, token = epoch, timing = continuityTiming
+        continuityTimer = Task { [weak self] in
+            do { try await timing.sleep(max(0, deadline.timeIntervalSince(now))) } catch { return }
+            guard let self, !Task.isCancelled, token == self.epoch, timerID == self.continuityTimerID else { return }
+            self.continuityTimer = nil; self.continuityDeadline = nil
+            self.continuityRevision = UUID()
+            self.scheduleContinuityDeadline()
+        }
+    }
+
     func timelinePhase(_ id: String) -> ChatTimelinePhase {
         if (timelines[id] ?? []).contains(where: { $0.message != nil }) { return .loaded }
         if receivedTimelineResults.contains(id) { return .empty }
-        if errors[id] != nil { return .needsConnection }
+        if let failure = continuity.readFailures[.timeline(id)] {
+            return failure.isTemporary ? .needsConnection : .failed
+        }
         switch connection {
         case .offline, .unavailable: return .needsConnection
         default: return .loadingFirst
         }
     }
 
-    init(client: IMClient, user: AuthUser, controller: ChatStorageController? = nil) {
-        self.client = client; self.user = user; self.stream = UserStream(client: client)
+    init(client: IMClient, user: AuthUser, controller: ChatStorageController? = nil,
+         continuityTiming: ChatContinuityTiming = ChatContinuityTiming(), stream: UserStream? = nil,
+         reconnectSleep: @escaping @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }) {
+        self.client = client; self.user = user; self.stream = stream ?? UserStream(client: client)
+        self.continuityTiming = continuityTiming
+        self.reconnectSleep = reconnectSleep
         self.interactionDrafts = InteractionDraftCoordinator(client: client, userID: user.id)
         self.storageController = controller
+        self.continuity.updateTransport(.starting, now: continuityTiming.now())
         if let controller { controller.attach(self) } else { scheduleAttemptRestore() }
     }
 
@@ -355,9 +501,20 @@ final class ChatStore {
 
     func stop() {
         epoch = UUID(); refreshTask?.cancel(); refreshTask = nil
+        foregroundCorrection?.cancel(); foregroundCorrection = nil; foregroundCorrectionID = nil
+        continuitySuspended = true
+        cancelContinuityDeadline()
         accessRecovery?.cancel(); accessRecovery = nil
         deliveryTask?.cancel(); deliveryTask = nil
-        Task { await stream.stop() }
+        stopStream()
+    }
+
+    private func stopStream() {
+        let previous = streamStop
+        streamStop = Task {
+            await previous?.value
+            await stream.stop()
+        }
     }
 
     /// Reset every projection to its initial value; durable rows are the controller's business.
@@ -375,15 +532,33 @@ final class ChatStore {
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; interactionDrafts.clear(); composeRequest = nil; banner = nil
         listPhase = .loadingFirst; connection = .starting; pendingCount = 0; lastFullAt = nil; listError = nil
         cursor = nil; needsList = false; dirtyChats = []
+        errors = [:]; preferenceOwners = [:]
+        continuity = ChatConnectionContinuity()
+        latestReadResult = [:]
+        cancelContinuityDeadline()
         executionCleanupRevisions = [:]; knownDeletedActorIDs = []; readingPositions = [:]; pendingReadingPositions = [:]; restoreReadingPositions = [:]
     }
 
     func run() async {
+        guard !connection.requiresSignOut else { return }
+        let token = epoch
+        await streamStop?.value
+        guard token == epoch, !Task.isCancelled else { return }
         // Foreground is one of the three retry points for an unopenable partition.
         if case .degraded = storage { await retryStorage() }
-        let token = epoch
+        guard token == epoch, !Task.isCancelled else { return }
+        continuitySuspended = false
+        continuity.updateTransport(connection, now: continuityTiming.now())
+        scheduleContinuityDeadline()
         var attempt = 0
-        defer { Task { await stream.stop() } }
+        defer {
+            if token == epoch {
+                foregroundCorrection?.cancel()
+                foregroundCorrection = nil
+                foregroundCorrectionID = nil
+                stopStream()
+            }
+        }
         await loadSeed()
         await reloadPending()
         while !Task.isCancelled && token == epoch {
@@ -391,27 +566,29 @@ final class ChatStore {
                 connection = listPhase == .loaded ? .syncing : .starting
                 let currentUser = try await client.session.updateUser()
                 guard token == epoch, !Task.isCancelled else { return }
-                guard currentUser.accountEnabled else { return }
+                guard currentUser.accountEnabled else { connection = .deactivated; return }
                 confirmMessageDelivery([])
                 let request = try await readRequest()
-                let sync: SyncSnapshot = try await client.get("/im/v1/sync")
-                guard await isCurrent(request) else { continue }
-                try await applySnapshot(sync, request: request)
+                let sync: SyncSnapshot
+                do {
+                    sync = try await client.get("/im/v1/sync")
+                    guard await isCurrent(request) else { continue }
+                    try await applySnapshot(sync, request: request, deferSelectedDetail: true)
+                } catch {
+                    guard token == epoch, !Task.isCancelled else { return }
+                    recordReadFailure(.list, error: error, request: request)
+                    throw error
+                }
                 guard token == epoch, !Task.isCancelled else { return }
-                // Content correction completed. An unrelated lookup or WebSocket ticket must
-                // not keep a successfully synchronized list labeled "Connecting" forever.
-                connection = .online; attempt = 0
-                await recoverPending()
-                await interactionDrafts.foreground(activeConversation: selectedID)
-                if let selectedID, interactionDrafts.failure(selectedID) != nil { _ = await flushDrafts(selectedID) }
-                guard token == epoch, !Task.isCancelled else { return }
+                guard !connection.requiresSignOut else { return }
+                // A content snapshot cannot prove that the real-time stream is usable.
+                fullSyncSucceeded(request)
                 notificationFloor = sync.max_event_id
                 if cursor == nil { cursor = sync.max_event_id }
-                // Persisted snapshots contain every delta, so invalidation/re-read avoids
-                // replaying text already included in a concurrently loaded history page.
-                if let selectedID { await loadChat(selectedID) }
+                correctForegroundContent(epoch: token)
                 let events = try await stream.connect(after: cursor ?? sync.max_event_id)
-                guard token == epoch, !Task.isCancelled else { return }
+                guard token == epoch, !Task.isCancelled, !connection.requiresSignOut else { return }
+                connection = .online; attempt = 0
                 for try await event in events {
                     guard token == epoch, !Task.isCancelled else { return }
                     if event.op == "membership_changed" {
@@ -444,19 +621,54 @@ final class ChatStore {
                 }
                 let delay = max((error as? APIError)?.retryAfter ?? 0, min(30, pow(2, Double(attempt))))
                 attempt += 1
-                try? await Task.sleep(for: .seconds(delay))
+                try? await reconnectSleep(delay)
+            }
+        }
+    }
+
+    /// Neither a slow content read nor a failed socket handshake should block the other.
+    private func correctForegroundContent(epoch token: UUID) {
+        foregroundCorrection?.cancel()
+        let correctionID = UUID()
+        foregroundCorrectionID = correctionID
+        foregroundCorrection = Task {
+            defer {
+                if foregroundCorrectionID == correctionID {
+                    foregroundCorrection = nil
+                    foregroundCorrectionID = nil
+                }
+            }
+            await recoverPending()
+            guard token == epoch, !Task.isCancelled else { return }
+            await interactionDrafts.foreground(activeConversation: selectedID)
+            guard token == epoch, !Task.isCancelled else { return }
+            if let selectedID, interactionDrafts.failure(selectedID) != nil { _ = await flushDrafts(selectedID) }
+            guard token == epoch, !Task.isCancelled else { return }
+            if let selectedID {
+                if checkingAccess.contains(selectedID) {
+                    await retryAccess(selectedID)
+                    return
+                }
+                if !conversations.contains(where: { $0.id == selectedID })
+                    || continuity.readFailures[.detail(selectedID)] != nil {
+                    await inspectConversation(selectedID)
+                }
+                guard token == epoch, !Task.isCancelled, self.selectedID == selectedID else { return }
+                await loadChat(selectedID)
             }
         }
     }
 
     /// Writes the authoritative snapshot, then projects it. Only a successful full sync may
     /// conclude that a conversation disappeared with it.
-    private func applySnapshot(_ sync: SyncSnapshot, request: ReadRequest) async throws {
+    private func applySnapshot(_ sync: SyncSnapshot, request: ReadRequest, deferSelectedDetail: Bool = false) async throws {
         guard await isCurrent(request) else { throw CancellationError() }
         guard let repository = request.repository, let context = request.context else {
             projectionRevision = UUID()
             for (id, revision) in sync.execution_cleanup_revisions ?? [:] { observeExecutionCleanup(id, revision: revision) }
-            await reconcileNetwork(sync.items)
+            await reconcileNetwork(sync.items, deferSelectedDetail: deferSelectedDetail)
+            guard request.epoch == epoch, request.discardRevision == discardReadRevision else { throw CancellationError() }
+            lastFullAt = ISO8601DateFormatter().string(from: continuityTiming.now())
             return
         }
         let privateDraftIDs = await privateDraftConversationIDs()
@@ -478,7 +690,6 @@ final class ChatStore {
             for id in result.revoked {
                 clearConversationState(id)
                 revokedChats.insert(id)
-                errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
             }
             // The SQLite transaction may have already recorded the revocation on a previous
             // launch. Clean up a still-present card ledger even for a known tombstone.
@@ -493,52 +704,83 @@ final class ChatStore {
             }
             guard request.epoch == epoch, request.discardRevision == discardReadRevision, self.repository === repository else { throw CancellationError() }
             if let selectedID, !result.conversations.contains(where: { $0.id == selectedID }) {
-                await inspectConversation(selectedID)
+                if !deferSelectedDetail { await inspectConversation(selectedID) }
             } else { inspectedConversation = nil }
+            guard request.epoch == epoch, request.discardRevision == discardReadRevision, self.repository === repository else { throw CancellationError() }
             revokedChats.formUnion(checkingAccess.subtracting(Set(result.conversations.map(\.id))))
             revokedChats.formUnion(result.revoked)
             checkingAccess = []
             listPhase = result.conversations.isEmpty && pendingCount == 0 ? .empty : (result.conversations.isEmpty ? .loadingFirst : .loaded)
-            listError = nil
         } catch {
             guard request.epoch == epoch, request.discardRevision == discardReadRevision,
                   request.repository === self.repository, (error as? ChatRepositoryError) != .staleWrite,
                   !(error is CancellationError) else { throw CancellationError() }
             if let cleanup = error as? ChatCleanupFailure { handleCleanupFailure(cleanup) }
-            let failure = ChatFailure.from(error)
             if listPhase == .loadingFirst { listPhase = .failed }
-            connection = failure.connection ?? connection
-            listError = error.localizedDescription
+            recordReadFailure(.list, error: error, request: request)
             throw error
         }
     }
 
     /// Pure-network fallback used while the partition cannot be opened (design D3 degraded).
-    private func reconcileNetwork(_ values: [Conversation]) async {
+    private func reconcileNetwork(_ values: [Conversation], deferSelectedDetail: Bool = false) async {
         let values = normalizingDeletedActors(values)
         let token = epoch, discardRevision = discardReadRevision
         let privateDraftIDs = await privateDraftConversationIDs()
         guard token == epoch, discardRevision == discardReadRevision else { return }
         for chat in values { observeExecutionCleanup(chat.id, revision: chat.execution_cleanup_revision ?? 0) }
-        if let id = selectedID, !values.contains(where: { $0.id == id }) { await inspectConversation(id) }
+        let selectedOutsideList = selectedID.flatMap { id in values.contains(where: { $0.id == id }) ? nil : id }
+        let pendingDetail = selectedOutsideList.flatMap { id in
+            deferSelectedDetail || checkingAccess.contains(id) ? id : nil
+        }
+        if let id = selectedOutsideList, pendingDetail == nil { await inspectConversation(id) }
         else { inspectedConversation = nil }
         var allowed = Set(values.map(\.id))
         if let inspectedConversation { allowed.insert(inspectedConversation.id) }
+        if let pendingDetail {
+            // The joined list cannot decide a visitor's access. Hide its old projection
+            // until the detail read resolves authority after the socket starts.
+            allowed.insert(pendingDetail)
+            checkingAccess.insert(pendingDetail)
+        }
         revokedChats.formUnion(checkingAccess.subtracting(allowed))
         revokedChats.subtract(allowed)
         for id in Set(timelines.keys).union(uploadDrafts.keys).union(checkingAccess).union(pending.keys).union(interactionConversations.values).union(privateDraftIDs) where !allowed.contains(id) {
             // A degraded partition still has old JSON/handoff qualification to revoke.
             await revokeConversation(id, reason: .snapshotAbsent)
-            errors[id] = L("你已无法访问此聊天。", "You no longer have access to this conversation.")
         }
         for chat in values where chat.can_write == false || chat.dissolved_at != nil {
             await discardConversationAttempts(chat.id)
         }
         guard token == epoch, discardRevision == discardReadRevision else { return }
-        checkingAccess = []
+        checkingAccess = Set([pendingDetail].compactMap { $0 })
         conversations = values
         listPhase = values.isEmpty ? .empty : .loaded
-        listError = nil
+    }
+
+    /// Applies an explicit user preference; reads do not consume a failed business operation.
+    func updateConversationPreference(_ id: String, key: String, value: Bool) async {
+        let operation = PreferenceOperation(id: id, key: key, value: value)
+        let owner = UUID(), token = epoch
+        preferenceOwners[operation.scope] = owner
+        do {
+            let _: Conversation = try await client.send("/im/v1/conversations/\(id.pathComponent)", method: "PATCH", body: [key: value])
+            guard token == epoch, preferenceOwners[operation.scope] == owner, !Task.isCancelled else { return }
+            if failedPreference?.scope == operation.scope { listError = nil }
+            await loadConversations()
+        } catch {
+            guard token == epoch, preferenceOwners[operation.scope] == owner,
+                  !Task.isCancelled, !(error is CancellationError) else { return }
+            listError = error.localizedDescription
+            failedPreference = operation
+        }
+    }
+
+    /// The notice retries its actual failed action, not an unrelated successful GET.
+    func retryListError() async {
+        if let failedPreference {
+            await updateConversationPreference(failedPreference.id, key: failedPreference.key, value: failedPreference.value)
+        } else { await loadConversations() }
     }
 
     func loadConversations() async {
@@ -546,14 +788,13 @@ final class ChatStore {
         do {
             let page: ItemsPage<Conversation> = try await client.get("/im/v1/conversations")
             guard await isCurrent(request) else { return }
-            try await applyConversationList(page.items, request: request)
+            guard try await applyConversationList(page.items, request: request),
+                  request.epoch == epoch, request.discardRevision == discardReadRevision else { return }
+            readSucceeded(.list, request: request)
         } catch {
             guard await isCurrent(request), !(error is CancellationError) else { return }
-            let failure = ChatFailure.from(error)
             if listPhase == .loadingFirst { listPhase = .failed }
-            connection = failure.connection ?? connection
-            listError = error.localizedDescription
-            if failure != .unauthorized { for id in checkingAccess { errors[id] = error.localizedDescription } }
+            recordReadFailure(.list, error: error, request: request)
         }
     }
 
@@ -561,10 +802,10 @@ final class ChatStore {
     /// Without a partition there is nothing durable to keep, so the page uses the same
     /// pure-network reconcile a degraded launch uses (it inspects the open conversation and
     /// drops rows the server no longer lists).
-    private func applyConversationList(_ items: [Conversation], request: ReadRequest) async throws {
+    private func applyConversationList(_ items: [Conversation], request: ReadRequest) async throws -> Bool {
         guard let repository = request.repository, let context = request.context else {
             await reconcileNetwork(items)
-            return
+            return request.epoch == epoch && request.discardRevision == discardReadRevision
         }
         let values: [Conversation]
         do { values = try await repository.applyConversationList(items, write: context) }
@@ -573,12 +814,12 @@ final class ChatStore {
             if let cleanup = error as? ChatCleanupFailure { handleCleanupFailure(cleanup) }
             throw error
         }
-        guard await isCurrent(request) else { return }
+        guard await isCurrent(request) else { return false }
         guard values.allSatisfy({ ($0.execution_cleanup_revision ?? 0) >= (executionCleanupRevisions[$0.id] ?? 0) }) else { throw CancellationError() }
         for chat in values { observeExecutionCleanup(chat.id, revision: chat.execution_cleanup_revision ?? 0) }
         conversations = normalizingDeletedActors(values)
         listPhase = values.isEmpty && pendingCount == 0 ? .empty : (values.isEmpty ? .loadingFirst : .loaded)
-        listError = nil
+        return true
     }
 
     func inspectConversation(_ id: String) async {
@@ -589,17 +830,15 @@ final class ChatStore {
             let value = try await persistConversation(loaded, request: request)
             guard await isCurrent(request) else { return }
             inspectedConversation = value; revokedChats.remove(id); checkingAccess.remove(id)
+            readSucceeded(.detail(id), request: request); readSucceeded(.access(id), request: request)
         } catch {
-            guard await isCurrent(request) else { return }
-            inspectedConversation = nil
+            guard await isCurrent(request), !(error is CancellationError), (error as? ChatRepositoryError) != .staleWrite else { return }
             if [403, 404].contains((error as? APIError)?.status ?? 0) {
                 await revokeConversation(id, reason: .detailForbidden)
                 revokedChats.insert(id)
                 conversations.removeAll { $0.id == id }
-                errors[id] = L("此聊天已不可访问。", "This conversation is no longer accessible.")
             } else {
-                connection = ChatFailure.from(error).connection ?? connection
-                errors[id] = error.localizedDescription
+                recordReadFailure(.detail(id), error: error, request: request)
             }
         }
     }
@@ -619,11 +858,12 @@ final class ChatStore {
         guard (projection.execution_cleanup_revision ?? 0) >= (executionCleanupRevisions[projection.id] ?? 0) else { throw CancellationError() }
         observeExecutionCleanup(projection.id, revision: projection.execution_cleanup_revision ?? 0)
         projection = normalizingDeletedActors([projection])[0]
-        if let index = conversations.firstIndex(where: { $0.id == projection.id }) { conversations[index] = projection }
-        conversations = normalizingDeletedActors(conversations, including: [projection])
-        if let inspectedConversation {
-            self.inspectedConversation = normalizingDeletedActors([inspectedConversation], including: [projection])[0]
-        }
+        // Visible messages can return identical conversation metadata on each read.
+        // Publish one normalized projection only when it changes.
+        var updated = conversations
+        if let index = updated.firstIndex(where: { $0.id == projection.id }) { updated[index] = projection }
+        updated = normalizingDeletedActors(updated, including: [projection])
+        if updated != conversations { conversations = updated }
         return projection
     }
 
@@ -641,7 +881,10 @@ final class ChatStore {
             return value
         }
         // A list can learn a deletion in another chat while its stale detail remains open.
-        if let inspectedConversation { self.inspectedConversation = normalized(inspectedConversation) }
+        if let inspectedConversation {
+            let updated = normalized(inspectedConversation)
+            if updated != inspectedConversation { self.inspectedConversation = updated }
+        }
         return values.map(normalized)
     }
 
@@ -657,10 +900,12 @@ final class ChatStore {
 
     func loadChat(_ id: String, older: Bool = false) async {
         guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
+        let scope: ChatReadScope = older ? .earlier(id) : .timeline(id)
         let token = epoch
         // Local first: an open conversation paints from disk before the request completes.
         await loadLocalTimeline(id)
         guard token == epoch, !Task.isCancelled else { return }
+        if older, before[id] == nil { return }
         guard let request = try? await readRequest() else { return }
         do {
             var page = try await client.messages(id, before: older ? before[id] : nil)
@@ -700,19 +945,22 @@ final class ChatStore {
                 $0.receipts_requested == true && $0.sender_user_id != user.id
             }.map(\.id))
             if older || before[id] == nil { before[id] = page.next_before_message_id }
-            if !older, let anchor {
+            if !older, let anchor, pendingReadingPositions[id] == anchor {
                 pendingReadingPositions[id] = nil
                 if page.items.contains(where: { $0.id == anchor }) { restoreReadingPositions[id] = anchor }
             }
-            errors[id] = nil
+            readSucceeded(scope, request: request)
             await recoverPending(id)
         } catch {
             guard await isCurrent(request), !(error is CancellationError) else { return }
-            let failure = ChatFailure.from(error)
-            if [403, 404].contains((error as? APIError)?.status ?? 0) { await revokeConversation(id, reason: .detailForbidden) }
+            if (error as? ChatRepositoryError) == .staleWrite { return }
+            if [403, 404].contains((error as? APIError)?.status ?? 0) {
+                await revokeConversation(id, reason: .detailForbidden)
+                guard token == epoch else { return }
+                return
+            }
             guard token == epoch else { return }
-            connection = failure.connection ?? connection
-            errors[id] = error.localizedDescription
+            recordReadFailure(scope, error: error, request: request)
         }
     }
 
@@ -863,9 +1111,12 @@ final class ChatStore {
     /// Targeted access check for `membership_changed` (design D11): keep the list row, hold the
     /// timeline behind the existing "checking access" placeholder, and let the detail response
     /// decide. A transport failure decides nothing — the next successful sync converges.
-    private func verifyAccess(_ id: String) async {
+    private func verifyAccess(_ id: String, preserveTimeline: Bool = false) async {
         checkingAccess.insert(id)
-        timelines[id] = nil; before[id] = nil; olderNeedsNetwork.remove(id); receivedTimelineResults.remove(id)
+        if !preserveTimeline {
+            timelines[id] = nil; before[id] = nil; olderNeedsNetwork.remove(id); receivedTimelineResults.remove(id)
+            readSucceeded(.earlier(id))
+        }
         if banner?.conversationID == id { banner = nil }
         guard let request = try? await readRequest() else { return }
         do {
@@ -875,10 +1126,11 @@ final class ChatStore {
             guard await isCurrent(request) else { return }
             // The open view prefers inspected detail. Publish the access check here,
             // not in the shared writer: a late /read DTO must not replace that detail.
-            if inspectedConversation?.id == id { inspectedConversation = value }
+            if inspectedConversation?.id == id || selectedID == id { inspectedConversation = value }
             checkingAccess.remove(id); revokedChats.remove(id)
+            readSucceeded(.access(id), request: request)
             await loadLocalTimeline(id)
-            if timelines[id]?.isEmpty ?? true { await loadChat(id) }
+            if preserveTimeline || (timelines[id]?.isEmpty ?? true) { await loadChat(id) }
         } catch {
             guard await isCurrent(request), !(error is CancellationError) else { return }
             let failure = ChatFailure.from(error)
@@ -887,19 +1139,17 @@ final class ChatStore {
                 await revokeConversation(id, reason: .membershipDenied)
                 revokedChats.insert(id)
                 conversations.removeAll { $0.id == id }
-                errors[id] = L("此聊天已不可访问。", "This conversation is no longer accessible.")
             case .unauthorized, .deactivated:
-                connection = failure.connection ?? connection
+                recordReadFailure(.access(id), error: error, request: request)
             default:
-                connection = failure.connection ?? connection
-                errors[id] = error.localizedDescription
+                recordReadFailure(.access(id), error: error, request: request)
                 scheduleAccessRecovery()
             }
         }
     }
 
     /// The placeholder's retry must recheck authority, not reload a list that cannot decide absence.
-    func retryAccess(_ id: String) async { await verifyAccess(id) }
+    func retryAccess(_ id: String) async { await verifyAccess(id, preserveTimeline: timelines[id] != nil) }
 
     /// A healthy socket may never reconnect. Resolve an inconclusive membership check with
     /// bounded full-sync retries rather than leaving its placeholder there indefinitely.
@@ -908,22 +1158,27 @@ final class ChatStore {
         let token = epoch
         accessRecovery = Task { [weak self] in
             guard let self else { return }
-            defer { self.accessRecovery = nil }
+            defer { if token == self.epoch { self.accessRecovery = nil } }
             for delay in [1, 2, 4] {
                 do { try await Task.sleep(for: .seconds(delay)) } catch { return }
                 guard token == self.epoch, !Task.isCancelled, !self.checkingAccess.isEmpty else { return }
+                guard let request = try? await self.readRequest() else { continue }
                 do {
-                    let request = try await self.readRequest()
                     let sync: SyncSnapshot = try await self.client.get("/im/v1/sync")
                     guard await self.isCurrent(request) else { continue }
                     try await self.applySnapshot(sync, request: request)
-                    self.connection = .online
-                    if let id = self.selectedID { await self.loadLocalTimeline(id) }
-                    return
+                    guard token == self.epoch, !Task.isCancelled else { return }
+                    self.fullSyncSucceeded(request)
+                    if let id = self.selectedID {
+                        if self.checkingAccess.contains(id) { await self.retryAccess(id) }
+                        else { await self.loadLocalTimeline(id) }
+                    }
+                    if self.checkingAccess.isEmpty { return }
                 } catch {
                     guard token == self.epoch, !Task.isCancelled else { return }
                     if error is CancellationError || (error as? ChatRepositoryError) == .staleWrite { continue }
-                    self.connection = ChatFailure.from(error).connection ?? self.connection
+                    self.recordReadFailure(.list, error: error, request: request)
+                    for id in self.checkingAccess { self.recordReadFailure(.access(id), error: error, request: request) }
                 }
             }
             // A failed bounded recovery keeps the explicit retry available. It does not
@@ -936,7 +1191,7 @@ final class ChatStore {
         let token = epoch
         refreshTask = Task { [weak self] in
             guard let self else { return }
-            defer { self.refreshTask = nil }
+            defer { if token == self.epoch { self.refreshTask = nil } }
             while !Task.isCancelled, token == self.epoch, self.needsList || !self.dirtyChats.isEmpty {
                 try? await Task.sleep(for: .milliseconds(250))
                 guard !Task.isCancelled, token == self.epoch else { return }
@@ -950,6 +1205,10 @@ final class ChatStore {
     /// Keep the scroll anchor, while discarding all process-bearing pages from the old revision.
     func recordReadingPosition(_ messageID: String?, in conversationID: String) {
         readingPositions[conversationID] = messageID
+        if messageID == nil {
+            pendingReadingPositions[conversationID] = nil
+            restoreReadingPositions[conversationID] = nil
+        }
     }
 
     @discardableResult
@@ -959,6 +1218,7 @@ final class ChatStore {
         pendingReadingPositions[id] = readingPositions[id] ?? pendingReadingPositions[id]
         timelines[id] = nil
         before[id] = nil
+        readSucceeded(.earlier(id))
         olderNeedsNetwork.remove(id); receivedTimelineResults.remove(id)
         return true
     }
@@ -1388,6 +1648,8 @@ final class ChatStore {
 
     private func clearConversationState(_ id: String) {
         queuedDrafts[id] = nil; dirtyDraftIDs.remove(id)
+        readSucceeded(.detail(id)); readSucceeded(.timeline(id)); readSucceeded(.earlier(id)); readSucceeded(.access(id))
+        recordReadingPosition(nil, in: id)
         timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil
         olderNeedsNetwork.remove(id); receivedTimelineResults.remove(id); pending[id] = nil
         for source in interactionConversations.filter({ $0.value == id }).map(\.key) {

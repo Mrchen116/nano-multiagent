@@ -21,11 +21,13 @@ enum ChatTimelinePhase: Equatable, Sendable {
     case loaded
     case empty
     case needsConnection
+    /// A completed protocol/local read failure is not an ongoing load or a network diagnosis.
+    case failed
 }
 
 /// How the connection stands, independent of what is on screen.
 ///
-/// `.online` is only entered after a successful `/sync`, never after a socket handshake.
+/// `.online` requires both successful content sync and a confirmed live WebSocket.
 enum ConnectionState: Equatable, Sendable {
     case starting
     case localOnly
@@ -152,4 +154,93 @@ enum ChatConnectionText {
         formatter.dateFormat = format
         return formatter
     }
+}
+
+
+/// Correction failures have their own owners; a healthy stream is not evidence that an
+/// unrelated history request succeeded (and an HTTP response cannot heal a socket).
+enum ChatReadScope: Hashable, Sendable {
+    case list
+    case detail(String)
+    case timeline(String)
+    case earlier(String)
+    case access(String)
+
+    func belongs(to surface: ChatConnectionSurface) -> Bool {
+        switch (self, surface) {
+        case (.list, .list): return true
+        case (.detail(let id), .conversation(let target)),
+             (.timeline(let id), .conversation(let target)),
+             (.earlier(let id), .conversation(let target)),
+             (.access(let id), .conversation(let target)): return id == target
+        default: return false
+        }
+    }
+}
+
+enum ChatConnectionSurface: Equatable, Sendable {
+    case list
+    case conversation(String)
+}
+
+enum ChatConnectionPresentation: Equatable, Sendable {
+    case transport
+    case read
+
+    var text: String {
+        switch self {
+        case .transport: return L("连接暂不可用，自动重试中", "Connection unavailable. Retrying automatically")
+        case .read: return L("暂时无法更新，轻点重试", "Unable to update. Tap to retry")
+        }
+    }
+}
+
+struct ChatScopedReadFailure: Equatable, Sendable {
+    let since: Date
+    var failure: ChatFailure
+    var message: String
+    var isTemporary: Bool
+}
+
+/// A value policy owns continuous failure periods, not retry attempts or view lifetimes.
+/// No periodic ticking is needed: the adapter only wakes at the earliest silent deadline.
+struct ChatConnectionContinuity: Sendable {
+    static let quietInterval: TimeInterval = 5
+    private(set) var transportSince: Date?
+    private(set) var readFailures: [ChatReadScope: ChatScopedReadFailure] = [:]
+    private var terminal = false
+
+    mutating func updateTransport(_ state: ConnectionState, now: Date) {
+        terminal = state.requiresSignOut
+        if state.isOnline || terminal { transportSince = nil }
+        else if transportSince == nil { transportSince = now }
+        if terminal { readFailures = [:] }
+    }
+
+    mutating func readFailed(_ scope: ChatReadScope, failure: ChatFailure, message: String, now: Date, isTemporary: Bool = true) {
+        guard !terminal else { return }
+        readFailures[scope] = ChatScopedReadFailure(since: readFailures[scope]?.since ?? now,
+                                                   failure: failure, message: message, isTemporary: isTemporary)
+    }
+
+    mutating func readSucceeded(_ scope: ChatReadScope) { readFailures[scope] = nil }
+
+    func presentation(surface: ChatConnectionSurface, now: Date, hasContent: Bool) -> ChatConnectionPresentation? {
+        guard hasContent, !terminal else { return nil }
+        if let transportSince, now.timeIntervalSince(transportSince) >= Self.quietInterval { return .transport }
+        if readFailures.contains(where: { $0.key.belongs(to: surface) && now.timeIntervalSince($0.value.since) >= Self.quietInterval }) { return .read }
+        return nil
+    }
+
+    func nextDeadline(after now: Date) -> Date? {
+        ([transportSince].compactMap { $0 } + readFailures.values.map(\.since))
+            .map { $0.addingTimeInterval(Self.quietInterval) }.filter { $0 > now }.min()
+    }
+}
+
+/// Private scheduling seam lets tests advance time and release cancelled callbacks without
+/// sleeping five seconds or adding a production test hook.
+struct ChatContinuityTiming: Sendable {
+    var now: @Sendable () -> Date = { Date() }
+    var sleep: @Sendable (TimeInterval) async throws -> Void = { try await Task.sleep(for: .seconds($0)) }
 }

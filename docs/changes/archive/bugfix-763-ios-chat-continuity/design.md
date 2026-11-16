@@ -1,0 +1,188 @@
+# bugfix-763: iOS 聊天连续体验 — 技术方案
+
+> 对齐: [incident.md](incident.md)
+
+## Changelog
+
+## 现状分析
+
+### 涉及范围
+
+核实基线 `45babb2b49e314754c6ca390f4ca3da61fe9f107`：
+
+- `Features/Chat/ChatPhases.swift`、`ChatStore.swift`：内容 phase 已与连接 state 分离，但状态文字仍直接映射原始重试；HTTP sync 后提前 online / attempt=0，WebSocket 尚未建立。
+- `ChatListView.swift`、`ConversationView.swift`：连接文字是可插拔内容行；读取错误与业务操作错误混用 `errors`。
+- `ConversationView.swift`：`bottomVisible` 同时决定按钮和跟随；初始缓存没有显式定位，count / 最后正文才 scrollTo；分页完成无条件 top、清理恢复 center。用户滚动与渲染长高没有区分。
+- `InteractiveWebView.swift` 已接通 ResizeObserver → 原生 frame；`MediaViews.swift` 异步图片也改行高。不需要另造卡片专用完成协议。
+- `MarkdownView.swift`、`ChatModels.swift`、`CommonViews.swift`、可见已读回包是性能候选，无原生测量，不能预定全部优化。
+- `UITests/` 已有 `NanoIMJourney` 真实登录/缓存旅程；PBX 文件同步目录可发现新增 Swift。原生最低 iOS26，可以使用 ScrollPosition、滚动几何与滚动 phase。
+
+### 既有约束
+
+仅原生客户端与相应测试/行为契约；不改 IM API、存储 schema、跨包架构或 DSH。维持 local-first、实时权限核实、账号/服务隔离、撤销清理、发送幂等和私人编辑语义。不得缓存实时授权或受保护媒体字节来加速。
+
+用户已选择 Chats 重进到最新，详情返回和前后台保留当前阅读。只用模拟器，不部署/合并。必需模型限定 Sol6.1，普通合成渲染输入不调用模型。
+
+### 可复用能力
+
+- **用**现有内容 phase、本地 repository、`TimelineMerge` 与权限 fence，不新增聊天数据源。
+- **改**现有 UserStream 建连完成点，使 sync 与实时链路各自真实；不 fork WebSocket 协议。
+- **用**原生滚动几何和 phase 控制用户意图；卡片/图片只需真实改高，宿主统一处理。
+- **改**清理阅读恢复的旧 id 链：继续保留跨 revision 补历史能力，但 UI 恢复由当前意图和请求代次仲裁。
+- **用**独立 NanoIMJourney scheme，不在生产 App 加测试后门，不以 Web 窄屏代替原生。
+
+### 相关历史
+
+714/716 已实现生命周期清理/本地优先与卡片语义；本 unit 保留其权限和发送不变量，不重开旧事项。旧只读报告只提供线索，未有原生 App 截图/性能结果可复用。
+
+## 架构总览
+
+```text
+内容 phase（本地/网络） ──────────────→ 现有消息/列表
+原始连接状态 → 稳定展示策略 ──────────→ 导航辅助反馈（不插内容行）
+用户手势 / 最新按钮 / 新会话 → 滚动意图与代次
+                              ↓
+内容尺寸 / 视口 / 可见锚点 → 单一定位仲裁 → Reader端点/ID + 局部原子UIKit历史偏移
+旧分页 / 清理恢复 ─────────────↑（必须代次仍有效）
+```
+
+把『想看哪里』和『当前几何在哪里』分开；视图只管理当前导航实例的滚动，不把位置永久保存到数据库。
+
+## 关键决策
+
+### D1. 连接展示采用五秒静默与稳定故障反馈，不再把重试状态作为消息行
+
+- 已有内容时，普通 starting/syncing/offline/unavailable 从首次连续不可用起静默5秒。这个值是工程初值，不是用户指定或行业标准；原生短3秒/长12秒演练校正。
+- 同一不可用期间的 syncing/offline/HTTP成功但WS失败不重置静默时钟，也不轮播文案；只有完整恢复或终止账号状态结束该期间。
+- 持续不可用后只有一处『连接暂不可用，自动重试中』辅助反馈，可点击查看上次更新时间/重试。Chats 现有 nanoRootTitle 实为 inline 自绘 principal，并非 large title；两页统一用同一 principal 内的标题与辅助 slot，默认约44pt高、状态切换高度固定；标题/slot始终保留布局，静默slot无文字/图标且不可访问。持续故障仅填充slot，不改列表/消息可用高度与输入。长标题截断后返回与主操作保持可达，详情可完整读。不插 List / VStack 内容行。
+- 首次无缓存失败由现有内容区错误状态独占反馈，不再叠加全局连接状态；撤销/登录失效/发送失败仍按各自对象提示。
+- 将读取错误和业务操作错误分清：后台校正失败按 list / detail(id) / timeline(id) / access scope 保存失败种类与连续失败起点，不写实时传输健康、不复用 `errors`。导航仅合成当前surface相关读取scope与实时传输故障；仅HTTP校正失败时文案为『暂时无法更新，轻点重试』，点击重试实际失败的读取，不宣称后台存在自动重试。对应成功读取仅清自己的scope；full sync可清其实际覆盖的list/access scope，不能清尚未校正的timeline。无缓存失败由内容phase读取专属错误；业务发送/上传/访问错误仍在原对象，forbidden/access/stale-write不伪装网络。
+- 拒绝『小图标代替文字』『每次重试插入不同状态行』『所有错误静默』。
+
+### D2. online 与退避归零推迟到 sync 完成且实时传输确认可用
+
+`ConnectionState`只由run的实时连接生命周期（以及明确terminal账号结果）拥有；读取成功/失败不得把健康socket改offline或把未恢复socket改online。UserStream在ticket / socket resume之外等待一次WebSocket ping成功确认握手；随后ChatStore才online并归零attempt。HTTP同步完成仍更新内容/lastFullAt，不借此宣称实时恢复。失败保留指数退避（1/2/4…30秒与Retry-After取大）；取消、账号失效、epoch保持原有语义。不会等待有业务消息才算在线，也不新增服务端ack API。
+
+后台读取的scope故障与raw传输正交：① healthy WS + HTTP失败，保留rawonline，仅该surface的scope在静默后显示『暂时无法更新，轻点重试』；同scope成功重试立即清除，不残留offline。② HTTP sync或scheduleAccessRecovery成功只清它们覆盖的scope，即使rawWS仍失败也不能结束raw不可用时钟；检查所有online写入点，不只改run。③ raw故障由run实际退避自动重连，scope故障由显式导航重试、该读取下一次正常校正或已有有界access recovery恢复；文案据真实owner表达，不为此新增通用网络coordinator。④ stop取消展示timer和旧任务；新run重新注册当前仍相关的展示deadline；reset/退出清除全部scope、时钟与恢复任务，旧epoch回包不能清/写新owner的状态。禁止catch业务发送错误改变raw或静默处理。
+
+### D3. 单一滚动策略保存用户意图、目标代次和当前可见阅读锚点
+
+私有值类型策略（可直接单测）隐藏：followLatest / readingHistory、操作 revision、用户滚动阶段、底部距离、历史可见 id+相对有效视口偏移、布局修正状态。View 使用小接口消费用户操作和几何结果，不在多个 onChange 中各自决定强制定位。
+
+- 新建会话 View 默认 followLatest；显式初始 anchor 到 bottom，缓存未变化也定位。详情 push/pop 与前后台不创建新滚动意图；不能在每次 onAppear 无条件 reset。
+- tracking（可能只是触碰）先暂停自动定位；只有 interacting 且实际发生用户滚动才推进 revision、提交 readingHistory 并淘汰旧任务。tracking→idle 无位移要恢复原意图，不能点一下卡片就永远停止跟随；滚动结束若实际在底部恢复 followLatest，否则 readingHistory。程序定位/动态长高本身不算主动上翻。
+- 点击最新立即切到 followLatest，推进 revision，清除旧阅读恢复意图，发出不带长动画的到底请求。不等网络、不加载全部历史。
+- 底部按钮显隐由真实几何距离与意图决定；执行 scrollTo 不算完成。最新消息尾部在扣除 safe-area / composer / keyboard 的有效视口内才算到达，容差只作按钮显隐，不用掩盖大幅不到底。实际 adapter 使用已完成这些系统布局的 ScrollView global frame，不再次扣 contentInsets。
+- 最新意图的语义目标与到达确认采用有序 timeline 的实际最后消息 ID/行底边，不以 LazyVStack 估算 extent 或透明尾标的可见性代替完成。末行可高于整个视口，只要求其底边在有效视口内；新最后 ID、未实现/消失的末行使旧完成失效，空会话没有 Latest 目标。底部执行端点与语义完成分离，见 R6；边界 marker 仍保留在对应 message 之前，不改变内容顺序。
+- 外围 16pt 间距由 ScrollView 的 `.contentMargins(..., for: .scrollContent)` 管理，而非包在 target layout 内部的普通 padding。此表达在本轮真实 AX 对照修正了共享消息 wrapper 的 L0/R32 为 L16/R16；不声称已证明 SwiftUI 私有坐标实现或系统 bug。
+- **R6 私有物理 adapter 修订（取代 R5）**：R5 的 L 原生第3手势仍挂起，M去掉全部position绑定、N再去掉target-layout也仍挂起，故不能继续把“绑定必要条件”当成已证因果。O只将bottom执行目标换为固定1pt footer（保留LazyVStack间距），同12手势完成；新case也验证 untouched真尾→6次历史→不抢位→明确Latest→真尾完成。footer同时改变末子树、约19pt尾部空白和惰性估算，不能据此声称精确系统根因。R6保留这条已区分的端点路径，但不把O缺少历史y的诊断版交付。无模型/业务行为增量，`no spec delta`。
+- **统一意图，两个私有物理动作**：完全移除 `.scrollPosition`、`ScrollPosition` 与 `.scrollTargetLayout`。当前timeline的Reader只作一次性ID realization；latest请求映射到私有固定1pt末端marker，history未实现目标仍以消息ID/top realization。底部marker不算完成，只有实际最后消息行底边进入有效视口才完成/隐藏Latest。coordinator仍独占意图、revision、gesture pause、完成判定和请求合并；View不另建定位策略，卡片/图片不新增完成协议。
+- **历史精确偏移采用局部公开UIKit几何**：透明UIViewRepresentable背景marker绑定当前消息行、LazyVStack整体content-root（不是惰性子项/footer）与外层ScrollView有效viewport。adapter每次只从live content-root marker向上找最近UIScrollView，row marker必须属于同一scroll ancestor、同一window且与viewport marker相容；远历史及详情返回不依赖footer是否仍实现。不搜UIApplication/windows，不使用私有类名、反射、第二滚动容器或定时轮询。每次历史修正于同一MainActor同步调用内读取row与viewport的window rect、该scroll的contentOffset/contentSize/bounds/adjustedContentInset，计算delta并用setContentOffset(animated:false)只改y、保留x、夹到真实可滚动区间。校验不成立或marker未实现就不写；不能换成缓存几何猜测。祖先拓扑并非SwiftUI公开保证，必须有专用sim真实历史改高/分页恢复与横向证据；不成立就阻止交付而非扩大搜索。
+- **避免跨代几何（关闭CODE-763-L1的设计反例）**：ID请求前保存上述原子live snapshot；请求后只有新的同generation live snapshot改变，或该snapshot已经对齐时，才允许历史精确修正。不再把独立onGeometryChange的row frame与ScrollGeometry offset拼接作y计算。注册/解除marker、viewport/内容/scroll几何变动可调度coalesced校正；校正仍检查active、revision、attach generation和非用户滚动，marker本身没有意图。无布局变化且已对齐立即完成，不加固定等待。
+- **原生scroll-to-top有明确来源，不按动画猜用户**：自有sim/PID89581的O clock trace已证明原生上移至-116.667仍全程SwiftUI idle/latest/rev0，并被本方请求拉回；故单靠SwiftUI phase不够。不用`isScrollAnimating`推断用户（它也含程序/键盘动画），R6在上述exact UIScrollView上安装仅当前View有效的透明公开delegate forwarder，观察`scrollViewShouldScrollToTop`/`scrollViewDidScrollToTop`/`scrollViewWillBeginDragging`。原delegate的should返回false则原样拒绝、不改变意图；允许的原生top请求是与Latest同级的显式输入，立即revision++/history、清旧恢复与pending，暂停自动纠偏；didTop结束暂停并按实际位置捕获阅读锚点，随后只有明确Latest或实际回到底部才恢复跟随。本方Reader和UIKit请求全部禁用动画，且不触发shouldTop；不靠同步调用栈或固定时间区分来源。原delegate允许后，同步以exactscroll的live offset/bounds/contentSize/adjustedInset判定noop：若当前y已在topLimit+1以内，或合法可滚动range≤1，则原样返回允许但不创建暂停/新revision，不依赖already-top时可有可无的didTop；只有确有向top位移空间才创建等待。
+- forwarder先调用原delegate相应方法并保留返回值；所有其他可选selector以公开NSObject转发/`responds(to:)`透传，不接管SwiftUI的scroll/zoom行为。原delegate弱引用，adapter只持有本方proxy；安装捕获当前原delegate，不自包/不包其他聊天；若root的scroll或delegate身份改变，只在本地marker生命周期重新校验绑定，新proxy指向新原delegate，旧generation回调忽略。detach仅在delegate仍是本方proxy时还原原delegate，不覆盖外方后续替换；root/viewport失效也解除。原生top被新drag、Latest、disappear、root/delegate换代打断时取消本方暂停，旧didTop不能抢新revision。无需全局事件hook、swizzle、永久poll或私有框架依赖。此项有意替代初稿的自定no-delegate约束；接口转发与生命周期是新增集成风险，单测不得冒充原生安全。
+- ID adapter与marker生命周期均限当前View/coordinator：onAppear action安装并重调度未完成请求，不在Reader content builder中滚动；detach取消旧任务并失效旧adapter，旧generation不能清除新安装。marker弱引用且dismantle按实例核对后移除，其他聊天不共享。未安装/未解析不得把请求记为完成；用户新手势清pending ID snapshot和旧revision。原生回归包含A连续阅读/远距Latest/Earlier抢位、实际历史改高偏移、C动态横向、B键盘/导航/前后台；clock tap必须无fallback完成真实top/保留history→明确Latest真尾，键盘/动态改高是不可误转history的负例；另以新drag/Latest/详情重挂验证top中断和proxy恢复。公开API存在不等于原生功能或性能已通过。
+
+### D4. 尺寸变化统一参与定位，历史读取保持锚点
+
+- 使用同 coordinator 的一次性Reader adapter、R6局部UIKit原子历史偏移adapter、初始 bottom anchor 与滚动几何（content size、container、insets、offset）处理惰性布局。尺寸变化后若 followLatest 且非用户交互，向固定末端执行请求并以实际最后消息底边确认；回调驱动，不用固定延迟500ms。
+- 对惰性远距跳转，允许布局稳定期间继续纠正到尾部；同一布局代次合并请求，避免重复无效 scrollTo 循环。任务取消与新 revision 使旧修正失效。
+- readingHistory 时保存最上方可见稳定消息与其相对视口偏移；分页/异步增高导致该锚点移位时按偏移差校正。用户拖动期间不反向纠偏，结束后重新选锚点；卡片内部增高不无条件拉底。
+- 分页捕获当前 revision 和锚点；await 后只有 revision 未变且仍读历史时可恢复。点最新/新手势淘汰旧恢复；清理后的 store anchor 同样不能覆盖更晚用户操作。锚点被权威删除时允许取仍存续的最近阅读目标，不复活旧内容。
+- 拒绝只对生成UI追加延迟、等待所有远程媒体完成后再显示、为修定位强行收键盘。
+
+### 多卡片连续滚动
+
+用户在专用模拟器快滑时观察到卡顿、频闪及卡片延迟出现。原始候选的一分钟窗口里有 69 次 WebKit 主页面启动，包含 63 次结束的导航；该会话有 10 张卡片。聊天正文请求与交互草稿读取是两个独立环节。
+
+- 卡片使用当前会话导航内的呈现缓存。保留最多四十个已测高度，宽度变化时重新测量。WebView 和尺寸按消息、源码、目录版本和附件身份复用。缓存超过四页时，从最久未使用的离屏页开始回收，直到回到预算或只剩可见页。
+- 快滑暂停首次加载，停下来后可见卡片自动准备页面。等待期间按预留高度显示原生占位，可见部分显示进度指示。折返时已有页面立即接回。即使可见卡片超过缓存预算，每张也会自动加载。页曾经可见并不自动赋予下一次业务操作权限。
+- 解绑后废弃桥接展示租约。草稿和当前 renderer 代际分别维护。缓存清理由正在显示的消息集合、退出会话、账号变更和内存压力驱动。普通回滑复用已读取的草稿；停下后只对上次校对超过 30 秒的卡片核对草稿，草稿版本未变时直接保留页面；重新进入会话走原先的 draft 读取和冲突处理，所有业务动作仍走原生会话授权。缓存不含截图和受保护媒体字节。
+- 在同一模拟器、同一十卡片合成会话做进入、连续手势折返、Latest 和展开/收起，单独收集相同窗口中的 WebKit 页面启动次数、交互草稿 GET、屏幕结果。仍按原 D5 留存 300 条混合负载与真机未知项。
+
+### D5. 先测量实际阅读路径，只做有证据的局部性能修复
+
+冻结以下可比较协议，不以更小加载范围或未渲染卡片换快：
+
+| 条件 | 固定值/判据 |
+|---|---|
+| 环境 | 同一本轮iPhone17Pro模拟器/iOS26.4.1（23E254a；SDK/xctestrun标签26.4）、默认字号/竖屏、键盘关闭；同Xcode26.4.1、同Debug配置/优化级别、同fixture数据库/图片/卡片source。原生UI基线产品树45babb2b49e3；允许在两版共用无行为变化的测量harness/signpost，绑定各自实际SHA。 |
+| 负载 | 两会话各300消息，完全相同base Markdown文本量；控制组纯文本，混合组在相同消息附2张nano-iui-1卡片/2受保护PNG，末卡有唯一真实尾标。初页241–300，实际通过Earlier加载181–240、121–180、061–120、001–060，UI见001且API页边界对账才算300历史已加载。 |
+| 冷/暖 | 冷为进程终止后，同已预热本地300消息窗口重启，renderer/AST是新内存，不把首次空库等同暖重开；暖为同进程立即重访相同范围。两版均从同样已确认的SQLite窗口开始，远程媒体无持久缓存承诺。首次无缓存进入另作功能旅程，不混入性能样本。 |
+| 动作 | 各组从已确认真实尾部开始，6次同方向/速度的fast swipe读历史，再6次向尾方向手势；逐次及终点真实frame保留，不能仅凭反向6次就宣称成功回尾。另从同一历史marker范围点击Latest一次，必须按下列真实尾部与时延标准完成；Latest/动态尺寸跟随的终点要求不减免。重置起点与等待已知卡片完成在测量区间外，不用长途程序动画制造表面流畅。 |
+| 样本 | 每组先1次discarded warmup，再5次measured，冷/暖分列；保留每次值、中位和min/max，不给5样本伪p95，失败样本不丢。达到下述边界但受噪声影响时只追加一组5次等条件复核，仍不确定则inconclusive，不无限挑好样本。 |
+| 尾部完成 | 唯一最终尾标的完整frame位于nav.maxY到composer.minY有效视口内，3次间隔约200ms观察均在内且相对Y漂移≤4pt；随后卡片/图片或输入区再次改高仍恢复尾部。这个稳定窗口仅用于测试判定，不是产品固定延迟。 |
+| 操作时延 | 同步记录Latest handler→尾部几何可见signpost（不是触摸→屏幕呈现）与XCTest命令→稳定尾部外部墙钟（含automation同步开销，分列不混算）。已加载/渲染内容的handler→tail中位≤500ms、最大≤1s；新挂载卡片的最终tail≤3s、最后height revision后的纠正≤1s。按钮即时取得跟随且旧定位不抢回是独立必过行为。 |
+| 滚动代价 | 主要指标为App定向XCTHitchMetric的hitch duration ratio（ms/s），辅以scrollingAndDecelerationMetric、XCTCPUMetric(application:)与XCTMemoryMetric(application:)；必要时用本轮sim的Animation Hitches/Time Profiler解释与请求时序的相关性。不能把runner CPU或空metric当App结果。 |
+
+**原生 hitch 退出规则（平台支持时）**。原生连续旅程必须全部通过。滚动候选 hitch ratio 中位不得超过基线中位加 `max(1ms/s, 基线的10%)`。若基线中位 >5ms/s（本轮明显停顿工作阈值），候选须至少降低 20% 且 ≤5ms/s。基线未复现 hitch 时，候选仍须取得非空原生 metric、hitch ratio ≤5ms/s 且操作时延达标，结论限于本轮负载。
+
+**CPU 和内存调查线**。App CPU 或峰值物理内存中位较基线增加超过 15% 时，调查资源开销及可观察的阅读影响，记录绝对值、对照结果和未知项。合入判断依据已观察到的用户影响、功能验收以及有记录的风险判断。单独越过 15% 不阻断合入。#763 的实测结果与交付决定见 [实施审查](review.md#最终交付决定)。
+
+#### 本机模拟器的滚动测量
+
+本机的 XCTHitchMetric 没有返回 hitch 系列，Animation Hitches 明确返回不支持。Game Performance 也没有取得可比较的呈现时序。按首文档允许的主线程代价路径，在同一模拟器和原定负载下，以系统采样工具记录 App 主线程调用栈，用 XCTest 的手势区间标记划定分析窗口。记录采样权重、热点栈，结合原生 App CPU、峰值内存、最新按钮到真实尾部和同时段请求记录判断代价。样本数、尾部完成条件和 CPU/内存比较标准沿用上表。
+
+主线程样本只回答布局、呈现和其他 App 工作占用多少 CPU，不能换算成 hitch 率。保留所有未到尾和采样失败结果；无有效的主线程样本时仍标明该项缺失。旧视频校准探索和未完成原因保留在设计评审与实施记录。
+
+优先核实重复日期/时间分隔计算、Markdown解析、可见已读请求/回包投影以及WebView挂载。仅在同负载测量支持时改该私有路径，可采用消息内容键的有界/视图生命周期缓存、聚合幂等已读等；授权/状态更新不能缓存掉。若性能修复需要改业务语义或新公共边界，先修订受审设计再实施。无稳定收益的候选不合入，不把正确定位等价于无掉帧。
+
+## 接口与数据流
+
+- 连接展示策略：`updateTransport(state, now)`与`readFailed(scope, failure, now)` / `readSucceeded(scope)`保留各连续故障起点；`presentation(surface, now, hasContent)`按当前页面相关scope返回静默或稳定辅助文案。原始健康不被读取scope回写；clock/timer可注入测试，只在最早未显示deadline调度一次，不每帧/每秒改内容。Store生命周期取消旧timer、防止退出后回填。
+- 原生连接反馈组件只消费展示结果与 retry action，错误详情按需展开；Charts/会话共享策略，不共享重复错误行。
+- 滚动策略输入为 initial / userInteraction / latest / geometry / visibleAnchor / pendingRestore；输出 latest 或 anchorCorrection，revision 包含定位所有权。coordinator独占调度；Reader adapter隐藏端点/ID realization，局部UIKit adapter隐藏marker校验、live snapshot和保留x的history y修正。两者不是新业务所有者。
+- 清理阅读锚点沿用 repository 的 revision fence；用户切最新时同时使旧 pending/restore 无效，网络补页仍只按合法消息合并，不应为了位置取消必要权限校正。
+- 无模型可见信息、工具/Skill/Prompt 或 Context 生命周期变化；无需 Context 专项。
+
+## 界面方案与画面边界
+
+保留现有 Chats 搜索/分类/会话层级和会话正文/输入层级，去掉连接行；最新箭头沿用右下角、补具名辅助标识。持续故障只占导航辅助反馈，不抢正文主操作。当前没有 App 内基线画面，**视觉对照尚未验证**；实施首先取得基线/候选原生画面，再核对持续反馈是否清晰、不遮挡/跳位。
+
+本次恢复已明确的连续体验，不设计新业务流程或以HTML模拟原生布局，故不另造原型。使用默认字号取得原生截图和连续操作证据，覆盖长标题以及连接反馈出现和消失时的导航布局。
+
+## 本次审查安排
+
+| 必须回答的问题 | 能力与阶段 | 方法与范围 |
+|---|---|---|
+| 根因/状态机/竞态修复是否完整，权限发送不变 | change-code-review，实施后独立 | 冻结SHA对incident/design/delta核查；窄单测、现有清理/本地优先/发送回归 |
+| 短重连安静、持续不可用如实，读历史/动态尾部/最新可靠且视觉协调 | frontend-experience-review + product-journey-review，设计与实施 | 独立读真实原生截图/连续旅程视频或XCTest附件/结果，关键不足补操作；只iOS，不复制Web矩阵 |
+| 大滚动卡顿是位置失效还是计算/挂载/请求代价，局部改动有无回归 | performance-review，实施 | 同设备/fixture/样本前后对照；记录metrics、请求和主线程证据。零测量不得pass |
+
+独立review可由同一非作者执行多能力；author组织fixture/构建并共享可信证据，不要求重复全量。最终报告保留 validated_at / executed_base / effective_base / effective_through。
+
+## 契约层增量
+
+仅 [specs/im/ios-client.md](specs/im/ios-client.md)：修改『断线及前后台』『离线反馈』时机，新增『原生聊天阅读连续性』。不把5秒/类名/性能偶然数字写成长期契约。
+
+## 风险与回退
+
+惰性尺寸估算可能导致二次布局，需实测真实尾部，不仅断言请求。手势识别与程序滚动混淆可能抢位，phase/代次测试及连续旅程覆盖。连接静默可能掩盖读取失败，故无缓存/真实发送/失效独立保留。性能缓存可能泄漏跨账号数据，只可视图生命周期/内容型有界计算缓存，不存凭据与媒体。
+
+回退为撤销本 unit 客户端提交；无schema或服务端迁移，不操作生产。
+
+## 一次性部署迁移
+
+无。
+
+## Runbook for Reviewer
+
+常驻产品服务无改动；为实测新建独占 IM 服务，不需 Gateway/模型。主执行者核实PID/出生时间/cwd/端口/DB合成对象后交接fixture manifest与0600凭据路径。只用本轮专用模拟器，不复用旧714/716。
+
+| 服务 | 停止 | 启动 | 健康检查 |
+|---|---|---|---|
+| 本轮IM | 对manifest中核实出生时间的自有PID发送SIGTERM并等待退出 | `IM_JWT_SECRET=<本轮secret> node <worktree>/apps/im-server/lib/main.js serve --host 127.0.0.1 --port <本轮高位端口>`，cwd为本轮runtime，同DB同端口恢复 | `/health` + lsof + DB只读对象核对 |
+
+原生：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`；`NANO_IOS_BUILD_ROOT=<独占目录> ./src/IM/ios/scripts/build.sh build` 构建随包渲染；`xcodebuild -project src/IM/ios/NanoIM.xcodeproj -scheme NanoIMJourney -destination 'platform=iOS Simulator,id=<新UDID>' -derivedDataPath <独占目录> -jobs 2 -parallel-testing-enabled NO build-for-testing`，将真实合成输入写入同目录0600 xctestrun副本，`test-without-building` 仅选本unit case。授权来源为用户明确『所有的真实隔离测试…不需要我给你权限』『只用在模拟器测』及本轮改动请求；实际工具拒绝仍遵从，不拆换绕过。
+
+必验资源：本机Xcode26.4.1/iOS26.4 SDK已核实；新模拟器和高位端口可创建；依赖已独立安装；只需新合成账号/文本/卡片/图片，不需要外部账户或手机。fixture负责人核实后交接；短3秒与长12秒各一次本轮专用IM断开/恢复，不影响生产/共享栈。结束提取脱敏证据，回收服务、模拟器、临时凭据/DB/build，PR未合并保留开发worktree。
+
+## Milestones
+
+| ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
+|---|---|---|---|---|---|
+| M1-continuity | 连续聊天状态与原生验证 | 无 | 串行集成 | ChatPhases/ChatStore/UserStream、ChatList/Conversation及私有策略、测量支持的局部呈现、Tests/UITests、ios-client delta | [reviewer] 短重连零反馈且不位移，持续失败一处诚实可恢复；Chats重进尾部、动态增高/键盘跟随、上翻/详情/前后台不抢位、旧定位不覆盖最新；原生信息层级协调；D5 冻结负载下验证真实尾部和时延，记录 CPU/内存与平台支持的 hitch 数据或同负载主线程采样，超过调查线时记录证据、限制和交付判断。[worker] 策略边界、timer取消/epoch、WS失败退避、healthyWS+HTTP失败再成功、HTTP-only成功不清WS故障、操作错误单测；真实UI连续旅程含缓存重入/高卡片/分页竞态/历史上下文；300实际加载边界、冷暖5样本metrics/请求/必要profile绑定SHA；原生build+受影响单测、CI等价检查；不更改权限/发送/媒体持久边界。 |
+
+## 交付路径差异
+
+工具实际拒绝首文档直推共享 develop，完整命令未执行。主Agent决定遵守该边界：首文档、设计与实现均保留本轮独立 `unit/bugfix-763-ios-chat-continuity` 分支，最终 PR → develop，不重试直推/不 force-push。主checkout已有dirty不碰。
