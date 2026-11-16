@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { interactiveTextProjection } from "./interactive-source.js";
+import { initializeWorkLifetimeUsage } from "./work-lifetime-usage.js";
 /** Open the center's existing business database without replacing its data. */
 export function openDatabase(path: string): DatabaseSync {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
@@ -117,6 +118,10 @@ export function openDatabase(path: string): DatabaseSync {
           AND NOT EXISTS (SELECT 1 FROM task_context_index i WHERE i.agent_id=a.agent_id AND i.conversation_id=m.conversation_id AND i.projection_kind='revoked')
         ORDER BY m.rowid,r.relay_order`);
       db.prepare("INSERT INTO schema_migrations VALUES('task-context-unfinished-relays-v1')").run();
+    }
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='work-lifetime-usage-v1'").get()) {
+      initializeWorkLifetimeUsage(db);
+      db.prepare("INSERT INTO schema_migrations VALUES('work-lifetime-usage-v1')").run();
     }
     db.exec("COMMIT");
   } catch (error) {
