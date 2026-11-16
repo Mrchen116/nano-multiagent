@@ -1,3 +1,4 @@
+import { createConversation } from "../../chat/chat-api";
 import { changeCapability } from "@nano/product-contracts/capabilities";
 import { capabilityCatalog, useCapabilityEditor } from "./capability-editor";
 import { ApprovalModeField, type ApprovalMode } from "./approval-mode-field";
@@ -504,7 +505,15 @@ export function AgentCreatePage() {
       await queryClient.invalidateQueries({ queryKey: ["settings", "agents"] });
       await queryClient.invalidateQueries({ queryKey: ["settings", "nodes"] });
       allowExitRef.current = true;
-      navigate(`/settings/agents/${created.agent_id}`);
+      if (draft.work_mode === "global") {
+        try {
+          const chat = await createConversation({ type: "direct", title: created.display_name, participants: [{ type: "agent", id: created.agent_id }] });
+          await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+          navigate(`/chat/${chat.id}`);
+        } catch {
+          navigate(`/settings/agents/${created.agent_id}`, { state: { chatOpenFailed: true } });
+        }
+      } else navigate(`/settings/agents/${created.agent_id}`);
     },
     onError: (error) => {
       if (isConfigApplyPendingError(error)) {

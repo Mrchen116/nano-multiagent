@@ -104,7 +104,7 @@ export class DocumentMemory {
           } else if (role.content) {
             currentAgreement = `Contents of ${agreementPath} — your confirmed role agreement:\n<role_content>\n${role.content}\n</role_content>`;
           } else {
-            currentAgreement = `Role agreement file: ${agreementPath}.\n\nRole agreement is unset. Contact your ${confirmer} immediately and ask them to clarify your long-term role. You must ask every time you speak with them until the agreement is confirmed and saved.`;
+            currentAgreement = `Role agreement file: ${agreementPath}.\n\nRole agreement is unset. In a private conversation with your ${confirmer}, offer to establish one useful long-term responsibility. Follow their current intent first: if they have an urgent task or defer setup, help with that and do not keep asking. Resume when they choose to discuss the agreement. Do not ask other contacts to define your role.`;
           }
           this.roleAgents.add(agent);
           assembly.variables.nano_role_agreement = [

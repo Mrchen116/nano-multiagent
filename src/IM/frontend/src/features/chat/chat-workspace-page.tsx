@@ -538,6 +538,16 @@ export function ChatWorkspacePage() {
     };
   }, [activeConversation, contactsQuery.data, agentsQuery.data, nodesQuery.data]);
 
+  const ownedDirectAgent = activeConversation?.type === "direct"
+    && publicAgents.find(agent => agent.agent_id === headerAgentContext.agentId && agent.owner_id === selfUserId && agent.work_mode === "global");
+  const cooperationAgent = isPersonalConversation && personalBinding ? {
+    id: personalBinding.agent_id, name: personalBinding.display_name, personal: true,
+    online: headerAgentContext.nodeStatus === "online",
+  } : ownedDirectAgent ? {
+    id: ownedDirectAgent.agent_id!, name: ownedDirectAgent.display_name, personal: false,
+    online: headerAgentContext.nodeStatus === "online",
+  } : undefined;
+
   // feat-438 决策 2: the ⚙ entry dispatches by conversation kind. Group /
   // agent-network open the in-place GroupSettings surface; direct-agent keeps
   // navigating to the single agent's config page.
@@ -1390,7 +1400,7 @@ export function ChatWorkspacePage() {
             timeline={visibleTimeline}
             focusMessageId={locatorMessageId}
             personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
-            personalStarterExamples={isPersonalConversation && messagesQuery.isSuccess && !messagesQuery.isFetching && hasMoreHistory === false && messagesQuery.data.items.length === 0}
+            cooperationAgent={messagesQuery.isSuccess ? cooperationAgent : undefined}
             returnNavigation={location.state?.personalAgentReturn && personalBinding && !isPersonalConversation
               ? <button type="button" onClick={()=>navigate(`/chat/${encodeURIComponent(personalBinding.conversation_id)}`)}>{t('pa.return','← 返回个人助手')}</button>
               : typeof location.state?.sourceReturnUrl==='string' && /^\/chat\/[^/?#]+(?:\?[^#]*)?$/.test(location.state.sourceReturnUrl)

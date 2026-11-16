@@ -8,11 +8,14 @@ const apiMocks = vi.hoisted(() => ({
   getNodeCreateStateMock: vi.fn(),
   getNodeApprovalRulesMock: vi.fn(),
   createNodeAgentMock: vi.fn(),
+  createConversationMock: vi.fn(),
   listNodesMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
   promptPreviewMock: vi.fn(),
   nodePromptPreviewMock: vi.fn()
 }));
+
+vi.mock("../../chat/chat-api", () => ({ createConversation: apiMocks.createConversationMock }));
 
 vi.mock("./im-agent-config-api", () => ({
   getNodeCreateState: apiMocks.getNodeCreateStateMock,
@@ -58,7 +61,8 @@ function renderCreatePage() {
       },
       { path: "/settings/agents", element: <p>Agent list</p> },
       { path: "/settings/agents/:agentId", element: <p>Agent detail</p> },
-      { path: "/chat", element: <p>Chat</p> }
+      { path: "/chat", element: <p>Chat</p> },
+      { path: "/chat/:id", element: <p>Direct chat</p> }
     ],
     { initialEntries: ["/settings/nodes/node-1/agents/new"] }
   );
@@ -78,6 +82,7 @@ afterEach(() => {
   apiMocks.getNodeCreateStateMock.mockReset();
   apiMocks.getNodeApprovalRulesMock.mockReset();
   apiMocks.createNodeAgentMock.mockReset();
+  apiMocks.createConversationMock.mockReset();
   apiMocks.listNodesMock.mockReset();
   apiMocks.listAgentSummariesMock.mockReset();
   apiMocks.promptPreviewMock.mockReset();
@@ -200,6 +205,7 @@ describe("agent create page", () => {
         platform_default_model: "codex_oauth:gpt-5.5",
       }
     });
+    apiMocks.createConversationMock.mockResolvedValue({ id: "new-direct-chat" });
     apiMocks.createNodeAgentMock.mockResolvedValue({
       agent_id: "agent-new",
       owner_id: "",
@@ -292,7 +298,8 @@ describe("agent create page", () => {
     });
 
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe("/settings/agents/agent-new");
+      expect(router.state.location.pathname).toBe(workMode === "global" ? "/chat/new-direct-chat" : "/settings/agents/agent-new");
+      if (workMode === "global") expect(apiMocks.createConversationMock).toHaveBeenCalledWith({type:"direct",title:"Agent New",participants:[{type:"agent",id:"agent-new"}]});
     });
 
     expect(queryClient.getQueryData(["settings", "agents"])).toEqual([

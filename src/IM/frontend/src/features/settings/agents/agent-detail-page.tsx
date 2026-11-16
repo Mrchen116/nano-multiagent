@@ -12,7 +12,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Label from "@radix-ui/react-label";
 import type { FocusEvent, FormEvent, MouseEvent, ReactNode } from "react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
@@ -1303,7 +1303,8 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   const [pendingAgent, setPendingAgent] = useState<string | null>(null);
   const baseConfig = useRef<AgentConfigFormState | null>(null);
   const [saved, setSaved] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const location = useLocation();
+  const [errorMessage, setErrorMessage] = useState<string | null>(() => location.state?.chatOpenFailed ? t("cooperation.chatOpenFailed") : null);
   const [applyPending, setApplyPending] = useState(false);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});

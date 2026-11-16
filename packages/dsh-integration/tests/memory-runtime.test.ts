@@ -54,8 +54,8 @@ it.each([false, true])('assembles the role agreement and protects formal memory 
     await submit('use-new-memory', 'collaborator');
     const requests=(await readFile(join(home,'requests.jsonl'),'utf8')).trim().split('\n').map(line=>JSON.parse(line));
     const confirmer = personal ? 'owner' : 'bound administrator';
-    expect(JSON.stringify(requests[0].messages)).toContain(`Contact your ${confirmer} immediately`);
-    expect(JSON.stringify(requests[0].messages)).toContain('You must ask every time you speak with them');
+    expect(JSON.stringify(requests[0].messages)).toContain(`In a private conversation with your ${confirmer}`);
+    expect(JSON.stringify(requests[0].messages)).toContain('if they have an urgent task or defer setup, help with that and do not keep asking');
     expect(JSON.stringify(requests[0].messages)).not.toContain('Host-verified role agreement sender');
     const latest=requests.at(-1);
     const savedAgreement = latest.messages.flatMap((message: {content?: Array<{text?: string}>}) => message.content ?? [])

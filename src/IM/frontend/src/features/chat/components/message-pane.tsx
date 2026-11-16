@@ -1,3 +1,4 @@
+import { CooperationGuide, type CooperationGuideAgent } from "./cooperation-guide";
 import { AgentActivityPopover, type AgentActivityAnchor } from "./agent-activity-popover";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, CheckCheck, Copy, GitFork, ListTree, Reply } from "lucide-react";
@@ -94,6 +95,7 @@ type DraftMention = {
 export type { ComposerSnapshot };
 
 export interface MessagePaneProps {
+  cooperationAgent?: CooperationGuideAgent;
   conversation: Conversation;
   historyProcess?: { accountId: string; revision: number; load: (id: string, signal: AbortSignal) => Promise<Message> };
   /** Owner-only collaboration summary, within the existing scrollable chat. */
@@ -102,8 +104,6 @@ export interface MessagePaneProps {
   headerActions?: React.ReactNode;
   focusMessageId?: string | null;
   personalAgent?: boolean;
-  /** Owner PA only, after the initial history request has confirmed an empty chat. */
-  personalStarterExamples?: boolean;
   returnNavigation?: React.ReactNode;
   /** Typed timeline keeps durable non-message entries out of MessageBubble. */
   timeline?: TimelineItem[];
@@ -240,8 +240,8 @@ export function MessagePane({
   lifecycleNotice,
   headerActions,
   focusMessageId,
+  cooperationAgent,
   personalAgent = false,
-  personalStarterExamples = false,
   returnNavigation,
   timeline,
   messages: messagesProp,
@@ -1241,19 +1241,16 @@ export function MessagePane({
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         <div ref={messageListRef} className="chat-pane-message-list">
-          {messages.length === 0 ? (
+          {cooperationAgent && <CooperationGuide key={conversation.id} agent={cooperationAgent} messageCount={messages.length}
+            canStart={!composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0}
+            onStart={text => { setDraft(text); composerRef.current?.focus(); }} />}
+          {messages.length === 0 ? (cooperationAgent ? null : (
             <div className="chat-pane-empty">
               <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
-              <p className="chat-pane-empty-title">{t(personalStarterExamples ? 'pa.firstChatTitle' : 'chat.messagePane.emptyTitle')}</p>
-              <p className="chat-pane-empty-sub">{t(personalStarterExamples ? 'pa.firstChatHint' : 'chat.messagePane.emptySubtitle')}</p>
-              {personalStarterExamples && !composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0 && <div className="pa-starter-examples">
-                {['planWeek','startExercise','findNextStep'].map(key => <button key={key} type="button" onClick={() => {
-                  setDraft(t(`pa.examples.${key}`));
-                  composerRef.current?.focus();
-                }}>{t(`pa.examples.${key}`)}<span aria-hidden="true">↗</span></button>)}
-              </div>}
+              <p className="chat-pane-empty-title">{t('chat.messagePane.emptyTitle')}</p>
+              <p className="chat-pane-empty-sub">{t('chat.messagePane.emptySubtitle')}</p>
             </div>
-          ) : (
+          )) : (
             <>
               {(isLoadingHistory || hasMoreHistory === false) && (
                 <div className="chat-history-status" role="status">
