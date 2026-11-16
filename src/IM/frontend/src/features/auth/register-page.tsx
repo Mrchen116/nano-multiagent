@@ -94,6 +94,7 @@ export function RegisterPage() {
 
   return (
     <AuthPageFrame
+      intent="register"
       kicker={t("auth.register.kicker")}
       title={t("auth.register.title")}
       subtitle={t("auth.register.subtitle")}

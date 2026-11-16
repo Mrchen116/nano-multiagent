@@ -1,22 +1,12 @@
-.public-home { --home-ink: #243c36; --home-muted: #697770; --home-green: #276652; --home-line: #dce4dd; height: 100%; overflow-y: auto; background: #fafbf7; color: var(--home-ink); scroll-behavior: smooth; }
+.public-home { height: 100%; overflow-y: auto; background: #fafbf7; color: var(--home-ink); scroll-behavior: smooth; }
 .public-home * { box-sizing: border-box; }
 .public-home a { text-decoration: none; }
 .public-home button, .public-home a { -webkit-tap-highlight-color: transparent; }
 .public-home button:focus-visible, .public-home a:focus-visible { outline: 3px solid #65947b; outline-offset: 5px; }
 .public-home section[id] { scroll-margin-top: 24px; }
 .home-container { width: min(1160px, calc(100% - 80px)); margin-inline: auto; }
-.home-header { width: min(1280px, calc(100% - 80px)); min-height: 88px; margin-inline: auto; display: flex; align-items: center; justify-content: space-between; gap: 32px; }
-.home-brand { color: var(--home-ink); flex: none; }
-.home-brand .im-nano-brand { white-space: nowrap; font-size: 18px; gap: 10px; }
-.home-brand svg { width: 25px; height: 25px; }
-.home-nav { display: flex; gap: 30px; margin-left: auto; font-size: 13px; color: var(--home-muted); }
-.home-nav a:hover, .home-signin:hover { color: var(--home-green); }
-.home-header-actions { display: flex; gap: 22px; align-items: center; }
-.home-language { font-size: 12px; color: var(--home-muted); padding: 10px 0; }
-.home-signin { font-size: 13px; white-space: nowrap; }
 .home-button { display: inline-flex; align-items: center; justify-content: center; gap: 18px; padding: 15px 24px; min-height: 50px; border: 1px solid var(--home-green); border-radius: 9px; background: var(--home-green); color: white; font-size: 14px; font-weight: 600; transition: background .15s; white-space: nowrap; }
 .home-button:hover { background: #1d5040; }
-.home-button-small { padding: 10px 17px; min-height: 40px; font-size: 12px; border-radius: 7px; }
 .home-skip { position: absolute; top: -80px; left: 20px; padding: 12px; background: white; z-index: 10; }
 .home-skip:focus { top: 12px; }
 .home-hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: 70px; padding-top: 72px; padding-bottom: 92px; align-items: center; }
@@ -111,18 +101,10 @@
 .home-footer > a { margin-left: auto; font-size: 12px; }
 @media (max-width: 1050px) {
   .home-hero { gap: 40px; }
-  .home-nav { gap: 18px; }
-  .home-header-actions { gap: 16px; }
   .home-space-layout { gap: 55px; }
 }
 @media (max-width: 767px) {
-  .home-container, .home-header { width: calc(100% - 40px); }
-  .home-header { min-height: 72px; gap: 12px; }
-  .home-brand .im-nano-brand { font-size: 16px; }
-  .home-brand svg { width: 22px; height: 22px; }
-  .home-nav, .home-header .home-button-small { display: none; }
-  .home-header-actions { gap: 18px; }
-  .home-language, .home-signin { min-height: 40px; display: inline-flex; align-items: center; }
+  .home-container { width: calc(100% - 40px); }
   .home-hero { grid-template-columns: minmax(0, 1fr); gap: 40px; padding-top: 36px; padding-bottom: 48px; }
   .home-eyebrow { font-size: 11px; margin-bottom: 16px; }
   .home-hero h1 { font-size: 38px; line-height: 1.4; }

@@ -7,12 +7,13 @@
       "label": "语言"
     },
     "context": {
-      "eyebrow": "你的个人助手空间",
-      "title": "让人与 Agent 在一个工作区协作",
-      "body": "从聊天开始，在不同设备上连接你的 Agent，一起跟进长期任务。",
-      "people": "与团队成员共同使用 Agent",
-      "agents": "在同一个聊天里协作多个 Agent",
-      "devices": "在你的设备上管理和运行"
+      "body": "从一个想完成的目标开始。创建你的个人空间，再连接电脑和模型，让助手准备好与你合作。",
+      "returning": "回到你的个人空间。接着上次的讨论，看看任务进展，或者开始一件新的事情。",
+      "personal": "说清目标，一起梳理下一步。",
+      "specialist": "按需配置，邀请擅长不同事情的助手协作。",
+      "computer": "为助手提供执行任务和保存文件的地方。",
+      "back": "返回产品首页",
+      "requirements": "接下来需要一台工作电脑，以及可用的模型 API 或支持的订阅。也可以先创建空间，稍后继续设置。"
     },
     "common": {
       "optional": "可选",
@@ -36,18 +37,18 @@
     "login": {
       "kicker": "欢迎回来",
       "title": "登录",
-      "subtitle": "继续你的对话和 Agent 工作。",
+      "subtitle": "回到你的个人空间，接着上次的工作。",
       "username": "用户名",
       "password": "密码",
       "submit": "登录",
       "submitting": "登录中…",
       "noAccount": "还没有账号?",
-      "registerLink": "创建一个"
+      "registerLink": "创建账号"
     },
     "register": {
       "kicker": "开始使用",
       "title": "创建账号",
-      "subtitle": "创建账号后即可使用自己的个人空间，无需等待审批。",
+      "subtitle": "先创建账号，接着准备你的个人助手。",
       "username": "用户名",
       "password": "密码",
       "displayName": "显示名",

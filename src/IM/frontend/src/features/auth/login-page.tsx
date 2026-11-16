@@ -92,6 +92,7 @@ export function LoginPage() {
 
   return (
     <AuthPageFrame
+      intent="login"
       kicker={t("auth.login.kicker")}
       title={t("auth.login.title")}
       subtitle={t("auth.login.subtitle")}

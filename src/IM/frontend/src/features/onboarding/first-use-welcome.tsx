@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from '../../i18n';
 import { useAuthStore } from '../auth/auth-store';
 import { getOnboarding, setupNode } from './onboarding-api';
+import '../home/product-entry.css';
 import './first-use-welcome.css';
 
 /** Give an empty personal workspace a useful next step without blocking other chats. */
@@ -27,7 +28,7 @@ export function FirstUseWelcome({ onNewChat }: { onNewChat(): void }) {
   const step = online ? configured ? 2 : 1 : 0;
   const labels = ['computer', 'model', 'assistant'] as const;
 
-  return <section className="first-use" aria-labelledby="first-use-title">
+  return <section className="first-use product-entry" aria-labelledby="first-use-title">
     <div className="first-use-inner">
       <header className="first-use-heading">
         <span className="first-use-eyebrow">{t('firstUse.eyebrow')}</span>

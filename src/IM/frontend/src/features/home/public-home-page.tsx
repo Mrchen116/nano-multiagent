@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
 import { NanoBrand } from '../../app/shell/nano-brand';
-import { getCurrentLanguage, setLanguage, useTranslation } from '../../i18n';
+import { useTranslation } from '../../i18n';
+import { ProductHeader } from './product-header';
 import { accountEnabled, useAuthStore } from '../auth/auth-store';
 import './public-home.css';
 
 /** Explain the product before asking visitors to create an account. */
 export function PublicHomePage({ restoreSession = false }: { restoreSession?: boolean }) {
   const { t } = useTranslation();
-  const zh = getCurrentLanguage() === 'zh';
   const [scene, setScene] = useState(0);
   const scenes = ['ask', 'work', 'result'] as const;
   const current = scenes[scene];
@@ -18,21 +18,9 @@ export function PublicHomePage({ restoreSession = false }: { restoreSession?: bo
   useEffect(() => { if (restoreSession && !hydrated) void useAuthStore.getState().hydrate(); }, [restoreSession, hydrated]);
   if (restoreSession && hydrated && user) return <Navigate to={accountEnabled(user) ? '/chat' : '/membership'} replace />;
 
-  return <div className="public-home">
+  return <div className="public-home product-entry">
     <a className="home-skip" href="#home-main">{t('publicHome.skip')}</a>
-    <header className="home-header">
-      <Link to="/" className="home-brand" aria-label={t('publicHome.home')}><NanoBrand /></Link>
-      <nav className="home-nav" aria-label={t('publicHome.navigation')}>
-        <a href="#how-it-works">{t('publicHome.nav.how')}</a>
-        <a href="#your-space">{t('publicHome.nav.space')}</a>
-        <a href="#getting-started">{t('publicHome.nav.start')}</a>
-      </nav>
-      <div className="home-header-actions">
-        <button className="home-language" onClick={() => setLanguage(zh ? 'en' : 'zh')} aria-label={t('publicHome.switchLanguage')}>{zh ? 'EN' : '中文'}</button>
-        <Link className="home-signin" to="/login">{t('publicHome.signIn')}</Link>
-        <Link className="home-button home-button-small" to="/register">{t('publicHome.start')}</Link>
-      </div>
-    </header>
+    <ProductHeader />
 
     <main id="home-main">
       <section className="home-hero home-container" aria-labelledby="home-title">

@@ -7,12 +7,13 @@
       "label": "Language"
     },
     "context": {
-      "eyebrow": "YOUR PERSONAL ASSISTANT SPACE",
-      "title": "Bring people and agents into one workspace",
-      "body": "Start with chat, connect agents on your devices, and keep long-running work moving together.",
-      "people": "Use agents with your team",
-      "agents": "Collaborate with multiple agents in one chat",
-      "devices": "Manage and run work on your devices"
+      "body": "Start with something you want to accomplish. Create your personal space, then connect a computer and a model to get your assistant ready.",
+      "returning": "Return to your personal space. Pick up a conversation, check on work in progress, or begin something new.",
+      "personal": "Share a goal and work out the next step together.",
+      "specialist": "Configure assistants for different tasks and invite them to collaborate.",
+      "computer": "A place for your assistants to run tasks and save work.",
+      "back": "Back to the product",
+      "requirements": "Next, you’ll need a computer and a model API or supported subscription. You can also create your space now and finish setup later."
     },
     "common": {
       "optional": "Optional",
@@ -36,18 +37,18 @@
     "login": {
       "kicker": "Welcome back",
       "title": "Sign in",
-      "subtitle": "Continue your conversations and agent work.",
+      "subtitle": "Return to your personal space and pick up where you left off.",
       "username": "Username",
       "password": "Password",
       "submit": "Sign in",
       "submitting": "Signing in…",
       "noAccount": "No account yet?",
-      "registerLink": "Create one"
+      "registerLink": "Create account"
     },
     "register": {
       "kicker": "Get started",
       "title": "Create your account",
-      "subtitle": "Create your account and start in your personal space. No approval needed.",
+      "subtitle": "Create your account, then get your personal assistant ready.",
       "username": "Username",
       "password": "Password",
       "displayName": "Display name",

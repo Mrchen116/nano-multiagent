@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { NanoBrand } from '../../app/shell/nano-brand';
-import { getCurrentLanguage, setLanguage, useTranslation } from '../../i18n';
+import { ProductHeader } from '../home/product-header';
+import { getCurrentLanguage, useTranslation } from '../../i18n';
 import { useAuthStore } from '../auth/auth-store';
 import { createPersonalAgent, getPersonalAgent } from '../personal-agent/personal-agent-api';
 import { ModelServicesPanel } from '../settings/models/model-services-panel';
@@ -65,8 +65,8 @@ export function OnboardingPage() {
   const title = [text('连接电脑', 'Connect computer'), text('连接模型', 'Connect model'), text('创建个人助手', 'Create personal assistant')];
   const error = (message: string) => <p className="onboarding-error" role="alert">{message}</p>;
   const next = (index: number, disabled = false) => <button className="onboarding-primary" disabled={disabled} onClick={() => setViewStep(index)}>{text('继续 →', 'Continue →')}</button>;
-  return <div className="onboarding-screen">
-    <header className="onboarding-topbar"><Link to="/about" aria-label={text('Nano 首页', 'Nano home')}><NanoBrand /></Link><div className="onboarding-account"><Link className="onboarding-user" to="/settings/account">{user.display_name}</Link><div className="im-auth-language" role="group" aria-label={text('语言', 'Language')}><button onClick={() => setLanguage('zh')} aria-pressed={zh}>中</button><span>/</span><button onClick={() => setLanguage('en')} aria-pressed={!zh}>EN</button></div></div></header>
+  return <div className="onboarding-screen product-entry">
+    <ProductHeader page="setup" accountName={user.display_name} />
     <main className="onboarding-main"><div className="onboarding-intro"><span>{text('首次设置', 'GETTING STARTED')}<span className="onboarding-mobile-step">{text(`步骤 ${Math.min(step + 1, 3)} / 3`, `Step ${Math.min(step + 1, 3)} of 3`)}</span></span><h1>{text('准备好你的个人助手。', 'Get your assistant ready.')}</h1><p>{text('让助手有地方工作、有模型可用，然后开始第一段对话。', 'A computer to work on, a model to think with, and your first conversation.')}</p></div>
       <div className="onboarding-layout"><aside><ol className="onboarding-steps">{title.map((label, i) => <li key={label} aria-current={i === Math.min(step,2) ? 'step' : undefined} className={i === Math.min(step,2) ? 'active' : i < step ? 'done' : ''}><span>{i < step ? '✓' : i + 1}</span>{label}</li>)}</ol><p className="onboarding-note">{text('助手在连接的电脑上执行任务、保存工作文件。执行时需要保持电脑在线。', 'Your assistant runs tasks and saves work files on the connected computer. Keep it online while work runs.')}<br /><br />{text('已完成的设置会保留，随时可以回来继续。', 'Completed setup is saved. Come back whenever you are ready.')}</p><Link className="onboarding-skip" to="/chat">{text('稍后继续，返回个人空间', 'Continue later, open your space')} <span aria-hidden="true">↗</span></Link></aside>
         <section className="onboarding-card" aria-live="polite">
