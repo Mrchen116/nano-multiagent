@@ -133,12 +133,7 @@ struct ConversationView: View {
                     scrollState.phaseChanged(phase, geometry: context.geometry)
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if scrollState.showLatest {
-                        Button { scrollState.latest() } label: {
-                            Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle())
-                        }.padding().accessibilityLabel(L("最新消息", "Latest messages"))
-                            .accessibilityIdentifier("conversation.latest")
-                    }
+                    LatestMessagesButton(scroll: scrollState)
                 }
                 .onChange(of: items.compactMap { $0.message?.id }, initial: true) { _, ids in scrollState.contentChanged(orderedMessageIDs: ids) }
                 .onChange(of: store.restoreReadingPositions[conversationID]) { _, anchor in
@@ -156,8 +151,13 @@ struct ConversationView: View {
                     cardPresentations.releaseOffscreen()
                 }
                 .onAppear {
-                    scrollState.invalidateRestoration = { store.recordReadingPosition(nil, in: conversationID) }
-                    scrollState.readingAnchorChanged = { store.recordReadingPosition($0, in: conversationID) }
+                    // The coordinator lives in this view's state. Its callbacks must not retain that state.
+                    scrollState.invalidateRestoration = { [weak store, conversationID] in
+                        store?.recordReadingPosition(nil, in: conversationID)
+                    }
+                    scrollState.readingAnchorChanged = { [weak store, conversationID] in
+                        store?.recordReadingPosition($0, in: conversationID)
+                    }
                     scrollAttachment = scrollState.attachMessageScroller { id, anchor in
                         var transaction = Transaction(animation: nil)
                         transaction.disablesAnimations = true
@@ -427,6 +427,21 @@ struct ConversationView: View {
             let chat: Conversation = try await store.client.send("/im/v1/conversations/\(conversationID.pathComponent)/fork", body: ["fork_message_id": message.id])
             confirmFork = nil; await store.loadConversations(); openChat(chat.id)
         } catch { operationError = error.localizedDescription }
+    }
+}
+
+private struct LatestMessagesButton: View {
+    let scroll: ChatScrollCoordinator
+
+    var body: some View {
+        if scroll.showLatest {
+            Button { scroll.latest() } label: {
+                Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle())
+            }
+            .padding()
+            .accessibilityLabel(L("最新消息", "Latest messages"))
+            .accessibilityIdentifier("conversation.latest")
+        }
     }
 }
 
