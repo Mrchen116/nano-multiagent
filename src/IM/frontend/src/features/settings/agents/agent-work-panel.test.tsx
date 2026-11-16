@@ -754,14 +754,16 @@ it("shows standalone and in-round compaction in Work", async () => {
 });
 
 it("opens nested delegation from its real graph node and restores the chosen window", async () => {
-  const node = (session_id: string, parent_session_id: string | null, title: string, total_tokens: number) => ({
-    session_id, parent_session_id, title, status: "completed", usage: {total_tokens, reported_turns: 1, missing_turns: 0},
+  let mainTokens = 900;
+  const node = (session_id: string, parent_session_id: string | null, title: string, total_tokens: number | null, missing_turns = 0) => ({
+    session_id, parent_session_id, title, status: "completed", usage: {total_tokens, reported_turns: Number(total_tokens !== null), missing_turns},
   });
   view = {...view, timeline: "combined", catalog: "separate", record_sync_state: "current", latest_main_usage: {turn_id: "turn", context_used: 42, output: 7}};
   mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
     url === "/im/v1/conversations" ? {items: []}
     : url.includes("/work/delegation") ? {main_session_id: "main", record_sync_state: url.includes("window=2h") ? "catching_up" : "unknown", nodes: [
-      node("main", null, "Parent", 900), node("child", "main", "First child", 40), node("nested", "child", "Second child", 10),
+      node("main", null, "Parent", mainTokens), node("child", "main", "First child", 40), node("nested", "child", "Second child", 10),
+      ...url.includes("window=3d") ? [node("old", "main", "Old delegation", null, 2)] : [],
     ], next_cursor: null}
     : url.includes("/sessions/nested/turns") ? {turns: [], next_cursor: null}
     : url.endsWith("/sessions/nested") ? {session_id: "nested", scope: "subagent", title: "Second child"}
@@ -773,9 +775,15 @@ it("opens nested delegation from its real graph node and restores the chosen win
   expect(await screen.findByText("900 tok")).toBeVisible();
   expect(screen.getByText("已保存记录", {exact: true})).toHaveAttribute("role", "status");
   expect(screen.getByText("40 tok")).toBeVisible();
-  expect(document.querySelectorAll(".im-work-graph-edges path[marker-end]")).toHaveLength(2);
+  expect(document.querySelectorAll(".im-work-graph-edges path[marker-end]")).toHaveLength(3);
+  expect(screen.getByRole("button", {name: /Old delegation.*2 轮累计.*Token 未报告.*0\/2 轮次已报告/})).toBeVisible();
+  mainTokens = 950;
+  act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType: "agent.work.updated", payload: {agent_id: "global"}}));
+  expect(await screen.findByText("950 tok")).toBeVisible();
   fireEvent.change(screen.getByRole("combobox", {name: "活动范围"}), {target: {value: "2h"}});
   expect(await screen.findByText("记录同步中", {exact: true})).toHaveAttribute("role", "status");
+  expect(screen.getByText("950 tok")).toBeVisible();
+  expect(screen.queryByRole("button", {name: /Old delegation/})).not.toBeInTheDocument();
   fireEvent.click(await screen.findByRole("button", {name: /Second child.*10 tok/}));
   expect(await screen.findByRole("heading", {name: "Second child"})).toBeVisible();
   expect(screen.queryByRole("heading", {name: "主 Agent"})).not.toBeInTheDocument();
@@ -791,7 +799,12 @@ it("opens nested delegation from its real graph node and restores the chosen win
   fireEvent.click(screen.getByRole("tab", {name: "工作记录"}));
   expect(await screen.findByRole("heading", {name: "Second child"})).toBeVisible();
   fireEvent.click(screen.getByRole("button", {name: "← 返回派工关系"}));
-  expect(screen.getByRole("combobox", {name: "活动范围"})).toHaveValue("2h");
+  const range = screen.getByRole("combobox", {name: "活动范围"});
+  expect(range).toHaveValue("2h");
+  mainTokens = 960;
+  fireEvent.change(range, {target: {value: "3d"}});
+  expect(screen.queryByText("950 tok")).not.toBeInTheDocument();
+  expect(await screen.findByText("960 tok")).toBeVisible();
 });
 
 it("opens saved Cron delivery from the on-demand history in delegation", async () => {

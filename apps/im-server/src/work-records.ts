@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields } from '@nano/product-contracts';
 import { all, one, now, fail, transaction } from './context.js';
 import { agentAvailable } from './identity.js';
+import { updateWorkLifetimeUsage } from './work-lifetime-usage.js';
 import { standaloneCompaction, standaloneCompactions, WorkSummaries } from './work-summaries.js';
 import type { WorkSessionRecord, WorkEventRecord, WorkTurnRecord, WorkItemRecord, WorkItemView, WorkSessionView, WorkTurnData, WorkItemData, WorkItemsPage, WorkTurnsPage, WorkTurnView, WorkFocus, WorkRecordView, WorkCatalogFilter, WorkCatalogPage } from './work-record-types.js';
 
@@ -252,6 +253,7 @@ export class WorkRecords {
           }, !available);
         }
         if (!available) { through = e.seq; continue; }
+        const observedAt = e.observed_at ?? now();
         const result = this.db
           .prepare(
             "INSERT INTO agent_work_events(node_id,journal_id,seq,event_id,root_agent_id,session_id,turn_id,type,observed_at,payload) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -265,10 +267,10 @@ export class WorkRecords {
             e.session_id,
             e.turn_id ?? null,
             e.type,
-            e.observed_at ?? now(),
+            observedAt,
             JSON.stringify(e.payload),
           );
-        this.project({event: e, fact}, Number(result.lastInsertRowid));
+        this.project({event: e, fact}, Number(result.lastInsertRowid), observedAt);
         appliedRoots.add(e.root_agent_id);
         through = e.seq;
       }
@@ -280,7 +282,7 @@ export class WorkRecords {
     });
     return { ack: { journal_id: p.journal_id, through_seq: through }, appliedRoots };
   }
-  private project({event: e, fact}: DecodedWorkEvent, revision: number) {
+  private project({event: e, fact}: DecodedWorkEvent, revision: number, observedAt: string) {
     const p = e.payload,
       kind = e.type,
       session = e.session_id;
@@ -345,7 +347,10 @@ export class WorkRecords {
         started_at: p.started_at ?? e.observed_at,
       });
     }
-    if (fact?.type === "turn_end" || fact?.type === "run_completed" || fact?.type === "run_failed" || fact?.type === "run_cancelled") {
+    const wasEnded = turn.finished_at != null;
+    const previousTokens = turn.usage?.total_tokens;
+    const ended = fact?.type === "turn_end" || fact?.type === "run_completed" || fact?.type === "run_failed" || fact?.type === "run_cancelled";
+    if (ended) {
       const p = fact.payload;
       Object.assign(turn, {
         status:
@@ -356,7 +361,7 @@ export class WorkRecords {
             : p.completed === false || p.error || kind === "run_failed"
               ? "failed"
               : "completed"),
-        finished_at: p.finished_at ?? e.observed_at,
+        finished_at: p.finished_at ?? observedAt,
         elapsed_ms: p.elapsed_ms ?? p.duration_ms,
         error: p.error,
         model_id: p.model ?? turn.model_id,
@@ -394,6 +399,7 @@ export class WorkRecords {
         "INSERT INTO agent_work_turns VALUES(?,?,?,?) ON CONFLICT(session_id,turn_id) DO UPDATE SET payload=excluded.payload",
       )
       .run(session, turnId, prior?.seq ?? revision, JSON.stringify(turn));
+    if (ended) updateWorkLifetimeUsage(this.db, session, wasEnded, previousTokens, turn.usage?.total_tokens);
     if (
       [
         "turn_started",
