@@ -24,6 +24,7 @@ function mount(cache = new QueryClient({ defaultOptions: { queries: { retry: fal
 }
 beforeEach(() => {
  vi.resetAllMocks(); localStorage.clear(); setLanguage('en');
+ Object.defineProperty(window,'innerWidth',{configurable:true,writable:true,value:1280});
  useAuthStore.getState().setSession({ access_token: 'test', user: { ...TEST_AUTH_USER, personal_space_enabled: true, membership_status: 'none' } });
  vi.mocked(getPersonalAgent).mockResolvedValue({binding:null,policy:null});
  vi.mocked(getOnboarding).mockResolvedValue({ nodes: [computer], agents: [], install });
@@ -162,4 +163,30 @@ it('restores a pending subscription authorization after returning to setup', asy
  expect(screen.getByRole('button',{name:'Cancel verification'})).toBeEnabled();
  expect(screen.getByRole('button',{name:'Use a ChatGPT / Codex subscription'})).toHaveAttribute('aria-pressed','true');
  expect(createPersonalAgent).not.toHaveBeenCalled();
+});
+
+it('explains the PA and prerequisites before first-time installation, then remembers starting', async () => {
+ vi.mocked(getOnboarding).mockResolvedValue({nodes:[],agents:[],install});
+ mount();
+ await screen.findByRole('button',{name:'Set up my PA'});
+ expect(screen.getByRole('heading',{name:'Two things to have ready'})).toBeInTheDocument();
+ expect(screen.getByRole('link',{name:'Explore my space first'})).toHaveAttribute('href','/chat');
+ expect(screen.queryByRole('heading',{name:'Connect your computer'})).not.toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'Set up my PA'}));
+ await screen.findByRole('heading',{name:'Connect your computer'});
+ expect(JSON.parse(localStorage.getItem(`nano-onboarding:${TEST_AUTH_USER.id}`)!)).toMatchObject({started:true});
+ expect(createPersonalAgent).not.toHaveBeenCalled();
+ expect(setupNode).not.toHaveBeenCalled();
+});
+
+it('resumes installation on a phone with handoff first and opt-in computer instructions', async () => {
+ Object.defineProperty(window,'innerWidth',{configurable:true,writable:true,value:390});
+ localStorage.setItem(`nano-onboarding:${TEST_AUTH_USER.id}`,JSON.stringify({started:true}));
+ vi.mocked(getOnboarding).mockResolvedValue({nodes:[],agents:[],install});
+ mount();
+ await screen.findByRole('heading',{name:'Connect your computer'});
+ expect(screen.getByRole('button',{name:'Copy link'})).toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'Copy install command'})).not.toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:/View computer installation steps/}));
+ expect(screen.getByRole('button',{name:'Copy install command'})).toBeInTheDocument();
 });
