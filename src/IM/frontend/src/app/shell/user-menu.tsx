@@ -47,7 +47,6 @@ export function UserMenu() {
     <button ref={triggerRef} type="button" aria-label={name} title={name} aria-haspopup="menu" aria-expanded={open}
       onClick={() => { setLanguageOpen(false); setOpen(previous => !previous); }} className="im-user-menu-trigger">
       <span aria-hidden className="im-user-menu-avatar">{initials}</span>
-      <span className="im-user-menu-trigger-label">{t('shell.tabs.me')}</span>
     </button>
     {open && <div role="menu" aria-label={name} className="im-user-menu-popover">
       <div className="im-user-menu-identity" role="none">
