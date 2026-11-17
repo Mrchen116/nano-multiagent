@@ -26,7 +26,7 @@ afterEach(() => vi.restoreAllMocks());
 
 it('explains the product before sign-in, with a local demo that cannot execute a task', async () => {
   renderRouter({routes:appRoutes,initialEntries:['/'],auth:null});
-  expect(screen.getByRole('heading',{level:1})).toHaveTextContent('From discussion');
+  expect(screen.getByRole('heading',{level:1})).toHaveTextContent('Your team.With AI colleagues.');
   expect(screen.getByRole('region', {name:'Your team, working together'})).toHaveTextContent('Lin Lan');
   const change=screen.getByRole('button',{name:'Catch the change'});
   await userEvent.click(change);
@@ -44,10 +44,17 @@ it('explains the product before sign-in, with a local demo that cannot execute a
   expect(document).toHaveFocus();
   await userEvent.click(screen.getByRole('button',{name:'Start again'}));
   expect(change).toHaveAttribute('aria-pressed','true');
+  await userEvent.click(screen.getByRole('tab',{name:/Specialist AI colleagues/}));
+  expect(screen.getByRole('tabpanel')).toHaveTextContent('Release quality record');
+  await userEvent.keyboard('{Home}');
+  expect(screen.getByRole('tab',{name:/You and your team/})).toHaveFocus();
+  expect(screen.getByRole('tabpanel')).toHaveTextContent('Release preparation');
+  expect(screen.getByRole('heading',{name:/Work moves forward/})).toBeInTheDocument();
+  expect(screen.getByRole('heading',{name:/Start with a space of your own/})).toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalled();
-  expect(screen.getAllByRole('link',{name:/Create your personal space/})[0]).toHaveAttribute('href','/register');
-  await userEvent.click(screen.getByRole('radio',{name:'中'}));
-  expect(screen.getByRole('heading',{level:1})).toHaveTextContent('把讨论，推进成结果。');
+  expect(screen.getAllByRole('link',{name:/Create account/})[0]).toHaveAttribute('href','/register');
+  await userEvent.selectOptions(screen.getByRole('combobox',{name:'Language'}), 'zh');
+  expect(screen.getByRole('heading',{level:1})).toHaveTextContent('让 AI 同事，加入你的团队。');
   expect(screen.getByRole('button',{name:'接住变化'})).toHaveAttribute('aria-pressed','true');
 });
 

@@ -15,6 +15,7 @@
   --im-surface-2: #f4f0fa;
   --im-brand: #6b43d8;
   --im-brand-mark: #ffffff;
+  font-family: 'Helvetica Neue', 'PingFang SC', sans-serif;
   color: var(--home-ink);
   background: var(--im-bg);
 }
@@ -26,10 +27,6 @@
 .product-nav { display: flex; align-items: center; gap: 30px; margin-left: auto; font-size: 13px; color: var(--home-muted); }
 .product-nav a:hover, .product-signin:hover { color: var(--home-green); }
 .product-header-actions { display: flex; gap: 22px; align-items: center; margin-left: auto; }
-.product-language { display: flex; align-items: center; gap: 6px; color: var(--home-muted); font-size: 12px; }
-.product-language button { min-height: 40px; padding: 4px; color: var(--home-muted); }
-.product-language button[aria-checked="true"] { color: var(--home-green); font-weight: 600; }
-.product-language > span { opacity: .45; }
 .product-signin, .product-account { font-size: 13px; white-space: nowrap; }
 .product-account { max-width: 180px; overflow: hidden; text-overflow: ellipsis; color: var(--home-muted); }
 .product-header-button { display: inline-flex; align-items: center; justify-content: center; padding: 10px 17px; min-height: 40px; border-radius: 7px; background: var(--home-green); color: white; font-size: 12px; font-weight: 600; white-space: nowrap; }
@@ -55,3 +52,34 @@
 .public-home .product-header-button:hover { background: #e6ddf8; }
 @media (max-width: 1050px) { .product-nav { display: none; } }
 @media (max-width: 560px) { .public-home .product-header { width: calc(100% - 40px); min-height: 77px; } .product-header-actions { gap: 10px; } }
+
+.product-back-home { font-size: 13px; color: var(--home-muted); white-space: nowrap; }
+.product-back-home:hover { color: var(--home-ink); }
+.product-header { position: relative; }
+.product-menu-trigger { display: none; width: 40px; height: 40px; align-items: center; justify-content: center; color: var(--home-ink); }
+.product-menu-trigger svg { width: 21px; height: 21px; }
+.product-mobile-nav { display: none; }
+@media (max-width: 1050px) {
+  .product-header--home .product-signin { display: none; }
+  .product-menu-trigger { display: flex; }
+  .product-mobile-nav { display: flex; flex-direction: column; position: absolute; z-index: 20; top: calc(100% - 5px); right: 0; width: min(320px, calc(100vw - 40px)); padding: 12px; background: white; border: 1px solid var(--home-line); border-radius: 12px; box-shadow: 0 15px 35px -15px #30204935; }
+  .product-mobile-nav > a { padding: 14px; font-size: 14px; border-radius: 6px; }
+  .product-mobile-nav > a:hover { background: #f7f5fc; }
+  .product-mobile-nav .product-mobile-register { background: #302049; color: white; margin-top: 5px; text-align: center; }
+}
+
+.product-language-select { position: relative; display: inline-flex; align-items: center; flex: none; }
+.product-language-select > svg { position: absolute; left: 9px; width: 16px; height: 16px; color: var(--home-muted); pointer-events: none; }
+.product-language-select > .product-language-chevron { left: auto; right: 8px; width: 12px; height: 12px; }
+.product-language-select select { appearance: none; width: 122px; min-height: 40px; padding: 8px 24px 8px 32px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--home-ink); font: inherit; font-size: 12px; cursor: pointer; }
+.product-language-select select:hover { background: #ffffff70; border-color: var(--home-line); }
+.product-language-select select:focus-visible { outline: 3px solid #6b43d8; outline-offset: 3px; }
+@media (max-width: 560px) {
+  .product-header .product-brand .im-nano-brand { font-size: 23px; gap: 7px; }
+  .product-header .product-brand svg { width: 27px; height: 27px; }
+  .product-header .product-header-actions { gap: 4px; }
+  .product-header .product-language-select select { width: 108px; padding-left: 27px; padding-right: 20px; font-size: 12px !important; }
+  .product-language-select > svg { left: 6px; width: 14px; height: 14px; }
+  .product-language-select > .product-language-chevron { left: auto; right: 5px; width: 11px; }
+  .product-menu-trigger { width: 34px; }
+}

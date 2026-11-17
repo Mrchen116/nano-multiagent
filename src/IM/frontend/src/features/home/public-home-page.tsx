@@ -5,6 +5,7 @@ import { ArrowRight, Check, Clock3, FileText, GitBranch, Play, Sparkles, X } fro
 import { NanoBrand } from '../../app/shell/nano-brand';
 import { useTranslation } from '../../i18n';
 import { ProductHeader } from './product-header';
+import { ProductStorySections } from './product-story';
 import { accountEnabled, useAuthStore } from '../auth/auth-store';
 import './public-home.css';
 
@@ -36,9 +37,10 @@ export function PublicHomePage({ restoreSession = false }: { restoreSession?: bo
       <section className="crew-hero" aria-labelledby="home-title">
         <div className="crew-intro">
           <h1 id="home-title">{text('titleFirst')}<br />{text('titleSecond')}</h1>
+          <p className="crew-product-definition">{text('definition')}</p>
           <p className="crew-lead">{text('intro')}</p>
           <div className="crew-actions">
-            <Link className="crew-primary" to="/register">{t('publicHome.createSpace')}<ArrowRight /></Link>
+            <Link className="crew-primary" to="/register">{t('auth.register.submit')}</Link>
             <button className="crew-watch" onClick={watch}><Play />{text('watch')}</button>
           </div>
           <div className="crew-controls" id="product-demo">
@@ -100,12 +102,9 @@ export function PublicHomePage({ restoreSession = false }: { restoreSession?: bo
           </div>
         </div>
       </section>
-      <section className="crew-start" id="getting-started" aria-labelledby="start-title">
-        <div><span>{text('startEyebrow')}</span><h2 id="start-title">{text('startTitle')}</h2></div>
-        <div><p>{text('startBody')}</p><Link to="/register">{text('startLink')}<ArrowRight /></Link><small>{text('requirements')}</small></div>
-      </section>
+      <ProductStorySections />
     </main>
-    <footer className="crew-footer"><Link to="/about" aria-label={t('publicHome.home')}><NanoBrand /></Link><span>{text('footer')}</span><Link to="/login">{t('publicHome.signIn')}<ArrowRight /></Link></footer>
+    <footer className="crew-footer"><Link to="/about" aria-label={t('publicHome.home')}><NanoBrand /></Link><span>{text('footer')}</span><a href="#questions">{t('crewdenStory.nav.faq')}</a><Link to="/login">{t('publicHome.signIn')}</Link></footer>
   </div>;
 }
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryRouter, MemoryRouter, Navigate, RouterProvider } from "react-router-dom";
@@ -228,8 +228,8 @@ describe("auth form experience", () => {
     await userEvent.click(screen.getByRole("button", { name: "Create account" }));
     expect(screen.getByText("Password must be at least 8 characters.")).toBeInTheDocument();
 
-    const language = screen.getByRole("group", { name: "Language" });
-    await userEvent.click(within(language).getByRole("radio", { name: "中" }));
+    const language = screen.getByRole("combobox", { name: "Language" });
+    await userEvent.selectOptions(language, "zh");
 
     expect(screen.getByText("密码至少需要 8 位。")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "用户名" })).toHaveValue("poppy");
@@ -252,11 +252,10 @@ describe("auth form experience", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "Creating…" })).toBeDisabled();
-    const language = screen.getByRole("group", { name: "Language" });
-    const zh = within(language).getByRole("radio", { name: "中" });
-    expect(zh).toBeEnabled();
+    const language = screen.getByRole("combobox", { name: "Language" });
+    expect(language).toBeEnabled();
 
-    await userEvent.click(zh);
+    await userEvent.selectOptions(language, "zh");
     expect(screen.getByRole("button", { name: "创建中…" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "用户名" })).toHaveValue("poppy");
 
@@ -290,4 +289,25 @@ describe("auth form experience", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(username).toHaveValue("alex");
   });
+
+  it("keeps account navigation explicit and preserves a binding destination when switching to sign in", async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(authResponse(200, { access_token: 'logged-in', user: SAMPLE_USER }));
+    const from = '/bind/confirm?token=example#confirm';
+    const router = createMemoryRouter([
+      { path: '/register', element: <RegisterPage /> },
+      { path: '/login', element: <LoginPage /> },
+      { path: '/bind/confirm', element: <h1>Confirm computer</h1> },
+    ], { initialEntries: [{ pathname: '/register', state: { from } }] });
+    render(<RouterProvider router={router} />);
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Product home' })).toHaveAttribute('href', '/about');
+    await userEvent.click(screen.getByRole('link', { name: 'Sign in' }));
+    expect(router.state.location.state).toEqual({ from });
+    await userEvent.type(screen.getByLabelText('Username', { exact: true }), 'poppy');
+    await userEvent.type(screen.getByLabelText('Password', { exact: true }), 'secret12');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    expect(await screen.findByRole('heading', { name: 'Confirm computer' })).toBeInTheDocument();
+    expect(router.state.location.pathname + router.state.location.search + router.state.location.hash).toBe(from);
+  });
+
 });

@@ -5,7 +5,7 @@ import { useTranslation } from "../../i18n";
 import { AuthApiError } from "./auth-api";
 import { AuthPasswordField, AuthTextField } from "./auth-form-fields";
 import { AuthFeedbackCode, FieldErrors, validateLogin } from "./auth-form-feedback";
-import { AuthAlert, AuthPageFrame, SubmitArrow } from "./auth-page-frame";
+import { AuthAlert, AuthPageFrame } from "./auth-page-frame";
 import { accountEnabled, useAuthStore } from "./auth-store";
 import { login, logout } from "./auth-session";
 
@@ -83,8 +83,10 @@ export function LoginPage() {
   }
 
   if (!signOut && !hydrated) {
-    if (hydrationError) return <div role="alert">{t("auth.feedback.serviceUnavailable")} <button onClick={() => void useAuthStore.getState().hydrate()}>{t("company.refresh")}</button></div>;
-    return null;
+    return <AuthPageFrame intent="login" title={t('auth.login.title')} subtitle={t('auth.login.subtitle')} footer={null}>
+      {hydrationError ? <div className="crew-account-recovery"><AuthAlert>{t('auth.feedback.serviceUnavailable')}</AuthAlert><button className="im-auth-submit" onClick={() => void useAuthStore.getState().hydrate()}>{t('company.refresh')}</button></div>
+        : <p className="crew-account-restoring" role="status">{t('auth.common.restoring')}</p>}
+    </AuthPageFrame>;
   }
   if (!signOut && !loginSubmitted.current && user && accessToken) {
     return <Navigate to={accountEnabled(user) ? "/chat" : "/membership"} replace />;
@@ -93,7 +95,6 @@ export function LoginPage() {
   return (
     <AuthPageFrame
       intent="login"
-      kicker={t("auth.login.kicker")}
       title={t("auth.login.title")}
       subtitle={t("auth.login.subtitle")}
       footer={
@@ -139,7 +140,6 @@ export function LoginPage() {
         {formError && <AuthAlert id="auth-feedback">{feedback(formError)}</AuthAlert>}
         <button type="submit" className="im-auth-submit" disabled={submitting || cooldown.remaining > 0}>
           <span>{submitting ? t("auth.login.submitting") : t("auth.login.submit")}</span>
-          {!submitting && <SubmitArrow />}
         </button>
       </form>
     </AuthPageFrame>

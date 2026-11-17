@@ -7,7 +7,7 @@ export function OnboardingWelcome({ name, onStart }: { name: string; onStart(): 
   const text = (zh: string, en: string) => getCurrentLanguage() === 'zh' ? zh : en;
   return <main className="onboarding-welcome">
     <section className="onboarding-welcome-copy">
-      <span className="onboarding-card-eyebrow">{text('账号已就绪 · 欢迎加入 NANO', 'ACCOUNT READY · WELCOME TO NANO')}</span>
+      <span className="onboarding-card-eyebrow">{text('账号已就绪，欢迎加入 Crewden', 'Your Crewden account is ready')}</span>
       <h1>{text(`${name}，先认识你的 PA。`, `${name}, meet your future PA.`)}</h1>
       <p className="onboarding-welcome-lead">{text('一个与你长期合作的个人助手。记住背景、跟进你关心的事，也能在你与同事、数字员工的协作中帮上忙。', 'A personal assistant that works with you over time: remembering context, following what matters, and helping you collaborate with people and digital coworkers.')}</p>
       <div className="onboarding-welcome-prep"><h2>{text('开始前，准备好两样东西', 'Two things to have ready')}</h2>

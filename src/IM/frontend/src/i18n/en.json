@@ -6,19 +6,11 @@
     "language": {
       "label": "Language"
     },
-    "context": {
-      "body": "Start with your own space and PA, then work with teammates and digital colleagues. Your private context stays with you when you join a team.",
-      "returning": "Return to your personal space. Pick up a conversation, check on work in progress, or begin something new.",
-      "personal": "Understand your goals and commitments; help within your authorization.",
-      "specialist": "Collaborate with different members around continuing professional responsibilities.",
-      "back": "Back to the product",
-      "requirements": "Next, you’ll need a computer and a model API or supported subscription. You can also create your space now and finish setup later.",
-      "human": "Discuss, own work, and make decisions with teammates."
-    },
     "common": {
       "optional": "Optional",
       "showPassword": "Show password",
-      "hidePassword": "Hide password"
+      "hidePassword": "Hide password",
+      "restoring": "Restoring your session…"
     },
     "feedback": {
       "usernameRequired": "Enter your username.",
@@ -35,9 +27,8 @@
       "serviceUnavailable": "The authentication service is temporarily unavailable. Try again shortly."
     },
     "login": {
-      "kicker": "Welcome back",
-      "title": "Sign in",
-      "subtitle": "Return to your personal space and pick up where you left off.",
+      "title": "Welcome back",
+      "subtitle": "Sign in to Crewden and pick up your work.",
       "username": "Username",
       "password": "Password",
       "submit": "Sign in",
@@ -46,9 +37,8 @@
       "registerLink": "Create account"
     },
     "register": {
-      "kicker": "Get started",
       "title": "Create your account",
-      "subtitle": "Create your account, then get your personal assistant ready.",
+      "subtitle": "A space of your own. Then an assistant to work with you.",
       "username": "Username",
       "password": "Password",
       "displayName": "Display name",
@@ -59,7 +49,25 @@
       "haveAccount": "Already have an account?",
       "loginLink": "Sign in"
     },
-    "logout": "Sign out"
+    "logout": "Sign out",
+    "accountNext": {
+      "title": "Next, set up your assistant",
+      "body": "Connect a computer and a model service. You can explore your space first and finish setup later."
+    },
+    "scene": {
+      "title": "Good work.\nWith good company.",
+      "intro": "From a conversation to something ready to use. Your assistant and AI colleagues help carry the work forward.",
+      "description": "Illustration: a change to a release is shared with a personal assistant, engineering and QA colleagues, who bring back notes for review.",
+      "you": "You",
+      "request": "The release moved to Friday. Help me keep the work in step.",
+      "assistant": "Your assistant",
+      "colleague": "Engineering",
+      "quality": "QA colleague",
+      "document": "Release update",
+      "result": "The new date, customer notes, and verification results, brought together.",
+      "review": "Ready for your review",
+      "caption": "An illustration of working with your future team"
+    }
   },
   "shell": {
     "appName": "Crewden",
@@ -1921,302 +1929,7 @@
     "skip": "Skip to content",
     "home": "Crewden home",
     "navigation": "Product navigation",
-    "switchLanguage": "切换到中文",
-    "signIn": "Sign in",
-    "start": "Get started",
-    "createSpace": "Create your personal space",
-    "watch": "Explore a team at work",
-    "eyebrow": "PEOPLE · PERSONAL AGENTS · DIGITAL COLLEAGUES",
-    "titleBefore": "People and AI.\n",
-    "titleAccent": "One working team.",
-    "titleAfter": "",
-    "intro": "Work in one shared IM with your teammates, everyone’s personal agent, and digital colleagues with ongoing responsibilities. Discuss, coordinate, and deliver—with context that carries forward.",
-    "prerequisite": "Start with your own PA, then join a team. Running your own agents requires a connected computer and model service.",
-    "nav": {
-      "how": "See how it works",
-      "space": "Ongoing collaboration",
-      "start": "Start with your assistant"
-    },
-    "demo": {
-      "eyebrow": "A MOMENT IN A TEAM’S WORK",
-      "title": "How does a team deliver a release?",
-      "label": "Interactive scenario",
-      "navigation": "Explore team collaboration",
-      "team": "Lightnote team",
-      "teamNote": "Fictional team · Example",
-      "roster": "Collaborators",
-      "rosterNote": "The same people and digital colleagues participate across conversations and work.",
-      "people": {
-        "lin": {
-          "name": "Lin",
-          "role": "Person · Product lead",
-          "kind": "Person",
-          "avatar": "L"
-        },
-        "linPa": {
-          "name": "Lin’s PA",
-          "role": "Supports Lin over time",
-          "kind": "Personal agent",
-          "avatar": "PA"
-        },
-        "zhou": {
-          "name": "Zhou",
-          "role": "Person · Engineer",
-          "kind": "Person",
-          "avatar": "Z"
-        },
-        "zhouPa": {
-          "name": "Zhou’s PA",
-          "role": "Supports Zhou over time",
-          "kind": "Personal agent",
-          "avatar": "PA"
-        },
-        "engineering": {
-          "name": "Engineering colleague",
-          "role": "Digital colleague · Engineering",
-          "kind": "Digital colleague",
-          "avatar": "E"
-        },
-        "quality": {
-          "name": "QA colleague",
-          "role": "Digital colleague · Quality",
-          "kind": "Digital colleague",
-          "avatar": "QA"
-        }
-      },
-      "next": "Next scene",
-      "restart": "Start again",
-      "disclosure": "Illustrative scenario. No real members or tasks are created. Roles, models, chat access, and proactive follow-up require configuration and authorization; the example does not mean these professional roles are ready out of the box.",
-      "discuss": {
-        "tab": "Discuss together",
-        "surface": "Team group chat",
-        "channel": "# Product release",
-        "time": "Monday · 09:30",
-        "intro": "People and digital colleagues agree on responsibilities in the same group.",
-        "messages": [
-          "We’re releasing on Friday. I’ll handle the customer note, Zhou owns deployment, and Engineering and QA will help with implementation and verification.",
-          "I’ll confirm the deployment window. @Engineering, please fix the export issue. @QA, please check the regression scope.",
-          "I’ll follow the release quality work and post verification results and unresolved issues back here."
-        ],
-        "asideLabel": "Working relationships",
-        "asideTitle": "Different responsibilities, shared work",
-        "notes": {
-          "first": {
-            "title": "People own work too",
-            "body": "Lin handles customer communication; Zhou owns deployment."
-          },
-          "second": {
-            "title": "Digital colleagues have continuing roles",
-            "body": "Engineering and quality responsibilities outlast a single request."
-          },
-          "third": {
-            "title": "Each PA supports its owner",
-            "body": "Helps with its owner’s work while private conversations stay private."
-          }
-        },
-        "takeaway": "Work begins with a shared discussion and clear responsibilities."
-      },
-      "change": {
-        "tab": "A PA follows a change",
-        "surface": "Private chat · Owner and PA only",
-        "channel": "Lin ↔ Lin’s PA",
-        "time": "Tuesday · 10:10",
-        "intro": "Lin has asked her PA to follow the release and allowed access to the project group.",
-        "sourceLabel": "Source · Product release group / Zhou",
-        "source": "“Deployment moves to Thursday at 16:00. The customer note needs to be ready earlier too.”",
-        "messages": [
-          "Your customer note needs to move forward. Following your release instructions, I’ve outlined the affected items. I suggest having a draft ready for review on Thursday morning.",
-          "Work toward Thursday morning and confirm dependencies with Zhou. Show me the customer email before sending it.",
-          "I’ll coordinate the timing as requested and prepare the draft first."
-        ],
-        "asideLabel": "The owner’s context",
-        "asideTitle": "Connect a change to personal commitments",
-        "notes": {
-          "first": {
-            "title": "Knows what you own",
-            "body": "The customer note belongs to Lin; her PA helps with her responsibilities."
-          },
-          "second": {
-            "title": "Context has a source",
-            "body": "Checks the change in a project chat it is allowed to access."
-          },
-          "third": {
-            "title": "Action has authorization",
-            "body": "Preparation, coordination, and sending have distinct scopes. The private chat is not shared with the group."
-          }
-        },
-        "takeaway": "A PA relates changes to its owner’s situation and helps within the brief."
-      },
-      "parallel": {
-        "tab": "Progress in parallel",
-        "surface": "Digital colleague · Work view",
-        "channel": "What is our QA colleague doing?",
-        "time": "Tuesday · 14:00",
-        "intro": "The QA colleague handles quality work coming from different conversations.",
-        "tasks": {
-          "waiting": {
-            "status": "Waiting for a fix",
-            "source": "Release group",
-            "title": "Export regression",
-            "body": "Resume verification after Engineering delivers the fix; the follow-up remains recorded."
-          },
-          "running": {
-            "status": "In progress",
-            "source": "Access-control group",
-            "title": "Permission checks",
-            "body": "This independent task continues while the export issue is waiting."
-          },
-          "recorded": {
-            "status": "Collected",
-            "source": "Customer feedback group",
-            "title": "Past boundary cases",
-            "body": "Relevant past reports provide examples for this and later verification."
-          }
-        },
-        "asideLabel": "Continuing work",
-        "asideTitle": "Different chats. The same QA colleague.",
-        "notes": {
-          "first": {
-            "title": "Waiting is local to a task",
-            "body": "Each item retains its own progress and next steps."
-          },
-          "second": {
-            "title": "Experience informs later work",
-            "body": "Use relevant history and memory within access boundaries."
-          },
-          "third": {
-            "title": "People can inspect and adjust",
-            "body": "Check Work, add context, correct direction, or stop the relevant item."
-          }
-        },
-        "takeaway": "A digital colleague coordinates multiple items around an ongoing responsibility."
-      },
-      "followup": {
-        "tab": "Deliver and follow through",
-        "surface": "Team group chat",
-        "channel": "# Product release",
-        "time": "Thursday · 11:20",
-        "intro": "Results return to the participants’ conversation, with remaining decisions made clear.",
-        "messages": [
-          "The export fix is submitted. I’ve shared the deployment checks with Zhou.",
-          "Regression and permission checks passed. The verification note is below. I’ll continue following post-release feedback as part of my quality responsibilities.",
-          "Lin has the customer-note draft. It’s waiting for her confirmation before sending."
-        ],
-        "document": "Release verification · Example",
-        "documentHint": "Expand the sample note",
-        "documentBody": "Completed: export regression and permission checks.\nAwaiting: Zhou’s deployment confirmation and Lin’s customer-note approval.\nFollow-up: track release feedback and coordinate on new issues.",
-        "asideLabel": "Beyond this delivery",
-        "asideTitle": "Results have a destination. Roles continue.",
-        "notes": {
-          "first": {
-            "title": "People retain their decisions",
-            "body": "Deployment and customer communication await their respective owners."
-          },
-          "second": {
-            "title": "Digital colleagues keep their responsibilities",
-            "body": "This regression task ends; quality work continues."
-          },
-          "third": {
-            "title": "A PA continues helping its owner",
-            "body": "Follows Lin’s remaining commitments and retains the relevant context."
-          }
-        },
-        "takeaway": "One item is delivered. The working relationship continues."
-      }
-    },
-    "concepts": {
-      "eyebrow": "SHARED WORK, DISTINCT RESPONSIBILITIES",
-      "title": "Three roles. One place to work.",
-      "intro": "People take responsibility and make decisions. Personal agents support their owners. Digital colleagues maintain professional responsibilities across conversations and tasks.",
-      "human": {
-        "role": "Participate, own work, decide",
-        "title": "You and your teammates",
-        "body": "Discuss needs, own tasks, and make tradeoffs. Work directly with digital colleagues or ask your PA to help coordinate within your authorization.",
-        "example": "“I’ll handle customer communication. Zhou owns deployment. Let’s agree on the release.”"
-      },
-      "personal": {
-        "role": "Ongoing support for one person",
-        "title": "Everyone’s personal agent",
-        "body": "Builds an understanding of its owner’s goals, preferences, commitments, and relevant conversations. Helps prepare, coordinate, and follow through within its responsibilities and authorization.",
-        "example": "“Which of my commitments does this schedule change affect?”"
-      },
-      "specialist": {
-        "role": "Ongoing professional responsibility",
-        "title": "Digital colleagues",
-        "body": "A stable identity, a specialty, and continuing responsibilities. Works with different members and relevant information across chats; finishing a task doesn’t end the role.",
-        "example": "“Our QA colleague handles verification requests and follows unresolved quality issues.”"
-      },
-      "note": "Your collaborators have names and continuing responsibilities. They can organize internal workers as needed without making you manage each internal assignment."
-    },
-    "space": {
-      "eyebrow": "CONTINUITY ACROSS CONVERSATIONS",
-      "title": "The conversation changes.\nThe work carries on.",
-      "intro": "IM holds discussion, coordination, and delivery. Tasks explain how work is arranged; Work shows what a digital colleague is doing. Responsibilities, parallel work, and memory support continuing collaboration.",
-      "link": "Start with your own space",
-      "context": {
-        "title": "Carry relevant context across chats",
-        "body": "Use accessible, previously read history and long-term memory to retain goals, constraints, and experience. PAs build understanding around their owners; digital colleagues around their responsibilities and projects."
-      },
-      "progress": {
-        "title": "One task can wait while another progresses",
-        "body": "Keep each item’s progress and waiting conditions distinct. Use tasks and Work to understand activity, inspect execution, add information, or change direction."
-      },
-      "control": {
-        "title": "Initiative within clear responsibilities",
-        "body": "Decide next steps from responsibilities, existing instructions, and relevant changes. Ask when a decision is needed. Joining a team does not automatically expose your private PA chat or Work."
-      }
-    },
-    "setup": {
-      "eyebrow": "START PERSONALLY, COLLABORATE TOGETHER",
-      "title": "Begin with your own space and PA.",
-      "intro": "Registration needs no team approval. Start independently, then apply to join a team and work with teammates and accessible digital colleagues. First-time setup guides you through these preparations.",
-      "account": {
-        "title": "Create your personal space",
-        "body": "Get an account and private space. Keep the same PA and private context when you join a team."
-      },
-      "computer": {
-        "title": "Connect an execution computer",
-        "body": "A computer hosts the agents you run. Supports macOS, Linux, and Windows through WSL; install and bind it on that computer."
-      },
-      "model": {
-        "title": "Connect a model and create your PA",
-        "body": "Use an available API or supported subscription. After verification, create your PA. Professional digital colleagues are configured separately for the team’s needs."
-      },
-      "note": "Already registered? Sign in to continue setup or return to your team."
-    },
-    "faq": {
-      "eyebrow": "A FEW THINGS TO KNOW",
-      "title": "Clear before you begin.",
-      "ready": {
-        "question": "Can I chat with an assistant as soon as I register?",
-        "answer": "Registration creates your personal space immediately. To use an assistant, connect a computer and a model, then create your personal assistant. You can explore your space and return to setup anytime."
-      },
-      "phone": {
-        "question": "Can I use it on my phone?",
-        "answer": "Use the mobile website or iPhone client to talk to a configured assistant. Initial computer installation must be completed on the work computer."
-      },
-      "online": {
-        "question": "Does my computer need to stay on?",
-        "answer": "The relevant computer must be online while an assistant executes tasks. You can still read synchronized chat history while it is offline, and use the assistant again after reconnecting."
-      },
-      "data": {
-        "question": "Where are my conversations and files stored?",
-        "answer": "The current IM service stores accounts and conversations. Assistants execute tasks and save files in workspaces on connected computers. Relevant context is sent to your configured model service when a model is used."
-      },
-      "team": {
-        "question": "Do I have to join a team?",
-        "answer": "No. Begin with your own PA and apply to join a team later. Keep the same PA; joining does not automatically expose your private chats or Work."
-      },
-      "model": {
-        "question": "Do I need to provide model access?",
-        "answer": "Yes. Provide an available API service or a supported subscription authorization. The provider determines model charges and allowances. Check your access and available allowance before connecting."
-      },
-      "roles": {
-        "question": "Is a digital colleague created for every task?",
-        "answer": "A digital colleague has an independent identity and ongoing responsibilities across conversations and tasks. Its internal workers do not automatically become new team members. Professional roles need configured responsibilities and capabilities."
-      }
-    },
-    "footer": "A shared workplace for people, PAs, and digital colleagues."
+    "signIn": "Sign in"
   },
   "cooperation": {
     "chatOpenFailed": "Your teammate was created, but the chat could not open. Use Send message to retry.",
@@ -2245,9 +1958,9 @@
     }
   },
   "crewdenHome": {
-    "titleFirst": "From discussion",
-    "titleSecond": "to done.",
-    "intro": "You and your colleagues talk. Your AI assistants\nkeep up, work together, and bring results back.",
+    "titleFirst": "Your team.",
+    "titleSecond": "With AI colleagues.",
+    "intro": "Bring teammates, personal assistants, and specialist AI colleagues into the same conversations — from discussion and coordination to delivered work.",
     "watch": "See it in action",
     "scenario": "A new release date. One team moving together.",
     "navigation": "Collaboration demo stages",
@@ -2306,11 +2019,6 @@
     "close": "Close release plan",
     "receiptTitle": "Results return to the conversation",
     "receiptNote": "The final release decision stays with you.",
-    "startEyebrow": "From one assistant to a whole team",
-    "startTitle": "Start with an assistant\nwho knows your work.",
-    "startBody": "A space and a personal assistant of your own.\nThen work with people and digital colleagues.",
-    "startLink": "Create your personal space",
-    "requirements": "To run your assistant, connect a computer and a model service.",
     "footer": "People and AI, doing good work together.",
     "scenes": {
       "change": {
@@ -2351,6 +2059,175 @@
         "verification": "Complete",
         "note": "Everything is ready for Lin to review before release.",
         "detail": "The customer notes are drafted. Export regression and permission checks have passed. Nothing has been released; the final decision is yours."
+      }
+    },
+    "definition": "A shared workspace for people and AI."
+  },
+  "crewdenStory": {
+    "nav": {
+      "how": "How it works",
+      "capabilities": "Capabilities",
+      "start": "Getting started",
+      "home": "Product home",
+      "faq": "Questions",
+      "menu": "Open site navigation",
+      "menuClose": "Close site navigation"
+    },
+    "example": "Product example",
+    "team": {
+      "title": "You set the direction.\nAI has a part to play.",
+      "intro": "Talk with your teammates, let your assistant follow your work, and give specialist AI colleagues clear responsibilities.",
+      "navigation": "Explore team roles",
+      "workspace": "Crewden workspace",
+      "private": "Your space",
+      "shared": "Team conversations",
+      "pa": "Your assistant",
+      "release": "Product release",
+      "quality": "Release quality",
+      "privateNote": "Private conversations stay separate",
+      "you": "You",
+      "youInitial": "Y",
+      "onlyYou": "Private conversation",
+      "group": "Team conversation",
+      "composer": "Continue the conversation…",
+      "people": {
+        "title": "You and your team",
+        "summary": "Discuss, decide, and work alongside AI.",
+        "detail": "People and digital colleagues share the same conversations. Decisions, responsibilities, and results stay together, so the right people can follow up, adjust, and approve.",
+        "channel": "Product release",
+        "request": "I’ll coordinate the release. My assistant will handle customer notes, and QA will own regression checks.",
+        "replyName": "QA colleague",
+        "reply": "I’ll take the regression checks and report issues and results here. I’ll flag decisions that need your review.",
+        "result": "Release preparation",
+        "resultNote": "Owners, progress, and results together"
+      },
+      "assistant": {
+        "title": "Your personal assistant",
+        "summary": "Follow what matters, from your point of view.",
+        "detail": "Your assistant uses conversations you allow it to access and context you have shared to track changes and prepare work. Joining a team does not make your private conversations public.",
+        "channel": "Your personal assistant",
+        "request": "I promised the client an update on Thursday. Follow the release discussion and prepare a draft for me.",
+        "replyName": "Your personal assistant",
+        "reply": "I’ll follow the discussion, collect the schedule and release changes, and bring you a draft. Sending it to others will follow your authorization.",
+        "result": "Customer update · Draft",
+        "resultNote": "Based on release discussions, ready for your review"
+      },
+      "colleagues": {
+        "title": "Specialist AI colleagues",
+        "summary": "Own ongoing responsibilities across a team.",
+        "detail": "Give digital colleagues a role, work environment, and capabilities. They can handle multiple matters in their field, collaborate across conversations, and retain relevant work context.",
+        "channel": "Release quality",
+        "request": "Please own regression checks for upcoming releases. Focus on export and permissions, and retest when fixes arrive.",
+        "replyName": "QA colleague",
+        "reply": "I’ll follow that scope. I’m checking the export fix now; I’ll return to permissions when engineering sends the update.",
+        "result": "Release quality record",
+        "resultNote": "Export being checked · Permissions awaiting input"
+      }
+    },
+    "continuity": {
+      "title": "Work moves forward.\nContext stays with it.",
+      "intro": "Turn a request into ongoing collaboration: follow changes, keep track of what’s waiting, and carry experience into the next task.",
+      "context": {
+        "title": "Keep up with relevant conversations",
+        "body": "Read new messages within the access you allow, and bring changes in dates, requirements, and decisions into ongoing work."
+      },
+      "parallel": {
+        "title": "Keep moving while something waits",
+        "body": "Handle independent matters in parallel. Work awaiting a reply or fix keeps a follow-up plan without blocking what can move forward."
+      },
+      "memory": {
+        "title": "Start the next conversation with context",
+        "body": "Build on confirmed preferences, project knowledge, and work experience. Use that context again, and revise it when new facts arrive."
+      },
+      "control": {
+        "title": "See progress and steer the work",
+        "body": "See who is working on what, find blockers, and inspect results and execution. Add context, change direction, or stop when needed."
+      },
+      "exampleLabel": "Example of ongoing work and memory",
+      "journalTitle": "Your assistant · Work notes",
+      "today": "Today, continuing release preparation",
+      "changeTitle": "New release date, updated work",
+      "changeBody": "Read the product discussion and updated the customer notes for Friday.",
+      "changeSource": "From the “Product release” conversation",
+      "running": "Working",
+      "waiting": "Waiting",
+      "prepared": "Ready",
+      "taskOne": "Update customer notes",
+      "taskOneNote": "Schedule and release changes collected",
+      "taskTwo": "Retest permissions",
+      "taskTwoNote": "Continue when engineering sends the fix",
+      "taskThree": "Summarize weekly progress",
+      "taskThreeNote": "Draft delivered to your private conversation",
+      "memoryLabel": "Context for the next collaboration",
+      "memoryExample": "Lead customer updates with the conclusion, then risks. Ask the owner to review before sending.",
+      "memorySource": "Source: your confirmed working preferences",
+      "delivery": "Weekly progress.md · Ready for review"
+    },
+    "uses": {
+      "title": "Give your team something to work on.",
+      "intro": "Start with a clear goal and responsibilities. Here are a few ways to put them to work.",
+      "product": {
+        "title": "Product and engineering",
+        "request": "“The release moved. Keep the notes and verification in sync.”",
+        "outcome": "Your assistant collects changes while engineering and QA colleagues work on fixes and checks. Results come back to the release conversation.",
+        "artifact": "Release plan and verification record"
+      },
+      "projects": {
+        "title": "Clients and projects",
+        "request": "“Follow up on this week’s commitments and draft a client update.”",
+        "outcome": "Check agreements and progress in authorized conversations, flag what is still waiting, and bring you an update to review.",
+        "artifact": "Project progress and customer update"
+      },
+      "research": {
+        "title": "Research and decisions",
+        "request": "“Investigate the options and give me a recommendation with sources.”",
+        "outcome": "Explore directions in parallel, preserve sources and differing conclusions, and bring comparisons, open questions, and recommendations together.",
+        "artifact": "A comparison with supporting sources"
+      }
+    },
+    "setup": {
+      "title": "Start with a space of your own.",
+      "intro": "You can begin on your own. Build a working relationship with your assistant, then collaborate with people and digital colleagues as needed.",
+      "account": {
+        "title": "Create an account",
+        "body": "Get your personal space. Explore first, or continue straight into setup."
+      },
+      "computer": {
+        "title": "Connect a computer",
+        "body": "Give your assistant a place to run tasks and work with files."
+      },
+      "assistant": {
+        "title": "Connect a model. Meet your assistant.",
+        "body": "Add a model service, name your assistant, and agree on how it can help in chat."
+      },
+      "requirements": "To run your assistant, you need a computer that can stay online and a model API or supported subscription. Model usage is billed by your provider."
+    },
+    "questions": {
+      "title": "A few things to know before you start",
+      "intro": "Understand the setup and boundaries, then decide how to begin.",
+      "solo": {
+        "question": "Can I use Crewden on my own?",
+        "answer": "Yes. Start with a private space and a personal assistant for your own work. Keep the same assistant if you later join a team, and configure specialist digital colleagues as needed."
+      },
+      "ready": {
+        "question": "Can my assistant work as soon as I sign up?",
+        "answer": "Signing up creates your account and personal space. To run your own assistant, you also need to connect a computer, add a model service, and complete assistant setup. The setup flow guides you through this, and you can leave and continue later."
+      },
+      "models": {
+        "question": "Do I bring my own model service?",
+        "answer": "Yes. Connect a model API or a subscription authorization supported by the product. The available options are shown during setup. Your model provider bills for usage."
+      },
+      "privacy": {
+        "question": "Will my team see my private conversations?",
+        "answer": "Joining a team does not automatically expose your assistant’s private conversations or work. Shared resources follow conversation membership and access permissions. Messages your assistant sends to others must also follow your authorization and disclosure scope."
+      },
+      "offline": {
+        "question": "Will my assistant work when my computer is off?",
+        "answer": "Your assistant executes work on the connected computer. When that computer is offline, work that depends on it pauses or becomes unavailable until it reconnects. You can view and communicate from a phone or another browser, but the execution computer still needs to be online."
+      },
+      "roles": {
+        "question": "Are specialist roles already set up for me?",
+        "answer": "You can create and configure digital colleagues with responsibilities, models, work environments, and tools for your needs. The engineering and QA roles shown here illustrate collaboration; signing up does not automatically configure or validate those roles."
       }
     }
   }

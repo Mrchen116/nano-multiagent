@@ -5,7 +5,7 @@ import { getCurrentLanguage, useTranslation } from "../../i18n";
 import { AuthApiError } from "./auth-api";
 import { AuthPasswordField, AuthTextField } from "./auth-form-fields";
 import { AuthFeedbackCode, FieldErrors, registrationFeedbackForApiError, validateRegistration } from "./auth-form-feedback";
-import { AuthAlert, AuthPageFrame, SubmitArrow } from "./auth-page-frame";
+import { AuthAlert, AuthPageFrame } from "./auth-page-frame";
 import { register } from "./auth-session";
 
 import { safeReturnPath } from "./membership-page";
@@ -95,7 +95,6 @@ export function RegisterPage() {
   return (
     <AuthPageFrame
       intent="register"
-      kicker={t("auth.register.kicker")}
       title={t("auth.register.title")}
       subtitle={t("auth.register.subtitle")}
       footer={
@@ -107,6 +106,7 @@ export function RegisterPage() {
             tabIndex={submitting ? -1 : undefined}
             onClick={(event) => submitting && event.preventDefault()}
             to="/login"
+            state={{ from }}
           >
             {t("auth.register.loginLink")}
           </Link>
@@ -154,7 +154,6 @@ export function RegisterPage() {
         {formError && <AuthAlert id="auth-feedback">{feedback(formError)}</AuthAlert>}
         <button type="submit" className="im-auth-submit" disabled={submitting || cooldown.remaining > 0}>
           <span>{submitting ? t("auth.register.submitting") : t("auth.register.submit")}</span>
-          {!submitting && <SubmitArrow />}
         </button>
       </form>
     </AuthPageFrame>

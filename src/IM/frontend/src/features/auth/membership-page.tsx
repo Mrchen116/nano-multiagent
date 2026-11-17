@@ -40,7 +40,7 @@ export function MembershipPage() {
       if (snapshot.membership_status === "active") navigate(from, { replace: true });
     } catch { setError(true); } finally { setBusy(false); }
   }
-  return <AuthPageFrame kicker={t("company.title")} title={t(notJoined ? "company.notJoined" : suspended ? "company.suspended" : "company.pending")} subtitle={t(notJoined ? "company.notJoinedHint" : suspended ? "company.suspendedHint" : "company.pendingHint")} footer={<button className="im-auth-link" onClick={() => navigate("/login", { replace: true, state: { signOut: true } })}>{t("shell.userMenu.signOut")}</button>}>
+  return <AuthPageFrame title={t(notJoined ? "company.notJoined" : suspended ? "company.suspended" : "company.pending")} subtitle={t(notJoined ? "company.notJoinedHint" : suspended ? "company.suspendedHint" : "company.pendingHint")} footer={<button className="im-auth-link" onClick={() => navigate("/login", { replace: true, state: { signOut: true } })}>{t("shell.userMenu.signOut")}</button>}>
     <div className="im-membership-content">
       <p className="im-membership-account">{user.display_name || user.username}</p>
       {error && <AuthAlert>{t("auth.feedback.serviceUnavailable")}</AuthAlert>}

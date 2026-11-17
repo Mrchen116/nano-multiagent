@@ -78,7 +78,7 @@ describe("auth gate", () => {
     ), { status: 200 }));
     renderAt("/login");
     expect(await screen.findByTestId("protected")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /sign in/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /welcome back/i })).not.toBeInTheDocument();
   });
 
   it("uses the user just verified by cookie restoration without a second identity request", async () => {
@@ -111,7 +111,7 @@ describe("auth gate", () => {
       { initialEntries: [{ pathname: "/login", state: { signOut: true } }] },
     );
     render(<RouterProvider router={router} />);
-    expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /welcome back/i })).toBeInTheDocument();
     await waitFor(() => expect(useAuthStore.getState().user).toBeNull());
     expect(router.state.location.pathname).toBe("/login");
   });
@@ -120,12 +120,12 @@ describe("auth gate", () => {
     useAuthStore.setState({ hydrated: false });
     vi.mocked(fetch).mockResolvedValue(new Response("", { status: 401 }));
     renderAt("/login");
-    expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /welcome back/i })).toBeInTheDocument();
   });
 
   it("redirects to /login when unauthenticated", async () => {
     renderAt("/chat");
-    expect(await screen.findByRole("heading", { name: /sign in/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /welcome back/i })).toBeInTheDocument();
     expect(screen.queryByTestId("protected")).not.toBeInTheDocument();
   });
 
@@ -146,7 +146,7 @@ describe("auth gate", () => {
       .mockResolvedValueOnce(new Response(JSON.stringify(SAMPLE_USER)));
     renderAt("/chat/conversation-1?focus=yes#message");
     expect(await screen.findByRole("alert")).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /sign in/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /welcome back/i })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /refresh/i }));
     expect(await screen.findByTestId("protected")).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/auth/refresh"))).toHaveLength(2);
@@ -223,7 +223,7 @@ describe("auth gate", () => {
     );
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("heading", { name: /sign in/i });
+    await screen.findByRole("heading", { name: /welcome back/i });
     await userEvent.type(screen.getByLabelText(/username/i), "alex");
     await userEvent.type(screen.getByLabelText(/^password$/i), "secret12");
     await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
