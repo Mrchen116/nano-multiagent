@@ -2253,158 +2253,120 @@
       }
     },
     "team": {
-      "title": "One piece of work.\nA whole team behind it.",
-      "intro": "A customer adds a request before tomorrow’s meeting. See how you, a colleague, and your AI partners carry it forward together.",
-      "scenario": "Tomorrow’s customer meeting",
-      "example": "Interactive illustration",
-      "chapter": "Step",
-      "stepPicker": "Explore four stages of team collaboration",
-      "plan": "Tomorrow’s demo plan",
-      "previous": "Previous step",
-      "next": "See what happens next",
-      "restart": "Start again",
-      "scope": "Illustrative collaboration, not an execution recording. Roles and access are agreed in advance; private information is shared only as authorized, and people confirm customer commitments.",
-      "rooms": {
-        "personal": {
-          "title": "You & Milo",
-          "subtitle": "Your private chat · Customer goals"
-        },
-        "project": {
-          "title": "Customer project",
-          "subtitle": "Shared chat · Qing owns QA"
-        },
-        "colleague": {
-          "title": "Lan & Noah",
-          "subtitle": "Colleague’s private chat · Product decisions"
-        }
-      },
+      "title": "You get it started.\nYour team carries it forward.",
+      "intro": "One message. A few good partners. Work moving together.",
+      "channel": "Customer project",
+      "example": "Illustrative demo",
+      "you": "You",
+      "lanInitial": "L",
+      "requestTo": "You, to Milo",
+      "request": "The customer wants a mobile demo. Help us get ready for tomorrow.",
+      "start": "Hand it to Milo",
+      "received": "Milo has it. Bringing the team in.",
+      "parallel": "Several things, moving together",
+      "working": "Working",
+      "suggestionFrom": "Lan brings back an option",
+      "suggestion": "View on mobile.\nExport on desktop.",
+      "risk": "Mobile export still needs a fix.",
+      "approve": "Let’s go with that",
+      "sharedResult": "Back in the project chat",
+      "artifact": "Tomorrow’s demo plan",
+      "together": "You and Lan, ready for tomorrow",
+      "aligning": "Carrying the decision into the materials",
+      "continue": "Continue",
+      "pause": "Pause demo",
+      "play": "Resume demo",
+      "replay": "Replay",
+      "scope": "Illustrative scenario · Agreed roles and access · No real messages are sent",
       "actors": {
         "you": {
           "name": "You",
-          "role": "Customer lead",
-          "initial": "Y"
+          "role": "Customer lead"
         },
         "milo": {
           "name": "Milo",
-          "role": "Your PA",
-          "initial": ""
-        },
-        "lan": {
-          "name": "Lan",
-          "role": "Product lead",
-          "initial": "L"
-        },
-        "noah": {
-          "name": "Noah",
-          "role": "Lan’s PA",
-          "initial": ""
+          "role": "Your PA"
         },
         "qing": {
           "name": "Qing",
-          "role": "The team’s QA Agent",
-          "initial": ""
+          "role": "Team QA Agent"
+        },
+        "noah": {
+          "name": "Noah",
+          "role": "Lan’s PA"
+        },
+        "lan": {
+          "name": "Lan",
+          "role": "Product lead"
         }
       },
-      "stages": {
-        "goal": {
-          "label": "Share the goal",
-          "title": "You set the goal. Everyone picks up their part.",
-          "summary": "One piece of work moves from your private chat into the shared project.",
-          "personal": [
-            "The customer wants a mobile demo tomorrow. Help me agree the scope with product and prepare a plan.",
-            "I’ll bring the goal to the project chat and check what we can demonstrate."
-          ],
-          "project": [
-            "The customer wants to see mobile tomorrow. Lan, can we agree on the demo scope?",
-            "I’ll gather the current scope. Qing will check the demo paths."
-          ],
-          "colleague": [
-            "Mobile isn’t fully verified yet. Check what works before making a customer commitment.",
-            "I’ll share the available features and bring the verification results back to you."
-          ],
-          "handoffs": {
-            "personal": "Customer goals enter the project",
-            "project": "Goals meet product constraints",
-            "colleague": "Product context enters the project"
-          },
-          "plan": "Customer goal captured. Available demo scope still to be checked.",
-          "status": "Scope pending",
-          "benefit": "Explain the goal once. The relevant context travels with the handoff."
+      "packets": {
+        "request": "Customer goal",
+        "check": "Check paths",
+        "scope": "Agree scope",
+        "result": "Test results",
+        "plan": "Product plan"
+      },
+      "work": {
+        "brief": "Milo prepares the brief",
+        "scope": "Noah checks the scope",
+        "check": "Qing verifies the demo"
+      },
+      "deliverables": {
+        "steps": "Demo steps",
+        "proof": "Test results",
+        "brief": "Customer brief"
+      },
+      "captions": {
+        "0": "You say the word. Your partners pick it up.",
+        "1": "Your PA brings the right people together.",
+        "2": "Preparation and verification move together.",
+        "3": "When a tradeoff matters, you and your colleague decide.",
+        "4": "One decision. Everyone moves forward.",
+        "5": "One shared plan. A whole team ready."
+      },
+      "states": {
+        "0": {
+          "you": "Set the goal",
+          "milo": "Ready to help",
+          "qing": "Owns QA",
+          "noah": "Knows product progress",
+          "lan": "Owns product decisions"
         },
-        "parallel": {
-          "label": "Work in parallel",
-          "title": "Materials take shape while verification runs.",
-          "summary": "QA finds a risk. The other preparations keep moving.",
-          "personal": [
-            "I’m drafting the customer’s three key questions. The demo order will follow the test results.",
-            "Thanks. I’ll confirm attendees. Bring me the scope when it’s ready."
-          ],
-          "project": [
-            "Viewing data works on mobile, but report export fails. The reproduction notes are ready.",
-            "I’ll bring the risk to Lan and prepare a viable demo scope."
-          ],
-          "colleague": [
-            "Qing found a mobile export issue. I’ve gathered the working paths for your review.",
-            "I’ll assess the impact. Don’t promise full mobile support in the proposal."
-          ],
-          "handoffs": {
-            "personal": "Customer preparation continues",
-            "project": "QA findings reach the product lead",
-            "colleague": "A risk becomes a decision to make"
-          },
-          "plan": "Viewing data works. Mobile export has an issue and cannot yet be promised.",
-          "status": "One risk found",
-          "benefit": "Customer preparation and product verification run in parallel. One open question needn’t hold up everything."
+        "1": {
+          "you": "Goal handed over",
+          "milo": "Goal understood",
+          "qing": "Owns QA",
+          "noah": "Request received",
+          "lan": "Owns product decisions"
         },
-        "decision": {
-          "label": "Decide together",
-          "title": "Bring the decision to the right people.",
-          "summary": "Lan assesses the product. You confirm the customer commitment.",
-          "personal": [
-            "Use mobile to view data and desktop to export. Should I frame the customer plan around that scope?",
-            "Yes. Live data is their priority. Don’t promise mobile export."
-          ],
-          "project": [
-            "We can demo mobile viewing and desktop export. A mobile fix date still needs assessment.",
-            "That fits the customer’s priorities. Please update the demo plan to match."
-          ],
-          "colleague": [
-            "Use this scope. Ask Qing to verify it again; assess the fix date separately.",
-            "I’ll follow the retest and share the agreed scope with Milo."
-          ],
-          "handoffs": {
-            "personal": "You confirm customer commitments",
-            "project": "Both leads agree on one decision",
-            "colleague": "Lan confirms product boundaries"
-          },
-          "plan": "Mobile viewing + desktop export. No promise of mobile export or a fix date.",
-          "status": "Scope agreed",
-          "benefit": "Both leads resolve the tradeoff together, with context from their PAs and evidence from QA."
+        "2": {
+          "you": "Preparing for the customer",
+          "milo": "Drafting the brief",
+          "qing": "Checking demo paths",
+          "noah": "Checking available scope",
+          "lan": "Reviewing test results"
         },
-        "ready": {
-          "label": "Bring it together",
-          "title": "One decision shapes everyone’s next steps.",
-          "summary": "Tests, customer materials, and both leads’ preparations now reflect the same scope.",
-          "personal": [
-            "The demo order and customer brief reflect the agreed scope. Your three talking points are ready.",
-            "I’ll send the customer brief and prepare for tomorrow’s meeting."
-          ],
-          "project": [
-            "Mobile viewing and desktop export passed the retest. Results are attached to the plan.",
-            "The brief and demo steps are aligned, with the mobile export limitation clearly stated."
-          ],
-          "colleague": [
-            "The retest is in the project chat and the materials are aligned. I’ll keep following the export issue.",
-            "Great. I’ll prepare the product Q&A and confirm the fix plan separately."
-          ],
-          "handoffs": {
-            "personal": "You take complete materials to the customer",
-            "project": "Results return to the shared workspace",
-            "colleague": "Your colleague continues their part"
-          },
-          "plan": "Demo steps, test results, and customer brief aligned. The fix remains under follow-up.",
-          "status": "Ready for tomorrow",
-          "benefit": "Everyone moves forward with the same agreed plan, with less relaying and fewer repeated checks."
+        "3": {
+          "you": "Your call",
+          "milo": "Option ready",
+          "qing": "Export issue found",
+          "noah": "Gathering constraints",
+          "lan": "Proposing an alternative"
+        },
+        "4": {
+          "you": "Scope agreed",
+          "milo": "Updating the brief",
+          "qing": "Retesting the paths",
+          "noah": "Sharing the scope",
+          "lan": "Scope agreed"
+        },
+        "5": {
+          "you": "Meet the customer",
+          "milo": "Materials ready",
+          "qing": "Checks passed",
+          "noah": "Plan aligned",
+          "lan": "Prepare product Q&A"
         }
       }
     }

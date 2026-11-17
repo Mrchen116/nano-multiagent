@@ -24,9 +24,8 @@ export function PublicHomePage({ restoreSession = false }: { restoreSession?: bo
   if (restoreSession && hydrated && user) return <Navigate to={accountEnabled(user) ? '/chat' : '/membership'} replace />;
 
   function watch() {
-    setStage(0);
-    document.getElementById('product-demo')?.scrollIntoView({
-      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'center',
+    document.getElementById('teamwork')?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start',
     });
   }
 

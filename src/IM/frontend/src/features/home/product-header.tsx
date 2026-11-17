@@ -14,7 +14,7 @@ export function ProductHeader({ page = 'home', accountName }: {
   const { t } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
-  const sections = [['how-it-works', 'how'], ['teamwork', 'team'], ['getting-started', 'start']] as const;
+  const sections = [['teamwork', 'team'], ['how-it-works', 'how'], ['getting-started', 'start']] as const;
   return <header className={`product-header product-header--${page}`} onKeyDown={event => {
     if (event.key === 'Escape' && menuOpen) { setMenuOpen(false); menuButton.current?.focus(); }
   }}>
