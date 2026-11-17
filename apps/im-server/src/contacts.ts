@@ -40,7 +40,7 @@ function visible(db: DatabaseSync, viewer: Row, rows: Row[]): Row[] {
     const {membership_status: _membership, binding_id, personal_status: _personal, ...contact} = row;
     if (row.kind === 'human') return {user_id:row.user_id,kind:row.kind,display_name:row.display_name};
     if (binding_id) return {user_id:row.user_id,kind:row.kind,display_name:row.display_name,agent_id:row.agent_id,
-      owner_id:row.owner_id,owner_display_name:row.owner_display_name,role:'personal',status:row.status};
+      owner_id:row.owner_id,owner_display_name:row.owner_display_name,role:'personal',status:row.status,work_mode:row.work_mode};
     return contact;
   });
 }

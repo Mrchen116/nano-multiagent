@@ -55,3 +55,14 @@ it('shares live owner and personal-agent eligibility between list and detail', a
   expect((await get('/im/v1/contacts?kind=agent')).json().items.map((r:any)=>r.user_id)).toEqual(['own']);
   expect((await get('/im/v1/contacts/own')).statusCode).toBe(200);
 });
+
+it('preserves personal-agent work mode in list and detail for chat work entry points', async () => {
+  const {db,get,agent} = setup();
+  agent('pa','personal:o1','o1');
+  db.prepare("UPDATE agent_profiles SET work_mode='global' WHERE agent_id='pa'").run();
+  db.prepare("INSERT INTO personal_agent_bindings(binding_id,owner_id,owner_user_id,agent_id,node_id,node_epoch,conversation_id,display_name,request_key,status,created_at) VALUES('pa','o1','u1','pa','n',1,'pa-chat','PA','pa','active','2026-01-01')").run();
+  const detail = (await get('/im/v1/contacts/pa')).json();
+  expect(detail).toMatchObject({agent_id:'pa',role:'personal',work_mode:'global'});
+  expect((await get('/im/v1/contacts?kind=agent')).json().items.find((row:any) => row.agent_id === 'pa')).toEqual(detail);
+  expect(detail).not.toHaveProperty('space_id');
+});
