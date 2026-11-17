@@ -1113,7 +1113,8 @@
       "runningCount": "{{count}} running",
       "waitingCount": "{{count}} awaiting approval",
       "more": "Load more",
-      "open": "Open Work"
+      "open": "Open Work",
+      "computer": "Computer"
     },
     "messagePane": {
       "accessErrorTitle": "Conversation unavailable",

@@ -1112,7 +1112,8 @@
       "runningCount": "{{count}} 个执行中",
       "waitingCount": "{{count}} 个待授权",
       "more": "加载更多",
-      "open": "打开工作记录"
+      "open": "打开工作记录",
+      "computer": "所在电脑"
     },
     "messagePane": {
       "accessErrorTitle": "聊天不可访问",

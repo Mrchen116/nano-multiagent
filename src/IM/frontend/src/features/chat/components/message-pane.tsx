@@ -1288,7 +1288,6 @@ export function MessagePane({
                     workHref={workHrefFor(m)}
                     onActivity={m.sender.type === "agent" && !m.work_record_deleted && globalAgentIds.includes(m.sender.id) ? openActivity : undefined}
                     activityExpanded={activityAnchor?.element.dataset.activityAnchor === m.id}
-                    nodeName={agentNodeNames[m.sender.id]}
                     conversationId={conversation.id}
                     readOnly={conversation.can_write === false}
                     isMobile={isMobile}
@@ -1415,7 +1414,7 @@ export function MessagePane({
       </form>}
 
       {activityAnchor && globalAgentIds.includes(activityAnchor.agentId) && <AgentActivityPopover
-        key={activityAnchor.agentId} anchor={activityAnchor} canConfigure={manageableWorkAgentIds.includes(activityAnchor.agentId)} onClose={closeActivity} />}
+        key={activityAnchor.agentId} anchor={activityAnchor} nodeName={agentNodeNames[activityAnchor.agentId] ?? (activityAnchor.agentId === directAgent?.id ? nodeName : null)} canConfigure={manageableWorkAgentIds.includes(activityAnchor.agentId)} onClose={closeActivity} />}
       {/* feat-484-M1: single pane-level copy snackbar / live region. */}
       {copyNotice && (
         <div
@@ -1862,7 +1861,6 @@ function MessageBubble({
   workHref,
   onActivity,
   activityExpanded,
-  nodeName,
   availableMessageIds,
   conversationId,
   isMobile,
@@ -1889,7 +1887,6 @@ function MessageBubble({
   workHref?: string;
   onActivity?(anchor: AgentActivityAnchor): void;
   activityExpanded?: boolean;
-  nodeName?: string;
   availableMessageIds?: ReadonlySet<string>;
   conversationId: string;
   isMobile?: boolean;
@@ -2126,7 +2123,6 @@ function MessageBubble({
             <span className="chat-bubble-sender" style={{ color: foregroundForAvatar(senderColor) }}>
               {message.sender.display_name ?? message.sender.id}
             </span>
-            {nodeName && !message.pa_agent_id && <small>{nodeName}</small>}
             {message.pa_agent_id ? <span className="pa-delegation pa-delegation--represented">{t('pa.sentOnBehalf')}</span> : message.delegation ? <span className="pa-delegation">{message.delegation.label}</span> : message.sender.role==='personal' && <span className="pa-badge">{t('pa.label')}</span>}
           </div>
         )}
