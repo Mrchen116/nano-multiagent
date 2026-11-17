@@ -1,0 +1,108 @@
+.crew-team { padding: 80px max(40px, calc((100% - 1224px) / 2)); background: #f8f6fc; }
+.crew-team-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 60px; margin-bottom: 36px; }
+.crew-team-heading h2 { font-size: 40px; line-height: 1.35; letter-spacing: -1.4px; font-weight: 550; white-space: pre-line; margin: 0; }
+.crew-team-heading > p { max-width: 375px; margin: 0; font-size: 15px; line-height: 1.9; color: #756886; }
+.crew-team-story { background: #fff; border: 1px solid #e3dced; border-radius: 20px; overflow: hidden; box-shadow: 0 20px 50px -40px #30204955; }
+.team-story-top { padding: 17px 26px; display: flex; justify-content: space-between; align-items: center; gap: 14px; border-bottom: 1px solid #ebe5f1; }
+.team-story-top > span { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 500; }
+.team-story-top svg { width: 17px; height: 17px; color: #866aab; }
+.team-story-top small { font-size: 11px; color: #82758e; white-space: nowrap; }
+.team-steps { display: flex; padding: 24px 28px 0; gap: 12px; }
+.team-steps button { display: flex; align-items: center; gap: 9px; flex: 1; padding: 10px 8px; border-radius: 8px; font-size: 13px; color: #82758e; text-align: left; }
+.team-steps button > span { display: grid; place-items: center; width: 24px; height: 24px; flex: none; border: 1px solid #ddd3e9; border-radius: 50%; font-size: 11px; }
+.team-steps button > svg { width: 15px; height: 15px; margin-left: auto; color: #c1b5cf; }
+.team-steps button > span svg { width: 12px; height: 12px; }
+.team-steps button[aria-pressed='true'] { color: #50367a; background: #f1ebf9; }
+.team-steps button[aria-pressed='true'] > span { background: #6b43d8; border-color: #6b43d8; color: white; }
+.team-steps button:hover { background: #f7f4fb; }
+.team-scene-summary { padding: 25px 36px 28px; }
+.team-scene-summary > span { font-size: 11px; color: #8c7d9b; }
+.team-scene-summary h3 { font-size: 23px; line-height: 1.5; font-weight: 550; letter-spacing: -.5px; margin: 9px 0 5px; }
+.team-scene-summary p { margin: 0; font-size: 13px; line-height: 1.8; color: #756886; }
+.team-rooms { display: grid; grid-template-columns: 1fr 1.2fr 1fr; border-top: 1px solid #ebe5f1; border-bottom: 1px solid #ebe5f1; }
+.team-room { min-width: 0; display: flex; flex-direction: column; }
+.team-room--personal { background: #fff9e6; }
+.team-room--project { background: #fff; border-inline: 1px solid #ebe5f1; }
+.team-room--colleague { background: #eef6f1; }
+.team-room > header { display: flex; gap: 9px; align-items: center; padding: 22px 24px 18px; }
+.team-room-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; background: #f5e7b3; color: #8a6a26; flex: none; }
+.team-room--project .team-room-icon { background: #eee9f8; color: #7a5c9d; }
+.team-room--colleague .team-room-icon { background: #d5eadd; color: #43775e; }
+.team-room-icon svg { width: 14px; height: 14px; }
+.team-room h4 { font-size: 14px; font-weight: 550; margin: 0; }
+.team-room header p { font-size: 10px; color: #82758e; margin: 5px 0 0; }
+.team-room-messages { padding: 0 24px 10px; flex: 1; }
+.team-message { margin: 4px 0 20px; }
+.team-message-author { display: flex; align-items: center; gap: 8px; }
+.team-face { width: 30px; height: 30px; display: inline-grid; place-items: center; flex: none; border-radius: 10px; background: #eadcf5; color: #705488; font-size: 11px; }
+.team-face--you { background: #f0d8b7; color: #855c29; border-radius: 50%; }
+.team-face--lan { background: #cfddf0; color: #4e6b91; border-radius: 50%; }
+.team-face--milo { background: #f5df94; color: #8d6b24; }
+.team-face--noah { background: #cce5d8; color: #43775e; }
+.team-face--qing { background: #e5ddf7; color: #7959a5; }
+.team-face svg { width: 17px; height: 17px; }
+.team-message-author strong { display: block; font-size: 12px; font-weight: 550; }
+.team-message-author small { display: block; color: #82758e; font-size: 10px; margin-top: 2px; }
+.team-message > p { font-size: 13px; line-height: 1.8; margin: 10px 0 0 38px; color: #61516f; }
+.team-room--project .team-message > p { margin-left: 0; background: #f6f3fb; padding: 12px 14px; border-radius: 2px 10px 10px; }
+.is-parallel .team-room--project .team-message:first-child > p { background: #fff4dc; color: #856029; }
+.team-room-handoff { display: flex; align-items: flex-start; gap: 6px; margin: 0 24px; padding: 14px 0 18px; border-top: 1px solid #30204912; font-size: 11px; line-height: 1.7; color: #7b6a8a; }
+.team-room-handoff svg { width: 13px; height: 13px; flex: none; margin-top: 3px; }
+.team-shared-plan { display: flex; align-items: center; gap: 14px; padding: 21px 30px; }
+.team-plan-icon { display: grid; place-items: center; width: 34px; height: 40px; border: 1px solid #dfd6eb; border-radius: 5px; color: #80639e; flex: none; }
+.team-plan-icon svg { width: 18px; height: 18px; }
+.team-shared-plan strong { font-size: 13px; font-weight: 550; }
+.team-shared-plan p { margin: 5px 0 0; font-size: 12px; line-height: 1.7; color: #82758e; }
+.team-plan-status { margin-left: auto; font-size: 11px; color: #8e722d; white-space: nowrap; display: flex; align-items: center; gap: 5px; }
+.team-plan-status svg { width: 14px; height: 14px; }
+.team-plan-status.is-ready { color: #3c7b60; }
+.team-story-controls { padding: 20px 28px; background: #faf8fd; border-top: 1px solid #ebe5f1; display: flex; align-items: center; justify-content: space-between; gap: 30px; }
+.team-story-controls > p { font-size: 13px; line-height: 1.8; color: #756886; margin: 0; }
+.team-story-controls > div { display: flex; gap: 8px; flex: none; }
+.team-story-controls button { display: flex; align-items: center; justify-content: center; height: 38px; border-radius: 7px; }
+.team-back { width: 38px; color: #79648e; border: 1px solid #e1d7ed; }
+.team-back:disabled { opacity: .35; cursor: default; }
+.team-next { gap: 10px; padding: 0 15px; background: #302049; color: white; font-size: 12px; }
+.team-next:hover { background: #4b326b; }
+.team-story-controls svg { width: 14px; height: 14px; }
+.crew-team button:focus-visible { outline: 2px solid #8b6cba; outline-offset: 3px; }
+.team-scene-note { font-size: 11px; line-height: 1.8; color: #8c7d9b; text-align: center; margin: 18px 0 0; }
+@media (max-width: 1000px) {
+  .crew-team { padding-inline: 28px; }
+  .crew-team-heading { gap: 30px; }
+  .crew-team-heading h2 { font-size: 34px; }
+  .crew-team-heading > p { max-width: 300px; font-size: 14px; }
+  .team-rooms { grid-template-columns: 1fr 1.1fr 1fr; }
+  .team-room > header { padding-inline: 16px; }
+  .team-room-messages { padding-inline: 16px; }
+  .team-room-handoff { margin-inline: 16px; }
+  .team-message > p { margin-left: 0; }
+}
+@media (max-width: 767px) {
+  .crew-team { padding: 56px 20px; }
+  .crew-team-heading { display: block; margin-bottom: 26px; }
+  .crew-team-heading h2 { font-size: 30px; letter-spacing: -.8px; }
+  .crew-team-heading > p { max-width: none; margin-top: 15px; }
+  .team-story-top { padding: 16px; align-items: flex-start; }
+  .team-story-top > span { font-size: 12px; }
+  .team-story-top svg { flex: none; }
+  .team-story-top small { font-size: 10px; }
+  .team-steps { display: grid; grid-template-columns: 1fr 1fr; padding: 16px 12px 0; gap: 5px; }
+  .team-steps button { font-size: 12px; gap: 7px; }
+  .team-steps button > svg { display: none; }
+  .team-scene-summary { padding: 21px 20px; }
+  .team-scene-summary h3 { font-size: 20px; }
+  .team-rooms { grid-template-columns: 1fr; }
+  .team-room--project { border-inline: 0; border-block: 1px solid #ebe5f1; }
+  .team-room > header { padding: 20px 20px 16px; }
+  .team-room-messages { padding-inline: 20px; }
+  .team-message > p { margin-left: 38px; }
+  .team-room-handoff { margin-inline: 20px; }
+  .team-shared-plan { padding: 20px; flex-wrap: wrap; gap: 10px; }
+  .team-shared-plan > div { flex: 1; min-width: 0; }
+  .team-plan-status { flex-basis: 100%; margin-left: 44px; }
+  .team-story-controls { padding: 18px 20px; display: block; }
+  .team-story-controls > div { margin-top: 16px; justify-content: flex-end; }
+  .team-story-controls button { min-height: 44px; }
+  .team-scene-note { text-align: left; }
+}

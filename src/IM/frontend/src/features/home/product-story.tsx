@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { ChevronDown, Laptop } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { CompanionScene } from './companion-scene';
+import { TeamScene } from './team-scene';
 import './product-story.css';
 
 /** Keep the public story centered on visible ongoing work and a clear way to start. */
@@ -10,6 +11,7 @@ export function ProductStorySections() {
   const text = (key: string) => t(`crewdenStory.${key}`);
   return <>
     <CompanionScene />
+    <TeamScene />
     <section className="crew-setup-section" id="getting-started" aria-labelledby="crew-setup-title">
       <div className="crew-section-heading"><h2 id="crew-setup-title">{text('setup.title')}</h2><p>{text('setup.intro')}</p></div>
       <ol className="crew-setup-steps">{['account', 'computer', 'assistant'].map((key, index) => <li key={key}><span>{index + 1}</span><div><h3>{text(`setup.${key}.title`)}</h3><p>{text(`setup.${key}.body`)}</p></div></li>)}</ol>

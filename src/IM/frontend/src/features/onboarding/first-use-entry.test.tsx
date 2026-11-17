@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { appRoutes } from '../../app/router';
@@ -57,6 +57,17 @@ it('explains the product before sign-in, with a local demo that cannot execute a
   expect(screen.getByRole('tabpanel')).toHaveTextContent('Weekend checklist.md');
   expect(screen.getByRole('tabpanel')).toHaveTextContent('Milo');
   expect(screen.getByRole('heading',{name:/Start with a space of your own/})).toBeInTheDocument();
+  const team = within(screen.getByRole('region', { name: /One piece of work/ }));
+  expect(team.getByText('Scope pending')).toBeInTheDocument();
+  await userEvent.click(team.getByRole('button', { name: 'See what happens next' }));
+  expect(team.getByText('One risk found')).toBeInTheDocument();
+  await userEvent.click(team.getByRole('button', { name: 'See what happens next' }));
+  expect(team.getByText('Scope agreed')).toBeInTheDocument();
+  await userEvent.click(team.getByRole('button', { name: 'See what happens next' }));
+  expect(team.getByText('Ready for tomorrow')).toBeInTheDocument();
+  expect(team.getByText('I’ll send the customer brief and prepare for tomorrow’s meeting.')).toBeInTheDocument();
+  await userEvent.click(team.getByRole('button', { name: 'Start again' }));
+  expect(team.getByRole('button', { name: 'Previous step' })).toBeDisabled();
   expect(fetch).not.toHaveBeenCalled();
   expect(screen.getAllByRole('link',{name:/Create account/})[0]).toHaveAttribute('href','/register');
   screen.getByRole('combobox',{name:'Language'}).focus();
