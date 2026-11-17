@@ -1195,7 +1195,11 @@ export function MessagePane({
         <div className="chat-pane-header-body">
           <h2 className="chat-pane-title">{conversation.title}</h2>
           <div className="chat-pane-header-meta">
-            {!isMobile && (
+            {conversation.type === 'group' ? (
+              !conversation.is_observer && onOpenConfig
+                ? <button type="button" className="chat-pane-member-count" onClick={onOpenConfig}>{t('chat.groupSettings.memberCount', { count: conversation.participants.length })}<span aria-hidden> ›</span></button>
+                : <span className="chat-pane-participants">{t('chat.groupSettings.memberCount', { count: conversation.participants.length })}</span>
+            ) : !isMobile && (
               <span className="chat-pane-participants">
                 {conversation.participants.map((p, i) => (
                   <span

@@ -164,3 +164,13 @@ it("does not grant visibility changes from group creator identity alone", () => 
   renderSettings({visibility:"public",canChangeVisibility:false});
   expect(screen.getByRole("combobox", { name: "Visibility" })).toBeDisabled();
 });
+
+ it('exposes pin and mute as labelled switches with unchanged preference actions', async () => {
+  const change = vi.fn().mockResolvedValue(undefined);
+  renderSettings({onPreferenceChange:change,isPinned:false,isMuted:true});
+  expect(screen.getByRole('switch', {name:'Mute chat'})).toBeChecked();
+  await userEvent.click(screen.getByRole('switch', {name:'Pin chat'}));
+  expect(change).toHaveBeenCalledWith({is_pinned:true});
+  await userEvent.click(screen.getByRole('switch', {name:'Mute chat'}));
+  expect(change).toHaveBeenCalledWith({is_muted:false});
+});

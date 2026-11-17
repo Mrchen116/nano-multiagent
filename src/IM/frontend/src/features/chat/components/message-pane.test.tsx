@@ -71,6 +71,16 @@ const MENTION_CANDIDATES: MentionCandidate[] = [
 ];
 
 describe("MessagePane", () => {
+  it.each([false, true])('keeps a large group header compact and opens its member details (mobile=%s)', async isMobile => {
+    const members = Array.from({length: 100}, (_, i) => ({type: 'user' as const, id: `member-${i}`, display_name: `Member ${i}`}));
+    const open = vi.fn();
+    const { container } = render(<MessagePane conversation={{...GROUP_CONV, participants:members}} messages={[]} mentionCandidates={[]} onSend={() => {}} onOpenConfig={open} isMobile={isMobile} />);
+    const header = within(container.querySelector('.chat-pane-header')! as HTMLElement);
+    expect(header.queryByText('Member 0')).not.toBeInTheDocument();
+    await userEvent.click(header.getByRole('button', {name: '100 members'}));
+    expect(open).toHaveBeenCalledOnce();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

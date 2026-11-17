@@ -353,11 +353,19 @@ export function GroupSettings(props: GroupSettingsProps) {
     </button>
   );
 
-  const visibilityControl = props.visibility && <label className="group-settings-preferences">{t("tasks.visibility")}<select aria-label={t("tasks.visibility")} value={props.visibility} disabled={!props.canChangeVisibility || readOnly || isBusy} onChange={e => void runAction(() => props.onVisibilityChange?.(e.target.value as "public" | "private"))}><option value="public">{t("tasks.public")}</option><option value="private">{t("tasks.private")}</option></select></label>;
-  const preferences = onPreferenceChange ? <div className="group-settings-preferences">
-    <label><input type="checkbox" disabled={readOnly} checked={!!isPinned} onChange={e => void runAction(() => onPreferenceChange({is_pinned:e.target.checked}))}/>{t("chat.preferences.pin")}</label>
-    <label><input type="checkbox" disabled={readOnly} checked={!!isMuted} onChange={e => void runAction(() => onPreferenceChange({is_muted:e.target.checked}))}/>{t("chat.preferences.mute")}</label>
-  </div> : null;
+  const settingsControls = (props.visibility || onPreferenceChange) && <div className="group-settings-controls">
+    {props.visibility && <label className="group-settings-control group-settings-control--visibility">
+      <span>{t('tasks.visibility')}</span>
+      <select className="group-settings-select" aria-label={t('tasks.visibility')} value={props.visibility} disabled={!props.canChangeVisibility || readOnly || isBusy}
+        onChange={e => void runAction(() => props.onVisibilityChange?.(e.target.value as 'public' | 'private'))}>
+        <option value="public">{t('tasks.public')}</option><option value="private">{t('tasks.private')}</option>
+      </select>
+    </label>}
+    {onPreferenceChange && <>
+      <label className="group-settings-control"><span>{t('chat.preferences.pin')}</span><input className="group-settings-switch" type="checkbox" role="switch" disabled={readOnly || isBusy} checked={!!isPinned} onChange={e => void runAction(() => onPreferenceChange({is_pinned:e.target.checked}))} /></label>
+      <label className="group-settings-control"><span>{t('chat.preferences.mute')}</span><input className="group-settings-switch" type="checkbox" role="switch" disabled={readOnly || isBusy} checked={!!isMuted} onChange={e => void runAction(() => onPreferenceChange({is_muted:e.target.checked}))} /></label>
+    </>}
+  </div>;
 
   // ─── Mobile: full-screen add picker takes over the whole screen ────────────
   if (isMobile && adding) {
@@ -432,7 +440,7 @@ export function GroupSettings(props: GroupSettingsProps) {
             </ul>
           </div>
           <div className="group-settings-group">
-            {visibilityControl}{preferences}
+            {settingsControls}
             <div className="group-settings-card group-settings-card--danger">{dissolveBlock}</div>
           </div>
         </div>
@@ -459,44 +467,46 @@ export function GroupSettings(props: GroupSettingsProps) {
           <div className="group-settings-meta">{t("chat.groupSettings.memberCount", { count: members.length })}</div>
         </div>
 
-        {errorBanner}
+        <div className="group-settings-content">
+          {errorBanner}
 
-        <div className="group-settings-section">
-          <span className="group-settings-section-label">
-            {t("chat.groupSettings.members")} · {members.length}
-          </span>
-          {!adding && !readOnly && (
-            <button type="button" className="group-settings-add-link" onClick={() => setAdding(true)}>
-              ＋ {t("chat.groupSettings.addMembers")}
-            </button>
-          )}
-        </div>
-
-        {adding && (
-          <div className="group-settings-addbox">
-            <div className="group-settings-addbox-head">{t("chat.groupSettings.addMembersTitle")}</div>
-            <div className="group-settings-pick-list">{pickerRows}</div>
-            {addableAgents.length > 0 && (
-              <div className="group-settings-addbox-foot">
-                <button
-                  type="button"
-                  className="chat-modal-btn-primary"
-                  disabled={selectedAgentIds.length === 0 || isBusy}
-                  onClick={submitAdd}
-                >
-                  {t("chat.groupSettings.addCount", { count: selectedAgentIds.length })}
-                </button>
-                <button type="button" className="chat-modal-btn-ghost" onClick={closeAdd}>
-                  {t("chat.groupSettings.cancel")}
-                </button>
-              </div>
+          <div className="group-settings-section">
+            <span className="group-settings-section-label">
+              {t("chat.groupSettings.members")} · {members.length}
+            </span>
+            {!adding && !readOnly && (
+              <button type="button" className="group-settings-add-link" onClick={() => setAdding(true)}>
+                ＋ {t("chat.groupSettings.addMembers")}
+              </button>
             )}
           </div>
-        )}
 
-        <ul className="group-settings-list">{members.map(memberRow)}</ul>
+          {adding && (
+            <div className="group-settings-addbox">
+              <div className="group-settings-addbox-head">{t("chat.groupSettings.addMembersTitle")}</div>
+              <div className="group-settings-pick-list">{pickerRows}</div>
+              {addableAgents.length > 0 && (
+                <div className="group-settings-addbox-foot">
+                  <button
+                    type="button"
+                    className="chat-modal-btn-primary"
+                    disabled={selectedAgentIds.length === 0 || isBusy}
+                    onClick={submitAdd}
+                  >
+                    {t("chat.groupSettings.addCount", { count: selectedAgentIds.length })}
+                  </button>
+                  <button type="button" className="chat-modal-btn-ghost" onClick={closeAdd}>
+                    {t("chat.groupSettings.cancel")}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
-        {visibilityControl}{preferences}
+          <ul className="group-settings-list">{members.map(memberRow)}</ul>
+
+          {settingsControls}
+        </div>
         <div className="group-settings-danger-zone">{dissolveBlock}</div>
       </aside>
     </>
