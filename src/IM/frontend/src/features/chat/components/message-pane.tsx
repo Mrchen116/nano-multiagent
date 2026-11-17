@@ -50,11 +50,11 @@ import {
   type TimelineItem
 } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName, initialsOf } from "./avatar";
-import { KindBadge } from "./kind-badge";
 import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { DirectConversationMenu } from "./direct-conversation-menu";
 import { NodeChip } from "./node-chip";
+import { nodeUpdateLabel } from "../../settings/nodes/node-update-panel";
 import type { NodeUpdateView } from '../../settings/im-settings-api';
 import { PermissionCard } from "./permission-card";
 import { SlashPicker } from "./slash-picker";
@@ -125,7 +125,7 @@ export interface MessagePaneProps {
   agentColor?: string | null;
   /** Agent initials for header avatar (direct-agent conversations). */
   agentInitials?: string | null;
-  /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
+  /** Mobile navigation and touch-sized conversation actions. */
   isMobile?: boolean;
   onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string, replyToMessageId?: string): void | Promise<void | Message>;
   /** Merge a previously committed send through the same message-id projection as HTTP success. */
@@ -221,7 +221,7 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
 
 /**
  * Right-hand message pane — header (avatar / title / participants / node chip /
- * kind badge / ⚙) + messages list + composer (with @mention picker for groups).
+ * conversation actions) + messages list + composer (with @mention picker for groups).
  *
  * The component is fully controlled by the caller for `messages` and the
  * `onSend` callback fires when the user hits Send or desktop Enter. The composer holds
@@ -1199,29 +1199,13 @@ export function MessagePane({
           >{headerAvatar}</button> : headerAvatar}
         <div className="chat-pane-header-body">
           <h2 className="chat-pane-title">{conversation.title}</h2>
-          <div className="chat-pane-header-meta">
-            {conversation.type === 'group' ? (
-              !conversation.is_observer && onOpenConfig
-                ? <button type="button" className="chat-pane-member-count" onClick={onOpenConfig}>{t('chat.groupSettings.memberCount', { count: conversation.participants.length })}<span aria-hidden> ›</span></button>
-                : <span className="chat-pane-participants">{t('chat.groupSettings.memberCount', { count: conversation.participants.length })}</span>
-            ) : !isMobile && (
-              <span className="chat-pane-participants">
-                {conversation.participants.map((p, i) => (
-                  <span
-                    key={p.id}
-                    className={p.is_stale ? "opacity-40" : undefined}
-                    title={p.is_deleted ? t("chat.deletedAgent") : p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
-                  >
-                    {p.display_name ?? p.id}
-                    {i < conversation.participants.length - 1 ? " · " : ""}
-                  </span>
-                ))}
-              </span>
-            )}
-            {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} nodeId={nodeId} update={nodeUpdate} />}
-          </div>
+          {isGroup && <div className="chat-pane-header-meta">
+            {!conversation.is_observer && onOpenConfig
+              ? <button type="button" className="chat-pane-member-count" onClick={onOpenConfig}>{t('chat.groupSettings.memberCount', { count: conversation.participants.length })}<span aria-hidden> ›</span></button>
+              : <span className="chat-pane-participants">{t('chat.groupSettings.memberCount', { count: conversation.participants.length })}</span>}
+          </div>}
+          {kind === "direct-agent" && nodeUpdateLabel(nodeUpdate) && <NodeChip nodeName={nodeName} status={nodeStatus} nodeId={nodeId} update={nodeUpdate} />}
         </div>
-        {personalAgent ? !isMobile && <span className="pa-badge">{t('pa.label','个人助手')}</span> : !isMobile && !isGroup && <KindBadge kind={kind} />}
         {conversation.type === "direct" && conversation.can_write !== false && onRename ? (
           <DirectConversationMenu key={conversation.id} title={conversation.title}
             onRename={onRename} onOpenConfig={onOpenConfig} configLabel={configLabel}
@@ -1299,6 +1283,7 @@ export function MessagePane({
                     participants={conversation.participants}
                     isDirectChat={isDirectChat}
                     isGroup={isGroup}
+                    showSender={isGroup || Boolean(conversation.is_observer)}
                     agentOnline={agentOnline}
                     onReply={composerBusy ? undefined : replyToMessage}
                     onFork={onFork}
@@ -1879,13 +1864,14 @@ function MessageBubble({
   onCopyRequest,
   onMenuRequest,
   onSheetRequest,
-  interactiveReadOnly, interactiveSubmissionId, onInteractionSend, onComposeMessage, isGroup = false,
+  interactiveReadOnly, interactiveSubmissionId, onInteractionSend, onComposeMessage, isGroup = false, showSender = true,
 }: {
   message: Message;
   historyProcess?: MessagePaneProps["historyProcess"];
   onComposeMessage?(target: string, text: string): Promise<void>;
   interactiveReadOnly?: boolean;
   isGroup?: boolean;
+  showSender?: boolean;
   interactiveSubmissionId?: string;
   onInteractionSend(input: InteractionReplyInput, key: string): Promise<unknown>;
   selfUserId?: string | null;
@@ -2124,12 +2110,12 @@ function MessageBubble({
         onClick={event => onActivity({agentId: message.sender.id, name: message.sender.display_name ?? message.sender.id, element: event.currentTarget})}
       >{messageAvatar}</button> : messageAvatar)}
       <div className="chat-bubble-column flex flex-col min-w-0">
-        {(!isUser || message.pa_agent_id) && (
+        {(!isUser || message.pa_agent_id) && (showSender || message.pa_agent_id || message.delegation) && (
           <div className="chat-bubble-meta" aria-label={message.pa_agent_id ? t('pa.senderLabel', {name:message.sender.display_name ?? message.sender.id}) : undefined}>
             <span className="chat-bubble-sender" style={{ color: foregroundForAvatar(senderColor) }}>
               {message.sender.display_name ?? message.sender.id}
             </span>
-            {message.pa_agent_id ? <span className="pa-delegation pa-delegation--represented">{t('pa.sentOnBehalf')}</span> : message.delegation ? <span className="pa-delegation">{message.delegation.label}</span> : message.sender.role==='personal' && <span className="pa-badge">{t('pa.label')}</span>}
+            {message.pa_agent_id ? <span className="pa-delegation pa-delegation--represented">{t('pa.sentOnBehalf')}</span> : message.delegation ? <span className="pa-delegation">{message.delegation.label}</span> : null}
           </div>
         )}
         <div
