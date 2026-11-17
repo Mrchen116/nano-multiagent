@@ -1631,7 +1631,26 @@
     "bindDescription": "This computer will connect to your personal space and run the assistants you create.",
     "bindAccept": "Connect this computer",
     "bindAccount": "Signed in as",
-    "bindComplete": "Your computer is connected."
+    "bindComplete": "Your computer is connected.",
+    "bindWorkspace": "Your computer.\nYour assistant’s workspace.",
+    "bindSceneDetail": "A place to turn ideas into work, and keep things moving.",
+    "bindSceneFoot": "This computer joins your account only after you confirm.",
+    "bindComputer": "Computer to connect",
+    "bindLoading": "Loading computer details…",
+    "bindConfirmLabel": "Confirm connection",
+    "bindConnectingLabel": "Connecting",
+    "bindConnectedLabel": "Connected",
+    "bindConnectingTitle": "Preparing your assistant’s workspace",
+    "bindConnectedTitle": "Your computer is ready",
+    "bindConnectedNote": "Next, connect a model and give your personal assistant a name.",
+    "bindWaitingNote": "Your account is confirmed. Keep the installer open on your computer until the connection is complete.",
+    "bindProgress": "Connection progress",
+    "bindAccountCheck": "Confirm the account",
+    "bindAccountHint": "Make sure this is the account you want to use",
+    "bindAccountDone": "Confirmed by you",
+    "bindComputerCheck": "Connect the computer",
+    "bindComputerHint": "This page updates when your computer finishes connecting",
+    "bindComputerDone": "Your computer has finished connecting"
   },
   "nodeUpdate": {
     "available": {
@@ -1963,7 +1982,7 @@
   "crewdenHome": {
     "titleFirst": "Your team.",
     "titleSecond": "With AI colleagues.",
-    "intro": "Bring teammates, personal assistants, and specialist AI colleagues into the same conversations — from discussion and coordination to delivered work.",
+    "intro": "Your personal assistant looks after work and life. Specialist AI colleagues bring their craft. Together in one chat space, they follow through and bring the results back.",
     "watch": "See it in action",
     "scenario": "A new release date. One team moving together.",
     "navigation": "Collaboration demo stages",
@@ -2068,8 +2087,8 @@
   },
   "crewdenStory": {
     "nav": {
-      "how": "How it works",
-      "capabilities": "Capabilities",
+      "how": "Meet your AI partners",
+      "capabilities": "How work continues",
       "start": "Getting started",
       "home": "Product home",
       "faq": "Questions",
@@ -2077,120 +2096,9 @@
       "menuClose": "Close site navigation"
     },
     "example": "Product example",
-    "team": {
-      "title": "You set the direction.\nAI has a part to play.",
-      "intro": "Talk with your teammates, let your assistant follow your work, and give specialist AI colleagues clear responsibilities.",
-      "navigation": "Explore team roles",
-      "workspace": "Crewden workspace",
-      "private": "Your space",
-      "shared": "Team conversations",
-      "pa": "Your assistant",
-      "release": "Product release",
-      "quality": "Release quality",
-      "privateNote": "Private conversations stay separate",
-      "you": "You",
-      "youInitial": "Y",
-      "onlyYou": "Private conversation",
-      "group": "Team conversation",
-      "composer": "Continue the conversation…",
-      "people": {
-        "title": "You and your team",
-        "summary": "Discuss, decide, and work alongside AI.",
-        "detail": "People and digital colleagues share the same conversations. Decisions, responsibilities, and results stay together, so the right people can follow up, adjust, and approve.",
-        "channel": "Product release",
-        "request": "I’ll coordinate the release. My assistant will handle customer notes, and QA will own regression checks.",
-        "replyName": "QA colleague",
-        "reply": "I’ll take the regression checks and report issues and results here. I’ll flag decisions that need your review.",
-        "result": "Release preparation",
-        "resultNote": "Owners, progress, and results together"
-      },
-      "assistant": {
-        "title": "Your personal assistant",
-        "summary": "Follow what matters, from your point of view.",
-        "detail": "Your assistant uses conversations you allow it to access and context you have shared to track changes and prepare work. Joining a team does not make your private conversations public.",
-        "channel": "Your personal assistant",
-        "request": "I promised the client an update on Thursday. Follow the release discussion and prepare a draft for me.",
-        "replyName": "Your personal assistant",
-        "reply": "I’ll follow the discussion, collect the schedule and release changes, and bring you a draft. Sending it to others will follow your authorization.",
-        "result": "Customer update · Draft",
-        "resultNote": "Based on release discussions, ready for your review"
-      },
-      "colleagues": {
-        "title": "Specialist AI colleagues",
-        "summary": "Own ongoing responsibilities across a team.",
-        "detail": "Give digital colleagues a role, work environment, and capabilities. They can handle multiple matters in their field, collaborate across conversations, and retain relevant work context.",
-        "channel": "Release quality",
-        "request": "Please own regression checks for upcoming releases. Focus on export and permissions, and retest when fixes arrive.",
-        "replyName": "QA colleague",
-        "reply": "I’ll follow that scope. I’m checking the export fix now; I’ll return to permissions when engineering sends the update.",
-        "result": "Release quality record",
-        "resultNote": "Export being checked · Permissions awaiting input"
-      }
-    },
-    "continuity": {
-      "title": "Work moves forward.\nContext stays with it.",
-      "intro": "Turn a request into ongoing collaboration: follow changes, keep track of what’s waiting, and carry experience into the next task.",
-      "context": {
-        "title": "Keep up with relevant conversations",
-        "body": "Read new messages within the access you allow, and bring changes in dates, requirements, and decisions into ongoing work."
-      },
-      "parallel": {
-        "title": "Keep moving while something waits",
-        "body": "Handle independent matters in parallel. Work awaiting a reply or fix keeps a follow-up plan without blocking what can move forward."
-      },
-      "memory": {
-        "title": "Start the next conversation with context",
-        "body": "Build on confirmed preferences, project knowledge, and work experience. Use that context again, and revise it when new facts arrive."
-      },
-      "control": {
-        "title": "See progress and steer the work",
-        "body": "See who is working on what, find blockers, and inspect results and execution. Add context, change direction, or stop when needed."
-      },
-      "exampleLabel": "Example of ongoing work and memory",
-      "journalTitle": "Your assistant · Work notes",
-      "today": "Today, continuing release preparation",
-      "changeTitle": "New release date, updated work",
-      "changeBody": "Read the product discussion and updated the customer notes for Friday.",
-      "changeSource": "From the “Product release” conversation",
-      "running": "Working",
-      "waiting": "Waiting",
-      "prepared": "Ready",
-      "taskOne": "Update customer notes",
-      "taskOneNote": "Schedule and release changes collected",
-      "taskTwo": "Retest permissions",
-      "taskTwoNote": "Continue when engineering sends the fix",
-      "taskThree": "Summarize weekly progress",
-      "taskThreeNote": "Draft delivered to your private conversation",
-      "memoryLabel": "Context for the next collaboration",
-      "memoryExample": "Lead customer updates with the conclusion, then risks. Ask the owner to review before sending.",
-      "memorySource": "Source: your confirmed working preferences",
-      "delivery": "Weekly progress.md · Ready for review"
-    },
-    "uses": {
-      "title": "Give your team something to work on.",
-      "intro": "Start with a clear goal and responsibilities. Here are a few ways to put them to work.",
-      "product": {
-        "title": "Product and engineering",
-        "request": "“The release moved. Keep the notes and verification in sync.”",
-        "outcome": "Your assistant collects changes while engineering and QA colleagues work on fixes and checks. Results come back to the release conversation.",
-        "artifact": "Release plan and verification record"
-      },
-      "projects": {
-        "title": "Clients and projects",
-        "request": "“Follow up on this week’s commitments and draft a client update.”",
-        "outcome": "Check agreements and progress in authorized conversations, flag what is still waiting, and bring you an update to review.",
-        "artifact": "Project progress and customer update"
-      },
-      "research": {
-        "title": "Research and decisions",
-        "request": "“Investigate the options and give me a recommendation with sources.”",
-        "outcome": "Explore directions in parallel, preserve sources and differing conclusions, and bring comparisons, open questions, and recommendations together.",
-        "artifact": "A comparison with supporting sources"
-      }
-    },
     "setup": {
       "title": "Start with a space of your own.",
-      "intro": "You can begin on your own. Build a working relationship with your assistant, then collaborate with people and digital colleagues as needed.",
+      "intro": "Start with your own assistant. Bring in people and specialist Agents when you need them.",
       "account": {
         "title": "Create an account",
         "body": "Get your personal space. Explore first, or continue straight into setup."
@@ -2231,6 +2139,121 @@
       "roles": {
         "question": "Are specialist roles already set up for me?",
         "answer": "You can create and configure digital colleagues with responsibilities, models, work environments, and tools for your needs. The engineering and QA roles shown here illustrate collaboration; signing up does not automatically configure or validate those roles."
+      }
+    },
+    "companions": {
+      "title": "Your own assistant.\nAI colleagues with a craft.",
+      "intro": "Both remember context, follow up proactively, and keep several things moving across chats.",
+      "rolePicker": "Meet your ongoing AI partners",
+      "workspace": "Working together in Crewden",
+      "example": "Interactive illustration",
+      "chats": "Related chats",
+      "chatPicker": "Switch chats to see the same Agent at work",
+      "switchHint": "Pick a chat to see what happens",
+      "sharedChat": "A change in a shared chat",
+      "earlier": "Agreed earlier",
+      "newMessage": "Just now",
+      "proactive": "A new development. Work continues.",
+      "continued": "Following through",
+      "returnTo": "Delivered to",
+      "ongoing": "Also working on",
+      "memory": "Remembered from working together",
+      "sameAgent": "Different chats. The same partner.",
+      "remember": "Remembers what came before",
+      "notice": "Follows up when things change",
+      "coordinate": "Coordinates across chats and tasks",
+      "scope": "Illustrative examples. Your AI partners work within accessible chats and your permissions. Their computer needs to stay online.",
+      "personal": {
+        "title": "Personal assistant",
+        "subtitle": "Works for you, across work and life",
+        "name": "Milo",
+        "identity": "Your personal assistant",
+        "duty": "Keep up with my commitments and everyday plans.",
+        "memory": "Lead with the conclusion in client updates.",
+        "chats": {
+          "first": {
+            "channel": "Product launch",
+            "preview": "Launch moved to Friday",
+            "author": "Lin",
+            "agreement": "“Keep client updates in step with any launch changes.”",
+            "message": "The launch is moving to Friday. The client update needs to reflect that.",
+            "result": "I updated the client draft for Friday and brought it back to our private chat.",
+            "artifact": "Client update.md",
+            "destination": "your private chat with Milo",
+            "task": "Client update",
+            "progress": "Updated, ready for your review"
+          },
+          "second": {
+            "channel": "Weekend plans",
+            "preview": "Meeting time changed",
+            "author": "Chen",
+            "agreement": "“Keep my preparation checklist up to date as our plans change.”",
+            "message": "Let’s meet Saturday morning instead. I’ll share the new address here too.",
+            "result": "I revised your checklist for the new time and place. It’s in our private chat alongside your client update.",
+            "artifact": "Weekend checklist.md",
+            "destination": "your private chat with Milo",
+            "task": "Weekend preparation",
+            "progress": "Checklist ready"
+          },
+          "third": {
+            "channel": "Options discussion",
+            "preview": "Another option to compare",
+            "author": "Jo",
+            "agreement": "“Keep the options comparison current, with sources.”",
+            "message": "The second option is now cheaper. It’s worth considering with this budget.",
+            "result": "I added the new price and differences to the comparison, alongside the other things I’m following for you.",
+            "artifact": "Options comparison.md",
+            "destination": "your private chat with Milo",
+            "task": "Options research",
+            "progress": "New information included"
+          }
+        }
+      },
+      "specialist": {
+        "title": "Specialist Agent",
+        "subtitle": "Owns a role, works across teams",
+        "name": "Quinn",
+        "identity": "Your quality assurance colleague",
+        "duty": "Own release quality and follow issues through retesting.",
+        "memory": "Check exports and permissions in every regression.",
+        "chats": {
+          "first": {
+            "channel": "Note · Launch",
+            "preview": "This week’s release to verify",
+            "author": "Product lead",
+            "agreement": "“Own regression testing for our ongoing releases.”",
+            "message": "Exports ship this week. Please pay special attention to the permission changes.",
+            "result": "I updated the regression checklist. I’ll coordinate verification in Quality and report back to Launch.",
+            "artifact": "Regression checklist.md",
+            "destination": "Note · Launch",
+            "task": "Note regression",
+            "progress": "Checklist updated"
+          },
+          "second": {
+            "channel": "Note · Engineering",
+            "preview": "Export fix is ready",
+            "author": "Engineering lead",
+            "agreement": "“Retest fixes as they arrive and coordinate any issues with Engineering.”",
+            "message": "The export fix is ready. I shared the test build in Quality.",
+            "result": "I picked up the retest and linked the fix to the existing quality record.",
+            "artifact": "Export retest record.md",
+            "destination": "Note · Quality",
+            "task": "Export retest",
+            "progress": "Fix received, retest underway"
+          },
+          "third": {
+            "channel": "Ledger · Launch",
+            "preview": "Batch upload added",
+            "author": "Project lead",
+            "agreement": "“Take ongoing responsibility for this project’s release quality too.”",
+            "message": "This release adds batch upload. The test scope needs an update.",
+            "result": "I added batch upload to the checks. It moves forward alongside the Note retest.",
+            "artifact": "Ledger verification plan.md",
+            "destination": "Ledger · Launch",
+            "task": "Ledger verification",
+            "progress": "New checks planned"
+          }
+        }
       }
     }
   }

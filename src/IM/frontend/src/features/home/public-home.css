@@ -31,8 +31,8 @@
 .crew-actors > i { font-style: normal; font-size: 13px; color: #9c8eae; }
 .crew-avatar { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; border-radius: 9px; background: #e1d6ee; color: #84679f; flex: none; }
 .crew-avatar svg { width: 18px; height: 18px; }
-.crew-avatar--human { border-radius: 50%; background: #f1e4ce; color: #866941; font-size: 11px; }
-.crew-avatar--personal { background: #d8ccf5; color: #6b43d8; }
+.crew-avatar--human { border-radius: 50%; background: #f9e5a6; color: #866941; font-size: 11px; }
+.crew-avatar--personal { background: #f7df8d; color: #866626; }
 .crew-avatar--quality { background: #e0eee8; color: #43816d; }
 .crew-actors .crew-avatar { width: 25px; height: 25px; }
 .crew-actors svg { width: 15px; height: 15px; }
@@ -51,7 +51,7 @@
 .crew-work strong { display: block; font-size: 10px; margin: 3px 0 6px; font-weight: 500; }
 .crew-work div > span:not(.crew-avatar) { display: block; font-size: 9px; color: var(--home-muted); }
 .crew-paper-wrap { position: absolute; right: 8px; top: 130px; width: 425px; z-index: 2; }
-.crew-paper-back { position: absolute; inset: 0 12px 0 0; background: #d0bdea; border: 1px solid #c5b1e0; border-radius: 12px; transform: rotate(4deg) translate(0, -5px); transform-origin: bottom right; }
+.crew-paper-back { position: absolute; inset: 0 12px 0 0; background: #f6dc87; border: 1px solid #e8ce79; border-radius: 12px; transform: rotate(4deg) translate(0, -5px); transform-origin: bottom right; }
 .crew-paper { position: relative; background: white; border: 1px solid #d6c8e4; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 40px -25px #35204a60; }
 .crew-paper-top { height: 40px; padding: 0 23px; border-bottom: 1px solid #eee8f6; display: flex; align-items: center; justify-content: space-between; color: var(--home-muted); font-size: 10px; }
 .crew-paper-top > span:first-child { display: flex; gap: 6px; align-items: center; }

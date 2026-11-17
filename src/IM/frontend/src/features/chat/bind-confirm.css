@@ -1,23 +1,107 @@
-
-.bind-screen { flex: 1; overflow-y: auto; padding: 44px 24px; background: var(--im-bg); }
-.bind-card { width: min(100%, 540px); margin: 0 auto; padding: 36px 42px; border: 1px solid var(--im-border); border-radius: 22px; background: var(--im-surface); display: flex; flex-direction: column; gap: 18px; }
-.bind-illustration { position: relative; display: grid; place-items: center; width: 110px; height: 100px; margin: 0 auto 6px; background: #eee7fc; color: var(--im-accent); border-radius: 24px; transform: rotate(-5deg); }
-.bind-illustration > svg { width: 62px; height: 62px; stroke-width: 1.4; }
-.bind-illustration > span { position: absolute; right: -9px; bottom: 2px; width: 35px; height: 35px; display: grid; place-items: center; background: #e3f2ec; border: 3px solid white; border-radius: 50%; color: #36735d; opacity: .35; }
-.bind-illustration.is-connected > span { opacity: 1; }
-.bind-title { font-size: 27px; line-height: 1.4; font-weight: 550; letter-spacing: -.7px; text-align: center; margin: 0; }
-.bind-description { color: var(--im-text-muted); font-size: 14px; line-height: 1.8; text-align: center; margin: 0; }
-.bind-account { display: flex; align-items: center; gap: 12px; padding-top: 10px; }
-.bind-avatar { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: #84683d; background: #f1e4ce; }
-.bind-account small { display: block; color: var(--im-text-muted); font-size: 12px; margin-bottom: 3px; }
-.bind-account strong { font-size: 15px; font-weight: 500; }
-.bind-card > a:not(.im-btn) { font-size: 13px; color: var(--im-accent); align-self: flex-start; }
-.bind-card > a:not(.im-btn):hover { text-decoration: underline; }
-.bind-device { padding: 18px 20px; border: 1px solid var(--im-border); border-radius: 10px; background: var(--im-surface-2); }
-.bind-device h2 { font-size: 16px; margin: 0 0 5px; font-weight: 550; overflow-wrap: anywhere; }
-.bind-device p { margin: 8px 0 0; font-size: 13px; color: var(--im-text-muted); line-height: 1.7; }
-.bind-device [role=status] { color: var(--im-success-text); }
-.bind-card > .im-btn { min-height: 46px; font-size: 14px; border-radius: 8px; }
-.bind-card > .im-btn-primary { background: #302049; }
-.bind-card [role=alert] { padding: 12px; background: #fff4f4; color: var(--im-danger); font-size: 13px; border-radius: 8px; }
-@media(max-width: 560px) { .bind-screen { padding: 22px 16px; } .bind-card { padding: 28px 24px; } .bind-title { font-size: 24px; } }
+.bind-screen { height: 100%; overflow-y: auto; background: #f8f6fc; color: var(--im-text); }
+.bind-layout { width: min(960px, calc(100% - 64px)); margin: 64px auto; display: grid; grid-template-columns: .9fr 1.1fr; border: 1px solid #e5deee; border-radius: 24px; overflow: hidden; background: white; box-shadow: 0 24px 70px -48px #44305b70; }
+.bind-scene { background: #fff3c6; padding: 44px 32px 26px; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.bind-scene-copy { align-self: stretch; }
+.bind-scene h2 { white-space: pre-line; font-size: 31px; font-weight: 550; line-height: 1.4; letter-spacing: -.9px; margin: 0 0 12px; }
+.bind-scene-copy p { font-size: 13px; line-height: 1.8; color: #746287; max-width: 280px; margin: 0; }
+/* The illustration is a computer, not a second status indicator. Real progress lives in the panel. */
+.bind-computer { position: relative; width: 100%; max-width: 300px; margin: 54px auto 24px; padding: 0 8px; }
+.bind-computer-display { padding: 13px 9px 9px; border: 2px solid #7b659d; border-bottom-width: 5px; border-radius: 12px 12px 3px 3px; background: #d5c5ef; position: relative; box-shadow: 9px 9px 0 #efdfaa; }
+.bind-computer-camera { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: #806799; top: 5px; left: 50%; }
+.bind-computer-desktop { background: #f8f5fc; min-height: 157px; border: 1px solid #b4a2ce; border-radius: 3px; display: flex; padding: 16px 10px 18px 0; gap: 10px; }
+.bind-desktop-sidebar { width: 28px; flex: none; border-right: 1px solid #e6ddef; display: flex; flex-direction: column; align-items: center; gap: 9px; }
+.bind-desktop-sidebar span { width: 12px; height: 12px; background: #ac92d4; border-radius: 4px; margin-bottom: 9px; }
+.bind-desktop-sidebar i { width: 9px; height: 3px; background: #d7cbe7; border-radius: 2px; }
+.bind-desktop-window { flex: 1; border: 1px solid #e6ddef; border-radius: 7px; background: white; padding: 12px 10px; box-shadow: 0 4px 10px #30204908; }
+.bind-desktop-window .im-nano-brand { font-size: 14px; gap: 4px; letter-spacing: -.6px; }
+.bind-desktop-window .im-nano-brand svg { width: 19px; height: 19px; }
+.bind-window-message { background: #f0e9fb; border-radius: 6px 6px 2px 6px; padding: 10px; margin: 12px 0 9px 24px; }
+.bind-window-message span { display: block; height: 3px; border-radius: 3px; width: 82%; background: #cfbce9; margin-top: 5px; }
+.bind-window-message span:last-child { width: 60%; }
+.bind-window-reply { display: flex; align-items: center; gap: 7px; }
+.bind-window-reply svg { width: 16px; height: 16px; padding: 3px; background: #e9e1f5; border-radius: 50%; color: #80639e; }
+.bind-window-reply span { width: 55%; height: 3px; background: #e0d6ec; border-radius: 3px; }
+.bind-computer-base { margin: 0 -14px; height: 11px; border: 2px solid #7b659d; border-top-width: 1px; background: #e6dcee; border-radius: 2px 2px 12px 12px; position: relative; }
+.bind-computer-base i { position: absolute; width: 56px; height: 3px; background: #b9a5cf; top: 0; left: calc(50% - 28px); border-radius: 0 0 4px 4px; }
+.bind-computer-badge { position: absolute; right: -6px; bottom: -12px; display: grid; place-items: center; width: 43px; height: 43px; background: white; border: 4px solid #fff3c6; border-radius: 50%; color: #6b43d8; }
+.bind-computer-badge svg { width: 19px; height: 19px; stroke-width: 1.8; }
+.is-connected .bind-computer-badge { background: #35745e; color: white; }
+.bind-machine { text-align: center; margin: 4px 0 40px; min-width: 0; width: 100%; }
+.bind-machine > span { display: block; color: #806e92; font-size: 11px; margin-bottom: 7px; }
+.bind-machine strong { display: block; font-size: 13px; line-height: 1.6; font-weight: 500; overflow-wrap: anywhere; }
+.bind-scene-foot { display: flex; gap: 8px; font-size: 11px; line-height: 1.7; color: #79698b; margin-top: auto; align-self: stretch; padding-top: 22px; border-top: 1px solid #e9daab; }
+.bind-scene-foot svg { width: 15px; height: 15px; flex: none; margin-top: 2px; }
+.bind-panel { padding: 44px 42px 30px; min-width: 0; }
+.bind-phase-label { display: flex; align-items: center; gap: 7px; color: #79688f; font-size: 12px; margin-bottom: 14px; }
+.bind-phase-label > span { width: 6px; height: 6px; background: #a992cd; border-radius: 50%; }
+.is-connected .bind-phase-label { color: #35745e; }
+.is-connected .bind-phase-label > span { background: #35745e; }
+.bind-panel h1 { font-size: 27px; line-height: 1.4; font-weight: 550; letter-spacing: -.8px; margin: 0 0 14px; text-wrap: balance; }
+.bind-description { color: #82758e; font-size: 13px; line-height: 1.85; margin: 0; }
+.bind-account { display: flex; align-items: center; gap: 12px; margin: 28px 0; padding: 18px 0; border-top: 1px solid #eee8f3; border-bottom: 1px solid #eee8f3; }
+.bind-avatar { display: grid; place-items: center; width: 40px; height: 40px; flex: none; border-radius: 13px; color: #8b6b2d; background: #fff0bc; font-size: 16px; }
+.bind-account > div { min-width: 0; flex: 1; }
+.bind-account small { display: block; color: #94859e; font-size: 11px; margin-bottom: 4px; }
+.bind-account strong { display: block; overflow-wrap: anywhere; font-size: 14px; font-weight: 550; }
+.bind-account > a { font-size: 11px; color: #79529e; text-underline-offset: 4px; text-align: right; max-width: 100px; }
+.bind-account > a:hover { text-decoration: underline; }
+.bind-agents { font-size: 12px; line-height: 1.7; color: #82758e; overflow-wrap: anywhere; }
+.bind-progress { list-style: none; padding: 0; margin: 0 0 26px; }
+.bind-progress li { position: relative; display: flex; align-items: flex-start; gap: 12px; padding-bottom: 24px; color: #9c90a7; }
+.bind-progress li:first-child::after { content: ''; position: absolute; width: 1px; background: #e6deee; left: 12px; top: 30px; bottom: 6px; }
+.bind-progress li:last-child { padding-bottom: 0; }
+.bind-progress li > span { display: grid; place-items: center; width: 25px; height: 25px; flex: none; border: 1px solid #e4dceb; border-radius: 50%; font-size: 11px; }
+.bind-progress li > span svg { width: 13px; height: 13px; }
+.bind-progress strong { font-size: 13px; font-weight: 500; display: block; margin: 3px 0 5px; line-height: 1.4; }
+.bind-progress small[role="status"] { color: #82718f; }
+.bind-progress small { display: block; color: #9b8fa5; font-size: 11px; line-height: 1.7; }
+.bind-progress .is-current { color: #6b43d8; }
+.bind-progress .is-current > span { background: #f2ecfb; border-color: #ded1f2; }
+.bind-progress .is-done { color: #42314f; }
+.bind-progress .is-done > span { background: #edf5f1; border-color: transparent; color: #35745e; }
+.bind-actions { display: flex; flex-direction: column; gap: 12px; }
+.bind-primary { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 46px; border-radius: 10px; padding: 12px 18px; background: #6b43d8; color: white; border: 1px solid #633bcb; font-size: 13px; font-weight: 500; line-height: 1.5; text-align: center; box-shadow: 0 3px 0 #4b2a9d; }
+.bind-primary:hover:not(:disabled) { background: #5b35c4; }
+.bind-primary:active:not(:disabled) { transform: translateY(1px); box-shadow: 0 2px 0 #4b2a9d; }
+.bind-primary svg { width: 16px; height: 16px; flex: none; }
+.bind-cancel { align-self: center; min-height: 36px; border: 0; background: transparent; font-size: 12px; color: #8c7c98; padding: 5px 18px; }
+.bind-cancel:hover:not(:disabled) { color: #302049; text-decoration: underline; text-underline-offset: 4px; }
+.bind-panel button:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+.bind-panel :is(a,button):focus-visible { outline: 3px solid #9e7ee7; outline-offset: 4px; }
+.bind-complete svg { width: 15px; height: 15px; flex: none; }
+.bind-complete { display: flex; gap: 8px; align-items: center; color: #35745e; margin: 0; font-size: 12px; line-height: 1.7; }
+.bind-error { border-left: 2px solid #bd5c61; padding: 8px 12px; background: #fdf5f5; color: #9c424b; font-size: 12px; line-height: 1.8; margin: 0 0 18px; }
+.bind-spinner { animation: bind-spin 1.4s linear infinite; }
+@keyframes bind-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .bind-spinner { animation: none; } }
+@media (max-width: 767px) {
+  .bind-layout { width: min(460px, calc(100% - 32px)); grid-template-columns: minmax(0,1fr); margin: 24px auto; border-radius: 20px; }
+  .bind-scene { padding: 24px 26px 20px; display: grid; grid-template-columns: 1fr 140px; gap: 12px; }
+  .bind-scene h2 { font-size: 22px; line-height: 1.45; margin: 0; letter-spacing: -.5px; }
+  .bind-scene-copy p, .bind-scene-foot { display: none; }
+  .bind-computer { width: 140px; margin: 0; padding: 0 6px; }
+  .bind-computer-display { padding: 9px 5px 5px; border-radius: 7px 7px 2px 2px; border-bottom-width: 3px; box-shadow: 4px 4px 0 #efdfaa; }
+  .bind-computer-desktop { min-height: 78px; padding: 5px; gap: 4px; }
+  .bind-desktop-sidebar { display: none; }
+  .bind-desktop-window { padding: 6px; }
+  .bind-desktop-window .im-nano-brand { font-size: 9px; gap: 2px; }
+  .bind-desktop-window .im-nano-brand svg { width: 12px; height: 12px; }
+  .bind-window-message { padding: 5px; margin: 6px 0 4px 10px; }
+  .bind-window-message span { height: 2px; margin-top: 3px; }
+  .bind-window-reply svg { width: 10px; height: 10px; padding: 2px; }
+  .bind-computer-base { height: 7px; margin: 0 -9px; }
+  .bind-computer-badge { width: 27px; height: 27px; right: -4px; bottom: -8px; border-width: 3px; }
+  .bind-computer-badge svg { width: 12px; height: 12px; }
+  .bind-machine { grid-column: 1 / -1; text-align: left; margin: 4px 0 0; }
+  .bind-machine > span { display: none; }
+  .bind-machine strong { font-size: 11px; color: #79668c; }
+  .bind-panel { padding: 26px; }
+  .bind-panel h1 { font-size: 24px; }
+  .bind-account { margin: 24px 0; }
+}
+@media (max-width: 359px) {
+  .bind-scene { padding: 22px 20px; grid-template-columns: 1fr 112px; }
+  .bind-scene h2 { font-size: 20px; }
+  .bind-computer { width: 112px; }
+  .bind-panel { padding: 24px 20px; }
+}

@@ -28,6 +28,7 @@ export const appRoutes: RouteObject[] = [
   { path: "/", element: <PublicHomePage restoreSession /> },
   { path: "/about", element: <PublicHomePage /> },
   { path: "/onboarding", element: <RequireAuth><Suspense fallback={null}><OnboardingPage /></Suspense></RequireAuth> },
+  { path: "/bind/confirm", element: <RequireAuth><BindConfirmPage /></RequireAuth> },
   { path: "/membership", element: <MembershipPage /> },
   { path: "/login", element: <LoginPage /> },
   { path: "/register", element: <RegisterPage /> },
@@ -38,7 +39,6 @@ export const appRoutes: RouteObject[] = [
       </RequireAuth>
     ),
     children: [
-      { path: "bind/confirm", element: <BindConfirmPage /> },
       { path: "chat", element: <Suspense fallback={null}><ChatWorkspacePage /></Suspense> },
       { path: "chat/:conversationId", element: <Suspense fallback={null}><ChatWorkspacePage /></Suspense> },
       { path: "me", element: <MePage /> },

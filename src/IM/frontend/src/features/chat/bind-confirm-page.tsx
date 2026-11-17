@@ -4,7 +4,9 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../auth/auth-store";
 import { authFetch } from "../auth/auth-fetch";
 
-import { Laptop, CheckCircle2 } from "lucide-react";
+import { ArrowRight, Check, LoaderCircle, Monitor, ShieldCheck } from "lucide-react";
+import { NanoBrand } from "../../app/shell/nano-brand";
+import { ProductHeader } from "../home/product-header";
 import "./bind-confirm.css";
 import { useTranslation } from "../../i18n";
 
@@ -31,22 +33,46 @@ export function BindConfirmPage() {
   const accepted = binding?.state === "awaiting_local_confirmation" || accept.isSuccess;
   const committed = binding?.state === "committed";
   useEffect(()=>{if(committed) void queryClient.invalidateQueries();},[committed,queryClient]);
+  const accountName = user?.display_name || user?.username || "";
+  const failure = preview.error || accept.error || cancel.error;
+  const phase = committed ? "connected" : accepted ? "connecting" : "confirm";
   return (
-    <div className="bind-screen"><section className="bind-card">
-      <div className={`bind-illustration${committed ? " is-connected" : ""}`} aria-hidden="true"><Laptop /><span><CheckCircle2 /></span></div>
-      <h1 className="bind-title">{t(binding?.is_transfer ? "company.bind.title" : "onboarding.bindTitle")}</h1>
-      <p className="bind-description">{binding?.is_transfer ? t("onboarding.transferHistory") : t("onboarding.bindDescription")}</p>
-      <div className="bind-account"><span className="bind-avatar" aria-hidden="true">{(user?.display_name || user?.username || "").slice(0, 1)}</span><div><small>{t(binding?.is_transfer ? "company.bind.account" : "onboarding.bindAccount")}</small><strong>{user?.display_name || user?.username}</strong></div></div>
-      {!accepted && !committed && <Link to="/login" state={{ signOut: true, from: location.pathname + location.hash }}>{t("company.bind.switch")}</Link>}
-      {!token && <p role="alert">{t("company.bind.missing")}</p>}
-      {(preview.error || accept.error || cancel.error) && <p role="alert">{(preview.error || accept.error || cancel.error)?.message}</p>}
-      {binding && <div className="bind-device">
-        <h2>{binding.node_name}</h2>
-        {binding.agents.length > 0 && <p>{t("shell.tabs.agents")}: {binding.agents.join(", ")}</p>}
-        {(accepted || committed) && <p role="status">{committed ? t(binding?.is_transfer ? "company.bind.complete" : "onboarding.bindComplete") : binding?.is_transfer ? t("company.bind.localConfirm") : t("onboarding.bindWaiting")}</p>}
-      </div>}
-      {!accepted && !committed && <button type="button" className="im-btn im-btn-primary w-full" disabled={!binding || accept.isPending} onClick={() => accept.mutate()}>{accept.isPending ? t("company.bind.accepting") : t(binding?.is_transfer ? "company.bind.accept" : "onboarding.bindAccept")}</button>}
-      {committed ? <Link to={user?.personal_space_enabled ? "/onboarding" : "/chat"} className="im-btn im-btn-primary">{user?.personal_space_enabled ? t("onboarding.bindNext") : t("company.bind.chat")}</Link> : <button type="button" className="im-btn im-btn-muted" disabled={!binding || cancel.isPending} onClick={()=>cancel.mutate()}>{t("company.cancel")}</button>}
-    </section></div>
+    <div className="bind-screen product-entry">
+      <ProductHeader page="setup" accountName={accountName} />
+      <main className={`bind-layout is-${phase}`}>
+        <aside className="bind-scene">
+          <div className="bind-scene-copy"><h2>{t("onboarding.bindWorkspace")}</h2><p>{t("onboarding.bindSceneDetail")}</p></div>
+          <div className="bind-computer" aria-hidden="true">
+            <div className="bind-computer-display"><i className="bind-computer-camera" /><div className="bind-computer-desktop">
+              <div className="bind-desktop-sidebar"><span /><i /><i /><i /></div>
+              <div className="bind-desktop-window"><NanoBrand /><div className="bind-window-message"><i /><span /><span /></div><div className="bind-window-reply"><Check /><span /></div></div>
+            </div></div>
+            <div className="bind-computer-base"><i /></div>
+            <span className="bind-computer-badge">{committed ? <Check /> : <Monitor />}</span>
+          </div>
+          <div className="bind-machine"><span>{t("onboarding.bindComputer")}</span><strong>{binding?.node_name || t("onboarding.bindLoading")}</strong></div>
+          <div className="bind-scene-foot"><ShieldCheck aria-hidden="true" /><span>{t("onboarding.bindSceneFoot")}</span></div>
+        </aside>
+        <section className="bind-panel" aria-labelledby="bind-title">
+          <div className="bind-phase-label"><span />{t(committed ? "onboarding.bindConnectedLabel" : accepted ? "onboarding.bindConnectingLabel" : "onboarding.bindConfirmLabel")}</div>
+          <h1 id="bind-title">{t(committed ? "onboarding.bindConnectedTitle" : accepted ? "onboarding.bindConnectingTitle" : binding?.is_transfer ? "company.bind.title" : "onboarding.bindTitle")}</h1>
+          <p className="bind-description">{binding?.is_transfer ? t("onboarding.transferHistory") : t(committed ? "onboarding.bindConnectedNote" : accepted ? "onboarding.bindWaitingNote" : "onboarding.bindDescription")}</p>
+          <div className="bind-account"><span className="bind-avatar" aria-hidden="true">{accountName.slice(0, 1)}</span><div><small>{t(binding?.is_transfer ? "company.bind.account" : "onboarding.bindAccount")}</small><strong>{accountName}</strong></div>
+            {!accepted && !committed && <Link to="/login" state={{ signOut: true, from: location.pathname + location.hash }}>{t("company.bind.switch")}</Link>}
+          </div>
+          {binding?.agents && binding.agents.length > 0 && <p className="bind-agents">{t("shell.tabs.agents")}: {binding.agents.join(", ")}</p>}
+          <ol className="bind-progress" aria-label={t("onboarding.bindProgress")}>
+            <li className={accepted || committed ? "is-done" : "is-current"}><span aria-hidden="true">{accepted || committed ? <Check /> : "1"}</span><div><strong>{t("onboarding.bindAccountCheck")}</strong><small>{t(accepted || committed ? "onboarding.bindAccountDone" : "onboarding.bindAccountHint")}</small></div></li>
+            <li className={committed ? "is-done" : accepted ? "is-current" : ""}><span aria-hidden="true">{committed ? <Check /> : accepted ? <LoaderCircle className="bind-spinner" /> : "2"}</span><div><strong>{t("onboarding.bindComputerCheck")}</strong><small role={accepted && !committed ? "status" : undefined}>{t(committed ? "onboarding.bindComputerDone" : accepted ? binding?.is_transfer ? "company.bind.localConfirm" : "onboarding.bindWaiting" : "onboarding.bindComputerHint")}</small></div></li>
+          </ol>
+          {!token && <p className="bind-error" role="alert">{t("company.bind.missing")}</p>}
+          {failure && <p className="bind-error" role="alert">{failure.message}</p>}
+          <div className="bind-actions">
+            {!accepted && !committed && <button type="button" className="bind-primary" disabled={!binding || accept.isPending} onClick={() => accept.mutate()}>{accept.isPending ? <LoaderCircle className="bind-spinner" aria-hidden="true" /> : null}{accept.isPending ? t("company.bind.accepting") : t(binding?.is_transfer ? "company.bind.accept" : "onboarding.bindAccept")}<ArrowRight aria-hidden="true" /></button>}
+            {committed ? <><p className="bind-complete" role="status"><Check aria-hidden="true" />{t(binding?.is_transfer ? "company.bind.complete" : "onboarding.bindComplete")}</p><Link to={user?.personal_space_enabled ? "/onboarding" : "/chat"} className="bind-primary">{user?.personal_space_enabled ? t("onboarding.bindNext") : t("company.bind.chat")}<ArrowRight aria-hidden="true" /></Link></> : <button type="button" className="bind-cancel" disabled={!binding || cancel.isPending} onClick={() => cancel.mutate()}>{t("company.cancel")}</button>}
+          </div>
+        </section>
+      </main>
+    </div>
   );
 }
