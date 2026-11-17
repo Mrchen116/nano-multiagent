@@ -9,12 +9,12 @@ import { useAuthStore } from "../../features/auth/auth-store";
 import { useLocalUnreadFeedback } from "../../features/notifications/local-unread-feedback";
 import { AgentsNavIcon, ChatNavIcon, MeNavIcon, TasksNavIcon } from "./mobile-nav-icons";
 import { NanoBrand } from "./nano-brand";
-import { LanguageSelect } from "./language-select";
+import "./app-shell.css";
 import { UserMenu } from "./user-menu";
 
 /**
- * Top-level app chrome: Crewden brand banner with
- * Chat/Tasks/Agents tabs + UserMenu on desktop; collapses to a status spacer with
+ * Top-level app chrome: persistent desktop navigation with
+ * Chat/Tasks/Agents destinations and an account menu; collapses to
  * a bottom 4-tab nav with product icons and unread feedback on mobile list pages.
  * Mobile conversations hide global navigation to give messages the full height.
  *
@@ -39,16 +39,15 @@ export function AppShell({ children }: PropsWithChildren) {
   return (
     <div className={`im-shell${isMobileConversation ? " im-shell--conversation" : ""}`}>
       {!isMobile && (
-        <header role="banner" className="im-shell-topbar">
+        <header role="banner" className="im-shell-rail">
           <Link to="/chat" className="im-shell-brand-link" aria-label={t("shell.home")}><NanoBrand className="im-shell-brand" /></Link>
           <nav aria-label="primary" className="im-shell-tabs">
             <NavLink to="/chat" end={false}>
-              {t("shell.tabs.chat")}
+              <ChatNavIcon /><span>{t("shell.tabs.chat")}</span>
             </NavLink>
-            <NavLink to="/tasks">{t("shell.tabs.tasks")}</NavLink>
-            <NavLink to="/settings/agents">{t("shell.tabs.agents")}</NavLink>
+            <NavLink to="/tasks"><TasksNavIcon /><span>{t("shell.tabs.tasks")}</span></NavLink>
+            <NavLink to="/settings/agents"><AgentsNavIcon /><span>{t("shell.tabs.agents")}</span></NavLink>
           </nav>
-          <LanguageSelect />
           <UserMenu />
         </header>
       )}

@@ -7,199 +7,83 @@ import { useAuthStore } from "../../features/auth/auth-store";
 import { listNodes } from "../../features/settings/im-settings-api";
 import { UserMenuIcon } from "./user-menu-icons";
 
-/**
- * Desktop user menu — avatar dropdown with quick actions.
- *
- * Kept intentionally lightweight (no Radix dropdown primitive) because we only need
- * keyboard-accessible click toggling here; Radix is reserved for richer composer/dialog
- * surfaces in chat. Close-on-outside-click is wired via document-level listener.
- */
+/** Keep account and workspace preferences in one place beside desktop navigation. */
 export function UserMenu() {
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const lang = getCurrentLanguage();
-
   const nodesQuery = useQuery({ queryKey: ["settings", "nodes"], queryFn: listNodes, staleTime: 30_000 });
   const ownedNodes = (nodesQuery.data ?? []).filter((n) => user?.owned_node_ids?.includes(n.node_id));
   const onlineCount = ownedNodes.filter((n) => n.status === "online").length;
-  const offlineCount = ownedNodes.length - onlineCount;
 
   useEffect(() => {
     if (!open) return;
     const onDocClick = (event: MouseEvent) => {
       if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
     };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setOpen(false); triggerRef.current?.focus(); }
+    };
     document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [open]);
 
   if (!user) return null;
+  const name = user.display_name || user.username;
+  const initials = name.slice(0, 2).toUpperCase();
+  const handleLanguage = (next: Locale) => { setLanguage(next); setOpen(false); triggerRef.current?.focus(); };
+  const close = () => setOpen(false);
 
-  const initials = (user.display_name || user.username).slice(0, 2).toUpperCase();
-
-  const handleSignOut = () => {
-    // Clear the session only after navigation reaches LoginPage: this lets a
-    // dirty form's route blocker confirm the user-initiated exit first.
-    navigate("/login", { replace: true, state: { signOut: true } });
-  };
-
-  const handleLanguage = (next: Locale) => {
-    setLanguage(next);
-    setOpen(false);
-  };
-
-  const nodesSubtitle = `${ownedNodes.length} ${t("common.owned")} · ${onlineCount} ${t("common.online")}${offlineCount > 0 ? ` · ${offlineCount} ${t("common.offline")}` : ""}`;
-
-  return (
-    <div ref={containerRef} className="im-user-menu">
-      <button
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((prev) => !prev)}
-        className="im-user-menu-trigger"
-      >
-        <span aria-hidden className="im-user-menu-avatar">
-          {initials}
-        </span>
-        <span>{user.display_name || user.username}</span>
-        <span aria-hidden className="im-user-menu-chevron">▾</span>
-      </button>
-      {open && (
-        <div role="menu" className="im-user-menu-popover">
-          {/* Identity Strip */}
-          <div
-            role="none"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "12px 14px",
-              borderBottom: "1px solid var(--im-border)",
-              marginBottom: 4
-            }}
-          >
-            <span
-              aria-hidden
-              className="im-user-menu-avatar"
-              style={{
-                width: 40,
-                height: 40,
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 14,
-                fontWeight: 600,
-                flexShrink: 0
-              }}
-            >
-              {initials}
-            </span>
-            <div style={{ minWidth: 0, flex: 1 }}>
-              <p
-                style={{
-                  margin: 0,
-                  fontSize: 14,
-                  fontWeight: 700,
-                  color: "var(--im-text)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap"
-                }}
-              >
-                {user.display_name || user.username}
-              </p>
-              <p
-                style={{
-                  margin: "2px 0 0",
-                  fontSize: 11,
-                  color: "var(--im-text-muted)",
-                  fontFamily: "var(--im-font-mono)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap"
-                }}
-              >
-                @{user.username}
-              </p>
-            </div>
-          </div>
-
-          <Link role="menuitem" to="/settings/account" onClick={() => setOpen(false)} className="im-user-menu-item">
-            <span className="im-user-menu-icon"><UserMenuIcon kind="account" /></span>
-            <div className="im-user-menu-item-body">
-              <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.account")}</div>
-              <div style={{ fontSize: 12, color: "var(--im-text-muted)", marginTop: 1 }}>
-                {t("me.sections.accountSubtitle")}
-              </div>
-            </div>
-          </Link>
-          <Link role="menuitem" to="/settings/nodes" onClick={() => setOpen(false)} className="im-user-menu-item">
-            <span className="im-user-menu-icon"><UserMenuIcon kind="nodes" /></span>
-            <div className="im-user-menu-item-body">
-              <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.nodes")}</div>
-              <div style={{ fontSize: 12, color: "var(--im-text-muted)", marginTop: 1 }}>
-                {nodesSubtitle}
-              </div>
-            </div>
-            <span className="im-user-menu-chevron-right" aria-hidden>›</span>
-          </Link>
-          <Link role="menuitem" to="/settings/models" onClick={() => setOpen(false)} className="im-user-menu-item">
-            <span className="im-user-menu-icon"><UserMenuIcon kind="models" /></span>
-            <div className="im-user-menu-item-body" style={{ fontSize: 14, fontWeight: 500 }}>{lang === 'zh' ? '模型服务' : 'Model services'}</div>
-            <span className="im-user-menu-chevron-right" aria-hidden>›</span>
-          </Link>
-          {user.membership_status === "active" && <Link role="menuitem" to="/settings/policies" onClick={() => setOpen(false)} className="im-user-menu-item">
-            <span className="im-user-menu-icon"><UserMenuIcon kind="policies" /></span>
-            <div className="im-user-menu-item-body">
-              <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.policies")}</div>
-            </div>
-            <span className="im-user-menu-chevron-right" aria-hidden>›</span>
-          </Link>}
-          {user.is_company_admin && user.membership_status === "active" && (
-            <Link role="menuitem" to="/settings/company" onClick={() => setOpen(false)} className="im-user-menu-item">
-              <span className="im-user-menu-icon"><UserMenuIcon kind="members" /></span>
-              <div className="im-user-menu-item-body">
-                <div style={{ fontSize: 14, fontWeight: 500 }}>{t("company.title")}</div>
-              </div>
-              <span className="im-user-menu-chevron-right" aria-hidden>›</span>
-            </Link>
-          )}
-          <div role="group" className="im-user-menu-language">
-            <span className="im-user-menu-icon"><UserMenuIcon kind="language" /></span>
-            <span style={{ fontSize: 14, fontWeight: 500, flex: 1 }}>{t("shell.userMenu.language")}</span>
-            <span className="im-user-menu-lang-options">
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={lang === "en"}
-                onClick={() => handleLanguage("en")}
-                style={{ fontWeight: lang === "en" ? 700 : 500 }}
-              >
-                EN
-              </button>
-              <span className="im-user-menu-language-divider">|</span>
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={lang === "zh"}
-                onClick={() => handleLanguage("zh")}
-                style={{ fontWeight: lang === "zh" ? 700 : 500 }}
-              >
-                中
-              </button>
-            </span>
-          </div>
-          <button role="menuitem" type="button" onClick={handleSignOut} className="im-user-menu-item im-user-menu-signout">
-            <span className="im-user-menu-icon"><UserMenuIcon kind="logout" /></span>
-            <span style={{ flex: 1, textAlign: "left" }}>{t("shell.userMenu.signOut")}</span>
-          </button>
+  return <div ref={containerRef} className="im-user-menu">
+    <button ref={triggerRef} type="button" aria-label={name} title={name} aria-haspopup="menu" aria-expanded={open}
+      onClick={() => setOpen(previous => !previous)} className="im-user-menu-trigger">
+      <span aria-hidden className="im-user-menu-avatar">{initials}</span>
+      <span className="im-user-menu-trigger-label">{t('shell.tabs.me')}</span>
+    </button>
+    {open && <div role="menu" aria-label={name} className="im-user-menu-popover">
+      <div className="im-user-menu-identity" role="none">
+        <span aria-hidden className="im-user-menu-avatar">{initials}</span>
+        <div><strong>{name}</strong><span>@{user.username}</span></div>
+      </div>
+      <Link role="menuitem" to="/settings/account" onClick={close} className="im-user-menu-item">
+        <UserMenuIcon kind="account" /><span>{t('shell.userMenu.account')}</span><span aria-hidden>›</span>
+      </Link>
+      <div className="im-user-menu-section" role="group" aria-label={t('shell.userMenu.nodes')}>
+        <Link role="menuitem" to="/settings/nodes" onClick={close} className="im-user-menu-item">
+          <UserMenuIcon kind="nodes" /><span>{t('shell.userMenu.nodes')}</span>
+          {!nodesQuery.isPending && !nodesQuery.isError && <small>{onlineCount} {t('common.online')}</small>}
+        </Link>
+        <Link role="menuitem" to="/settings/models" onClick={close} className="im-user-menu-item">
+          <UserMenuIcon kind="models" /><span>{lang === 'zh' ? '模型服务' : 'Model services'}</span><span aria-hidden>›</span>
+        </Link>
+      </div>
+      {user.membership_status === 'active' && <div className="im-user-menu-section" role="group" aria-label={t('shell.userMenu.policies')}>
+        <Link role="menuitem" to="/settings/policies" onClick={close} className="im-user-menu-item">
+          <UserMenuIcon kind="policies" /><span>{t('shell.userMenu.policies')}</span><span aria-hidden>›</span>
+        </Link>
+        {user.is_company_admin && <Link role="menuitem" to="/settings/company" onClick={close} className="im-user-menu-item">
+          <UserMenuIcon kind="members" /><span>{t('company.title')}</span><span aria-hidden>›</span>
+        </Link>}
+      </div>}
+      <div role="group" aria-label={t('shell.userMenu.language')} className="im-user-menu-language">
+        <span><UserMenuIcon kind="language" />{t('shell.userMenu.language')}</span>
+        <div className="im-user-menu-lang-options">
+          <button type="button" role="menuitemradio" aria-checked={lang === 'en'} onClick={() => handleLanguage('en')}>English</button>
+          <button type="button" role="menuitemradio" aria-checked={lang === 'zh'} onClick={() => handleLanguage('zh')}>简体中文</button>
         </div>
-      )}
-    </div>
-  );
+      </div>
+      <button role="menuitem" type="button" onClick={() => {
+        // Let dirty forms confirm navigation before LoginPage clears the session.
+        navigate('/login', { replace: true, state: { signOut: true } });
+      }} className="im-user-menu-item im-user-menu-signout"><UserMenuIcon kind="logout" /><span>{t('shell.userMenu.signOut')}</span></button>
+    </div>}
+  </div>;
 }

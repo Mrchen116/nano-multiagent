@@ -248,20 +248,7 @@ export function ConversationSidebar({
         />
         {searchActive && search && <button type="button" className="chat-search-clear" aria-label={t("chat.list.clearSearch")} onClick={() => { restoreScroll.current = null; setSearch(""); saveSearch({query:"",filter,pages:1,scrollTop:0}); }}>×</button>}
         </div>
-        <div className="chat-sidebar-filters" role="tablist">
-          {FILTER_ORDER.map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={filter === key}
-              className={`chat-sidebar-filter${filter === key ? " chat-sidebar-filter--active" : ""}`}
-              onClick={() => { restoreScroll.current = null; setFilter(key); saveSearch({query:search,filter:key,pages:1,scrollTop:0}); }}
-            >
-              {t(FILTER_LABEL[key])}
-            </button>
-          ))}
-        </div>
+
       </header>
       {contextMenu ? (
         <div
@@ -286,6 +273,20 @@ export function ConversationSidebar({
         </div>
       ) : null}
       {!searchActive && personalAgentEntry}
+      <div className="chat-sidebar-filters" role="tablist">
+        {FILTER_ORDER.map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={filter === key}
+            className={`chat-sidebar-filter${filter === key ? " chat-sidebar-filter--active" : ""}`}
+            onClick={() => { restoreScroll.current = null; setFilter(key); saveSearch({query:search,filter:key,pages:1,scrollTop:0}); }}
+          >
+            {t(FILTER_LABEL[key])}
+          </button>
+        ))}
+      </div>
       <ul ref={listRef} className="chat-sidebar-list" onScroll={event => { if (search.trim() && !searchLoading) saveSearch({scrollTop:event.currentTarget.scrollTop}); }}>
         {searchActive && !search.trim() ? <li className="chat-search-hint">{t('chat.list.searchHint')}</li> : null}
         {search.trim() && searchMessages && !distillMode && filtered.length > 0 ? <li className="chat-search-heading">{t('chat.list.conversationResults')}</li> : null}

@@ -1,3 +1,4 @@
+import { WorkspaceWelcome } from './components/workspace-welcome';
 import { AgentLifecycleChatNotice } from '../settings/agents/agent-lifecycle';
 import { PersonalAgentDialog } from '../personal-agent/personal-agent-dialog';
 import { FirstUseWelcome } from '../onboarding/first-use-welcome';
@@ -1482,12 +1483,7 @@ export function ChatWorkspacePage() {
           </div>
         ) : (
           !isMobile && (
-            <div className="chat-empty-pane">
-              <div className="chat-empty-pane-icon" aria-hidden="true">💬</div>
-              <p className="chat-empty-pane-title">{t("chat.messagePane.selectConversationTitle")}</p>
-              <p className="chat-empty-pane-sub">{t("chat.messagePane.selectConversationSubtitle")}</p>
-              {personalSpace && !personalBinding && <Link className="im-btn im-btn-primary mt-4" to="/onboarding">{t("firstUse.continue")}</Link>}
-            </div>
+            <WorkspaceWelcome assistant={personalBinding ?? null} onNewChat={() => setShowNewChat(true)} />
           )
         )
       )}

@@ -1,46 +1,48 @@
 @import "tailwindcss";
 
-/* Crewden workspace: lavender navigation, white working surfaces, violet actions. */
+/* Crewden: neutral reading surfaces, butter personal space, mint shared work. */
 :root {
   --im-viewport-height: 100vh;
-  --im-bg: #f7f5fc;
+  --im-bg: #f7f8fa;
   --im-surface: #ffffff;
-  --im-surface-2: #f5f1fa;
-  --im-topbar: #eee9fb;
-  --im-topbar-fg: #302049;
+  --im-surface-2: #f2f4f0;
+  --im-topbar: #f5f5f8;
+  --im-topbar-fg: #29352f;
   --im-accent: #6b43d8;
   --im-accent-fg: #ffffff;
   --im-accent-2: #5732bf;
-  --im-text: #302049;
-  --im-text-muted: #756886;
-  --im-border: #e5dfee;
-  --im-border-strong: #ccbfdd;
+  --im-text: #30313d;
+  --im-text-muted: #68736b;
+  --im-border: #e0e5de;
+  --im-border-strong: #bec9bf;
   --im-danger: #c44747;
   --im-warning: #aa6b1d;
   --im-success: #20835d;
   --im-shadow: 0 8px 24px -12px rgb(48 32 73 / 0.12);
   --im-shadow-strong: 0 18px 48px -16px rgb(48 32 73 / 0.18);
 
-  --im-sidebar: #f2edf9;
-  --im-hover: #ece5f6;
+  --im-sidebar: #ffffff;
+  --im-hover: #edf2ec;
   --im-surface-hover: var(--im-hover);
   --im-accent-soft: #eee7fc;
   --im-accent-border: #d1bff3;
-  --im-text-sub: #756886;
+  --im-text-sub: #68736b;
   --im-overlay: rgb(26 43 54 / 0.24);
   --im-success-soft: #e7f5ec;
   --im-success-text: #286744;
-  --im-user-bubble: #eee7fc;
-  --im-user-bubble-text: #483064;
+  --im-user-bubble: #e3efe5;
+  --im-user-bubble-text: #394c40;
   --im-brand: #6b43d8;
   --im-brand-mark: #ffffff;
-  --im-user-avatar: #e8dff5;
-  --im-user-avatar-text: #634582;
-  --im-group-avatar: #6b5980;
-  --im-group-avatar-text: #f1ebf8;
+  --im-user-avatar: #ffe8c9;
+  --im-user-avatar-text: #795839;
+  --im-group-avatar: #ddefe5;
+  --im-group-avatar-text: #35634b;
 
   --im-font-sans: "Helvetica Neue", "PingFang SC", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --im-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --im-butter: #fff0b5;
+  --im-mint: #ddefe5;
 }
 
 /*
@@ -84,320 +86,6 @@ body {
 
 #root {
   height: var(--im-viewport-height);
-}
-
-/* App shell */
-.im-shell {
-  display: flex;
-  flex-direction: column;
-  height: var(--im-viewport-height);
-  background: var(--im-bg);
-}
-
-.im-shell-topbar {
-  height: 64px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 1.5rem;
-  padding: 0 24px;
-  background: var(--im-topbar);
-  color: var(--im-topbar-fg);
-  border-bottom: 1px solid var(--im-border);
-}
-
-.im-nano-brand {
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-
-.im-shell-internal-badge {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--im-text-muted);
-  background: var(--im-surface-2);
-  border-radius: 99px;
-  padding: 2px 6px;
-  letter-spacing: 0.04em;
-  text-transform: lowercase;
-}
-
-.im-shell-tabs {
-  display: flex;
-  gap: 0.5rem;
-  flex: 1;
-  justify-content: center;
-}
-
-.im-shell-tabs a {
-  display: inline-flex;
-  align-items: center;
-  min-height: 38px;
-  transition: background-color 140ms ease, color 140ms ease;
-  color: var(--im-text-muted);
-  text-decoration: none;
-  padding: 0.4rem 1.15rem;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 0.875rem;
-}
-
-.im-shell-tabs a:hover {
-  background: var(--im-hover);
-  color: var(--im-text);
-}
-
-.im-shell-tabs a.active {
-  background: var(--im-accent-soft);
-  color: var(--im-accent);
-}
-
-.im-shell-main {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.im-shell-bottombar {
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  height: 56px;
-  border-top: 1px solid var(--im-border);
-  background: var(--im-surface);
-}
-
-.im-shell-bottombar a {
-  color: var(--im-text-muted);
-  text-decoration: none;
-  font-size: 0.85rem;
-  font-weight: 500;
-  padding: 0.25rem 0.5rem;
-}
-
-.im-shell-bottombar a.active {
-  color: var(--im-accent);
-}
-
-.im-shell-bottomtab {
-  position: relative;
-  display: inline-flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  width: 88px;
-  height: 48px;
-}
-
-.im-shell-bottomtab.active::before {
-  content: "";
-  position: absolute;
-  top: -4px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 24px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--im-accent);
-}
-
-.im-shell-bottomtab-icon {
-  display: inline-flex;
-  width: 22px;
-  height: 22px;
-  flex-shrink: 0;
-}
-
-.im-shell-bottomtab-icon svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.im-shell-unread-badge {
-  position: absolute;
-  top: -2px;
-  right: 6px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--im-accent);
-  color: var(--im-accent-fg);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 18px;
-  text-align: center;
-}
-
-.im-user-menu-chevron {
-  font-size: 0.75rem;
-  opacity: 0.7;
-  margin-left: 2px;
-}
-
-/* User menu */
-.im-user-menu {
-  position: relative;
-}
-
-.im-user-menu-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  background: transparent;
-  border: 0;
-  color: var(--im-topbar-fg);
-  font: inherit;
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.5rem;
-}
-
-.im-user-menu-trigger:hover {
-  background: var(--im-hover);
-}
-
-.im-user-menu-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--im-user-avatar);
-  color: var(--im-user-avatar-text);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-
-.im-user-menu-popover {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 4px);
-  min-width: 220px;
-  background: var(--im-surface);
-  border: 1px solid var(--im-border);
-  border-radius: 0.75rem;
-  box-shadow: var(--im-shadow-strong);
-  padding: 0.25rem;
-  z-index: 50;
-  color: var(--im-text);
-}
-
-.im-user-menu-popover a,
-.im-user-menu-popover button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  border: 0;
-  font: inherit;
-  color: var(--im-text);
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.5rem;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.im-user-menu-popover a:hover,
-.im-user-menu-popover button:hover {
-  background: var(--im-surface-2);
-}
-
-.im-user-menu-language {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  font-size: 0.85rem;
-}
-
-.im-user-menu-item {
-  display: flex !important;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 0.75rem !important;
-}
-
-.im-user-menu-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  font-size: 15px;
-  flex-shrink: 0;
-}
-
-.im-user-menu-item-body {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-
-.im-user-menu-chevron-right {
-  font-size: 18px;
-  font-weight: 300;
-  color: oklch(0.7 0.01 240);
-  flex-shrink: 0;
-}
-
-.im-user-menu-language {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.6rem 0.75rem;
-}
-
-.im-user-menu-lang-options {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.85rem;
-}
-
-.im-user-menu-language button {
-  padding: 0;
-  width: auto;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: oklch(0.55 0.01 240);
-  font: inherit;
-  font-size: 0.85rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.im-user-menu-language button:hover {
-  color: var(--im-text);
-  background: transparent;
-}
-
-.im-user-menu-language button[aria-checked="true"] {
-  background: transparent;
-  color: var(--im-text);
-  border-color: transparent;
-  font-weight: 700;
-}
-
-.im-user-menu-language-divider {
-  color: oklch(0.75 0.01 240);
-  user-select: none;
-}
-
-.im-user-menu-signout {
-  color: var(--im-danger) !important;
 }
 
 /* Shared account fields; page composition lives in features/auth/auth-page.css. */
@@ -1449,7 +1137,7 @@ body {
 /* Sidebar */
 .chat-sidebar {
   --sidebar-bg: var(--im-sidebar);
-  width: 292px;
+  width: 300px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1490,10 +1178,10 @@ body {
 }
 
 .chat-sidebar-title {
-  font-size: 1rem;
-  font-weight: 600;
-  letter-spacing: -.02em;
-  color: var(--im-text-muted);
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -.035em;
+  color: var(--im-text);
 }
 
 .chat-sidebar-create { position: relative; flex-shrink: 0; }
@@ -1617,7 +1305,8 @@ body {
 .chat-sidebar-filters {
   display: flex;
   gap: 6px;
-  margin-top: 10px;
+  margin: 2px 14px 8px;
+  flex-shrink: 0;
   overflow-x: auto;
   padding-bottom: 2px;
   scrollbar-width: none;
@@ -1641,8 +1330,8 @@ body {
 }
 
 .chat-sidebar-filter--active {
-  background: var(--im-accent-soft);
-  color: var(--im-accent);
+  background: var(--im-mint);
+  color: #35634b;
 }
 
 .chat-sidebar-list {
@@ -1704,8 +1393,8 @@ body {
 
 .chat-sidebar-row--active,
 .chat-sidebar-row--active:hover {
-  background: var(--im-accent-soft);
-  outline: 1px solid var(--im-accent-border);
+  background: var(--im-mint);
+  outline: 1px solid #c5dfcf;
 }
 
 .chat-sidebar-row--selectable {
@@ -4890,15 +4579,14 @@ body {
 
 .group-settings-scrim {
   position: fixed;
-  /* 顶栏(.im-shell-topbar)高 48px：scrim/抽屉从其下方起，不盖住全局黑色顶栏。 */
-  inset: 48px 0 0;
+  inset: 0;
   z-index: 90;
   background: transparent;
 }
 
 .group-settings-drawer {
   position: fixed;
-  top: 48px;
+  top: 0;
   right: 0;
   bottom: 0;
   width: 340px;

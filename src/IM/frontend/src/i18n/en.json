@@ -2370,5 +2370,13 @@
         }
       }
     }
+  },
+  "workspaceWelcome": {
+    "title": "A little company for your work.",
+    "intro": "Pick up a conversation, or bring something new to the table.",
+    "setup": "Meet your personal assistant",
+    "personal": "Plans, loose ends, and whatever is on your mind.",
+    "newChat": "Start a conversation",
+    "team": "Bring a person or an Agent into the work."
   }
 }
