@@ -36,6 +36,10 @@ Round 3 静态 closure 确认这些问题均 closed，最终 delta aligned、无
 - 最终前端全量：126 文件 / 1230 测试通过；之后 pending 恢复末轮修正另跑 onboarding 15 项通过。前端构建通过，已有 bundle size 提示；critical audit 通过，仍报告 14 项非 critical 依赖告警（本轮未改依赖）。
 - 后端 build/typecheck、打包原生 interactive runtime 检查通过；PA 配置/回执修复的 2 文件 30 测试通过。
 - Python 非 E2E 136 项通过，ruff check/format、docs-check、完整 diff whitespace 检查通过。
-- 后端默认并行全量：245 文件中 238 通过，1405 测试中 1395 通过；7 个 DSH 相关文件的 10 项失败为超时、capability inspection deadline 或 FS recovery teardown RPC closed。串行重跑结果在最终收口时补记，原始失败不会改写为全绿。
+- 后端默认并行全量：245 文件中 238 通过，1405 测试中 1395 通过；7 个 DSH 相关文件的 10 项失败为超时、capability inspection deadline 或 FS recovery teardown RPC closed。同一源码下以 `pnpm exec vitest run --maxWorkers=1` 串行重跑这 7 文件，28 项全部通过（73.75 秒），未改超时或运行实现。失败与并发条件相关，但未证明底层根因；保留原始失败和串行通过记录，不声称默认并发全绿。
 - 已停止 daily IM/Gateway（52855）与安装候选预览/Node（60124），核实监听端口释放；删除独占的 `output/crewden-full`、`output/crewden-home/runtime`、`output/playwright/crewden-app/node-video`，保留截图、录像、摘要与两份必要轨迹。停止本任务 `crewden-full-review` tmux；未动其他任务/生产服务。
 - 开发 worktree 在 PR 审查期间保留，责任归本聊天；合并后按工作流清理。没有合并或生产部署授权。本地安装候选已验证不代表公开旧版 v1.0.3 已升级或发布。
+
+## 收口
+
+用户验收、独立 full/closure、canonical 归并与适用验证完成，整套 unit 归档；实现修复提交 `0ecde14e8`。PR 目标 develop，远端 CI 在 PR 中追踪；没有自动合并或部署。归档后仅路径与验证结果补记，已审代码和契约语义保留。
