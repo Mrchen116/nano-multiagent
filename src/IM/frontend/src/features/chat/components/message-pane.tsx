@@ -2,7 +2,7 @@ import { AssistantPortrait } from "./assistant-portrait";
 import { CooperationGuide, type CooperationGuideAgent } from "./cooperation-guide";
 import { AgentActivityPopover, type AgentActivityAnchor } from "./agent-activity-popover";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, CheckCheck, Copy, GitFork, ListTree, Reply } from "lucide-react";
+import { Check, CheckCheck, Copy, GitFork, ListTodo, ListTree, Reply } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -1221,7 +1221,7 @@ export function MessagePane({
             {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} nodeId={nodeId} update={nodeUpdate} />}
           </div>
         </div>
-        {personalAgent ? !isMobile && <span className="pa-badge">{t('pa.label','个人助手')}</span> : !isMobile && <KindBadge kind={kind} />}
+        {personalAgent ? !isMobile && <span className="pa-badge">{t('pa.label','个人助手')}</span> : !isMobile && !isGroup && <KindBadge kind={kind} />}
         {conversation.type === "direct" && conversation.can_write !== false && onRename ? (
           <DirectConversationMenu key={conversation.id} title={conversation.title}
             onRename={onRename} onOpenConfig={onOpenConfig} configLabel={configLabel}
@@ -1229,20 +1229,20 @@ export function MessagePane({
         ) : !conversation.is_observer && onOpenConfig && (
           <button
             type="button"
-            className={`chat-pane-config${isMobile ? " chat-pane-config-icon" : ""}`}
+            className="chat-pane-config chat-pane-config-icon"
             onClick={onOpenConfig}
             aria-label={t("chat.messagePane.config")}
+            title={t("chat.messagePane.config")}
           >
             {/* Lucide settings v0.468.0; ISC notice in ./avatar.tsx. */}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
               <circle cx="12" cy="12" r="3" />
             </svg>
-            {!isMobile && <span>{t("chat.messagePane.config")}</span>}
           </button>
         )}
         {headerActions}
-        {onOpenTasks && <button type="button" className="chat-pane-config" onClick={onOpenTasks}>{t("shell.tabs.tasks")}</button>}
+        {onOpenTasks && <button type="button" className="chat-pane-config chat-pane-config-icon" onClick={onOpenTasks} aria-label={t("shell.tabs.tasks")} title={t("shell.tabs.tasks")}><ListTodo size={20} strokeWidth={1.7} aria-hidden="true" /></button>}
       </header>
       {returnNavigation && <div className="pa-source-return">{returnNavigation}</div>}
 

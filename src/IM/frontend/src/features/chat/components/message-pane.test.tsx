@@ -2361,7 +2361,7 @@ describe("MessagePane", () => {
       expect(configBtn.querySelector("svg")).not.toBeNull();
     });
 
-    it("keeps participants + KindBadge + text Config on desktop (isMobile=false)", () => {
+    it("keeps desktop identity and an accessible icon-only Config action", () => {
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -2373,7 +2373,8 @@ describe("MessagePane", () => {
       );
       expect(document.querySelector(".chat-pane-participants")).not.toBeNull();
       const configBtn = screen.getByRole("button", { name: /config/i });
-      expect(configBtn.textContent).toMatch(/Config/i);
+      expect(configBtn.textContent).toBe("");
+      expect(configBtn).toHaveAttribute("title", "Config");
     });
   });
 
