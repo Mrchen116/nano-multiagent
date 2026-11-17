@@ -365,6 +365,16 @@ it("fills a first PA example without sending or replacing an existing draft", as
   expect(onSend).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole('button',{name:'Send'}));
   await waitFor(()=>expect(onSend).toHaveBeenCalledTimes(1));
+  const sentMessage = {
+    id:"first-user-message",conversation_id:CONV_A.id,sender:{type:"user" as const,id:"u1"},
+    sender_user_id:"u1",sender_type:"user",content:example,attachments:[],permission_requests:[],
+    delivery_status:"pending" as const,created_at:"2026-01-01T00:00:00Z",
+  };
+  rerender(withGuide(CONV_A,{personalAgent:true,cooperationAgent,onSend,messages:[sentMessage]}));
+  expect(screen.queryByRole('region',{name:'Working agreement'})).not.toBeInTheDocument();
+  rerender(withGuide(CONV_B));
+  rerender(withGuide(CONV_A,{personalAgent:true,cooperationAgent,onSend,messages:[sentMessage]}));
+  expect(screen.queryByRole('region',{name:'Working agreement'})).not.toBeInTheDocument();
   unmount();client.clear();
 });
 

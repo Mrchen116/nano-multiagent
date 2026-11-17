@@ -1400,7 +1400,7 @@ export function ChatWorkspacePage() {
             timeline={visibleTimeline}
             focusMessageId={locatorMessageId}
             personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
-            cooperationAgent={messagesQuery.isSuccess ? cooperationAgent : undefined}
+            cooperationAgent={messagesQuery.isSuccess && !messagesQuery.isFetching && hasMoreHistory === false && messagesQuery.data.items.length === 0 ? cooperationAgent : undefined}
             returnNavigation={location.state?.personalAgentReturn && personalBinding && !isPersonalConversation
               ? <button type="button" onClick={()=>navigate(`/chat/${encodeURIComponent(personalBinding.conversation_id)}`)}>{t('pa.return','← 返回个人助手')}</button>
               : typeof location.state?.sourceReturnUrl==='string' && /^\/chat\/[^/?#]+(?:\?[^#]*)?$/.test(location.state.sourceReturnUrl)

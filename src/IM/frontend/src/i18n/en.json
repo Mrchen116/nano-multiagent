@@ -2227,27 +2227,13 @@
     "step3": "Confirm and begin",
     "note": "These prompts fill the composer for you to edit and send. Background stays in conversation; ongoing responsibilities are saved only after you confirm.",
     "later": "Start with a task, discuss this later",
-    "unset": "Working agreement not set",
-    "discussing": "Discussing the agreement · not saved yet",
-    "confirmHint": "Confirm the proposed text in chat. The saved agreement will appear here.",
-    "deferred": "Start with the help you need now. You can return to this anytime.",
-    "continue": "Continue setup",
-    "saved": "Working agreement saved",
-    "view": "View agreement",
-    "revise": "To change responsibilities, discuss them in chat and confirm the revised text before saving.",
-    "firstTask": "What shall we start with? Tell me what you need help with below.",
-    "offline": "Your computer is offline. The agreement will be checked when it reconnects.",
-    "unavailable": "The agreement could not be verified. Your conversation is still here.",
-    "loading": "Reading the working agreement…",
-    "retry": "Read again",
     "personal": {
       "title": "Let {{name}} get to know you",
       "intro": "Share what you are working on, a goal, or something you wish were easier. Start with one real situation and find a useful way to work together over time.",
       "introduceLabel": "Introduce myself",
       "responsibilityLabel": "I have an ongoing responsibility in mind",
       "introduce": "I would like you to get to know me and discuss how you can help over time. Start with my current work, goals or difficulties, and ask one question at a time.",
-      "responsibility": "I would like to agree on an ongoing responsibility. First listen to what I want you to own and our collaboration boundaries, then draft an agreement for me to confirm before saving.",
-      "resume": "Let’s continue our working agreement. Use our earlier conversation, ask only for missing essentials, and draft once you have enough. Wait for my confirmation before saving."
+      "responsibility": "I would like to agree on an ongoing responsibility. First listen to what I want you to own and our collaboration boundaries, then draft an agreement for me to confirm before saving."
     },
     "global": {
       "title": "Agree on {{name}}’s responsibilities",
@@ -2255,8 +2241,7 @@
       "introduceLabel": "Discuss the context and goals",
       "responsibilityLabel": "I already have responsibilities in mind",
       "introduce": "Let’s agree on your responsibilities. Learn about the work, the outcomes I want you to own and the division of work. Ask one focused question at a time.",
-      "responsibility": "I have ongoing responsibilities to assign to you. First listen to the scope, delivery expectations and collaboration boundaries. Draft an agreement for me to confirm before saving.",
-      "resume": "Let’s continue agreeing on your responsibilities. Use the context and division of work we discussed to draft a short agreement. Ask about gaps and wait for my confirmation before saving."
+      "responsibility": "I have ongoing responsibilities to assign to you. First listen to the scope, delivery expectations and collaboration boundaries. Draft an agreement for me to confirm before saving."
     }
   }
 }

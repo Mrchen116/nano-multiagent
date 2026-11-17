@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen, waitFor, cleanup } from '@testing-library/react';
+import { act, render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { setLanguage } from '../../../i18n';
@@ -12,36 +12,29 @@ beforeEach(async () => { vi.resetAllMocks(); await act(async()=>setLanguage('en'
 afterEach(()=>{cleanup();client.clear();});
 function mount(props:Partial<React.ComponentProps<typeof CooperationGuide>>={}) {
   const onStart=vi.fn();
-  const element=(next={})=><QueryClientProvider client={client}><CooperationGuide agent={agent} messageCount={0} canStart onStart={onStart} {...props} {...next}/></QueryClientProvider>;
-  const view=render(element());return {...view,onStart,update:(next:object)=>view.rerender(element(next))};
+  return {onStart,...render(<QueryClientProvider client={client}><CooperationGuide agent={agent} canStart onStart={onStart} {...props}/></QueryClientProvider>)};
 }
-it('starts with owner context, only seeds a draft, and permits deferral and resumption', async()=>{
+it('only seeds a draft and dismisses the whole guide when deferred', async()=>{
  const view=mount();await screen.findByText('Let Aster get to know you');
  await userEvent.click(screen.getByRole('button',{name:'Introduce myself'}));
  expect(view.onStart).toHaveBeenCalledWith(expect.stringContaining('get to know me'));
- expect(screen.queryByText('Working agreement saved')).not.toBeInTheDocument();
  await userEvent.click(screen.getByRole('button',{name:'Start with a task, discuss this later'}));
- await userEvent.click(screen.getByRole('button',{name:'Continue setup'}));
- expect(view.onStart).toHaveBeenLastCalledWith(expect.stringContaining('earlier conversation'));
- view.update({messageCount:1});expect(screen.getByText('Discussing the agreement · not saved yet')).toBeInTheDocument();
+ expect(screen.queryByRole('region',{name:'Working agreement'})).not.toBeInTheDocument();
 });
-it('shows actual saved content after a new message, then withdraws success when offline',async()=>{
- const view=mount();await screen.findByText('Let Aster get to know you');
+it('does not display a saved role or its status in chat',async()=>{
  vi.mocked(getAgentRole).mockResolvedValue({content:'Track commitments. Draft replies for approval.',version:'v1'});
- view.update({messageCount:2});await screen.findByText(/Working agreement saved/);
- expect(screen.queryByRole('button',{name:'Introduce myself'})).not.toBeInTheDocument();
- await userEvent.click(screen.getByText(/Working agreement saved/));expect(screen.getByText('Track commitments. Draft replies for approval.')).toBeVisible();
- view.update({agent:{...agent,online:false},messageCount:2});expect(screen.queryByText(/Working agreement saved/)).not.toBeInTheDocument();expect(screen.getByRole('status')).toHaveTextContent('offline');
+ const {container}=mount();
+ await waitFor(()=>expect(client.getQueryState(['settings','agents','a','role'])?.status).toBe('success'));
+ expect(container).toBeEmptyDOMElement();
 });
-it('distinguishes failed reads from unset and retries',async()=>{
- vi.mocked(getAgentRole).mockRejectedValue(new Error('unavailable'));mount();await screen.findByText('The agreement could not be verified. Your conversation is still here.');
- expect(screen.queryByText('Let Aster get to know you')).not.toBeInTheDocument();
- vi.mocked(getAgentRole).mockResolvedValue({content:'',version:null});await userEvent.click(screen.getByRole('button',{name:'Read again'}));await screen.findByText('Let Aster get to know you');
+it('does not replace a failed role lookup with setup or a role status panel',async()=>{
+ vi.mocked(getAgentRole).mockRejectedValue(new Error('unavailable'));
+ const {container}=mount();
+ await waitFor(()=>expect(client.getQueryState(['settings','agents','a','role'])?.status).toBe('error'));
+ expect(container).toBeEmptyDOMElement();
 });
-it('uses Global responsibilities, respects existing drafts and skips setup for an existing agreement',async()=>{
+it('uses Global responsibilities and respects existing drafts',async()=>{
  const view=mount({agent:{...agent,personal:false},canStart:false});await screen.findByText('Agree on Aster’s responsibilities');
  expect(screen.getByRole('button',{name:'Discuss the context and goals'})).toBeDisabled();
- vi.mocked(getAgentRole).mockResolvedValue({content:'Own delivery quality.',version:'v2'});
- await act(async()=>{await client.invalidateQueries();});await waitFor(()=>expect(screen.getByText(/Working agreement saved/)).toBeInTheDocument());
- expect(screen.queryByText('Agree on Aster’s responsibilities')).not.toBeInTheDocument();expect(view.onStart).not.toHaveBeenCalled();
+ expect(view.onStart).not.toHaveBeenCalled();
 });

@@ -1241,7 +1241,7 @@ export function MessagePane({
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         <div ref={messageListRef} className="chat-pane-message-list">
-          {cooperationAgent && <CooperationGuide key={conversation.id} agent={cooperationAgent} messageCount={messages.length}
+          {messages.length === 0 && cooperationAgent && <CooperationGuide key={conversation.id} agent={cooperationAgent}
             canStart={!composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0}
             onStart={text => { setDraft(text); composerRef.current?.focus(); }} />}
           {messages.length === 0 ? (cooperationAgent ? null : (
