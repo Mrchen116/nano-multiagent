@@ -98,7 +98,7 @@ it('creates an empty personal chat without sending an old setup goal', async () 
  await screen.findByRole('heading',{name:'Name your personal assistant'});
  expect(screen.queryByRole('textbox',{name:/work on/})).not.toBeInTheDocument();
  expect(screen.queryByText('Start your first task')).not.toBeInTheDocument();
- await userEvent.click(screen.getByRole('button',{name:'Round glasses'}));
+ await userEvent.click(screen.getByRole('button',{name:'Jellybean'}));
  await userEvent.click(screen.getByRole('button',{name:'Mint'}));
  await userEvent.click(screen.getByRole('button',{name:'Create personal assistant'}));
  await screen.findByText('Chat opened');

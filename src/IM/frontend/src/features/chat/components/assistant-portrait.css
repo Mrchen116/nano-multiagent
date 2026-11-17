@@ -1,0 +1,7 @@
+.assistant-portrait { display: block; flex: none; overflow: visible; }
+@media (prefers-reduced-motion: no-preference) {
+  .avatar-picker button:hover .assistant-portrait { transform: translateY(-2px) rotate(-5deg); }
+  .avatar-picker button .assistant-portrait { transition: transform 180ms ease; }
+  .avatar-picker-preview:hover .assistant-portrait-eyes { animation: portrait-blink 500ms ease; transform-box: fill-box; transform-origin: center; }
+  @keyframes portrait-blink { 0%, 30%, 65%, 100% { transform: scaleY(1); } 45% { transform: scaleY(.12); } }
+}

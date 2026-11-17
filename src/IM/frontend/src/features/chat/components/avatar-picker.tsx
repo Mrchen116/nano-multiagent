@@ -19,7 +19,7 @@ export function AvatarPicker({ personal = false, value, onChange, disabled = fal
             onClick={() => onChange(index * 6 + color)}><AssistantPortrait personal={personal} variant={index * 6 + color} size={40} /></button>)}
         </div>
         <div className="avatar-picker-colors" role="group" aria-label={t('avatarPicker.color')}>
-          {['#b9a2df', '#79af98', '#85a8d6', '#e8a385', '#d991b6', '#d9be6f'].map((swatch, index) => <button key={swatch} type="button" aria-pressed={color === index}
+          {['#b19aef', '#8bcbb0', '#8cbce9', '#f0ab89', '#eaa5c2', '#eac76a'].map((swatch, index) => <button key={swatch} type="button" aria-pressed={color === index}
             aria-label={t(`avatarPicker.colors.${index}`)} onClick={() => onChange(style * 6 + index)}><span style={{background:swatch}} /></button>)}
         </div>
       </div>
