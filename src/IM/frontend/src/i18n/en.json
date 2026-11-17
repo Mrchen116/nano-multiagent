@@ -62,7 +62,7 @@
     "logout": "Sign out"
   },
   "shell": {
-    "appName": "nano IM",
+    "appName": "Crewden",
     "tabs": {
       "chat": "Chat",
       "agents": "Agents",
@@ -1919,7 +1919,7 @@
   },
   "publicHome": {
     "skip": "Skip to content",
-    "home": "Nano home",
+    "home": "Crewden home",
     "navigation": "Product navigation",
     "switchLanguage": "切换到中文",
     "signIn": "Sign in",
@@ -1933,9 +1933,9 @@
     "intro": "Work in one shared IM with your teammates, everyone’s personal agent, and digital colleagues with ongoing responsibilities. Discuss, coordinate, and deliver—with context that carries forward.",
     "prerequisite": "Start with your own PA, then join a team. Running your own agents requires a connected computer and model service.",
     "nav": {
-      "how": "Who works together",
+      "how": "See how it works",
       "space": "Ongoing collaboration",
-      "start": "Get started"
+      "start": "Start with your assistant"
     },
     "demo": {
       "eyebrow": "A MOMENT IN A TEAM’S WORK",
@@ -2242,6 +2242,116 @@
       "responsibilityLabel": "I already have responsibilities in mind",
       "introduce": "Let’s agree on your responsibilities. Learn about the work, the outcomes I want you to own and the division of work. Ask one focused question at a time.",
       "responsibility": "I have ongoing responsibilities to assign to you. First listen to the scope, delivery expectations and collaboration boundaries. Draft an agreement for me to confirm before saving."
+    }
+  },
+  "crewdenHome": {
+    "titleFirst": "From discussion",
+    "titleSecond": "to done.",
+    "intro": "You and your colleagues talk. Your AI assistants\nkeep up, work together, and bring results back.",
+    "watch": "See it in action",
+    "scenario": "A new release date. One team moving together.",
+    "navigation": "Collaboration demo stages",
+    "steps": {
+      "change": "Catch the change",
+      "progress": "Work together",
+      "ready": "Bring results back"
+    },
+    "next": "Next step",
+    "restart": "Start again",
+    "actors": {
+      "human": "You and your team",
+      "personal": "Your personal assistant",
+      "specialist": "Digital colleagues"
+    },
+    "stageLabel": "Your team, working together",
+    "example": "Interactive example",
+    "person": "Lin Lan",
+    "initial": "L",
+    "message": "Let’s move the release to Friday. Update the customer notes and regression checks for the new date.",
+    "workLabel": "Collaboration progress",
+    "roles": {
+      "personal": "Personal assistant",
+      "engineering": "Engineering",
+      "quality": "QA colleague"
+    },
+    "document": "Release plan",
+    "project": "Quicknote / New release",
+    "documentTitleFirst": "Ready for",
+    "documentTitleSecond": "Friday’s release",
+    "newDate": "New release date",
+    "wednesday": "Wed",
+    "friday": "Friday",
+    "updated": "Updated",
+    "dateChange": "Release moved from Wednesday to Friday",
+    "week": {
+      "mon": "Mon",
+      "tue": "Tue",
+      "wed": "Wed",
+      "thu": "Thu",
+      "fri": "Fri"
+    },
+    "original": "Original",
+    "launch": "Release",
+    "deliverables": {
+      "customer": "Customer notes",
+      "customerNote": "New date / Release changes",
+      "verification": "Regression checks",
+      "verificationNote": "Export fix / Permissions"
+    },
+    "openDocument": "Open release plan",
+    "dialogTitle": "Quicknote · Release plan",
+    "deliverableList": "Deliverables",
+    "releaseDecision": "Release: waiting for your approval",
+    "disclosure": "This is an illustrative collaboration and sample result. No live agents run and no release is performed.",
+    "close": "Close release plan",
+    "receiptTitle": "Results return to the conversation",
+    "receiptNote": "The final release decision stays with you.",
+    "startEyebrow": "From one assistant to a whole team",
+    "startTitle": "Start with an assistant\nwho knows your work.",
+    "startBody": "A space and a personal assistant of your own.\nThen work with people and digital colleagues.",
+    "startLink": "Create your personal space",
+    "requirements": "To run your assistant, connect a computer and a model service.",
+    "footer": "People and AI, doing good work together.",
+    "scenes": {
+      "change": {
+        "work": {
+          "personal": "Change picked up",
+          "engineering": "Getting aligned",
+          "quality": "Getting aligned"
+        },
+        "version": "Revising",
+        "state": "Preparing",
+        "customer": "Updating",
+        "verification": "Confirming",
+        "note": "The date is updated. Notes and verification records are being prepared.",
+        "detail": "The release has moved to Friday. Customer notes and regression checks still need confirmation."
+      },
+      "progress": {
+        "work": {
+          "personal": "Updating notes",
+          "engineering": "Confirming the fix",
+          "quality": "Running checks"
+        },
+        "version": "In progress",
+        "state": "Moving forward",
+        "customer": "In progress",
+        "verification": "Checking",
+        "note": "Both workstreams are moving forward. Their results come together here.",
+        "detail": "The personal assistant is updating customer notes. Engineering is confirming the export fix, while QA runs regression checks."
+      },
+      "ready": {
+        "work": {
+          "personal": "Notes prepared",
+          "engineering": "Fix confirmed",
+          "quality": "Checks complete"
+        },
+        "version": "Updated",
+        "state": "Your review",
+        "customer": "Draft ready",
+        "verification": "Complete",
+        "note": "Everything is ready for Lin to review before release.",
+        "detail": "The customer notes are drafted. Export regression and permission checks have passed. Nothing has been released; the final decision is yours."
+      }
     }
   }
 }

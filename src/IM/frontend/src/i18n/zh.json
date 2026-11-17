@@ -62,7 +62,7 @@
     "logout": "退出登录"
   },
   "shell": {
-    "appName": "nano IM",
+    "appName": "Crewden",
     "tabs": {
       "chat": "聊天",
       "agents": "智能体",
@@ -1909,7 +1909,7 @@
   },
   "publicHome": {
     "skip": "跳到主要内容",
-    "home": "Nano 首页",
+    "home": "Crewden 首页",
     "navigation": "产品导航",
     "switchLanguage": "Switch to English",
     "signIn": "登录",
@@ -1923,9 +1923,9 @@
     "intro": "在同一个聊天空间里，你和同事、各自的个人助手（PA），以及长期负责专业工作的数字员工，共同讨论、协调和交付。工作有来处、有进展，也有人持续跟进。",
     "prerequisite": "可以先独立使用自己的 PA，再加入团队。运行自己的 Agent，需要连接电脑和模型服务。",
     "nav": {
-      "how": "谁在一起工作",
+      "how": "看看如何协作",
       "space": "如何持续协作",
-      "start": "如何开始"
+      "start": "从自己的助手开始"
     },
     "demo": {
       "eyebrow": "一个团队的工作片段",
@@ -2232,6 +2232,116 @@
       "responsibilityLabel": "我已有明确的职责安排",
       "introduce": "我们先对齐你的工作职责。请了解工作背景、我希望你负责的结果，以及与其他人的分工，一次只问一个关键问题。",
       "responsibility": "我有明确的长期职责安排要交给你。请先听我介绍职责范围、交付标准和协作边界，整理成约定供我确认，再保存。"
+    }
+  },
+  "crewdenHome": {
+    "titleFirst": "把讨论，",
+    "titleSecond": "推进成结果。",
+    "intro": "你和同事一起讨论，AI 助手接住变化、\n协作推进，把准备好的成果带回聊天。",
+    "watch": "看一次协作",
+    "scenario": "一次发布改期，如何一起推进",
+    "navigation": "协作演示阶段",
+    "steps": {
+      "change": "接住变化",
+      "progress": "一起推进",
+      "ready": "带回成果"
+    },
+    "next": "下一步",
+    "restart": "重新演示",
+    "actors": {
+      "human": "你和同事",
+      "personal": "你的个人助手",
+      "specialist": "专业数字员工"
+    },
+    "stageLabel": "你的团队，正在一起工作",
+    "example": "互动场景示例",
+    "person": "林岚",
+    "initial": "林",
+    "message": "发布改到周五。客户说明和回归验证，也按新时间准备。",
+    "workLabel": "协作进展",
+    "roles": {
+      "personal": "个人助手",
+      "engineering": "工程同事",
+      "quality": "QA 同事"
+    },
+    "document": "发布计划",
+    "project": "轻记 / 新版本",
+    "documentTitleFirst": "周五发布",
+    "documentTitleSecond": "准备清单",
+    "newDate": "新的发布时间",
+    "wednesday": "周三",
+    "friday": "周五",
+    "updated": "已更新",
+    "dateChange": "发布从周三调整到周五",
+    "week": {
+      "mon": "周一",
+      "tue": "周二",
+      "wed": "周三",
+      "thu": "周四",
+      "fri": "周五"
+    },
+    "original": "原定",
+    "launch": "发布",
+    "deliverables": {
+      "customer": "客户说明",
+      "customerNote": "新时间 / 版本变化",
+      "verification": "回归验证",
+      "verificationNote": "导出修复 / 权限检查"
+    },
+    "openDocument": "打开发布计划",
+    "dialogTitle": "轻记 · 新版本发布计划",
+    "deliverableList": "交付清单",
+    "releaseDecision": "发布操作：等待负责人确认",
+    "disclosure": "这是协作场景与成果示例，未运行真实 Agent 或执行发布。",
+    "close": "关闭发布计划",
+    "receiptTitle": "成果带回原来的聊天",
+    "receiptNote": "最后的发布决定，留给你。",
+    "startEyebrow": "从一个助手，到一起工作的团队",
+    "startTitle": "先有一个，\n真正了解你工作的助手。",
+    "startBody": "拥有自己的空间和个人助手，\n再与同事、专业数字员工一起工作。",
+    "startLink": "创建我的空间",
+    "requirements": "运行自己的助手，需要连接电脑和模型服务。",
+    "footer": "让人和 AI，一起把事情做好。",
+    "scenes": {
+      "change": {
+        "work": {
+          "personal": "已接住变化",
+          "engineering": "正在对齐",
+          "quality": "正在对齐"
+        },
+        "version": "修订中",
+        "state": "正在准备",
+        "customer": "正在更新",
+        "verification": "正在确认",
+        "note": "时间已更新，客户说明与验证记录正在准备。",
+        "detail": "发布计划已更新为周五。客户说明与回归验证的进度仍待确认。"
+      },
+      "progress": {
+        "work": {
+          "personal": "正在更新说明",
+          "engineering": "正在确认修复",
+          "quality": "正在验证"
+        },
+        "version": "协作中",
+        "state": "正在推进",
+        "customer": "修改中",
+        "verification": "验证中",
+        "note": "两项工作并行推进，结果会汇总到这里。",
+        "detail": "个人助手正在更新客户说明。工程同事确认导出修复，QA 同事进行回归验证。"
+      },
+      "ready": {
+        "work": {
+          "personal": "说明已准备好",
+          "engineering": "修复已确认",
+          "quality": "验证已完成"
+        },
+        "version": "已更新",
+        "state": "待你确认",
+        "customer": "草稿已就绪",
+        "verification": "验证已完成",
+        "note": "材料已经备齐，等待林岚确认后发布。",
+        "detail": "客户说明草稿已完成；导出问题回归和权限检查已通过。材料准备完成，尚未发布，等待负责人确认。"
+      }
     }
   }
 }

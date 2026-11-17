@@ -12,7 +12,7 @@ it("never caches the frontend entrypoint on direct or SPA routes", async () => {
   writeFileSync(join(dir,'assets','index-abcdefgh.js'),'hashed bundle');
   const app = await createServer({ dbPath: join(dir, "im.sqlite3"), publicUrl: "https://nano.example", frontendDistDir: dir });
   try {
-    for (const url of ["/", "/index.html", "/settings/agents/personal-agent", "/chat"]) {
+    for (const url of ["/", "/about", "/index.html", "/settings/agents/personal-agent", "/chat"]) {
       const response = await app.inject(url);
       expect(response.statusCode).toBe(200);
       expect(response.headers["cache-control"]).toContain("no-store");

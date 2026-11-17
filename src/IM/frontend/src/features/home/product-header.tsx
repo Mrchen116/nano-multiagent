@@ -13,8 +13,7 @@ export function ProductHeader({ page = 'home', accountName }: {
   return <header className={`product-header product-header--${page}`}>
     <Link to="/about" className="product-brand" aria-label={t('publicHome.home')}><NanoBrand /></Link>
     {page !== 'setup' && page !== 'membership' && <nav className="product-nav" aria-label={t('publicHome.navigation')}>
-      <a href="/about#how-it-works">{t('publicHome.nav.how')}</a>
-      <a href="/about#your-space">{t('publicHome.nav.space')}</a>
+      <a href="/about#product-demo">{t('publicHome.nav.how')}</a>
       <a href="/about#getting-started">{t('publicHome.nav.start')}</a>
     </nav>}
     <div className="product-header-actions">

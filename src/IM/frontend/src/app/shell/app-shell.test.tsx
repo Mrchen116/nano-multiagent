@@ -73,7 +73,7 @@ describe("AppShell", () => {
     renderShell("/chat");
     const banner = screen.getByRole("banner");
     expect(banner).toBeInTheDocument();
-    expect(within(banner).getByText(/nano im/i)).toBeInTheDocument();
+    expect(within(banner).getByText(/crewden/i)).toBeInTheDocument();
     expect(within(banner).getByRole("link", { name: /chat/i })).toHaveAttribute("href", "/chat");
     expect(within(banner).getByRole("link", { name: /tasks/i })).toHaveAttribute("href", "/tasks");
     expect(within(banner).getByRole("link", { name: /agents/i })).toHaveAttribute("href", "/settings/agents");

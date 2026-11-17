@@ -26,25 +26,29 @@ afterEach(() => vi.restoreAllMocks());
 
 it('explains the product before sign-in, with a local demo that cannot execute a task', async () => {
   renderRouter({routes:appRoutes,initialEntries:['/'],auth:null});
-  expect(screen.getByRole('heading',{level:1})).toHaveTextContent('People and AI.');
-  expect(screen.getByRole('tabpanel')).toHaveTextContent('Lin');
-  const change=screen.getByRole('tab',{name:/A PA follows a change/});
+  expect(screen.getByRole('heading',{level:1})).toHaveTextContent('From discussion');
+  expect(screen.getByRole('region', {name:'Your team, working together'})).toHaveTextContent('Lin Lan');
+  const change=screen.getByRole('button',{name:'Catch the change'});
   await userEvent.click(change);
-  expect(screen.getByRole('tabpanel')).toHaveTextContent('Private chat');
-  await userEvent.keyboard('{ArrowRight}');
-  expect(screen.getByRole('tab',{name:/Progress in parallel/})).toHaveFocus();
-  expect(screen.getByRole('tabpanel')).toHaveTextContent('Waiting for a fix');
-  expect(screen.getByRole('tabpanel')).toHaveTextContent('In progress');
-  await userEvent.keyboard('{End}');
-  expect(screen.getByRole('tabpanel')).toHaveTextContent('Results return');
-  const note=screen.getByRole('button',{name:/Release verification/});
-  await userEvent.click(note);
-  expect(note).toHaveAttribute('aria-expanded','true');
-  expect(screen.getByText(/Completed: export regression/)).toBeVisible();
-  await userEvent.click(screen.getByRole('button',{name:/Start again/}));
-  expect(screen.getByRole('tab',{name:/Discuss together/})).toHaveAttribute('aria-selected','true');
+  expect(change).toHaveAttribute('aria-pressed','true');
+  expect(screen.getByRole('status')).toHaveTextContent('Preparing');
+  await userEvent.click(screen.getByRole('button',{name:'Next step'}));
+  expect(screen.getByRole('status')).toHaveTextContent('Moving forward');
+  await userEvent.click(screen.getByRole('button',{name:'Bring results back'}));
+  expect(screen.getByRole('status')).toHaveTextContent('Your review');
+  const document=screen.getByRole('button',{name:'Open release plan'});
+  await userEvent.click(document);
+  expect(screen.getByRole('dialog')).toHaveTextContent('Nothing has been released');
+  await userEvent.keyboard('{Escape}');
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  expect(document).toHaveFocus();
+  await userEvent.click(screen.getByRole('button',{name:'Start again'}));
+  expect(change).toHaveAttribute('aria-pressed','true');
   expect(fetch).not.toHaveBeenCalled();
   expect(screen.getAllByRole('link',{name:/Create your personal space/})[0]).toHaveAttribute('href','/register');
+  await userEvent.click(screen.getByRole('radio',{name:'中'}));
+  expect(screen.getByRole('heading',{level:1})).toHaveTextContent('把讨论，推进成结果。');
+  expect(screen.getByRole('button',{name:'接住变化'})).toHaveAttribute('aria-pressed','true');
 });
 
 it('keeps protected chat behind sign-in', async () => {

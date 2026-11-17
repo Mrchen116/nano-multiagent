@@ -1,80 +1,115 @@
 import { useEffect, useState } from 'react';
 import { Link, Navigate } from 'react-router-dom';
+import * as Dialog from '@radix-ui/react-dialog';
+import { ArrowRight, Check, Clock3, FileText, GitBranch, Play, Sparkles, X } from 'lucide-react';
 import { NanoBrand } from '../../app/shell/nano-brand';
 import { useTranslation } from '../../i18n';
 import { ProductHeader } from './product-header';
-import { ProductDemo } from './product-demo';
 import { accountEnabled, useAuthStore } from '../auth/auth-store';
 import './public-home.css';
 
-/** Explain the product before asking visitors to create an account. */
+const stages = ['change', 'progress', 'ready'] as const;
+const roles = ['personal', 'engineering', 'quality'] as const;
+
+/** Present the public product story while preserving returning users' entry route. */
 export function PublicHomePage({ restoreSession = false }: { restoreSession?: boolean }) {
   const { t } = useTranslation();
-  const [openQuestion, setOpenQuestion] = useState<number | null>(0);
+  const text = (key: string) => t(`crewdenHome.${key}`);
+  const [stage, setStage] = useState(2);
   const user = useAuthStore(s => s.user);
   const hydrated = useAuthStore(s => s.hydrated);
+  const scene = (key: string) => text(`scenes.${stages[stage]}.${key}`);
   useEffect(() => { if (restoreSession && !hydrated) void useAuthStore.getState().hydrate(); }, [restoreSession, hydrated]);
   if (restoreSession && hydrated && user) return <Navigate to={accountEnabled(user) ? '/chat' : '/membership'} replace />;
 
+  function watch() {
+    setStage(0);
+    document.getElementById('product-demo')?.scrollIntoView({
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'center',
+    });
+  }
+
   return <div className="public-home product-entry">
-    <a className="home-skip" href="#home-main">{t('publicHome.skip')}</a>
+    <a className="crew-skip" href="#home-main">{t('publicHome.skip')}</a>
     <ProductHeader />
-
     <main id="home-main">
-      <section className="home-hero home-container" aria-labelledby="home-title">
-        <div className="home-hero-copy">
-          <p className="home-eyebrow"><span />{t('publicHome.eyebrow')}</p>
-          <h1 id="home-title">{t('publicHome.titleBefore')}<em>{t('publicHome.titleAccent')}</em>{t('publicHome.titleAfter')}</h1>
+      <section className="crew-hero" aria-labelledby="home-title">
+        <div className="crew-intro">
+          <h1 id="home-title">{text('titleFirst')}<br />{text('titleSecond')}</h1>
+          <p className="crew-lead">{text('intro')}</p>
+          <div className="crew-actions">
+            <Link className="crew-primary" to="/register">{t('publicHome.createSpace')}<ArrowRight /></Link>
+            <button className="crew-watch" onClick={watch}><Play />{text('watch')}</button>
+          </div>
+          <div className="crew-controls" id="product-demo">
+            <p>{text('scenario')}</p>
+            <div className="crew-steps" role="group" aria-label={text('navigation')}>
+              {stages.map((key, i) => <button key={key} aria-pressed={stage === i} aria-controls="crew-stage" onClick={() => setStage(i)}><span />{text(`steps.${key}`)}</button>)}
+            </div>
+            <button className="crew-next" onClick={() => setStage((stage + 1) % stages.length)}>{text(stage === 2 ? 'restart' : 'next')}<ArrowRight /></button>
+          </div>
+          <div className="crew-actors">
+            <span><Avatar kind="human" />{text('actors.human')}</span><i>+</i>
+            <span><Avatar kind="personal" />{text('actors.personal')}</span><i>+</i>
+            <span><Avatar kind="engineering" />{text('actors.specialist')}</span>
+          </div>
         </div>
-        <div className="home-hero-description">
-          <p className="home-lead">{t('publicHome.intro')}</p>
-          <div className="home-hero-actions"><Link className="home-button" to="/register">{t('publicHome.createSpace')}<Arrow /></Link><a className="home-text-link" href="#product-demo">{t('publicHome.watch')}<span aria-hidden="true">↘</span></a></div>
-          <p className="home-prerequisite">{t('publicHome.prerequisite')}</p>
+        <div className="crew-stage" id="crew-stage" role="region" aria-label={text('stageLabel')}>
+          <div className="crew-stage-caption"><span>{text('stageLabel')}</span><span>{text('example')}</span></div>
+          <div className="crew-message">
+            <div className="crew-person"><Avatar kind="human" /><strong>{text('person')}</strong><time>09:41</time></div>
+            <p>{text('message')}</p>
+          </div>
+          <div className="crew-work" aria-label={text('workLabel')}>
+            {roles.map(key => <div key={key}><Avatar kind={key} /><div><strong>{text(`roles.${key}`)}</strong><span>{scene(`work.${key}`)}</span></div></div>)}
+          </div>
+          <div className="crew-paper-wrap">
+            <div className="crew-paper-back" aria-hidden="true" />
+            <article className="crew-paper">
+              <div className="crew-paper-top"><span><FileText />{text('document')}</span><span>{scene('version')}</span></div>
+              <div className="crew-paper-body">
+                <div className="crew-paper-heading"><span>{text('project')}</span><span className="crew-status" role="status">{scene('state')}</span></div>
+                <h2>{text('documentTitleFirst')}<br />{text('documentTitleSecond')}</h2>
+                <div className="crew-date"><span>{text('newDate')}</span><div><del>{text('wednesday')}</del><ArrowRight /><strong>{text('friday')}</strong><span>{text('updated')}</span></div></div>
+                <div className="crew-week" aria-label={text('dateChange')}>
+                  {['mon', 'tue', 'wed', 'thu', 'fri'].map((day, i) => <span key={day} className={i === 2 ? 'was-planned' : i === 4 ? 'is-launch' : ''}>{text(`week.${day}`)}<small>{i === 2 ? text('original') : i === 4 ? text('launch') : '\u00a0'}</small></span>)}
+                </div>
+                {['customer', 'verification'].map((key, i) => <div className="crew-deliverable" key={key}>
+                  {i === 0 ? <FileText /> : <Check />}<div><strong>{text(`deliverables.${key}`)}</strong><small>{text(`deliverables.${key}Note`)}</small></div><span>{scene(key)}</span>
+                </div>)}
+                <p className="crew-document-note">{stage === 2 ? <Check /> : <Clock3 />}<span>{scene('note')}</span></p>
+              </div>
+              <Dialog.Root>
+                <Dialog.Trigger className="crew-open-document">{text('openDocument')}<ArrowRight /></Dialog.Trigger>
+                <Dialog.Portal>
+                  <Dialog.Overlay className="crew-dialog-overlay" />
+                  <Dialog.Content className="crew-dialog">
+                    <span className="crew-dialog-kicker">{text('example')} / {scene('version')}</span>
+                    <Dialog.Title>{text('dialogTitle')}</Dialog.Title>
+                    <Dialog.Description>{scene('detail')}</Dialog.Description>
+                    <div className="crew-dialog-date">{text('newDate')}<strong>{text('friday')}</strong></div>
+                    <h3>{text('deliverableList')}</h3>
+                    <ul><li>{text('deliverables.customer')}: {scene('customer')}</li><li>{text('deliverables.verification')}: {scene('verification')}</li><li>{text('releaseDecision')}</li></ul>
+                    <p className="crew-disclosure">{text('disclosure')}</p>
+                    <Dialog.Close className="crew-dialog-close" aria-label={text('close')}><X /></Dialog.Close>
+                  </Dialog.Content>
+                </Dialog.Portal>
+              </Dialog.Root>
+            </article>
+            {stage === 2 && <div className="crew-receipt"><Avatar kind="personal" /><div><strong>{text('receiptTitle')}</strong><small>{text('receiptNote')}</small></div><Check /></div>}
+          </div>
         </div>
-
       </section>
-      <ProductDemo />
-
-      <section className="home-concepts home-container" id="how-it-works" aria-labelledby="home-concepts-title">
-        <div className="home-section-heading"><p className="home-eyebrow">{t('publicHome.concepts.eyebrow')}</p><h2 id="home-concepts-title">{t('publicHome.concepts.title')}</h2><p>{t('publicHome.concepts.intro')}</p></div>
-        <div className="home-concept-grid">{(['human', 'personal', 'specialist'] as const).map((key, index) => <article key={key} className="home-concept">
-          <div className="home-concept-top"><span className="home-concept-icon"><HomeIcon name={key === 'human' ? 'person' : key === 'personal' ? 'message' : 'team'} /></span><span>0{index + 1}</span></div>
-          <span className="home-concept-role">{t(`publicHome.concepts.${key}.role`)}</span><h3>{t(`publicHome.concepts.${key}.title`)}</h3><p>{t(`publicHome.concepts.${key}.body`)}</p><div className="home-concept-example">{t(`publicHome.concepts.${key}.example`)}</div>
-        </article>)}</div>
-        <p className="home-concept-note">{t('publicHome.concepts.note')}</p>
-      </section>
-
-      <section className="home-space-section" id="your-space" aria-labelledby="home-space-title"><div className="home-container home-space-layout">
-        <div className="home-section-heading"><p className="home-eyebrow">{t('publicHome.space.eyebrow')}</p><h2 id="home-space-title">{t('publicHome.space.title')}</h2><p>{t('publicHome.space.intro')}</p><a className="home-text-link" href="#getting-started">{t('publicHome.space.link')}<Arrow /></a></div>
-        <div className="home-space-details">{(['context', 'progress', 'control'] as const).map(key => <article key={key}><span className="home-space-icon"><HomeIcon name={key === 'context' ? 'message' : key === 'progress' ? 'check' : 'shield'} /></span><div><h3>{t(`publicHome.space.${key}.title`)}</h3><p>{t(`publicHome.space.${key}.body`)}</p></div></article>)}</div>
-      </div></section>
-
-      <section className="home-start home-container" id="getting-started" aria-labelledby="home-start-title">
-        <div className="home-section-heading"><p className="home-eyebrow">{t('publicHome.setup.eyebrow')}</p><h2 id="home-start-title">{t('publicHome.setup.title')}</h2><p>{t('publicHome.setup.intro')}</p></div>
-        <ol className="home-start-steps">{['account', 'computer', 'model'].map((key, i) => <li key={key}><span>0{i + 1}</span><h3>{t(`publicHome.setup.${key}.title`)}</h3><p>{t(`publicHome.setup.${key}.body`)}</p></li>)}</ol>
-        <div className="home-start-action"><Link className="home-button" to="/register">{t('publicHome.createSpace')}<Arrow /></Link><p>{t('publicHome.setup.note')}</p></div>
-      </section>
-
-      <section className="home-faq home-container" aria-labelledby="home-faq-title">
-        <div className="home-section-heading"><p className="home-eyebrow">{t('publicHome.faq.eyebrow')}</p><h2 id="home-faq-title">{t('publicHome.faq.title')}</h2></div>
-        <div className="home-faq-list">{['roles', 'ready', 'phone', 'online', 'data', 'team', 'model'].map((key, index) => <div className="home-faq-item" key={key}><h3><button aria-expanded={openQuestion === index} aria-controls={`home-answer-${key}`} onClick={() => setOpenQuestion(openQuestion === index ? null : index)}>{t(`publicHome.faq.${key}.question`)}<span aria-hidden="true">{openQuestion === index ? '−' : '+'}</span></button></h3><p id={`home-answer-${key}`} hidden={openQuestion !== index}>{t(`publicHome.faq.${key}.answer`)}</p></div>)}</div>
+      <section className="crew-start" id="getting-started" aria-labelledby="start-title">
+        <div><span>{text('startEyebrow')}</span><h2 id="start-title">{text('startTitle')}</h2></div>
+        <div><p>{text('startBody')}</p><Link to="/register">{text('startLink')}<ArrowRight /></Link><small>{text('requirements')}</small></div>
       </section>
     </main>
-    <footer className="home-footer home-container"><NanoBrand /><span>{t('publicHome.footer')}</span><Link to="/login">{t('publicHome.signIn')}<span aria-hidden="true"> ↗</span></Link></footer>
+    <footer className="crew-footer"><Link to="/about" aria-label={t('publicHome.home')}><NanoBrand /></Link><span>{text('footer')}</span><Link to="/login">{t('publicHome.signIn')}<ArrowRight /></Link></footer>
   </div>;
 }
 
-function Arrow() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>; }
-
-function HomeIcon({ name }: { name: 'person' | 'team' | 'computer' | 'message' | 'check' | 'shield' | 'document' | 'search' }) {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    {name === 'person' ? <><circle cx="12" cy="8" r="4" /><path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2" /></>
-      : name === 'team' ? <><circle cx="9" cy="8" r="3" /><path d="M3 20v-2a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v2m1-15a3 3 0 0 1 0 6m2 3a5 5 0 0 1 3 5v1" /></>
-      : name === 'computer' ? <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8m-4-4v4" /></>
-      : name === 'message' ? <path d="M21 14a3 3 0 0 1-3 3H9l-6 4V6a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v8ZM7 8h10M7 12h6" />
-      : name === 'check' ? <><rect x="4" y="4" width="16" height="16" rx="4" /><path d="m8 12 3 3 5-6" /></>
-      : name === 'shield' ? <><path d="m12 3 8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6l8-3Z" /><path d="m8 12 3 3 5-6" /></>
-      : name === 'search' ? <><circle cx="10" cy="10" r="6" /><path d="m15 15 6 6" /></>
-      : <><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Zm0 0v6h6M8 13h8m-8 4h5" /></>}
-  </svg>;
+function Avatar({ kind }: { kind: 'human' | typeof roles[number] }) {
+  const { t } = useTranslation();
+  return <span className={`crew-avatar crew-avatar--${kind}`} aria-hidden="true">{kind === 'human' ? t('crewdenHome.initial') : kind === 'engineering' ? <GitBranch /> : kind === 'quality' ? <Check /> : <Sparkles />}</span>;
 }
