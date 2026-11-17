@@ -114,12 +114,15 @@ describe("AppShell", () => {
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
     const trigger = screen.getByRole("button", { name: "Alex Chen" });
     await userEvent.click(trigger);
+    expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: /^Language/ }));
     expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
     await userEvent.click(screen.getByRole("menuitemradio", { name: "简体中文" }));
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
     expect(screen.getByRole("link", { name: "聊天" })).toBeInTheDocument();
     await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole("menuitem", { name: /^语言/ }));
     expect(screen.getByRole("menuitemradio", { name: "简体中文" })).toHaveAttribute("aria-checked", "true");
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();

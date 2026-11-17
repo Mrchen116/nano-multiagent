@@ -13,6 +13,7 @@ export function UserMenu() {
   const user = useAuthStore((s) => s.user);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [languageOpen, setLanguageOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const lang = getCurrentLanguage();
@@ -44,7 +45,7 @@ export function UserMenu() {
 
   return <div ref={containerRef} className="im-user-menu">
     <button ref={triggerRef} type="button" aria-label={name} title={name} aria-haspopup="menu" aria-expanded={open}
-      onClick={() => setOpen(previous => !previous)} className="im-user-menu-trigger">
+      onClick={() => { setLanguageOpen(false); setOpen(previous => !previous); }} className="im-user-menu-trigger">
       <span aria-hidden className="im-user-menu-avatar">{initials}</span>
       <span className="im-user-menu-trigger-label">{t('shell.tabs.me')}</span>
     </button>
@@ -73,12 +74,15 @@ export function UserMenu() {
           <UserMenuIcon kind="members" /><span>{t('company.title')}</span><span aria-hidden>›</span>
         </Link>}
       </div>}
-      <div role="group" aria-label={t('shell.userMenu.language')} className="im-user-menu-language">
-        <span><UserMenuIcon kind="language" />{t('shell.userMenu.language')}</span>
-        <div className="im-user-menu-lang-options">
-          <button type="button" role="menuitemradio" aria-checked={lang === 'en'} onClick={() => handleLanguage('en')}>English</button>
-          <button type="button" role="menuitemradio" aria-checked={lang === 'zh'} onClick={() => handleLanguage('zh')}>简体中文</button>
-        </div>
+      <div className="im-user-menu-language">
+        <button type="button" role="menuitem" className="im-user-menu-item" aria-expanded={languageOpen} aria-controls="account-languages" onClick={() => setLanguageOpen(previous => !previous)}>
+          <UserMenuIcon kind="language" /><span>{t('shell.userMenu.language')}</span>
+          <small>{lang === 'zh' ? '简体中文' : 'English'}</small><span aria-hidden>{languageOpen ? '⌄' : '›'}</span>
+        </button>
+        {languageOpen && <div id="account-languages" role="group" aria-label={t('shell.userMenu.language')} className="im-user-menu-lang-options">
+          <button type="button" role="menuitemradio" aria-checked={lang === 'en'} onClick={() => handleLanguage('en')}>English<span aria-hidden>{lang === 'en' ? '✓' : ''}</span></button>
+          <button type="button" role="menuitemradio" aria-checked={lang === 'zh'} onClick={() => handleLanguage('zh')}>简体中文<span aria-hidden>{lang === 'zh' ? '✓' : ''}</span></button>
+        </div>}
       </div>
       <button role="menuitem" type="button" onClick={() => {
         // Let dirty forms confirm navigation before LoginPage clears the session.

@@ -30,11 +30,12 @@
 .im-user-menu-item:hover { background: var(--im-hover); }
 .im-user-menu-item small { color: #3e6c50; font-size: 11px; }
 .im-user-menu-section { padding: 5px 0; margin: 3px 0; border-top: 1px solid var(--im-border); }
-.im-user-menu-language { padding: 12px; border-top: 1px solid var(--im-border); }
-.im-user-menu-language > span { display: flex; align-items: center; gap: 11px; margin-bottom: 10px; font-size: 12px; color: var(--im-text-muted); }
-.im-user-menu-lang-options { display: flex; padding: 3px; border-radius: 8px; background: var(--im-surface-2); }
-.im-user-menu-lang-options button { flex: 1; min-height: 32px; padding: 6px; border: 0; border-radius: 6px; font: inherit; font-size: 12px; color: var(--im-text-muted); background: transparent; cursor: pointer; }
-.im-user-menu-lang-options button[aria-checked=true] { background: white; color: var(--im-text); box-shadow: 0 1px 4px #29352f12; font-weight: 600; }
+.im-user-menu-language { border-top: 1px solid var(--im-border); padding-top: 5px; }
+.im-user-menu-language small { color: var(--im-text-muted); }
+.im-user-menu-lang-options { padding: 0 4px 5px 40px; }
+.im-user-menu-lang-options button { display: flex; justify-content: space-between; width: 100%; min-height: 32px; padding: 7px 10px; border: 0; border-radius: 6px; font: inherit; font-size: 12px; color: var(--im-text-muted); background: transparent; cursor: pointer; }
+.im-user-menu-lang-options button:hover { background: var(--im-hover); }
+.im-user-menu-lang-options button[aria-checked=true] { color: var(--im-text); font-weight: 600; }
 .im-user-menu-signout { margin-top: 3px; color: var(--im-danger); }
 .im-user-menu-signout svg { color: inherit; }
 .im-shell-bottombar { display: flex; justify-content: space-around; align-items: center; height: 60px; border-top: 1px solid var(--im-border); background: white; }

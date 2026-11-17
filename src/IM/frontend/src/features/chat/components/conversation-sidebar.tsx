@@ -1,9 +1,8 @@
-import { mentionNameMap, mentionPlainText } from "./mention-parser";
+import { conversationPreview, formatConversationDate } from "./conversation-preview";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MessageSearchResult } from '../chat-api';
 
 import { useTranslation } from "../../../i18n";
-import { formatSystemNotice } from "../system-notice";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgent, colorForAgentSeed, directPersonAvatarName } from "./avatar";
 import { NewConversationMenu } from "./new-conversation-menu";
@@ -58,30 +57,12 @@ export interface ConversationSidebarProps {
   onStartDistill?(): void;
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const now = new Date();
-  const isToday = d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  if (isToday) {
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${hh}:${mm}`;
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (d.getDate() === yesterday.getDate() && d.getMonth() === yesterday.getMonth() && d.getFullYear() === yesterday.getFullYear()) {
-    return "Yesterday";
-  }
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
 
 function formatSearchDate(iso: string): string {
   const date = new Date(iso);
   if (!Number.isNaN(date.getTime()) && date.getFullYear() !== new Date().getFullYear())
     return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-  return formatDate(iso);
+  return formatConversationDate(iso);
 }
 
 function highlightMatch(text: string, query: string): ReactNode {
@@ -178,16 +159,9 @@ export function ConversationSidebar({
       .finally(() => { if (!signal?.aborted) setSearchLoading(false); });
   };
 
-  const previews = useMemo(() => new Map(searchConversations.map((c) => {
-    const notice = formatSystemNotice(t, c.last_message_system_notice, c.type === "direct");
-    if (notice) return [c.id, notice];
-    const content = c.last_message_card
-      ? [t("chat.toast.card"), c.last_message_card.title].filter(Boolean).join(" · ")
-      : mentionPlainText(c.last_message_preview ?? "", mentionNameMap(c.participants));
-    return [c.id, content && c.type === "group" && c.last_message_sender_name
-      ? `${c.last_message_sender_name}: ${content}`
-      : content];
-  })), [searchConversations, t]);
+  const previews = useMemo(() => new Map(searchConversations.map(c =>
+    [c.id, conversationPreview(c, t)]
+  )), [searchConversations, t]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -295,7 +269,7 @@ export function ConversationSidebar({
         ) : (
           (searchActive && !search.trim() ? [] : filtered).map((c) => {
             const active = c.id === activeConversationId;
-            const dateStr = formatDate(c.last_message_at);
+            const dateStr = formatConversationDate(c.last_message_at);
             const kind = classifyConversationKind(c);
             const distillUnavailableKey = getDistillConversationUnavailableKey(c);
             const crossGateway = Boolean(
