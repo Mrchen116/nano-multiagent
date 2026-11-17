@@ -162,13 +162,14 @@ export class Work {
     const personal = one(this.db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",p.agent_id);
     if(personal) this.ctx.personal!.authority(c,p);
     const s = this.ctx.messaging,
-      uid = personal?.owner_user_id ?? s.agentUser(p.agent_id).id,
+      readerId = s.agentUser(p.agent_id).id,
+      uid = personal?.owner_user_id ?? readerId,
       sourceAllowed = (id:string) => !personal || this.ctx.personal!.sourceAllowed(personal,id);
     const scope = p.scope ?? "joined";
     if (!["joined", "public"].includes(scope)) fail(400, "invalid scope");
     // Targeted reads validate their own access; only discovery needs every chat.
     let listedConversations: Row[] | undefined;
-    const conversations = () => listedConversations ??= personal ? this.ctx.personal!.sourceConversations(personal,scope).filter(r=>!r.excluded) : s.conversations(uid,scope);
+    const conversations = () => listedConversations ??= personal ? this.ctx.personal!.sourceConversations(personal,scope,readerId).filter(r=>!r.excluded) : s.conversations(uid,scope);
     const viewerFor=(id:string)=>personal&&!conversationAccess(this.db,id,uid)?s.agentUser(p.agent_id).id:uid;
     const user = qualifiedUser(this.db,uid);
     if (!user) fail(403,"scope_not_allowed");
@@ -199,7 +200,7 @@ export class Work {
       }));
     if (p.action === "describe")
       return {
-        conversations: (p.targets ?? []).filter((id:string)=>sourceAllowed(id)&&!!conversationAccess(this.db,id,viewerFor(id))).map((id:string)=>s.conversation(id,viewerFor(id)))
+        conversations: (p.targets ?? []).filter((id:string)=>sourceAllowed(id)&&!!conversationAccess(this.db,id,viewerFor(id))).map((id:string)=>s.conversation(id,viewerFor(id),readerId))
           .map((r: Row) => ({
             target: r.id,
             name: r.title,
@@ -208,7 +209,7 @@ export class Work {
             participants: members(r.id),
           })),
       };
-    const target = p.target && sourceAllowed(p.target) && conversationAccess(this.db,p.target,viewerFor(p.target)) ? s.conversation(p.target,viewerFor(p.target)) : undefined;
+    const target = p.target && sourceAllowed(p.target) && conversationAccess(this.db,p.target,viewerFor(p.target)) ? s.conversation(p.target,viewerFor(p.target),readerId) : undefined;
     if (p.sort !== undefined && !['relevance', 'recent'].includes(p.sort)) fail(400, 'invalid_arguments');
     if (p.sender_source_id && (!p.target || !target?.external_source || p.participant_id)) fail(400, 'invalid_arguments');
     if (p.around_message_id && (p.action !== 'read' || !p.target || p.message_id || p.query || p.keywords || p.before || p.after || p.participant_id || p.sender_source_id)) fail(400, 'invalid_arguments');
@@ -386,7 +387,7 @@ export class Work {
             conversation_id: m.conversation_id,
             reply_target: m.conversation_id,
             target: m.conversation_id,
-            name: target?.title ?? conversations().find((chat: Row) => chat.id === m.conversation_id)?.title ?? s.conversation(m.conversation_id, viewerFor(m.conversation_id)).title,
+            name: target?.title ?? conversations().find((chat: Row) => chat.id === m.conversation_id)?.title ?? s.conversation(m.conversation_id, viewerFor(m.conversation_id),readerId).title,
             ...(personalFacts?{conversation_type:personalFacts.conversation_type,delivery:personalFacts.delivery}:{}),
             ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
             url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,

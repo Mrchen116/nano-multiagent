@@ -1,3 +1,4 @@
+import { conversationName } from './conversation-name.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
 import { messageInput, messageMetadata, sendPrincipal, type MessageInput, type SendPrincipal, type SendMessageCommand } from './message-input.js';
@@ -125,7 +126,16 @@ export class Messaging {
     return access;
   }
 
-  conversation(id: string, userId: string): Row {
+  /** Project an authorized conversation for a reader.
+   *
+   * Args:
+   *   id: Stable conversation ID.
+   *   userId: Identity whose access and preferences are checked.
+   *   readerId: Identity used only for the display name; PA reads may use owner access.
+   * Returns:
+   *   Conversation metadata with a reader-relative title and unchanged access flags.
+   */
+  conversation(id: string, userId: string, readerId = userId): Row {
     const c = one(this.db, "SELECT * FROM conversations WHERE id=?", id)!;
     const access = conversationAccess(this.db,id,userId);
     if (!access) fail(404,"conversation_id not found");
@@ -173,7 +183,7 @@ export class Messaging {
           "created_at",
         ].map((key) => [key, c[key]]),
       ),
-      title: access.is_observer && !c.title_is_custom ? members.map(u => u.display_name).join(" ↔ ") : c.title,
+      title: conversationName(c, members, readerId),
       visibility:c.visibility, dissolved_at:c.dissolved_at,
       is_member:access.is_member,is_observer:access.is_observer,can_write:access.can_write,can_join:access.can_join,can_change_visibility:access.can_change_visibility,
       execution_cleanup_revision: executionCleanupRevision(this.ctx,id),
