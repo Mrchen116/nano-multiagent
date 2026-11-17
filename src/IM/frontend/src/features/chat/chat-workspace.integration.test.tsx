@@ -1516,6 +1516,7 @@ describe("ChatWorkspacePage — integration", () => {
     await screen.findByText("Hi Planner");
     await waitFor(() => expect(capturedResyncHandler).not.toBeNull());
     expect(screen.getByText("laptop-prod").closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+    const initialPortrait = document.querySelector(".chat-pane-header [data-avatar]")?.getAttribute("data-avatar");
 
     recovered = true;
     await act(async () => {
@@ -1527,7 +1528,7 @@ describe("ChatWorkspacePage — integration", () => {
     expect((await screen.findAllByText("Recovered Planner")).length).toBeGreaterThanOrEqual(2);
     const recoveredChip = (await screen.findAllByText("recovered-node")).find(el => el.classList.contains("chat-node-chip-name"))!;
     expect(recoveredChip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
-    expect(screen.getAllByText("RE").length).toBeGreaterThanOrEqual(1);
+    expect(document.querySelector(".chat-pane-header [data-avatar]")).toHaveAttribute("data-avatar", initialPortrait!);
   });
 
   it("re-fetches conversations after reading so the unread badge can clear", async () => {

@@ -1897,12 +1897,12 @@
   "firstUse": {
     "eyebrow": "Your personal space",
     "title": "Your personal assistant starts here.",
-    "intro": "Make a plan, organize your ideas, and move work forward. Connect your computer and model to get your assistant ready.",
-    "setupTitle": "Get your assistant ready",
+    "intro": "First, give your assistant a place to work. Then bring something you’d like help with. One step at a time.",
+    "setupTitle": "Make room for your assistant",
     "accountReady": "Your account and personal space are ready",
     "done": "Done",
     "continue": "Continue assistant setup",
-    "resume": "Take it one step at a time. Come back and continue anytime.",
+    "resume": "No need to finish all at once. Come back whenever you’re ready.",
     "progressError": "We couldn’t check your setup progress.",
     "steps": {
       "computer": {
@@ -2373,11 +2373,63 @@
     }
   },
   "workspaceWelcome": {
-    "title": "A little company for your work.",
-    "intro": "Pick up a conversation, or bring something new to the table.",
+    "title": "What’s on your mind today?",
+    "intro": "A small question or a big idea. There’s room for both.",
     "setup": "Meet your personal assistant",
     "personal": "Plans, loose ends, and whatever is on your mind.",
-    "newChat": "Start a conversation",
-    "team": "Bring a person or an Agent into the work."
+    "newChat": "Talk to a teammate",
+    "team": "Bring a person or an Agent into the work.",
+    "returnTitle": "Welcome back. Pick up where you left off.",
+    "returnIntro": "Continue your conversation, or bring a new idea.",
+    "recent": "Last conversation"
+  },
+  "assistantStart": {
+    "label": "Start something with your assistant",
+    "title": "Start small with {{name}}.",
+    "intro": "You don’t need all the details figured out. A loose idea or “help me think this through” is enough to begin.",
+    "note": "Pick an idea to fill a draft. Edit it before sending, or write your own.",
+    "keepDraft": "Keep going with what’s in your draft. These ideas can wait.",
+    "agreement": "Or get to know each other and discuss working together",
+    "openError": "Couldn’t open the conversation. Please try again.",
+    "untangle": {
+      "title": "Untangle an idea",
+      "hint": "A little messy? Think it through.",
+      "prompt": "I have an idea I haven’t quite figured out. Help me think it through. Start by asking what I want to do, one question at a time."
+    },
+    "plan": {
+      "title": "Plan the week ahead",
+      "hint": "Make room for what matters.",
+      "prompt": "Help me plan the week ahead. First ask about what I want to do, my deadlines, and the time I have, then help me make a manageable plan."
+    },
+    "next": {
+      "title": "Find a first step",
+      "hint": "Small steps count, too.",
+      "prompt": "I want to move something forward but don’t know where to start. Ask about my goal and where I am now, then help me find one step I can take today."
+    }
+  },
+  "avatarPicker": {
+    "title": "Pick a face you like",
+    "style": "Avatar style",
+    "color": "Avatar color",
+    "personal": [
+      "Smile",
+      "Round glasses",
+      "Sprout",
+      "Bow"
+    ],
+    "agent": [
+      "Navigator",
+      "Hexagon",
+      "Observer",
+      "Explorer"
+    ],
+    "colors": [
+      "Wisteria",
+      "Mint",
+      "Sky",
+      "Apricot",
+      "Rose",
+      "Wheat"
+    ]
   }
 }

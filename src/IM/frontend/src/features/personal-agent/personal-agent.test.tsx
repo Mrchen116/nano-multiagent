@@ -94,10 +94,10 @@ it('keeps privacy records available when acknowledging fails',async()=>{
 
 it('shows a saved owner request awaiting processing and removes it when processing completes',async()=>{
  const view=mount(<PersonalAgentCollaboration state={state} pendingOwnerInput/>);
- expect(screen.getByRole('status')).toHaveTextContent('Working on your request');
+ expect(screen.getByRole('status')).toHaveTextContent('Message sent. Waiting for your assistant');
  view.unmount();
  mount(<PersonalAgentCollaboration state={state} pendingOwnerInput={false}/>);
- expect(screen.queryByText('Working on your request…')).not.toBeInTheDocument();
+ expect(screen.queryByText('Message sent. Waiting for your assistant to receive it…')).not.toBeInTheDocument();
 });
 
 

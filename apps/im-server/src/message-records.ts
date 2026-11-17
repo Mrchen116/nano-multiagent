@@ -53,7 +53,13 @@ export class MessageRecords {
   /** Read a scoped send attempt without comparing or normalizing its immutable payload. */
   attempt(cid:string,key:string):MessageRecord|undefined {return this.db.prepare('SELECT * FROM messages WHERE conversation_id=? AND caller_idempotency_key=?').get(cid,key) as unknown as MessageRecord|undefined;}
   /** Project the stored author while preserving personal-Agent attribution. */
-  actor(u:MessageUser):ChatActor {return {type:u.username.startsWith('agent:')?'agent':'user',id:u.username.startsWith('agent:')?u.username.slice(6):u.id,display_name:u.display_name,user_id:u.id,is_stale:u.is_stale?true:null,...(u.username.startsWith('agent:')&&this.db.prepare('SELECT 1 FROM personal_agent_bindings WHERE agent_id=?').get(u.username.slice(6))?{role:'personal' as const}:{})};}
+  actor(u:MessageUser):ChatActor {
+    const agent = u.username.startsWith('agent:') ? u.username.slice(6) : null;
+    const identity = agent ? this.db.prepare('SELECT a.avatar_variant,b.binding_id FROM agent_profiles a LEFT JOIN personal_agent_bindings b ON b.agent_id=a.agent_id WHERE a.agent_id=?').get(agent) : undefined;
+    return {type:agent ? 'agent' : 'user',id:agent ?? u.id,display_name:u.display_name,user_id:u.id,is_stale:u.is_stale?true:null,
+      ...(identity?.binding_id ? {role:'personal' as const} : {}),
+      ...(typeof identity?.avatar_variant === 'number' ? {avatar_variant:identity.avatar_variant} : {})};
+  }
   /** Persist original event data, then invoke the existing publish/wake policy.
    * Args:
    *   publish: False suppresses immediate broadcast; the durable event remains replayable.

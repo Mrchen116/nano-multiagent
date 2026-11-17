@@ -153,6 +153,7 @@ export async function createAgent(ctx: ImContext, owner: string, id: string, b: 
       agent_id: b.agent_id,
       owner_id: owner,
       display_name: b.display_name,
+      ...(b.avatar_variant === undefined ? {} : {avatar_variant:b.avatar_variant}),
       description: b.description ?? "",
       features: b.features ?? {},
       ...(b.initial_role === undefined ? {} : {initial_role:b.initial_role}),
@@ -178,7 +179,7 @@ export async function createAgent(ctx: ImContext, owner: string, id: string, b: 
     }
     if (pending && stored) {
       if (candidateFingerprint(c) !== pending.candidate_fingerprint || c.description !== (stored.description ?? "") ||
-          c.confirm_existing_workspace !== (stored.confirm_existing_workspace === true) || c.initial_role !== stored.initial_role) fail(409, "agent_id already exists");
+          c.confirm_existing_workspace !== (stored.confirm_existing_workspace === true) || c.initial_role !== stored.initial_role || c.avatar_variant !== stored.avatar_variant) fail(409, "agent_id already exists");
       const recovered = await ops.recover(b.agent_id, owner);
       if (!recovered) fail(409, "agent_id already exists");
       return recovered;

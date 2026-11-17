@@ -55,3 +55,7 @@
   .first-use-steps li { padding: 12px 0; }
   .first-use-footer { margin-top: 20px; }
 }
+
+.first-use-heading > .assistant-portrait { display: block; margin-bottom: 18px; }
+.first-use-example:nth-of-type(2) .first-use-example-icon { background: #f1eaf9; color: #7656a0; border-color: transparent; }
+.first-use-example:nth-of-type(3) .first-use-example-icon { background: #fff2da; color: #947039; border-color: transparent; }

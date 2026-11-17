@@ -1,3 +1,5 @@
+import { AssistantPortrait } from "./assistant-portrait";
+import { AssistantStarters } from "./assistant-starters";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "../../../i18n";
@@ -9,6 +11,7 @@ export interface CooperationGuideAgent {
   name: string;
   personal: boolean;
   online: boolean;
+  avatarVariant?: number | null;
 }
 
 /** First-conversation prompts for the verified owner; never render the role document. */
@@ -31,8 +34,7 @@ export function CooperationGuide({ agent, canStart, onStart }: {
   const kind = agent.personal ? "personal" : "global";
   const label = (key: string) => t(`cooperation.${key}`);
   const start = (key: string) => onStart(label(`${kind}.${key}`));
-  if (!known || saved || deferred) return null;
-  return <section className="cooperation-guide" aria-label={label("label")}>
+  const agreement = !known || saved || deferred ? null : <section className="cooperation-guide" aria-label={label("label")}>
     <span className="cooperation-guide-eyebrow">{label("eyebrow")}</span>
     <h2>{t(`cooperation.${kind}.title`, { name: agent.name })}</h2>
     <p>{label(`${kind}.intro`)}</p>
@@ -43,5 +45,16 @@ export function CooperationGuide({ agent, canStart, onStart }: {
     </div>
     <p className="cooperation-guide-note">{label("note")}</p>
     <button type="button" className="cooperation-guide-later" onClick={() => setDeferred(true)}>{label("later")}</button>
+  </section>;
+  if (!agent.personal) return agreement;
+  return <section className="assistant-introduction" aria-label={t('assistantStart.label')}>
+    <AssistantPortrait seed={agent.id} variant={agent.avatarVariant} size={80} />
+    <h2>{t('assistantStart.title', { name: agent.name })}</h2>
+    <p>{t('assistantStart.intro')}</p>
+    <AssistantStarters disabled={!canStart} onStart={onStart} />
+    {agreement && <details className="assistant-agreement">
+      <summary>{t('assistantStart.agreement')}</summary>
+      {agreement}
+    </details>}
   </section>;
 }

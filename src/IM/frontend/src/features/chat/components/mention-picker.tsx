@@ -86,7 +86,7 @@ export function MentionPicker({ candidates, query, onSelect, onClose }: MentionP
           }}
           onMouseEnter={() => setHighlighted(idx)}
         >
-          <Avatar initials={c.initials} size={26} color={colorForAgent({ display_name: c.display_name, agent_id: c.user_id })} />
+          <Avatar agentId={c.agent_id} personal={c.role === "personal"} avatarVariant={c.avatar_variant} initials={c.initials} size={26} color={colorForAgent({ display_name: c.display_name, agent_id: c.user_id })} />
           <span className="chat-mention-picker-name">{c.display_name}</span>
           <span className="chat-mention-picker-handle">@{c.user_id}</span>
         </button>

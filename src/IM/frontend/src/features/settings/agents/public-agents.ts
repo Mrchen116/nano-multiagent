@@ -5,7 +5,7 @@ export function publicAgentsFromContacts(contacts: Contact[]) {
   return contacts.map(c => ({
     agent_id: c.agent_id!, user_id: c.user_id, display_name: c.display_name,
     description: c.owner_display_name ?? "", owner_id: c.owner_id,
-    node_name: c.node_name, node_status: c.status, work_mode: c.work_mode, role: c.role,
+    node_name: c.node_name, node_status: c.status, work_mode: c.work_mode, role: c.role, avatar_variant:c.avatar_variant ?? undefined,
   }));
 }
 

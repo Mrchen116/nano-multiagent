@@ -99,7 +99,7 @@ export function AgentProfilePage() {
               <span aria-hidden="true">‹</span>
             </Link>
           )}
-          <Avatar
+          <Avatar agentId={agent.agent_id ?? undefined} personal={agent.role === "personal"} avatarVariant={agent.avatar_variant}
             initials={initialsOf(agent.display_name)}
             color={colorForAgent(agent)}
             status={agent.status}

@@ -35,6 +35,7 @@ export interface Actor {
   is_stale?: boolean | null;
   is_deleted?: boolean;
   role?: "personal";
+  avatar_variant?: number | null;
 }
 
 export interface Attachment {
@@ -350,6 +351,8 @@ export type WsEvent =
   | { type: "permission.resolved"; seq?: number; conversation_id: string; message_id: string; request_id: string; decision: string };
 
 export interface MentionCandidate {
+  role?: "personal";
+  avatar_variant?: number | null;
   user_id: string;
   agent_id?: string;
   display_name: string;

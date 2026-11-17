@@ -1,3 +1,4 @@
+import { AssistantPortrait } from "./assistant-portrait";
 import type { Conversation } from "../chat-types";
 
 /**
@@ -46,6 +47,9 @@ export function initialsOf(displayName: string): string {
 }
 
 interface AvatarProps {
+  personal?: boolean;
+  agentId?: string;
+  avatarVariant?: number | null;
   initials: string;
   /** Must be provided by every call site via colorForAgent(). Required to prevent
    *  per-call-site seed divergence — omitting it is a type error. */
@@ -55,7 +59,7 @@ interface AvatarProps {
 }
 
 /**
- * Single circular initials avatar with an optional status dot.
+ * Shared initials or personal-assistant portrait with an optional status dot.
  *
  * `color` is required: callers must pass `colorForAgent({display_name, agent_id})`
  * (or an explicit fixed color for non-agent avatars such as group chats). Making
@@ -65,7 +69,7 @@ interface AvatarProps {
  * Status dot matches prototype (im-components.jsx): border uses the sidebar
  * background colour so the dot sits cleanly on dark sidebar rows.
  */
-export function Avatar({ initials, color, size = 32, status }: AvatarProps) {
+export function Avatar({ initials, color, size = 32, status, personal = false, agentId, avatarVariant }: AvatarProps) {
   const bg = color;
   const dotSize = size * 0.28;
   return (
@@ -75,7 +79,7 @@ export function Avatar({ initials, color, size = 32, status }: AvatarProps) {
         style={{
           width: size,
           height: size,
-          background: bg,
+          background: personal || agentId ? "transparent" : bg,
           color: foregroundForAvatar(bg),
           fontWeight: 600,
           fontSize: size * 0.35,
@@ -83,7 +87,7 @@ export function Avatar({ initials, color, size = 32, status }: AvatarProps) {
         }}
         aria-hidden="true"
       >
-        {initials.slice(0, 2).toUpperCase()}
+        {(personal || agentId) ? <AssistantPortrait personal={personal} seed={agentId} variant={avatarVariant} size={size} /> : initials.slice(0, 2).toUpperCase()}
       </span>
       {status && (
         <span

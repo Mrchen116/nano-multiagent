@@ -87,3 +87,6 @@
 .pa-dialog h2 { font-size: 17px; font-weight: 650; }
 .pa-dialog .im-btn, .pa-dialog .pa-secondary { min-height: 34px; padding: 6px 11px; border-radius: 6px; font-size: 13px; }
 @media(max-width:767px) { .pa-dialog .im-btn, .pa-dialog .pa-secondary { min-height: 42px; } }
+
+.pa-waiting { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
+.pa-waiting svg { flex: none; }

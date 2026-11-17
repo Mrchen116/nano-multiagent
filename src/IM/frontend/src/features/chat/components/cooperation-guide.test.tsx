@@ -16,6 +16,8 @@ function mount(props:Partial<React.ComponentProps<typeof CooperationGuide>>={}) 
 }
 it('only seeds a draft and dismisses the whole guide when deferred', async()=>{
  const view=mount();await screen.findByText('Let Aster get to know you');
+ expect(screen.getByText('Or get to know each other and discuss working together').closest('details')).not.toHaveAttribute('open');
+ await userEvent.click(screen.getByText('Or get to know each other and discuss working together'));
  await userEvent.click(screen.getByRole('button',{name:'Introduce myself'}));
  expect(view.onStart).toHaveBeenCalledWith(expect.stringContaining('get to know me'));
  await userEvent.click(screen.getByRole('button',{name:'Start with a task, discuss this later'}));
@@ -25,13 +27,17 @@ it('does not display a saved role or its status in chat',async()=>{
  vi.mocked(getAgentRole).mockResolvedValue({content:'Track commitments. Draft replies for approval.',version:'v1'});
  const {container}=mount();
  await waitFor(()=>expect(client.getQueryState(['settings','agents','a','role'])?.status).toBe('success'));
- expect(container).toBeEmptyDOMElement();
+ expect(container.querySelector('.assistant-agreement')).toBeNull();
+ expect(screen.queryByRole('region',{name:'Working agreement'})).not.toBeInTheDocument();
+ expect(screen.getByRole('button',{name:/Untangle an idea/})).toBeEnabled();
 });
 it('does not replace a failed role lookup with setup or a role status panel',async()=>{
  vi.mocked(getAgentRole).mockRejectedValue(new Error('unavailable'));
  const {container}=mount();
  await waitFor(()=>expect(client.getQueryState(['settings','agents','a','role'])?.status).toBe('error'));
- expect(container).toBeEmptyDOMElement();
+ expect(container.querySelector('.assistant-agreement')).toBeNull();
+ expect(screen.queryByRole('region',{name:'Working agreement'})).not.toBeInTheDocument();
+ expect(screen.getByRole('button',{name:/Untangle an idea/})).toBeEnabled();
 });
 it('uses Global responsibilities and respects existing drafts',async()=>{
  const view=mount({agent:{...agent,personal:false},canStart:false});await screen.findByText('Agree on Aster’s responsibilities');

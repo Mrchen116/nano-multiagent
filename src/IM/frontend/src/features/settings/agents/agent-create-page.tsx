@@ -1,3 +1,5 @@
+import { AvatarPicker } from "../../chat/components/avatar-picker";
+import { avatarVariantFor } from "../../chat/components/assistant-portrait";
 import { createConversation } from "../../chat/chat-api";
 import { changeCapability } from "@nano/product-contracts/capabilities";
 import { capabilityCatalog, useCapabilityEditor } from "./capability-editor";
@@ -359,7 +361,7 @@ export function AgentCreatePage() {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const isMobile = useIsMobile();
-  const [draft, setDraft] = useState<CreateAgentFormState>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<CreateAgentFormState>(() => ({...EMPTY_DRAFT,avatar_variant:avatarVariantFor(crypto.randomUUID())}));
   const [selectedNodeId, setSelectedNodeId] = useState(nodeId);
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("default");
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
@@ -737,6 +739,8 @@ export function AgentCreatePage() {
               ) : null}
             </div>
           </div>
+          <AvatarPicker value={draft.avatar_variant ?? avatarVariantFor(draft.agent_id)}
+            onChange={value => { setDraft({...draft,avatar_variant:value}); setIsDirty(true); }} disabled={applyPending} />
           <div className="im-agent-field">
             <Label.Root htmlFor="description">{t("agents.form.identity.description")}</Label.Root>
             <input

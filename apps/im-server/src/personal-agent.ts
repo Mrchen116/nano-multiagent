@@ -1,3 +1,4 @@
+import {parseAvatarVariant} from './configuration-input.js';
 import {configurationOperations} from './configuration-assembly.js';
 import { captureTaskContextAccess, personalSourceAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
@@ -32,7 +33,7 @@ export class PersonalAgents {
   state(owner: string) {
     const binding = this.binding(owner), node=binding?one(this.db,'SELECT status FROM nodes WHERE node_id=?',binding.node_id):undefined;
     const runtime=binding?one(this.db,'SELECT available FROM pa_runtime_status WHERE binding_id=? AND node_epoch=?',binding.binding_id,binding.node_epoch):undefined;
-    return {binding:binding?{...binding,status:binding.status==='active'&&(node?.status!=='online'||runtime?.available===0)?'unavailable':binding.status}:null,
+    return {binding:binding?{...binding,avatar_variant:readAgentProfile(this.db,binding.agent_id)?.avatar_variant ?? null,status:binding.status==='active'&&(node?.status!=='online'||runtime?.available===0)?'unavailable':binding.status}:null,
       policy:binding?this.policy(binding.binding_id):null,creation:binding?.status!=="active"&&binding?{request_key:binding.request_key}:null};
   }
   private activeBinding(principal: Row): Row | undefined {
@@ -438,6 +439,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
   app.get('/im/v1/personal-agent',req=>pa.state(user(req).owner_id));
   app.post('/im/v1/personal-agent',async(req,reply)=>{
     const u=user(req),input=body(req);
+    const avatar=parseAvatarVariant(input.avatar_variant);
     if(typeof input.request_key!=='string'||!input.request_key||typeof input.display_name!=='string'||!input.display_name.trim()) fail(422,'name_and_request_key_required');
     const node=one(ctx.db,'SELECT n.*,b.node_epoch FROM nodes n JOIN node_binding_state b ON b.node_id=n.node_id WHERE n.node_id=? AND n.owner_id=?',input.node_id,u.owner_id);
     if(!node) fail(404,'node_not_found');
@@ -462,7 +464,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const catalog=resolved?.capabilities;
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
         const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.default_on||tool.name==='send_message').map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'personal_sources','agent_creation'])];
-        let candidate={agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null};
+        let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null};
         for(const feature of featureDependencies) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
         await ops.create(candidate,u.owner_id,b.node_id);
       }

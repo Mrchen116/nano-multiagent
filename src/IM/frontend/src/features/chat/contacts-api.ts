@@ -6,6 +6,7 @@ export interface Contact {
   user_id: string;
   kind: "human" | "agent";
   role?: "personal";
+  avatar_variant?: number | null;
   display_name: string;
   agent_id?: string;
   owner_id?: string;

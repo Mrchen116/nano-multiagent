@@ -5,8 +5,10 @@ import { Avatar, colorForAgentSeed } from './avatar';
 import { conversationPreview, formatConversationDate } from './conversation-preview';
 
 /** Keep the owner's assistant pinned while showing the same live summary as other chats. */
-export function PersonalAgentEntry({ name, conversation, active, onSelect }: {
+export function PersonalAgentEntry({ name, agentId, avatarVariant, conversation, active, onSelect }: {
   name?: string;
+  agentId?: string;
+  avatarVariant?: number | null;
   conversation?: Conversation;
   active: boolean;
   onSelect(): void;
@@ -17,7 +19,7 @@ export function PersonalAgentEntry({ name, conversation, active, onSelect }: {
   const time = formatConversationDate(conversation?.last_message_at ?? null);
   return <div className="pa-entry">
     <button type="button" className={`chat-sidebar-row${active ? ' chat-sidebar-row--active' : ''}`} aria-current={active ? 'true' : undefined} onClick={onSelect}>
-      <Avatar initials={title.slice(0, 2)} color={colorForAgentSeed(title)} size={36} />
+      <Avatar personal agentId={agentId} avatarVariant={avatarVariant} initials={title.slice(0, 2)} color={colorForAgentSeed(title)} size={36} />
       <span className="chat-sidebar-row-body">
         <span className="chat-sidebar-row-title-line">
           <span className="chat-sidebar-row-title">{title}</span>

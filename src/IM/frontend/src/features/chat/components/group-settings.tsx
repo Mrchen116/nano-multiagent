@@ -19,11 +19,15 @@ export interface GroupSettingsMember {
   isCreator: boolean;
   status?: "online" | "offline" | null;
   isStale?: boolean | null;
+  role?: "personal";
+  avatarVariant?: number | null;
 }
 
 /** A candidate agent for the add-members picker (already filtered to non-members). */
 export interface GroupSettingsAgentOption {
   agentId: string;
+  role?: "personal";
+  avatarVariant?: number | null;
   type?: "user" | "agent";
   displayName: string;
   status?: "online" | "offline" | null;
@@ -170,7 +174,7 @@ export function GroupSettings(props: GroupSettingsProps) {
         {shown.map((m) => (
           <Avatar
             key={m.id}
-            initials={m.displayName}
+            initials={m.displayName} agentId={m.type === "agent" ? m.id : undefined} personal={m.role === "personal"} avatarVariant={m.avatarVariant}
             color={m.isSelf ? SELF_AVATAR_COLOR : colorForAgent({ display_name: m.displayName })}
             size={size}
           />
@@ -233,7 +237,7 @@ export function GroupSettings(props: GroupSettingsProps) {
         return (
           <label key={a.agentId} className={`group-settings-pick${on ? " group-settings-pick--on" : ""}`}>
             <input type="checkbox" checked={on} aria-label={a.displayName} onChange={() => toggleAgent(a.agentId)} />
-            <Avatar initials={a.displayName} color={colorForAgent({ display_name: a.displayName })} size={30} />
+            <Avatar initials={a.displayName} agentId={a.type === "user" ? undefined : a.agentId} personal={a.role === "personal"} avatarVariant={a.avatarVariant} color={colorForAgent({ display_name: a.displayName })} size={30} />
             <span className="group-settings-pick-name">{a.displayName}</span>
           </label>
         );
@@ -316,7 +320,7 @@ export function GroupSettings(props: GroupSettingsProps) {
           title={m.isStale ? t("chat.groupSettings.stale") : undefined}
         >
           <Avatar
-            initials={m.displayName}
+            initials={m.displayName} agentId={m.type === "agent" ? m.id : undefined} personal={m.role === "personal"} avatarVariant={m.avatarVariant}
             color={m.isSelf ? SELF_AVATAR_COLOR : colorForAgent({ display_name: m.displayName })}
             size={34}
           />

@@ -351,12 +351,12 @@ it("fills a first PA example without sending or replacing an existing draft", as
   const withGuide = (conversation:Conversation, extra:Partial<ComponentProps<typeof MessagePane>>={}) => <QueryClientProvider client={client}>{pane(conversation,extra)}</QueryClientProvider>;
   const cooperationAgent = {id:"a-planner",name:"Planner",personal:true,online:true};
   const {rerender,unmount} = render(withGuide(CONV_A, {personalAgent:true, cooperationAgent, onSend}));
-  const example='I would like you to get to know me and discuss how you can help over time. Start with my current work, goals or difficulties, and ask one question at a time.';
-  await userEvent.click(await screen.findByRole('button',{name:'Introduce myself'}));
+  const example='I have an idea I haven’t quite figured out. Help me think it through. Start by asking what I want to do, one question at a time.';
+  await userEvent.click(await screen.findByRole('button',{name:/Untangle an idea/}));
   expect(screen.getByRole('textbox')).toHaveValue(example);
   expect(screen.getByRole('textbox')).toHaveFocus();
   expect(onSend).not.toHaveBeenCalled();
-  expect(screen.getByRole('button',{name:'Introduce myself'})).toBeDisabled();
+  expect(screen.getByRole('button',{name:/Untangle an idea/})).toBeDisabled();
   await userEvent.type(screen.getByRole('textbox'),' Keep Friday free.');
   rerender(withGuide(CONV_B));
   expect(screen.queryByText('Let Planner get to know you')).not.toBeInTheDocument();
@@ -384,7 +384,7 @@ it("disables cooperation prompts while an attachment is uploading or waiting to 
   const uploadAttachment = vi.fn(() => new Promise<{url:string}>((_resolve,reject) => { rejectUpload=reject; }));
   const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
   const {unmount} = render(<QueryClientProvider client={client}>{pane(CONV_A,{cooperationAgent:{id:"a-planner",name:"Planner",personal:true,online:true},uploadAttachment})}</QueryClientProvider>);
-  const example='Introduce myself';
+  const example=/Untangle an idea/;
   expect(await screen.findByRole('button',{name:example})).toBeEnabled();
   fireEvent.drop(screen.getByRole('textbox').closest('[data-dragging]')!,{
     dataTransfer:{files:[new File(['img'],'first.png',{type:'image/png'})],types:['Files']}

@@ -1,0 +1,14 @@
+.avatar-picker { min-width: 0; margin: 20px 0; padding: 0; border: 0; }
+.avatar-picker legend { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--im-text); }
+.avatar-picker-layout { display: flex; align-items: center; gap: 20px; }
+.avatar-picker-preview { display: grid; place-items: center; flex: none; width: 98px; height: 106px; background: var(--im-surface-2); border-radius: 22px; }
+.avatar-picker-controls { min-width: 0; }
+.avatar-picker .avatar-picker-styles, .avatar-picker .avatar-picker-colors { display: flex; gap: 6px; }
+.avatar-picker button { display: grid; place-items: center; width: 46px; height: 46px; padding: 2px; border: 1px solid transparent; border-radius: 12px; background: transparent; cursor: pointer; }
+.avatar-picker button[aria-pressed="true"] { border-color: var(--im-accent); background: var(--im-accent-soft); }
+.avatar-picker button:focus-visible { outline: 2px solid var(--im-accent); outline-offset: 3px; }
+.avatar-picker button:disabled { cursor: default; opacity: .6; }
+.avatar-picker .avatar-picker-colors { gap: 2px; margin-top: 5px; }
+.avatar-picker .avatar-picker-colors button { width: 32px; height: 32px; border-radius: 50%; }
+.avatar-picker-colors button > span { width: 19px; height: 19px; border-radius: 50%; }
+@media(max-width:420px) { .avatar-picker-layout { gap: 10px; } .avatar-picker-preview { width: 66px; height: 88px; } .avatar-picker-preview svg { width: 64px; height: 64px; } .avatar-picker button { width: 40px; height: 42px; } .avatar-picker .avatar-picker-styles { gap: 2px; } .avatar-picker .avatar-picker-colors button { width: 28px; height: 30px; } .avatar-picker .avatar-picker-colors { gap: 1px; } }

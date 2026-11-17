@@ -472,6 +472,7 @@ export function ChatWorkspacePage() {
     return activeConversation.participants.filter((p) => !p.is_deleted && p.type !== "system" && (p.user_id || p.type === "user")).map((p) => ({
       user_id: p.user_id || p.id,
       agent_id: p.type === "agent" ? p.id : undefined,
+      role:p.role, avatar_variant:p.avatar_variant,
       display_name: p.display_name || p.user_id || p.id,
       initials: (p.display_name || p.id).slice(0, 2).toUpperCase(),
       status: p.type === "agent" ? publicAgents.find(a => a.agent_id === p.id)?.status ?? "offline" : "online" as const
@@ -543,7 +544,7 @@ export function ChatWorkspacePage() {
   const ownedDirectAgent = activeConversation?.type === "direct"
     && publicAgents.find(agent => agent.agent_id === headerAgentContext.agentId && agent.owner_id === selfUserId && agent.work_mode === "global");
   const cooperationAgent = isPersonalConversation && personalBinding ? {
-    id: personalBinding.agent_id, name: personalBinding.display_name, personal: true,
+    id: personalBinding.agent_id, name: personalBinding.display_name, personal: true, avatarVariant:personalBinding.avatar_variant,
     online: headerAgentContext.nodeStatus === "online",
   } : ownedDirectAgent ? {
     id: ownedDirectAgent.agent_id!, name: ownedDirectAgent.display_name, personal: false,
@@ -574,6 +575,7 @@ export function ChatWorkspacePage() {
         id: p.id,
         userId,
         type: p.type,
+        role: p.role, avatarVariant:p.avatar_variant,
         displayName: p.display_name ?? p.id,
         isSelf: p.type === "user" && userId === selfUserId,
         isCreator: userId != null && userId === activeConversation.creator_id,
@@ -587,7 +589,7 @@ export function ChatWorkspacePage() {
     if (!activeConversation) return [];
     const members = new Set(activeConversation.participants.map(p => p.user_id ?? p.id));
     return (contactsQuery.data ?? []).filter(c => !members.has(c.user_id) && (c.kind === "human" || c.owner_id === selfUserId)).map(c => ({
-      agentId: c.agent_id ?? c.user_id, type: c.kind === "human" ? "user" : "agent", displayName: c.display_name, status: c.status
+      agentId: c.agent_id ?? c.user_id, type: c.kind === "human" ? "user" : "agent", displayName: c.display_name, status: c.status, role:c.role, avatarVariant:c.avatar_variant
     }));
   }, [activeConversation, contactsQuery.data, selfUserId]);
 
@@ -1350,7 +1352,7 @@ export function ChatWorkspacePage() {
           personalAgentEntry={personalAgent.isError
             ? <div className="pa-entry pa-notice"><button type="button" onClick={() => void personalAgent.refetch()}>{t('pa.retry','个人助手暂不可用 · 重试')}</button></div>
             : personalAgent.isSuccess && <PersonalAgentEntry
-              name={personalBinding?.display_name}
+              name={personalBinding?.display_name} agentId={personalBinding?.agent_id} avatarVariant={personalBinding?.avatar_variant}
               conversation={localConversations.find(c => c.id === personalBinding?.conversation_id)}
               active={isPersonalConversation}
               onSelect={() => personalBinding ? navigate(`/chat/${personalBinding.conversation_id}`) : navigate('/onboarding')}
@@ -1491,7 +1493,10 @@ export function ChatWorkspacePage() {
           </div>
         ) : (
           !isMobile && (
-            <WorkspaceWelcome assistant={personalBinding ?? null} onNewChat={() => setShowNewChat(true)} />
+            <WorkspaceWelcome assistant={personalBinding ?? null}
+              conversation={localConversations.find(c => c.id === personalBinding?.conversation_id)}
+              onStart={text => personalBinding ? handleComposeMessage(personalBinding.conversation_id, text) : Promise.resolve()}
+              onNewChat={() => setShowNewChat(true)} />
           )
         )
       )}
@@ -1508,7 +1513,7 @@ export function ChatWorkspacePage() {
           isBusy={createGroupMutation.isPending}
           error={createGroupMutation.isError}
           agents={(contactsQuery.data ?? []).filter(c => c.user_id !== selfUserId && (c.kind === "human" || c.owner_id === selfUserId)).map(c => ({
-            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id
+            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id, role:c.role, avatar_variant:c.avatar_variant
           }))}
           onClose={() => setShowNewGroup(false)}
           onCreate={(payload) => createGroupMutation.mutate(payload)}

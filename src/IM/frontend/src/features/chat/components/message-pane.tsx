@@ -1,3 +1,4 @@
+import { AssistantPortrait } from "./assistant-portrait";
 import { CooperationGuide, type CooperationGuideAgent } from "./cooperation-guide";
 import { AgentActivityPopover, type AgentActivityAnchor } from "./agent-activity-popover";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -1053,7 +1054,8 @@ export function MessagePane({
   // must not steal the reading position.
   useEffect(() => {
     const el = messagesContainerRef.current;
-    if (!el) return;
+    // An empty chat is an introduction to read from the top, not a message stream.
+    if (!el || messages.length === 0) return;
     if (hasFocusedMessage && !forceScrollToBottomRef.current) {
       lastMessageIdRef.current = messages.at(-1)?.id ?? null;
       nearBottomRef.current = false;
@@ -1088,7 +1090,7 @@ export function MessagePane({
   useLayoutEffect(() => {
     const scroller = messagesContainerRef.current;
     const list = messageListRef.current;
-    if (!scroller || !list || hasFocusedMessage || typeof ResizeObserver === "undefined") return;
+    if (!scroller || !list || messages.length === 0 || hasFocusedMessage || typeof ResizeObserver === "undefined") return;
 
     // Cards and media can grow after the message data has already rendered.
     const observer = new ResizeObserver(() => {
@@ -1099,7 +1101,7 @@ export function MessagePane({
     observer.observe(list);
     observer.observe(scroller);
     return () => observer.disconnect();
-  }, [hasFocusedMessage]);
+  }, [hasFocusedMessage, messages.length === 0]);
 
   useEffect(() => {
     document.addEventListener("visibilitychange", reportReadBoundary);
@@ -1151,6 +1153,9 @@ export function MessagePane({
   const directAgent = conversation.type === "direct" ? conversation.participants.find(participant =>
     participant.type === "agent" && !participant.is_deleted && globalAgentIds.includes(participant.id)) : undefined;
   const headerAvatar = <Avatar
+    personal={personalAgent}
+    agentId={conversation.participants.find(p => p.type === "agent")?.id}
+    avatarVariant={conversation.participants.find(p => p.type === "agent")?.avatar_variant}
     initials={kind === "direct-agent" ? (agentInitials ?? avatarName.slice(0, 2)) : avatarName.slice(0, 2)}
     color={kind === "direct-agent" ? (agentColor ?? colorForAgentSeed(avatarName)) : colorForAgentSeed(avatarName)}
     size={34}
@@ -2085,7 +2090,8 @@ function MessageBubble({
         : null
     : null;
 
-  const messageAvatar = <span
+  const messageAvatar = message.sender.type === "agent" && !message.pa_agent_id
+    ? <span data-testid={`message-avatar-${message.id}`}><AssistantPortrait personal={message.sender.role === "personal"} seed={message.sender.id} variant={message.sender.avatar_variant} size={30} /></span> : <span
     data-testid={`message-avatar-${message.id}`}
     className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
     style={{ backgroundColor: senderColor, color: foregroundForAvatar(senderColor) }}

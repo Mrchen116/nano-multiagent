@@ -312,7 +312,7 @@ export function ConversationSidebar({
                       onChange={() => onToggleDistillConversation?.(c.id)}
                     />
                     <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                      {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
+                      {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar personal={c.participants.some(p => p.type === "agent" && p.role === "personal")} agentId={c.participants.find(p => p.type === "agent")?.id} avatarVariant={c.participants.find(p => p.type === "agent")?.avatar_variant} initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
                     </span>
                     <span className="chat-sidebar-row-body">
                       <span className="chat-sidebar-row-title-line">
@@ -346,7 +346,7 @@ export function ConversationSidebar({
                     aria-current={active ? "true" : undefined}
                   >
                   <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                    {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
+                    {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar personal={c.participants.some(p => p.type === "agent" && p.role === "personal")} agentId={c.participants.find(p => p.type === "agent")?.id} avatarVariant={c.participants.find(p => p.type === "agent")?.avatar_variant} initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
                   </span>
                   <span className="chat-sidebar-row-body">
                     <span className="chat-sidebar-row-title-line">

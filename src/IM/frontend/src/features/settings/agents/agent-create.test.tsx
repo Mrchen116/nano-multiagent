@@ -259,6 +259,8 @@ describe("agent create page", () => {
 
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
+    fireEvent.click(screen.getByRole("button", {name:"Observer"}));
+    fireEvent.click(screen.getByRole("button", {name:"Sky"}));
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "runtime-created helper" } });
     fireEvent.change(screen.getByLabelText(/^Initial role agreement/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /plan/i }));
@@ -277,6 +279,7 @@ describe("agent create page", () => {
 
     await waitFor(() => {
       expect(apiMocks.createNodeAgentMock).toHaveBeenCalledWith("node-1", {
+        avatar_variant:14,
         agent_id: "agent-new",
         owner_id: "",
         display_name: "Agent New",
@@ -601,6 +604,8 @@ describe("agent create page", () => {
 
     fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
+    fireEvent.click(screen.getByRole("button", {name:"Observer"}));
+    fireEvent.click(screen.getByRole("button", {name:"Sky"}));
     fireEvent.change(screen.getByLabelText(/^Initial role agreement/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 

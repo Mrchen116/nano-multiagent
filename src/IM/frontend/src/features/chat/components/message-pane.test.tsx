@@ -219,6 +219,18 @@ describe("MessagePane", () => {
     expect(screen.queryByRole("separator", { name: "Agent 配置已更新" })).not.toBeInTheDocument();
   });
 
+  it("keeps empty-chat introductions at the top and follows the first real message", () => {
+    const props = {conversation:DIRECT_CONV, messages:[] as Message[], mentionCandidates:[], onSend:vi.fn()};
+    const {container, rerender} = render(<MessagePane {...props} />);
+    const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+    const metrics = {scrollTop:0, scrollHeight:900, clientHeight:400};
+    setScrollMetrics(scroller, metrics);
+    rerender(<MessagePane {...props} messages={[]} />);
+    expect(scroller.scrollTop).toBe(0);
+    rerender(<MessagePane {...props} messages={SAMPLE_MESSAGES} />);
+    expect(scroller.scrollTop).toBe(900);
+  });
+
   it("preserves a deep-linked position until the conversation is opened normally", () => {
     const props={conversation:DIRECT_CONV,messages:[] as Message[],selfUserId:"u1",mentionCandidates:[],onSend:vi.fn(),focusMessageId:"m1"};
     const {container,rerender}=render(<MessagePane {...props}/>);

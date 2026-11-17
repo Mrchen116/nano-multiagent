@@ -1662,7 +1662,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
               ‹
             </button>
           )}
-          <Avatar
+          <Avatar agentId={draft.agent_id} personal={personal} avatarVariant={draft.avatar_variant}
             initials={initialsOf(draft.display_name)}
             color={colorForAgent(draft)}
             size={32}

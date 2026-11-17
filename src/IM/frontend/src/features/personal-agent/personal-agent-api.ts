@@ -5,6 +5,7 @@ export interface PersonalAgentPolicy {
   excluded_conversation_ids: string[];
 }
 export interface PersonalAgentBinding {
+  avatar_variant?: number | null;
   binding_id: string;
   agent_id: string;
   owner_id: string;
@@ -21,6 +22,7 @@ export interface PersonalAgentState {
   creation?: {request_key: string} | null;
 }
 export interface CreatePersonalAgent {
+  avatar_variant?: number;
   request_key: string;
   node_id: string;
   display_name: string;

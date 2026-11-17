@@ -1,3 +1,4 @@
+import { AssistantPortrait } from "../chat/components/assistant-portrait";
 import { PersonalAgentIncidents } from './personal-agent-incidents';
 import { getCurrentLanguage, useTranslation } from '../../i18n';
 import type { PersonalAgentState } from './personal-agent-api';
@@ -7,7 +8,7 @@ export function PersonalAgentCollaboration({state, pendingOwnerInput=false}: {st
   useTranslation();
   const zh=getCurrentLanguage()==='zh', text=(cn:string,en:string)=>zh?cn:en;
   return <div className="pa-collaboration">
-    {pendingOwnerInput&&state.binding!.status==='active'&&<p className="pa-notice" role="status">{text('正在处理你的请求…','Working on your request…')}</p>}
+    {pendingOwnerInput&&state.binding!.status==='active'&&<p className="pa-notice pa-waiting" role="status"><AssistantPortrait seed={state.binding!.agent_id} variant={state.binding!.avatar_variant} size={24} /><span>{text('消息已发出，等待助手接收…','Message sent. Waiting for your assistant to receive it…')}</span></p>}
     {state.binding!.status!=='active'&&<p className="pa-notice" role="status">{text('助手尚未就绪，工作请求会保留；电脑恢复后继续。','Your assistant is not ready. Requests remain saved for recovery.')}</p>}
     <PersonalAgentIncidents bindingId={state.binding!.binding_id}/>
   </div>;

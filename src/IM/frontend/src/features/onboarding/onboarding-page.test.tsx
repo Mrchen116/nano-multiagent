@@ -98,10 +98,13 @@ it('creates an empty personal chat without sending an old setup goal', async () 
  await screen.findByRole('heading',{name:'Name your personal assistant'});
  expect(screen.queryByRole('textbox',{name:/work on/})).not.toBeInTheDocument();
  expect(screen.queryByText('Start your first task')).not.toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'Round glasses'}));
+ await userEvent.click(screen.getByRole('button',{name:'Mint'}));
  await userEvent.click(screen.getByRole('button',{name:'Create personal assistant'}));
  await screen.findByText('Chat opened');
  expect(createPersonalAgent).toHaveBeenCalledTimes(1);
  expect(vi.mocked(createPersonalAgent).mock.calls[0][0]).not.toHaveProperty('initial_goal');
+ expect(vi.mocked(createPersonalAgent).mock.calls[0][0]).toHaveProperty('avatar_variant',7);
  expect(router.state.location.pathname).toBe('/chat/existing');
  expect(router.state.location.state).toBeNull();
  expect(createConversation).not.toHaveBeenCalled();
@@ -112,7 +115,7 @@ it('explains assistant-status failure and retries without losing the name or cre
  vi.mocked(getPersonalAgent).mockRejectedValue(new Error('unavailable'));
  mount();
  await screen.findByRole('button',{name:'Retry assistant status'});
- await userEvent.clear(screen.getByLabelText('Name your assistant'));
+ await userEvent.clear(await screen.findByLabelText('Name your assistant'));
  await userEvent.type(screen.getByLabelText('Name your assistant'),'Poppy');
  expect(screen.getByRole('button',{name:'Create personal assistant'})).toBeDisabled();
  expect(screen.getByRole('alert')).toHaveTextContent('We couldn’t check your personal assistant');
