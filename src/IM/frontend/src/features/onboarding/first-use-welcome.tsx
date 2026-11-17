@@ -56,10 +56,9 @@ export function FirstUseWelcome({ onNewChat }: { onNewChat(): void }) {
           <span className="first-use-section-label">{t('firstUse.examplesLabel')}</span>
           <h2 id="first-use-ideas-title">{t('firstUse.examplesTitle')}</h2>
           <p className="first-use-ideas-intro">{t('firstUse.examplesIntro')}</p>
-          {(['plan', 'organize', 'start'] as const).map((idea, index) => <article className="first-use-example" key={idea}>
+          {(['plan', 'organize', 'start'] as const).map((idea) => <article className="first-use-example" key={idea}>
             <span className="first-use-example-icon" aria-hidden="true"><WelcomeIcon name={idea} /></span>
             <div><h3>{t(`firstUse.examples.${idea}.title`)}</h3><p>{t(`firstUse.examples.${idea}.prompt`)}</p></div>
-            <span className="first-use-example-number" aria-hidden="true">0{index + 1}</span>
           </article>)}
           <p className="first-use-example-note">{t('firstUse.examplesNote')}</p>
         </section>

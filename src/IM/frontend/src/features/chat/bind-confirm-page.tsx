@@ -4,6 +4,8 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../auth/auth-store";
 import { authFetch } from "../auth/auth-fetch";
 
+import { Laptop, CheckCircle2 } from "lucide-react";
+import "./bind-confirm.css";
 import { useTranslation } from "../../i18n";
 
 type Binding = { node_id: string; node_name: string; agents: string[]; state: string; is_transfer?: boolean; history_transferred?: boolean };
@@ -30,20 +32,21 @@ export function BindConfirmPage() {
   const committed = binding?.state === "committed";
   useEffect(()=>{if(committed) void queryClient.invalidateQueries();},[committed,queryClient]);
   return (
-    <section className="im-card mx-auto flex w-full max-w-xl flex-col gap-4 px-6 py-8">
-      <h1 className="im-title text-2xl font-bold">{t(binding?.is_transfer ? "company.bind.title" : "onboarding.bindTitle")}</h1>
-      <p className="text-sm text-slate-500">{binding?.is_transfer ? t("onboarding.transferHistory") : t("onboarding.bindDescription")}</p>
-      <p>{t("company.bind.account")}: {user?.display_name || user?.username}</p>
+    <div className="bind-screen"><section className="bind-card">
+      <div className={`bind-illustration${committed ? " is-connected" : ""}`} aria-hidden="true"><Laptop /><span><CheckCircle2 /></span></div>
+      <h1 className="bind-title">{t(binding?.is_transfer ? "company.bind.title" : "onboarding.bindTitle")}</h1>
+      <p className="bind-description">{binding?.is_transfer ? t("onboarding.transferHistory") : t("onboarding.bindDescription")}</p>
+      <div className="bind-account"><span className="bind-avatar" aria-hidden="true">{(user?.display_name || user?.username || "").slice(0, 1)}</span><div><small>{t(binding?.is_transfer ? "company.bind.account" : "onboarding.bindAccount")}</small><strong>{user?.display_name || user?.username}</strong></div></div>
       {!accepted && !committed && <Link to="/login" state={{ signOut: true, from: location.pathname + location.hash }}>{t("company.bind.switch")}</Link>}
       {!token && <p role="alert">{t("company.bind.missing")}</p>}
       {(preview.error || accept.error || cancel.error) && <p role="alert">{(preview.error || accept.error || cancel.error)?.message}</p>}
-      {binding && <div>
-        <p>{binding.node_name}</p>
-        <p>{t("shell.tabs.agents")}: {binding.agents.join(", ") || "—"}</p>
-        {(accepted || committed) && <p role="status">{committed ? t("company.bind.complete") : binding?.is_transfer ? t("company.bind.localConfirm") : t("onboarding.bindWaiting")}</p>}
+      {binding && <div className="bind-device">
+        <h2>{binding.node_name}</h2>
+        {binding.agents.length > 0 && <p>{t("shell.tabs.agents")}: {binding.agents.join(", ")}</p>}
+        {(accepted || committed) && <p role="status">{committed ? t(binding?.is_transfer ? "company.bind.complete" : "onboarding.bindComplete") : binding?.is_transfer ? t("company.bind.localConfirm") : t("onboarding.bindWaiting")}</p>}
       </div>}
       {!accepted && !committed && <button type="button" className="im-btn im-btn-primary w-full" disabled={!binding || accept.isPending} onClick={() => accept.mutate()}>{accept.isPending ? t("company.bind.accepting") : t(binding?.is_transfer ? "company.bind.accept" : "onboarding.bindAccept")}</button>}
       {committed ? <Link to={user?.personal_space_enabled ? "/onboarding" : "/chat"} className="im-btn im-btn-primary">{user?.personal_space_enabled ? t("onboarding.bindNext") : t("company.bind.chat")}</Link> : <button type="button" className="im-btn im-btn-muted" disabled={!binding || cancel.isPending} onClick={()=>cancel.mutate()}>{t("company.cancel")}</button>}
-    </section>
+    </section></div>
   );
 }

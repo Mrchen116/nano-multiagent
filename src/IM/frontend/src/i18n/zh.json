@@ -84,7 +84,8 @@
       "policies": "策略",
       "language": "语言",
       "signOut": "退出登录"
-    }
+    },
+    "home": "Crewden 工作空间"
   },
   "me": {
     "title": "我",
@@ -1051,12 +1052,12 @@
       "loadMore": "加载更多",
       "filters": {
         "all": "全部",
-        "agent": "Agent",
+        "agent": "助手",
         "group": "群聊",
-        "network": "Agent 网络",
-        "people": "人"
+        "network": "AI 协作",
+        "people": "同事"
       },
-      "generateSkill": "生成 skill",
+      "generateSkill": "整理为技能",
       "distillToSkill": "蒸馏为 skill",
       "cancel": "取消",
       "running": "运行中",
@@ -1622,7 +1623,9 @@
     "transferHistory": "设备、助手及助手工作历史将转交给当前账号；私人助手进入接收人的个人空间。原私人聊天、附件和任务不会转交。",
     "bindTitle": "连接你的电脑",
     "bindDescription": "确认后，这台电脑会连接到你的个人空间，用于运行你创建的助手。",
-    "bindAccept": "确认连接这台电脑"
+    "bindAccept": "确认连接这台电脑",
+    "bindAccount": "当前登录账号",
+    "bindComplete": "电脑已连接，可以继续设置助手。"
   },
   "nodeUpdate": {
     "available": {
@@ -1683,7 +1686,7 @@
     },
     "offline": {
       "title": "电脑上线后可更新",
-      "body": "在这台电脑上打开 Nano 后，再回来更新。"
+      "body": "在这台电脑上打开 Crewden 后，再回来更新。"
     },
     "current": {
       "title": "已是最新版本",
@@ -1739,11 +1742,11 @@
     "assistantCount_other": "{{count}} 个助手",
     "assistantCount": "{{count}} 个助手",
     "lastSeen": "上次在线于 {{time}}",
-    "reconnect": "打开电脑上的 Nano 即可重新连接",
+    "reconnect": "打开电脑上的 Crewden 即可重新连接",
     "noConnection": "暂无连接记录",
-    "help": "助手在你的电脑上工作。保持 Nano 运行，就能随时继续对话。",
+    "help": "助手在你的电脑上工作。保持 Crewden 运行，就能随时继续对话。",
     "emptyTitle": "连接第一台电脑",
-    "emptyBody": "把 Nano 安装到电脑上，\n你的助手就有了可以工作的地方。",
+    "emptyBody": "把 Crewden 安装到电脑上，\n你的助手就有了可以工作的地方。",
     "loadHelp": "请检查网络连接，然后重新试一次。",
     "stale": "刷新失败，以下是上次读取的状态。",
     "name": "电脑名称",
@@ -1752,7 +1755,7 @@
     "nameRequired": "请输入电脑名称",
     "saveFailed": "暂时无法保存，请稍后重试。输入已保留。",
     "saved": "电脑名称已更新",
-    "offlineManage": "请在这台电脑上打开 Nano。重新连接后，就可以改名或创建助手。",
+    "offlineManage": "请在这台电脑上打开 Crewden。重新连接后，就可以改名或创建助手。",
     "updateManage": "电脑恢复后可改名或创建助手。",
     "lastOnline": "最后在线",
     "assistantsHere": "在这台电脑上工作的助手",
@@ -1764,12 +1767,12 @@
     "connectionLog": "连接记录",
     "noError": "无异常记录",
     "notFound": "这台电脑已不在列表中，请返回刷新。",
-    "releaseReady": "Nano {{version}} 已就绪",
+    "releaseReady": "Crewden {{version}} 已就绪",
     "updateStages": "更新阶段",
     "continueOnComputer": "到这台电脑上继续",
     "getStarted": "让助手开始工作",
     "recoveryOn": "请在「{{name}}」上完成以下步骤。电脑恢复连接后，页面会更新状态。",
-    "connectBody": "在你想运行助手的电脑上安装 Nano，再用当前账号确认连接。",
+    "connectBody": "在你想运行助手的电脑上安装 Crewden，再用当前账号确认连接。",
     "installFailed": "暂时无法读取安装说明，请重试。",
     "noInstaller": "管理员尚未发布可用的电脑端安装包，请稍后再试。",
     "installMethod": "安装方式",
@@ -1786,13 +1789,13 @@
     "copyFailed": "无法自动复制，请选中上方内容手动复制。",
     "platforms": "支持 macOS / Linux，Windows 可在 WSL 中运行。",
     "refreshList": "已在电脑上完成，刷新列表",
-    "agentInstructions": "请帮我安装或恢复 Nano 电脑端，连接 {{origin}}。先等待当前任务结束，再运行此服务提供的命令：\n{{command}}\n保留已有配置、身份、凭据和工作文件；不要部署 IM 服务。需要确认绑定时由我操作，不要索取密码或模型密钥。",
+    "agentInstructions": "请帮我安装或恢复 Crewden 电脑端，连接 {{origin}}。先等待当前任务结束，再运行此服务提供的命令：\n{{command}}\n保留已有配置、身份、凭据和工作文件；不要部署 IM 服务。需要确认绑定时由我操作，不要索取密码或模型密钥。",
     "stage": {
       "prepare": "准备",
       "idle": "等待空闲",
       "switch": "切换"
     },
-    "agentRecoveryInstructions": "请帮我恢复这台电脑上的 Nano。先等待当前任务结束，再运行此服务提供的恢复命令：\n{{command}}\n保留已有配置、身份、凭据和工作文件；不要部署 IM 服务。需要确认时由我操作，不要索取密码或模型密钥。",
+    "agentRecoveryInstructions": "请帮我恢复这台电脑上的 Crewden。先等待当前任务结束，再运行此服务提供的恢复命令：\n{{command}}\n保留已有配置、身份、凭据和工作文件；不要部署 IM 服务。需要确认时由我操作，不要索取密码或模型密钥。",
     "title": "电脑"
   },
   "pa": {

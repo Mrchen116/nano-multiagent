@@ -84,7 +84,8 @@
       "policies": "Policies",
       "language": "Language",
       "signOut": "Sign out"
-    }
+    },
+    "home": "Crewden workspace"
   },
   "me": {
     "title": "Me",
@@ -1628,7 +1629,9 @@
     "transferHistory": "The device, assistants, and assistant work history will transfer to this account. Private assistants move into the recipient’s personal space. Existing private chats, attachments, and task graphs will not transfer.",
     "bindTitle": "Connect your computer",
     "bindDescription": "This computer will connect to your personal space and run the assistants you create.",
-    "bindAccept": "Connect this computer"
+    "bindAccept": "Connect this computer",
+    "bindAccount": "Signed in as",
+    "bindComplete": "Your computer is connected."
   },
   "nodeUpdate": {
     "available": {
@@ -1689,7 +1692,7 @@
     },
     "offline": {
       "title": "Update when computer is online",
-      "body": "Open Nano on this computer, then return here to update."
+      "body": "Open Crewden on this computer, then return here to update."
     },
     "current": {
       "title": "Up to date",
@@ -1745,11 +1748,11 @@
     "assistantCount_other": "{{count}} assistants",
     "assistantCount": "{{count}} assistants",
     "lastSeen": "Last online {{time}}",
-    "reconnect": "Open Nano on this computer to reconnect",
+    "reconnect": "Open Crewden on this computer to reconnect",
     "noConnection": "No connection recorded",
-    "help": "Your assistants work on your computers. Keep Nano running to continue the conversation anytime.",
+    "help": "Your assistants work on your computers. Keep Crewden running to continue the conversation anytime.",
     "emptyTitle": "Connect your first computer",
-    "emptyBody": "Install Nano on a computer to give your assistants a place to work.",
+    "emptyBody": "Install Crewden on a computer to give your assistants a place to work.",
     "loadHelp": "Check your connection and try again.",
     "stale": "Could not refresh. Showing the last known status.",
     "name": "Computer name",
@@ -1758,7 +1761,7 @@
     "nameRequired": "Enter a computer name",
     "saveFailed": "Could not save. Your name is kept; please try again.",
     "saved": "Computer name updated",
-    "offlineManage": "Open Nano on this computer. You can rename it or create an assistant after it reconnects.",
+    "offlineManage": "Open Crewden on this computer. You can rename it or create an assistant after it reconnects.",
     "updateManage": "You can rename this computer or create assistants after it recovers.",
     "lastOnline": "Last online",
     "assistantsHere": "Assistants on this computer",
@@ -1770,12 +1773,12 @@
     "connectionLog": "Connection record",
     "noError": "No error recorded",
     "notFound": "This computer is no longer listed. Return and refresh.",
-    "releaseReady": "Nano {{version}} is ready",
+    "releaseReady": "Crewden {{version}} is ready",
     "updateStages": "Update stages",
     "continueOnComputer": "Continue on this computer",
     "getStarted": "Give your assistants a place to work",
     "recoveryOn": "Complete these steps on “{{name}}”. Its status will update when it reconnects.",
-    "connectBody": "Install Nano on the computer where your assistants will work, then confirm with your current account.",
+    "connectBody": "Install Crewden on the computer where your assistants will work, then confirm with your current account.",
     "installFailed": "Could not load installation instructions. Please retry.",
     "noInstaller": "No computer installer is available from this service yet. Please try again later.",
     "installMethod": "Installation method",
@@ -1792,13 +1795,13 @@
     "copyFailed": "Could not copy automatically. Select the text above and copy it manually.",
     "platforms": "Supports macOS / Linux. On Windows, use WSL.",
     "refreshList": "Finished on the computer? Refresh list",
-    "agentInstructions": "Help me install or recover the Nano computer client and connect to {{origin}}. Wait for current tasks to finish, then run the command provided by this service:\n{{command}}\nPreserve existing configuration, identity, credentials and work files. Do not deploy the IM server. Let me confirm any binding; do not request passwords or model keys.",
+    "agentInstructions": "Help me install or recover the Crewden computer client and connect to {{origin}}. Wait for current tasks to finish, then run the command provided by this service:\n{{command}}\nPreserve existing configuration, identity, credentials and work files. Do not deploy the IM server. Let me confirm any binding; do not request passwords or model keys.",
     "stage": {
       "prepare": "Prepare",
       "idle": "Wait for idle",
       "switch": "Switch"
     },
-    "agentRecoveryInstructions": "Help me recover Nano on this computer. Wait for current tasks to finish, then run the recovery command provided by the service:\n{{command}}\nPreserve existing configuration, identity, credentials and work files. Do not deploy the IM server. Ask me to complete any confirmation; do not request passwords or model keys.",
+    "agentRecoveryInstructions": "Help me recover Crewden on this computer. Wait for current tasks to finish, then run the recovery command provided by the service:\n{{command}}\nPreserve existing configuration, identity, credentials and work files. Do not deploy the IM server. Ask me to complete any confirmation; do not request passwords or model keys.",
     "title": "Computers",
     "summary_one": "{{total}} computer · {{online}} online",
     "summary_other": "{{total}} computers · {{online}} online"
@@ -1876,7 +1879,7 @@
     "composeUnavailable": "This conversation is unavailable or you do not have permission to write."
   },
   "firstUse": {
-    "eyebrow": "WELCOME TO YOUR PERSONAL SPACE",
+    "eyebrow": "Your personal space",
     "title": "Your personal assistant starts here.",
     "intro": "Make a plan, organize your ideas, and move work forward. Connect your computer and model to get your assistant ready.",
     "setupTitle": "Get your assistant ready",
@@ -1904,7 +1907,7 @@
       "model": "Continue model setup",
       "assistant": "Create your personal assistant"
     },
-    "examplesLabel": "AFTER SETUP, TRY SOMETHING LIKE THIS",
+    "examplesLabel": "Ideas for your first conversation",
     "examplesTitle": "Start with one small thing.",
     "examplesIntro": "No elaborate prompt needed. Just explain what you want to do.",
     "examples": {
@@ -1934,7 +1937,7 @@
   "cooperation": {
     "chatOpenFailed": "Your teammate was created, but the chat could not open. Use Send message to retry.",
     "label": "Working agreement",
-    "eyebrow": "GET TO KNOW EACH OTHER",
+    "eyebrow": "Getting to know each other",
     "step1": "Share context",
     "step2": "Agree responsibilities",
     "step3": "Confirm and begin",

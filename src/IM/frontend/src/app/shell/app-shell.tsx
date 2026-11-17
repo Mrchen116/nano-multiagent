@@ -1,5 +1,5 @@
 import { PropsWithChildren } from "react";
-import { NavLink, useMatch } from "react-router-dom";
+import { Link, NavLink, useMatch } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
@@ -9,10 +9,11 @@ import { useAuthStore } from "../../features/auth/auth-store";
 import { useLocalUnreadFeedback } from "../../features/notifications/local-unread-feedback";
 import { AgentsNavIcon, ChatNavIcon, MeNavIcon, TasksNavIcon } from "./mobile-nav-icons";
 import { NanoBrand } from "./nano-brand";
+import { LanguageSelect } from "./language-select";
 import { UserMenu } from "./user-menu";
 
 /**
- * Top-level app chrome: 48px top banner with brand + internal badge +
+ * Top-level app chrome: Crewden brand banner with
  * Chat/Tasks/Agents tabs + UserMenu on desktop; collapses to a status spacer with
  * a bottom 4-tab nav with product icons and unread feedback on mobile list pages.
  * Mobile conversations hide global navigation to give messages the full height.
@@ -39,7 +40,7 @@ export function AppShell({ children }: PropsWithChildren) {
     <div className={`im-shell${isMobileConversation ? " im-shell--conversation" : ""}`}>
       {!isMobile && (
         <header role="banner" className="im-shell-topbar">
-          <NanoBrand className="im-shell-brand" />
+          <Link to="/chat" className="im-shell-brand-link" aria-label={t("shell.home")}><NanoBrand className="im-shell-brand" /></Link>
           <nav aria-label="primary" className="im-shell-tabs">
             <NavLink to="/chat" end={false}>
               {t("shell.tabs.chat")}
@@ -47,6 +48,7 @@ export function AppShell({ children }: PropsWithChildren) {
             <NavLink to="/tasks">{t("shell.tabs.tasks")}</NavLink>
             <NavLink to="/settings/agents">{t("shell.tabs.agents")}</NavLink>
           </nav>
+          <LanguageSelect />
           <UserMenu />
         </header>
       )}

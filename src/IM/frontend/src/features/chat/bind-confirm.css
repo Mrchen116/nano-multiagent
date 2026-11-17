@@ -1,0 +1,23 @@
+
+.bind-screen { flex: 1; overflow-y: auto; padding: 44px 24px; background: var(--im-bg); }
+.bind-card { width: min(100%, 540px); margin: 0 auto; padding: 36px 42px; border: 1px solid var(--im-border); border-radius: 22px; background: var(--im-surface); display: flex; flex-direction: column; gap: 18px; }
+.bind-illustration { position: relative; display: grid; place-items: center; width: 110px; height: 100px; margin: 0 auto 6px; background: #eee7fc; color: var(--im-accent); border-radius: 24px; transform: rotate(-5deg); }
+.bind-illustration > svg { width: 62px; height: 62px; stroke-width: 1.4; }
+.bind-illustration > span { position: absolute; right: -9px; bottom: 2px; width: 35px; height: 35px; display: grid; place-items: center; background: #e3f2ec; border: 3px solid white; border-radius: 50%; color: #36735d; opacity: .35; }
+.bind-illustration.is-connected > span { opacity: 1; }
+.bind-title { font-size: 27px; line-height: 1.4; font-weight: 550; letter-spacing: -.7px; text-align: center; margin: 0; }
+.bind-description { color: var(--im-text-muted); font-size: 14px; line-height: 1.8; text-align: center; margin: 0; }
+.bind-account { display: flex; align-items: center; gap: 12px; padding-top: 10px; }
+.bind-avatar { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; color: #84683d; background: #f1e4ce; }
+.bind-account small { display: block; color: var(--im-text-muted); font-size: 12px; margin-bottom: 3px; }
+.bind-account strong { font-size: 15px; font-weight: 500; }
+.bind-card > a:not(.im-btn) { font-size: 13px; color: var(--im-accent); align-self: flex-start; }
+.bind-card > a:not(.im-btn):hover { text-decoration: underline; }
+.bind-device { padding: 18px 20px; border: 1px solid var(--im-border); border-radius: 10px; background: var(--im-surface-2); }
+.bind-device h2 { font-size: 16px; margin: 0 0 5px; font-weight: 550; overflow-wrap: anywhere; }
+.bind-device p { margin: 8px 0 0; font-size: 13px; color: var(--im-text-muted); line-height: 1.7; }
+.bind-device [role=status] { color: var(--im-success-text); }
+.bind-card > .im-btn { min-height: 46px; font-size: 14px; border-radius: 8px; }
+.bind-card > .im-btn-primary { background: #302049; }
+.bind-card [role=alert] { padding: 12px; background: #fff4f4; color: var(--im-danger); font-size: 13px; border-radius: 8px; }
+@media(max-width: 560px) { .bind-screen { padding: 22px 16px; } .bind-card { padding: 28px 24px; } .bind-title { font-size: 24px; } }

@@ -39,7 +39,7 @@ it('keeps failed model validation on the model step and never stores the entered
  vi.mocked(setupNode).mockResolvedValue({ ...modelStatus, operation: { id: 'op', state: 'failed' } });
  await userEvent.click(screen.getByRole('button', { name: 'Verify and continue' }));
  await screen.findByRole('alert');
- expect(screen.queryByRole('button', { name: 'Continue →' })).not.toBeInTheDocument();
+ expect(screen.queryByRole('button', { name: 'Continue' })).not.toBeInTheDocument();
  expect(screen.getByRole('button', { name: 'Verify and continue' })).toBeEnabled();
  expect(screen.getByLabelText('API Key')).toHaveValue('private-key-example');
  expect(Array.from({length: localStorage.length}, (_, i) => localStorage.getItem(localStorage.key(i)!)).join(' ')).not.toContain('private-key-example');
@@ -80,7 +80,7 @@ it('shows saved models without developer proxy discovery or a duplicate setup te
  await userEvent.click(screen.getByRole('button', {name: '← Back'}));
  expect(await screen.findByRole('heading', {name: 'Team service'})).toBeInTheDocument();
  expect(screen.queryByText('Local model proxy')).not.toBeInTheDocument();
- expect(screen.getByRole('button', {name: 'Continue →'})).toBeEnabled();
+ expect(screen.getByRole('button', {name: 'Continue'})).toBeEnabled();
 });
 it('returns to computer recovery when an already-created assistant is offline', async () => {
  vi.mocked(getOnboarding).mockResolvedValue({nodes: [{...computer, status: 'offline'}], agents: [{agent_id: 'a', display_name: 'Assistant', node_id: 'device', default_model: 'm', workspace_root: '/a', work_mode: 'global'}], install});
@@ -168,11 +168,11 @@ it('restores a pending subscription authorization after returning to setup', asy
 it('explains the PA and prerequisites before first-time installation, then remembers starting', async () => {
  vi.mocked(getOnboarding).mockResolvedValue({nodes:[],agents:[],install});
  mount();
- await screen.findByRole('button',{name:'Set up my PA'});
+ await screen.findByRole('button',{name:'Set up my assistant'});
  expect(screen.getByRole('heading',{name:'Two things to have ready'})).toBeInTheDocument();
  expect(screen.getByRole('link',{name:'Explore my space first'})).toHaveAttribute('href','/chat');
  expect(screen.queryByRole('heading',{name:'Connect your computer'})).not.toBeInTheDocument();
- await userEvent.click(screen.getByRole('button',{name:'Set up my PA'}));
+ await userEvent.click(screen.getByRole('button',{name:'Set up my assistant'}));
  await screen.findByRole('heading',{name:'Connect your computer'});
  expect(JSON.parse(localStorage.getItem(`nano-onboarding:${TEST_AUTH_USER.id}`)!)).toMatchObject({started:true});
  expect(createPersonalAgent).not.toHaveBeenCalled();

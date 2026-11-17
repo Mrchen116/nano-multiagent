@@ -1,6 +1,6 @@
 .pa-entry { flex-shrink: 0; border-bottom: 1px solid var(--im-border); padding: 5px 8px; }
 .pa-entry .chat-sidebar-row { width: 100%; }
-.pa-entry-icon { width: 36px; height: 36px; display: grid; place-items: center; flex-shrink: 0; border-radius: 12px; color: var(--im-accent, #27685b); background: var(--im-surface-hover, #e7f1ec); font-size: 23px; }
+.pa-entry-icon { width: 36px; height: 36px; display: grid; place-items: center; flex-shrink: 0; border-radius: 12px; color: var(--im-accent); background: var(--im-accent-soft); font-size: 23px; }
 .pa-badge { font-size: 11px; color: var(--im-text-muted); }
 .pa-collaboration { margin: 14px 0 0; width: min(100%, 720px); display: grid; gap: 10px; }
 .pa-notice { font-size: 12px; color: var(--im-text-muted); margin: 0; }

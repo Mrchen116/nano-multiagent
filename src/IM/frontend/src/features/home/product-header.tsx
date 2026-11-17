@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronDown, Globe2, Menu, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { NanoBrand } from '../../app/shell/nano-brand';
-import { getCurrentLanguage, setLanguage, useTranslation } from '../../i18n';
+import { useTranslation } from '../../i18n';
+import { LanguageSelect } from '../../app/shell/language-select';
 import './product-entry.css';
 
 /** Separate product exploration from the focused account and setup journeys. */
@@ -11,7 +12,6 @@ export function ProductHeader({ page = 'home', accountName }: {
   accountName?: string;
 }) {
   const { t } = useTranslation();
-  const zh = getCurrentLanguage() === 'zh';
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const sections = [['how-it-works', 'how'], ['capabilities', 'capabilities'], ['getting-started', 'start']] as const;
@@ -23,13 +23,7 @@ export function ProductHeader({ page = 'home', accountName }: {
       {sections.map(([id, key]) => <a key={id} href={`#${id}`}>{t(`crewdenStory.nav.${key}`)}</a>)}
     </nav>}
     <div className="product-header-actions">
-      <label className="product-language-select">
-        <Globe2 aria-hidden="true" />
-        <select aria-label={t('auth.language.label')} value={zh ? 'zh' : 'en'} onChange={event => setLanguage(event.target.value === 'zh' ? 'zh' : 'en')}>
-          <option value="en">English</option><option value="zh">简体中文</option>
-        </select>
-        <ChevronDown className="product-language-chevron" aria-hidden="true" />
-      </label>
+      <LanguageSelect />
       {page === 'setup' ? <Link className="product-account" to="/settings/account">{accountName}</Link>
         : page === 'home' ? <>
           <Link className="product-signin" to="/login">{t('auth.login.submit')}</Link>

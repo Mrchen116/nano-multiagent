@@ -1,46 +1,46 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
-/* Shared light palette: white content, cool navigation, restrained teal actions. */
+/* Crewden workspace: lavender navigation, white working surfaces, violet actions. */
 :root {
   --im-viewport-height: 100vh;
-  --im-bg: #f7f9fb;
+  --im-bg: #f7f5fc;
   --im-surface: #ffffff;
-  --im-surface-2: #f3f6f8;
-  --im-topbar: #ffffff;
-  --im-topbar-fg: #21313c;
-  --im-accent: #0f766e;
+  --im-surface-2: #f5f1fa;
+  --im-topbar: #eee9fb;
+  --im-topbar-fg: #302049;
+  --im-accent: #6b43d8;
   --im-accent-fg: #ffffff;
-  --im-accent-2: #115e59;
-  --im-text: #243440;
-  --im-text-muted: #60717e;
-  --im-border: #e2e8ed;
-  --im-border-strong: #c2cfd7;
+  --im-accent-2: #5732bf;
+  --im-text: #302049;
+  --im-text-muted: #756886;
+  --im-border: #e5dfee;
+  --im-border-strong: #ccbfdd;
   --im-danger: #c44747;
   --im-warning: #aa6b1d;
   --im-success: #20835d;
-  --im-shadow: 0 8px 24px -12px rgb(30 50 60 / 0.16);
-  --im-shadow-strong: 0 18px 48px -16px rgb(30 50 60 / 0.22);
+  --im-shadow: 0 8px 24px -12px rgb(48 32 73 / 0.12);
+  --im-shadow-strong: 0 18px 48px -16px rgb(48 32 73 / 0.18);
 
-  --im-sidebar: #f5f8fa;
-  --im-hover: #edf2f5;
-  --im-accent-soft: #e5f3ef;
-  --im-accent-border: #b9dbd2;
-  --im-text-sub: #60717e;
+  --im-sidebar: #f2edf9;
+  --im-hover: #ece5f6;
+  --im-surface-hover: var(--im-hover);
+  --im-accent-soft: #eee7fc;
+  --im-accent-border: #d1bff3;
+  --im-text-sub: #756886;
   --im-overlay: rgb(26 43 54 / 0.24);
   --im-success-soft: #e7f5ec;
   --im-success-text: #286744;
-  --im-user-bubble: #e5f3ef;
-  --im-user-bubble-text: #23473e;
-  --im-brand: #82b8af;
-  --im-brand-mark: #193f39;
-  --im-user-avatar: #d4e2df;
-  --im-user-avatar-text: #355650;
-  --im-group-avatar: #35464f;
-  --im-group-avatar-text: #c5d8df;
+  --im-user-bubble: #eee7fc;
+  --im-user-bubble-text: #483064;
+  --im-brand: #6b43d8;
+  --im-brand-mark: #ffffff;
+  --im-user-avatar: #e8dff5;
+  --im-user-avatar-text: #634582;
+  --im-group-avatar: #6b5980;
+  --im-group-avatar-text: #f1ebf8;
 
-  --im-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --im-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --im-font-sans: "Helvetica Neue", "PingFang SC", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --im-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 /*
@@ -95,12 +95,12 @@ body {
 }
 
 .im-shell-topbar {
-  height: 48px;
+  height: 64px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 1.5rem;
-  padding: 0 1rem;
+  padding: 0 24px;
   background: var(--im-topbar);
   color: var(--im-topbar-fg);
   border-bottom: 1px solid var(--im-border);
@@ -134,10 +134,14 @@ body {
 }
 
 .im-shell-tabs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  transition: background-color 140ms ease, color 140ms ease;
   color: var(--im-text-muted);
   text-decoration: none;
-  padding: 0.25rem 0.75rem;
-  border-radius: 0.5rem;
+  padding: 0.4rem 1.15rem;
+  border-radius: 10px;
   font-weight: 600;
   font-size: 0.875rem;
 }
@@ -1445,7 +1449,7 @@ body {
 /* Sidebar */
 .chat-sidebar {
   --sidebar-bg: var(--im-sidebar);
-  width: 262px;
+  width: 292px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -1457,7 +1461,7 @@ body {
 }
 
 .chat-sidebar-header {
-  padding: 14px 12px 10px;
+  padding: 22px 18px 14px;
   border-bottom: none;
   display: flex;
   flex-direction: column;
@@ -1486,10 +1490,9 @@ body {
 }
 
 .chat-sidebar-title {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -.02em;
   color: var(--im-text-muted);
 }
 
@@ -1628,7 +1631,7 @@ body {
   background: transparent;
   border: 0;
   border-radius: 99px;
-  padding: 5px 12px;
+  padding: 5px 8px;
   font: inherit;
   font-size: 0.75rem;
   font-weight: 600;
@@ -1823,7 +1826,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 11px 20px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--im-border);
   flex-shrink: 0;
   background: var(--im-surface);
@@ -5730,3 +5733,21 @@ body {
 .chat-composer-reply button { flex-shrink:0; padding:3px 7px; font-size:19px; color:var(--im-text-muted); }
 .chat-message-quote { flex-direction:column; gap:1px; text-decoration:none; margin-bottom:8px; max-width:100%; cursor:pointer; }
 .chat-message-quote:hover { background:rgba(127,127,127,.15); }
+
+.im-shell-brand-link { display: inline-flex; align-items: center; color: var(--im-text); text-decoration: none; }
+.im-shell-brand { font-size: 24px; letter-spacing: -.8px; gap: 9px; }
+.im-shell-brand svg { width: 29px; height: 29px; }
+.im-shell-brand-link:focus-visible { outline: 3px solid var(--im-accent); outline-offset: 5px; border-radius: 5px; }
+@media (prefers-reduced-motion: reduce) { .im-shell-tabs a { transition: none; } }
+
+.im-language-select { position: relative; display: inline-flex; align-items: center; flex: none; }
+.im-language-select > svg { position: absolute; left: 9px; width: 16px; height: 16px; color: var(--im-text-muted); pointer-events: none; }
+.im-language-select > .im-language-chevron { left: auto; right: 8px; width: 12px; height: 12px; }
+.im-language-select select { appearance: none; width: 122px; min-height: 40px; padding: 8px 24px 8px 32px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--im-text); font: inherit; font-size: 12px; cursor: pointer; }
+.im-language-select select:hover { background: #ffffff70; border-color: var(--im-border); }
+.im-language-select select:focus-visible { outline: 3px solid #6b43d8; outline-offset: 3px; }
+@media (max-width: 560px) {
+  .im-language-select select { width: 108px; padding-left: 27px; padding-right: 20px; font-size: 12px !important; }
+  .im-language-select > svg { left: 6px; width: 14px; height: 14px; }
+  .im-language-select > .im-language-chevron { left: auto; right: 5px; width: 11px; }
+}

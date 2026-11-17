@@ -70,7 +70,7 @@ it('gives a returning empty personal account a setup route, not a disabled creat
   expect(screen.queryByText('Select a conversation')).not.toBeInTheDocument();
   expect(screen.queryByText('Generate skill')).not.toBeInTheDocument();
   await userEvent.click(next);
-  await userEvent.click(await screen.findByRole('button', {name:'Set up my PA'}));
+  await userEvent.click(await screen.findByRole('button', {name:'Set up my assistant'}));
   expect(await screen.findByRole('heading',{name:'Connect your computer'})).toBeInTheDocument();
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole('link',{name:/Continue later, open your space/}));

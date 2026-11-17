@@ -68,18 +68,9 @@
   .product-mobile-nav .product-mobile-register { background: #302049; color: white; margin-top: 5px; text-align: center; }
 }
 
-.product-language-select { position: relative; display: inline-flex; align-items: center; flex: none; }
-.product-language-select > svg { position: absolute; left: 9px; width: 16px; height: 16px; color: var(--home-muted); pointer-events: none; }
-.product-language-select > .product-language-chevron { left: auto; right: 8px; width: 12px; height: 12px; }
-.product-language-select select { appearance: none; width: 122px; min-height: 40px; padding: 8px 24px 8px 32px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--home-ink); font: inherit; font-size: 12px; cursor: pointer; }
-.product-language-select select:hover { background: #ffffff70; border-color: var(--home-line); }
-.product-language-select select:focus-visible { outline: 3px solid #6b43d8; outline-offset: 3px; }
 @media (max-width: 560px) {
   .product-header .product-brand .im-nano-brand { font-size: 23px; gap: 7px; }
   .product-header .product-brand svg { width: 27px; height: 27px; }
   .product-header .product-header-actions { gap: 4px; }
-  .product-header .product-language-select select { width: 108px; padding-left: 27px; padding-right: 20px; font-size: 12px !important; }
-  .product-language-select > svg { left: 6px; width: 14px; height: 14px; }
-  .product-language-select > .product-language-chevron { left: auto; right: 5px; width: 11px; }
   .product-menu-trigger { width: 34px; }
 }
