@@ -37,7 +37,7 @@ export function OnboardingPage() {
   const [editingModel, setEditingModel] = useState(false);
   const personal = useQuery({queryKey:['personal-agent',user.id],queryFn:getPersonalAgent,retry:false,refetchInterval:3000});
   const state = useQuery({ queryKey: ['onboarding', user.id], queryFn: getOnboarding, refetchInterval: 3000 });
-  const node = state.data?.nodes.find(n => n.node_id === nodeId)
+  const node = state.data?.nodes.find(n => n.node_id === (personal.data?.binding?.node_id ?? nodeId))
     ?? state.data?.nodes.find(n => n.status === 'online') ?? state.data?.nodes[0];
   const currentNodeId = node?.node_id;
   const setup = useQuery({ queryKey: ['node-setup', user.id, currentNodeId], queryFn: () => setupNode(currentNodeId!, { action: 'status' }), enabled: !!currentNodeId && node?.status === 'online', refetchInterval: 2000, retry: false });
@@ -51,12 +51,13 @@ export function OnboardingPage() {
   const working = operation?.state === 'waiting' || operation?.state === 'testing';
   const create = useMutation({
     mutationFn: () => {
-      if (!node || !name.trim()) throw new Error('not ready');
-      return createPersonalAgent({request_key:requestKey,node_id:node.node_id,display_name:name.trim(),avatar_variant:avatar});
+      const displayName = existingAgent?.display_name ?? name.trim();
+      if (!node || !displayName) throw new Error('not ready');
+      return createPersonalAgent({request_key:personal.data?.creation?.request_key ?? requestKey,node_id:existingAgent?.node_id ?? node.node_id,display_name:displayName,...(!existingAgent || personal.data?.creation?.request_key === requestKey ? {avatar_variant:avatar} : {})});
     },
     onSuccess: async result => {
       await Promise.all([cache.invalidateQueries({queryKey:['personal-agent']}),cache.invalidateQueries({queryKey:['onboarding',user.id]}),cache.invalidateQueries({queryKey:['chat']})]);
-      if (result.binding) navigate(`/chat/${result.binding.conversation_id}`);
+      if (result.binding?.status === 'active') navigate(`/chat/${result.binding.conversation_id}`);
     },
   });
   useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({requestKey,nodeId:currentNodeId??'',name,started,avatar})); }, [draftKey,requestKey,currentNodeId,name,started,avatar]);
@@ -119,7 +120,7 @@ export function OnboardingPage() {
             {setup.isError && <div className="onboarding-error" role="alert"><p>{text('暂时无法确认模型连接，请重新检查。', 'We couldn’t confirm the model connection. Please check again.')}</p><button className="onboarding-link" onClick={() => void setup.refetch()}>{text('重新检查模型', 'Check model again')}</button></div>}
             <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(1)}>{text('← 返回', '← Back')}</button><button className="onboarding-primary" disabled={!name.trim() || !configured || setup.isError || !personal.isSuccess || create.isPending || node?.status !== 'online'} onClick={() => create.mutate()}>{create.isPending ? text('正在创建…', 'Creating…') : create.error ? text('核对并重试', 'Check and retry') : text('创建个人助手', 'Create personal assistant')}</button></div>
           </>}
-          {step === 3 && <><span className="onboarding-chip">{text('我的个人助手','My personal assistant')}</span><h2>{existingAgent?.display_name || name}</h2><p className="onboarding-sub">{existingAgent?.status==='active'?text('继续交代目标、查看进展，或直接问一件过去的事。','Continue your goals, check progress, or ask about a past conversation.'):text('助手正在准备，创建信息已保存。','Your assistant is getting ready. Its setup is saved.')}</p><div className="onboarding-footer"><Link to="/settings/agents">{text('管理助手','Manage assistants')}</Link><button className="onboarding-primary" disabled={!existingAgent} onClick={()=>existingAgent&&navigate(`/chat/${existingAgent.conversation_id}`)}>{text('打开个人助手 →','Open personal assistant →')}</button></div></>}
+          {step === 3 && <>{create.isError && error(text('电脑尚未确认创建结果，请重试。','Your computer has not confirmed creation. Please retry.'))}<span className="onboarding-chip">{text('我的个人助手','My personal assistant')}</span><h2>{existingAgent?.display_name || name}</h2><p className="onboarding-sub">{existingAgent && !personal.data?.creation ?text('继续交代目标、查看进展，或直接问一件过去的事。','Continue your goals, check progress, or ask about a past conversation.'):text('助手正在准备，创建信息已保存。','Your assistant is getting ready. Its setup is saved.')}</p><div className="onboarding-footer"><Link to="/settings/agents">{text('管理助手','Manage assistants')}</Link>{existingAgent && !personal.data?.creation ? <button className="onboarding-primary" onClick={()=>navigate(`/chat/${existingAgent.conversation_id}`)}>{text('打开个人助手 →','Open personal assistant →')}</button> : <button className="onboarding-primary" disabled={!personal.data?.creation || create.isPending || node?.status !== 'online'} onClick={()=>create.mutate()}>{create.isPending ? text('正在准备…','Preparing…') : text('重新准备','Retry setup')}</button>}</div></>}
 
           </>}
         </section>

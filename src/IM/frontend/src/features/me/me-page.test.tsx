@@ -79,7 +79,7 @@ describe("MePage", () => {
     renderMe();
     await userEvent.click(screen.getByRole("button", { name: /sign out/i }));
     expect(useAuthStore.getState().user).toBeNull();
-    expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /welcome back/i })).toBeInTheDocument();
   });
 
 });

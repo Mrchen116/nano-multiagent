@@ -193,3 +193,28 @@ it('resumes installation on a phone with handoff first and opt-in computer instr
  await userEvent.click(screen.getByRole('button',{name:/View computer installation steps/}));
  expect(screen.getByRole('button',{name:'Copy install command'})).toBeInTheDocument();
 });
+
+it.each([true,false])('resumes a pending assistant after refresh without mixing another draft (%s)', async (sameDraft) => {
+ localStorage.setItem(`nano-onboarding:${TEST_AUTH_USER.id}`,JSON.stringify({requestKey:sameDraft?'original-key':'other-key',nodeId:'other-device',name:'',avatar:7}));
+ const pending={...pa,binding:{...pa.binding,status:'pending'},creation:{request_key:'original-key'}};
+ vi.mocked(getPersonalAgent).mockResolvedValue(pending);
+ vi.mocked(getOnboarding).mockResolvedValue({nodes:[{...computer,node_id:'other-device'},computer],agents:[],install});
+ vi.mocked(createPersonalAgent).mockRejectedValueOnce(new Error('not ready')).mockResolvedValueOnce(pa);
+ const router=mount();
+ await userEvent.click(await screen.findByRole('button',{name:'Retry setup'}));
+ expect(await screen.findByRole('alert')).toHaveTextContent('Your computer has not confirmed creation');
+ expect(router.state.location.pathname).toBe('/onboarding');
+ expect(screen.queryByRole('button',{name:'Open personal assistant →'})).not.toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'Retry setup'}));
+ await screen.findByText('Chat opened');
+ expect(createPersonalAgent).toHaveBeenNthCalledWith(2,{request_key:'original-key',node_id:'device',display_name:'Assistant',...(sameDraft?{avatar_variant:7}:{})});
+ expect(router.state.location.pathname).toBe('/chat/existing');
+});
+
+it('opens an already-created assistant chat while its runtime is unavailable', async () => {
+ vi.mocked(getPersonalAgent).mockResolvedValue({...pa,binding:{...pa.binding,status:'unavailable'},creation:null});
+ const router=mount();
+ await userEvent.click(await screen.findByRole('button',{name:'Open personal assistant →'}));
+ expect(router.state.location.pathname).toBe('/chat/existing');
+ expect(createPersonalAgent).not.toHaveBeenCalled();
+});

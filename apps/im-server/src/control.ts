@@ -494,7 +494,7 @@ export class ConfigOperations {
       if (c.avatar_variant !== undefined) db.prepare('UPDATE agent_profiles SET avatar_variant=? WHERE agent_id=?').run(c.avatar_variant, op.agent_id);
       // All configuration entry points and delayed recovery commit the same PA identity.
       db.prepare("UPDATE personal_agent_bindings SET display_name=? WHERE agent_id=? AND owner_id=?").run(c.display_name || op.agent_id, op.agent_id, op.owner_id);
-      db.prepare("UPDATE conversations SET title=? WHERE id IN (SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?)").run(c.display_name || op.agent_id, op.agent_id, op.owner_id);
+      db.prepare("UPDATE conversations SET title=? WHERE title_is_custom=0 AND id IN (SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?)").run(c.display_name || op.agent_id, op.agent_id, op.owner_id);
       db.prepare(
         "UPDATE agent_config_operations SET status='committed',updated_at=? WHERE operation_id=?",
       ).run(now(), op.operation_id);

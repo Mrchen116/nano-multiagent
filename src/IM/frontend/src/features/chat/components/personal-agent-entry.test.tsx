@@ -21,11 +21,13 @@ it('updates the pinned assistant summary and unread count with the conversation'
   expect(screen.getByText(`${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`)).toBeVisible();
   await userEvent.click(screen.getByRole('button'));
   expect(select).toHaveBeenCalledOnce();
-  view.rerender(<PersonalAgentEntry name="Milo" conversation={{...conversation, last_message_preview: 'I also checked the new date.', unread_count: 0}} active onSelect={select} />);
+  view.rerender(<PersonalAgentEntry name="Milo" conversation={{...conversation, title: 'Project assistant', last_message_preview: 'I also checked the new date.', unread_count: 0}} active onSelect={select} />);
   expect(screen.queryByText('The meeting notes are ready.')).not.toBeInTheDocument();
   expect(screen.getByText('I also checked the new date.')).toBeVisible();
   expect(screen.queryByLabelText(/unread/)).not.toBeInTheDocument();
   expect(screen.getByRole('button')).toHaveAttribute('aria-current', 'true');
+  expect(screen.getByText('Project assistant')).toBeVisible();
+  expect(screen.queryByText('Milo')).not.toBeInTheDocument();
 });
 
 it('keeps an unconfigured assistant usable without inventing a message or timestamp', async () => {

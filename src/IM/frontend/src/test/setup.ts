@@ -115,4 +115,4 @@ URL.createObjectURL = vi.fn(() => `blob:preview-${crypto.randomUUID()}`);
 URL.revokeObjectURL = vi.fn();
 
 // jsdom has no scrolling; Radix Select focuses the selected option when opened.
-HTMLElement.prototype.scrollIntoView = vi.fn();
+if (typeof Element !== "undefined") Element.prototype.scrollIntoView = vi.fn();

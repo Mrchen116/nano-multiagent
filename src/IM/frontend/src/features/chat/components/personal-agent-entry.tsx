@@ -14,7 +14,7 @@ export function PersonalAgentEntry({ name, agentId, avatarVariant, conversation,
   onSelect(): void;
 }) {
   const { t } = useTranslation();
-  const title = name || t('pa.create');
+  const title = conversation?.title || name || t('pa.create');
   const preview = conversation ? conversationPreview(conversation, t) : '';
   const time = formatConversationDate(conversation?.last_message_at ?? null);
   return <div className="pa-entry">

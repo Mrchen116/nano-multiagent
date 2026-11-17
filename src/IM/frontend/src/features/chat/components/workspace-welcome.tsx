@@ -39,7 +39,7 @@ export function WorkspaceWelcome({ assistant, conversation, onStart, onNewChat }
       <div className="workspace-welcome-actions">
         <Link className="workspace-welcome-personal" to={assistant ? `/chat/${assistant.conversation_id}` : '/onboarding'}>
           <span className="workspace-welcome-action-icon" aria-hidden="true"><AssistantPortrait seed={assistant?.agent_id} variant={assistant?.avatar_variant} size={42} /></span>
-          <span><strong>{assistant?.display_name || t('workspaceWelcome.setup')}{returning && <small className="workspace-welcome-recent-label">{t('workspaceWelcome.recent')}</small>}</strong><small className="workspace-welcome-preview">{preview || t('workspaceWelcome.personal')}</small></span><ArrowUpRight aria-hidden="true" />
+          <span><strong>{conversation?.title || assistant?.display_name || t('workspaceWelcome.setup')}{returning && <small className="workspace-welcome-recent-label">{t('workspaceWelcome.recent')}</small>}</strong><small className="workspace-welcome-preview">{preview || t('workspaceWelcome.personal')}</small></span><ArrowUpRight aria-hidden="true" />
         </Link>
       </div>
       {assistant && <AssistantStarters disabled={starting} onStart={text => void start(text)} />}
