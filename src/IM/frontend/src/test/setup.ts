@@ -113,3 +113,6 @@ Object.defineProperty(globalThis, "BroadcastChannel", { configurable: true, valu
 // jsdom has no object URL implementation for local clipboard previews.
 URL.createObjectURL = vi.fn(() => `blob:preview-${crypto.randomUUID()}`);
 URL.revokeObjectURL = vi.fn();
+
+// jsdom has no scrolling; Radix Select focuses the selected option when opened.
+HTMLElement.prototype.scrollIntoView = vi.fn();

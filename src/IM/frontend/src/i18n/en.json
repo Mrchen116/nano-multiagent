@@ -50,10 +50,6 @@
       "loginLink": "Sign in"
     },
     "logout": "Sign out",
-    "accountNext": {
-      "title": "Next, set up your assistant",
-      "body": "Connect a computer and a model service. You can explore your space first and finish setup later."
-    },
     "scene": {
       "title": "Good work.\nWith good company.",
       "intro": "From a conversation to something ready to use. Your assistant and AI colleagues help carry the work forward.",
@@ -2090,7 +2086,6 @@
       "how": "Meet your AI partners",
       "capabilities": "How work continues",
       "start": "Getting started",
-      "home": "Product home",
       "faq": "Questions",
       "menu": "Open site navigation",
       "menuClose": "Close site navigation"

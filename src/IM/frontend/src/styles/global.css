@@ -5740,14 +5740,16 @@ body {
 .im-shell-brand-link:focus-visible { outline: 3px solid var(--im-accent); outline-offset: 5px; border-radius: 5px; }
 @media (prefers-reduced-motion: reduce) { .im-shell-tabs a { transition: none; } }
 
-.im-language-select { position: relative; display: inline-flex; align-items: center; flex: none; }
-.im-language-select > svg { position: absolute; left: 9px; width: 16px; height: 16px; color: var(--im-text-muted); pointer-events: none; }
-.im-language-select > .im-language-chevron { left: auto; right: 8px; width: 12px; height: 12px; }
-.im-language-select select { appearance: none; width: 122px; min-height: 40px; padding: 8px 24px 8px 32px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--im-text); font: inherit; font-size: 12px; cursor: pointer; }
-.im-language-select select:hover { background: #ffffff70; border-color: var(--im-border); }
-.im-language-select select:focus-visible { outline: 3px solid #6b43d8; outline-offset: 3px; }
-@media (max-width: 560px) {
-  .im-language-select select { width: 108px; padding-left: 27px; padding-right: 20px; font-size: 12px !important; }
-  .im-language-select > svg { left: 6px; width: 14px; height: 14px; }
-  .im-language-select > .im-language-chevron { left: auto; right: 5px; width: 11px; }
-}
+/* Portaled language options carry their own palette outside the product header. */
+.im-language-select { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none; height: 34px; padding: 0 7px; border: 0; border-radius: 6px; background: transparent; color: var(--im-text-muted); font: inherit; font-size: 12px; line-height: 1; cursor: pointer; }
+.im-language-select > svg { width: 14px; height: 14px; }
+.im-language-chevron { display: inline-flex; }
+.im-language-chevron svg { width: 11px; height: 11px; }
+.im-language-select:hover, .im-language-select[data-state='open'] { background: #ffffff70; color: var(--im-text); }
+.im-language-select:focus-visible, .product-header .im-language-select:focus-visible { outline: 2px solid #8b6cba; outline-offset: 2px; }
+.im-language-menu { z-index: 100; min-width: 144px; padding: 5px; border: 1px solid #e2d9ed; border-radius: 10px; background: #fff; color: #302049; box-shadow: 0 8px 24px #30204918; font: 12px/1.4 'Helvetica Neue', 'PingFang SC', sans-serif; }
+.im-language-option { display: flex; align-items: center; justify-content: space-between; gap: 18px; min-height: 36px; padding: 8px 10px; border-radius: 5px; cursor: pointer; user-select: none; outline: none; }
+.im-language-option[data-highlighted] { background: #f4f0fa; }
+.im-language-option[data-state='checked'] { color: #6b43d8; }
+.im-language-option svg { display: block; width: 14px; height: 14px; }
+@media (pointer: coarse) { .im-language-select { min-height: 44px; } .im-language-option { min-height: 44px; } }

@@ -53,8 +53,6 @@
 @media (max-width: 1050px) { .product-nav { display: none; } }
 @media (max-width: 560px) { .public-home .product-header { width: calc(100% - 40px); min-height: 77px; } .product-header-actions { gap: 10px; } }
 
-.product-back-home { font-size: 13px; color: var(--home-muted); white-space: nowrap; }
-.product-back-home:hover { color: var(--home-ink); }
 .product-header { position: relative; }
 .product-menu-trigger { display: none; width: 40px; height: 40px; align-items: center; justify-content: center; color: var(--home-ink); }
 .product-menu-trigger svg { width: 21px; height: 21px; }

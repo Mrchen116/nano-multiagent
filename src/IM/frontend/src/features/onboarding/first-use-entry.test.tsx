@@ -59,7 +59,9 @@ it('explains the product before sign-in, with a local demo that cannot execute a
   expect(screen.getByRole('heading',{name:/Start with a space of your own/})).toBeInTheDocument();
   expect(fetch).not.toHaveBeenCalled();
   expect(screen.getAllByRole('link',{name:/Create account/})[0]).toHaveAttribute('href','/register');
-  await userEvent.selectOptions(screen.getByRole('combobox',{name:'Language'}), 'zh');
+  screen.getByRole('combobox',{name:'Language'}).focus();
+  await userEvent.keyboard('{ArrowDown}');
+  await userEvent.click(screen.getByRole('option',{name:'简体中文'}));
   expect(screen.getByRole('heading',{level:1})).toHaveTextContent('让 AI 同事，加入你的团队。');
   expect(screen.getByRole('button',{name:'接住变化'})).toHaveAttribute('aria-pressed','true');
 });

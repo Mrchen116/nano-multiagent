@@ -229,7 +229,9 @@ describe("auth form experience", () => {
     expect(screen.getByText("Password must be at least 8 characters.")).toBeInTheDocument();
 
     const language = screen.getByRole("combobox", { name: "Language" });
-    await userEvent.selectOptions(language, "zh");
+    language.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    await userEvent.click(screen.getByRole("option", { name: "简体中文" }));
 
     expect(screen.getByText("密码至少需要 8 位。")).toBeInTheDocument();
     expect(screen.getByRole("textbox", { name: "用户名" })).toHaveValue("poppy");
@@ -255,7 +257,9 @@ describe("auth form experience", () => {
     const language = screen.getByRole("combobox", { name: "Language" });
     expect(language).toBeEnabled();
 
-    await userEvent.selectOptions(language, "zh");
+    language.focus();
+    await userEvent.keyboard("{ArrowDown}");
+    await userEvent.click(screen.getByRole("option", { name: "简体中文" }));
     expect(screen.getByRole("button", { name: "创建中…" })).toBeDisabled();
     expect(screen.getByRole("textbox", { name: "用户名" })).toHaveValue("poppy");
 
@@ -300,7 +304,7 @@ describe("auth form experience", () => {
     ], { initialEntries: [{ pathname: '/register', state: { from } }] });
     render(<RouterProvider router={router} />);
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Product home' })).toHaveAttribute('href', '/about');
+    expect(screen.getByRole('link', { name: 'Crewden home' })).toHaveAttribute('href', '/about');
     await userEvent.click(screen.getByRole('link', { name: 'Sign in' }));
     expect(router.state.location.state).toEqual({ from });
     await userEvent.type(screen.getByLabelText('Username', { exact: true }), 'poppy');

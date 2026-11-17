@@ -29,7 +29,7 @@ export function ProductHeader({ page = 'home', accountName }: {
           <Link className="product-signin" to="/login">{t('auth.login.submit')}</Link>
           <Link className="product-header-button" to="/register">{t('auth.register.submit')}</Link>
           <button ref={menuButton} className="product-menu-trigger" type="button" aria-label={t(menuOpen ? 'crewdenStory.nav.menuClose' : 'crewdenStory.nav.menu')} aria-expanded={menuOpen} aria-controls={menuOpen ? 'product-mobile-nav' : undefined} onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X /> : <Menu />}</button>
-        </> : <Link className="product-back-home" to="/about">{t('crewdenStory.nav.home')}</Link>}
+        </> : null}
     </div>
     {page === 'home' && menuOpen && <nav id="product-mobile-nav" className="product-mobile-nav" aria-label={t('publicHome.navigation')} onClick={() => setMenuOpen(false)}>
       {sections.map(([id, key]) => <a key={id} href={`#${id}`}>{t(`crewdenStory.nav.${key}`)}</a>)}

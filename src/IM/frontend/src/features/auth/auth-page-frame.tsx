@@ -1,7 +1,5 @@
 import { PropsWithChildren, ReactNode } from 'react';
-import { Laptop } from 'lucide-react';
 import { ProductHeader } from '../home/product-header';
-import { useTranslation } from '../../i18n';
 import { AuthScene } from './auth-scene';
 import './auth-page.css';
 
@@ -14,7 +12,6 @@ type AuthPageFrameProps = PropsWithChildren<{
 
 /** Keep account actions focused, with the same identity and clear route back to the product. */
 export function AuthPageFrame({ title, subtitle, footer, children, intent = 'membership' }: AuthPageFrameProps) {
-  const { t } = useTranslation();
   return <div className={`crew-account crew-account--${intent} product-entry`}>
     <ProductHeader page={intent} />
     <main className="crew-account-main">
@@ -29,7 +26,6 @@ export function AuthPageFrame({ title, subtitle, footer, children, intent = 'mem
             {children}
             {footer && <footer className="im-auth-footer">{footer}</footer>}
           </section>
-          {intent === 'register' && <div className="crew-account-next"><Laptop /><p><strong>{t('auth.accountNext.title')}</strong>{t('auth.accountNext.body')}</p></div>}
         </div>
       </div>
     </main>
