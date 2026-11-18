@@ -17,7 +17,7 @@ description: "Full unit 首文档已定稿，需要对齐技术方案、delta-sp
 - milestone 表包含 ID、依赖、并行组、文件范围和两轨退出标准：`[reviewer]` 用户可观察结果，`[worker]` 实现与验证证据。骨架只放 `.gitkeep`，不预填 tasks/progress。
 - 仅有需要通过画面或交互对齐的设计决定时，按 [原型边界](../frontend-experience-review/references/prototype-and-runbook.md#原型的判断范围) 提供范围适当的原型并实际渲染走查。改了前端文件或需要体验验证，不自动要求原型；没有这类决定就不生成。
 - 先按 [Context 影响规则](../../../docs/development/agent-context-engineering.md#范围与影响判断) 判断是否改变模型信息或消费生命周期；相关设计在现有 design.md 就近说明 Consumer、Context Lifecycle、必要的 Before/After、Interactions 与 Validation，并进入 milestone 退出标准。无影响不生成冗余章节，不另建设计文件。
-- 有对外行为增量时按 [specs/CONTRIBUTING](../../../docs/specs/CONTRIBUTING.md) 写最窄 target 的 delta-spec；纯内部变化注明 `no spec delta`，不提前覆盖 current spec。
+- 按 [specs/CONTRIBUTING](../../../docs/specs/CONTRIBUTING.md#哪些行为进入长期契约) 比较本次前后的消费者保证，在现有设计中写受影响的条款及 delta，或说明 `no spec delta` 的依据，不提前覆盖 current spec。
 - 设计涉及从旧状态到新状态的一次性部署迁移时，在 unit 根目录生成固定命名的 `deployment-prompt.md`，并从 design 链接；无此需要不生成。写作前读取 [部署提示词约定](../../../docs/changes/README.md#一次性部署提示词)，分清迁移必需修改、隔离验证证据与生产有限结果核对。将功能、幂等性和失败恢复验证纳入 milestone 的隔离/副本验收，不转交上线后补测；不得默认要求生产发消息、生成卡片、创建任务或额外重启演练。一次性历史整理交由部署 Agent 执行，不为此加入冗余的产品启动迁移或长期兼容逻辑。
 
 在已有 design 中按 [能力组合](../../../docs/development/skill-composition.md) 写明本次问题、能力/阶段、证据方法及可复用定位；设计审查检查遗漏。选择与实际影响相称，能力可供作者自检和独立审查复用，不固定 Agent 数。

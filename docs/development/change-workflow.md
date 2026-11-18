@@ -122,7 +122,7 @@ Full unit 由 `change-design-author` 基于首文档、current specs 和真实�
 
 - `design.md`，包括现状、关键决策、接口与数据流、风险和回退，以及本次问题、能力和证据安排；
 - 有待通过画面或交互对齐的设计决定时，按 [原型边界](../../.agents/skills/frontend-experience-review/references/prototype-and-runbook.md#原型的判断范围) 提供或复用原型；
-- 面向 canonical specs 的 delta-spec；
+- 按[收录判据](../specs/CONTRIBUTING.md#哪些行为进入长期契约)给出面向 canonical specs 的 delta-spec，或说明沿用既有契约的依据；
 - milestone 表和仅含 `.gitkeep` 的 milestone 目录骨架。
 
 `tasks.md` 和 `progress.md` 不在设计阶段预填。原流程中，worker 开始一个已派发的 milestone 时从
@@ -204,7 +204,7 @@ Full unit 在 Gate 2 通过后、Bugfix lite 在首文档收口后，均有两�
 原流程由 `change-orchestrator` 收尾，简化流程由 `change-orchestrator-simple` 收尾，均按以下顺序完成交付：
 
 1. 同步目标集成分支（按[开发基线与 PR 目标](#开发基线与-pr-目标)确定），比较集成增量对各问题和能力证据的影响；受影响判断须重跑、局部复验或记录 retained 依据，不能用“rebase 无冲突”或 CI 代替失效判断。
-2. 在门禁对最终集成树仍然有效后，根据实际实现校正 delta-spec。由本次独立代码审查者对校正结果核对实现与测试，可并入同一任务；校正后尚未审查的部分补做 corrected-delta，已覆盖且未变的结论保留，无 delta 时记录 no spec delta，不空跑。通过后归并到 `docs/specs/<package>/<area>.md`；Bugfix lite 触及对外行为但没有 delta 时由当前实施流程补齐并直接归并。
+2. 在门禁对最终集成树仍然有效后，根据实际实现校正 delta-spec。由本次独立代码审查者对校正结果核对实现与测试，可并入同一任务；校正后尚未审查的部分补做 corrected-delta，已覆盖且未变的结论保留，无 delta 时记录 no spec delta，不空跑。通过后归并到 `docs/specs/<package>/<area>.md`；Bugfix lite 同样按[长期契约收录判据](../specs/CONTRIBUTING.md#哪些行为进入长期契约)决定：恢复已有保证时记录 no spec delta；确有契约变化时由当前实施流程补齐、核对并归并。
 3. 按当前 CI 配置运行本地等价检查；归档前再次判断门禁后新增提交和目标集成分支推进是否使结论失效。
 4. 将整个 unit 从 `docs/changes/<unit>/` 移入 `docs/changes/archive/<unit>/`。
 5. 显式设置约定的目标 base 创建 PR，并核对返回的 base 后等待远端 CI；CI 或 review 小修改变代码后，重新执行受影响门禁。

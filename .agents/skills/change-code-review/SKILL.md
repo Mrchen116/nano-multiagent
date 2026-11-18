@@ -12,7 +12,7 @@ description: "审查实现 diff 的正确性、需求遗漏、设计一致性与
 - full 审指定完整 diff；patch 审 pre_fix_head..HEAD；closure 核指定 finding 及其来源到当前的变化。包含本任务明确的未提交改动，保留其他工作；不能把空 upstream diff 当作无改动。发现影响扩大时说明需补审的范围。
 - 核对实现是否遗漏要求、违背关键设计/项目约束、删除不变量，检查真实调用方、失败恢复、授权和具体运行/维护代价。实现与设计一致不自动说明方案合理；设计问题交 owner，不建议改 spec 迎合错误实现。
 - 有 unit 时将重要要求、设计决定和退出标准与实现及有效测试对应；材料已有充分映射就引用，不再写第二份逐项报告。缺实现、实质偏离或必要回归保护缺失均须明确报告。
-- corrected-delta 只核最终校正的契约与实现/测试及遗漏的对外行为，给 aligned、delta-mismatch 或 implementation-mismatch；不符同时存在优先 implementation-mismatch。未变已审部分保留，无 delta 记录 no spec delta。
+- corrected-delta 核对最终契约与实现、测试及遗漏的消费者保证；合读同一行为的既有条款与直接引用，检查条件冲突、重复归属或把可替换实现写成承诺的情况，给 aligned、delta-mismatch 或 implementation-mismatch；不符同时存在优先 implementation-mismatch。未变已审部分保留，无 delta 记录 no spec delta。
 - 复用版本、命令、结果和定位明确的可信证据，关键条件未证实才独立补跑。不因角色交接重跑全量。
 - 专项方法由 caller 按本次安排组合；发现未覆盖的 Context、前端或性能影响时明确交回补选，不能用本轮代码通过代替专项判断。只加载明确选择的能力，不默认内嵌全部专项。
 

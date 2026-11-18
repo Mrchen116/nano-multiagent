@@ -16,7 +16,7 @@ description: "为已定稿的 Full unit design 执行 Gate 2 独立文档审查�
 - 从实际产品组装入口核实关键改动落点，不能只核引用行存在或只在测试运行的实现。
 - 需求覆盖完整、决定已收口、接口/数据流闭合、并行范围无冲突；不要求逐行实现步骤。
 - 有一次性迁移时，将 `deployment-prompt.md` 纳入同轮审查，按 [部署提示词约定](../../../docs/changes/README.md#一次性部署提示词) 核对适用条件、最小修改、完成/跳过判据和恢复方式。检查功能及失败分支验证是否留在隔离环境、生产核对是否有限；默认要求生产测试写入、额外重启演练或把未完成验收推迟到上线属于需修订的问题。明确授权的例外仍须有必要性、对象、次数和停止条件，不新增审查 Gate。
-- delta 锚定正确 canonical target，MODIFIED 保留未改变的 Scenario，消费者视角正确；适用的 must-match 与验收前置已落实。
+- delta 锚定正确 canonical target，MODIFIED 保留仍适用的 Scenario。尝试一种同样满足用户目标的实现：若 delta 会误判其为回归，收窄条款；检查新规则是否改变已有条款的适用条件。适用的 must-match 与验收前置已落实。
 - 按 [原型边界](../frontend-experience-review/references/prototype-and-runbook.md#原型的判断范围) 检查两种遗漏：需要视觉/交互对齐的设计决定没有充分表达，或没有待判断的设计决定却为流程生成原型。不能仅因没有 prototype.html 阻断。
 - 核对本次审查安排是否覆盖重要目标和实际影响，证据方法是否足以判断；不能只按作者勾选项放行，也不因能力数量少就补全套。需要的专项按 [能力组合](../../../docs/development/skill-composition.md) 加载设计模式，结果并入本轮，不自行增加 Agent 或 Gate。
 - 涉及界面或模型输入时分别使用选中的前端体验、Agent Context 能力。能力检查方案及验证方式，不能要求尚未实现的真实产品提前验收；证据缺口与已确认设计缺陷分别记录。
