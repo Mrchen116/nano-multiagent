@@ -2,8 +2,6 @@
 
 > 对齐: feat-546
 > 上级: [IM Specification](spec.md)
->
-> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
@@ -188,7 +186,7 @@ run 异常终止、工具自身超时或工具被拒绝时,IM 工具徽标必须
 #### Scenario: 工具执行中
 - **GIVEN** 某工具调用尚未完成
 - **WHEN** 用户查看工具调用面板
-- **THEN** 该行折叠态显示"运行中"提示(脉冲),完成后自动更新为完成态
+- **THEN** 工具执行期间，折叠行明确显示运行中；收到终态后自动显示实际结果
 
 ### Requirement: 内部 IM 把思考与工具调用展示为过程时间线、外部不展示
 

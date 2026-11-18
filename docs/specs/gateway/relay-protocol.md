@@ -77,7 +77,7 @@ IM 查询某 agent 的 skill 使用统计时,Gateway 经 WS RPC 读取该 agent 
 
 ### Requirement: 通道中继去重并把多媒体附件透传给内核
 
-Web IM 中继通道对收到的 relay 帧去重(SQLite 落盘,跨重启生效),避免同一消息重复处理;通道把图片等附件解析为标准结构透传进内核入站,不内置 ASR/OCR 等业务解析。
+Web IM 中继通道对收到的 relay 帧去重，重启后仍能识别已处理的帧，避免同一消息重复处理。图片等附件按标准结构随入站消息传递，通道层不执行 ASR/OCR 等业务解析。
 
 #### Scenario: 重复 relay 帧只处理一次
 - **GIVEN** 中继通道已处理过某 relay 帧

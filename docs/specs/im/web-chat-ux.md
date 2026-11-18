@@ -2,8 +2,6 @@
 
 > 对齐: feat-716
 > 上级: [IM Specification](spec.md)
->
-> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
@@ -537,23 +535,9 @@ Web IM 在消息流中直接预览收到的图片 attachment，保持图片原�
 
 ### Requirement: Web IM 移动端底部导航使用统一产品图标
 
-Web IM 在移动端以同一套克制、清晰的产品图标表达 Chat、Agents 与 Me；图标随当前路由继承 active / inactive 产品色，不依赖操作系统 emoji 字形，同时保留既有标签、未读反馈和导航目的地。
-
-#### Scenario: inactive 图标保持统一且可辨认
-- **WHEN** 用户在移动端查看底部导航中的非当前 Chat、Agents 或 Me 入口
-- **THEN** 三枚图标使用一致的圆角几何语言和 muted 产品色
-- **AND** Conversation、智能体与个人账户的语义在 20–24px 视觉尺寸下仍可区分
-
-#### Scenario: 当前路由只高亮对应入口
-- **WHEN** 用户依次进入 Chat、Agents 与 Me
-- **THEN** 只有当前入口的图标、标签和既有顶部指示条使用 accent 色
-- **AND** 另外两个入口保持 inactive 状态
-
-#### Scenario: 图标升级不改变导航反馈
-- **WHEN** 用户通过移动底栏切换入口，且存在未读会话
-- **THEN** Chat、Agents 与 Me 仍导航到既有目的地并显示原有标签
-- **AND** 既有未读 badge 继续显示在对应入口，不被图标遮挡
-
+#### Scenario: 切换移动端入口
+- **WHEN** 用户在 Chat、Agents 与 Me 之间切换
+- **THEN** 各入口在不同系统上保持一致、可辨的图标和文字标签，当前路由只选中对应入口。未读提示保留在所属入口并保持可见。
 
 #### Scenario: 移动端具体聊天隐藏全局底栏
 - **WHEN** 用户进入移动端具体会话
@@ -562,7 +546,7 @@ Web IM 在移动端以同一套克制、清晰的产品图标表达 Chat、Agent
 
 ### Requirement: 聊天身份与群聊选择信息清楚可辨
 
-聊天和 Agents 页面 SHALL 使用统一浅色表面、辅助文字和头像配色；群聊使用区别于单 Agent 字母头像的群组图标。
+用户进入对话时应能看懂自己正在和谁协作，回到列表时应能找到最近的工作进展。消息正文与真实摘要优先；常规运行详情按需查看，需要用户处理的状态在相关操作处可见。身份提示随读者视角变化：同一伙伴跨入口可辨，群聊、旁观和代发仍能辨认实际参与者及发言归属。角色形象的选择与一致性见 [Agent 身份头像](agents-nodes.md#requirement-创建助手时可选择统一且可辨认的角色头像)。
 
 #### Scenario: 新建群聊选择候选 Agent
 - **WHEN** 用户打开新建群聊

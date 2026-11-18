@@ -111,8 +111,7 @@
 ## 契约层增量 (delta-spec)
 
 <!-- §4.8：本 unit 对长青契约层 docs/specs/<包>/ 的增量状态。逐包一行。
-     有对外行为变化 → 按最窄落点产 docs/changes/<unit_dir>/specs/<包>/<target>.md，这里列出全部 target；
-     纯内部无变化 → 写 "no spec delta"。规范见 docs/specs/CONTRIBUTING.md「契约层增量」。 -->
+     写清相对现行契约改变的消费者保证及对应 target；原保证已涵盖此次交付时写 "no spec delta" 和依据。规范见 docs/specs/CONTRIBUTING.md「契约层增量」。 -->
 
 - <受影响领域>: <目标仓库的 canonical spec 路径与对应 delta | no spec delta>
 

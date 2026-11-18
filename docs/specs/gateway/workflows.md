@@ -78,7 +78,7 @@ Web 与外部 IM 的 Workflow 来源、能力开关、运行时查询控制、�
 #### Scenario: 补充指令后重新审查
 - **WHEN** 父 Agent与用户沟通后向子 Agent提供补充指令，或恢复/重新派发该工作
 - **THEN** 后续操作仍走 Auto 与原有工具范围限制；直接父级指令保留来源，不伪装为真人消息，不自动解锁先前被拒操作。
-- **AND** 本阶段不额外读取根聊天的新用户授权；后续能力跟踪见 [issue #330](https://github.com/Mrchen116/nano-multiagent/issues/330)。
+- **AND** Codex Auto 如何取得所属根会话后续的真人授权、限制与撤回，见[委派后的授权变化](tool-approval.md#scenario-子-agent-启动后收到新授权或撤回)。
 
 ### Requirement: Gateway 对 Workflow 完成、显式查询和后台噪声采用不同投递节奏
 

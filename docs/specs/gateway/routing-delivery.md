@@ -109,10 +109,9 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 - **THEN** 旧内容保持原样，不用当前时间或当前入口补 stamp
 - **AND** 此后新收到的真人消息开始使用固定 envelope
 
-#### Scenario: 非 PA 真人入口保持现状
-- **WHEN** Coding CLI、heartbeat、cron、subagent 或内部通知继续产生消息
-- **THEN** 它们不获得本 requirement 的 time/Channel envelope
-- **AND** 退役 Coding CLI 不再参与消息处理；heartbeat、cron、subagent 与内部通知保留各自的可信 message source/time 格式
+#### Scenario: 自动输入保留各自来源
+- **WHEN** Heartbeat、Cron、子 Agent 或内部通知产生消息
+- **THEN** 消息保留各自可信的来源与发生时间，不附加真人消息的 time/Channel envelope。
 
 ### Requirement: 入站消息按四步决策路由并回发原通道原目标
 
@@ -125,13 +124,12 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 - **WHEN** 终端用户经某通道发来一条直聊消息
 - **THEN** 消息被路由到命中的 Agent(显式 `agent_id` → channel/chat 绑定 → 节点默认 Agent),交内核执行, 最终 Agent 回复经原通道的出站路由回发到发起会话
 
-#### Scenario: 同会话串行、跨会话并行
-- **GIVEN** 同一会话已有一轮在执行,另有一条属于不同会话的消息同时到达
-- **WHEN** 两条消息先后进入 Gateway
-- **THEN** 同一会话的消息排进串行 FIFO 队列、前一轮结束后才消费下一条;不同会话的消息并行推进,互不阻塞
+#### Scenario: 同会话轮次串行、不同会话并行
+- **WHEN** 一个会话已有回复在执行，其他会话也收到消息
+- **THEN** 同一会话中需要另起回复的消息按序处理，其他会话可独立推进。当前轮次采纳新输入的时机见[忙时插话](#requirement-agent-正在回复时用户仍能继续发消息并被及时采纳)。
 
 #### Scenario: 失去 liveness 后释放同会话队列
-- **GIVEN** 同一会话的前一轮已开始运行,但在判定窗口(120 秒)内既无业务事件也无任何 liveness 心跳,后一条消息正在 FIFO 中等待
+- **GIVEN** 同一会话的前一轮已开始运行,但在判定窗口(120 秒)内既无业务事件也无任何 liveness 心跳,另一条需要独立回复的消息仍在等待
 - **WHEN** Gateway 判定前一轮失去进展
 - **THEN** Gateway 取消前一轮并上报失败,随后消费后一条消息,不得让该会话永久阻塞
 
@@ -190,16 +188,16 @@ Gateway 在非用户终态前已接受、但尚未进入模型上下文的普通
 - **THEN** Gateway 分别保持既有停止或重开语义，并抑制已知恢复 run 的可见输出
 - **AND** 其他自然语言文本仍按普通消息处理，不触发停止或重开
 
-### Requirement: 群聊只在被 @提及 / 回复 Agent / 明确的全群控制命令时触发 Agent
+### Requirement: 群聊新消息按各 Agent 的接收策略触发，控制命令按目标生效
 
-MENTION/ALWAYS 和命令实际触达范围适用于两种模式。以下群 buffer 自动带入、按群创建 Session、普通正文/过程气泡和 `/new` 重开的 Scenario 适用于 `single_thread`；global 将可见更新存入 Inbox，仅有效实时触发推进唤醒，不自动摄取正文；命中的 global Agent 对 `/new` 在原聊天明确答复不支持。全局模式对应行为以 [global-agent](global-agent.md) 为准。
+MENTION/ALWAYS 和命令实际触达范围适用于两种模式。下述群背景自动带入、按群创建 Session、普通正文/过程气泡及 `/new` 的重开效果适用于 `single_thread`；global 将可见更新存入 Inbox，仅有效实时触发推进唤醒，不自动摄取正文；命中的 global Agent 对 `/new` 在原聊天明确答复不支持。全局模式对应行为以 [global-agent](global-agent.md) 为准。
 
-群聊流量在分配任何内核会话或队列槽**之前**先过 @提及门控。未被点名的群聊消息不触发 Agent 执行;Agent 判断无需回复时输出约定 token(`NO_REPLY`)则不向用户发言。门控策略由各 Agent 的 `group_reply_policy`决定(默认 `MENTION`;`ALWAYS` 则有消息即回)。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 不受 MENTION 门控：前者只中断正在运行的 Agent，后者为群内每个 Agent 重开各自的共同会话。`/compact`、`/compact <关注点>` 和 `/effort <level>` 仍必须以 mention 或 reply 明确指向 Agent，且不因该 Agent 或其他 Agent 的 `ALWAYS` 策略扩大成群组控制。
+对可触发执行的普通群消息，默认 MENTION 策略要求真实提及或回复该 Agent；ALWAYS 策略也处理未点名的普通消息。触发后仍可按相应工作模式保持静默。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 独立于普通消息策略：前者中断实际触达的活动 Agent，后者按各 Agent 的工作模式处理。`/compact`、`/compact <关注点>` 和 `/effort <level>` 仍须明确指向目标 Agent。
 
-#### Scenario: 群聊未被 @提及的消息不触发 Agent
-- **GIVEN** 一个 `group_reply_policy=MENTION` 的 Agent 在某群聊中
-- **WHEN** 群里来了一条既未 @该 Agent、也非回复该 Agent、也非裸 `/stop` 的消息
-- **THEN** 不创建内核会话、不发起运行;该消息仅作为后台上下文缓冲到该 Agent 自己的群上下文 buffer, 待该 Agent 下次被点名时随当轮一并带入
+#### Scenario: MENTION 下未点名的普通群消息作为背景
+- **GIVEN** 一个使用 MENTION 策略的 single_thread Agent 在群中
+- **WHEN** 群里来了一条未提及或回复该 Agent 的普通消息
+- **THEN** 不为它创建运行或会话。该 Agent 下次被点名时可以取得这条群背景消息。
 
 #### Scenario: 群聊被 @提及触发并把上下文带入当轮
 - **GIVEN** 该 Agent 的群上下文 buffer 里已缓冲了若干条未点名消息
@@ -216,11 +214,11 @@ MENTION/ALWAYS 和命令实际触达范围适用于两种模式。以下群 buff
 - **THEN** Gateway 对该 fan-out / 后台投递同样抑制,用户在群里看不到 `NO_REPLY` 字面量,该消息也不落库
 - **AND** 静默 token 不作为 Agent 发言继续 fan-out,其他 Agent 的群上下文 buffer / run 不得收到该 token
 
-#### Scenario: Web IM 群聊裸 `/new` 为每个 Agent 重开会话
-- **GIVEN** 一个 `group_reply_policy=MENTION` 的内置 Web IM 多 Agent 群聊
+#### Scenario: Web IM 群聊裸 `/new` 按各 Agent 工作模式处理
+- **GIVEN** 一个含 single_thread Agent 的内置 Web IM 群聊，其中该 Agent 使用 MENTION 策略
 - **WHEN** 用户发送精确的裸 `/new`
-- **THEN** Gateway 为群内每个 Agent 分别切换到新的 DSH session，并在同一群显示各 Agent 的控制确认
-- **AND** 后续面向每个 Agent 的普通消息不携带该 Agent 先前的群会话上下文
+- **THEN** 每个 single_thread Agent 分别重开自己的群会话并在原群确认；Global Agent 反馈不支持重置并保留其原工作上下文
+- **AND** 重开后，面向该 single_thread Agent 的普通消息不携带其旧群会话上下文
 
 #### Scenario: 群聊压缩仍需明确目标
 - **GIVEN** 一个 `group_reply_policy=MENTION` 的 Agent 在某群聊中

@@ -27,11 +27,9 @@ Workflow 在 Web IM 既有 tool、permission、slash 与普通消息 surface 中
 - **AND** 用户拒绝时不经历 running，但通用工具终态直接显示“已拒绝 / 未执行”的 Workflow 工具行，并且不创建后台 run 或后续 Workflow 终态消息
 - **AND** 不增加 Workflow 专属卡型或前端字段解释
 
-#### Scenario: 异步子 Agent 权限卡复用启动消息
-- **GIVEN** Workflow launch 的父轮已结束，子 Agent 后续请求权限
-- **WHEN** Web IM 收到该通用 permission request
-- **THEN** 请求与 resolved 状态都按 request id 幂等更新原 Workflow launch assistant message 中的现有 `PermissionCard`
-- **AND** 浏览器重连后从消息历史恢复同一张卡，不新建 Workflow 专属 permission message 或批准卡
+#### Scenario: 后台子任务的工具操作未获准
+- **WHEN** Workflow 已经启动，子 Agent 的某次工具操作需要人工批准或未获 Auto 放行
+- **THEN** Web IM 不弹出子任务审批卡，也不等待用户点击。阻断结果按[统一委派权限](../gateway/workflows.md#requirement-workflow-子-agent-沿用统一委派权限)交回父 Agent，启动工具行保留原有结果。
 
 #### Scenario: 查询与控制使用普通回复
 - **WHEN** 用户执行 `/workflows` 查询或控制命令
