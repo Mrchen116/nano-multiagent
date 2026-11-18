@@ -157,7 +157,7 @@ it('projects one conversation context per PA page and preserves ordered ingestio
     store.receive(personalInput('peer'), false);
     store.receive(personalInput('owner'), false);
     store.receive(personalInput('joined', 'participant'), true);
-    expect(store.check('alice', true).sources).toEqual([{target:'owner-chat',name:'A conversation',unread:3,mentions:0,conversation_type:'direct',delivery:'observer'}]);
+    expect(store.check('alice', true).sources).toEqual([{target:'owner-chat',name:'A conversation',unread:3,mentions:0,conversation_type:'direct',delivery:'participant',addressed_to:'agent',latest_message_at:null}]);
     const page = store.read('alice','main','observed',{target:'owner-chat'});
     expect(page).toMatchObject({target:'owner-chat',name:'A conversation',channel:'web',conversation_type:'direct',delivery:'observer',messages:[
       {id:'peer',sender:{is_owner:false}}, {id:'owner',sender:{is_owner:true}},
@@ -179,32 +179,32 @@ it('persists a fixed background deadline and notification identity separately fr
   try {
     store.receive(personalInput('one'),false,1000);
     store.receive(personalInput('two'),false,2000);
-    expect(store.background('alice',2000)).toMatchObject({dueAt:601000,unread:true});
-    const first=store.background('alice',601000)!;
-    store.prepareBackground('alice',first.watermark);
+    expect(store.background('alice')).toMatchObject({dueAt:601000,unread:true});
+    const first=store.background('alice')!;
+    store.notification('alice','main','wake',JSON.stringify,true,undefined,first.watermark);
     store.close();store=new InboxStore(path);
-    expect(store.background('alice',602000)).toMatchObject({dueAt:601000,watermark:first.watermark,pending:true});
-    store.admitBackground('alice',first.watermark,602000);
-    expect(store.background('alice',602000)).toBeUndefined();
+    expect(store.background('alice')).toMatchObject({dueAt:0,watermark:first.watermark,pending:true});
+    store.admitWake('alice',first.watermark,'main','wake');
+    expect(store.background('alice')).toBeUndefined();
     expect(store.check('alice',true).sources[0].unread).toBe(2);
     store.receive(personalInput('three'),false,603000);
-    expect(store.background('alice',603000)).toMatchObject({dueAt:1202000});
+    expect(store.background('alice')).toMatchObject({dueAt:1203000});
     const read=store.read('alice','main','read',{target:'owner-chat'});
     expect(store.commitRead('main','read',[{type:'text',text:JSON.stringify(read)}],false)).toBe(true);
-    expect(store.background('alice',1202000)).toBeUndefined();
+    expect(store.background('alice')).toBeUndefined();
   } finally {store.close();rmSync(dir,{recursive:true});}
 });
 it('never reuses a background notification sequence after the highest source is revoked', () => {
   const store=new InboxStore(':memory:');
   try {
     store.receive(personalInput('old'),false,0);
-    const old=store.background('alice',600000)!;
-    store.prepareBackground('alice',old.watermark);
-    store.admitBackground('alice',old.watermark,600000);
+    const old=store.background('alice')!;
+    store.notification('alice','main','wake',JSON.stringify,true,undefined,old.watermark);
+    store.admitWake('alice',old.watermark,'main','wake');
     store.revokeSource('alice','owner-chat');
     store.receive(personalInput('new','observer','other-chat'),false,700000);
-    expect(store.background('alice',700000)!.watermark).toBeGreaterThan(old.watermark);
-    expect(store.background('alice',700000)!.dueAt).toBe(1200000);
+    expect(store.background('alice')!.watermark).toBeGreaterThan(old.watermark);
+    expect(store.background('alice')!.dueAt).toBe(1300000);
   } finally {store.close();}
 });
 
@@ -303,7 +303,7 @@ it('counts actual mentions separately from attention without consuming unread me
     explicitReply.metadata.explicit_mentioned_agent_ids = ['alice'];
     store.receive(explicitReply, true);
     expect(store.check('alice').sources).toEqual([
-      { target: 'group-a', name: 'group-a', unread: 4, mentions: 2, conversation_type: 'group', requires_attention: true },
+      { target: 'group-a', name: 'group-a', unread: 4, mentions: 2, conversation_type: 'group', requires_attention: true, latest_message_at:null },
     ]);
     expect(store.check('alice', true).sources[0]).toMatchObject({ unread: 4, mentions: 2 });
     expect(store.read('alice', 'main', 'read', { target: 'group-a' }).messages).toHaveLength(4);
@@ -367,4 +367,82 @@ it('does not treat a legacy node-admission sent receipt as model delivery', () =
     expect(store.pendingRelays().map(row=>row.status)).toEqual(['sent']);
     expect(store.legacyReceiptWake('alice')).toBeUndefined();
   } finally {store.close();rmSync(dir,{recursive:true});}
+});
+
+it('sorts summaries by the latest known source timestamp with stable ties and freezes the projected times',()=>{
+  const store=new InboxStore(':memory:');
+  try {
+    const items=[
+      {target:'later',channel:'web',created_at:'2026-11-18T06:00:00Z'},
+      {target:'later',channel:'web',created_at:'2026-11-18T01:00:00Z'},
+      {target:'alpha',channel:'feishu',created_at:'2099-01-01T00:00:00Z',source_timestamp:Date.parse('2026-11-18T06:00:00Z')},
+      {target:'unknown',channel:'feishu',created_at:'2099-01-01T00:00:00Z',provider_source_time:null},
+      {target:'unknown',channel:'feishu',created_at:'2099-01-01T00:00:00Z',source_timestamp:'bad'},
+    ];
+    for(const [index,{target,created_at,...meta}] of items.entries()){
+      const item=input('m'+index,'private content',target);Object.assign(item.metadata,meta);
+      item.message.created_at=created_at;store.receive(item,false);
+    }
+    const time='2026-11-18T15:00:00+09:00';
+    const snapshot=store.check('alice',false,'Asia/Tokyo').sources;
+    expect(snapshot.map(s=>[s.target,s.unread,s.latest_message_at])).toEqual([['alpha',1,time],['later',2,time],['unknown',2,null]]);
+    const first=store.notification('alice','s','w',JSON.stringify,false,'Asia/Tokyo');
+    store.receive({...input('new','update'),message:{...input('new','update').message,created_at:'2030-01-01T00:00:00Z'}},true);
+    expect(store.notification('alice','s','w',JSON.stringify,false,'UTC')).toBe(first);
+  } finally {store.close();}
+});
+
+it('retires background, frozen pages and mixed summaries while preserving a previously dispatched receipt',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'nano-inbox-scope-')); const path=join(dir,'inbox.sqlite3');
+  let store=new InboxStore(path);
+  try {
+    const team=input('team','team secret','group'),owner=input('owner','owner message','owner-chat');
+    team.metadata.agent_receipt=true;owner.metadata.owner_direct=true;owner.metadata.conversation_type='direct';
+    store.acceptRelay(team,false);
+    store.notification('alice','main','seen',JSON.stringify);
+    store.acceptRelay(owner,true);
+    store.notification('alice','main','mixed',JSON.stringify);
+    store.saveCheck('alice','main','check',store.check('alice'));
+    const page=store.read('alice','main','read',{target:'group'});
+    const restrict=()=>store.restrict('alice',i=>i.metadata.owner_direct===true,false,undefined,JSON.stringify);
+    const edits=restrict();
+    expect(edits).toEqual(expect.arrayContaining([
+      {sessionId:'main',inputId:'seen'},{sessionId:'main',toolCallId:'read'},
+      expect.objectContaining({inputId:'mixed',content:[{type:'text',text:expect.stringContaining('owner-chat')}]}),
+      expect.objectContaining({toolCallId:'check',content:[{type:'text',text:expect.stringContaining('owner-chat')}]}),
+    ]));
+    expect(JSON.stringify(edits)).not.toContain('group');
+    expect(store.read('alice','main','read',{target:'group'})).toEqual({messages:[]});
+    expect(()=>store.deliverNotifications('alice','main',['seen'])).toThrow('reconciliation');
+    store.close();store=new InboxStore(path);
+    expect(restrict()).toEqual(edits);
+    store.confirmRestricted('alice',edits.filter(e=>e.inputId!=='seen'));
+    store.deliverNotifications('alice','main',['mixed']);
+    expect(store.pendingRelays().find(r=>r.input.message.id==='team')?.status).toBe('accepted');
+    store.deliverNotifications('alice','main',['seen']);
+    expect(store.pendingRelays().find(r=>r.input.message.id==='team')?.status).toBe('sent');
+    expect(store.commitRead('main','read',[{type:'text',text:JSON.stringify(page)}],false)).toBe(false);
+    store.acceptRelay(team,true);expect(store.check('alice').sources.map(s=>s.target)).toEqual(['owner-chat']);
+  } finally {store.close();rmSync(dir,{recursive:true});}
+});
+
+it('retains the exact owner image from a mixed read and verifies its projected ingestion',()=>{
+  const store=new InboxStore(':memory:');
+  try {
+    for(const id of ['team','owner']){
+      const item=input(id,id,'shared');item.metadata.owner_direct=id==='owner';
+      item.message.attachments.push({url:'/im/media/'+id,content_type:'image/png'});
+      store.acceptRelay(item,true);
+    }
+    const page=store.read('alice','s','pictures',{target:'shared'});
+    const teamImage={type:'image',data:'team-image'},ownerImage={type:'image',data:'owner-image'};
+    store.prepareRead('s','pictures',[{type:'text',text:JSON.stringify(page)},teamImage,ownerImage]);
+    const edits=store.restrict('alice',i=>i.metadata.owner_direct===true,false,undefined,JSON.stringify);
+    const edit=edits.find(e=>e.toolCallId==='pictures')!;
+    expect(edit.retainImageIndices).toEqual([1]);expect(edit.content![0].text).not.toContain('team');
+    store.confirmRestricted('alice',edits);
+    expect(store.commitRead('s','pictures',[...edit.content!,teamImage],false)).toBe(false);
+    expect(store.commitRead('s','pictures',[...edit.content!,ownerImage],false)).toBe(true);
+    expect(store.imageReferences('s','pictures')).toEqual(['/im/media/owner']);
+  }finally{store.close();}
 });

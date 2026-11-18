@@ -24,7 +24,7 @@ it('reserves command order and recovers the same result after delivery failed', 
 });
 
 it('requires group addressing even under ALWAYS and preserves original command text', () => {
-  const config: AgentConfiguration={agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread',provider:'p',model:'m',groupReplyPolicy:'always'};
+  const config: AgentConfiguration={agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread',provider:'p',model:'m',collaborationScope:'team'};
   const input: RelayInput={agent_id:'a',conversation_id:'group',relay_task_id:'r',idempotency_key:'r',metadata:{conversation_type:'group',mentioned_agent_ids:[]},message:{id:'r',content:'/compact 保留认证方案',sender_type:'user',sender_user_id:'u',attachments:[]}};
   expect(sessionControl(input,config)).toBeUndefined();
   input.metadata.mentioned_agent_ids=['a'];expect(sessionControl(input,config)).toEqual({action:'compact',argument:'保留认证方案'});

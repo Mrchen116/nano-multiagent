@@ -8,7 +8,7 @@ interface Options { nodeId: string; runtime: RuntimePort; store: NodeStore; rela
 export function sessionControl(input: RelayInput, config: AgentConfiguration): { action: string; argument: string } | undefined {
   if (input.message.sender_type !== 'user') return;
   const match = /^\/(compact|effort|workflows|config)(?:\s+([\s\S]*))?$/.exec(controlText(input));
-  if (!match || !needsAttention(input, { ...config, groupReplyPolicy: 'mention_only' })) return;
+  if (!match || !needsAttention(input, config)) return;
   return { action: match[1]!, argument: match[2]?.trim() ?? '' };
 }
 

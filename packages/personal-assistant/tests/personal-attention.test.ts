@@ -4,26 +4,24 @@ import { GlobalAgent } from '../src/global-agent.js';
 import { InboxStore } from '../src/inbox.js';
 import { NodeStore } from '../src/store.js';
 
-function fixture(onStatus?: () => void) {
+function fixture() {
   const store=new NodeStore(':memory:','owner'), inbox=new InboxStore(':memory:');
-  const config:AgentConfiguration={agentId:'pa',mode:'global',workspace:'/tmp/pa',revision:'1',provider:'p',model:'m',groupReplyPolicy:'mention_only',personal:{bindingId:'b',ownerId:'owner',conversationId:'own',epoch:1}};
+  const config:AgentConfiguration={agentId:'pa',mode:'global',workspace:'/tmp/pa',revision:'1',provider:'p',model:'m',collaborationScope:'team',personal:{bindingId:'b',ownerId:'owner',conversationId:'own',epoch:1}};
   const submitted:Record<string,any>[]=[];const methods:string[]=[];const seen=new Set<string>();
   const observations:Record<string,any>[]=[];const errors:unknown[]=[];const excluded=new Set<string>(),foreign=new Set<string>();let loseAck=false;
-  let running=false, race=false;let listener:(method:string,data:any)=>void=()=>{};
+  let running=false;
   const source=(target:unknown)=>({allowed:true,is_owner:!foreign.has(String(target)),delivery:String(target).startsWith('background')?'observer':'participant',conversation_type:target==='group'?'group':'direct',channel:'web'});
   const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:error=>{errors.push(error);},
-    runtime:{onNotification:fn=>{listener=fn;return()=>{};},request:async(method,args:any)=>{
+    runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
       methods.push(method);
       if(method==='pa.review')return {decision:'allow',reason:'ordinary input'};
       if(method==='session.submit'){
-        if(args.onlyIfIdle && (running||race)){race=false;return {accepted:false,busy:true};}
         if(!seen.has(args.inputId)){submitted.push(args);seen.add(args.inputId);}
-        if(args.onlyIfIdle && loseAck){loseAck=false;throw new Error('ACK lost');}
+        if(loseAck){loseAck=false;throw new Error('ACK lost');}
         return {accepted:true,durable:true};
       }
       if(method==='session.lookup')return {accepted:seen.has(args.inputId)};
       if(method==='session.work.children')return {children:[]};
-      if(method==='session.status')onStatus?.();
       return {events:[],status:running?'running':'idle',durable:true};
     }},
     relay:{ready:true,request:async(type,args:any)=>{
@@ -33,8 +31,7 @@ function fixture(onStatus?: () => void) {
     }}});
   const input=(id:string,target='background',metadata:Record<string,unknown>={}):RelayInput=>({agent_id:'pa',conversation_id:target,relay_task_id:id,idempotency_key:id,metadata,
     message:{id,content:id,sender_type:'user',sender_user_id:'owner',attachments:[]}});
-  const idle=()=>{running=false;listener('session.status',{sessionId:store.bindingFor('pa','global:pa')!.sessionId,status:'idle'});};
-  return {product,inbox,store,submitted,methods,input,idle,observations,errors,excluded,foreign,loseAck:()=>{loseAck=true;},busy:()=>{running=true;},race:()=>{race=true;},close:async()=>{await product.stop();inbox.close();store.close();}};
+  return {product,inbox,store,config,submitted,methods,input,observations,errors,excluded,foreign,loseAck:()=>{loseAck=true;},busy:()=>{running=true;},close:async()=>{await product.stop();inbox.close();store.close();}};
 }
 it('notifies one observer batch at a fixed deadline without another message and never checks it as a direct request',async()=>{
   vi.useFakeTimers();vi.setSystemTime(0);const f=fixture();
@@ -45,48 +42,37 @@ it('notifies one observer batch at a fixed deadline without another message and 
     expect(f.submitted).toHaveLength(0);expect(f.methods).not.toContain('pa.review');
     await vi.advanceTimersByTimeAsync(480000);
     expect(f.submitted).toHaveLength(1);
-    expect(f.submitted[0]).toMatchObject({onlyIfIdle:true,source:{kind:'system',channel:'inbox-background'}});
+    expect(f.submitted[0]).toMatchObject({mode:'steer',source:{kind:'system',channel:'inbox'}});
     expect(f.submitted[0].content[0].text).not.toContain('first');
     expect(f.inbox.check('pa',true).sources[0].unread).toBe(2);
     await vi.advanceTimersByTimeAsync(1200000);
     expect(f.submitted).toHaveLength(1);
   } finally {await f.close();vi.useRealTimers();}
 });
-it('defers busy background, including an admission race, while a direct correction is steered immediately',async()=>{
+it('steers a busy root when due and piggybacks later background on the next direct wake',async()=>{
   vi.useFakeTimers();vi.setSystemTime(0);const f=fixture();
   try {
-    await f.product.receive(f.input('background'));f.race();
+    f.busy();await f.product.receive(f.input('background fact'));
     await vi.advanceTimersByTimeAsync(600000);
-    expect(f.submitted).toHaveLength(0);
-    f.busy();await f.product.receive(f.input('change the date','own'));
     expect(f.submitted).toHaveLength(1);expect(f.submitted[0]).toMatchObject({mode:'steer',source:{channel:'inbox'}});
-    await f.product.receive(f.input('more background'));
-    await vi.advanceTimersByTimeAsync(1200000);expect(f.submitted).toHaveLength(1);
-    f.idle();await vi.advanceTimersByTimeAsync(0);
-    expect(f.submitted).toHaveLength(2);expect(f.submitted[1].source.channel).toBe('inbox-background');
+    expect(f.submitted[0]).not.toHaveProperty('onlyIfIdle');
+    await f.product.receive(f.input('another fact','background-keep'));
+    await f.product.receive(f.input('change the date','own'));
+    expect(f.submitted).toHaveLength(2);
+    expect(f.submitted[1].content[0].text).toContain('background-keep');
+    await vi.advanceTimersByTimeAsync(1200000);expect(f.submitted).toHaveLength(2);
   } finally {await f.close();vi.useRealTimers();}
 });
-it.each(['before deadline','during idle observation'])('does not wake for background consumed %s',async timing=>{
-  vi.useFakeTimers();vi.setSystemTime(0);let consumeOnObserve=false;
-  const f=fixture(()=>{if(consumeOnObserve){consumeOnObserve=false;consume();}});
-  function consume() {
-    const body=f.inbox.read('pa','main','read',{target:'background'});
-    expect(body).toMatchObject({delivery:'observer',messages:[{content:[{text:'new budget'}]}]});
-    f.inbox.commitRead('main','read',[{type:'text',text:JSON.stringify(body)}],false);
-  }
+it('does not wake for background already read before the deadline',async()=>{
+  vi.useFakeTimers();vi.setSystemTime(0);const f=fixture();
   try {
     await f.product.receive(f.input('new budget'));
-    await f.product.receive(f.input('use that budget','own'));
-    expect(f.submitted).toHaveLength(1);
-    if(timing==='before deadline')consume();else consumeOnObserve=true;
+    const body=f.inbox.read('pa','main','read',{target:'background'});
+    f.inbox.commitRead('main','read',[{type:'text',text:JSON.stringify(body)}],false);
     await vi.advanceTimersByTimeAsync(600000);
+    expect(f.submitted).toHaveLength(0);
+    await f.product.receive(f.input('later update'));await vi.advanceTimersByTimeAsync(600000);
     expect(f.submitted).toHaveLength(1);
-    expect(f.inbox.check('pa',true).sources.map(source=>source.target)).toEqual(['own']);
-    await f.product.receive(f.input('later update'));
-    await vi.advanceTimersByTimeAsync(600000);
-    expect(f.submitted).toHaveLength(2);
-    expect(f.submitted[1].source.channel).toBe('inbox-background');
-    expect(f.errors).toEqual([]);
   } finally {await f.close();vi.useRealTimers();}
 });
 it('keeps observed slash commands as background and applies the existing participant group trigger',async()=>{
@@ -173,16 +159,46 @@ it('delivers source withdrawal as a stop-use constraint with Dreaming-owned docu
 });
 
 
-it('rebuilds an unadmitted busy snapshot after a source is revoked',async()=>{
+it('drops revoked sources at the deadline before steering the busy root',async()=>{
   vi.useFakeTimers();vi.setSystemTime(0);const f=fixture();
   try {
     await f.product.receive(f.input('secret','background'));
     await f.product.receive(f.input('retained','background-keep'));
-    f.race();await vi.advanceTimersByTimeAsync(600000);
-    expect(f.submitted).toHaveLength(0);
-    f.excluded.add('background');f.idle();await vi.advanceTimersByTimeAsync(0);
+    f.busy();f.excluded.add('background');await vi.advanceTimersByTimeAsync(600000);
     expect(f.submitted).toHaveLength(1);
     expect(f.submitted[0].content[0].text).not.toContain('"target":"background"');
     expect(f.submitted[0].content[0].text).toContain('"target":"background-keep"');
   }finally{await f.close();vi.useRealTimers();}
+});
+
+it('steers on a private message to the owner while keeping the PA an observer',async()=>{
+  const f=fixture();
+  try {
+    f.observations.push({event_id:1,conversation_id:'background',conversation_type:'direct',addressed_to_owner:true,addressed_to_agent:false,
+      message:{...f.input('Peer asks the owner').message,sender_user_id:'peer',created_at:'2026-11-18T01:00:00Z'}});
+    await f.product.recoverPersonalObservations();
+    expect(f.submitted).toHaveLength(1);
+    const text=f.submitted[0].content[0].text;
+    expect(text).toContain('"addressed_to":"owner"');expect(text).toContain('"delivery":"observer"');
+    expect(text).toContain('"latest_message_at":"2026-11-18T01:00:00.000Z"');
+    expect(text).not.toContain('Peer asks the owner');
+    expect(f.inbox.blocking('pa','background')).toBe(false);
+  }finally{await f.close();}
+});
+
+it('skips group commands and other people’s DMs in owner-only scope, including retries after reopening to the team',async()=>{
+  const f=fixture();
+  try {
+    f.config.collaborationScope='owner_only';
+    const group=f.input('group-stop','group',{conversation_type:'group',owner_direct:false,mentioned_agent_ids:['pa']});
+    group.message.content='/stop';
+    const peer=f.input('other DM','peer',{conversation_type:'direct',owner_direct:false});
+    await f.product.receive(group);await f.product.receive(peer);
+    expect(f.methods).not.toContain('session.cancel');
+    expect(f.inbox.check('pa',true).sources).toEqual([]);expect(f.submitted).toHaveLength(0);
+    expect(f.inbox.pendingRelays().map(r=>r.status)).toEqual(['skipped','skipped']);
+    await f.product.receive(f.input('my DM','own',{conversation_type:'direct',owner_direct:true}));
+    f.config.collaborationScope='team';await f.product.receive(group);
+    expect(f.inbox.check('pa',true).sources.map(s=>s.target)).toEqual(['own']);expect(f.submitted).toHaveLength(1);
+  }finally{await f.close();}
 });
