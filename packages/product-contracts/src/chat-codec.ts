@@ -62,7 +62,7 @@ export function decodeChatStream(value: unknown): ChatStreamFact {
     switch (row.kind) {
       case 'message_delta': fields(row, ['delta_text', 'idempotency_key'], 'string'); break;
       case 'message_completed':
-        fields(row, ['final_content', 'idempotency_key', 'resolved_model'], 'string'); fields(row, ['kernel_message_id'], 'string', true); fields(row, ['elapsed_ms'], 'number', true);
+        fields(row, ['final_content', 'idempotency_key', 'resolved_model'], 'string'); fields(row, ['kernel_message_id','external_reply'], 'string', true); fields(row, ['elapsed_ms'], 'number', true);
         if (row.token_usage != null) fields(object(row.token_usage),['context_used','context_window','output','total','cache_read_tokens','cache_total_input_tokens'],'number');
         if (row.delivery_status !== undefined && !['completed', 'failed'].includes(String(row.delivery_status))) throw new Error('invalid delivery status');
         break;

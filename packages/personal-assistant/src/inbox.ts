@@ -1,3 +1,4 @@
+import { sourceInstant } from './attention.js';
 import { InboxReviews } from './inbox-review.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { DatabaseSync } from 'node:sqlite';
@@ -12,15 +13,6 @@ interface Source { target: string; name: string; unread: number; mentions: numbe
   latest_message_at: string | null; requires_attention?: boolean; delivery?: string; addressed_to?: 'owner'|'agent'|'both' }
 export interface InboxRestriction {sessionId:string; inputId?:string; toolCallId?:string; content?:{type:'text';text:string}[]; retainImageIndices?:number[]}
 
-function sourceInstant(input: RelayInput): number | undefined {
-  const meta=input.metadata;
-  const feishu=meta.channel==='feishu' || (!meta.channel && meta.trigger_source!=='im' && input.conversation_id.startsWith('external:'));
-  const value='provider_source_time' in meta ? meta.provider_source_time
-    : feishu ? Number(meta.source_timestamp) : input.message.created_at;
-  if(typeof value!=='string' && typeof value!=='number')return;
-  const time=typeof value==='number'?value:Date.parse(value);
-  if(Number.isSafeInteger(time) && (!feishu || time>0) && !Number.isNaN(new Date(time).getTime()))return time;
-}
 interface Fragment { seq: number; part: number }
 interface Snapshot { agent: string; target: string; fragments: Fragment[] }
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');

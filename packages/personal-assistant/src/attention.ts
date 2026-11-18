@@ -31,3 +31,14 @@ export function controlText(input:RelayInput):string {
   const mention=/^<mention type="user" target_id="([^"<>]+)"\s*\/>\s*/.exec(text);
   return self&&mention?.[1]===self.user_id?text.slice(mention[0].length).trim():text;
 }
+
+/** Return the original send instant when it is known for this channel. */
+export function sourceInstant(input: RelayInput): number | undefined {
+  const meta=input.metadata;
+  const feishu=meta.channel==='feishu' || (!meta.channel && meta.trigger_source!=='im' && input.conversation_id.startsWith('external:'));
+  const value='provider_source_time' in meta ? meta.provider_source_time
+    : feishu ? Number(meta.source_timestamp) : input.message.created_at;
+  if(typeof value!=='string' && typeof value!=='number')return;
+  const time=typeof value==='number'?value:Date.parse(value);
+  if(Number.isSafeInteger(time) && (!feishu || time>0) && !Number.isNaN(new Date(time).getTime()))return time;
+}

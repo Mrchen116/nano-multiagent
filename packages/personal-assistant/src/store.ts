@@ -1,3 +1,4 @@
+import { sourceInstant } from './attention.js';
 import type { ScheduleDeletionIntent } from './schedule-deletions.js';
 import type { ControlIntent } from './session-controls.js';
 import { DatabaseSync } from 'node:sqlite';
@@ -430,12 +431,18 @@ export class NodeStore {
       if (!duplicate) {
         const rows = this.db.prepare(`SELECT payload,due_at FROM group_background WHERE agent_id=? AND conversation_id=? AND cancelled=0 ORDER BY rowid`)
           .all(binding.agentId, binding.conversationId) as {payload:string;due_at:number|null}[];
-        const live = rows.findLast(row => row.due_at !== null);
-        const carrier: RelayInput | undefined = trigger ?? (live && JSON.parse(live.payload));
+        const members = rows.map(row => ({input:JSON.parse(row.payload) as RelayInput, live:row.due_at !== null}));
+        let carrier = trigger;
+        if (!carrier) {
+          let latest = -Infinity;
+          for (const {input,live} of members) {
+            const sent = sourceInstant(input) ?? -Infinity;
+            if (live && sent >= latest) { latest = sent; carrier = input; }
+          }
+        }
         if (carrier) {
           const nativeId = idOf(carrier);
-          for (const row of rows) {
-            const input: RelayInput = JSON.parse(row.payload);
+          for (const {input} of members) {
             if (idOf(input) === nativeId) continue;
             this.receive(binding.sessionId, {...input, metadata:{...input.metadata, context_only:true}}, nativeId);
           }
@@ -475,10 +482,15 @@ export class NodeStore {
       this.db.prepare('UPDATE inputs SET scope_blocked=1 WHERE input_id=?').run(row.input_id);
       keys.set(row.native_id,{sessionId:row.session_id,inputId:row.native_id});
     }
-    for (const control of this.pendingControls(agentId)) {
-      if (blocked(control.input)) this.saveControl({...control, delivered:true, text:'cancelled_by_scope'});
-    }
     return [...keys.values()];
+  }
+  restrictControls(agentId:string, blocked:(input:RelayInput)=>boolean):void {
+    for (const control of this.pendingControls(agentId)) {
+      if (control.action !== 'task-stop' && blocked(control.input)) {
+        this.skipChat(control.input);
+        this.saveControl({...control,delivered:true,text:'cancelled_by_scope'});
+      }
+    }
   }
   /** Close only carriers the runtime actually withdrew (including never-submitted inputs). */
   closeRestricted(sessionId:string, inputId:string):void {

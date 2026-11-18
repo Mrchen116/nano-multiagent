@@ -311,8 +311,13 @@ export class ExternalChannels {
     const output = this.state.output(String(stream.message_id));
     if (!output) return this.forwardStream(stream);
     if (stream.kind === 'message_completed') {
-      await this.finish(output, stream);
-      if (output.reply) await this.removeReaction(output.reply);
+      const source = stream.external_reply;
+      if (typeof source === 'string' && this.state.inbound(source)?.chatId !== output.chatId)
+        throw new Error('External reply source belongs to another conversation');
+      const final = source === undefined ? output : this.state.finalReply(output,source);
+      await this.finish(final,stream);
+      if (final.reply) await this.removeReaction(final.reply);
+      if (output.reply && output.reply !== final.reply) await this.removeReaction(output.reply);
     } else this.state.frame(output.id, stream);
     if (stream.kind === 'permission_request' && output.reply) await this.approval(output, stream);
     if (stream.kind === 'permission_resolved') await this.resolveApproval(String(stream.permission_request?.request_id ?? stream.request_id), String(stream.decision));

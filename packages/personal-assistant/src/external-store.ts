@@ -130,6 +130,10 @@ export class ExternalStore {
     this.db.prepare('INSERT OR IGNORE INTO outputs(id,chat_id,operation_id,reply,lifecycle_revision) VALUES(?,?,?,?,?)').run(id, chatId, operationId, reply ?? null, revision);
     return this.output(id)!;
   }
+  finalReply(output:ExternalOutput,reply:string|null):ExternalOutput {
+    this.db.prepare("UPDATE outputs SET reply=? WHERE id=? AND state='prepared'").run(reply,output.id);
+    return this.output(output.id)!;
+  }
   settle(id: string, state: string, platformId?: string): void { this.db.prepare('UPDATE outputs SET state=?,platform_id=coalesce(?,platform_id) WHERE id=?').run(state, platformId ?? null, id); }
   mirrorOutput(id: string, imId: string): void { this.db.prepare('UPDATE outputs SET im_id=? WHERE id=?').run(imId, id); }
   frame(outputId: string, body: ExternalFrame): void {

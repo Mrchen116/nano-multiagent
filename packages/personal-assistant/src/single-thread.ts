@@ -75,9 +75,11 @@ export class SingleThread {
     this.scopeChanges.set(agentId,(this.scopeChanges.get(agentId) ?? 0) + 1);
     this.clearTimers(agentId);
     const config = this.options.agents.find(agent => agent.agentId === agentId);
-    if (!config || config.mode !== 'single_thread') return [];
-    return this.options.store.restrictChat(agentId, input => !input.metadata.runtime_input_id && !input.metadata.origin &&
-      chatDelivery(input, {...config, collaborationScope:'owner_only'}, this.options.ownerId) === 'skip');
+    if (!config) return [];
+    const blocked = (input:RelayInput) => !input.metadata.runtime_input_id && !input.metadata.origin &&
+      chatDelivery(input, {...config, collaborationScope:'owner_only'}, this.options.ownerId) === 'skip';
+    this.options.store.restrictControls(agentId,blocked);
+    return config.mode === 'single_thread' ? this.options.store.restrictChat(agentId,blocked) : [];
   }
 
   /** Settle pending team inputs whose provider handoff was prevented. */
@@ -497,10 +499,11 @@ export class SingleThread {
       if (input.turn === null) continue;
       const turn = input.turn;
       const run = runsByTurn.get(turn);
-      if (run) {
-        const origin = store.inputs(sessionId,turn).find(row=>!row.input.metadata.context_only)?.input ?? input.input;
-        await this.modelNotices(binding, origin, run);
-      }
+      const turnInputs = store.inputs(sessionId, turn);
+      const origin = turnInputs.findLast(row => row.input.metadata.chat_batch && !row.terminal?.includes('cancelled_by_scope'))?.input
+        ?? turnInputs.find(row => !row.input.metadata.context_only)?.input ?? input.input;
+      const externalReply = typeof origin.metadata.external_reply === 'string' ? origin.metadata.external_reply : null;
+      if (run) await this.modelNotices(binding, origin, run);
       let delivery = store.prepareDelivery(sessionId, turn);
       if (delivery.state === 'unknown') { await this.receipt(input.input, 'failed'); continue; }
       if (delivery.state === 'confirmed' || delivery.state === 'failed' || delivery.state === 'withheld') {
@@ -522,7 +525,6 @@ export class SingleThread {
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
       }
-      const turnInputs = store.inputs(sessionId, turn);
       const group = turnInputs.some(item => item.input.metadata.conversation_type === 'group');
       const automaticOnly=turnInputs.every(item=>['heartbeat','task_execution'].includes(String(item.input.metadata.origin))
         || item.input.message.sender_type==='system'&&item.input.message.system_notice?.kind==='task_graph');
@@ -538,12 +540,11 @@ export class SingleThread {
       }
       if (!delivery.messageId) {
         store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
-        const externalReply = turnInputs.find(item => !item.input.metadata.context_only)?.input.metadata.external_reply;
         // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
         const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
           agent_id: binding.agentId, idempotency_key: store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId,
           background_returns: Array.isArray(input.input.metadata.background_returns) ? input.input.metadata.background_returns : undefined,
-          external_reply: typeof externalReply === 'string' ? externalReply : undefined });
+          external_reply: externalReply ?? undefined });
         const messageId = ack.payload.message_id;
         if (binding.conversationId.startsWith('owner:') && typeof ack.payload.conversation_id === 'string') Object.assign(binding, store.adoptConversation(binding, ack.payload.conversation_id));
         store.updateDelivery(delivery.operationId, 'sending', messageId, delivery.content);
@@ -596,6 +597,7 @@ export class SingleThread {
       }
       store.updateDelivery(delivery.operationId, 'completing', delivery.messageId, text);
       try { await this.delta({ kind: 'message_completed', message_id: messageId,
+        ...(origin.metadata.chat_batch ? {external_reply:externalReply} : {}),
         final_content: publication?.pending && !message?.content.some(block => block.type === 'text' && block.text) ? undefined : text, delivery_status: completed ? 'completed' : 'failed',
         kernel_message_id: message?.id, idempotency_key: `${delivery.operationId}:complete`,
         token_usage: tokenUsage(events, turn),

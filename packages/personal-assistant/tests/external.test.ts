@@ -306,3 +306,23 @@ it('sets a Global Feishu receipt after model delivery and replaces it only on re
     ]);
   } finally { await external.stop(); inbox.close(); store.close(); }
 });
+
+it('uses the final chat trigger even if a shared shadow placeholder opened on the other channel', async () => {
+  const store=new NodeStore(':memory:','owner');
+  const sent:string[]=[];
+  const accepted:RelayInput[]=[];
+  const external=new ExternalChannels(':memory:',{nodeId:'n',ownerId:'owner',store,
+    relay:{ready:false,request:async()=>({type:'ack',payload:{}})},im:async()=>({}),
+    receive:async item=>{accepted.push(item);},permission:async()=>{},onError:()=>{}});
+  external.add('a',{config:{appId:'app',ownerOpenId:'owner'},send:async(_chat,text)=>{sent.push(text);return 'sent';},
+    reaction:async()=>undefined,updateCard:async()=>{},image:async()=>({data:Buffer.alloc(0),mediaType:'image/png'})});
+  try {
+    await external.receive('a',{chatId:'chat',messageId:'source',isGroup:false,senderId:'owner',mentioned:false,time:'1',parts:[{type:'text',text:'question'}]});
+    const source=accepted[0]!;
+    for(const [id,first,last] of [['web-first',undefined,source.metadata.external_reply],['feishu-first',source.metadata.external_reply,null]]){
+      const start=await external.request('node.streaming_delta',{kind:'turn_start',agent_id:'a',idempotency_key:id,conversation_id:source.conversation_id,external_reply:first});
+      await external.request('node.streaming_delta',{kind:'message_completed',message_id:start.payload.message_id,final_content:id,external_reply:last});
+    }
+    expect(sent).toEqual(['web-first']);
+  } finally {await external.stop();store.close();}
+});

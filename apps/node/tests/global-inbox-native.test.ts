@@ -86,6 +86,16 @@ it('coalesces Inbox notices during a model request and notifies again after cons
     respond(3);
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
     expect(inbox.check('a').sources).toEqual([]);
+    for (let n = 0; n < 20; n++) await product.receive(input('ordinary-' + n, 'external:team'));
+    expect(requests).toHaveLength(4);
+    await product.receive(input('priority-dm'));
+    await expect.poll(() => requests.length).toBe(5);
+    expect(summary(4).sources.map((row:{unread:number})=>row.unread)).toEqual([20,1]);
+    expect(notices(4)).toBe(notices(3)+1);
+    expect(JSON.stringify(requests[4]!.messages)).not.toContain('BODY_ordinary-');
+    respond(4);
+    await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
+    expect(requests).toHaveLength(5);
     expect(errors).toEqual([]);
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally {
