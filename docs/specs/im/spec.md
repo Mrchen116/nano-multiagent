@@ -2,15 +2,15 @@
 
 > 对齐: feat-759
 >
-> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端(内置 Web IM)、原生 iPhone 客户端、Node Gateway(`personal_assistant`)、终端用户,以及 `tests/im_service/` 里的契约测试。
+> 写法与归并规则见 [长青行为契约编写规范](../CONTRIBUTING.md)。
 
 ## Purpose
 
 `IM` 是多人协作的即时通讯中心服务:提供账号体系、会话/消息持久化、浏览器 Web IM、Agent / Node 配置中心, 并通过 Gateway 主动建立的 WebSocket 连接把用户消息中继到本地 Agent、把回复与过程事件实时推回浏览器。
 
-它对外承担的可观察职责:① 用户注册后等待公司管理员批准，有效公司成员可查找人和 Agent，聊天读取遵循会话公开范围、成员及双方Agent owner观察资格、写入要求成员资格，普通公司全局 Agent Work 详情对有效公司成员完整开放，PA 私人配置与 Work 按 [Personal Agent](personal-agent.md) 保持主人可见;② direct/group 会话与消息历史稳定持久化; ③ 浏览器实时收发消息、展示工具/思考过程和响应指标，全局 Agent 的内部轨迹在工作视图呈现;④ 用户管理自己所属的 Agent 配置与多个 Node 绑定;⑤ Gateway 在线时双向中继、离线时明确降级;⑥ 外部 channel 会话可镜像为 shadow conversation。
+它对外承担的可观察职责:① 新注册用户可立即使用个人空间，加入公司须申请并获批；有效公司成员可查找公司内的人和 Agent，聊天读取遵循会话公开范围、成员及只读观察资格、写入要求成员资格，普通公司全局 Agent Work 详情对有效公司成员完整开放，PA 私人配置与 Work 按 [Personal Agent](personal-agent.md) 保持主人可见;② direct/group 会话与消息历史稳定持久化; ③ 浏览器实时收发消息、展示工具/思考过程和响应指标，全局 Agent 的内部轨迹在工作视图呈现;④ 用户管理自己所属的 Agent 配置与多个 Node 绑定;⑤ Gateway 在线时双向中继、离线时明确降级;⑥ 外部 channel 会话可镜像为 shadow conversation。
 
-**显式不负责**:不执行 Agent、不调用 LLM、不读取 Gateway 本地 workspace、不直接接飞书等外部 channel; 这些由 `personal_assistant` 承担。IM 与 `agent` 包之间零 import,与 Gateway 只走 HTTP/WebSocket 协议。
+**显式不负责**:不执行 Agent、不调用 LLM、不读取 Gateway 本地 workspace、不直接接飞书等外部 channel; 这些由 `personal_assistant` 承担。与 Gateway 的通信使用 HTTP/WebSocket，跨包依赖边界见[仓库架构](../../../SPEC.md)。
 
 ## Canonical Areas
 

@@ -2,8 +2,6 @@
 
 > 对齐: feat-447
 > 上级: [IM Specification](spec.md)
->
-> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
@@ -14,10 +12,6 @@ agent 回复墙钟耗时、工具聚合展示和缓存命中率 token 气泡的�
 ### Requirement: agent 回复轮次的本轮墙钟耗时随终态对外可见
 
 一轮 agent 回复从占位消息创建(`message.created`,`delivery_status=running`)到收尾(`message.completed`)之间的本轮处理墙钟,在收尾时作为该消息的 `elapsed_ms`(整数毫秒)对消费者可见——既随 `message.completed` 事件帧下发,也在历史消息读取的响应里回填。起点为占位消息的 `created_at` (agent 开始处理这一轮),终点为收尾时刻;仅 agent 消息有该值,进行中(未收尾)的消息无 `elapsed_ms`。
-
-#### Scenario: 展开用量不遮挡消息
-- **WHEN** 用户点击 token 用量入口
-- **THEN** 默认收起的浅色明细在消息内按正常布局展开，不浮在后续消息之上
 
 #### Scenario: message.completed 携带本轮墙钟
 - **GIVEN** 一条 agent 占位消息已于 `created_at` 创建、处于 `running`
@@ -62,6 +56,10 @@ agent 回复气泡显示本轮墙钟:进行中实时增长,收尾后定格为最
 ### Requirement: token 气泡展示整轮缓存命中率
 
 用量仅取已获得的 provider 计数；缺失值表示未知，不把缺失缓存计数当成零命中。IM 沿用 `context_used`、`output`、`cache_read_tokens`、`cache_total_input_tokens` 等既有字段，未获得的计数可以省略。
+
+#### Scenario: 展开用量不遮挡消息
+- **WHEN** 用户打开默认收起的用量明细
+- **THEN** 明细在当前消息内展开，后续消息仍可阅读。
 
 #### Scenario: 有命中
 - **WHEN** 用户点开一条助手回复的 token 气泡详情，且 provider 已提供缓存计数

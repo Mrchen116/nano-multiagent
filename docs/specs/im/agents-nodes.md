@@ -2,8 +2,6 @@
 
 > 对齐: feat-759
 > 上级: [IM Specification](spec.md)
->
-> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
@@ -717,14 +715,11 @@ Agent 目录、详情与创建页导航中的条目沿用同一设备名称优�
 - **WHEN** 已知归属设备离线，或用户在移动端查看列表
 - **THEN** 已知设备名仍可见，在线状态与归属信息分别表达，长文本不挤出主要操作。
 
-### Requirement: 三处列表条目文字在统一浅色侧栏上清晰可读
+### Requirement: Agent 管理列表的名称和 ID 在各选择状态下可读
 
-Agents 设置首页、agent 详情页与新建页的左侧列表在桌面端浅色侧栏上,条目的显示名与 Agent ID 以正文与辅助文字颜色呈现、清晰可读,选中与 hover 底色上保持可读,三处观感一致。
-
-#### Scenario: 浅色侧栏文字可读
-- **WHEN** 在桌面端查看列表
-- **THEN** 未选中条目的显示名与 Agent ID 以正文与辅助文字颜色呈现在浅色侧栏上,清晰可读
-- **AND** 选中与 hover 底色上文字保持可读
+#### Scenario: 在桌面列表中辨认 Agent
+- **WHEN** 用户在 Agent 设置首页、详情页或新建页浏览、悬停或选中列表条目
+- **THEN** 各入口的显示名和 Agent ID 均清楚可读。
 
 ### Requirement: 新建时选择工作模式，已有 Agent 保持原行为
 

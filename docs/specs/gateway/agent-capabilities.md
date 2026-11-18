@@ -384,7 +384,7 @@ PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `ski
 - **THEN** 返回的候选只来自 PA 的共享全局 roots
 - **AND** repo root 或其他未绑定 Workspace 中的 Skill 不作为新 Agent 可选择项
 
-### Requirement: self-evolution 创建的 Skill 跨前台 terminal 仍完成配置调和
+### Requirement: 历史自进化创建的 Skill 在前台轮次结束前后均按原结果调和
 
 历史已成功的知识更新事实保持 session 级消费，重放不重复调和、不修改禁用选择。后台 Skill 自进化及 combined 触发暂停，历史成功事实不被抹掉。显式文件 legacy 回退中的 Memory review 继续父前缀/快照和完成后计数规则；默认 document 使用当前入口和版本失效机制，Dreaming 用独立受限会话、持久源流进度，不继承父 prompt。
 
@@ -448,7 +448,7 @@ PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `ski
 - **THEN** `inbox`、`conversations`、`send_message`、`subagent` 作为固定基础工具，不可关闭
 - **AND** Personal Global 另外固定 personal_sources；其他工具继续按默认选择及依赖规则配置，single_thread 和子 Agent 不继承 Global 根会话固定项
 
-### Requirement: 自进化技能自动启用不打断既有会话提示词
+### Requirement: 恢复历史后台创建的 Skill 时保留既有会话提示词
 
 #### Scenario: 后台新增技能保持当前上下文缓存前缀
 - **GIVEN** Agent 的历史后台自进化已成功创建技能
@@ -456,7 +456,7 @@ PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `ski
 - **THEN** 技能可由工具读取，但不因该自动增量重建提示词目录或生成配置分界线
 - **AND** 新会话及压缩等既有重建边界可吸收新目录；该保护以当前进程内会话快照为界，重启不保留旧快照
 
-#### Scenario: 手动取消及重新启用技能仍立即生效
+#### Scenario: 手动取消或重新启用技能后，下一轮采用显式选择
 - **GIVEN** 技能曾由后台自动新增并启用
 - **WHEN** 用户手动取消，或取消后重新启用该技能
 - **THEN** 下一轮按显式配置更新目录并保留既有配置分界行为

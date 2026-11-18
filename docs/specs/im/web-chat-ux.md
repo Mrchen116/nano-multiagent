@@ -2,8 +2,6 @@
 
 > 对齐: feat-716
 > 上级: [IM Specification](spec.md)
->
-> 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 **IM 的消费者真正依赖的对外行为**:浏览器前端、Node Gateway、终端用户，以及 `tests/im_service/` 里的契约测试。
 
 ## Purpose
 
@@ -548,7 +546,7 @@ Web IM 在消息流中直接预览收到的图片 attachment，保持图片原�
 
 ### Requirement: 聊天身份与群聊选择信息清楚可辨
 
-聊天和 Agents 页面 SHALL 使用统一浅色表面、辅助文字和头像配色；群聊使用区别于单 Agent 字母头像的群组图标。
+用户进入对话时应能看懂自己正在和谁协作，回到列表时应能找到最近的工作进展。消息正文与真实摘要优先；常规运行详情按需查看，需要用户处理的状态在相关操作处可见。身份提示随读者视角变化：同一伙伴跨入口可辨，群聊、旁观和代发仍能辨认实际参与者及发言归属。角色形象的选择与一致性见 [Agent 身份头像](agents-nodes.md#requirement-创建助手时可选择统一且可辨认的角色头像)。
 
 #### Scenario: 新建群聊选择候选 Agent
 - **WHEN** 用户打开新建群聊

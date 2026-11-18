@@ -7,11 +7,11 @@
 
 ## Purpose
 
-heartbeat 与 cron 两套本地主动机制的 per-agent 开关、调度和错过周期语义契约。
+每个 Agent 的心跳启停、定时工具与已保存安排的执行条件，以及离线期间错过触发后的恢复语义。
 
 ## Requirements
 
-### Requirement: Heartbeat 与 Cron 是两套独立的本地主动机制,各由 per-agent 开关启停
+### Requirement: Heartbeat 由 Feature 启停，Cron 按有效工具与已保存安排执行
 
 Heartbeat保留当前主上下文、配置节律、HEARTBEAT任务选择、活跃时段、忙时跳过和无事静默行为。Cron采用原生定时工具，在创建它的主会话中到期执行并沿用上下文，不为每个任务或每次运行建立独立会话。Heartbeat 由对应 Feature 控制；Cron Feature 提供功能指导和完整工具依赖，定时工具与必要执行服务由有效工具及已保存安排保障，不以 Feature 作为额外调用门槛；IM不是调度源。
 
@@ -25,7 +25,7 @@ Heartbeat保留当前主上下文、配置节律、HEARTBEAT任务选择、活�
 - **WHEN** 节点恢复一个有待触发任务的主会话
 - **THEN** 任务使用该数字人的有效模型、工具、Skill、身份与审批规则执行，不因冷恢复退回默认配置。
 
-#### Scenario: 未启用的Agent两套机制都不跑
+#### Scenario: 关闭两项 Feature 且无调度工具或待处理安排
 - **GIVEN** 某 Agent 的 Heartbeat 与 Cron 均关闭，也未选择调度工具、没有 active 安排或已接收调度工作
 - **WHEN** 调度tick或手动运行请求到达
 - **THEN** 不创建对应运行，手动运行得到明确不可用结果；重新启用按各自错过时间规则恢复。
@@ -124,7 +124,7 @@ Heartbeat tick 与 cron 执行使用与人工聊天相同的主模型 + 有序�
 
 #### Scenario: 设置页不要求填写 timezone
 - **WHEN** 用户在 iOS 设置 Heartbeat 时段
-- **THEN** 仅需设置时段，不需手动填写 timezone；小字说明“按你所在地时间”。
+- **THEN** 界面说明时段按用户所在地时间计算，无需手动填写时区。
 
 #### Scenario: 未知时区不猜测用户所在地
 - **GIVEN** 没有已保存用户时区或旧明确配置时区

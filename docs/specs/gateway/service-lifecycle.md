@@ -272,21 +272,20 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 
 ### Requirement: 首次连新 IM 实例时支持自动确认节点绑定
 
-Gateway 首次连一个尚无 owner 的 IM 节点时需确认绑定。默认打开浏览器让运维者点确认;设 `NANO_MULTIAGENT_AUTO_BIND=1`(或 `--auto-bind`)时 Gateway 自动发确认请求完成绑定,不开浏览器(供自动化 / CI / e2e)。节点已有 owner 时跳过绑定。
+首次绑定需要本机证明设备身份，并由有效目标账号接受绑定。账号与设备的归属、重试和换绑范围见[设备绑定](../im/agents-nodes.md#requirement-设备绑定把节点归属到当前用户)。
 
-#### Scenario: 设置 auto-bind 后无浏览器自动完成绑定
-- **GIVEN** 节点在 IM 侧尚无 owner,且 `NANO_MULTIAGENT_AUTO_BIND=1`
-- **WHEN** Gateway 启动并注册该节点
-- **THEN** Gateway 自动向 IM 发 `action=confirm` 的绑定请求完成绑定,不打开浏览器
+#### Scenario: 自动化首次绑定
+- **GIVEN** 隔离自动化环境已配置有效的目标账号登录凭据
+- **WHEN** 运维者使用 `--auto-bind` 或 `NANO_MULTIAGENT_AUTO_BIND=1` 完成首次绑定
+- **THEN** 节点使用该账号完成确认，无需打开浏览器。未能验证账号或设备身份时，绑定不能成功。
 
-#### Scenario: 未设 auto-bind 时打开浏览器引导绑定
-- **GIVEN** 节点尚无 owner,且未设 `NANO_MULTIAGENT_AUTO_BIND`
-- **WHEN** Gateway 启动并注册该节点
-- **THEN** Gateway 打开绑定 URL 的浏览器,并提示运维者完成绑定
+#### Scenario: 默认首次绑定
+- **WHEN** 首次绑定正在等待目标账号接受
+- **THEN** 节点给出绑定链接并打开浏览器，用户登录后确认目标账号；全新空设备无需在终端重复确认。
 
-#### Scenario: 节点已绑定时跳过绑定流程
-- **WHEN** Gateway 启动时该节点在 IM 侧已有 owner
-- **THEN** 不打开浏览器、不发起绑定,直接进入就绪
+#### Scenario: 已绑定节点正常启动
+- **WHEN** 已绑定节点使用现有有效设备身份正常启动
+- **THEN** 沿用既有绑定连接 IM，无需重复确认账号。
 
 ### Requirement: 节点产品与执行运行时状态分别可观察且由节点统一管理
 
