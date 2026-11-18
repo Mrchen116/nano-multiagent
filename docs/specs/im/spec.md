@@ -12,6 +12,8 @@
 
 **显式不负责**:不执行 Agent、不调用 LLM、不读取 Gateway 本地 workspace、不直接接飞书等外部 channel; 这些由 `personal_assistant` 承担。与 Gateway 的通信使用 HTTP/WebSocket，跨包依赖边界见[仓库架构](../../../SPEC.md)。
 
+**Web 前端的体验方向是[活泼亲和](../../product/web-im-principles.md#crewden-的视觉风格)。** 为降低第一次接触 Agent 协作的陌生感，访客能从[一件具体的团队工作](auth-tenancy.md#scenario-协作示例与真实工作明确区分)看懂谁在协作；开始设置后，用户只需理解眼前这一步。进入[首次私聊](personal-agent.md#首次建立合作约定)就可以尝试一件自己的小事，介绍背景和商量长期职责都由用户选择时机。
+
 ## Canonical Areas
 
 本包长青行为契约按 area 拆分维护。`spec.md` 是入口索引;具体 Requirement/Scenario 以同目录下的 area 文档为准。
