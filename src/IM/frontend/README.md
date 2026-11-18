@@ -10,8 +10,8 @@
 
 当前默认行为：
 - 当仓内 `src/IM/frontend/dist` 存在时，IM 服务会直接提供 `/`、`/chat`、`/settings/*`、`/bind/confirm` 的前端壳。
-- 打开 `http://127.0.0.1:8011/` 后，浏览器会落到 `/chat`。
-- Web IM 会自动准备本地 `You` 用户和默认 starter conversation；正常用户不需要先手工创建用户、会话或调用消息 API。
+- 未登录打开 `/` 展示 Crewden 官网首页；有效会话恢复后进入 `/chat`（旧受限账号进入 `/membership`）。`/about` 始终展示官网介绍。
+- 首页注册与登录按钮进入真实认证流程；新用户注册后进入首次设置，已有用户保留正常会话恢复。协作演示为本地示例，不会创建真实任务。
 - 会话列表不再只表现为单一 demo chat：列表会明确区分 direct agent chat、agent-to-agent chat、group chat、system feed，并显示 target/用途提示，帮助普通用户理解当前有哪些可聊天对象。
 - 若未绑定，聊天输入区会直接禁用，并显示统一的 `Chat unavailable` 卡片，明确提示先完成 Gateway 绑定。
 - 若已绑定的目标节点当前不在线，聊天输入区同样会直接禁用，并复用同一套 `Chat unavailable` 卡片，明确提示 bring the node online or bind another online node，而不是停留在可输入但不可达的半连通状态。

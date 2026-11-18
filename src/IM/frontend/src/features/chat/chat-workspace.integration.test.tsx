@@ -1515,7 +1515,8 @@ describe("ChatWorkspacePage — integration", () => {
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
     await waitFor(() => expect(capturedResyncHandler).not.toBeNull());
-    expect(screen.getByText("laptop-prod").closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+    expect(document.querySelector(".chat-pane-header [aria-label=online]")).not.toBeNull();
+    const initialPortrait = document.querySelector(".chat-pane-header [data-avatar]")?.getAttribute("data-avatar");
 
     recovered = true;
     await act(async () => {
@@ -1525,9 +1526,8 @@ describe("ChatWorkspacePage — integration", () => {
     expect(await screen.findByText("message restored from REST after recovery")).toBeInTheDocument();
     expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
     expect((await screen.findAllByText("Recovered Planner")).length).toBeGreaterThanOrEqual(2);
-    const recoveredChip = (await screen.findAllByText("recovered-node")).find(el => el.classList.contains("chat-node-chip-name"))!;
-    expect(recoveredChip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
-    expect(screen.getAllByText("RE").length).toBeGreaterThanOrEqual(1);
+    expect(document.querySelector(".chat-pane-header [aria-label=offline]")).not.toBeNull();
+    expect(document.querySelector(".chat-pane-header [data-avatar]")).toHaveAttribute("data-avatar", initialPortrait!);
   });
 
   it("re-fetches conversations after reading so the unread badge can clear", async () => {
@@ -1970,14 +1970,13 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.getAllByText(message.content,{selector:"span"})).toHaveLength(1);
   });
 
-  it("R7-5: header shows the agent's Node chip and a conversation menu that links to /settings/agents/<id>", async () => {
+  it("R7-5: header shows the agent's avatar presence and a conversation menu that links to /settings/agents/<id>", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
 
-    // Node chip with the agent's node name; status pill marks it online.
-    const chip = await screen.findByText(/laptop-prod/);
-    expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+    // avatar presence with the agent's node name; status pill marks it online.
+    await waitFor(() => expect(document.querySelector(".chat-pane-header [aria-label=online]")).not.toBeNull());
 
     // The conversation menu preserves navigation to the agent settings page.
     await user.click(screen.getByRole("button", { name: /Conversation menu/i }));
@@ -1991,14 +1990,14 @@ describe("ChatWorkspacePage — integration", () => {
   });
 
   it("R8-2: WS message.created with sender_user_id UUID renders the agent display_name (Planner), not the UUID", async () => {
-    renderAtRoute("/chat/c1");
-    await screen.findByText("Hi Planner");
+    renderAtRoute("/chat/c3");
+    await screen.findByRole("heading", {name:"Empty Group"});
     await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
 
     act(() => {
       emitSharedChatEvent({
         type: "message.created",
-        conversation_id: "c1",
+        conversation_id: "c3",
         message_id: "m-live-1",
         sender_user_id: "user-uuid-planner",
         sender_type: "agent",
@@ -2036,11 +2035,10 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.getByText('骑行')).toBeInTheDocument();
   });
 
-  it("bugfix-405 R1: node.status_changed offline event updates Node chip from online to offline without page refresh", async () => {
+  it("bugfix-405 R1: node.status_changed offline event updates avatar presence from online to offline without page refresh", async () => {
     // Page opens and initially shows the node as online (from initial fetch).
     renderAtRoute("/chat/c1");
-    const chip = await screen.findByText(/laptop-prod/);
-    expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+    await waitFor(() => expect(document.querySelector(".chat-pane-header [aria-label=online]")).not.toBeNull());
 
     // SSE event: node goes offline. Page must update without a manual refresh.
     await waitFor(() => expect(capturedStatusHandler).not.toBeNull());
@@ -2052,16 +2050,14 @@ describe("ChatWorkspacePage — integration", () => {
     });
 
     await waitFor(() => {
-      const updatedChip = screen.getByText(/laptop-prod/);
-      expect(updatedChip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
+      expect(document.querySelector(".chat-pane-header [aria-label=offline]")).not.toBeNull();
     });
   });
 
   it("bugfix-405: agent.status_changed offline event resolves agent→node and patches nodes cache", async () => {
     // Page opens; node-prod starts online (default fixture).
     renderAtRoute("/chat/c1");
-    const chip = await screen.findByText(/laptop-prod/);
-    expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+    await waitFor(() => expect(document.querySelector(".chat-pane-header [aria-label=online]")).not.toBeNull());
 
     // SSE event arrives for the agent rather than the node directly.
     // The fix must look up a-planner's node_id (node-prod) from the agents cache
@@ -2075,8 +2071,7 @@ describe("ChatWorkspacePage — integration", () => {
     });
 
     await waitFor(() => {
-      const updatedChip = screen.getByText(/laptop-prod/);
-      expect(updatedChip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
+      expect(document.querySelector(".chat-pane-header [aria-label=offline]")).not.toBeNull();
     });
   });
 

@@ -69,11 +69,11 @@ describe("AppShell", () => {
     localStorage.clear();
   });
 
-  it("renders the desktop top banner with Chat/Agents tabs and a UserMenu trigger", () => {
+  it("renders desktop navigation with Chat/Agents destinations and an account trigger", () => {
     renderShell("/chat");
     const banner = screen.getByRole("banner");
     expect(banner).toBeInTheDocument();
-    expect(within(banner).getByText(/nano im/i)).toBeInTheDocument();
+    expect(within(banner).getByText(/crewden/i)).toBeInTheDocument();
     expect(within(banner).getByRole("link", { name: /chat/i })).toHaveAttribute("href", "/chat");
     expect(within(banner).getByRole("link", { name: /tasks/i })).toHaveAttribute("href", "/tasks");
     expect(within(banner).getByRole("link", { name: /agents/i })).toHaveAttribute("href", "/settings/agents");
@@ -107,6 +107,26 @@ describe("AppShell", () => {
     expect(screen.queryByRole("navigation", { name: /mobile/i })).not.toBeInTheDocument();
     expect(container.querySelector(".im-shell--conversation")).toBeInTheDocument();
     expect(screen.getByTestId("content")).toBeInTheDocument();
+  });
+
+  it("offers language only in the account menu and restores focus after dismissal", async () => {
+    renderShell("/chat");
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    const trigger = screen.getByRole("button", { name: "Alex Chen" });
+    await userEvent.click(trigger);
+    expect(screen.queryByRole("menuitemradio")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("menuitem", { name: /^Language/ }));
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("menuitemradio", { name: "简体中文" }));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+    expect(screen.getByRole("link", { name: "聊天" })).toBeInTheDocument();
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole("menuitem", { name: /^语言/ }));
+    expect(screen.getByRole("menuitemradio", { name: "简体中文" })).toHaveAttribute("aria-checked", "true");
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it("UserMenu sign-out clears auth store", async () => {

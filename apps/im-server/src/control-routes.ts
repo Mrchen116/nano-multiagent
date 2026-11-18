@@ -206,6 +206,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
           "space_id",
           "node_id",
           "display_name",
+          "avatar_variant",
           "description",
           "profile_version",
           "default_model",

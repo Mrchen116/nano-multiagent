@@ -1,9 +1,8 @@
-import { mentionNameMap, mentionPlainText } from "./mention-parser";
+import { conversationPreview, formatConversationDate } from "./conversation-preview";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { MessageSearchResult } from '../chat-api';
 
 import { useTranslation } from "../../../i18n";
-import { formatSystemNotice } from "../system-notice";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgent, colorForAgentSeed, directPersonAvatarName } from "./avatar";
 import { NewConversationMenu } from "./new-conversation-menu";
@@ -58,30 +57,12 @@ export interface ConversationSidebarProps {
   onStartDistill?(): void;
 }
 
-function formatDate(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const now = new Date();
-  const isToday = d.getDate() === now.getDate() && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  if (isToday) {
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${hh}:${mm}`;
-  }
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (d.getDate() === yesterday.getDate() && d.getMonth() === yesterday.getMonth() && d.getFullYear() === yesterday.getFullYear()) {
-    return "Yesterday";
-  }
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
 
 function formatSearchDate(iso: string): string {
   const date = new Date(iso);
   if (!Number.isNaN(date.getTime()) && date.getFullYear() !== new Date().getFullYear())
     return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
-  return formatDate(iso);
+  return formatConversationDate(iso);
 }
 
 function highlightMatch(text: string, query: string): ReactNode {
@@ -178,16 +159,9 @@ export function ConversationSidebar({
       .finally(() => { if (!signal?.aborted) setSearchLoading(false); });
   };
 
-  const previews = useMemo(() => new Map(searchConversations.map((c) => {
-    const notice = formatSystemNotice(t, c.last_message_system_notice, c.type === "direct");
-    if (notice) return [c.id, notice];
-    const content = c.last_message_card
-      ? [t("chat.toast.card"), c.last_message_card.title].filter(Boolean).join(" · ")
-      : mentionPlainText(c.last_message_preview ?? "", mentionNameMap(c.participants));
-    return [c.id, content && c.type === "group" && c.last_message_sender_name
-      ? `${c.last_message_sender_name}: ${content}`
-      : content];
-  })), [searchConversations, t]);
+  const previews = useMemo(() => new Map(searchConversations.map(c =>
+    [c.id, conversationPreview(c, t)]
+  )), [searchConversations, t]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -248,20 +222,7 @@ export function ConversationSidebar({
         />
         {searchActive && search && <button type="button" className="chat-search-clear" aria-label={t("chat.list.clearSearch")} onClick={() => { restoreScroll.current = null; setSearch(""); saveSearch({query:"",filter,pages:1,scrollTop:0}); }}>×</button>}
         </div>
-        <div className="chat-sidebar-filters" role="tablist">
-          {FILTER_ORDER.map((key) => (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={filter === key}
-              className={`chat-sidebar-filter${filter === key ? " chat-sidebar-filter--active" : ""}`}
-              onClick={() => { restoreScroll.current = null; setFilter(key); saveSearch({query:search,filter:key,pages:1,scrollTop:0}); }}
-            >
-              {t(FILTER_LABEL[key])}
-            </button>
-          ))}
-        </div>
+
       </header>
       {contextMenu ? (
         <div
@@ -286,6 +247,20 @@ export function ConversationSidebar({
         </div>
       ) : null}
       {!searchActive && personalAgentEntry}
+      <div className="chat-sidebar-filters" role="tablist">
+        {FILTER_ORDER.map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={filter === key}
+            className={`chat-sidebar-filter${filter === key ? " chat-sidebar-filter--active" : ""}`}
+            onClick={() => { restoreScroll.current = null; setFilter(key); saveSearch({query:search,filter:key,pages:1,scrollTop:0}); }}
+          >
+            {t(FILTER_LABEL[key])}
+          </button>
+        ))}
+      </div>
       <ul ref={listRef} className="chat-sidebar-list" onScroll={event => { if (search.trim() && !searchLoading) saveSearch({scrollTop:event.currentTarget.scrollTop}); }}>
         {searchActive && !search.trim() ? <li className="chat-search-hint">{t('chat.list.searchHint')}</li> : null}
         {search.trim() && searchMessages && !distillMode && filtered.length > 0 ? <li className="chat-search-heading">{t('chat.list.conversationResults')}</li> : null}
@@ -294,7 +269,7 @@ export function ConversationSidebar({
         ) : (
           (searchActive && !search.trim() ? [] : filtered).map((c) => {
             const active = c.id === activeConversationId;
-            const dateStr = formatDate(c.last_message_at);
+            const dateStr = formatConversationDate(c.last_message_at);
             const kind = classifyConversationKind(c);
             const distillUnavailableKey = getDistillConversationUnavailableKey(c);
             const crossGateway = Boolean(
@@ -337,7 +312,7 @@ export function ConversationSidebar({
                       onChange={() => onToggleDistillConversation?.(c.id)}
                     />
                     <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                      {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
+                      {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar personal={c.participants.some(p => p.type === "agent" && p.role === "personal")} agentId={c.participants.find(p => p.type === "agent")?.id} avatarVariant={c.participants.find(p => p.type === "agent")?.avatar_variant} initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
                     </span>
                     <span className="chat-sidebar-row-body">
                       <span className="chat-sidebar-row-title-line">
@@ -371,7 +346,7 @@ export function ConversationSidebar({
                     aria-current={active ? "true" : undefined}
                   >
                   <span data-testid={`conv-avatar-${c.id}`} className="chat-sidebar-row-avatar">
-                    {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
+                    {c.type === "group" ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar personal={c.participants.some(p => p.type === "agent" && p.role === "personal")} agentId={c.participants.find(p => p.type === "agent")?.id} avatarVariant={c.participants.find(p => p.type === "agent")?.avatar_variant} initials={avatarName.slice(0, 2)} color={avatarColor} size={36} status={agentStatus} />}
                   </span>
                   <span className="chat-sidebar-row-body">
                     <span className="chat-sidebar-row-title-line">

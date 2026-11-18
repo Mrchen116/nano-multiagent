@@ -6,6 +6,8 @@ import { Avatar, colorForAgent } from "./avatar";
 
 interface AgentRow {
   agent_id: string;
+  role?: "personal";
+  avatar_variant?: number | null;
   display_name: string;
   description?: string;
   node_name?: string;
@@ -114,7 +116,7 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
                     aria-label={a.display_name}
                     style={{ width: 16, height: 16, accentColor: "var(--im-accent)", flexShrink: 0 }}
                   />
-                  <Avatar initials={a.display_name.slice(0, 2)} size={30} status={a.status} color={colorForAgent({ display_name: a.display_name, agent_id: a.agent_id })} />
+                  <Avatar agentId={a.kind === "human" ? undefined : a.agent_id} personal={a.role === "personal"} avatarVariant={a.avatar_variant} initials={a.display_name.slice(0, 2)} size={30} status={a.status} color={colorForAgent({ display_name: a.display_name, agent_id: a.agent_id })} />
                   <span className="chat-modal-agent-body">
                     <span className="chat-modal-agent-topline">
                       <span className="chat-modal-agent-name">{a.display_name}</span>

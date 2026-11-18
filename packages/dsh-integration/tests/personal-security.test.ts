@@ -62,6 +62,8 @@ ctx.on('llm/stream',async function*(o){
   expect(sent,JSON.stringify(results)).toEqual(['CURRENT_OWNER_CHOICE chosen reservation','OWNER_REPRESENTATION']);expect(results[4].isError).not.toBe(true);expect(results[5].isError).toBe(true);expect(results[6].isError).toBe(true);expect(results[7].isError).toBe(true);expect(results[0].isError).not.toBe(true);expect(results[3].isError).toBe(true);expect(JSON.stringify(results[3])).toContain('Explicit restriction');expect(results[1].isError).toBe(true);expect(JSON.stringify(results[1])).toContain('Not authorized');expect(authorityReads).toBe(0);
   const mainInput=await readFile(join(home,'main-input.jsonl'),'utf8');
   expect(mainInput).toContain('Only Dreaming');
+  expect(mainInput).toContain('You do not need to be added to an eligible owner conversation to read it');
+  expect(mainInput).toContain('use conversations list/search to check available sources');
   expect(mainInput.includes('Immediately correct affected current pages')).toBe(false);
   expect(mainInput.includes('checkpoint the current generation')).toBe(false);
   const prompt=await readFile(join(home,'review-input.jsonl'),'utf8');expect(prompt).toContain('CURRENT_OWNER_CHOICE');expect(prompt).not.toContain('DATABASE_HISTORY_NOT_IN_EFFECTIVE_CONTEXT');expect(prompt).not.toContain('nano_personal_authorization');

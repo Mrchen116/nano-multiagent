@@ -71,6 +71,16 @@ const MENTION_CANDIDATES: MentionCandidate[] = [
 ];
 
 describe("MessagePane", () => {
+  it.each([false, true])('keeps a large group header compact and opens its member details (mobile=%s)', async isMobile => {
+    const members = Array.from({length: 100}, (_, i) => ({type: 'user' as const, id: `member-${i}`, display_name: `Member ${i}`}));
+    const open = vi.fn();
+    const { container } = render(<MessagePane conversation={{...GROUP_CONV, participants:members}} messages={[]} mentionCandidates={[]} onSend={() => {}} onOpenConfig={open} isMobile={isMobile} />);
+    const header = within(container.querySelector('.chat-pane-header')! as HTMLElement);
+    expect(header.queryByText('Member 0')).not.toBeInTheDocument();
+    await userEvent.click(header.getByRole('button', {name: '100 members'}));
+    expect(open).toHaveBeenCalledOnce();
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -207,6 +217,18 @@ describe("MessagePane", () => {
     );
 
     expect(screen.queryByRole("separator", { name: "Agent 配置已更新" })).not.toBeInTheDocument();
+  });
+
+  it("keeps empty-chat introductions at the top and follows the first real message", () => {
+    const props = {conversation:DIRECT_CONV, messages:[] as Message[], mentionCandidates:[], onSend:vi.fn()};
+    const {container, rerender} = render(<MessagePane {...props} />);
+    const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+    const metrics = {scrollTop:0, scrollHeight:900, clientHeight:400};
+    setScrollMetrics(scroller, metrics);
+    rerender(<MessagePane {...props} messages={[]} />);
+    expect(scroller.scrollTop).toBe(0);
+    rerender(<MessagePane {...props} messages={SAMPLE_MESSAGES} />);
+    expect(scroller.scrollTop).toBe(900);
   });
 
   it("preserves a deep-linked position until the conversation is opened normally", () => {
@@ -2266,9 +2288,7 @@ describe("MessagePane", () => {
 
   });
 
-  // M19/R11-8: prototype `im-chat-page.jsx::MessagePaneView` 移动模式头部紧凑 —
-  // 隐藏 participants / KindBadge / 顶部 TokenChip,Config 退化为 ⚙ icon-only 方块。
-  // 桌面模式 (>= 768px) 全部保留 (不回归 R7-5 Node chip + ⚙ 桌面布局)。
+  // Both screen sizes share a compact header; mobile retains touch-sized actions.
   describe("R11-8: mobile compact header", () => {
     it("hides participants line on mobile", () => {
       render(
@@ -2284,7 +2304,7 @@ describe("MessagePane", () => {
       expect(screen.queryByText("Planner", { selector: ".chat-pane-participants" })).not.toBeInTheDocument();
     });
 
-    it("hides KindBadge on mobile but keeps NodeChip", () => {
+    it("keeps machine details out of the mobile conversation header", () => {
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -2298,7 +2318,8 @@ describe("MessagePane", () => {
         />
       );
       expect(document.querySelector(".chat-kind-badge")).toBeNull();
-      expect(screen.getByText("laptop-prod")).toBeInTheDocument();
+      expect(screen.queryByText("laptop-prod")).not.toBeInTheDocument();
+      expect(document.querySelector(".chat-pane-header [aria-label=online]")).not.toBeNull();
     });
 
     it("hides the header TokenChip on mobile (token chip lives under each bubble per R6)", () => {
@@ -2339,7 +2360,7 @@ describe("MessagePane", () => {
       expect(configBtn.querySelector("svg")).not.toBeNull();
     });
 
-    it("keeps participants + KindBadge + text Config on desktop (isMobile=false)", () => {
+    it("keeps desktop identity and an accessible icon-only Config action", () => {
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -2349,9 +2370,10 @@ describe("MessagePane", () => {
           onOpenConfig={() => {}}
         />
       );
-      expect(document.querySelector(".chat-pane-participants")).not.toBeNull();
+      expect(document.querySelector(".chat-pane-participants")).toBeNull();
       const configBtn = screen.getByRole("button", { name: /config/i });
-      expect(configBtn.textContent).toMatch(/Config/i);
+      expect(configBtn.textContent).toBe("");
+      expect(configBtn).toHaveAttribute("title", "Config");
     });
   });
 
@@ -2852,4 +2874,14 @@ it.each(['legacy','owner','recipient'])('preserves PA message identity and conte
    expect(screen.getByText('Agreed').tagName).toBe('STRONG');
    expect(screen.getByTestId('message-bubble-represented').closest('.chat-bubble')).toHaveClass(viewer==='owner' ? 'chat-bubble--user':'chat-bubble--agent');
  }
+});
+
+
+it.each(['direct', 'group', 'observer'] as const)('shows sender identity where needed in %s conversations', mode => {
+  const personalReply: Message = {...SAMPLE_MESSAGES[1], sender:{...SAMPLE_MESSAGES[1].sender,role:'personal'}};
+  const {container} = render(<MessagePane conversation={{...(mode === 'group' ? GROUP_CONV : DIRECT_CONV),is_observer:mode==='observer'}}
+    messages={[personalReply]} personalAgent mentionCandidates={[]} onSend={()=>{}} />);
+  expect(container.querySelector('.chat-bubble-sender') !== null).toBe(mode !== 'direct');
+  expect(container.querySelector('.pa-badge')).toBeNull();
+  expect(container.querySelector('.chat-kind-badge')).toBeNull();
 });

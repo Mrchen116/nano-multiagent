@@ -15,8 +15,9 @@ export interface AgentActivityAnchor {
   element: HTMLButtonElement;
 }
 
-export function AgentActivityPopover({anchor, canConfigure, onClose}: {
+export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: {
   anchor: AgentActivityAnchor;
+  nodeName?: string | null;
   canConfigure: boolean;
   onClose(): void;
 }) {
@@ -124,6 +125,7 @@ export function AgentActivityPopover({anchor, canConfigure, onClose}: {
         <button className="chat-agent-activity-icon" type="button" onClick={onClose}
           aria-label={label("close")}><X size={17} /></button>
       </header>
+      {nodeName && <dl className="chat-agent-activity-computer"><dt>{label("computer")}</dt><dd>{nodeName}</dd></dl>}
       {activity.isError ? <div className="chat-agent-activity-error" role="alert">
         {label("unavailable")} <button type="button" onClick={() => void refresh()}>{label("retry")}</button>
       </div> : <>

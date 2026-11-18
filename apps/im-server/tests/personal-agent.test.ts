@@ -194,10 +194,11 @@ it('creates one private PA through the existing configuration operation and reco
  }finally{await app.close();}
 });
 
-it('recovers a delayed PA configuration rename across profile, binding and canonical chat',async()=>{
+it.each([false,true])('recovers a delayed PA rename while preserving a custom chat title (%s)',async(customTitle)=>{
  const {ConfigOperations,profileResponse}=await import('../src/control.js');
  const {ctx,db}=personalFixture();
  const ops=new ConfigOperations(configurationDependencies(ctx));
+ if(customTitle) db.prepare("UPDATE conversations SET title='My project',title_is_custom=1 WHERE id='chat'").run();
  const profile=db.prepare("SELECT * FROM agent_profiles WHERE agent_id='a'").get()!;
  let applied:any;
  ctx.gateway.request=async(_node,method,payload)=>{
@@ -212,7 +213,7 @@ it('recovers a delayed PA configuration rename across profile, binding and canon
  await ops.recover('a','o1');
  expect(db.prepare("SELECT display_name FROM agent_profiles WHERE agent_id='a'").get()).toEqual({display_name:'Renamed PA'});
  expect(db.prepare("SELECT display_name FROM personal_agent_bindings WHERE agent_id='a'").get()).toEqual({display_name:'Renamed PA'});
- expect(db.prepare("SELECT title FROM conversations WHERE id='chat'").get()).toEqual({title:'Renamed PA'});
+ expect(db.prepare("SELECT title FROM conversations WHERE id='chat'").get()).toEqual({title:customTitle?'My project':'Renamed PA'});
 });
 
 it('lets colleagues contact the public PA identity while keeping owner history inaccessible and blocking unreviewed streams',()=>{

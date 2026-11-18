@@ -335,6 +335,7 @@ describe("recoverable config operations and HTTP boundary", () => {
         agent_id: "a",
         owner_id: "o1",
         display_name: "修改",
+        avatar_variant:17,
         description: "new",
         skills: [],
         tool_allowlist: ["task_graph"],
@@ -358,6 +359,8 @@ describe("recoverable config operations and HTTP boundary", () => {
     expect(result?.display_name).toBe("修改");
     expect(result?.profile_version).toBe(2);
     expect(result?.approval_mode).toBe("codex");
+    expect(result?.avatar_variant).toBe(17);
+    expect(saved?.agent).not.toHaveProperty("avatar_variant");
     expect(one(db, "SELECT status FROM agent_config_operations")?.status).toBe("committed");
   });
   it("compensates Gateway after profile CAS loses while preserving concurrent values", async () => {

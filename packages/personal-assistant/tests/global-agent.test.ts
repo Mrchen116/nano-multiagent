@@ -582,3 +582,38 @@ it.each(['im', 'feishu'])('completes Inbox work while the %s badge request is st
     await expect.poll(() => receipts.includes('read')).toBe(true);
   } finally { unblock(); await product.stop(); inbox.close(); store.close(); }
 });
+
+it('refreshes the PA reader-relative name in its wake, Inbox check and Inbox read', async () => {
+  const store=new NodeStore(':memory:','owner'), inbox=new InboxStore(':memory:');
+  store.bind({agentId:'pa',ownerId:'owner',sessionId:'main',conversationId:'global:pa',revision:'1'});
+  inbox.updateTarget('pa','c_owner','Old assistant title');
+  let name='Alice';
+  const submitted: Record<string,any>[]=[];
+  const config={agentId:'pa',revision:'1',provider:'test',model:'test',mode:'global' as const,
+    personal:{bindingId:'binding',ownerId:'owner',conversationId:'c_owner',epoch:1}};
+  const event={event_id:1,conversation_id:'c_owner',conversation_type:'direct',channel:'web',policy_revision:1,
+    message:{id:'owner-message',content:'Please help',sender_type:'user',sender_user_id:'owner',created_at:'2026-11-18T00:00:00Z',sender:{display_name:'Alice'}}};
+  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:e=>{throw e;},
+    runtime:{onNotification:()=>()=>{},request:async(method,args)=>{
+      if(method==='session.submit')submitted.push(args);
+      return {events:[],durable:true,status:'idle'};
+    }},
+    relay:{ready:true,request:async(type,payload:any)=>{
+      if(type==='agent.work.append')return {type:'ack',payload:{through_seq:payload.events.at(-1).seq}};
+      const result=type==='pa.observations.read'?{items:[event]}:
+        type==='pa.source.admit'?{allowed:true,is_owner:true,delivery:'participant',conversation_type:'direct',channel:'web'}:
+        type==='pa.sources'?{items:[],policy:{revision:1}}:
+        type==='conversation.query'?(payload.action==='describe'?{conversations:payload.targets.map((target:string)=>({target,name}))}:{target:'c_owner',name}):{};
+      return {type:'result',payload:{ok:true,result}};
+    }}});
+  const call:ProductCall={method:'inbox',args:{action:'check'},operationId:'main:check',callId:'check',sessionId:'main',rootSessionId:'main',agentId:'pa',ownerId:'owner'};
+  try {
+    await product.recoverPersonalObservations();
+    expect(submitted).toHaveLength(1);
+    expect(JSON.stringify(submitted[0].content)).toContain('Alice');
+    expect(JSON.stringify(submitted[0].content)).not.toContain('Old assistant title');
+    name='Alicia';
+    expect(await product.call(call)).toMatchObject({sources:[{name:'Alicia'}]});
+    expect(await product.call({...call,callId:'read',operationId:'main:read',args:{action:'read',target:'c_owner'}})).toMatchObject({name:'Alicia',messages:[{sender:{name:'Alice',is_owner:true}}]});
+  } finally {await product.stop();inbox.close();store.close();}
+});

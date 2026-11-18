@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StrictMode, type ComponentProps } from "react";
@@ -8,6 +9,11 @@ import type { Conversation } from "../chat-types";
 import { forgetComposerConversation, restoreComposerMembership, type ComposerSnapshot } from "./composer-draft-store";
 import { MessagePane } from "./message-pane";
 import { registerDraftHandle, unregisterDraftHandle } from '../interaction-background';
+
+vi.mock("../../settings/agents/im-agent-config-api", async importOriginal => ({
+  ...await importOriginal<typeof import("../../settings/agents/im-agent-config-api")>(),
+  getAgentRole: vi.fn().mockResolvedValue({content:"",version:null}),
+}));
 
 const CONV_A: Conversation = {
   id: "c1",
@@ -341,38 +347,54 @@ it("keeps failed files across chats and sends only text without consuming attach
 it("fills a first PA example without sending or replacing an existing draft", async () => {
   setLanguage('en');
   const onSend = vi.fn();
-  const {rerender} = render(pane(CONV_A, {personalAgent:true, personalStarterExamples:true, onSend}));
-  const example='Help me plan my study time and breaks this week.';
-  await userEvent.click(screen.getByRole('button',{name:example}));
+  const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
+  const withGuide = (conversation:Conversation, extra:Partial<ComponentProps<typeof MessagePane>>={}) => <QueryClientProvider client={client}>{pane(conversation,extra)}</QueryClientProvider>;
+  const cooperationAgent = {id:"a-planner",name:"Planner",personal:true,online:true};
+  const {rerender,unmount} = render(withGuide(CONV_A, {personalAgent:true, cooperationAgent, onSend}));
+  const example='I have an idea I haven’t quite figured out. Help me think it through. Start by asking what I want to do, one question at a time.';
+  await userEvent.click(await screen.findByRole('button',{name:/Untangle an idea/}));
   expect(screen.getByRole('textbox')).toHaveValue(example);
   expect(screen.getByRole('textbox')).toHaveFocus();
   expect(onSend).not.toHaveBeenCalled();
-  expect(screen.queryByRole('button',{name:example})).not.toBeInTheDocument();
+  expect(screen.getByRole('button',{name:/Untangle an idea/})).toBeDisabled();
   await userEvent.type(screen.getByRole('textbox'),' Keep Friday free.');
-  rerender(pane(CONV_B));
-  expect(screen.queryByText('Start with something small')).not.toBeInTheDocument();
-  rerender(pane(CONV_A,{personalAgent:true,personalStarterExamples:true,onSend}));
+  rerender(withGuide(CONV_B));
+  expect(screen.queryByText('Let Planner get to know you')).not.toBeInTheDocument();
+  rerender(withGuide(CONV_A,{personalAgent:true,cooperationAgent,onSend}));
   expect(screen.getByRole('textbox')).toHaveValue(example+' Keep Friday free.');
   expect(onSend).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole('button',{name:'Send'}));
   await waitFor(()=>expect(onSend).toHaveBeenCalledTimes(1));
+  const sentMessage = {
+    id:"first-user-message",conversation_id:CONV_A.id,sender:{type:"user" as const,id:"u1"},
+    sender_user_id:"u1",sender_type:"user",content:example,attachments:[],permission_requests:[],
+    delivery_status:"pending" as const,created_at:"2026-01-01T00:00:00Z",
+  };
+  rerender(withGuide(CONV_A,{personalAgent:true,cooperationAgent,onSend,messages:[sentMessage]}));
+  expect(screen.queryByRole('region',{name:'Working agreement'})).not.toBeInTheDocument();
+  rerender(withGuide(CONV_B));
+  rerender(withGuide(CONV_A,{personalAgent:true,cooperationAgent,onSend,messages:[sentMessage]}));
+  expect(screen.queryByRole('region',{name:'Working agreement'})).not.toBeInTheDocument();
+  unmount();client.clear();
 });
 
-it("hides PA examples while an attachment is uploading or waiting to retry", async () => {
+it("disables cooperation prompts while an attachment is uploading or waiting to retry", async () => {
   setLanguage('en');
   let rejectUpload!: (reason: Error) => void;
   const uploadAttachment = vi.fn(() => new Promise<{url:string}>((_resolve,reject) => { rejectUpload=reject; }));
-  render(pane(CONV_A,{personalStarterExamples:true,uploadAttachment}));
-  const example='Help me plan my study time and breaks this week.';
-  expect(screen.getByRole('button',{name:example})).toBeInTheDocument();
+  const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
+  const {unmount} = render(<QueryClientProvider client={client}>{pane(CONV_A,{cooperationAgent:{id:"a-planner",name:"Planner",personal:true,online:true},uploadAttachment})}</QueryClientProvider>);
+  const example=/Untangle an idea/;
+  expect(await screen.findByRole('button',{name:example})).toBeEnabled();
   fireEvent.drop(screen.getByRole('textbox').closest('[data-dragging]')!,{
     dataTransfer:{files:[new File(['img'],'first.png',{type:'image/png'})],types:['Files']}
   });
   await waitFor(()=>expect(uploadAttachment).toHaveBeenCalledTimes(1));
-  expect(screen.queryByRole('button',{name:example})).not.toBeInTheDocument();
+  expect(screen.getByRole('button',{name:example})).toBeDisabled();
   await act(async()=>{rejectUpload(new Error('offline'));});
   expect(screen.getByRole('button',{name:'Retry'})).toBeInTheDocument();
-  expect(screen.queryByRole('button',{name:example})).not.toBeInTheDocument();
+  expect(screen.getByRole('button',{name:example})).toBeDisabled();
   await userEvent.click(screen.getByRole('button',{name:'Remove first.png'}));
-  expect(screen.getByRole('button',{name:example})).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:example})).toBeEnabled();
+  unmount();client.clear();
 });

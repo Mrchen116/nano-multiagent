@@ -1,3 +1,5 @@
+import { conversationName } from './conversation-name.js';
+import {parseAvatarVariant} from './configuration-input.js';
 import {configurationOperations} from './configuration-assembly.js';
 import { captureTaskContextAccess, personalSourceAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
@@ -32,7 +34,7 @@ export class PersonalAgents {
   state(owner: string) {
     const binding = this.binding(owner), node=binding?one(this.db,'SELECT status FROM nodes WHERE node_id=?',binding.node_id):undefined;
     const runtime=binding?one(this.db,'SELECT available FROM pa_runtime_status WHERE binding_id=? AND node_epoch=?',binding.binding_id,binding.node_epoch):undefined;
-    return {binding:binding?{...binding,status:binding.status==='active'&&(node?.status!=='online'||runtime?.available===0)?'unavailable':binding.status}:null,
+    return {binding:binding?{...binding,avatar_variant:readAgentProfile(this.db,binding.agent_id)?.avatar_variant ?? null,status:binding.status==='active'&&(node?.status!=='online'||runtime?.available===0)?'unavailable':binding.status}:null,
       policy:binding?this.policy(binding.binding_id):null,creation:binding?.status!=="active"&&binding?{request_key:binding.request_key}:null};
   }
   private activeBinding(principal: Row): Row | undefined {
@@ -55,14 +57,23 @@ export class PersonalAgents {
   sourceAllowed(b: Row, conversationId: string, mode: 'read'|'write' = 'read') {
     return !!this.sourceAccess(b, conversationId, mode) && !this.policy(b.binding_id).excluded_conversation_ids.includes(conversationId);
   }
-  sourceConversations(b: Row,scope="joined"): Row[] {
+  /** List authorized sources using the requested reader's display perspective.
+   *
+   * Args:
+   *   b: Validated personal binding.
+   *   scope: Discovery scope, unchanged from the source access policy.
+   *   readerId: Owner for settings UI, or PA account ID for model-facing queries.
+   * Returns:
+   *   Accessible source metadata and exclusion flags without expanding access.
+   */
+  sourceConversations(b: Row,scope="joined",readerId: string = b.owner_user_id): Row[] {
     const agentUser = this.ctx.messaging.agentUser(b.agent_id);
     const policy = this.policy(b.binding_id);
     const ids = new Set<string>([...all(this.db,'SELECT conversation_id FROM conversation_participation_history WHERE user_id=?',b.owner_user_id).map(row=>row.conversation_id),
       ...this.ctx.messaging.conversations(agentUser.id,scope).map(row=>row.id),...policy.excluded_conversation_ids]);
     return [...ids].filter(id => this.sourceAccess(b,id)).map(id => {
       const viewer = conversationAccess(this.db,id,b.owner_user_id) ? b.owner_user_id : agentUser.id;
-      return {...this.ctx.messaging.conversation(id,viewer),excluded:policy.excluded_conversation_ids.includes(id)};
+      return {...this.ctx.messaging.conversation(id,viewer,readerId),excluded:policy.excluded_conversation_ids.includes(id)};
     });
   }
   /** Change future source access using an authenticated owner message, without erasing prior work. */
@@ -76,7 +87,7 @@ export class PersonalAgents {
       if (args.action === 'exclude') excluded.add(args.conversation_id); else excluded.delete(args.conversation_id);
       this.updatePolicy(b.owner_id,{expected_revision:args.expected_revision,excluded_conversation_ids:[...excluded]});
     }
-    return {policy:this.policy(b.binding_id),items:this.sourceConversations(b)};
+    return {policy:this.policy(b.binding_id),items:this.sourceConversations(b,"joined",this.ctx.messaging.agentUser(b.agent_id).id)};
   }
   /** Revalidate every ingress path, including relays queued before a policy change. */
   sourceActor(message:Row) {return message.sender_source_id?`external:${message.conversation_id}:${message.sender_source_id}`:message.sender_user_id;}
@@ -298,15 +309,15 @@ export class PersonalAgents {
     }
     return hash.digest('hex');
   }
-  /** Return original owner inputs and their published UI context; private drafts are not authorization. */
+  /** Return original owner inputs and accessible conversation context; private drafts are not authorization. */
   authorization(principal: Row, args: Row) {
     const b = this.authority(principal,args);
     const messages = all(this.db,"SELECT * FROM messages WHERE sender_user_id=? AND sender_type='user' ORDER BY rowid",b.owner_user_id)
       .filter(m=>!this.representedBy(m.id) && this.sourceFacts(b,m).is_owner && this.messageAllowed(b,m));
     const conversationIds=[...new Set(messages.map(m=>m.conversation_id))];
     const conversations=conversationIds.map(id=>{
-      const chat=one(this.db,'SELECT id,title,type,external_source FROM conversations WHERE id=?',id)!;
-      return {id,name:chat.title,conversation_type:chat.type,channel:chat.external_source??'web',
+      const chat=one(this.db,'SELECT id,title,type,title_is_custom,external_source FROM conversations WHERE id=?',id)!;
+      return {id,name:conversationName(chat,this.ctx.messaging.members(id),this.ctx.messaging.agentUser(b.agent_id).id),conversation_type:chat.type,channel:chat.external_source??'web',
         messages:all(this.db,'SELECT * FROM messages WHERE conversation_id=? ORDER BY rowid',id)
           .filter(m=>this.messageAllowed(b,m)).map(m=>this.messageEvidence(b,m))};
     });
@@ -322,11 +333,11 @@ export class PersonalAgents {
   incidentEvent(b:Row,incident:Row) {
     const source=this.sourceAllowed(b,incident.conversation_id)?one(this.db,`SELECT m.content,
       COALESCE(NULLIF(m.sender_display_name,''),NULLIF(u.display_name,'')) actor_name,
-      c.id conversation_id,c.title conversation_name,c.type conversation_type
+      c.id conversation_id,c.title conversation_name,c.type conversation_type,c.title_is_custom,c.external_source
       FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN users u ON u.id=?
       WHERE m.id=?`,incident.actor_id,incident.source_message_id):undefined;
     const identity=source?{...(source.actor_name?{actor_name:source.actor_name}:{}),
-      conversation:{id:source.conversation_id,name:source.conversation_name,type:source.conversation_type}}:{};
+      conversation:{id:source.conversation_id,name:conversationName({title:source.conversation_name,type:source.conversation_type,title_is_custom:source.title_is_custom,external_source:source.external_source},this.ctx.messaging.members(source.conversation_id),this.ctx.messaging.agentUser(b.agent_id).id),type:source.conversation_type}}:{};
     const automatic=one(this.db,'SELECT 1 FROM pa_contact_violations WHERE incident_id=? AND triggered_block=1',incident.id);
     if(automatic) {
       // The system action remains reportable to the owner after source access or contact policy changes.
@@ -438,6 +449,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
   app.get('/im/v1/personal-agent',req=>pa.state(user(req).owner_id));
   app.post('/im/v1/personal-agent',async(req,reply)=>{
     const u=user(req),input=body(req);
+    const avatar=parseAvatarVariant(input.avatar_variant);
     if(typeof input.request_key!=='string'||!input.request_key||typeof input.display_name!=='string'||!input.display_name.trim()) fail(422,'name_and_request_key_required');
     const node=one(ctx.db,'SELECT n.*,b.node_epoch FROM nodes n JOIN node_binding_state b ON b.node_id=n.node_id WHERE n.node_id=? AND n.owner_id=?',input.node_id,u.owner_id);
     if(!node) fail(404,'node_not_found');
@@ -462,7 +474,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const catalog=resolved?.capabilities;
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
         const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.default_on||tool.name==='send_message').map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'personal_sources','agent_creation'])];
-        let candidate={agent_id:b.agent_id,display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null};
+        let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null};
         for(const feature of featureDependencies) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
         await ops.create(candidate,u.owner_id,b.node_id);
       }

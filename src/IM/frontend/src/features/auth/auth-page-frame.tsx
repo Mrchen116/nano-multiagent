@@ -1,137 +1,37 @@
-import { PropsWithChildren, ReactNode } from "react";
-
-import { NanoBrand } from "../../app/shell/nano-brand";
-import { getCurrentLanguage, setLanguage, useTranslation } from "../../i18n";
+import { PropsWithChildren, ReactNode } from 'react';
+import { ProductHeader } from '../home/product-header';
+import { AuthScene } from './auth-scene';
+import './auth-page.css';
 
 type AuthPageFrameProps = PropsWithChildren<{
-  kicker: string;
+  intent?: 'login' | 'register' | 'membership';
   title: string;
   subtitle: string;
   footer: ReactNode;
 }>;
 
-export function AuthPageFrame({ kicker, title, subtitle, footer, children }: AuthPageFrameProps) {
-  const { t } = useTranslation();
-  const language = getCurrentLanguage();
-  return (
-    <div className="im-auth-screen">
-      <header className="im-auth-topbar">
-        <NanoBrand className="im-auth-brand" />
-        <div className="im-auth-language" role="group" aria-label={t("auth.language.label")}>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={language === "en"}
-            onClick={() => setLanguage("en")}
-          >
-            EN
-          </button>
-          <span aria-hidden="true">|</span>
-          <button
-            type="button"
-            role="radio"
-            aria-checked={language === "zh"}
-            onClick={() => setLanguage("zh")}
-          >
-            中
-          </button>
+/** Keep account actions focused, with the same identity and clear route back to the product. */
+export function AuthPageFrame({ title, subtitle, footer, children, intent = 'membership' }: AuthPageFrameProps) {
+  return <div className={`crew-account crew-account--${intent} product-entry`}>
+    <ProductHeader page={intent} />
+    <main className="crew-account-main">
+      <div className="crew-account-shell">
+        <AuthScene />
+        <div className="crew-account-form-region">
+          <section className="crew-account-panel" aria-labelledby="auth-form-title">
+            <header className="crew-account-heading">
+              <h1 id="auth-form-title">{title}</h1>
+              <p>{subtitle}</p>
+            </header>
+            {children}
+            {footer && <footer className="im-auth-footer">{footer}</footer>}
+          </section>
         </div>
-      </header>
-      <main className="im-auth-main">
-        <section className="im-auth-context" aria-labelledby="auth-context-title">
-          <p className="im-auth-eyebrow">{t("auth.context.eyebrow")}</p>
-          <h1 id="auth-context-title">{t("auth.context.title")}</h1>
-          <p className="im-auth-context-copy">{t("auth.context.body")}</p>
-          <div className="im-auth-capabilities">
-            <Capability icon="people" label={t("auth.context.people")} />
-            <Capability icon="agents" label={t("auth.context.agents")} />
-            <Capability icon="devices" label={t("auth.context.devices")} />
-          </div>
-        </section>
-        <section className="im-auth-card" aria-labelledby="auth-form-title">
-          <header className="im-auth-header">
-            <div className="im-auth-kicker">
-              <EnterIcon />
-              <span>{kicker}</span>
-            </div>
-            <h2 id="auth-form-title">{title}</h2>
-            <p>{subtitle}</p>
-          </header>
-          {children}
-          <footer className="im-auth-footer">{footer}</footer>
-        </section>
-      </main>
-    </div>
-  );
-}
-
-function Capability({ icon, label }: { icon: "people" | "agents" | "devices"; label: string }) {
-  return (
-    <div className="im-auth-capability">
-      <CapabilityIcon name={icon} />
-      <span>{label}</span>
-    </div>
-  );
-}
-
-function CapabilityIcon({ name }: { name: "people" | "agents" | "devices" }) {
-  if (name === "people") {
-    return (
-      <LineIcon>
-        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-        <circle cx="9" cy="7" r="4" />
-        <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-      </LineIcon>
-    );
-  }
-  if (name === "agents") {
-    return (
-      <LineIcon>
-        <rect x="3" y="3" width="18" height="18" rx="5" />
-        <path d="m8 12 2.5 2.5L16 9" />
-      </LineIcon>
-    );
-  }
-  return (
-    <LineIcon>
-      <rect x="3" y="4" width="18" height="13" rx="2" />
-      <path d="M8 21h8m-4-4v4" />
-    </LineIcon>
-  );
-}
-
-function EnterIcon() {
-  return (
-    <LineIcon>
-      <path d="M12 5v14m-6-6 6 6 6-6" />
-    </LineIcon>
-  );
+      </div>
+    </main>
+  </div>;
 }
 
 export function AuthAlert({ children, id }: PropsWithChildren<{ id?: string }>) {
   return <p id={id} role="alert" className="im-auth-alert">{children}</p>;
-}
-
-export function SubmitArrow() {
-  return (
-    <LineIcon>
-      <path d="M5 12h14m-5-5 5 5-5 5" />
-    </LineIcon>
-  );
-}
-
-function LineIcon({ children }: PropsWithChildren) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      {children}
-    </svg>
-  );
 }

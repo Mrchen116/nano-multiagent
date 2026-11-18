@@ -332,7 +332,7 @@ export async function createServer(options: ServerOptions = {}) {
         .send(createReadStream(file));
     }
     if (
-      path === "/" ||
+      path === "/" || path === "/about" ||
       /^\/(chat|tasks|settings|bind\/confirm|login|register|membership|onboarding|me)(\/|$)/.test(path)
     ) {
       const index = join(dist, "index.html");

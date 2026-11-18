@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS conversations (
 );
 CREATE TABLE IF NOT EXISTS agent_profiles (
     agent_id TEXT PRIMARY KEY,
+    avatar_variant INTEGER CHECK (avatar_variant BETWEEN 0 AND 23),
     space_id TEXT NOT NULL DEFAULT 'company:default',
     owner_id TEXT NOT NULL,
     node_id TEXT,

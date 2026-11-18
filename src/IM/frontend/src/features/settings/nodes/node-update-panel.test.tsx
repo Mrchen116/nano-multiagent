@@ -30,7 +30,7 @@ it('allows cancellation while waiting, but removes it once switching starts',asy
 });
 it('shows the next published release after a previous update succeeded',()=>{
   show({...value,operation:{id:'previous',state:'succeeded',cancel_requested:false,relay_gated:false,request_id:'previous-click'}});
-  expect(screen.getByRole('heading',{name:/Nano 1.2.3 is ready/})).toBeVisible();
+  expect(screen.getByRole('heading',{name:/Crewden 1.2.3 is ready/})).toBeVisible();
   expect(screen.getByText('Improved reconnects')).toBeVisible();
 });
 it('clears an obsolete failure after a manual installation reaches the published version',()=>{

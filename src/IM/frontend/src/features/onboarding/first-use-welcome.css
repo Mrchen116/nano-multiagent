@@ -1,0 +1,61 @@
+.first-use {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  color: var(--im-text);
+  background: var(--im-bg);
+}
+.first-use-inner { max-width: 1100px; margin: 0 auto; padding: 64px 40px 32px; }
+.first-use-heading { max-width: 670px; margin-bottom: 36px; }
+.first-use-eyebrow, .first-use-section-label { color: var(--im-accent); font-size: 12px; font-weight: 650; letter-spacing: 0; }
+.first-use-heading h1 { margin: 12px 0 16px; font-size: clamp(28px, 3vw, 38px); line-height: 1.3; font-weight: 700; letter-spacing: -.035em; text-wrap: balance; }
+.first-use-heading > p { margin: 0; color: var(--im-text-muted); font-size: 15px; line-height: 1.8; }
+.first-use-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start; }
+.first-use-setup { padding: 28px; background: var(--im-surface); border: 1px solid var(--im-border); border-radius: 20px; box-shadow: 0 12px 36px -26px #30204935; }
+.first-use-setup-heading { display: flex; gap: 14px; align-items: center; }
+.first-use-symbol { width: 48px; height: 48px; flex: none; display: grid; place-items: center; color: var(--im-accent); background: var(--im-accent-soft); border-radius: 14px; }
+.first-use-symbol svg { width: 28px; height: 28px; }
+.first-use-setup h2, .first-use-ideas h2 { margin: 0; font-size: 21px; line-height: 1.45; font-weight: 650; }
+.first-use-setup-heading p { display: flex; align-items: center; gap: 5px; margin: 5px 0 0; color: var(--im-accent); font-size: 12px; }
+.first-use-steps { list-style: none; margin: 24px 0; padding: 0; }
+.first-use-steps li { display: flex; align-items: flex-start; gap: 14px; position: relative; padding: 16px 0; }
+.first-use-steps li + li { border-top: 1px solid var(--im-border); }
+.first-use-step-number { width: 30px; height: 30px; flex: none; display: grid; place-items: center; border: 1px solid var(--im-border); border-radius: 50%; color: var(--im-text-muted); font-size: 11px; font-weight: 600; }
+.first-use-steps .current .first-use-step-number, .first-use-steps .complete .first-use-step-number { color: var(--im-accent); background: var(--im-accent-soft); border-color: transparent; }
+.first-use-steps h3 { margin: 2px 0 5px; font-size: 14px; font-weight: 650; }
+.first-use-steps p { margin: 0; color: var(--im-text-muted); font-size: 12px; line-height: 1.65; overflow-wrap: anywhere; }
+.first-use-step-done { margin-left: auto; flex: none; font-size: 11px; color: var(--im-accent); }
+.first-use-primary { display: flex; align-items: center; justify-content: center; gap: 14px; min-height: 48px; padding: 12px 18px; border-radius: 10px; color: var(--im-accent-fg); background: var(--im-accent); text-decoration: none; font-size: 14px; font-weight: 650; }
+.first-use-primary:hover { background: var(--im-accent-2); }
+.first-use-primary:focus-visible, .first-use button:focus-visible { outline: 3px solid var(--im-accent); outline-offset: 4px; }
+.first-use-resume { margin: 12px 0 0; text-align: center; color: var(--im-text-muted); font-size: 11px; line-height: 1.65; }
+.first-use-feedback { padding: 12px; border-radius: 8px; color: var(--im-danger); background: var(--im-surface-2); font-size: 13px; }
+.first-use-feedback button { text-decoration: underline; }
+.first-use-ideas { padding-top: 12px; }
+.first-use-ideas h2 { margin: 10px 0 8px; }
+.first-use-ideas-intro { margin: 0 0 22px; color: var(--im-text-muted); font-size: 13px; line-height: 1.7; }
+.first-use-example { display: flex; align-items: flex-start; gap: 14px; padding: 20px 0; border-top: 1px solid var(--im-border); }
+.first-use-example-icon { width: 36px; height: 36px; flex: none; display: grid; place-items: center; color: var(--im-accent); background: var(--im-surface); border: 1px solid var(--im-border); border-radius: 10px; }
+.first-use-example-icon svg { width: 20px; height: 20px; }
+.first-use-example h3 { font-size: 14px; font-weight: 650; margin: 0 0 6px; }
+.first-use-example p { margin: 0; color: var(--im-text-muted); font-size: 13px; line-height: 1.8; }
+.first-use-example-number { font-size: 10px; color: var(--im-text-muted); margin-left: auto; padding-top: 3px; }
+.first-use-example-note { font-size: 11px; color: var(--im-text-muted); line-height: 1.65; }
+.first-use-footer { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; margin-top: 32px; color: var(--im-text-muted); font-size: 12px; line-height: 1.7; }
+.first-use-footer button { color: var(--im-accent); min-height: 40px; font-weight: 600; }
+@media (max-width: 767px) {
+  .first-use-inner { padding: 28px 20px 24px; }
+  .first-use-heading { margin-bottom: 24px; }
+  .first-use-heading h1 { font-size: 28px; margin: 10px 0 12px; }
+  .first-use-heading > p { font-size: 14px; }
+  .first-use-layout { grid-template-columns: minmax(0, 1fr); gap: 30px; }
+  .first-use-setup { padding: 22px; border-radius: 16px; }
+  .first-use-setup h2, .first-use-ideas h2 { font-size: 19px; }
+  .first-use-steps { margin: 18px 0; }
+  .first-use-steps li { padding: 12px 0; }
+  .first-use-footer { margin-top: 20px; }
+}
+
+.first-use-heading > .assistant-portrait { display: block; margin-bottom: 18px; }
+.first-use-example:nth-of-type(2) .first-use-example-icon { background: #f1eaf9; color: #7656a0; border-color: transparent; }
+.first-use-example:nth-of-type(3) .first-use-example-icon { background: #fff2da; color: #947039; border-color: transparent; }

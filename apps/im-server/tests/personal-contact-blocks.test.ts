@@ -24,7 +24,7 @@ it('blocks at five distinct inputs across chats, retaining group access and a re
  const f=fixture(),{service,db,ctx,principal,args}=f;
  db.prepare("UPDATE users SET display_name='Lin' WHERE id='u2'").run();
  const first=f.report('peer');
- expect(service.pendingIncidents(principal,args).items[0]).toMatchObject({actor_name:'Lin',conversation:{id:'peer',name:'Peer',type:'direct'}});
+ expect(service.pendingIncidents(principal,args).items[0]).toMatchObject({actor_name:'Lin',conversation:{id:'peer',name:'u1 ↔ Lin',type:'direct'}});
  for(let i=0;i<3;i++)f.report();
  expect(service.blockedContacts('o1').items).toEqual([]);
  expect(service.incident(principal,{...args,source_message_id:first.source_message_id,category:'prompt_injection',reason:'Retry'}).id).toBe(first.id);

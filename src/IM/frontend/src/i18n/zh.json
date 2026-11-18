@@ -6,18 +6,11 @@
     "language": {
       "label": "语言"
     },
-    "context": {
-      "eyebrow": "你的个人助手空间",
-      "title": "让人与 Agent 在一个工作区协作",
-      "body": "从聊天开始，在不同设备上连接你的 Agent，一起跟进长期任务。",
-      "people": "与团队成员共同使用 Agent",
-      "agents": "在同一个聊天里协作多个 Agent",
-      "devices": "在你的设备上管理和运行"
-    },
     "common": {
       "optional": "可选",
       "showPassword": "显示密码",
-      "hidePassword": "隐藏密码"
+      "hidePassword": "隐藏密码",
+      "restoring": "正在恢复你的登录…"
     },
     "feedback": {
       "usernameRequired": "请填写用户名。",
@@ -34,20 +27,18 @@
       "serviceUnavailable": "认证服务暂时不可用，请稍后重试。"
     },
     "login": {
-      "kicker": "欢迎回来",
-      "title": "登录",
-      "subtitle": "继续你的对话和 Agent 工作。",
+      "title": "欢迎回来",
+      "subtitle": "登录 Crewden，继续你的工作。",
       "username": "用户名",
       "password": "密码",
       "submit": "登录",
       "submitting": "登录中…",
       "noAccount": "还没有账号?",
-      "registerLink": "创建一个"
+      "registerLink": "创建账号"
     },
     "register": {
-      "kicker": "开始使用",
-      "title": "创建账号",
-      "subtitle": "创建账号后即可使用自己的个人空间，无需等待审批。",
+      "title": "创建你的账号",
+      "subtitle": "先拥有自己的空间，再开始设置你的个人助手。",
       "username": "用户名",
       "password": "密码",
       "displayName": "显示名",
@@ -58,10 +49,24 @@
       "haveAccount": "已有账号?",
       "loginLink": "去登录"
     },
-    "logout": "退出登录"
+    "logout": "退出登录",
+    "scene": {
+      "title": "你的工作，\n有人一起推进。",
+      "intro": "从一句讨论，到准备好的成果。让个人助手和数字同事，接住接下来的工作。",
+      "description": "协作示意：你提出发布变更，个人助手、工程与 QA 分工协作，带回等待你审阅的发布说明。",
+      "you": "你",
+      "request": "发布改到周五，帮我把相关工作一起跟上。",
+      "assistant": "你的助手",
+      "colleague": "工程同事",
+      "quality": "QA 同事",
+      "document": "发布更新说明",
+      "result": "新时间、客户说明与验证结果，已经整理在一起。",
+      "review": "准备好了，等你确认",
+      "caption": "协作示意 · 注册后可设置自己的助手"
+    }
   },
   "shell": {
-    "appName": "nano IM",
+    "appName": "Crewden",
     "tabs": {
       "chat": "聊天",
       "agents": "智能体",
@@ -75,7 +80,8 @@
       "policies": "策略",
       "language": "语言",
       "signOut": "退出登录"
-    }
+    },
+    "home": "Crewden 工作空间"
   },
   "me": {
     "title": "我",
@@ -978,8 +984,14 @@
     },
     "redesign": {
       "workMode": "工作模式",
-      "mode": {"single_thread": "单 Thread", "global": "全局模式"},
-      "modeHelp": {"single_thread": "每个聊天使用独立上下文。", "global": "跨聊天保持持续上下文，统一处理任务。"},
+      "mode": {
+        "single_thread": "单 Thread",
+        "global": "全局模式"
+      },
+      "modeHelp": {
+        "single_thread": "每个聊天使用独立上下文。",
+        "global": "跨聊天保持持续上下文，统一处理任务。"
+      },
       "modeFixed": "创建后不能切换工作模式。",
       "createIdHelp": "小写字母、数字、_ 和 -；创建后不可更改。",
       "creating": "正在创建…",
@@ -1001,7 +1013,12 @@
   },
   "chat": {
     "deletedAgent": "Agent 已删除",
-    "toast": { "newMessage": "新消息", "member": "成员", "agent": "Agent", "card": "互动卡片" },
+    "toast": {
+      "newMessage": "新消息",
+      "member": "成员",
+      "agent": "Agent",
+      "card": "互动卡片"
+    },
     "conversationMenu": {
       "label": "会话菜单",
       "rename": "重命名",
@@ -1031,12 +1048,12 @@
       "loadMore": "加载更多",
       "filters": {
         "all": "全部",
-        "agent": "Agent",
+        "agent": "助手",
         "group": "群聊",
-        "network": "Agent 网络",
-        "people": "人"
+        "network": "AI 协作",
+        "people": "同事"
       },
-      "generateSkill": "生成 skill",
+      "generateSkill": "整理为技能",
       "distillToSkill": "蒸馏为 skill",
       "cancel": "取消",
       "running": "运行中",
@@ -1095,7 +1112,8 @@
       "runningCount": "{{count}} 个执行中",
       "waitingCount": "{{count}} 个待授权",
       "more": "加载更多",
-      "open": "打开工作记录"
+      "open": "打开工作记录",
+      "computer": "所在电脑"
     },
     "messagePane": {
       "accessErrorTitle": "聊天不可访问",
@@ -1602,7 +1620,28 @@
     "transferHistory": "设备、助手及助手工作历史将转交给当前账号；私人助手进入接收人的个人空间。原私人聊天、附件和任务不会转交。",
     "bindTitle": "连接你的电脑",
     "bindDescription": "确认后，这台电脑会连接到你的个人空间，用于运行你创建的助手。",
-    "bindAccept": "确认连接这台电脑"
+    "bindAccept": "确认连接这台电脑",
+    "bindAccount": "当前登录账号",
+    "bindComplete": "电脑已连接，可以继续设置助手。",
+    "bindWorkspace": "你的电脑，\n助手的工作台。",
+    "bindSceneDetail": "让想法有地方落地，让工作持续推进。",
+    "bindSceneFoot": "只有经你确认，电脑才会加入当前账号。",
+    "bindComputer": "正在连接的电脑",
+    "bindLoading": "正在读取电脑信息…",
+    "bindConfirmLabel": "确认连接",
+    "bindConnectingLabel": "连接进行中",
+    "bindConnectedLabel": "连接完成",
+    "bindConnectingTitle": "正在为助手准备工作台",
+    "bindConnectedTitle": "电脑就绪，可以继续了",
+    "bindConnectedNote": "接下来连接模型，再给你的个人助手起个名字。",
+    "bindWaitingNote": "账号已确认。保持电脑上的安装窗口打开，连接完成后即可继续。",
+    "bindProgress": "连接进度",
+    "bindAccountCheck": "确认接收账号",
+    "bindAccountHint": "请确认这是你想连接到的账号",
+    "bindAccountDone": "已获得你的确认",
+    "bindComputerCheck": "等待电脑连接",
+    "bindComputerHint": "电脑端完成连接后，这里会自动更新",
+    "bindComputerDone": "电脑端已完成连接"
   },
   "nodeUpdate": {
     "available": {
@@ -1663,7 +1702,7 @@
     },
     "offline": {
       "title": "电脑上线后可更新",
-      "body": "在这台电脑上打开 Nano 后，再回来更新。"
+      "body": "在这台电脑上打开 Crewden 后，再回来更新。"
     },
     "current": {
       "title": "已是最新版本",
@@ -1719,11 +1758,11 @@
     "assistantCount_other": "{{count}} 个助手",
     "assistantCount": "{{count}} 个助手",
     "lastSeen": "上次在线于 {{time}}",
-    "reconnect": "打开电脑上的 Nano 即可重新连接",
+    "reconnect": "打开电脑上的 Crewden 即可重新连接",
     "noConnection": "暂无连接记录",
-    "help": "助手在你的电脑上工作。保持 Nano 运行，就能随时继续对话。",
+    "help": "助手在你的电脑上工作。保持 Crewden 运行，就能随时继续对话。",
     "emptyTitle": "连接第一台电脑",
-    "emptyBody": "把 Nano 安装到电脑上，\n你的助手就有了可以工作的地方。",
+    "emptyBody": "把 Crewden 安装到电脑上，\n你的助手就有了可以工作的地方。",
     "loadHelp": "请检查网络连接，然后重新试一次。",
     "stale": "刷新失败，以下是上次读取的状态。",
     "name": "电脑名称",
@@ -1732,7 +1771,7 @@
     "nameRequired": "请输入电脑名称",
     "saveFailed": "暂时无法保存，请稍后重试。输入已保留。",
     "saved": "电脑名称已更新",
-    "offlineManage": "请在这台电脑上打开 Nano。重新连接后，就可以改名或创建助手。",
+    "offlineManage": "请在这台电脑上打开 Crewden。重新连接后，就可以改名或创建助手。",
     "updateManage": "电脑恢复后可改名或创建助手。",
     "lastOnline": "最后在线",
     "assistantsHere": "在这台电脑上工作的助手",
@@ -1744,12 +1783,12 @@
     "connectionLog": "连接记录",
     "noError": "无异常记录",
     "notFound": "这台电脑已不在列表中，请返回刷新。",
-    "releaseReady": "Nano {{version}} 已就绪",
+    "releaseReady": "Crewden {{version}} 已就绪",
     "updateStages": "更新阶段",
     "continueOnComputer": "到这台电脑上继续",
     "getStarted": "让助手开始工作",
     "recoveryOn": "请在「{{name}}」上完成以下步骤。电脑恢复连接后，页面会更新状态。",
-    "connectBody": "在你想运行助手的电脑上安装 Nano，再用当前账号确认连接。",
+    "connectBody": "在你想运行助手的电脑上安装 Crewden，再用当前账号确认连接。",
     "installFailed": "暂时无法读取安装说明，请重试。",
     "noInstaller": "管理员尚未发布可用的电脑端安装包，请稍后再试。",
     "installMethod": "安装方式",
@@ -1766,13 +1805,13 @@
     "copyFailed": "无法自动复制，请选中上方内容手动复制。",
     "platforms": "支持 macOS / Linux，Windows 可在 WSL 中运行。",
     "refreshList": "已在电脑上完成，刷新列表",
-    "agentInstructions": "请帮我安装或恢复 Nano 电脑端，连接 {{origin}}。先等待当前任务结束，再运行此服务提供的命令：\n{{command}}\n保留已有配置、身份、凭据和工作文件；不要部署 IM 服务。需要确认绑定时由我操作，不要索取密码或模型密钥。",
+    "agentInstructions": "请帮我安装或恢复 Crewden 电脑端，连接 {{origin}}。先等待当前任务结束，再运行此服务提供的命令：\n{{command}}\n保留已有配置、身份、凭据和工作文件；不要部署 IM 服务。需要确认绑定时由我操作，不要索取密码或模型密钥。",
     "stage": {
       "prepare": "准备",
       "idle": "等待空闲",
       "switch": "切换"
     },
-    "agentRecoveryInstructions": "请帮我恢复这台电脑上的 Nano。先等待当前任务结束，再运行此服务提供的恢复命令：\n{{command}}\n保留已有配置、身份、凭据和工作文件；不要部署 IM 服务。需要确认时由我操作，不要索取密码或模型密钥。",
+    "agentRecoveryInstructions": "请帮我恢复这台电脑上的 Crewden。先等待当前任务结束，再运行此服务提供的恢复命令：\n{{command}}\n保留已有配置、身份、凭据和工作文件；不要部署 IM 服务。需要确认时由我操作，不要索取密码或模型密钥。",
     "title": "电脑"
   },
   "pa": {
@@ -1844,5 +1883,543 @@
     "senderLabel": "{{name}}，由 PA 代发",
     "sentOnBehalf": "PA 代发",
     "composeUnavailable": "目标聊天不可用，或你没有发送权限。"
+  },
+  "firstUse": {
+    "eyebrow": "欢迎来到你的个人空间",
+    "title": "你的个人助手，从这里开始。",
+    "intro": "先给助手准备一个工作位置，再聊聊你想做的事。我们一步一步来。",
+    "setupTitle": "为助手准备一个位置",
+    "accountReady": "账号已创建，个人空间已就绪",
+    "done": "已完成",
+    "continue": "继续设置助手",
+    "resume": "不用一次做完，随时回来接着设置。",
+    "progressError": "暂时无法确认设置进度。",
+    "steps": {
+      "computer": {
+        "title": "连接工作电脑",
+        "body": "让助手有一个执行任务、保存文件的地方。"
+      },
+      "model": {
+        "title": "连接模型",
+        "body": "使用你的 API 服务或支持的订阅授权。"
+      },
+      "assistant": {
+        "title": "开始和助手合作",
+        "body": "给它起个名字，聊聊你想完成的第一件事。"
+      }
+    },
+    "actions": {
+      "computer": "连接第一台电脑",
+      "model": "继续连接模型",
+      "assistant": "创建个人助手"
+    },
+    "examplesLabel": "设置好之后，可以这样开始",
+    "examplesTitle": "从一件具体的小事开始。",
+    "examplesIntro": "不必写复杂的指令，先说说你想做什么。",
+    "examples": {
+      "plan": {
+        "title": "安排接下来的一周",
+        "prompt": "“这周有学习、运动和一个截止任务，帮我安排一下。”"
+      },
+      "organize": {
+        "title": "把零散想法理清楚",
+        "prompt": "“我有几个想做的项目，帮我梳理优先级和下一步。”"
+      },
+      "start": {
+        "title": "把目标拆成行动",
+        "prompt": "“我想做一个个人网站，先帮我列出一个可执行的计划。”"
+      }
+    },
+    "examplesNote": "以上是提问示例。设置完成后，由你决定发送什么。",
+    "peopleHint": "也可以先与联系人交流。",
+    "newChat": "发起聊天"
+  },
+  "publicHome": {
+    "skip": "跳到主要内容",
+    "home": "Crewden 首页",
+    "navigation": "产品导航",
+    "signIn": "登录"
+  },
+  "cooperation": {
+    "chatOpenFailed": "数字员工已创建，但私聊暂未打开。请点击“发消息”重试。",
+    "label": "合作约定",
+    "eyebrow": "从认识彼此开始",
+    "step1": "聊聊背景",
+    "step2": "对齐长期职责",
+    "step3": "确认并开始合作",
+    "note": "点击只会填入输入框，你可以修改后发送。背景留在对话中；长期职责经你确认后才保存。",
+    "later": "先处理一件事，稍后再聊",
+    "personal": {
+      "title": "先让{{name}}了解你",
+      "intro": "说说你目前在忙什么、想实现什么，或最希望得到怎样的帮助。我们可以从一个具体困扰开始，慢慢找到适合你的长期协作方式。",
+      "introduceLabel": "先介绍一下自己",
+      "responsibilityLabel": "我已有想交给你的长期职责",
+      "introduce": "我想先让你了解我，再一起讨论你可以怎样长期帮助我。请从我目前的工作、目标或困扰开始，一次问我一个问题。",
+      "responsibility": "我想和你约定一项长期职责。请先听我介绍希望你持续负责的事情和协作边界，整理后交给我确认，再保存。"
+    },
+    "global": {
+      "title": "先和{{name}}对齐职责",
+      "intro": "告诉它你希望它长期负责什么结果，以及怎样与你和其他伙伴分工。从一项有用的职责开始，不必一次写完岗位说明。",
+      "introduceLabel": "聊聊工作背景和目标",
+      "responsibilityLabel": "我已有明确的职责安排",
+      "introduce": "我们先对齐你的工作职责。请了解工作背景、我希望你负责的结果，以及与其他人的分工，一次只问一个关键问题。",
+      "responsibility": "我有明确的长期职责安排要交给你。请先听我介绍职责范围、交付标准和协作边界，整理成约定供我确认，再保存。"
+    }
+  },
+  "crewdenHome": {
+    "titleFirst": "让 AI 同事，",
+    "titleSecond": "加入你的团队。",
+    "intro": "个人助手照应你的工作与生活，专职 AI 同事各有所长。在同一个聊天空间里，持续跟进、协作，把成果带回来。",
+    "watch": "看一次协作",
+    "scenario": "一次发布改期，如何一起推进",
+    "navigation": "协作演示阶段",
+    "steps": {
+      "change": "接住变化",
+      "progress": "一起推进",
+      "ready": "带回成果"
+    },
+    "next": "下一步",
+    "restart": "重新演示",
+    "actors": {
+      "human": "你和同事",
+      "personal": "你的个人助手",
+      "specialist": "专业数字员工"
+    },
+    "stageLabel": "你的团队，正在一起工作",
+    "example": "互动场景示例",
+    "person": "林岚",
+    "initial": "林",
+    "message": "发布改到周五。客户说明和回归验证，也按新时间准备。",
+    "workLabel": "协作进展",
+    "roles": {
+      "personal": "个人助手",
+      "engineering": "工程同事",
+      "quality": "QA 同事"
+    },
+    "document": "发布计划",
+    "project": "轻记 / 新版本",
+    "documentTitleFirst": "周五发布",
+    "documentTitleSecond": "准备清单",
+    "newDate": "新的发布时间",
+    "wednesday": "周三",
+    "friday": "周五",
+    "updated": "已更新",
+    "dateChange": "发布从周三调整到周五",
+    "week": {
+      "mon": "周一",
+      "tue": "周二",
+      "wed": "周三",
+      "thu": "周四",
+      "fri": "周五"
+    },
+    "original": "原定",
+    "launch": "发布",
+    "deliverables": {
+      "customer": "客户说明",
+      "customerNote": "新时间 / 版本变化",
+      "verification": "回归验证",
+      "verificationNote": "导出修复 / 权限检查"
+    },
+    "openDocument": "打开发布计划",
+    "dialogTitle": "轻记 · 新版本发布计划",
+    "deliverableList": "交付清单",
+    "releaseDecision": "发布操作：等待负责人确认",
+    "disclosure": "这是协作场景与成果示例，未运行真实 Agent 或执行发布。",
+    "close": "关闭发布计划",
+    "receiptTitle": "成果带回原来的聊天",
+    "receiptNote": "最后的发布决定，留给你。",
+    "footer": "让人和 AI，一起把事情做好。",
+    "scenes": {
+      "change": {
+        "work": {
+          "personal": "已接住变化",
+          "engineering": "正在对齐",
+          "quality": "正在对齐"
+        },
+        "version": "修订中",
+        "state": "正在准备",
+        "customer": "正在更新",
+        "verification": "正在确认",
+        "note": "时间已更新，客户说明与验证记录正在准备。",
+        "detail": "发布计划已更新为周五。客户说明与回归验证的进度仍待确认。"
+      },
+      "progress": {
+        "work": {
+          "personal": "正在更新说明",
+          "engineering": "正在确认修复",
+          "quality": "正在验证"
+        },
+        "version": "协作中",
+        "state": "正在推进",
+        "customer": "修改中",
+        "verification": "验证中",
+        "note": "两项工作并行推进，结果会汇总到这里。",
+        "detail": "个人助手正在更新客户说明。工程同事确认导出修复，QA 同事进行回归验证。"
+      },
+      "ready": {
+        "work": {
+          "personal": "说明已准备好",
+          "engineering": "修复已确认",
+          "quality": "验证已完成"
+        },
+        "version": "已更新",
+        "state": "待你确认",
+        "customer": "草稿已就绪",
+        "verification": "验证已完成",
+        "note": "材料已经备齐，等待林岚确认后发布。",
+        "detail": "客户说明草稿已完成；导出问题回归和权限检查已通过。材料准备完成，尚未发布，等待负责人确认。"
+      }
+    },
+    "definition": "人和 AI 一起工作的聊天空间。"
+  },
+  "crewdenStory": {
+    "nav": {
+      "how": "认识 AI 伙伴",
+      "capabilities": "如何持续工作",
+      "start": "如何开始",
+      "faq": "常见问题",
+      "menu": "打开网站导航",
+      "menuClose": "关闭网站导航",
+      "team": "团队如何协作"
+    },
+    "example": "产品使用示例",
+    "setup": {
+      "title": "先拥有自己的空间。",
+      "intro": "先和自己的助手开始合作，需要时再邀请同事和专职 Agent。",
+      "account": {
+        "title": "创建账号",
+        "body": "拥有个人空间。可以先进去看看，稍后继续设置。"
+      },
+      "computer": {
+        "title": "连接一台电脑",
+        "body": "为助手提供执行任务、处理文件的工作环境。"
+      },
+      "assistant": {
+        "title": "接入模型，认识助手",
+        "body": "连接模型服务，为助手命名，在聊天里约定它如何帮你。"
+      },
+      "requirements": "开始运行助手，需要一台可以保持在线的电脑，以及模型 API 或支持的订阅授权。模型费用由对应服务商收取。"
+    },
+    "questions": {
+      "title": "开始之前，你可能想知道",
+      "intro": "把使用条件和边界说清楚，再决定如何开始。",
+      "solo": {
+        "question": "只有我一个人，也能用吗？",
+        "answer": "可以。你可以先使用私人空间和个人助手，让它协助自己的工作。以后参加团队时，继续使用同一个个人助手；专业数字员工则按需要配置和协作。"
+      },
+      "ready": {
+        "question": "注册后就能直接让助手工作吗？",
+        "answer": "注册会创建账号和个人空间。要运行自己的助手，还需要连接电脑、接入模型服务，再完成助手设置。设置过程有引导，也可以中途离开，之后继续。"
+      },
+      "models": {
+        "question": "模型需要自己准备吗？",
+        "answer": "需要。你可以连接模型 API，或使用当前产品支持的订阅授权。具体可用方式会在设置中列出，费用由对应模型服务商收取。"
+      },
+      "privacy": {
+        "question": "我的私人聊天会被团队看到吗？",
+        "answer": "参加团队不会自动公开你的个人助手私聊和私人工作。团队协作遵循聊天成员与资源权限；助手代表你向其他人发送内容时，还需要符合你的授权和信息披露范围。"
+      },
+      "offline": {
+        "question": "关掉电脑后，助手还会工作吗？",
+        "answer": "助手在连接的电脑上执行。电脑离线时，依赖它的执行会暂停或不可用；恢复连接后才能继续处理。你可以从手机或其他浏览器查看与沟通，但执行电脑仍需要在线。"
+      },
+      "roles": {
+        "question": "数字员工是已经配置好的岗位吗？",
+        "answer": "你可以根据工作需要创建和配置数字员工，设定职责、模型、工作环境与工具能力。官网中的工程、QA 等角色用于解释协作方式，不表示注册后已自动配置或验证了这些岗位。"
+      }
+    },
+    "companions": {
+      "title": "你有自己的助手，\n也有各有所长的 AI 同事。",
+      "intro": "都能长期记住背景、主动跟进，跨聊天同时推进多件事。",
+      "rolePicker": "认识两种长期 AI 伙伴",
+      "workspace": "在 Crewden 里，一起把事情往前推",
+      "example": "可交互的协作示意",
+      "chats": "相关聊天",
+      "chatPicker": "切换聊天，查看同一个 Agent 如何跟进",
+      "switchHint": "点开聊天，看看它如何跟进",
+      "sharedChat": "群聊中的新变化",
+      "earlier": "之前已经约定",
+      "newMessage": "刚刚",
+      "proactive": "有了新变化，按约定主动接着做",
+      "continued": "接着推进",
+      "returnTo": "成果带回",
+      "ongoing": "同时照看的事",
+      "memory": "从之前的合作中记住",
+      "sameAgent": "换个聊天，还是同一个伙伴",
+      "remember": "记住背景，接着合作",
+      "notice": "有新变化，主动跟进",
+      "coordinate": "多个聊天，多件事一起推进",
+      "scope": "以上为使用示意。AI 伙伴只在可访问的聊天和你的授权范围内工作；运行时需要电脑在线。",
+      "personal": {
+        "title": "个人助手",
+        "subtitle": "围绕你，照应工作与生活",
+        "name": "小满",
+        "identity": "你的个人助手",
+        "duty": "跟进我的承诺，也帮我照应日常安排。",
+        "memory": "给客户的更新，先讲结论再讲细节。",
+        "chats": {
+          "first": {
+            "channel": "产品发布",
+            "preview": "发布改到周五",
+            "author": "林岚",
+            "agreement": "“发布有变化时，帮我把客户更新跟上。”",
+            "message": "发布时间改到周五，客户说明也要跟着调整。",
+            "result": "客户说明已经按新时间更新，草稿放在我们的私聊里了。",
+            "artifact": "客户更新说明.md",
+            "destination": "你与小满的私聊",
+            "task": "客户更新",
+            "progress": "已更新，待你审阅"
+          },
+          "second": {
+            "channel": "周末出行",
+            "preview": "集合时间有变化",
+            "author": "陈澄",
+            "agreement": "“行程有变化时，帮我更新出发前的清单。”",
+            "message": "周六改成上午集合，住的地方也换了，我把地址发这里。",
+            "result": "出发清单已按新时间和地点整理，和客户更新一起放在私聊里。",
+            "artifact": "周末出发清单.md",
+            "destination": "你与小满的私聊",
+            "task": "出行准备",
+            "progress": "清单已准备好"
+          },
+          "third": {
+            "channel": "方案讨论",
+            "preview": "新增一个备选方案",
+            "author": "周乔",
+            "agreement": "“持续整理这些方案，帮我把比较依据留下。”",
+            "message": "第二个方案降价了，这个预算下也值得考虑。",
+            "result": "我已补上新的价格和差异，比较表会和你手上的其他事一起跟进。",
+            "artifact": "方案比较表.md",
+            "destination": "你与小满的私聊",
+            "task": "方案调研",
+            "progress": "新信息已合并"
+          }
+        }
+      },
+      "specialist": {
+        "title": "专职 Agent",
+        "subtitle": "围绕职责，与不同的人协作",
+        "name": "小衡",
+        "identity": "负责产品质量的 AI 同事",
+        "duty": "持续负责版本质量，跟进问题直到复验。",
+        "memory": "每次回归都要检查导出和权限。",
+        "chats": {
+          "first": {
+            "channel": "轻记 · 发布",
+            "preview": "本周版本待验证",
+            "author": "产品同事",
+            "agreement": "“后续版本的回归验证，请你持续负责。”",
+            "message": "这周要上线导出功能，重点关注权限相关的变化。",
+            "result": "回归清单已更新。我会在质量群跟进验证，把结果带回发布群。",
+            "artifact": "版本回归清单.md",
+            "destination": "轻记 · 发布群",
+            "task": "轻记版本回归",
+            "progress": "验证清单已更新"
+          },
+          "second": {
+            "channel": "轻记 · 工程",
+            "preview": "导出修复已提交",
+            "author": "工程同事",
+            "agreement": "“修复后接着验证，有问题及时和工程对齐。”",
+            "message": "导出问题修好了，验证版本已经发到质量群。",
+            "result": "已开始复验，并把这次修复接到原来的质量记录里。",
+            "artifact": "导出问题复验记录.md",
+            "destination": "轻记 · 质量群",
+            "task": "导出修复复验",
+            "progress": "收到修复，继续验证"
+          },
+          "third": {
+            "channel": "轻账 · 发布",
+            "preview": "新增批量上传",
+            "author": "项目同事",
+            "agreement": "“这个项目的版本质量，也由你长期跟进。”",
+            "message": "这版新增了批量上传，测试范围需要加一下。",
+            "result": "已把批量上传加入验证项，和轻记的复验并行推进。",
+            "artifact": "轻账版本验证计划.md",
+            "destination": "轻账 · 发布群",
+            "task": "轻账版本验证",
+            "progress": "新增验证项已安排"
+          }
+        }
+      }
+    },
+    "team": {
+      "title": "你开个头，\n整个团队就动起来。",
+      "intro": "一条消息，几位伙伴，一起把事情往前推。",
+      "channel": "客户方案群",
+      "example": "协作演示",
+      "you": "你",
+      "lanInitial": "岚",
+      "requestTo": "你发给小满",
+      "request": "客户想看手机端，帮我们准备明天的演示。",
+      "start": "交给小满",
+      "received": "小满接住了，开始协调",
+      "parallel": "几件事，一起准备",
+      "working": "准备中",
+      "suggestionFrom": "阿岚带回一个建议",
+      "suggestion": "手机看数据。\n桌面做导出。",
+      "risk": "手机导出还需修复。",
+      "approve": "就按这个方案",
+      "sharedResult": "回到项目群",
+      "artifact": "明天的演示方案",
+      "together": "你和阿岚，都准备好了",
+      "aligning": "把决定同步到每一份材料",
+      "continue": "继续",
+      "pause": "暂停演示",
+      "play": "继续播放",
+      "replay": "重播",
+      "scope": "场景演示 · 按已约定的职责与授权协作 · 不会发送真实消息",
+      "actors": {
+        "you": {
+          "name": "你",
+          "role": "客户负责人"
+        },
+        "milo": {
+          "name": "小满",
+          "role": "你的 PA"
+        },
+        "qing": {
+          "name": "晴晴",
+          "role": "团队测试 Agent"
+        },
+        "noah": {
+          "name": "阿舟",
+          "role": "阿岚的 PA"
+        },
+        "lan": {
+          "name": "阿岚",
+          "role": "产品负责人"
+        }
+      },
+      "packets": {
+        "request": "客户需求",
+        "check": "验证路径",
+        "scope": "对齐范围",
+        "result": "验证结果",
+        "plan": "产品方案"
+      },
+      "work": {
+        "brief": "小满准备客户材料",
+        "scope": "阿舟核对产品范围",
+        "check": "晴晴验证演示路径"
+      },
+      "deliverables": {
+        "steps": "演示步骤",
+        "proof": "验证记录",
+        "brief": "客户说明"
+      },
+      "captions": {
+        "0": "你说一句，伙伴们接上。",
+        "1": "你的 PA，把相关的人连接起来。",
+        "2": "准备与验证，同时向前。",
+        "3": "需要取舍时，你和同事来决定。",
+        "4": "一个决定，大家接着往下做。",
+        "5": "同一份方案，整个团队准备就绪。"
+      },
+      "states": {
+        "0": {
+          "you": "提出目标",
+          "milo": "随时接力",
+          "qing": "负责测试",
+          "noah": "了解产品进展",
+          "lan": "负责产品判断"
+        },
+        "1": {
+          "you": "目标已交接",
+          "milo": "理解需求",
+          "qing": "负责测试",
+          "noah": "收到协作请求",
+          "lan": "负责产品判断"
+        },
+        "2": {
+          "you": "准备客户沟通",
+          "milo": "准备客户材料",
+          "qing": "检查演示路径",
+          "noah": "核对可用范围",
+          "lan": "了解验证结果"
+        },
+        "3": {
+          "you": "等你确认",
+          "milo": "带回可行方案",
+          "qing": "发现导出风险",
+          "noah": "整理产品约束",
+          "lan": "给出替代方案"
+        },
+        "4": {
+          "you": "范围已确认",
+          "milo": "更新客户说明",
+          "qing": "复验演示路径",
+          "noah": "同步产品范围",
+          "lan": "范围已确认"
+        },
+        "5": {
+          "you": "去见客户",
+          "milo": "材料已就绪",
+          "qing": "验证已通过",
+          "noah": "方案已同步",
+          "lan": "准备产品问答"
+        }
+      }
+    }
+  },
+  "workspaceWelcome": {
+    "title": "今天，想一起做点什么？",
+    "intro": "一个小问题，或一个大想法。都可以从这里聊起。",
+    "setup": "认识你的个人助手",
+    "personal": "计划、琐事，或一个还没理清的想法。",
+    "newChat": "找同事聊聊",
+    "team": "找一位同事或 Agent，一起往前推进。",
+    "returnTitle": "回来啦，接着往前走。",
+    "returnIntro": "接上之前的聊天，或者带来一个新想法。",
+    "recent": "上次聊到"
+  },
+  "assistantStart": {
+    "label": "和助手开始一件小事",
+    "title": "和{{name}}，从一件小事开始。",
+    "intro": "不用想好所有细节。一个零散的念头，或者一句“帮我理理”，就可以开始。",
+    "note": "点一下填入草稿，改好后再发送。也可以直接写你想说的。",
+    "keepDraft": "输入框里已有内容时，可以先接着写；这些灵感随时都在。",
+    "agreement": "也可以先认识彼此，聊聊长期合作",
+    "openError": "暂时没能打开聊天，请再试一次。",
+    "untangle": {
+      "title": "理清一个想法",
+      "hint": "脑子有点乱？一起捋捋。",
+      "prompt": "我有个还没想清楚的想法，想和你一起理一理。请先问我想做什么，一次问一个问题。"
+    },
+    "plan": {
+      "title": "安排接下来的一周",
+      "hint": "把想做的事放进日程。",
+      "prompt": "帮我安排接下来的一周吧。先问我有哪些想做的事、截止时间和可用时间，再一起排个轻松可行的计划。"
+    },
+    "next": {
+      "title": "找到第一步",
+      "hint": "先走一小步也很好。",
+      "prompt": "我想推进一件事，但不知道从哪里开始。先问问我的目标和现在的情况，再帮我找到今天就能做的第一步。"
+    }
+  },
+  "avatarPicker": {
+    "title": "选个喜欢的形象",
+    "style": "头像样式",
+    "color": "头像颜色",
+    "personal": [
+      "小圆",
+      "软糖",
+      "花朵",
+      "水滴"
+    ],
+    "agent": [
+      "拱形",
+      "菱形",
+      "纸片",
+      "星芒"
+    ],
+    "colors": [
+      "紫藤",
+      "薄荷",
+      "晴空",
+      "杏桃",
+      "玫瑰",
+      "麦穗"
+    ]
   }
 }

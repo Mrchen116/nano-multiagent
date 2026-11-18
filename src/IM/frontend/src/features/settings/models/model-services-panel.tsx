@@ -9,8 +9,8 @@ import './models.css';
 
 
 /** Manage one computer's services while keeping editable drafts independent of polling. */
-export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, heading, children }: {
-  node: OnboardingNode; initialAdd?: boolean; heading?: string; children?: ReactNode; onEditingChange?: (editing: boolean) => void;
+export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, onConnected, heading, children }: {
+  node: OnboardingNode; initialAdd?: boolean; heading?: string; children?: ReactNode; onEditingChange?: (editing: boolean) => void; onConnected?: () => void;
 }) {
   useTranslation();
   const text = (zh: string, en: string) => getCurrentLanguage() === 'zh' ? zh : en;
@@ -28,6 +28,7 @@ export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, 
   const [comparison, setComparison] = useState<SetupStatus | null>(null);
   const [codexModel, setCodexModel] = useState('');
   const [subscriptionFeedback, setSubscriptionFeedback] = useState(false);
+  const [accessMethod, setAccessMethod] = useState<'api' | 'subscription'>('api');
   const data = status.data;
   const offline = node.status !== 'online' || status.isError;
   const catalog = (data?.catalog ?? []).filter(p => p.provider !== 'openai-codex');
@@ -35,7 +36,12 @@ export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, 
   const operation = data?.operation;
   const running = operation?.state === 'testing' || operation?.state === 'waiting';
   const authorization = subscriptionFeedback || operation?.state === 'waiting' || Boolean(operation?.url);
-  useEffect(() => { if (operation?.state === 'waiting') setSubscriptionFeedback(true); }, [operation?.state]);
+  useEffect(() => {
+    if (operation?.state === 'waiting') {
+      setSubscriptionFeedback(true);
+      setAccessMethod('subscription');
+    }
+  }, [operation?.state]);
   const conflict = !!draft && (needsReview || error?.code === 'conflict' || (data && draft.revision !== data.revision));
   const mutation = useMutation({
     mutationFn: (input: SetupInput) => setupNode(node.node_id, input),
@@ -70,13 +76,14 @@ export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, 
       setNotice(tracked.action === 'remove' ? text('服务已移除。其他连接保持不变。', 'Service removed. Other connections are unchanged.') : text('连接验证成功，已保存。模型可在助手设置中选择。', 'Connection verified and saved. Models are available in assistant settings.'));
       void cache.invalidateQueries({ queryKey: ['settings'] });
       void cache.invalidateQueries({ queryKey: ['onboarding-capabilities'] });
+      if (tracked.action === 'save' || tracked.action === 'login') onConnected?.();
     } else if (operation?.state === 'failed') {
       setError(operation.error ?? { code: 'invalid', message: text('测试未通过。请检查地址、API Key 和模型后重试，原连接保持可用。', 'The test failed. Check the URL, API key and models, then retry. Your previous connection is preserved.') });
     } else if (operation?.state === 'cancelled') {
       setNotice(tracked.action === 'login' ? text('已取消账号连接。', 'Account connection cancelled.') : tracked.action === 'remove' ? text('已取消移除，服务保持不变。', 'Removal cancelled. This service is unchanged.') : text('验证已取消，未保存修改。草稿已保留，可以调整后重试。', 'Verification cancelled without saving. Your draft is preserved for retry.'));
     }
     setTracked(null);
-  }, [tracked, operation, running, cache]);
+  }, [tracked, operation, running, cache, onConnected]);
   const resetFeedback = () => { setSubscriptionFeedback(false); setError(null); setNotice(''); setComparison(null); setNeedsReview(false); };
   const add = () => { if (!data) return; resetFeedback(); setDraft(newServiceDraft(data.revision, availableCatalog.find(p => p.provider === 'openai') ?? availableCatalog[0])); };
   const edit = (service: ModelService) => { if (!data) return; resetFeedback(); setDraft(serviceDraft(service, data.revision)); };
@@ -103,6 +110,7 @@ export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, 
   const latestService = draft?.provider ? comparison?.services.find(s => s.provider === draft.provider) : undefined;
   const codex = data?.catalog.find(p => p.provider === 'openai-codex');
   const codexConnected = data?.services.some(s => s.provider === 'openai-codex');
+  const firstConnection = initialAdd && !data?.services.length;
   const operationFeedback = <>
     {error && <div className="model-notice model-error" role="alert"><p>{errorMessage}</p>{error.dependencies?.length ? <><strong>{text('请先为以下助手更换模型：', 'Choose another model for these assistants first:')}</strong><ul>{error.dependencies.map(a => <li key={a.agent_id}>{a.agent_id.startsWith('system:') ? a.display_name : <Link to={`/settings/agents/${encodeURIComponent(a.agent_id)}`}>{a.display_name}</Link>}</li>)}</ul></> : null}</div>}
     {notice && <div className="model-notice" role="status">{notice}</div>}
@@ -119,15 +127,23 @@ export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, 
     {!authorization && operationFeedback}
   </>;
   const addButton = <button className="model-primary" disabled={!canWrite || !!removing} onClick={add}>{text('＋ 添加服务', '+ Add service')}</button>;
+  const subscriptionFields = <>
+    {authorization && operationFeedback}
+    {offline && <p className="model-notice model-error" role="alert">{text('电脑暂时无法连接，请恢复连接后重试。', 'Your computer is unavailable. Reconnect and retry.')}</p>}
+    {!running && <div className="model-subscription-fields"><label>{text('订阅模型', 'Subscription model')}<select value={codexModel || codex?.models[0]?.id || ''} onChange={e => setCodexModel(e.target.value)}>{codex?.models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}</select></label>
+      <button disabled={!canWrite || !codex?.models.length || (!firstConnection && conflict)} onClick={() => { setNotice(''); setError(null); setSubscriptionFeedback(true); mutation.mutate({ action: 'login', revision: data!.revision, provider: 'openai-codex', model: codexModel || codex!.models[0]!.id }); }}>{text('连接 Codex 账号', 'Connect Codex account')}</button>
+    </div>}
+  </>;
   return <div className="model-services">
     {heading && <header className="model-settings-heading"><div><h1>{heading}</h1><p>{text('管理助手可用的 API 服务与模型。', 'Manage API services and models for your assistants.')}</p></div>{!draft && addButton}</header>}
     {children}
-    {draft ? <form className="model-card model-editor" onSubmit={e => { e.preventDefault(); save(); }}>
+    {firstConnection && codex && !codexConnected && <div className="model-access-options" role="group" aria-label={text('模型接入方式', 'Model access method')}><button disabled={busy} aria-pressed={accessMethod === 'api'} onClick={() => setAccessMethod('api')}>{text('使用 API 服务', 'Use an API service')}</button><button disabled={busy} aria-pressed={accessMethod === 'subscription'} onClick={() => setAccessMethod('subscription')}>{text('使用 ChatGPT / Codex 订阅', 'Use a ChatGPT / Codex subscription')}</button></div>}
+    {firstConnection && accessMethod === 'subscription' && codex ? <div className="model-first-subscription"><p className="model-hint">{text('在授权页面登录你的账号。授权完成并验证模型后，继续创建助手。', 'Sign in on the authorization page. Once the model is verified, continue to your assistant.')}</p>{subscriptionFields}</div> : draft ? <form className="model-card model-editor" onSubmit={e => { e.preventDefault(); save(); }}>
       {!(initialAdd && !data?.services.length) && <><button type="button" className="model-link model-back" disabled={busy} onClick={() => { setDraft(null); resetFeedback(); }}>{text('← 模型服务', '← Model services')}</button>
       <h2>{draft.provider ? text('编辑模型服务', 'Edit model service') : text('添加模型服务', 'Add model service')}</h2>
       <p className="model-hint">{text('修改后先测试连接，成功才会保存。', 'Changes are tested before they are saved.')}</p></>}
       {!catalog.length && <p className="model-hint">{text('服务商目录暂不可用。可继续使用自定义 API，或重新检查连接。', 'The provider catalog is unavailable. You can use a custom API or check the connection again.')}</p>}
-      <ModelServiceEditor draft={draft} catalog={draft.provider ? catalog : availableCatalog} disabled={busy} onChange={setDraft} text={text} />
+      <ModelServiceEditor draft={draft} catalog={draft.provider ? catalog : availableCatalog} disabled={busy} onChange={setDraft} text={text} firstRun={firstConnection} />
       {feedback}
       {conflict && !offline && <div className="model-notice model-conflict" role="alert"><strong>{text('请核对电脑上的最新配置', 'Review the latest configuration')}</strong><p>{text('另一页面可能已更新配置。上方表单仍是你的草稿，不会自动覆盖。', 'Another page may have changed this configuration. Your draft above has not been replaced.')}</p>
         {!comparison ? <button type="button" onClick={() => void compare()}>{text('查看电脑上的最新配置', 'Compare latest configuration')}</button> : <>
@@ -136,7 +152,7 @@ export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, 
           <div className="model-actions"><button type="button" onClick={() => { setDraft(latestService ? serviceDraft(latestService, comparison.revision) : null); resetFeedback(); }}>{text('使用电脑上的配置', 'Use computer configuration')}</button>
             <button type="button" disabled={!!draft.provider && !latestService} onClick={() => { setDraft({ ...draft, revision: comparison.revision }); resetFeedback(); setNotice(text('已核对最新版本。点击测试并保存以重新应用草稿。', 'Latest version reviewed. Test and save to reapply your draft.')); }}>{text('核对后重新应用我的修改', 'Reapply my changes after review')}</button></div>
         </>}</div>}
-      <div className="model-footer"><button type="button" disabled={busy} onClick={() => { setDraft(null); resetFeedback(); }}>{text('取消', 'Cancel')}</button><button className="model-primary" disabled={!canWrite || conflict}>{busy ? text('正在验证…', 'Verifying…') : text('测试并保存', 'Test and save')}</button></div>
+      <div className={`model-footer${firstConnection ? ' model-footer-first' : ''}`}>{!firstConnection && <button type="button" disabled={busy} onClick={() => { setDraft(null); resetFeedback(); }}>{text('取消', 'Cancel')}</button>}<button className="model-primary" disabled={!canWrite || conflict}>{busy ? text('正在验证…', 'Verifying…') : firstConnection ? text('验证并继续', 'Verify and continue') : text('测试并保存', 'Test and save')}</button></div>
     </form> : <>
       {!heading && <div className="model-list-heading"><h2>{text('已连接的服务', 'Connected services')}</h2>{addButton}</div>}
       {feedback}
@@ -156,12 +172,9 @@ export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, 
         </div>) : !offline && <div className="model-empty"><h3>{text('还没有模型服务', 'No model services yet')}</h3><p>{text('添加一个 API 服务，供这台电脑上的助手使用。', 'Add an API service for assistants on this computer.')}</p></div>}
       </div><p className="model-hint model-list-hint">{text('在助手设置中选择要使用的模型。', 'Choose which model to use in assistant settings.')}</p>
     </>}
-    {codex && !codexConnected && <details className="model-subscription" open={authorization || undefined}>
+    {!firstConnection && codex && !codexConnected && <details className="model-subscription" open={authorization || undefined}>
       <summary>{text('连接 ChatGPT / Codex 订阅', 'Connect a ChatGPT / Codex subscription')}</summary>
-      {authorization && operationFeedback}
-      {!running && <div className="model-subscription-fields"><label>{text('订阅模型', 'Subscription model')}<select value={codexModel || codex.models[0]?.id || ''} onChange={e => setCodexModel(e.target.value)}>{codex.models.map(m => <option key={m.id} value={m.id}>{m.name || m.id}</option>)}</select></label>
-        <button disabled={!canWrite || !codex.models.length || conflict} onClick={() => { setNotice(''); setError(null); setSubscriptionFeedback(true); mutation.mutate({ action: 'login', revision: data!.revision, provider: 'openai-codex', model: codexModel || codex.models[0]!.id }); }}>{text('连接 Codex 账号', 'Connect Codex account')}</button>
-      </div>}
+      {subscriptionFields}
     </details>}
   </div>;
 }

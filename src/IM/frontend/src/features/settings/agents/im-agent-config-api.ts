@@ -7,6 +7,7 @@ function normalizeItemsEnvelope<T>(payload: { items: T[] } | T[]): T[] {
 }
 
 export interface AgentSummary {
+  avatar_variant?: number;
   agent_id: string;
   owner_id: string;
   display_name: string;
@@ -34,6 +35,7 @@ export interface HeartbeatConfig {
 // feat-394 M9-E: CronConfig removed — cron has no per-agent config; enable lives in features["cron_scheduling"].
 
 export interface AgentConfig {
+  avatar_variant?: number;
   agent_id: string;
   owner_id: string;
   display_name: string;
@@ -156,6 +158,7 @@ export interface AgentDetailNodeView {
 }
 
 export interface NodeAgentCreateRequest {
+  avatar_variant?: number;
   agent_id: string;
   owner_id: string;
   display_name: string;

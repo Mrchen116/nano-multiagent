@@ -7,7 +7,7 @@ const batchSize = 100;
 function candidates(db: DatabaseSync, where: string, args: string[]): Row[] {
   return all(db, `SELECT u.id AS user_id,u.membership_status AS membership_status,
       CASE WHEN ap.agent_id IS NULL THEN 'human' ELSE 'agent' END AS kind,
-      COALESCE(ap.display_name,u.display_name) AS display_name,ap.agent_id,ap.owner_id,ap.space_id,
+      COALESCE(ap.display_name,u.display_name) AS display_name,ap.avatar_variant,ap.agent_id,ap.owner_id,ap.space_id,
       owner.display_name AS owner_display_name,COALESCE(NULLIF(n.alias,''),n.node_name) AS node_name,
       COALESCE(n.status,'offline') AS status,ap.work_mode,pb.binding_id,pb.status AS personal_status
     FROM users u
@@ -40,7 +40,7 @@ function visible(db: DatabaseSync, viewer: Row, rows: Row[]): Row[] {
     const {membership_status: _membership, binding_id, personal_status: _personal, ...contact} = row;
     if (row.kind === 'human') return {user_id:row.user_id,kind:row.kind,display_name:row.display_name};
     if (binding_id) return {user_id:row.user_id,kind:row.kind,display_name:row.display_name,agent_id:row.agent_id,
-      owner_id:row.owner_id,owner_display_name:row.owner_display_name,role:'personal',status:row.status};
+      owner_id:row.owner_id,owner_display_name:row.owner_display_name,avatar_variant:row.avatar_variant,role:'personal',status:row.status,work_mode:row.work_mode};
     return contact;
   });
 }

@@ -135,6 +135,7 @@ export function profileResponse(p: AgentProfileRecord, mirror = false): AgentPro
   const skillMode = p.skills_selection_mode ?? (skills?.includes('skill-creator') ? selection(null, skills) : null);
   return {
     agent_id:p.agent_id, owner_id:p.owner_id, space_id:p.space_id, node_id:p.node_id,
+    ...(p.avatar_variant == null ? {} : {avatar_variant:p.avatar_variant}),
     display_name:p.display_name, description:p.description, group_reply_policy:p.group_reply_policy,
     default_model:p.default_model, reasoning_effort:p.reasoning_effort, approval_mode:p.approval_mode,
     work_mode:p.work_mode, workspace_root:p.workspace_root, profile_version:p.profile_version,
@@ -489,9 +490,11 @@ export class ConfigOperations {
         c.display_name || op.agent_id,
         `agent:${op.agent_id}`,
       );
+      // Appearance is center-owned metadata, never sent to the execution runtime.
+      if (c.avatar_variant !== undefined) db.prepare('UPDATE agent_profiles SET avatar_variant=? WHERE agent_id=?').run(c.avatar_variant, op.agent_id);
       // All configuration entry points and delayed recovery commit the same PA identity.
       db.prepare("UPDATE personal_agent_bindings SET display_name=? WHERE agent_id=? AND owner_id=?").run(c.display_name || op.agent_id, op.agent_id, op.owner_id);
-      db.prepare("UPDATE conversations SET title=? WHERE id IN (SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?)").run(c.display_name || op.agent_id, op.agent_id, op.owner_id);
+      db.prepare("UPDATE conversations SET title=? WHERE title_is_custom=0 AND id IN (SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?)").run(c.display_name || op.agent_id, op.agent_id, op.owner_id);
       db.prepare(
         "UPDATE agent_config_operations SET status='committed',updated_at=? WHERE operation_id=?",
       ).run(now(), op.operation_id);

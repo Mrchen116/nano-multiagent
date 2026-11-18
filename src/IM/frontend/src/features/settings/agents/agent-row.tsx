@@ -4,7 +4,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { useTranslation } from "../../../i18n";
 import type { AgentSummary, NodeSummary } from "./im-agent-config-api";
 
-type AgentListItem = Pick<AgentSummary, "agent_id" | "display_name" | "description" | "node_id" | "node_name" | "node_status"> & { owner_id?: string; role?: string };
+type AgentListItem = Pick<AgentSummary, "avatar_variant" | "agent_id" | "display_name" | "description" | "node_id" | "node_name" | "node_status"> & { owner_id?: string; role?: string };
 
 /** Online when the agent's owning node reports online, via the agent's own
  *  node_status first and the nodes table as fallback. */
@@ -79,7 +79,7 @@ export function AgentRow({ agent, nodes, nodesPending = false, statusBadge, isAc
       aria-label={agent.display_name}
       aria-current={isActive ? "page" : undefined}
     >
-      <Avatar
+      <Avatar agentId={agent.agent_id} personal={agent.role === "personal"} avatarVariant={agent.avatar_variant}
         initials={initialsOf(agent.display_name)}
         color={colorForAgent(agent)}
         size={isMobile ? 38 : 32}

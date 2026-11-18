@@ -251,7 +251,8 @@ export function applyWsEvent(
           type: ev.sender_type === "agent" ? "agent" : ev.sender_type === "system" ? "system" : "user",
           id: senderId,
           display_name: resolvedDisplayName,
-          role: ev.sender?.role
+          role: ev.sender?.role,
+          avatar_variant: ev.sender?.avatar_variant
         },
         sender_user_id: ev.sender_user_id,
         sender_type: ev.sender_type,

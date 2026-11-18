@@ -2,6 +2,7 @@ import type {DatabaseSync} from 'node:sqlite';
 
 /** SQLite representation: JSON columns and integer flags never double as HTTP fields. */
 export interface AgentProfileRecord {
+  avatar_variant: number | null;
   agent_id: string;
   owner_id: string;
   space_id: string;

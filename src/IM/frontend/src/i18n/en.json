@@ -6,18 +6,11 @@
     "language": {
       "label": "Language"
     },
-    "context": {
-      "eyebrow": "YOUR PERSONAL ASSISTANT SPACE",
-      "title": "Bring people and agents into one workspace",
-      "body": "Start with chat, connect agents on your devices, and keep long-running work moving together.",
-      "people": "Use agents with your team",
-      "agents": "Collaborate with multiple agents in one chat",
-      "devices": "Manage and run work on your devices"
-    },
     "common": {
       "optional": "Optional",
       "showPassword": "Show password",
-      "hidePassword": "Hide password"
+      "hidePassword": "Hide password",
+      "restoring": "Restoring your session…"
     },
     "feedback": {
       "usernameRequired": "Enter your username.",
@@ -34,20 +27,18 @@
       "serviceUnavailable": "The authentication service is temporarily unavailable. Try again shortly."
     },
     "login": {
-      "kicker": "Welcome back",
-      "title": "Sign in",
-      "subtitle": "Continue your conversations and agent work.",
+      "title": "Welcome back",
+      "subtitle": "Sign in to Crewden and pick up your work.",
       "username": "Username",
       "password": "Password",
       "submit": "Sign in",
       "submitting": "Signing in…",
       "noAccount": "No account yet?",
-      "registerLink": "Create one"
+      "registerLink": "Create account"
     },
     "register": {
-      "kicker": "Get started",
       "title": "Create your account",
-      "subtitle": "Create your account and start in your personal space. No approval needed.",
+      "subtitle": "A space of your own. Then an assistant to work with you.",
       "username": "Username",
       "password": "Password",
       "displayName": "Display name",
@@ -58,10 +49,24 @@
       "haveAccount": "Already have an account?",
       "loginLink": "Sign in"
     },
-    "logout": "Sign out"
+    "logout": "Sign out",
+    "scene": {
+      "title": "Good work.\nWith good company.",
+      "intro": "From a conversation to something ready to use. Your assistant and AI colleagues help carry the work forward.",
+      "description": "Illustration: a change to a release is shared with a personal assistant, engineering and QA colleagues, who bring back notes for review.",
+      "you": "You",
+      "request": "The release moved to Friday. Help me keep the work in step.",
+      "assistant": "Your assistant",
+      "colleague": "Engineering",
+      "quality": "QA colleague",
+      "document": "Release update",
+      "result": "The new date, customer notes, and verification results, brought together.",
+      "review": "Ready for your review",
+      "caption": "An illustration of working with your future team"
+    }
   },
   "shell": {
-    "appName": "nano IM",
+    "appName": "Crewden",
     "tabs": {
       "chat": "Chat",
       "agents": "Agents",
@@ -75,7 +80,8 @@
       "policies": "Policies",
       "language": "Language",
       "signOut": "Sign out"
-    }
+    },
+    "home": "Crewden workspace"
   },
   "me": {
     "title": "Me",
@@ -772,8 +778,8 @@
       "新统计尚未报告时沿用最近轮次": "Showing the latest reported turn until new statistics arrive",
       "最新轮次在前 · 轮次内部按实际顺序": "Latest turns first · Events in execution order",
       "暂无工作记录。符合配置的新消息会进入收件箱。": "No work records yet. Eligible new messages will enter the inbox.",
-      "← 返回发起位置": "\u2190 Back to launch point",
-      "← 返回派工关系": "\u2190 Back to delegation",
+      "← 返回发起位置": "← Back to launch point",
+      "← 返回派工关系": "← Back to delegation",
       "派工关系": "Delegation",
       "时间范围": "Time range",
       "活动范围": "Activity range",
@@ -792,7 +798,7 @@
       "部分完成": "Partially completed",
       "已取消": "Cancelled",
       "工具次数未报告": "Tool count not reported",
-      "正在加载原文…": "Loading full record\u2026",
+      "正在加载原文…": "Loading full record…",
       "加载原文": "Load full record",
       "执行信息": "Execution info",
       "调用": "Call",
@@ -979,8 +985,14 @@
     },
     "redesign": {
       "workMode": "Work mode",
-      "mode": {"single_thread": "Single thread", "global": "Global mode"},
-      "modeHelp": {"single_thread": "A separate context for each chat.", "global": "One ongoing context coordinates work across chats."},
+      "mode": {
+        "single_thread": "Single thread",
+        "global": "Global mode"
+      },
+      "modeHelp": {
+        "single_thread": "A separate context for each chat.",
+        "global": "One ongoing context coordinates work across chats."
+      },
       "modeFixed": "Work mode cannot be changed after creation.",
       "createIdHelp": "Lowercase letters, numbers, _ and -. Cannot be changed after creation.",
       "creating": "Creating…",
@@ -1002,7 +1014,12 @@
   },
   "chat": {
     "deletedAgent": "Agent deleted",
-    "toast": { "newMessage": "New message", "member": "Member", "agent": "Agent", "card": "Interactive card" },
+    "toast": {
+      "newMessage": "New message",
+      "member": "Member",
+      "agent": "Agent",
+      "card": "Interactive card"
+    },
     "conversationMenu": {
       "label": "Conversation menu",
       "rename": "Rename",
@@ -1096,7 +1113,8 @@
       "runningCount": "{{count}} running",
       "waitingCount": "{{count}} awaiting approval",
       "more": "Load more",
-      "open": "Open Work"
+      "open": "Open Work",
+      "computer": "Computer"
     },
     "messagePane": {
       "accessErrorTitle": "Conversation unavailable",
@@ -1608,7 +1626,28 @@
     "transferHistory": "The device, assistants, and assistant work history will transfer to this account. Private assistants move into the recipient’s personal space. Existing private chats, attachments, and task graphs will not transfer.",
     "bindTitle": "Connect your computer",
     "bindDescription": "This computer will connect to your personal space and run the assistants you create.",
-    "bindAccept": "Connect this computer"
+    "bindAccept": "Connect this computer",
+    "bindAccount": "Signed in as",
+    "bindComplete": "Your computer is connected.",
+    "bindWorkspace": "Your computer.\nYour assistant’s workspace.",
+    "bindSceneDetail": "A place to turn ideas into work, and keep things moving.",
+    "bindSceneFoot": "This computer joins your account only after you confirm.",
+    "bindComputer": "Computer to connect",
+    "bindLoading": "Loading computer details…",
+    "bindConfirmLabel": "Confirm connection",
+    "bindConnectingLabel": "Connecting",
+    "bindConnectedLabel": "Connected",
+    "bindConnectingTitle": "Preparing your assistant’s workspace",
+    "bindConnectedTitle": "Your computer is ready",
+    "bindConnectedNote": "Next, connect a model and give your personal assistant a name.",
+    "bindWaitingNote": "Your account is confirmed. Keep the installer open on your computer until the connection is complete.",
+    "bindProgress": "Connection progress",
+    "bindAccountCheck": "Confirm the account",
+    "bindAccountHint": "Make sure this is the account you want to use",
+    "bindAccountDone": "Confirmed by you",
+    "bindComputerCheck": "Connect the computer",
+    "bindComputerHint": "This page updates when your computer finishes connecting",
+    "bindComputerDone": "Your computer has finished connecting"
   },
   "nodeUpdate": {
     "available": {
@@ -1669,7 +1708,7 @@
     },
     "offline": {
       "title": "Update when computer is online",
-      "body": "Open Nano on this computer, then return here to update."
+      "body": "Open Crewden on this computer, then return here to update."
     },
     "current": {
       "title": "Up to date",
@@ -1725,11 +1764,11 @@
     "assistantCount_other": "{{count}} assistants",
     "assistantCount": "{{count}} assistants",
     "lastSeen": "Last online {{time}}",
-    "reconnect": "Open Nano on this computer to reconnect",
+    "reconnect": "Open Crewden on this computer to reconnect",
     "noConnection": "No connection recorded",
-    "help": "Your assistants work on your computers. Keep Nano running to continue the conversation anytime.",
+    "help": "Your assistants work on your computers. Keep Crewden running to continue the conversation anytime.",
     "emptyTitle": "Connect your first computer",
-    "emptyBody": "Install Nano on a computer to give your assistants a place to work.",
+    "emptyBody": "Install Crewden on a computer to give your assistants a place to work.",
     "loadHelp": "Check your connection and try again.",
     "stale": "Could not refresh. Showing the last known status.",
     "name": "Computer name",
@@ -1738,7 +1777,7 @@
     "nameRequired": "Enter a computer name",
     "saveFailed": "Could not save. Your name is kept; please try again.",
     "saved": "Computer name updated",
-    "offlineManage": "Open Nano on this computer. You can rename it or create an assistant after it reconnects.",
+    "offlineManage": "Open Crewden on this computer. You can rename it or create an assistant after it reconnects.",
     "updateManage": "You can rename this computer or create assistants after it recovers.",
     "lastOnline": "Last online",
     "assistantsHere": "Assistants on this computer",
@@ -1750,12 +1789,12 @@
     "connectionLog": "Connection record",
     "noError": "No error recorded",
     "notFound": "This computer is no longer listed. Return and refresh.",
-    "releaseReady": "Nano {{version}} is ready",
+    "releaseReady": "Crewden {{version}} is ready",
     "updateStages": "Update stages",
     "continueOnComputer": "Continue on this computer",
     "getStarted": "Give your assistants a place to work",
     "recoveryOn": "Complete these steps on “{{name}}”. Its status will update when it reconnects.",
-    "connectBody": "Install Nano on the computer where your assistants will work, then confirm with your current account.",
+    "connectBody": "Install Crewden on the computer where your assistants will work, then confirm with your current account.",
     "installFailed": "Could not load installation instructions. Please retry.",
     "noInstaller": "No computer installer is available from this service yet. Please try again later.",
     "installMethod": "Installation method",
@@ -1772,13 +1811,13 @@
     "copyFailed": "Could not copy automatically. Select the text above and copy it manually.",
     "platforms": "Supports macOS / Linux. On Windows, use WSL.",
     "refreshList": "Finished on the computer? Refresh list",
-    "agentInstructions": "Help me install or recover the Nano computer client and connect to {{origin}}. Wait for current tasks to finish, then run the command provided by this service:\n{{command}}\nPreserve existing configuration, identity, credentials and work files. Do not deploy the IM server. Let me confirm any binding; do not request passwords or model keys.",
+    "agentInstructions": "Help me install or recover the Crewden computer client and connect to {{origin}}. Wait for current tasks to finish, then run the command provided by this service:\n{{command}}\nPreserve existing configuration, identity, credentials and work files. Do not deploy the IM server. Let me confirm any binding; do not request passwords or model keys.",
     "stage": {
       "prepare": "Prepare",
       "idle": "Wait for idle",
       "switch": "Switch"
     },
-    "agentRecoveryInstructions": "Help me recover Nano on this computer. Wait for current tasks to finish, then run the recovery command provided by the service:\n{{command}}\nPreserve existing configuration, identity, credentials and work files. Do not deploy the IM server. Ask me to complete any confirmation; do not request passwords or model keys.",
+    "agentRecoveryInstructions": "Help me recover Crewden on this computer. Wait for current tasks to finish, then run the recovery command provided by the service:\n{{command}}\nPreserve existing configuration, identity, credentials and work files. Do not deploy the IM server. Ask me to complete any confirmation; do not request passwords or model keys.",
     "title": "Computers",
     "summary_one": "{{total}} computer · {{online}} online",
     "summary_other": "{{total}} computers · {{online}} online"
@@ -1854,5 +1893,543 @@
     "senderLabel": "{{name}}, sent by PA",
     "sentOnBehalf": "Sent by PA",
     "composeUnavailable": "This conversation is unavailable or you do not have permission to write."
+  },
+  "firstUse": {
+    "eyebrow": "Your personal space",
+    "title": "Your personal assistant starts here.",
+    "intro": "First, give your assistant a place to work. Then bring something you’d like help with. One step at a time.",
+    "setupTitle": "Make room for your assistant",
+    "accountReady": "Your account and personal space are ready",
+    "done": "Done",
+    "continue": "Continue assistant setup",
+    "resume": "No need to finish all at once. Come back whenever you’re ready.",
+    "progressError": "We couldn’t check your setup progress.",
+    "steps": {
+      "computer": {
+        "title": "Connect a computer",
+        "body": "Give your assistant a place to work and save files."
+      },
+      "model": {
+        "title": "Connect a model",
+        "body": "Use your API service or a supported subscription."
+      },
+      "assistant": {
+        "title": "Start working together",
+        "body": "Name your assistant and give it a first task."
+      }
+    },
+    "actions": {
+      "computer": "Connect your first computer",
+      "model": "Continue model setup",
+      "assistant": "Create your personal assistant"
+    },
+    "examplesLabel": "Ideas for your first conversation",
+    "examplesTitle": "Start with one small thing.",
+    "examplesIntro": "No elaborate prompt needed. Just explain what you want to do.",
+    "examples": {
+      "plan": {
+        "title": "Plan the week ahead",
+        "prompt": "“Help me fit studying, exercise, and a deadline into this week.”"
+      },
+      "organize": {
+        "title": "Make sense of your ideas",
+        "prompt": "“I have a few project ideas. Help me prioritize and find a next step.”"
+      },
+      "start": {
+        "title": "Turn a goal into a plan",
+        "prompt": "“I want to build a personal website. Help me make a practical plan.”"
+      }
+    },
+    "examplesNote": "These are example requests. You choose what to send after setup.",
+    "peopleHint": "You can also talk to your contacts.",
+    "newChat": "Start a conversation"
+  },
+  "publicHome": {
+    "skip": "Skip to content",
+    "home": "Crewden home",
+    "navigation": "Product navigation",
+    "signIn": "Sign in"
+  },
+  "cooperation": {
+    "chatOpenFailed": "Your teammate was created, but the chat could not open. Use Send message to retry.",
+    "label": "Working agreement",
+    "eyebrow": "Getting to know each other",
+    "step1": "Share context",
+    "step2": "Agree responsibilities",
+    "step3": "Confirm and begin",
+    "note": "These prompts fill the composer for you to edit and send. Background stays in conversation; ongoing responsibilities are saved only after you confirm.",
+    "later": "Start with a task, discuss this later",
+    "personal": {
+      "title": "Let {{name}} get to know you",
+      "intro": "Share what you are working on, a goal, or something you wish were easier. Start with one real situation and find a useful way to work together over time.",
+      "introduceLabel": "Introduce myself",
+      "responsibilityLabel": "I have an ongoing responsibility in mind",
+      "introduce": "I would like you to get to know me and discuss how you can help over time. Start with my current work, goals or difficulties, and ask one question at a time.",
+      "responsibility": "I would like to agree on an ongoing responsibility. First listen to what I want you to own and our collaboration boundaries, then draft an agreement for me to confirm before saving."
+    },
+    "global": {
+      "title": "Agree on {{name}}’s responsibilities",
+      "intro": "Describe the outcomes you want this teammate to own and how to divide the work. Start with one useful responsibility; a complete job description can come later.",
+      "introduceLabel": "Discuss the context and goals",
+      "responsibilityLabel": "I already have responsibilities in mind",
+      "introduce": "Let’s agree on your responsibilities. Learn about the work, the outcomes I want you to own and the division of work. Ask one focused question at a time.",
+      "responsibility": "I have ongoing responsibilities to assign to you. First listen to the scope, delivery expectations and collaboration boundaries. Draft an agreement for me to confirm before saving."
+    }
+  },
+  "crewdenHome": {
+    "titleFirst": "Your team.",
+    "titleSecond": "With AI colleagues.",
+    "intro": "Your personal assistant looks after work and life. Specialist AI colleagues bring their craft. Together in one chat space, they follow through and bring the results back.",
+    "watch": "See it in action",
+    "scenario": "A new release date. One team moving together.",
+    "navigation": "Collaboration demo stages",
+    "steps": {
+      "change": "Catch the change",
+      "progress": "Work together",
+      "ready": "Bring results back"
+    },
+    "next": "Next step",
+    "restart": "Start again",
+    "actors": {
+      "human": "You and your team",
+      "personal": "Your personal assistant",
+      "specialist": "Digital colleagues"
+    },
+    "stageLabel": "Your team, working together",
+    "example": "Interactive example",
+    "person": "Lin Lan",
+    "initial": "L",
+    "message": "Let’s move the release to Friday. Update the customer notes and regression checks for the new date.",
+    "workLabel": "Collaboration progress",
+    "roles": {
+      "personal": "Personal assistant",
+      "engineering": "Engineering",
+      "quality": "QA colleague"
+    },
+    "document": "Release plan",
+    "project": "Quicknote / New release",
+    "documentTitleFirst": "Ready for",
+    "documentTitleSecond": "Friday’s release",
+    "newDate": "New release date",
+    "wednesday": "Wed",
+    "friday": "Friday",
+    "updated": "Updated",
+    "dateChange": "Release moved from Wednesday to Friday",
+    "week": {
+      "mon": "Mon",
+      "tue": "Tue",
+      "wed": "Wed",
+      "thu": "Thu",
+      "fri": "Fri"
+    },
+    "original": "Original",
+    "launch": "Release",
+    "deliverables": {
+      "customer": "Customer notes",
+      "customerNote": "New date / Release changes",
+      "verification": "Regression checks",
+      "verificationNote": "Export fix / Permissions"
+    },
+    "openDocument": "Open release plan",
+    "dialogTitle": "Quicknote · Release plan",
+    "deliverableList": "Deliverables",
+    "releaseDecision": "Release: waiting for your approval",
+    "disclosure": "This is an illustrative collaboration and sample result. No live agents run and no release is performed.",
+    "close": "Close release plan",
+    "receiptTitle": "Results return to the conversation",
+    "receiptNote": "The final release decision stays with you.",
+    "footer": "People and AI, doing good work together.",
+    "scenes": {
+      "change": {
+        "work": {
+          "personal": "Change picked up",
+          "engineering": "Getting aligned",
+          "quality": "Getting aligned"
+        },
+        "version": "Revising",
+        "state": "Preparing",
+        "customer": "Updating",
+        "verification": "Confirming",
+        "note": "The date is updated. Notes and verification records are being prepared.",
+        "detail": "The release has moved to Friday. Customer notes and regression checks still need confirmation."
+      },
+      "progress": {
+        "work": {
+          "personal": "Updating notes",
+          "engineering": "Confirming the fix",
+          "quality": "Running checks"
+        },
+        "version": "In progress",
+        "state": "Moving forward",
+        "customer": "In progress",
+        "verification": "Checking",
+        "note": "Both workstreams are moving forward. Their results come together here.",
+        "detail": "The personal assistant is updating customer notes. Engineering is confirming the export fix, while QA runs regression checks."
+      },
+      "ready": {
+        "work": {
+          "personal": "Notes prepared",
+          "engineering": "Fix confirmed",
+          "quality": "Checks complete"
+        },
+        "version": "Updated",
+        "state": "Your review",
+        "customer": "Draft ready",
+        "verification": "Complete",
+        "note": "Everything is ready for Lin to review before release.",
+        "detail": "The customer notes are drafted. Export regression and permission checks have passed. Nothing has been released; the final decision is yours."
+      }
+    },
+    "definition": "A shared workspace for people and AI."
+  },
+  "crewdenStory": {
+    "nav": {
+      "how": "Meet your AI partners",
+      "capabilities": "How work continues",
+      "start": "Getting started",
+      "faq": "Questions",
+      "menu": "Open site navigation",
+      "menuClose": "Close site navigation",
+      "team": "Teamwork"
+    },
+    "example": "Product example",
+    "setup": {
+      "title": "Start with a space of your own.",
+      "intro": "Start with your own assistant. Bring in people and specialist Agents when you need them.",
+      "account": {
+        "title": "Create an account",
+        "body": "Get your personal space. Explore first, or continue straight into setup."
+      },
+      "computer": {
+        "title": "Connect a computer",
+        "body": "Give your assistant a place to run tasks and work with files."
+      },
+      "assistant": {
+        "title": "Connect a model. Meet your assistant.",
+        "body": "Add a model service, name your assistant, and agree on how it can help in chat."
+      },
+      "requirements": "To run your assistant, you need a computer that can stay online and a model API or supported subscription. Model usage is billed by your provider."
+    },
+    "questions": {
+      "title": "A few things to know before you start",
+      "intro": "Understand the setup and boundaries, then decide how to begin.",
+      "solo": {
+        "question": "Can I use Crewden on my own?",
+        "answer": "Yes. Start with a private space and a personal assistant for your own work. Keep the same assistant if you later join a team, and configure specialist digital colleagues as needed."
+      },
+      "ready": {
+        "question": "Can my assistant work as soon as I sign up?",
+        "answer": "Signing up creates your account and personal space. To run your own assistant, you also need to connect a computer, add a model service, and complete assistant setup. The setup flow guides you through this, and you can leave and continue later."
+      },
+      "models": {
+        "question": "Do I bring my own model service?",
+        "answer": "Yes. Connect a model API or a subscription authorization supported by the product. The available options are shown during setup. Your model provider bills for usage."
+      },
+      "privacy": {
+        "question": "Will my team see my private conversations?",
+        "answer": "Joining a team does not automatically expose your assistant’s private conversations or work. Shared resources follow conversation membership and access permissions. Messages your assistant sends to others must also follow your authorization and disclosure scope."
+      },
+      "offline": {
+        "question": "Will my assistant work when my computer is off?",
+        "answer": "Your assistant executes work on the connected computer. When that computer is offline, work that depends on it pauses or becomes unavailable until it reconnects. You can view and communicate from a phone or another browser, but the execution computer still needs to be online."
+      },
+      "roles": {
+        "question": "Are specialist roles already set up for me?",
+        "answer": "You can create and configure digital colleagues with responsibilities, models, work environments, and tools for your needs. The engineering and QA roles shown here illustrate collaboration; signing up does not automatically configure or validate those roles."
+      }
+    },
+    "companions": {
+      "title": "Your own assistant.\nAI colleagues with a craft.",
+      "intro": "Both remember context, follow up proactively, and keep several things moving across chats.",
+      "rolePicker": "Meet your ongoing AI partners",
+      "workspace": "Working together in Crewden",
+      "example": "Interactive illustration",
+      "chats": "Related chats",
+      "chatPicker": "Switch chats to see the same Agent at work",
+      "switchHint": "Pick a chat to see what happens",
+      "sharedChat": "A change in a shared chat",
+      "earlier": "Agreed earlier",
+      "newMessage": "Just now",
+      "proactive": "A new development. Work continues.",
+      "continued": "Following through",
+      "returnTo": "Delivered to",
+      "ongoing": "Also working on",
+      "memory": "Remembered from working together",
+      "sameAgent": "Different chats. The same partner.",
+      "remember": "Remembers what came before",
+      "notice": "Follows up when things change",
+      "coordinate": "Coordinates across chats and tasks",
+      "scope": "Illustrative examples. Your AI partners work within accessible chats and your permissions. Their computer needs to stay online.",
+      "personal": {
+        "title": "Personal assistant",
+        "subtitle": "Works for you, across work and life",
+        "name": "Milo",
+        "identity": "Your personal assistant",
+        "duty": "Keep up with my commitments and everyday plans.",
+        "memory": "Lead with the conclusion in client updates.",
+        "chats": {
+          "first": {
+            "channel": "Product launch",
+            "preview": "Launch moved to Friday",
+            "author": "Lin",
+            "agreement": "“Keep client updates in step with any launch changes.”",
+            "message": "The launch is moving to Friday. The client update needs to reflect that.",
+            "result": "I updated the client draft for Friday and brought it back to our private chat.",
+            "artifact": "Client update.md",
+            "destination": "your private chat with Milo",
+            "task": "Client update",
+            "progress": "Updated, ready for your review"
+          },
+          "second": {
+            "channel": "Weekend plans",
+            "preview": "Meeting time changed",
+            "author": "Chen",
+            "agreement": "“Keep my preparation checklist up to date as our plans change.”",
+            "message": "Let’s meet Saturday morning instead. I’ll share the new address here too.",
+            "result": "I revised your checklist for the new time and place. It’s in our private chat alongside your client update.",
+            "artifact": "Weekend checklist.md",
+            "destination": "your private chat with Milo",
+            "task": "Weekend preparation",
+            "progress": "Checklist ready"
+          },
+          "third": {
+            "channel": "Options discussion",
+            "preview": "Another option to compare",
+            "author": "Jo",
+            "agreement": "“Keep the options comparison current, with sources.”",
+            "message": "The second option is now cheaper. It’s worth considering with this budget.",
+            "result": "I added the new price and differences to the comparison, alongside the other things I’m following for you.",
+            "artifact": "Options comparison.md",
+            "destination": "your private chat with Milo",
+            "task": "Options research",
+            "progress": "New information included"
+          }
+        }
+      },
+      "specialist": {
+        "title": "Specialist Agent",
+        "subtitle": "Owns a role, works across teams",
+        "name": "Quinn",
+        "identity": "Your quality assurance colleague",
+        "duty": "Own release quality and follow issues through retesting.",
+        "memory": "Check exports and permissions in every regression.",
+        "chats": {
+          "first": {
+            "channel": "Note · Launch",
+            "preview": "This week’s release to verify",
+            "author": "Product lead",
+            "agreement": "“Own regression testing for our ongoing releases.”",
+            "message": "Exports ship this week. Please pay special attention to the permission changes.",
+            "result": "I updated the regression checklist. I’ll coordinate verification in Quality and report back to Launch.",
+            "artifact": "Regression checklist.md",
+            "destination": "Note · Launch",
+            "task": "Note regression",
+            "progress": "Checklist updated"
+          },
+          "second": {
+            "channel": "Note · Engineering",
+            "preview": "Export fix is ready",
+            "author": "Engineering lead",
+            "agreement": "“Retest fixes as they arrive and coordinate any issues with Engineering.”",
+            "message": "The export fix is ready. I shared the test build in Quality.",
+            "result": "I picked up the retest and linked the fix to the existing quality record.",
+            "artifact": "Export retest record.md",
+            "destination": "Note · Quality",
+            "task": "Export retest",
+            "progress": "Fix received, retest underway"
+          },
+          "third": {
+            "channel": "Ledger · Launch",
+            "preview": "Batch upload added",
+            "author": "Project lead",
+            "agreement": "“Take ongoing responsibility for this project’s release quality too.”",
+            "message": "This release adds batch upload. The test scope needs an update.",
+            "result": "I added batch upload to the checks. It moves forward alongside the Note retest.",
+            "artifact": "Ledger verification plan.md",
+            "destination": "Ledger · Launch",
+            "task": "Ledger verification",
+            "progress": "New checks planned"
+          }
+        }
+      }
+    },
+    "team": {
+      "title": "You get it started.\nYour team carries it forward.",
+      "intro": "One message. A few good partners. Work moving together.",
+      "channel": "Customer project",
+      "example": "Illustrative demo",
+      "you": "You",
+      "lanInitial": "L",
+      "requestTo": "You, to Milo",
+      "request": "The customer wants a mobile demo. Help us get ready for tomorrow.",
+      "start": "Hand it to Milo",
+      "received": "Milo has it. Bringing the team in.",
+      "parallel": "Several things, moving together",
+      "working": "Working",
+      "suggestionFrom": "Lan brings back an option",
+      "suggestion": "View on mobile.\nExport on desktop.",
+      "risk": "Mobile export still needs a fix.",
+      "approve": "Let’s go with that",
+      "sharedResult": "Back in the project chat",
+      "artifact": "Tomorrow’s demo plan",
+      "together": "You and Lan, ready for tomorrow",
+      "aligning": "Carrying the decision into the materials",
+      "continue": "Continue",
+      "pause": "Pause demo",
+      "play": "Resume demo",
+      "replay": "Replay",
+      "scope": "Illustrative scenario · Agreed roles and access · No real messages are sent",
+      "actors": {
+        "you": {
+          "name": "You",
+          "role": "Customer lead"
+        },
+        "milo": {
+          "name": "Milo",
+          "role": "Your PA"
+        },
+        "qing": {
+          "name": "Qing",
+          "role": "Team QA Agent"
+        },
+        "noah": {
+          "name": "Noah",
+          "role": "Lan’s PA"
+        },
+        "lan": {
+          "name": "Lan",
+          "role": "Product lead"
+        }
+      },
+      "packets": {
+        "request": "Customer goal",
+        "check": "Check paths",
+        "scope": "Agree scope",
+        "result": "Test results",
+        "plan": "Product plan"
+      },
+      "work": {
+        "brief": "Milo prepares the brief",
+        "scope": "Noah checks the scope",
+        "check": "Qing verifies the demo"
+      },
+      "deliverables": {
+        "steps": "Demo steps",
+        "proof": "Test results",
+        "brief": "Customer brief"
+      },
+      "captions": {
+        "0": "You say the word. Your partners pick it up.",
+        "1": "Your PA brings the right people together.",
+        "2": "Preparation and verification move together.",
+        "3": "When a tradeoff matters, you and your colleague decide.",
+        "4": "One decision. Everyone moves forward.",
+        "5": "One shared plan. A whole team ready."
+      },
+      "states": {
+        "0": {
+          "you": "Set the goal",
+          "milo": "Ready to help",
+          "qing": "Owns QA",
+          "noah": "Knows product progress",
+          "lan": "Owns product decisions"
+        },
+        "1": {
+          "you": "Goal handed over",
+          "milo": "Goal understood",
+          "qing": "Owns QA",
+          "noah": "Request received",
+          "lan": "Owns product decisions"
+        },
+        "2": {
+          "you": "Preparing for the customer",
+          "milo": "Drafting the brief",
+          "qing": "Checking demo paths",
+          "noah": "Checking available scope",
+          "lan": "Reviewing test results"
+        },
+        "3": {
+          "you": "Your call",
+          "milo": "Option ready",
+          "qing": "Export issue found",
+          "noah": "Gathering constraints",
+          "lan": "Proposing an alternative"
+        },
+        "4": {
+          "you": "Scope agreed",
+          "milo": "Updating the brief",
+          "qing": "Retesting the paths",
+          "noah": "Sharing the scope",
+          "lan": "Scope agreed"
+        },
+        "5": {
+          "you": "Meet the customer",
+          "milo": "Materials ready",
+          "qing": "Checks passed",
+          "noah": "Plan aligned",
+          "lan": "Prepare product Q&A"
+        }
+      }
+    }
+  },
+  "workspaceWelcome": {
+    "title": "What’s on your mind today?",
+    "intro": "A small question or a big idea. There’s room for both.",
+    "setup": "Meet your personal assistant",
+    "personal": "Plans, loose ends, and whatever is on your mind.",
+    "newChat": "Talk to a teammate",
+    "team": "Bring a person or an Agent into the work.",
+    "returnTitle": "Welcome back. Pick up where you left off.",
+    "returnIntro": "Continue your conversation, or bring a new idea.",
+    "recent": "Last conversation"
+  },
+  "assistantStart": {
+    "label": "Start something with your assistant",
+    "title": "Start small with {{name}}.",
+    "intro": "You don’t need all the details figured out. A loose idea or “help me think this through” is enough to begin.",
+    "note": "Pick an idea to fill a draft. Edit it before sending, or write your own.",
+    "keepDraft": "Keep going with what’s in your draft. These ideas can wait.",
+    "agreement": "Or get to know each other and discuss working together",
+    "openError": "Couldn’t open the conversation. Please try again.",
+    "untangle": {
+      "title": "Untangle an idea",
+      "hint": "A little messy? Think it through.",
+      "prompt": "I have an idea I haven’t quite figured out. Help me think it through. Start by asking what I want to do, one question at a time."
+    },
+    "plan": {
+      "title": "Plan the week ahead",
+      "hint": "Make room for what matters.",
+      "prompt": "Help me plan the week ahead. First ask about what I want to do, my deadlines, and the time I have, then help me make a manageable plan."
+    },
+    "next": {
+      "title": "Find a first step",
+      "hint": "Small steps count, too.",
+      "prompt": "I want to move something forward but don’t know where to start. Ask about my goal and where I am now, then help me find one step I can take today."
+    }
+  },
+  "avatarPicker": {
+    "title": "Pick a face you like",
+    "style": "Avatar style",
+    "color": "Avatar color",
+    "personal": [
+      "Pebble",
+      "Jellybean",
+      "Bloom",
+      "Droplet"
+    ],
+    "agent": [
+      "Arch",
+      "Kite",
+      "Note",
+      "Spark"
+    ],
+    "colors": [
+      "Wisteria",
+      "Mint",
+      "Sky",
+      "Apricot",
+      "Rose",
+      "Wheat"
+    ]
   }
 }

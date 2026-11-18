@@ -51,3 +51,7 @@
 
 .chat-agent-activity-tool small { display:block; margin-top:2px; }
 .chat-agent-activity-children li a { color:var(--im-accent); overflow-wrap:anywhere; }
+
+.chat-agent-activity-computer { display:grid; grid-template-columns:auto minmax(0,1fr); gap:16px; margin:0 16px; padding:10px 0; border-top:1px solid var(--im-border); font-size:12px; }
+.chat-agent-activity-computer dt { color:var(--im-text-muted); }
+.chat-agent-activity-computer dd { margin:0; text-align:right; overflow-wrap:anywhere; }

@@ -1,6 +1,8 @@
+import { AssistantPortrait } from "./assistant-portrait";
+import { CooperationGuide, type CooperationGuideAgent } from "./cooperation-guide";
 import { AgentActivityPopover, type AgentActivityAnchor } from "./agent-activity-popover";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, CheckCheck, Copy, GitFork, ListTree, Reply } from "lucide-react";
+import { Check, CheckCheck, Copy, GitFork, ListTodo, ListTree, Reply } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -48,11 +50,11 @@ import {
   type TimelineItem
 } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName, initialsOf } from "./avatar";
-import { KindBadge } from "./kind-badge";
 import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { DirectConversationMenu } from "./direct-conversation-menu";
 import { NodeChip } from "./node-chip";
+import { nodeUpdateLabel } from "../../settings/nodes/node-update-panel";
 import type { NodeUpdateView } from '../../settings/im-settings-api';
 import { PermissionCard } from "./permission-card";
 import { SlashPicker } from "./slash-picker";
@@ -94,6 +96,7 @@ type DraftMention = {
 export type { ComposerSnapshot };
 
 export interface MessagePaneProps {
+  cooperationAgent?: CooperationGuideAgent;
   conversation: Conversation;
   historyProcess?: { accountId: string; revision: number; load: (id: string, signal: AbortSignal) => Promise<Message> };
   /** Owner-only collaboration summary, within the existing scrollable chat. */
@@ -102,8 +105,6 @@ export interface MessagePaneProps {
   headerActions?: React.ReactNode;
   focusMessageId?: string | null;
   personalAgent?: boolean;
-  /** Owner PA only, after the initial history request has confirmed an empty chat. */
-  personalStarterExamples?: boolean;
   returnNavigation?: React.ReactNode;
   /** Typed timeline keeps durable non-message entries out of MessageBubble. */
   timeline?: TimelineItem[];
@@ -124,7 +125,7 @@ export interface MessagePaneProps {
   agentColor?: string | null;
   /** Agent initials for header avatar (direct-agent conversations). */
   agentInitials?: string | null;
-  /** Compact mobile chat header (< 768px). Desktop layout (R7-5 Node chip + ⚙ + KindBadge + participants) is preserved when false/undefined. */
+  /** Mobile navigation and touch-sized conversation actions. */
   isMobile?: boolean;
   onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string, replyToMessageId?: string): void | Promise<void | Message>;
   /** Merge a previously committed send through the same message-id projection as HTTP success. */
@@ -220,7 +221,7 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
 
 /**
  * Right-hand message pane — header (avatar / title / participants / node chip /
- * kind badge / ⚙) + messages list + composer (with @mention picker for groups).
+ * conversation actions) + messages list + composer (with @mention picker for groups).
  *
  * The component is fully controlled by the caller for `messages` and the
  * `onSend` callback fires when the user hits Send or desktop Enter. The composer holds
@@ -240,8 +241,8 @@ export function MessagePane({
   lifecycleNotice,
   headerActions,
   focusMessageId,
+  cooperationAgent,
   personalAgent = false,
-  personalStarterExamples = false,
   returnNavigation,
   timeline,
   messages: messagesProp,
@@ -1053,7 +1054,8 @@ export function MessagePane({
   // must not steal the reading position.
   useEffect(() => {
     const el = messagesContainerRef.current;
-    if (!el) return;
+    // An empty chat is an introduction to read from the top, not a message stream.
+    if (!el || messages.length === 0) return;
     if (hasFocusedMessage && !forceScrollToBottomRef.current) {
       lastMessageIdRef.current = messages.at(-1)?.id ?? null;
       nearBottomRef.current = false;
@@ -1088,7 +1090,7 @@ export function MessagePane({
   useLayoutEffect(() => {
     const scroller = messagesContainerRef.current;
     const list = messageListRef.current;
-    if (!scroller || !list || hasFocusedMessage || typeof ResizeObserver === "undefined") return;
+    if (!scroller || !list || messages.length === 0 || hasFocusedMessage || typeof ResizeObserver === "undefined") return;
 
     // Cards and media can grow after the message data has already rendered.
     const observer = new ResizeObserver(() => {
@@ -1099,7 +1101,7 @@ export function MessagePane({
     observer.observe(list);
     observer.observe(scroller);
     return () => observer.disconnect();
-  }, [hasFocusedMessage]);
+  }, [hasFocusedMessage, messages.length === 0]);
 
   useEffect(() => {
     document.addEventListener("visibilitychange", reportReadBoundary);
@@ -1151,6 +1153,9 @@ export function MessagePane({
   const directAgent = conversation.type === "direct" ? conversation.participants.find(participant =>
     participant.type === "agent" && !participant.is_deleted && globalAgentIds.includes(participant.id)) : undefined;
   const headerAvatar = <Avatar
+    personal={personalAgent}
+    agentId={conversation.participants.find(p => p.type === "agent")?.id}
+    avatarVariant={conversation.participants.find(p => p.type === "agent")?.avatar_variant}
     initials={kind === "direct-agent" ? (agentInitials ?? avatarName.slice(0, 2)) : avatarName.slice(0, 2)}
     color={kind === "direct-agent" ? (agentColor ?? colorForAgentSeed(avatarName)) : colorForAgentSeed(avatarName)}
     size={34}
@@ -1194,25 +1199,13 @@ export function MessagePane({
           >{headerAvatar}</button> : headerAvatar}
         <div className="chat-pane-header-body">
           <h2 className="chat-pane-title">{conversation.title}</h2>
-          <div className="chat-pane-header-meta">
-            {!isMobile && (
-              <span className="chat-pane-participants">
-                {conversation.participants.map((p, i) => (
-                  <span
-                    key={p.id}
-                    className={p.is_stale ? "opacity-40" : undefined}
-                    title={p.is_deleted ? t("chat.deletedAgent") : p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
-                  >
-                    {p.display_name ?? p.id}
-                    {i < conversation.participants.length - 1 ? " · " : ""}
-                  </span>
-                ))}
-              </span>
-            )}
-            {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} nodeId={nodeId} update={nodeUpdate} />}
-          </div>
+          {isGroup && <div className="chat-pane-header-meta">
+            {!conversation.is_observer && onOpenConfig
+              ? <button type="button" className="chat-pane-member-count" onClick={onOpenConfig}>{t('chat.groupSettings.memberCount', { count: conversation.participants.length })}<span aria-hidden> ›</span></button>
+              : <span className="chat-pane-participants">{t('chat.groupSettings.memberCount', { count: conversation.participants.length })}</span>}
+          </div>}
+          {kind === "direct-agent" && nodeUpdateLabel(nodeUpdate) && <NodeChip nodeName={nodeName} status={nodeStatus} nodeId={nodeId} update={nodeUpdate} />}
         </div>
-        {personalAgent ? !isMobile && <span className="pa-badge">{t('pa.label','个人助手')}</span> : !isMobile && <KindBadge kind={kind} />}
         {conversation.type === "direct" && conversation.can_write !== false && onRename ? (
           <DirectConversationMenu key={conversation.id} title={conversation.title}
             onRename={onRename} onOpenConfig={onOpenConfig} configLabel={configLabel}
@@ -1220,20 +1213,20 @@ export function MessagePane({
         ) : !conversation.is_observer && onOpenConfig && (
           <button
             type="button"
-            className={`chat-pane-config${isMobile ? " chat-pane-config-icon" : ""}`}
+            className="chat-pane-config chat-pane-config-icon"
             onClick={onOpenConfig}
             aria-label={t("chat.messagePane.config")}
+            title={t("chat.messagePane.config")}
           >
             {/* Lucide settings v0.468.0; ISC notice in ./avatar.tsx. */}
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
               <circle cx="12" cy="12" r="3" />
             </svg>
-            {!isMobile && <span>{t("chat.messagePane.config")}</span>}
           </button>
         )}
         {headerActions}
-        {onOpenTasks && <button type="button" className="chat-pane-config" onClick={onOpenTasks}>{t("shell.tabs.tasks")}</button>}
+        {onOpenTasks && <button type="button" className="chat-pane-config chat-pane-config-icon" onClick={onOpenTasks} aria-label={t("shell.tabs.tasks")} title={t("shell.tabs.tasks")}><ListTodo size={20} strokeWidth={1.7} aria-hidden="true" /></button>}
       </header>
       {returnNavigation && <div className="pa-source-return">{returnNavigation}</div>}
 
@@ -1241,19 +1234,16 @@ export function MessagePane({
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         <div ref={messageListRef} className="chat-pane-message-list">
-          {messages.length === 0 ? (
+          {messages.length === 0 && cooperationAgent && <CooperationGuide key={conversation.id} agent={cooperationAgent}
+            canStart={!composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0}
+            onStart={text => { setDraft(text); composerRef.current?.focus(); }} />}
+          {messages.length === 0 ? (cooperationAgent ? null : (
             <div className="chat-pane-empty">
               <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
-              <p className="chat-pane-empty-title">{t(personalStarterExamples ? 'pa.firstChatTitle' : 'chat.messagePane.emptyTitle')}</p>
-              <p className="chat-pane-empty-sub">{t(personalStarterExamples ? 'pa.firstChatHint' : 'chat.messagePane.emptySubtitle')}</p>
-              {personalStarterExamples && !composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0 && <div className="pa-starter-examples">
-                {['planWeek','startExercise','findNextStep'].map(key => <button key={key} type="button" onClick={() => {
-                  setDraft(t(`pa.examples.${key}`));
-                  composerRef.current?.focus();
-                }}>{t(`pa.examples.${key}`)}<span aria-hidden="true">↗</span></button>)}
-              </div>}
+              <p className="chat-pane-empty-title">{t('chat.messagePane.emptyTitle')}</p>
+              <p className="chat-pane-empty-sub">{t('chat.messagePane.emptySubtitle')}</p>
             </div>
-          ) : (
+          )) : (
             <>
               {(isLoadingHistory || hasMoreHistory === false) && (
                 <div className="chat-history-status" role="status">
@@ -1287,13 +1277,13 @@ export function MessagePane({
                     workHref={workHrefFor(m)}
                     onActivity={m.sender.type === "agent" && !m.work_record_deleted && globalAgentIds.includes(m.sender.id) ? openActivity : undefined}
                     activityExpanded={activityAnchor?.element.dataset.activityAnchor === m.id}
-                    nodeName={agentNodeNames[m.sender.id]}
                     conversationId={conversation.id}
                     readOnly={conversation.can_write === false}
                     isMobile={isMobile}
                     participants={conversation.participants}
                     isDirectChat={isDirectChat}
                     isGroup={isGroup}
+                    showSender={isGroup || Boolean(conversation.is_observer)}
                     agentOnline={agentOnline}
                     onReply={composerBusy ? undefined : replyToMessage}
                     onFork={onFork}
@@ -1414,7 +1404,7 @@ export function MessagePane({
       </form>}
 
       {activityAnchor && globalAgentIds.includes(activityAnchor.agentId) && <AgentActivityPopover
-        key={activityAnchor.agentId} anchor={activityAnchor} canConfigure={manageableWorkAgentIds.includes(activityAnchor.agentId)} onClose={closeActivity} />}
+        key={activityAnchor.agentId} anchor={activityAnchor} nodeName={agentNodeNames[activityAnchor.agentId] ?? (activityAnchor.agentId === directAgent?.id ? nodeName : null)} canConfigure={manageableWorkAgentIds.includes(activityAnchor.agentId)} onClose={closeActivity} />}
       {/* feat-484-M1: single pane-level copy snackbar / live region. */}
       {copyNotice && (
         <div
@@ -1861,7 +1851,6 @@ function MessageBubble({
   workHref,
   onActivity,
   activityExpanded,
-  nodeName,
   availableMessageIds,
   conversationId,
   isMobile,
@@ -1875,20 +1864,20 @@ function MessageBubble({
   onCopyRequest,
   onMenuRequest,
   onSheetRequest,
-  interactiveReadOnly, interactiveSubmissionId, onInteractionSend, onComposeMessage, isGroup = false,
+  interactiveReadOnly, interactiveSubmissionId, onInteractionSend, onComposeMessage, isGroup = false, showSender = true,
 }: {
   message: Message;
   historyProcess?: MessagePaneProps["historyProcess"];
   onComposeMessage?(target: string, text: string): Promise<void>;
   interactiveReadOnly?: boolean;
   isGroup?: boolean;
+  showSender?: boolean;
   interactiveSubmissionId?: string;
   onInteractionSend(input: InteractionReplyInput, key: string): Promise<unknown>;
   selfUserId?: string | null;
   workHref?: string;
   onActivity?(anchor: AgentActivityAnchor): void;
   activityExpanded?: boolean;
-  nodeName?: string;
   availableMessageIds?: ReadonlySet<string>;
   conversationId: string;
   isMobile?: boolean;
@@ -2087,7 +2076,8 @@ function MessageBubble({
         : null
     : null;
 
-  const messageAvatar = <span
+  const messageAvatar = message.sender.type === "agent" && !message.pa_agent_id
+    ? <span data-testid={`message-avatar-${message.id}`}><AssistantPortrait personal={message.sender.role === "personal"} seed={message.sender.id} variant={message.sender.avatar_variant} size={30} /></span> : <span
     data-testid={`message-avatar-${message.id}`}
     className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
     style={{ backgroundColor: senderColor, color: foregroundForAvatar(senderColor) }}
@@ -2120,13 +2110,12 @@ function MessageBubble({
         onClick={event => onActivity({agentId: message.sender.id, name: message.sender.display_name ?? message.sender.id, element: event.currentTarget})}
       >{messageAvatar}</button> : messageAvatar)}
       <div className="chat-bubble-column flex flex-col min-w-0">
-        {(!isUser || message.pa_agent_id) && (
+        {(!isUser || message.pa_agent_id) && (showSender || message.pa_agent_id || message.delegation) && (
           <div className="chat-bubble-meta" aria-label={message.pa_agent_id ? t('pa.senderLabel', {name:message.sender.display_name ?? message.sender.id}) : undefined}>
             <span className="chat-bubble-sender" style={{ color: foregroundForAvatar(senderColor) }}>
               {message.sender.display_name ?? message.sender.id}
             </span>
-            {nodeName && !message.pa_agent_id && <small>{nodeName}</small>}
-            {message.pa_agent_id ? <span className="pa-delegation pa-delegation--represented">{t('pa.sentOnBehalf')}</span> : message.delegation ? <span className="pa-delegation">{message.delegation.label}</span> : message.sender.role==='personal' && <span className="pa-badge">{t('pa.label')}</span>}
+            {message.pa_agent_id ? <span className="pa-delegation pa-delegation--represented">{t('pa.sentOnBehalf')}</span> : message.delegation ? <span className="pa-delegation">{message.delegation.label}</span> : null}
           </div>
         )}
         <div
