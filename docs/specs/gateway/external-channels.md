@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - External Channels Specification
 
-> 对齐: feat-760
+> 对齐: feat-774
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -13,7 +13,7 @@
 
 ### Requirement: 飞书 channel 消息收发
 
-Gateway 通过飞书 SDK WebSocket 长连接收发消息。1:1 私聊直接响应；群聊按 agent 的群聊回复策略决定是否响应。MENTION 策略下仅真实 @Bot 触发响应，未 @ 的群聊消息进入该 agent 的群背景上下文，待后续触发时一并带入；ALWAYS 策略下普通群消息也触发响应。普通 Global Agent 的 Bot 在应响应的消息持久入箱后添加「泣不成声」（`CRY`），完整读取后换成「了解」（`Get`）。其他模式的 Bot 使用待响应时添加、回复后移除的 THINKING 反应。
+Gateway 通过飞书 SDK WebSocket 长连接收发消息。先依 Agent 协作范围决定收件；下述团队协作场景中，私聊、实际 @Bot 或回复 Bot 的消息及时提醒，普通群动态按批次提供。普通 Global Agent 的 Bot 在应响应的消息持久入箱后添加「泣不成声」（`CRY`），完整读取后换成「了解」（`Get`）。其他模式的 Bot 使用待响应时添加、回复后移除的 THINKING 反应。
 
 #### Scenario: 用户在飞书 1:1 私聊中发消息并收到回复
 - **GIVEN** Gateway 配置了某个 Agent 对应的飞书 Bot
@@ -25,22 +25,22 @@ Gateway 通过飞书 SDK WebSocket 长连接收发消息。1:1 私聊直接响�
 - **WHEN** 用户在群里 @Bot 并发送消息
 - **THEN** Bot 在群里回复该消息
 
-#### Scenario: 群聊中未 @Bot 的消息不触发回复但作为上下文
+#### Scenario: 群聊中普通群消息先作为背景
 - **GIVEN** Gateway 配置的飞书 Bot 已加入某飞书群
 - **WHEN** 用户在群里发消息但未 @Bot
-- **THEN** Bot 不在群里回复
+- **THEN** Bot 不因该条普通消息立即运行
 - **AND** 当用户随后 @Bot 提问时，Bot 回复能引用之前未 @ 的群聊消息作为上下文
 
 #### Scenario: @所有人 不算 @Bot
 - **GIVEN** Gateway 配置的飞书 Bot 已加入某飞书群
 - **WHEN** 用户在群里 @所有人 发消息，但没有单独 @Bot
-- **THEN** Bot 不在群里回复
+- **THEN** Bot 不因该条普通消息立即运行
 - **AND** 该消息按普通未 @ 群消息进入群背景上下文
 
-#### Scenario: ALWAYS 策略下普通群消息也触发回复
-- **GIVEN** Gateway 配置的飞书 Bot 已加入某飞书群，且该 agent 的群聊回复策略为 ALWAYS
+#### Scenario: 普通消息持续十分钟合并提醒
+- **GIVEN** Gateway 配置的飞书 Bot 已加入某飞书群，该 Agent 处于团队协作
 - **WHEN** 用户在群里发送普通消息且没有 @Bot
-- **THEN** Bot 也在该群里回复该消息
+- **THEN** 有新增积压时到期合并提醒，Agent 可以保持静默
 
 #### Scenario: 其他模式的 Bot 对即将响应的消息显示 THINKING 反应并在回复后移除
 - **GIVEN** Gateway 配置的非普通 Global Agent 飞书 Bot 收到一条需要响应的消息
@@ -211,7 +211,7 @@ Gateway 默认不在外部 channel 回复中暴露运行信息。启用全局设
 
 ### Requirement: 外部 channel 用户可见控制与后台文本投递
 
-飞书触发或绑定的用户可见事件必须回到原飞书 chat，并同步到内部 IM 影子会话；内部 IM 影子会话触发的同类事件只留在内部 IM。用户可见事件包括 assistant 文本、`/stop`、`/new`、`/compact` 及 `/compact <关注点>` 的控制确认、因主模型不可用改用备用时的轻量说明、预处理失败、后台 agent 文本、权限审批卡片和审批完成状态。含非空真实更新对象的 `self_evolution_review` system notice 遵守同一触发源规则：飞书触发时在原 chat 显示简短 Bot 更新通知并在 shadow IM 保留结构化 system notice，内部 IM 触发时不回写飞书。外部控制确认的 session/context outcome 与可恢复 delivery intent 必须先同次持久化；该 intent 幂等物化为 shadow output 后才向飞书发送，重放同一 provider message 复用首次控制结果，不重复改变会话或上下文。Gateway 启动和 IM reconnect 必须扫描未物化或未 hand-off 的 intent。若进程恰在 provider 已接受发送、但 hand-off 状态尚未来得及持久化时退出，飞书沿既有 at-least-once outbound 语义可能收到一次重复确认；本系统不伪造跨 provider exactly-once 保证，IM shadow 仍以同一 durable output 收敛。其他系统通知、thinking、工具遥测和调试状态不作为飞书普通聊天消息外发。该轻量说明与压缩控制确认同一投递形态，不是运行信息页脚。
+聊天控制先通过协作范围检查。飞书触发或绑定的用户可见事件必须回到原飞书 chat，并同步到内部 IM 影子会话；内部 IM 影子会话触发的同类事件只留在内部 IM。用户可见事件包括 assistant 文本、`/stop`、`/new`、`/compact` 及 `/compact <关注点>` 的控制确认、因主模型不可用改用备用时的轻量说明、预处理失败、后台 agent 文本、权限审批卡片和审批完成状态。含非空真实更新对象的 `self_evolution_review` system notice 遵守同一触发源规则：飞书触发时在原 chat 显示简短 Bot 更新通知并在 shadow IM 保留结构化 system notice，内部 IM 触发时不回写飞书。外部控制确认的 session/context outcome 与可恢复 delivery intent 必须先同次持久化；该 intent 幂等物化为 shadow output 后才向飞书发送，重放同一 provider message 复用首次控制结果，不重复改变会话或上下文。Gateway 启动和 IM reconnect 必须扫描未物化或未 hand-off 的 intent。若进程恰在 provider 已接受发送、但 hand-off 状态尚未来得及持久化时退出，飞书沿既有 at-least-once outbound 语义可能收到一次重复确认；本系统不伪造跨 provider exactly-once 保证，IM shadow 仍以同一 durable output 收敛。其他系统通知、thinking、工具遥测和调试状态不作为飞书普通聊天消息外发。该轻量说明与压缩控制确认同一投递形态，不是运行信息页脚。
 
 #### Scenario: 飞书 /stop 成功后用户在飞书看到确认
 - **GIVEN** 用户在飞书 1:1 对话中触发了一个正在运行的 agent run
@@ -233,7 +233,7 @@ Gateway 默认不在外部 channel 回复中暴露运行信息。启用全局设
 - **AND** IM shadow conversation 显示同一命令与结果，并继续映射该飞书聊天的后续 Agent 工作
 
 #### Scenario: 群聊新控制命令要求明确 @Bot
-- **GIVEN** 飞书群有该 Bot 的共同上下文，且其 group reply policy 为 MENTION
+- **GIVEN** 飞书群有该 Bot 的共同上下文，且其协作范围为团队协作
 - **WHEN** 用户发送未明确指向 Bot 的 `/new` 或 `/compact`
 - **THEN** Gateway 只按既有群背景/触发规则处理，不切换或压缩共同会话
 - **WHEN** 用户发送 `@Bot /new` 或 `@Bot /compact <关注点>`
@@ -311,16 +311,16 @@ Gateway 默认不在外部 channel 回复中暴露运行信息。启用全局设
 
 ### Requirement: 飞书群聊背景上下文等价内部 IM 群聊
 
-飞书群聊复用内部 IM 群聊的 group-context 语义：未触发回复的普通群消息也进入对应 agent 的群背景上下文；后续 @Bot、纯 @Bot 或 ALWAYS 策略触发时，这些背景消息进入本轮模型上下文。`@Bot` 既是用户可见消息内容，也是触发信号；Gateway 不得为了 mention gate 从 IM 展示或模型输入中删除 @ 内容。
+团队协作下，飞书群动态纳入对应 Agent 的批次。Global 的任一聊天有高优消息时，同时列出积压；单会话仅在同一聊天遇到高优时带入该聊天背景。均受十分钟截止约束。仅限本人时照常镜像，Agent 不接收该群背景。`@Bot` 既是用户可见消息内容，也是触发信号；Gateway 不得为了 mention gate 从 IM 展示或模型输入中删除 @ 内容。
 
 #### Scenario: 未 @ 背景被纯 @Bot 触发使用
-- **GIVEN** 用户在飞书群里发送“你会数学吗”且没有 @nano
+- **GIVEN** 团队协作下，用户在飞书群里发送“你会数学吗”且没有 @nano
 - **WHEN** 用户随后只发送 `@nano`
 - **THEN** nano 的回复能针对“你会数学吗”作答，而不是把 `@nano` 当成无上下文测试消息
 - **AND** 两条用户消息都同步显示在内部 IM 影子群聊
 
 #### Scenario: 普通群消息投递能力缺失时不能验收为支持背景上下文
-- **GIVEN** Gateway 配置了飞书群聊 channel
+- **GIVEN** Gateway 为团队协作 Agent 配置了飞书群聊 channel
 - **WHEN** 用户在飞书群发送不 @Bot 的消息
 - **THEN** Gateway 必须能收到该事件并写入 IM 影子群聊和群背景上下文
 - **AND** 如果飞书平台或 app 权限只投递 @Bot 事件，该配置不得被验收为支持飞书群聊背景上下文
@@ -375,7 +375,7 @@ Gateway 默认不在外部 channel 回复中暴露运行信息。启用全局设
 
 ### Requirement: 飞书对话同步到内部 IM
 
-Gateway 收到来自飞书的用户消息后，尽力在内部 IM 创建或查找对应影子会话，并将用户消息写入该会话；agent 回复和用户可见控制/后台文本同步到同一影子会话。1:1 私聊的影子会话名为 `agent名 · feishu`；群聊影子会话名为 `agent名 · 群名 · feishu`。外部群聊消息携带原发送者显示名；IM owner 自己从外部 channel 发送的消息显示为「你」。未 @ 且不应触发回复的群聊消息也同步到 IM 并写入群背景上下文，但不分配新 run、不发送 agent 回复。
+Gateway 收到来自飞书的用户消息后，尽力在内部 IM 创建或查找对应影子会话，并将用户消息写入该会话；agent 回复和用户可见控制/后台文本同步到同一影子会话。1:1 私聊的影子会话名为 `agent名 · feishu`；群聊影子会话名为 `agent名 · 群名 · feishu`。外部群聊消息携带原发送者显示名；IM owner 自己从外部 channel 发送的消息显示为「你」。普通群消息继续镜像；Agent 是否接收及何时提醒遵循协作范围与工作模式。仅限本人时不进入该 Agent 的收件箱或待处理上下文。
 
 #### Scenario: 飞书私聊用户消息和回复出现在内部 IM
 - **GIVEN** 用户在飞书与某 Bot 1:1 对话
@@ -390,10 +390,10 @@ Gateway 收到来自飞书的用户消息后，尽力在内部 IM 创建或查�
 - **AND** 群成员消息显示原发送者名字，Bot 回复也出现在同一会话中
 
 #### Scenario: 未 @ 的群聊上下文消息同步到内部 IM
-- **GIVEN** plato 的群聊回复策略为 MENTION，Alice 在飞书群发了未 @plato 的消息
+- **GIVEN** plato 采用团队协作，Alice 在飞书群发了未 @plato 的消息
 - **WHEN** Gateway 收到该消息
 - **THEN** 该消息作为普通用户消息同步到内部 IM 的 `plato · 群名 · feishu` group 会话中
-- **AND** Gateway 不因此启动 agent run 或发送 agent 回复
+- **AND** Gateway 不因这条普通消息立即启动 Agent，后续按批次处理
 
 ### Requirement: IM 离线时飞书对话不阻塞
 
@@ -537,7 +537,7 @@ Gateway 启动的每个托管飞书 listener 与创建它的 Gateway 共享退�
 
 ### Requirement: PA 飞书主人私聊身份与交付
 
-PA 复用首个发送者持久绑定的主人身份。已绑定主人与 PA 的飞书单聊具有与 Web 主人私聊相同的交办权限；主人回复和定时提醒送到该单聊不经过对外披露审查。群聊与其他私聊不取得该豁免。普通工具权限保持有效。
+两种范围都以该渠道首个实时发送者为主人并保存其 open_id。仅限本人时递送此人与 Agent 的私聊，跳过群消息和其他私聊。已绑定主人与 PA 的飞书单聊具有与 Web 主人私聊相同的交办权限；主人回复和定时提醒送到该单聊。群聊与其他私聊不取得主人豁免。普通工具权限保持有效。
 
 #### Scenario: 主人单聊收发和提醒
 - WHEN 已绑定主人通过飞书单聊交办并安排提醒
