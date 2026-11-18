@@ -213,7 +213,7 @@ describe("agent create page", () => {
       description: "runtime-created helper",
       skills: ["plan"],
       tool_allowlist: ["read"],
-      group_reply_policy: "MENTION",
+      collaboration_scope: "team",
       default_model: null,
       reasoning_effort: "max",
       workspace_root: "/tmp/agent-new-workspace",
@@ -267,6 +267,10 @@ describe("agent create page", () => {
     await user.click(screen.getByRole("button", { name: /read/i }));
     await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
     await user.selectOptions(screen.getByLabelText("Approval strategy"), "cc");
+    const scope = screen.getByLabelText("Collaboration scope");
+    expect(scope).toHaveValue("team");
+    await user.selectOptions(scope, "owner_only");
+    expect(screen.getByText(/pending team messages are skipped/i)).toBeInTheDocument();
 
     if (workMode === "global") {
       await user.click(screen.getByRole("radio", { name: /Global mode/ }));
@@ -289,7 +293,7 @@ describe("agent create page", () => {
         skills: ["plan"],
         skills_selection_mode: "explicit_denylist",
         tool_allowlist: ["read"],
-        group_reply_policy: "MENTION",
+        collaboration_scope: "owner_only",
         default_model: null,
         model_fallbacks: [],
         reasoning_effort: "max",
@@ -434,7 +438,7 @@ describe("agent create page", () => {
       description: "",
       skills: [],
       tool_allowlist: [],
-      group_reply_policy: "MENTION",
+      collaboration_scope: "team",
       default_model: null,
       workspace_root: "/tmp/agent-default-skills",
       workspace_is_default: false,
@@ -529,7 +533,7 @@ describe("agent create page", () => {
       description: "",
       skills: [],
       tool_allowlist: [],
-      group_reply_policy: "MENTION",
+      collaboration_scope: "team",
       default_model: null,
       workspace_root: "/tmp/agent-node-two",
       workspace_is_default: false,
@@ -651,7 +655,7 @@ describe("agent create page", () => {
         description: "",
         skills: [],
         tool_allowlist: [],
-        group_reply_policy: "MENTION",
+        collaboration_scope: "team",
         default_model: "adjustable",
         reasoning_effort: "high",
         workspace_root: "/tmp/pending-agent",

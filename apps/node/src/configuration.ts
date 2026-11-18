@@ -15,7 +15,7 @@ export interface LocalAgent extends Record<string, unknown> {
   agent_id: string; workspace_root: string; work_mode?: 'single_thread' | 'global';
   approval_mode?: 'cc' | 'codex' | null;
   default_model?: string; features?: Record<string, boolean>;
-  group_reply_policy?: string; reasoning_effort?: string; heartbeat?: Record<string, unknown>;
+  collaboration_scope?: string; reasoning_effort?: string; heartbeat?: Record<string, unknown>;
 }
 export interface NodeConfigurationFile {
   node: { node_id: string; node_name?: string; user_id: string; workspace_base?: string };
@@ -90,7 +90,6 @@ export class NodeConfiguration {
     const selected = provider.models.find(candidate => candidate.name === model)!;
     const effort = agent.reasoning_effort || defaultReasoning(selected);
     if (effort && typeof selected.reasoning === 'object' && selected.reasoning.levels && !selected.reasoning.levels.includes(effort)) throw new Error(`Unsupported reasoning effort for ${model}`);
-    const policy = String(agent.group_reply_policy ?? 'manual').toLowerCase();
     const canonical = canonicalAgentConfiguration(agent);
     const workspace = agent.workspace_root!;
     const approval = this.inheritedApproval(workspace);
@@ -114,7 +113,7 @@ export class NodeConfiguration {
         const effort = defaultReasoning(selected);
         return { provider: provider.name, model: selected.id ?? model, ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}) };
       }),
-      features: {dreaming:true,...canonical.features}, groupReplyPolicy: policy === 'always' ? 'always' : 'mention_only',
+      features: {dreaming:true,...canonical.features}, collaborationScope: canonical.collaboration_scope,
       workflow: {sizeGuideline: String(this.value.agents.find(item=>item.agent_id===agent.agent_id)?.workflow_size_guideline ?? 'medium')},
       approval, knowledge: { ...normalizeKnowledge(this.value.agents.find(item => item.agent_id === agent.agent_id)?.knowledge, this.value.agents.find(item => item.agent_id === agent.agent_id)?.features ?? agent.features, evolution), globalSkillRoot: join(this.ownerRoot, 'skills') },
       toolAllowlist: agent.tool_allowlist === undefined ? undefined : canonical.tool_allowlist,

@@ -333,7 +333,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
         skills: b.skills ?? previous.skills,
         skills_selection_mode: b.skills_selection_mode ?? p.skills_selection_mode,
         tool_allowlist: b.tool_allowlist ?? previous.tool_allowlist,
-        group_reply_policy: b.group_reply_policy,
+        collaboration_scope: b.collaboration_scope ?? previous.collaboration_scope,
         default_model: b.default_model ?? null,
         model_fallbacks: b.model_fallbacks ?? [],
         features: b.features ?? previous.features,

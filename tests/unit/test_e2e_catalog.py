@@ -106,7 +106,7 @@ def test_bootstrap_tracks_product_default_tools_and_keeps_explicit_choices(tmp_p
                 json={
                     "profile_version": 7,
                     "display_name": "Named test agent",
-                    "group_reply_policy": "mention_only",
+                    "collaboration_scope": "team",
                     "description": "Preserve this fixture description.",
                     "default_model": "fixture:model",
                     "tool_allowlist": ["explicit", "retired"],
@@ -131,7 +131,7 @@ def test_bootstrap_tracks_product_default_tools_and_keeps_explicit_choices(tmp_p
         }
         assert config["profile_version"] == 7
         assert config["display_name"] == "Named test agent"
-        assert config["group_reply_policy"] == "mention_only"
+        assert config["collaboration_scope"] == "team"
         assert config["description"] == "Preserve this fixture description."
         assert config["default_model"] == "fixture:model"
     assert yaml.safe_load(path.read_text()) == {

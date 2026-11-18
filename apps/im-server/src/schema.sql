@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     skills_json TEXT NOT NULL DEFAULT '[]',
     skills_selection_mode TEXT,
     tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
-    group_reply_policy TEXT NOT NULL DEFAULT 'manual',
+    collaboration_scope TEXT NOT NULL DEFAULT 'team' CHECK(collaboration_scope IN ('team','owner_only')),
     default_model TEXT,
     model_fallbacks_json TEXT NOT NULL DEFAULT '[]',
     reasoning_effort TEXT,
@@ -510,17 +510,42 @@ CREATE TABLE IF NOT EXISTS pa_source_events (
  policy_revision INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'pending', created_at TEXT NOT NULL,
  UNIQUE(binding_id,source_event_id)
 );
+CREATE INDEX IF NOT EXISTS pa_observations_scope_skipped ON pa_source_events(binding_id,message_id) WHERE state='scope_skipped';
 CREATE INDEX IF NOT EXISTS pa_observations_pending_revision ON pa_source_events(
  binding_id,COALESCE(json_extract(payload_json,'$.lifecycle_revision'),1),event_id,conversation_id,message_id
 ) WHERE state IN ('pending','received')
   AND COALESCE(json_type(payload_json,'$.lifecycle_revision'),'null') IN ('integer','real','null');
+-- Only a real private message to this particular Agent can cross its owner-only boundary.
+CREATE TABLE IF NOT EXISTS provider_message_facts (
+ message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE, facts_json TEXT NOT NULL
+);
+CREATE VIEW IF NOT EXISTS owner_direct_agent_messages AS
+ SELECT m.id AS message_id, a.agent_id
+ FROM messages m
+ JOIN conversations c ON c.id=m.conversation_id AND c.type='direct'
+ JOIN agent_profiles a ON ((m.sender_source_id IS NOT NULL AND a.agent_id=c.config_agent_id)
+   OR (m.sender_source_id IS NULL AND EXISTS (SELECT 1 FROM conversation_participants cp JOIN users agent ON agent.id=cp.user_id
+     WHERE cp.conversation_id=c.id AND agent.username='agent:'||a.agent_id)))
+ WHERE m.sender_type='user'
+ AND NOT EXISTS (SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=m.id AND d.representation_operation_id IS NOT NULL)
+ AND ((m.sender_source_id IS NULL AND m.sender_user_id=COALESCE(
+       (SELECT b.owner_user_id FROM personal_agent_bindings b WHERE b.agent_id=a.agent_id),
+       (SELECT u.id FROM users u WHERE u.owner_id=a.owner_id AND u.username NOT LIKE 'agent:%' AND u.username NOT LIKE 'shadow:%' AND u.username!='system' LIMIT 1)))
+   OR (c.config_agent_id=a.agent_id AND c.external_source='feishu' AND EXISTS (
+     SELECT 1 FROM agent_channels ch WHERE ch.agent_id=a.agent_id AND ch.provider='feishu' AND ch.enabled=1
+     AND ch.owner_id=a.owner_id AND ch.node_id=a.node_id AND m.sender_source_id=json_extract(ch.provider_runtime_json,'$.owner_open_id')
+     AND c.external_chat_id='feishu:'||json_extract(ch.config_json,'$.app_id')||':dm:'||m.sender_source_id)));
 CREATE TRIGGER IF NOT EXISTS personal_observation_event AFTER INSERT ON conversation_events
 WHEN NEW.event_type IN ('message.created','message.completed','conversation.membership_changed','task_graph.changed')
 BEGIN
  INSERT OR IGNORE INTO pa_source_events(binding_id,source_event_id,kind,conversation_id,message_id,policy_revision,created_at)
  SELECT b.binding_id,NEW.event_id,NEW.event_type,NEW.conversation_id,NEW.message_id,p.revision,NEW.created_at
  FROM personal_agent_bindings b JOIN pa_policies p ON p.binding_id=b.binding_id
+ JOIN agent_profiles a ON a.agent_id=b.agent_id
  WHERE b.status='active' AND NEW.conversation_id!=b.conversation_id
+ AND (NEW.event_type NOT IN ('message.created','message.completed') OR (
+   (a.collaboration_scope='team' OR EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.agent_id=a.agent_id AND d.message_id=NEW.message_id))
+   AND NOT EXISTS (SELECT 1 FROM provider_message_facts f WHERE f.message_id=NEW.message_id AND json_extract(f.facts_json,'$.scope_skipped')=1)))
  AND EXISTS(SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id=NEW.conversation_id AND cp.user_id=b.owner_user_id)
  AND NOT EXISTS(SELECT 1 FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=NEW.message_id AND u.username='agent:'||b.agent_id)
  AND NOT EXISTS(SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=NEW.message_id AND d.agent_id=b.agent_id AND d.representation_operation_id IS NOT NULL)

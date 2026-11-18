@@ -1,3 +1,4 @@
+import { chatAllowed, ownerDirect, storedProviderFacts } from './collaboration.js';
 import { conversationName } from './conversation-name.js';
 import {parseAvatarVariant} from './configuration-input.js';
 import {configurationOperations} from './configuration-assembly.js';
@@ -142,7 +143,20 @@ export class PersonalAgents {
       : !!one(this.db,'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',message.conversation_id,this.ctx.messaging.agentUser(b.agent_id).id);
     const isOwner=message.sender_type==='user' && message.sender_user_id===b.owner_user_id
       && (!message.sender_source_id || message.sender_source_id===this.feishuOwner(b,message.conversation_id));
-    return {is_owner:isOwner,delivery:participant?'participant':'observer',conversation_type:chat.type,channel:chat.external_source??'web'};
+    const provider=storedProviderFacts(this.db,message.id);
+    const sourceId=message.sender_source_id;
+    const direct=ownerDirect(this.db,b.agent_id,message.id);
+    const reply=message.reply_to_json?JSON.parse(message.reply_to_json):message.reply_to;
+    const mentioned=this.ctx.messaging.mentionedUsers(message.conversation_id,message.content);
+    const explicit=provider ? (provider.mentioned_bot?[b.agent_id]:[]) : mentioned.filter(u=>u.username.startsWith('agent:')).map(u=>u.username.slice(6));
+    const ownerRecipient=!sourceId && chat.type==='direct' && !participant && !!one(this.db,
+      'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',message.conversation_id,b.owner_user_id);
+    const addressedOwner=!isOwner && (ownerRecipient || (provider ? provider.mentioned_owner||provider.replied_to_owner
+      : mentioned.some(u=>u.id===b.owner_user_id)||reply?.sender?.user_id===b.owner_user_id));
+    const addressedAgent=participant && (chat.type==='direct' || (provider ? provider.mentioned_bot||provider.replied_to_bot : this.addressedAgents(message).includes(b.agent_id)));
+    return {is_owner:isOwner&&!this.representedBy(message.id),delivery:participant?'participant':'observer',conversation_type:chat.type,channel:message.sender_type==='user' && !sourceId ? 'web' : chat.external_source??'web',
+      owner_direct:direct,addressed_to_owner:addressedOwner,addressed_to_agent:addressedAgent,explicit_mentioned_agent_ids:explicit,
+      ...(provider||sourceId?{provider_source_time:provider?.source_time??null,context_only:provider?.context_only===true}:{})};
   }
   private addressedAgents(message:Row):string[] {
     const reply=message.interaction_reply_json?JSON.parse(message.interaction_reply_json):message.interaction_reply;
@@ -153,7 +167,7 @@ export class PersonalAgents {
   private directOwnerMessage(b:Row,message:Row):boolean {
     const facts=this.sourceFacts(b,message);
     return !this.representedBy(message.id) && facts.is_owner && facts.delivery==='participant' && (facts.conversation_type==='direct' && this.ownerConversation(b,message.conversation_id)
-      || facts.conversation_type==='group' && this.addressedAgents(message).includes(b.agent_id));
+      || facts.conversation_type==='group' && facts.addressed_to_agent);
   }
   /** Project the same original facts for authorization and disclosure evidence.
    *
@@ -211,7 +225,10 @@ export class PersonalAgents {
   }
   admitSource(principal: Row, args: Row) {
     const b=this.authority(principal,args),m=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',args.source_message_id,args.conversation_id);
-    if(!m || this.representedBy(m.id)===b.agent_id || !this.messageAllowed(b,m)) return {allowed:false};
+    if(!m || this.representedBy(m.id)===b.agent_id || (m.sender_type==='agent' && m.sender_user_id===this.ctx.messaging.agentUser(b.agent_id).id) || !this.messageAllowed(b,m))
+      return {allowed:false};
+    if(!chatAllowed(this.db,b.agent_id,m.id) || one(this.db,"SELECT 1 FROM pa_source_events WHERE binding_id=? AND message_id=? AND state='scope_skipped'",b.binding_id,m.id))
+      return {allowed:false,scope_skipped:true};
     this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,this.policy(b.binding_id).revision);
     return {allowed:true,...this.sourceFacts(b,m),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
   }
@@ -242,14 +259,16 @@ export class PersonalAgents {
     const sourceAccess=new Map<string,boolean>(excludedIds.map(id=>[id,false]));
     const ids:number[]=[];
     // Missing generations belong to the first lifecycle. SQLite also extracts booleans as integers.
+    const restricted=readAgentProfile(this.db,b.agent_id)?.collaboration_scope==='owner_only';
     const candidates=this.db.prepare(`SELECT e.event_id,e.conversation_id FROM pa_source_events e
       WHERE e.binding_id=? AND e.state IN ('pending','received')
+      ${restricted?"AND (e.kind NOT IN ('message.created','message.completed') OR EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.agent_id=? AND d.message_id=e.message_id))":''}
       AND COALESCE(json_extract(e.payload_json,'$.lifecycle_revision'),1)=?
       AND COALESCE(json_type(e.payload_json,'$.lifecycle_revision'),'null') IN ('integer','real','null')
       AND (e.message_id IS NULL OR EXISTS (SELECT 1 FROM messages m JOIN conversations c ON c.id=m.conversation_id
         WHERE m.id=e.message_id AND m.conversation_id=e.conversation_id AND ${contactReadable}))
       ORDER BY e.event_id`);
-    for(const row of candidates.iterate(b.binding_id,state.revision,b.binding_id)) {
+    for(const row of candidates.iterate(b.binding_id,...(restricted?[b.agent_id]:[]),state.revision,b.binding_id)) {
       const cid=row.conversation_id as string|null;
       if(cid) {
         if(!sourceAccess.has(cid))sourceAccess.set(cid,!!this.sourceAccess(b,cid));
@@ -273,7 +292,7 @@ export class PersonalAgents {
         const conversation=e.conversation_id?one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',e.conversation_id):undefined;
         const message=e.message_id?this.ctx.messaging.message(e.message_id):null;
         return {...e,lifecycle_revision:JSON.parse(e.payload_json).lifecycle_revision??1,conversation_type:conversation?.type,channel:conversation?.external_source??'web',
-          ...(message?{mentioned_agent_ids:this.addressedAgents(message),explicit_mentioned_agent_ids:this.ctx.messaging.mentionedAgents(message.conversation_id,message.content)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
+          ...(message?{mentioned_agent_ids:this.addressedAgents(message),...this.sourceFacts(b,message)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
           message:message?{...message,sender_source_id:message.sender_source_id}:null};
       });
     for(const event of items) if(event.message_id) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(b.binding_id,event.message_id,event.conversation_id,policy.revision);
@@ -284,6 +303,7 @@ export class PersonalAgents {
     if(!Array.isArray(args.event_ids)||!['received','processed'].includes(args.stage)) fail(422,'invalid_observation_ack');
     transaction(this.db,()=>{ for(const id of args.event_ids) {
       const e=one(this.db,'SELECT * FROM pa_source_events WHERE event_id=? AND binding_id=?',id,b.binding_id);
+      if(e?.state==='scope_skipped')continue; // A late node receipt cannot reopen retired work.
       if(!e || e.state==='revoked' || (e.conversation_id&&!this.sourceAllowed(b,e.conversation_id))) fail(409,'observation_revoked');
       if(e.state!=='processed') this.db.prepare('UPDATE pa_source_events SET state=? WHERE event_id=?').run(args.stage,id);
     }});
@@ -474,7 +494,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const catalog=resolved?.capabilities;
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
         const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.default_on||tool.name==='send_message').map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'personal_sources','agent_creation'])];
-        let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,group_reply_policy:'manual',default_model:null,model_fallbacks:[],workspace_root:null};
+        let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:'team' as const,default_model:null,model_fallbacks:[],workspace_root:null};
         for(const feature of featureDependencies) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
         await ops.create(candidate,u.owner_id,b.node_id);
       }

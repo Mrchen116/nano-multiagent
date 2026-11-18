@@ -58,7 +58,7 @@ agents:
     workspace_root: /tmp/nano-e2e-workspace/e2e-peer
     initial_role: You are the peer in isolated E2E group-chat tests. Reply concisely.
     default_model: deepseek:deepseek-v4-flash
-    group_reply_policy: mention_only
+    collaboration_scope: team
     work_mode: single_thread
     tool_allowlist: *e2e_tools
     skills: []
@@ -76,7 +76,7 @@ agents:
     initial_role: You are the isolated global E2E test agent. Reply concisely to the source conversation.
     default_model: deepseek:deepseek-v4-flash
     work_mode: global
-    group_reply_policy: mention_only
+    collaboration_scope: team
     tool_allowlist: *e2e_tools
     skills: []
     skills_selection_mode: explicit_denylist

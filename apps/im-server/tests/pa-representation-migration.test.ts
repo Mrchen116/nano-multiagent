@@ -6,7 +6,7 @@ import {applyRepresentationMigration,inspectRepresentationMigration,verifyRepres
 it('adds only nullable provenance while preserving old messages, operations, events, relays and draft rows',()=>{
   const schema=readFileSync(new URL('../src/schema.sql',import.meta.url),'utf8')
     .replace(',\n representation_operation_id TEXT REFERENCES pa_operations(operation_id)','')
-    .replace(/^ AND NOT EXISTS\(SELECT 1 FROM pa_delegated_messages.*\n/m,'');
+    .replace(/^ AND NOT EXISTS ?\(SELECT 1 FROM pa_delegated_messages.*\n/gm,'');
   const before=new DatabaseSync(':memory:'),after=new DatabaseSync(':memory:');
   try {
     for(const db of [before,after]) {

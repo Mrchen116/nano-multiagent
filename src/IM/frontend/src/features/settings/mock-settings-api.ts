@@ -3,7 +3,7 @@ export interface AgentProfile {
   display_name: string;
   description?: string;
   skills_allowlist: string[];
-  group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY";
+  collaboration_scope: "team" | "owner_only";
   no_reply_token?: string;
   default_model?: string;
   tool_allowlist: string[];
@@ -51,7 +51,7 @@ const initialAgents: AgentProfile[] = [
     display_name: "Core Planner",
     description: "Milestone execution coordinator",
     skills_allowlist: ["tdd-execution-worker", "playwright"],
-    group_reply_policy: "MENTION",
+    collaboration_scope: "team",
     no_reply_token: "NO_REPLY",
     default_model: "codex_oauth:gpt-5.5",
     tool_allowlist: ["bash", "read_file"],
@@ -65,7 +65,7 @@ const initialAgents: AgentProfile[] = [
     display_name: "Audit Sentry",
     description: "Checks policy and logging boundaries",
     skills_allowlist: ["policy-checker"],
-    group_reply_policy: "NO_REPLY",
+    collaboration_scope: "owner_only",
     no_reply_token: "NO_REPLY",
     default_model: "gpt-4.1-mini",
     tool_allowlist: ["read_file"],

@@ -14,6 +14,7 @@ export interface MessageInput {
   interaction_reply?:Record<string,unknown>;
   created_at?:string;sender_display_name?:string;sender_source_id?:string;system_notice?:unknown;
   personal_source?:MessageMetadata['personal_source'];
+  provider_facts?:MessageMetadata['provider_facts'];
 }
 export interface SendMessageCommand {principal:SendPrincipal;conversationId:string;agentId?:string;key:string|null;input:MessageInput}
 function object(value:unknown):Record<string,unknown> {

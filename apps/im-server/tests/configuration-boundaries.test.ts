@@ -10,7 +10,7 @@ it('preserves omitted and nullable configuration fields through the HTTP boundar
   f.db.prepare("UPDATE agent_profiles SET heartbeat_json=?,reasoning_effort='high',approval_mode='cc' WHERE agent_id='a'").run('{"every":"30m"}');
   f.ctx.gateway.request = async (_node, _command, payload) => ({status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,agent:payload.agent});
   try {
-    const response = await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{profile_version:1,display_name:'  Name  ',group_reply_policy:'manual',work_mode:null,features:null,heartbeat_json:null,reasoning_effort:null,ignored_future_option:{anything:true}}});
+    const response = await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{profile_version:1,display_name:'  Name  ',collaboration_scope:'team',work_mode:null,features:null,heartbeat_json:null,reasoning_effort:null,ignored_future_option:{anything:true}}});
     expect(response.statusCode,response.body).toBe(200);
     expect(response.json()).toMatchObject({display_name:'Name',heartbeat_json:'{"every":"30m"}',reasoning_effort:null,approval_mode:'cc',work_mode:'single_thread',features:{task_graph:true}});
     expect(response.json()).not.toHaveProperty('ignored_future_option');
@@ -27,8 +27,8 @@ it('rejects malformed known HTTP fields before any durable operation or node req
   let requested = false;
   f.ctx.gateway.request = async () => {requested=true; throw new Error('must not reach node');};
   try {
-    for (const malformed of [{skills:42},{tool_allowlist:[false]},{profile_version:'1'},{initial_role:'creation-only'},{knowledge:{memoryMode:'legacy'}},{memoryMode:'legacy'},{legacyMemory:{enabled:true}},{dreaming:{intervalMs:1}}]) {
-      const response = await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{profile_version:1,display_name:'Name',group_reply_policy:'manual',...malformed}});
+    for (const malformed of [{collaboration_scope:'unknown'},{collaboration_scope:null},{skills:42},{tool_allowlist:[false]},{profile_version:'1'},{initial_role:'creation-only'},{knowledge:{memoryMode:'legacy'}},{memoryMode:'legacy'},{legacyMemory:{enabled:true}},{dreaming:{intervalMs:1}}]) {
+      const response = await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{profile_version:1,display_name:'Name',collaboration_scope:'team',...malformed}});
       expect(response.statusCode,response.body).toBe(422);
     }
     expect(requested).toBe(false);
@@ -71,7 +71,7 @@ it('validates initial ROLE at creation and keeps retired instructions out of pub
     requests.push(payload);
     return {status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,agent:{...payload.agent,workspace_root:'/new'}};
   };
-  const create=(fields:Record<string,unknown>) => app.inject({method:'POST',url:'/im/v1/nodes/n/agents',payload:{agent_id:'new',display_name:'New',group_reply_policy:'manual',...fields}});
+  const create=(fields:Record<string,unknown>) => app.inject({method:'POST',url:'/im/v1/nodes/n/agents',payload:{agent_id:'new',display_name:'New',collaboration_scope:'team',...fields}});
   try {
     for (const initial_role of [null,42,'😀'.repeat(1001)]) expect((await create({initial_role})).statusCode).toBe(422);
     expect(requests).toHaveLength(0);

@@ -1,3 +1,4 @@
+import { isCollaborationScope, type CollaborationScope } from './collaboration.js';
 import type { PersonalAgentIdentity } from './personal-agent.js';
 
 /** Public configuration fields carried by the existing node configuration protocol.
@@ -11,7 +12,7 @@ export type AgentConfigurationFields = {
   skills?: string[] | null;
   skills_selection_mode?: string | null;
   tool_allowlist?: string[];
-  group_reply_policy?: string | null;
+  collaboration_scope?: CollaborationScope;
   default_model?: string | null;
   model_fallbacks?: string[];
   reasoning_effort?: string | null;
@@ -64,8 +65,9 @@ function record(value: unknown): Record<string, unknown> {
 export function parseAgentConfigurationFields(value: unknown): AgentConfigurationFields {
   const p = record(value);
   for (const key of ['agent_id','work_mode','create_operation_id'] as const) field(p, key, text);
-  for (const key of ['display_name','skills_selection_mode','group_reply_policy','default_model','reasoning_effort','workspace_root','heartbeat_json'] as const) field(p, key, nullableText);
+  for (const key of ['display_name','skills_selection_mode','default_model','reasoning_effort','workspace_root','heartbeat_json'] as const) field(p, key, nullableText);
   for (const key of ['tool_allowlist','model_fallbacks'] as const) field(p, key, strings);
+  field(p, 'collaboration_scope', isCollaborationScope);
   field(p, 'skills', value => value === null || strings(value));
   field(p, 'approval_mode', value => value === null || value === 'cc' || value === 'codex');
   field(p, 'features', value => isRecord(value) && Object.values(value).every(boolean));

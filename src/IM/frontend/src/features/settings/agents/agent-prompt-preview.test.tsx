@@ -102,7 +102,7 @@ function makeAgentState(opts: {
       features: opts.configFeatures ?? {},
       skills: [],
       tool_allowlist: [] as string[],
-      group_reply_policy: "MENTION" as const,
+      collaboration_scope: "team" as const,
       default_model: null,
       workspace_root: "/tmp",
       workspace_is_default: false,

@@ -53,7 +53,7 @@ beforeEach(() => {
   config = {
     agent_id: "agent-core-1", owner_id: "owner-1", display_name: "Core Planner", description: "Milestone execution coordinator",
     skills: ["tdd-execution-worker", "playwright"], skills_selection_mode: "explicit_allowlist", tool_allowlist: ["bash", "read_file"],
-    group_reply_policy: "MENTION", default_model: null, model_fallbacks: [], reasoning_effort: null,
+    collaboration_scope: "team", default_model: null, model_fallbacks: [], reasoning_effort: null,
     workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1", workspace_is_default: true,
     profile_version: 12, node_id: "node-1", node_name: "MacBook", updated_at: "2026-03-13T10:00:00Z",
   };

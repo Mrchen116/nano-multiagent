@@ -20,7 +20,7 @@ it("transports configuration receipts, encrypted channel manifests and global Wo
       ...mirror.body,
       display_name: "Configured",
       approval_mode: "cc",
-      group_reply_policy: "manual",
+      collaboration_scope: "team",
     },
     f.tokens.alice,
   );

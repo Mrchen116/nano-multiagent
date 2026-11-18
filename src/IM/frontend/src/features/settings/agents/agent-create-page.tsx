@@ -115,7 +115,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
   skills_selection_mode: "explicit_denylist",
   tool_allowlist: [],
   work_mode: "global",
-  group_reply_policy: "MENTION",
+  collaboration_scope: "team",
   default_model: null,
   model_fallbacks: [],
   reasoning_effort: null,
@@ -135,7 +135,7 @@ interface CreateBehaviorCardProps {
   onApprovalModeChange: (value: ApprovalMode) => void;
   onInitialRoleChange: (value: string) => void;
   onFeatureToggle: (key: string, value: boolean) => void;
-  onPolicyChange: (value: string) => void;
+  onScopeChange: (value: "team" | "owner_only") => void;
 }
 
 function CreateBehaviorCard({
@@ -148,7 +148,7 @@ function CreateBehaviorCard({
   onApprovalModeChange,
   onInitialRoleChange,
   onFeatureToggle,
-  onPolicyChange
+  onScopeChange
 }: CreateBehaviorCardProps) {
   const { t } = useTranslation();
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -281,19 +281,19 @@ function CreateBehaviorCard({
         </div>
       )}
 
-      {/* Group reply policy */}
+      {/* Collaboration scope */}
       <div className="im-agent-field">
-        <Label.Root htmlFor="group-reply-policy">{t("agents.form.behavior.policy")}</Label.Root>
+        <Label.Root htmlFor="collaboration-scope">{t("agents.form.behavior.scope")}</Label.Root>
         <select
-          id="group-reply-policy"
+          id="collaboration-scope"
           className="im-input"
-          value={draft.group_reply_policy}
-          onChange={(e) => onPolicyChange(e.target.value)}
+          value={draft.collaboration_scope}
+          onChange={(e) => onScopeChange(e.target.value === "owner_only" ? "owner_only" : "team")}
         >
-          <option value="MENTION">{t("agents.form.behavior.policyOptionMention")}</option>
-          <option value="ALWAYS">{t("agents.form.behavior.policyOptionAlways")}</option>
-          <option value="NO_REPLY">{t("agents.form.behavior.policyOptionNoReply")}</option>
+          <option value="team">{t("agents.form.behavior.team")}</option>
+          <option value="owner_only">{t("agents.form.behavior.ownerOnly")}</option>
         </select>
+        <p className="im-settings-feature-help">{t(draft.collaboration_scope === "owner_only" ? "agents.form.behavior.ownerOnlyHelp" : "agents.form.behavior.teamHelp")}</p>
       </div>
 
       {/* Collapsible preview — mirrors tool-calls-panel aria-expanded + ▸/▾ pattern */}
@@ -982,10 +982,10 @@ export function AgentCreatePage() {
             setIsDirty(true);
             void capabilityEditor.apply([{ kind: "feature", name: key, enabled: value }]);
           }}
-          onPolicyChange={(value) => {
+          onScopeChange={(value) => {
             setErrorMessage(null);
             setIsDirty(true);
-            setDraft({ ...draft, group_reply_policy: value });
+            setDraft({ ...draft, collaboration_scope: value });
           }}
         />
 

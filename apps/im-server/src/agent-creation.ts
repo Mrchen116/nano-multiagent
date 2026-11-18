@@ -158,7 +158,7 @@ export async function createAgent(ctx: ImContext, owner: string, id: string, b: 
       features: b.features ?? {},
       ...(b.initial_role === undefined ? {} : {initial_role:b.initial_role}),
       tool_allowlist: b.tool_allowlist ?? [],
-      group_reply_policy: b.group_reply_policy,
+      collaboration_scope: b.collaboration_scope ?? 'team',
       default_model: b.default_model ?? null,
       model_fallbacks: b.model_fallbacks ?? [],
       reasoning_effort: b.reasoning_effort ?? null,

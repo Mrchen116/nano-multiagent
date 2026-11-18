@@ -4,6 +4,8 @@ import type { ChatActor, ChatAttachment, ChatEvent, ChatHistoryMessage, ChatMess
 import { lifecycle } from './agent-lifecycle.js';
 import { fail, now, transaction } from './context.js';
 
+import { chatAllowed, type ProviderFacts } from './collaboration.js';
+
 /** Fixed SQLite columns are distinct from the public JSON projection. */
 export interface MessageRecord {
   id:string; conversation_id:string; sender_user_id:string; sender_type:string; lifecycle_revision:number|null;
@@ -22,6 +24,8 @@ interface MessageUser {id:string; username:string; display_name:string; is_stale
 export interface MessageMetadata {
   reply_to?:ChatMessage['reply_to'];
   trackReceipts?: boolean;
+  pendingRelayAgents?: string[];
+  provider_facts?: ProviderFacts;
   created_at?:string; sender_display_name?:string; sender_source_id?:string; timezone?:string|null;
   system_notice?:unknown; interactive?:unknown; interaction_reply?:InteractionSnapshot; publish?:boolean;
   personal_source?:{binding_id:string; agent_id:string; owner_user_id:string; display_name:string; operation_id?:string|null};
@@ -319,15 +323,23 @@ export class MessageRecords {
     }
     if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
     if (extra.reply_to) this.db.prepare('UPDATE messages SET reply_to_json=? WHERE id=?').run(JSON.stringify(extra.reply_to),id);
+    if (extra.provider_facts) this.db.prepare('INSERT INTO provider_message_facts VALUES(?,?)').run(id,JSON.stringify(extra.provider_facts));
+    if (status==='pending' && extra.pendingRelayAgents && !extra.pendingRelayAgents.some(agentId=>chatAllowed(this.db,agentId,id))) {
+      status='completed';
+      this.db.prepare("UPDATE messages SET delivery_status='completed' WHERE id=?").run(id);
+    }
     if (extra.trackReceipts) this.db.prepare(`
       INSERT INTO message_receipts(message_id,recipient_id)
       SELECT ?,p.user_id FROM conversation_participants p
       JOIN conversations c ON c.id=p.conversation_id
       JOIN users u ON u.id=p.user_id
       LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
-      WHERE c.id=? AND p.user_id<>? AND c.external_source IS NULL AND
+      WHERE c.id=? AND p.user_id<>? AND c.external_source IS NULL
+        AND (a.agent_id IS NULL OR a.collaboration_scope='team' OR EXISTS (
+          SELECT 1 FROM owner_direct_agent_messages d WHERE d.message_id=? AND d.agent_id=a.agent_id))
+        AND
         (c.type='group' OR (c.type='direct' AND (a.agent_id IS NULL OR a.work_mode='global')))
-    `).run(id,cId,sender);
+    `).run(id,cId,sender,id);
     const m = this.message(id);
     // Shadow messages store under the local owner even when the provider has no display name.
     const data = {...m,message_id:id,...(extra.sender_source_id

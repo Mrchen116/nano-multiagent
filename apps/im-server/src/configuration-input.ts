@@ -22,12 +22,10 @@ export interface CreateConfigurationInput extends ConfigurationWriteFields {
   initial_role?: string;
   agent_id: string;
   display_name: string;
-  group_reply_policy: string;
   description?: string;
 }
 export interface UpdateConfigurationInput extends ConfigurationWriteFields {
   display_name: string;
-  group_reply_policy: string;
   profile_version: number;
   description?: string;
   heartbeat?: unknown;
@@ -50,7 +48,7 @@ export function parseConfigurationInput(value: unknown, create = false): CreateC
   const avatar = create ? parseAvatarVariant(p.avatar_variant) : undefined;
   if ('initial_role' in p && (!create || typeof p.initial_role !== 'string' || p.initial_role.length > 2000)) fail(422, 'initial_role is creation-only text of at most 2000 UTF-16 code units');
   if (['knowledge', 'memoryMode', 'memory_mode', 'legacyMemory', 'dreaming'].some(key => key in p)) fail(422, 'Memory mode and maintenance budgets are file-only settings');
-  for (const key of create ? ['agent_id','display_name','group_reply_policy'] : ['display_name','group_reply_policy']) {
+  for (const key of create ? ['agent_id','display_name'] : ['display_name']) {
     if (typeof p[key] !== 'string' || !p[key].trim()) fail(422, `${key} is required`);
   }
   for (const key of ['skills','tool_allowlist','model_fallbacks']) {
@@ -65,11 +63,11 @@ export function parseConfigurationInput(value: unknown, create = false): CreateC
   let fields: AgentConfigurationFields;
   try { fields = parseAgentConfigurationFields({...p,work_mode:p.work_mode ?? undefined,features:p.features ?? undefined}); }
   catch { fail(422, 'invalid configuration fields'); }
-  const displayName = p.display_name, policy = p.group_reply_policy;
+  const displayName = p.display_name;
   // Explicitly narrow the required fields rather than asserting an HTTP object
   // to a business type. The earlier checks retain their existing error details.
-  if (typeof displayName !== 'string' || typeof policy !== 'string') fail(422, 'invalid configuration fields');
-  const input = {...fields, display_name:displayName, group_reply_policy:policy,
+  if (typeof displayName !== 'string') fail(422, 'invalid configuration fields');
+  const input = {...fields, display_name:displayName,
     // Creation resolves an omitted mode to the product default; an update that
     // omits it keeps the stored mode instead of resetting it.
     work_mode: create

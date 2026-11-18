@@ -81,7 +81,7 @@ function makeDetailState(agentId: string, displayName: string) {
       description: "",
       skills: [],
       tool_allowlist: [],
-      group_reply_policy: "MENTION",
+      collaboration_scope: "team",
       default_model: null,
       workspace_root: `/tmp/${agentId}`,
       workspace_is_default: false,

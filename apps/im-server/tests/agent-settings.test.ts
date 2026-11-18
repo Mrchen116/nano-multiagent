@@ -175,7 +175,7 @@ it('rejects offline setting writes before creating operations or dispatching nod
   ctx.gateway.request=vi.fn(async()=>null as never);
   try {
     for(const request of [
-      {method:'PATCH' as const,url:'/im/v1/agents/a/config',payload:{display_name:'Changed',group_reply_policy:'manual',profile_version:1}},
+      {method:'PATCH' as const,url:'/im/v1/agents/a/config',payload:{display_name:'Changed',collaboration_scope:'team',profile_version:1}},
       {method:'POST' as const,url:'/im/v1/agents/a/plugins',payload:{action:'remove_bundle',target:'test'}},
       {method:'DELETE' as const,url:'/im/v1/agents/a/cron/jobs/job'},
       {method:'POST' as const,url:'/im/v1/agents/a/channels',payload:{provider:'feishu',config:{app_id:'app'},credentials:{mode:'replace',app_secret:'secret'}}},
@@ -227,7 +227,7 @@ it('recovers an already accepted config operation and keeps committed settings v
     return confirmed ? applied! : null as never;
   };
   try {
-    const patched=await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{display_name:'Accepted',group_reply_policy:'manual',profile_version:1}});
+    const patched=await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{display_name:'Accepted',collaboration_scope:'team',profile_version:1}});
     expect(patched.statusCode).toBe(503);
     const pending=(await app.inject('/im/v1/agents/a/settings')).json();
     expect(pending).toMatchObject({ready:false,config:{display_name:'Agent',profile_version:1},pending_operation:{status:'pending'}});
@@ -357,7 +357,7 @@ it('lets configuration saves progress while a catalog read is blocked and reject
   try {
     const reading=app.inject('/im/v1/agents/a/settings').then(result=>result);
     await started;
-    const saved=await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{display_name:'Saved during read',group_reply_policy:'manual',profile_version:1}});
+    const saved=await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{display_name:'Saved during read',collaboration_scope:'team',profile_version:1}});
     expect(saved.statusCode,saved.body).toBe(200);
     release({capabilities});
     expect((await reading).json()).toMatchObject({ready:false,live_capabilities:null,config:{profile_version:2}});
@@ -389,7 +389,7 @@ it('returns pending settings promptly and starts one background recovery for con
   const {app,ctx,db}=setup();let release!:(value:any)=>void;
   ctx.gateway.request=async()=>null as never;
   try {
-    await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{display_name:'Pending',group_reply_policy:'manual',profile_version:1}});
+    await app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{display_name:'Pending',collaboration_scope:'team',profile_version:1}});
     const held=new Promise<any>(r=>{release=r;});
     ctx.gateway.request=vi.fn(()=>held);
     const reads=await Promise.all(Array.from({length:10},()=>app.inject('/im/v1/agents/a/settings')));

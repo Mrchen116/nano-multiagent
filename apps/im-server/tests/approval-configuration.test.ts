@@ -15,9 +15,9 @@ it('saves, preserves omitted mode, clears inheritance and rejects invalid approv
   app.setErrorHandler((error: any, _req, reply) => reply.code(error.statusCode ?? 500).send({detail: error.message}));
   registerControlRoutes(app, ctx);
   ctx.gateway.request = async (_node, _action, payload) => ({status: 'applied', operation_id: payload.operation_id, candidate_fingerprint: payload.candidate_fingerprint, agent: payload.agent});
-  const patch = (profile_version: number, fields: Record<string, unknown>) => app.inject({method: 'PATCH', url: '/im/v1/agents/a/config', payload: {display_name: 'Agent', group_reply_policy: 'manual', profile_version, ...fields}});
+  const patch = (profile_version: number, fields: Record<string, unknown>) => app.inject({method: 'PATCH', url: '/im/v1/agents/a/config', payload: {display_name: 'Agent', collaboration_scope: 'team', profile_version, ...fields}});
   try {
-    const created = await app.inject({method: 'POST', url: '/im/v1/nodes/n/agents', payload: {agent_id: 'b', display_name: 'Second', workspace_root: '/b', group_reply_policy: 'manual', skills: [], approval_mode: 'cc'}});
+    const created = await app.inject({method: 'POST', url: '/im/v1/nodes/n/agents', payload: {agent_id: 'b', display_name: 'Second', workspace_root: '/b', collaboration_scope: 'team', skills: [], approval_mode: 'cc'}});
     expect(created.statusCode).toBe(201);
     expect(created.json().approval_mode).toBe('cc');
     for (const [version, fields, expected] of [[1, {approval_mode: 'codex'}, 'codex'], [2, {}, 'codex'], [3, {approval_mode: 'cc'}, 'cc'], [4, {approval_mode: null}, null]] as const) {
