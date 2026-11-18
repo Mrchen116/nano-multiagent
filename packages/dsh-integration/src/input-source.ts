@@ -27,19 +27,23 @@ export function isHumanSource(source: MessageSource): source is MessageSourceMap
     && 'actorId' in source && 'channel' in source && 'messageId' in source;
 }
 
-/** Preserve original turn positions while applying chat withdrawals to historical human evidence. */
+/** Apply Nano chat withdrawals to original turn evidence while preserving native display projections. */
 export function scopedChatEvents(events: readonly import('@deepseek-ai/dsh-session').SessionEvent[]) {
-  const replacements = new Map<number, (typeof events)[number]>();
+  type Event = (typeof events)[number];
+  const identity = (event:Event) => event.type==='user/message' ? 'input:'+event.data.id :
+    event.type==='tool/result' ? 'tool:'+event.data.message.toolCallId : undefined;
+  const changes = new Map<string,Event>();
   for (const event of events) {
-    if (typeof event.surfaceOp !== 'object' || event.surfaceOp.startSeq !== event.surfaceOp.endSeq ||
-        (event.type !== 'user/message' && event.type !== 'tool/result')) continue;
-    replacements.set(event.surfaceOp.startSeq,event);
+    if (typeof event.surfaceOp !== 'object') continue;
+    const source = event.type==='user/message' ? event.data.source : event.type==='tool/result' ? event.data.message.source : undefined;
+    if (source && 'nanoScopeReplacement' in source && source.nanoScopeReplacement===true) changes.set(identity(event)!,event);
   }
-  if (!replacements.size) return events;
+  if (!changes.size) return events;
   return events.flatMap(original => {
-    if (typeof original.surfaceOp === 'object' && replacements.get(original.surfaceOp.startSeq)===original) return [];
-    let projected=original;
-    while (replacements.has(projected.seq)) projected=replacements.get(projected.seq)!;
+    const id=identity(original);
+    const projected=id && changes.get(id);
+    if (!projected) return [original];
+    if (typeof original.surfaceOp==='object') return [];
     return [{...projected,seq:original.seq}];
   });
 }
