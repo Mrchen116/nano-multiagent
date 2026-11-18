@@ -103,16 +103,12 @@ export class PersonalAgents {
     return this.sourceAllowed(b,message.conversation_id) && !!one(this.db,`SELECT 1 FROM messages m JOIN conversations c ON c.id=m.conversation_id
       WHERE m.id=? AND ${contactReadable}`,message.id,b.binding_id);
   }
-  private feishuChannel(b: Row, conversationId: string): Row | undefined {
-    const chat=one(this.db,"SELECT * FROM conversations WHERE id=? AND owner_id=? AND config_agent_id=? AND external_source='feishu'",conversationId,b.owner_id,b.agent_id);
-    if(!chat)return;
-    const channel=all(this.db,"SELECT config_json,provider_runtime_json FROM agent_channels WHERE owner_id=? AND node_id=? AND agent_id=? AND provider='feishu' AND enabled=1",b.owner_id,b.node_id,b.agent_id)
+  private feishuChannel(b:Row,chat:Row):Row|undefined {
+    if(chat.external_source!=='feishu'||chat.owner_id!==b.owner_id)return;
+    return all(this.db,`SELECT ch.agent_id,ch.node_id,ch.config_json,ch.provider_runtime_json FROM agent_channels ch
+      JOIN agent_profiles a ON a.agent_id=ch.agent_id AND a.node_id=ch.node_id
+      WHERE ch.owner_id=? AND ch.agent_id=? AND ch.provider='feishu' AND ch.enabled=1`,b.owner_id,chat.config_agent_id)
       .find(row=>String(chat.external_chat_id).startsWith(`feishu:${JSON.parse(row.config_json).app_id}:${chat.type==='group'?'group':'dm'}:`));
-    return channel;
-  }
-  private feishuOwner(b: Row, conversationId: string): string | undefined {
-    const channel=this.feishuChannel(b,conversationId);
-    return channel?JSON.parse(channel.provider_runtime_json).owner_open_id:undefined;
   }
   /** Identify a private owner destination from current persisted channel facts.
    *
@@ -124,9 +120,11 @@ export class PersonalAgents {
    */
   ownerConversation(b: Row, conversationId: string): boolean {
     if(conversationId===b.conversation_id)return true;
-    const owner=this.feishuOwner(b,conversationId);
-    const chat=one(this.db,'SELECT type,external_chat_id FROM conversations WHERE id=?',conversationId);
-    return !!owner && chat?.type==='direct' && chat.external_chat_id.endsWith(`:dm:${owner}`);
+    const chat=one(this.db,'SELECT * FROM conversations WHERE id=?',conversationId);
+    if(!chat||chat.config_agent_id!==b.agent_id)return false;
+    const channel=this.feishuChannel(b,chat);
+    const owner=channel && channel.node_id===b.node_id && JSON.parse(channel.provider_runtime_json).owner_open_id;
+    return !!owner && chat.type==='direct' && chat.external_chat_id.endsWith(`:dm:${owner}`);
   }
   /** Resolve identity and participation from persisted origin facts.
    *
@@ -137,20 +135,23 @@ export class PersonalAgents {
    *   Owner identity and current PA participation in the original conversation.
    */
   sourceFacts(b: Row, message: Row) {
-    const chat=one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',message.conversation_id)!;
+    const chat=one(this.db,'SELECT * FROM conversations WHERE id=?',message.conversation_id)!;
+    const channel=this.feishuChannel(b,chat);
+    const providerOwner=channel && JSON.parse(channel.provider_runtime_json).owner_open_id;
     const participant=chat.external_source
-      ? !!this.feishuChannel(b,message.conversation_id)
+      ? !!channel && channel.agent_id===b.agent_id && channel.node_id===b.node_id
       : !!one(this.db,'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',message.conversation_id,this.ctx.messaging.agentUser(b.agent_id).id);
     const isOwner=message.sender_type==='user' && message.sender_user_id===b.owner_user_id
-      && (!message.sender_source_id || message.sender_source_id===this.feishuOwner(b,message.conversation_id));
+      && (!message.sender_source_id || message.sender_source_id===providerOwner);
     const provider=storedProviderFacts(this.db,message.id);
     const sourceId=message.sender_source_id;
     const direct=ownerDirect(this.db,b.agent_id,message.id);
     const reply=message.reply_to_json?JSON.parse(message.reply_to_json):message.reply_to;
     const mentioned=this.ctx.messaging.mentionedUsers(message.conversation_id,message.content);
-    const explicit=provider ? (provider.mentioned_bot?[b.agent_id]:[]) : mentioned.filter(u=>u.username.startsWith('agent:')).map(u=>u.username.slice(6));
-    const ownerRecipient=!sourceId && chat.type==='direct' && !participant && !!one(this.db,
-      'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',message.conversation_id,b.owner_user_id);
+    const explicit=provider ? (provider.mentioned_bot && channel?[channel.agent_id]:[]) : mentioned.filter(u=>u.username.startsWith('agent:')).map(u=>u.username.slice(6));
+    const ownerRecipient=!sourceId && chat.type==='direct' && !participant && (chat.external_source
+      ? !!providerOwner && chat.external_chat_id.endsWith(`:dm:${providerOwner}`)
+      : !!one(this.db,'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',message.conversation_id,b.owner_user_id));
     const addressedOwner=!isOwner && (ownerRecipient || (provider ? provider.mentioned_owner||provider.replied_to_owner
       : mentioned.some(u=>u.id===b.owner_user_id)||reply?.sender?.user_id===b.owner_user_id));
     const addressedAgent=participant && (chat.type==='direct' || (provider ? provider.mentioned_bot||provider.replied_to_bot : this.addressedAgents(message).includes(b.agent_id)));

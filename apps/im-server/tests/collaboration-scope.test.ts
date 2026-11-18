@@ -67,3 +67,19 @@ it('uses original Feishu sender and authenticated targets in the private channel
   const event=service.observations(principal,args).items.find(e=>e.message_id===group.id);
   expect(event).toMatchObject({addressed_to_agent:false,addressed_to_owner:true,owner_direct:false,provider_source_time:facts.source_time});
 });
+
+it('resolves an observed Feishu DM from its own app binding although every shadow includes the local owner',()=>{
+  const {db,ctx,service,principal,args}=personalFixture();
+  db.exec(`INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('other-bot','agent:other','Other','o1','now');
+    INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,created_at,updated_at) VALUES('other','o1','n','Other','now','now');
+    UPDATE conversations SET owner_id='o1',config_agent_id='other',external_source='feishu',external_chat_id='feishu:app:dm:peer' WHERE id='peer';
+    INSERT INTO agent_channels VALUES('channel','o1','other','n','feishu',1,'{"app_id":"app"}','fp',1,'{"owner_open_id":"owner-open"}','{}','key',1,1,'now','now')`);
+  const admit=(m:{id:string})=>service.admitSource(principal,{...args,source_message_id:m.id,conversation_id:'peer'});
+  expect(admit(ctx.messaging.insertMessage('peer','other-bot','agent','To another person')))
+    .toMatchObject({delivery:'observer',addressed_to_owner:false,addressed_to_agent:false});
+  db.exec("UPDATE conversations SET external_chat_id='feishu:app:dm:owner-open' WHERE id='peer'");
+  expect(admit(ctx.messaging.insertMessage('peer','other-bot','agent','To the owner')))
+    .toMatchObject({delivery:'observer',addressed_to_owner:true,addressed_to_agent:false,owner_direct:false});
+  expect(admit(ctx.messaging.insertMessage('peer','u1','user','Hello, other bot',[],null,'completed',{sender_source_id:'owner-open'})))
+    .toMatchObject({is_owner:true,delivery:'observer',addressed_to_owner:false,addressed_to_agent:false,owner_direct:false});
+});
