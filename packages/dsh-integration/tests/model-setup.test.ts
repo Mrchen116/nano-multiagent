@@ -35,8 +35,8 @@ it('configures a real empty DSH through settings and credentials, probes native 
       await client.rpc.request('initialize', { protocol: 1, agents: [], bindings: [], providers: routes });
     };
     await start({});
-    const catalog = await client!.rpc.request('model.setup.catalog', {}) as { provider: string; models: string[] }[];
-    expect(catalog.find(item => item.provider === 'openai-codex')?.models.length).toBeGreaterThan(0);
+    const catalog = await client!.rpc.request('model.setup.catalog', {}) as { provider: string; models: {id: string}[] }[];
+    expect(catalog.find(item => item.provider === 'openai-codex')?.models.map(model => model.id)).toEqual(expect.arrayContaining(['gpt-6.2-sol', 'gpt-6.2-astra']));
     expect(await client!.rpc.request('model.setup.test', { id: 'setup', providers, provider: 'nano-fixture', model: 'test', api_key: 'local-fixture-secret' })).toEqual({});
     expect(await client!.rpc.request('update.prepare', { operationId: 'model-transaction' })).toEqual({ ready: false });
     await client!.rpc.request('model.setup.finish', { commit: true });
@@ -101,7 +101,7 @@ it('chooses only device-code OAuth, exposes notices and cancels without installi
     } },
   } as unknown as Context;
   new NativeModelSetup(ctx, { handle: (method, handler) => { handlers.set(method, handler); return () => {}; }, notify: (_method, value) => { notices.push(value); } });
-  const task = handlers.get('model.setup.test')!({ id: 'oauth', providers: { 'openai-codex': {} }, provider: 'openai-codex', model: 'catalog-model', login: true });
+  const task = handlers.get('model.setup.test')!({ id: 'oauth', providers: { 'openai-codex': {} }, provider: 'openai-codex', model: 'gpt-6.2-astra', login: true });
   await expect.poll(() => selected).toBe('device_code');
   expect(notices).toContainEqual({ id: 'oauth', state: 'waiting', message: 'Authorize', code: 'TEST-CODE', url: 'https://issuer.test/device' });
   handlers.get('model.setup.cancel')!({});

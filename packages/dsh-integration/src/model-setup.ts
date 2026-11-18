@@ -63,10 +63,26 @@ export class NativeModelSetup {
     await this.apply(snapshot.providers);
     return {};
   }
+  private async discoverModels(provider: string) {
+    const installed = await this.ctx.llm.discoverModels('llm-pi-ai', {provider});
+    const models = installed.map(model => ({
+      id: model.id, name: model.name, contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens, inputModalities: model.inputModalities,
+    }));
+    if (provider !== 'openai-codex') return models;
+    // The pinned runtime can serve explicitly declared models before its bundled catalog lists them.
+    const additions = [
+      {id: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', contextWindow: 475000},
+      {id: 'gpt-6.2-astra', name: 'GPT-6.2 Astra', contextWindow: 258400},
+    ];
+    return [...models, ...additions.filter(model => !models.some(existing => existing.id === model.id))
+      .map(model => ({...model, inputModalities: ['text', 'image'],
+        reasoning: {default: 'low', levels: ['low', 'medium', 'high', 'xhigh', 'max']}}))];
+  }
   private async catalog() {
     const entries = this.ctx.llm.listConfigurableProviders().filter(item => item.settingsNs === 'llm-pi-ai' && !item.declared);
     return Promise.all(entries.map(async item => ({provider: item.provider, display_name: item.displayName,
-      models: (await this.ctx.llm.discoverModels('llm-pi-ai', {provider: item.provider})).map(model => ({id: model.id, name: model.name, contextWindow: model.contextWindow, maxTokens: model.maxTokens, inputModalities: model.inputModalities})),
+      models: await this.discoverModels(item.provider),
     })));
   }
   private async restore(provider: string, providers: Profiles, record?: CredentialRecord) {
@@ -102,7 +118,7 @@ export class NativeModelSetup {
     try {
       if (candidate.login) {
         if (candidate.provider !== 'openai-codex') throw new Error('Unsupported subscription provider');
-        const known = await this.ctx.llm.discoverModels('llm-pi-ai', { provider: candidate.provider });
+        const known = await this.discoverModels(candidate.provider);
         if (!known.some(model => model.id === candidate.model)) throw new Error('Choose an installed Codex model');
         const result = await this.ctx.authorization.begin({
           key: recordKeyFor(candidate.provider), method: 'oauth', signal: transaction.abort.signal,

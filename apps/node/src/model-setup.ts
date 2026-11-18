@@ -11,7 +11,7 @@ interface Runtime {
 }
 interface PublicError {code: string; message: string; dependencies?: {agent_id: string; display_name: string}[]}
 interface Operation { id: string; state: 'waiting' | 'testing' | 'succeeded' | 'failed' | 'cancelled'; code?: string; url?: string; message?: string; error?: PublicError }
-interface CatalogEntry { provider: string; display_name?: string; models: {id: string; name?: string; contextWindow?: number; maxTokens?: number; inputModalities?: string[]}[] }
+interface CatalogEntry { provider: string; display_name?: string; models: {id: string; name?: string; contextWindow?: number; maxTokens?: number; inputModalities?: string[]; reasoning?: ModelDefinition['reasoning']}[] }
 export interface SetupRequest {
   action: 'status' | 'save' | 'remove' | 'login' | 'cancel'; revision?: string; provider?: string; source?: string; display_name?: string;
   protocol?: ModelProtocol; base_url?: string; model?: string; api_key?: string;
@@ -78,8 +78,13 @@ export class ModelSetup {
       provider = previous!;
     } else if (input.action === 'login') {
       if (input.provider !== 'openai-codex' || previous) invalid('Choose an unconfigured subscription service');
-      if (!catalog.find(item => item.provider === 'openai-codex')?.models.some(model => model.id === input.model)) invalid('Choose an installed Codex model');
-      provider = {name: 'openai-codex', native: true, models: [{name: `openai-codex/${input.model}`, id: input.model}]};
+      const selected = catalog.find(item => item.provider === 'openai-codex')?.models.find(model => model.id === input.model);
+      if (!selected) throw new ModelSetupError('invalid', 'Choose an available Codex model');
+      provider = {name: 'openai-codex', native: true, models: [{
+        name: `openai-codex/${selected.id}`, id: selected.id,
+        // Installed models inherit their native descriptors. Supplementary entries carry their own.
+        ...(selected.reasoning ? {context_window: selected.contextWindow, input: ['text', 'image'], reasoning: selected.reasoning} : {}),
+      }]};
     } else {
       if (previous?.name === 'openai-codex') invalid('Subscription services use the login flow');
       const source = previous ? (previous.native ? previous.name : 'custom') : input.source ?? 'custom';
