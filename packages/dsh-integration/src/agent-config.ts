@@ -59,9 +59,9 @@ export class ConfigurationScopes extends Service {
    */
   applyRevisionOnly(next: AgentConfiguration): boolean {
     const configs = [...this.allConfigurations()].filter(config => config.agentId === next.agentId);
-    const { revision: _, ...execution } = next;
-    if (!configs.length || configs.some(({ revision: _revision, ...current }) => !isDeepStrictEqual(current, execution))) return false;
-    for (const config of configs) config.revision = next.revision;
+    const { revision: _, collaborationScope, ...execution } = next;
+    if (!configs.length || configs.some(({ revision: _revision, collaborationScope: _scope, ...current }) => !isDeepStrictEqual(current, execution))) return false;
+    for (const config of configs) { config.revision = next.revision; config.collaborationScope = collaborationScope; }
     return true;
   }
   async whenIdle(agentId: string) { await Promise.all([...this.agents.values()].filter(scope => scope.config.agentId === agentId).map(scope => scope.agent.whenIdle())); }

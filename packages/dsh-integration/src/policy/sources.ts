@@ -4,7 +4,7 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { ToolExecution } from '@deepseek-ai/dsh-tools';
 import type { MessageApprovalContext } from '@nano/product-contracts';
 import { policyAsset } from './rules.js';
-import { isHumanSource } from '../input-source.js';
+import { isHumanSource, scopedChatEvents } from '../input-source.js';
 
 export const inboxSourceInstructions = `Source identity and authority
 The application supplies message source fields. sender identifies the actual speaker. Optional pa_agent_id identifies the PA that represented that speaker; use it when asked to contact that PA. Use the supplied target, channel, sender and reply fields. Do not invent reply links or fill in missing parts of partial messages.
@@ -73,10 +73,10 @@ export class ApprovalSources {
   release(sessionId: string) { this.live.delete(sessionId); }
   humanText(agent: Agent): string { return this.humanInputs(agent).map(input=>input.text).join('\n'); }
   humanInputs(agent: Agent): HumanInput[] {
-    const events=agent.session.snapshotEvents();const start=events.findLast(event=>event.type==='turn/start')?.seq??-1;const content:HumanInput[]=[];
+    const events=scopedChatEvents(agent.session.snapshotEvents());const start=events.findLast(event=>event.type==='turn/start')?.seq??-1;const content:HumanInput[]=[];
     for(const event of events){
       if(event.seq<=start)continue;
-      if(event.type==='user/message'&&isHumanSource(event.data.source))content.push({id:event.data.id,text:text(event.data.content),...(event.data.source.sender?{sender:event.data.source.sender}:{}),...(event.data.source.pa_agent_id?{pa_agent_id:event.data.source.pa_agent_id}:{})});
+      if(event.type==='user/message'&&isHumanSource(event.data.source))content.push({id:event.data.id,text:event.data.source.directHumanText ?? text(event.data.content),...(event.data.source.sender?{sender:event.data.source.sender}:{}),...(event.data.source.pa_agent_id?{pa_agent_id:event.data.source.pa_agent_id}:{})});
       if(event.type==='tool/result'&&!event.data.message.isError&&this.isLiveInbox(agent.id,event.data.message.toolCallId)){
         const body=event.data.message.content.filter(block=>block.type==='text').map(block=>block.text).join('\n');
         try {for(const message of (JSON.parse(body) as {messages?:{id:string;sender?:{type?:string};pa_agent_id?:string;partial?:boolean;content?:{type:string;text?:string}[]}[]}).messages??[])if(message.sender?.type==='user'&&!message.partial)content.push({id:message.id,text:(message.content??[]).filter(part=>part.type==='text').map(part=>part.text??'').join('\n'),sender:message.sender,...(message.pa_agent_id?{pa_agent_id:message.pa_agent_id}:{})});}catch{ /* Only a structured, observed Inbox result contributes human text. */ }
@@ -132,7 +132,7 @@ export class ApprovalSources {
     const calls = new Map<string, string>();
     let proposal = '';
 
-    const events = agent.session.snapshotEvents();
+    const events = scopedChatEvents(agent.session.snapshotEvents());
     const asked = new Map<string, { callId?: string; toolName: string; reason?: string }>();
     const approved = new Map<string, { toolName: string; reason?: string }>();
     if (options.toolResults) for (const event of events) {
@@ -209,7 +209,7 @@ export class ApprovalSources {
           : source.kind === 'agent-message' || ('form' in source && source.form === 'relay') ? 'agent_source'
           : source.kind === 'compact-checkpoint' || ('form' in source && source.form === 'recall') ? 'summary_source' : 'unclassified_source';
         const guidance = human || parent || constraint ? '' : await policyAsset(`cc-2.1.267-nano-v1/${file}.txt`);
-        lines.push({ user: `${guidance}${text(message.content)}`, origin: { kind: human ? 'human' : parent ? 'direct-parent' : source.kind,
+        lines.push({ user: `${guidance}${human ? source.directHumanText ?? text(message.content) : text(message.content)}`, origin: { kind: human ? 'human' : parent ? 'direct-parent' : source.kind,
           ...(human ? { actorId: source.actorId, channel: source.channel, messageId: source.messageId, ...(source.sender?{sender:source.sender}:{}), ...(source.pa_agent_id?{pa_agent_id:source.pa_agent_id}:{}) } : {}),
           ...(source.kind === 'agent-message' ? { senderSessionId: source.senderSessionId } : {}) } });
       }

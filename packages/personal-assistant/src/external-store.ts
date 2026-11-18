@@ -94,6 +94,16 @@ export class ExternalStore {
       .get(mirror, agentId) as InboundRow | undefined;
     return row && decodeInbound(row);
   }
+  sentInChat(chatId: string, platformId: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM outputs WHERE chat_id=? AND platform_id=?').get(chatId, platformId);
+  }
+  /** Remember undelivered team input even when its IM mirror must wait for reconnect. */
+  restrictToOwner(agentId: string): void {
+    this.db.prepare(`UPDATE inbound SET body=json_set(body,'$.input.metadata.scope_skipped',json('true'))
+      WHERE (accepted=0 OR mirror IS NULL) AND json_extract(body,'$.input.agent_id')=?
+      AND NOT(coalesce(json_extract(body,'$.input.metadata.owner_direct'),0)=1 OR
+        (json_extract(body,'$.input.metadata.conversation_type')='direct' AND json_extract(body,'$.input.metadata.owner_user_id') IS NOT NULL))`).run(agentId);
+  }
   pendingAdmissions(agentId?: string) {
     const scope=agentId ? " AND json_extract(body,'$.input.agent_id')=?" : "";
     return this.db.prepare("SELECT id,json_extract(body,'$.input.agent_id') AS agentId FROM inbound WHERE accepted=0"+scope+" ORDER BY rowid")

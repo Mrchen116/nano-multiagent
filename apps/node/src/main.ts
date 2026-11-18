@@ -449,6 +449,7 @@ async function im(path: string, options?: RequestInit): Promise<unknown> {
 }
 
 external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, store, relay,
+  ownerOnly: id => agents.find(agent => agent.agentId === id)?.collaborationScope === 'owner_only',
   personalAgent: id => !!agents.find(agent => agent.agentId === id)?.personal,
   globalAgent: id => agents.some(agent => agent.agentId === id && agent.mode === 'global' && !agent.personal),
   personalDelivery: delivery => globalProduct.externalDelivery(delivery),
@@ -570,9 +571,17 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
   },
   apply: async (candidate, intent) => {
     const next = configuration.runtime(candidate);
+    const previous = agents.find(agent => agent.agentId === next.agentId);
+    if (previous && next.collaborationScope === 'owner_only') {
+      previous.collaborationScope = 'owner_only';
+      external.restrictToOwner(next.agentId);
+      const changes = [...globalProduct.restrictToOwner(next.agentId), ...product.restrictToOwner(next.agentId)];
+      const {withdrawn} = await runtime.request('configuration.restrictChat', {agentId:next.agentId, operationId:intent.operation_id, changes}) as {withdrawn:Array<{sessionId:string;inputId?:string}>};
+      globalProduct.confirmRestricted(next.agentId,withdrawn);
+      product.confirmRestricted(withdrawn.filter((row): row is {sessionId:string;inputId:string} => !!row.inputId));
+    }
     const applied = await runtime.request('configuration.apply', {...next, operationId: intent.operation_id, fingerprint: intent.candidate_fingerprint}) as {effective: boolean; message?: string};
     if (!applied.effective) throw new Error(applied.message ?? 'Configuration was not applied');
-    const previous = agents.find(agent => agent.agentId === next.agentId);
     if (previous) Object.assign(previous, next); else agents.push(next);
     if (runtime.availableFor(next.agentId)) {
       if (next.personal) await reportPersonalAvailability(runtime.forAgent(next.agentId), true);

@@ -5,12 +5,13 @@ import { Client, WSClient, EventDispatcher } from '@larksuiteoapi/node-sdk';
 export interface FeishuConfiguration { appId: string; appSecret: string; botOpenId?: string; ownerOpenId?: string; domain?: string }
 export interface FeishuMessage {
   messageId: string; chatId: string; senderId: string; isGroup: boolean; mentioned: boolean; time: string;
+  parentId?: string; mentionIds?: string[];
   senderName?: string; chatName?: string; contextOnly?: boolean;
   parts: ({ type: 'text'; text: string } | { type: 'image'; key: string })[];
 }
 interface MessageEvent {
   sender: { sender_type: string; sender_id?: { open_id?: string } };
-  message: { message_id: string; chat_id: string; chat_type: string; message_type: string; create_time: string; content: string;
+  message: { message_id: string; parent_id?: string; chat_id: string; chat_type: string; message_type: string; create_time: string; content: string;
     mentions?: { key: string; name: string; id: { open_id?: string } }[] };
 }
 
@@ -48,6 +49,7 @@ export function parseFeishuMessage(event: MessageEvent, botId: string): FeishuMe
   }
   if (!parts.length) return;
   return { messageId: message.message_id, chatId: message.chat_id, senderId, isGroup: message.chat_type === 'group',
+    parentId: message.parent_id, mentionIds: mentions.flatMap(mention => mention.id.open_id ?? []),
     mentioned: mentions.some(mention => mention.id.open_id === botId), time: message.create_time, parts };
 }
 
@@ -100,6 +102,15 @@ export class FeishuConnection {
         const chat = await this.call(() => this.client.im.v1.chat.get({ path: { chat_id: message.chatId } })); check(chat); message.chatName = chat.data?.name;
       }
     } catch (error) { this.options.onError(error as Error); }
+  }
+  /** Resolve the author of a quoted message within the original platform chat. */
+  async quotedSender(chatId: string, messageId: string): Promise<string | undefined> {
+    const result = await this.call(() => this.client.im.v1.message.get({ path: { message_id: messageId } }));
+    check(result);
+    const original = result.data?.items?.find(item => item.chat_id === chatId && item.message_id === messageId);
+    // Lark identifies a bot sender with the app ID, and people with open IDs.
+    if (original?.sender?.id === this.config.appId) return this.config.botOpenId;
+    return original?.sender?.id;
   }
   private async history(trigger: FeishuMessage): Promise<void> {
     try {

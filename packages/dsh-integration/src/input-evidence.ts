@@ -21,7 +21,7 @@ export function inputEvidence(events: readonly SessionEvent[], inputId: string) 
         else inputTurn = turn;
       }
     }
-    if (event.type === 'user/message' && event.data.id === inputId) {
+    if (event.type === 'user/message' && typeof event.surfaceOp !== 'object' && event.data.id === inputId) {
       acceptedSeq ??= event.seq;
       consumedSeq = event.seq;
       inputTurn = turn;
@@ -139,6 +139,7 @@ export class InputEvidenceIndex {
         break;
       }
       case 'user/message': {
+        if (typeof event.surfaceOp === 'object') break;
         const state = this.state(event.data.id, event.seq);
         state.consumedSeq = event.seq;
         this.claim(event.data.id, state);

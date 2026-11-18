@@ -47,7 +47,7 @@ export function registerWorkflowTool(
         .filter((message) => isHumanSource(message.source))
         .map((message) => ({
           id: message.id as string,
-          text: message.content
+          text: (isHumanSource(message.source) ? message.source.directHumanText : undefined) ?? message.content
             .filter((block) => block.type === "text")
             .map((block) => block.text)
             .join("\n"),

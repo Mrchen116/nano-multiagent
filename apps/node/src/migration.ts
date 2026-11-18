@@ -89,7 +89,7 @@ export async function migrateNode(sourceRoot: string, destination: string) {
         const metadata=JSON.parse(row.metadata_json??'{}');const conversationId=channel==='web_relay'?target.join(':'):`external:${agentId}:${target.join(':')}`;
         const id=metadata._im_source_reference?.message_id??`migration-group:${row.id}`;
         const input:RelayInput={agent_id:agentId!,conversation_id:conversationId,relay_task_id:`migration-group:${row.id}`,idempotency_key:`migration-group:${row.id}`,metadata:{...metadata,context_only:true,conversation_type:'group',source_time:new Date(row.ts*1000).toISOString()},message:{id,content:row.text,sender_type:metadata.sender_type??'user',sender_user_id:row.sender,attachments:[]}};
-        n.prepare('INSERT OR IGNORE INTO group_background VALUES(?,?,?,?)').run(`${agentId}:${id}`,agentId!,conversationId,json(input));
+        n.prepare('INSERT OR IGNORE INTO group_background(input_id,agent_id,conversation_id,payload) VALUES(?,?,?,?)').run(`${agentId}:${id}`,agentId!,conversationId,json(input));
       }
       const targetMap=new Map<string,string>();
       for(const row of tables.inbox_targets??[]) {
@@ -102,6 +102,8 @@ export async function migrateNode(sourceRoot: string, destination: string) {
         const id=data.message_id??row.ingress_key;const parts=data.parts as {part_key:string;content:Row[]}[];
         const input:RelayInput={agent_id:row.agent_id,conversation_id:target,relay_task_id:row.ingress_key,idempotency_key:row.ingress_key,metadata:{source_time:data.source_time,created_at:data.received_at,sender_name:data.sender?.name,migration_source:{seq:row.seq,ingress_key:row.ingress_key}},message:{id,content:parts.flatMap(p=>p.content).filter(p=>p.type==='text').map(p=>p.text??'').join(''),sender_type:data.sender?.kind??data.sender?.type??'system',sender_user_id:data.sender?.id??'',attachments:[]}};
         const seq=Number(g.prepare('INSERT INTO inbox(agent_id,target,message_id,payload,attention,consumed,review_state) VALUES(?,?,?,?,?,?,?)').run(row.agent_id,target,id,json(input),row.requires_attention,row.consumed_at?1:0,'admitted').lastInsertRowid);
+        if(!row.consumed_at)g.prepare('INSERT INTO inbox_schedule(seq,agent_id,due_at) VALUES(?,?,?)')
+          .run(seq,row.agent_id,row.requires_attention ? 0 : Date.now()+600_000);
         parts.forEach((part,index)=>{g.prepare('INSERT INTO imported_parts VALUES(?,?,?)').run(seq,index,json(part.content));if(row.consumed_at||(tables.inbox_consumed_parts??[]).some(c=>c.agent_id===row.agent_id&&c.entry_seq===row.seq&&c.part_key===part.part_key))g.prepare('INSERT INTO fragments VALUES(?,?)').run(seq,index);});
 
       }

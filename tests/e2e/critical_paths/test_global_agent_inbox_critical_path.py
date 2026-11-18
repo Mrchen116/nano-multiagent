@@ -151,7 +151,7 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
                     "owner_id": im_user.owner_id,
                     "display_name": f"Global J2 {suffix}",
                     "work_mode": "global",
-                    "group_reply_policy": "ALWAYS",
+                    "collaboration_scope": "team",
                     "default_model": stub_llm_stack.llm_model,
                     "tool_allowlist": [
                         "inbox",
@@ -202,6 +202,7 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
             message_b = im_user.send_message(
                 chat_b,
                 f"J2_AMEND: {amendment}. Follow the same child and deliver its revised result to the original chat.",
+                mentions=[agent_id],
             )
             final = poll_until(
                 lambda: _work(http, base),
