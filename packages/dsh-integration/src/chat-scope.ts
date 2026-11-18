@@ -236,12 +236,12 @@ export class ChatScope {
               actorId: this.owner(session.id) ?? '',
               messageId: event.data.id
             };
-        const scopedSource = {...source, nanoScopeReplacement:true};
+        const scopedSource = {...source, nanoScopeReplacement:seq};
         session.append('user/message', { ...event.data, source:scopedSource, content }, placement);
       } else {
         const images = event.data.message.content.filter((block) => block.type === 'image');
         const keep = (row.retainImageIndices ?? []).flatMap((index) => images[index] ?? []);
-        const scopedSource = {...event.data.message.source, nanoScopeReplacement:true};
+        const scopedSource = {...event.data.message.source, nanoScopeReplacement:seq};
         session.append(
           'tool/result',
           { ...event.data, message: { ...event.data.message, source:scopedSource, content: [...content, ...keep] } },

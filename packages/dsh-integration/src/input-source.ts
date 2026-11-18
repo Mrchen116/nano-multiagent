@@ -36,7 +36,7 @@ export function scopedChatEvents(events: readonly import('@deepseek-ai/dsh-sessi
   for (const event of events) {
     if (typeof event.surfaceOp !== 'object') continue;
     const source = event.type==='user/message' ? event.data.source : event.type==='tool/result' ? event.data.message.source : undefined;
-    if (source && 'nanoScopeReplacement' in source && source.nanoScopeReplacement===true) changes.set(identity(event)!,event);
+    if (source && 'nanoScopeReplacement' in source && source.nanoScopeReplacement===event.surfaceOp.startSeq) changes.set(identity(event)!,event);
   }
   if (!changes.size) return events;
   return events.flatMap(original => {
