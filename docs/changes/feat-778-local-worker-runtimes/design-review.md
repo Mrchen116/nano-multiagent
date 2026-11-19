@@ -70,3 +70,31 @@
 ### Author Resolutions
 
 - R2-W1 accepted。四份 delta 现按 canonical 同名完整 Requirement 归并，保留 Work 返回、定时投递等旧场景；分别限定外部与原生恢复、旧工作子摘要资格、根工具与子角色适用范围。
+
+## Round 3
+
+| Metadata | 本轮记录 |
+|---|---|
+| reviewer | Codex 独立设计审查者 `design_review` |
+| target | `e13568af8`，对照 R2 的 `4cb0a165c` |
+| review_mode | delta |
+| mode_reason | 四份契约增量重编，复核同名条目、保留场景与来源及恢复范围；首文档、设计决定和 M1 未变 |
+| started_at | 2026-11-20T02:09:23+09:00 |
+| completed_at | 2026-11-20T02:09:43+09:00 |
+| duration | 20 s |
+
+**Verdict — Approved，0 CRITICAL / 0 WARNING。**
+
+### Coverage 与历史问题闭环
+
+**R2-W1（原 R1-W1）— closed。** Author Resolution 已落实。逐条对照 canonical，四份 delta 中八个 MODIFIED Requirement 均按原名唯一匹配，原 Scenario 标题全部保留。核对正文后的结论如下。
+
+- Work 只对可读节点保留轮次和用量、打开工作记录等行为。旧节点返回后保留范围和来源，定时投递仍能打开原消息；新委派中同一事项的补充和结果归原节点。
+- 固定派工工具归 Global/PA 根，工作 worker 的记忆注入及旧工作摘要的再提炼、再整合、来源回查均已限定。父级实际收到的工作汇报仍可作为主会话材料。
+- 外部框架的审批结果与 DSH 原生子任务的权限处理分别有适用条件。外部进程中断须明确续做且回到原 CLI 会话，原生 DSH 可恢复执行和用户主动停止各自保留原语义。
+
+`retained_from: Round 2`：R1-W2、R1-W3 已关闭，本轮未改动决定 4、5。`retained_from: Round 1`：产品组装、职责、Web 入口、验证安排与 M1 未变。本轮未运行产品，三框架的真实执行与用户亲测仍属后续阶段。
+
+### Issues 与 Recommendations
+
+无。
