@@ -38,3 +38,35 @@
 - R1-W1 accepted。unit/specs 增列派工、能力、审批与 Work 条款。
 - R1-W2 accepted。设计决定 4 完成原请求拒绝、原会话重判和迟答边界。
 - R1-W3 accepted。决定 5 指明宿主绑定身份、root 唤醒、回传去重与原生 DSH 的区别。
+
+## Round 2
+
+| Metadata | 本轮记录 |
+|---|---|
+| reviewer | Codex 独立设计审查者 `design_review` |
+| target | `4cb0a165c`，对照 R1 的 `313fa81c8` |
+| review_mode | delta |
+| mode_reason | 首次提交四份 delta，需对照 canonical 检查归并后果；设计决定 4、5 的修订仅影响原权限和回传问题 |
+| started_at | 2026-11-20T02:07:23+09:00 |
+| completed_at | 2026-11-20T02:07:45+09:00 |
+| duration | 22 s |
+
+**Verdict — Issues Found，0 CRITICAL / 1 WARNING。**
+
+### Coverage 与历史问题闭环
+
+- **R1-W2 — closed。** Author Resolution 选定即时结清原请求。决定 4 明确按原 request ID 回送拒绝或取消，授权答复通过同一会话的新输入重新判定，已终局拒绝与停止后的迟答均有确定结果。可控协议对端可以按此区分原请求是否结束与后续输入是否被接收。
+- **R1-W3 — closed。** Author Resolution 选定宿主 report 路径。决定 5 将外部消息绑定到持久 worker/root 身份，模型收到 worker 标识、标题与消息性质，使用回合或调用标识形成持久输入键，复用 root 的 steer/空闲唤醒。该路径可覆盖不同事项同时回传和同一终态重放，也避免把内部汇报误作用户授权。
+- **R1-W1 — still-open，见 R2-W1。** Author Resolution 已把新派工、记忆、审批与 Work 的目标行为放入镜像文件；四份文件中的正文均已核对。现有主从职责、Scope、页面阅读路径、隔离验收与 milestone 未发生实质变更，`retained_from: Round 1`。本轮为设计审查。
+
+### Issues
+
+**R2-W1 · 四份 delta 还不能按现有规则归并（延续 R1-W1）。** `docs/specs/CONTRIBUTING.md` 要求 MODIFIED 按同名 Requirement 替换完整条目并保留仍适用的 Scenario。当前 `specs/gateway/tool-approval.md:1` 以原来的 **Scenario**「子 Agent 统一采用委派权限」作为替换标题；`specs/gateway/agent-capabilities.md:5` 则用一个新标题合并多个现存 Requirement。即使人工匹配，也无法从段落判断应如何处理现行「旧子会话续做」中“必须生成新摘要”与新设计的冲突。反过来，直接用 `specs/im/agent-work.md:3` 替换现行 Work 条目会丢失仍适用的“返回图保留范围与来源节点”及定时投递入口保证。Global delta 同样遗漏 R1 指出的外部 worker 中断后明确续做与既有 DSH 自动恢复的适用范围。请对变动的既有 Requirement 使用原名和完整 Scenario，另列真正新增或退役的条目；可复用 canonical 原文，仅修订受影响场景。复审核对目标为同一输入在归并后有唯一预期、旧场景保持可判定。
+
+### Recommendations
+
+无。
+
+### Author Resolutions
+
+- R2-W1 accepted。四份 delta 现按 canonical 同名完整 Requirement 归并，保留 Work 返回、定时投递等旧场景；分别限定外部与原生恢复、旧工作子摘要资格、根工具与子角色适用范围。
