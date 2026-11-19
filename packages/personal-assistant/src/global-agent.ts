@@ -1110,7 +1110,7 @@ export class GlobalAgent {
     }).finally(() => {this.drains.delete(root);this.updateWorkPending(root);});
     this.drains.set(root, task);this.updateWorkPending(root);return task;
   }
-  private async projectRootPage(binding: SessionBinding, result: RuntimeWorkPage, stoppedRevision?: number, read = this.options.runtime.request): Promise<void> {
+  private async projectRootPage(binding: SessionBinding, result: RuntimeWorkPage, stoppedRevision?: number, read: Options['runtime']['request'] = (method, input) => this.options.runtime.request(method,input)): Promise<void> {
     const {store,inbox}=this.options;
     const stopped = stoppedRevision !== undefined;
     if (!result.durable) throw new Error('No durable event barrier');

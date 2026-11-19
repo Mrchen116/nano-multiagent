@@ -15,7 +15,7 @@ it('keeps a second Global available through Relay while an old child blocks reco
   const server = new WebSocketServer({host:'127.0.0.1',port:0});
   const agents: AgentConfiguration[] = Array.from({length:50}, (_,i) => ({
     agentId:'agent-'+i, revision:'1', mode:'global', workspace:join(home, 'workspace-'+i), provider:'deepseek-official', model:'deepseek-flash',
-    toolAllowlist:['subagent'], knowledge:{enabled:false},
+    toolAllowlist:['seed_legacy_child'], knowledge:{enabled:false},
   }));
   const bindings=agents.map(agent=>store.bind({
     sessionId:'root-'+agent.agentId,conversationId:'global:'+agent.agentId,agentId:agent.agentId,
@@ -62,8 +62,10 @@ it('keeps a second Global available through Relay while an old child blocks reco
     const fixture=join(home,'fixture.mjs');
     await writeFile(fixture,`import {appendFile,readFile} from 'node:fs/promises';
       import {setTimeout} from 'node:timers/promises';
-      export const name='relay-scale';export const inject=['llm','sessionQuery','sessionPersistence'];
+      export const name='relay-scale';export const inject=['llm','sessionQuery','sessionPersistence','tools'];
       export function apply(ctx){
+        // Seed a pre-Nano native child so cold recovery reads the historical Work catalogue.
+        ctx.tools.register({...ctx.tools.get('subagent'),name:'seed_legacy_child'});
         const file=process.env.DSH_HOME;
         if(process.env.NANO_TEST_COLD){
           const observe=ctx.sessionQuery.observeSession.bind(ctx.sessionQuery);
@@ -99,7 +101,7 @@ it('keeps a second Global available through Relay while an old child blocks reco
           }
           if(text==='launch native child'&&!launched){
             launched=true;
-            yield {type:'block-end',index:0,block:{type:'tool-call',name:'subagent',id:'start-child',
+            yield {type:'block-end',index:0,block:{type:'tool-call',name:'seed_legacy_child',id:'start-child',
               arguments:JSON.stringify({prompt:'hold native child',description:'hold recovery',run_in_background:true,backgroundMode:'continuable'})}};
             yield {type:'finish',reason:{kind:'tool-calls'}};return;
           }
