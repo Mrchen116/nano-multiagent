@@ -63,7 +63,7 @@ export class GlobalAgent {
   private readonly agentRetry = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly agentBackoff = new Map<string, number>();
   private readonly childCatchup = new Map<string, SessionBinding>();
-  private childCatchupTask?: Promise<void>;
+  private readonly childCatchupTasks = new Map<string, Promise<void>>();
   private readonly childCatchupStop=new AbortController();
   private recovering?:Promise<void>;
   private readonly coldRoots = new Map<string, symbol>();
@@ -583,25 +583,23 @@ export class GlobalAgent {
     if(this.stopped || !this.options.store.lifecycle.allowed(binding.agentId))return;
     this.childCatchup.set(binding.sessionId,binding);
     this.updateWorkPending(binding.sessionId);
-    if(this.childCatchupTask)return;
-    this.childCatchupTask=(async()=>{
-      while(!this.stopped && this.childCatchup.size) {
-        await yieldToIO(undefined,{signal:this.childCatchupStop.signal}).catch(error=>{
-          if(!this.stopped)throw error;
-        });
-        const next=this.childCatchup.values().next().value;
-        if(!next || this.stopped)break;
-        this.childCatchup.delete(next.sessionId);
-        const {lifecycle}=this.options.store;
-        if(lifecycle.allowed(next.agentId))
-          await lifecycle.run(next.agentId,undefined,()=>this.reconcile(next,true)).catch(this.options.onError);
-      }
-    })().finally(()=>{
-      this.childCatchupTask=undefined;
-      const pending=this.childCatchup.values().next().value;
-      if(pending && !this.stopped)this.catchUpChildWork(pending);
-    });
-    void this.childCatchupTask.catch(this.options.onError);
+    this.scheduleChildCatchup();
+  }
+
+  private scheduleChildCatchup(): void {
+    // One slow root must leave room for a peer; keep cold catalog reads bounded.
+    for (const [root, binding] of this.childCatchup) {
+      if (this.stopped || this.childCatchupTasks.size >= 2) return;
+      if (this.childCatchupTasks.has(root)) continue;
+      const task = yieldToIO(undefined, {signal:this.childCatchupStop.signal}).then(async () => {
+        if (!this.childCatchup.delete(root) || !this.options.store.lifecycle.allowed(binding.agentId)) return;
+        await this.options.store.lifecycle.run(binding.agentId, undefined, () => this.reconcile(binding,true));
+      }).catch(error => { if (!this.stopped) this.options.onError(error); }).finally(() => {
+        this.childCatchupTasks.delete(root);
+        this.scheduleChildCatchup();
+      });
+      this.childCatchupTasks.set(root,task);
+    }
   }
 
   /** Consume persisted source events without changing the owner's read receipts. */
@@ -1317,6 +1315,6 @@ export class GlobalAgent {
     this.workRetries.clear();
     for(const timer of this.agentRetry.values())clearTimeout(timer);
     this.agentRetry.clear();this.childCatchup.clear();this.childCatchupStop.abort();
-    await Promise.allSettled([this.childCatchupTask,...this.agentRecoveries.values()]);
+    await Promise.allSettled([...this.childCatchupTasks.values(),...this.agentRecoveries.values()]);
     await this.backgroundDrain; await this.observations; await this.controls.stop(); this.unsubscribe(); for (const call of this.calls.values()) call.abort(); await Promise.allSettled([...this.drains.values(), ...this.childDrains.values(), ...this.waking.values()]); await Promise.all(Object.values(this.receiptQueues).map(queue => queue.task)); await this.recovering; await Promise.allSettled(this.accepting.values()); }
 }

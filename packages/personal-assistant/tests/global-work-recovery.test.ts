@@ -311,3 +311,26 @@ it.each(['interrupted','error','aborted'])('retains a migrated non-attention wak
     await expect.poll(()=>inbox.legacyReceiptWake('a')).toBeUndefined();
   }finally{await product.stop();inbox.close();store.close();rmSync(home,{recursive:true,force:true});}
 });
+
+it('settles another cold Agent while a peer is waiting for its historical child page', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  const agents = ['slow','peer'].map(agentId => ({agentId, workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global' as const}));
+  for (const {agentId} of agents) store.bind({agentId,sessionId:agentId,conversationId:'global:'+agentId,ownerId:'owner',revision:'1'});
+  let release!: () => void;
+  const hold = new Promise<void>(resolve => {release = resolve;});
+  const errors: unknown[] = [];
+  const product = new GlobalAgent({nodeId:'node',ownerId:'owner',agents,store,inbox,image:async()=>'',onError:e=>errors.push(e),
+    runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
+      if(method==='session.work.children') {
+        if(args.sessionId==='slow') await hold;
+        return {children:[]};
+      }
+      return {durable:true,events:[],throughSeq:0,modelVersion:'done',modelRuns:[]};
+    }},relay:{ready:false,request:async()=>({type:'ack',payload:{}})}});
+  try {
+    await product.recover();
+    await expect.poll(() => typeof inbox.readyWorkAgents(['slow','peer'], id=>id).peer).toBe('number');
+    expect(inbox.workProcessingPending).toBe(true);
+    expect(errors).toEqual([]);
+  } finally {release(); await product.stop(); inbox.close(); store.close();}
+});
