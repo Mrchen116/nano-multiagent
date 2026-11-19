@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
+import stat
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -54,10 +57,26 @@ if (process.argv[1]?.endsWith('/apps/im-server/lib/main.js') && process.argv[2] 
 """,
         encoding="utf-8",
     )
+    # Apply the preload to the IM launcher and its child only. Passing a unique
+    # NODE_OPTIONS to the UI builds would invalidate their cache for every case.
+    node = shutil.which("node")
+    assert node is not None
+    launcher = tmp_path / "node"
+    launcher.write_text(
+        """#!/bin/sh
+case "$3" in
+  */apps/im-server/lib/main.js) export NODE_OPTIONS="${NODE_OPTIONS:-} --import=$IM_TEST_PRELOAD" ;;
+esac
+exec "$IM_TEST_NODE" "$@"
+""",
+        encoding="utf-8",
+    )
+    launcher.chmod(0o700)
     env = {
         **os.environ,
-        "PATH": f"{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
-        "NODE_OPTIONS": f"{os.environ.get('NODE_OPTIONS', '')} --import={preload.as_uri()}",
+        "PATH": f"{tmp_path}:{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
+        "IM_TEST_PRELOAD": preload.as_uri(),
+        "IM_TEST_NODE": node,
         "NANO_MULTIAGENT_E2E_TEST_IM_LAUNCH_MODE": im_launch_mode,
     }
     if readiness_timeout_seconds is None:
@@ -305,3 +324,68 @@ def test_e2e_up_reports_alive_im_readiness_deadline_and_cleanup(tmp_path: Path) 
     finally:
         _run_e2e_down(stack_dir, env)
     _assert_im_reclaimed(stack_dir, im_pid)
+
+
+@pytest.mark.e2e
+@pytest.mark.timeout(240)
+def test_preview_resume_preserves_admitted_owner_node_and_daily_group(
+    tmp_path: Path,
+) -> None:
+    """A stopped public preview resumes its session, bound node and existing group."""
+    runtime = tmp_path / "preview"
+    runtime.mkdir()
+    env = {**os.environ, "PATH": f"{Path(sys.executable).parent}:{os.environ['PATH']}"}
+    origin = "https://preview.example.test"
+    command = [str(_E2E_UP), "--wt", str(runtime), "--preview-url", origin]
+
+    def start(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [*command, *args], capture_output=True, text=True, timeout=120, env=env
+        )
+
+    try:
+        fresh = start("--profile", "daily")
+        assert fresh.returncode == 0, fresh.stderr
+        password_file = runtime / ".e2e-preview-password"
+        password = password_file.read_text().strip()
+        assert stat.S_IMODE(password_file.stat().st_mode) == 0o600
+        assert password and password not in fresh.stdout + fresh.stderr
+        ports = _parse_ports_env(runtime / ".e2e-ports.env")
+        assert ports["UI_URL"] == origin
+        daily = json.loads((runtime / ".e2e-daily.json").read_text())
+        node_key = (runtime / "channel-credentials-v1.pem").read_bytes()
+        with httpx.Client(base_url=ports["IM_URL"], trust_env=False) as client:
+            login = "/im/v1/auth/login"
+
+            def browser_login(credential: str) -> httpx.Response:
+                headers = {"Origin": origin, "X-IM-Session": "browser"}
+                data = {"username": "nano", "password": credential}
+                response = client.post(login, json=data, headers=headers)
+                if response.status_code == 429:
+                    time.sleep(float(response.headers.get("Retry-After", 1)))
+                    response = client.post(login, json=data, headers=headers)
+                return response
+
+            assert browser_login("nano1234").status_code == 401
+            pair = browser_login(password).raise_for_status().json()
+            client.headers["Authorization"] = "Bearer " + pair["access_token"]
+            _run_e2e_down(runtime, env)
+            assert start().returncode != 0
+            resumed = start("--resume")
+            assert resumed.returncode == 0, resumed.stderr
+            assert password not in resumed.stdout + resumed.stderr
+            assert _parse_ports_env(runtime / ".e2e-ports.env") == ports
+            assert (runtime / "channel-credentials-v1.pem").read_bytes() == node_key
+            nodes = client.get("/im/v1/nodes").raise_for_status().json()
+            assert any(
+                node["node_id"] == ports["NODE_ID"] and node["status"] == "online"
+                for node in nodes
+            )
+            groups = client.get("/im/v1/conversations").raise_for_status().json()
+            assert [
+                row["id"]
+                for row in groups["items"]
+                if row["title"] == daily["group"]["title"]
+            ] == [daily["group"]["id"]]
+    finally:
+        _run_e2e_down(runtime, env)
