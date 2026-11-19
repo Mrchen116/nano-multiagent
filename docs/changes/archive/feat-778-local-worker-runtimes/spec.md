@@ -32,12 +32,12 @@
 
 - 本次交付本机 worker 的 PR。跨机是后续独立决策，等待用户亲测本次体验。
 - Gateway 的本机配置项 `worker_runtime` 可设为 `dsh`、`codex`、`claude`，省略时使用 DSH。配置生效后，新派工使用所选框架；已有事项的追加、结果和停止仍归原 worker。一级由 Nano 派工，内部 helper 由执行框架组织。
-- 用户指定外部 worker 启动时采用 Auto。初步处理方案是把需要决策的具体动作、目标、原因送回 Global。Global 按已有授权澄清、缩小范围或向原 IM 用户征询决定。明确拒绝的动作保持拒绝。参照现有[Global 未获准动作处理](../../specs/gateway/global-agent.md)。
+- 用户指定外部 worker 启动时采用 Auto。初步处理方案是把需要决策的具体动作、目标、原因送回 Global。Global 按已有授权澄清、缩小范围或向原 IM 用户征询决定。明确拒绝的动作保持拒绝。参照现有[Global 未获准动作处理](../../../specs/gateway/global-agent.md)。
 - Raft 参考版本为 5214e34e。其 [Claude 启动](https://github.com/botiverse/raft-source/blob/5214e34e/packages/daemon/src/drivers/claudeLaunch.ts#L127) 和 [Codex 启动](https://github.com/botiverse/raft-source/blob/5214e34e/packages/daemon/src/drivers/codex.ts#L1224) 使用无人值守的宽权限配置。该参考仅说明原生驱动方式；用户对 Nano 的要求是 Auto。
-- 已确认现状。文档记忆会给普通一级 worker 注入所属 Agent 的记忆入口或快照；Dreaming 从一级工作轨迹提炼会话摘要，并可依来源回看后代。见[现行能力契约](../../specs/gateway/agent-capabilities.md)、[上下文装配](../../../packages/dsh-integration/src/knowledge/document-memory.ts)和[提炼输入](../../../packages/dsh-integration/src/knowledge/dreaming.ts)。
+- 已确认现状。文档记忆会给普通一级 worker 注入所属 Agent 的记忆入口或快照；Dreaming 从一级工作轨迹提炼会话摘要，并可依来源回看后代。见[现行能力契约](../../../specs/gateway/agent-capabilities.md)、[上下文装配](../../../../packages/dsh-integration/src/knowledge/document-memory.ts)和[提炼输入](../../../../packages/dsh-integration/src/knowledge/dreaming.ts)。
 - 用户要求对所有工作 worker 取消 Nano 记忆消费和写入，并停止把工作 worker 轨迹作为 Dreaming 的材料。worker 使用自己的会话续做，Router 交办时提供任务需要的具体约束。
 - 记忆按产品集成边界处理。Nano 不向工作 worker 注入记忆正文、目录或读写指引，Dreaming 不用工作 worker 轨迹做总结。普通文件读取沿用当前工作环境的权限，无需为 Nano 记忆增加文件拦截或沙箱。
-- Global 自身的工作记录与原生轨迹保持可查看。Web Work 的「派工关系」显示 Global 对真实一级 worker 的委派，区分不同事项；对同一 worker 的后续补充和结果归回原委派。新派工入口创建的一级 worker 只显示委派关系，不提供内部轨迹查看入口。历史 DSH 子执行沿用已有轨迹入口，见[现行 Work 契约](../../specs/im/agent-work.md#requirement-web-work-可以从派工关系进入同一工作记录)。
+- Global 自身的工作记录与原生轨迹保持可查看。Web Work 的「派工关系」显示 Global 对真实一级 worker 的委派，区分不同事项；对同一 worker 的后续补充和结果归回原委派。新派工入口创建的一级 worker 只显示委派关系，不提供内部轨迹查看入口。历史 DSH 子执行沿用已有轨迹入口，见[现行 Work 契约](../../../specs/im/agent-work.md#requirement-web-work-可以从派工关系进入同一工作记录)。
 - Raft 参考补充。其[活动页](https://github.com/botiverse/raft-source/blob/5214e34e/packages/web/src/components/agent/AgentActivityLog.tsx#L633)默认展示概览，工具行使用操作与输入摘要，近期内部子执行根据明确的父子标识归组。完整请求走另行启用的 [View Context](https://github.com/botiverse/raft-source/blob/5214e34e/manual/agent-knowledge/context.md)。本机临时文件的只读探针从 Codex CLI 0.169.1 取得命令、输出、退出码、最终答复和回合用量，回合结束后进程到达探针时限而被终止。Claude Code 2.1.325 的 Auto 尝试收到账号验证错误，未实测成功的工具调用。本次只以 Global 自身记录与一级派工关系作为新派工的 Work 展示范围。
 
 ## 用户场景
