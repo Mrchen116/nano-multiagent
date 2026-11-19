@@ -11,13 +11,14 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
   const event=(seq:number)=>({seq,time:seq,type:'step/start',data:{turn:1}});
   const rootCut={header:{id:root},projections:{values:{subagentCatalog:[entry(child)]}}} as unknown as SessionObservation;
   const stored=new Map<string, unknown>();
+  const workers = new Set<string>();
   const records=new Map<string, any>([
     [root,{revision:'r1',sizeBytes:100,cursor:0,children:[entry(child)],events:[event(0)]}],
     [child,{revision:'c1',sizeBytes:200,cursor:99,children:[],events:Array.from({length:100},(_,i)=>event(i))}],
   ]);
   const reads:string[]=[];
   const context=()=>({
-    effect:()=>{},
+    nanoWorkers:{isWorker:async(id:string)=>workers.has(id)}, effect:()=>{},
     storageDomain:{open:async()=>({table:()=>({entries:()=>stored.entries(),put:async(id:string,row:unknown)=>stored.set(id,row)}),close:async()=>{}})},
     sessions:{get:()=>undefined},
     agents:{get:()=>undefined},
@@ -66,6 +67,19 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
   expect(await recovered.interruptedChildren(rootCut)).toEqual({interrupted:[{id:child,turnEnd:100}],complete:true});
   expect(await recovered.interruptedChildren(rootCut)).toEqual({interrupted:[{id:child,turnEnd:100}],complete:true});
   expect(reads).toEqual([child]);
+
+  // A new native worker owns the whole subtree, including a helper discovered earlier.
+  workers.add(child);
+  reads.length = 0;
+  expect(await catalog(recovered)).toEqual([]);
+  expect(await recovered.targets(root, grandchild)).toEqual([]);
+  await expect(recovered.eventPage(root, child, 0, false, cold, cold)).rejects.toThrow('no readable Work');
+  await expect(recovered.eventPage(root, grandchild, 0, false, cold, cold)).rejects.toThrow('no readable Work');
+  expect(reads).toEqual([]);
+  expect(await recovered.interruptedChildren(rootCut)).toEqual({interrupted:[{id:child,turnEnd:100}],complete:true});
+  const nativeRecovery = [];
+  for await (const row of recovered.catalog(root,'recovery')) nativeRecovery.push(row.id);
+  expect(nativeRecovery).toEqual([child,grandchild]);
 });
 
 it.each([1000,10_000])('reads only the hot child with %i old siblings and requires its parent catalog flush', async count => {
@@ -82,7 +96,7 @@ it.each([1000,10_000])('reads only the hot child with %i old siblings and requir
   const writes:string[]=[];
   let durable=false;
   const reader=new DescendantReader({
-    effect:()=>{}, storageDomain:{open:async()=>({table:()=>({entries:()=>storage,put:async(id:string)=>writes.push(id)})})},
+    nanoWorkers:{isWorker:async()=>false}, effect:()=>{}, storageDomain:{open:async()=>({table:()=>({entries:()=>storage,put:async(id:string)=>writes.push(id)})})},
     sessions:{get:(id:string)=>{lookups.push(id);return id===root ? parent : id===child ? target : undefined;},
       flush:async(session:{id:string})=>session.id===root ? durable : true},
     sessionQuery:{observeSession:()=>{throw Error('hot read materialized history');}},
@@ -102,7 +116,7 @@ it('does not accept an unflushed live cut acquired during a cold read', async ()
   const root=SessionId('root'), child=SessionId('child'), reads: unknown[]=[];
   let attached=false, flushed=false;
   const reader=new DescendantReader({
-    effect:()=>{},storageDomain:{open:async()=>({table:()=>({entries:()=>[[Buffer.from(root).toString('base64url'),
+    nanoWorkers:{isWorker:async()=>false}, effect:()=>{},storageDomain:{open:async()=>({table:()=>({entries:()=>[[Buffer.from(root).toString('base64url'),
       {rootId:root,active:false,cursor:0,children:[{id:child,createdAt:1,mode:'one-shot'}]}]]})})},
     sessions:{get:()=>attached ? {seq:5} : undefined,flush:async()=>flushed},
     sessionQuery:{observeSession:async(_id:string, options:unknown)=>{

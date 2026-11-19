@@ -12,7 +12,7 @@ function fields(value: Record<string, unknown>, names: readonly string[], valid:
   for (const name of names) if (value[name] !== undefined && !valid(value[name])) throw new WorkEventError('invalid_event');
 }
 const types = {
-  session_registered: 1, session_linked: 1, turn_started: 1, turn_start: 1, turn_end: 1,
+  worker_state: 1, session_registered: 1, session_linked: 1, turn_started: 1, turn_start: 1, turn_end: 1,
   run_completed: 1, run_failed: 1, run_cancelled: 1, model_selected: 1, tool_start: 1, tool_end: 1,
   permission_request: 1, permission_resolved: 1, message: 1, message_delta: 1, text_delta: 1,
   draft_withheld: 1, message_sent: 1, dispatch_confirmed: 1, inbox_read_committed: 1,
@@ -40,6 +40,12 @@ export function decodeWorkEvent(value: unknown): DecodedWorkEvent {
   if (known) {
     // Only fields consumed by the matching event are fixed; extra wire metadata is retained.
     switch (value.type) {
+      case 'worker_state':
+        if (!['parent_session_id', 'title', 'call_id'].every(key => text(p[key])) ||
+            !['dsh', 'codex', 'claude'].includes(String(p.runtime)) ||
+            !['starting', 'running', 'completed', 'interrupted', 'failed'].includes(String(p.status)))
+          throw new WorkEventError('invalid_event');
+        break;
       case 'session_registered':
         if (!['global_main', 'subagent', 'workflow', 'cron'].includes(String(p.scope))) throw new WorkEventError('invalid_scope');
         fields(p, ['scope', 'child_agent_id', 'workflow_run_id', 'title', 'description'], text);

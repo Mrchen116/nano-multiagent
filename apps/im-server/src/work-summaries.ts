@@ -11,6 +11,7 @@ const activityTime = `CASE WHEN type IN (${startTypes})
 const ordinary = `s.scope='subagent' AND json_type(s.payload,'$.child_agent_id')='text'
   AND json_extract(s.payload,'$.maintenance_kind') IS NULL`;
 const workflow = "s.scope='workflow' AND json_type(s.payload,'$.workflow_run_id')='text'";
+const graphChild = `((${ordinary}) OR (${workflow}) OR s.scope='worker')`;
 const latestActive = `NOT EXISTS (SELECT 1 FROM agent_work_turns newer
   WHERE newer.session_id=a.session_id AND newer.seq>a.seq)`;
 
@@ -43,14 +44,16 @@ export function standaloneCompactions(db: DatabaseSync, session: string, before:
 
 type TimelineRow = WorkTurnRecord & {scope: string; maintenance_stage?: string | null; maintenance_title?: string | null};
 type WorkLifetimeUsage = {total_tokens: number | null; reported_turns: number; missing_turns: number};
-type WorkGraphNode = WorkSummarySession & {ancestor_only: boolean; usage: WorkLifetimeUsage};
+type WorkGraphNode = WorkSummarySession & {ancestor_only: boolean; runtime?: string; usage?: WorkLifetimeUsage};
 
 const latestTurnJoin = `LEFT JOIN agent_work_turns t ON t.session_id=s.session_id AND t.turn_id=(
   SELECT turn_id FROM agent_work_turns WHERE session_id=s.session_id ORDER BY seq DESC LIMIT 1
 )`;
 const summaryFields = `s.session_id,s.parent_session_id,s.scope,substr(json_extract(s.payload,'$.title'),1,240) AS title,
-  COALESCE(json_extract(t.payload,'$.status'),'unknown') AS status,t.turn_id,
-  COALESCE(json_extract(t.payload,'$.finished_at'),json_extract(t.payload,'$.started_at')) AS last_active_at`;
+  CASE WHEN s.scope='worker' THEN json_extract(s.payload,'$.status')
+    ELSE COALESCE(json_extract(t.payload,'$.status'),'unknown') END AS status,t.turn_id,
+  CASE WHEN s.scope='worker' THEN json_extract(s.payload,'$.last_active_at')
+    ELSE COALESCE(json_extract(t.payload,'$.finished_at'),json_extract(t.payload,'$.started_at')) END AS last_active_at`;
 
 /** Read bounded Work summaries from authorized roots and committed projections. */
 export class WorkSummaries {
@@ -180,29 +183,35 @@ export class WorkSummaries {
       WHERE root_agent_id=? AND type IN (${activityTypes}) AND (${activityTime}) BETWEEN ? AND ?
         AND session_id>?
       UNION
+      SELECT session_id FROM agent_work_events WHERE root_agent_id=? AND type='worker_state'
+        AND observed_at BETWEEN ? AND ? AND session_id>?
+      UNION
+      SELECT session_id FROM agent_work_sessions WHERE root_agent_id=? AND scope='worker'
+        AND json_extract(payload,'$.status') IN ('starting','running') AND session_id>?
+      UNION
       SELECT a.session_id FROM agent_work_active_turns a
       WHERE a.root_agent_id=? AND a.session_id>? AND a.status IN ('running','waiting_permission') AND ${latestActive}
     )
     SELECT s.session_id FROM candidates c CROSS JOIN agent_work_sessions s USING(session_id)
-    WHERE s.root_agent_id=? AND ((${ordinary}) OR (${workflow}))
-    ORDER BY c.session_id LIMIT ?`, root, from, until, after, root, after, root, limit + 1) as {session_id: string}[];
+    WHERE s.root_agent_id=? AND ${graphChild}
+    ORDER BY c.session_id LIMIT ?`, root, from, until, after, root, from, until, after, root, after, root, after, root, limit + 1) as {session_id: string}[];
     const selected = candidates.slice(0, limit).map(row => row.session_id);
     const entries = main ? [main, ...selected] : selected;
     const rows = entries.length ? all(this.db, `WITH RECURSIVE ancestry(session_id) AS (
       VALUES ${entries.map(() => '(?)').join(',')}
       UNION
       SELECT s.parent_session_id FROM ancestry a CROSS JOIN agent_work_sessions s USING(session_id)
-      WHERE s.root_agent_id=? AND s.parent_session_id IS NOT NULL AND ((${ordinary}) OR (${workflow}))
+      WHERE s.root_agent_id=? AND s.parent_session_id IS NOT NULL AND ${graphChild}
     )
-    SELECT ${summaryFields},CASE WHEN u.reported_turns>0 THEN u.total_tokens END AS total_tokens,
+    SELECT ${summaryFields},json_extract(s.payload,'$.runtime') AS runtime,CASE WHEN u.reported_turns>0 THEN u.total_tokens END AS total_tokens,
       COALESCE(u.reported_turns,0) AS reported_turns,
       COALESCE(u.ended_turns-u.reported_turns,0) AS missing_turns
     FROM ancestry a CROSS JOIN agent_work_sessions s USING(session_id)
     ${latestTurnJoin}
     LEFT JOIN agent_work_lifetime_usage u ON u.root_agent_id=s.root_agent_id
       AND u.session_id=CASE WHEN s.session_id=? THEN '' ELSE s.session_id END
-    WHERE s.root_agent_id=? AND (s.scope='global_main' OR (${ordinary}) OR (${workflow}))
-    ORDER BY s.session_id`, ...entries, root, main, root) as Array<WorkSummarySession & WorkLifetimeUsage> : [];
+    WHERE s.root_agent_id=? AND (s.scope='global_main' OR ${graphChild})
+    ORDER BY s.session_id`, ...entries, root, main, root) as Array<WorkSummarySession & WorkLifetimeUsage & {runtime:string}> : [];
     const selectedSet = new Set(entries);
     const ancestors = rows.filter(row => !selectedSet.has(row.session_id)).map(row => row.session_id);
     const activeAncestors = new Set(ancestors.length ? all(this.db, `
@@ -210,10 +219,10 @@ export class WorkSummaries {
       WHERE root_agent_id=? AND session_id IN (${ancestors.map(() => '?').join(',')})
       AND type IN (${activityTypes}) AND (${activityTime}) BETWEEN ? AND ?
     `, root, ...ancestors, from, until).map(row => row.session_id) : []);
-    const nodes: WorkGraphNode[] = rows.map(({total_tokens, reported_turns, missing_turns, ...row}) => ({
+    const nodes: WorkGraphNode[] = rows.map(({total_tokens, reported_turns, missing_turns, runtime, ...row}) => ({
       ...row,
       ancestor_only: !selectedSet.has(row.session_id) && !activeAncestors.has(row.session_id),
-      usage: {total_tokens, reported_turns, missing_turns},
+      ...(row.scope === 'worker' ? {runtime} : {usage:{total_tokens, reported_turns, missing_turns}}),
     }));
     return {window, from, until, nodes, next_cursor: candidates.length > limit ? selected.at(-1)! : null};
   }

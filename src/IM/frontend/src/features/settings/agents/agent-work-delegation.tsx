@@ -9,7 +9,7 @@ import { formatWorkTokens, tr } from "./agent-work-text";
 type Window = WorkDelegationPage["window"];
 
 const states: Record<string, string> = {
-  running: "运行中", waiting_permission: "等待授权", completed: "已完成", failed: "失败",
+  starting: "启动中", running: "运行中", waiting_permission: "等待授权", completed: "已完成", failed: "失败",
   interrupted: "已中断", unknown: "状态未知", idle: "空闲",
 };
 
@@ -114,7 +114,17 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
     const path = new Set(parents).add(id);
     const label = isRoot ? agentName || tr("主 Agent") : node.title || id;
     const ambiguous = node.title && (sameTitle.get(node.title) ?? 0) > 1;
-    const totalTurns = usage.reported_turns + usage.missing_turns;
+    const totalTurns = usage ? usage.reported_turns + usage.missing_turns : 0;
+    if (node.scope === "worker") return <li key={id} className="im-work-graph-branch">
+      <div className="im-work-graph-node" data-work-node={id} title={id}>
+        <strong>{label}</strong>
+        <span className={`im-work-graph-node-meta ${node.status}`}>
+          {node.runtime && {codex:"Codex", claude:"Claude Code", dsh:"DSH"}[node.runtime]} · {tr(states[node.status] ?? node.status)}
+          {ambiguous && ` · ${id.slice(-8)}`}
+        </span>
+        {node.last_active_at && <time className="im-work-graph-node-meta" dateTime={node.last_active_at}>{timestamp(node.last_active_at)}</time>}
+      </div>
+    </li>;
     return <li key={id} className="im-work-graph-branch">
       <button type="button" className="im-work-graph-node" title={id} data-work-node={id}
         data-root={isRoot} data-selected={selected === id}
@@ -127,12 +137,12 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
             {ambiguous && ` · ${id.slice(-8)}`}
           </>}
         </span>
-        <span className="im-work-graph-node-metrics">
+        {usage && <span className="im-work-graph-node-metrics">
           {`${totalTurns} ${tr("轮累计")} · `}
           {usage.total_tokens === null ? tr("Token 未报告") :
             <span title={`${usage.total_tokens.toLocaleString(i18n.language)} tok`}>{formatWorkTokens(usage.total_tokens)} tok</span>}
-        </span>
-        {(isRoot && totalTurns > 0 || usage.missing_turns > 0) &&
+        </span>}
+        {usage && (isRoot && totalTurns > 0 || usage.missing_turns > 0) &&
           <small>{`${usage.reported_turns}/${totalTurns} ${tr("轮次已报告")}`}</small>}
         {node.ancestor_only && <small>{tr("仅显示派工路径")}</small>}
       </button>

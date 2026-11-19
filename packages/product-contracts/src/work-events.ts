@@ -3,7 +3,14 @@ export interface WorkCommonFields {
   run_id?: string | null;
   source_refs?: unknown[] | null;
 }
-export type WorkScope = 'global_main' | 'subagent' | 'workflow' | 'cron';
+export type WorkScope = 'global_main' | 'subagent' | 'workflow' | 'cron' | 'worker';
+export interface WorkWorkerFields extends WorkCommonFields {
+  parent_session_id: string;
+  title: string;
+  runtime: import('./index.js').WorkerRuntime;
+  status: 'starting' | 'running' | 'completed' | 'interrupted' | 'failed';
+  call_id: string;
+}
 export type DreamingWorkStage = 'extract' | 'consolidate';
 export interface WorkSessionFields extends WorkCommonFields {
   scope: WorkScope;
@@ -106,7 +113,8 @@ export interface WorkCallFactFields extends WorkCommonFields {
   text?: string;
 }
 export interface WorkPayloads {
-  session_registered: WorkSessionFields;
+  worker_state: WorkWorkerFields;
+  session_registered: WorkSessionFields & {scope: Exclude<WorkScope, 'worker'>};
   session_linked: WorkLinkFields;
   turn_started: WorkStartFields;
   turn_start: WorkStartFields;
@@ -156,8 +164,8 @@ export interface WorkJournalEvent extends WorkIdentity {
   payload: WorkCommonFields & Record<string, unknown>;
 }
 /** Older senders may omit optional display data; the decoder validates present fields. */
-type ReceivedWorkPayload<K extends WorkEventType> = K extends 'session_registered' ? WorkSessionFields
-  : K extends 'session_linked' ? WorkLinkFields : Partial<WorkPayloads[K]>;
+type ReceivedWorkPayload<K extends WorkEventType> = K extends 'worker_state' | 'session_registered' | 'session_linked'
+  ? WorkPayloads[K] : Partial<WorkPayloads[K]>;
 export type ReceivedWorkFact = {[K in WorkEventType]: {type: K; payload: ReceivedWorkPayload<K>}}[WorkEventType];
 export interface DecodedWorkEvent {
   event: WorkJournalEvent;

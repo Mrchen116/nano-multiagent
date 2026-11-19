@@ -724,6 +724,7 @@
       "主 Agent": "Main Agent",
       "节点在线": "Node online",
       "节点离线": "Node offline",
+      "启动中": "Starting",
       "运行中": "Running",
       "等待授权": "Awaiting permission",
       "已完成": "Completed",

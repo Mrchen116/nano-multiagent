@@ -20,7 +20,7 @@ type WorkPreviewRow = Omit<WorkItemRecord, 'payload'> & {payload: string | null;
 
 /** Select display facts without recursively copying arguments or structured results. */
 function previewPayload(payload: WorkItemData, budget = workItemPreviewBytes): WorkItemData {
-  const preview: WorkItemData = {};
+  const preview: WorkItemData = payload.worker_relation ? {worker_relation:true} : {};
   for (const key of previewFields) {
     const value = payload[key];
     if (typeof value === 'string') {
@@ -79,7 +79,7 @@ export class WorkRecords {
   session(root: string, id: string): WorkSessionView {
     const r = one(
       this.db,
-      "SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND session_id=?",
+      "SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND session_id=? AND scope!='worker'",
       root,
       id,
     ) as WorkSessionRecord | undefined;
@@ -114,7 +114,7 @@ export class WorkRecords {
     }
     const bindings: string[] = [root, after];
     let sql = `SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND session_id>?
-      AND (scope!='global_main' OR COALESCE(json_extract(payload,'$.retired'),0)!=0)`;
+      AND scope!='worker' AND (scope!='global_main' OR COALESCE(json_extract(payload,'$.retired'),0)!=0)`;
     if (filter.historical) sql += " AND scope IN ('cron','global_main')";
     if (parent) { sql += ' AND parent_session_id=?'; bindings.push(parent); }
     if (mode === "exact") { sql += " AND json_extract(payload,'$.parent_tool_call_id')=?"; bindings.push(call!); }
@@ -138,9 +138,12 @@ export class WorkRecords {
    *   metadataOnly: Retain identity alone when content authority has been revoked.
    */
   register(root: string, session: string, node: string, p: Partial<WorkSessionFields>, metadataOnly = false) {
-    if (!["global_main", "subagent", "workflow", "cron"].includes(p.scope ?? ""))
+    if (!["global_main", "subagent", "workflow", "cron", "worker"].includes(p.scope ?? ""))
       fail(400, "invalid_scope");
-    if (["subagent", "workflow"].includes(p.scope ?? "")) this.session(root, p.parent_session_id ?? "");
+    if (["subagent", "workflow", "worker"].includes(p.scope ?? "")) {
+      const parent = this.session(root, p.parent_session_id ?? "");
+      if (p.scope === "worker" && parent.scope !== "global_main") fail(409, "invalid_worker_parent");
+    }
     const old = one(this.db, "SELECT * FROM agent_work_sessions WHERE session_id=?", session) as WorkSessionRecord | undefined;
     if (
       old &&
@@ -235,7 +238,11 @@ export class WorkRecords {
         if (e.seq !== through + 1) fail(400, "invalid_sequence");
         const available = agentAvailable(this.db, profile);
         const fact = decodeWorkEvent(e).fact;
-        if (fact?.type === "session_registered") {
+        const observedAt = e.observed_at ?? now();
+        if (fact?.type === 'worker_state') {
+          const relation = {...fact.payload, scope:'worker' as const, last_active_at:observedAt};
+          this.register(e.root_agent_id, e.session_id, node, relation, !available);
+        } else if (fact?.type === "session_registered") {
           if (historical && fact.payload.scope === 'global_main') {
             const existing = one(this.db,'SELECT * FROM agent_work_sessions WHERE session_id=?',e.session_id);
             if (existing) {
@@ -253,7 +260,6 @@ export class WorkRecords {
           }, !available);
         }
         if (!available) { through = e.seq; continue; }
-        const observedAt = e.observed_at ?? now();
         const result = this.db
           .prepare(
             "INSERT INTO agent_work_events(node_id,journal_id,seq,event_id,root_agent_id,session_id,turn_id,type,observed_at,payload) VALUES(?,?,?,?,?,?,?,?,?,?)",
@@ -446,6 +452,10 @@ export class WorkRecords {
           output: p.presentation?.summary ?? payload.output,
           name: p.name ?? p.tool_name ?? payload.name ?? "tool",
         });
+        const target = (payload.input as {agent_id?: unknown} | undefined)?.agent_id;
+        if (payload.name === 'send_message' && typeof target === 'string' && one(this.db,
+          "SELECT 1 FROM agent_work_sessions WHERE root_agent_id=? AND session_id=? AND scope='worker'",
+          e.root_agent_id, target)) payload.worker_relation = true;
         for (const key of ["label", "summary", "detail", "emoji"])
           if (p.presentation?.[key] !== undefined) payload[key] = p.presentation[key];
       } else (payload.work_facts ??= []).push({ type: kind, ...p });
@@ -463,7 +473,16 @@ export class WorkRecords {
       });
     } else if (fact?.type === "message_delta" || fact?.type === "text_delta")
       payload.text = (payload.text ?? "") + (fact.payload.text ?? fact.payload.delta ?? "");
-    else Object.assign(payload, p);
+    else {
+      Object.assign(payload, p);
+      // Keep the parent-visible report without advertising an unreadable native worker.
+      if (fact?.type === 'message' && p.source_session_id && one(this.db,
+        "SELECT 1 FROM agent_work_sessions WHERE root_agent_id=? AND session_id=? AND scope='worker'",
+        e.root_agent_id, String(p.source_session_id))) {
+        payload.source_worker_id = p.source_session_id;
+        delete payload.source_session_id;
+      }
+    }
     payload.seq = old?.seq ?? revision;
     const serialized = JSON.stringify(payload);
     this.db
@@ -683,7 +702,7 @@ export class WorkRecords {
    *   Persisted main/child records and the node identity for the outer live-state adapter.
    */
   view(root: string, before?: string, limit = 20, summary = false, messageId?: string, separate = false, combinedBefore?: number): WorkRecordView {
-    const sessions = separate ? [] : all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=?", root) as WorkSessionRecord[];
+    const sessions = separate ? [] : all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND scope!='worker'", root) as WorkSessionRecord[];
     const main = separate ? this.mainSessionId(root)
       : sessions.find(s => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
     const reply = messageId ? this.replyTurn(root, messageId) : undefined;

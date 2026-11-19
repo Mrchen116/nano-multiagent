@@ -64,7 +64,8 @@ export interface WorkActivity {
 export interface WorkDelegationNode extends WorkActivitySession {
   scope?: string;
   ancestor_only?: boolean;
-  usage: {total_tokens: number | null; reported_turns: number; missing_turns: number};
+  runtime?: "codex" | "claude" | "dsh";
+  usage?: {total_tokens: number | null; reported_turns: number; missing_turns: number};
 }
 
 export interface WorkDelegationPage {

@@ -762,6 +762,7 @@ it("opens nested delegation from its real graph node and restores the chosen win
   mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
     url === "/im/v1/conversations" ? {items: []}
     : url.includes("/work/delegation") ? {main_session_id: "main", record_sync_state: url.includes("window=2h") ? "catching_up" : "unknown", nodes: [
+      {session_id:"worker",parent_session_id:"main",scope:"worker",runtime:"codex",title:"核对报表",status:"completed"},
       node("main", null, "Parent", mainTokens), node("child", "main", "First child", 40), node("nested", "child", "Second child", 10),
       ...url.includes("window=3d") ? [node("old", "main", "Old delegation", null, 2)] : [],
     ], next_cursor: null}
@@ -775,7 +776,11 @@ it("opens nested delegation from its real graph node and restores the chosen win
   expect(await screen.findByText("900 tok")).toBeVisible();
   expect(screen.getByText("已保存记录", {exact: true})).toHaveAttribute("role", "status");
   expect(screen.getByText("40 tok")).toBeVisible();
-  expect(document.querySelectorAll(".im-work-graph-edges path[marker-end]")).toHaveLength(3);
+  const worker = screen.getByText("核对报表").closest("[data-work-node]")!;
+  expect(worker).toHaveTextContent("Codex · 已完成");
+  expect(worker).not.toHaveTextContent(/轮累计|tok/i);
+  expect(screen.queryByRole("button", {name:/核对报表/})).toBeNull();
+  expect(document.querySelectorAll(".im-work-graph-edges path[marker-end]")).toHaveLength(4);
   expect(screen.getByRole("button", {name: /Old delegation.*2 轮累计.*Token 未报告.*0\/2 轮次已报告/})).toBeVisible();
   mainTokens = 950;
   act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType: "agent.work.updated", payload: {agent_id: "global"}}));

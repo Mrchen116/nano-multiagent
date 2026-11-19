@@ -16,6 +16,10 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   cleanups.push(() => store.close(), () => inbox.close());
   store.bind({agentId: 'global', sessionId: 'main', conversationId: 'global:global', ownerId: 'alice', cwd: center.dir, revision: '1'});
   const content = '中文😀\n"原始参数"'.repeat(6000), output = '完整工具结果\n'.repeat(5000);
+  const workerTime = Date.now() - 1000;
+  const worker = (seq:number, workerId:string, label:string, runtime:string, state:string): RuntimeEvent => ({
+    seq, time:workerTime+seq, type:'nano/worker', data:{workerId, rootId:'main', callId:workerId+'-call', label, runtime, state},
+  });
   const source: RuntimeEvent[] = [
     {seq: 0, time: 1000, type: 'request/header', data: {header: {config: {model: 'fixture-model'}}}},
     {seq: 1, time: 1001, type: 'request/context', data: {contextWindow: 8192}},
@@ -25,6 +29,14 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     {seq: 5, time: 1008, type: 'tool/result', data: {turn: 1, message: {toolCallId: 'write', content: [{type: 'text', text: output}], isError: false}}},
     {seq: 6, time: 1009, type: 'assistant/message', data: {turn: 1, message: {id: 'answer', content: [{type: 'text', text: '主执行正文'}]}, usage: {inputTokens: 10, outputTokens: 3, cacheReadTokens: 2}}},
     {seq: 7, time: 1010, type: 'turn/end', data: {turn: 1, reason: {kind: 'completed'}}},
+    worker(8, 'a-worker', '核对报表', 'codex', 'starting'),
+    worker(9, 'b-worker', '核对附件', 'dsh', 'running'),
+    worker(10, 'a-worker', '核对报表', 'codex', 'running'),
+    worker(11, 'a-worker', '核对报表', 'codex', 'completed'),
+    {seq:12, time:workerTime+12, type:'turn/start', data:{turn:2}},
+    {seq:13, time:workerTime+13, type:'user/message', data:{turn:2, id:'report', source:{kind:'nano-system', channel:'worker-report'}, content:[{type:'text',text:'报表已确认'}]}},
+    {seq:14, time:workerTime+14, type:'user/message', data:{turn:2, id:'dsh-report', source:{kind:'agent-message',senderSessionId:'b-worker'}, content:[{type:'text',text:'正在核对附件'}]}},
+    {seq:15, time:workerTime+15, type:'turn/end', data:{turn:2, reason:{kind:'completed'}}},
   ];
   const child: RuntimeEvent[] = [
     {seq: 1, time: 1004, type: 'turn/start', data: {turn: 1}},
@@ -42,7 +54,7 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
       const isChild=method==='session.work.child';
       const events=isChild ? child : source;
       const after=args.afterSeq??-1;
-      const throughSeq=isChild ? (after<2?2:4) : (after<4?4:7);
+      const throughSeq=isChild ? (after<2?2:4) : (after<4?4:after<10?10:15);
       return {events:events.filter(event=>event.seq>after && event.seq<=throughSeq),durable:true,
         modelRuns:[],modelVersion:'done',throughSeq,more:throughSeq<events.at(-1)!.seq};
     },
@@ -55,7 +67,7 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   await expect.poll(()=>inbox.workProcessingPending).toBe(false);
   const produced = inbox.journalSeq;
   expect(inbox.journal(0).some(event => event.type === 'tool_end')).toBe(true);
-  expect(inbox.workCheckpoints('main')).toMatchObject({main: {throughSeq: 7}, child: {throughSeq: 4}});
+  expect(inbox.workCheckpoints('main')).toMatchObject({main: {throughSeq: 15}, child: {throughSeq: 4}});
   const makeSync = (url: string) => new WorkSync({nodeId: node.node, inbox, url, credentials: () => node.runtime, onError: error => errors.push(error)});
   let sync = makeSync(center.base); cleanups.push(() => sync.stop()); sync.start();
   await expect.poll(() => inbox.throughSeq, {timeout: 10000}).toBe(produced);
@@ -63,9 +75,25 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   const read = () => center.http('GET', '/im/v1/agents/global/work', undefined, center.tokens.alice);
   const first = await read(); expect(first.status, first.body).toBe(200);
   expect(first.body).toMatchObject({main_session_id: 'main', main_execution: 'idle', record_sync_state: 'current'});
-  expect(first.body.turns[0]).toMatchObject({status: 'completed', usage: {context_used: 12, output: 3, context_window: 8192}, elapsed_ms: 8});
-  expect(first.body.turns[0].usage.total_tokens).toBeUndefined();
-  const tool = first.body.turns[0].items.find((item: {item_id: string}) => item.item_id === 'tool:write');
+  expect(first.body.turns[0].items).toEqual(expect.arrayContaining([
+    expect.objectContaining({payload:expect.objectContaining({text:'报表已确认',source_kind:'worker-report'})}),
+    expect.objectContaining({payload:expect.objectContaining({text:'正在核对附件',source_worker_id:'b-worker'})}),
+  ]));
+  expect(first.body.turns[0].items.some((item:{payload:{source_session_id?:string}})=>item.payload.source_session_id==='b-worker')).toBe(false);
+  const graph = (query:string) => center.http('GET','/im/v1/agents/global/work/delegation?window=2h&limit=1'+query,undefined,center.tokens.alice);
+  const page = (await graph('')).body;
+  expect(page.next_cursor).toBe('a-worker');
+  expect(page.nodes.find((node:{scope:string})=>node.scope==='worker')).toEqual({
+    session_id:'a-worker',parent_session_id:'main',scope:'worker',runtime:'codex',title:'核对报表',
+    status:'completed',turn_id:null,last_active_at:new Date(workerTime+11).toISOString(),ancestor_only:false,
+  });
+  const next = (await graph('&after_session=a-worker&until='+encodeURIComponent(page.until))).body;
+  expect(next.nodes).toContainEqual(expect.objectContaining({session_id:'b-worker',runtime:'dsh',status:'running'}));
+  expect(first.body.other_executions.map((row:{session_id:string})=>row.session_id)).toEqual(['child']);
+  expect((await center.http('GET','/im/v1/agents/global/work/sessions/b-worker/turns',undefined,center.tokens.alice)).status).toBe(404);
+  expect(first.body.turns[1]).toMatchObject({status: 'completed', usage: {context_used: 12, output: 3, context_window: 8192}, elapsed_ms: 8});
+  expect(first.body.turns[1].usage.total_tokens).toBeUndefined();
+  const tool = first.body.turns[1].items.find((item: {item_id: string}) => item.item_id === 'tool:write');
   expect(tool.payload).toMatchObject({input: {path: 'report.txt', content}, detail: {content: output}, status: 'completed', duration_ms: 4});
   expect(first.body.other_executions).toContainEqual(expect.objectContaining({session_id: 'child', parent_session_id: 'main', scope: 'subagent'}));
   const childPage = await center.http('GET', '/im/v1/agents/global/work/sessions/child/turns', undefined, center.tokens.alice);

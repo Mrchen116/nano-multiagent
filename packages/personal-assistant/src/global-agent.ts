@@ -5,7 +5,7 @@ import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader }
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
 import { setImmediate as yieldToIO } from 'node:timers/promises';
-import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimePublicationEvidence, RuntimeWorkPage, RuntimeWorkCatalog, MessageApprovalContext } from '@nano/product-contracts';
+import type { AgentPublication, WorkFact, WorkWorkerFields, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimePublicationEvidence, RuntimeWorkPage, RuntimeWorkCatalog, MessageApprovalContext } from '@nano/product-contracts';
 import { chatAttachments, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText, chatDelivery } from './attention.js';
@@ -1133,6 +1133,17 @@ export class GlobalAgent {
         const status = ((run?.terminal ?? event.data.reason) as { kind: string }).kind === 'completed' ? 'completed' : 'failed';
         // receipt persists the Web outbox intent even while the relay is offline.
         await this.receipt(entry.input, status); inbox.confirmReceipt(entry.seq, status);
+      }
+      if (event.type === 'nano/worker' && event.data.rootId === binding.sessionId) {
+        // The worker has a relation on the graph, while the root owns its source position.
+        const {workerId, label, runtime, state, callId} = event.data;
+        const fact: WorkFact = {type:'worker_state', payload:{
+          parent_session_id:binding.sessionId, title:label as string, runtime:runtime as WorkWorkerFields['runtime'],
+          status:state as WorkWorkerFields['status'], call_id:callId as string,
+        }};
+        const draft = this.workEvent(binding, `runtime:${event.seq}`, fact, undefined, event.time);
+        positioned.push({seq:event.seq, event:{...draft, session_id:workerId as string}});
+        continue;
       }
       const projected = projectWorkEvent(binding.sessionId, event, events);
       if (projected) {
