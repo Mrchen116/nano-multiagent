@@ -81,7 +81,7 @@ it('reports dependency resources independently from the selected allowlist', () 
     {agentId: 'a', revision: '1', provider: 'test', model: 'test', mode: 'global', toolAllowlist: []});
   expect(available.features.find(feature => feature.key === 'intelligent_ui')).toMatchObject({available: true});
   expect(available.features.find(feature => feature.key === 'task_graph')).toMatchObject({available: false});
-  expect(available.fixed_tools).toContain('subagent');
+  expect(available.fixed_tools).toContain('delegate_worker');
 });
 
 it('hides retired memory controls without changing stored legacy tool choices', () => {

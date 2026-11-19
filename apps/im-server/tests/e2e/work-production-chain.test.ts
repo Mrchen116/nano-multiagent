@@ -6,7 +6,7 @@ import { NodeStore } from '../../../../packages/personal-assistant/src/store.js'
 import { InboxStore } from '../../../../packages/personal-assistant/src/inbox.js';
 import { GlobalAgent } from '../../../../packages/personal-assistant/src/global-agent.js';
 import { WorkSync } from '../../../../packages/personal-assistant/src/work-sync.js';
-import type { RuntimeEvent, RuntimePort } from '@nano/product-contracts';
+import type { RuntimeEvent, RuntimePort, RuntimeWorkerChange } from '@nano/product-contracts';
 
 // Compose real product owners at the integration boundary; only native execution is a fixture.
 it('projects real PA main/child facts through its durable journal and HTTP uploader into refreshable Work', async () => {
@@ -17,9 +17,15 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   store.bind({agentId: 'global', sessionId: 'main', conversationId: 'global:global', ownerId: 'alice', cwd: center.dir, revision: '1'});
   const content = '中文😀\n"原始参数"'.repeat(6000), output = '完整工具结果\n'.repeat(5000);
   const workerTime = Date.now() - 1000;
-  const worker = (seq:number, workerId:string, label:string, runtime:string, state:string): RuntimeEvent => ({
-    seq, time:workerTime+seq, type:'nano/worker', data:{workerId, rootId:'main', callId:workerId+'-call', label, runtime, state},
+  const worker = (seq:number, workerId:string, label:string, runtime:RuntimeWorkerChange['runtime'], state:RuntimeWorkerChange['state']): RuntimeWorkerChange => ({
+    id:String(seq), time:workerTime+seq, workerId, rootId:'main', callId:workerId+'-call', label, runtime, state,
   });
+  let pendingWorkers = [
+    worker(8, 'a-worker', '核对报表', 'codex', 'starting'),
+    worker(9, 'b-worker', '核对附件', 'dsh', 'running'),
+    worker(10, 'a-worker', '核对报表', 'codex', 'running'),
+    worker(11, 'a-worker', '核对报表', 'codex', 'completed'),
+  ];
   const source: RuntimeEvent[] = [
     {seq: 0, time: 1000, type: 'request/header', data: {header: {config: {model: 'fixture-model'}}}},
     {seq: 1, time: 1001, type: 'request/context', data: {contextWindow: 8192}},
@@ -29,10 +35,6 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     {seq: 5, time: 1008, type: 'tool/result', data: {turn: 1, message: {toolCallId: 'write', content: [{type: 'text', text: output}], isError: false}}},
     {seq: 6, time: 1009, type: 'assistant/message', data: {turn: 1, message: {id: 'answer', content: [{type: 'text', text: '主执行正文'}]}, usage: {inputTokens: 10, outputTokens: 3, cacheReadTokens: 2}}},
     {seq: 7, time: 1010, type: 'turn/end', data: {turn: 1, reason: {kind: 'completed'}}},
-    worker(8, 'a-worker', '核对报表', 'codex', 'starting'),
-    worker(9, 'b-worker', '核对附件', 'dsh', 'running'),
-    worker(10, 'a-worker', '核对报表', 'codex', 'running'),
-    worker(11, 'a-worker', '核对报表', 'codex', 'completed'),
     {seq:12, time:workerTime+12, type:'turn/start', data:{turn:2}},
     {seq:13, time:workerTime+13, type:'user/message', data:{turn:2, id:'report', source:{kind:'nano-system', channel:'worker-report'}, content:[{type:'text',text:'报表已确认'}]}},
     {seq:14, time:workerTime+14, type:'user/message', data:{turn:2, id:'dsh-report', source:{kind:'agent-message',senderSessionId:'b-worker'}, content:[{type:'text',text:'正在核对附件'}]}},
@@ -49,13 +51,18 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     onNotification: () => () => {},
     request: async (method, input) => {
       const args = input as {afterSeq?: number};
+      if (method === 'session.work.workers.confirm') {
+        const ids = new Set((input as {changes:{id:string}[]}).changes.map(row=>row.id));
+        pendingWorkers=pendingWorkers.filter(row=>!ids.has(row.id));
+        return {};
+      }
       if (method === 'session.work.check') return {rootSettled:true};
       if (method === 'session.work.children') return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:4,modelVersion:'done'}]};
       const isChild=method==='session.work.child';
       const events=isChild ? child : source;
       const after=args.afterSeq??-1;
       const throughSeq=isChild ? (after<2?2:4) : (after<4?4:after<10?10:15);
-      return {events:events.filter(event=>event.seq>after && event.seq<=throughSeq),durable:true,
+      return {workerChanges:isChild ? [] : pendingWorkers,events:events.filter(event=>event.seq>after && event.seq<=throughSeq),durable:true,
         modelRuns:[],modelVersion:'done',throughSeq,more:throughSeq<events.at(-1)!.seq};
     },
   };

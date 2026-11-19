@@ -4,7 +4,9 @@ export * from './agent-lifecycle.js';
 export * from './collaboration.js';
 export * from './agent-deletion.js';
 /** Product vocabulary. This package deliberately imports no execution runtime. */
+export type WorkerRuntime = 'dsh' | 'codex' | 'claude';
 export interface AgentConfiguration {
+  workerRuntime?: WorkerRuntime;
   agentId: string;
   displayName?: string;
   /** Server-issued personal identity; ordinary Agent configuration cannot grant this role. */
@@ -106,11 +108,23 @@ export { interactiveCatalog } from './interactive-catalog.js';
 export * from './work-sync.js';
 export * from './task-execution.js';
 
+export interface RuntimeWorkerChange {
+  id: string;
+  time: number;
+  workerId: string;
+  rootId: string;
+  callId: string;
+  label: string;
+  runtime: WorkerRuntime;
+  state: import('./work-events.js').WorkWorkerFields['status'];
+}
+
 /** Private runtime Work protocol; a page advances only over the included durable prefix. */
 export interface RuntimeWorkPage {
   durable: true;
   /** Durable Inbox notification deliveries awaiting product projection acknowledgement. */
   inboxDelivered?: string[];
+  workerChanges?: RuntimeWorkerChange[];
   events: RuntimeEvent[];
   modelRuns: ModelRunProjection[];
   modelVersion: string;

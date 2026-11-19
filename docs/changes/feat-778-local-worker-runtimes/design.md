@@ -19,7 +19,7 @@ GlobalAgent.projectRootPage 把根会话的持久事件与 Work checkpoint 在�
 
 ## Work 与模型上下文
 
-- 父 root 日志保存一级委派关系及状态事件，进入已有 Work 根分页、checkpoint 和 outbox，按源事件标识幂等投影。新增关系使用独立的 Work scope，进入现有派工图的活动筛选、时间窗及分页。原生 DSH 新委派从全量子轨迹同步和轨迹子范围导航中排除，内部 helper 同属该子树。新关系可查看标题、框架和状态，省去打开子轨迹入口。旧 DSH 关系、Global 和维护视图保留自己的行为。
+- 每次状态改变与待投递的关系事件同存于该 worker 的持久记录。Work 根分页带回该 root 的待投递事件，PA 按事件 ID 幂等写入 checkpoint 和 outbox 后确认。DSH 固定版本的公共 Session writer 无法为自定义原生事件标记 ignorable，直接把关系写入原生日志会阻止重启恢复。新增关系使用独立的 Work scope，进入现有派工图的活动筛选、时间窗及分页。原生 DSH 新委派从全量子轨迹同步和轨迹子范围导航中排除，内部 helper 同属该子树。新关系可查看标题、框架和状态，省去打开子轨迹入口。旧 DSH 关系、Global 和维护视图保留自己的行为。
 - Router 实际看到的输入为用户原话、任务约束和一级 worker 的回复。worker 首轮只加角色说明与具体委派；续做使用同一个 CLI thread/session。以“把第一个文件改成只读检查”为例，追加给原 worker 的是这句更正与必要背景，CLI 自己恢复先前的文件上下文。
 - 普通工作 worker 从 Nano 记忆 prompt、能力/skill 注入和维护工具中退出，保留框架自己的仓库指令和普通文件权限。Dreaming 只使用主会话允许的来源，主会话真实收到的汇报仍是主会话材料。检查旧待处理批次和历史 summary 引用，避免通过恢复或 source_history 重新读取工作 worker 轨迹；已写好的长期记忆无需重写。维护自身所需能力保持可用。
 

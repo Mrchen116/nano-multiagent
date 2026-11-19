@@ -137,6 +137,6 @@ extension AgentDraft {
 
 extension AgentCapabilities {
     func fixedTools(mode: String) -> [String] {
-        Array(Set((fixed_tools ?? []) + (mode == "global" ? ["inbox", "conversations", "send_message", "subagent"] : [])))
+        Array(Set((fixed_tools ?? []) + (mode == "global" ? ["inbox", "conversations", "send_message", "delegate_worker"] : [])))
     }
 }

@@ -167,7 +167,7 @@ export class ConfigurationScopes extends Service {
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
     scope.skills = agent.ctx.plugin(Skills, {config, isWorkWorker}); await scope.skills.await();
     if (internal && role !== 'subagent') GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global', role === 'worker' || role === 'worker-fork');
-    else if (!internal && config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
+    else if (!internal && config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal, workerRuntime:config.workerRuntime }).await();
     if (config.personal && !internal) await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config, isWorkWorker);
     await agent.ctx.plugin(ContextOrder).await();
