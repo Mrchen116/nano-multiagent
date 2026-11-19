@@ -1061,9 +1061,10 @@ export class GlobalAgent {
     }
   }
   private updateWorkPending(root: string): void {
-    const pending=this.coldRoots.has(root) || this.dirty.has(root) || this.drains.has(root) || this.childrenDirty.has(root) ||
+    const mainPending=this.coldRoots.has(root) || this.dirty.has(root) || this.drains.has(root);
+    const pending=mainPending || this.childrenDirty.has(root) ||
       this.childCatchup.has(root) || this.childDrains.has(root) || !!this.childTargets.get(root)?.size || this.failedChildren.has(root);
-    this.options.inbox.workPending(root,pending);
+    this.options.inbox.workPending(root,pending,!mainPending);
     if (!pending) {
       clearTimeout(this.workRetries.get(root));this.workRetries.delete(root);this.workBackoff.delete(root);
     }

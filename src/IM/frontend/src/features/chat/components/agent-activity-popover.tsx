@@ -105,7 +105,8 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
   const syncing = activity.isPending || (online && data?.record_sync_state === "catching_up");
   const confirmed = online && data?.record_sync_state === "current";
   const countsKnown = confirmed && data.running_count !== null && data.waiting_permission_count !== null;
-  const mainStatus = !online ? "offline" : confirmed ? data.main_execution : "unknown";
+  const mainStatus = !online ? "offline" : data.main_execution;
+  const mainSyncing = syncing && (!online || mainStatus === "unknown");
   const active = countsKnown && (data.running_count! > 0 || data.waiting_permission_count! > 0);
   const rows = expanded ? [...new Map([...(data?.sessions ?? []), ...(extra.data?.pages.flatMap(page => page.sessions) ?? [])]
     .map(session => [session.session_id, session])).values()] : [];
@@ -130,8 +131,8 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
         {label("unavailable")} <button type="button" onClick={() => void refresh()}>{label("retry")}</button>
       </div> : <>
         <div className="chat-agent-activity-state">
-          <div><span>{label("main")}</span>{syncing ? spinner : <strong>{label(mainStatus)}</strong>}</div>
-          {confirmed && ["running", "waiting_permission"].includes(mainStatus) && data.latest_tool && <p className="chat-agent-activity-tool">
+          <div><span>{label("main")}</span>{mainSyncing ? spinner : <strong>{label(mainStatus)}</strong>}</div>
+          {online && ["running", "waiting_permission"].includes(mainStatus) && data.latest_tool && <p className="chat-agent-activity-tool">
             <span>{label("latestTool")}</span> <code>{data.latest_tool.name}</code> {data.latest_tool.label}
             <small>{label(data.latest_tool.status || "unknown")}</small>
           </p>}

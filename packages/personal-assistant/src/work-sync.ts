@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { workSyncLimits as limits, workSyncPrefix, workRedactedType, type WorkJournalEvent, type WorkSyncCursor, type WorkSyncPart } from '@nano/product-contracts';
+import { workSyncLimits as limits, workSyncPrefix, workRedactedType, type WorkJournalEvent, type WorkSyncCursor, type WorkSyncPart, type WorkReadyCut } from '@nano/product-contracts';
 import type { InboxStore } from './inbox.js';
 
 interface Options {
@@ -7,7 +7,7 @@ interface Options {
   inbox: InboxStore;
   url: string;
   credentials: () => string;
-  readyAgents?: () => Record<string, number>;
+  readyAgents?: () => Record<string, WorkReadyCut>;
   available?: () => boolean;
   onError: (error: unknown) => void;
 }
