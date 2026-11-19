@@ -232,6 +232,7 @@ export default class NanoRuntime {
     const workflow = new Promise<NanoWorkflowEngine>(resolve => { ctx.inject(['workflowEngine', 'nanoApproval', 'nanoModels'], child => { const engine = child.workflowEngine as NanoWorkflowEngine; registerWorkflowTool(child, engine, agent => configurationService.forAgent(agent)!); resolve(engine); }); });
     const models = this.models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
     const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configOf: (agent: Agent) => configurationService.forAgent(agent), configs: this.configurations, bindings: this.bindings,
+      childConfiguration: (sessionId: string) => history.childConfiguration(sessionId),
       roleWorkspace: async (agentId: string) => (await this.peer.request('knowledge.role.workspace', {agentId}) as {workspace: string | null}).workspace,
       notify: () => this.peer.notify('knowledge.changed', {}), held: (agentId: string, kind: 'memory' | 'skills') => lifecycle.current(agentId).disabled === true || this.capabilities.held(agentId, {kind: 'feature', name: kind === 'memory' ? 'memory_curation' : 'skill_creation'}) });
     const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
@@ -343,7 +344,7 @@ export default class NanoRuntime {
         config.approval = desired.approval;
       }
       if (desired.personal) { config.personal = desired.personal; assertPersonalConfiguration(config); }
-      await scopes.attachAgent(agent, config);
+      await scopes.attachAgent(agent, config, (await knowledge).isWorkWorker(agent, config));
       await (await approval).attach(agent, config);
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
       history.attach(agent, config, () => modelPolicy.route(agent));
@@ -571,7 +572,7 @@ export default class NanoRuntime {
       await using preset = await ctx.agentPresets.acquireScope(entry[0]);
       const key = {}; const diagnostic = createScope(ctx, key, { parent: preset.key });
       try {
-        await diagnostic.ctx.plugin(SelectedSkills, entry[1]).await();
+        await diagnostic.ctx.plugin(SelectedSkills, {config: entry[1], isWorkWorker: false}).await();
         return { tools: (await configuration).selection(entry[1], ctx.tools.schemas(key).map(tool => tool.name)),
           skills: await ctx.skills.list({ scope: key, cwd }) };
       } finally { await diagnostic.dispose(); }

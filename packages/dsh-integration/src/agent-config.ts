@@ -22,7 +22,7 @@ import { WorkspaceExtensions, type PluginCommand } from './workspace-tools.js';
 
 type Fiber = ReturnType<Context['plugin']>;
 interface PresetScope { agentId: string; ctx: Context; features: Map<string, Fiber> }
-interface AgentScope { agent: Agent; config: AgentConfiguration; workspace?: string; skills?: Fiber }
+interface AgentScope { agent: Agent; isWorkWorker: boolean; config: AgentConfiguration; workspace?: string; skills?: Fiber }
 declare module '@deepseek-ai/cordis' { interface Context { nanoConfiguration: ConfigurationScopes } }
 
 /** Keeps inherited tool contributions filterable and history configuration Agent-local. */
@@ -149,13 +149,13 @@ export class ConfigurationScopes extends Service {
       return assembly;
     }, { prepend: true });
   }
-  async attachAgent(agent: Agent, config: AgentConfiguration): Promise<void> {
+  async attachAgent(agent: Agent, config: AgentConfiguration, isWorkWorker: boolean): Promise<void> {
     attachChildRole(agent, config);
     const role = globalWorkRole(agent, config);
     const internal = isOrdinaryChild(agent) || role === 'worker-fork';
     const workspace = config.workspace ? await realpath(config.workspace) : undefined;
     while (workspace && this.maintenance.has(workspace)) await this.maintenance.get(workspace);
-    const scope: AgentScope = { agent, config, workspace }; this.agents.set(agent, scope);
+    const scope: AgentScope = { agent, config, workspace, isWorkWorker }; this.agents.set(agent, scope);
     agent.ctx.effect(() => () => { this.agents.delete(agent); });
     if (role !== 'subagent') agent.ctx.systemPrompt.section({ name: 'nano-product-identity', order: 5, interpolate: false, text: () => {
       const name = JSON.stringify(scope.config.displayName ?? scope.config.agentId);
@@ -165,11 +165,11 @@ export class ConfigurationScopes extends Service {
         : `Your Agent name: ${name}\nYour Agent ID: ${id}`;
     } });
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
-    scope.skills = agent.ctx.plugin(Skills, config); await scope.skills.await();
+    scope.skills = agent.ctx.plugin(Skills, {config, isWorkWorker}); await scope.skills.await();
     if (internal && role !== 'subagent') GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global', role === 'worker' || role === 'worker-fork');
     else if (!internal && config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal }).await();
     if (config.personal && !internal) await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
-    this.tools.attach(agent, config);
+    this.tools.attach(agent, config, isWorkWorker);
     await agent.ctx.plugin(ContextOrder).await();
   }
   async setFeatures(agentId: string, features: Record<string, boolean>): Promise<void> {
@@ -196,7 +196,7 @@ export class ConfigurationScopes extends Service {
       Object.assign(config, next);
     }
     for (const scope of this.agents.values()) if (scope.config.agentId === next.agentId) {
-      await scope.skills?.dispose(); scope.skills = scope.agent.ctx.plugin(Skills, scope.config); await scope.skills.await();
+      await scope.skills?.dispose(); scope.skills = scope.agent.ctx.plugin(Skills, {config: scope.config, isWorkWorker: scope.isWorkWorker}); await scope.skills.await();
     }
     await this.setFeatures(next.agentId, next.features ?? {});
   }

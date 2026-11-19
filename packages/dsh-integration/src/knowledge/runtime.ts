@@ -26,7 +26,15 @@ import { withKnowledgeRun } from '../trajectory-runs.js';
 import { policyAsset } from '../policy/rules.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoKnowledge: KnowledgeRuntime } }
-interface Options { configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>; roleWorkspace?(agentId: string): Promise<string | null>; notify(): void; held?(agentId: string, kind: KnowledgeKind): boolean }
+interface Options {
+  childConfiguration(sessionId: string): Promise<AgentConfiguration | undefined>;
+  configOf(agent: Agent): AgentConfiguration | undefined;
+  configs: Map<string, AgentConfiguration>;
+  bindings: Map<string, SessionBinding>;
+  roleWorkspace?(agentId: string): Promise<string | null>;
+  notify(): void;
+  held?(agentId: string, kind: KnowledgeKind): boolean;
+}
 const storageKey = (value: string) => Buffer.from(value).toString('base64url');
 interface Batch { root: string; name: string }
 interface Active { controller: AbortController; task: Promise<void>; agentId: string; rootSessionId: string; kinds: KnowledgeKind[]; source: 'F3' | 'F4'; turn: number; batch?: Batch; reads: ReviewFiles }
@@ -53,7 +61,7 @@ export class KnowledgeRuntime extends Service {
   constructor(ctx: Context, private readonly options: Options) {
     super(ctx, 'nanoKnowledge'); this.host = ctx; this.state = ctx.storageDomain.open(knowledgeDomain);
     const held = (agentId: string) => this.stopping || this.updateHeld || options.held?.(agentId, 'memory') === true;
-    this.documents = new DocumentMemory(ctx, { ...options, held });
+    this.documents = new DocumentMemory(ctx, { ...options, held, isWorkWorker: agent => this.isWorkWorker(agent) });
     this.dreaming = new Dreaming(ctx, this.documents, { ...options, held }, async config => {
       const role = await this.documents.readRole(config);
       return role && 'content' in role && role.content.length <= roleLimit ? role.content || undefined : undefined;
@@ -124,6 +132,11 @@ export class KnowledgeRuntime extends Service {
     this.tasks.set(task, agentId); void task.catch(error => this.host.logger('nano-knowledge').warn(String(error))).finally(() => this.tasks.delete(task));
   }
   config(agent: Agent) { return this.options.configOf(agent); }
+  /** Ordinary Global/PA workers follow their assignment without Nano memory integration. */
+  isWorkWorker(agent: Agent, config = this.config(agent)): boolean {
+    return config?.mode === 'global' && agent.session.header.origin === 'subagent' &&
+      !config.modelRouteFrozen && !this.children.has(agent) && this.reviewStart.getStore()?.parentId !== agent.session.header.parentSession;
+  }
   files(agent: Agent) { const config = this.config(agent); return new KnowledgeFiles(config?.workspace ?? agent.session.header.cwd!, config?.knowledge?.globalSkillRoot, config?.knowledge?.memoryMode === 'legacy' ? 'memory-legacy' : 'memory'); }
   private root(agent: Agent) {
     let current = agent;
@@ -151,6 +164,7 @@ export class KnowledgeRuntime extends Service {
   }
   async memory(exec: ToolExecution, change: MemoryChange) {
     const agent = exec.agent!;
+    if (this.isWorkWorker(agent)) throw new Error('Memory is unavailable for workers.');
     if (this.config(agent)?.knowledge?.memoryMode !== 'legacy') throw new Error('Use ordinary files for document memory.');
     const review = this.children.get(agent);
     this.checkReview(agent, 'memory');

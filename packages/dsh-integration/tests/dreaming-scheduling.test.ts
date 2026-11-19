@@ -14,7 +14,7 @@ function scheduler() {
   const ctx = { storageDomain: { open: async () => ({table: () => ({get: (id: string) => rows.get(id),put: async (id: string, value: any) => rows.set(id,value)}),close: async()=>{}}) },
     on: (name: string, callback: (...args: any[])=>any) => hooks.set(name,callback), effect: (factory:()=>()=>void) => disposals.push(factory()), agents: {get: () => parent} };
   const configs = new Map([['a',config]]);
-  const instance = new Dreaming(ctx as never, {} as never, { configOf:()=>configs.get('a'), configs,
+  const instance = new Dreaming(ctx as never, {} as never, { childConfiguration:async()=>undefined,configOf:()=>configs.get('a'), configs,
     bindings:new Map([['s',{sessionId:'s',agentId:'a',ownerId:'owner',cwd:'/owner',revision:'1'}]]), held:()=>held, notify:()=>{} });
   return { instance, config, configs, parent, owner, hooks, hold:(value:boolean)=>{held=value;} };
 }

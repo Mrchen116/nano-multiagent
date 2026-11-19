@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
-import type { SessionEvent } from '@deepseek-ai/dsh-session';
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { createHistoryView, type HistoryQuery } from 'dsh-agent-context';
 import type { DreamingOwner, DreamingRun } from './dreaming-state.js';
 import type { MemoryDocuments } from './memory-documents.js';
@@ -25,7 +25,7 @@ export function sourceDirectory(run: DreamingRun, owner: DreamingOwner): SourceR
       through:run.batch.historyThrough?.[id] ?? (page ? run.batch.units.findLast(item => item.sessionId === id)!.through : range?.through ?? cut.through),
       cutoff:run.batch.cutoffs?.[id] ?? cut.time, purpose:'Global dialogue and already processed background'};
   });
-  const children = run.summaries.map(summary => ({session_id:summary.sessionId, root_session_id:summary.rootSessionId,
+  const children = run.summaries.filter(summary => run.target.children[summary.sessionId]).map(summary => ({session_id:summary.sessionId, root_session_id:summary.rootSessionId,
     baseline:summary.baseline, through:summary.through,
     cutoff:run.batch.ranges.some(range => range.sessionId === summary.rootSessionId && (range.through > range.start || range.continuation))
       ? run.batch.cutoffs![summary.rootSessionId]! : run.target.children[summary.sessionId]!.time,
@@ -45,25 +45,27 @@ export function registerDreamingHistory(ctx: Context, host: Context, parent: Age
   const resolveScope=async(sessionId:string):Promise<SourceRange>=>{
     const directory=sourceDirectory(run,owner);
     const known=directory.find(item=>item.session_id===sessionId);if(known)return known;
-    const chain:Array<{id:string;snapshot:Awaited<ReturnType<MemorySources['snapshot']>>}>=[];
+    if (!directory.some(item => item.session_id !== item.root_session_id)) throw new Error('Source session is outside the supplied directory.');
+    const chain:string[]=[];
     let id=sessionId;
     while(!directory.some(item=>item.session_id===id)){
-      if(chain.some(item=>item.id===id))throw new Error('Invalid descendant lineage.');
-      const snapshot=await sources.snapshot(id);
-      if(snapshot.header.origin!=='subagent'||!snapshot.header.parentSession)throw new Error('Source session is outside the supplied directory.');
-      chain.push({id,snapshot});id=snapshot.header.parentSession;
+      if(chain.includes(id))throw new Error('Invalid descendant lineage.');
+      const header=(await host.sessionPersistence.stat(SessionId(id)))?.header;
+      if(header?.origin!=='subagent'||!header.parentSession)throw new Error('Source session is outside the supplied directory.');
+      chain.push(id);id=header.parentSession;
     }
     const ancestor=directory.find(item=>item.session_id===id)!;
     if(ancestor.session_id===ancestor.root_session_id)throw new Error('Only descendants of a supplied subagent trajectory summary may be expanded.');
     let parent=await sources.snapshot(ancestor.session_id);let scope=ancestor;
-    for(const child of chain.reverse()){
-      const relation=parent.events.findLast(event=>event.type==='subagent/catalog'&&event.data.childId===child.id&&event.data.mode!=='unknown'&&event.seq<=scope.through&&event.time<=scope.cutoff);
+    for(const childId of chain.reverse()){
+      const relation=parent.events.findLast(event=>event.type==='subagent/catalog'&&event.data.childId===childId&&event.data.mode!=='unknown'&&event.seq<=scope.through&&event.time<=scope.cutoff);
       if(relation?.type!=='subagent/catalog'||!Number.isFinite(relation.data.childCreatedAt))throw new Error('Descendant is not certified within the task cutoff.');
-      const own=child.snapshot.events.slice(child.snapshot.inheritedEventCount);
+      const child=await sources.snapshot(childId);
+      const own=child.events.slice(child.inheritedEventCount);
       const cut=safeBoundary(own,scope.cutoff);
-      const baseline=relation.data.childCreatedAt>=owner.activationAt?child.snapshot.inheritedEventCount-1:safeBoundary(own,owner.activationAt).through;
-      scope={session_id:child.id,root_session_id:scope.root_session_id,parent_session_id:parent.header.id,baseline,through:cut.through,cutoff:scope.cutoff,purpose:'Original evidence from a trusted task descendant'};
-      parent=child.snapshot;
+      const baseline=relation.data.childCreatedAt>=owner.activationAt?child.inheritedEventCount-1:safeBoundary(own,owner.activationAt).through;
+      scope={session_id:childId,root_session_id:scope.root_session_id,parent_session_id:parent.header.id,baseline,through:cut.through,cutoff:scope.cutoff,purpose:'Original evidence from a trusted task descendant'};
+      parent=child;
     }
     return scope;
   };

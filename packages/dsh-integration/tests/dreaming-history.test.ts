@@ -71,11 +71,17 @@ it('allows bounded original evidence from a selected task descendant, but not an
   const run={generation:1,target:{roots:{root:{through:10,time:150}},children:{task:{time:150}}},batch:{ranges:[],cutoffs:{},units:[]},summaries:[{sessionId:'task',rootSessionId:'root',baseline:-1,through:0}]};
   const owner={activationAt:100,streams:{root:{baseline:-1,cursor:0}}};
   const library={status:async()=>({generation:1,sourcesPending:false})};
-  const sourceContext={sessions:{get:()=>undefined},sessionQuery:{observeSession:async(id:string)=>({...snapshots[id],source:'prepared',revision:'stable',[Symbol.dispose]:()=>{}})}};
-  registerDreamingHistory(ctx as never,{} as never,root as never,run as never,owner as never,library as never,new MemorySources(sourceContext as never,new Map()),[]);
+  const observed:string[]=[];
+  const sourceContext={sessions:{get:()=>undefined},sessionQuery:{observeSession:async(id:string)=>{
+    observed.push(id);
+    return {...snapshots[id],source:'prepared',revision:'stable',[Symbol.dispose]:()=>{}};
+  }}};
+  registerDreamingHistory(ctx as never,{sessionPersistence:{stat:async(id:string)=>snapshots[id]}} as never,root as never,run as never,owner as never,library as never,new MemorySources(sourceContext as never,new Map()),[]);
   const query=(args:any)=>tools.get('source_history').execute(args);
+  run.summaries.push({sessionId:'unrelated',rootSessionId:'root',baseline:-1,through:0});
   const result=await query({action:'search',session_id:'deep',query:'condition'});
   expect(result.items).toHaveLength(1);expect(result.items[0]).toMatchObject({item_id:'0',time:115});
   expect(await query({action:'search',session_id:'deep',query:'FUTURE'})).toMatchObject({items:[]});
   await expect(query({action:'list_items',session_id:'unrelated'})).rejects.toThrow('Only descendants');
+  expect(observed).not.toContain('unrelated');
 });

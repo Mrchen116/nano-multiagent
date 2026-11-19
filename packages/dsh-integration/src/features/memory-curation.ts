@@ -12,12 +12,12 @@ export function apply(ctx: Context, config: Config) {
   ctx.on('agent/created', ({ agent }) => {
     const parent = agent.session.header.parentSession && ctx.agents.get(agent.session.header.parentSession);
     const snapshot = parent && snapshots.get(parent);
-    if (snapshot) snapshots.set(agent, snapshot);
+    if (snapshot && !ctx.nanoKnowledge.isWorkWorker(agent)) snapshots.set(agent, snapshot);
   });
 
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembly = await next(); const agent = context.scope as Agent | undefined;
-    if (!agent?.session || ctx.nanoKnowledge.config(agent)?.knowledge?.memoryMode !== 'legacy') return assembly;
+    if (!agent?.session || ctx.nanoKnowledge.isWorkWorker(agent) || ctx.nanoKnowledge.config(agent)?.knowledge?.memoryMode !== 'legacy') return assembly;
     const compactedAt = agent.session.snapshotEvents().findLast(event => event.type === 'compaction/end')?.seq ?? -1;
     let snapshot = snapshots.get(agent);
     if (!snapshot || snapshot.compactedAt !== compactedAt) {

@@ -18,7 +18,7 @@ const userEntryTools = new Set(['ask_user_question', 'present', 'enter_plan_mode
 
 /** Filters the native callable view after preset contributions are assembled. */
 export class ToolSelection {
-  private readonly agents = new Map<Agent, { config: AgentConfiguration; dispose?: () => void; presentation?: () => void }>();
+  private readonly agents = new Map<Agent, { config: AgentConfiguration; isWorkWorker: boolean; dispose?: () => void; presentation?: () => void }>();
   private changing = false;
   private nativeDefaults?: Set<string>;
   constructor(private readonly ctx: Context, private readonly installed: (config: AgentConfiguration) => string[] = () => []) {
@@ -43,8 +43,8 @@ export class ToolSelection {
     const selected = new Set([...allow, ...installed, ...contextTools]);
     return names.filter(name => selected.has(name) || agent && this.independentTool(agent, config, name));
   }
-  attach(agent: Agent, config: AgentConfiguration) {
-    const state = { config }; this.agents.set(agent, state);
+  attach(agent: Agent, config: AgentConfiguration, isWorkWorker: boolean) {
+    const state = { config, isWorkWorker }; this.agents.set(agent, state);
     agent.ctx.effect(() => () => { this.agents.delete(agent); });
     this.update(config.agentId);
   }
@@ -66,13 +66,14 @@ export class ToolSelection {
     try { for (const [agent, state] of this.agents) if (state.config.agentId === agentId) this.refresh(agent, state); }
     finally { this.changing = false; }
   }
-  private refresh(agent: Agent, state: { config: AgentConfiguration; dispose?: () => void; presentation?: () => void }) {
+  private refresh(agent: Agent, state: { config: AgentConfiguration; isWorkWorker: boolean; dispose?: () => void; presentation?: () => void }) {
     // Provider teardown publishes tools/change while sibling Agent scopes are
     // already unloading; rebuilding their restrictions would register new effects.
     if (agent.ctx.fiber.uid === null) return;
     state.dispose?.(); state.dispose = undefined;
     state.presentation?.(); state.presentation = undefined;
     const disabled: string[] = [state.config.knowledge?.memoryMode === 'legacy' ? 'memory_maintenance' : 'memory'];
+    if (state.isWorkWorker) disabled.push('memory', 'memory_maintenance');
     if (state.config.toolAllowlist === undefined) disabled.push(...goalTools, 'exit_plan_mode', ...(!globalWorkRole(agent, state.config) ? ['subagent_fork'] : []));
     if (globalWorkRole(agent, state.config)) disabled.push(...userEntryTools);
     if (isOrdinaryChild(agent) || globalWorkRole(agent, state.config)) disabled.push('conversations', 'personal_sources', 'agent_creation', 'schedule_run', 'schedule_history');
@@ -111,7 +112,7 @@ function skillGestures(inputs: { id: string; content: UserMessage['content'] }[]
   }));
 }
 /** Native file parsing and resource loading with one selected provider surface. */
-export function apply(ctx: Context, config: AgentConfiguration) {
+export function apply(ctx: Context, {config, isWorkWorker}: {config: AgentConfiguration; isWorkWorker: boolean}) {
   const pending = new WeakMap<Agent, SkillGesture[]>();
   // Consume the complete host value once; later pruning may make its rendered JSON incomplete.
   ctx.on('tools/result', (exec, result) => {
@@ -148,11 +149,13 @@ export function apply(ctx: Context, config: AgentConfiguration) {
     return additions.length ? { ...decision, messages: [...decision.messages, ...additions] } : decision;
   });
   // Only the host-supplied package root owns fixed guidance; user copies cannot shadow it.
-  const allowed = (name: string, source: string) => name === 'skill-creator'
-    ? source === 'builtin'
-    : config.skillSelection?.mode === 'explicit_denylist'
+  const allowed = (name: string, source: string) => {
+    if (isWorkWorker && name === 'nano-memory') return false;
+    if (name === 'skill-creator') return source === 'builtin';
+    return config.skillSelection?.mode === 'explicit_denylist'
       ? !config.skillSelection.names.includes(name)
       : config.skillSelection?.mode !== 'explicit_allowlist' || config.skillSelection.names.includes(name);
+  };
   for (const [index, root] of (config.skillRoots ?? []).entries()) {
     let native!: FileSystemSkillProvider;
     const providerName = `nano-files-${index}`;

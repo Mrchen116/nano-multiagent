@@ -22,9 +22,10 @@ it('freezes memory lazily, inherits the fork snapshot, refreshes after compactio
     const events: any[] = [];
     const parent = { session: { header: {}, snapshotEvents: () => events } } as unknown as Agent;
     const child = { session: { header: { parentSession: 'parent' }, snapshotEvents: () => events } } as unknown as Agent;
+    const worker = {session:child.session} as Agent;
     apply({ on: (name: string, handler: (...args: any[]) => any) => handlers.set(name, handler),
       agents: { get: () => parent }, tools: { register: () => {} },
-      nanoKnowledge: { subscribe: () => {}, config: () => ({ knowledge: { memoryMode: enabled ? 'legacy' : 'document' } }), files: () => files },
+      nanoKnowledge: { isWorkWorker:(agent:Agent)=>agent===worker, subscribe: () => {}, config: () => ({ knowledge: { memoryMode: enabled ? 'legacy' : 'document' } }), files: () => files },
     } as unknown as Context, { agentId: 'a' });
     const assemble = (agent = parent) => handlers.get('system-prompt/assemble')!({}, { scope: agent }, async () => ({ contexts: [] }));
     expect(read).not.toHaveBeenCalled();
@@ -33,6 +34,8 @@ it('freezes memory lazily, inherits the fork snapshot, refreshes after compactio
     expect(JSON.stringify(await assemble())).not.toContain('AFTER');
     handlers.get('agent/created')!({ agent: child });
     expect(JSON.stringify(await assemble(child))).toContain('BEFORE');
+    handlers.get('agent/created')!({agent:worker});
+    expect((await assemble(worker)).contexts).toEqual([]);
     expect(read).toHaveBeenCalledTimes(2);
     events.push({ type: 'compaction/end', seq: 7 });
     expect(JSON.stringify(await assemble())).toContain('AFTER');
