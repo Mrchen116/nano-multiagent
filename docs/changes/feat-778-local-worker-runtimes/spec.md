@@ -18,6 +18,8 @@
 
 > 那也就是，明确点就是，先不支持看worker的轨迹，global agent的轨迹依旧显示。派工关系呢，我还是希望能看到的
 
+> 可以，就用本机 CLI 的账号和默认模型。
+
 ## 澄清记录
 
 - 本次交付本机 worker 的 PR。跨机是后续独立决策，等待用户亲测本次体验。
@@ -41,6 +43,10 @@
 #### Scenario: 配置、派工与原会话续做
 - **WHEN** 用户使用本机配置的 DSH、Codex CLI 或 Claude Code 交办工作，并在 IM 补充要求
 - **THEN** 原 worker 接到更正并继续工作，用户从原 Global 收到交回的结果；用户要求停止该事项时，Global 能反馈实际停止结果。
+
+#### Scenario: 本机 CLI 的账号和默认模型
+- **WHEN** 用户以节点运行用户的身份配置好 Codex CLI 或 Claude Code，Global 用该框架派出新的 worker
+- **THEN** worker 使用与该用户在同一工作区直接启动 CLI 时相同的账号和默认模型。Global 自身的模型配置不覆盖这两项。
 
 #### Scenario: 外部 worker 需要决定
 - **WHEN** 本机框架的 Auto 遇到需要澄清、需要新授权或明确拒绝的动作
