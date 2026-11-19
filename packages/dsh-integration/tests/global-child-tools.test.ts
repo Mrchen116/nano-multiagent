@@ -1,3 +1,4 @@
+import {childProbe, nativeChildren} from './helpers/native-child-probe.js';
 import { workDescendants } from './helpers/work-history.js';
 import {createServer} from 'node:http';
 import {registerNoopTaskContext} from './helpers/noop-task-context.js';
@@ -31,12 +32,14 @@ ctx.on('llm/stream',async function*(o){
  const key=agent.id+':'+(user?.id??'child');const fresh=!seen.has(key);seen.add(key);
  const text=user?.content.find(b=>b.type==='text')?.text??'';
  let calls=[];
- if(fresh&&agent.id==='root')calls=text.startsWith('resume:')?[['send_message',{agent_id:text.slice(7),message:'Resume original work'}]]:[['subagent',{prompt:'Prepare findings',description:'Continuable work',run_in_background:true}],['subagent_fork',{prompt:'Check findings independently',description:'Fork work',run_in_background:false}]];
+ if(fresh&&agent.id==='root')calls=text.startsWith('resume:')?[['send_message',{agent_id:text.slice(7),message:'Resume original work'}]]:[${JSON.stringify(mode==='global'
+   ? ['delegate_worker',{action:'start',label:'Continuable work',message:'Prepare findings'}]
+   : ['subagent',{prompt:'Prepare findings',description:'Continuable work',run_in_background:true}])},['subagent_fork',{prompt:'Check findings independently',description:'Fork work',run_in_background:false}]];
  if(fresh&&agent.id!=='root'&&agent.session.snapshotEvents().find(e=>e.type==='subagent/descriptor')?.data.mode==='continuable'){calls=[['send_message',{agent_id:agent.session.header.parentSession,message:'Findings ready for the parent to deliver'}]];if(agent.session.header.parentSession==='root')calls.push(['subagent',{prompt:'Verify one independent fact',description:'Second level',run_in_background:true}]);}
  if(calls.length){for(const[index,[name,args]]of calls.entries())yield{type:'block-end',index,block:{type:'tool-call',id:key+'-'+index,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
  yield{type:'block-end',index:0,block:{type:'text',text:'Finished internal work'}};yield{type:'finish',reason:{kind:'stop'}};
 });}`);
-    await prepareProfile(home, [{ insert: [{ id: 'global-child-tools-fixture', name: join(home, 'fixture.mjs') }] }]);
+    await prepareProfile(home, [{ insert: [childProbe, { id: 'global-child-tools-fixture', name: join(home, 'fixture.mjs') }] }]);
     const start = async () => {
       client = new RuntimeClient({ home, cwd: home, onLog: value => { logs += value; } });registerNoopTaskContext(client);
       client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [], repair_task_ids: [] }));
@@ -50,7 +53,7 @@ ctx.on('llm/stream',async function*(o){
       await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: 'root', inputId: id }) as any).terminal, { timeout: 15000 }).toBeTruthy();
     };
     await start(); await submit('work', 'Delegate independent work');
-    await expect.poll(async () => { const rows = await workDescendants(client!.rpc, {sessionId:'root'}) as any[]; return rows.filter(row => row.events.some((event: any) => event.type === 'turn/end')).length; }).toBe(3);
+    await expect.poll(async () => { const rows = await nativeChildren(home); return rows.filter(row => row.events.some((event: any) => event.type === 'turn/end')).length; }).toBe(3);
     const before = await snapshots();
     const children = [...new Set(before.filter(row => row.id !== 'root').map(row => row.id))];
     expect(children).toHaveLength(3);
@@ -75,21 +78,22 @@ ctx.on('llm/stream',async function*(o){
       expect(JSON.stringify(row.tools)).not.toContain('"name":"conversations"');
     }
     expect(calls).toEqual([]);
-    const descendants = await workDescendants(client!.rpc, { sessionId: 'root' }) as any[];
+    const descendants = await nativeChildren(home);
+    const visible = await workDescendants(client!.rpc, {sessionId:'root'});
+    expect(visible.map(row=>row.id).sort()).toEqual((mode==='global' ? [...new Set(before.filter(row=>row.fork).map(row=>row.id))] : children).sort());
     for (const child of descendants) {
-      expect(child.kind,JSON.stringify(child)).toBe('child');
       const results = child.events.filter((event: any) => event.type === 'tool/result' && typeof event.surfaceOp !== 'object');
-      const continuable = child.events.find((event: any) => event.type === 'subagent/descriptor').data.mode === 'continuable';
+      const continuable = before.find(row => row.id === child.id).fork === false;
       expect(results).toHaveLength(continuable ? (before.find(row => row.id === child.id)?.parent === 'root' ? 2 : 1) : 0);
       if (continuable) expect(results[0].data.message.isError, JSON.stringify(results[0].data.message)).not.toBe(true);
     }
-    const firstChild = descendants.find(child => child.events.some((event:any) => event.type==='subagent/descriptor' && event.data.mode==='continuable')).id;
+    const firstChild = before.find(row => row.parent === 'root' && !row.fork).id;
     if (mode === 'global') {
-    await client!.rpc.request('trajectory.prepare', { observerId: 'root', rootAgentId: 'a', rootSessionId: 'root', sessionId: 'root', ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
-    const runs = (await client!.rpc.request('trajectory.call', { observerId: 'root', method: 'trajectory/runs' }) as any).value;
-    expect(runs).toHaveLength(2);
-    // The ordinary child remains continuable after the runtime process is recreated.
-    expect(runs.find((run: any) => run.provider === 'spawn').sessionId).toBe(firstChild);
+      await client!.rpc.request('trajectory.prepare', { observerId: 'root', rootAgentId: 'a', rootSessionId: 'root', sessionId: 'root', ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
+      const runs = (await client!.rpc.request('trajectory.call', { observerId: 'root', method: 'trajectory/runs' }) as any).value;
+      expect(runs.map((run:any)=>run.sessionId)).toEqual(visible.map(row=>row.id));
+      const rootWork = await client!.rpc.request('session.work.root',{sessionId:'root'}) as any;
+      expect(rootWork.workerChanges).toContainEqual(expect.objectContaining({workerId:firstChild,rootId:'root',runtime:'dsh'}));
     }
     await client!.shutdown(); client = undefined;
     await start(); await submit('resume', `resume:${firstChild}`);
@@ -122,7 +126,7 @@ it.each([false,true])('gives Global workers native work tools and native nested 
     const resume=body.messages.map((m:any)=>JSON.stringify(m)).findLast((m:string)=>m.includes('resume:'))?.match(/resume:([a-z0-9-]+):([a-z-]+)/);
     const continuation=body.messages.map((m:any)=>JSON.stringify(m)).findLast((m:string)=>m.includes('continue-worker:'))?.match(/continue-worker:([a-z-]+)/);
     if(id==='root'&&resume&&!resumed.has(resume[2]!)){resumed.add(resume[2]!);calls=[['send_message',{agent_id:resume[1],message:'continue-worker:'+resume[2]}]];}
-    else if(fresh&&meta.depth===0)calls=[['subagent',{prompt:'WHOLE_ASSIGNMENT_SENTINEL: prepare a complete finding',description:'whole task',run_in_background:true}]];
+    else if(fresh&&meta.depth===0)calls=[['delegate_worker',{action:'start',message:'WHOLE_ASSIGNMENT_SENTINEL: prepare a complete finding',label:'whole task'}]];
     if(fresh&&meta.depth===1)calls=[['read',{file_path:join(home,'AGENTS.md')}],['subagent',{prompt:'CHILD_ASSIGNMENT_SENTINEL: check one fact',description:'one fact',run_in_background:true}],['subagent_fork',{prompt:'Check this delegated fact',description:'fork fact',run_in_background:false}]];
     // The second-level continuation is steered only by its original direct parent.
     if(meta.depth===1&&continuation&&!resumed.has('worker-'+continuation[1])){resumed.add('worker-'+continuation[1]);
@@ -157,7 +161,7 @@ it.each([false,true])('gives Global workers native work tools and native nested 
     await writeFile(join(home,'fixture.mjs'),`import {appendFile} from 'node:fs/promises';
 export const name='work-defaults';export const inject=['tools','agents','llm'];
 export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.presentAs('native');});ctx.on('llm/stream',async function*(o,next){const agent=ctx.agents.get(o.sessionId);await appendFile(process.env.DSH_HOME+'/agents.jsonl',JSON.stringify({id:agent.id,depth:agent.session.header.delegationDepth??0,fork:agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data.provider==='fork'})+'\\n');yield*next();});}`);
-    await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'anthropic-messages',baseURL:`http://127.0.0.1:${(server.address() as any).port}`,apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture',contextWindow:200000},{id:'replacement',contextWindow:200000}],retryPolicy:{mode:'normal',maxRetries:0}}}}},{insert:[{id:'work-defaults',name:join(home,'fixture.mjs')}]}]);
+    await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'anthropic-messages',baseURL:`http://127.0.0.1:${(server.address() as any).port}`,apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture',contextWindow:200000},{id:'replacement',contextWindow:200000}],retryPolicy:{mode:'normal',maxRetries:0}}}}},{insert:[childProbe,{id:'work-defaults',name:join(home,'fixture.mjs')}]}]);
     const start=async()=>{
       client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
       client.rpc.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[],repair_task_ids:[]}));
@@ -206,9 +210,10 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
       expect(names).not.toContain('send_user_message');expect(names).not.toContain('personal_sources');expect(names).not.toContain('agent_creation');
       expect(row.tools.find(tool=>tool.name==='send_message').parameters.properties).not.toHaveProperty('target');
     }
-    await expect.poll(async()=>(await workDescendants(client!.rpc, {sessionId:'root'}) as any[]).filter(row=>row.events.some((event:any)=>event.type==='turn/end')).length).toBe(3);
+    await expect.poll(async()=>(await nativeChildren(home)).filter(row=>row.events.some((event:any)=>event.type==='turn/end')).length).toBe(3);
+    expect(await workDescendants(client!.rpc,{sessionId:'root'})).toEqual([]);
     const fork=wire.find(row=>row.fork)!;expect(fork.tools).toEqual(first.tools);expect(withoutCache(fork.system)).toEqual(withoutCache(first.system));
-    const children=await workDescendants(client!.rpc, {sessionId:'root'}) as any[];
+    const children=await nativeChildren(home);
     expect(children.find(row=>row.id===first.id).events.filter((event:any)=>event.type==='tool/result' && typeof event.surfaceOp !== 'object').every((event:any)=>!event.data.message.isError)).toBe(true);
     const beforeFirst=wire.filter(row=>row.id===first.id).length,beforeSecond=wire.filter(row=>row.id===second.id).length;
     await client!.shutdown();client=undefined;await start();
@@ -239,12 +244,15 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
     const childrenUnderTest = [first, second];
     const settle = async () => {
       await expect.poll(async () => {
+        // Work checks a catalog cut already traversed by the product reader.
+        expect(await workDescendants(client!.rpc, {sessionId:'root'})).toEqual([]);
         const root = await client!.rpc.request('session.observe',{sessionId:'root'}) as any;
-        const children = await workDescendants(client!.rpc, {sessionId:'root'}) as any[];
+        const children = await nativeChildren(home);
         const check=await client!.rpc.request('session.work.check',{sessionId:'root',afterSeq:root.throughSeq,modelVersion:root.modelVersion}) as {rootSettled:boolean};
-        return check.rootSettled && children.every(row=>row.events.findLast((event:any)=>event.type==='turn/start'||event.type==='turn/end')?.type==='turn/end'
-          && row.modelRuns.every((run:any)=>run.state==='completed'));
-      },{timeout:15_000}).toBe(true);
+        return {rootSettled:check.rootSettled, activeChildren:children.filter(row =>
+          row.events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')?.type !== 'turn/end'
+        ).map(row => row.id)};
+      },{timeout:15_000}).toEqual({rootSettled:true, activeChildren:[]});
     };
     await settle();
     for (const child of childrenUnderTest) {
@@ -318,11 +326,11 @@ ctx.on('tools/pre-execute',async(exec,next)=>{const decision=await next();if(exe
 ctx.on('llm/stream',async function*(o){const agent=ctx.agents.get(o.sessionId);const user=o.messages.findLast(m=>m.role==='user'&&m.source?.kind==='user'&&'actorId'in m.source);const text=user?.content?.find(b=>b.type==='text')?.text??'';
 if(agent.id==='root'&&text==='release'){release();await writeFile(process.env.DSH_HOME+'/root-received','yes');}
 const fresh=!seen.has(agent.id);seen.add(agent.id);let calls=[];
-if(fresh&&agent.id==='root')calls=[['subagent',{prompt:'Read the workspace instructions and return findings',description:'one complete task',run_in_background:true}]];
+if(fresh&&agent.id==='root')calls=[['delegate_worker',{action:'start',message:'Read the workspace instructions and return findings',label:'one complete task'}]];
 if(agent.id!=='root'){await writeFile(process.env.DSH_HOME+'/child-tools.json',JSON.stringify(ctx.tools.schemas(agent).map(tool=>tool.name)));if(fresh)calls=[['read',{file_path:process.env.DSH_HOME+'/fixture.mjs'}]];}
 if(calls.length){for(const[index,[name,args]]of calls.entries())yield{type:'block-end',index,block:{type:'tool-call',id:agent.id+'-'+index,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
 yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
-    await prepareProfile(home,[{insert:[{id:'worker-selection',name:join(home,'fixture.mjs')}]}]);
+    await prepareProfile(home,[{insert:[childProbe,{id:'worker-selection',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
     client.rpc.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[],repair_task_ids:[]}));
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
@@ -338,12 +346,12 @@ yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'fini
     await expect.poll(()=>readFile(join(home,'root-received'),'utf8').catch(()=>'' )).toBe('yes');
     await applying;
     expect(JSON.parse(await readFile(join(home,'child-tools.json'),'utf8'))).toContain('read');
-    const children=await workDescendants(client.rpc, {sessionId:'root'}) as any[];
+    expect(await workDescendants(client.rpc,{sessionId:'root'})).toEqual([]);
     await expect.poll(async()=>{
-      const rows=await workDescendants(client!.rpc, {sessionId:'root'}) as any[];
+      const rows=await nativeChildren(home);
       return rows[0]?.events.some((e:any)=>e.type==='tool/result' && typeof e.surfaceOp !== 'object'&&!e.data.message.isError);
     }).toBe(true);
-    expect(children).toHaveLength(1);
+    expect(await nativeChildren(home)).toHaveLength(1);
   } catch(error){throw new Error(String(error)+'\n'+logs,{cause:error});}
   finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);

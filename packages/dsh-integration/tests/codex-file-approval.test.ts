@@ -6,7 +6,7 @@ import { codexFileAllowed } from '../src/policy/file-approval.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
-import { workDescendants } from './helpers/work-history.js';
+import {childProbe, nativeChildren} from './helpers/native-child-probe.js';
 
 type Audit = { callId: string; source: string; reviewer?: { model: string } };
 type Action = { name: string; args: Record<string, unknown> };
@@ -64,7 +64,7 @@ export function apply(ctx) {
       api:'openai-completions', baseURL:'http://127.0.0.1:9', apiKeyEnv:'NANO_TEST_KEY',
       models:['main', 'review-before', 'review-after'].map(id => ({ id, contextWindow:100000 })),
     } } } },
-    { insert:[{ id:'file-approval-fixture', name:plugin }] },
+    { insert:[childProbe,{ id:'file-approval-fixture', name:plugin }] },
   ]);
   const binding = { sessionId:'root', agentId:'agent', revision:'1', ownerId:'owner', cwd };
   return async (approval: Partial<typeof approvalDefaults> & { reviewer?: { provider:string; model:string } } = {}, revision = binding.revision) => {
@@ -159,10 +159,10 @@ it('uses current approval in both directions when the same child resumes after r
     const start = await fixture(home, cwd);
     client = await start({ dangerouslySkipPermissions:true });
     const childAction = write(join(home, 'initial.txt'));
-    await submit(client, 'delegate', { name:'subagent', args:{
-      prompt:message(childAction), description:'Original delegated fixture', run_in_background:true,
+    await submit(client, 'delegate', { name:'delegate_worker', args:{
+      action:'start', message:message(childAction), label:'Original delegated fixture',
     } }, 'ORIGINAL_OWNER_SCOPE: isolated fixture files. ');
-    const children = () => workDescendants(client!.rpc, { sessionId:'root' }) as Promise<{ id:string; events:{ type:string }[] }[]>;
+    const children = () => nativeChildren(home);
     await expect.poll(async () => (await children())[0]?.events.filter(event => event.type === 'turn/end').length,
       { timeout:8000 }).toBe(1);
     const childId = (await children())[0]!.id;

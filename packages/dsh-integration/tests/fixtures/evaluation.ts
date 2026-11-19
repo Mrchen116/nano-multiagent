@@ -80,8 +80,7 @@ export function apply(ctx){
         ['conversations',{action:'search',target,query:'CASE_MARKER',limit:1,cursor:first?.next_cursor}],
         ['send_message',{target,text}]][n];
     }else if(process.env.EVALUATION_DELEGATE_ROOT&&o.sessionId!==process.env.EVALUATION_DELEGATE_ROOT){
-      if(n===0)call=['read',{file_path:process.cwd()+'/.nanoassistant/memory/knowledge/city.md'}];
-      if(n===1){
+      if(n===0){
         await new Promise(resolve=>setTimeout(resolve,1200));
         call=['send_message',{agent_id:process.env.EVALUATION_DELEGATE_ROOT,message:'DELEGATED_RESULT: '+all.match(/You live in (?:Berlin|Paris|Rome)\\./)?.at(-1)}];
       }
@@ -100,7 +99,7 @@ export function apply(ctx){
         ['new_context',{}],['notes',{action:'read',path:'reply.md'}],
         ['history',{action:'list_windows'}],['history',{action:'search',query:'UNRELATED_HISTORY_ONLY'}],
         ['inbox',{action:'check'}],['conversations',{action:'read',target}],
-        process.env.EVALUATION_DELEGATE_ROOT?['subagent',{description:'Read the saved city',prompt:'Read memory/knowledge/city.md and report the city to your parent.'}]:['send_message',{target,text:city}],
+        process.env.EVALUATION_DELEGATE_ROOT?['delegate_worker',{action:'start',label:'Confirm the city',message:'Confirm this detail from the original conversation and report back: '+city}]:['send_message',{target,text:city}],
         undefined,['send_message',{target,text:city}]
       ][n];
     }
