@@ -25,3 +25,22 @@
 
 - R1-W1 accepted。设计补充新建、更新、失败重试的数据边界和验收。
 - R1-W2 accepted。设计补充浏览器公开地址、节点内部地址、凭据交付和真实 WSS 验证。
+
+## Round 2
+
+- Reviewer target 为独立 reviewer `/root/design_review`，基线 `09c5f0577`。
+- review_mode 为 delta。复核 R1 的修订，并检查有限子域名池对并发分配、URL 稳定性与停止的影响。
+- started_at 为 2026-11-20T00:21:33+09:00。completed_at 为 2026-11-20T00:21:47+09:00。duration 为 14 秒。
+
+**Verdict — Approved，0 CRITICAL，0 WARNING。**
+
+### 历史问题闭环
+
+- **R1-W1，closed。** Author Resolution 已采纳。新节将随机凭据、数据库和绑定的初始化限制在新实例，更新只重建代码并复用原端口、身份和数据。更新失败保留归属和数据，可重试。验收要求重试后用原节点读回原记录。
+- **R1-W2，closed。** Author Resolution 已采纳。Gateway 使用 Mini loopback，IM 对外公布实例 HTTPS URL，满足现有 Origin 校验。操作者经 SSH 取得口令。验收从 Air 浏览器登录，停止 A 后在 B 原有 WSS 连接接收新事件。
+
+### 分配变化与保留判断
+
+Mini 用稳定实例 ID 原子领取专用域名。两个实例可占用不同入口，更新保留原归属，首次启动失败撤销分配，停止单个实例归还其域名。满池时命令明确报告容量。该设计满足首文档双 worktree 场景，两个测试域名及专用 Tunnel 的现场配置和可达性仍须实测。
+
+retained_from: Round 1。单一 M1、现有进程管理归属及 IM 产品契约保持适用。此次批准用于开始实施；浏览器登录、保留连接及跨机隔离均待运行证据。
