@@ -502,7 +502,10 @@ runtime.handle('session.recovery.mark', value => {
   return {marked: true};
 });
 let workAvailable=false;
-const workSync=new WorkSync({nodeId:config.node.node_id,inbox,url:config.im_service.url,credentials:()=>config.im_service.token,available:()=>workAvailable,onError:reportError});
+const workSync=new WorkSync({nodeId:config.node.node_id,inbox,url:config.im_service.url,credentials:()=>config.im_service.token,available:()=>workAvailable,onError:reportError,
+  readyAgents: () => inbox.readyWorkAgents(agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId),
+    session => store.bindingForSession(session)?.agentId),
+});
 globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, uploadScreenshot: input => uploadScreenshot(im, input), onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
 runtime.handle('configuration.workflow', async value => {
   const {agentId, guideline} = value as {agentId: string; guideline: string};

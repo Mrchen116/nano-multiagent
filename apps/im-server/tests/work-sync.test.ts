@@ -363,3 +363,22 @@ test('redacting an upload in flight preserves the shared sequence for the next A
   expect(existsSync(directory)).toBe(false);
   expect((await f.request('GET')).json()).toEqual({ through_seq: 3, expected_seq: 4 });
 });
+
+test('a caught-up Agent can report activity while a peer is recovering or uploading', async () => {
+  const f = await fixture();
+  const work = f.app.im.gateway.work;
+  const connection = {node_id:'node',owner_id:'alice',node_epoch:1,token:'runtime-secret',lastSeen:Date.now(),
+    socket:{readyState:1,send(){},close(){}}} as any;
+  f.app.im.gateway.nodes.set('node', connection);
+  const report = (ready: Record<string, number>) => f.app.inject({method:'GET',url:prefix,headers:{
+    authorization:'Bearer runtime-secret','x-work-produced-seq':'2','x-work-processing-pending':'true',
+    'x-work-ready-agents':Buffer.from(JSON.stringify(ready)).toString('base64url'),
+  }});
+  await f.request('POST', prefix + '/events', {from_seq:1,events:[event(1)]});
+  expect((await report({root:1})).statusCode).toBe(200);
+  expect(work.activity('root','node','',12)).toMatchObject({record_sync_state:'current',main_execution:'idle',running_count:0});
+  await report({root:2});
+  expect(work.delegation('root','node','3d',new Date().toISOString(),'',8).record_sync_state).toBe('catching_up');
+  await report({other:0});
+  expect(work.view('root').record_sync_state).toBe('catching_up');
+});

@@ -114,7 +114,7 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
   activeUploads.set(db, uploadsInFlight);
   const activeNodes = new Set<string>(), leases = new WeakMap<FastifyRequest, string>(), handlers = new WeakSet<FastifyRequest>();
   const connections = new WeakMap<FastifyRequest, Connection>();
-  const declarations = new WeakMap<FastifyRequest, { journal: string; produced: number; pending: boolean }>();
+  const declarations = new WeakMap<FastifyRequest, { journal: string; produced: number; pending: boolean; readyAgents?: Map<string, number> }>();
   const removals = new Set<Promise<void>>();
   const removeFiles = (id: string) => {
     const removal = rm(join(directory, id), { recursive: true, force: true }).catch(error => app.log.error(error));
@@ -163,7 +163,21 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     const produced = request.headers['x-work-produced-seq'], pending = request.headers['x-work-processing-pending'];
     if (produced !== undefined || pending !== undefined) {
       if (typeof produced !== 'string' || !/^\d+$/.test(produced) || !integer(Number(produced)) || typeof pending !== 'string' || !['true', 'false'].includes(pending)) fail(400, 'invalid_work_progress');
-      declarations.set(request, { journal, produced: Number(produced), pending: pending === 'true' });
+      const scoped = request.headers['x-work-ready-agents'];
+      let readyAgents: Map<string, number> | undefined;
+      if (scoped !== undefined) {
+        if (typeof scoped !== 'string' || scoped.length > 8192) fail(400, 'invalid_work_progress');
+        let values: unknown;
+        try { values = JSON.parse(Buffer.from(scoped, 'base64url').toString('utf8')); }
+        catch { fail(400, 'invalid_work_progress'); }
+        if (!workObject(values)) fail(400, 'invalid_work_progress');
+        readyAgents = new Map();
+        for (const [agent, seq] of Object.entries(values)) {
+          if (!agent || !integer(seq) || seq > Number(produced)) fail(400, 'invalid_work_progress');
+          readyAgents.set(agent, seq);
+        }
+      }
+      declarations.set(request, { journal, produced: Number(produced), pending: pending === 'true', readyAgents });
     }
     return { identity, journal };
   };
@@ -176,7 +190,7 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     handlers.add(request);
     try {
       const result = await handler(request), connection = connections.get(request), report = declarations.get(request);
-      if (connection && report) ctx.gateway.work.reportProgress(connection, report.journal, report.produced, report.pending);
+      if (connection && report) ctx.gateway.work.reportProgress(connection, report.journal, report.produced, report.pending, report.readyAgents);
       return result;
     } finally { handlers.delete(request); release(request); }
   };

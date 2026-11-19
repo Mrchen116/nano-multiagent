@@ -31,7 +31,7 @@ export function readWorkBatch(input: unknown) {
   catch (error) { if (error instanceof WorkEventError) fail(400, error.message); throw error; }
 }
 export class Work {
-  private readonly progress = new WeakMap<Connection, { journal: string; produced: number; pending: boolean }>();
+  private readonly progress = new WeakMap<Connection, { journal: string; produced: number; pending: boolean; readyAgents?: Map<string, number> }>();
 
   /** Accept a completeness declaration only for the connection that received it.
    *
@@ -40,18 +40,21 @@ export class Work {
    *   journal: Durable source journal identity.
    *   produced: Highest locally committed product event sequence.
    *   pending: Whether product projection still has unprocessed source facts.
+   *   readyAgents: Settled Agents and their highest locally committed sequence.
    */
-  reportProgress(connection: Connection, journal: string, produced: number, pending: boolean): void {
+  reportProgress(connection: Connection, journal: string, produced: number, pending: boolean, readyAgents?: Map<string, number>): void {
     if (this.ctx.gateway.nodes.get(connection.node_id) === connection && this.ctx.gateway.valid(connection))
-      this.progress.set(connection, { journal, produced, pending });
+      this.progress.set(connection, { journal, produced, pending, readyAgents });
   }
 
-  private recordSyncState(node: string): 'current' | 'catching_up' | 'unknown' {
+  private recordSyncState(node: string, root: string): 'current' | 'catching_up' | 'unknown' {
     const connection = this.ctx.gateway.nodes.get(node);
     const report = connection && this.ctx.gateway.valid(connection) && this.progress.get(connection);
     if (!report) return 'unknown';
     const through = one(this.db, 'SELECT through_seq FROM agent_work_journals WHERE node_id=? AND journal_id=?', node, report.journal)?.through_seq ?? 0;
     if (through > report.produced) return 'unknown';
+    const settledAt = report.readyAgents?.get(root);
+    if (settledAt !== undefined && through >= settledAt) return 'current';
     return report.pending || through < report.produced ? 'catching_up' : 'current';
   }
 
@@ -75,7 +78,7 @@ export class Work {
     const page = this.records.turns(root, session, before, limit, summary, separate);
     if (!separate) return page;
     const agent = one(this.db, "SELECT node_id FROM agent_profiles WHERE agent_id=?", root)!;
-    return {...page, catalog: 'separate', revision: this.revision(root), ...this.connection(agent.node_id)};
+    return {...page, catalog: 'separate', revision: this.revision(root), ...this.connection(agent.node_id, root)};
   }
   revision(root: string) { return this.records.revision(root); }
   focus(root: string, messageId: string, separate = false) { return this.records.focus(root, messageId, separate); }
@@ -97,22 +100,22 @@ export class Work {
     }
     return ack;
   }
-  private connection(node: string) {
+  private connection(node: string, root: string) {
     return {
       node_connection_state: this.ctx.gateway.isOnline(node) ? 'online' as const : 'offline' as const,
-      record_sync_state: this.recordSyncState(node),
+      record_sync_state: this.recordSyncState(node, root),
     };
   }
   view(root: string, before?: string, limit = 20, summary = false, messageId?: string, separate = false, combinedBefore?: number): WorkView {
     const {node_id, ...view} = this.records.view(root, before, limit, summary, messageId, separate, combinedBefore);
-    const connection = this.connection(node_id);
+    const connection = this.connection(node_id, root);
     return {...view, ...connection,
       main_execution: connection.node_connection_state === 'offline' && ['running', 'waiting_permission'].includes(view.main_execution) ? 'unknown' : view.main_execution,
     };
   }
   /** Read activity without materializing the main timeline or catalog. */
   activity(root: string, node: string, after: string, limit: number) {
-    const connection = this.connection(node);
+    const connection = this.connection(node, root);
     const main = this.records.mainSessionId(root);
     return {...connection, revision: this.revision(root), main_session_id: main,
       ...this.records.summaries.activity(root, main,
@@ -121,7 +124,7 @@ export class Work {
 
   /** Read the delegation window under the same Agent scope as Work records. */
   delegation(root: string, node: string, window: WorkWindow, until: string, after: string, limit: number) {
-    const connection = this.connection(node);
+    const connection = this.connection(node, root);
     const main = this.records.mainSessionId(root);
     return {...connection, revision: this.revision(root), main_session_id: main,
       ...this.records.summaries.delegation(root, main, window, until, after, limit)};
