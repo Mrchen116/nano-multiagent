@@ -20,10 +20,14 @@
 
 > 可以，就用本机 CLI 的账号和默认模型。
 
+> 够用
+
+该答复确认了第一期在本机 Gateway 配置文件切换 worker 框架的方案。
+
 ## 澄清记录
 
 - 本次交付本机 worker 的 PR。跨机是后续独立决策，等待用户亲测本次体验。
-- worker 框架为机器配置。首批讨论 DSH、Codex CLI、Claude Code。一级由 Nano 派工，内部 helper 由执行框架组织。
+- Gateway 的本机配置项 `worker_runtime` 可设为 `dsh`、`codex`、`claude`，省略时使用 DSH。配置生效后，新派工使用所选框架；已有事项的追加、结果和停止仍归原 worker。一级由 Nano 派工，内部 helper 由执行框架组织。
 - 用户指定外部 worker 启动时采用 Auto。初步处理方案是把需要决策的具体动作、目标、原因送回 Global。Global 按已有授权澄清、缩小范围或向原 IM 用户征询决定。明确拒绝的动作保持拒绝。参照现有[Global 未获准动作处理](../../specs/gateway/global-agent.md)。
 - Raft 参考版本为 5214e34e。其 [Claude 启动](https://github.com/botiverse/raft-source/blob/5214e34e/packages/daemon/src/drivers/claudeLaunch.ts#L127) 和 [Codex 启动](https://github.com/botiverse/raft-source/blob/5214e34e/packages/daemon/src/drivers/codex.ts#L1224) 使用无人值守的宽权限配置。该参考仅说明原生驱动方式；用户对 Nano 的要求是 Auto。
 - 已确认现状。文档记忆会给普通一级 worker 注入所属 Agent 的记忆入口或快照；Dreaming 从一级工作轨迹提炼会话摘要，并可依来源回看后代。见[现行能力契约](../../specs/gateway/agent-capabilities.md)、[上下文装配](../../../packages/dsh-integration/src/knowledge/document-memory.ts)和[提炼输入](../../../packages/dsh-integration/src/knowledge/dreaming.ts)。
