@@ -6,6 +6,7 @@ import json
 import os
 import stat
 import secrets
+import shutil
 import socket
 import subprocess
 import sys
@@ -56,10 +57,26 @@ if (process.argv[1]?.endsWith('/apps/im-server/lib/main.js') && process.argv[2] 
 """,
         encoding="utf-8",
     )
+    # Apply the preload to the IM launcher and its child only. Passing a unique
+    # NODE_OPTIONS to the UI builds would invalidate their cache for every case.
+    node = shutil.which("node")
+    assert node is not None
+    launcher = tmp_path / "node"
+    launcher.write_text(
+        """#!/bin/sh
+case "$3" in
+  */apps/im-server/lib/main.js) export NODE_OPTIONS="${NODE_OPTIONS:-} --import=$IM_TEST_PRELOAD" ;;
+esac
+exec "$IM_TEST_NODE" "$@"
+""",
+        encoding="utf-8",
+    )
+    launcher.chmod(0o700)
     env = {
         **os.environ,
-        "PATH": f"{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
-        "NODE_OPTIONS": f"{os.environ.get('NODE_OPTIONS', '')} --import={preload.as_uri()}",
+        "PATH": f"{tmp_path}:{Path(sys.executable).parent}:{os.environ.get('PATH', '')}",
+        "IM_TEST_PRELOAD": preload.as_uri(),
+        "IM_TEST_NODE": node,
         "NANO_MULTIAGENT_E2E_TEST_IM_LAUNCH_MODE": im_launch_mode,
     }
     if readiness_timeout_seconds is None:
@@ -310,6 +327,7 @@ def test_e2e_up_reports_alive_im_readiness_deadline_and_cleanup(tmp_path: Path) 
 
 
 @pytest.mark.e2e
+@pytest.mark.timeout(240)
 def test_preview_resume_preserves_admitted_owner_node_and_daily_group(
     tmp_path: Path,
 ) -> None:
