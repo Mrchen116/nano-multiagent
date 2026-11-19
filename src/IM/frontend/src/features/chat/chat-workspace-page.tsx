@@ -1,3 +1,4 @@
+import { ArrowLeft } from "lucide-react";
 import { WorkspaceWelcome } from './components/workspace-welcome';
 import { AgentLifecycleChatNotice } from '../settings/agents/agent-lifecycle';
 import { PersonalAgentDialog } from '../personal-agent/personal-agent-dialog';
@@ -79,7 +80,8 @@ import {
   type GroupSettingsAgentOption,
   type GroupSettingsMember
 } from "./components/group-settings";
-import { MessagePane } from "./components/message-pane";
+import { PendingConversationPane } from "./components/pending-conversation-pane";
+import { MessagePane, type ReadingPosition } from "./components/message-pane";
 import { listContacts, contactActor, type Contact } from "./contacts-api";
 import { PublicGroupsModal } from "./components/public-groups-modal";
 import { NewChatModal } from "./components/new-chat-modal";
@@ -350,6 +352,7 @@ export function ChatWorkspacePage() {
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
+  const readingPositions = useMemo(() => new Map<string, ReadingPosition>(), [selfUserId]);
   const personalAgent = useQuery({queryKey:['personal-agent',selfUserId],queryFn:getPersonalAgent,enabled:!!selfUserId,retry:false,refetchInterval:()=>document.visibilityState==='visible'?5000:false});
   const personalBinding = personalAgent.data?.binding;
   const isPersonalConversation = Boolean(personalBinding && conversationId===personalBinding.conversation_id);
@@ -387,6 +390,7 @@ export function ChatWorkspacePage() {
     queryKey: cleanupRevision ? ["chat", "messages", conversationId, cleanupRevision] : ["chat", "messages", conversationId],
     queryFn: ({signal}) => listMessages(conversationId!, { limit: HISTORY_PAGE_SIZE, view: "summary", signal }),
     refetchInterval: () => conversationDetailQuery.data?.is_member === false && document.visibilityState === "visible" ? 3000 : false,
+    staleTime: 0,
     refetchOnWindowFocus: false,
     retry: (count, error) => !isAccessDenied(error) && count < 3
   });
@@ -809,6 +813,7 @@ export function ChatWorkspacePage() {
   sendersByIdRef.current = sendersById;
 
   function retireConversationReads(id: string) {
+    readingPositions.delete(id);
     retireChatReadCache(queryClient, id);
     if (historyRequestRef.current?.conversationId === id) {
       historyRequestRef.current.controller.abort();
@@ -1285,6 +1290,28 @@ export function ChatWorkspacePage() {
     }
   }
 
+  const detailError = conversationDetailQuery.isError && !isAccessDenied(conversationDetailQuery.error);
+  const historyError = messagesQuery.isError && !accessDenied && !visibleTimeline.length;
+  const historyReady = streamState.conversation_id === conversationId && hasMoreHistory !== null;
+  const waiting = Boolean(conversationId && (!activeConversation || !historyReady) && !detailError && !historyError);
+  const [slowConversation, setSlowConversation] = useState<string | null>(null);
+  useEffect(() => {
+    setSlowConversation(null);
+    if (!waiting || !conversationId) return;
+    const timer = setTimeout(() => setSlowConversation(conversationId), 300);
+    return () => clearTimeout(timer);
+  }, [waiting, conversationId]);
+  const historyStatus = detailError || historyError ? (
+    <div className="chat-history-status" role="alert">
+      {t(detailError ? "chat.messagePane.accessErrorTitle" : "chat.messagePane.historyError")}
+      <button type="button" className="im-btn" onClick={() => detailError
+        ? void recheckActiveMembership().catch(() => {})
+        : void messagesQuery.refetch()}>{t("common.retry")}</button>
+    </div>
+  ) : waiting && slowConversation === conversationId ? (
+    <div className="chat-history-status" role="status">{t("chat.messagePane.loading")}</div>
+  ) : null;
+
   const showList = !isMobile || !conversationId;
   const showDetail = !isMobile || Boolean(conversationId);
   const showFirstUseWelcome = !conversationId && personalSpace && personalAgent.isSuccess && !personalBinding
@@ -1379,9 +1406,14 @@ export function ChatWorkspacePage() {
           agents={publicAgents.map(a => ({ agent_id: a.agent_id!, display_name: a.display_name, status: a.status ?? "offline" }))}
         />
       )}
+      {isMobile && conversationId && <button className="chat-pane-back chat-workspace-back" type="button"
+        aria-label={t("common.back")} onClick={() => navigate("/chat")}><ArrowLeft size={20} /></button>}
       {!showFirstUseWelcome && showDetail && (
         activeConversation ? (
           <MessagePane
+            key={activeConversation.id}
+            readingPositions={readingPositions}
+            initialHistoryStatus={!historyReady || historyError ? <>{historyStatus}</> : undefined}
             lifecycleNotice={activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} deleted={actor.is_deleted} />)}
             onJoin={async () => { await joinConversation(activeConversation.id); await queryClient.invalidateQueries({ queryKey: ["chat"] }); }}
             onOpenTasks={isGroupKind ? () => setShowTasks(true) : undefined}
@@ -1472,7 +1504,6 @@ export function ChatWorkspacePage() {
             onLoadOlder={() => {
               void loadOlderMessages();
             }}
-            onBack={isMobile ? () => navigate("/chat") : undefined}
             isMobile={isMobile}
             onRename={activeConversation.can_write === false ? undefined : isPersonalConversation ? async title=>{await renamePersonalAgent(title);await Promise.all([queryClient.invalidateQueries({queryKey:['personal-agent']}),queryClient.invalidateQueries({queryKey:['chat']})]);} : title=>renameMutation.mutateAsync(title)}
             onOpenConfig={
@@ -1485,12 +1516,11 @@ export function ChatWorkspacePage() {
                   : undefined
             }
           />
-        ) : conversationId && conversationDetailQuery.isError && !isAccessDenied(conversationDetailQuery.error) ? (
-          <div className="chat-empty-pane" role="alert">
-            <p className="chat-empty-pane-title">{t("chat.messagePane.accessErrorTitle")}</p>
-            <button type="button" className="im-btn im-btn-primary" disabled={conversationDetailQuery.isFetching}
-              onClick={() => void recheckActiveMembership().catch(() => {})}>{t("common.retry")}</button>
-          </div>
+        ) : conversationId ? (
+          <PendingConversationPane conversation={localConversations.find(chat => chat.id === conversationId)}
+            personal={isPersonalConversation} selfUserId={selfUserId}>
+            {historyStatus}
+          </PendingConversationPane>
         ) : (
           !isMobile && (
             <WorkspaceWelcome assistant={personalBinding ?? null}

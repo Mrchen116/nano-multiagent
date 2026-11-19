@@ -1127,6 +1127,7 @@ body {
 
 /* Chat workspace root: sidebar (262px) + pane */
 .chat-workspace {
+  position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
@@ -1520,6 +1521,10 @@ body {
   flex-shrink: 0;
   background: var(--im-surface);
 }
+
+.chat-pane-pending-header { min-height: 67px; }
+/* Reserve the single-draft composer footprint until writing permissions are confirmed. */
+.chat-pane-pending-composer { min-height: 7.9rem; }
 
 .chat-pane-back {
   display: inline-flex;
@@ -4573,6 +4578,9 @@ body {
     padding: 10px 14px;
     background: var(--im-surface);
   }
+  .chat-pane-pending-composer { min-height: 5.65rem; }
+  .chat-workspace-back { position: absolute; top: 10px; left: 14px; z-index: 1; }
+  .chat-workspace-back + .chat-pane > .chat-pane-header { padding-left: 68px; min-height: 65px; }
   .chat-pane-messages {
     padding: 14px 12px 8px;
   }

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../../../i18n";
 import type { Attachment, Conversation, MentionCandidate, Message, PermissionRequest } from "../chat-types";
-import { MessagePane } from "./message-pane";
+import { MessagePane, type ReadingPosition } from "./message-pane";
 
 const DIRECT_CONV: Conversation = {
   id: "c1",
@@ -229,6 +229,24 @@ describe("MessagePane", () => {
     expect(scroller.scrollTop).toBe(0);
     rerender(<MessagePane {...props} messages={SAMPLE_MESSAGES} />);
     expect(scroller.scrollTop).toBe(900);
+  });
+
+  it.each([false, true])("restores the saved row unless the conversation advanced while away (new=%s)", newMessage => {
+    const readingPositions = new Map<string, ReadingPosition>();
+    const props = { conversation: DIRECT_CONV, messages: SAMPLE_MESSAGES, readingPositions, mentionCandidates: [], onSend: vi.fn() };
+    const first = render(<MessagePane {...props} />);
+    setScrollMetrics(first.container.querySelector(".chat-pane-messages")!, {scrollTop: 200, scrollHeight: 1200, clientHeight: 400});
+    const row = first.container.querySelector<HTMLElement>('[data-message-id="m1"]')!;
+    vi.spyOn(row, "getBoundingClientRect").mockReturnValue(new DOMRect(0, -12, 100, 60));
+    first.unmount();
+    expect(readingPositions.get("c1")).toMatchObject({anchorId: "m1", offset: -12, latestId: "m2"});
+
+    const conversation = {...DIRECT_CONV, last_message_at: newMessage ? "2026-01-01T00:00:02Z" : null};
+    const second = render(<MessagePane {...props} conversation={conversation} messages={[]} />);
+    const scroll = second.container.querySelector<HTMLElement>(".chat-pane-messages")!;
+    setScrollMetrics(scroll, {scrollTop: 0, scrollHeight: 1200, clientHeight: 400});
+    second.rerender(<MessagePane {...props} conversation={conversation} />);
+    expect(scroll.scrollTop).toBe(newMessage ? 1200 : 12);
   });
 
   it("preserves a deep-linked position until the conversation is opened normally", () => {

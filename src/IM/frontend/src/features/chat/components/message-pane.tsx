@@ -95,7 +95,16 @@ type DraftMention = {
 
 export type { ComposerSnapshot };
 
+export interface ReadingPosition {
+  anchorId: string;
+  offset: number;
+  latestId: string;
+  latestAt: number;
+}
+
 export interface MessagePaneProps {
+  readingPositions?: Map<string, ReadingPosition>;
+  initialHistoryStatus?: React.ReactNode;
   cooperationAgent?: CooperationGuideAgent;
   conversation: Conversation;
   historyProcess?: { accountId: string; revision: number; load: (id: string, signal: AbortSignal) => Promise<Message> };
@@ -236,6 +245,8 @@ function reconstructWireContent(draftText: string, mentions: DraftMention[]): st
  */
 export function MessagePane({
   conversation,
+  readingPositions,
+  initialHistoryStatus,
   historyProcess,
   collaborationContent,
   lifecycleNotice,
@@ -364,6 +375,8 @@ export function MessagePane({
     scrollHeight: number;
   } | null>(null);
   const skipNextMessageAutoScrollRef = useRef(false);
+  const returnPosition = useRef(readingPositions?.get(conversation.id));
+  const oldestRequestedForReturn = useRef<string | undefined>(undefined);
   const lastMessageIdRef = useRef<string | null>(null);
   const nearBottomRef = useRef(true);
   const lastReadRef = useRef<string | null>(null);
@@ -1035,7 +1048,32 @@ export function MessagePane({
     reportReadBoundary();
   }
 
-  useEffect(() => {
+  // The workspace keys the pane by conversation. Capture geometry before React removes its DOM.
+  const latest = messages.at(-1);
+  const latestAt = Math.max(Date.parse(latest?.created_at ?? "") || 0, Date.parse(conversation.last_message_at ?? "") || 0);
+  const latestRef = useRef({ id: latest?.id, at: latestAt });
+  useLayoutEffect(() => { latestRef.current = { id: latest?.id, at: latestAt }; }, [latest?.id, latestAt]);
+  useLayoutEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!readingPositions || !el) return;
+    return () => {
+      const tail = latestRef.current;
+      if (!tail.id || returnPosition.current) return;
+      const top = el.getBoundingClientRect().top;
+      const row = el.scrollHeight - el.clientHeight - el.scrollTop > NEAR_BOTTOM_PX
+        ? messageRows().find(item => item.getBoundingClientRect().bottom > top) : undefined;
+      if (row?.dataset.messageId) {
+        readingPositions.set(conversation.id, {
+          anchorId: row.dataset.messageId, offset: row.getBoundingClientRect().top - top,
+          latestId: tail.id, latestAt: tail.at
+        });
+      } else {
+        readingPositions.delete(conversation.id);
+      }
+    };
+  }, [conversation.id, readingPositions]);
+
+  useLayoutEffect(() => {
     lastMessageIdRef.current = null;
     lastReadRef.current = null;
     nearBottomRef.current = !hasFocusedMessage;
@@ -1049,13 +1087,47 @@ export function MessagePane({
     if (sendError) forceScrollToBottomRef.current = false;
   }, [sendError]);
 
+  useLayoutEffect(() => {
+    if (isLoadingHistory && !historyWasLoadingRef.current && !returnPosition.current) {
+      captureHistoryAnchor();
+    }
+    if (!isLoadingHistory && historyWasLoadingRef.current) {
+      restoreHistoryAnchor();
+    }
+    historyWasLoadingRef.current = isLoadingHistory;
+  }, [isLoadingHistory, messages]);
+
   // Auto-scroll only when the user is already following the bottom, or when the
   // local user just sent a message. Prepending history and off-bottom arrivals
   // must not steal the reading position.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = messagesContainerRef.current;
     // An empty chat is an introduction to read from the top, not a message stream.
     if (!el || messages.length === 0) return;
+    if (returnPosition.current) {
+      const saved = returnPosition.current;
+      if (!hasFocusedMessage && latest?.id === saved.latestId && latestAt <= saved.latestAt) {
+        const row = messageRows().find(item => item.dataset.messageId === saved.anchorId);
+        if (row) {
+          el.scrollTop += row.getBoundingClientRect().top - el.getBoundingClientRect().top - saved.offset;
+          lastMessageIdRef.current = saved.latestId;
+          updateNearBottom();
+          returnPosition.current = undefined;
+          return;
+        }
+        if (hasMoreHistory !== false) {
+          // The anchor can be on an older page. Fetch each cursor once during restoration.
+          nearBottomRef.current = false;
+          const oldest = messages[0].id;
+          if (hasMoreHistory && !isLoadingHistory && oldestRequestedForReturn.current !== oldest) {
+            oldestRequestedForReturn.current = oldest;
+            onLoadOlder?.();
+          }
+          return;
+        }
+      }
+      returnPosition.current = undefined;
+    }
     if (hasFocusedMessage && !forceScrollToBottomRef.current) {
       lastMessageIdRef.current = messages.at(-1)?.id ?? null;
       nearBottomRef.current = false;
@@ -1085,7 +1157,7 @@ export function MessagePane({
       reportReadBoundary();
     }
     forceScrollToBottomRef.current = false;
-  }, [messages, conversation.id, hasFocusedMessage]);
+  }, [messages, conversation.id, hasFocusedMessage, latestAt, hasMoreHistory, isLoadingHistory]);
 
   useLayoutEffect(() => {
     const scroller = messagesContainerRef.current;
@@ -1108,15 +1180,6 @@ export function MessagePane({
     return () => document.removeEventListener("visibilitychange", reportReadBoundary);
   }, [messages, onReadMessage]);
 
-  useLayoutEffect(() => {
-    if (isLoadingHistory && !historyWasLoadingRef.current) {
-      captureHistoryAnchor();
-    }
-    if (!isLoadingHistory && historyWasLoadingRef.current) {
-      restoreHistoryAnchor();
-    }
-    historyWasLoadingRef.current = isLoadingHistory;
-  }, [isLoadingHistory, messages]);
 
   useEffect(() => {
     const el = messagesContainerRef.current;
@@ -1234,16 +1297,16 @@ export function MessagePane({
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         <div ref={messageListRef} className="chat-pane-message-list">
-          {messages.length === 0 && cooperationAgent && <CooperationGuide key={conversation.id} agent={cooperationAgent}
+          {messages.length === 0 && !initialHistoryStatus && cooperationAgent && <CooperationGuide key={conversation.id} agent={cooperationAgent}
             canStart={!composerBusy && !draft.trim() && pending.length === 0 && uploading === 0 && failed.length === 0}
             onStart={text => { setDraft(text); composerRef.current?.focus(); }} />}
-          {messages.length === 0 ? (cooperationAgent ? null : (
+          {messages.length === 0 ? (initialHistoryStatus ?? (cooperationAgent ? null : (
             <div className="chat-pane-empty">
               <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
               <p className="chat-pane-empty-title">{t('chat.messagePane.emptyTitle')}</p>
               <p className="chat-pane-empty-sub">{t('chat.messagePane.emptySubtitle')}</p>
             </div>
-          )) : (
+          ))) : (
             <>
               {(isLoadingHistory || hasMoreHistory === false) && (
                 <div className="chat-history-status" role="status">

@@ -1188,6 +1188,8 @@
       "forkError": "分支失败，请重试。",
       "forkToastTitle": "已分支为新的单聊",
       "forkToastSub": "已带入起点 → 分支点的完整历史，agent 记得这段对话。",
+      "loading": "正在加载消息…",
+      "historyError": "消息加载失败",
       "historyLoading": "正在加载更早消息…",
       "historyEnd": "没有更早消息了",
       "toolCall": "次工具调用",
