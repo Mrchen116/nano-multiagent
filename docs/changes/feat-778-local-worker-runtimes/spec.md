@@ -27,8 +27,8 @@
 - 已确认现状。文档记忆会给普通一级 worker 注入所属 Agent 的记忆入口或快照；Dreaming 从一级工作轨迹提炼会话摘要，并可依来源回看后代。见[现行能力契约](../../specs/gateway/agent-capabilities.md)、[上下文装配](../../../packages/dsh-integration/src/knowledge/document-memory.ts)和[提炼输入](../../../packages/dsh-integration/src/knowledge/dreaming.ts)。
 - 用户要求对所有工作 worker 取消 Nano 记忆消费和写入，并停止把工作 worker 轨迹作为 Dreaming 的材料。worker 使用自己的会话续做，Router 交办时提供任务需要的具体约束。
 - 记忆按产品集成边界处理。Nano 不向工作 worker 注入记忆正文、目录或读写指引，Dreaming 不用工作 worker 轨迹做总结。普通文件读取沿用当前工作环境的权限，无需为 Nano 记忆增加文件拦截或沙箱。
-- Global 自身的工作记录与原生轨迹保持可查看。Web Work 的「派工关系」显示 Global 对真实一级 worker 的委派，区分不同事项；对同一 worker 的后续补充和结果归回原委派。外部 worker 不提供内部轨迹查看入口。历史 DSH 子执行已有轨迹入口，见[现行 Work 契约](../../specs/im/agent-work.md#requirement-web-work-可以从派工关系进入同一工作记录)。
-- Raft 参考补充。其[活动页](https://github.com/botiverse/raft-source/blob/5214e34e/packages/web/src/components/agent/AgentActivityLog.tsx#L633)默认展示概览，工具行使用操作与输入摘要，近期内部子执行根据明确的父子标识归组。完整请求走另行启用的 [View Context](https://github.com/botiverse/raft-source/blob/5214e34e/manual/agent-knowledge/context.md)。本机临时文件的只读探针从 Codex CLI 0.169.1 取得命令、输出、退出码、最终答复和回合用量，回合结束后进程到达探针时限而被终止。Claude Code 2.1.325 的 Auto 尝试收到账号验证错误，未实测成功的工具调用。本次只以 Global 自身记录与一级派工关系作为外部 worker 的 Work 展示范围。
+- Global 自身的工作记录与原生轨迹保持可查看。Web Work 的「派工关系」显示 Global 对真实一级 worker 的委派，区分不同事项；对同一 worker 的后续补充和结果归回原委派。新派工入口创建的一级 worker 只显示委派关系，不提供内部轨迹查看入口。历史 DSH 子执行沿用已有轨迹入口，见[现行 Work 契约](../../specs/im/agent-work.md#requirement-web-work-可以从派工关系进入同一工作记录)。
+- Raft 参考补充。其[活动页](https://github.com/botiverse/raft-source/blob/5214e34e/packages/web/src/components/agent/AgentActivityLog.tsx#L633)默认展示概览，工具行使用操作与输入摘要，近期内部子执行根据明确的父子标识归组。完整请求走另行启用的 [View Context](https://github.com/botiverse/raft-source/blob/5214e34e/manual/agent-knowledge/context.md)。本机临时文件的只读探针从 Codex CLI 0.169.1 取得命令、输出、退出码、最终答复和回合用量，回合结束后进程到达探针时限而被终止。Claude Code 2.1.325 的 Auto 尝试收到账号验证错误，未实测成功的工具调用。本次只以 Global 自身记录与一级派工关系作为新派工的 Work 展示范围。
 
 ## 用户场景
 
@@ -51,7 +51,7 @@
 #### Scenario: 从 Work 辨认并行委派
 - **WHEN** Global 派出两个 worker，又向其中一个追加说明
 - **THEN** 用户在「派工关系」可辨认 Global 及其两项委派；追加说明与回传归属原 worker。用户可继续查看 Global 原生轨迹中的派工与沟通过程。
-- **AND** 对外部 worker，查看这段关系无需打开子轨迹，也不提供会进入空白轨迹的链接。
+- **AND** 对新派出的一级 worker，查看这段关系无需打开子轨迹，也不提供会进入空白轨迹的链接。
 
 ### Requirement: 工作 worker 与 Nano 长期记忆解耦
 
@@ -61,4 +61,4 @@
 
 ## 范围与非目标
 
-本次仅覆盖本机 Global 一级派工，外部 worker 的逐步活动、工具记录和内部 helper 轨迹不纳入 Work 展示。不额外限制用户目录的普通文件访问。
+本次仅覆盖本机 Global 一级派工，新派出的一级 worker 的逐步活动、工具记录和内部 helper 轨迹不纳入 Work 展示。不额外限制用户目录的普通文件访问。
