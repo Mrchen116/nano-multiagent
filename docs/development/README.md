@@ -6,6 +6,7 @@
 
 | 任务 | 先读 |
 |---|---|
+| 从多个 worktree 同时跨机试用 | [跨机预览命令及共享入口](worktree-runtime.md#多个-worktree-同时做跨机实验) |
 | 回收测试服务、模拟器、浏览器会话和临时产物 | [测试资源回收](worktree-runtime.md#测试资源回收) |
 | 判断是否建立 change unit、选择生命周期或 Full 的原流程/简化实施 | [`change-workflow.md`](change-workflow.md) |
 | 查询默认开发基线与 PR 目标 | [分支规则](change-workflow.md#开发基线与-pr-目标) |

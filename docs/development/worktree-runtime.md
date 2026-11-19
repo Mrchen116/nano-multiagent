@@ -24,13 +24,36 @@
 
 修前先记录原操作出现的错误或耗时；修后从相同数据初态，在相同入口和冷暖条件下重做，计到用户看到正确结果。保留失败样本和网络波动。若只复现了其中一段，在现有故障记录里写清已覆盖的链路、仍有差异的条件，以及该差异会影响哪项判断。跨机实例沿用下节的身份、数据和进程隔离，用独立测试账户与非公开口令。
 
-历史案例中，临时公网入口和原命名 Tunnel 下的轨迹首屏表现不同。为核实原入口，bugfix-704 曾将同域名的 `8443` 路由到隔离 IM，`443` 继续到正式 IM。两者共用 Tunnel，切换会使正式连接重连；需要此类对照时，应有本次共享入口变更授权，并在回收测试服务前恢复、核实正式入口。该试用环境已回收。[原入口实测](../changes/archive/bugfix-704-agent-pages-performance/fast-mode-evidence.md#原域名与原命名-tunnel-纠正2026-11-04) · [回收记录](../changes/archive/bugfix-704-agent-pages-performance/fast-mode-evidence.md#正式部署与临时环境回收2026-11-04)
-
 ### 多个 worktree 同时做跨机实验
 
-本地 `e2e-up.sh --wt` 为各 worktree 启动独立栈，当前 Gateway 地址固定为本机 loopback。跨机运行也应以每个 worktree 的一次实验为单位：两台机器各自保留这一轮的代码版本、运行目录与进程；每套使用可区分的测试入口、独立 IM 数据和节点身份。可以共享机器和测试代理。若共用入口代理，各实验需分别注册、释放自己的路由；选择端口或子域名取决于本次要验证的链路。停止一套只回收它在两端的资源。
+在 Air 上进入要试用的 worktree，提交候选版本后运行：
 
-并行能力按两个不同 feature 的实际使用方式验收：同时启动 A、B，从各自入口核对代码版本与在线测试节点，在 A 创建的记录只在 A 可见；停止 A 后，B 的原连接仍可用并能继续写入和读取。共享主机或出口上的其他实验会占用资源，做性能对照时记录并发负载，必要时错开计时窗口。仓库目前只有本地成套起停脚本；历史单实例试用仅验证了当次链路。
+```bash
+python3 scripts/e2e-preview.py up
+python3 scripts/e2e-preview.py password
+```
+
+打开 `up` 返回的 HTTPS URL，用 `nano` 和该实例的口令登录。Mini 运行对应版本的 IM、前端及 Gateway；Air 浏览器经测试域名访问。默认管理主机为 SSH 别名 `mini`，可用 `NANO_PREVIEW_HOST` 指定其他已配置的主机。管理连接和浏览器访问走各自的网络路径。
+
+在第二个 worktree 运行相同命令，会得到另一个 URL。每个实例独占一个子域名及一套数据、节点身份和运行目录。入口用尽时，停止已用完的实例或给共享入口增加测试域名。
+
+| 在当前 worktree 执行 | 结果 |
+|---|---|
+| `python3 scripts/e2e-preview.py status` | 查看当前实验的 URL、版本和运行状态 |
+| `python3 scripts/e2e-preview.py update` | 更新到当前提交，沿用原 URL、账号和数据 |
+| `python3 scripts/e2e-preview.py down` | 停止当前实验并归还入口，其他实验保持运行 |
+
+验证并行隔离时，在 A 创建一条可辨认的记录，确认 B 的列表中没有该记录；更新 A 后读回原记录。让浏览器保持 B 的 WebSocket 连接，停止 A，再在 B 写入记录并从原连接收到事件。定量比较修前、修后时记录共享主机和出口的并发负载，必要时错开计时。
+
+#### 配置共享测试入口
+
+在 Mini 准备开发 checkout、项目支持的 Node/pnpm、Python 开发依赖、Traefik 3 和已登录测试域名所在区域的 cloudflared。将对应 bin 目录加入当前 shell 的 `PATH`，确认 `python` 和 `python3` 均使用开发环境。选择有边缘 TLS 证书覆盖的专用子域名，在图形登录用户的 shell 运行：
+
+```bash
+python3 scripts/e2e-preview-setup.py --repo "$PWD" preview-a.nanoim.win preview-b.nanoim.win
+```
+
+该命令在 `~/.local/share/nano-preview/` 准备源码仓库、构建环境及可用域名，注册专用命名 Tunnel `nano-worktree-preview` 的 DNS。用户级 LaunchAgent 管理 Tunnel 与监听 `127.0.0.1:18471` 的 Traefik，Tunnel readiness 在本机 `18472`。路由按域名精确匹配 HTTP 和 WebSocket。增加容量时用同一命令注册额外域名。共享设施独立于正式 IM 的域名、Tunnel 和进程。
 
 ## 隔离与清理红线
 
