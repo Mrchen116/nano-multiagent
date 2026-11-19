@@ -27,9 +27,9 @@
 
 ## 根因与证据边界
 
-1. Gateway 的 InboxStore 按根会话记录待恢复工作，WorkSync 上报时将全节点的待恢复与待写事实合并为一个布尔值。[本地进度](../../../packages/personal-assistant/src/inbox.ts) · [上报](../../../packages/personal-assistant/src/work-sync.ts)
-2. IM 的 Work.recordSyncState 只接收节点身份。节点报告有待处理项，或者中心确认序号落后时，整个节点得到 catching_up。活动接口只有在节点在线且整机为 current 时才确认主状态和子执行计数。因此，即使待处理项只属于另一个 Agent，当前 Agent 的活动结果也会被挡住。[同步判断](../../../apps/im-server/src/work.ts) · [活动查询](../../../apps/im-server/src/work-summaries.ts)
-3. 弹窗在首次发请求和成功收到 catching_up 时都渲染两个转圈，每 15 秒再查。只要后台持续返回这个值，每次 HTTP 读取都成功也可以一直没有结果。派工图同样使用整机同步状态。[头像弹窗](../../../src/IM/frontend/src/features/chat/components/agent-activity-popover.tsx) · [派工图](../../../src/IM/frontend/src/features/settings/agents/agent-work-delegation.tsx)
+1. Gateway 的 InboxStore 按根会话记录待恢复工作，WorkSync 上报时将全节点的待恢复与待写事实合并为一个布尔值。[本地进度](../../../../packages/personal-assistant/src/inbox.ts) · [上报](../../../../packages/personal-assistant/src/work-sync.ts)
+2. IM 的 Work.recordSyncState 只接收节点身份。节点报告有待处理项，或者中心确认序号落后时，整个节点得到 catching_up。活动接口只有在节点在线且整机为 current 时才确认主状态和子执行计数。因此，即使待处理项只属于另一个 Agent，当前 Agent 的活动结果也会被挡住。[同步判断](../../../../apps/im-server/src/work.ts) · [活动查询](../../../../apps/im-server/src/work-summaries.ts)
+3. 弹窗在首次发请求和成功收到 catching_up 时都渲染两个转圈，每 15 秒再查。只要后台持续返回这个值，每次 HTTP 读取都成功也可以一直没有结果。派工图同样使用整机同步状态。[头像弹窗](../../../../src/IM/frontend/src/features/chat/components/agent-activity-popover.tsx) · [派工图](../../../../src/IM/frontend/src/features/settings/agents/agent-work-delegation.tsx)
 
 4. 11 月 20 日在 Mini 私有副本上，用正式 DSH 和旧版 Node 重放原子执行。DSH 已把 203 之后的事件编码为 186571 字节的响应，Node 收齐字节，却把 JSON 拆为五行。原生事件 204 和 207 的工具结果包含 U+2028，Node readline 将正文内该字符当作行边界。没有一个片段能作为原响应完成 request，旧版等待超过 65 秒。修复后用同一原生记录和 Inbox 快照运行 GlobalAgent 的子执行恢复，2138 毫秒后检查点从 203 写到 238，新增完成事实，待恢复标记清零。第二次恢复后日志总数保持 25454。
 
@@ -42,4 +42,4 @@
 - WHEN 一次请求成功返回但尚待恢复，THEN 后台继续推进，恢复后已打开的弹窗与派工图自动显示对应结果。用 Mini 的历史缺口验证生产恢复链能走到结束事实。
 - 从打开到拿到响应，以及从打开到两行均显示可信结果，分别计时。用同一组初始历史与活动状态对比修复前后，覆盖用户等待几十秒的场景。
 
-修复保留现有布局和加载动画，保留历史记录、访问权限以及离线与未确认语义。相关当前契约见[头像工作状态](../../specs/im/web-chat-ux.md#requirement-web-聊天可从-agent-头像查看工作状态)和[工作记录](../../specs/im/agent-work.md)。
+修复保留现有布局和加载动画，保留历史记录、访问权限以及离线与未确认语义。相关当前契约见[头像工作状态](../../../specs/im/web-chat-ux.md#requirement-web-聊天可从-agent-头像查看工作状态)和[工作记录](../../../specs/im/agent-work.md)。
