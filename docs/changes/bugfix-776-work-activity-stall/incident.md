@@ -31,7 +31,7 @@
 2. IM 的 Work.recordSyncState 只接收节点身份。节点报告有待处理项，或者中心确认序号落后时，整个节点得到 catching_up。活动接口只有在节点在线且整机为 current 时才确认主状态和子执行计数。因此，即使待处理项只属于另一个 Agent，当前 Agent 的活动结果也会被挡住。[同步判断](../../../apps/im-server/src/work.ts) · [活动查询](../../../apps/im-server/src/work-summaries.ts)
 3. 弹窗在首次发请求和成功收到 catching_up 时都渲染两个转圈，每 15 秒再查。只要后台持续返回这个值，每次 HTTP 读取都成功也可以一直没有结果。派工图同样使用整机同步状态。[头像弹窗](../../../src/IM/frontend/src/features/chat/components/agent-activity-popover.tsx) · [派工图](../../../src/IM/frontend/src/features/settings/agents/agent-work-delegation.tsx)
 
-以上能解释长期转圈和跨 Agent 相互影响。Mini 的历史子执行长期停在 203 的具体线上调用仍缺少执行证据。离线重放覆盖了解码、分页与事实投影，未覆盖线上调度、运行时读取和提交。晚间 Mini SSH 连接被关闭，因此 Mini 数据库样本与晚间 UI 计时分开使用。
+4. 11 月 20 日在 Mini 私有副本上，用正式 DSH 和旧版 Node 重放原子执行。DSH 已把 203 之后的事件编码为 186571 字节的响应，Node 收齐字节，却把 JSON 拆为五行。原生事件 204 和 207 的工具结果包含 U+2028，Node readline 将正文内该字符当作行边界。没有一个片段能作为原响应完成 request，旧版等待超过 65 秒。修复后用同一原生记录和 Inbox 快照运行 GlobalAgent 的子执行恢复，2138 毫秒后检查点从 203 写到 238，新增完成事实，待恢复标记清零。第二次恢复后日志总数保持 25454。
 
 ## 用户可观察的验收
 
