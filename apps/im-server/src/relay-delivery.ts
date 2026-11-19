@@ -1,4 +1,5 @@
-import { all, now, type ImContext, type Row } from './context.js';
+import {cancelChatRelay, chatAllowed} from './collaboration.js';
+import { all, now, transaction, type ImContext, type Row } from './context.js';
 
 /** Drain persisted relays through a bounded node window; socket writes are never acceptance. */
 export class RelayDelivery {
@@ -42,7 +43,10 @@ export class RelayDelivery {
         const index = candidates.findIndex(candidate => candidate.agentId === next);
         const {task, payload, agentId} = candidates.splice(index, 1)[0]!;
         if (!this.ctx.messaging.relayEligible(task, payload)) {
-          this.ctx.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);this.retries.delete(task.relay_task_id);continue;
+          if (!chatAllowed(this.ctx.db,agentId,task.message_id)) transaction(this.ctx.db,()=>cancelChatRelay(this.ctx.db,task,agentId));
+          else this.ctx.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);
+          this.retries.delete(task.relay_task_id);
+          continue;
         }
         if(!this.ctx.gateway.send(id,{type:'relay.message',payload}))break;
         flights.set(task.relay_task_id,time);this.lastAgents.set(id,agentId);

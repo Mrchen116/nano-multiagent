@@ -12,6 +12,7 @@ interface Connection {
   config: Pick<FeishuConfiguration, 'appId' | 'botOpenId' | 'ownerOpenId'>;
   send(chatId: string, text: string, operationId: string, card?: Record<string, unknown>): Promise<string>;
   reaction(messageId: string, reactionId?: string, emoji?: string): Promise<string | undefined>;
+  quotedSender?(chatId: string, messageId: string): Promise<string | undefined>;
   image(messageId: string, key: string): Promise<{ data: Buffer; mediaType: string }>;
   updateCard(messageId: string, card: Record<string, unknown>): Promise<void>;
 }
@@ -26,6 +27,7 @@ interface Options {
   personalAgent?(agentId:string):boolean;
   globalAgent?(agentId:string):boolean;
   personalDelivery?(delivery:ExternalDelivery):Promise<string|undefined>;
+  ownerOnly?(agentId: string): boolean;
   attention?(input: RelayInput): boolean;
   relay: { readonly ready: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   im(path: string, options?: RequestInit): Promise<unknown>;
@@ -38,6 +40,7 @@ interface Options {
 export class ExternalChannels {
   private readonly state: ExternalStore;
   private readonly connections = new Map<string, Connection>();
+  private readonly restrictionEpoch = new Map<string,number>();
   private readonly admissions = new Map<string, Promise<void>>();
   private readonly recovering = new Map<string, Promise<void>>();
   private readonly retry = new Map<string,ReturnType<typeof setTimeout>>();
@@ -88,6 +91,16 @@ export class ExternalChannels {
 
 
   receive(agentId: string, message: FeishuMessage): Promise<void> {
+    const app = this.connections.get(agentId)?.config.appId;
+    if (!app) throw new Error('No channel for Agent');
+    const previous = this.state.inbound(`external:${agentId}:${app}:${message.messageId}`);
+    if (previous) {
+      this.options.store.lifecycle.assert(agentId, previous.input.lifecycle_revision ?? 1);
+      return this.admitOnce(previous.id);
+    }
+    return this.receiveNew(agentId,message,this.options.store.lifecycle.assert(agentId));
+  }
+  private async receiveNew(agentId: string, message: FeishuMessage, revision:number): Promise<void> {
     const connection = this.connections.get(agentId); if (!connection) throw new Error('No channel for Agent');
     const appId = connection.config.appId;
     const sourceId = `feishu:${appId}:${message.isGroup ? `group:${message.chatId}` : `dm:${message.senderId}`}`;
@@ -97,14 +110,34 @@ export class ExternalChannels {
     this.state.saveChat({ id, agentId, appId, chatId: message.chatId, sourceId, isGroup: message.isGroup, ...previous, ...(message.chatName ? { name: message.chatName } : {}) });
     const text = message.parts.filter(part => part.type === 'text').map(part => part.text).join('');
     const attachments = message.parts.filter(part => part.type === 'image').map(part => ({ url: `${eventId}:${part.key}`, content_type: 'image/png', file_name: part.key }));
-    let input: RelayInput = { relay_task_id: eventId, idempotency_key: eventId, agent_id: agentId, conversation_id: id,
+    const ownerDirect = !message.isGroup && message.senderId === connection.config.ownerOpenId;
+    const epoch=this.restrictionEpoch.get(agentId);
+    const ownerOnlyAtArrival = this.options.ownerOnly?.(agentId) === true;
+    let quoted: string | undefined;
+    if (message.parentId && !message.contextOnly) {
+      const original = this.state.inbound(`external:${agentId}:${appId}:${message.parentId}`);
+      if (original?.chatId === id) quoted = original.message.senderId;
+      else if (this.state.sentInChat(id, message.parentId)) quoted = connection.config.botOpenId;
+      else try { quoted = await connection.quotedSender?.(message.chatId, message.parentId); }
+      catch (error) { this.options.onError(error); }
+    }
+    const repliedToBot = !!quoted && quoted === connection.config.botOpenId;
+    const addressedToOwner = !!connection.config.ownerOpenId && message.senderId !== connection.config.ownerOpenId &&
+      (message.mentionIds?.includes(connection.config.ownerOpenId) || quoted === connection.config.ownerOpenId);
+    const instant = /^\d+$/.test(message.time) ? Number(message.time) : NaN;
+    const time = Number.isSafeInteger(instant) && instant > 0 && instant <= 8.64e15 ? new Date(instant).toISOString() : null;
+    let input: RelayInput = { lifecycle_revision:revision, relay_task_id: eventId, idempotency_key: eventId, agent_id: agentId, conversation_id: id,
       metadata: { conversation_type: message.isGroup ? 'group' : 'direct', mentioned_agent_ids: message.mentioned ? [agentId] : [],
+        owner_direct: ownerDirect, addressed_to_agent: !message.isGroup || message.mentioned || repliedToBot,
+        replied_to_owner: !!quoted && quoted === connection.config.ownerOpenId, addressed_to_owner: !!addressedToOwner, explicit_mentioned_agent_ids: message.mentioned ? [agentId] : [],
+        ...(repliedToBot ? { reply_to_agent_id: agentId } : {}), provider_source_time: time, mentioned_owner: (message.mentionIds ?? []).includes(connection.config.ownerOpenId ?? ''),
+        scope_skipped: !ownerDirect && (ownerOnlyAtArrival || this.restrictionEpoch.get(agentId)!==epoch || this.options.ownerOnly?.(agentId) === true),
         external_reply: eventId, source_timestamp: message.time, channel: 'feishu',
         sender_display_name: message.senderName, ...(message.contextOnly ? { context_only: true } : {}),
         ...(message.senderId === connection.config.ownerOpenId ? { owner_user_id: this.options.ownerId } : {}),
         content_parts: message.parts.map(part => part.type === 'text' ? part : { type: 'image', url: `${eventId}:${part.key}` }),
       }, message: { id: eventId, content: text, sender_type: 'user', sender_user_id: message.senderId, attachments,
-        created_at: new Date(Number.isFinite(Number(message.time)) && Number(message.time) > 0 ? Number(message.time) : Date.now()).toISOString(),
+        created_at: time ?? new Date().toISOString(),
         ...(message.senderId === connection.config.ownerOpenId && this.options.store.ownerTimezone ? { timezone: this.options.store.ownerTimezone } : {}),
       } };
     if (this.options.globalAgent?.(agentId) && this.attention(input, message)) input.metadata.agent_receipt = true;
@@ -125,7 +158,7 @@ export class ExternalChannels {
     return this.options.store.lifecycle.run(row.input.agent_id,row.input.lifecycle_revision??1,()=>this.admitInput(row));
   }
   private attention(input: RelayInput, message: FeishuMessage): boolean {
-    return !message.contextOnly && (this.options.attention?.(input) ?? (!message.isGroup || message.mentioned));
+    return !input.metadata.scope_skipped && !message.contextOnly && (this.options.attention?.(input) ?? (!message.isGroup || message.mentioned));
   }
   private async admitInput(row:ExternalInbound) {
     const id=row.id;
@@ -143,17 +176,22 @@ export class ExternalChannels {
     }
     for (const attachment of row.input.message.attachments) attachment.content_type = this.state.image(attachment.url, chat.agentId)!.mediaType;
     this.options.store.lifecycle.assert(chat.agentId);
+    if (this.state.inbound(id)?.input.metadata.scope_skipped) row.input.metadata.scope_skipped = true;
     this.state.updateInput(id, row.message, row.input);
     if(this.options.personalAgent?.(chat.agentId)) {
       if(!this.ready)throw new Error('Personal source authority requires the center');
       // The durable IM source event is the PA's sole ingress; output projection is independent.
       await this.mirrorInput(row);
-    } else await this.options.receive(row.input);
+    } else if (!row.input.metadata.scope_skipped) await this.options.receive(row.input);
     this.state.accept(id);
     void this.flush().catch(this.options.onError);
   }
   image(url: string, agentId: string): { data: Buffer; mediaType: string } {
     const image = this.state.image(url, agentId); if (!image) throw new Error('Image is outside the authenticated external input'); return image;
+  }
+  restrictToOwner(agentId: string): void {
+    this.restrictionEpoch.set(agentId,(this.restrictionEpoch.get(agentId) ?? 0)+1);
+    this.state.restrictToOwner(agentId);
   }
   async recover(agentId?:string): Promise<void> {
     if(this.stopping)return;
@@ -273,8 +311,13 @@ export class ExternalChannels {
     const output = this.state.output(String(stream.message_id));
     if (!output) return this.forwardStream(stream);
     if (stream.kind === 'message_completed') {
-      await this.finish(output, stream);
-      if (output.reply) await this.removeReaction(output.reply);
+      const source = stream.external_reply;
+      if (typeof source === 'string' && this.state.inbound(source)?.chatId !== output.chatId)
+        throw new Error('External reply source belongs to another conversation');
+      const final = source === undefined ? output : this.state.finalReply(output,source);
+      await this.finish(final,stream);
+      if (final.reply) await this.removeReaction(final.reply);
+      if (output.reply && output.reply !== final.reply) await this.removeReaction(output.reply);
     } else this.state.frame(output.id, stream);
     if (stream.kind === 'permission_request' && output.reply) await this.approval(output, stream);
     if (stream.kind === 'permission_resolved') await this.resolveApproval(String(stream.permission_request?.request_id ?? stream.request_id), String(stream.decision));
@@ -425,7 +468,12 @@ export class ExternalChannels {
           }
         }
         const result = await this.options.im(`/im/v1/conversations/${chat.shadowId}/${this.options.personalAgent?.(chat.agentId)?'external-incoming':'messages'}?agent_id=${encodeURIComponent(chat.agentId)}`, json({ sender_user_id: this.options.ownerId, sender_type: 'user', sender_source_id: row.message.senderId, sender_display_name: row.input.metadata.owner_user_id ? '你' : row.message.senderName,
-          content: row.message.parts.length > 1 ? row.message.parts.map(part => part.type === 'text' ? part.text : '[图片]').join('') : row.input.message.content, attachments, created_at: row.input.message.created_at, timezone: row.input.message.timezone, suppress_relay: true }, { 'Idempotency-Key': `shadow:${row.id}` })) as { id: string };
+          content: row.message.parts.length > 1 ? row.message.parts.map(part => part.type === 'text' ? part.text : '[图片]').join('') : row.input.message.content, attachments, provider_facts: {
+            source_time: row.input.metadata.provider_source_time ?? null,
+            mentioned_bot: row.message.mentioned, mentioned_owner: row.input.metadata.mentioned_owner === true,
+            replied_to_owner: row.input.metadata.replied_to_owner === true, replied_to_bot: row.input.metadata.reply_to_agent_id === chat.agentId,
+            context_only: row.message.contextOnly === true, scope_skipped: this.state.inbound(row.id)?.input.metadata.scope_skipped === true,
+          }, created_at: row.input.message.created_at, timezone: row.input.message.timezone, suppress_relay: true }, { 'Idempotency-Key': `shadow:${row.id}` })) as { id: string };
         this.state.mirrorInput(row.id, result.id);
   }
   private async approval(output: ExternalOutput, payload: Extract<ChatStreamFact, {kind: 'permission_request'}>): Promise<void> {

@@ -23,11 +23,13 @@ struct AgentContractsTests {
     }
 
     @Test func configPatchPreservesEmptyExplicitSelectionsAndModelOrder() throws {
-        let response = #"{"agent_id":"a","owner_id":"u","node_id":"n","display_name":"Agent","description":"","skills":[],"skills_selection_mode":"explicit_allowlist","tool_allowlist":[],"group_reply_policy":"NO_REPLY","default_model":null,"model_fallbacks":["second","third"],"reasoning_effort":null,"work_mode":"single_thread","workspace_root":"/workspace/a","workspace_is_default":false,"profile_version":8,"features":{"heartbeat":true},"heartbeat_json":"{\"every\":\"45m\",\"active_hours\":{\"start\":\"09:00\",\"end\":\"18:00\",\"timezone\":\"Asia/Shanghai\"}}"}"#
+        let response = #"{"agent_id":"a","owner_id":"u","node_id":"n","display_name":"Agent","description":"","skills":[],"skills_selection_mode":"explicit_allowlist","tool_allowlist":[],"collaboration_scope":"owner_only","default_model":null,"model_fallbacks":["second","third"],"reasoning_effort":null,"work_mode":"single_thread","workspace_root":"/workspace/a","workspace_is_default":false,"profile_version":8,"features":{"heartbeat":true},"heartbeat_json":"{\"every\":\"45m\",\"active_hours\":{\"start\":\"09:00\",\"end\":\"18:00\",\"timezone\":\"Asia/Shanghai\"}}"}"#
         let config = try JSONDecoder().decode(AgentConfig.self, from: Data(response.utf8))
         let encoded = try JSONEncoder().encode(config.draft.payload(version: config.profile_version))
         let body = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
         #expect(body["profile_version"] as? Int == 8)
+        #expect(body["collaboration_scope"] as? String == "owner_only")
+        #expect(AgentDraft().collaboration_scope == "team")
         #expect(body["skills_selection_mode"] as? String == "explicit_allowlist")
         #expect(body["skills"] as? [String] == [])
         #expect(body["tool_allowlist"] as? [String] == [])

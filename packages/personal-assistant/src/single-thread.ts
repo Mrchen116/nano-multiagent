@@ -2,14 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { ChatStreamFact, ChatStreamReceipt, ChatTurnStart, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
-import { needsAttention, controlText } from './attention.js';
+import { chatDelivery, controlText, needsAttention } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
-import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
+import { CHAT_BACKGROUND_DELAY_MS, formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { readonly ready?:boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
-interface InputEvidence { accepted: boolean; pending?: boolean; consumedSeq?: number; turn?: number; terminal?: unknown }
+interface InputEvidence { accepted: boolean; providerDelivered?:boolean; pending?: boolean; consumedSeq?: number; turn?: number; terminal?: unknown }
 interface Options {
   nodeId: string;
   ownerId: string;
@@ -35,6 +35,11 @@ export class SingleThread {
   private readonly pendingApprovals = new Map<string, { sessionId: string; revision:number; messageId: string; posted: boolean; decision?: string; outcome?: string }>();
   private readonly unsubscribe: () => void;
   private readonly streams = new Map<string, BufferedStream>();
+  private readonly scopeChanges = new Map<string, number>();
+  private readonly chatTails = new Map<string, Promise<void>>();
+  private readonly timers = new Map<string, {agentId:string; dueAt:number; timer:ReturnType<typeof setTimeout>}>();
+  private stopping = false;
+
   constructor(private readonly options: Options) {
     const relay=options.relay,runtime=options.runtime;
     options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
@@ -56,6 +61,7 @@ export class SingleThread {
 
   /** Discard local streaming and permission obligations for a disabled Agent. */
   cancelAgent(agentId:string):void {
+    this.clearTimers(agentId);
     for(const [id,pending] of this.pendingApprovals)if(this.binding(pending.sessionId).agentId===agentId)this.pendingApprovals.delete(id);
     for (const [id, stream] of this.streams) if (this.binding(stream.sessionId).agentId === agentId) {
       clearTimeout(stream.timer);
@@ -64,6 +70,68 @@ export class SingleThread {
     }
     for(const sessionId of this.dirty)if(this.binding(sessionId).agentId===agentId)this.dirty.delete(sessionId);
   }
+  /** Stop pending team delivery and return native carriers for provider-boundary arbitration. */
+  restrictToOwner(agentId: string) {
+    this.scopeChanges.set(agentId,(this.scopeChanges.get(agentId) ?? 0) + 1);
+    this.clearTimers(agentId);
+    const config = this.options.agents.find(agent => agent.agentId === agentId);
+    if (!config) return [];
+    const blocked = (input:RelayInput) => !input.metadata.runtime_input_id && !input.metadata.origin &&
+      chatDelivery(input, {...config, collaborationScope:'owner_only'}, this.options.ownerId) === 'skip';
+    this.options.store.restrictControls(agentId,blocked);
+    return config.mode === 'single_thread' ? this.options.store.restrictChat(agentId,blocked) : [];
+  }
+
+  /** Settle pending team inputs whose provider handoff was prevented. */
+  confirmRestricted(withdrawn: {sessionId:string;inputId:string}[]):void {
+    for (const {sessionId,inputId} of withdrawn) this.options.store.closeRestricted(sessionId,inputId);
+  }
+
+  private clearTimers(agentId?:string) {
+    for (const [key,entry] of this.timers) if (!agentId || entry.agentId === agentId) {
+      clearTimeout(entry.timer);
+      this.timers.delete(key);
+    }
+  }
+
+  private serializeChat(agentId:string, conversationId:string, work:()=>Promise<void>):Promise<void> {
+    const key = JSON.stringify([agentId, this.options.store.canonicalConversation(agentId,conversationId)]);
+    const previous = this.chatTails.get(key);
+    const task = (previous ?? Promise.resolve()).then(work);
+    const settled = task.catch(() => {});
+    this.chatTails.set(key,settled);
+    void settled.then(() => { if (this.chatTails.get(key) === settled) this.chatTails.delete(key); });
+    return task;
+  }
+
+  private schedule(config:AgentConfiguration, externalOnly = false, chatId?:string) {
+    if (this.stopping || config.collaborationScope === 'owner_only' || !this.options.store.lifecycle.allowed(config.agentId)) return;
+    for (const {conversationId,dueAt} of this.options.store.groupDeadlines(config.agentId,chatId)) {
+      if (externalOnly && !conversationId.startsWith('external:')) continue;
+      const key = JSON.stringify([config.agentId,conversationId]);
+      if (this.timers.get(key)?.dueAt === dueAt) continue;
+      clearTimeout(this.timers.get(key)?.timer);
+      const timer = setTimeout(() => {
+        this.timers.delete(key);
+        void this.serializeChat(config.agentId, conversationId, async () => {
+          const {store} = this.options;
+          const current = this.options.agents.find(agent => agent.agentId === config.agentId);
+          if (this.stopping || current?.mode !== 'single_thread' || current.collaborationScope === 'owner_only' || !store.lifecycle.allowed(config.agentId)) return;
+          const canonical = store.canonicalConversation(config.agentId,conversationId);
+          const due = store.groupDeadlines(config.agentId,canonical)[0];
+          if (!due || due.dueAt > Date.now()) return;
+          await store.lifecycle.run(config.agentId, undefined, async () => {
+            const binding = this.chatBinding(current, canonical, false);
+            store.takeGroup(binding);
+            await this.flushInputs(binding);
+          });
+        }).catch(this.options.onError);
+      }, Math.max(0,dueAt-Date.now()));
+      timer.unref();
+      this.timers.set(key,{agentId:config.agentId,dueAt,timer});
+    }
+  }
+
   /** Covers reconciliation, output delivery and durable inputs still awaiting completion. */
   get busy(): boolean {
     return this.controls.busy || this.draining.size > 0 || this.dirty.size > 0 || this.streams.size > 0 || this.pendingApprovals.size > 0 ||
@@ -74,9 +142,14 @@ export class SingleThread {
   /** Store inbound content before acknowledging its durable runtime handoff. */
   async receive(input: RelayInput): Promise<void> {
     input=this.options.store.admitInput(input);
-    return this.options.store.lifecycle.run(input.agent_id,input.lifecycle_revision,()=>this.receiveAdmitted(input));
+    const arrival = Date.now();
+    const scopeGeneration = this.scopeChanges.get(input.agent_id) ?? 0;
+    const config = this.options.agents.find(agent=>agent.agentId===input.agent_id);
+    if (config?.collaborationScope === 'owner_only' && chatDelivery(input,config,this.options.ownerId) === 'skip') this.options.store.skipChat(input);
+    return this.serializeChat(input.agent_id,input.conversation_id,() =>
+      this.options.store.lifecycle.run(input.agent_id,input.lifecycle_revision,()=>this.receiveAdmitted(input,scopeGeneration,arrival)));
   }
-  private async receiveAdmitted(input: RelayInput): Promise<void> {
+  private async receiveAdmitted(input: RelayInput, scopeGeneration:number, arrival:number): Promise<void> {
     const { store, runtime, agents } = this.options;
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
@@ -86,10 +159,22 @@ export class SingleThread {
       await this.options.relay.request('node.delivery_receipt',{node_id:this.options.nodeId,relay_task_id:input.relay_task_id,delivery_status:'sent'});
       return;
     }
+    const crossedRestriction = scopeGeneration !== (this.scopeChanges.get(input.agent_id) ?? 0);
+    const scope = crossedRestriction ? {...config,collaborationScope:'owner_only' as const} : config;
+    const priority = chatDelivery(input,scope,this.options.ownerId);
     const control = sessionControl(input, config);
-    const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(controlText(input)) && !control;
-    if ((unaddressedControl || !needsAttention(input, config)) && !['/stop', '/new'].includes(controlText(input))) {
-      store.bufferGroup(input);
+    const command = controlText(input);
+    const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command) && !control ||
+      command === '/new' && input.metadata.channel === 'feishu' && !needsAttention(input,config);
+    if (priority === 'skip' || unaddressedControl || store.skippedChat(input)) {
+      store.skipChat(input);
+      await this.options.relay.request('node.delivery_receipt', { node_id:this.options.nodeId, relay_task_id:input.relay_task_id, delivery_status:'skipped' });
+      return;
+    }
+    const chatCommand = !input.metadata.context_only && input.message.sender_type === 'user' && ['/stop','/new'].includes(command);
+    if (priority === 'background' && !chatCommand) {
+      store.bufferGroup(input,input.metadata.context_only ? null : arrival+CHAT_BACKGROUND_DELAY_MS);
+      if (!input.metadata.context_only) this.schedule(config,false,store.canonicalConversation(input.agent_id,input.conversation_id));
       if (input.metadata.agent_receipt && this.options.queueMessageReceipt) {
         this.options.queueMessageReceipt(input, false);
         return;
@@ -97,15 +182,9 @@ export class SingleThread {
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'sent' });
       return;
     }
-    const ownerDirect = input.metadata.conversation_type === 'direct' && input.message.sender_type === 'user' && (input.message.sender_user_id === this.options.ownerId || input.metadata.owner_user_id === this.options.ownerId);
-    const canonical = ownerDirect ? store.canonical(config.agentId) : undefined;
-    const binding = store.bindingFor(config.agentId, input.conversation_id)
-      ?? (canonical?.conversationId.startsWith('owner:') ? store.adoptConversation(canonical, input.conversation_id) : undefined) ?? store.bind({
-      sessionId: randomUUID(), conversationId: input.conversation_id, agentId: config.agentId,
-      ownerId: this.options.ownerId, cwd: config.workspace, revision: config.revision,
-    });
-    if (ownerDirect) store.markCanonical(binding);
-    if (input.message.sender_type === 'user' && ['/stop', '/new'].includes(controlText(input))) {
+    const ownerDirect = chatDelivery(input,{...config,collaborationScope:'owner_only'},this.options.ownerId) !== 'skip';
+    const binding = this.chatBinding(config,input.conversation_id,ownerDirect);
+    if (chatCommand) {
       const commandId = `${input.agent_id}:${input.message.id}`;
       let text = store.command(commandId);
       if (!text) {
@@ -129,10 +208,24 @@ export class SingleThread {
       return;
     }
     if (control) { await this.controls.run(binding, input, control.action, control.argument); return; }
+    store.takeGroup(binding, input);
     await this.controls.wait(binding.sessionId);
-    store.takeGroup(binding);
-    store.receive(binding.sessionId, input);
     if (input.metadata.agent_receipt) this.options.queueMessageReceipt?.(input, false);
+    await this.flushInputs(binding);
+  }
+
+  private chatBinding(config:AgentConfiguration, conversationId:string, ownerDirect:boolean):SessionBinding {
+    const {store,ownerId} = this.options;
+    const canonical = ownerDirect ? store.canonical(config.agentId) : undefined;
+    const binding = store.bindingFor(config.agentId, conversationId)
+      ?? (canonical?.conversationId.startsWith('owner:') ? store.adoptConversation(canonical, conversationId) : undefined)
+      ?? store.bind({sessionId:randomUUID(), conversationId, agentId:config.agentId, ownerId, cwd:config.workspace, revision:config.revision});
+    if (ownerDirect) store.markCanonical(binding);
+    return binding;
+  }
+
+  private async flushInputs(binding: SessionBinding) {
+    const {store} = this.options;
     await this.ensure(binding);
     for (const pending of store.pendingInputs(binding.sessionId)) await this.submit(binding, pending.input);
     await this.reconcile(binding.sessionId);
@@ -150,7 +243,7 @@ export class SingleThread {
   }
 
   private async submit(binding: SessionBinding, input: RelayInput, current?: () => boolean) {
-    if(current?.() === false || !this.options.store.lifecycle.allowed(binding.agentId,input.lifecycle_revision??1))return;
+    if(current?.() === false || this.options.store.chatBlocked(`${input.agent_id}:${input.message.id}`) || !this.options.store.lifecycle.allowed(binding.agentId,input.lifecycle_revision??1))return;
     return this.options.store.lifecycle.run(binding.agentId,input.lifecycle_revision??1,()=>this.submitAdmitted(binding,input,current));
   }
   private async submitAdmitted(binding: SessionBinding, input: RelayInput, current?: () => boolean) {
@@ -158,56 +251,92 @@ export class SingleThread {
     const inputId = `${input.agent_id}:${input.message.id}`;
     const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId }) as InputEvidence;
     if (!evidence.accepted) {
-      const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
-      const text = input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText;
-      const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
-      const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
-      const content: Record<string, unknown>[] = [];
-      const imageSources = new Map<number, { kind: 'chat'; conversationId: string; messageId: string; url: string }>();
+      const members = store.batchInputs(binding.sessionId,inputId);
+      const chatBatch = members.length > 0 && input.metadata.chat_batch;
+      const deadline = chatBatch === 'deadline';
+      const content: Record<string,unknown>[] = [];
+      const attachmentSources: ({kind:'chat';conversationId:string;messageId:string;url:string}|null)[] = [];
       let contextEnvelope: string | undefined;
-      if (input.message.sender_type === 'user' && input.message.created_at) {
-        const time = formatLocalTime(input.message.created_at, input.message.timezone);
-        contextEnvelope = `Message time: ${time}${input.message.timezone ? ` (${input.message.timezone})` : ''}; source: ${input.metadata.channel === 'feishu' ? 'Feishu' : 'Web IM'}.`;
-        content.push({ type: 'text', text: contextEnvelope });
-      }
-      if (input.metadata.conversation_type === 'group' && input.participants?.length) {
-        content.push({type: 'text', text: `Current group roster (application metadata). You are Agent ${binding.agentId}. To address a member use their exact mention tag:\n${input.participants.map(member => JSON.stringify({type: member.type, id: member.id, name: member.display_name, mention: `<mention type="user" target_id="${member.user_id}"/>`})).join('\n')}`});
-      }
-      if (input.message.reply_to) {
-        const original = input.message.reply_to;
-        const quote = projectChatReplyContext(original);
-        const name = quote.sender.name.replace(/[\r\n]+/g, ' ');
-        const lines = [`Quoted earlier message from ${name} (${quote.sender.type}), IM message ID ${quote.message_id}:`];
-        if (quote.text) lines.push(...quote.text.split(/\r\n?|\n/).map(line => `> ${line}`));
-        if (quote.interactive) lines.push('[Interactive UI content from the quoted message]', JSON.stringify(quote.interactive));
-        if (quote.attachment_names) lines.push(`> Attachments: ${quote.attachment_names.join(', ').replace(/[\r\n]+/g, ' ')}`);
-        const textOmitted = (quote.text ?? '') !== original.content;
-        const uiOmitted = quote.interactive?.source !== original.interactive?.source;
-        if (textOmitted || uiOmitted || quote.attachment_names || (!quote.text && !quote.interactive)) {
-          lines.push(`Read the original with conversations, action=read, target=${input.conversation_id} and message_id=${quote.message_id}.`);
+      for (const member of members.length ? members : [input]) {
+        const carrier = member.message.id === input.message.id;
+        if (deadline || members.length > 1) {
+          const label = !deadline && carrier ? 'Current message' : 'Background message';
+          const sender = member.message.sender?.display_name ?? member.metadata.sender_display_name ?? member.message.sender_user_id;
+          content.push({type:'text', text:`\n\n${label} (sender: ${JSON.stringify(sender)}, type: ${member.message.sender_type}, message ID: ${JSON.stringify(member.message.id)})\n`});
+          attachmentSources.push(null);
         }
-        // Some model adapters concatenate adjacent text parts without separators.
-        content.push({ type: 'text', text: `${content.length ? '\n\n' : ''}${lines.join('\n')}\n\nCurrent message:\n` });
+        const rendered = await this.messageContent(binding, member, carrier);
+        content.push(...rendered.content);
+        attachmentSources.push(...rendered.attachmentSources);
+        if (carrier) contextEnvelope = rendered.contextEnvelope;
       }
-      if (ordered && input.metadata.conversation_type === 'group') content.push({ type: 'text', text: `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ` });
-      for (const part of parts) {
-        if (part.type === 'text') { content.push({ type: 'text', text: part.text ?? '' }); continue; }
-        const attachment = input.message.attachments.find(attachment => attachment.url === part.url);
-        if (!attachment?.content_type.startsWith('image/')) throw new Error('This input attachment is not an image');
-        imageSources.set(content.length, { kind: 'chat', conversationId: input.conversation_id, messageId: input.message.id, url: attachment.url });
-        content.push({ type: 'image', mediaType: attachment.content_type, name: attachment.file_name, data: await this.options.image(attachment.url, binding.agentId) });
-      }
-      if (current?.() === false) return;
-      await runtime.request('session.submit', { sessionId: binding.sessionId, inputId, mode: input.metadata.context_only ? 'inject' : 'followup', content,
-        attachmentSources: content.map((_, index) => imageSources.get(index) ?? null),
-        source: { kind: input.message.sender_type === 'user' ? 'human' : 'system', actorId: input.message.sender_user_id,
-          ...(input.metadata.channel === 'feishu' && input.metadata.owner_user_id === binding.ownerId ? {roleAccountId: binding.ownerId} : {}),
-          channel: input.metadata.channel ?? 'web_relay', messageId: input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender}, ...(input.message.pa_agent_id?{pa_agent_id:input.message.pa_agent_id}:{}), contextEnvelope },
-      });
+      if (current?.() === false || store.chatBlocked(inputId)) return;
+      const config = this.options.agents.find(agent => agent.agentId === binding.agentId)!;
+      const chat = !!chatBatch || !input.metadata.origin && !input.metadata.runtime_input_id &&
+        ['direct','group'].includes(String(input.metadata.conversation_type));
+      const teamChat = chat && chatDelivery(input,{...config,collaborationScope:'owner_only'},this.options.ownerId) === 'skip';
+      const source = deadline
+        ? {kind:'system', channel:'chat-background', actorId:binding.agentId, messageId:inputId}
+        : {kind:input.message.sender_type === 'user' ? 'human' : 'system', actorId:input.message.sender_user_id,
+          ...(input.metadata.channel === 'feishu' && input.metadata.owner_user_id === binding.ownerId ? {roleAccountId:binding.ownerId} : {}),
+          channel:input.metadata.channel ?? 'web_relay', messageId:input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender},
+          ...(input.message.pa_agent_id ? {pa_agent_id:input.message.pa_agent_id} : {}), contextEnvelope,
+          ...(input.message.sender_type === 'user' && chatBatch ? {directHumanText:input.message.content} : {})};
+      await runtime.request('session.submit', {sessionId:binding.sessionId, inputId,
+        mode:chatBatch ? 'steer' : input.metadata.context_only ? 'inject' : 'followup', content,
+        attachmentSources, source:{...source,...(teamChat ? {nanoTeamChat:true} : {})}});
     }
+    if (store.chatBlocked(inputId)) return;
     store.accepted(inputId);
-    if (current?.() !== false && !store.inputTerminal(binding.sessionId, inputId)
-      && !(input.metadata.agent_receipt && this.options.queueMessageReceipt)) await this.receipt(input, 'sent');
+    const members = store.batchInputs(binding.sessionId,inputId);
+    for (const member of members.length ? members : [input]) {
+      if (current?.() !== false && !store.inputTerminal(binding.sessionId,inputId) &&
+        !(member.metadata.agent_receipt && this.options.queueMessageReceipt)) await this.receipt(member,'sent');
+    }
+  }
+
+  private async messageContent(binding:SessionBinding, input:RelayInput, includeRoster:boolean) {
+    const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
+    const text = input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText;
+    const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
+    const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
+    const content: Record<string, unknown>[] = [];
+    const imageSources = new Map<number, { kind: 'chat'; conversationId: string; messageId: string; url: string }>();
+    let contextEnvelope: string | undefined;
+    const sourceTime = 'provider_source_time' in input.metadata ? input.metadata.provider_source_time : input.message.created_at;
+    if (typeof sourceTime === 'string' && Number.isFinite(Date.parse(sourceTime))) {
+      const time = formatLocalTime(sourceTime, input.message.timezone);
+      contextEnvelope = `Message time: ${time}${input.message.timezone ? ` (${input.message.timezone})` : ''}; source: ${input.metadata.channel === 'feishu' ? 'Feishu' : 'Web IM'}.`;
+      content.push({ type: 'text', text: contextEnvelope });
+    }
+    if (includeRoster && input.metadata.conversation_type === 'group' && input.participants?.length) {
+      content.push({type: 'text', text: `Current group roster (application metadata). You are Agent ${binding.agentId}. To address a member use their exact mention tag:\n${input.participants.map(member => JSON.stringify({type: member.type, id: member.id, name: member.display_name, mention: `<mention type="user" target_id="${member.user_id}"/>`})).join('\n')}`});
+    }
+    if (input.message.reply_to) {
+      const original = input.message.reply_to;
+      const quote = projectChatReplyContext(original);
+      const name = quote.sender.name.replace(/[\r\n]+/g, ' ');
+      const lines = [`Quoted earlier message from ${name} (${quote.sender.type}), IM message ID ${quote.message_id}:`];
+      if (quote.text) lines.push(...quote.text.split(/\r\n?|\n/).map(line => `> ${line}`));
+      if (quote.interactive) lines.push('[Interactive UI content from the quoted message]', JSON.stringify(quote.interactive));
+      if (quote.attachment_names) lines.push(`> Attachments: ${quote.attachment_names.join(', ').replace(/[\r\n]+/g, ' ')}`);
+      const textOmitted = (quote.text ?? '') !== original.content;
+      const uiOmitted = quote.interactive?.source !== original.interactive?.source;
+      if (textOmitted || uiOmitted || quote.attachment_names || (!quote.text && !quote.interactive)) {
+        lines.push(`Read the original with conversations, action=read, target=${input.conversation_id} and message_id=${quote.message_id}.`);
+      }
+      // Some model adapters concatenate adjacent text parts without separators.
+      content.push({ type: 'text', text: `${content.length ? '\n\n' : ''}${lines.join('\n')}\n\nCurrent message:\n` });
+    }
+    if (ordered && input.metadata.conversation_type === 'group') content.push({ type: 'text', text: `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ` });
+    for (const part of parts) {
+      if (part.type === 'text') { content.push({ type: 'text', text: part.text ?? '' }); continue; }
+      const attachment = input.message.attachments.find(attachment => attachment.url === part.url);
+      if (!attachment?.content_type.startsWith('image/')) throw new Error('This input attachment is not an image');
+      imageSources.set(content.length, { kind: 'chat', conversationId: input.conversation_id, messageId: input.message.id, url: attachment.url });
+      content.push({ type: 'image', mediaType: attachment.content_type, name: attachment.file_name, data: await this.options.image(attachment.url, binding.agentId) });
+    }
+    return {content, contextEnvelope, attachmentSources:content.map((_,index) => imageSources.get(index) ?? null)};
   }
 
   /** A first proactive turn reserves the future owner chat without creating a visible bubble. */
@@ -240,7 +369,10 @@ export class SingleThread {
     const eligible = (binding: SessionBinding) => store.lifecycle.allowed(binding.agentId) &&
       (!externalOnly || binding.conversationId.startsWith('external:')) && !store.recoveryStopped(binding.sessionId) &&
       (!recoveryGeneration || recoveryGeneration(binding) !== undefined);
-    for (const agentId of agentIds) await this.controls.recover(agentId, eligible);
+    for (const config of agents) if (agentIds.includes(config.agentId)) {
+      this.schedule(config, externalOnly);
+      await this.controls.recover(config.agentId, eligible);
+    }
 
     // Standalone callers without the recovery handshake retain the original recovery path.
     if (!recoveryGeneration) {
@@ -343,9 +475,15 @@ export class SingleThread {
       // Only fresh logical evidence can settle an input. Receipt recovery below
       // remains independent, and an older running observation delays finality.
       const final = evidence.accepted && evidence.pending === false && evidence.terminal != null && (!run || run.state === 'completed');
-      if (evidence.consumedSeq !== undefined && this.options.queueMessageReceipt) {
-        const input = store.inputForIds(sessionId, [inputId])?.input;
-        if (input?.metadata.agent_receipt) this.options.queueMessageReceipt(input, true);
+      // Pre-step may already have appended an input that narrowing can still withdraw.
+      if (evidence.providerDelivered === false && (!evidence.terminal || store.chatBlocked(inputId))) {
+        store.inputEvidence(inputId,{accepted:evidence.accepted});
+        continue;
+      }
+      if (evidence.providerDelivered !== false && evidence.consumedSeq !== undefined && this.options.queueMessageReceipt) {
+        const members = store.batchInputs(sessionId,inputId);
+        const originals = members.length ? members : [store.inputForIds(sessionId, [inputId])?.input];
+        for (const original of originals) if (original?.metadata.agent_receipt) this.options.queueMessageReceipt(original,true);
       }
       store.inputEvidence(inputId, evidence, final);
     }
@@ -361,7 +499,11 @@ export class SingleThread {
       if (input.turn === null) continue;
       const turn = input.turn;
       const run = runsByTurn.get(turn);
-      if (run) await this.modelNotices(binding, input.input, run);
+      const turnInputs = store.inputs(sessionId, turn);
+      const origin = turnInputs.findLast(row => row.input.metadata.chat_batch && !row.terminal?.includes('cancelled_by_scope'))?.input
+        ?? turnInputs.find(row => !row.input.metadata.context_only)?.input ?? input.input;
+      const externalReply = typeof origin.metadata.external_reply === 'string' ? origin.metadata.external_reply : null;
+      if (run) await this.modelNotices(binding, origin, run);
       let delivery = store.prepareDelivery(sessionId, turn);
       if (delivery.state === 'unknown') { await this.receipt(input.input, 'failed'); continue; }
       if (delivery.state === 'confirmed' || delivery.state === 'failed' || delivery.state === 'withheld') {
@@ -383,7 +525,6 @@ export class SingleThread {
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
       }
-      const turnInputs = store.inputs(sessionId, turn);
       const group = turnInputs.some(item => item.input.metadata.conversation_type === 'group');
       const automaticOnly=turnInputs.every(item=>['heartbeat','task_execution'].includes(String(item.input.metadata.origin))
         || item.input.message.sender_type==='system'&&item.input.message.system_notice?.kind==='task_graph');
@@ -399,12 +540,11 @@ export class SingleThread {
       }
       if (!delivery.messageId) {
         store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
-        const externalReply = turnInputs.find(item => !item.input.metadata.context_only)?.input.metadata.external_reply;
         // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
         const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
           agent_id: binding.agentId, idempotency_key: store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId,
           background_returns: Array.isArray(input.input.metadata.background_returns) ? input.input.metadata.background_returns : undefined,
-          external_reply: typeof externalReply === 'string' ? externalReply : undefined });
+          external_reply: externalReply ?? undefined });
         const messageId = ack.payload.message_id;
         if (binding.conversationId.startsWith('owner:') && typeof ack.payload.conversation_id === 'string') Object.assign(binding, store.adoptConversation(binding, ack.payload.conversation_id));
         store.updateDelivery(delivery.operationId, 'sending', messageId, delivery.content);
@@ -446,7 +586,7 @@ export class SingleThread {
       if (group && !binding.conversationId.startsWith('external:')) {
         const sessionInputs = store.inputs(sessionId);
         const position = sessionInputs.findLastIndex(item => item.turn === turn);
-        correction = sessionInputs.slice(position + 1).some(item => !item.input.metadata.context_only);
+        correction = sessionInputs.slice(position + 1).some(item => !item.input.metadata.context_only && !item.terminal?.includes('cancelled_by_scope'));
       }
       if (completed && correction && text && delivery.state !== 'completing') {
         const identity = `revalidation:${delivery.operationId}`;
@@ -457,6 +597,7 @@ export class SingleThread {
       }
       store.updateDelivery(delivery.operationId, 'completing', delivery.messageId, text);
       try { await this.delta({ kind: 'message_completed', message_id: messageId,
+        ...(origin.metadata.chat_batch ? {external_reply:externalReply} : {}),
         final_content: publication?.pending && !message?.content.some(block => block.type === 'text' && block.text) ? undefined : text, delivery_status: completed ? 'completed' : 'failed',
         kernel_message_id: message?.id, idempotency_key: `${delivery.operationId}:complete`,
         token_usage: tokenUsage(events, turn),
@@ -620,7 +761,10 @@ export class SingleThread {
     return stream.chain;
   }
   async stop(): Promise<void> {
+    this.stopping = true;
+    this.clearTimers();
     this.unsubscribe();
+    await Promise.allSettled(this.chatTails.values());
     await this.controls.stop();
     await Promise.allSettled(this.recovering.values());
     await Promise.allSettled([...this.streams.values()].map(stream => this.flushStream(stream)));

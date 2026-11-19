@@ -104,3 +104,20 @@ it('reassembles conversation search results with their original source and no im
     original_message:{content:[{text:'Keep'}, {text:' this'}, {text:' private.'}]}});
   expect(retainedEnvelope(retained, [], 8192)).not.toContain('UNRELATED_PROPOSAL');
 });
+
+it('retains owner evidence after native item IDs annotate a narrowed Inbox result',()=>{
+  const result=(seq:number, text:string, target?:number)=>({
+    seq,type:'tool/result',
+    ...(target===undefined?{surfaceOp:'append'}:{surfaceOp:{op:'replace',startSeq:target,endSeq:target}}),
+    data:{message:{id:'result',toolCallId:'read',role:'tool',source:{kind:'tool',...(target===undefined?{}:{nanoScopeReplacement:1})},
+      content:[{type:'text',text}]}}
+  });
+  const page=(ids:string[])=>JSON.stringify({messages:ids.map(id=>({id,sender:{id:'owner',type:'user'},
+    content:[{type:'text',text:id}]}))});
+  const events=[{seq:0,type:'assistant/message',data:{message:{id:'ask',content:[{type:'tool-call',name:'inbox',id:'read'}]}}},
+    result(1,page(['owner-grant','withdrawn-team'])),result(2,page(['owner-grant']),1),
+    result(3,page(['owner-grant'])+'\n[id: 9]',2)];
+  const evidence=JSON.stringify(retainInstructions(parent(events)).units);
+  expect(evidence).toContain('owner-grant');
+  expect(evidence).not.toContain('withdrawn-team');
+});

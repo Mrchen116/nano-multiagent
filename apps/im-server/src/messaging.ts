@@ -1,3 +1,4 @@
+import { chatAllowed, ownerDirect, providerFacts, storedProviderFacts } from './collaboration.js';
 import { conversationName } from './conversation-name.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
@@ -90,10 +91,13 @@ export class Messaging {
       id,
     );
   }
+  mentionedUsers(conversationId:string,content:string):Row[] {
+    const targets = new Set([...content.matchAll(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g)].map(match => match[1]));
+    return this.members(conversationId).filter(user=>targets.has(user.id));
+  }
   /** Resolve the same XML mention format used by Web and native clients. */
   mentionedAgents(conversationId: string, content: string): string[] {
-    const targets = new Set([...content.matchAll(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g)].map(match => match[1]));
-    return this.members(conversationId).filter(user => user.username.startsWith("agent:") && targets.has(user.id)).map(user => user.username.slice(6));
+    return this.mentionedUsers(conversationId,content).filter(user=>user.username.startsWith("agent:")).map(user=>user.username.slice(6));
   }
   access(principal: Row, id: string, agentId?: string, mode: "read" | "write" = "read"): Row {
     const c = one(this.db, "SELECT * FROM conversations WHERE id=?", id);
@@ -428,7 +432,7 @@ export class Messaging {
     const content=this.validateReferences(p,id,b.content,agentId);
     const safeAttachments=attachments.map(a=>({url:this.validateReferences(p,id,a.url!,agentId),content_type:a.content_type,file_name:a.file_name}));
     return this.insertMessage(id,c.owner_user_id,'user',content,safeAttachments,key,'completed',{
-      sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,
+      sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,provider_facts:providerFacts(b.provider_facts),
     });
   }
   /** Resolve an original message only inside the caller's authorized destination.
@@ -588,11 +592,13 @@ export class Messaging {
     const timezone = p.kind === "gateway" ? b.timezone ?? null
       : b.timezone === undefined ? one(this.db, "SELECT timezone FROM users WHERE id=?", p.id)?.timezone ?? null
       : this.updateUserTimezone(p.id, b.timezone);
-    const agents = b.suppress_relay ? [] : this.relayAgents(id);
+    const agents = b.suppress_relay ? [] : this.relayAgents(id).filter(a=>type!=='agent' || a.agent_id!==agentId);
+    const origin = p.kind==='gateway' && c.external_source==='feishu' && c.config_agent_id===agentId && type==='user' && b.sender_source_id
+      ? providerFacts(b.provider_facts) : undefined;
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), timezone, reply_to:replyTo, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
@@ -613,9 +619,10 @@ export class Messaging {
     const content = this.validateReferences(p, id, prepared.content);
     const timezone = b.timezone === undefined ? one(this.db, 'SELECT timezone FROM users WHERE id=?', p.id)?.timezone ?? null : this.updateUserTimezone(p.id, b.timezone);
     const message = transaction(this.db, () => {
-      const m = this.insertMessage(id, p.id, 'user', content, [], key, 'pending', { timezone, interaction_reply: prepared.snapshot, publish: false, trackReceipts: true });
+      const agents=this.relayAgents(id);
+      const m = this.insertMessage(id, p.id, 'user', content, [], key, 'pending', { pendingRelayAgents:agents.map(a=>a.agent_id), timezone, interaction_reply: prepared.snapshot, publish: false, trackReceipts: true });
       this.interactions.submit(p.id, m.id, prepared);
-      this.enqueueRelays(m, key);
+      this.enqueueRelays(m, key,agents);
       return m;
     });
     this.publishMessages([message]);
@@ -680,6 +687,7 @@ export class Messaging {
     const c = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
     const relays: Pick<MessageRelayRecord,'relay_task_id'|'target_node_id'|'payload_json'|'conversation_id'>[] = [];
     for (const a of agents) {
+      if ((m.sender.type==='agent' && m.sender.id===a.agent_id) || !chatAllowed(this.db,a.agent_id,m.id)) continue;
       const background = contexts.filter(context => context.agent_id === a.agent_id);
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
       const mentioned = [...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : []), ...(m.reply_to?.sender.type==='agent' ? [m.reply_to.sender.id] : [])])];
@@ -691,7 +699,7 @@ export class Messaging {
         message:m,sender:m.sender,participants:this.members(c.id).map(u=>this.actor(u)),metadata:{
           conversation_type:c.type,mentioned_agent_ids:mentioned,participant_agent_ids:agents.map(a=>a.agent_id),
           ...(agentReceipt ? {agent_receipt:true} : {}),
-          explicit_mentioned_agent_ids:this.mentionedAgents(c.id,m.content),
+          ...this.deliveryFacts(a.agent_id,m),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(background.length ? {interaction_contexts:background} : {}),
           ...(a.agent_id===contextOnlyAgentId ? {context_only:true} : {}),
@@ -710,6 +718,18 @@ export class Messaging {
     if(one(this.db,'SELECT type FROM conversations WHERE id=?',message.conversation_id)?.type!=='direct')return;
     this.enqueueRelays(message,null,this.relayAgents(message.conversation_id).filter(agent=>`agent:${agent.agent_id}`!==one(this.db,'SELECT username FROM users WHERE id=?',message.sender_user_id)?.username));
   }
+  /** Resolve authenticated provider targets or actual Web message recipients. */
+  deliveryFacts(agentId:string, message:Row) {
+    const b=one(this.db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',agentId);
+    if(b && this.ctx.personal)return this.ctx.personal.sourceFacts(b,message);
+    const provider=storedProviderFacts(this.db,message.id);
+    const chat=one(this.db,'SELECT type FROM conversations WHERE id=?',message.conversation_id)!;
+    const explicit=provider ? (provider.mentioned_bot?[agentId]:[]) : this.mentionedAgents(message.conversation_id,message.content);
+    return {owner_direct:ownerDirect(this.db,agentId,message.id),
+      addressed_to_agent:chat.type==='direct'||explicit.includes(agentId)||provider?.replied_to_bot===true||message.reply_to?.sender.id===agentId||message.interaction_reply?.agent_id===agentId,
+      addressed_to_owner:false,explicit_mentioned_agent_ids:explicit,
+      ...(provider||message.sender_source_id?{provider_source_time:provider?.source_time??null,context_only:provider?.context_only===true}:{})};
+  }
   /** Recheck membership and lifecycle before either immediate or reconnect delivery. */
   relayEligible(task: Row, payload: Row = JSON.parse(task.payload_json)): boolean {
     const agent = one(this.db,"SELECT a.node_id,u.id FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id WHERE a.agent_id=? AND a.is_stale=0",payload.agent_id);
@@ -720,7 +740,7 @@ export class Messaging {
     const entry=one(this.db,'SELECT * FROM task_context_index WHERE agent_id=? AND message_id=?',payload.agent_id,task.message_id);
     if(entry?.projection_kind==='revoked')return !!taskContextRevocation(this.db,task.message_id);
     if(entry)return taskContextEntryAllowed(this.db,entry);
-    return !!conversationAccess(this.db,task.conversation_id,agent.id)?.can_write;
+    return chatAllowed(this.db,payload.agent_id,task.message_id) && !!conversationAccess(this.db,task.conversation_id,agent.id)?.can_write;
   }
   deliverRelays(relays: Row[]): boolean {
     let sent=false;

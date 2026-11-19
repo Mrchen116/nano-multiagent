@@ -1,6 +1,7 @@
 import type { PersonalAgentIdentity } from './personal-agent.js';
 export * from './personal-agent.js';
 export * from './agent-lifecycle.js';
+export * from './collaboration.js';
 export * from './agent-deletion.js';
 /** Product vocabulary. This package deliberately imports no execution runtime. */
 export interface AgentConfiguration {
@@ -11,7 +12,7 @@ export interface AgentConfiguration {
   revision: string;
   workspace: string;
   mode: 'single_thread' | 'global';
-  groupReplyPolicy?: 'always' | 'mention_only';
+  collaborationScope?: import('./collaboration.js').CollaborationScope;
   provider: string;
   model: string;
   reasoningEffort?: string;

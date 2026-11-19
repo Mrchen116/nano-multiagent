@@ -73,7 +73,7 @@ function agentState(feature: typeof HEARTBEAT | typeof CRON): AgentDetailState {
       features: {},
       skills: [],
       tool_allowlist: [] as string[],
-      group_reply_policy: "MENTION" as const,
+      collaboration_scope: "team" as const,
       default_model: null,
       model_fallbacks: [],
       reasoning_effort: null,

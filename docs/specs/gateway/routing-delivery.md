@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Routing and Delivery Specification
 
-> 对齐: refactor-653
+> 对齐: feat-774
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -115,6 +115,8 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 
 ### Requirement: 入站消息按四步决策路由并回发原通道原目标
 
+聊天路由先应用协作范围。下列聊天触发和回发场景以消息已获准送达为前提。
+
 本条以下按聊天绑定、处理和自动展示的规则及 Scenario 适用于 `single_thread`。全局模式对应行为以 [global-agent](global-agent.md) 为准。 Agent 身份解析与未知 Agent 拒绝适用于两种模式；global 的入站持久接受后交 Inbox，不预建等待主模型回复的聊天消息。
 
 任一通道（外部 IM 或内置 Web IM）收到一条入站消息时，Gateway 依次决策：路由到哪个 Agent、用哪个会话、是否串行排队、回复发回哪个通道目标。同一会话的回复**只**回发原通道原目标，不跨通道混发。idle 看门狗按 **liveness 心跳**判定一轮是否仍有进展——执行静默长工具、等待主模型返回和自动整理上下文三类“活着但安静”的窗口都有周期性 liveness 心跳，看门狗不再以“无业务输出事件”判卡死；等待用户权限决策同样依赖持续 liveness。只有判定窗口内既无业务事件也无 liveness 心跳时才判失去进展并收尾；`permission_resolved` 是审批结束事件，不是运行失活。
@@ -190,14 +192,14 @@ Gateway 在非用户终态前已接受、但尚未进入模型上下文的普通
 
 ### Requirement: 群聊新消息按各 Agent 的接收策略触发，控制命令按目标生效
 
-MENTION/ALWAYS 和命令实际触达范围适用于两种模式。下述群背景自动带入、按群创建 Session、普通正文/过程气泡及 `/new` 的重开效果适用于 `single_thread`；global 将可见更新存入 Inbox，仅有效实时触发推进唤醒，不自动摄取正文；命中的 global Agent 对 `/new` 在原聊天明确答复不支持。全局模式对应行为以 [global-agent](global-agent.md) 为准。
+两种模式先按协作范围过滤，再处理命令和优先级。下述群背景自动带入、按群创建 Session、普通正文/过程气泡及 `/new` 的重开效果适用于 `single_thread`；global 将可见更新存入 Inbox，仅有效实时触发推进唤醒，不自动摄取正文；命中的 global Agent 对 `/new` 在原聊天明确答复不支持。全局模式对应行为以 [global-agent](global-agent.md) 为准。
 
-对可触发执行的普通群消息，默认 MENTION 策略要求真实提及或回复该 Agent；ALWAYS 策略也处理未点名的普通消息。触发后仍可按相应工作模式保持静默。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 独立于普通消息策略：前者中断实际触达的活动 Agent，后者按各 Agent 的工作模式处理。`/compact`、`/compact <关注点>` 和 `/effort <level>` 仍须明确指向目标 Agent。
+团队协作下，私聊、真实提及、回复或引用本 Agent 及时触发，普通群消息累计到下次高优或十分钟。触发后仍可按相应工作模式保持静默。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 独立于普通消息策略：前者中断实际触达的活动 Agent，后者按各 Agent 的工作模式处理。`/compact`、`/compact <关注点>` 和 `/effort <level>` 仍须明确指向目标 Agent。
 
-#### Scenario: MENTION 下未点名的普通群消息作为背景
-- **GIVEN** 一个使用 MENTION 策略的 single_thread Agent 在群中
+#### Scenario: 团队协作下未点名的普通群消息作为背景
+- **GIVEN** 一个使用团队协作的 single_thread Agent 在群中
 - **WHEN** 群里来了一条未提及或回复该 Agent 的普通消息
-- **THEN** 不为它创建运行或会话。该 Agent 下次被点名时可以取得这条群背景消息。
+- **THEN** 暂存为该群背景。同群下一条高优或十分钟先到者使其取得积压；忙时在下一次模型请求前取得，空闲时有积压才启动。跨群正文分隔，同批只交付一次。
 
 #### Scenario: 群聊被 @提及触发并把上下文带入当轮
 - **GIVEN** 该 Agent 的群上下文 buffer 里已缓冲了若干条未点名消息
@@ -215,20 +217,20 @@ MENTION/ALWAYS 和命令实际触达范围适用于两种模式。下述群背�
 - **AND** 静默 token 不作为 Agent 发言继续 fan-out,其他 Agent 的群上下文 buffer / run 不得收到该 token
 
 #### Scenario: Web IM 群聊裸 `/new` 按各 Agent 工作模式处理
-- **GIVEN** 一个含 single_thread Agent 的内置 Web IM 群聊，其中该 Agent 使用 MENTION 策略
+- **GIVEN** 一个含 single_thread Agent 的内置 Web IM 群聊，其中该 Agent 使用团队协作
 - **WHEN** 用户发送精确的裸 `/new`
 - **THEN** 每个 single_thread Agent 分别重开自己的群会话并在原群确认；Global Agent 反馈不支持重置并保留其原工作上下文
 - **AND** 重开后，面向该 single_thread Agent 的普通消息不携带其旧群会话上下文
 
 #### Scenario: 群聊压缩仍需明确目标
-- **GIVEN** 一个 `group_reply_policy=MENTION` 的 Agent 在某群聊中
+- **GIVEN** 一个 团队协作 的 Agent 在某群聊中
 - **WHEN** 用户发送未 @该 Agent、也非回复该 Agent 的 `/compact` 或 `/compact <关注点>`
 - **THEN** Gateway 不压缩该 Agent 的群会话，也不发送控制确认
 - **WHEN** 用户通过结构化 mention、文本 `@Agent` 或回复该 Agent 发送 `/new`、`/compact` 或 `/compact <关注点>`
 - **THEN** Gateway 只在被指向 Agent 的群会话上执行命令，并在同一群返回控制确认
 
 #### Scenario: 群聊推理档位始终需要明确目标
-- **GIVEN** 群内一个或多个 Agent 的 `group_reply_policy=ALWAYS`
+- **GIVEN** 群内一个或多个 Agent 使用团队协作
 - **WHEN** 用户发送指向 Agent A 的 `/effort <level>`，Gateway 向参与者 fan-out relay
 - **THEN** 只有 Agent A 处理该命令；其他 Agent 不创建会话、不改写 session effort，也不把命令交给模型
 
@@ -305,6 +307,8 @@ Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点
 
 ### Requirement: /stop 控制命令中断当前运行
 
+聊天控制仅对当前协作范围内的输入生效。
+
 命令语法、实际触达范围和原聊天反馈适用于两种模式。以下“当前运行/会话”在 single_thread 指聊天绑定，在 global 指实际触达 Agent 的主工作上下文；global 控制记录归工作轨迹，停止不清 Inbox，也不新增对子任务的级联停止。全局模式对应行为以 [global-agent](global-agent.md) 为准。
 
 终端用户发 `/stop`(支持 `/stop`、`@agent /stop`、`/stop @agent` 形式)可中断该会话当前活动运行;无活动运行时返回友好提示而非报错。
@@ -319,7 +323,7 @@ Gateway 在已路由的聊天中把精确的 `/compact` 和 `/compact <关注点
 - **THEN** 用户收到「当前没有正在执行的操作。」,不抛错
 
 #### Scenario: 群聊裸 /stop 不受 @ 提及门控限制
-- **GIVEN** 群里某 Agent `group_reply_policy=MENTION` 且正在运行
+- **GIVEN** 群里某 Agent 使用团队协作 且正在运行
 - **WHEN** 用户发裸 `/stop`(不 @ 任何 Agent)
 - **THEN** 该 `/stop` 仍送达群内 Agent 并中断正在运行的那个;当前无运行的 Agent 不受影响、不在群里发任何反馈(幂等无副作用)
 
@@ -552,13 +556,13 @@ Gateway 只把含非空真实更新对象的 self-evolution structured result �
 
 仅内置普通群运行启用；普通正文、同群发送工具及回到该群继续运行的后台结果采用相同规则。复核只处理已按原策略被当前运行接受的新消息，不新增静默许可、触发条件或冲突暂停。
 
-#### Scenario: ALWAYS 群中的新更正进入回复
-- **GIVEN** Agent 正准备根据周四安排回复，另一 Agent 未提及它便更正为周五
-- **WHEN** 当前运行按 ALWAYS 接受更正，原正文尚未提交
+#### Scenario: 群内已接受的高优更正进入回复
+- **GIVEN** Agent 正准备根据周四安排回复，另一 Agent 回复它的原消息，更正为周五
+- **WHEN** 当前运行已接受该高优更正，原正文尚未提交
 - **THEN** 原正文保持未发送，Agent 有机会依据更正重新回复或解释分歧；只有原规则允许时才能静默
 
 #### Scenario: 真人补充多模态消息
-- **WHEN** 当前群运行准备回复时接收到用户的文本或图片更正
+- **WHEN** 当前群运行准备回复时接受了面向它的文本或图片更正
 - **THEN** 在公开旧正文之前结合完整新输入继续处理，不丢发言人或图片
 
 #### Scenario: 无新消息与提交后到达
@@ -566,7 +570,7 @@ Gateway 只把含非空真实更新对象的 self-evolution structured result �
 - **THEN** 发言正常发送；后到消息依原插话规则处理，不撤回已提交回复
 
 #### Scenario: 原规则与排除入口保持
-- **WHEN** 未 @ 的消息只进入 MENTION 背景缓冲，或用户使用 Open chat 单聊、外部渠道、跨群主动通知
+- **WHEN** 未 @ 的消息仅在普通背景批次中积累，或用户使用 Open chat 单聊、外部渠道、跨群主动通知
 - **THEN** 保持各自既有行为，不扩大唤醒范围，也不附加当前群复核交互
 
 #### Scenario: 后台返回后继续回复
@@ -616,10 +620,10 @@ PA 的普通与全局 Agent 获得执行环境与用户端可能不同的说明�
 
 复用现有消息／Inbox 与执行机制，群内可见不等于所有 Agent 立即执行。分配通知是可由负责人接手的交办信息，读取并领取后才表示开始推进。
 
-#### Scenario: always 与仅 @ 的 Agent 同群
+#### Scenario: 协作范围不同的 Agent 同群
 
-- **WHEN** 改派消息 @ A 和 B，群里另有 always 模式的 C、仅 @ 模式的 D
-- **THEN** A／B 因有效 @ 命中，C 按 always 命中，未被 @ 的 D 不因该消息主动运行，消息按已有背景／Inbox 机制保留。
+- **WHEN** 改派消息 @ A 和 B，A、B、C 处于团队协作，D 仅限本人
+- **THEN** 聊天提醒按范围送达，A、B 被明确指向，C 的普通聊天消息按批次处理，D 不接收群聊天。任务原件及面向负责人的任务控制仍依其专有授权和触发规则。
 
 #### Scenario: 空闲、忙碌、离线与取消当前执行
 

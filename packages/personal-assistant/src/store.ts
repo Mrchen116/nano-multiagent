@@ -1,3 +1,4 @@
+import { sourceInstant } from './attention.js';
 import type { ScheduleDeletionIntent } from './schedule-deletions.js';
 import type { ControlIntent } from './session-controls.js';
 import { DatabaseSync } from 'node:sqlite';
@@ -123,8 +124,16 @@ export class NodeStore {
     this.lifecycle = new AgentLifecycleAuthority(this.db);
     this.installRecoveryHeads();
     if(!(this.db.prepare('PRAGMA table_info(group_background)').all() as {name:string}[]).some(c=>c.name==='cancelled'))this.db.exec('ALTER TABLE group_background ADD COLUMN cancelled INTEGER NOT NULL DEFAULT 0');
-    if(migrateInputs)this.db.exec("INSERT OR IGNORE INTO input_lifecycles SELECT s.agent_id,json_extract(i.payload,'$.message.id'),coalesce(json_extract(i.payload,'$.lifecycle_revision'),1) FROM inputs i JOIN sessions s USING(session_id)");
-    if(migrateInputs)this.db.exec("INSERT OR IGNORE INTO input_lifecycles SELECT agent_id,json_extract(payload,'$.message.id'),coalesce(json_extract(payload,'$.lifecycle_revision'),1) FROM group_background");
+    if (!(this.db.prepare('PRAGMA table_info(group_background)').all() as {name:string}[]).some(c => c.name === 'due_at'))
+      this.db.exec('ALTER TABLE group_background ADD COLUMN due_at INTEGER');
+    if (!(this.db.prepare('PRAGMA table_info(inputs)').all() as {name:string}[]).some(c => c.name === 'native_input_id'))
+      this.db.exec('ALTER TABLE inputs ADD COLUMN native_input_id TEXT; ALTER TABLE inputs ADD COLUMN scope_blocked INTEGER NOT NULL DEFAULT 0');
+    this.db.exec(`CREATE INDEX IF NOT EXISTS chat_deadlines ON group_background(agent_id,conversation_id,due_at) WHERE cancelled=0;
+      CREATE INDEX IF NOT EXISTS chat_batch_members ON inputs(native_input_id) WHERE native_input_id IS NOT NULL`);
+    if (!(this.db.prepare('PRAGMA table_info(input_lifecycles)').all() as {name:string}[]).some(c => c.name === 'scope_cancelled'))
+      this.db.exec('ALTER TABLE input_lifecycles ADD COLUMN scope_cancelled INTEGER NOT NULL DEFAULT 0');
+    if(migrateInputs)this.db.exec("INSERT OR IGNORE INTO input_lifecycles(agent_id,message_id,revision) SELECT s.agent_id,json_extract(i.payload,'$.message.id'),coalesce(json_extract(i.payload,'$.lifecycle_revision'),1) FROM inputs i JOIN sessions s USING(session_id)");
+    if(migrateInputs)this.db.exec("INSERT OR IGNORE INTO input_lifecycles(agent_id,message_id,revision) SELECT agent_id,json_extract(payload,'$.message.id'),coalesce(json_extract(payload,'$.lifecycle_revision'),1) FROM group_background");
   }
 
   private installRecoveryHeads(): void {
@@ -222,7 +231,7 @@ export class NodeStore {
     const previous=this.db.prepare('SELECT revision FROM input_lifecycles WHERE agent_id=? AND message_id=?').get(input.agent_id,input.message.id) as {revision:number}|undefined;
     const revision=previous?.revision ?? input.lifecycle_revision ?? this.lifecycle.assert(input.agent_id);
     this.lifecycle.assert(input.agent_id,revision);
-    this.db.prepare('INSERT OR IGNORE INTO input_lifecycles VALUES(?,?,?)').run(input.agent_id,input.message.id,revision);
+    this.db.prepare('INSERT OR IGNORE INTO input_lifecycles(agent_id,message_id,revision) VALUES(?,?,?)').run(input.agent_id,input.message.id,revision);
     return {...input,lifecycle_revision:revision};
   }
   /** Stamp outgoing requests at their actual dispatch boundary using the admitted epoch. */
@@ -292,6 +301,7 @@ export class NodeStore {
   }
   aliasConversation(agentId: string, alias: string, canonical: string): void {
     this.db.prepare('INSERT INTO conversation_aliases VALUES(?,?,?) ON CONFLICT(agent_id,alias) DO UPDATE SET canonical=excluded.canonical').run(agentId, alias, canonical);
+    this.db.prepare('UPDATE group_background SET conversation_id=? WHERE agent_id=? AND conversation_id=?').run(canonical, agentId, alias);
   }
   /** Resolve a real IM conversation without inventing an external shadow.
    *
@@ -388,39 +398,121 @@ export class NodeStore {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('UPDATE sessions SET conversation_id=? WHERE session_id=?').run(`history:${binding.sessionId}`, binding.sessionId);
+      this.db.prepare('UPDATE group_background SET cancelled=1 WHERE agent_id=? AND conversation_id=?').run(binding.agentId, binding.conversationId);
       this.bind(next);
       this.db.prepare('UPDATE canonical_sessions SET session_id=? WHERE agent_id=? AND session_id=?').run(next.sessionId, binding.agentId, binding.sessionId);
       this.saveCommand(commandId, '已开始新会话。'); this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
-  bufferGroup(input: RelayInput): void {
-    input=this.admitInput(input);
+  /** Park the original without starting its session. Only live messages carry a deadline. */
+  bufferGroup(input: RelayInput, dueAt: number | null = null): void {
+    input = this.admitInput(input);
     const id = `${input.agent_id}:${input.message.id}`;
-    this.db.prepare('INSERT OR IGNORE INTO group_background(input_id,agent_id,conversation_id,payload) SELECT ?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM inputs WHERE input_id=?)').run(id, input.agent_id, input.conversation_id, JSON.stringify(input), id);
+    const conversationId = this.canonicalConversation(input.agent_id, input.conversation_id);
+    this.db.prepare(`INSERT INTO group_background(input_id,agent_id,conversation_id,payload,due_at)
+      SELECT ?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM inputs WHERE input_id=?)
+      ON CONFLICT(input_id) DO UPDATE SET due_at=excluded.due_at,payload=excluded.payload
+      WHERE group_background.cancelled=0 AND group_background.due_at IS NULL AND excluded.due_at IS NOT NULL`)
+      .run(id, input.agent_id, conversationId, JSON.stringify(input), dueAt, id);
   }
-  /** Transfer parked context into the durable handoff before dropping its buffer row. */
-  takeGroup(binding: SessionBinding): void {
+  /** Earliest live deadlines, including chats with no session yet. */
+  groupDeadlines(agentId: string, conversationId?: string) {
+    return this.db.prepare(`SELECT conversation_id AS conversationId,min(due_at) AS dueAt FROM group_background
+      WHERE cancelled=0 AND agent_id=? AND due_at IS NOT NULL ${conversationId === undefined ? '' : 'AND conversation_id=?'} GROUP BY conversation_id`).all(agentId,...(conversationId === undefined ? [] : [conversationId])) as {conversationId:string;dueAt:number}[];
+  }
+  /** Freeze the trigger and its parked originals to one recoverable native input. */
+  takeGroup(binding: SessionBinding, trigger?: RelayInput): void {
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      const rows = this.db.prepare('SELECT payload FROM group_background WHERE agent_id=? AND conversation_id=? AND cancelled=0 ORDER BY rowid').all(binding.agentId, binding.conversationId) as { payload: string }[];
-      for (const row of rows) {
-        const input = JSON.parse(row.payload) as RelayInput;
-        this.receive(binding.sessionId, { ...input, metadata: { ...input.metadata, context_only: true } });
+      const idOf = (input: RelayInput) => `${input.agent_id}:${input.message.id}`;
+      const duplicate = trigger && (this.db.prepare('SELECT 1 FROM inputs WHERE input_id=?').get(idOf(trigger)) ||
+        this.db.prepare('SELECT 1 FROM group_background WHERE input_id=? AND cancelled=1').get(idOf(trigger)));
+      if (!duplicate) {
+        const rows = this.db.prepare(`SELECT payload,due_at FROM group_background WHERE agent_id=? AND conversation_id=? AND cancelled=0 ORDER BY rowid`)
+          .all(binding.agentId, binding.conversationId) as {payload:string;due_at:number|null}[];
+        const members = rows.map(row => ({input:JSON.parse(row.payload) as RelayInput, live:row.due_at !== null}));
+        let carrier = trigger;
+        if (!carrier) {
+          let latest = -Infinity;
+          for (const {input,live} of members) {
+            const sent = sourceInstant(input) ?? -Infinity;
+            if (live && sent >= latest) { latest = sent; carrier = input; }
+          }
+        }
+        if (carrier) {
+          const nativeId = idOf(carrier);
+          for (const {input} of members) {
+            if (idOf(input) === nativeId) continue;
+            this.receive(binding.sessionId, {...input, metadata:{...input.metadata, context_only:true}}, nativeId);
+          }
+          this.receive(binding.sessionId, {...carrier, metadata:{...carrier.metadata, chat_batch:trigger ? 'high' : 'deadline'}}, nativeId);
+          this.db.prepare('DELETE FROM group_background WHERE agent_id=? AND conversation_id=? AND cancelled=0').run(binding.agentId, binding.conversationId);
+        }
       }
-      this.db.prepare('DELETE FROM group_background WHERE agent_id=? AND conversation_id=? AND cancelled=0').run(binding.agentId, binding.conversationId);
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
 
+  /** Retain the transport identity of a skipped message across retries and scope widening. */
+  skipChat(input:RelayInput):void {
+    this.db.prepare('UPDATE input_lifecycles SET scope_cancelled=1 WHERE agent_id=? AND message_id=?').run(input.agent_id,input.message.id);
+  }
+  skippedChat(input:RelayInput):boolean {
+    return !!this.db.prepare('SELECT 1 FROM input_lifecycles WHERE agent_id=? AND message_id=? AND scope_cancelled=1').get(input.agent_id,input.message.id);
+  }
+
+  /** Block local submission while the runtime determines which requests have reached a provider. */
+  restrictChat(agentId: string, blocked: (input: RelayInput) => boolean) {
+    const parked = this.db.prepare('SELECT input_id,payload FROM group_background WHERE agent_id=? AND cancelled=0')
+      .all(agentId) as {input_id:string;payload:string}[];
+    for (const row of parked) {
+      const input = JSON.parse(row.payload) as RelayInput;
+      if (!blocked(input)) continue;
+      this.skipChat(input);
+      this.db.prepare('UPDATE group_background SET cancelled=1 WHERE input_id=?').run(row.input_id);
+    }
+    const rows = this.db.prepare(`SELECT i.input_id,i.session_id,coalesce(i.native_input_id,i.input_id) AS native_id,i.payload FROM inputs i
+      JOIN sessions s USING(session_id) WHERE s.agent_id=? AND i.evidence_final=0`).all(agentId) as {input_id:string;session_id:string;native_id:string;payload:string}[];
+    const keys = new Map<string,{sessionId:string;inputId:string}>();
+    for (const row of rows) {
+      const original = JSON.parse(row.payload) as RelayInput;
+      if (!blocked(original)) continue;
+      this.skipChat(original);
+      this.db.prepare('UPDATE inputs SET scope_blocked=1 WHERE input_id=?').run(row.input_id);
+      keys.set(row.native_id,{sessionId:row.session_id,inputId:row.native_id});
+    }
+    return [...keys.values()];
+  }
+  restrictControls(agentId:string, blocked:(input:RelayInput)=>boolean):void {
+    for (const control of this.pendingControls(agentId)) {
+      if (control.action !== 'task-stop' && blocked(control.input)) {
+        this.skipChat(control.input);
+        this.saveControl({...control,delivered:true,text:'cancelled_by_scope'});
+      }
+    }
+  }
+  /** Close only carriers the runtime actually withdrew (including never-submitted inputs). */
+  closeRestricted(sessionId:string, inputId:string):void {
+    this.db.prepare(`UPDATE inputs SET turn=NULL,terminal='{"kind":"cancelled_by_scope"}',evidence_final=1
+      WHERE session_id=? AND scope_blocked=1 AND (native_input_id=? OR input_id=?)`).run(sessionId,inputId,inputId);
+  }
+  chatBlocked(inputId:string):boolean {
+    return !!this.db.prepare('SELECT 1 FROM inputs WHERE input_id=? AND scope_blocked=1').get(inputId);
+  }
+  batchInputs(sessionId:string, nativeId:string):RelayInput[] {
+    return (this.db.prepare('SELECT payload FROM inputs WHERE session_id=? AND native_input_id=? ORDER BY rowid')
+      .all(sessionId,nativeId) as {payload:string}[]).map(row=>JSON.parse(row.payload));
+  }
+
   /** Persist before runtime submission; duplicate transport messages share one input. */
-  receive(sessionId: string, input: RelayInput): string {
+  receive(sessionId: string, input: RelayInput, nativeInputId: string | null = null): string {
     input=this.admitInput(input);
     const id = `${input.agent_id}:${input.message.id}`;
-    this.db.prepare('INSERT OR IGNORE INTO inputs(input_id,session_id,relay_id,payload) VALUES(?,?,?,?)').run(id, sessionId, input.relay_task_id, JSON.stringify(input));
+    this.db.prepare('INSERT OR IGNORE INTO inputs(input_id,session_id,relay_id,payload,native_input_id) VALUES(?,?,?,?,?)').run(id, sessionId, input.relay_task_id, JSON.stringify(input), nativeInputId);
     return id;
   }
-  accepted(inputId: string): void { this.db.prepare('UPDATE inputs SET accepted=1 WHERE input_id=?').run(inputId); }
+  accepted(inputId: string): void { this.db.prepare('UPDATE inputs SET accepted=1 WHERE input_id=? OR native_input_id=?').run(inputId,inputId); }
   /** Persist lookup evidence atomically with its logical finality.
    *
    * Args:
@@ -429,8 +521,8 @@ export class NodeStore {
    *   final: Whether logical completion was established; defaults to unresolved.
    */
   inputEvidence(inputId: string, evidence: { accepted: boolean; turn?: number; terminal?: unknown }, final = false): void {
-    this.db.prepare('UPDATE inputs SET accepted=?,turn=coalesce(?,turn),terminal=?,evidence_final=? WHERE input_id=? AND terminal IS NOT ?').run(
-      Number(evidence.accepted), evidence.turn ?? null, evidence.terminal === undefined ? null : JSON.stringify(evidence.terminal), Number(final), inputId, JSON.stringify({kind:'cancelled_by_disable'}),
+    this.db.prepare('UPDATE inputs SET accepted=?,turn=coalesce(?,turn),terminal=?,evidence_final=? WHERE (input_id=? OR native_input_id=?) AND terminal IS NOT ? AND terminal IS NOT ?').run(
+      Number(evidence.accepted), evidence.turn ?? null, evidence.terminal === undefined ? null : JSON.stringify(evidence.terminal), Number(final), inputId, inputId, JSON.stringify({kind:'cancelled_by_disable'}), JSON.stringify({kind:'cancelled_by_scope'}),
     );
   }
   /** Select unresolved input identities without loading completed history payloads.
@@ -441,7 +533,7 @@ export class NodeStore {
    *   Input IDs in admission order, including legacy rows not yet verified.
    */
   lookupInputIds(sessionId: string): string[] {
-    return (this.db.prepare('SELECT input_id FROM inputs WHERE session_id=? AND evidence_final=0 ORDER BY rowid').all(sessionId) as { input_id: string }[]).map(row => row.input_id);
+    return (this.db.prepare('SELECT input_id FROM inputs WHERE session_id=? AND evidence_final=0 AND (native_input_id IS NULL OR native_input_id=input_id) ORDER BY rowid').all(sessionId) as { input_id: string }[]).map(row => row.input_id);
   }
   /** Check for group inputs across turns, including those preceding a system wake. */
   hasGroupInput(sessionId: string): boolean {
@@ -470,7 +562,7 @@ export class NodeStore {
 
   /** Read only unsubmitted inputs in durable admission order. */
   pendingInputs(sessionId: string) {
-    return (this.db.prepare("SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=? AND accepted=0 AND (terminal IS NULL OR terminal='') ORDER BY rowid")
+    return (this.db.prepare("SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=? AND accepted=0 AND scope_blocked=0 AND (native_input_id IS NULL OR native_input_id=input_id) AND (terminal IS NULL OR terminal='') ORDER BY rowid")
       .all(sessionId) as InputRow[]).map(decodeInput);
   }
   /** Check one input receipt without decoding unrelated input bodies. */

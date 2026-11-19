@@ -10,7 +10,7 @@ struct AgentConfig: Codable, Sendable, Equatable {
     var skills: [String]
     var skills_selection_mode: String?
     var tool_allowlist: [String]
-    var group_reply_policy: String
+    var collaboration_scope: String
     var default_model: String?
     var model_fallbacks: [String]
     var reasoning_effort: String?
@@ -26,7 +26,7 @@ struct AgentConfig: Codable, Sendable, Equatable {
         value.agent_id = agent_id; value.display_name = display_name; value.description = description
         value.skills = skills
         value.skills_selection_mode = skills_selection_mode ?? (skills.isEmpty ? "default_discovery" : "explicit_allowlist")
-        value.tool_allowlist = tool_allowlist; value.group_reply_policy = group_reply_policy
+        value.tool_allowlist = tool_allowlist; value.collaboration_scope = collaboration_scope
         value.default_model = default_model ?? ""; value.model_fallbacks = model_fallbacks
         value.reasoning_effort = reasoning_effort ?? ""; value.work_mode = work_mode
         value.workspace_root = workspace_root ?? ""; value.features = features
@@ -63,7 +63,7 @@ struct AgentDraft: Equatable, Sendable {
     var features: [String: Bool] = [:]
     var initial_role = ""
     var initialRoleIsValid: Bool { initial_role.utf16.count <= 2000 }
-    var group_reply_policy = "manual"
+    var collaboration_scope = "team"
     var heartbeat = AgentHeartbeat()
 
     func enabledSkills(candidates: [String]) -> [String] {
@@ -82,7 +82,7 @@ struct AgentDraft: Equatable, Sendable {
             "skills": .array(skills.map(JSONValue.string)), "skills_selection_mode": .string(skills_selection_mode),
             "tool_allowlist": .array(effectiveTools.map(JSONValue.string)),
             "features": .object(features.mapValues(JSONValue.bool)),
-            "group_reply_policy": .string(group_reply_policy)
+            "collaboration_scope": .string(collaboration_scope)
         ]
         if let version { body["profile_version"] = .number(Double(version)) }
         if let data = try? JSONEncoder().encode(heartbeat), let value = try? JSONDecoder().decode(JSONValue.self, from: data) { body["heartbeat"] = value }

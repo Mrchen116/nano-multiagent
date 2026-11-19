@@ -1,3 +1,4 @@
+import { retireTeamBacklog } from './collaboration.js';
 import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import {createHash, randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
@@ -43,7 +44,7 @@ export const gatewayKeys: (keyof AgentConfigurationFields)[] = [
   "skills",
   "skills_selection_mode",
   "tool_allowlist",
-  "group_reply_policy",
+  "collaboration_scope",
   "default_model",
   "model_fallbacks",
   "reasoning_effort",
@@ -62,7 +63,7 @@ export function gatewayCandidate(c: AgentConfigurationFields): AgentConfiguratio
     agent_id: optionalText(c.agent_id) ?? "",
     display_name: optionalText(c.display_name) ?? c.agent_id,
     tool_allowlist: stringList(c.tool_allowlist),
-    group_reply_policy: optionalText(c.group_reply_policy) ?? "manual",
+    collaboration_scope: c.collaboration_scope ?? "team",
     default_model: optionalText(c.default_model),
     model_fallbacks: stringList(c.model_fallbacks),
     reasoning_effort: optionalText(c.reasoning_effort),
@@ -103,7 +104,7 @@ export interface AgentProfileView extends Omit<ConfigurationCandidate, 'initial_
   node_id: string | null;
   display_name: string;
   description: string;
-  group_reply_policy: string;
+  collaboration_scope: import('@nano/product-contracts').CollaborationScope;
   default_model: string | null;
   reasoning_effort: string | null;
   approval_mode: 'cc' | 'codex' | null;
@@ -136,7 +137,7 @@ export function profileResponse(p: AgentProfileRecord, mirror = false): AgentPro
   return {
     agent_id:p.agent_id, owner_id:p.owner_id, space_id:p.space_id, node_id:p.node_id,
     ...(p.avatar_variant == null ? {} : {avatar_variant:p.avatar_variant}),
-    display_name:p.display_name, description:p.description, group_reply_policy:p.group_reply_policy,
+    display_name:p.display_name, description:p.description, collaboration_scope:p.collaboration_scope,
     default_model:p.default_model, reasoning_effort:p.reasoning_effort, approval_mode:p.approval_mode,
     work_mode:p.work_mode, workspace_root:p.workspace_root, profile_version:p.profile_version,
     updated_at:p.updated_at, heartbeat_json:p.heartbeat_json,
@@ -461,7 +462,7 @@ export class ConfigOperations {
         JSON.stringify(c.skills ?? []),
         c.skills_selection_mode ?? null,
         JSON.stringify(c.tool_allowlist ?? []),
-        c.group_reply_policy ?? "manual",
+        c.collaboration_scope ?? "team",
         c.default_model ?? null,
         JSON.stringify(c.model_fallbacks ?? []),
         c.reasoning_effort ?? null,
@@ -475,13 +476,14 @@ export class ConfigOperations {
       if (existing) {
         const changed = db
           .prepare(
-            "UPDATE agent_profiles SET display_name=?,description=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,group_reply_policy=?,default_model=?,model_fallbacks_json=?,reasoning_effort=?,approval_mode=?,work_mode=?,workspace_root=?,workspace_is_default=?,features_json=?,heartbeat_json=?,profile_version=profile_version+1,registration_seed=0,pending_create_operation_id=NULL,updated_at=? WHERE agent_id=? AND profile_version=?",
+            "UPDATE agent_profiles SET display_name=?,description=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,collaboration_scope=?,default_model=?,model_fallbacks_json=?,reasoning_effort=?,approval_mode=?,work_mode=?,workspace_root=?,workspace_is_default=?,features_json=?,heartbeat_json=?,profile_version=profile_version+1,registration_seed=0,pending_create_operation_id=NULL,updated_at=? WHERE agent_id=? AND profile_version=?",
           )
           .run(...vals, now(), op.agent_id, existing.profile_version);
         if (!changed.changes) fail(409, "profile_version conflict");
+        if(existing.collaboration_scope!=='owner_only' && c.collaboration_scope==='owner_only') retireTeamBacklog(db,op.agent_id);
       } else
         db.prepare(
-          "INSERT INTO agent_profiles(display_name,description,skills_json,skills_selection_mode,tool_allowlist_json,group_reply_policy,default_model,model_fallbacks_json,reasoning_effort,approval_mode,work_mode,workspace_root,workspace_is_default,features_json,heartbeat_json,agent_id,owner_id,node_id,profile_version,created_at,updated_at,space_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
+          "INSERT INTO agent_profiles(display_name,description,skills_json,skills_selection_mode,tool_allowlist_json,collaboration_scope,default_model,model_fallbacks_json,reasoning_effort,approval_mode,work_mode,workspace_root,workspace_is_default,features_json,heartbeat_json,agent_id,owner_id,node_id,profile_version,created_at,updated_at,space_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
         ).run(...vals, op.agent_id, op.owner_id, op.node_id, now(), now(), defaultSpace(ownerAccount(db, op.owner_id)!));
       db.prepare(
         "INSERT OR IGNORE INTO users(id,username,display_name,owner_id,created_at) VALUES(?,?,?,?,?)",

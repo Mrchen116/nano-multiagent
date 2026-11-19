@@ -24,7 +24,7 @@ it('reserves command order and recovers the same result after delivery failed', 
 });
 
 it('requires group addressing even under ALWAYS and preserves original command text', () => {
-  const config: AgentConfiguration={agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread',provider:'p',model:'m',groupReplyPolicy:'always'};
+  const config: AgentConfiguration={agentId:'a',revision:'1',workspace:'/tmp',mode:'single_thread',provider:'p',model:'m',collaborationScope:'team'};
   const input: RelayInput={agent_id:'a',conversation_id:'group',relay_task_id:'r',idempotency_key:'r',metadata:{conversation_type:'group',mentioned_agent_ids:[]},message:{id:'r',content:'/compact 保留认证方案',sender_type:'user',sender_user_id:'u',attachments:[]}};
   expect(sessionControl(input,config)).toBeUndefined();
   input.metadata.mentioned_agent_ids=['a'];expect(sessionControl(input,config)).toEqual({action:'compact',argument:'保留认证方案'});
@@ -36,4 +36,24 @@ it('recognizes a directed stop only after the host-resolved target Agent mention
   expect(controlText(input)).toBe('/stop');
   expect(controlText({...input,message:{...input.message,pa_agent_id:'pa'}})).toBe('');
   expect(controlText({...input,message:{...input.message,content:'<mention type="user" target_id="other"/> /stop'}})).not.toBe('/stop');
+});
+
+it('drops both an ensuring command and one queued behind it when scope narrows',async()=>{
+  const store=new NodeStore(':memory:','owner');
+  const binding={agentId:'a',sessionId:'s',conversationId:'group',cwd:'/tmp',revision:'1',ownerId:'owner'};
+  store.bind(binding);
+  const calls:string[]=[];
+  let release!:()=>void;
+  const gate=new Promise<void>(resolve=>{release=resolve;});
+  const controls=new SessionControls({store,nodeId:'n',runtime:{onNotification:()=>()=>{},request:async(method)=>{
+    calls.push(method);if(method==='session.ensure')await gate;return {};
+  }},relay:{request:async(type)=>{calls.push(type);return {type:'ack',payload:{}};}}});
+  try {
+    const submits=['one','two'].map(id=>controls.run(binding,{agent_id:'a',conversation_id:'group',relay_task_id:id,idempotency_key:id,
+      metadata:{conversation_type:'group'},message:{id,content:'/compact',sender_user_id:'peer',sender_type:'user',attachments:[]}},'compact',''));
+    await expect.poll(()=>calls).toContain('session.ensure');
+    store.restrictControls('a',()=>true);
+    release();await Promise.all(submits);await controls.recover('a');
+    expect(calls).toEqual(['session.ensure']);
+  } finally {release();await controls.stop();store.close();}
 });

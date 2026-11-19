@@ -9,7 +9,7 @@ export interface AgentProfileRecord {
   node_id: string | null;
   display_name: string;
   description: string;
-  group_reply_policy: string;
+  collaboration_scope: import('@nano/product-contracts').CollaborationScope;
   default_model: string | null;
   reasoning_effort: string | null;
   approval_mode: 'cc' | 'codex' | null;

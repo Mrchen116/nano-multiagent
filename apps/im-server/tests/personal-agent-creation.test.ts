@@ -5,7 +5,7 @@ import {PersonalAgents} from '../src/personal-agent.js';
 import {configurationOperations} from '../src/configuration-assembly.js';
 import {reportAgentDeletion} from '../src/agent-deletion.js';
 
-const configuration = {agent_id:'english-coach',display_name:'English coach',group_reply_policy:'manual',
+const configuration = {agent_id:'english-coach',display_name:'English coach',collaboration_scope:'team',
   initial_role:'Help the owner practise spoken English.',work_mode:'global',skills:[],tool_allowlist:[],
   features:{intelligent_ui:false,task_graph:false,dreaming:false,cron_scheduling:false,heartbeat:false}};
 

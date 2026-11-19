@@ -49,7 +49,7 @@ export interface ChatTurnStart extends StreamCommon {
 export type ChatStreamFact = ChatTurnStart
   | (StreamCommon & {kind: 'run_terminal_reconcile'})
   | (MessageStream & {kind: 'message_delta'; delta_text?: string; idempotency_key?: string})
-  | (Omit<MessageStream, 'delivery_status'> & {kind: 'message_completed'; idempotency_key?: string; resolved_model?: string; delivery_status?: 'completed' | 'failed'; final_content?: string; token_usage?: ChatUsage | null; elapsed_ms?: number | null; kernel_message_id?: string | null; pa_incident_ref?: unknown; external_delivery_status?: string})
+  | (Omit<MessageStream, 'delivery_status'> & {kind: 'message_completed'; external_reply?: string | null; idempotency_key?: string; resolved_model?: string; delivery_status?: 'completed' | 'failed'; final_content?: string; token_usage?: ChatUsage | null; elapsed_ms?: number | null; kernel_message_id?: string | null; pa_incident_ref?: unknown; external_delivery_status?: string})
   | (MessageStream & {kind: 'message_discarded'; reason?: string})
   | (MessageStream & {kind: 'thinking_segment'; text?: string; process_seq?: number})
   | (MessageStream & {kind: 'tool_call_upserted' | 'tool_call_completed'; tool_call: ChatToolCall; process_seq?: number})

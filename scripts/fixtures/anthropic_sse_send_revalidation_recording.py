@@ -92,7 +92,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     int(text)
                     for index in range(round_number + 1)
                     for message in _json_result(results, f"read-{index}")["messages"]
-                    if (text := _text(message["content"]).strip()).isdigit()
+                    if (
+                        text := _text(message["content"]).strip().rsplit(" ", 1)[-1]
+                    ).isdigit()
                 ]
                 key = f"{role}:{round_number}"
                 if key in self.gates:
@@ -100,10 +102,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         self.pending.add(key)
                     if not self.gates[key].wait(60):
                         raise ValueError(f"unreleased model response: {key}")
+                # Address the remaining counters using the actual identities from the opening message.
+                opening = _json_result(results, "read-0")["messages"][0]
+                tags = re.findall(
+                    r'<mention type="user" target_id="[^"]+"\s*/>',
+                    _text(opening["content"]),
+                )
+                recipients = tags["ABCD".index(role) + 1 :]
+                counted = " ".join([*recipients, str(max(numbers, default=0) + 1)])
                 return _tool(
                     draft,
                     "send_message",
-                    {"target": target, "text": str(max(numbers, default=0) + 1)},
+                    {"target": target, "text": counted},
                 )
             status = _json_result(results, draft)["status"]
             if status == "sent":

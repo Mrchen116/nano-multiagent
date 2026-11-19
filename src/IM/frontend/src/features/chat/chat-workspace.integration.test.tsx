@@ -324,7 +324,7 @@ function mockFetch(opts: {
         skills: [],
         ...(skillsSelectionMode ? { skills_selection_mode: skillsSelectionMode } : {}),
         tool_allowlist: dynamicAgentState?.toolAllowlist ?? toolAllowlist,
-        group_reply_policy: "manual",
+        collaboration_scope: "team",
         default_model: null,
         workspace_root: `/tmp/${agentId}`,
         workspace_is_default: false,

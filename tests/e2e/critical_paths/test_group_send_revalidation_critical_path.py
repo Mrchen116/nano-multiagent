@@ -56,7 +56,7 @@ def test_delayed_group_sends_reread_new_messages_before_counting(
                     "owner_id": client.owner_id,
                     "display_name": f"Counter {role}",
                     "work_mode": "global",
-                    "group_reply_policy": "ALWAYS",
+                    "collaboration_scope": "team",
                     "default_model": stub_llm_stack.llm_model,
                     "tool_allowlist": ["inbox", "conversations", "send_message"],
                     "skills": [],
@@ -79,7 +79,11 @@ def test_delayed_group_sends_reread_new_messages_before_counting(
         chat = client.create_group_conversation(
             [f"counter-{role.lower()}" for role in "ABCD"]
         )
-        initial = client.send_message(chat, "COUNTING_START")
+        initial = client.send_message(
+            chat,
+            "COUNTING_START",
+            mentions=[f"counter-{role.lower()}" for role in "ABCD"],
+        )
 
         def pending(keys: set[str]) -> None:
             poll_until(
@@ -127,7 +131,7 @@ def test_delayed_group_sends_reread_new_messages_before_counting(
             ]
         release("A:0")
         first = delivered(1)[0]
-        assert first["content"] == "1"
+        assert first["content"].rsplit(" ", 1)[-1] == "1"
         release("D:0")
         pending({"D:1"})
         delayed = snapshots("D")[-1]
@@ -140,7 +144,7 @@ def test_delayed_group_sends_reread_new_messages_before_counting(
         release("D:1")
         final = delivered(4)
         assert len({m["id"] for m in final}) == 4
-        assert [m["content"] for m in final] == ["1", "2", "3", "4"]
+        assert [m["content"].rsplit(" ", 1)[-1] for m in final] == ["1", "2", "3", "4"]
         assert [(m["sender"]["id"]) for m in final] == [
             f"counter-{role.lower()}" for role in "ABCD"
         ]
@@ -158,7 +162,7 @@ def test_delayed_group_sends_reread_new_messages_before_counting(
             for index in range(rounds):
                 assert complete[f"draft-{index}"]["status"] == "held_for_revalidation"
             drafts = [
-                block["input"]["text"]
+                block["input"]["text"].rsplit(" ", 1)[-1]
                 for message in requests(role)[-1]["messages"]
                 if isinstance(message["content"], list)
                 for block in message["content"]

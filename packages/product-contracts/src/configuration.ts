@@ -1,3 +1,4 @@
+import { isCollaborationScope } from './collaboration.js';
 import { sortedJsonAscii } from './serialization.js';
 import { createHash } from 'node:crypto';
 import type { PersonalAgentIdentity } from './index.js';
@@ -7,6 +8,8 @@ const strings = (value: unknown): string[] => Array.isArray(value) ? value.flatM
 /** One non-secret configuration representation shared by node and IM. */
 export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
   const agentId = text(payload.agent_id) ?? '';
+  const scope = payload.collaboration_scope === undefined ? 'team' : payload.collaboration_scope;
+  if (!isCollaborationScope(scope)) throw new Error('Invalid collaboration_scope');
   const approvalMode = payload.approval_mode ?? null;
   if (approvalMode !== null && approvalMode !== 'cc' && approvalMode !== 'codex') throw new Error('Invalid approval_mode');
   const originalSkills = Array.isArray(payload.skills) ? strings(payload.skills) : null;
@@ -37,7 +40,7 @@ export function canonicalAgentConfiguration(payload: Record<string, unknown>) {
     // New Agent creation resolves its own default to global before this point.
     agent_id: agentId, approval_mode: approvalMode as 'cc' | 'codex' | null, work_mode: text(payload.work_mode) ?? 'single_thread',
     display_name: text(payload.display_name) ?? agentId, skills, skills_selection_mode: mode,
-    tool_allowlist: strings(payload.tool_allowlist), group_reply_policy: text(payload.group_reply_policy) ?? 'manual',
+    tool_allowlist: strings(payload.tool_allowlist), collaboration_scope: scope,
     default_model: text(payload.default_model), model_fallbacks: strings(payload.model_fallbacks), reasoning_effort: text(payload.reasoning_effort),
     workspace_root: text(payload.workspace_root), heartbeat_json: heartbeatJson,
     features: payload.features && typeof payload.features === 'object' && !Array.isArray(payload.features)

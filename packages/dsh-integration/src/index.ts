@@ -8,7 +8,7 @@ import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { type ScheduleCatalogEntry } from '@deepseek-ai/dsh-schedule';
-import { SessionId, SessionLogOffset, type SessionEvent } from '@deepseek-ai/dsh-session';
+import { SessionId, SessionLogOffset, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
@@ -48,6 +48,7 @@ import { CodexApproval } from './policy/codex.js';
 import * as NanoWeb from './web.js';
 import { NanoWorkflowEngine } from './workflow/engine.js';
 import { registerWorkflowTool } from './workflow/tool.js';
+import { ChatScope } from './chat-scope.js';
 import { InboxDelivery } from './inbox-delivery.js';
 import { installLlmAttribution } from './llm-attribution.js';
 import { attachModelConnectionRetry } from './model-connection-retry.js';
@@ -81,6 +82,7 @@ export interface AgentConfiguration {
   extensions?: { global?: string; workspace?: string };
   knowledge?: import('@nano/product-contracts').AgentConfiguration['knowledge'];
   approval?: import('@nano/product-contracts').ApprovalConfiguration;
+  collaborationScope?: 'team' | 'owner_only';
   mode?: 'single_thread' | 'global';
 }
 export interface SessionBinding {
@@ -98,12 +100,12 @@ interface Submit {
   mode: 'followup' | 'steer' | 'inject';
   onlyIfIdle?: boolean;
   content: PromptContentPart[];
-  source: { kind: 'human' | 'system'; humanTaskControl?:Record<string,unknown>; lifecycle_revision?: number; contextEnvelope?: string; conversationId?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; roleAccountId?: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
+  source: { kind: 'human' | 'system'; nanoTeamChat?:boolean; directHumanText?:string; humanTaskControl?:Record<string,unknown>; lifecycle_revision?: number; contextEnvelope?: string; conversationId?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; roleAccountId?: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
 }
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     schedule: { kind: 'schedule'; lifecycle_revision?: number; scheduleId?: string; triggerKind?: 'manual' };
-    'nano-system': { kind: 'nano-system'; lifecycle_revision?: number; actorId: string; channel: string; messageId: string; conversationId?:string; humanTaskControl?:Record<string,unknown>; background_returns?: Record<string, unknown>[] };
+    'nano-system': { kind: 'nano-system'; nanoTeamChat?:boolean; lifecycle_revision?: number; actorId: string; channel: string; messageId: string; conversationId?:string; humanTaskControl?:Record<string,unknown>; background_returns?: Record<string, unknown>[] };
   }
 }
 
@@ -131,6 +133,7 @@ export default class NanoRuntime {
   private readonly ownerOf: (sessionId: string) => string | undefined;
   private admissions = 0;
   private readonly controller;
+  private readonly chatScope: ChatScope;
   private readonly models: Promise<ModelPolicy>;
   private readonly cron: CronOwners;
   private readonly capabilities: CapabilityState;
@@ -175,6 +178,7 @@ export default class NanoRuntime {
     const inboxDelivery = new InboxDelivery(ctx, sessionId => this.bindings.get(sessionId)?.agentId, sessionId => {
       this.peer.notify('session.work.changed', {sessionId,rootSessionId:sessionId});
     });
+    this.chatScope = new ChatScope(ctx,id=>this.bindings.get(id)?.agentId);
     new TrajectoryRuns(ctx);
     let configurationService: ConfigurationScopes;
     this.capabilities = new CapabilityState((config, names) => configurationService.selection(config, names));
@@ -463,7 +467,7 @@ export default class NanoRuntime {
       for(const sessionId of config.taskStops??[])this.tasks.block(sessionId,true);
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       updateServices = { models: await models, knowledge: await knowledge, workflow: await workflow };
-      for (const pending of config.pendingConfigurations ?? []) if (!deletion?.retired(pending.config.agentId)) await prepare(pending);
+      for (const pending of config.pendingConfigurations ?? []) if (!deletion?.retired(pending.config.agentId)) await prepare(pending,true);
       this.accepting = true;
       for (const agent of config.agents) if (!deletion?.retired(agent.agentId)) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
@@ -598,7 +602,11 @@ export default class NanoRuntime {
       const { sessionId, inputId } = value as { sessionId: string; inputId: string };
       const agent = await this.agent(sessionId);
       await this.flush(agent);
-      return (await models).fallback.evidence(agent, inputId);
+      const evidence=(await models).fallback.evidence(agent, inputId);
+      const event=evidence.consumedSeq === undefined ? undefined : agent.session.eventAt(SessionSeq(evidence.consumedSeq));
+      const message=event?.type === 'user/message' ? event.data : [...agent.inbox.nextStep,...agent.inbox.nextTurn].find(m=>m.id===inputId);
+      return message && 'nanoTeamChat' in message.source && message.source.nanoTeamChat ?
+        {...evidence,providerDelivered:await this.chatScope.delivered(sessionId,inputId)} : evidence;
     });
     type WorkRead = {sessionId:string; afterSeq?:number; replayFrom?:number; modelVersion?:string; stoppedRevision?:number};
     const disabling = new Map<string, Promise<{confirmed: boolean}>>();
@@ -845,7 +853,7 @@ export default class NanoRuntime {
       }
       return {checked_at: new Date().toISOString(), active_schedules: schedules.filter(task => task.status === 'active').length, busy};
     };
-    const prepare = async (input: {operationId: string; fingerprint: string; config: AgentConfiguration; initialRole?: string}) => {
+    const prepare = async (input: {operationId: string; fingerprint: string; config: AgentConfiguration; initialRole?: string}, protectChat = false) => {
       if (!input.operationId || !input.fingerprint) throw new RpcError(-32602, 'Configuration operation identity is required');
       const previous = [...this.configurations.values()].find(config => config.agentId === input.config.agentId);
       const catalog = await preview(input.config, input.config.workspace ?? previous?.workspace ?? process.cwd(), true) as {tools: {name: string}[]; skills: {name: string}[]};
@@ -863,12 +871,18 @@ export default class NanoRuntime {
             : 'Initial ROLE could not be saved'};
         }
       }
+      if (protectChat && previous && prepared.ready && input.config.collaborationScope==='owner_only')
+        this.chatScope.reserve(input.config.agentId,input.operationId);
       return prepared;
     };
     // The editor asks which selections are in use, not whether native workers are active.
     handle('configuration.usage', value => usage((value as {agentId: string}).agentId, true));
-    handle('configuration.prepare', value => prepare(value as Parameters<typeof prepare>[0]));
-    handle('configuration.release', value => { const {agentId, operationId} = value as {agentId: string; operationId: string}; this.capabilities.release(agentId, operationId); return {released: true}; });
+    handle('configuration.prepare', value => prepare(value as Parameters<typeof prepare>[0],true));
+    handle('configuration.release', value => { const {agentId, operationId} = value as {agentId: string; operationId: string}; this.capabilities.release(agentId, operationId); this.chatScope.release(agentId,operationId); return {released: true}; });
+    handle('configuration.restrictChat', value => {
+      const {agentId,changes,operationId}=value as {agentId:string;operationId?:string;changes:Parameters<ChatScope['restrict']>[1]};
+      return this.chatScope.restrict(agentId,changes).then(result=>{if(operationId)this.chatScope.release(agentId,operationId);return result;});
+    });
     handle('configuration.apply', async value => {
       const {operationId = `runtime:${(value as AgentConfiguration).revision}`, fingerprint = (value as AgentConfiguration).revision, ...next} = value as AgentConfiguration & {operationId?: string; fingerprint?: string};
       if (!this.capabilities.matches(next.agentId, operationId, fingerprint, next)) {
@@ -906,7 +920,7 @@ export default class NanoRuntime {
       this.peer.notify('heartbeat.subscription', { agentId: next.agentId, enabled: next.features?.heartbeat === true });
       if (!metadataOnly) this.tasks.configured(next.agentId);
       return { effective: true, revision: next.revision };
-      } finally { this.capabilities.release(next.agentId, operationId); }
+      } finally { this.capabilities.release(next.agentId, operationId); this.chatScope.release(next.agentId, operationId); }
     });
     for (const method of ['configuration.features', 'schedule.enabled']) handle(method, () => {
       throw new RpcError(-32602, 'Use configuration.prepare and configuration.apply with a complete candidate');
@@ -1022,7 +1036,7 @@ export default class NanoRuntime {
         const ids = new Set(sessionIds);
         await Promise.all([
           (await models).fallback.forget(ids),
-          inboxDelivery.forget(ids),
+          inboxDelivery.forget(ids), this.chatScope.forget(ids),
           ctx.nanoTrajectoryRuns.forget(ids),
           ctx.nanoTrajectoryAttachments.settle(ids),
           toolViews.purge(ids),
@@ -1193,8 +1207,10 @@ export default class NanoRuntime {
       this.lifecycle.assertEnabled(agentId);
       if (this.lifecycle.current(agentId).revision !== revision) throw new Error('stale_lifecycle');
       const source = {...input.source, admittedAt:Date.now(), lifecycle_revision: input.source.lifecycle_revision ?? input.lifecycle_revision ?? revision};
-      const message = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,
+      const original = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,
         source: input.source.kind === 'human' ? { ...source, kind: 'user' as const } : { ...source, kind: 'nano-system' as const } });
+      const [message] = this.chatScope.queued(input.sessionId,original);
+      if (!message || config?.collaborationScope === 'owner_only' && input.source.nanoTeamChat) return {accepted:false, withdrawn:true, durable:true};
       if (input.mode === 'followup') agent.followup(message);
       else if (input.mode === 'steer') {
         if (message.source.kind === 'nano-system' && message.source.channel === 'inbox') {

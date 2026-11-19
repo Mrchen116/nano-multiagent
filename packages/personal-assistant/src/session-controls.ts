@@ -8,7 +8,7 @@ interface Options { nodeId: string; runtime: RuntimePort; store: NodeStore; rela
 export function sessionControl(input: RelayInput, config: AgentConfiguration): { action: string; argument: string } | undefined {
   if (input.message.sender_type !== 'user') return;
   const match = /^\/(compact|effort|workflows|config)(?:\s+([\s\S]*))?$/.exec(controlText(input));
-  if (!match || !needsAttention(input, { ...config, groupReplyPolicy: 'mention_only' })) return;
+  if (!match || !needsAttention(input, config)) return;
   return { action: match[1]!, argument: match[2]?.trim() ?? '' };
 }
 
@@ -36,20 +36,27 @@ export class SessionControls {
   }
   private async perform(intent: ControlIntent) {
     const { store, runtime, relay, nodeId } = this.options; const { binding, input } = intent;
-    if (intent.delivered) return;
+    const cancelled = () => store.control(intent.id)?.delivered === true;
+    if (cancelled()) return;
     if (!intent.text) {
       const current = store.bindingFor(binding.agentId, binding.conversationId);
       if (current?.sessionId !== binding.sessionId) intent.text = '本次控制操作未执行：原会话已被重置。';
       else {
         const { conversationId: _, ...runtimeBinding } = binding;
         await runtime.request('session.ensure', runtimeBinding);
+        if (cancelled()) return;
         const result = await runtime.request('session.command', { sessionId: binding.sessionId, id: intent.id, action: intent.action, argument: intent.argument }) as { text: string };
         intent.text = result.text;
       }
+      if (cancelled()) return;
       store.saveControl(intent);
     }
     const start = await relay.request('node.streaming_delta', { node_id: nodeId, kind: 'turn_start', conversation_id: input.conversation_id,
       agent_id: binding.agentId, idempotency_key: `command:${intent.id}`, external_reply: input.metadata.external_reply });
+    if (cancelled()) {
+      await relay.request('node.streaming_delta',{node_id:nodeId,kind:'message_discarded',message_id:start.payload.message_id,reason:'cancelled_by_scope'});
+      return;
+    }
     await relay.request('node.streaming_delta', { node_id: nodeId, kind: 'message_completed', message_id: start.payload.message_id,
       final_content: intent.text, delivery_status: 'completed' });
     await relay.request('node.delivery_receipt', { node_id: nodeId, relay_task_id: input.relay_task_id, delivery_status: 'completed' });

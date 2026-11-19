@@ -45,8 +45,9 @@ it('coalesces Inbox notices during a model request and notifies again after cons
     client.rpc.handle('product.call', value => product!.call(value as ProductCall));
     client.rpc.handle('model.check', () => ({ published: false }));
     const input = (id: string, target = 'c_dm', mentions: string[] = []): RelayInput => ({ agent_id: 'a', conversation_id: target, relay_task_id: id, idempotency_key: id,
-      metadata: { conversation_type: target === 'external:team' ? 'group' : 'direct', mentioned_agent_ids: mentions },
-      message: { id, content: `BODY_${id}`, sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
+      metadata: { conversation_type: target === 'external:team' ? 'group' : 'direct', mentioned_agent_ids: mentions,
+        ...(target==='external:team'?{provider_source_time:'2026-11-18T11:05:00.000Z'}:{}) },
+      message: { id, content: `BODY_${id}`, created_at:'2026-11-18T11:03:00.000Z', sender_type: 'user', sender_user_id: 'owner', attachments: [] } });
     const respond = (index: number, target?: string) => requests[index]!.response.end(JSON.stringify(target ? [
       { type: 'block-end', index: 0, block: { type: 'tool-call', id: `read-${index}`, name: 'inbox', arguments: JSON.stringify({ action: 'read', target }) } },
       { type: 'finish', reason: { kind: 'tool-calls' } },
@@ -61,14 +62,14 @@ it('coalesces Inbox notices during a model request and notifies again after cons
     await client.rpc.request('session.submit', { sessionId: binding.sessionId, inputId: 'other-notice', mode: 'inject',
       content: [{ type: 'text', text: 'OTHER_NOTICE' }], source: { kind: 'system', actorId: 'a', channel: 'other', messageId: 'other-notice' } });
     const summary = (index: number) => JSON.parse(requests[index]!.messages.findLast(message => message.source?.channel === 'inbox').content[0].text.split('\n').at(-1));
-    expect(summary(0).sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 1, mentions: 0, conversation_type: 'direct' }]);
+    expect(summary(0).sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 1, mentions: 0, conversation_type: 'direct', latest_message_at:'2026-11-18T11:03:00.000Z' }]);
     respond(0, summary(0).sources[0].target);
     await expect.poll(() => requests.length).toBe(2);
     expect(notices(1)).toBe(notices(0) + 1);
     expect(JSON.stringify(requests[1]!.messages)).toContain('OTHER_NOTICE');
     expect(summary(1).sources).toEqual([
-      { target: 'c_dm', name: 'Owner', unread: 2, mentions: 0, conversation_type: 'direct' },
-      { target: expect.stringMatching(/^c_f_/), name: 'Team', unread: 2, mentions: 1, conversation_type: 'group' },
+      { target: expect.stringMatching(/^c_f_/), name: 'Team', unread: 2, mentions: 1, conversation_type: 'group', latest_message_at:'2026-11-18T11:05:00.000Z' },
+      { target: 'c_dm', name: 'Owner', unread: 2, mentions: 0, conversation_type: 'direct', latest_message_at:'2026-11-18T11:03:00.000Z' },
     ]);
     const notice = requests[1]!.messages.findLast(message => message.source?.channel === 'inbox');
     expect(JSON.stringify(notice)).not.toContain('BODY_');
@@ -80,11 +81,21 @@ it('coalesces Inbox notices during a model request and notifies again after cons
     respond(2, 'c_dm');
     await expect.poll(() => requests.length).toBe(4);
     expect(notices(3)).toBe(notices(2) + 1);
-    expect(summary(3).sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 1, mentions: 0, conversation_type: 'direct' }]);
+    expect(summary(3).sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: 1, mentions: 0, conversation_type: 'direct', latest_message_at:'2026-11-18T11:03:00.000Z' }]);
     expect(JSON.stringify(requests[3]!.messages)).toContain('BODY_later');
     respond(3);
     await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
     expect(inbox.check('a').sources).toEqual([]);
+    for (let n = 0; n < 20; n++) await product.receive(input('ordinary-' + n, 'external:team'));
+    expect(requests).toHaveLength(4);
+    await product.receive(input('priority-dm'));
+    await expect.poll(() => requests.length).toBe(5);
+    expect(summary(4).sources.map((row:{unread:number})=>row.unread)).toEqual([20,1]);
+    expect(notices(4)).toBe(notices(3)+1);
+    expect(JSON.stringify(requests[4]!.messages)).not.toContain('BODY_ordinary-');
+    respond(4);
+    await expect.poll(async () => (await client!.rpc.request('session.observe', { sessionId: binding.sessionId }) as { status: string }).status).toBe('idle');
+    expect(requests).toHaveLength(5);
     expect(errors).toEqual([]);
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally {
@@ -236,7 +247,7 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
     expect(noticeCount(captured[2])).toBe(noticeCount(captured[1]) + 1);
     const summary = JSON.parse(captured[2].findLast((message: any) => message.source?.channel === 'inbox').content[0].text.split('\n').at(-1));
     // The notice was assembled before the first send could commit its read when Work was held.
-    expect(summary.sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: stallWork ? 4 : 3, mentions: 0, conversation_type: 'direct' }]);
+    expect(summary.sources).toEqual([{ target: 'c_dm', name: 'Owner', unread: stallWork ? 4 : 3, mentions: 0, conversation_type: 'direct',latest_message_at:null }]);
     expect(JSON.stringify(captured[2])).not.toContain(correction);
     expect(JSON.stringify(captured[2])).toContain('held_for_revalidation');
     expect(JSON.stringify(captured[3])).toContain(correction);
@@ -265,7 +276,7 @@ export const name='inbox-model'; export const inject=['llm']; export function ap
   }
 }, 20000);
 
-it('keeps a due PA background batch outside a busy native turn and admits it once on idle',async()=>{
+it('steers one due PA background batch into the next request of a busy native turn',async()=>{
   const home=await mkdtemp(join(tmpdir(),'nano-pa-background-'));
   const store=new NodeStore(':memory:','owner'),inbox=new InboxStore(':memory:');
   let client:RuntimeClient|undefined,product:GlobalAgent|undefined;
@@ -307,18 +318,20 @@ export const name='background-model';export const inject=['llm'];export function
     await product.recover();
     const binding=store.bindingFor('pa','global:pa')!;
     const state=()=>client!.rpc.request('session.observe',{sessionId:binding.sessionId}) as Promise<{status:string;events:any[]}>;
-    expect(JSON.stringify((await state()).events)).not.toContain('inbox-background');
+    const batchId='inbox-wake:pa:'+inbox.watermark('pa');
+    expect(await client.rpc.request('session.lookup',{sessionId:binding.sessionId,inputId:batchId})).toMatchObject({accepted:true,pending:true});
     release();
-    await expect.poll(async()=>JSON.stringify((await state()).events).includes('inbox-background')).toBe(true);
     await expect.poll(async()=>(await state()).status).toBe('idle');
     const events=(await state()).events;
-    expect(events.filter(e=>e.type==='user/message'&&e.data.source?.channel==='inbox-background')).toHaveLength(1);
+    expect(events.filter(e=>e.type==='user/message'&&e.data.source?.messageId===batchId)).toHaveLength(1);
     const requests=await readFile(join(home,'requests.jsonl'),'utf8');
     expect(requests).not.toContain('PRIVATE_OBSERVED_BODY');
-    const backgroundNotice=requests.trim().split('\n').flatMap(line=>JSON.parse(line)).find(message=>message.source?.channel==='inbox-background');
+    const steps=requests.trim().split('\n').map(line=>JSON.parse(line));
+    expect(steps).toHaveLength(2);
+    const backgroundNotice=steps[1].findLast((message:any)=>message.source?.channel==='inbox');
     const summary=JSON.parse(backgroundNotice.content[0].text.split('\n').at(-1));
-    expect(summary.sources).toContainEqual({target:'background',name:'Background chat',unread:1,mentions:0,conversation_type:'direct',delivery:'observer'});
-    expect(summary.sources).toContainEqual({target:'own',name:'Owner',unread:1,mentions:0,conversation_type:'direct',delivery:'participant'});
+    expect(summary.sources).toContainEqual({target:'background',name:'Background chat',unread:1,mentions:0,conversation_type:'direct',delivery:'observer',latest_message_at:null});
+    expect(summary.sources).toContainEqual({target:'own',name:'Owner',unread:1,mentions:0,conversation_type:'direct',delivery:'participant',addressed_to:'agent',latest_message_at:null});
     expect(inbox.check('pa',true).sources.find(s=>s.target==='background')?.unread).toBe(1);
     expect(errors).toEqual([]);
   }catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}

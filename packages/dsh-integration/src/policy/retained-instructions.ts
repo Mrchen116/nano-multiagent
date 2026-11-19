@@ -1,6 +1,6 @@
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm';
-import { isHumanSource } from '../input-source.js';
+import { isHumanSource, scopedChatEvents } from '../input-source.js';
 import { tokenCost } from './codex-context.js';
 
 type Row = Record<string, unknown>;
@@ -20,7 +20,7 @@ const record = (value: unknown): Row | undefined => value && typeof value === 'o
 export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?: string): RetainedInstructions {
   const units: Row[] = [];
   let incomplete=false;
-  const events = agent.session.snapshotEvents();
+  const events = scopedChatEvents(agent.session.snapshotEvents());
   let previous: Row | undefined;
   const calls = new Map<string, string>();
   const messages = new Map<string, Row>();
@@ -96,7 +96,7 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
         units.push({id:message.source.messageId, session_id:agent.id, human_task_control:message.source.humanTaskControl});
       }
       if (!isHumanSource(message.source) || ownerId && message.source.actorId !== ownerId) { previous=undefined;continue; }
-      units.push({id: message.source.messageId, session_id: agent.id, original_message: {id: message.id, user: body(message.content), source: message.source}, ...(previous ? {preceding_assistant: previous} : {})});
+      units.push({id: message.source.messageId, session_id: agent.id, original_message: {id: message.id, user: message.source.directHumanText ?? body(message.content), source: message.source}, ...(previous ? {preceding_assistant: previous} : {})});
       previous = undefined;
     } else if (event.type === 'tool/result' && !event.data.message.isError) {
       const message = event.data.message;

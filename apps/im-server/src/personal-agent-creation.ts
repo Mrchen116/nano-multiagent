@@ -18,7 +18,7 @@ const fields = {
   skills:'Skill names from the target catalog.',skills_selection_mode:'explicit_allowlist, explicit_denylist, or default_discovery.',
   tool_allowlist:'Tool names from the target catalog. Enabled Features require their declared dependencies.',
   features:'Boolean settings by capabilities.features[].key. Include required Features, tools and Skills together.',
-  group_reply_policy:'manual, mention_only or always.',
+  collaboration_scope:'team (default) or owner_only.',
   workspace_root:'null uses the target computer default; custom paths are validated by that computer.',
   confirm_existing_workspace:'true only after the owner explicitly confirms using the specified existing directory; never overwrite its contents.',
 };
@@ -48,7 +48,7 @@ export class PersonalAgentCreation {
         return [feature.key,!!available?.default_on && available.available!==false];
       })));
       const dependencies=featureDependencies.filter(feature=>features[feature.key]);
-      const defaults={work_mode:'global',group_reply_policy:'mention_only',default_model:null,
+      const defaults={work_mode:'global',collaboration_scope:'team',default_model:null,
         model_fallbacks:[],reasoning_effort:null,approval_mode:null,workspace_root:null,features,
         skills_selection_mode:'explicit_allowlist',
         skills:[...new Set([...capabilities.skills.filter((s:Row)=>s.default_on).map((s:Row)=>s.name),...dependencies.flatMap(feature=>feature.requires.skills)])],

@@ -1,3 +1,4 @@
+import { cancelChatRelay, chatAllowed } from './collaboration.js';
 import {registerWorkRedactions} from './work-sync.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { NodeRpc } from './node-rpc.js';
@@ -341,7 +342,7 @@ export class Gateway {
       // replace an existing IM desired revision or a pending configuration operation.
       if (!existed && p.agent_configurations?.[id]) {
         const seed=canonicalAgentConfiguration({...p.agent_configurations[id],agent_id:id,workspace_root:p.agent_workspaces?.[id],work_mode:p.agent_work_modes?.[id]??'single_thread'});
-        db.prepare('UPDATE agent_profiles SET display_name=?,group_reply_policy=?,default_model=?,reasoning_effort=?,approval_mode=?,heartbeat_json=?,features_json=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,model_fallbacks_json=? WHERE agent_id=?').run(seed.display_name,seed.group_reply_policy,seed.default_model,seed.reasoning_effort,seed.approval_mode,seed.heartbeat_json,JSON.stringify(seed.features),JSON.stringify(seed.skills),seed.skills_selection_mode,JSON.stringify(seed.tool_allowlist),JSON.stringify(seed.model_fallbacks),id);
+        db.prepare('UPDATE agent_profiles SET display_name=?,collaboration_scope=?,default_model=?,reasoning_effort=?,approval_mode=?,heartbeat_json=?,features_json=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,model_fallbacks_json=? WHERE agent_id=?').run(seed.display_name,seed.collaboration_scope,seed.default_model,seed.reasoning_effort,seed.approval_mode,seed.heartbeat_json,JSON.stringify(seed.features),JSON.stringify(seed.skills),seed.skills_selection_mode,JSON.stringify(seed.tool_allowlist),JSON.stringify(seed.model_fallbacks),id);
       }
       const advertised = p.agent_create_operations?.[id];
       const operation = advertised
@@ -566,13 +567,20 @@ export class Gateway {
       const input = JSON.parse(relay.payload_json);
       const targetAgent = this.requireAgent(c, input.agent_id);
       s.access({ ...c, kind: "gateway" }, relay.conversation_id, targetAgent.agent_id);
+      if (p.delivery_status==='skipped') {
+        transaction(db,()=>cancelChatRelay(db,relay,targetAgent.agent_id,true));
+        s.delivery.receipt(c.node_id,p.relay_task_id);
+        return ack({relay_task_id:p.relay_task_id});
+      }
       if (!['sent','accepted','completed','failed','read'].includes(p.delivery_status)) fail(400,'invalid_delivery_status');
-      if (input.metadata?.agent_receipt && relay.status !== 'cancelled' && ['sent','read'].includes(p.delivery_status)) {
+      const scopeCancelled=relay.status==='cancelled' && relay.receipt_detail==='collaboration_scope' && relay.receipt_status!=='skipped';
+      if (input.metadata?.agent_receipt && (relay.status !== 'cancelled'||scopeCancelled) && ['sent','read'].includes(p.delivery_status)) {
         const stage = p.delivery_status === 'read' ? 2 : 1;
+        // The model may already have seen a batch whose ACK crossed the edit in flight.
         if (db.prepare(`
-          UPDATE message_receipts SET status=? WHERE message_id=? AND status<?
-            AND recipient_id=(SELECT id FROM users WHERE username=?)
-        `).run(stage,relay.message_id,stage,'agent:'+targetAgent.agent_id).changes)
+          INSERT INTO message_receipts(message_id,recipient_id,status) SELECT ?,id,? FROM users WHERE username=?
+          ON CONFLICT(message_id,recipient_id) DO UPDATE SET status=excluded.status WHERE message_receipts.status<excluded.status
+        `).run(relay.message_id,stage,'agent:'+targetAgent.agent_id).changes)
           // A receipt refreshes the chat without changing the message version used by frozen reads.
           s.event(relay.conversation_id,null,'message.receipts_changed',{});
       }
@@ -726,7 +734,7 @@ export class Gateway {
     const conversation = one(db, "SELECT space_id FROM conversations WHERE id=?", m.conversation_id);
     if (!conversation || lifecycle(db,a.agent_id).desired!=='enabled' || !agentAvailable(db, a) || !canActorAccess(db,s.agentUser(a.agent_id).id,conversation.space_id)) return;
     const personal=one(db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',a.agent_id);
-    if(personal && !this.ctx.personal!.messageAllowed(personal,m)) return;
+    if(!chatAllowed(db,a.agent_id,m.id) || personal && !this.ctx.personal!.messageAllowed(personal,m)) return;
     if (one(db, "SELECT 1 FROM relay_tasks WHERE idempotency_key=?", key)) return;
     // Delegated PA sends preserve their author even when only the recipient is a member.
     const c = s.conversation(m.conversation_id, s.agentUser(a.agent_id).id);
@@ -742,6 +750,8 @@ export class Gateway {
         participants: c.participants,
         metadata: {
           conversation_type: c.type,
+          ...s.deliveryFacts(a.agent_id,m),
+          config_profile_version:a.profile_version,
           participant_agent_ids: c.participants
             .filter((p: Row) => p.type === "agent")
             .map((p: Row) => p.id),

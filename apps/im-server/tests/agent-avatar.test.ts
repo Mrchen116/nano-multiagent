@@ -29,7 +29,7 @@ it.each([false,true])('persists the selected avatar and projects it to chat and 
   try {
     const url=personal ? '/im/v1/personal-agent' : '/im/v1/nodes/n/agents';
     const payload=personal ? {node_id:'n',request_key:'appearance',display_name:'Same name',avatar_variant:17}
-      : {agent_id:'new-agent',display_name:'Same name',avatar_variant:17,group_reply_policy:'manual',skills:[]};
+      : {agent_id:'new-agent',display_name:'Same name',avatar_variant:17,collaboration_scope:'team',skills:[]};
     const response=await app.inject({method:'POST',url,payload});
     expect(response.statusCode,response.body).toBe(201);
     const result=personal ? response.json().binding : response.json();
@@ -53,7 +53,7 @@ it.each([-1,24,1.5,'7'])('rejects an invalid avatar before creating anything: %s
   try {
     for (const [url,payload] of [
       ['/im/v1/personal-agent',{node_id:'n',request_key:'invalid',display_name:'Name',avatar_variant}],
-      ['/im/v1/nodes/n/agents',{agent_id:'invalid',display_name:'Name',group_reply_policy:'manual',avatar_variant}],
+      ['/im/v1/nodes/n/agents',{agent_id:'invalid',display_name:'Name',collaboration_scope:'team',avatar_variant}],
     ] as const) expect((await app.inject({method:'POST',url,payload})).statusCode).toBe(422);
     expect(applied).toHaveLength(0);
     expect(db.prepare('SELECT 1 FROM personal_agent_bindings').get()).toBeUndefined();

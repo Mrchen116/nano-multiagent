@@ -41,13 +41,19 @@ export class PersonalAssistant {
   /** Refresh authenticated source facts without reviewing observed text as a request. */
   async source(config: AgentConfiguration, input: RelayInput): Promise<boolean> {
     const source=await this.request(config,'pa.source.admit',{source_message_id:input.message.id,conversation_id:input.conversation_id});
-    if(source.allowed!==true)return false;
+    if(source.allowed!==true){if(source.scope_skipped===true)input.metadata.scope_skipped=true;return false;}
     if (typeof source.is_owner !== 'boolean' || !['participant','observer'].includes(String(source.delivery))) throw new Error('Missing trusted personal source facts');
     delete input.metadata.personal_source_role;
     input.metadata.personal_is_owner = source.is_owner;
     input.metadata.personal_delivery = source.delivery;
     input.metadata.conversation_type = source.conversation_type;
     input.metadata.channel = source.channel;
+    for (const key of ['owner_direct', 'addressed_to_owner', 'addressed_to_agent'] as const) {
+      if (typeof source[key] === 'boolean') input.metadata[key] = source[key];
+    }
+    if('provider_source_time' in source)input.metadata.provider_source_time=source.provider_source_time;
+    if(Array.isArray(source.explicit_mentioned_agent_ids))input.metadata.explicit_mentioned_agent_ids=source.explicit_mentioned_agent_ids;
+    if(typeof source.context_only==='boolean')input.metadata.context_only=source.context_only;
     // Only the authenticated server admission can set or clear this annotation.
     delete input.metadata.personal_actor_risk;
     if(source.actor_risk) input.metadata.personal_actor_risk = source.actor_risk;

@@ -14,7 +14,7 @@ function settings() {
   registerPersonalAgentRoutes(app, f.ctx);
   const save = (name: string, version: number, description = '') => app.inject({
     method: 'PATCH', url: '/im/v1/agents/a/config',
-    payload: {display_name: name, profile_version: version, group_reply_policy: 'manual', description},
+    payload: {display_name: name, profile_version: version, collaboration_scope: 'team', description},
   });
   const profile = () => f.db.prepare("SELECT display_name,description,profile_version FROM agent_profiles WHERE agent_id='a'").get();
   return {...f, app, save, profile};
@@ -109,7 +109,7 @@ it('admits the PA rename after a different pending edit is definitively rejected
 it.each(['current', 'legacy'])('only lets the original creation request claim its %s receipt', async format => {
   const {app, ctx, db} = settings();
   db.exec("INSERT INTO nodes(node_id,owner_id,node_name,status) VALUES('other','o1','Other','online'),('bob','o2','Bob','online')");
-  const original = {agent_id:'b',display_name:'Alpha',workspace_root:'/alpha',group_reply_policy:'manual',description:'original',initial_role:'Help with design.'};
+  const original = {agent_id:'b',display_name:'Alpha',workspace_root:'/alpha',collaboration_scope:'team',description:'original',initial_role:'Help with design.'};
   const create = (fields = {}, node = 'n', user = 'u1') => app.inject({
     method:'POST',url:`/im/v1/nodes/${node}/agents`,headers:{'x-user':user},payload:{...original,...fields},
   });
@@ -148,7 +148,7 @@ it.each(['current', 'legacy'])('only lets the original creation request claim it
 
 it('defaults a created Agent to global mode and keeps an explicit single_thread request', async () => {
   const {app, ctx} = settings();
-  const original = {display_name:'Charlie',workspace_root:'/charlie',group_reply_policy:'manual'};
+  const original = {display_name:'Charlie',workspace_root:'/charlie',collaboration_scope:'team'};
   ctx.gateway.request = async (_node, command, payload) => {
     if (command === 'node.capabilities.resolve') return {skills:[]};
     if (command === 'agent.create') return {status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,agent:payload.agent};

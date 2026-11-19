@@ -45,7 +45,7 @@ export class InboxReviews {
   return (this.db.prepare("SELECT payload FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='pending' ORDER BY seq").all(agent) as {payload:string}[]).map(row=>JSON.parse(row.payload));
  }
  failures(agent:string,undelivered=false):InputReview[] {
-  return (this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND review_state='failed' AND NOT (consumed=1 AND coalesce(review_error_code,'')='legacy_settled') AND (?=0 OR review_event_delivered=0) ORDER BY seq").all(agent,Number(undelivered)) as unknown as Row[]).map(project);
+  return (this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND review_state='failed' AND NOT EXISTS(SELECT 1 FROM scope_cancelled c WHERE c.agent_id=inbox.agent_id AND c.message_id=inbox.message_id) AND NOT (consumed=1 AND coalesce(review_error_code,'')='legacy_settled') AND (?=0 OR review_event_delivered=0) ORDER BY seq").all(agent,Number(undelivered)) as unknown as Row[]).map(project);
  }
  delivered(agent:string,message:string,generation:number):void {
   this.db.prepare("UPDATE inbox SET review_event_delivered=1 WHERE agent_id=? AND message_id=? AND review_generation=? AND review_state='failed'").run(agent,message,generation);

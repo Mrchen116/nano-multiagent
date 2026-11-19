@@ -43,7 +43,7 @@ it.each(['interrupted','user','completed','consumed','partially-consumed'])('rec
  const product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[{agentId:'a',workspace:'/tmp',revision:'1',provider:'p',model:'m',mode:'global'}],store,inbox,
   runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{
    if(method==='session.lookup')return evidence.get(args.inputId)??{accepted:false};
-   if(method==='session.submit'){submitted.push(args.inputId);const result={accepted:true,acceptedSeq:20+submitted.length,pending:true};evidence.set(args.inputId,result);return result;}
+   if(method==='session.submit'){submitted.push(args.inputId);const result={accepted:true,durable:true,acceptedSeq:20+submitted.length,pending:true};evidence.set(args.inputId,result);return result;}
    return method==='session.work.children'?{children:[]}:{events:[],durable:true,status:'idle'};
   }},relay:{request:async(type,args:any)=>({type:'ack',payload:type==='conversation.query'?{ok:true,result:{conversations:args.targets.map((target:string)=>({target,name:target}))}}:{}})},image:async()=>'',onError:e=>{throw e;}});
  try {
@@ -250,13 +250,12 @@ it('forwards conversation discovery and membership actions with the registered i
 });
 
 it.each([
-  { policy: 'mention_only', mentioned: false, attention: false },
-  { policy: 'mention_only', mentioned: true, attention: true },
-  { policy: 'always', mentioned: false, attention: true },
-] as const)('retains system task messages under $policy and wakes only with attention ($mentioned)', async ({ policy, mentioned, attention }) => {
+  { mentioned: false, attention: false },
+  { mentioned: true, attention: true },
+] as const)('retains system task messages in team scope and wakes only with attention ($mentioned)', async ({ mentioned, attention }) => {
   const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
   const submitted: Record<string, unknown>[] = []; let status = 'running', cancellations = 0;
-  const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'a', workspace: '/tmp', revision: '1', provider: 'p', model: 'm', mode: 'global', groupReplyPolicy: policy }], store, inbox,
+  const product = new GlobalAgent({ nodeId: 'node', ownerId: 'owner', agents: [{ agentId: 'a', workspace: '/tmp', revision: '1', provider: 'p', model: 'm', mode: 'global', collaborationScope: 'team' }], store, inbox,
     runtime: { onNotification: () => () => {}, request: async (method, value) => {
       if (method === 'session.submit') submitted.push(value as Record<string, unknown>);
       if (method === 'session.cancel') { cancellations++; return { wasRunning: true }; }

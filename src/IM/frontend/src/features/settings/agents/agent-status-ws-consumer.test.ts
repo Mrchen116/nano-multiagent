@@ -35,7 +35,7 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     description: "",
     skills: [],
     tool_allowlist: [],
-    group_reply_policy: "MENTION",
+    collaboration_scope: "team",
     default_model: null,
     model_fallbacks: [],
     reasoning_effort: null,

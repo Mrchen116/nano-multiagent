@@ -80,7 +80,7 @@ struct AgentConfigView: View {
                                 Text((currentConfig.skills_selection_mode == "explicit_denylist" ? L("已禁用 Skills: ", "Disabled skills: ") : "Skills: ") + currentConfig.skills.joined(separator: ", "))
                                 Text(L("Skills 选择模式", "Skill selection mode") + ": " + (currentConfig.skills_selection_mode ?? "default_discovery"))
                                 Text(L("推理强度", "Reasoning effort") + ": " + (currentConfig.reasoning_effort ?? L("默认", "Default")))
-                                Text(L("群回复策略", "Group reply policy") + ": " + currentConfig.group_reply_policy)
+                                Text(L("协作范围", "Collaboration scope") + ": " + (currentConfig.collaboration_scope == "owner_only" ? L("仅限本人", "Owner only") : L("团队协作", "Team")))
                                 ForEach(currentConfig.features.keys.filter { !["memory_curation", "skill_creation"].contains($0) }.sorted(), id: \.self) { key in
                                     LabeledContent(agentFeatureName(key), value: currentConfig.features[key] == true ? L("启用", "Enabled") : L("关闭", "Disabled"))
                                 }
@@ -199,15 +199,14 @@ struct AgentEditorFields: View {
                 Text(L("描述", "Description")).font(.caption).foregroundStyle(NanoTheme.muted)
                 TextField(L("描述", "Description"), text: $draft.description, axis: .vertical).lineLimit(2...6)
             }.padding(.vertical, 4)
-            Picker(L("群回复策略", "Group reply policy"), selection: $draft.group_reply_policy) {
-                let policy = draft.group_reply_policy
-                let mention = ["manual", "mention", "mention_only"].contains(policy.lowercased())
-                Text(L("仅被提及时回复", "When mentioned")).tag(mention ? policy : "manual")
-                Text(L("始终回复", "Always reply")).tag(policy.lowercased() == "always" ? policy : "always")
-                if !mention && policy.lowercased() != "always" {
-                    Text(L("原配置：", "Stored: ") + policy).tag(policy)
-                }
+            Picker(L("协作范围", "Collaboration scope"), selection: $draft.collaboration_scope) {
+                Text(L("团队协作", "Team")).tag("team")
+                Text(L("仅限本人", "Owner only")).tag("owner_only")
             }
+            Text(draft.collaboration_scope == "owner_only"
+                 ? L("仅接收你与 Agent 的私聊。尚未递送的团队消息会跳过，切回后也不会补发。", "Only your private messages arrive. Pending team messages are skipped, including after switching back.")
+                 : L("团队成员的私聊、群里 @ 或回复 Agent 的消息会及时提醒，普通群消息合并提醒。", "Team members can message this Agent privately. Direct messages, mentions and replies arrive promptly. Other group messages arrive in batches."))
+                .font(.caption).foregroundStyle(NanoTheme.muted)
         } }
         if showModels { Section(L("模型与推理", "Model and reasoning")) {
             Menu {

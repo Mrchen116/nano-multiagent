@@ -68,6 +68,10 @@ it.each(['http-error','empty-block','partial-content'])('confirms actual model c
     await client!.rpc.request('session.cancel',{sessionId:'root'});
     expect(await receipts()).toEqual([]);
 
+    if (failure === 'partial-content') {
+      const changes = [{sessionId:'root',inputId:'inbox-wake:a:cancelled'}];
+      expect(await client!.rpc.request('configuration.restrictChat',{agentId:'a',changes})).toEqual({withdrawn:changes});
+    }
     await submit('inbox-wake:a:3:recovery:17');
     await expect.poll(() => requests.length).toBe(3);
     await submit('inbox-background:a:4','inbox-background');
@@ -93,6 +97,35 @@ it.each(['http-error','empty-block','partial-content'])('confirms actual model c
     respond(4);
     await expect.poll(async () => (await observe()).status).toBe('idle');
     expect(await receipts()).toEqual([]);
+    if (failure === 'partial-content') {
+      const holder = 'inbox-wake:a:held';
+      const queued = 'inbox-wake:a:mixed';
+      await submit(holder);
+      await expect.poll(() => requests.length).toBe(6);
+      await submit(queued);
+      const edits = [
+        {sessionId:'root',inputId:holder},
+        {sessionId:'root',inputId:queued,content:[{type:'text',text:'Owner DM only'}]},
+      ];
+      const pending = client!.rpc.request('configuration.restrictChat',{agentId:'a',changes:edits});
+      respond(5);
+      expect(await pending).toEqual({withdrawn:edits.slice(1)});
+      await expect.poll(() => requests.length).toBe(7);
+      const wire = JSON.stringify(requests[6]!.body.messages);
+      expect(wire).toContain('Owner DM only');
+      expect(wire).toContain('Notification ' + holder);
+      expect(wire).not.toContain('Notification ' + queued);
+      expect(wire).not.toContain('Notification inbox-wake:a:cancelled');
+      respond(6);
+      await expect.poll(async () => (await observe()).status).toBe('idle');
+      await client!.shutdown();
+      await start();
+      await submit('owner-followup','other');
+      await expect.poll(() => requests.length).toBe(8);
+      expect(JSON.stringify(requests[7]!.body.messages)).not.toContain('Notification inbox-wake:a:cancelled');
+      respond(7);
+      await expect.poll(async () => (await observe()).status).toBe('idle');
+    }
     await client!.shutdown(); client = undefined;
   } finally {
     if (client) {client.process.kill('SIGKILL');await client.exited;}
