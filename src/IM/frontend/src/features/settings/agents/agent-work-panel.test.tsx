@@ -854,3 +854,28 @@ it("retains saved records through transient refresh failure and hides them when 
   expect(await screen.findByRole("alert")).toHaveTextContent(/403/);
   expect(screen.queryByText("Inbox 唤醒")).not.toBeInTheDocument();
 });
+
+it('replaces an in-flight first Work read when the Agent becomes ready at the same revision', async () => {
+  let firstSignal: AbortSignal | undefined;
+  let release!: () => void;
+  const held = new Promise<void>(resolve => {release = resolve;});
+  let reads = 0;
+  mocks.fetch.mockImplementation(async (url: string, options?: RequestInit) => {
+    if (!url.includes('/work?')) return Response.json({items:[]});
+    if (++reads === 1) {
+      firstSignal = options?.signal ?? undefined;
+      await held;
+      return Response.json({...view,record_sync_state:'catching_up'});
+    }
+    return Response.json({...view,record_sync_state:'current'});
+  });
+  renderWork();
+  try {
+    await waitFor(() => expect(firstSignal).toBeDefined());
+    act(() => mocks.subscribe.mock.calls[0][0].onEvent({
+      eventType:'agent.work.updated',payload:{agent_id:'global',readiness_changed:true,revision:1},
+    }));
+    await waitFor(() => expect(reads).toBe(2));
+    expect(firstSignal?.aborted).toBe(true);
+  } finally { release(); }
+});
