@@ -47,6 +47,7 @@
 | 逐 Agent 选择 CC/Codex 自动审批 | [`specs/gateway/tool-approval.md`](specs/gateway/tool-approval.md)；界面契约见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md) |
 | 查看审核只读调查、原话保留、消息级准入与模型恢复 | [`gateway/tool-approval`](specs/gateway/tool-approval.md) → [`gateway/personal-agent`](specs/gateway/personal-agent.md) |
 | 配置、升级或回退 Auto 权限规则 | [`operations/auto-permissions.md`](operations/auto-permissions.md) |
+| 在真实网络下验证当前需求 | [跨机预览](development/worktree-runtime.md#跨机预览) |
 | 在 worktree 内运行真实服务或关键路径 E2E | [`development/worktree-runtime.md`](development/worktree-runtime.md) → [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) |
 | 复用固定 P/E/Q + PA 阵容、模型与审核规则验收新需求 | [固定日常验收模板](development/worktree-runtime.md#固定日常验收模板) |
 | 旧 Python 节点迁移到 DSH | [`operations/dsh-migration.md`](operations/dsh-migration.md) |

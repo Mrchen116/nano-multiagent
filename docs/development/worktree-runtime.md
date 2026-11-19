@@ -11,6 +11,27 @@
 
 单元测试、静态检查和不依赖真实进程的集成测试不需要启动这套环境。
 
+## 网络相关故障如何选择复现环境
+
+从用户动作追到预期结果，标出客户端、Gateway、IM 各在哪台机器，以及已知的第一个异常。例如“请求迟迟未返回”和“请求已返回、状态仍不更新”都表现为转圈，两者需要复现的条件不同。选择能保留可疑条件、同时能区分原因的最小环境，可直接从合适的一行开始。
+
+| 待验证的问题 | 怎样选环境和对照 |
+|---|---|
+| 相同的数据或状态能否触发故障？ | 在本地隔离栈还原记录规模、缺口或积压，沿原操作观察。例如让已完成的子执行仍有待补记录，观察后端是否追平、界面是否自动更新。 |
+| 慢读、延迟或断连是否足以触发故障？ | 在隔离连接上控制一个有现场依据的条件，如在同一批上传确认前断线再恢复，并与正常连接对照。这样能验证重试与恢复；实际公网耗时仍需实测。 |
+| 跨设备运行或实际公网路径会带来多大等待？ | 在独立测试实例上保留受影响组件的部署位置、客户端出口和协议。比如浏览器在 Air、IM 和故障节点都在 Mini，就保留 Mini 节点到 IM 的本机路径。需要跨公网时可用独立测试入口，从客户端核对实际 HTTP/WS 路由和目标实例。 |
+| 换测试入口后现象消失，是否与原域名、代理规则或命名 Tunnel 有关？ | 尽量固定客户端、应用版本、数据与操作，比较两条入口；记录一同改变的网络条件。只有确需经过原入口时，才考虑复用共享链路。 |
+
+修前先记录原操作出现的错误或耗时；修后从相同数据初态，在相同入口和冷暖条件下重做，计到用户看到正确结果。保留失败样本和网络波动。若只复现了其中一段，在现有故障记录里写清已覆盖的链路、仍有差异的条件，以及该差异会影响哪项判断。
+
+## 跨机预览
+
+当本地响应太快，观察不到用户实际经历的加载、切换或重连过程时，在 Air 上进入当前需求的 worktree，用浏览器经公网访问 Mini 的预览。
+
+1. 提交要测试的版本，运行 `python3 scripts/e2e-preview.py up` 获取专属 URL。运行 `python3 scripts/e2e-preview.py password` 获取口令，在该 URL 的 `/login` 用 `nano` 登录。
+2. 按需求场景操作。例如切换聊天时，从点击目标聊天观察到消息出现。提交修复后运行 `python3 scripts/e2e-preview.py update`，用原 URL 和相同测试数据复测。随时可用 `python3 scripts/e2e-preview.py status` 核对版本和地址。
+3. 保存需要的测试证据，然后运行 `python3 scripts/e2e-preview.py down`。这会删除本次预览的数据和远端 checkout，归还入口。
+
 ## 隔离与清理红线
 
 1. worktree 不使用主实例的 IM 端口 `8011` 或常用 Vite 端口 `5173`，所有监听服务分配空闲高位端口。
@@ -266,3 +287,15 @@ fi
 | 需要模拟 LLM 上游错误 | 复用 [`../../scripts/fixtures/README.md`](../../scripts/fixtures/README.md) 中的 HTTP fixtures |
 
 Gateway 当前可观察生命周期以 [`../specs/gateway/service-lifecycle.md`](../specs/gateway/service-lifecycle.md) 为准；本文只负责开发隔离环境。
+
+## 配置共享测试入口
+
+在 Mini 准备开发 checkout、项目支持的 Node/pnpm、Python 开发依赖、Traefik 3 和已登录测试域名所在区域的 cloudflared。将对应 bin 目录加入当前 shell 的 `PATH`，确认 `python` 和 `python3` 均使用开发环境。选择有边缘 TLS 证书覆盖的专用子域名，在图形登录用户的 shell 运行：
+
+```bash
+python3 scripts/e2e-preview-setup.py --repo "$PWD" preview-a.nanoim.win preview-b.nanoim.win
+```
+
+该命令在 `~/.local/share/nano-preview/` 准备源码仓库、构建环境及可用域名，注册专用命名 Tunnel `nano-worktree-preview` 的 DNS。用户级 LaunchAgent 管理 Tunnel 与监听 `127.0.0.1:18471` 的 Traefik，Tunnel readiness 在本机 `18472`。路由按域名精确匹配 HTTP 和 WebSocket。增加容量时用同一命令注册额外域名。共享设施独立于正式 IM 的域名、Tunnel 和进程。
+
+Air 默认通过 SSH 别名 `mini` 管理预览，可用 `NANO_PREVIEW_HOST` 指定已配置的主机。
