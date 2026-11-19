@@ -512,6 +512,31 @@ describe("ChatWorkspacePage — integration", () => {
     await act(async () => sidebar.resolve(jsonResponse({ items: FIXTURES.conversations })));
   });
 
+  it("keeps the selected header through slow detail and history without flashing either empty state", async () => {
+    const detail = deferredResponse();
+    const history = deferredResponse();
+    const baseFetch = fetchSpy;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/conversations/c2")) return (await detail.promise).clone();
+      if (url.includes("/conversations/c2/messages?")) return (await history.promise).clone();
+      return baseFetch(input, init);
+    });
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await userEvent.click(screen.getByRole("button", { name: /Research Squad/ }));
+    expect(screen.getByRole("heading", { name: "Research Squad" })).toBeVisible();
+    expect(document.querySelector(".workspace-welcome, .chat-pane-empty")).toBeNull();
+    expect(screen.queryByText("Hi Planner")).toBeNull();
+    expect(screen.queryByText("Loading messages…")).toBeNull();
+    await screen.findByText("Loading messages…");
+    await act(async () => detail.resolve(jsonResponse(FIXTURES.conversations[1])));
+    expect(screen.getByText("Loading messages…")).toBeVisible();
+    expect(screen.queryByText("No messages yet")).toBeNull();
+    await act(async () => history.resolve(jsonResponse({items: [], next_before_message_id: null})));
+    expect(await screen.findByText("No messages yet")).toBeVisible();
+  });
+
   it("keeps an early history response hidden when detail denies access despite a cached sidebar entry", async () => {
     const conversation = deferredResponse();
     const secret = "History from a revoked conversation";
@@ -706,6 +731,25 @@ describe("ChatWorkspacePage — integration", () => {
     renderAtRoute("/chat/c1", queryClient);
 
     expect(await screen.findByText("Hi Planner")).toBeInTheDocument();
+  });
+
+  it("refreshes history on a quick return within the workspace query freshness window", async () => {
+    const baseFetch = fetchSpy;
+    let latest = "Before switching";
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/conversations/c1/messages?")) {
+        return jsonResponse({items: [{type: "message", message: historyMessage(latest, 1, latest)}], next_before_message_id: null});
+      }
+      return baseFetch(input, init);
+    });
+    const client = new QueryClient({defaultOptions: {queries: {staleTime: 5_000, retry: false}}});
+    renderAtRoute("/chat/c1", client);
+    await screen.findByText(latest);
+    await userEvent.click(screen.getByRole("button", {name: /Research Squad/}));
+    await screen.findByText("No messages yet");
+    latest = "Arrived while away";
+    await userEvent.click(screen.getByRole("button", {name: /Planner/}));
+    expect(await screen.findByText(latest)).toBeVisible();
   });
 
   it("merges typed REST boundaries and live agent.config.changed events into the active timeline", async () => {
