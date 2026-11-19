@@ -187,11 +187,11 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     if (node !== undefined) { leases.delete(request); activeNodes.delete(node); active--; }
   };
   app.addHook('onRequestAbort', async request => { if (!handlers.has(request)) release(request); });
-  const serve = (handler: (request: FastifyRequest) => Promise<unknown>) => async (request: FastifyRequest) => {
+  const serve = (handler: (request: FastifyRequest) => Promise<{through_seq: number}>) => async (request: FastifyRequest) => {
     handlers.add(request);
     try {
       const result = await handler(request), connection = connections.get(request), report = declarations.get(request);
-      if (connection && report) ctx.gateway.work.reportProgress(connection, report.journal, report.produced, report.pending, report.readyAgents);
+      if (connection && report) ctx.gateway.work.reportProgress(connection, report, result.through_seq);
       return result;
     } finally { handlers.delete(request); release(request); }
   };

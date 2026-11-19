@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUpRight, ChevronDown, LoaderCircle, Settings, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
 import { subscribeUserStream } from "../../../realtime/user-stream";
-import { workBase, workRequest, type WorkActivity } from "../../settings/agents/agent-work-api";
+import { refreshReadyWork, workBase, workRequest, type WorkActivity } from "../../settings/agents/agent-work-api";
 import "./agent-activity-popover.css";
 
 export interface AgentActivityAnchor {
@@ -39,6 +39,7 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
     getNextPageParam: page => page.next_cursor ?? undefined,
     retry: false,
   });
+  const client = useQueryClient();
   const refresh = activity.refetch;
   useEffect(() => {
     let timer: number | undefined;
@@ -48,6 +49,14 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
     };
     const unsubscribe = subscribeUserStream({
       onEvent: event => {
+        if (event.eventType === "agent.work.updated" && event.payload.agent_id === anchor.agentId && event.payload.readiness_changed === true) {
+          if (!document.hidden) {
+            window.clearTimeout(timer);
+            timer = undefined;
+            void refreshReadyWork(client, ["chat-work-activity", anchor.agentId]);
+          }
+          return;
+        }
         if ((event.eventType === "agent.work.updated" || event.eventType === "agent.status_changed") &&
           event.payload.agent_id === anchor.agentId) schedule();
       },
@@ -59,7 +68,7 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
       document.removeEventListener("visibilitychange", schedule);
       unsubscribe();
     };
-  }, [anchor.agentId, refresh]);
+  }, [anchor.agentId, client, refresh]);
   useLayoutEffect(() => {
     const position = () => {
       const rect = anchor.element.getBoundingClientRect();

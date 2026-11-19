@@ -30,33 +30,55 @@ export function readWorkBatch(input: unknown) {
   try { return decodeWorkBatch(input); }
   catch (error) { if (error instanceof WorkEventError) fail(400, error.message); throw error; }
 }
-export class Work {
-  private readonly progress = new WeakMap<Connection, { journal: string; produced: number; pending: boolean; readyAgents?: Map<string, WorkReadyCut> }>();
+type WorkProgress = { journal: string; produced: number; pending: boolean; readyAgents?: Map<string, WorkReadyCut> };
+type SyncState = 'current' | 'main_only' | 'catching_up' | 'unknown';
 
-  /** Accept a completeness declaration only for the connection that received it.
+function syncState(report: WorkProgress, through: number, root: string): SyncState {
+  if (through > report.produced) return 'unknown';
+  const cut = report.readyAgents?.get(root);
+  if (typeof cut === 'number' && through >= cut) return 'current';
+  if (typeof cut === 'object' && through >= cut.main) return 'main_only';
+  return report.pending || through < report.produced ? 'catching_up' : 'current';
+}
+
+export class Work {
+  private readonly progress = new WeakMap<Connection, WorkProgress>();
+  // A cursor-only report can settle an earlier read without appending any Work event.
+  private readonly waiting = new WeakMap<Connection, Map<string, SyncState>>();
+
+  /** Publish newly confirmed scopes to readers of this connection's incomplete records.
    *
    * Args:
    *   connection: Registration active when the authenticated HTTP request began.
-   *   journal: Durable source journal identity.
-   *   produced: Highest locally committed product event sequence.
-   *   pending: Whether product projection still has unprocessed source facts.
-   *   readyAgents: Settled Agents and their highest locally committed sequence.
+   *   report: Producer completeness at the journal cut.
+   *   through: Journal position confirmed by this successful request.
    */
-  reportProgress(connection: Connection, journal: string, produced: number, pending: boolean, readyAgents?: Map<string, WorkReadyCut>): void {
-    if (this.ctx.gateway.nodes.get(connection.node_id) === connection && this.ctx.gateway.valid(connection))
-      this.progress.set(connection, { journal, produced, pending, readyAgents });
+  reportProgress(connection: Connection, report: WorkProgress, through: number): void {
+    if (this.ctx.gateway.nodes.get(connection.node_id) !== connection || !this.ctx.gateway.valid(connection)) return;
+    this.progress.set(connection, report);
+    const waiting = this.waiting.get(connection);
+    if (!waiting) return;
+    for (const [root, previous] of waiting) {
+      const state = syncState(report, through, root);
+      if (state === 'current') waiting.delete(root);
+      else waiting.set(root, state);
+      if (state !== previous && (state === 'current' || state === 'main_only'))
+        this.notifyUpdated(root, connection.node_id, true);
+    }
   }
 
-  private recordSyncState(node: string, root: string): 'current' | 'main_only' | 'catching_up' | 'unknown' {
+  private recordSyncState(node: string, root: string): SyncState {
     const connection = this.ctx.gateway.nodes.get(node);
-    const report = connection && this.ctx.gateway.valid(connection) && this.progress.get(connection);
-    if (!report) return 'unknown';
-    const through = one(this.db, 'SELECT through_seq FROM agent_work_journals WHERE node_id=? AND journal_id=?', node, report.journal)?.through_seq ?? 0;
-    if (through > report.produced) return 'unknown';
-    const settledAt = report.readyAgents?.get(root);
-    if (typeof settledAt === 'number' && through >= settledAt) return 'current';
-    if (typeof settledAt === 'object' && through >= settledAt.main) return 'main_only';
-    return report.pending || through < report.produced ? 'catching_up' : 'current';
+    if (!connection || !this.ctx.gateway.valid(connection)) return 'unknown';
+    const report = this.progress.get(connection);
+    const through = report && one(this.db, 'SELECT through_seq FROM agent_work_journals WHERE node_id=? AND journal_id=?', node, report.journal)?.through_seq;
+    const state = report ? syncState(report, through ?? 0, root) : 'unknown';
+    if (state !== 'current') {
+      let waiting = this.waiting.get(connection);
+      if (!waiting) this.waiting.set(connection, waiting = new Map());
+      if (!waiting.has(root) || state !== 'main_only') waiting.set(root, state);
+    }
+    return state;
   }
 
   private readonly records: WorkRecords;
@@ -86,20 +108,23 @@ export class Work {
   append(node: string, input: unknown, historical = false): WorkAppendAck {
     const batch = readWorkBatch(input);
     const {ack, appliedRoots} = this.records.append(node, batch, historical);
-    for (const root of appliedRoots) {
-      const personal = one(this.db, "SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?", root);
-      const space = one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id;
-      const users = all(
-        this.db,
-        "SELECT * FROM users WHERE (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL",
-      ).filter(u => (!personal || personal.owner_user_id === u.id) && canAccessSpace(u, space)).map((u) => u.id);
-      this.ctx.gateway.broadcast(users, {
-        op: "event",
-        event_type: "agent.work.updated",
-        data: { agent_id: root, revision: this.revision(root) },
-      });
-    }
+    for (const root of appliedRoots) this.notifyUpdated(root, node);
     return ack;
+  }
+  private notifyUpdated(root: string, node: string, readinessChanged = false) {
+    const connected = Array.from(this.ctx.gateway.browsers, browser => browser.userId);
+    if (!connected.length) return;
+    const profile = one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=? AND node_id=? AND is_stale=0", root, node);
+    if (!profile) return;
+    const personal = one(this.db, "SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?", root);
+    const users = all(this.db,
+      `SELECT id,owner_id,personal_space_enabled,membership_status FROM users WHERE id IN (SELECT value FROM json_each(?))
+       AND (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL`, JSON.stringify(connected),
+    ).filter(u => (!personal || personal.owner_user_id === u.id) && canAccessSpace(u, profile.space_id)).map(u => u.id);
+    this.ctx.gateway.broadcast(users, {
+      op: "event", event_type: "agent.work.updated",
+      data: { agent_id: root, revision: this.revision(root), ...(readinessChanged && {readiness_changed: true}) },
+    });
   }
   private connection(node: string, root: string, state = this.recordSyncState(node, root)) {
     return {

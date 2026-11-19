@@ -384,3 +384,32 @@ test('a caught-up Agent can report activity while a peer is recovering or upload
   await report({other:0});
   expect(work.view('root').record_sync_state).toBe('catching_up');
 });
+
+test('cursor-only readiness wakes the observed Agent once per newly confirmed scope', async () => {
+  const {app} = await fixture();
+  const gateway = app.im.gateway;
+  const connection = {node_id:'node',owner_id:'alice',node_epoch:1,token:'runtime-secret',lastSeen:Date.now(),
+    socket:{readyState:1,send(){},close(){}}} as any;
+  gateway.nodes.set('node', connection);
+  gateway.browsers.add({userId:'alice'} as any);
+  const broadcast = vi.spyOn(gateway,'broadcast').mockImplementation(() => {});
+  const report = async (ready: Record<string, number | {main: number}>) => {
+    const result = await app.inject({method:'GET',url:prefix,headers:{authorization:'Bearer runtime-secret',
+      'x-work-produced-seq':'0','x-work-processing-pending':'true','x-work-ready-agents':Buffer.from(JSON.stringify(ready)).toString('base64url')}});
+    expect(result.json()).toEqual({through_seq:0,expected_seq:1});
+  };
+  await report({});
+  expect(gateway.work.activity('root','node','',12).main_execution).toBe('unknown');
+  await report({peer:0});
+  expect(broadcast).not.toHaveBeenCalled();
+  await report({root:{main:0}});
+  expect(broadcast).toHaveBeenCalledTimes(1);
+  expect(broadcast.mock.calls[0]?.[1]).toMatchObject({event_type:'agent.work.updated',data:{agent_id:'root',readiness_changed:true}});
+  await report({root:{main:0}});
+  expect(broadcast).toHaveBeenCalledTimes(1);
+  await report({root:0});
+  await report({root:0});
+  expect(broadcast).toHaveBeenCalledTimes(2);
+  gateway.browsers.clear();
+  expect(gateway.work.activity('root','node','',12)).toMatchObject({record_sync_state:'current',running_count:0});
+});
