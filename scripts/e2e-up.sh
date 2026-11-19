@@ -210,7 +210,7 @@ elif [[ -n "$PREVIEW_URL" ]]; then
     echo "new preview requires an empty runtime directory; use --resume for an existing preview" >&2
     exit 1
   fi
-  ADMIN_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+  ADMIN_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
   printf '%s\n' "$ADMIN_PASSWORD" > "$WT_ROOT/.e2e-preview-password"
 else
   # A failed fresh start must not expose a previous run's successful handoff.
@@ -241,24 +241,24 @@ if [[ $START_VITE -eq 1 ]]; then
 fi
 
 prepare_fresh_stack() {
-JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-echo "$JWT_SECRET" > "$WT_ROOT/.e2e-jwt-secret"
+  JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+  echo "$JWT_SECRET" > "$WT_ROOT/.e2e-jwt-secret"
 
-cp "$MAIN_CFG" "$WT_CFG"
-if [[ "$E2E_PROFILE" == "feishu" ]]; then
-  python3 "$SCRIPT_DIR/e2e_feishu_config.py" \
-    --config "$WT_CFG" \
-    --env "$FEISHU_ENV"
-  claim_feishu_listener_lock
-fi
-chmod 600 "$WT_CFG"
+  cp "$MAIN_CFG" "$WT_CFG"
+  if [[ "$E2E_PROFILE" == "feishu" ]]; then
+    python3 "$SCRIPT_DIR/e2e_feishu_config.py" \
+      --config "$WT_CFG" \
+      --env "$FEISHU_ENV"
+    claim_feishu_listener_lock
+  fi
+  chmod 600 "$WT_CFG"
 
-WT_NAME="$(basename "$WT_ROOT")"
-NODE_ID="wt-${WT_NAME}-$$"
-WORKSPACE_DIR="$WT_ROOT/.gateway-workspace"
+  WT_NAME="$(basename "$WT_ROOT")"
+  NODE_ID="wt-${WT_NAME}-$$"
+  WORKSPACE_DIR="$WT_ROOT/.gateway-workspace"
 
-ADMIN_PASSWORD="$ADMIN_PASSWORD" WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" WT_ROOT_PY="$WT_ROOT" \
-  python3 - <<'PYCFG'
+  ADMIN_PASSWORD="$ADMIN_PASSWORD" WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" WT_ROOT_PY="$WT_ROOT" \
+    python3 - <<'PYCFG'
 import os, yaml
 path = os.environ["WT_CFG_PY"]
 with open(path) as f: cfg = yaml.safe_load(f)
@@ -275,17 +275,17 @@ for agent in cfg.get("agents", []):
 with open(path, "w") as f: yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
 PYCFG
 
-# An explicit critical-path model override must be registered in the copied config.
-# The selector changes only the worktree-local default, so preset and dynamically
-# created agents use the same route.
-if [[ "$E2E_PROFILE" == "daily" ]]; then
-  PYTHONPATH="$REPO_ROOT" python3 "$SCRIPT_DIR/e2e_daily.py" "$WT_CFG"
-elif [[ -n "${NANO_MULTIAGENT_E2E_MODEL:-}" ]]; then
-  python3 "$SCRIPT_DIR/e2e_catalog.py" "$WT_CFG"
-fi
+  # An explicit critical-path model override must be registered in the copied config.
+  # The selector changes only the worktree-local default, so preset and dynamically
+  # created agents use the same route.
+  if [[ "$E2E_PROFILE" == "daily" ]]; then
+    PYTHONPATH="$REPO_ROOT" python3 "$SCRIPT_DIR/e2e_daily.py" "$WT_CFG"
+  elif [[ -n "${NANO_MULTIAGENT_E2E_MODEL:-}" ]]; then
+    python3 "$SCRIPT_DIR/e2e_catalog.py" "$WT_CFG"
+  fi
 
-# Prepare isolated workspaces and consume fixture-only initial roles before Node reads its config.
-python3 - "$WT_CFG" "$WORKSPACE_DIR" <<'PY'
+  # Prepare isolated workspaces and consume fixture-only initial roles before Node reads its config.
+  python3 - "$WT_CFG" "$WORKSPACE_DIR" <<'PY'
 import os, sys, yaml
 cfg_path, wsd = sys.argv[1], sys.argv[2]
 with open(cfg_path) as f: cfg = yaml.safe_load(f)
@@ -302,12 +302,12 @@ with open(cfg_path, "w", encoding="utf-8") as output:
     yaml.safe_dump(cfg, output, allow_unicode=True, sort_keys=False)
 PY
 
-# feat-393 fix-r1: remove stale IM DB before each e2e run so heartbeat conversations
-# created by a previous run (with different owner_id) do not pollute the new instance.
-# The DB path is cwd-relative (data/im_service.sqlite3) so we remove it from $WT_ROOT.
-rm -f "$WT_ROOT/data/im_service.sqlite3" "$WT_ROOT/data/im_service.sqlite3-wal" "$WT_ROOT/data/im_service.sqlite3-shm"
-# Each run gets a fresh node identity; preserve prior per-node DSH evidence.
-rm -f "$WT_ROOT/channel-credentials-v1.pem" "$WT_ROOT/device-binding-operation.json"
+  # feat-393 fix-r1: remove stale IM DB before each e2e run so heartbeat conversations
+  # created by a previous run (with different owner_id) do not pollute the new instance.
+  # The DB path is cwd-relative (data/im_service.sqlite3) so we remove it from $WT_ROOT.
+  rm -f "$WT_ROOT/data/im_service.sqlite3" "$WT_ROOT/data/im_service.sqlite3-wal" "$WT_ROOT/data/im_service.sqlite3-shm"
+  # Each run gets a fresh node identity; preserve prior per-node DSH evidence.
+  rm -f "$WT_ROOT/channel-credentials-v1.pem" "$WT_ROOT/device-binding-operation.json"
 }
 if [[ $RESUME -eq 0 ]]; then prepare_fresh_stack; fi
 
@@ -336,11 +336,13 @@ JS
 
 # Readiness means the real TypeScript center has completed startup.
 IM_READINESS_STARTED_SECONDS=$SECONDS
+IM_PID="$(cat "$WT_ROOT/.im.pid")"
 while true; do
-  if curl -sf "http://127.0.0.1:$IM_PORT/health" >/dev/null 2>&1; then
+  # A retained preview port may now belong to another local service.
+  if { [[ -z "$PREVIEW_URL" ]] || lsof -nP -a -p "$IM_PID" -iTCP:"$IM_PORT" -sTCP:LISTEN >/dev/null; } &&
+     curl -sf "http://127.0.0.1:$IM_PORT/health" >/dev/null 2>&1; then
     break
   fi
-  IM_PID="$(cat "$WT_ROOT/.im.pid")"
   if ! kill -0 "$IM_PID" 2>/dev/null; then
     echo "IM process exited during startup; see $WT_ROOT/.im.log" >&2
     tail -30 "$WT_ROOT/.im.log" >&2 || true
@@ -355,13 +357,13 @@ while true; do
 done
 
 if [[ $RESUME -eq 0 ]]; then
-# Explicit local admission; public registration intentionally stays pending.
-IM_JWT_SECRET="$JWT_SECRET" node "$REPO_ROOT/apps/im-server/lib/main.js" init_admin \
-  --username nano --password "$ADMIN_PASSWORD" --display-name "Test User" \
-  --db-path "$WT_ROOT/data/im_service.sqlite3"
+  # Explicit local admission; public registration intentionally stays pending.
+  IM_JWT_SECRET="$JWT_SECRET" node "$REPO_ROOT/apps/im-server/lib/main.js" init_admin \
+    --username nano --password "$ADMIN_PASSWORD" --display-name "Test User" \
+    --db-path "$WT_ROOT/data/im_service.sqlite3"
 
-# The native CLI completes device proof and persists its runtime credential.
-node "$REPO_ROOT/apps/node/lib/cli.js" bind --config "$WT_CFG" --auto-bind
+  # The native CLI completes device proof and persists its runtime credential.
+  node "$REPO_ROOT/apps/node/lib/cli.js" bind --config "$WT_CFG" --auto-bind
 fi
 node "$REPO_ROOT/apps/node/lib/cli.js" start --config "$WT_CFG"
 node --input-type=module - "$WT_ROOT/.gateway-state.json" "$WT_ROOT/.gateway.pid" <<'JS'
