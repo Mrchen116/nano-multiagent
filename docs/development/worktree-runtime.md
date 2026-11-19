@@ -33,7 +33,7 @@ python3 scripts/e2e-preview.py up
 python3 scripts/e2e-preview.py password
 ```
 
-打开 `up` 返回的 HTTPS URL，用 `nano` 和该实例的口令登录。Mini 运行对应版本的 IM、前端及 Gateway；Air 浏览器经测试域名访问。默认管理主机为 SSH 别名 `mini`，可用 `NANO_PREVIEW_HOST` 指定其他已配置的主机。管理连接和浏览器访问走各自的网络路径。
+打开 `up` 返回的 HTTPS URL，进入登录页（`/login`），用 `nano` 和该实例的口令登录。Mini 运行对应版本的 IM、前端及 Gateway；Air 浏览器经测试域名访问。默认管理主机为 SSH 别名 `mini`，可用 `NANO_PREVIEW_HOST` 指定其他已配置的主机。管理连接和浏览器访问走各自的网络路径。
 
 在第二个 worktree 运行相同命令，会得到另一个 URL。每个实例独占一个子域名及一套数据、节点身份和运行目录。入口用尽时，停止已用完的实例或给共享入口增加测试域名。
 
@@ -41,7 +41,7 @@ python3 scripts/e2e-preview.py password
 |---|---|
 | `python3 scripts/e2e-preview.py status` | 查看当前实验的 URL、版本和运行状态 |
 | `python3 scripts/e2e-preview.py update` | 更新到当前提交，沿用原 URL、账号和数据 |
-| `python3 scripts/e2e-preview.py down` | 停止当前实验并归还入口，其他实验保持运行 |
+| `python3 scripts/e2e-preview.py down` | 停止当前实验，删除其测试数据与远端 checkout，归还入口；其他实验保持运行 |
 
 验证并行隔离时，在 A 创建一条可辨认的记录，确认 B 的列表中没有该记录；更新 A 后读回原记录。让浏览器保持 B 的 WebSocket 连接，停止 A，再在 B 写入记录并从原连接收到事件。定量比较修前、修后时记录共享主机和出口的并发负载，必要时错开计时。
 
