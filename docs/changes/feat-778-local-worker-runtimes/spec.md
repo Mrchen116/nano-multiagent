@@ -14,6 +14,8 @@
 
 > 我想到的，memory现在还用worker的轨迹做总结，然后memory最终也给worker消费？我觉得这两项都可以去掉。worker完全不碰我们的记忆，不写不消费。不然跨机，跨agent框架很麻烦。
 
+> 不是，只是说不注入，他非要去读，我也不管他呀。你不注入，他就不会去读了，所以不需要强加这种无谓的设计。
+
 ## 澄清记录
 
 - 本次交付本机 worker 的 PR。跨机是后续独立决策，等待用户亲测本次体验。
@@ -22,7 +24,8 @@
 - Raft 参考版本为 5214e34e。其 [Claude 启动](https://github.com/botiverse/raft-source/blob/5214e34e/packages/daemon/src/drivers/claudeLaunch.ts#L127) 和 [Codex 启动](https://github.com/botiverse/raft-source/blob/5214e34e/packages/daemon/src/drivers/codex.ts#L1224) 使用无人值守的宽权限配置。该参考仅说明原生驱动方式；用户对 Nano 的要求是 Auto。
 - 已确认现状。文档记忆会给普通一级 worker 注入所属 Agent 的记忆入口或快照；Dreaming 从一级工作轨迹提炼会话摘要，并可依来源回看后代。见[现行能力契约](../../specs/gateway/agent-capabilities.md)、[上下文装配](../../../packages/dsh-integration/src/knowledge/document-memory.ts)和[提炼输入](../../../packages/dsh-integration/src/knowledge/dreaming.ts)。
 - 用户要求对所有工作 worker 取消 Nano 记忆消费和写入，并停止把工作 worker 轨迹作为 Dreaming 的材料。工作轨迹在 Work 中展示、原 worker 续做时使用自己的历史、Router 交办任务所需的具体约束，分别有独立的用途。
-- 待明确“完全不碰”的文件访问边界。取消集成、避免旧会话及 fork 继续注入、停止积压摘要与后代回查，和阻止外部 CLI 通过通用文件或 shell 工具直接读取实际记忆文件，影响的用户行为及实现范围不同。
+- 记忆按产品集成边界处理。Nano 不向工作 worker 注入记忆正文、目录或读写指引，Dreaming 不用工作 worker 轨迹做总结。普通文件读取沿用当前工作环境的权限，无需为 Nano 记忆增加文件拦截或沙箱。
+- 待对齐外部 worker 在 Work 中的可见明细。现有 DSH 子执行可从派工展开到实际工具调用、结果和已报告的用量，见[Work 契约](../../specs/im/agent-work.md)。外部框架内部 helper 的展示范围也受此决定影响。
 
 ## 用户场景
 
