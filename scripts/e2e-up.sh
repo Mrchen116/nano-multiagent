@@ -17,6 +17,9 @@
 #   ./scripts/e2e-up.sh --main-config /path/to/cfg.yaml  # alt source config
 #   ./scripts/e2e-up.sh --wt /custom/worktree/path       # alt target worktree
 #
+#   ./scripts/e2e-up.sh --wt /empty/runtime --preview-url https://preview-a.example.com
+#   ./scripts/e2e-up.sh --wt /existing/runtime --preview-url https://preview-a.example.com --resume
+#
 # Side effects in $WT_ROOT (default = $PWD):
 #   .e2e-ports.env            (source this in your shell to expose ports)
 #   .e2e-jwt-secret           (random IM JWT secret for this run)
@@ -42,6 +45,10 @@ MAIN_CFG="$DEFAULT_E2E_CONFIG"
 E2E_PROFILE="default"
 START_VITE=0
 PROFILE_FLAGS=0
+PREVIEW_URL=""
+RESUME=0
+ADMIN_PASSWORD=nano1234
+PUBLIC_MODE=0
 FEISHU_ENV="$DEFAULT_FEISHU_ENV"
 MAIN_CONFIG_EXPLICIT=0
 FEISHU_LOCK_DIR=""
@@ -118,6 +125,10 @@ while [[ $# -gt 0 ]]; do
     --main-config) MAIN_CFG="$2"; MAIN_CONFIG_EXPLICIT=1; shift 2 ;;
     --profile) E2E_PROFILE="$2"; PROFILE_FLAGS=$((PROFILE_FLAGS + 1)); shift 2 ;;
     --feishu) E2E_PROFILE="feishu"; PROFILE_FLAGS=$((PROFILE_FLAGS + 1)); shift ;;
+    --preview-url)
+      [[ "${2:-}" =~ ^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ ]] || { echo "expected a public HTTPS origin" >&2; exit 2; }
+      PREVIEW_URL="$2"; shift 2 ;;
+    --resume) RESUME=1; shift ;;
     --vite) START_VITE=1; shift ;;
     --feishu-env) FEISHU_ENV="$2"; shift 2 ;;
     -h|--help) sed -n '1,/^set -e/p' "$0" | sed -n '2,/^$/p'; exit 0 ;;
@@ -146,7 +157,17 @@ case "$E2E_PROFILE" in
 esac
 
 python3 "$SCRIPT_DIR/dev_host.py" guard --repo "$REPO_ROOT" --runtime "$WT_ROOT" --profile "$E2E_PROFILE"
-if [[ $MAIN_CONFIG_EXPLICIT -eq 0 ]]; then
+if [[ -n "$PREVIEW_URL" ]]; then
+  if [[ $MAIN_CONFIG_EXPLICIT -eq 1 || "$E2E_PROFILE" == "feishu" || $START_VITE -eq 1 ]]; then
+    echo "public previews require the built UI and repository default or daily profile" >&2
+    exit 2
+  fi
+  umask 077
+  PUBLIC_MODE=1
+elif [[ $RESUME -eq 1 || -e "$WT_ROOT/.e2e-preview-password" ]]; then
+  echo "resuming a public preview requires --preview-url and --resume" >&2
+  exit 2
+elif [[ $MAIN_CONFIG_EXPLICIT -eq 0 ]]; then
   MAIN_CFG="$(python3 "$SCRIPT_DIR/dev_host.py" e2e-config --repo "$REPO_ROOT")"
 fi
 
@@ -166,8 +187,35 @@ for pidfile in "$WT_ROOT/.im.pid" "$WT_ROOT/.gateway.pid" "$WT_ROOT/.vite.pid"; 
   fi
 done
 
-# A failed startup must not expose a previous run's successful handoff.
-rm -f "$WT_ROOT/.e2e-daily.json" "$WT_ROOT/.e2e-ports.env"
+WT_CFG="$WT_ROOT/.gateway-config.yaml"
+PORT_MAP="$WT_ROOT/.e2e-ports.env"
+if [[ $RESUME -eq 1 ]]; then
+  for required in .e2e-ports.env .gateway-config.yaml .e2e-jwt-secret .e2e-preview-password channel-credentials-v1.pem data/im_service.sqlite3; do
+    [[ -s "$WT_ROOT/$required" ]] || { echo "missing preview state: $required" >&2; exit 1; }
+  done
+  read_port_map() { sed -n "s/^export $1=//p" "$PORT_MAP"; }
+  IM_PORT="$(read_port_map IM_PORT)"
+  NODE_ID="$(read_port_map NODE_ID)"
+  SAVED_PROFILE="$(read_port_map E2E_PROFILE)"
+  if [[ "$(read_port_map UI_URL)" != "$PREVIEW_URL" || ! "$IM_PORT" =~ ^[1-9][0-9]*$ || -z "$NODE_ID" ||
+        ! "$SAVED_PROFILE" =~ ^(default|daily)$ || ( $PROFILE_FLAGS -gt 0 && "$E2E_PROFILE" != "$SAVED_PROFILE" ) ]]; then
+    echo "preview URL, profile or saved port map does not match" >&2
+    exit 1
+  fi
+  E2E_PROFILE="$SAVED_PROFILE"
+  JWT_SECRET="$(cat "$WT_ROOT/.e2e-jwt-secret")"
+  ADMIN_PASSWORD="$(cat "$WT_ROOT/.e2e-preview-password")"
+elif [[ -n "$PREVIEW_URL" ]]; then
+  if [[ -n "$(ls -A "$WT_ROOT")" ]]; then
+    echo "new preview requires an empty runtime directory; use --resume for an existing preview" >&2
+    exit 1
+  fi
+  ADMIN_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
+  printf '%s\n' "$ADMIN_PASSWORD" > "$WT_ROOT/.e2e-preview-password"
+else
+  # A failed fresh start must not expose a previous run's successful handoff.
+  rm -f "$WT_ROOT/.e2e-daily.json" "$PORT_MAP"
+fi
 
 # ─── port allocation ─────────────────────────────────────────────────────────
 
@@ -179,24 +227,23 @@ FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
 VITE_PORT=""
 if [[ $START_VITE -eq 1 ]]; then
   read -r IM_PORT VITE_PORT < <("$FREE_PORTS_SH" 2)
-else
+elif [[ $RESUME -eq 0 ]]; then
   read -r IM_PORT < <("$FREE_PORTS_SH" 1)
 fi
 IM_URL="http://127.0.0.1:$IM_PORT"
 UI_URL="$IM_URL"
 # Never inherit a different environment's browser-origin allowance.
-export IM_BROWSER_ORIGINS=""
+export IM_BROWSER_ORIGINS="$PREVIEW_URL"
+if [[ -n "$PREVIEW_URL" ]]; then UI_URL="$PREVIEW_URL"; fi
 if [[ $START_VITE -eq 1 ]]; then
   UI_URL="http://127.0.0.1:$VITE_PORT"
   export IM_BROWSER_ORIGINS="$UI_URL"
 fi
 
-JWT_SECRET="$(LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c 32 || echo "e2e-$$-$(date +%s)")"
+prepare_fresh_stack() {
+JWT_SECRET="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 echo "$JWT_SECRET" > "$WT_ROOT/.e2e-jwt-secret"
 
-# ─── derive Gateway config (worktree-local copy) ─────────────────────────────
-
-WT_CFG="$WT_ROOT/.gateway-config.yaml"
 cp "$MAIN_CFG" "$WT_CFG"
 if [[ "$E2E_PROFILE" == "feishu" ]]; then
   python3 "$SCRIPT_DIR/e2e_feishu_config.py" \
@@ -210,14 +257,14 @@ WT_NAME="$(basename "$WT_ROOT")"
 NODE_ID="wt-${WT_NAME}-$$"
 WORKSPACE_DIR="$WT_ROOT/.gateway-workspace"
 
-WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" WT_ROOT_PY="$WT_ROOT" \
+ADMIN_PASSWORD="$ADMIN_PASSWORD" WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" WT_ROOT_PY="$WT_ROOT" \
   python3 - <<'PYCFG'
 import os, yaml
 path = os.environ["WT_CFG_PY"]
 with open(path) as f: cfg = yaml.safe_load(f)
 cfg.setdefault("node", {})["node_id"] = os.environ["NODE_ID"]
 cfg["node"]["user_id"] = ""
-cfg.setdefault("im_service", {}).update(url=f"http://127.0.0.1:{os.environ['IM_PORT']}", token="", username="nano", password="nano1234")
+cfg.setdefault("im_service", {}).update(url=f"http://127.0.0.1:{os.environ['IM_PORT']}", token="", username="nano", password=os.environ["ADMIN_PASSWORD"])
 cfg["im_service"].pop("refresh_token", None)
 wsd = os.environ["WORKSPACE_DIR"]
 cfg["node"]["workspace_base"] = wsd
@@ -255,14 +302,15 @@ with open(cfg_path, "w", encoding="utf-8") as output:
     yaml.safe_dump(cfg, output, allow_unicode=True, sort_keys=False)
 PY
 
-# ─── start TypeScript IM ─────────────────────────────────────────────────
-#
 # feat-393 fix-r1: remove stale IM DB before each e2e run so heartbeat conversations
 # created by a previous run (with different owner_id) do not pollute the new instance.
 # The DB path is cwd-relative (data/im_service.sqlite3) so we remove it from $WT_ROOT.
 rm -f "$WT_ROOT/data/im_service.sqlite3" "$WT_ROOT/data/im_service.sqlite3-wal" "$WT_ROOT/data/im_service.sqlite3-shm"
 # Each run gets a fresh node identity; preserve prior per-node DSH evidence.
 rm -f "$WT_ROOT/channel-credentials-v1.pem" "$WT_ROOT/device-binding-operation.json"
+}
+if [[ $RESUME -eq 0 ]]; then prepare_fresh_stack; fi
+
 if [[ ! -f "$REPO_ROOT/apps/im-server/lib/main.js" || ! -f "$REPO_ROOT/apps/node/lib/cli.js" ]]; then
   echo "Build first: pnpm install --frozen-lockfile && pnpm build" >&2
   exit 1
@@ -275,12 +323,12 @@ python3 "$SCRIPT_DIR/e2e_ui.py"
 export IM_FRONTEND_DIST_DIR="$REPO_ROOT/src/IM/frontend/dist"
 export IM_TRAJECTORY_DIST_DIR="$REPO_ROOT/packages/dsh-trajectory-viewer/dist"
 cd "$WT_ROOT"
-IM_PUBLIC_URL="http://127.0.0.1:$IM_PORT" IM_JWT_SECRET="$JWT_SECRET" IM_DB_PATH="$WT_ROOT/data/im_service.sqlite3" IM_UPLOAD_DIR="$WT_ROOT/data/uploads" IM_PUBLIC_MODE=0 \
+IM_PUBLIC_URL="${PREVIEW_URL:-$IM_URL}" IM_JWT_SECRET="$JWT_SECRET" IM_DB_PATH="$WT_ROOT/data/im_service.sqlite3" IM_UPLOAD_DIR="$WT_ROOT/data/uploads" IM_PUBLIC_MODE="$PUBLIC_MODE" \
   node --input-type=module - "$REPO_ROOT/apps/im-server/lib/main.js" "$IM_PORT" "$WT_ROOT" <<'JS'
 import {spawn,execFileSync} from 'node:child_process';
 import {openSync,closeSync,writeFileSync} from 'node:fs';
 const root=process.argv[4],log=openSync(root+'/.im.log','a');
-const child=spawn(process.execPath,[process.argv[2],'serve','--host','127.0.0.1','--port',process.argv[3]],{cwd:root,env:process.env,detached:true,stdio:['ignore',log,log]});
+const child=spawn(process.execPath,[process.argv[2],process.env.IM_PUBLIC_MODE==='1'?'public-server':'serve','--host','127.0.0.1','--port',process.argv[3]],{cwd:root,env:process.env,detached:true,stdio:['ignore',log,log]});
 writeFileSync(root+'/.im.pid',String(child.pid));
 writeFileSync(root+'/.im.process-start',execFileSync('ps',['-p',String(child.pid),'-o','lstart=']));
 closeSync(log);child.unref();
@@ -306,13 +354,15 @@ while true; do
   sleep "$IM_READINESS_POLL_SECONDS"
 done
 
+if [[ $RESUME -eq 0 ]]; then
 # Explicit local admission; public registration intentionally stays pending.
 IM_JWT_SECRET="$JWT_SECRET" node "$REPO_ROOT/apps/im-server/lib/main.js" init_admin \
-  --username nano --password nano1234 --display-name "Test User" \
+  --username nano --password "$ADMIN_PASSWORD" --display-name "Test User" \
   --db-path "$WT_ROOT/data/im_service.sqlite3"
 
 # The native CLI completes device proof and persists its runtime credential.
 node "$REPO_ROOT/apps/node/lib/cli.js" bind --config "$WT_CFG" --auto-bind
+fi
 node "$REPO_ROOT/apps/node/lib/cli.js" start --config "$WT_CFG"
 node --input-type=module - "$WT_ROOT/.gateway-state.json" "$WT_ROOT/.gateway.pid" <<'JS'
 import {readFileSync,writeFileSync} from 'node:fs';
@@ -321,11 +371,11 @@ JS
 
 # Readiness requires the expected node to be online under the admitted owner.
 # A successful proof alone is insufficient: registration and config sync follow it.
-IM_E2E_URL="http://127.0.0.1:$IM_PORT" E2E_NODE_ID="$NODE_ID" E2E_GATEWAY_PID="$(cat "$WT_ROOT/.gateway.pid")" E2E_PROFILE="$E2E_PROFILE" E2E_CONFIG="$WT_CFG" E2E_EXPLICIT_CONFIG="$MAIN_CONFIG_EXPLICIT" PYTHONPATH="$REPO_ROOT" python - <<'PYREADY'
+ADMIN_PASSWORD="$ADMIN_PASSWORD" E2E_RESUME="$RESUME" IM_E2E_URL="http://127.0.0.1:$IM_PORT" E2E_NODE_ID="$NODE_ID" E2E_GATEWAY_PID="$(cat "$WT_ROOT/.gateway.pid")" E2E_PROFILE="$E2E_PROFILE" E2E_CONFIG="$WT_CFG" E2E_EXPLICIT_CONFIG="$MAIN_CONFIG_EXPLICIT" PYTHONPATH="$REPO_ROOT" python - <<'PYREADY'
 import os, time, httpx
 from pathlib import Path
 with httpx.Client(base_url=os.environ["IM_E2E_URL"], trust_env=False) as client:
-    login = client.post("/im/v1/auth/login", json={"username": "nano", "password": "nano1234"})
+    login = client.post("/im/v1/auth/login", json={"username": "nano", "password": os.environ["ADMIN_PASSWORD"]})
     login.raise_for_status()
     pair = login.json()
     client.headers["Authorization"] = "Bearer " + pair["access_token"]
@@ -338,6 +388,8 @@ with httpx.Client(base_url=os.environ["IM_E2E_URL"], trust_env=False) as client:
         time.sleep(0.5)
     else:
         raise SystemExit("Gateway did not register online within 30s; inspect .gateway.log")
+    if os.environ["E2E_RESUME"] == "1":
+        raise SystemExit(0)
     client.timeout = httpx.Timeout(60)
     if os.environ["E2E_PROFILE"] in {"default", "daily"}:
         from scripts.e2e_catalog import sync_default_tools
@@ -380,7 +432,7 @@ FEISHU_LOCK_ENV_LINE=""
 if [[ "$E2E_PROFILE" == "feishu" ]]; then
   FEISHU_LOCK_ENV_LINE="export E2E_FEISHU_LISTENER_LOCK=$FEISHU_LOCK_DIR"
 fi
-cat > "$WT_ROOT/.e2e-ports.env" <<EOF
+cat > "$PORT_MAP.tmp" <<EOF
 # Generated by scripts/e2e-up.sh on $(date -u +%Y-%m-%dT%H:%M:%SZ)
 # DSH uses a private stdio link; no runtime HTTP port.
 # source this file in your shell, then curl with \$IM_URL.
@@ -394,13 +446,18 @@ export VITE_IM_PROXY_TARGET=http://127.0.0.1:$IM_PORT
 export E2E_PROFILE=$E2E_PROFILE
 $FEISHU_LOCK_ENV_LINE
 EOF
+mv "$PORT_MAP.tmp" "$PORT_MAP"
 
 echo "e2e stack ready in $WT_ROOT"
 echo "  IM   $IM_PORT  ($WT_ROOT/.im.log)"
 echo "  GW   pid=$(cat "$WT_ROOT/.gateway.pid")  ($WT_ROOT/gateway.log)"
 echo "  profile $E2E_PROFILE"
 echo "  Browser $UI_URL (same-origin IM: $IM_URL)"
-echo "  Test account: nano / nano1234"
+if [[ -n "$PREVIEW_URL" ]]; then
+  echo "  Test account: nano (password file: $WT_ROOT/.e2e-preview-password)"
+else
+  echo "  Test account: nano / nano1234"
+fi
 if [[ $START_VITE -eq 1 ]]; then echo "  Vite $VITE_PORT ($WT_ROOT/.vite.log)"; fi
 echo "source $WT_ROOT/.e2e-ports.env to expose ports"
 echo "hint: source config $MAIN_CFG (copied into this isolated stack)"
