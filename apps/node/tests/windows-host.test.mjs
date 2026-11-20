@@ -24,8 +24,8 @@ const fixture = `
   });
 `;
 
-async function waitJson(path) {
-  for (let i = 0; i < 150; i++) {
+async function waitJson(path, attempts = 150) {
+  for (let i = 0; i < attempts; i++) {
     try { return JSON.parse(await readFile(path, 'utf8')); }
     catch (error) {
       if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
@@ -117,6 +117,23 @@ test('Windows host confines its actual Gateway tree and checks birth before stop
       assert.equal(await run('birth', gateway), '');
       for (let i = 0; i < 40 && await run('birth', dsh); i++) await delay(50);
       assert.equal(await run('birth', dsh), '');
+    }
+    // Exercise a registered on-demand task, since the scheduler can leave it
+    // Ready after an unexpected child exit even with RestartOnFailure set.
+    try {
+      await writeFile(join(temp, 'mode'), 'drain');
+      await rm(join(temp, 'pids.json'), {force:true});
+      await run('start', config, '250', 'true');
+      const [first] = await waitJson(join(temp, 'pids.json'));
+      await rm(join(temp, 'pids.json'));
+      process.kill(first);
+      const [second] = await waitJson(join(temp, 'pids.json'), 400);
+      assert.notEqual(first, second);
+      await run('stop', config, String(second), await run('birth', String(second)));
+    } finally {
+      await exec('powershell.exe', ['-NoProfile', '-Command',
+        'Get-ScheduledTask | Where-Object {$_.Actions.Execute -eq $env:CREWDEN_TEST_HOST} | Unregister-ScheduledTask -Confirm:$false'],
+        {env:{...process.env, CREWDEN_TEST_HOST:host}});
     }
     await run('stop', otherConfig, String(otherPid), otherBirth);
     assert.equal(await other.exit, 0);

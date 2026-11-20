@@ -16,7 +16,7 @@
 
 1. **按用户安装的小型在线 EXE。** 网页和模型本来就需要联网，首版采用单个原生启动/安装入口，仅内含连接界面、固定协议处理、HTTPS 下载、SHA-256 校验及解包能力。用户双击后会看到「回到原网页，连接这台电脑」；网页唤起并确认来源后，原生窗口显示准备进度或可重试的失败原因。一次下载完整离线包会把低频使用的大依赖也提前交给每位用户。在线方式仍要对首次聊天的总传输量负责。[微软对小型在线安装器的说明](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution) · [按用户安装](https://jrsoftware.org/inno-setup/documentation/topic_setup_privilegesrequired.htm)
 2. **同一份 EXE 服务多个 IM。** Inno Setup 按当前用户安装启动器、开始菜单入口和专用 URI 处理程序；下载动作指向固定 GitHub Release 资产。用户回到发起下载的网页点连接，浏览器唤起电脑端，在本机显示要连接的 IM 域名，由用户确认后执行现有设备绑定。这样可复用同一包，既无需用户填写地址，也无需 IM 重新打包或转发二进制。
-3. **任务计划程序负责登录和重启。** 每个已绑定配置对应一个当前用户、普通权限、交互登录令牌的任务。任务直接运行该配置的 Windows 宿主，前台 Gateway 是宿主的被监护子进程。登录触发，异常结束交给 Task Scheduler 的 RestartOnFailure；设置允许电池运行、无固定运行时限和重复启动忽略。主动停止和更新切换先让宿主进入正常退出路径；关闭自启移除该配置的登录触发/恢复，保留开始菜单手动启动。以任务实际注册状态和 Gateway ready/online 分别判断是否启用、是否能工作。[微软任务重启设置](https://learn.microsoft.com/en-us/windows/win32/taskschd/tasksettings-restartcount)
+3. **任务计划程序负责登录，Windows 宿主负责当前会话的后台进程恢复。** 每个已绑定配置对应一个当前用户、普通权限、交互登录令牌的任务。任务直接运行该配置的 Windows 宿主，前台 Gateway 是宿主的被监护子进程。登录触发；Gateway 异常退出时，宿主清理旧进程树，等待运行锁到期并复核当前自启设置后重新拉起。宿主任务本身保留 Task Scheduler 的 RestartOnFailure；设置允许电池运行、无固定运行时限和重复启动忽略。主动停止和更新切换先让宿主进入正常退出路径；关闭自启移除该配置的登录触发/恢复，保留开始菜单手动启动。以任务实际注册状态和 Gateway ready/online 分别判断是否启用、是否能工作。[微软任务重启设置](https://learn.microsoft.com/en-us/windows/win32/taskschd/tasksettings-restartcount)
 4. **同一套更新事务。** 每个平台选择一个明确资产。首装与更新读取同一份不可变的 Windows 版本描述文件；该文件的 SHA-256 是 Windows 节点登记和比较的发布身份。现有 Unix TGZ 和 Windows 版本描述文件即使版本号相同也各有自己的哈希。旧 IM 或尚无 Windows 资产时仅揭示确实可用的平台。不改变模型提示词、历史或工具权限。
 
 ## 接口与数据流

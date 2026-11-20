@@ -239,8 +239,9 @@ internal static class GatewayHost {
         if (!String.IsNullOrEmpty(encodedOrigin) && encodedOrigin != "-" && encodedOrigin != "$(Arg0)")
             args += " --im-service-url " + Quote(Utf8.GetString(Convert.FromBase64String(encodedOrigin)));
         using (var pipe = ControlPipe(key))
-        using (var child = new GatewayJob(node, args, package, Path.Combine(Path.GetDirectoryName(config), "gateway.log"))) {
-            var graceful = new ManualResetEvent(false);
+        using (var graceful = new ManualResetEvent(false)) {
+            var gate = new object();
+            GatewayJob child = null;
             var control = new Thread(() => {
                 while (true) {
                     try {
@@ -251,24 +252,48 @@ internal static class GatewayHost {
                                 var fields = (reader.ReadLine() ?? "").Split(' ');
                                 bool stop = fields[0] == "stop";
                                 if (fields.Length < 3 || (!stop && fields[0] != "worker")) throw new Exception("Unknown host request");
-                                if (!(stop && fields[1] == "0") && (Int32.Parse(fields[1]) != child.Pid || fields[2] != child.Birth))
-                                    throw new Exception("Gateway process identity changed");
-                                if (stop) { graceful.Set(); child.Stop(grace); }
-                                else ScheduleWorker(config, key, fields[3], package);
+                                lock (gate) {
+                                    if (!(stop && fields[1] == "0") && (child == null || Int32.Parse(fields[1]) != child.Pid || fields[2] != child.Birth))
+                                        throw new Exception("Gateway process identity changed");
+                                    if (stop) {
+                                        graceful.Set();
+                                        if (child != null) child.Stop(grace);
+                                    } else ScheduleWorker(config, key, fields[3], package);
+                                }
                                 writer.WriteLine("OK");
                             } catch (Exception e) { writer.WriteLine(e.Message); }
                             writer.Flush();
                         }
                         pipe.Disconnect();
                         if (graceful.WaitOne(0)) return;
-                    } catch (IOException) { if (pipe.IsConnected) pipe.Disconnect(); }
+                    } catch (ObjectDisposedException) { return; }
+                    catch (IOException) { if (pipe.IsConnected) pipe.Disconnect(); }
                 }
             });
             control.IsBackground = true;
             control.Start();
-            child.Wait();
-            if (graceful.WaitOne(0)) { control.Join(); return 0; }
-            return 1; // Even an unrequested clean Gateway exit must trigger RestartOnFailure.
+            while (true) {
+                lock (gate) {
+                    if (graceful.WaitOne(0)) break;
+                    child = new GatewayJob(node, args, package, Path.Combine(Path.GetDirectoryName(config), "gateway.log"));
+                }
+                try { child.Wait(); }
+                finally { lock (gate) { child.Dispose(); child = null; } }
+                if (graceful.WaitOne(0)) break;
+                // A task started on demand can finish with exit code 1 without a scheduler retry.
+                // Keep its control pipe available during recovery so Stop and updates still work.
+                dynamic scheduler = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service"));
+                scheduler.Connect();
+                dynamic folder = scheduler.GetFolder("\\");
+                dynamic task = FindTask(folder, key);
+                if (task == null) return 1;
+                if (!Enabled(task)) return 0;
+                // The terminated Gateway's runtime lock expires after ten seconds.
+                if (graceful.WaitOne(15000)) break;
+                if (!Enabled(FindTask(folder, key))) return 0;
+            }
+            control.Join();
+            return 0;
         }
     }
 
