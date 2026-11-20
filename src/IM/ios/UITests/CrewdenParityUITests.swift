@@ -28,6 +28,30 @@ final class CrewdenParityUITests: XCTestCase {
     private func capture(_ name: String) {
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = name; a.lifetime = .keepAlways; add(a)
     }
+    func testBrowseGroupDetailsAndPersonalSpace() throws {
+        try launch()
+        let group = try required("NANO_UI_CHAT_TITLE")
+        let groupRow = app.staticTexts[group].firstMatch
+        XCTAssertTrue(groupRow.waitForExistence(timeout: 20))
+        groupRow.tap()
+        app.buttons["聊天详情"].tap()
+        XCTAssertTrue(app.switches["置顶聊天"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["移除"].exists)
+        capture("crewden-group-details")
+        app.buttons["更多聊天选项"].tap()
+        app.buttons["修改名称"].tap()
+        XCTAssertEqual(app.textFields["名称"].value as? String, group)
+        app.buttons["取消"].tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.tabBars.buttons["我的"].tap()
+        XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "我的电脑")).firstMatch.waitForExistence(timeout: 10))
+        capture("crewden-personal-space")
+        app.buttons["设置"].tap()
+        XCTAssertTrue(app.buttons["个人资料与语言"].exists)
+        XCTAssertTrue(app.buttons["模型服务"].exists)
+    }
+
     func testCreateAssistantAndEditFirstDraft() throws {
         try launch()
         let setup = app.buttons["assistant.setup.entry"]

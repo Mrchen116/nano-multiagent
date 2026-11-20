@@ -29,8 +29,8 @@ struct TasksView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     NanoSearchField(text: $query, prompt: L("搜索任务", "Search tasks"))
                     Picker(L("任务范围", "Task scope"), selection: $ownerMode) {
-                        Text(L("根任务总览", "Root overview")).tag(false)
-                        Text(L("按负责人 · 所有层级", "By assignee · all levels")).tag(true)
+                        Text(L("任务总览", "Overview")).tag(false)
+                        Text(L("按负责人", "By assignee")).tag(true)
                     }.pickerStyle(.segmented)
                     if ownerMode {
                         Button { choosingOwner = true } label: {
@@ -43,10 +43,12 @@ struct TasksView: View {
                     if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } }
                     if !loaded && error == nil { ProgressView() }
                     if !ownerMode || !ownerKey.isEmpty {
-                        if loaded {
+                        if loaded && !items.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(L("已加载 \(items.count) / 共 \(total) 个任务", "Loaded \(items.count) / \(total) tasks") + (partialCounts ? L(" · 以下计数仅含已加载", " · Counts below cover loaded tasks") : ""))
-                                    .font(.caption).foregroundStyle(NanoTheme.muted)
+                                if partialCounts {
+                                    Text(L("已显示 \(items.count) / \(total) 个任务，按当前列表统计", "Showing \(items.count) of \(total) tasks. Counts reflect this list."))
+                                        .font(.caption).foregroundStyle(NanoTheme.muted)
+                                }
                                 TaskStatusSummary(counts: statusCounts, partial: partialCounts) { group in
                                     withAnimation { proxy.scrollTo(group, anchor: .top) }
                                 }
@@ -77,7 +79,13 @@ struct TasksView: View {
                             }
                         }
                         if loaded && items.isEmpty && error == nil {
-                            Text(L("暂无任务", "No tasks")).font(.subheadline).foregroundStyle(NanoTheme.muted).padding(.vertical, 24)
+                            VStack(spacing: 12) {
+                                Image(systemName: "checklist").font(.largeTitle).foregroundStyle(NanoTheme.accent)
+                                Text(query.isEmpty ? L("还没有任务", "No tasks yet") : L("没有找到匹配的任务", "No matching tasks")).font(.headline)
+                                if !ownerMode && query.isEmpty {
+                                    Button(L("创建任务", "Create task")) { creating = true }.buttonStyle(.bordered)
+                                }
+                            }.frame(maxWidth: .infinity).padding(.vertical, 36)
                         }
                     }
                     if cursor != nil { Button(L("加载更多", "Load more")) { Task { await load(more: true) } }.disabled(loading) }

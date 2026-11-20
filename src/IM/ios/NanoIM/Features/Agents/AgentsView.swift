@@ -25,7 +25,7 @@ struct AgentsView: View {
     }
     var body: some View {
         List {
-            NanoSearchField(text: $search, prompt: L("搜索名称、ID 或设备", "Search name, ID, or device"))
+            NanoSearchField(text: $search, prompt: L("搜索助手", "Search assistants"))
                 .listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 8, trailing: 20))
             if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } }
             if !loaded { ProgressView() }
@@ -48,7 +48,7 @@ struct AgentsView: View {
                 NavigationLink {
                     AgentProfileView(client: client, user: user, contact: contact, onOpenChat: onOpenChat)
                 } label: {
-                    agentRow(agentID: contact.agent_id ?? contact.user_id, name: contact.display_name, subtitle: (contact.node_name ?? L("未知设备", "Unknown device")) + " · " + (contact.work_mode == "global" ? L("全局", "Global") : L("单会话", "Single thread")), status: contact.status)
+                    agentRow(agentID: contact.agent_id ?? contact.user_id, name: contact.display_name, subtitle: contact.owner_display_name.map { L("\($0) 的助手", "Assistant for \($0)") }, status: contact.status)
                 }.listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
             }
             } }
@@ -65,14 +65,14 @@ struct AgentsView: View {
             repeat { await load(); try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled
         }
     }
-    private func agentRow(agentID: String, name: String, subtitle: String, status: String?) -> some View {
+    private func agentRow(agentID: String, name: String, subtitle: String?, status: String?) -> some View {
         HStack(spacing: 12) {
             AvatarView(name: name, online: status == "online", kind: "agent", agentID: agentID,
                        role: binding?.agent_id == agentID ? "personal" : contacts.first { $0.agent_id == agentID }?.role,
                        variant: contacts.first { $0.agent_id == agentID }?.avatar_variant ?? (binding?.agent_id == agentID ? binding?.avatar_variant : nil))
             VStack(alignment: .leading, spacing: 6) {
                 Text(name).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).fixedSize(horizontal: false, vertical: true)
-                Text(subtitle).font(.caption).foregroundStyle(NanoTheme.muted).fixedSize(horizontal: false, vertical: true)
+                if let subtitle { Text(subtitle).font(.caption).foregroundStyle(NanoTheme.muted).fixedSize(horizontal: false, vertical: true) }
                 AgentLifecycleControls(client: client, agentID: agentID, canManage: false, online: status == "online", compact: true)
             }
             Spacer(minLength: 4)

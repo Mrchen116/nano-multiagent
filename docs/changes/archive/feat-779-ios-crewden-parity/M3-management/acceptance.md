@@ -10,9 +10,9 @@ Web 对照基线为 `b405a96a7`。表内“代码核对”指已比较两端入�
 | 外部通道新增、配置、重连、移除，查看待处理与失败状态 | 助手 → 外部通道 | 代码核对 `AgentChannelsView` 和 `AgentChannel`。daily 已读取通道列表。第三方收件未经本次真机验证。 |
 | PA 改名、排除或恢复观察的聊天，处理风险、查看原文与已受限联系人、解封 | 智能体 → 我的个人助手，或 PA 私聊 → 聊天设置 → 个人助手设置 | daily 主人保存了独立合成群的排除项，重新 GET 可见，同一旧 revision 重提返回 409，随后恢复原范围。读取风险与受限联系人成功。同仓 personal-contact-blocks 服务测试覆盖来源、处置、解封，独立普通成员无法写主人策略。 |
 | 任务总览／群任务、负责人／状态／层级筛选、进度和结构、编辑、交办、验收、删除子树、查看来源／等待 | 任务 → 任务详情；群会话 → 群任务 | 对照 `task-graphs-page`、`task-editor`、`TasksView`、`TaskEditorView` 与 `TaskContractsTests`。复用原生有权操作、草稿冲突和来源会话，未在本次逐项录制任务操作。 |
-| 个人资料、语言、申请加入公司、成员审批／停用、公司策略、附件容量 | 我的 → 个人资料、团队／公司、系统策略 | daily 新个人账号申请后变为 pending，管理员批准后变为 active，同一普通成员请求成员名单为 403。管理员最后停用该合成成员。主人读取了资料、策略、容量与成员名单。 |
-| 电脑列表、设备绑定／配置、安装和恢复指引、已安装版本、更新和取消 | 我的 → 我的设备 → 电脑详情，或连接新电脑／绑定设备 | daily 节点返回 source 安装状态。iOS 从服务器 operation 判定显示、取消窗口及恢复入口。`ManagementParityTests` 覆盖回退、恢复、切换时禁止取消；服务端 node-updates 用例覆盖授权／幂等／恢复。未在工作站实际安装更新。 |
-| 模型服务添加、验证、替换或保留凭据、启停／删除依赖冲突 | 我的 → 模型服务 → 电脑，或电脑详情 → 模型服务 | 对照现有 `ModelServicesView`、`ModelServiceModels` 与模型服务契约测试，写入沿用电脑返回的修订版本和连接验证结果。 |
+| 个人资料、语言、申请加入公司、成员审批／停用、公司策略、附件容量 | 我的 → 头像；我的 → 我的团队 → 团队成员／团队设置 | daily 新个人账号申请后变为 pending，管理员批准后变为 active，同一普通成员请求成员名单为 403。管理员最后停用该合成成员。主人读取了资料、策略、容量与成员名单。 |
+| 电脑列表、设备绑定／配置、安装和恢复指引、已安装版本、更新和取消 | 我的 → 我的电脑 → 电脑详情、连接新电脑或使用绑定链接 | daily 节点返回 source 安装状态。iOS 从服务器 operation 判定显示、取消窗口及恢复入口。`ManagementParityTests` 覆盖回退、恢复、切换时禁止取消；服务端 node-updates 用例覆盖授权／幂等／恢复。未在工作站实际安装更新。 |
+| 模型服务添加、验证、替换或保留凭据、启停／删除依赖冲突 | 我的 → 设置 → 模型服务 → 电脑，或电脑详情 → 模型服务 | 对照现有 `ModelServicesView`、`ModelServiceModels` 与模型服务契约测试，写入沿用电脑返回的修订版本和连接验证结果。 |
 | 同一管理员、普通成员的可见性 | 智能体、我的、各管理详情 | 与 daily 主人独立的已获准公司成员无法读取别人的 Agent 设置与插件（404），不能写主人的个人助手策略（404）。本人无 PA 时 GET 个人助手只返回自己的空绑定。 |
 
 本次隔离服务使用 `--profile daily`。使用同一 checkout 执行 `pnpm exec vitest run apps/im-server/tests/personal-contact-blocks.test.ts apps/im-server/tests/node-updates.test.ts apps/im-server/tests/agent-settings.test.ts`，3 个文件共 43 个测试通过。原生验收用例 `CrewdenParityUITests/testManagePersonalAssistantExclusions` 使用独立合成群，核对保存后返回再进入详情时实际读取到的选择。

@@ -2,7 +2,8 @@ import SwiftUI
 
 struct SettingsNodesView: View {
     let client: IMClient
-    let ownerID: String
+    let user: AuthUser
+    let accountUpdated: @MainActor () -> Void
     @Environment(\.scenePhase) private var scenePhase
     @State private var nodes: [SettingsNode] = []
     @State private var loaded = false
@@ -12,12 +13,15 @@ struct SettingsNodesView: View {
     var body: some View {
         List {
             NavigationLink { ComputerInstallView(client: client) } label: { Label(L("连接新电脑", "Connect a computer"), systemImage: "desktopcomputer") }
+            NavigationLink(L("使用绑定链接", "Use a binding link")) {
+                SettingsBindingView(client: client, user: user, onAccountUpdated: accountUpdated)
+            }
             if let error { Section { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } } }
             if !loaded && error == nil { ProgressView(L("正在加载设备", "Loading devices")) }
-            if loaded && nodes.isEmpty { ContentUnavailableView(L("尚未绑定设备", "No devices yet"), systemImage: "desktopcomputer", description: Text(L("返回“我的”，使用设备提供的链接绑定。", "Return to Me and bind with the link provided by your device."))) }
+            if loaded && nodes.isEmpty { ContentUnavailableView(L("尚未绑定设备", "No devices yet"), systemImage: "desktopcomputer", description: Text(L("连接新电脑，或使用电脑提供的绑定链接。", "Connect a computer or use the binding link it provides."))) }
             ForEach(nodes) { node in
                 NavigationLink {
-                    SettingsNodeView(client: client, ownerID: ownerID, initial: node)
+                    SettingsNodeView(client: client, ownerID: user.owner_id, initial: node)
                 } label: {
                     VStack(alignment: .leading, spacing: 5) {
                         HStack {
@@ -48,7 +52,7 @@ struct SettingsNodesView: View {
         do {
             let all = try await client.settingsNodes()
             try Task.checkCancellation()
-            nodes = all.filter { $0.owner_id == ownerID }; loaded = true; error = nil
+            nodes = all.filter { $0.owner_id == user.owner_id }; loaded = true; error = nil
         } catch is CancellationError {} catch { self.error = settingsError(error) }
     }
 }

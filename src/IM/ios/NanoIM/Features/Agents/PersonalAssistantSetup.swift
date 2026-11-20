@@ -57,49 +57,18 @@ struct PersonalAssistantSetup: View {
                     Button(L("打开聊天", "Open chat")) { openChat(chat) }
                 }
             } else if let onboarding {
-                Section(L("工作电脑", "Work computer")) {
-                    if !onboarding.nodes.isEmpty {
-                        Picker(L("电脑", "Computer"), selection: $nodeID) {
-                            ForEach(onboarding.nodes) { item in
-                                Text(item.name + " · " + settingsStatus(item.status)).tag(item.id)
-                            }
-                        }.disabled(personal?.creation != nil || busy)
-                    }
-                    if node?.status != "online" {
-                        Text(L("助手在你的电脑上执行任务。请先在电脑上完成安装并保持在线。", "Install Crewden on the computer where your assistant will work and keep it online.")).font(.callout)
-                        if onboarding.install.available {
-                            Button(copyDone ? L("已复制安装命令", "Installation command copied") : L("复制电脑安装命令", "Copy computer install command"), systemImage: "doc.on.doc") {
-                                UIPasteboard.general.string = onboarding.install.command
-                                copyDone = true
-                            }
-                        }
-                        ShareLink(item: client.baseURL.appendingPathComponent("onboarding")) { Label(L("发送设置链接到电脑", "Share computer setup link"), systemImage: "square.and.arrow.up") }
-                        NavigationLink(L("确认绑定链接", "Confirm binding link")) {
-                            SettingsBindingView(client: client, user: user, onAccountUpdated: { Task { await refresh() } })
+                if node?.status == "online", personal != nil, setup?.ready == true || personal?.creation != nil {
+                    assistantIdentity
+                    Section {
+                        DisclosureGroup(L("工作电脑与模型", "Computer and model")) {
+                            computerOptions(onboarding)
+                            modelOptions
                         }
                     }
-                }
-                if let node, node.status == "online" {
-                    Section(L("模型服务", "Model service")) {
-                        if let setup, setup.ready { Label(setup.default_model, systemImage: "checkmark.circle").font(.subheadline) }
-                        NavigationLink(L("设置模型服务", "Configure model services")) { ModelServicesView(client: client, nodeID: node.id) }
-                    }
-                    if personal != nil, setup?.ready == true || personal?.creation != nil {
-                        Section(L("个人助手", "Personal assistant")) {
-                            if let pending = personal?.binding {
-                                Text(pending.display_name).font(.headline)
-                            } else {
-                                HStack {
-                                    AssistantPortrait(personal: true, seed: user.id, selected: variant, size: 48)
-                                    TextField(L("助手名称", "Assistant name"), text: $name)
-                                }
-                                DisclosureGroup(L("选择形象", "Choose appearance")) { PortraitPicker(personal: true, variant: $variant) }
-                            }
-                            Button(personal?.creation == nil ? L("创建个人助手", "Create personal assistant") : L("继续创建", "Resume setup")) { Task { await create() } }
-                                .accessibilityIdentifier("assistant.setup.submit")
-                                .disabled(busy || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            if busy { ProgressView() }
-                        }
+                } else {
+                    Section(L("工作电脑", "Work computer")) { computerOptions(onboarding) }
+                    if node?.status == "online" {
+                        Section(L("模型服务", "Model service")) { modelOptions }
                     }
                 }
             } else if error == nil { ProgressView() }
@@ -116,6 +85,55 @@ struct PersonalAssistantSetup: View {
                 try? await Task.sleep(for: .seconds(5))
             } while !Task.isCancelled
         }
+    }
+
+    private var assistantIdentity: some View {
+        Section {
+            if let pending = personal?.binding {
+                HStack(spacing: 14) {
+                    AssistantPortrait(personal: true, seed: pending.agent_id, selected: pending.avatar_variant, size: 54)
+                    Text(pending.display_name).font(.title3.bold())
+                }
+            } else {
+                HStack {
+                    AssistantPortrait(personal: true, seed: user.id, selected: variant, size: 54)
+                    TextField(L("助手名称", "Assistant name"), text: $name).font(.title3.bold())
+                }
+                DisclosureGroup(L("选择形象", "Choose appearance")) { PortraitPicker(personal: true, variant: $variant) }
+            }
+            Button(personal?.creation == nil ? L("创建个人助手", "Create personal assistant") : L("继续创建", "Resume setup")) { Task { await create() } }
+                .accessibilityIdentifier("assistant.setup.submit")
+                .disabled(busy || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            if busy { ProgressView() }
+        }
+    }
+
+    @ViewBuilder private func computerOptions(_ onboarding: AssistantOnboarding) -> some View {
+        if !onboarding.nodes.isEmpty {
+            Picker(L("电脑", "Computer"), selection: $nodeID) {
+                ForEach(onboarding.nodes) { item in
+                    Text(item.name + " · " + settingsStatus(item.status)).tag(item.id)
+                }
+            }.disabled(personal?.creation != nil || busy)
+        }
+        if node?.status != "online" {
+            Text(L("助手在你的电脑上执行任务。请先在电脑上完成安装并保持在线。", "Install Crewden on the computer where your assistant will work and keep it online.")).font(.callout)
+            if onboarding.install.available {
+                Button(copyDone ? L("已复制安装命令", "Installation command copied") : L("复制电脑安装命令", "Copy computer install command"), systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = onboarding.install.command
+                    copyDone = true
+                }
+            }
+            ShareLink(item: client.baseURL.appendingPathComponent("onboarding")) { Label(L("发送设置链接到电脑", "Share computer setup link"), systemImage: "square.and.arrow.up") }
+            NavigationLink(L("确认绑定链接", "Confirm binding link")) {
+                SettingsBindingView(client: client, user: user, onAccountUpdated: { Task { await refresh() } })
+            }
+        }
+    }
+
+    @ViewBuilder private var modelOptions: some View {
+        if let setup, setup.ready { Label(setup.default_model, systemImage: "checkmark.circle").font(.subheadline) }
+        NavigationLink(L("设置模型服务", "Configure model services")) { ModelServicesView(client: client, nodeID: node.id) }
     }
 
     private func restoreDraft() {

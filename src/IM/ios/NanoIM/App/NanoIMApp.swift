@@ -252,9 +252,9 @@ private struct RootTabs: View {
             }.tabItem { Label(L("聊天", "Chats"), systemImage: "bubble.left.and.bubble.right") }.tag(0)
                 .badge(chat.conversations.reduce(0) { $0 + $1.unread_count })
             NavigationStack { TasksView(client: client, onReference: reference) }.id(taskNavigationID)
-                .tabItem { Label(L("任务", "Tasks"), systemImage: "point.3.connected.trianglepath.dotted") }.tag(1)
+                .tabItem { Label(L("任务", "Tasks"), systemImage: "checklist") }.tag(1)
             NavigationStack { AgentsView(client: client, user: user, onOpenChat: openChat) }
-                .tabItem { Label(L("智能体", "Agents"), systemImage: "hexagon") }.tag(2)
+                .tabItem { Label(L("智能体", "Agents"), systemImage: "person.2") }.tag(2)
             NavigationStack { MeView(client: client, user: user, onAccountUpdated: accountUpdated, openChat: openChat, onSignOut: signOut) }
                 .tabItem { Label(L("我的", "Me"), systemImage: "person.crop.circle") }.tag(3)
         }

@@ -6,76 +6,116 @@ struct MeView: View {
     let onAccountUpdated: @MainActor () -> Void
     var openChat: (String) -> Void
     let onSignOut: @MainActor () -> Void
-    @AppStorage("nano.locale") private var locale = "zh"
+    @State private var personal: NativePersonalAgentState?
     @State private var confirmSignOut = false
     @State private var applying = false
     @State private var membershipError: String?
 
+    private var assistant: NativePersonalAgentState.Binding? {
+        guard personal?.creation == nil, personal?.binding?.status == "active" else { return nil }
+        return personal?.binding
+    }
+
     var body: some View {
-        List {
-            Section {
-                HStack(spacing: 16) {
-                    AvatarView(name: user.display_name)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(user.display_name).font(.title3.bold())
-                        Text("@" + user.username).font(.subheadline).foregroundStyle(NanoTheme.muted)
-                        Text(user.is_company_admin ? L("管理员", "Administrator") : settingsStatus(user.membership_status)).font(.caption).foregroundStyle(NanoTheme.accent)
-                    }
-                }.padding(.vertical, 8)
-            }
-            if user.accountEnabled {
-                Section {
-                    NavigationLink { PersonalAssistantSetup(client: client, user: user, openChat: openChat) } label: {
-                        Label(L("我的个人助手", "My personal assistant"), systemImage: "bubble.left.and.sparkles")
-                    }
-                }
-                Section(L("账号与设备", "Account and devices")) {
-                    NavigationLink {
-                        SettingsAccountView(client: client, onAccountUpdated: onAccountUpdated)
-                    } label: { Label(L("个人资料与语言", "Profile and language"), systemImage: "person.text.rectangle") }
-                    NavigationLink { ModelServicesNodesView(client: client, ownerID: user.owner_id) } label: { Label(L("模型服务", "Model services"), systemImage: "square.stack.3d.up") }
-                    NavigationLink {
-                        SettingsNodesView(client: client, ownerID: user.owner_id)
-                    } label: { Label(L("我的设备", "My devices"), systemImage: "desktopcomputer") }
-                    NavigationLink {
-                        SettingsBindingView(client: client, user: user, onAccountUpdated: onAccountUpdated)
-                    } label: { Label(L("绑定设备", "Bind a device"), systemImage: "link") }
-                }
-            }
-            if user.membership_status == "active" {
-                Section(L("公司", "Company")) {
-                    if user.is_company_admin { NavigationLink {
-                        SettingsCompanyView(client: client, user: user, onAccountUpdated: onAccountUpdated)
-                    } label: { Label(L("公司成员", "Company members"), systemImage: "person.3") } }
-                    NavigationLink {
-                        SettingsPoliciesView(client: client, isAdmin: user.is_company_admin)
-                    } label: { Label(L("系统策略", "System policies"), systemImage: "slider.horizontal.3") }
-                }
-            } else {
-                Section(L("团队", "Team")) {
-                    if let membershipError { ErrorNotice(message: membershipError) }
-                    if user.membership_status == "none" {
-                        Button { Task { await applyToTeam() } } label: { Label(L("申请加入团队", "Apply to join team"), systemImage: "person.badge.plus") }.disabled(applying)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 26) {
+                if user.accountEnabled {
+                    NavigationLink { SettingsAccountView(client: client, onAccountUpdated: onAccountUpdated) } label: {
+                        identity
+                    }.accessibilityHint(L("编辑个人资料与语言", "Edit profile and language"))
+                    if let chatID = assistant?.conversation_id {
+                        Button { openChat(chatID) } label: { assistantPanel }
                     } else {
-                        LabeledContent(L("成员状态", "Membership"), value: settingsStatus(user.membership_status))
-                        Button(L("刷新状态", "Refresh status")) { onAccountUpdated() }
+                        NavigationLink { PersonalAssistantSetup(client: client, user: user, openChat: openChat) } label: { assistantPanel }
                     }
+                } else { identity }
+
+                VStack(spacing: 0) {
+                    if user.accountEnabled {
+                        NavigationLink { SettingsNodesView(client: client, user: user, accountUpdated: onAccountUpdated) } label: {
+                            CrewdenDestination(title: L("我的电脑", "My computers"), symbol: "laptopcomputer",
+                                detail: user.owned_node_ids.isEmpty ? nil : L("\(user.owned_node_ids.count) 台", "\(user.owned_node_ids.count)"))
+                        }
+                    }
+                    if user.membership_status == "active" {
+                        NavigationLink {
+                            List {
+                                if user.is_company_admin {
+                                    NavigationLink(L("团队成员", "Team members")) {
+                                        SettingsCompanyView(client: client, user: user, onAccountUpdated: onAccountUpdated)
+                                    }
+                                }
+                                NavigationLink(L("团队设置", "Team settings")) {
+                                    SettingsPoliciesView(client: client, isAdmin: user.is_company_admin)
+                                }
+                            }.navigationTitle(L("我的团队", "My team")).toolbar(.hidden, for: .tabBar)
+                        } label: {
+                            CrewdenDestination(title: L("我的团队", "My team"), symbol: "person.2",
+                                detail: user.is_company_admin ? L("管理员", "Admin") : nil)
+                        }
+                    } else if user.membership_status == "none" {
+                        Button { Task { await applyToTeam() } } label: {
+                            CrewdenDestination(title: L("加入团队", "Join a team"), symbol: "person.2")
+                        }.disabled(applying)
+                    } else {
+                        Button { onAccountUpdated() } label: {
+                            CrewdenDestination(title: L("团队申请", "Team membership"), symbol: "person.2", detail: settingsStatus(user.membership_status))
+                        }.accessibilityHint(L("刷新状态", "Refresh status"))
+                    }
+                    if let membershipError { ErrorNotice(message: membershipError) }
                 }
-            }
-            Section {
-                NavigationLink {
-                    SettingsHelpView()
-                } label: { Label(L("提醒与安装", "Reminders and installation"), systemImage: "bell.badge") }
-                Button(role: .destructive) { confirmSignOut = true } label: {
-                    Label(L("退出登录", "Sign out"), systemImage: "rectangle.portrait.and.arrow.right")
-                }
+            }.padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 36)
+        }
+        .buttonStyle(.plain).background(NanoTheme.surface)
+        .navigationTitle(L("我的", "Me")).navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { preferences } label: { Image(systemName: "gearshape") }
+                    .accessibilityLabel(L("设置", "Settings"))
             }
         }
-        .listStyle(.insetGrouped).contentMargins(.top, 12, for: .scrollContent).scrollContentBackground(.hidden).background(NanoTheme.canvas)
-        .nanoRootTitle(L("我的", "Me"))
+        .task { if user.accountEnabled { personal = try? await client.get("/im/v1/personal-agent") } }
+    }
+
+    private var identity: some View {
+        HStack(spacing: 16) {
+            AvatarView(name: user.display_name, size: 62)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(user.display_name).font(.title.bold()).foregroundStyle(NanoTheme.ink)
+                Text("@" + user.username).font(.subheadline).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if user.accountEnabled { Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.secondary) }
+        }.padding(.vertical, 10).contentShape(Rectangle())
+    }
+
+    private var assistantPanel: some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(assistant?.display_name ?? L("我的个人助手", "My assistant"))
+                    .font(.title3.bold()).foregroundStyle(NanoTheme.ink)
+                Label(assistant?.conversation_id != nil ? L("打开聊天", "Open chat") :
+                        personal == nil ? L("查看助手", "View assistant") :
+                        personal?.creation == nil ? L("创建助手", "Create assistant") : L("继续设置", "Continue setup"),
+                      systemImage: assistant?.conversation_id != nil ? "bubble.left" : "arrow.right")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(NanoTheme.accent)
+            }
+            Spacer(minLength: 4)
+            AssistantPortrait(personal: true, seed: assistant?.agent_id ?? user.id, selected: assistant?.avatar_variant, size: 76)
+        }.padding(20).background(NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    private var preferences: some View {
+        List {
+            if user.accountEnabled {
+                NavigationLink(L("个人资料与语言", "Profile and language")) { SettingsAccountView(client: client, onAccountUpdated: onAccountUpdated) }
+                NavigationLink(L("模型服务", "Model services")) { ModelServicesNodesView(client: client, ownerID: user.owner_id) }
+            }
+            NavigationLink(L("提醒与安装", "Reminders and installation")) { SettingsHelpView() }
+            Section { Button(L("退出登录", "Sign out"), role: .destructive) { confirmSignOut = true } }
+        }.navigationTitle(L("设置", "Settings")).toolbar(.hidden, for: .tabBar)
         .confirmationDialog(L("退出当前账号？", "Sign out of this account?"), isPresented: $confirmSignOut, titleVisibility: .visible) {
             Button(L("退出登录", "Sign out"), role: .destructive) { onSignOut() }
-            Button(L("取消", "Cancel"), role: .cancel) {}
         } message: {
             Text(L("本机的会话和待发内容将清除。服务端聊天历史会保留。", "Local session and unsent content will be cleared. Server chat history is retained."))
         }

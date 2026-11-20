@@ -180,3 +180,18 @@ extension String {
         addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))) ?? self
     }
 }
+
+struct CrewdenDestination: View {
+    let title: String
+    let symbol: String
+    var detail: String? = nil
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: symbol).font(.title3).frame(width: 28).accessibilityHidden(true)
+            Text(title).font(.body.weight(.medium))
+            Spacer()
+            if let detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+        }.foregroundStyle(NanoTheme.ink).padding(.vertical, 16).contentShape(Rectangle())
+    }
+}
