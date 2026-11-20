@@ -171,11 +171,12 @@ it('projects the exact frozen disclosure and complete audience without backend g
   {id:'owner',name:'Owner',type:'user',is_owner:true},{id:'p',name:'P',type:'agent'},{id:'q',name:'Q',type:'agent'},{id:'e',name:'E',type:'agent'}]}});
  expect(JSON.stringify(frozen)).toBe(original);
  frozen.payload.representation='owner';
- expect(personalReviewAction(frozen)).toMatchObject({tool:'send_user_message',arguments:{target:'group',text}});
+ frozen.payload.in_thread_of='request';
+ expect(personalReviewAction(frozen)).toMatchObject({tool:'send_user_message',arguments:{target:'group',text,in_thread_of:'request'}});
  const interactive={format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Full visible text")',supersedes_message_id:'old-card'};
  const attachment={url:'/file',text:'Actual full attachment body',sha256:'content-hash'};
  frozen.payload={...frozen.payload,interactive,attachments:[{url:'/file'}],attachment_snapshots:[attachment]};
- expect(personalReviewAction(frozen).arguments).toEqual({target:'group',text,interactive:{source:interactive.source,supersedes_message_id:'old-card'},
+ expect(personalReviewAction(frozen).arguments).toEqual({target:'group',text,in_thread_of:'request',interactive:{source:interactive.source,supersedes_message_id:'old-card'},
   attachment_positions:['/file'],attachments:[attachment]});
  expect(frozen.payload.interactive).toEqual(interactive);
  frozen.recipient.additional_readers='eligible_company_members_outside_group';
