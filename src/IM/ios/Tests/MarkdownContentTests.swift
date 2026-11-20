@@ -4,6 +4,22 @@ import SwiftUI
 @testable import NanoIM
 
 final class MarkdownContentTests: XCTestCase {
+    @MainActor
+    func testChatTextFitsShortMessagesAndWrapsLongOnes() {
+        let client = IMClient(baseURL: URL(string: "https://im.example.test")!)
+        let proposal = CGSize(width: 260, height: 800)
+        func measure(_ text: String) -> CGSize {
+            UIHostingController(rootView: MarkdownView(text: text, client: client, fillsWidth: false))
+                .sizeThatFits(in: proposal)
+        }
+        let short = measure("Hi")
+        let paragraph = measure(String(repeating: "一起看看这个任务。", count: 8))
+        XCTAssertLessThan(short.width, proposal.width / 4)
+        XCTAssertGreaterThan(paragraph.width, short.width)
+        XCTAssertLessThanOrEqual(paragraph.width, proposal.width)
+        XCTAssertGreaterThan(paragraph.height, short.height)
+    }
+
     func testProtectedAttachmentLinksUseNativeDownloadWhileExternalLinksRemainText() throws {
         let base = URL(string: "https://im.example.com")!
         let path = "/im/v1/conversations/chat/attachments/file"

@@ -6,6 +6,7 @@ struct AgentsView: View {
     let user: AuthUser
     let onOpenChat: @MainActor (String) -> Void
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var contacts: [Contact] = []
     @State private var personal: NativePersonalAgentState?
     @State private var personalError: String?
@@ -24,39 +25,45 @@ struct AgentsView: View {
         return filtered.contains { $0.agent_id == binding.agent_id } || search.isEmpty || (binding.display_name + binding.agent_id + L("个人助手", "Personal assistant")).localizedCaseInsensitiveContains(search)
     }
     var body: some View {
-        List {
-            NanoSearchField(text: $search, prompt: L("搜索名称、ID 或设备", "Search name, ID, or device"))
-                .listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 8, trailing: 20))
-            if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } }
-            if !loaded { ProgressView() }
-            if let personalError { Section {
-                ErrorNotice(message: personalError)
-                Button(L("重试读取个人助手", "Retry personal assistant")) { Task { await loadPersonal() } }
-            } }
-            if let binding, personalMatches {
-                Section(L("我的个人助手", "My personal assistant")) {
-                    NavigationLink { AgentConfigView(client: client, agentID: binding.agent_id) } label: {
-                        agentRow(agentID: binding.agent_id, name: binding.display_name, subtitle: L("个人助手", "Personal assistant"), status: contacts.first { $0.agent_id == binding.agent_id }?.status)
-                    }.listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
-                        .accessibilityHint(L("打开个人助手配置", "Open personal assistant settings"))
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 18) {
+                NanoSearchField(text: $search, prompt: L("搜索助手", "Search assistants"))
+                if let error {
+                    ErrorNotice(message: error)
+                    Button(L("重试", "Retry")) { Task { await load() } }
                 }
-            }
-            if personal?.creation != nil { Text(L("个人助手正在设置，请稍后重试。", "Personal assistant setup is in progress.")).font(.callout).foregroundStyle(.secondary) }
-            if !regular.isEmpty { Section(L("其他助手", "Other assistants")) {
-            ForEach(regular) { contact in
-                NavigationLink {
-                    AgentProfileView(client: client, user: user, contact: contact, onOpenChat: onOpenChat)
-                } label: {
-                    agentRow(agentID: contact.agent_id ?? contact.user_id, name: contact.display_name, subtitle: (contact.node_name ?? L("未知设备", "Unknown device")) + " · " + (contact.work_mode == "global" ? L("全局", "Global") : L("单会话", "Single thread")), status: contact.status)
-                }.listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
-            }
-            } }
-            if loaded && regular.isEmpty && !personalMatches && error == nil {
-                ContentUnavailableView(search.isEmpty ? L("暂无 Agent", "No Agents") : L("没有找到 Agent", "No matching Agents"), systemImage: search.isEmpty ? "person.crop.square" : "magnifyingglass", description: Text(search.isEmpty ? L("绑定设备后即可创建 Agent。", "Bind a device to create an Agent.") : L("试试其他名称、ID 或设备。", "Try another name, ID, or device.")))
-            }
+                if !loaded { ProgressView() }
+                if let personalError {
+                    ErrorNotice(message: personalError)
+                    Button(L("重试读取个人助手", "Retry personal assistant")) { Task { await loadPersonal() } }
+                }
+                if let binding, personalMatches { personalEntry(binding) }
+                if personal?.creation != nil {
+                    Text(L("个人助手正在设置。", "Personal assistant setup is in progress.")).foregroundStyle(.secondary)
+                }
+                if !regular.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(L("团队助手", "Team assistants")).font(.title3.bold())
+                        Text(regular.count, format: .number).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                    }.accessibilityAddTraits(.isHeader)
+                    LazyVGrid(columns: typeSize.isAccessibilitySize ? [GridItem(.flexible())] : [GridItem(.adaptive(minimum: 136), spacing: 14)], alignment: .leading, spacing: 20) {
+                        ForEach(regular) { contact in
+                            NavigationLink {
+                                AgentProfileView(client: client, user: user, contact: contact, onOpenChat: onOpenChat)
+                            } label: { directoryPortrait(contact) }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                } else if loaded && !personalMatches && error == nil {
+                    ContentUnavailableView(search.isEmpty ? L("还没有助手", "No assistants yet") : L("没有找到助手", "No matching assistants"),
+                        systemImage: search.isEmpty ? "person.2" : "magnifyingglass",
+                        description: Text(search.isEmpty ? L("连接电脑后就可以创建助手。", "Connect a computer to create an assistant.") : L("试试其他名称、ID 或设备。", "Try another name, ID, or device.")))
+                }
+            }.padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 28)
         }
-        .nanoList().nanoRootTitle(L("Agent", "Agents"))
-        .toolbar { Button { creating = true } label: { Label(L("新建 Agent", "New Agent"), systemImage: "plus") } }
+        .background(NanoTheme.surface).foregroundStyle(NanoTheme.ink)
+        .navigationTitle(L("助手", "Assistants")).navigationBarTitleDisplayMode(.large)
+        .toolbar { Button { creating = true } label: { Label(L("新建助手", "New assistant"), systemImage: "plus") } }
         .sheet(isPresented: $creating, onDismiss: { Task { await load() } }) { NavigationStack { AgentCreateView(client: client) } }
         .refreshable { await load() }
         .task(id: scenePhase) {
@@ -64,20 +71,58 @@ struct AgentsView: View {
             repeat { await load(); try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled
         }
     }
-    private func agentRow(agentID: String, name: String, subtitle: String, status: String?) -> some View {
+
+    private func personalEntry(_ assistant: NativePersonalAgentState.Binding) -> some View {
         HStack(spacing: 12) {
-            AvatarView(name: name, online: status == "online", kind: "agent")
-            VStack(alignment: .leading, spacing: 6) {
-                Text(name).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).fixedSize(horizontal: false, vertical: true)
-                Text(subtitle).font(.caption).foregroundStyle(NanoTheme.muted).fixedSize(horizontal: false, vertical: true)
-                AgentLifecycleControls(client: client, agentID: agentID, canManage: false, online: status == "online", compact: true)
+            NavigationLink {
+                PersonalAgentManagementView(client: client, agentID: assistant.agent_id)
+            } label: {
+                HStack(spacing: 12) {
+                    AssistantPortrait(personal: true, seed: assistant.agent_id, selected: assistant.avatar_variant, size: 54)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(L("我的个人助手", "My personal assistant")).font(.caption.weight(.medium)).foregroundStyle(NanoTheme.muted)
+                        Text(assistant.display_name).font(.headline).foregroundStyle(NanoTheme.ink)
+                    }
+                    Spacer(minLength: 2)
+                }.contentShape(Rectangle())
             }
-            Spacer(minLength: 4)
-            if let status {
-                Text(status == "online" ? L("在线", "Online") : L("离线", "Offline"))
-                    .font(.caption).foregroundStyle(status == "online" ? NanoTheme.accent : NanoTheme.muted)
+            .accessibilityIdentifier("personal-agent-settings")
+            .accessibilityHint(L("打开个人助手配置", "Open personal assistant settings"))
+            if let chat = assistant.conversation_id {
+                Button { onOpenChat(chat) } label: {
+                    Image(systemName: "bubble.left").font(.body.weight(.semibold)).frame(width: 44, height: 44)
+                        .background(NanoTheme.surface, in: Circle()).foregroundStyle(NanoTheme.accent)
+                }.accessibilityLabel(L("和\(assistant.display_name)聊天", "Chat with \(assistant.display_name)"))
             }
-        }.accessibilityElement(children: .combine)
+        }.buttonStyle(.plain).padding(.horizontal, 14).padding(.vertical, 9)
+            .background(NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: 19))
+    }
+
+    private func directoryPortrait(_ contact: Contact) -> some View {
+        let id = contact.agent_id ?? contact.user_id
+        let owned = contact.owner_id != nil && (contact.owner_id == user.id || contact.owner_id == user.owner_id)
+        return VStack(alignment: .leading, spacing: 8) {
+            ZStack(alignment: .topTrailing) {
+                RoundedRectangle(cornerRadius: 18).fill(assistantPaper(id, contact.avatar_variant))
+                    .frame(height: 92)
+                    .overlay {
+                        AssistantPortrait(personal: contact.role == "personal", seed: id, selected: contact.avatar_variant, size: 72)
+                    }
+                if let status = contact.status {
+                    Circle().fill(status == "online" ? Color.green : Color.secondary)
+                        .frame(width: 8, height: 8).padding(10).accessibilityLabel(settingsStatus(status))
+                }
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(contact.display_name).font(.headline).foregroundStyle(NanoTheme.ink)
+                if let owner = contact.owner_display_name {
+                    Text(owned ? L("我管理的助手", "Managed by me") : L("\(owner) 的助手", "Assistant for \(owner)"))
+                        .font(.caption).foregroundStyle(NanoTheme.muted)
+                }
+                AgentLifecycleControls(client: client, agentID: id, canManage: false, online: contact.status == "online", compact: true)
+            }.padding(.horizontal, 3)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle()).accessibilityElement(children: .combine)
     }
     private func load() async {
         do {
@@ -102,11 +147,18 @@ struct AgentsView: View {
     }
 }
 
+/// Keep the directory’s portrait mat keyed to the same selected identity as the avatar.
+private func assistantPaper(_ id: String, _ selected: Int?) -> Color {
+    let variant = selected.flatMap { (0..<24).contains($0) ? $0 : nil } ?? AssistantPortrait.variant(for: id)
+    return [Color.purple, .mint, .blue, .orange, .pink, .yellow][variant % 6].opacity(0.12)
+}
+
 struct NativePersonalAgentState: Decodable, Sendable {
     var binding: Binding?
     var creation: JSONValue?
     struct Binding: Decodable, Sendable {
         var agent_id: String; var display_name: String; var status: String
+        var node_id: String?; var conversation_id: String?; var avatar_variant: Int?
     }
 }
 
@@ -123,50 +175,71 @@ struct AgentProfileView: View {
     private var agentID: String { shownContact.agent_id ?? shownContact.user_id }
     private var owned: Bool { shownContact.owner_id == user.id || shownContact.owner_id == user.owner_id }
     var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(spacing: 14) {
-                        AvatarView(name: shownContact.display_name, online: shownContact.status == "online", kind: "agent")
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(shownContact.display_name).font(.title3.bold())
-                            Text(agentID).font(.caption).foregroundStyle(NanoTheme.muted)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 22) {
+                    HStack(alignment: .center, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            if let owner = shownContact.owner_display_name {
+                                Text(owned ? L("我的助手", "My assistant") : L("\(owner) 的助手", "Assistant for \(owner)"))
+                                    .font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                            }
+                            Text(shownContact.display_name).font(.largeTitle.bold()).foregroundStyle(NanoTheme.ink)
+                            if let status = shownContact.status {
+                                HStack(spacing: 6) {
+                                    Circle().fill(status == "online" ? Color.green : Color.secondary).frame(width: 8, height: 8)
+                                    Text(settingsStatus(status))
+                                }.font(.subheadline).foregroundStyle(.secondary)
+                            }
                         }
-                    }
-                    HStack(spacing: 7) {
-                        Circle().fill(shownContact.status == "online" ? NanoTheme.accent : NanoTheme.muted).frame(width: 6, height: 6)
-                        Text((shownContact.status == "online" ? L("在线", "Online") : L("离线", "Offline")) + " · " + (shownContact.node_name ?? L("未知设备", "Unknown device")))
-                            .font(.subheadline).foregroundStyle(NanoTheme.muted)
+                        Spacer(minLength: 0)
+                        AssistantPortrait(personal: shownContact.role == "personal", seed: agentID, selected: shownContact.avatar_variant, size: 86)
                     }
                     Button { Task { await openChat() } } label: {
-                        Label(L("发消息", "Message"), systemImage: "bubble.left").font(.body.weight(.semibold)).frame(maxWidth: .infinity).padding(.vertical, 5)
-                    }.buttonStyle(.borderedProminent).disabled(openingChat)
-                    if let error { ErrorNotice(message: error) }
-                    if let statusError { Text(statusError).font(.caption).foregroundStyle(NanoTheme.muted) }
-                    else if shownContact.status != "online" { Text(L("设备离线，Agent 回复需设备恢复在线。", "The device is offline. Agent replies require it to reconnect.")).font(.caption).foregroundStyle(NanoTheme.muted) }
-                }.padding(.vertical, 8)
-                AgentLifecycleControls(client: client, agentID: agentID, canManage: owned, online: shownContact.status == "online")
-            }
-            Section(L("概览", "Overview")) {
-                LabeledContent(L("管理者", "Owner"), value: shownContact.owner_display_name ?? shownContact.owner_id ?? "—")
-                LabeledContent(L("工作模式", "Work mode"), value: shownContact.work_mode == "global" ? L("全局模式", "Global") : L("单会话", "Single conversation"))
-            }
-            if shownContact.work_mode == "global" {
-                Section { NavigationLink { AgentWorkView(client: client, agentID: agentID, canManage: owned, onOpenChat: onOpenChat) } label: { Label(L("工作轨迹", "Work"), systemImage: "point.3.connected.trianglepath.dotted") } }
-            }
-            if owned {
-                Section(L("管理", "Manage")) {
+                        Label(L("发消息", "Message"), systemImage: "bubble.left.fill")
+                            .font(.headline).padding(.horizontal, 14).frame(minHeight: 42)
+                            .background(NanoTheme.ink, in: Capsule()).foregroundStyle(NanoTheme.surface)
+                    }.buttonStyle(.plain).disabled(openingChat)
+                }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(assistantPaper(agentID, shownContact.avatar_variant), in: RoundedRectangle(cornerRadius: 22))
+                if let error { ErrorNotice(message: error) }
+                if let statusError { Text(statusError).font(.footnote).foregroundStyle(.secondary) }
+                else if shownContact.status == "offline" { Text(L("电脑重新上线后，助手就能回复。", "The assistant can reply once its computer reconnects.")).font(.footnote).foregroundStyle(.secondary) }
+                if shownContact.work_mode == "global" {
                     NavigationLink {
-                        AgentConfigView(client: client, agentID: agentID, onDeleted: shownContact.role == "personal" ? nil : { deleted = true })
-                    } label: { Label(L("配置", "Configuration"), systemImage: "slider.horizontal.3") }
-                    NavigationLink { AgentChannelsView(client: client, agentID: agentID) } label: { Label(L("外部通道", "Channels"), systemImage: "antenna.radiowaves.left.and.right") }
-                    NavigationLink { AgentSkillsView(client: client, agentID: agentID, canManage: owned, global: shownContact.work_mode == "global", onOpenChat: onOpenChat) } label: { Label(L("Skills 使用情况", "Skill usage"), systemImage: "sparkles") }
+                        AgentWorkView(client: client, agentID: agentID, canManage: owned, onOpenChat: onOpenChat, displayName: shownContact.display_name, contact: shownContact)
+                    } label: {
+                        CrewdenDestination(title: L("工作记录", "Work records"), symbol: "clock.arrow.circlepath")
+                    }.accessibilityLabel(L("工作记录", "Work records"))
                 }
-            } else {
-                Text(L("这是公开资料，配置由管理者维护。", "This is a public profile. Configuration is managed by its owner.")).font(.caption).foregroundStyle(NanoTheme.muted)
-            }
-        }.listStyle(.insetGrouped).contentMargins(.top, 12, for: .scrollContent).scrollContentBackground(.hidden).background(NanoTheme.canvas)
-            .navigationTitle(L("Agent 详情", "Agent profile")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+                if owned {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(L("管理", "Manage")).font(.headline).padding(.bottom, 3)
+                        NavigationLink {
+                            AgentConfigView(client: client, agentID: agentID, personal: shownContact.role == "personal", onDeleted: shownContact.role == "personal" ? nil : { deleted = true })
+                        } label: { CrewdenDestination(title: L("助手设置", "Assistant settings"), symbol: "slider.horizontal.3") }
+                        Divider()
+                        NavigationLink { AgentChannelsView(client: client, agentID: agentID) } label: {
+                            CrewdenDestination(title: L("外部通道", "Channels"), symbol: "antenna.radiowaves.left.and.right")
+                        }
+                        Divider()
+                        NavigationLink { AgentSkillsView(client: client, agentID: agentID, canManage: owned, global: shownContact.work_mode == "global", onOpenChat: onOpenChat) } label: {
+                            CrewdenDestination(title: L("技能使用情况", "Skill usage"), symbol: "sparkles")
+                        }
+                    }
+                }
+                DisclosureGroup(L("助手资料", "Assistant details")) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let computer = shownContact.node_name { LabeledContent(L("工作电脑", "Work computer"), value: computer) }
+                        LabeledContent(L("助手 ID", "Assistant ID"), value: agentID).textSelection(.enabled)
+                        LabeledContent(L("管理者", "Owner"), value: shownContact.owner_display_name ?? shownContact.owner_id ?? "—")
+                        LabeledContent(L("工作模式", "Work mode"), value: shownContact.work_mode == "global" ? L("全局模式", "Global") : L("单会话", "Single conversation"))
+                    }.font(.subheadline).padding(.top, 8)
+                }
+                AgentLifecycleControls(client: client, agentID: agentID, canManage: owned, online: shownContact.status == "online", groupDisableAction: true)
+            }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 24)
+        }.buttonStyle(.plain).background(NanoTheme.surface)
+            .navigationTitle(L("助手详情", "Assistant profile")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
             .onAppear { if deleted { dismiss() } }
             .task(id: scenePhase) {
                 guard scenePhase == .active else { return }
@@ -202,7 +275,15 @@ struct AgentCreateView: View {
     @State private var capabilities: AgentCapabilities?
     @State private var draft: AgentDraft
     @State private var initialDraft: AgentDraft
+    @State private var resolvedApproval: String?
+    private var approvalWorkspace: String {
+        if customWorkspace { return draft.workspace_root.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard !draft.agent_id.isEmpty else { return "" }
+        return capabilities?.default_workspace_template?.replacingOccurrences(of: "{agent_id}", with: draft.agent_id) ?? ""
+    }
     @State private var purpose = "general"
+    @State private var selectedVariant = 0
+    @State private var choosingAppearance = false
     @State private var advanced = false
     @State private var openingChat = false
     init(client: IMClient, nodeID: String? = nil) {
@@ -211,7 +292,7 @@ struct AgentCreateView: View {
         initial.agent_id = "agent-" + String(UUID().uuidString.prefix(8)).lowercased()
         _draft = State(initialValue: initial); _initialDraft = State(initialValue: initial)
     }
-    private var hasEdits: Bool { draft != initialDraft || customWorkspace }
+    private var hasEdits: Bool { draft != initialDraft || customWorkspace || selectedVariant != 0 }
 
     @State private var customWorkspace = false
     @State private var error: String?
@@ -227,18 +308,33 @@ struct AgentCreateView: View {
         Form {
             if let created {
                 Section {
-                    Label(L("助手已创建", "Assistant created"), systemImage: "checkmark.circle.fill").foregroundStyle(NanoTheme.accent)
-                    Text(created.display_name).font(.headline)
-                    Button(L("开始聊天", "Start chatting")) { Task { await openCreatedChat(created) } }.disabled(openingChat)
+                    VStack(spacing: 10) {
+                        AssistantPortrait(personal: false, seed: created.agent_id, selected: selectedVariant, size: 84)
+                        Text(created.display_name).font(.title.bold())
+                        Label(L("助手已创建", "Assistant created"), systemImage: "checkmark.circle.fill").font(.subheadline).foregroundStyle(.secondary)
+                        Button(L("开始聊天", "Start chatting")) { Task { await openCreatedChat(created) } }
+                            .buttonStyle(.borderedProminent).disabled(openingChat)
+                    }.frame(maxWidth: .infinity).padding(.vertical, 10)
+                        .listRowBackground(NanoTheme.softAccent)
                     if let error { ErrorNotice(message: error) }
                 }
             } else {
                 Group {
                 Section {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(L("名称", "Name")).font(.caption).foregroundStyle(NanoTheme.muted)
-                        TextField(L("例如：研究助手", "For example: Research assistant"), text: $draft.display_name)
-                    }
+                    HStack(spacing: 14) {
+                        Button { choosingAppearance.toggle() } label: {
+                            ZStack(alignment: .bottomTrailing) {
+                                AssistantPortrait(personal: false, seed: draft.agent_id, selected: selectedVariant, size: 58)
+                                Image(systemName: "paintpalette.fill").font(.caption2).frame(width: 22, height: 22)
+                                    .foregroundStyle(NanoTheme.accent).background(NanoTheme.surface, in: Circle())
+                            }
+                        }.buttonStyle(.plain).accessibilityLabel(L("助手形象", "Appearance"))
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(L("名称", "Name")).font(.caption).foregroundStyle(NanoTheme.muted)
+                            TextField(L("例如：研究助手", "For example: Research assistant"), text: $draft.display_name).font(.headline)
+                        }
+                    }.padding(.vertical, 4).listRowBackground(NanoTheme.softAccent)
+                    if choosingAppearance { PortraitPicker(personal: false, variant: $selectedVariant) }
                     Picker(L("用途", "Purpose"), selection: $purpose) {
                         Text(L("日常协助", "Everyday help")).tag("general")
                         Text(L("研究与资料比较", "Research and comparison")).tag("research")
@@ -247,7 +343,6 @@ struct AgentCreateView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(L("初始角色约定", "Initial role agreement")).font(.caption).foregroundStyle(NanoTheme.muted)
                         TextField(L("说明目标或偏好，可稍后调整", "Describe goals or preferences; edit later"), text: $draft.initial_role, axis: .vertical).lineLimit(2...5).accessibilityLabel(L("初始角色约定", "Initial role agreement"))
-                        Text(L("创建时保存，之后可在角色约定中修改。", "Saved on creation; edit later in Role agreement.")).font(.caption).foregroundStyle(.secondary)
                         if !draft.initialRoleIsValid { Text(L("初始角色约定超过 2,000 个 UTF-16 码元上限。", "The initial role exceeds the 2,000 UTF-16 unit limit.")).font(.caption).foregroundStyle(.red) }
                     }
                 } header: { Text(L("让它帮你做什么？", "What should it help with?")) }
@@ -263,7 +358,7 @@ struct AgentCreateView: View {
                     }
                     if nodes.first(where: { $0.id == selectedNode })?.status == "offline" { Text(L("电脑离线，恢复连接后可创建助手。", "This computer is offline. Reconnect it to create an assistant.")).font(.caption).foregroundStyle(.secondary) }
                 }
-                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability, showProfile: false, showCapabilities: false)
+                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapabilities, approvalRules: resolvedApproval, customApprovalWorkspace: customWorkspace || !approvalWorkspace.isEmpty, showProfile: false, showCapabilities: false)
                 Section {
                     DisclosureGroup(L("高级设置", "Advanced settings"), isExpanded: $advanced) {
                         VStack(alignment: .leading, spacing: 6) { Text(L("助手标识", "Assistant ID")).font(.caption).foregroundStyle(.secondary); TextField("Agent ID", text: $draft.agent_id).textInputAutocapitalization(.never).autocorrectionDisabled() }
@@ -274,7 +369,7 @@ struct AgentCreateView: View {
                         else { Text(L("使用电脑默认目录", "Use the computer's default directory")).font(.callout).foregroundStyle(.secondary) }
                     }
                 }
-                if advanced { AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability, showProfile: false, showModels: false) }
+                if advanced { AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapabilities, showProfile: false, showModels: false) }
                 }.disabled(pending)
                 Section {
                     if let error { ErrorNotice(message: error) }
@@ -300,6 +395,16 @@ struct AgentCreateView: View {
         .sheet(item: $preview) { value in AgentTextSheet(title: L("指令预览", "Instruction preview"), text: value.prompt, preview: true) }
         .task { do { nodes = try await client.get("/im/v1/nodes"); if selectedNode.isEmpty { selectedNode = nodeID ?? nodes.first(where: { $0.status == "online" })?.id ?? "" } } catch { self.error = agentError(error) } }
         .task(id: selectedNode) { await loadCapabilities() }
+        .task(id: [selectedNode, approvalWorkspace]) {
+            resolvedApproval = nil
+            guard !selectedNode.isEmpty, !approvalWorkspace.isEmpty else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+                let result: JSONValue = try await client.get("/im/v1/nodes/" + agentSegment(selectedNode) + "/approval", query: [.init(name: "workspace_root", value: approvalWorkspace)])
+                try Task.checkCancellation()
+                resolvedApproval = result["inherited_approval_rules"].stringValue
+            } catch { }
+        }
         .onChange(of: purpose) { _, value in
             let instruction = value == "research" ? L("整理资料并比较方案，说明依据和待确认事项。", "Research and compare options, explaining evidence and open questions.") : value == "writing" ? L("协助构思、写作和修改，保留事实与原意。", "Help plan, write and revise while preserving facts and intent.") : ""
             draft.description = value == "research" ? L("研究与资料比较", "Research and comparison") : value == "writing" ? L("写作与内容策划", "Writing and planning") : ""
@@ -317,11 +422,11 @@ struct AgentCreateView: View {
             openURL(client.baseURL.appendingPathComponent("chat").appendingPathComponent(result.id))
         } catch { self.error = agentError(error) }
     }
-    private func changeCapability(_ action: CapabilityAction) {
+    private func changeCapabilities(_ actions: [CapabilityAction]) {
         capabilityToast = nil
         guard let capabilities else { return }
-        if let block = draft.changeCapability(action, capabilities: capabilities).first {
-            capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name)
+        if let block = draft.changeCapabilities(actions, capabilities: capabilities).first {
+            capabilityToast = .init(text: block.message, anchor: block.target.kind + ":" + block.target.name)
         }
     }
     private func loadCapabilities() async {
@@ -341,7 +446,11 @@ struct AgentCreateView: View {
     private func create(confirmed: Bool) async {
         guard draft.agent_id.range(of: "^[a-z0-9_-]+$", options: .regularExpression) != nil else { error = L("Agent ID 仅允许小写字母、数字、下划线和短横线。", "Agent ID accepts lowercase letters, digits, underscores, and hyphens only."); return }
         busy = true; error = nil; defer { busy = false }
-        do { created = try await client.send("/im/v1/nodes/\(agentSegment(selectedNode))/agents", body: draft.payload(creating: true, customWorkspace: customWorkspace, confirmed: confirmed)) }
+        do {
+            var payload = draft.payload(creating: true, customWorkspace: customWorkspace, confirmed: confirmed)
+            payload["avatar_variant"] = .number(Double(selectedVariant))
+            created = try await client.send("/im/v1/nodes/\(agentSegment(selectedNode))/agents", body: payload)
+        }
         catch {
             if let api = error as? APIError, api.code == "workspace_confirmation_required" { confirmWorkspace = true }
             else if let api = error as? APIError, api.code == "role_conflict" { self.error = L("这个工作区已有不同的角色约定。清空初始角色可保留现有约定，或选择另一个工作区。", "This workspace already has a different role agreement. Leave the initial role empty to keep it, or choose another workspace.") }

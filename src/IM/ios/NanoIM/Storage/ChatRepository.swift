@@ -14,6 +14,7 @@ enum ChatRevokeReason: String, Sendable {
 struct ChatBootstrapSeed: Sendable {
     var conversations: [Conversation]
     var drafts: [String: String]
+    var replies: [String: ChatReply] = [:]
     var pendingCount: Int
     var connection: ChatConnectionSeed
 }
@@ -150,11 +151,31 @@ actor ChatRepository {
                 ALTER TABLE actors ADD COLUMN is_deleted INTEGER;
                 """)
         }
+        migrator.registerMigration("v4_message_replies") { db in
+            try db.execute(sql: "ALTER TABLE drafts ADD COLUMN reply_json BLOB")
+            try db.execute(sql: "ALTER TABLE pending_sends ADD COLUMN reply_json BLOB")
+        }
+        migrator.registerMigration("v5_actor_portrait") { db in
+            try db.execute(sql: "ALTER TABLE actors ADD COLUMN role TEXT")
+            try db.execute(sql: "ALTER TABLE actors ADD COLUMN avatar_variant INTEGER")
+        }
+        migrator.registerMigration("v6_conversation_preview_notice") { db in
+            // Older list-only snapshots cannot identify their last message. Recover
+            // metadata only for previews whose exact message was already recorded.
+            try db.execute(sql: """
+                ALTER TABLE conversations ADD COLUMN last_message_notice_json TEXT;
+                UPDATE conversations AS c SET last_message_notice_json=(
+                    SELECT json_extract(m.payload_json, '$.system_notice')
+                    FROM cache_meta k JOIN messages m ON m.id=k.value
+                    WHERE k.key='preview.message_id.' || c.id
+                      AND m.conversation_id=c.id AND m.created_at=c.last_message_at);
+                """)
+        }
         try migrator.migrate(queue)
         let policy = try persistence.policy()
         let handoffs = try persistence.loadHandoffs()
         try queue.write { db in
-            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '3')")
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '6')")
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.origin', ?)", arguments: [partition.origin.absoluteString])
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.user_id', ?)", arguments: [partition.userID])
             try applyPolicy(policy, db: db)
@@ -295,12 +316,14 @@ actor ChatRepository {
         return try read { db in
             let conversations = try Self.loadConversations(db)
             var drafts: [String: String] = [:]
-            for row in try Row.fetchAll(db, sql: "SELECT conversation_id, body FROM drafts") {
+            var replies: [String: ChatReply] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT conversation_id, body, reply_json FROM drafts") {
                 let id: String = row["conversation_id"]
                 drafts[id] = row["body"]
+                if let data: Data = row["reply_json"] { replies[id] = try JSONDecoder().decode(ChatReply.self, from: data) }
             }
             let pending = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pending_sends") ?? 0
-            return ChatBootstrapSeed(conversations: conversations, drafts: drafts, pendingCount: pending,
+            return ChatBootstrapSeed(conversations: conversations, drafts: drafts, replies: replies, pendingCount: pending,
                                      connection: try Self.connectionSeed(db))
         }
     }
@@ -353,7 +376,8 @@ actor ChatRepository {
                         guard let body: Data = row["request_body"], let content: String = row["content"] else { return nil }
                         let source: String = row["source_message_id"]
                         let attachments = (try? Self.decode([ChatAttachment].self, from: row["attachments_json"] as String? ?? "[]")) ?? []
-                        let draft = PendingSend(key: row["attempt_key"], content: content, attachments: attachments, requestBody: body)
+                        let reply = try (row["reply_json"] as Data?).map { try JSONDecoder().decode(ChatReply.self, from: $0) }
+                        let draft = PendingSend(key: row["attempt_key"], content: content, attachments: attachments, requestBody: body, reply: reply)
                         return SendAttempt(conversationID: row["conversation_id"], sourceMessageID: source.isEmpty ? nil : source, draft: draft)
                     }
             }
@@ -568,7 +592,7 @@ actor ChatRepository {
                 if previewID == nil || previewID == messageID {
                     // Discard is authority to invalidate a preview, not to promote an unknown
                     // older window over the server's latest. Reset ordering as well as text.
-                    try db.execute(sql: "UPDATE conversations SET last_message_preview=NULL, last_message_sender_name=NULL, last_message_card_json=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?",
+                    try db.execute(sql: "UPDATE conversations SET last_message_preview=NULL, last_message_sender_name=NULL, last_message_card_json=NULL, last_message_notice_json=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?",
                                    arguments: [conversation])
                     try db.execute(sql: "DELETE FROM cache_meta WHERE key=?", arguments: [identityKey])
                     if previewID == messageID { try Self.refreshConversationProjection(conversation, db: db) }
@@ -615,13 +639,13 @@ actor ChatRepository {
         try attemptPersistence.removeHandoffs(conversationID: id)
     }
 
-    func setDraft(_ id: String, body: String) throws {
+    func setDraft(_ id: String, body: String, reply: ChatReply? = nil) throws {
         try write { db in
-            if body.isEmpty {
+            if body.isEmpty && reply == nil {
                 try db.execute(sql: "DELETE FROM drafts WHERE conversation_id=?", arguments: [id])
             } else {
-                try db.execute(sql: "INSERT OR REPLACE INTO drafts(conversation_id, body, updated_at) VALUES(?,?,?)",
-                               arguments: [id, body, Self.iso(Date())])
+                try db.execute(sql: "INSERT OR REPLACE INTO drafts(conversation_id, body, updated_at, reply_json) VALUES(?,?,?,?)",
+                               arguments: [id, body, Self.iso(Date()), try reply.map(Self.encodeReply)])
             }
         }
     }
@@ -638,8 +662,8 @@ actor ChatRepository {
             // Only this frozen ordinary message consumes matching composer text. A newer
             // draft (or an interaction reply) is independent and must survive the transaction.
             if attempt.sourceMessageID == nil {
-                try db.execute(sql: "DELETE FROM drafts WHERE conversation_id=? AND body=?",
-                               arguments: [attempt.conversationID, attempt.draft.content])
+                try db.execute(sql: "DELETE FROM drafts WHERE conversation_id=? AND body=? AND reply_json IS ?",
+                               arguments: [attempt.conversationID, attempt.draft.content, try attempt.draft.reply.map(Self.encodeReply)])
             }
         }
     }
@@ -647,10 +671,10 @@ actor ChatRepository {
     func removePending(_ attempt: SendAttempt, restoreDraft: Bool = false, write context: ChatWriteContext) throws {
         try write { db in
             try validate(context, db: db)
-            if restoreDraft, attempt.sourceMessageID == nil, !attempt.draft.content.isEmpty {
+            if restoreDraft, attempt.sourceMessageID == nil {
                 try db.execute(sql: """
-                    INSERT OR IGNORE INTO drafts(conversation_id, body, updated_at)
-                    SELECT conversation_id, ?, ? FROM pending_sends
+                    INSERT OR IGNORE INTO drafts(conversation_id, body, updated_at, reply_json)
+                    SELECT conversation_id, ?, ?, reply_json FROM pending_sends
                     WHERE conversation_id=? AND source_message_id='' AND attempt_key=?
                     """, arguments: [attempt.draft.content, Self.iso(Date()), attempt.conversationID, attempt.draft.key])
             }
@@ -797,15 +821,22 @@ actor ChatRepository {
         }
     }
 
+    // Compare the frozen composer with the live draft in the same SQLite transaction.
+    private static func encodeReply(_ reply: ChatReply) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return try encoder.encode(reply)
+    }
+
     private static func upsertPendingRow(_ attempt: SendAttempt, db: Database) throws {
         guard let body = attempt.draft.requestBody else { throw ChatRepositoryError.staleWrite }
         let attachments = try encode(attempt.draft.attachments)
         try db.execute(sql: """
-            INSERT OR IGNORE INTO pending_sends(conversation_id,source_message_id,attempt_key,content,attachments_json,request_body,created_at,last_error,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,?)
+            INSERT OR IGNORE INTO pending_sends(conversation_id,source_message_id,attempt_key,content,attachments_json,request_body,created_at,last_error,updated_at,reply_json)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
             """, arguments: [attempt.conversationID, attempt.sourceMessageID ?? "", attempt.draft.key,
                              attempt.draft.content, String(decoding: attachments, as: UTF8.self), body,
-                             iso(Date()), nil, iso(Date())])
+                             iso(Date()), nil, iso(Date()), try attempt.draft.reply.map(encodeReply)])
     }
 
     private static func snapshotSeq(_ db: Database) throws -> Int {
@@ -869,14 +900,15 @@ actor ChatRepository {
         let revision = item.execution_cleanup_revision ?? 0
         guard revision >= (try executionCleanupRevision(item.id, db: db)) else { throw ChatRepositoryError.staleWrite }
         try applyExecutionCleanup(item.id, revision: revision, db: db)
+        let notice = try item.last_message_system_notice.map { String(decoding: try encode($0), as: UTF8.self) }
         let card = try item.last_message_card.map { String(decoding: try encode($0), as: UTF8.self) }
         let participantIDs = (try? encode(item.participant_ids)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
         try db.execute(sql: """
             INSERT INTO conversations(id, title, type, direct_kind, owner_id, creator_id, is_pinned, is_muted,
                 unread_count, last_message_preview, last_message_at, created_at, run_state, source_agent_id, source_node_id,
                 external_source, external_chat_id, visibility, dissolved_at, is_member, can_write, is_observer,
-                can_change_visibility, participant_ids_json, sort_at, refreshed_at, trimmed_at, last_message_sender_name, last_message_card_json)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)
+                can_change_visibility, participant_ids_json, sort_at, refreshed_at, trimmed_at, last_message_sender_name, last_message_card_json, last_message_notice_json)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 title=excluded.title, type=excluded.type, direct_kind=excluded.direct_kind,
                 owner_id=excluded.owner_id, creator_id=excluded.creator_id, is_pinned=excluded.is_pinned,
@@ -891,7 +923,7 @@ actor ChatRepository {
                 participant_ids_json=excluded.participant_ids_json,
                 sort_at=MAX(conversations.sort_at, excluded.sort_at),
                 refreshed_at=excluded.refreshed_at, last_message_sender_name=excluded.last_message_sender_name,
-                last_message_card_json=excluded.last_message_card_json
+                last_message_card_json=excluded.last_message_card_json, last_message_notice_json=excluded.last_message_notice_json
             """, arguments: [item.id, item.title, item.type, item.direct_kind, item.owner_id, item.creator_id,
                              item.is_pinned ? 1 : 0, item.is_muted ? 1 : 0, item.unread_count,
                              item.last_message_preview, item.last_message_at, item.created_at, item.run_state,
@@ -899,7 +931,7 @@ actor ChatRepository {
                              item.visibility, item.dissolved_at, item.is_member.map { $0 ? 1 : 0 },
                              item.can_write.map { $0 ? 1 : 0 }, item.is_observer.map { $0 ? 1 : 0 },
                              item.can_change_visibility.map { $0 ? 1 : 0 }, participantIDs,
-                             item.last_message_at ?? item.created_at, iso(Date()), item.last_message_sender_name, card])
+                             item.last_message_at ?? item.created_at, iso(Date()), item.last_message_sender_name, card, notice])
         // A server list/detail refresh supplies time and preview but no identity; do not
         // associate its card title with a previously cached row merely by equal timestamp.
         try db.execute(sql: "DELETE FROM cache_meta WHERE key IN (?,?)", arguments: ["preview.message_id.\(item.id)", "preview.awaiting_server.\(item.id)"])
@@ -908,10 +940,11 @@ actor ChatRepository {
             // Same reason as above: an actor row is referenced by `conversation_members`, so a
             // REPLACE would have to delete a row that other conversations still point at.
             try db.execute(sql: """
-                INSERT INTO actors(id, type, display_name, user_id, is_stale, updated_at, is_deleted) VALUES(?,?,?,?,?,?,?)
+                INSERT INTO actors(id, type, display_name, user_id, is_stale, updated_at, is_deleted, role, avatar_variant) VALUES(?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id) DO UPDATE SET type=excluded.type, display_name=excluded.display_name,
+                    role=excluded.role, avatar_variant=excluded.avatar_variant,
                     user_id=excluded.user_id, is_stale=excluded.is_stale, updated_at=excluded.updated_at, is_deleted=CASE WHEN actors.is_deleted=1 THEN 1 ELSE excluded.is_deleted END
-                """, arguments: [actor.id, actor.type, actor.display_name, actor.user_id, actor.is_stale.map { $0 ? 1 : 0 }, iso(Date()), actor.is_deleted.map { $0 ? 1 : 0 }])
+                """, arguments: [actor.id, actor.type, actor.display_name, actor.user_id, actor.is_stale.map { $0 ? 1 : 0 }, iso(Date()), actor.is_deleted.map { $0 ? 1 : 0 }, actor.role, actor.avatar_variant])
             try db.execute(sql: "INSERT OR REPLACE INTO conversation_members(conversation_id, actor_id, position) VALUES(?,?,?)",
                            arguments: [item.id, actor.id, position])
         }
@@ -938,7 +971,7 @@ actor ChatRepository {
         guard revision > (try executionCleanupRevision(id, db: db)) else { return false }
         try db.execute(sql: "DELETE FROM messages WHERE conversation_id=?", arguments: [id])
         try db.execute(sql: "DELETE FROM conversation_boundaries WHERE conversation_id=?", arguments: [id])
-        try db.execute(sql: "UPDATE conversations SET trimmed_at=NULL, last_message_preview=NULL, last_message_sender_name=NULL, last_message_card_json=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?", arguments: [id])
+        try db.execute(sql: "UPDATE conversations SET trimmed_at=NULL, last_message_preview=NULL, last_message_sender_name=NULL, last_message_card_json=NULL, last_message_notice_json=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?", arguments: [id])
         try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?, '1')", arguments: ["timeline.earlier_incomplete.\(id)"])
         try db.execute(sql: "DELETE FROM cache_meta WHERE key IN (?,?)", arguments: ["preview.message_id.\(id)", "preview.awaiting_server.\(id)"])
         try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?,?)", arguments: ["execution.cleanup_revision.\(id)", String(revision)])
@@ -976,10 +1009,11 @@ actor ChatRepository {
         }
         try db.execute(sql: """
             UPDATE conversations SET last_message_preview=?, last_message_sender_name=?,
-                last_message_card_json=CASE WHEN ? THEN '{}' ELSE NULL END,
+                last_message_card_json=CASE WHEN ? THEN '{}' ELSE NULL END, last_message_notice_json=?,
                 last_message_at=?, sort_at=MAX(sort_at, ?), refreshed_at=? WHERE id=?
             """, arguments: [preview(of: message), message.sender.display_name ?? message.sender.id,
                              message.interactive != nil && preview(of: message) == nil,
+                             try message.system_notice.map { String(decoding: try encode($0), as: UTF8.self) },
                              message.created_at, message.created_at, iso(Date()), id])
         try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?,?)", arguments: [identityKey, message.id])
     }
@@ -1066,12 +1100,12 @@ actor ChatRepository {
         guard !rows.isEmpty else { return [] }
         var members: [String: [(Int, ActorRef)]] = [:]
         for row in try Row.fetchAll(db, sql: """
-            SELECT m.conversation_id, m.position, a.id, a.type, a.display_name, a.user_id, a.is_stale, a.is_deleted
+            SELECT m.conversation_id, m.position, a.id, a.type, a.display_name, a.user_id, a.is_stale, a.is_deleted, a.role, a.avatar_variant
             FROM conversation_members m JOIN actors a ON a.id = m.actor_id
             """) {
             let actor = ActorRef(type: row["type"], id: row["id"], display_name: row["display_name"],
                                  user_id: row["user_id"], is_stale: (row["is_stale"] as Int?).map { $0 == 1 },
-                                 is_deleted: (row["is_deleted"] as Int?).map { $0 == 1 })
+                                 is_deleted: (row["is_deleted"] as Int?).map { $0 == 1 }, role: row["role"], avatar_variant: row["avatar_variant"])
             members[row["conversation_id"], default: []].append((row["position"], actor))
         }
         return try rows.map { row in
@@ -1086,6 +1120,7 @@ actor ChatRepository {
                                 unread_count: row["unread_count"] ?? 0, last_message_preview: row["last_message_preview"],
                                 last_message_sender_name: row["last_message_sender_name"],
                                  last_message_card: (row["last_message_card_json"] as String?).flatMap { try? decode(ChatCardPreview.self, from: $0) },
+                                 last_message_system_notice: (row["last_message_notice_json"] as String?).flatMap { try? decode(ChatPreviewNotice.self, from: $0) },
                                  last_message_at: row["last_message_at"], created_at: row["created_at"],
                                 run_state: row["run_state"], source_agent_id: row["source_agent_id"],
                                 source_node_id: row["source_node_id"], external_source: row["external_source"],

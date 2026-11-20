@@ -2,6 +2,12 @@ import XCTest
 @testable import NanoIM
 
 final class AvatarTests: XCTestCase {
+    func testStableCrewdenPortraitUsesAgentIDLikeWeb() {
+        XCTAssertEqual(AssistantPortrait.variant(for: "agent-ada"), 7)
+        XCTAssertEqual(AssistantPortrait.variant(for: "中文助理"), 14)
+        XCTAssertEqual(AssistantPortrait.variant(for: "🧑‍💻 Agent"), 10)
+    }
+
     func testPaletteMatchesWebNameSeedsIncludingWideHashAndUTF16() {
         // Expected values come from the Web avatar.tsx expression executed in JavaScript.
         let seeds = [("", 0), ("e2e-peer", 5), ("Personal Assistant", 4),

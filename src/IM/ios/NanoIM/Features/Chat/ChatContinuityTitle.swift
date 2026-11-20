@@ -6,6 +6,7 @@ private struct ChatContinuityTitle: ViewModifier {
     let title: String
     @Bindable var store: ChatStore
     let surface: ChatConnectionSurface
+    let titleAction: (() -> Void)?
     let loadEarlier: (() async -> Void)?
     @State private var showingDetails = false
     @ScaledMetric(relativeTo: .headline) private var titleHeight = 22.0
@@ -15,29 +16,52 @@ private struct ChatContinuityTitle: ViewModifier {
         let presentation = store.connectionPresentation(surface)
         content.navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 2) {
-                        Text(title).font(.headline).foregroundStyle(NanoTheme.ink)
-                            .lineLimit(1).truncationMode(.tail)
-                            .frame(height: titleHeight)
-                            .accessibilityAddTraits(.isHeader)
-                        Button {
-                            showingDetails = true
-                            Task { await store.retryConnectionReads(surface, loadEarlier: loadEarlier) }
-                        } label: {
-                            Text(presentation?.text ?? " ")
-                                .font(.caption2).foregroundStyle(.secondary)
-                                .lineLimit(1).truncationMode(.tail)
-                                .frame(maxWidth: .infinity).frame(height: auxiliaryHeight)
+                if surface == .list {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Image("CrewdenMark").resizable().scaledToFit().frame(width: 27, height: 27)
+                            .foregroundStyle(NanoTheme.accent).accessibilityHidden(true)
+                    }.sharedBackgroundVisibility(.hidden)
+                    if let presentation {
+                        ToolbarItem(placement: .principal) {
+                            VStack(spacing: 1) {
+                                titleLabel
+                                feedbackButton(presentation)
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .opacity(presentation == nil ? 0 : 1)
-                        .disabled(presentation == nil)
-                        .accessibilityHidden(presentation == nil)
-                        .accessibilityIdentifier("chat.connectionFeedback")
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: max(44, titleHeight + auxiliaryHeight + 2))
+                } else {
+                    ToolbarItem(placement: .principal) {
+                        HStack(spacing: 8) {
+                            if let chat = headerChat, chat.type != "group" {
+                                let avatar = AvatarView(name: chat.avatarName(selfID: store.user.id),
+                                    kind: chat.peerAgent == nil ? "person" : "agent", size: 32,
+                                    agentID: chat.peerAgent?.id, role: chat.peerAgent?.role, variant: chat.peerAgent?.avatar_variant)
+                                if let titleAction {
+                                    Button(action: titleAction) { avatar }.buttonStyle(.plain)
+                                        .accessibilityLabel(L("查看当前活动", "Show current activity"))
+                                } else { avatar }
+                            }
+                            VStack(spacing: 1) {
+                                if let titleAction {
+                                    Button(action: titleAction) { titleLabel }.buttonStyle(.plain)
+                                        .accessibilityHint(L("查看当前活动", "Show current activity"))
+                                } else if let chat = headerChat, chat.type == "group" {
+                                    let count = chat.participants.count
+                                    HStack(spacing: 4) {
+                                        titleLabel
+                                        Text("(\(count))")
+                                            .font(.subheadline).foregroundStyle(.secondary).fixedSize()
+                                    }
+                                    .accessibilityElement(children: .ignore)
+                                    .accessibilityLabel(L("\(title)，\(count) 位成员", "\(title), \(count) members"))
+                                    .accessibilityAddTraits(.isHeader)
+                                } else { titleLabel }
+                                if let presentation { feedbackButton(presentation) }
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: max(44, titleHeight + auxiliaryHeight + 2))
+                    }
                 }
             }
             .sheet(isPresented: $showingDetails) {
@@ -68,6 +92,30 @@ private struct ChatContinuityTitle: ViewModifier {
             }
     }
 
+    private func feedbackButton(_ presentation: ChatConnectionPresentation) -> some View {
+        Button {
+            showingDetails = true
+            Task { await store.retryConnectionReads(surface, loadEarlier: loadEarlier) }
+        } label: {
+            Text(presentation.text)
+                .font(.caption2).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.tail)
+                .frame(height: auxiliaryHeight)
+        }.buttonStyle(.plain).accessibilityIdentifier("chat.connectionFeedback")
+    }
+
+    private var headerChat: Conversation? {
+        guard case .conversation(let id) = surface, !store.revokedChats.contains(id), !store.checkingAccess.contains(id) else { return nil }
+        return store.conversations.first { $0.id == id } ?? (store.inspectedConversation?.id == id ? store.inspectedConversation : nil)
+    }
+
+    private var titleLabel: some View {
+        Text(title).font(.headline).foregroundStyle(NanoTheme.ink)
+            .lineLimit(1).truncationMode(.tail)
+            .frame(height: titleHeight)
+            .accessibilityAddTraits(.isHeader)
+    }
+
     private var relevantFailures: [(key: ChatReadScope, value: ChatScopedReadFailure)] {
         store.continuity.readFailures.filter { $0.key.belongs(to: surface) }
             .sorted { $0.value.since < $1.value.since }
@@ -76,7 +124,7 @@ private struct ChatContinuityTitle: ViewModifier {
 
 extension View {
     func chatContinuityTitle(_ title: String, store: ChatStore, surface: ChatConnectionSurface,
-                             loadEarlier: (() async -> Void)? = nil) -> some View {
-        modifier(ChatContinuityTitle(title: title, store: store, surface: surface, loadEarlier: loadEarlier))
+                             titleAction: (() -> Void)? = nil, loadEarlier: (() async -> Void)? = nil) -> some View {
+        modifier(ChatContinuityTitle(title: title, store: store, surface: surface, titleAction: titleAction, loadEarlier: loadEarlier))
     }
 }

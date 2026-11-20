@@ -6,11 +6,11 @@
 
 ## 现状分析
 
-**涉及范围。** [App 入口](../../../src/IM/ios/NanoIM/App/NanoIMApp.swift)负责原生四栏、账号和深链。[聊天](../../../src/IM/ios/NanoIM/Features/Chat/)持有会话 UI 和实时事件，[本地库](../../../src/IM/ios/NanoIM/Storage/)按服务与用户隔离数据。[Agent](../../../src/IM/ios/NanoIM/Features/Agents/)、[任务](../../../src/IM/ios/NanoIM/Features/Tasks/)和[我的](../../../src/IM/ios/NanoIM/Features/Me/)已有原生业务页。功能入口的对照基准是 [Web 路由](../../../src/IM/frontend/src/app/router.tsx)及其挂载页面。
+**涉及范围。** [App 入口](../../../../src/IM/ios/NanoIM/App/NanoIMApp.swift)负责原生四栏、账号和深链。[聊天](../../../../src/IM/ios/NanoIM/Features/Chat)持有会话 UI 和实时事件，[本地库](../../../../src/IM/ios/NanoIM/Storage)按服务与用户隔离数据。[Agent](../../../../src/IM/ios/NanoIM/Features/Agents)、[任务](../../../../src/IM/ios/NanoIM/Features/Tasks)和[我的](../../../../src/IM/ios/NanoIM/Features/Me)已有原生业务页。功能入口的对照基准是 [Web 路由](../../../../src/IM/frontend/src/app/router.tsx)及其挂载页面。
 
-**约束。** IM 负责授权、身份和持久结果；沿用 [iOS 业务、安装与前后台约定](../../specs/im/ios-client.md)。保持同一 bundle ID、Keychain 范围与现有本地数据分区，以便旧版直接升级。设备端继续由电脑执行。除现有 Intelligent UI 回复内容，业务页面使用原生视图。Work 无需引入 DSH 包、轨迹 ticket 或查看器桥接。
+**约束。** IM 负责授权、身份和持久结果；沿用 [iOS 业务、安装与前后台约定](../../../specs/im/ios-client.md)。保持同一 bundle ID、Keychain 范围与现有本地数据分区，以便旧版直接升级。设备端继续由电脑执行。除现有 Intelligent UI 回复内容，业务页面使用原生视图。Work 无需引入 DSH 包、轨迹 ticket 或查看器桥接。
 
-**复用与历史。** [feat-773](../archive/feat-773-crewden-first-use/design.md)已有跨端角色身份与首次交办规则；[bugfix-763](../archive/bugfix-763-ios-chat-continuity/)确定了滚动、可见卡片与重连的原生基础；[feat-764](../archive/feat-764-web-agent-work/design.md)、[feat-771](../archive/feat-771-delegation-lifetime-usage/)和[bugfix-776](../archive/bugfix-776-work-activity-stall/)已有聚合、用量与就绪事件。使用现有 IM API、原生 Session、ChatStore 和 Work 翻页能力。新增的 Swift 表示只承接原先缺失的信息。
+**复用与历史。** [feat-773](../feat-773-crewden-first-use/design.md)已有跨端角色身份与首次交办规则；[bugfix-763](../bugfix-763-ios-chat-continuity)确定了滚动、可见卡片与重连的原生基础；[feat-764](../feat-764-web-agent-work/design.md)、[feat-771](../feat-771-delegation-lifetime-usage)和[bugfix-776](../bugfix-776-work-activity-stall)已有聚合、用量与就绪事件。使用现有 IM API、原生 Session、ChatStore 和 Work 翻页能力。新增的 Swift 表示只承接原先缺失的信息。
 
 ## 架构总览与关键决策
 
@@ -23,7 +23,7 @@
 
 | 用户操作 | 原生接线与权威来源 | 恢复和边界 |
 |---|---|---|
-| 跨端认出助手 | Actor、Contact、PA binding、Agent 摘要与创建请求补齐 `avatar_variant`、角色及 Agent ID；向共用头像传身份，复用 Web 四造型 × 六色的两套轮廓和 ID 散列。维护一份来自现有 [AssistantPortrait](../../../src/IM/frontend/src/features/chat/components/assistant-portrait.tsx) 的原生可渲染资产与固定输入对照。PA 代发优先显示实际人类作者并标注归属。 | 字段可空。能识别身份时按稳定 ID 默认造型；旧离线缓存信息不足时保留原有身份，成功校正后切换。已有有权普通 Agent 创建和 PA 两条创建路径都发送选择。 |
+| 跨端认出助手 | Actor、Contact、PA binding、Agent 摘要与创建请求补齐 `avatar_variant`、角色及 Agent ID；向共用头像传身份，复用 Web 四造型 × 六色的两套轮廓和 ID 散列。维护一份来自现有 [AssistantPortrait](../../../../src/IM/frontend/src/features/chat/components/assistant-portrait.tsx) 的原生可渲染资产与固定输入对照。PA 代发优先显示实际人类作者并标注归属。 | 字段可空。能识别身份时按稳定 ID 默认造型；旧离线缓存信息不足时保留原有身份，成功校正后切换。已有有权普通 Agent 创建和 PA 两条创建路径都发送选择。 |
 | 创建、恢复、开始合作 | `GET /im/v1/onboarding` 与 `GET /im/v1/personal-agent` 分别给出电脑列表／安装指引、绑定与进行中创建。复用 device-binding inspect/accept/decline、节点 setup 与模型服务表单，节点在线且选定模型可用后，用个人助手 POST 带 request_key、node_id、display_name 与 avatar_variant。普通 Agent 继续使用 node agents 创建。 | 绑定为空和读取失败分别展示；仅未确认的同一创建复用请求身份。重开优先按服务返回的 creation key、绑定名称及原节点续办；确认绑定和私聊后跳转。已有 PA 不重建。入口允许跳过或返回“我的”继续。 |
 | 首次交办 | 仅在确认空历史、当前用户为主人时显示；本人 PA 提供任务建议，Global 的合作引导核实在线及 ROLE 状态，已有约定不重复询问。建议写入当前空 composer；有草稿保留原输入。 | 填入建议不触发发送。用户实际发送才通过原消息通路交给 Agent；ROLE 仍由既有对话及工具确认，UI 不直接代写。 |
 | 搜索与回原文 | 列表保留现有本地筛选，增加明确的“历史消息”结果，使用 `GET /im/v1/messages/search?q&kind&cursor`。导航目标带 conversationID、messageID；同源聊天链接同步解析 message_id。先确认会话权限，再看本地是否有锚点，必要时用原 before_message_id 分页补齐到命中，保留两边可读历史。 | 取消上一次搜索/定位；过期结果按账号、会话、查询代次丢弃。已定位原文前不触发自动到底，用户主动点击最新可中断定位。游标终止或访问丢失时明确反馈，不能将“未找到”显示成空会话。 |
@@ -41,12 +41,12 @@
 | Chats 侧栏、PA 固定入口、联系人、单聊/建群/公开群、按类型筛选、最近摘要 | M1 接身份和首页；M2 核对未读、置顶静音、成员/旁观语义、重命名、加入/退出/解散以及会话备注和偏好等基线有的操作，保留只读限制。 |
 | 会话时间线、搜索结果、定位、引用/分支、群任务入口、历史会话蒸馏、命令与 @、复制、反馈提醒 | M2 复用 ChatInfo、ConversationView 及滚动策略；补历史消息分页与定位、结构化引用、涉及群成员和系统消息的深链。前台轻提示保留隐私默认、静音、点击来源和重连去重；Web 的浏览器隐藏标签通知依赖正在运行的观察者，iPhone 套用既有免费签名前后台约定，回到 App 可查交付。 |
 | 附件/粘贴、分段内容、工具和思考详情、审批、回执、交互卡片编辑/多卡提交/失败恢复 | M2 保留原生媒体、卡片 WebKit 和工具/审批权限；参与者、观察者、后台切回，以及旧缓存/未确认发送的回归覆盖在同一会话旅程。 |
-| 活动弹层；Work 记录/授权/上下文、维护/定时执行、派工及累计用量、旧回复对应工作 | M2 将 Swift Work 的轮次/控制/关联执行接到新入口；同时支持从派工回到具体 session，区分历史、主节点、自身用量和缺报。排除 DSH 查看器，其余按 [Agent Work](../../specs/im/agent-work.md) 的业务语义。 |
+| 活动弹层；Work 记录/授权/上下文、维护/定时执行、派工及累计用量、旧回复对应工作 | M2 将 Swift Work 的轮次/控制/关联执行接到新入口；同时支持从派工回到具体 session，区分历史、主节点、自身用量和缺报。排除 DSH 查看器，其余按 [Agent Work](../../../specs/im/agent-work.md) 的业务语义。 |
 | 任务总览、群任务、按负责人/层级/状态、结构与等待信息、引用与编辑/验收/删除子树 | M3 复用 TasksView、TaskEditor、TaskGraph 及群页入口；按创建者、负责人、观察者核对任务链接和系统通知落点、权限与删除后列表。 |
 | PA 绑定、改名、策略、风险事件、拉黑/解封；普通/Global 创建模式、角色约定、配置与应用状态 | M1 创建及身份；M3 接专属管理和配置冲突恢复，保留 owner_only/team 选择。核对 ROLE 读取/保存/冲突、普通 Agent 停用/启用/永久删除和 workspace 选项。 |
 | Agent 服务/模型及有序备用、推理、审批模式、工具/Feature 联动、来源分组 Skills、系统提示预览、能力/技能用量、插件 | M3 复用 AgentConfig/Role/Skills；补 cc/codex/继承选择及继承预览、按来源批量调整、插件列表与启停/确认卸载。使用现有 config、capabilities、plugins GET/POST 授权；保存遵守版本，离线保留已知值。 |
 | 心跳、定时任务、通道新增/修改/重连/删除、诊断与重试 | M3 复用 AgentChannelsView、AgentSkillsView 中的任务列表和配置页。逐项核对心跳说明预览、实际连接与期望配置的区分，未确认移除可恢复。 |
-| 我的、账号、语言、公司成员准入/角色、策略与附件容量；电脑信息、安装说明、模型服务、更新和恢复 | M3 核对 Me 下既有页面及管理员/普通成员的差别；SettingsNodes 补安装/恢复指令、按 owner 执行的开始/取消更新、状态与当前版本；使用既有 [node update API](../../../src/IM/frontend/src/features/settings/im-settings-api.ts)，重入从服务端 operation 判断可用动作。模型设置保留提供方验证、凭据已存标记与依赖冲突。 |
+| 我的、账号、语言、公司成员准入/角色、策略与附件容量；电脑信息、安装说明、模型服务、更新和恢复 | M3 核对 Me 下既有页面及管理员/普通成员的差别；SettingsNodes 补安装/恢复指令、按 owner 执行的开始/取消更新、状态与当前版本；使用既有 [node update API](../../../../src/IM/frontend/src/features/settings/im-settings-api.ts)，重入从服务端 operation 判断可用动作。模型设置保留提供方验证、凭据已存标记与依赖冲突。 |
 
 ### 模型消费边界
 
@@ -82,13 +82,13 @@
 
 ## Runbook for Reviewer
 
-生产无服务需要为本设计重启。实施验收使用独立 worktree 及专属运行目录，按[固定日常模板与资源回收](../../development/worktree-runtime.md)操作。
+生产无服务需要为本设计重启。实施验收使用独立 worktree 及专属运行目录，按[固定日常模板与资源回收](../../../development/worktree-runtime.md)操作。
 
 | 资源 | 启动／进入 | 停止／核实 |
 |---|---|---|
 | 隔离 IM、Web、Gateway 与节点 | `./scripts/e2e-up.sh --profile daily --wt "$RUN_ROOT"`，RUN_ROOT 为本轮独占绝对路径。使用该次输出 IM_URL、UI_URL 及 .e2e-daily.json。 | `curl -fsS "$IM_URL/health"`，核实 daily owner、PA、节点在线；结束 `./scripts/e2e-down.sh --wt "$RUN_ROOT"`，确认端口释放。 |
 | 首用空态 | 使用另一独占 RUN_ROOT 启动 `./scripts/e2e-up.sh --profile default --wt "$FIRST_USE_ROOT"`；默认绑定的合成主人有在线电脑，未被 daily 种下 PA。要验注册/无电脑，另用该 IM 新账号完成 Web 管理员准入；新账号使用下述第二个专属节点完成真实绑定。 | 核实 onboarding 返回的实际节点、模型与 PA，再进入相应状态。只对新建合成节点操作。相同 down 命令传本轮 FIRST_USE_ROOT。 |
-| iPhone 和 Web | 取当前 checkout：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，导出本轮 NANO_IOS_BUILD_ROOT 和 NANO_IOS_SIMULATOR_ID；`./src/IM/ios/scripts/build.sh test`，安装该构建的 Debug App，登录页填写相同 IM_URL，在浏览器打开 UI_URL。接线见 [iOS 构建与独立旅程](../../../src/IM/ios/README.md)。 | 设计时已核实本机 Xcode 和可用 iOS 26.4 模拟器，开发配置检查有 E2E config；实施时核实实际 SHA、origin 与账号。由本轮创建的模拟器用 simctl shutdown/delete 回收，借用者恢复原状态，清理独占产物。 |
+| iPhone 和 Web | 取当前 checkout：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，导出本轮 NANO_IOS_BUILD_ROOT 和 NANO_IOS_SIMULATOR_ID；`./src/IM/ios/scripts/build.sh test`，安装该构建的 Debug App，登录页填写相同 IM_URL，在浏览器打开 UI_URL。接线见 [iOS 构建与独立旅程](../../../../src/IM/ios/README.md)。 | 设计时已核实本机 Xcode 和可用 iOS 26.4 模拟器，开发配置检查有 E2E config；实施时核实实际 SHA、origin 与账号。由本轮创建的模拟器用 simctl shutdown/delete 回收，借用者恢复原状态，清理独占产物。 |
 
 空账号真实绑定的准备方法：在 FIRST_USE_ROOT 内取一个全新子目录 FIRST_NODE_ROOT（绝对路径），使用构建好的本仓 CLI。以刚获准的合成新用户登录 iPhone；另开终端运行以下启动命令，使用其显示的该实例绑定链接在手机确认。保留电脑端的设备证明和需要时的终端确认。不要复用 default 栈已绑定给 nano 的节点。命令会为新节点分配随机 node ID，将状态、workspace、owner 根放在该目录内；调试时关闭自动启动注册。进入模型设置时使用本机 dev_host 指定的 E2E 测试提供方资料，核对服务返回的连接结果，凭据不写入证据。停止节点后核实对应 PID 已退出，再回收该目录与专属栈。
 

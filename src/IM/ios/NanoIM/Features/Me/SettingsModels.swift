@@ -39,6 +39,7 @@ struct SettingsNode: Codable, Sendable, Identifiable, Equatable {
     var reporting_enabled: Bool
     var alias: String?
     let last_error: String?
+    var update: ComputerUpdate? = nil
     var id: String { node_id }
     var name: String { alias?.isEmpty == false ? alias! : node_name }
 }

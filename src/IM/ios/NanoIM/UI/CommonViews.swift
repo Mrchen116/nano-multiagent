@@ -49,12 +49,15 @@ struct AvatarView: View {
     var online: Bool = false
     var kind: String = "person"
     var size: CGFloat = 44
+    var agentID: String?
+    var role: String?
+    var variant: Int?
     private var initials: String {
         let value = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2)).uppercased()
         return value.isEmpty ? "AG" : value
     }
     private var palette: (background: Color, foreground: Color) {
-        if kind == "group" { return (color(0x35464f), color(0xc5d8df)) }
+        if kind == "group" { return (Color("GroupAvatar"), Color("GroupAvatarInk")) }
         let colors: [(UInt32, UInt32)] = [(0xe4dbcf, 0x6b5945), (0xd9dfd1, 0x506345), (0xdfd8e8, 0x69567b), (0xe7d7dc, 0x79525f), (0xcbdedb, 0x2f5954), (0xd5ddea, 0x485c7d)]
         let pair = colors[Self.paletteIndex(for: name)]
         return (color(pair.0), color(pair.1))
@@ -72,14 +75,16 @@ struct AvatarView: View {
     }
     var body: some View {
         Group {
-            if kind == "group" { Image(systemName: "person.2.fill") }
+            if kind == "agent" {
+                AssistantPortrait(personal: role == "personal", seed: agentID ?? name, selected: variant, size: size)
+            } else if kind == "group" { Image(systemName: "person.2") }
             else { Text(initials) }
         }
         .font(.system(size: size * 0.35, weight: .semibold)).foregroundStyle(palette.foreground)
         .frame(width: size, height: size)
-        .background(palette.background, in: RoundedRectangle(cornerRadius: kind == "group" ? size * 0.275 : size / 2))
+        .background(kind == "agent" ? Color.clear : palette.background, in: RoundedRectangle(cornerRadius: kind == "group" ? size * 0.275 : size / 2))
         .overlay(alignment: .bottomTrailing) {
-            if online { Circle().fill(NanoTheme.accent).frame(width: size * 0.23, height: size * 0.23).overlay(Circle().stroke(NanoTheme.surface, lineWidth: 2)) }
+            if online { Circle().fill(Color.green).frame(width: size * 0.23, height: size * 0.23).overlay(Circle().stroke(NanoTheme.surface, lineWidth: 2)) }
         }.accessibilityHidden(true)
     }
 }
@@ -97,7 +102,8 @@ struct NanoSearchField: View {
                     .buttonStyle(.plain).accessibilityLabel(L("清除搜索", "Clear search"))
             }
         }.padding(.horizontal, 12).padding(.vertical, 11)
-            .background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 12))
+            .background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 10))
+            .overlay { RoundedRectangle(cornerRadius: 10).stroke(NanoTheme.border, lineWidth: 1) }
     }
 }
 
@@ -172,5 +178,20 @@ struct NanoDateTime: View {
 extension String {
     var pathComponent: String {
         addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/?#%"))) ?? self
+    }
+}
+
+struct CrewdenDestination: View {
+    let title: String
+    let symbol: String
+    var detail: String? = nil
+    var body: some View {
+        HStack(spacing: 14) {
+            Image(systemName: symbol).font(.title3).frame(width: 28).accessibilityHidden(true)
+            Text(title).font(.body.weight(.medium))
+            Spacer()
+            if let detail { Text(detail).font(.subheadline).foregroundStyle(.secondary) }
+            Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+        }.foregroundStyle(NanoTheme.ink).padding(.vertical, 16).contentShape(Rectangle())
     }
 }

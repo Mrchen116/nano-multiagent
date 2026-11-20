@@ -15,6 +15,7 @@ final class ChatScrollCoordinator {
     @ObservationIgnored private var containerFrame = CGRect.zero
     @ObservationIgnored private var rows: [String: CGRect] = [:]
     @ObservationIgnored private var validIDs = Set<String>()
+    @ObservationIgnored private var resolvingLocation = false
     @ObservationIgnored private var latestID: String?
     private var tail: CGRect { latestID.flatMap { rows[$0] } ?? .zero }
     @ObservationIgnored private var correction: Task<Void, Never>?
@@ -108,6 +109,7 @@ final class ChatScrollCoordinator {
         cardRenderingPaused = false
         physicalGeometry.deactivate()
         nativeTopRevision = nil
+        resolvingLocation = false
         policy.endScrollSurface()
         correction?.cancel(); correction = nil
         messageScroller = nil
@@ -117,6 +119,7 @@ final class ChatScrollCoordinator {
 
     func latest() {
         correction?.cancel(); correction = nil
+        resolvingLocation = false
         policy.latest()
         nativeTopRevision = nil
         cardRenderingPaused = policy.pausesCorrection
@@ -133,6 +136,7 @@ final class ChatScrollCoordinator {
     private func nativeTopRequested() {
         guard active else { return }
         correction?.cancel(); correction = nil
+        resolvingLocation = false
         policy.beginNativeTop()
         cardRenderingPaused = true
         nativeTopRevision = policy.revision
@@ -232,7 +236,7 @@ final class ChatScrollCoordinator {
         rows = rows.filter { validIDs.contains($0.key) }
         // Cleanup can briefly empty the projection while authoritative pages are bridged.
         // Keep only the target offset, never old message content, through that empty phase.
-        if !validIDs.isEmpty, let anchor = policy.anchor, !validIDs.contains(anchor.id) { captureAnchor() }
+        if !resolvingLocation, !validIDs.isEmpty, let anchor = policy.anchor, !validIDs.contains(anchor.id) { captureAnchor() }
         updateButton()
         scheduleCorrection()
     }
@@ -244,6 +248,26 @@ final class ChatScrollCoordinator {
 
     func paginationFinished(revision: Int) {
         guard policy.admitsRestore(revision: revision) else { return }
+        scheduleCorrection()
+    }
+
+    func beginLocation(_ id: String) -> Int {
+        correction?.cancel(); correction = nil
+        resolvingLocation = true
+        policy.locate(id)
+        nativeTopRevision = nil
+        pendingMessageGeometry = nil
+        lastCorrection = nil
+        return policy.revision
+    }
+
+    func endLocation(_ id: String, revision: Int, found: Bool) {
+        guard revision == policy.revision else { return }
+        resolvingLocation = false
+        if found {
+            readingAnchorChanged?(id)
+            if physicalGeometry.snapshot(for: id) == nil { _ = requestMessage(id, anchor: .top) }
+        } else { captureAnchor() }
         scheduleCorrection()
     }
 
@@ -261,6 +285,7 @@ final class ChatScrollCoordinator {
 
     private func recognizeMovement(offset: CGFloat) {
         guard policy.moved(to: offset) else { return }
+        resolvingLocation = false
         pendingMessageGeometry = nil
         correction?.cancel(); correction = nil
         invalidateRestoration?()
@@ -294,7 +319,7 @@ final class ChatScrollCoordinator {
     }
 
     private func scheduleCorrection() {
-        guard active, correction == nil, !policy.pausesCorrection else { return }
+        guard active, !resolvingLocation, correction == nil, !policy.pausesCorrection else { return }
         let revision = policy.revision
         let generation = messageScroller?.generation
         correction = Task { [weak self] in

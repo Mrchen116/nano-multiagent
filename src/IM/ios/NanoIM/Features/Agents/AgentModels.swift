@@ -7,13 +7,14 @@ struct AgentConfig: Codable, Sendable, Equatable {
     var node_id: String?
     var display_name: String
     var description: String
-    var skills: [String]
+    var skills: [String]?
     var skills_selection_mode: String?
     var tool_allowlist: [String]
     var collaboration_scope: String
     var default_model: String?
     var model_fallbacks: [String]
     var reasoning_effort: String?
+    var approval_mode: String?
     var work_mode: String
     var workspace_root: String?
     var workspace_is_default: Bool?
@@ -24,11 +25,12 @@ struct AgentConfig: Codable, Sendable, Equatable {
     var draft: AgentDraft {
         var value = AgentDraft()
         value.agent_id = agent_id; value.display_name = display_name; value.description = description
-        value.skills = skills
-        value.skills_selection_mode = skills_selection_mode ?? (skills.isEmpty ? "default_discovery" : "explicit_allowlist")
+        value.skills = skills ?? []
+        value.skills_selection_mode = skills_selection_mode ?? (value.skills.isEmpty ? "default_discovery" : "explicit_allowlist")
         value.tool_allowlist = tool_allowlist; value.collaboration_scope = collaboration_scope
         value.default_model = default_model ?? ""; value.model_fallbacks = model_fallbacks
         value.reasoning_effort = reasoning_effort ?? ""; value.work_mode = work_mode
+        value.approval_mode = approval_mode ?? ""
         value.workspace_root = workspace_root ?? ""; value.features = features
         if let data = heartbeat_json?.data(using: .utf8), let heartbeat = try? JSONDecoder().decode(AgentHeartbeat.self, from: data) {
             value.heartbeat = heartbeat
@@ -54,6 +56,7 @@ struct AgentDraft: Equatable, Sendable {
     var default_model = ""
     var model_fallbacks: [String] = []
     var reasoning_effort = ""
+    var approval_mode = ""
     var work_mode = "global"
     var workspace_root = ""
     var skills: [String] = []
@@ -79,6 +82,7 @@ struct AgentDraft: Equatable, Sendable {
             "description": .string(description), "default_model": default_model.isEmpty ? .null : .string(default_model),
             "model_fallbacks": .array(model_fallbacks.map(JSONValue.string)),
             "reasoning_effort": reasoning_effort.isEmpty ? .null : .string(reasoning_effort),
+            "approval_mode": approval_mode.isEmpty ? .null : .string(approval_mode),
             "skills": .array(skills.map(JSONValue.string)), "skills_selection_mode": .string(skills_selection_mode),
             "tool_allowlist": .array(effectiveTools.map(JSONValue.string)),
             "features": .object(features.mapValues(JSONValue.bool)),
@@ -117,6 +121,14 @@ struct AgentNode: Codable, Identifiable, Sendable {
 struct AgentOption: Codable, Identifiable, Sendable {
     var name: String; var description: String?; var default_on: Bool?; var location: String?; var source_group: String?
     var id: String { location ?? name }
+    func skillGroup(workspaceRoot: String) -> String {
+        if let source_group { return source_group }
+        let path = (location ?? "").replacingOccurrences(of: "\\", with: "/")
+        let root = workspaceRoot.replacingOccurrences(of: "\\", with: "/")
+        if !root.isEmpty, path.hasPrefix(root.hasSuffix("/") ? root : root + "/") { return "workspace" }
+        if default_on == true || path.contains("/.nanoassistant/skills/") { return "global" }
+        return "compatibility"
+    }
 }
 struct AgentModelOption: Codable, Identifiable, Sendable {
     var name: String; var provider: String?; var reasoning: Reasoning?
@@ -137,6 +149,7 @@ struct AgentFeature: Codable, Identifiable, Sendable {
     var id: String { key }
 }
 struct AgentCapabilities: Codable, Sendable {
+    var inherited_approval_rules: String? = nil
     var fixed_tools: [String]? = nil
     var node_id: String; var models: [AgentModelOption]; var skills: [AgentOption]; var tools: [AgentOption]
     var platform_default_model: String?; var default_workspace_template: String?; var features: [AgentFeature]
