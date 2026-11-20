@@ -100,22 +100,25 @@ final class CrewdenParityUITests: XCTestCase {
         let register = app.buttons["还没有账号？创建账号"]
         XCTAssertTrue(register.waitForExistence(timeout: 20))
         capture("crewden-login")
+        app.buttons["登录"].tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 6))
+        capture("crewden-login-keyboard")
         register.tap()
         capture("crewden-register")
         let username = app.textFields["输入用户名"]
         username.tap()
         username.typeText("first-" + UUID().uuidString.prefix(8))
+        let displayName = app.textFields["其他人看到的名字"]
+        displayName.tap()
+        displayName.typeText("Mia")
         let password = app.secureTextFields["输入密码"]
         password.tap()
         let strongPassword = app.buttons["GenerateStrongPasswordButton"]
         if strongPassword.waitForExistence(timeout: 3) {
-            strongPassword.tap()
-        } else {
-            password.typeText("Crewden-" + UUID().uuidString.prefix(12))
+            app.buttons["xmark"].tap()
         }
-        let displayName = app.textFields["其他人看到的名字"]
-        displayName.tap()
-        displayName.typeText("Mia")
+        password.typeText("Crewden-" + UUID().uuidString.prefix(12))
+        XCTAssertTrue(app.buttons["创建账号"].isEnabled)
         app.buttons["创建账号"].tap()
         let setup = app.buttons["assistant.setup.entry"]
         XCTAssertTrue(setup.waitForExistence(timeout: 25))
@@ -123,6 +126,12 @@ final class CrewdenParityUITests: XCTestCase {
         setup.tap()
         XCTAssertTrue(app.buttons["发送设置链接到电脑"].waitForExistence(timeout: 15))
         capture("crewden-first-setup")
+        app.buttons["稍后"].tap()
+        app.tabBars.buttons["我的"].tap()
+        app.buttons["设置"].tap()
+        app.buttons["退出登录"].tap()
+        app.buttons["退出登录"].firstMatch.tap()
+        XCTAssertTrue(register.waitForExistence(timeout: 15))
     }
 
     func testCreateAssistantAndEditFirstDraft() throws {
