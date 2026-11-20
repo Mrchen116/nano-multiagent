@@ -5,6 +5,19 @@ import { useTranslation } from "../../../i18n";
 import type { ComposerUpload } from "../components/composer-draft-store";
 import { AttachmentLink } from "./attachment-link";
 
+/** Re-enable a retained upload when its server cooldown expires. */
+export function useUploadRetryClock(uploads: ComposerUpload[]) {
+  const [clock, setClock] = useState(Date.now);
+  useEffect(() => {
+    const now = Date.now();
+    setClock(now);
+    if (!uploads.some(item => item.status === "failed" && (item.retryAt ?? 0) > now)) return;
+    const timer = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [uploads]);
+  return clock;
+}
+
 /** Keep a local attachment visible through upload, retry and completion.
  *
  * Args:

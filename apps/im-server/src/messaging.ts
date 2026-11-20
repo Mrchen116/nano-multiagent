@@ -619,13 +619,20 @@ export class Messaging {
     if (b.attachments?.length) fail(422, 'Send attachments in a separate message');
     const key = rawKey ? `interaction:${p.id}:${String(rawKey)}` : null;
     const prepared = this.interactions.prepare(p, id, b, key);
-    if (prepared.existing) return this.message(prepared.existing);
+    const source=this.records.find(prepared.snapshot.source_message_id!)!;
+    const root=threadRootOrFail(this.db,id,b.thread_root_message_id ?? b.in_thread_of ?? source.thread_root_id ?? undefined);
+    assertThreadQuote(this.db,id,root,source.id);
+    if (prepared.existing) {
+      const existing=this.message(prepared.existing);
+      if(existing.thread_root_message_id!==root) fail(409,'interaction destination changed');
+      return existing;
+    }
     // Preserve handwritten text exactly, including reference syntax and whitespace.
     const content = this.validateReferences(p, id, prepared.content);
     const timezone = b.timezone === undefined ? one(this.db, 'SELECT timezone FROM users WHERE id=?', p.id)?.timezone ?? null : this.updateUserTimezone(p.id, b.timezone);
     const message = transaction(this.db, () => {
       const agents=this.relayAgents(id);
-      const m = this.insertMessage(id, p.id, 'user', content, [], key, 'pending', { pendingRelayAgents:agents.map(a=>a.agent_id), timezone, interaction_reply: prepared.snapshot, publish: false, trackReceipts: true });
+      const m = this.insertMessage(id, p.id, 'user', content, [], key, 'pending', { pendingRelayAgents:agents.map(a=>a.agent_id), timezone, thread_root_id:root, interaction_reply: prepared.snapshot, publish: false, trackReceipts: true });
       this.interactions.submit(p.id, m.id, prepared);
       this.enqueueRelays(m, key,agents);
       return m;

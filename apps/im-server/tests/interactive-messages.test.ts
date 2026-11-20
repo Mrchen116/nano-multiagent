@@ -88,6 +88,15 @@ describe('interactive message persistence', () => {
     expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(1);
     expect(messaging.interactions.readDraft(request())).toMatchObject({submission_message_id:sent.id});
   });
+  it('keeps a submitted card in the topic where the user acted, including retries', async () => {
+    const {messaging,card,request}=setup();
+    const action=request();
+    action.body.thread_root_message_id=card.id;
+    const sent=await messaging.sendMessage(action);
+    expect(sent).toMatchObject({thread_root_message_id:card.id,interaction_reply:{source_message_id:card.id}});
+    expect((await messaging.sendMessage(action)).id).toBe(sent.id);
+    await expect(messaging.sendMessage(request())).rejects.toMatchObject({statusCode:409});
+  });
   it('preserves handwritten content and rejects changed retries without discarding the prior result', async () => {
     const {messaging,card,db,request} = setup();
     db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();

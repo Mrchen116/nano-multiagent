@@ -1,11 +1,15 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUp, Reply } from "lucide-react";
+import { ArrowLeft, ArrowUp, Paperclip, Reply } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { authFetchJson } from "../../auth/auth-fetch";
 import { createMessage } from "../chat-api";
 import type { Conversation, Message, MentionCandidate, ReplyReference } from "../chat-types";
-import { AttachmentChip } from "../attachments/attachment-chip";
+import { AttachmentDropzone } from "../attachments/attachment-dropzone";
+import { ComposerAttachmentCard, useUploadRetryClock } from "../attachments/composer-attachment-card";
+import { AttachmentUploadError, pastedImages, uploadOneAttachment } from "../attachments/use-attachment-upload";
+import type { ComposerUpload } from "./composer-draft-store";
+import type { InteractionReplyInput } from "../interactive/types";
 import { MentionPicker } from "./mention-picker";
 import { MENTION_RE, reconstructWireContent, type DraftMention } from "./mention-parser";
 
@@ -25,7 +29,8 @@ interface ThreadColumnProps {
   onRead?(id: string): void;
   onSent(message: Message): void;
   onClose(): void;
-  renderBody(message: Message): ReactNode;
+  renderBody(message: Message, sendCard:(input:InteractionReplyInput, key:string)=>Promise<Message>,
+    submissionId:string | undefined, locate:(id:string)=>void): ReactNode;
   renderQuote(reference: ReplyReference): ReactNode;
 }
 
@@ -40,6 +45,10 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
     queryKey: key, queryFn: ({signal}) => authFetchJson<ThreadPage>(path, {signal}, "readThread"), gcTime: 0
   });
   const [draft, setDraft] = useState("");
+  const [uploads, setUploads] = useState<ComposerUpload[]>([]);
+  const retryClock = useUploadRetryClock(uploads);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const uploadsReady = uploads.every(item => item.status === "ready");
   const [mentions, setMentions] = useState<DraftMention[]>([]);
   const [replyTo, setReplyTo] = useState<Message>();
   const [sending, setSending] = useState(false);
@@ -94,24 +103,61 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
     return () => document.removeEventListener("visibilitychange", markVisibleTail);
   }, [lastId, onRead]);
 
+  async function upload(item: ComposerUpload) {
+    const update = (patch: Partial<ComposerUpload>) =>
+      setUploads(current => current.map(existing => existing.id === item.id ? {...existing, ...patch} : existing));
+    update({status: "uploading"});
+    try {
+      update({status: "ready", attachment: await uploadOneAttachment(item.file, conversation.id)});
+    } catch (cause) {
+      update({status: "failed", code: cause instanceof AttachmentUploadError ? cause.code : "network",
+        retryAt: cause instanceof AttachmentUploadError ? cause.retryAt : undefined});
+    }
+  }
+  function addFiles(files: File[]) {
+    if (sending || !files.length) return;
+    if (files.length + uploads.length > 5) {
+      setError(t("chat.messagePane.threadFileLimit"));
+      return;
+    }
+    setError("");
+    const items: ComposerUpload[] = files.map(file => ({id: crypto.randomUUID(), file, status: "queued"}));
+    setUploads(current => [...current, ...items]);
+    items.forEach(item => void upload(item));
+  }
+
+  function appendReply(created:Message) {
+    stickRef.current = true;
+    queryClient.setQueryData<ThreadPage>(key, page => page && ({...page, following: true,
+      items: page.items.some(item => item.message.id === created.id) ? page.items : [...page.items, {message: created}]}));
+    onSent(created);
+  }
+  async function sendCard(input:InteractionReplyInput, idempotencyKey:string) {
+    const created = await createMessage({conversationId:conversation.id, threadRootMessageId:rootId, content:"",
+      interactionReply:input, idempotencyKey});
+    appendReply(created);
+    return created;
+  }
+  const submissions=new Map(data?.items.map(item => item.message)
+    .filter(m => m.sender_user_id===selfUserId && m.interaction_reply)
+    .map(m => [m.interaction_reply!.source_message_id,m.id]));
   async function send() {
     const text = reconstructWireContent(draft.trim(), mentions);
-    if (!text || sending) return;
+    const attachments = uploads.flatMap(item => item.attachment ? [item.attachment] : []);
+    if ((!text && !attachments.length) || !uploadsReady || sending) return;
     setSending(true);
     setError("");
-    const payload = JSON.stringify([text, replyTo?.id]);
+    const payload = JSON.stringify([text, replyTo?.id, attachments]);
     if (attempt.current?.payload !== payload) attempt.current = {payload, key: crypto.randomUUID()};
     try {
       const created = await createMessage({conversationId: conversation.id, content: text,
-        threadRootMessageId: rootId, replyToMessageId: replyTo?.id, idempotencyKey: attempt.current.key});
-      stickRef.current = true;
-      queryClient.setQueryData<ThreadPage>(key, page => page && ({...page, following: true,
-        items: page.items.some(item => item.message.id === created.id) ? page.items : [...page.items, {message: created}]}));
+        ...(attachments.length ? {attachments} : {}), threadRootMessageId: rootId, replyToMessageId: replyTo?.id, idempotencyKey: attempt.current.key});
+      appendReply(created);
       setDraft("");
+      setUploads([]);
       setMentions([]);
       setReplyTo(undefined);
       attempt.current = undefined;
-      onSent(created);
     } catch {
       setError(t("chat.messagePane.sendError"));
     } finally {
@@ -144,8 +190,7 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
             <strong>{message.reply_to.sender.display_name ?? message.reply_to.sender.id}</strong>
             <span>{renderQuote(message.reply_to)}</span>
           </button>}
-          {renderBody(message)}
-          {message.attachments?.map((attachment, index) => <AttachmentChip key={index} attachment={attachment} />)}
+          {renderBody(message,sendCard,submissions.get(message.id),locate)}
           {canWrite && ["completed", "sent", "pending"].includes(message.delivery_status) && <div className="chat-message-toolbar" role="toolbar">
             <button type="button" className="chat-message-action" aria-label={t("chat.messagePane.reply")}
               onClick={() => { setReplyTo(message); inputRef.current?.focus(); }}><Reply size={16} /></button>
@@ -177,8 +222,20 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
     {canWrite && data && <form className="chat-pane-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
       {replyTo && <div className="chat-composer-reply"><div><strong>{t("chat.messagePane.reply")} {replyTo.sender.display_name ?? replyTo.sender.id}</strong>
         <span>{renderQuote({message_id: replyTo.id, sender: replyTo.sender, content: replyTo.content, attachments: replyTo.attachments})}</span></div>
-        <button type="button" aria-label={t("common.close")} onClick={() => setReplyTo(undefined)}>×</button></div>}
-      <div className="chat-pane-composer-dropzone"><div className="chat-composer-input"><div className="chat-pane-composer-row">
+        <button type="button" aria-label={t("common.cancel")} onClick={() => setReplyTo(undefined)}>×</button></div>}
+      <AttachmentDropzone className="chat-pane-composer-dropzone" onAdd={addFiles} disabled={sending}>
+        <div className="chat-composer-input">
+        {uploads.length > 0 && <div className="chat-pane-composer-chips">
+          {uploads.map(item => <ComposerAttachmentCard key={item.id} item={item} busy={sending} retryClock={retryClock}
+            onRemove={() => setUploads(current => current.filter(file => file.id !== item.id))} onRetry={() => void upload(item)} />)}
+        </div>}
+        <div className="chat-pane-composer-row">
+        <input ref={fileInput} type="file" hidden multiple onChange={event => {
+          addFiles(Array.from(event.target.files ?? []));
+          event.target.value = "";
+        }}/>
+        <button type="button" className="chat-message-action" disabled={sending} aria-label={t("chat.messagePane.threadAttach")}
+          onClick={() => fileInput.current?.click()}><Paperclip size={18}/></button>
         {mentionMatch && <MentionPicker candidates={mentionCandidates} query={mentionMatch[1]} onClose={() => setDraft(draft.replace(MENTION_RE, ""))}
           onSelect={candidate => {
             const label = "@" + candidate.display_name;
@@ -188,15 +245,19 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
           }}/>}
         <div className="chat-composer-highlight-wrapper"><textarea ref={inputRef} className="chat-pane-composer-input" rows={2}
           value={draft} disabled={sending} placeholder={t("chat.messagePane.threadPlaceholder")} aria-label={t("chat.messagePane.threadTitle")}
+          onPaste={event => {
+            const files = pastedImages(event.clipboardData);
+            if (files.length) { event.preventDefault(); addFiles(files); }
+          }}
           onChange={event => setDraft(event.target.value)} onKeyDown={event => {
             if (event.key === "Enter" && !isMobile && !mentionMatch && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
               void send();
             }
           }}/></div>
-        <button type="submit" className="chat-pane-composer-send" disabled={sending || !draft.trim()} aria-label={t("chat.messagePane.send", "Send")}>
+        <button type="submit" className="chat-pane-composer-send" disabled={sending || !uploadsReady || (!draft.trim() && !uploads.length)} aria-label={t("chat.messagePane.send", "Send")}>
           <ArrowUp size={18}/></button>
-      </div></div></div>
+      </div></div></AttachmentDropzone>
     </form>}
   </aside>;
 }

@@ -1176,6 +1176,8 @@
       "follow": "Follow",
       "threadFollowError": "Could not update thread notifications.",
       "threadRetry": "Could not load thread. Retry",
+      "threadAttach": "Attach files",
+      "threadFileLimit": "You can attach up to five files per message.",
       "threadPlaceholder": "Reply in thread",
       "viewOriginal": "View original message",
       "viewReplyWork": "Execution record",

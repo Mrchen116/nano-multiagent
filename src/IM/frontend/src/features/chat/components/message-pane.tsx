@@ -1556,11 +1556,14 @@ export function MessagePane({
           targetId={openThreadId === initialThreadId ? threadMessageId : null} selfUserId={selfUserId}
           mentionCandidates={mentionCandidates} isMobile={isMobile} onRead={onReadMessage}
           renderQuote={quote => replyPreview(quote, conversation.participants, zh)}
-          renderBody={message => <><div className="chat-message-body">{message.sender.type === "user"
-            ? renderInlineContent(message.content, conversation.participants)
-            : <MarkdownContent content={message.content} participants={conversation.participants}/>}</div>
-            {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly isGroup={isGroup}
-              onSend={() => Promise.resolve()} /></React.Suspense>}</>}
+          renderBody={(message, sendCard, submittedMessageId, locate) => <><MessageContents message={message}
+            participants={conversation.participants} readOnly={conversation.can_write===false} isGroup={isGroup}
+            interactiveReadOnly={conversation.can_write===false || Boolean(message.interactive?.read_only || message.interactive?.superseded_by)}
+            submittedMessageId={submittedMessageId} onSend={sendCard} historyProcess={historyProcess}
+            onComposeMessage={onComposeMessage} onNavigateMessage={locate} />
+            {message.sender_user_id===selfUserId && !!message.receipts?.length &&
+              <MessageReceipt receipts={message.receipts} load={historyProcess && (signal => historyProcess.load(message.id,signal))} />}
+          </>}
           onClose={() => { setOpenThreadId(null); if (initialThreadId) onCloseLocatedThread?.(); }}
           onSent={message => onRecoveredRef.current?.(message)} />
       )}
@@ -1999,19 +2002,6 @@ function MessageBubble({
   const replyAvailable=!readOnly && Boolean(onReply) && canReply(message);
   const hasMessageActions = hasCopyableBody || forkEligible || replyAvailable || Boolean(workHref);
 
-  const [shownAttachments, setShownAttachments] = useState<ReadonlyMap<string, number>>(() => new Map());
-  const onAttachmentVisibility = useCallback((url: string, visible: boolean) => {
-    setShownAttachments(current => {
-      const next = new Map(current);
-      const count = (next.get(url) ?? 0) + (visible ? 1 : -1);
-      if (count > 0) next.set(url, count);
-      else next.delete(url);
-      return next;
-    });
-  }, []);
-  const fallbackAttachments = message.attachments?.map((attachment, index) => ({attachment, index}))
-    .filter(({attachment}) => !shownAttachments.has(attachment.url));
-
   const cardRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
@@ -2217,67 +2207,11 @@ function MessageBubble({
             <strong>{message.reply_to.sender.display_name ?? message.reply_to.sender.id}</strong>
             <span>{replyPreview(message.reply_to,participants,t('chat.messagePane.reply','回复')==='回复')}</span>
           </Link>}
-          {message.content && (
-            <div
-              ref={bodyRef}
-              className={`chat-message-body${isHuman && !message.pa_agent_id ? " chat-bubble-content" : ""}`}
-            >
-              {isHuman && !message.pa_agent_id
-                ? renderInlineContent(message.content, participants)
-                : <MarkdownContent content={message.content} participants={participants} onCopyCode={handleCopyCode} />}
-            </div>
-          )}
-          {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} isGroup={isGroup} submittedMessageId={interactiveSubmissionId}
-            onSend={onInteractionSend} onComposeMessage={onComposeMessage} onAttachmentVisibility={onAttachmentVisibility} /></React.Suspense>}
-          {message.interaction_reply && <details className="interactive-snapshot" open>
-            <summary>{t("chat.interactive.choices")}</summary>
-            <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>
-              <dt>{field.label}</dt><dd>{field.display_value ?? (typeof field.value === 'string' ? field.value : JSON.stringify(field.value))}</dd>
-            </React.Fragment>)}</dl>
-          </details>}
-          {!!fallbackAttachments?.length && (
-            <div className="chat-bubble-attachments">
-              {fallbackAttachments.map(({attachment, index}) => (
-                <AttachmentChip key={`${attachment.url}:${index}`} attachment={attachment} />
-              ))}
-            </div>
-          )}
-          {isAgent &&
-            (message.process_summary ||
-              (message.tool_calls && message.tool_calls.length > 0) ||
-              (message.thinking && message.thinking.length > 0) ||
-              (message.background_returns && message.background_returns.length > 0) ||
-              (message.reply_process && message.reply_process.length > 0)) && (
-              <ToolCallsPanel
-                toolCalls={message.tool_calls ?? []}
-                thinking={message.thinking}
-                backgroundReturns={message.background_returns}
-                replyProcess={message.reply_process}
-                summary={message.process_summary}
-                historyDetail={historyProcess && {
-                  key: ["chat", "message-process", conversationId, historyProcess.revision, historyProcess.accountId, message.id],
-                  load: signal => historyProcess.load(message.id, signal)
-                }}
-                availableMessageIds={availableMessageIds}
-                onNavigateMessage={(id) => document.getElementById(`chat-message-${id}`)?.scrollIntoView({block: "center", behavior: "smooth"})}
-              />
-            )}
-          {isAgent && deliveryStatus === "completed" && message.token_usage && (
-            <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
-          )}
-          {isAgent && (message.permission_requests ?? [])
-            .filter((req) => req.status !== "resolved")
-            .map((req) => (
-              <PermissionCard
-                key={req.request_id}
-                request={req}
-                readOnly={readOnly}
-                disabled={!!req.agent_id && !(participants ?? []).some(p => p.type === "agent" && p.id === req.agent_id)}
-                conversationId={message.conversation_id}
-                messageId={message.id}
-                onResolved={() => {/* WS event will update the message status */}}
-              />
-            ))}
+          <MessageContents message={message} bodyRef={bodyRef} onCopyCode={handleCopyCode}
+            participants={participants} readOnly={readOnly} isGroup={isGroup} interactiveReadOnly={interactiveReadOnly}
+            submittedMessageId={interactiveSubmissionId} onSend={onInteractionSend} onComposeMessage={onComposeMessage}
+            historyProcess={historyProcess} availableMessageIds={availableMessageIds}
+            onNavigateMessage={id => document.getElementById(`chat-message-${id}`)?.scrollIntoView({block:"center",behavior:"smooth"})} />
 
           {/* Desktop fine-pointer / keyboard toolbar. */}
           {hasMessageActions && (
@@ -2562,4 +2496,102 @@ function formatHM(iso: string): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${hh}:${mm}`;
+}
+
+/** Both reading surfaces preserve card actions, attachments, process history and approvals. */
+function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, isGroup, interactiveReadOnly,
+  submittedMessageId, onSend, onComposeMessage, historyProcess, availableMessageIds, onNavigateMessage}: {
+  message: Message;
+  participants?: Actor[];
+  bodyRef?: React.Ref<HTMLDivElement>;
+  onCopyCode?(element:HTMLElement):void;
+  readOnly?:boolean;
+  isGroup:boolean;
+  interactiveReadOnly?:boolean;
+  submittedMessageId?:string;
+  onSend(input:InteractionReplyInput,key:string):Promise<unknown>;
+  onComposeMessage?:MessagePaneProps["onComposeMessage"];
+  historyProcess?: MessagePaneProps["historyProcess"];
+  availableMessageIds?:ReadonlySet<string>;
+  onNavigateMessage(id:string):void;
+}) {
+  const {t} = useTranslation();
+  const isHuman = message.sender.type === "user";
+  const isAgent = message.sender.type === "agent";
+  const [shownAttachments, setShownAttachments] = useState<ReadonlyMap<string, number>>(() => new Map());
+  const onAttachmentVisibility = useCallback((url: string, visible: boolean) => {
+    setShownAttachments(current => {
+      const next = new Map(current);
+      const count = (next.get(url) ?? 0) + (visible ? 1 : -1);
+      if (count > 0) next.set(url, count);
+      else next.delete(url);
+      return next;
+    });
+  }, []);
+  const fallbackAttachments = message.attachments?.map((attachment, index) => ({attachment, index}))
+    .filter(({attachment}) => !shownAttachments.has(attachment.url));
+
+  return <>
+    {message.content && (
+      <div
+        ref={bodyRef}
+        className={`chat-message-body${isHuman && !message.pa_agent_id ? " chat-bubble-content" : ""}`}
+      >
+        {isHuman && !message.pa_agent_id
+          ? renderInlineContent(message.content, participants)
+          : <MarkdownContent content={message.content} participants={participants} onCopyCode={onCopyCode} />}
+      </div>
+    )}
+    {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} isGroup={isGroup} submittedMessageId={submittedMessageId}
+      onSend={onSend} onComposeMessage={onComposeMessage} onAttachmentVisibility={onAttachmentVisibility} /></React.Suspense>}
+    {message.interaction_reply && <details className="interactive-snapshot" open>
+      <summary>{t("chat.interactive.choices")}</summary>
+      <dl>{message.interaction_reply.fields.map(field => <React.Fragment key={field.name}>
+        <dt>{field.label}</dt><dd>{field.display_value ?? (typeof field.value === 'string' ? field.value : JSON.stringify(field.value))}</dd>
+      </React.Fragment>)}</dl>
+    </details>}
+    {!!fallbackAttachments?.length && (
+      <div className="chat-bubble-attachments">
+        {fallbackAttachments.map(({attachment, index}) => (
+          <AttachmentChip key={`${attachment.url}:${index}`} attachment={attachment} />
+        ))}
+      </div>
+    )}
+    {isAgent &&
+      (message.process_summary ||
+        (message.tool_calls && message.tool_calls.length > 0) ||
+        (message.thinking && message.thinking.length > 0) ||
+        (message.background_returns && message.background_returns.length > 0) ||
+        (message.reply_process && message.reply_process.length > 0)) && (
+        <ToolCallsPanel
+          toolCalls={message.tool_calls ?? []}
+          thinking={message.thinking}
+          backgroundReturns={message.background_returns}
+          replyProcess={message.reply_process}
+          summary={message.process_summary}
+          historyDetail={historyProcess && {
+            key: ["chat", "message-process", message.conversation_id, historyProcess.revision, historyProcess.accountId, message.id],
+            load: signal => historyProcess.load(message.id, signal)
+          }}
+          availableMessageIds={availableMessageIds}
+          onNavigateMessage={onNavigateMessage}
+        />
+      )}
+    {isAgent && message.delivery_status === "completed" && message.token_usage && (
+      <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
+    )}
+    {isAgent && (message.permission_requests ?? [])
+      .filter((req) => req.status !== "resolved")
+      .map((req) => (
+        <PermissionCard
+          key={req.request_id}
+          request={req}
+          readOnly={readOnly}
+          disabled={!!req.agent_id && !(participants ?? []).some(p => p.type === "agent" && p.id === req.agent_id)}
+          conversationId={message.conversation_id}
+          messageId={message.id}
+          onResolved={() => {/* WS event will update the message status */}}
+        />
+      ))}
+  </>;
 }

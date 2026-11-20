@@ -71,10 +71,11 @@ export class MessageRecords {
    *   publish: False suppresses immediate broadcast; the durable event remains replayable.
    */
   event(id:string,messageId:string|null,type:string,data:object,status='completed',publish=true):MessageEventFrame {
-    const topic = (data as {thread_root_message_id?:string}).thread_root_message_id;
+    const topic = (data as {thread_root_message_id?:string}).thread_root_message_id
+      ?? (messageId && type.startsWith('permission.') ? this.find(messageId)?.thread_root_id : undefined);
     const notify = topic && messageId && this.db.prepare("SELECT 1 FROM conversations WHERE id=? AND type='group'").get(id)
       ? this.db.prepare('SELECT user_id FROM thread_deliveries WHERE message_id=?').all(messageId).map(row=>row.user_id) : undefined;
-    const at=now(),payload={...(notify ? {thread_notify_user_ids:notify} : {}),created_at:at,delivery_status:status,conversation_id:id,...(messageId?{message_id:messageId}:{}),...data};
+    const at=now(),payload={...(topic ? {thread_root_message_id:topic} : {}),...(notify ? {thread_notify_user_ids:notify} : {}),created_at:at,delivery_status:status,conversation_id:id,...(messageId?{message_id:messageId}:{}),...data};
     const result=this.db.prepare('INSERT INTO conversation_events(conversation_id,message_id,event_type,delivery_status,payload_json,created_at) VALUES(?,?,?,?,?,?)').run(id,messageId,type,status,JSON.stringify(payload),at);
     const frame:MessageEventFrame={op:'event',event_id:Number(result.lastInsertRowid),conversation_id:id,message_id:messageId,event_type:type,delivery_status:status,created_at:at,data:{...payload,event_id:Number(result.lastInsertRowid)}};
     this.ports.publish(frame,publish);return frame;

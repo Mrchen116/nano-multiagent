@@ -1175,6 +1175,8 @@
       "follow": "关注",
       "threadFollowError": "未能更新话题关注状态。",
       "threadRetry": "话题加载失败，点击重试",
+      "threadAttach": "添加附件",
+      "threadFileLimit": "每条消息最多可添加 5 个附件。",
       "threadPlaceholder": "在话题中回复",
       "viewOriginal": "查看原消息",
       "viewReplyWork": "执行记录",

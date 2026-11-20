@@ -77,15 +77,15 @@ function excerpt(value: unknown): string {
 export function threadRelayMetadata(db: DatabaseSync, messageId: string): Record<string, unknown> {
   const message = one(db, 'SELECT thread_root_id, conversation_id, rowid FROM messages WHERE id=?', messageId);
   if (!message?.thread_root_id) return {};
-  const root = one(db, 'SELECT sender_display_name, sender_user_id, content FROM messages WHERE id=?', message.thread_root_id);
-  const earlier = all(db, `SELECT id, sender_display_name, sender_user_id, content FROM messages
-    WHERE conversation_id=? AND thread_root_id=? AND rowid<? ORDER BY rowid DESC LIMIT 20`,
+  const root = one(db, "SELECT coalesce(nullif(m.sender_display_name,''),u.display_name,m.sender_user_id) AS name,m.content FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?", message.thread_root_id);
+  const earlier = all(db, `SELECT m.id,coalesce(nullif(m.sender_display_name,''),u.display_name,m.sender_user_id) AS name,m.content FROM messages m
+    JOIN users u ON u.id=m.sender_user_id WHERE m.conversation_id=? AND m.thread_root_id=? AND m.rowid<? ORDER BY m.rowid DESC LIMIT 20`,
     message.conversation_id, message.thread_root_id, message.rowid).reverse();
   return {
     thread_root_message_id: message.thread_root_id,
-    thread_root_sender: root?.sender_display_name || root?.sender_user_id || '',
+    thread_root_sender: root?.name ?? '',
     thread_root_excerpt: excerpt(root?.content),
-    thread_earlier: earlier.map(row => ({id: row.id, sender: row.sender_display_name || row.sender_user_id, excerpt: excerpt(row.content)})),
+    thread_earlier: earlier.map(row => ({id: row.id, sender: row.name, excerpt: excerpt(row.content)})),
   };
 }
 

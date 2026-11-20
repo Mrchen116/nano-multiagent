@@ -950,10 +950,11 @@ export function ChatWorkspacePage() {
         if (event.eventType === 'node.update_changed') void queryClient.invalidateQueries({queryKey:['chat','nodes']});
         if ((['node.update_wait_changed', 'relay.delivery_receipt', 'message.receipts_changed'].includes(event.eventType)) && event.payload.conversation_id === conversationIdRef.current) {
           void queryClient.invalidateQueries({queryKey:['chat','messages',conversationIdRef.current]});
+          void queryClient.invalidateQueries({queryKey:['chat','thread',conversationIdRef.current]});
         }
         const threadRoot = event.payload.thread_root_message_id;
         if (typeof threadRoot === "string" && event.payload.conversation_id === conversationIdRef.current &&
-            ["message.created", "message.sent", "message.completed", "message.reconciled", "message.discarded"].includes(event.eventType)) {
+            ["message.created", "message.sent", "message.completed", "message.reconciled", "message.discarded", "permission.request", "permission.submitted", "permission.resolved"].includes(event.eventType)) {
           void queryClient.invalidateQueries({queryKey: ["chat", "thread", conversationIdRef.current, threadRoot]});
         }
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
