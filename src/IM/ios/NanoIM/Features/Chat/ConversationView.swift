@@ -98,10 +98,10 @@ struct ConversationView: View {
                                     ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, presentations: cardPresentations, scroll: scrollState, refreshed: { Task { await store.loadChat(conversationID) } })
                                     if let thread = message.thread {
                                         Button { threadRoot = message } label: {
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(L("\(thread.reply_count) 条话题", "\(thread.reply_count) replies")).font(.caption).foregroundStyle(NanoTheme.accent)
+                                            HStack(spacing: 6) {
+                                                Text(L("\(thread.reply_count) 条回复", "\(thread.reply_count) replies")).font(.caption.weight(.semibold)).foregroundStyle(NanoTheme.accent)
                                                 if let preview = thread.latest_preview { Text(preview).font(.caption2).foregroundStyle(NanoTheme.muted).lineLimit(1) }
-                                            }.frame(maxWidth: .infinity, alignment: .leading).padding(8).background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 8))
+                                            }.frame(maxWidth: .infinity, alignment: message.sender.id == store.user.id ? .trailing : .leading)
                                         }.buttonStyle(.plain)
                                     }
                                 }
@@ -519,17 +519,33 @@ private struct ThreadSheet: View {
     @State private var items: [ChatMessage] = []
     @State private var following = true
     @State private var draft = ""
+    @State private var replyTo: ChatMessage?
     @State private var error: String?
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
                 if let error { ErrorNotice(message: error).padding(10) }
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
-                        ForEach(items) { message in
-                            ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, refreshed: {})
-                        }
-                    }.padding()
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 18) {
+                            ChatMessageView(client: store.client, chat: store, message: root, selfID: store.user.id, refreshed: {})
+                                .contextMenu { Button(L("回复", "Reply")) { replyTo = root } }
+                            HStack { Divider(); Text(L("\(items.count) 条回复", "\(items.count) replies")).font(.caption).foregroundStyle(NanoTheme.muted); Divider() }
+                            ForEach(items) { message in
+                                ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, refreshed: {})
+                                    .contextMenu { Button(L("回复", "Reply")) { replyTo = message } }
+                            }
+                            Color.clear.frame(height: 1).id("thread-end")
+                        }.padding()
+                    }
+                    .onChange(of: items.count) { _, _ in proxy.scrollTo("thread-end", anchor: .bottom) }
+                }
+                if let replyTo {
+                    HStack {
+                        Text(L("回复 \(replyTo.sender.display_name ?? replyTo.sender.id)", "Reply to \(replyTo.sender.display_name ?? replyTo.sender.id)")).font(.caption).lineLimit(1)
+                        Spacer()
+                        Button(L("取消", "Cancel")) { self.replyTo = nil }
+                    }.padding(.horizontal).padding(.top, 8)
                 }
                 HStack {
                     TextField(L("写在话题里", "Reply in thread"), text: $draft, axis: .vertical).textFieldStyle(.roundedBorder)
@@ -556,8 +572,8 @@ private struct ThreadSheet: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         do {
-            let created = try await store.client.sendThread(conversationID, root: root.id, text: text, userID: store.user.id)
-            items.append(created); draft = ""
+            let created = try await store.client.sendThread(conversationID, root: root.id, text: text, userID: store.user.id, replyTo: replyTo?.id)
+            items.append(created); draft = ""; replyTo = nil
         } catch { self.error = error.localizedDescription }
     }
     private func toggle() async {

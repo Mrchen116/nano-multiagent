@@ -233,8 +233,11 @@ export class MessageRecords {
   private threadSummary(id:string):Pick<ChatMessage,'thread'> {
     const count=this.db.prepare('SELECT count(*) AS count FROM messages WHERE thread_root_id=?').get(id) as {count:number};
     if(!count.count)return {};
-    const latest=this.db.prepare('SELECT content FROM messages WHERE thread_root_id=? ORDER BY rowid DESC LIMIT 1').get(id) as {content:string};
-    return {thread:{reply_count:count.count,latest_preview:latest.content.trim().slice(0,80)}};
+    const latest=this.db.prepare('SELECT content, created_at FROM messages WHERE thread_root_id=? ORDER BY rowid DESC LIMIT 1').get(id) as {content:string; created_at:string};
+    const participants=this.db.prepare(`SELECT m.sender_user_id AS id, COALESCE(m.sender_display_name, u.display_name, m.sender_user_id) AS display_name
+      FROM messages m LEFT JOIN users u ON u.id=m.sender_user_id
+      WHERE m.thread_root_id=? GROUP BY m.sender_user_id ORDER BY max(m.rowid) DESC LIMIT 3`).all(id) as {id:string; display_name:string}[];
+    return {thread:{reply_count:count.count, latest_preview:latest.content.trim().slice(0,80), latest_at:latest.created_at, participants}};
   }
   private projectMessage(m:Omit<MessageRecord,'caller_idempotency_key'|'caller_payload_json'>):ChatMessage {
     const {id}=m;

@@ -1246,7 +1246,8 @@ export function MessagePane({
     : null;
 
   return (
-    <section className={activeSurface ? "chat-pane chat-pane--message-actions-open" : "chat-pane"} aria-label={conversation.title}>
+    <section className={["chat-pane", activeSurface ? "chat-pane--message-actions-open" : "", openThreadId ? "chat-pane--with-thread" : ""].filter(Boolean).join(" ")} aria-label={conversation.title}>
+      <div className="chat-pane-main">
       <header className="chat-pane-header">
         {onBack && (
           <button type="button" className="chat-pane-back" onClick={onBack} aria-label="Back">
@@ -1575,7 +1576,8 @@ export function MessagePane({
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-      {openThreadId && <ThreadColumn conversationId={conversation.id} selfUserId={selfUserId} root={messages.find(item => item.id === openThreadId) ?? ({id: openThreadId, conversation_id: conversation.id, content: '', sender: {id: '', type: 'user', display_name: ''}, sender_user_id: '', sender_type: 'user', delivery_status: 'completed', created_at: '', attachments: [], tool_calls: [], token_usage: null} as unknown as Message)} onClose={() => setOpenThreadId(null)} onSent={message => onRecoveredRef.current?.(message)} />}
+      </div>
+      {openThreadId && <ThreadColumn conversationId={conversation.id} selfUserId={selfUserId} incoming={messages} root={messages.find(item => item.id === openThreadId) ?? ({id: openThreadId, conversation_id: conversation.id, content: '', sender: {id: '', type: 'user', display_name: ''}, sender_user_id: '', sender_type: 'user', delivery_status: 'completed', created_at: '', attachments: [], tool_calls: [], token_usage: null} as unknown as Message)} onClose={() => setOpenThreadId(null)} onSent={message => onRecoveredRef.current?.(message)} />}
     </section>
   );
 }
@@ -2241,10 +2243,6 @@ function MessageBubble({
               <dt>{field.label}</dt><dd>{field.display_value ?? (typeof field.value === 'string' ? field.value : JSON.stringify(field.value))}</dd>
             </React.Fragment>)}</dl>
           </details>}
-          {message.thread && <button type="button" className="chat-message-quote" data-testid={`thread-entry-${message.id}`} onClick={() => onOpenThread?.(message.id)}>
-            <strong>{t('chat.messagePane.threadReplies', {n: message.thread.reply_count})}</strong>
-            {message.thread.latest_preview && <span>{message.thread.latest_preview}</span>}
-          </button>}
           {!!fallbackAttachments?.length && (
             <div className="chat-bubble-attachments">
               {fallbackAttachments.map(({attachment, index}) => (
@@ -2358,8 +2356,27 @@ function MessageBubble({
             </button>
           )}
         </div>
+        {message.thread && <ThreadEntry message={message} mine={isUser} onOpen={() => onOpenThread?.(message.id)} />}
       </div>
     </div>
+  );
+}
+
+function ThreadEntry({message, mine, onOpen}: {message: Message; mine: boolean; onOpen(): void}) {
+  const {t} = useTranslation();
+  const thread = message.thread!;
+  const when = thread.latest_at ? formatHM(thread.latest_at) : "";
+  return (
+    <button type="button" className={`chat-thread-entry${mine ? " chat-thread-entry--mine" : ""}`} data-testid={`thread-entry-${message.id}`} onClick={onOpen}>
+      <span className="chat-thread-entry-faces" aria-hidden="true">
+        {(thread.participants ?? []).slice(0, 3).map(person => {
+          const color = colorForAgentSeed(person.display_name || person.id);
+          return <span key={person.id} className="inline-flex items-center justify-center rounded-full border border-[var(--im-surface)] text-[9px] font-semibold" style={{width: 18, height: 18, background: color, color: foregroundForAvatar(color)}}>{initialsOf(person.display_name || person.id)}</span>;
+        })}
+      </span>
+      <span className="chat-thread-entry-label">{t("chat.messagePane.threadCount", {n: thread.reply_count})}</span>
+      <span className="chat-thread-entry-meta">{[when, thread.latest_preview].filter(Boolean).join(" · ")}</span>
+    </button>
   );
 }
 

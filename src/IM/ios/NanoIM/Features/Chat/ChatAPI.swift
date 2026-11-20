@@ -27,9 +27,9 @@ extension IMClient {
     func threadMessages(_ id: String, root: String) async throws -> ThreadPage {
         try await get("/im/v1/conversations/\(id.pathComponent)/threads/\(root.pathComponent)")
     }
-    func sendThread(_ id: String, root: String, text: String, userID: String) async throws -> ChatMessage {
-        struct Body: Encodable, Sendable { let sender: ActorRef; let content: String; let thread_root_message_id: String; let timezone: String }
-        return try await send("/im/v1/conversations/\(id.pathComponent)/messages", body: Body(sender: ActorRef(type: "user", id: userID), content: text, thread_root_message_id: root, timezone: TimeZone.autoupdatingCurrent.identifier))
+    func sendThread(_ id: String, root: String, text: String, userID: String, replyTo: String? = nil) async throws -> ChatMessage {
+        struct Body: Encodable, Sendable { let sender: ActorRef; let content: String; let thread_root_message_id: String; let reply_to_message_id: String?; let timezone: String }
+        return try await send("/im/v1/conversations/\(id.pathComponent)/messages", body: Body(sender: ActorRef(type: "user", id: userID), content: text, thread_root_message_id: root, reply_to_message_id: replyTo, timezone: TimeZone.autoupdatingCurrent.identifier))
     }
     func setThreadFollow(_ id: String, root: String, following: Bool) async throws {
         struct Body: Encodable, Sendable { let following: Bool }

@@ -68,6 +68,12 @@ struct ChatMessageView: View {
                 if let name = notice["source_agent_display_name"].stringValue { Text(name).font(.caption).foregroundStyle(.secondary) }
                 if let targets = notice["updated_targets"].arrayValue { Text(targets.compactMap(\.stringValue).joined(separator: ", ")).font(.caption) }
             }
+            if let reply = message.reply_to {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(reply.sender.display_name ?? reply.sender.id).font(.caption.weight(.semibold))
+                    Text(reply.content).font(.caption2).foregroundStyle(NanoTheme.muted).lineLimit(2)
+                }.padding(8).frame(maxWidth: .infinity, alignment: .leading).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
+            }
             if !message.content.isEmpty {
                 // Scroll and receipt updates can leave the rendered message body identical.
                 MarkdownView(text: ChatText.display(message.content, participants: participants), client: client)

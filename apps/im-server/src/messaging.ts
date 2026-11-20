@@ -29,7 +29,7 @@ import {
 } from "./context.js";
 import { conversationAccess, conversationReaderIds, qualifiedUser, readableConversationIds } from "./conversation-access.js";
 import { searchMessages } from './message-search.js';
-import { listUnread, threadAddressesAgent, threadRelayMetadata, threadRootOrFail } from './threads.js';
+import { assertThreadQuote, listUnread, threadAddressesAgent, threadRelayMetadata, threadRootOrFail } from './threads.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
 import { InteractionBackground } from './interaction-background.js';
@@ -500,6 +500,7 @@ export class Messaging {
     const attachments = this.publicationAttachments(id, p.attachments);
     const threadRoot=threadRootOrFail(db,id,p.in_thread_of);
     const replyTo=this.replyReference(id,p.reply_to_message_id);
+    assertThreadQuote(db,id,threadRoot,replyTo?.message_id);
     const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
     const targetUser = one(
       db,
@@ -587,6 +588,7 @@ export class Messaging {
     if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
     const threadRoot=threadRootOrFail(this.db,id,b.thread_root_message_id ?? b.in_thread_of);
     const replyTo=this.replyReference(id,b.reply_to_message_id);
+    assertThreadQuote(this.db,id,threadRoot,replyTo?.message_id);
     // Must stay after the attempt hit: a retry returns the original message, so a carried
     // background can never reappear as a second injection or vanish from a retried send.
     // Client-supplied `interaction_contexts` are accepted but ignored; the centre decides.

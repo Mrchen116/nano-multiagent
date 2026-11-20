@@ -28,6 +28,25 @@ it('keeps a topic off the main timeline and only unread-counts its followers', a
     expect(unread.find(row => row.user_id === 'u1')?.unread_count).toBeGreaterThan(0);
     expect(db.prepare('SELECT 1 FROM relay_tasks WHERE message_id=?').get(sent.json().id)).toBeUndefined();
     expect((await app.inject({method:'POST',url:'/im/v1/conversations/chat/messages',headers:{'idempotency-key':'missing','x-user':'u2'},payload:{sender:{type:'user',id:'u2'},content:'no',thread_root_message_id:'missing'}})).statusCode).toBe(404);
+    const quoted = await send('u2', '引用根消息', 'topic-quote');
+    expect(quoted.statusCode, quoted.body).toBe(201);
+    const outside = ctx.messaging.insertMessage('chat', 'u1', 'user', '另一条主时间线');
+    const rejected = await app.inject({
+      method: 'POST', url: '/im/v1/conversations/chat/messages', headers: {'idempotency-key': 'outside', 'x-user': 'u2'},
+      payload: {sender: {type: 'user', id: 'u2'}, content: '不该离开话题', thread_root_message_id: root.id, reply_to_message_id: outside.id},
+    });
+    expect(rejected.statusCode, rejected.body).toBe(422);
+    const inside = await app.inject({
+      method: 'POST', url: '/im/v1/conversations/chat/messages', headers: {'idempotency-key': 'inside', 'x-user': 'u2'},
+      payload: {sender: {type: 'user', id: 'u2'}, content: '留在话题里', thread_root_message_id: root.id, reply_to_message_id: root.id},
+    });
+    expect(inside.statusCode, inside.body).toBe(201);
+    expect(inside.json().reply_to.message_id).toBe(root.id);
+    expect(inside.json().thread_root_message_id).toBe(root.id);
+    const refreshed = await app.inject('/im/v1/conversations/chat/messages');
+    const rootView = refreshed.json().items.map((item: {message?: {id: string; thread?: {reply_count: number; participants?: {id: string}[]}}}) => item.message).find((message: {id: string} | undefined) => message?.id === root.id);
+    expect(rootView.thread.reply_count).toBeGreaterThan(0);
+    expect(rootView.thread.participants.map((person: {id: string}) => person.id)).toContain('u2');
   } finally { await app.close(); }
 });
 

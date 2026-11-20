@@ -1513,28 +1513,99 @@ body {
   position: relative;
 }
 
+.chat-pane-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-pane--with-thread {
+  flex-direction: row;
+}
+
 .chat-thread-column {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
   width: min(380px, 42%);
-  z-index: 8;
+  flex: none;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   border-left: 1px solid var(--im-border);
   background: var(--im-surface);
-  box-shadow: var(--im-shadow);
 }
 
 @media (max-width: 767px) {
-  .chat-thread-column {
-    left: 0;
-    width: 100%;
-    border-left: 0;
-    box-shadow: none;
+  .chat-pane--with-thread {
+    flex-direction: column;
   }
+  .chat-pane--with-thread > .chat-pane-main {
+    display: none;
+  }
+  .chat-thread-column {
+    width: 100%;
+    flex: 1;
+    border-left: 0;
+  }
+}
+
+.chat-thread-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--im-accent);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chat-thread-entry--mine { align-self: flex-end; }
+
+.chat-thread-entry-faces {
+  display: flex;
+  flex: none;
+}
+
+.chat-thread-entry-faces > * + * { margin-left: -6px; }
+
+.chat-thread-entry-label {
+  flex: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--im-accent);
+}
+
+.chat-thread-entry-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  color: var(--im-text-muted);
+}
+
+.chat-thread-replies {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 8px;
+  color: var(--im-text-muted);
+  font-size: 0.75rem;
+}
+
+.chat-thread-replies::before,
+.chat-thread-replies::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--im-border);
 }
 
 .chat-pane-header {
@@ -1788,6 +1859,10 @@ body {
   flex: 1;
   min-width: 0;
   position: relative;
+}
+
+.chat-composer-highlight-wrapper > .chat-pane-composer-input {
+  width: 100%;
 }
 
 /* Native editing and the visible mirror must wrap at the same width, even

@@ -78,6 +78,14 @@ export function threadRelayMetadata(db: DatabaseSync, messageId: string): Record
   };
 }
 
+/** A quote inside a topic may name the root or one reply in that same topic. */
+export function assertThreadQuote(db: DatabaseSync, conversationId: string, threadRoot: string | undefined, replyToId: string | undefined): void {
+  if (!threadRoot || !replyToId || replyToId === threadRoot) return;
+  const quoted = one(db, 'SELECT conversation_id, thread_root_id FROM messages WHERE id=?', replyToId);
+  if (!quoted || quoted.conversation_id !== conversationId || quoted.thread_root_id !== threadRoot)
+    fail(422, 'reply target is outside this thread');
+}
+
 export function threadRootOrFail(db: DatabaseSync, conversationId: string, rootId: string | undefined): string | undefined {
   if (rootId === undefined) return;
   if (!rootId) fail(422, 'invalid thread root');

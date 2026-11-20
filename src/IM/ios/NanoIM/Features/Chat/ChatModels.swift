@@ -123,8 +123,11 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var delegation: JSONValue?
     var thread_root_message_id: String?
     var thread: ThreadSummary?
+    var reply_to: ChatReplyRef?
 }
-struct ThreadSummary: Codable, Sendable { var reply_count: Int; var latest_preview: String? }
+struct ThreadParticipant: Codable, Sendable { var id: String; var display_name: String }
+struct ThreadSummary: Codable, Sendable { var reply_count: Int; var latest_preview: String?; var latest_at: String?; var participants: [ThreadParticipant]? }
+struct ChatReplyRef: Codable, Sendable { var message_id: String; var sender: ActorRef; var content: String }
 struct TimelineItem: Codable, Sendable, Identifiable {
     var type: String
     var message: ChatMessage?
