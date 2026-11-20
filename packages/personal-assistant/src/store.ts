@@ -658,6 +658,16 @@ export class NodeStore {
   updateDelivery(operationId: string, state: DeliveryState, messageId: string | null, content: string): void {
     this.db.prepare('UPDATE deliveries SET state=?,message_id=?,content=? WHERE operation_id=?').run(state, messageId, content, operationId);
   }
+  /** Reproject the turn's process history into its confirmed topic successor after discarding the old row. */
+  advanceTopicDelivery(operationId: string, marker: string): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.saveCommand(marker,'replaced');
+      this.db.prepare('DELETE FROM delivery_events WHERE operation_id=?').run(operationId);
+      this.updateDelivery(operationId,'prepared',null,'');
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
   /** Retire the failed placeholder and reserve a distinct backup bubble atomically. */
   advanceFallbackDelivery(operationId: string, noticeId: string, marker: string): void {
     this.db.exec('BEGIN IMMEDIATE');

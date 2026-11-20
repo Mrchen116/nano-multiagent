@@ -43,3 +43,16 @@ export async function uploadOneAttachment(file: File, conversationId: string): P
   }
   return (await res.json()) as Attachment;
 }
+
+/** Read pasted images once when browsers expose both clipboard representations. */
+export function pastedImages(clipboard: DataTransfer): File[] {
+  const itemImages = Array.from(clipboard.items)
+    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
+  // Browsers commonly expose the same image through both collections. Files
+  // are therefore compatibility fallback, never an additional source.
+  return itemImages.length > 0
+    ? itemImages
+    : Array.from(clipboard.files).filter((file) => file.type.startsWith("image/"));
+}

@@ -24,6 +24,19 @@ interface Options {
   taskStop?:(binding:SessionBinding,input:RelayInput)=>Promise<{wasRunning:boolean;paused:number}>;
 }
 
+function threadEnvelope(input: RelayInput, root: string, current: string): string {
+  const earlier = Array.isArray(input.metadata.thread_earlier) ? input.metadata.thread_earlier as {id?: string; sender?: string; excerpt?: string}[] : [];
+  const sender = input.metadata.sender_display_name ?? input.message.sender_user_id;
+  return [
+    `Thread on message ${JSON.stringify(root)} by ${input.metadata.thread_root_sender ?? 'unknown'} in this conversation. Reply with in_thread_of ${JSON.stringify(root)} if the answer belongs in the thread. Do not also post it on the main timeline.`,
+    `Root: ${input.metadata.thread_root_excerpt}`,
+    'Earlier in thread:',
+    ...earlier.map(item => `- ${item.id ?? ''} ${item.sender ?? ''}: ${item.excerpt ?? ''}`),
+    'Current message:',
+    `- ${input.message.id} ${sender}: ${current}`,
+  ].join('\n');
+}
+
 /** Single-thread product routing; DSH remains the only model/turn scheduler. */
 export class SingleThread {
   private readonly modelRuns = new Map<string, ModelRunProjection[]>();
@@ -201,7 +214,7 @@ export class SingleThread {
         }
       }
       const ack = await this.delta({ kind: 'turn_start', conversation_id: binding.conversationId, agent_id: binding.agentId,
-        idempotency_key: `command:${input.message.id}`, external_reply: typeof input.metadata.external_reply === 'string' ? input.metadata.external_reply : undefined });
+        idempotency_key: `command:${input.message.id}`, ...(typeof input.metadata.thread_root_message_id === 'string' ? {thread_root_message_id:input.metadata.thread_root_message_id} : {}), external_reply: typeof input.metadata.external_reply === 'string' ? input.metadata.external_reply : undefined });
       await this.delta({ kind: 'message_completed', message_id: ack.payload.message_id,
         final_content: text, delivery_status: 'completed' });
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'completed' });
@@ -265,7 +278,7 @@ export class SingleThread {
           content.push({type:'text', text:`\n\n${label} (sender: ${JSON.stringify(sender)}, type: ${member.message.sender_type}, message ID: ${JSON.stringify(member.message.id)})\n`});
           attachmentSources.push(null);
         }
-        const rendered = await this.messageContent(binding, member, carrier);
+        const rendered = await this.messageContent(binding, member, carrier, !deadline && members.length <= 1);
         content.push(...rendered.content);
         attachmentSources.push(...rendered.attachmentSources);
         if (carrier) contextEnvelope = rendered.contextEnvelope;
@@ -281,7 +294,7 @@ export class SingleThread {
           ...(input.metadata.channel === 'feishu' && input.metadata.owner_user_id === binding.ownerId ? {roleAccountId:binding.ownerId} : {}),
           channel:input.metadata.channel ?? 'web_relay', messageId:input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender},
           ...(input.message.pa_agent_id ? {pa_agent_id:input.message.pa_agent_id} : {}), contextEnvelope,
-          ...(input.message.sender_type === 'user' && chatBatch ? {directHumanText:input.message.content} : {})};
+          ...(input.message.sender_type === 'user' && (chatBatch || input.metadata.thread_root_message_id) ? {directHumanText:input.message.content} : {})};
       await runtime.request('session.submit', {sessionId:binding.sessionId, inputId,
         mode:chatBatch ? 'steer' : input.metadata.context_only ? 'inject' : 'followup', content,
         attachmentSources, source:{...source,...(teamChat ? {nanoTeamChat:true} : {})}});
@@ -295,9 +308,12 @@ export class SingleThread {
     }
   }
 
-  private async messageContent(binding:SessionBinding, input:RelayInput, includeRoster:boolean) {
+  private async messageContent(binding:SessionBinding, input:RelayInput, includeRoster:boolean, labelSource:boolean) {
     const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
-    const text = input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText;
+    const threadRoot = typeof input.metadata.thread_root_message_id === 'string' ? input.metadata.thread_root_message_id : undefined;
+    const threadText = threadRoot && typeof input.metadata.thread_root_excerpt === 'string'
+      ? threadEnvelope(input, threadRoot, humanText) : undefined;
+    const text = threadText ?? (input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText);
     const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
     const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
     const content: Record<string, unknown>[] = [];
@@ -307,6 +323,9 @@ export class SingleThread {
     if (typeof sourceTime === 'string' && Number.isFinite(Date.parse(sourceTime))) {
       const time = formatLocalTime(sourceTime, input.message.timezone);
       contextEnvelope = `Message time: ${time}${input.message.timezone ? ` (${input.message.timezone})` : ''}; source: ${input.metadata.channel === 'feishu' ? 'Feishu' : 'Web IM'}.`;
+      if (labelSource && !threadRoot && !input.metadata.origin && !binding.conversationId.startsWith('external:') && input.metadata.channel !== 'feishu') {
+        contextEnvelope += ` IM message ID: ${input.message.id}.`;
+      }
       content.push({ type: 'text', text: contextEnvelope });
     }
     if (includeRoster && input.metadata.conversation_type === 'group' && input.participants?.length) {
@@ -538,11 +557,29 @@ export class SingleThread {
           store.updateDelivery(delivery.operationId, 'confirmed', null, ''); await this.receipt(input.input, 'completed'); continue;
         }
       }
+      const wakeRoot = typeof origin.metadata.thread_root_message_id === 'string' ? origin.metadata.thread_root_message_id : undefined;
+      const joinedRequest = !!store.command(`sent-topic:${sessionId}:${turn}:${origin.message.id}`);
+      const threadRoot = wakeRoot ?? (joinedRequest ? origin.message.id : undefined);
+      const successor = `topic-delivery:${delivery.operationId}`;
+      if (!wakeRoot && joinedRequest && !store.command(successor)) {
+        // The confirmation may arrive after the main-timeline placeholder was already streamed.
+        if (delivery.messageId) {
+          try { await this.delta({kind:'message_discarded', message_id:delivery.messageId, reason:'continued_in_topic'}); }
+          catch (error) {
+            // A lost discard ACK leaves the same predecessor recorded locally until recovery.
+            if (!(error instanceof RelayDeliveryError && error.delivery === 'rejected' && error.code === 'message not found')) throw error;
+          }
+        }
+        store.advanceTopicDelivery(delivery.operationId,successor);
+        delivery = store.delivery(sessionId,turn)!;
+      }
       if (!delivery.messageId) {
         store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
-        // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
+        // A replacement and its predecessor have distinct stable IM identities.
+        const baseKey = store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId;
         const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
-          agent_id: binding.agentId, idempotency_key: store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId,
+          ...(threadRoot ? {thread_root_message_id:threadRoot} : {}),
+          agent_id: binding.agentId, idempotency_key: !wakeRoot && joinedRequest ? `${baseKey}:topic` : baseKey,
           background_returns: Array.isArray(input.input.metadata.background_returns) ? input.input.metadata.background_returns : undefined,
           external_reply: externalReply ?? undefined });
         const messageId = ack.payload.message_id;
@@ -639,7 +676,7 @@ export class SingleThread {
     for (const notice of notices) {
       if (this.options.store.command(notice.id)) continue;
       const start = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }), agent_id: binding.agentId,
-        idempotency_key: notice.id, external_reply: typeof input.metadata.external_reply === 'string' ? input.metadata.external_reply : undefined });
+        idempotency_key: notice.id, ...(typeof input.metadata.thread_root_message_id === 'string' ? {thread_root_message_id:input.metadata.thread_root_message_id} : {}), external_reply: typeof input.metadata.external_reply === 'string' ? input.metadata.external_reply : undefined });
       if (binding.conversationId.startsWith('owner:') && typeof start.payload.conversation_id === 'string') Object.assign(binding, this.options.store.adoptConversation(binding, start.payload.conversation_id));
       await this.delta({ kind: 'message_completed', message_id: start.payload.message_id, final_content: notice.text, delivery_status: notice.failed ? 'failed' : 'completed' });
       this.options.store.saveCommand(notice.id, 'delivered');

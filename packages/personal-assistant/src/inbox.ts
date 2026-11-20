@@ -28,6 +28,7 @@ export class InboxStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS inbox(seq INTEGER PRIMARY KEY,agent_id TEXT,target TEXT,message_id TEXT,payload TEXT,attention INTEGER,consumed INTEGER DEFAULT 0,UNIQUE(agent_id,message_id));
+      CREATE INDEX IF NOT EXISTS inbox_topics ON inbox(agent_id,target) WHERE json_extract(payload,'$.metadata.thread_root_message_id') IS NOT NULL;
       CREATE INDEX IF NOT EXISTS inbox_blocking_target ON inbox(agent_id,target) WHERE consumed=0 AND attention=1;
       CREATE TABLE IF NOT EXISTS imported_parts(seq INTEGER,part INTEGER,body TEXT,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS fragments(seq INTEGER,part INTEGER,PRIMARY KEY(seq,part));
@@ -646,6 +647,11 @@ export class InboxStore {
         ...(!personal && input.metadata.channel ? {channel:input.metadata.channel} : {}),
         ...(input.metadata.personal_actor_risk ? {actor_risk:personal ? this.actorRisk(input) : input.metadata.personal_actor_risk} : {}),
         ...(input.message.reply_to ? { reply_to: projectChatReplyContext(input.message.reply_to) } : {}),
+        ...(typeof input.metadata.thread_root_message_id === 'string' ? {thread:{
+          root_message_id:input.metadata.thread_root_message_id,
+          ...(fragment.part === 0 ? {root_sender:input.metadata.thread_root_sender,root_excerpt:input.metadata.thread_root_excerpt,
+            earlier_replies:input.metadata.thread_earlier} : {}),
+        }} : {}),
         content: parts[fragment.part], ...(parts.length > 1 ? { partial: true, part: fragment.part + 1, parts: parts.length } : {}) };
     });
     const next = selected.length ? snapshot.fragments.indexOf(selected.at(-1)!)+1 : snapshot.fragments.length;
@@ -701,6 +707,19 @@ export class InboxStore {
   }
   reviewTargets(session: string, turn: number): string[] {
     return (this.db.prepare('SELECT DISTINCT i.target FROM inbox i JOIN ingestions g ON g.seq=i.seq WHERE g.session_id=? AND g.turn=? AND i.consumed=1').all(session, turn) as { target: string }[]).map(row => row.target);
+  }
+
+  /** Return the unique topic of messages consumed from this chat in this model turn. */
+  threadForTurn(session: string, turn: number, target: string): string | undefined {
+    const roots = this.db.prepare(`SELECT DISTINCT json_extract(i.payload,'$.metadata.thread_root_message_id') AS root
+      FROM ingestions g JOIN inbox i ON i.seq=g.seq WHERE g.session_id=? AND g.turn=? AND i.target=? AND i.consumed=1 LIMIT 2`)
+      .all(session, turn, target) as {root:string|null}[];
+    return roots.length === 1 ? roots[0]!.root ?? undefined : undefined;
+  }
+
+  /** Scope the optional PA publication-evidence read to chats that contain topics. */
+  hasTopic(agent: string, target: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM inbox WHERE agent_id=? AND target=? AND json_extract(payload,'$.metadata.thread_root_message_id') IS NOT NULL LIMIT 1").get(agent,target);
   }
 
   /** Find saved reads that could still consume an unread fragment in the destination. */
@@ -850,7 +869,7 @@ export class InboxStore {
     return this.db.prepare('SELECT id,target,body,state,result,source FROM publications WHERE id=? OR substr(id,1,?)=? ORDER BY rowid DESC LIMIT 1').get(prefix,prefix.length+1,prefix+':') as ReturnType<InboxStore['incidentPublication']>;
   }
   pendingPublications(session: string): {id:string;target:string;body:string;source:string|null}[] { return this.db.prepare("SELECT id,target,body,source FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string;source:string|null}[]; }
-  preparePublication(id: string, target: string, body: string, agentId?: string, source?: {turn?: number; seq?: number; text: string}): void {
+  preparePublication(id: string, target: string, body: string, agentId?: string, source?: {turn?: number; seq?: number; threadRoot?:string; text: string}): void {
     this.db.prepare(`INSERT INTO publications(id,target,body,state,result,agent_id,source) VALUES(?,?,?,'prepared',NULL,?,?)
       ON CONFLICT(id) DO UPDATE SET source=excluded.source WHERE publications.source IS NULL AND excluded.source IS NOT NULL`)
       .run(id, target, body, agentId ?? null, source ? JSON.stringify(source) : null);

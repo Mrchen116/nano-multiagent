@@ -26,6 +26,7 @@ export function toChatWsEvent(
 
 export interface ConversationState {
   conversation_id: string | null;
+  readThroughMessageId?: string;
   /** Compatibility projection for message-specific consumers. */
   messages: Message[];
   /** Canonical union used to preserve non-message entries across every load path. */
@@ -203,6 +204,7 @@ export function applyWsEvent(
         interactive: ev.interactive,
         interaction_reply: ev.interaction_reply,
         reply_to: ev.reply_to,
+        thread_root_message_id: ev.thread_root_message_id ?? current?.thread_root_message_id,
         pa_agent_id: ev.pa_agent_id,
         attachments: ev.attachments,
         delivery_status: ev.delivery_status,
@@ -260,6 +262,7 @@ export function applyWsEvent(
         interactive: ev.interactive,
         interaction_reply: ev.interaction_reply,
         reply_to: ev.reply_to,
+        thread_root_message_id: ev.thread_root_message_id,
         pa_agent_id: ev.pa_agent_id,
         attachments: ev.attachments ?? [],
         delivery_status: ev.delivery_status,

@@ -2,6 +2,7 @@ import { decodeChatStream, type ChatEvent, type ChatStreamFact, type ChatStreamR
 import type { DatabaseSync } from 'node:sqlite';
 import { MessageRecords, withHumanApproval, type MessageEventFrame } from './message-records.js';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
+import { threadRootOrFail } from './threads.js';
 import { fail, transaction } from './context.js';
 
 export interface ChatConnection {node_id:string; owner_id:string; node_epoch:number}
@@ -37,7 +38,8 @@ export class ChatStreaming<C extends ChatConnection> {
         const previous=records.message(transition.predecessor_message_id);
         if(previous.conversation_id!==cid||previous.sender.id!==agent.agent_id)fail(403,'reply process predecessor must belong to source Agent');
       }
-      const message=records.insert(cid,ports.agentUserId(agent.agent_id),'agent','',[],p.shadow_message_id??p.idempotency_key??null,'running');
+      if(p.thread_root_message_id)threadRootOrFail(this.db,cid,p.thread_root_message_id);
+      const message=records.insert(cid,ports.agentUserId(agent.agent_id),'agent','',[],p.shadow_message_id??p.idempotency_key??null,'running',p.thread_root_message_id?{thread_root_id:p.thread_root_message_id}:{});
       if(p.background_returns)records.background(message.id,p.background_returns);
       if(transition) {
         if(transition.predecessor_message_id&&transition.include_handoff)this.apply(c,{kind:'reply_process',lifecycle_revision:p.lifecycle_revision,message_id:transition.predecessor_message_id,item:{item_id:`handoff:${transition.run_id}:${message.id}`,kind:'segment_handoff',run_id:transition.run_id,successor_message_id:message.id}});
@@ -69,7 +71,7 @@ export class ChatStreaming<C extends ChatConnection> {
         // so a rolled-back discard is never announced.
         const tombstone=transaction(this.db,()=>{
           records.discard(m.id);
-          return records.chatEvent(m.conversation_id,null,{type:'message.discarded',data:{message_id:m.id,reason:p.reason}},'completed',false);
+          return records.chatEvent(m.conversation_id,null,{type:'message.discarded',data:{message_id:m.id,reason:p.reason,...(m.thread_root_message_id?{thread_root_message_id:m.thread_root_message_id}:{})}},'completed',false);
         });
         ports.publishCommitted(tombstone);
         return {message_id:m.id};

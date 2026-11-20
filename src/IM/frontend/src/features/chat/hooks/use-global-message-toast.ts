@@ -27,6 +27,7 @@ import {
 export interface ToastPayload {
   id: string;
   conversationId: string;
+  threadRootId?: string;
   senderName: string;
   preview: string;
 }
@@ -240,6 +241,9 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
         const conversationIdRaw = payload.conversation_id;
         if (typeof conversationIdRaw !== "string" || !conversationIdRaw) return;
         const conversationId = conversationIdRaw;
+        const threadRootId = normalizeText(payload.thread_root_message_id);
+        if (threadRootId && Array.isArray(payload.thread_notify_user_ids) &&
+            !payload.thread_notify_user_ids.includes(selfUserIdRef.current)) return;
         let state = conversationStateRef.current.get(conversationId);
         if (!state) {
           state = { lastSeenEventId: 0, notifiedMessageKeys: new Set<string>() };
@@ -277,9 +281,12 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           if (!candidate) return;
           const shouldMarkUnread = !viewingConversation && !resolvedSelfAuthored;
           if (shouldMarkUnread) markLocalUnreadFeedback(conversationId);
-          queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], (previous) =>
-            patchConversationPreview(previous, conversationId, candidate, shouldMarkUnread)
-          );
+          if (threadRootId) {
+            void queryClient.invalidateQueries({queryKey: ["chat", "conversations"]});
+          } else {
+            queryClient.setQueryData<Conversation[] | undefined>(["chat", "conversations"], previous =>
+              patchConversationPreview(previous, conversationId, candidate, shouldMarkUnread));
+          }
           if (
             viewingConversation
             || resolvedSelfAuthored
@@ -289,6 +296,7 @@ export function useGlobalMessageToast(_input?: { maxConversations?: number }) {
           setToast({
             id: candidate.messageKey,
             conversationId,
+            ...(threadRootId ? {threadRootId} : {}),
             senderName: candidate.senderName,
             preview: mentionPlainText(candidate.preview, mentionNameMap(
               queryClient.getQueryData<Conversation[]>(["chat", "conversations"])

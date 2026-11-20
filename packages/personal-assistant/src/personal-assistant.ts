@@ -51,6 +51,9 @@ export class PersonalAssistant {
     for (const key of ['owner_direct', 'addressed_to_owner', 'addressed_to_agent'] as const) {
       if (typeof source[key] === 'boolean') input.metadata[key] = source[key];
     }
+    for (const key of ['thread_root_message_id','thread_root_sender','thread_root_excerpt','thread_earlier']) {
+      if (key in source) input.metadata[key] = source[key];
+    }
     if('provider_source_time' in source)input.metadata.provider_source_time=source.provider_source_time;
     if(Array.isArray(source.explicit_mentioned_agent_ids))input.metadata.explicit_mentioned_agent_ids=source.explicit_mentioned_agent_ids;
     if(typeof source.context_only==='boolean')input.metadata.context_only=source.context_only;
@@ -159,7 +162,7 @@ export class PersonalAssistant {
   }
 
   /** Freeze, independently review, and commit one exact message with a durable receipt. */
-  async send(config: AgentConfiguration, binding: SessionBinding, call: ProductCall, signal = new AbortController().signal): Promise<unknown> {
+  async send(config: AgentConfiguration, binding: SessionBinding, call: ProductCall, signal = new AbortController().signal, defaultThread?: (target:string) => Promise<string|undefined>): Promise<unknown> {
     const {inbox} = this.options;
     const target = String(call.args.target ?? '');
     const text = String(call.args.text ?? '');
@@ -168,6 +171,7 @@ export class PersonalAssistant {
     if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const paths = call.args.local_images as string[] | undefined;
     const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
+    let inThread=typeof call.args.in_thread_of==='string'?call.args.in_thread_of:undefined;
     const incident=typeof call.args.incident_ref==='string'?call.args.incident_ref:undefined;
     if(incident&&(call.sessionId!==binding.sessionId||call.method!=='send_message'||interactive||(call.args.attachments as unknown[]|undefined)?.length))throw new Error('Incident communication belongs to the main PA and must be plain self-authored text');
     const representation=call.method==='send_user_message'?'owner':'self';
@@ -176,8 +180,9 @@ export class PersonalAssistant {
     const deliveryTarget=this.options.store.canonicalConversation(config.agentId,target.replace(/^conversation:/,''));
     if (paths && deliveryTarget.startsWith('external:')) throw new Error('Local screenshots require a writable Nano IM conversation');
     if(deliveryTarget.startsWith('external:')&&representation==='owner')throw new Error('Owner representation requires a native IM conversation');
-    if(replyTo && deliveryTarget.startsWith('external:'))throw new Error('Quoted replies require a Nano IM destination');
+    if((replyTo || inThread) && deliveryTarget.startsWith('external:'))throw new Error('Quotes and topics require a Nano IM destination');
     const conversation = deliveryTarget.startsWith('external:')?target.replace(/^conversation:/,''):await this.resolve(config,target);
+    if (!inThread && !incident && !deliveryTarget.startsWith('external:') && inbox.hasTopic(config.agentId,conversation)) inThread = await defaultThread?.(conversation);
     if(incident) {
       const event=await this.request(config,'pa.incident.read',{incident_ref:incident,conversation_id:conversation});
       const receipt=conversation===config.personal!.conversationId?event.owner_notice_message_id:event.peer_notice_message_id;
@@ -185,7 +190,7 @@ export class PersonalAssistant {
     }
     const incidentKey=incident?`pa-incident:${incident}:${conversation===config.personal!.conversationId?'owner':'peer'}`:undefined;
     let operationId=incidentKey??call.operationId;
-    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation, ...(paths ? {local_images:paths} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {})});
+    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation, ...(paths ? {local_images:paths} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})});
     const incidentPrevious=incidentKey?inbox.incidentPublication(incidentKey):undefined;
     let previous = incidentPrevious??inbox.publication(operationId);
     if(incidentKey&&incidentPrevious&&previous) {
@@ -255,7 +260,7 @@ export class PersonalAssistant {
       inbox.settlePublication(operationId,'sending');
       try {
         const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${conversation}`,text,
-          attachments,...(interactive ? {interactive} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}),
+          attachments,...(interactive ? {interactive} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {}),
           ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
         if(typeof response.payload.message_id !== 'string') throw new Error('Missing actual delivery receipt');
         const result={status:'sent',target,message_id:response.payload.message_id,conversation_id:response.payload.conversation_id};
@@ -278,7 +283,7 @@ export class PersonalAssistant {
       }
     }
     const proposal = await this.request(config,'pa.action.prepare',{request_key:operationId,representation,conversation_id:conversation,
-      ...(incident?{incident_ref:incident}:{}),content:text,attachments,...(interactive ? {interactive} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {})});
+      ...(incident?{incident_ref:incident}:{}),content:text,attachments,...(interactive ? {interactive} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})});
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string') {
       const result={status:'sent',target,message_id:proposal.message_id,conversation_id:proposal.conversation_id};
       inbox.settlePublication(operationId,'confirmed',result); return result;

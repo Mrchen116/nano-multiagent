@@ -50,7 +50,7 @@ export function decodeChatStream(value: unknown): ChatStreamFact {
   const row = object(value);
   fields(row, ['node_id', 'run_id', 'session_id', 'agent_id', 'request_id'], 'string'); fields(row, ['lifecycle_revision'], 'number', true);
   if (row.kind === 'turn_start') {
-    required(row, 'agent_id'); fields(row, ['agent_user_id', 'conversation_id', 'to_user_id', 'shadow_message_id', 'idempotency_key', 'external_reply'], 'string');
+    required(row, 'agent_id'); fields(row, ['agent_user_id', 'conversation_id', 'to_user_id', 'shadow_message_id', 'idempotency_key', 'external_reply', 'thread_root_message_id'], 'string');
     if (!row.conversation_id && !row.to_user_id) throw new Error('chat target required');
     if (row.background_returns !== undefined && !Array.isArray(row.background_returns)) throw new Error('invalid chat background_returns');
     if (row.reply_process_transition !== undefined) {
@@ -86,7 +86,7 @@ export function decodeChatStream(value: unknown): ChatStreamFact {
 export function decodeAgentPublication(value: unknown): AgentPublication {
   const row = object(value); required(row, 'from_session_id'); required(row, 'to');
   if (typeof row.text !== 'string') throw new Error('invalid_agent_message');
-  fields(row, ['node_id','reply_to_message_id'], 'string'); fields(row, ['lifecycle_revision'], 'number', true);
+  fields(row, ['node_id','reply_to_message_id','in_thread_of'], 'string'); fields(row, ['lifecycle_revision'], 'number', true);
   if (row.attachments != null) chatAttachments(row.attachments);
   if (row.background_returns != null && !Array.isArray(row.background_returns)) throw new Error('invalid chat background_returns');
   if (!row.text.trim() && row.interactive === undefined && !(row.background_returns as unknown[] | undefined)?.length) throw new Error('invalid_agent_message');

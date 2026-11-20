@@ -40,7 +40,7 @@ interface StreamCommon {
 interface MessageStream extends StreamCommon {message_id: string; delivery_status?: string}
 export interface ChatTurnStart extends StreamCommon {
   kind: 'turn_start'; agent_id: string; agent_user_id?: string;
-  conversation_id?: string; to_user_id?: string;
+  conversation_id?: string; to_user_id?: string; thread_root_message_id?: string;
   shadow_message_id?: string; idempotency_key?: string;
   background_returns?: unknown[];
   external_reply?: string;
@@ -60,6 +60,7 @@ export type ChatStreamFact = ChatTurnStart
 export interface ChatStreamReceipt {kind?: ChatStreamFact['kind']; run_id?: string; message_id?: string; conversation_id?: string}
 export interface AgentPublication {
   reply_to_message_id?: string;
+  in_thread_of?: string;
   node_id?: string;
   lifecycle_revision?: number | null;
   from_session_id: string;
@@ -121,6 +122,8 @@ export interface ChatMessage {
   sender: ChatActor;
   work_record_deleted?: true;
   reply_to?: ChatReplyReference;
+  thread_root_message_id?: string;
+  thread?: {reply_count:number; latest_preview?:string; latest_at?:string; participants?:{id:string; display_name:string}[]};
   attachments: ChatAttachment[]; tool_calls: ChatToolCall[]; thinking: ChatThinking[]; background_returns: unknown[];
   reply_process: ChatProcessItem[]; permission_requests: ChatPermission[]; token_usage: ChatUsage | null;
   system_notice: unknown; interaction_reply: InteractionSnapshot | null; interactive?: MessageInteractive;

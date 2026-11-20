@@ -121,7 +121,16 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var receipts_requested: Bool?
     var receipts: [MessageReceipt]?
     var delegation: JSONValue?
+    var thread_root_message_id: String?
+    var thread: ThreadSummary?
+    var reply_to: ChatReplyRef?
+    var canStartThread: Bool {
+        thread_root_message_id == nil && ["agent", "user"].contains(sender_type) && ["completed", "sent", "pending"].contains(delivery_status)
+    }
 }
+struct ThreadParticipant: Codable, Sendable { var id: String; var display_name: String }
+struct ThreadSummary: Codable, Sendable { var reply_count: Int; var latest_preview: String?; var latest_at: String?; var participants: [ThreadParticipant]? }
+struct ChatReplyRef: Codable, Sendable { var message_id: String; var sender: ActorRef; var content: String }
 struct TimelineItem: Codable, Sendable, Identifiable {
     var type: String
     var message: ChatMessage?
@@ -133,6 +142,7 @@ struct TimelineItem: Codable, Sendable, Identifiable {
     var id: String { message?.id ?? boundaryID ?? "" }
     enum CodingKeys: String, CodingKey { case type, message, boundaryID = "id", conversation_id, agent_id, before_message_id, applied_at }
 }
+struct ThreadPage: Codable, Sendable { var following: Bool; var items: [TimelineItem] }
 struct MessagePage: Codable, Sendable {
     var items: [TimelineItem]
     var next_before_message_id: String?

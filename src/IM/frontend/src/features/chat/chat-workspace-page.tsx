@@ -172,7 +172,7 @@ export function mergeMessageWithExisting(message: Message, existing?: Message): 
 function streamReducer(
   state: ConversationState,
   action:
-    | { type: "reset"; conversationId: string; timeline: TimelineItem[]; preserveMessageIds?: ReadonlySet<string>; discardedMessageIds?: ReadonlySet<string> }
+    | { type: "reset"; conversationId: string; timeline: TimelineItem[]; readThroughMessageId?: string; preserveMessageIds?: ReadonlySet<string>; discardedMessageIds?: ReadonlySet<string> }
     | { type: "prepend_history"; timeline: TimelineItem[] }
     | { type: "retire_history"; conversationId: string }
     | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
@@ -213,7 +213,10 @@ function streamReducer(
       : state.timeline ?? state.messages.map((message) => ({ type: "message" as const, message }));
     const merged = mergeTimelineItems(retained, incoming);
     const messages = merged.flatMap((item) => item.type === "message" ? [item.message] : []);
-    return { conversation_id: targetConversationId, timeline: merged, messages };
+    const preserveBoundary = state.readThroughMessageId && action.type === "reset" && action.preserveMessageIds?.has(state.readThroughMessageId);
+    const readThroughMessageId = action.type === "prepend_history" || preserveBoundary
+      ? state.readThroughMessageId : action.readThroughMessageId;
+    return { conversation_id: targetConversationId, timeline: merged, messages, readThroughMessageId };
   }
   if (action.type === "append_optimistic") {
     // feat-340-M18 R9-3: insert the user-authored bubble the moment the POST
@@ -226,9 +229,11 @@ function streamReducer(
     // bugfix-419: sort the new list so a WS echo with a different created_at
     // (e.g. server clock vs. client optimistic timestamp) lands in order.
     const timeline = mergeTimelineItems(state.timeline ?? [], [{ type: "message", message: action.message }]);
-    return { ...state, timeline, messages: timeline.flatMap((item) => item.type === "message" ? [item.message] : []) };
+    return { ...state, readThroughMessageId: action.message.id, timeline, messages: timeline.flatMap((item) => item.type === "message" ? [item.message] : []) };
   }
-  return applyWsEvent(state, action.event, { sendersById: action.sendersById });
+  const next = applyWsEvent(state, action.event, { sendersById: action.sendersById });
+  return next !== state && action.event.type === "message.created"
+    ? {...next, readThroughMessageId: action.event.message_id} : next;
 }
 
 async function fetchAgents(): Promise<AgentRow[]> {
@@ -319,8 +324,9 @@ export function ChatWorkspacePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const explicitLocator = new URLSearchParams(location.search).get("message_id");
+  const threadLocator = new URLSearchParams(location.search).get("thread");
   const [cleanupAnchor, setCleanupAnchor] = useState<{conversationId: string; messageId: string} | null>(null);
-  const locatorMessageId = explicitLocator ?? (cleanupAnchor?.conversationId === conversationId ? cleanupAnchor?.messageId ?? null : null);
+  const locatorMessageId = threadLocator ? null : explicitLocator ?? (cleanupAnchor?.conversationId === conversationId ? cleanupAnchor?.messageId ?? null : null);
   const workReturnUrl = typeof location.state?.workReturnUrl === "string" ? location.state.workReturnUrl : null;
   const [locatorNotice, setLocatorNotice] = useState("");
   const locatedRef = useRef("");
@@ -720,7 +726,7 @@ export function ChatWorkspacePage() {
         if (!latestIds.has(id) && !discardedMessageIds.has(id)) preserveMessageIds.add(id);
       }
     }
-    dispatch({ type: "reset", conversationId, timeline: restored, preserveMessageIds, discardedMessageIds });
+    dispatch({ type: "reset", conversationId, timeline: restored, readThroughMessageId: messagesQuery.data.direct_read_through_message_id, preserveMessageIds, discardedMessageIds });
     pendingLiveMessageIdsRef.current.clear();
     pendingDiscardedMessageIdsRef.current.clear();
   }, [conversationId, Boolean(activeConversation), messagesQuery.data]);
@@ -813,6 +819,7 @@ export function ChatWorkspacePage() {
   sendersByIdRef.current = sendersById;
 
   function retireConversationReads(id: string) {
+    queryClient.removeQueries({queryKey: ["chat", "thread", id]});
     readingPositions.delete(id);
     retireChatReadCache(queryClient, id);
     if (historyRequestRef.current?.conversationId === id) {
@@ -913,6 +920,7 @@ export function ChatWorkspacePage() {
         // The selected chat is reauthorized independently before stream replay.
         void refreshSidebarMembership(priorAnchor).catch(() => {});
         await recheckActiveMembership();
+        void queryClient.invalidateQueries({ queryKey: ["chat", "thread", conversationIdRef.current] });
         await queryClient.invalidateQueries({ queryKey: ["contacts"] });
         await queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
       },
@@ -942,6 +950,12 @@ export function ChatWorkspacePage() {
         if (event.eventType === 'node.update_changed') void queryClient.invalidateQueries({queryKey:['chat','nodes']});
         if ((['node.update_wait_changed', 'relay.delivery_receipt', 'message.receipts_changed'].includes(event.eventType)) && event.payload.conversation_id === conversationIdRef.current) {
           void queryClient.invalidateQueries({queryKey:['chat','messages',conversationIdRef.current]});
+          void queryClient.invalidateQueries({queryKey:['chat','thread',conversationIdRef.current]});
+        }
+        const threadRoot = event.payload.thread_root_message_id;
+        if (typeof threadRoot === "string" && event.payload.conversation_id === conversationIdRef.current &&
+            ["message.created", "message.sent", "message.completed", "message.reconciled", "message.discarded", "permission.request", "permission.submitted", "permission.resolved"].includes(event.eventType)) {
+          void queryClient.invalidateQueries({queryKey: ["chat", "thread", conversationIdRef.current, threadRoot]});
         }
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
         if (chatEvent && chatEvent.conversation_id === conversationIdRef.current) {
@@ -1040,6 +1054,9 @@ export function ChatWorkspacePage() {
 
   function acceptCreatedMessage(created: Message) {
     clearSendError(created.conversation_id);
+    if (created.thread_root_message_id) {
+      void queryClient.invalidateQueries({ queryKey: ["chat", "messages", created.conversation_id] });
+    }
     // HTTP success and attempt recovery share the message-id merge so either may
     // arrive before or after the WS echo and an in-flight history response.
     if (messagesQueryFetchingRef.current) {
@@ -1390,7 +1407,7 @@ export function ChatWorkspacePage() {
           searchMessages={searchMessages}
           initialSearch={queryClient.getQueryData(["chat", "sidebar-search", selfUserId])}
           onSearchChange={state => queryClient.setQueryData(["chat", "sidebar-search", selfUserId], state)}
-          onSelectMessage={(id, messageId) => navigate(`/chat/${encodeURIComponent(id)}?message_id=${encodeURIComponent(messageId)}`)}
+          onSelectMessage={(id, messageId, threadRoot) => navigate(`/chat/${encodeURIComponent(id)}?message_id=${encodeURIComponent(messageId)}${threadRoot ? `&thread=${encodeURIComponent(threadRoot)}` : ""}`)}
           onNewChat={() => setShowNewChat(true)}
           onDiscover={() => setShowPublicGroups(true)}
           onNewGroup={() => setShowNewGroup(true)}
@@ -1406,7 +1423,7 @@ export function ChatWorkspacePage() {
           agents={publicAgents.map(a => ({ agent_id: a.agent_id!, display_name: a.display_name, status: a.status ?? "offline" }))}
         />
       )}
-      {isMobile && conversationId && <button className="chat-pane-back chat-workspace-back" type="button"
+      {isMobile && conversationId && !threadLocator && <button className="chat-pane-back chat-workspace-back" type="button"
         aria-label={t("common.back")} onClick={() => navigate("/chat")}><ArrowLeft size={20} /></button>}
       {!showFirstUseWelcome && showDetail && (
         activeConversation ? (
@@ -1441,7 +1458,15 @@ export function ChatWorkspacePage() {
               }
             } : undefined}
             timeline={visibleTimeline}
+            directReadThroughId={activeConversation.type === "direct" ? streamState.readThroughMessageId : undefined}
             focusMessageId={locatorMessageId}
+            initialThreadId={threadLocator}
+            threadMessageId={explicitLocator}
+            onOpenThread={id => navigate(`${location.pathname}?thread=${encodeURIComponent(id)}`, {
+              state: {...location.state, fromThreadTimeline: true}
+            })}
+            onCloseLocatedThread={() => location.state?.fromThreadTimeline
+              ? navigate(-1) : navigate(location.pathname, {replace: true, state: location.state})}
             personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
             cooperationAgent={messagesQuery.isSuccess && !messagesQuery.isFetching && hasMoreHistory === false && messagesQuery.data.items.length === 0 ? cooperationAgent : undefined}
             returnNavigation={location.state?.personalAgentReturn && personalBinding && !isPersonalConversation

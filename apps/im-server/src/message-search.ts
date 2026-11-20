@@ -5,7 +5,7 @@ import { all, type Row } from './context.js';
 export function searchMessages(db: DatabaseSync, options: {
   targets: string[]; kind?: string; terms: string[]; action: string; sort?: string; around?: string;
   messageId?: string; before?: string; after?: string; participantId?: string; senderSourceId?: string;
-  cursor?: { created_at: string; id: string }; limit?: number;
+  cursor?: { created_at: string; id: string }; limit?: number; threadRoot?: string;
   memoryRange?: { after: string; cutoff: string };
 }): Row[] {
   if (!options.targets.length) return [];
@@ -34,6 +34,8 @@ export function searchMessages(db: DatabaseSync, options: {
     values.push(options.memoryRange.cutoff, options.memoryRange.after, options.memoryRange.cutoff, options.memoryRange.cutoff);
   }
   if(options.messageId){filters.push('m.id=?');values.push(options.messageId);}
+  if (options.threadRoot) { filters.push('m.thread_root_id=?'); values.push(options.threadRoot); }
+  else if (options.action !== 'search' && !options.messageId) filters.push('m.thread_root_id IS NULL');
   const termMatch = '(instr(lower(m.content),lower(?))>0 OR instr(lower(i.search_text),lower(?))>0)';
   const termArgs = options.terms.flatMap(term => [term, term]);
   if (termArgs.length) {

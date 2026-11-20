@@ -7,11 +7,12 @@ it('publishes reviewed owner identity atomically without treating it as original
   ctx.gateway.groupReply=vi.fn();
   const owner = ctx.messaging.insertMessage('chat', 'u1', 'user', 'Ask Bob to confirm Wednesday');
   const guard = service.authorizationGuard(service.authority(principal, args));
-  const proposal = service.actions.prepare(principal, {...args, representation:'owner', request_key:'owner-send', conversation_id:'peer', content:'Please confirm Wednesday'});
+  const topic = ctx.messaging.insertMessage('peer','u2','user','Wednesday timing');
+  const proposal = service.actions.prepare(principal, {...args, in_thread_of:topic.id, representation:'owner', request_key:'owner-send', conversation_id:'peer', content:'Please confirm Wednesday'});
   const reviewed = service.actions.review(principal, {...args, proposal_ref:proposal.proposal_ref, payload_digest:proposal.payload_digest, evidence_digest:proposal.evidence_digest, verdict:{decision:'allow'}});
   const receipt = service.actions.commit(principal, {...args, proposal_ref:proposal.proposal_ref, verdict_ref:reviewed.verdict_ref});
   const message = ctx.messaging.message(receipt.message_id);
-  expect(message).toMatchObject({sender_user_id:'u1', sender_type:'user', pa_agent_id:'a'});
+  expect(message).toMatchObject({thread_root_message_id:topic.id, sender_user_id:'u1', sender_type:'user', pa_agent_id:'a'});
   expect(message).not.toHaveProperty('delegation');
   const event = db.prepare("SELECT payload_json FROM conversation_events WHERE message_id=? AND event_type='message.created'").get(message.id)!;
   expect(JSON.parse(String(event.payload_json))).toMatchObject({sender_user_id:'u1', pa_agent_id:'a'});

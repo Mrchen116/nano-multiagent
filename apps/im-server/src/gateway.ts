@@ -16,6 +16,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
 import { all, one, now, fail, transaction, type Row, type ImContext } from "./context.js";
+import { threadAddressesAgent, threadRelayMetadata } from "./threads.js";
 import { TaskGraphService, TaskGraphError } from "./task-graphs.js";
 import { Work } from "./work.js";
 import {canonicalAgentConfiguration, interactiveResponse, decodeAgentPublication, type AgentPublication} from "@nano/product-contracts";
@@ -798,10 +799,12 @@ export class Gateway {
         "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",
         u.username.slice(6),
       );
-      if (a)
+      if (a && threadAddressesAgent(this.ctx.db, m.id, a.agent_id))
         this.relayMessage(m, a, `agent-reply:${m.id}:${a.agent_id}`, {
           source_agent_id: m.sender.id,
           sender_display_name: m.sender.display_name,
+          ...threadRelayMetadata(this.ctx.db, m.id),
+          ...(m.thread_root_message_id ? {addressed_to_agent:true} : {}),
         }, options);
     }
   }

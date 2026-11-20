@@ -148,6 +148,7 @@ CREATE TABLE IF NOT EXISTS messages (
     token_usage_json TEXT,
     interaction_reply_json TEXT,
     reply_to_json TEXT,
+    thread_root_id TEXT,
     -- feat-439-M2: 整轮多段思考（过程时间线），nullable JSON。无思考的轮 / 旧行为 NULL。
     thinking_json TEXT,
     -- feat-517: terminal subagent/workflow results shown as process items.
@@ -162,7 +163,27 @@ CREATE TABLE IF NOT EXISTS messages (
     system_notice_json TEXT, permission_request_json TEXT, awaiting_permission_at TEXT, kernel_message_id TEXT,
     UNIQUE(conversation_id, caller_idempotency_key),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
-    FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (thread_root_id) REFERENCES messages(id)
+);
+CREATE TABLE IF NOT EXISTS thread_follows (
+    conversation_id TEXT NOT NULL,
+    root_message_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    following INTEGER NOT NULL DEFAULT 1,
+    unread_count INTEGER NOT NULL DEFAULT 0,
+    last_read_message_id TEXT,
+    PRIMARY KEY (conversation_id, root_message_id, user_id),
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (root_message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+-- Per-message audience survives follow changes and supports exact partial reads and stream rollback.
+CREATE TABLE IF NOT EXISTS thread_deliveries (
+    message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    unread INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY(message_id,user_id)
 );
 CREATE TABLE IF NOT EXISTS message_images (
     image_id TEXT PRIMARY KEY,
@@ -548,6 +569,14 @@ BEGIN
    AND NOT EXISTS (SELECT 1 FROM provider_message_facts f WHERE f.message_id=NEW.message_id AND json_extract(f.facts_json,'$.scope_skipped')=1)))
  AND EXISTS(SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id=NEW.conversation_id AND cp.user_id=b.owner_user_id)
  AND NOT EXISTS(SELECT 1 FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=NEW.message_id AND u.username='agent:'||b.agent_id)
+ AND (
+   NOT EXISTS (SELECT 1 FROM messages tm WHERE tm.id=NEW.message_id AND tm.thread_root_id IS NOT NULL)
+   OR EXISTS (
+     SELECT 1 FROM messages tm
+     JOIN thread_follows f ON f.conversation_id=tm.conversation_id AND f.root_message_id=tm.thread_root_id AND f.following=1
+     JOIN users fu ON fu.id=f.user_id AND fu.username='agent:'||b.agent_id
+     WHERE tm.id=NEW.message_id)
+   OR EXISTS (SELECT 1 FROM conversations c WHERE c.id=NEW.conversation_id AND c.type='direct'))
  AND NOT EXISTS(SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=NEW.message_id AND d.agent_id=b.agent_id AND d.representation_operation_id IS NOT NULL)
  AND NOT EXISTS(SELECT 1 FROM json_each(p.excluded_json) WHERE value=NEW.conversation_id);
 END;

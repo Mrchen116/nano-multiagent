@@ -21,7 +21,7 @@ it('supplies local message time to the model without rewriting the human body', 
   try {
     await product.receive(input);
     expect(submitted[0].content).toEqual([
-      { type: 'text', text: 'Message time: 2026-10-14T09:00:00+08:00 (Asia/Shanghai); source: Web IM.' },
+      { type: 'text', text: 'Message time: 2026-10-14T09:00:00+08:00 (Asia/Shanghai); source: Web IM. IM message ID: morning.' },
       { type: 'text', text: input.message.content },
     ]);
     expect(store.inputs(store.bindingFor('a', 'c')!.sessionId)[0]!.input.message.content).toBe(input.message.content);

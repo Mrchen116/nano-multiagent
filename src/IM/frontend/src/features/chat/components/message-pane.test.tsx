@@ -130,7 +130,22 @@ describe("MessagePane", () => {
     fireEvent(bubble, rightClick);
     const action = screen.getByRole("menuitem", {name: /^(Execution record|执行记录)$/i});
     expect(action).toHaveAttribute("href", "/settings/agents/a-planner?view=work&message_id=m2");
+    expect(screen.queryByTestId("message-thread-m2")).toBeNull();
     expect(action).toHaveFocus();
+  });
+
+  it("reads a private topic delivery through the DM watermark without rendering it in the timeline", () => {
+    const onReadMessage = vi.fn();
+    const props = {conversation: DIRECT_CONV, messages: SAMPLE_MESSAGES, mentionCandidates: [], onSend: vi.fn(), onReadMessage};
+    const {rerender} = render(<MessagePane {...props} directReadThroughId="last-topic-reply" />);
+    expect(onReadMessage).toHaveBeenLastCalledWith("last-topic-reply");
+    const reply = {...SAMPLE_MESSAGES[0], id: "next-topic-reply", content: "inside the topic", thread_root_message_id: "m1"};
+    rerender(<MessagePane {...props} messages={[...SAMPLE_MESSAGES, reply]} directReadThroughId={reply.id}/>);
+    expect(screen.queryByText("inside the topic")).not.toBeInTheDocument();
+    expect(onReadMessage).toHaveBeenLastCalledWith(reply.id);
+    onReadMessage.mockClear();
+    rerender(<MessagePane {...props} directReadThroughId="historical-topic" focusMessageId="m1" />);
+    expect(onReadMessage).not.toHaveBeenCalled();
   });
 
   it("renders the conversation title and each message content", () => {
@@ -1301,6 +1316,7 @@ describe("MessagePane", () => {
       await waitFor(() =>
         expect(screen.getByRole("menuitem", { name: /^Reply$/i })).toHaveFocus()
       );
+      fireEvent.keyDown(menu, { key: "ArrowDown" });
       fireEvent.keyDown(menu, { key: "ArrowDown" });
       fireEvent.keyDown(menu, { key: "ArrowDown" });
       const branch = screen.getByRole("menuitem", { name: /Branch from here/i });

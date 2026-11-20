@@ -10,6 +10,7 @@ struct ChatMessageView: View {
     var readOnly = false
     var presentations: InteractiveCardPresentations?
     var scroll: ChatScrollCoordinator?
+    var locateQuote: ((String) -> Void)?
     let refreshed: () -> Void
     @State private var showProcess = false
     private var mine: Bool { message.sender.id == selfID }
@@ -67,6 +68,15 @@ struct ChatMessageView: View {
                 Label(notice["kind"].stringValue ?? L("系统通知", "System notice"), systemImage: "info.circle").font(.callout)
                 if let name = notice["source_agent_display_name"].stringValue { Text(name).font(.caption).foregroundStyle(.secondary) }
                 if let targets = notice["updated_targets"].arrayValue { Text(targets.compactMap(\.stringValue).joined(separator: ", ")).font(.caption) }
+            }
+            if let reply = message.reply_to {
+                let preview = VStack(alignment: .leading, spacing: 2) {
+                    Text(reply.sender.display_name ?? reply.sender.id).font(.caption.weight(.semibold))
+                    Text(ChatText.display(reply.content, participants: participants)).font(.caption2).foregroundStyle(NanoTheme.muted).lineLimit(2)
+                }.padding(8).frame(maxWidth: .infinity, alignment: .leading).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
+                if let locateQuote {
+                    Button { locateQuote(reply.message_id) } label: { preview }.buttonStyle(.plain)
+                } else { preview }
             }
             if !message.content.isEmpty {
                 // Scroll and receipt updates can leave the rendered message body identical.
@@ -299,6 +309,7 @@ struct ChatPermissionCard: View {
     let messageID: String
     let permission: ChatPermission
     var readOnly = false
+    var locateQuote: ((String) -> Void)?
     let refreshed: () -> Void
     @State private var decision: ChatPermissionOption?
     @State private var reason = ""
