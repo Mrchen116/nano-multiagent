@@ -36,8 +36,8 @@ ctx.on('llm/stream',async function*(o){
    ? ['delegate_worker',{action:'start',label:'Continuable work',message:'Prepare findings'}]
    : ['subagent',{prompt:'Prepare findings',description:'Continuable work',run_in_background:true}])},['subagent_fork',{prompt:'Check findings independently',description:'Fork work',run_in_background:false}]];
  if(fresh&&agent.id!=='root'&&agent.session.snapshotEvents().find(e=>e.type==='subagent/descriptor')?.data.mode==='continuable'){calls=[['send_message',{agent_id:agent.session.header.parentSession,message:'Findings ready for the parent to deliver'}]];if(agent.session.header.parentSession==='root')calls.push(['subagent',{prompt:'Verify one independent fact',description:'Second level',run_in_background:true}]);}
- if(calls.length){for(const[index,[name,args]]of calls.entries())yield{type:'block-end',index,block:{type:'tool-call',id:key+'-'+index,name,arguments:JSON.stringify(args)}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
- yield{type:'block-end',index:0,block:{type:'text',text:'Finished internal work'}};yield{type:'finish',reason:{kind:'stop'}};
+ if(calls.length){for(const[index,[name,args]]of calls.entries())yield{type:'block-end',index,block:{type:'tool-call',id:key+'-'+index,name,arguments:JSON.stringify(args)}};yield{type:'usage',usage:{inputTokens:5,outputTokens:2,totalTokens:7}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
+ yield{type:'block-end',index:0,block:{type:'text',text:'Finished internal work'}};yield{type:'usage',usage:{inputTokens:8,outputTokens:3,totalTokens:11}};yield{type:'finish',reason:{kind:'stop'}};
 });}`);
     await prepareProfile(home, [{ insert: [childProbe, { id: 'global-child-tools-fixture', name: join(home, 'fixture.mjs') }] }]);
     const start = async () => {
@@ -93,7 +93,9 @@ ctx.on('llm/stream',async function*(o){
       const runs = (await client!.rpc.request('trajectory.call', { observerId: 'root', method: 'trajectory/runs' }) as any).value;
       expect(runs.map((run:any)=>run.sessionId)).toEqual(visible.map(row=>row.id));
       const rootWork = await client!.rpc.request('session.work.root',{sessionId:'root'}) as any;
-      expect(rootWork.workerChanges).toContainEqual(expect.objectContaining({workerId:firstChild,rootId:'root',runtime:'dsh'}));
+      const usage = rootWork.workerChanges.filter((row:any)=>row.workerId===firstChild && row.turnUsage);
+      expect(usage[0].turnUsage).toEqual({id:'1',totalTokens:18});
+      expect(new Set(usage.map((row:any)=>row.turnUsage.id)).size).toBe(usage.length);
     }
     await client!.shutdown(); client = undefined;
     await start(); await submit('resume', `resume:${firstChild}`);

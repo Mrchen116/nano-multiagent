@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
-import { SessionId } from '@deepseek-ai/dsh-session';
+import { SessionId, SessionLogOffset, type Session } from '@deepseek-ai/dsh-session';
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain';
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools';
-import type { RuntimeWorkerChange } from '@nano/product-contracts';
+import type { ModelRunProjection, RuntimeWorkerChange } from '@nano/product-contracts';
 import { z } from 'zod';
 import { openCliWorker } from './drivers.js';
 import { workerReportBridge } from './report-bridge.js';
@@ -19,8 +19,12 @@ const recordSchema = z.object({
   sessionId: z.string().optional(),
 });
 export type WorkerRecord = z.infer<typeof recordSchema>;
-const workState = z.object({ id: z.string(), time: z.number(), state: recordSchema.shape.state });
-const storedWorker = recordSchema.extend({ pending: z.array(workState).optional() });
+const turnUsage = z.object({ id: z.string(), totalTokens: z.number().int().nonnegative().nullable() });
+const workState = z.object({
+  id: z.string(), time: z.number(), state: recordSchema.shape.state, turnUsage: turnUsage.optional(),
+});
+const storedWorker = recordSchema.extend({ pending: z.array(workState).optional(), nativeThrough: z.number().optional() });
+type EndedTurn = z.infer<typeof turnUsage> & { time: number };
 const reportSchema = z.object({
   rootId: z.string(),
   workerId: z.string(),
@@ -124,6 +128,48 @@ export class LocalWorkers {
       await table.put(next.workerId, { ...next, pending: [...(previous?.pending ?? []), update] });
       this.workChanged(next.rootId);
       return next;
+    });
+  }
+
+  private async publishTurns(row: z.infer<typeof storedWorker>, turns: EndedTurn[], nativeThrough?: number) {
+    if (!turns.length) return;
+    const pending = [...(row.pending ?? [])];
+    for (const { id, time, totalTokens } of turns) {
+      const eventId = `turn:${row.workerId}:${id}`;
+      if (!pending.some(event => event.id === eventId))
+        pending.push({ id: eventId, time, state: row.state, turnUsage: { id, totalTokens } });
+    }
+    await (await this.domain).table('workers').put(row.workerId, { ...row, nativeThrough, pending });
+    this.workChanged(row.rootId);
+  }
+
+  /** Project only finished logical DSH turns, including their model fallback attempts. */
+  async nativeTurns(session: Session, model: (turn: number) => ModelRunProjection | undefined) {
+    if (session.header.origin !== 'subagent') return;
+    await this.serialize(this.changes, session.id, async () => {
+      const row = (await this.domain).table('workers').get(session.id);
+      if (row?.runtime !== 'dsh') return;
+      const from = row.nativeThrough === undefined ? session.inheritedEventCount : row.nativeThrough + 1;
+      const totals = new Map<number, number | null>();
+      const ended: EndedTurn[] = [];
+      let through: number | undefined;
+      for (const event of session.snapshotEvents(SessionLogOffset(from))) {
+        if (event.type !== 'assistant/message' && event.type !== 'turn/end') continue;
+        const run = model(event.data.turn);
+        const turn = run?.turn ?? event.data.turn;
+        if (event.type === 'assistant/message') {
+          if (!event.data.usage) continue;
+          const tokens = event.data.usage.totalTokens;
+          const prior = totals.get(turn);
+          totals.set(turn, tokens === undefined || prior === null ? null : (prior ?? 0) + tokens);
+        } else {
+          if (run && (run.attempts.at(-1)?.turn !== event.data.turn ||
+              run.state !== 'completed' && event.data.reason.kind !== 'interrupted')) continue;
+          ended.push({ id: String(turn), time: event.time, totalTokens: totals.get(turn) ?? null });
+          through = event.seq;
+        }
+      }
+      await this.publishTurns(row, ended, through);
     });
   }
 
@@ -265,6 +311,10 @@ export class LocalWorkers {
         instructions,
         mcp: bridge.mcp,
         onReport: notify,
+        onTurnEnd: (id, totalTokens) => this.serialize(this.changes, row.workerId, async () => {
+          const current = (await this.domain).table('workers').get(row.workerId);
+          if (current) await this.publishTurns(current, [{ id, totalTokens, time: Date.now() }]);
+        }),
         onEnd: async (id, state, text) => {
           if (this.muted.has(row.workerId)) return;
           try {

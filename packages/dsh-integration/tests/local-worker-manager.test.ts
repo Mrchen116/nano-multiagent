@@ -59,10 +59,15 @@ it('binds follow-ups to the original worker and replays an unacknowledged result
     /belong/,
   );
   const launch = vi.mocked(openCliWorker).mock.calls[0]![0];
+  await launch.onTurnEnd('turn-1', 18);
+  await launch.onTurnEnd('turn-1', 18);
   await expect(launch.onEnd('turn-1', 'completed', 'A exists')).rejects.toThrow('runtime busy');
   await expect.poll(() => close.mock.calls.length).toBe(1);
   online = true;
   const restored = new LocalWorkers(ctx as unknown as Context, report, () => true, vi.fn());
+  const turns=(await restored.workPage(root.id)).filter(update=>update.turnUsage);
+  expect(turns.map(update=>update.turnUsage)).toEqual([{id:'turn-1', totalTokens:18}]);
+  await restored.confirmWork(root.id,turns);
   await restored.flushReports(root.id);
   await restored.flushReports(root.id);
   expect(accepted).toEqual(['end:turn-1']);

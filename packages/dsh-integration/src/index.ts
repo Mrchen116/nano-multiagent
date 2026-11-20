@@ -235,12 +235,19 @@ export default class NanoRuntime {
     };
     const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => {
       const rootSessionId = boundRoot(sessionId);
+      const session = ctx.sessions.get(SessionId(sessionId));
+      if (session?.header.origin === 'subagent')
+        void captureWorkerTurns(session).catch(error=>ctx.logger.error(error));
       this.peer.notify('model.changed', { sessionId, rootSessionId, workChild:descendantReader.hasChild(sessionId) });
     } });
     const webFiber = ctx.plugin(NanoWeb);
     const workflowFiber = ctx.plugin(NanoWorkflowEngine, { configuration: (agent: Agent) => configurationService.forAgent(agent)!, completed: (record: import('./workflow/state.js').WorkflowRecord) => this.peer.notify('workflow.completed', record) });
     const workflow = new Promise<NanoWorkflowEngine>(resolve => { ctx.inject(['workflowEngine', 'nanoApproval', 'nanoModels'], child => { const engine = child.workflowEngine as NanoWorkflowEngine; registerWorkflowTool(child, engine, agent => configurationService.forAgent(agent)!); resolve(engine); }); });
     const models = this.models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
+    const captureWorkerTurns = async (session: import('@deepseek-ai/dsh-session').Session) => {
+      const {fallback} = await models;
+      await workers.nativeTurns(session,turn=>fallback.workModel(session.id,turn));
+    };
     const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configOf: (agent: Agent) => configurationService.forAgent(agent), configs: this.configurations, bindings: this.bindings,
       childConfiguration: (sessionId: string) => history.childConfiguration(sessionId),
       roleWorkspace: async (agentId: string) => (await this.peer.request('knowledge.role.workspace', {agentId}) as {workspace: string | null}).workspace,
@@ -359,6 +366,7 @@ export default class NanoRuntime {
       await scopes.attachAgent(agent, config, (await knowledge).isWorkWorker(agent, config));
       await (await approval).attach(agent, config);
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
+      if (source === 'resume' && agent.session.header.origin === 'subagent') await captureWorkerTurns(agent.session);
       history.attach(agent, config, () => modelPolicy.route(agent));
       if (agentId) lifecycle.assertEnabled(agentId);
       await (await workflow).recordWorkChild(agent);
@@ -366,6 +374,8 @@ export default class NanoRuntime {
     });
     const toolViews = recordToolPresentations(ctx, process.env.DSH_HOME!);
     ctx.on('session/event', (session, event) => {
+      if (event.type === 'turn/end' && session.header.origin === 'subagent' && session.isOwnSeq(event.seq))
+        void captureWorkerTurns(session).catch(error=>ctx.logger.error(error));
       const rootSessionId = boundRoot(session.id);
       if (rootSessionId) {
         const discovered = descendantReader.remember(session,event,rootSessionId);
