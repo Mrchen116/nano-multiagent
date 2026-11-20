@@ -45,7 +45,7 @@ internal static class Package {
         return url.GetLeftPart(UriPartial.Authority);
     }
     // IM metadata must come directly from the confirmed origin. Only fixed GitHub assets may redirect.
-    static void Fetch(string address, Stream output, long limit, bool asset) {
+    static void Fetch(string address, Stream output, long limit, bool asset, Action<long> progress = null) {
         var uri = new Uri(address);
         for (int hops = 0; hops < 5; hops++) {
             var request = (HttpWebRequest)WebRequest.Create(uri);
@@ -67,10 +67,15 @@ internal static class Package {
                     byte[] buffer = new byte[81920];
                     int count;
                     long total = 0;
+                    long nextUpdate = 0;
                     while ((count = source.Read(buffer, 0, buffer.Length)) > 0) {
                         total += count;
                         Check(total <= limit, "下载内容超过固定大小。");
                         output.Write(buffer, 0, count);
+                        if (progress != null && (total >= nextUpdate || total == limit)) {
+                            progress(total);
+                            nextUpdate = total + 1024 * 1024;
+                        }
                     }
                 }
                 return;
@@ -127,9 +132,9 @@ internal static class Package {
             "发行地址不匹配，请从原网页重新下载。");
         return m;
     }
-    static void Download(string file, string url, long size, string sha) {
+    static void Download(string file, string url, long size, string sha, Action<long> progress = null) {
         using (var stream = new FileStream(file, FileMode.CreateNew)) {
-            Fetch(url, stream, size, true);
+            Fetch(url, stream, size, true, progress);
             stream.Flush(true);
         }
         Check(new FileInfo(file).Length == size && Hash(file) == sha, "下载文件校验失败，请重试。");
@@ -165,7 +170,10 @@ internal static class Package {
             File.Exists(Path.Combine(final, runtime ? "node.exe" : "apps/node/lib/cli.js"))) return final;
         report(runtime ? "正在准备运行环境。首次下载可能需要几分钟…" : "正在准备 Crewden 应用…");
         var zip = Path.Combine(temp, asset.name);
-        Download(zip, remote + asset.name, asset.size, asset.sha256);
+        string label = runtime ? "运行环境" : "Crewden 应用";
+        Download(zip, remote + asset.name, asset.size, asset.sha256, received =>
+            report(String.Format("正在下载{0}：{1:F1} / {2:F1} MiB", label, received / 1048576.0, asset.size / 1048576.0)));
+        report("正在安装" + label + "…");
         var stage = Path.Combine(temp, runtime ? "runtime" : "app");
         Directory.CreateDirectory(stage);
         Extract(zip, stage);
