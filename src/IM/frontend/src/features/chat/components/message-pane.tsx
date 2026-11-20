@@ -2018,6 +2018,7 @@ function MessageBubble({
   const moreButtonRef = useRef<HTMLButtonElement | null>(null);
   const recentPointerRef = useRef<RecentPointerRecord | null>(null);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const holdOpenedMenu = useRef(false);
   const holdOrigin = useRef<{ x: number; y: number } | null>(null);
 
   function cancelHold() {
@@ -2030,6 +2031,7 @@ function MessageBubble({
 
   function startHold(e: React.TouchEvent<HTMLDivElement>) {
     cancelHold();
+    holdOpenedMenu.current = false;
     if (!isMobile || !hasMessageActions || e.touches.length !== 1) return;
     if ((e.target as HTMLElement).closest("button, a, input, textarea, select")) return;
     const touch = e.touches[0];
@@ -2037,7 +2039,7 @@ function MessageBubble({
     const target = e.target;
     holdTimer.current = setTimeout(() => {
       cancelHold();
-      openMessageMenu("mouse", target, touch.clientX, touch.clientY);
+      holdOpenedMenu.current = openMessageMenu("mouse", target, touch.clientX, touch.clientY);
     }, 500);
   }
 
@@ -2193,7 +2195,11 @@ function MessageBubble({
           className="chat-bubble-card"
           onTouchStart={startHold}
           onTouchMove={moveHold}
-          onTouchEnd={cancelHold}
+          onTouchEnd={event => {
+            // Suppress the compatibility mouse click that would immediately dismiss the menu.
+            if (holdOpenedMenu.current) event.preventDefault();
+            cancelHold();
+          }}
           onTouchCancel={cancelHold}
           onPointerDownCapture={recordPointer}
           onContextMenu={handleContextMenu}
