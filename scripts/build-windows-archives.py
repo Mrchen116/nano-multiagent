@@ -65,6 +65,22 @@ def dependencies(directory):
             yield entry.name, entry
 
 
+# RuntimeClient always launches --profile nano with dsh-base and @nano/dsh-integration.
+# The CLI also installs DSH's separate profile templates. In this lockfile Office skills
+# are mounted by sdk-app, document preview by web-app, and speech/DevTools by optional
+# desktop bundles. Drop only these CLI edges: another active importer still keeps a package.
+ALTERNATE_CLI_PACKAGES = {
+    "@deepseek-ai/dsh-acp-app",
+    "@deepseek-ai/dsh-headless",
+    "@deepseek-ai/dsh-sdk-app",
+    "@deepseek-ai/dsh-sdk-minimal",
+    "@deepseek-ai/dsh-web-app",
+    "@deepseek-ai/dsh-skill-office",
+    "@deepseek-ai/dsh-experimental-inspector-profile",
+    "@deepseek-ai/dsh-experimental-voice-input-bundle",
+}
+
+
 def build_graph():
     app, runtime, local_links, external_links, groups = {}, {}, {}, {}, {}
     visited = set()
@@ -84,6 +100,11 @@ def build_graph():
             modules = STORE / package.relative_to(STORE).parts[0] / "node_modules"
             for name, link in dependencies(modules):
                 target = link.resolve()
+                if (
+                    info["name"] == "@deepseek-ai/dsh"
+                    and name in ALTERNATE_CLI_PACKAGES
+                ):
+                    continue
                 if target == package:
                     continue
                 path = f"{prefix}/node_modules/{name}"
@@ -101,6 +122,12 @@ def build_graph():
                     else target.relative_to(ROOT).as_posix()
                 )
                 pending.append(target)
+    # Some native loaders resolve the caller's optional binary from the loader module.
+    # Reproduce pnpm's existing hoists, but never pull a dev-only package into the graph.
+    for name, link in dependencies(STORE / "node_modules"):
+        target = link.resolve()
+        if target in visited and target.is_relative_to(STORE):
+            external_links["p/node_modules/" + name] = store_path(target)
     runtime["dependencies.json"] = encoded(external_links)
     app["workspaces.json"] = encoded(local_links)
     return app, runtime, groups
