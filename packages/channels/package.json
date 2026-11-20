@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "1.74.0",
+    "@nano/product-contracts": "workspace:*",
     "ws": "8.18.3"
   },
   "devDependencies": {
