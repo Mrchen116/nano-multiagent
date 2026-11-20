@@ -107,7 +107,12 @@ final class CrewdenParityUITests: XCTestCase {
         username.typeText("first-" + UUID().uuidString.prefix(8))
         let password = app.secureTextFields["输入密码"]
         password.tap()
-        password.typeText("Crewden-demo-123")
+        let strongPassword = app.buttons["GenerateStrongPasswordButton"]
+        if strongPassword.waitForExistence(timeout: 3) {
+            strongPassword.tap()
+        } else {
+            password.typeText("Crewden-" + UUID().uuidString.prefix(12))
+        }
         let displayName = app.textFields["其他人看到的名字"]
         displayName.tap()
         displayName.typeText("Mia")
