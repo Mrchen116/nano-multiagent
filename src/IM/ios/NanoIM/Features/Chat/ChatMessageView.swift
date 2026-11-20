@@ -45,7 +45,20 @@ struct ChatMessageView: View {
 
     private var taskNoticeText: AttributedString {
         let text = ChatText.display(message.content, participants: participants)
-        return (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace), baseURL: client.baseURL)) ?? AttributedString(text)
+        var notice = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace), baseURL: client.baseURL)) ?? AttributedString(text)
+        if let actorID = message.system_notice?["actor"]["id"].stringValue,
+           let colon = notice.characters.firstIndex(of: "：") {
+            let actor = String(notice.characters[..<colon])
+            let suffix = " (" + actorID + ")"
+            if actor.hasSuffix(suffix) {
+                let name = String(actor.dropLast(suffix.count))
+                if !name.isEmpty, participants.filter({ $0.display_name == name }).count <= 1 {
+                    let start = notice.characters.index(colon, offsetBy: -suffix.count)
+                    notice.removeSubrange(start..<colon)
+                }
+            }
+        }
+        return notice
     }
     private var bubble: some View {
         HStack(alignment: .top, spacing: 8) {
