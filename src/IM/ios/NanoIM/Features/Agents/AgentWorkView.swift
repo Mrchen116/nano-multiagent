@@ -88,14 +88,6 @@ struct AgentWorkView: View {
                             : L("当前显示已保存记录，最新进度尚未确认。", "Showing saved records. The latest progress has not been confirmed."))
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                    DisclosureGroup(L("执行信息与上下文", "Execution details and context")) {
-                        LabeledContent("Agent", value: agentID).textSelection(.enabled)
-                        if let sessionID {
-                            if let selectedSession { Text(selectedSession.label).font(.caption) }
-                            Text(sessionID).font(.caption).textSelection(.enabled)
-                        }
-                        if sessionID == nil { AgentWorkUsage(value: root.latest_main_usage, title: L("最近上下文", "Latest context")) }
-                    }.font(.subheadline)
                 }
             }
             if executionDeleted { Text(L("执行记录已删除", "Execution record deleted")).foregroundStyle(.secondary) }
@@ -114,36 +106,52 @@ struct AgentWorkView: View {
                         .id(turn.id)
                         .accessibilityIdentifier("work.turn." + turn.id)
                 }
-                if loaded && displayed.isEmpty && !executionDeleted { Text(L("还没有工作记录", "No work records yet")) }
+                if loaded && displayed.isEmpty && !executionDeleted && error == nil {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Image(systemName: "text.page").font(.title2).foregroundStyle(NanoTheme.accent)
+                        Text(L("还没有工作记录", "No work records yet")).font(.headline)
+                    }.padding(.vertical, 12).listRowBackground(Color.clear)
+                }
                 if let last = displayed.last, executionHistory?.hasEarlier(after: last) == true { earlierPage(last) }
             }
-            if separate || !sessions.isEmpty {
-                Section(L("关联执行", "Related executions")) {
-                    if separate {
-                        DisclosureGroup(L("浏览关联执行", "Browse related executions"), isExpanded: $catalogOpen) {
-                            executionLinks
-                            if catalogLoading { ProgressView() }
-                            if let catalogError { ErrorNotice(message: catalogError); Button(L("重试", "Retry")) { Task { await loadCatalog() } } }
-                            if catalogLoaded { Button(L("刷新目录", "Refresh directory")) { Task { await loadCatalog(reset: true) } }.disabled(catalogLoading) }
-                            if catalogCursor != nil && catalogError == nil { Button(L("加载更多", "Load more")) { Task { await loadCatalog() } }.disabled(catalogLoading) }
-                        }.onChange(of: catalogOpen) { _, open in if open && !catalogLoaded { Task { await loadCatalog() } } }
-                    } else { executionLinks }
-                }
-            }
-            if sessionID == nil, root != nil {
-                VStack(alignment: .leading, spacing: 4) {
-                    AgentLifecycleControls(client: client, agentID: agentID, canManage: canManage, online: online, groupDisableAction: true)
-                }
-            }
-            if separate, let executionID {
-                Section(L("控制记录", "Control records")) { AgentWorkControls(client: client, base: base, sessionID: executionID, onOpenChat: onOpenChat).id(executionID) }
-            }
-            if !controls.isEmpty {
-                Section(L("控制记录", "Control records")) {
-                    ForEach(controls) { item in DisclosureGroup(item.kind) { JSONDetailView(value: .object(item.payload)).textSelection(.enabled) } }
+            if let root {
+                DisclosureGroup(L("更多工作信息", "More work details")) {
+                    workDetails(root)
                 }
             }
         }.listStyle(.insetGrouped).scrollContentBackground(.hidden)
+    }
+    @ViewBuilder private func workDetails(_ root: AgentWorkPage) -> some View {
+        DisclosureGroup(L("执行信息与上下文", "Execution details and context")) {
+            LabeledContent("Agent", value: agentID).textSelection(.enabled)
+            if let sessionID {
+                if let selectedSession { Text(selectedSession.label).font(.caption) }
+                Text(sessionID).font(.caption).textSelection(.enabled)
+            }
+            if sessionID == nil { AgentWorkUsage(value: root.latest_main_usage, title: L("最近上下文", "Latest context")) }
+        }.font(.subheadline)
+        if separate {
+            DisclosureGroup(L("浏览关联执行", "Browse related executions"), isExpanded: $catalogOpen) {
+                executionLinks
+                if catalogLoading { ProgressView() }
+                if let catalogError { ErrorNotice(message: catalogError); Button(L("重试", "Retry")) { Task { await loadCatalog() } } }
+                if catalogLoaded { Button(L("刷新目录", "Refresh directory")) { Task { await loadCatalog(reset: true) } }.disabled(catalogLoading) }
+                if catalogCursor != nil && catalogError == nil { Button(L("加载更多", "Load more")) { Task { await loadCatalog() } }.disabled(catalogLoading) }
+            }.onChange(of: catalogOpen) { _, open in if open && !catalogLoaded { Task { await loadCatalog() } } }
+        } else { executionLinks }
+        if sessionID == nil {
+            VStack(alignment: .leading, spacing: 4) {
+                AgentLifecycleControls(client: client, agentID: agentID, canManage: canManage, online: online, groupDisableAction: true)
+            }
+        }
+        if separate, let executionID {
+            AgentWorkControls(client: client, base: base, sessionID: executionID, onOpenChat: onOpenChat).id(executionID)
+        }
+        if !controls.isEmpty {
+            Section(L("控制记录", "Control records")) {
+                ForEach(controls) { item in DisclosureGroup(item.kind) { JSONDetailView(value: .object(item.payload)).textSelection(.enabled) } }
+            }
+        }
     }
     @ViewBuilder private var executionLinks: some View {
         ForEach(sessions.filter { $0.id != sessionID }) { session in

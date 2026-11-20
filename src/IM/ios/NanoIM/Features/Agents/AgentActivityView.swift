@@ -6,88 +6,141 @@ struct AgentActivityView: View {
     let contact: Contact
     let canManage: Bool
     let onOpenChat: @MainActor (String) -> Void
-    var onExpand: () -> Void = {}
+    static let compactDetent = PresentationDetent.height(184)
+    @Binding var detent: PresentationDetent
+    @Environment(\.dynamicTypeSize) private var typeSize
     private var agentID: String { contact.agent_id ?? contact.id }
     private var path: String { agentPath(agentID) + "/work/activity" }
     @State private var page: AgentActivityPage?
     @State private var sessions: [AgentActivitySession] = []
     @State private var cursor: String?
-    @State private var expanded = false
+    @State private var expanded = true
     @State private var paging = false
     @State private var error: String?
 
+    @Environment(\.dismiss) private var dismiss
+
     var body: some View {
-        List {
-            Section {
-                HStack(spacing: 12) {
-                    AvatarView(name: contact.display_name, online: page?.node_connection_state == "online", kind: "agent", agentID: agentID, role: contact.role, variant: contact.avatar_variant)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(contact.display_name).font(.headline)
-                        if let node = contact.node_name { Label(node, systemImage: "desktopcomputer").font(.subheadline).foregroundStyle(.secondary) }
-                    }
-                }.padding(.vertical, 6)
-                if let page {
-                    LabeledContent(L("主 Agent", "Main agent"), value: page.node_connection_state == "online" ? agentWorkStatus(page.main_execution) : L("离线", "Offline"))
-                    if page.node_connection_state == "online", ["running", "waiting_permission"].contains(page.main_execution), let tool = page.latest_tool {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(L("最近工具", "Latest tool")).font(.caption).foregroundStyle(.secondary)
-                            Text([tool.name, tool.label, tool.status.map(agentWorkStatus)].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                HStack(alignment: .center, spacing: 10) {
+                    AvatarView(name: contact.display_name, online: page?.node_connection_state == "online", kind: "agent",
+                               size: 70, agentID: agentID, role: contact.role, variant: contact.avatar_variant)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(contact.display_name).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                        if let page {
+                            Text(error == nil ? headline(page) : L("暂时无法更新近况", "Activity could not be refreshed")).font(.title3.bold()).fixedSize(horizontal: false, vertical: true)
+                        } else if error == nil {
+                            ProgressView(L("正在查看近况…", "Checking activity…")).font(.footnote)
                         }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark").font(.subheadline.weight(.semibold))
+                            .frame(width: 32, height: 32).background(NanoTheme.canvas, in: Circle())
+                            .frame(width: 44, height: 44)
+                    }.accessibilityLabel(L("关闭", "Close"))
+                }
+                if let error {
+                    ErrorNotice(message: error)
+                    Button(L("重试", "Retry")) { Task { await refresh() } }
+                }
+                if let page {
+                    if page.node_connection_state == "online", ["running", "waiting_permission"].contains(page.main_execution), let tool = page.latest_tool {
+                        Label([tool.label ?? tool.name, tool.status.map(agentWorkStatus)].compactMap { $0 }.joined(separator: " · "),
+                              systemImage: "wrench.and.screwdriver").font(.subheadline)
                     }
                     if page.confirmedChildren, let running = page.running_count, let waiting = page.waiting_permission_count {
                         if running + waiting > 0 {
                             DisclosureGroup(isExpanded: $expanded) {
-                                ForEach(sessions) { session in
-                                    if session.canOpenRecords {
-                                        NavigationLink {
-                                            AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, sessionID: session.id)
-                                                .onAppear(perform: onExpand)
-                                        } label: { sessionLabel(session) }
-                                    } else {
-                                        NavigationLink {
-                                            AgentDelegationView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat)
-                                                .navigationTitle(L("派工关系", "Delegations")).onAppear(perform: onExpand)
-                                        } label: { sessionLabel(session) }
-                                        .accessibilityHint(L("查看派工关系", "View delegations"))
+                                VStack(alignment: .leading, spacing: 12) {
+                                    ForEach(sessions) { session in
+                                        if session.canOpenRecords {
+                                            NavigationLink {
+                                                AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, sessionID: session.id)
+                                                    .onAppear { detent = .large }
+                                            } label: { sessionLabel(session) }
+                                        } else {
+                                            NavigationLink {
+                                                AgentDelegationView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat)
+                                                    .navigationTitle(L("派工关系", "Delegations")).onAppear { detent = .large }
+                                            } label: { sessionLabel(session) }
+                                        }
                                     }
-                                }
-                                if cursor != nil {
-                                    Button(L("更多子执行", "More child executions")) { Task { await loadMore() } }.disabled(paging)
-                                }
+                                    if cursor != nil {
+                                        Button(L("查看更多", "Show more")) { Task { await loadMore() } }.disabled(paging)
+                                    }
+                                }.padding(.top, 8)
                             } label: {
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(L("子执行", "Child executions"))
-                                    Text(L("\(running) 个运行中 · \(waiting) 个等待授权", "\(running) running · \(waiting) awaiting permission")).font(.subheadline).foregroundStyle(.secondary)
-                                }
+                                Text([running > 0 ? L("\(running) 项协作进行中", "\(running) in progress") : nil,
+                                      waiting > 0 ? L("\(waiting) 项待授权", "\(waiting) awaiting permission") : nil]
+                                    .compactMap { $0 }.joined(separator: " · ")).font(.subheadline.weight(.medium))
                             }
-                        } else { LabeledContent(L("子执行", "Child executions"), value: L("0 个运行中", "0 running")) }
-                    } else {
-                        LabeledContent(L("子执行", "Child executions"), value: page.record_sync_state == "catching_up" ? L("记录同步中", "Syncing records") : L("未知", "Unknown"))
+                        }
+                    } else if page.node_connection_state == "online" {
+                        Text(page.record_sync_state == "catching_up" ? L("正在同步协作进度…", "Syncing delegated work…") : L("协作进度暂未确认", "Delegated work status is unavailable"))
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
-                } else if error == nil { ProgressView(L("正在读取活动", "Loading activity")) }
-                if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await refresh() } } }
-            }
-            if page != nil {
-                Section {
-                    NavigationLink {
-                        AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, displayName: contact.display_name)
-                            .onAppear(perform: onExpand)
-                    } label: { Label(L("查看工作记录", "View work records"), systemImage: "list.bullet.rectangle") }
-                    if canManage {
-                        NavigationLink { AgentConfigView(client: client, agentID: agentID).onAppear(perform: onExpand) } label: { Label(L("配置", "Configuration"), systemImage: "slider.horizontal.3") }
+                    HStack(spacing: 10) {
+                        NavigationLink {
+                            AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, displayName: contact.display_name)
+                                .onAppear { detent = .large }
+                        } label: {
+                            Label(L("查看工作记录", "View work records"), systemImage: "clock.arrow.circlepath")
+                                .font(.headline).frame(maxWidth: .infinity, minHeight: 48)
+                                .foregroundStyle(.white).background(NanoTheme.accent, in: Capsule())
+                        }
+                        if canManage {
+                            NavigationLink {
+                                AgentConfigView(client: client, agentID: agentID, personal: contact.role == "personal").onAppear { detent = .large }
+                            } label: {
+                                Image(systemName: "gearshape").font(.title3).frame(width: 48, height: 48)
+                                    .background(NanoTheme.surface, in: Circle())
+                                    .overlay { Circle().strokeBorder(NanoTheme.border) }
+                                    .accessibilityLabel(L("助手设置", "Assistant settings"))
+                            }
+                        }
                     }
                 }
-            }
-        }.listStyle(.insetGrouped).scrollContentBackground(.hidden).background(NanoTheme.canvas)
-        .navigationTitle(L("当前活动", "Current activity")).navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+            }.padding(.horizontal, 22).padding(.top, 30).padding(.bottom, 14)
+        }
+        .background {
+            LinearGradient(colors: [Color("Butter").opacity(0.4), NanoTheme.surface, NanoTheme.surface], startPoint: .topLeading, endPoint: .bottomTrailing)
+                .ignoresSafeArea()
+        }.foregroundStyle(NanoTheme.ink).buttonStyle(.plain)
+        .toolbar(.hidden, for: .navigationBar).toolbar(.hidden, for: .tabBar)
+        .onAppear { detent = summaryDetent }
+        .onChange(of: summaryDetent) { _, next in if detent != .large { detent = next } }
         .workRefresh(client: client, agentID: agentID, every: 15) { await refresh() }
+    }
+
+    private var summaryDetent: PresentationDetent {
+        if typeSize.isAccessibilitySize { return .large }
+        if error != nil { return .medium }
+        guard let page, page.node_connection_state == "online" else { return Self.compactDetent }
+        let hasActivity = (page.running_count ?? 0) + (page.waiting_permission_count ?? 0) > 0
+        let showsTool = page.latest_tool != nil && ["running", "waiting_permission"].contains(page.main_execution)
+        return hasActivity || showsTool || !page.confirmedChildren ? .medium : Self.compactDetent
+    }
+
+    private func headline(_ page: AgentActivityPage) -> String {
+        guard page.node_connection_state == "online" else { return L("电脑离线，暂时看不到近况", "Computer offline. Activity is unavailable.") }
+        switch page.main_execution {
+        case "idle":
+            if page.confirmedChildren && page.running_count == 0 && page.waiting_permission_count == 0 {
+                return L("现在有空，可以聊聊", "Free for a chat")
+            }
+            return L("助手当前空闲", "The assistant is idle")
+        case "running": return L("正在处理工作", "Working on a task")
+        case "waiting_permission": return L("需要授权才能继续", "Waiting for permission to continue")
+        case "unknown": return L("暂时看不到近况", "Activity is unavailable")
+        default: return agentWorkStatus(page.main_execution)
+        }
     }
 
     private func sessionLabel(_ session: AgentActivitySession) -> some View {
         VStack(alignment: .leading) {
-            Text(session.title ?? session.id)
-            Text([session.runtime, agentWorkStatus(session.status)].compactMap { $0 }.joined(separator: " · "))
+            Text(session.title ?? L("协作任务", "Delegated task"))
+            Text(agentWorkStatus(session.status))
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

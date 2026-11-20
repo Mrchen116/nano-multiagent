@@ -18,6 +18,7 @@ struct ConversationView: View {
     @State private var confirmFork: ChatMessage?
     @State private var operationError: String?
     @State private var activityContact: Contact?
+    @State private var activityDetent: PresentationDetent = AgentActivityView.compactDetent
     @State private var workDestination: WorkDestination?
     @State private var workContacts: [String: Contact] = [:]
     private struct WorkDestination: Hashable {
@@ -228,15 +229,14 @@ struct ConversationView: View {
             AgentMessageWorkView(client: store.client, agentID: target.agentID, messageID: target.messageID,
                                  canManage: target.canManage, onOpenChat: openChat)
         }
-        .sheet(item: $activityContact) { contact in
+        .sheet(item: $activityContact, onDismiss: { activityDetent = AgentActivityView.compactDetent }) { contact in
             NavigationStack {
                 AgentActivityView(client: store.client, contact: contact, canManage: contact.owner_id == store.user.id || contact.owner_id == store.user.owner_id, onOpenChat: { id in
                     activityContact = nil
                     openChat(id)
-                }).toolbar { ToolbarItem(placement: .confirmationAction) {
-                    Button(L("完成", "Done")) { activityContact = nil }
-                } }
-            }.presentationDetents([.medium, .large])
+                }, detent: $activityDetent)
+            }.presentationDetents([AgentActivityView.compactDetent, .medium, .large], selection: $activityDetent)
+                .presentationDragIndicator(.visible)
         }
         .task(id: location) {
             guard let target = location else { return }

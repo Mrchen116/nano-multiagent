@@ -51,7 +51,7 @@ struct ChatMessageView: View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 28) }
             else if message.system_notice == nil { senderAvatar }
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
                 if message.system_notice == nil && ((showSenderName && !mine) || message.pa_agent_id != nil || message.delegation != nil) {
                     senderIdentity
                 }
@@ -84,7 +84,7 @@ struct ChatMessageView: View {
             }
             if !message.content.isEmpty {
                 // Scroll and receipt updates can leave the rendered message body identical.
-                MarkdownView(text: ChatText.display(message.content, participants: participants), client: client)
+                MarkdownView(text: ChatText.display(message.content, participants: participants), client: client, fillsWidth: intelligentUI)
                     .equatable()
             }
             if message.interactive != nil {
