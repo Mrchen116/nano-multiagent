@@ -205,3 +205,20 @@ test.each(['expired','failed'])('does not send a %s inspection reply as a new bu
   await expect(relay.request('agent.capabilities',{request_id:'inspection',capabilities:{}})).rejects.toMatchObject({delivery:'not-sent'});
   expect(s.frames.some(frame=>frame.type==='agent.capabilities')).toBe(false);
 });
+
+test('delivers a slow inspection response under its original request ID until the IM deadline', async () => {
+  let finished!: (value: ProtocolFrame) => void, failed!: (reason: unknown) => void;
+  const response = new Promise<ProtocolFrame>((resolve,reject) => {finished=resolve; failed=reject;});
+  const s = await server((socket,frame) => {
+    ack(socket,frame);
+    if (frame.type === 'node.register') socket.send(JSON.stringify({type:'node.capabilities.resolve',payload:{request_id:'cold-catalog',deadline_at:Date.now()+35_000}}));
+  });
+  const relay = connection(s.url,{onFrame:async frame=>{
+    if(frame.type!=='node.capabilities.resolve') return;
+    await pause(10_300);
+    await relay.request('node.capabilities',{request_id:'cold-catalog',capabilities:{tools:[]}}).then(finished,failed);
+  }});
+  await relay.start();
+  await response;
+  expect(s.frames.find(frame=>frame.type==='node.capabilities')?.payload.request_id).toBe('cold-catalog');
+},20_000);
