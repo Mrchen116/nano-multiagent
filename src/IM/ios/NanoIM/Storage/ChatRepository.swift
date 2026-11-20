@@ -159,11 +159,23 @@ actor ChatRepository {
             try db.execute(sql: "ALTER TABLE actors ADD COLUMN role TEXT")
             try db.execute(sql: "ALTER TABLE actors ADD COLUMN avatar_variant INTEGER")
         }
+        migrator.registerMigration("v6_conversation_preview_notice") { db in
+            // Older list-only snapshots cannot identify their last message. Recover
+            // metadata only for previews whose exact message was already recorded.
+            try db.execute(sql: """
+                ALTER TABLE conversations ADD COLUMN last_message_notice_json TEXT;
+                UPDATE conversations AS c SET last_message_notice_json=(
+                    SELECT json_extract(m.payload_json, '$.system_notice')
+                    FROM cache_meta k JOIN messages m ON m.id=k.value
+                    WHERE k.key='preview.message_id.' || c.id
+                      AND m.conversation_id=c.id AND m.created_at=c.last_message_at);
+                """)
+        }
         try migrator.migrate(queue)
         let policy = try persistence.policy()
         let handoffs = try persistence.loadHandoffs()
         try queue.write { db in
-            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '4')")
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '6')")
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.origin', ?)", arguments: [partition.origin.absoluteString])
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.user_id', ?)", arguments: [partition.userID])
             try applyPolicy(policy, db: db)
@@ -580,7 +592,7 @@ actor ChatRepository {
                 if previewID == nil || previewID == messageID {
                     // Discard is authority to invalidate a preview, not to promote an unknown
                     // older window over the server's latest. Reset ordering as well as text.
-                    try db.execute(sql: "UPDATE conversations SET last_message_preview=NULL, last_message_sender_name=NULL, last_message_card_json=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?",
+                    try db.execute(sql: "UPDATE conversations SET last_message_preview=NULL, last_message_sender_name=NULL, last_message_card_json=NULL, last_message_notice_json=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?",
                                    arguments: [conversation])
                     try db.execute(sql: "DELETE FROM cache_meta WHERE key=?", arguments: [identityKey])
                     if previewID == messageID { try Self.refreshConversationProjection(conversation, db: db) }
@@ -888,14 +900,15 @@ actor ChatRepository {
         let revision = item.execution_cleanup_revision ?? 0
         guard revision >= (try executionCleanupRevision(item.id, db: db)) else { throw ChatRepositoryError.staleWrite }
         try applyExecutionCleanup(item.id, revision: revision, db: db)
+        let notice = try item.last_message_system_notice.map { String(decoding: try encode($0), as: UTF8.self) }
         let card = try item.last_message_card.map { String(decoding: try encode($0), as: UTF8.self) }
         let participantIDs = (try? encode(item.participant_ids)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
         try db.execute(sql: """
             INSERT INTO conversations(id, title, type, direct_kind, owner_id, creator_id, is_pinned, is_muted,
                 unread_count, last_message_preview, last_message_at, created_at, run_state, source_agent_id, source_node_id,
                 external_source, external_chat_id, visibility, dissolved_at, is_member, can_write, is_observer,
-                can_change_visibility, participant_ids_json, sort_at, refreshed_at, trimmed_at, last_message_sender_name, last_message_card_json)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?)
+                can_change_visibility, participant_ids_json, sort_at, refreshed_at, trimmed_at, last_message_sender_name, last_message_card_json, last_message_notice_json)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 title=excluded.title, type=excluded.type, direct_kind=excluded.direct_kind,
                 owner_id=excluded.owner_id, creator_id=excluded.creator_id, is_pinned=excluded.is_pinned,
@@ -910,7 +923,7 @@ actor ChatRepository {
                 participant_ids_json=excluded.participant_ids_json,
                 sort_at=MAX(conversations.sort_at, excluded.sort_at),
                 refreshed_at=excluded.refreshed_at, last_message_sender_name=excluded.last_message_sender_name,
-                last_message_card_json=excluded.last_message_card_json
+                last_message_card_json=excluded.last_message_card_json, last_message_notice_json=excluded.last_message_notice_json
             """, arguments: [item.id, item.title, item.type, item.direct_kind, item.owner_id, item.creator_id,
                              item.is_pinned ? 1 : 0, item.is_muted ? 1 : 0, item.unread_count,
                              item.last_message_preview, item.last_message_at, item.created_at, item.run_state,
@@ -918,7 +931,7 @@ actor ChatRepository {
                              item.visibility, item.dissolved_at, item.is_member.map { $0 ? 1 : 0 },
                              item.can_write.map { $0 ? 1 : 0 }, item.is_observer.map { $0 ? 1 : 0 },
                              item.can_change_visibility.map { $0 ? 1 : 0 }, participantIDs,
-                             item.last_message_at ?? item.created_at, iso(Date()), item.last_message_sender_name, card])
+                             item.last_message_at ?? item.created_at, iso(Date()), item.last_message_sender_name, card, notice])
         // A server list/detail refresh supplies time and preview but no identity; do not
         // associate its card title with a previously cached row merely by equal timestamp.
         try db.execute(sql: "DELETE FROM cache_meta WHERE key IN (?,?)", arguments: ["preview.message_id.\(item.id)", "preview.awaiting_server.\(item.id)"])
@@ -958,7 +971,7 @@ actor ChatRepository {
         guard revision > (try executionCleanupRevision(id, db: db)) else { return false }
         try db.execute(sql: "DELETE FROM messages WHERE conversation_id=?", arguments: [id])
         try db.execute(sql: "DELETE FROM conversation_boundaries WHERE conversation_id=?", arguments: [id])
-        try db.execute(sql: "UPDATE conversations SET trimmed_at=NULL, last_message_preview=NULL, last_message_sender_name=NULL, last_message_card_json=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?", arguments: [id])
+        try db.execute(sql: "UPDATE conversations SET trimmed_at=NULL, last_message_preview=NULL, last_message_sender_name=NULL, last_message_card_json=NULL, last_message_notice_json=NULL, last_message_at=NULL, sort_at=created_at WHERE id=?", arguments: [id])
         try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?, '1')", arguments: ["timeline.earlier_incomplete.\(id)"])
         try db.execute(sql: "DELETE FROM cache_meta WHERE key IN (?,?)", arguments: ["preview.message_id.\(id)", "preview.awaiting_server.\(id)"])
         try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?,?)", arguments: ["execution.cleanup_revision.\(id)", String(revision)])
@@ -996,10 +1009,11 @@ actor ChatRepository {
         }
         try db.execute(sql: """
             UPDATE conversations SET last_message_preview=?, last_message_sender_name=?,
-                last_message_card_json=CASE WHEN ? THEN '{}' ELSE NULL END,
+                last_message_card_json=CASE WHEN ? THEN '{}' ELSE NULL END, last_message_notice_json=?,
                 last_message_at=?, sort_at=MAX(sort_at, ?), refreshed_at=? WHERE id=?
             """, arguments: [preview(of: message), message.sender.display_name ?? message.sender.id,
                              message.interactive != nil && preview(of: message) == nil,
+                             try message.system_notice.map { String(decoding: try encode($0), as: UTF8.self) },
                              message.created_at, message.created_at, iso(Date()), id])
         try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key,value) VALUES(?,?)", arguments: [identityKey, message.id])
     }
@@ -1106,6 +1120,7 @@ actor ChatRepository {
                                 unread_count: row["unread_count"] ?? 0, last_message_preview: row["last_message_preview"],
                                 last_message_sender_name: row["last_message_sender_name"],
                                  last_message_card: (row["last_message_card_json"] as String?).flatMap { try? decode(ChatCardPreview.self, from: $0) },
+                                 last_message_system_notice: (row["last_message_notice_json"] as String?).flatMap { try? decode(ChatPreviewNotice.self, from: $0) },
                                  last_message_at: row["last_message_at"], created_at: row["created_at"],
                                 run_state: row["run_state"], source_agent_id: row["source_agent_id"],
                                 source_node_id: row["source_node_id"], external_source: row["external_source"],

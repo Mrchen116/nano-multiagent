@@ -22,11 +22,12 @@ struct ChatInfoView: View {
     @State private var remove: ActorRef?
     @State private var editingName = false
     @State private var showingMembers = false
+    @State private var rosterQuery = ""
     private var dirtyTitle: Bool { chat != nil && title != chat?.title }
     private var availableContacts: [Contact] {
         contacts.filter { item in
             !(chat?.participants.contains { ($0.user_id ?? $0.id) == item.user_id || ($0.type == "agent" && $0.id == item.agent_id) } ?? false)
-            && (memberSearch.isEmpty || (item.display_name + " " + (item.agent_id ?? "") + " " + (item.node_name ?? "")).localizedCaseInsensitiveContains(memberSearch))
+            && item.matchesConversationSearch(memberSearch)
         }.sorted { $0.display_name.localizedStandardCompare($1.display_name) == .orderedAscending }
     }
     private func canManageMembers(_ chat: Conversation) -> Bool {
@@ -36,20 +37,17 @@ struct ChatInfoView: View {
         ScrollView {
             if let chat {
                 VStack(alignment: .leading, spacing: 24) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(chat.title).font(.largeTitle.bold()).foregroundStyle(NanoTheme.ink)
-                        HStack(spacing: 5) {
-                            if chat.type == "group" {
-                                Image(systemName: chat.visibility == "public" ? "globe" : "lock")
-                                Text(chat.visibility == "public" ? L("公开群", "Public group") : L("私密群", "Private group"))
-                                Text("·")
-                            }
-                            Text(L("\(chat.participants.count) 位成员", "\(chat.participants.count) members"))
-                        }.font(.subheadline).foregroundStyle(.secondary)
-                        if chat.dissolved_at != nil { Text(L("群聊已解散，可查看历史消息", "Group dissolved. Message history is available.")).font(.callout) }
-                        else if chat.is_observer == true { Text(L("助手协作会话，只读", "Assistant collaboration, read only")).font(.callout) }
+                    if chat.type == "group" || chat.is_observer == true {
+                        identityHeader(chat)
+                        membersPreview(chat)
+                    } else {
+                        Button { showingMembers = true } label: {
+                            HStack(spacing: 8) {
+                                identityHeader(chat)
+                                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(NanoTheme.muted)
+                            }.contentShape(Rectangle())
+                        }.accessibilityHint(L("查看会话成员", "View conversation participants"))
                     }
-                    membersPreview(chat)
                     if let personal, personal.conversation_id == chat.id {
                         NavigationLink { PersonalAgentManagementView(client: store.client, agentID: personal.agent_id) } label: {
                             CrewdenDestination(title: L("个人助手设置", "Personal assistant settings"), symbol: "slider.horizontal.3")
@@ -120,22 +118,36 @@ struct ChatInfoView: View {
                 }
             }.presentationDetents([.medium, .large]).interactiveDismissDisabled(dirtyTitle || busy)
         }
-        .sheet(isPresented: $showingMembers) {
+        .sheet(isPresented: $showingMembers, onDismiss: { rosterQuery = "" }) {
             if let chat {
                 NavigationStack {
                     List {
                         if let error { ErrorNotice(message: error) }
-                        ForEach(chat.participants, id: \.id) { actor in
+                        let members = chat.participants.filter { actor in
+                            rosterQuery.isEmpty || (actor.display_name ?? actor.id).localizedCaseInsensitiveContains(rosterQuery)
+                                || actor.id.localizedCaseInsensitiveContains(rosterQuery)
+                        }
+                        if members.isEmpty { Text(L("没有匹配的成员", "No matching members")).foregroundStyle(.secondary) }
+                        ForEach(members, id: \.self) { actor in
                             HStack(spacing: 12) {
-                                portrait(actor, size: 40)
-                                Text(actor.display_name ?? actor.id)
+                                portrait(actor, size: 42)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(actor.display_name ?? actor.id).font(.body.weight(.medium))
+                                    Text(memberRole(actor, chat: chat)).font(.caption).foregroundStyle(NanoTheme.muted)
+                                }
                                 Spacer()
                                 if canManageMembers(chat), let userID = actor.user_id, userID != store.user.id {
-                                    Button(L("移除", "Remove"), role: .destructive) { remove = actor }.disabled(busy)
+                                    Menu {
+                                        Button(L("移除", "Remove"), systemImage: "person.crop.circle.badge.minus", role: .destructive) { remove = actor }
+                                    } label: {
+                                        Image(systemName: "ellipsis").frame(width: 38, height: 44)
+                                    }.disabled(busy).accessibilityLabel(L("管理\(actor.display_name ?? actor.id)", "Manage \(actor.display_name ?? actor.id)"))
                                 }
-                            }
+                            }.listRowSeparator(.hidden)
                         }
-                    }.navigationTitle(L("群成员", "Members")).navigationBarTitleDisplayMode(.inline)
+                    }.listStyle(.plain)
+                        .searchable(text: $rosterQuery, placement: .navigationBarDrawer(displayMode: .always), prompt: L("搜索成员", "Search members"))
+                        .navigationTitle(chat.type == "group" ? L("群成员", "Members") : L("会话成员", "Participants")).navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button(L("完成", "Done")) { showingMembers = false } } }
                     .confirmationDialog(L("移除此成员？", "Remove this member?"), isPresented: Binding(get: { remove != nil }, set: { if !$0 { remove = nil } }), presenting: remove) { actor in
                         Button(L("移除", "Remove"), role: .destructive) { Task { await removeMember(actor) } }
@@ -152,20 +164,19 @@ struct ChatInfoView: View {
                             ErrorNotice(message: contactsError)
                             Button(L("重试", "Retry")) { Task { await loadContacts() } }
                         } else if !contactsLoaded { ProgressView() }
+                        let chosen = contacts.filter { selected.contains($0.id) }
+                        if !chosen.isEmpty {
+                            SelectedChatContacts(contacts: chosen) { selected.remove($0.id) }
+                                .padding(.vertical, 2).listRowSeparator(.hidden)
+                        }
                         ForEach(availableContacts) { contact in
-                            Button { if selected.contains(contact.id) { selected.remove(contact.id) } else { selected.insert(contact.id) } } label: {
-                                HStack(spacing: 12) {
-                                    AvatarView(name: contact.display_name, online: contact.status == "online", kind: contact.kind == "agent" ? "agent" : "person", agentID: contact.agent_id, role: contact.role, variant: contact.avatar_variant)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(contact.display_name).foregroundStyle(NanoTheme.ink)
-                                        if contact.kind == "agent" { Text(contact.owner_display_name.map { L("\($0) 的助手", "Assistant for \($0)") } ?? L("助手", "Assistant")).font(.caption).foregroundStyle(NanoTheme.muted) }
-                                    }
-                                    Spacer(); Image(systemName: selected.contains(contact.id) ? "checkmark.circle.fill" : "circle")
-                                }.contentShape(Rectangle())
-                            }.buttonStyle(.plain)
+                            ChatContactRow(contact: contact, selected: selected.contains(contact.id)) {
+                                if selected.contains(contact.id) { selected.remove(contact.id) }
+                                else { selected.insert(contact.id) }
+                            }
                         }
                         if contactsLoaded && availableContacts.isEmpty { Text(memberSearch.isEmpty ? L("没有可添加的成员", "No members to add") : L("没有匹配的成员", "No matching members")).foregroundStyle(.secondary) }
-                    }.task { await loadContacts() }.nanoList().navigationTitle(L("添加成员", "Add members"))
+                    }.disabled(busy).task { await loadContacts() }.nanoList().navigationTitle(L("添加成员", "Add members"))
                         .searchable(text: $memberSearch, prompt: L("搜索名称、ID 或设备", "Search name, ID, or device"))
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { addingMembers = false }.disabled(busy) }
@@ -185,30 +196,79 @@ struct ChatInfoView: View {
                    size: size, agentID: actor.id, role: actor.role, variant: actor.avatar_variant)
     }
 
-    private func membersPreview(_ chat: Conversation) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if chat.participants.count > 7 {
-                Button { showingMembers = true } label: {
-                    HStack { Text(L("查看全部成员", "View all members")); Image(systemName: "chevron.right") }
-                        .font(.subheadline.weight(.medium))
-                }
-            }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 60), spacing: 8)], alignment: .leading, spacing: 14) {
-                ForEach(chat.participants.prefix(7), id: \.id) { actor in
-                    VStack(spacing: 7) {
+    private func identityHeader(_ chat: Conversation) -> some View {
+        let isGroup = chat.type == "group"
+        let peer = chat.participants.first { ($0.user_id ?? $0.id) != store.user.id }
+        return HStack(alignment: .center, spacing: 16) {
+            if isGroup {
+                AvatarView(name: chat.title, kind: "group", size: 64)
+            } else if chat.is_observer == true {
+                HStack(spacing: -15) {
+                    ForEach(chat.participants.prefix(2), id: \.self) { actor in
                         portrait(actor, size: 46)
-                        Text(actor.display_name ?? actor.id).font(.caption).lineLimit(1)
-                    }.accessibilityElement(children: .combine)
+                    }
                 }
-                if canManageMembers(chat) {
-                    Button { addingMembers = true } label: {
-                        VStack(spacing: 7) {
-                            Image(systemName: "plus").font(.title3.weight(.medium))
-                                .frame(width: 46, height: 46)
-                                .overlay { Circle().strokeBorder(NanoTheme.border, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])) }
-                            Text(L("邀请", "Invite")).font(.caption)
-                        }.foregroundStyle(NanoTheme.accent)
-                    }.disabled(busy).accessibilityLabel(L("添加成员", "Add members"))
+            } else if let peer { portrait(peer, size: 64) }
+            VStack(alignment: .leading, spacing: 6) {
+                Text(chat.title).font(.system(.title2, design: .rounded, weight: .bold)).foregroundStyle(NanoTheme.ink)
+                if isGroup {
+                    HStack(spacing: 6) {
+                        Label(chat.visibility == "public" ? L("公开群", "Public group") : L("私密群", "Private group"),
+                              systemImage: chat.visibility == "public" ? "globe" : "lock")
+                        if chat.creator_id == store.user.id { Text("·"); Text(L("我是群主", "You own this group")) }
+                    }.font(.subheadline).foregroundStyle(NanoTheme.muted)
+                } else if chat.is_observer != true, let peer {
+                    let name = peer.display_name.flatMap { $0 == chat.title ? nil : $0 }
+                    Text([name, memberRole(peer, chat: chat)].compactMap { $0 }.joined(separator: " · "))
+                        .font(.subheadline).foregroundStyle(NanoTheme.muted)
+                }
+                if chat.dissolved_at != nil { Text(L("群聊已解散，可查看历史消息", "Group dissolved. Message history is available.")).font(.callout) }
+                else if chat.is_observer == true { Text(L("助手协作会话，只读", "Assistant collaboration, read only")).font(.callout).foregroundStyle(NanoTheme.muted) }
+            }
+            Spacer(minLength: 0)
+        }.padding(.vertical, 4)
+    }
+
+    private func memberRole(_ actor: ActorRef, chat: Conversation) -> String {
+        let id = actor.user_id ?? actor.id
+        if chat.type == "group", id == chat.creator_id { return id == store.user.id ? L("我 · 群主", "You · Group owner") : L("群主", "Group owner") }
+        if id == store.user.id { return L("我", "You") }
+        if actor.type == "agent" {
+            if personal?.agent_id == actor.id { return L("我的个人助手", "My personal assistant") }
+            return actor.role == "personal" ? L("个人助手", "Personal assistant") : L("助手", "Assistant")
+        }
+        return L("同事", "Person")
+    }
+
+    private func membersPreview(_ chat: Conversation) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button { showingMembers = true } label: {
+                HStack {
+                    Text(L("成员", "Members")).font(.headline)
+                    Spacer()
+                    Text(L("\(chat.participants.count) 位成员", "\(chat.participants.count) members"))
+                        .foregroundStyle(NanoTheme.muted).font(.subheadline)
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(NanoTheme.muted)
+                }.contentShape(Rectangle()).frame(minHeight: 36)
+            }.accessibilityLabel(L("查看全部成员", "View all members"))
+                .accessibilityValue(L("\(chat.participants.count) 位成员", "\(chat.participants.count) members"))
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: 9) {
+                    if canManageMembers(chat) {
+                        Button { addingMembers = true } label: {
+                            VStack(spacing: 6) {
+                                Image(systemName: "plus").font(.title3.weight(.medium)).frame(width: 44, height: 44)
+                                    .background(NanoTheme.softAccent, in: Circle())
+                                Text(L("邀请", "Invite")).font(.caption)
+                            }.frame(width: 54).foregroundStyle(NanoTheme.accent)
+                        }.disabled(busy).accessibilityLabel(L("添加成员", "Add members"))
+                    }
+                    ForEach(chat.participants.prefix(7), id: \.self) { actor in
+                        VStack(spacing: 6) {
+                            portrait(actor, size: 44)
+                            Text(actor.display_name ?? actor.id).font(.caption).lineLimit(1)
+                        }.frame(width: 54).accessibilityElement(children: .combine)
+                    }
                 }
             }
         }

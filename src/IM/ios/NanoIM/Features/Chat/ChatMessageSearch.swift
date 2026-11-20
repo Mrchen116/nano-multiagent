@@ -50,15 +50,15 @@ struct ChatMessageSearch: View {
                     store.messageLocation = ChatMessageLocation(conversationID: hit.conversation_id, messageID: hit.id)
                     open(hit.conversation_id)
                 } label: {
-                    VStack(alignment: .leading, spacing: 5) {
-                        HStack {
-                            Text(hit.conversation_name).font(.subheadline.weight(.semibold))
-                            Spacer()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(highlighted(hit.snippet)).font(.body).foregroundStyle(NanoTheme.ink).lineLimit(3)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text([hit.sender_name, hit.conversation_name].compactMap { $0 }.joined(separator: " · "))
+                                .font(.caption).foregroundStyle(NanoTheme.muted)
+                            Spacer(minLength: 4)
                             NanoTimestamp(value: hit.created_at)
                         }
-                        Text([hit.sender_name, hit.snippet].compactMap { $0 }.joined(separator: " · "))
-                            .font(.subheadline).foregroundStyle(NanoTheme.muted).lineLimit(2)
-                    }.contentShape(Rectangle())
+                    }.padding(.vertical, 4).contentShape(Rectangle())
                 }.buttonStyle(.plain)
             }
             if loading { ProgressView().accessibilityLabel(L("正在搜索历史消息", "Searching message history")) }
@@ -78,6 +78,15 @@ struct ChatMessageSearch: View {
             do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
             await load(cursor: nil, token: token)
         }.onDisappear { pageRequest?.cancel() }
+    }
+
+    private func highlighted(_ snippet: String) -> AttributedString {
+        var text = AttributedString(snippet)
+        if !query.isEmpty, let range = text.range(of: query, options: [.caseInsensitive, .diacriticInsensitive]) {
+            text[range].inlinePresentationIntent = .stronglyEmphasized
+            text[range].backgroundColor = Color("Butter")
+        }
+        return text
     }
 
     private func load(cursor: String?, token: UUID) async {

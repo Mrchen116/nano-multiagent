@@ -62,6 +62,32 @@ extension ChatRepositoryTests {
         try await reopened.close()
     }
 
+    func testTaskPreviewUsesNoticeIdentityAndClearsItForOrdinaryMessages() async throws {
+        let raw = #"Test User \(u\_internal\)：[发布清单](/tasks/graph?scope=root&node=child)，已创建"#
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(conversation("a"))) as? [String: Any])
+        payload["last_message_system_notice"] = ["kind": "task_graph", "graph_id": "graph", "change_kinds": ["created", "status"]] as [String: Any]
+        payload["last_message_preview"] = raw
+        let chat = try JSONDecoder().decode(Conversation.self, from: JSONSerialization.data(withJSONObject: payload))
+        let repo = try open()
+        let context = try await repo.writeContext()
+        _ = try await repo.applyConversation(chat, members: [], write: context)
+        try await repo.close()
+
+        let reopened = try open()
+        let cached = try await reopened.conversation("a")
+        let notice = try XCTUnwrap(cached?.last_message_system_notice)
+        XCTAssertEqual(notice.summary(content: cached?.last_message_preview), L("新建任务", "Task created") + " · 发布清单")
+        XCTAssertEqual(notice.summary(content: "Test User (u_internal)：[发"), L("新建任务", "Task created"))
+
+        let plain = try message(2, extra: ["content": raw])
+        let fresh = try await reopened.writeContext()
+        _ = try await reopened.applyPage("a", items: [item(plain)], write: fresh)
+        let updated = try await reopened.conversation("a")
+        XCTAssertNil(updated?.last_message_system_notice)
+        XCTAssertEqual(updated?.last_message_preview, raw)
+        try await reopened.close()
+    }
+
     func testSnapshotMapListAndDetailShareMonotonicCleanupFence() async throws {
         let repo = try open()
         var context = try await repo.writeContext()

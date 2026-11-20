@@ -60,6 +60,7 @@ struct TaskEditorView: View {
                     Button(L("继续确认更新", "Continue reviewing changes")) { focusedField = nil; showingComparison = true }.buttonStyle(.bordered)
                 }
                 VStack(alignment: .leading, spacing: 24) {
+                    field(L("任务标题", "Task title"), prompt: L("这项任务要完成什么？", "What needs to be done?"), text: $draft.title, key: "title", title: true)
                     if graph == nil {
                         Button { showingConversation = true } label: {
                             TaskPropertyRow(title: L("所属会话", "Conversation")) {
@@ -75,7 +76,6 @@ struct TaskEditorView: View {
                             }
                         }
                     }
-                    field(L("任务标题", "Task title"), prompt: L("这项任务要完成什么？", "What needs to be done?"), text: $draft.title, key: "title", title: true)
                     VStack(spacing: 0) {
                         Button { focusedField = nil; showingStatus = true } label: {
                             TaskPropertyRow(title: L("状态", "Status")) { TaskStatusBadge(status: draft.status) }
@@ -84,7 +84,9 @@ struct TaskEditorView: View {
                         Button { focusedField = nil; showingAssignee = true } label: {
                             TaskPropertyRow(title: L("负责人", "Assignee")) { TaskActorLabel(actor: draft.assignee) }
                         }.buttonStyle(.plain)
-                    }.padding(.horizontal, 16).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 14))
+                    }.padding(.vertical, 4)
+                        .overlay(alignment: .top) { Divider() }
+                        .overlay(alignment: .bottom) { Divider() }
                     field(L("任务说明", "Description"), prompt: L("补充目标与必要背景", "Add the goal and useful context"), text: $draft.description, key: "description")
                     if node != nil || addingResult || !draft.result.isEmpty || draft.status == "done" {
                         field(L("当前结果", "Result"), prompt: L("记录进展或交付结果", "Record progress or the outcome"), text: $draft.result, key: "result")

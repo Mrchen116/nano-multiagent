@@ -52,15 +52,27 @@ struct AssistantPortrait: View {
 struct PortraitPicker: View {
     let personal: Bool
     @Binding var variant: Int
+
     var body: some View {
+        let colors = [L("紫色", "Purple"), L("绿色", "Green"), L("蓝色", "Blue"), L("橙色", "Orange"), L("粉色", "Pink"), L("黄色", "Yellow")]
+        let shapes = personal
+            ? [L("圆形", "Circle"), L("椭圆形", "Oval"), L("花朵", "Flower"), L("水滴", "Droplet")]
+            : [L("拱形", "Arch"), L("菱形", "Diamond"), L("方形", "Square"), L("四角星", "Four-point star")]
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 6), spacing: 2) {
             ForEach(0..<24) { index in
                 Button { variant = index } label: {
                     AssistantPortrait(personal: personal, seed: "", selected: index, size: 38)
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .background(index == variant ? NanoTheme.softAccent : Color.clear, in: RoundedRectangle(cornerRadius: 12))
-                        .overlay { if index == variant { RoundedRectangle(cornerRadius: 12).stroke(NanoTheme.accent, lineWidth: 1.5) } }
+                        .overlay(alignment: .bottomTrailing) {
+                            if index == variant {
+                                Image(systemName: "checkmark.circle.fill").font(.caption.bold())
+                                    .foregroundStyle(.white, NanoTheme.accent).padding(2)
+                            }
+                        }
+                        .contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel(L("形象 \(index + 1)", "Appearance \(index + 1)"))
+                    .accessibilityValue("\(colors[index % 6]) \(shapes[index / 6])")
                     .accessibilityAddTraits(index == variant ? .isSelected : [])
             }
         }

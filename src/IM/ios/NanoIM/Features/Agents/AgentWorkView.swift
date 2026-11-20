@@ -6,6 +6,7 @@ struct AgentWorkView: View {
     var sessionID: String? = nil
     var focus: AgentWorkFocus? = nil
     var displayName: String? = nil
+    var contact: Contact? = nil
     @State private var delegation = false
     @State private var revealedFocus = false
     @State private var root: AgentWorkPage?
@@ -42,10 +43,13 @@ struct AgentWorkView: View {
     var body: some View {
         VStack(spacing: 0) {
             if sessionID == nil {
-                Picker(L("查看方式", "View"), selection: $delegation) {
-                    Text(L("工作记录", "Work records")).tag(false)
-                    Text(L("派工关系", "Delegation")).tag(true)
-                }.pickerStyle(.segmented).padding(.horizontal, 16).padding(.vertical, 8)
+                HStack(spacing: 24) {
+                    workTab(L("工作记录", "Work records"), showDelegation: false)
+                    workTab(L("派工关系", "Delegation"), showDelegation: true)
+                    Spacer()
+                }
+                .padding(.horizontal, 22)
+                Divider()
             }
             ZStack {
                 ScrollViewReader { proxy in
@@ -63,63 +67,84 @@ struct AgentWorkView: View {
                 }
             }
         }
-        .background(NanoTheme.canvas)
+        .background(NanoTheme.surface)
         .navigationTitle(sessionID == nil ? displayName ?? L("工作", "Work") : selectedSession?.label ?? L("工作记录", "Work records"))
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+        .toolbar {
+            if let root, !delegation {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        List { workDetails(root) }
+                            .navigationTitle(L("更多工作信息", "Work details")).navigationBarTitleDisplayMode(.inline)
+                    } label: { Image(systemName: "ellipsis") }
+                    .accessibilityLabel(L("更多工作信息", "More work details"))
+                }
+            }
+        }
+    }
+    private func workTab(_ title: String, showDelegation: Bool) -> some View {
+        let selected = delegation == showDelegation
+        return Button { delegation = showDelegation } label: {
+            Text(title).font(.headline).foregroundStyle(selected ? NanoTheme.ink : NanoTheme.muted)
+                .frame(minHeight: 46)
+                .overlay(alignment: .bottomLeading) {
+                    if selected { Capsule().fill(NanoTheme.accent).frame(height: 3) }
+                }
+        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
     }
     private var focusedTurnLoaded: Bool {
         guard let focus else { return false }
         return visibleTurns.contains { $0.id == focus.turn.id }
     }
     private var recordList: some View {
-        List {
-            Section {
-                if let root {
-                    HStack(spacing: 8) {
-                        Circle().fill(online ? NanoTheme.accent : NanoTheme.muted).frame(width: 7, height: 7)
-                        Text(online ? L("在线", "Online") : L("离线 · 活动状态未知", "Offline · activity unknown"))
-                        Text("·").foregroundStyle(.secondary)
-                        Text(agentWorkStatus(sessionID == nil ? root.main_execution ?? "unknown" : (online ? visibleTurns.first?.status : selectedSession?.status.flatMap { ["running", "waiting_permission"].contains($0) ? nil : $0 }) ?? "unknown"))
-                    }.font(.subheadline)
-                    if !online { Text(L("显示已保存的记录，授权暂不可处理。", "Showing saved records. Permissions are unavailable while offline.")).font(.caption).foregroundStyle(.secondary) }
-                    if online && root.record_sync_state != "current" {
-                        Text(root.record_sync_state == "catching_up"
-                            ? L("工作记录正在补齐，当前显示已保存内容。", "Work records are catching up. Showing saved content.")
-                            : L("当前显示已保存记录，最新进度尚未确认。", "Showing saved records. The latest progress has not been confirmed."))
-                            .font(.caption).foregroundStyle(.secondary)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(L("最近的工作", "Recent work")).font(.title.bold())
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 4)
+                    if let root {
+                        Label(online ? agentWorkStatus(sessionID == nil ? root.main_execution ?? "unknown" : visibleTurns.first?.status ?? "unknown")
+                              : L("离线", "Offline"), systemImage: online ? "circle.fill" : "circle.dashed")
+                            .labelStyle(WorkPresenceLabel()).foregroundStyle(NanoTheme.muted)
                     }
                 }
-            }
-            if executionDeleted { Text(L("执行记录已删除", "Execution record deleted")).foregroundStyle(.secondary) }
-            else if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await refresh() } } }
-            if !loaded { ProgressView() }
-            Section(L("最近的工作", "Recent work")) {
+                if let root, !online || root.record_sync_state != "current" {
+                    Text(!online ? L("电脑离线，显示已保存的记录。暂时无法处理授权。", "Computer offline. Saved records are available, approvals are paused.")
+                        : root.record_sync_state == "catching_up" ? L("正在补齐最近的记录…", "Catching up on recent work…")
+                        : L("显示已保存的记录，最新进度尚未确认。", "Showing saved work. Latest progress unconfirmed."))
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                if executionDeleted { Text(L("执行记录已删除", "Execution record deleted")).foregroundStyle(.secondary) }
+                else if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await refresh() } } }
+                if !loaded { ProgressView() }
                 let displayed = visibleTurns
                 ForEach(Array(displayed.enumerated()), id: \.element.id) { index, turn in
                     if index > 0 && executionHistory?.hasGap(after: displayed[index - 1], before: turn) == true {
                         earlierPage(displayed[index - 1])
                         Text(L("中间轮次尚未加载", "Turns between these records have not loaded")).font(.caption).foregroundStyle(.secondary)
                     }
+                    if index == 1 {
+                        Text(L("更早的工作", "Earlier work")).font(.title3.bold()).padding(.top, 12)
+                    }
                     AgentWorkTurnView(client: client, agentID: agentID, turn: turn, sessions: root?.other_executions ?? [], online: online,
                         canManage: canManage, onOpenChat: onOpenChat, separate: separate,
-                        active: headTurnIDs.contains(turn.id) && ["running", "waiting_permission", "unknown"].contains(turn.status), headUpdate: headUpdate, focused: focus?.turn.id == turn.id)
+                        active: headTurnIDs.contains(turn.id) && ["running", "waiting_permission", "unknown"].contains(turn.status),
+                        headUpdate: headUpdate, focused: focus?.turn.id == turn.id, featured: index == 0, contact: contact)
                         .id(turn.id)
-                        .accessibilityIdentifier("work.turn." + turn.id)
                 }
                 if loaded && displayed.isEmpty && !executionDeleted && error == nil {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Image(systemName: "text.page").font(.title2).foregroundStyle(NanoTheme.accent)
-                        Text(L("还没有工作记录", "No work records yet")).font(.headline)
-                    }.padding(.vertical, 12).listRowBackground(Color.clear)
+                    VStack(alignment: .leading, spacing: 14) {
+                        Image(systemName: "book.pages").font(.system(size: 34)).foregroundStyle(NanoTheme.accent)
+                        Text(L("还没有工作记录", "No work records yet")).font(.title3.bold())
+                        Text(L("助手处理过的消息和任务会出现在这里。", "Messages and tasks your assistant works on will appear here."))
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }.padding(22).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color("Butter").opacity(0.65), in: RoundedRectangle(cornerRadius: 18))
                 }
                 if let last = displayed.last, executionHistory?.hasEarlier(after: last) == true { earlierPage(last) }
-            }
-            if let root {
-                DisclosureGroup(L("更多工作信息", "More work details")) {
-                    workDetails(root)
-                }
-            }
-        }.listStyle(.insetGrouped).scrollContentBackground(.hidden)
+            }.padding(.horizontal, 20).padding(.top, 22).padding(.bottom, 32)
+        }
     }
     @ViewBuilder private func workDetails(_ root: AgentWorkPage) -> some View {
         DisclosureGroup(L("执行信息与上下文", "Execution details and context")) {
@@ -291,11 +316,21 @@ private struct AgentWorkControls: View {
     }
 }
 
+private struct WorkPresenceLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 5) { configuration.icon.font(.system(size: 7)); configuration.title.font(.footnote) }
+    }
+}
+
 struct AgentWorkTurnView: View {
     let client: IMClient; let agentID: String; let turn: AgentWorkTurn; let sessions: [AgentWorkSession]
     let online: Bool; let canManage: Bool; let onOpenChat: @MainActor (String) -> Void
     let separate: Bool; let active: Bool; let headUpdate: Int
     var focused = false
+    var featured = false
+    var contact: Contact? = nil
+    @State private var preview: String?
+
     @State private var expanded = false
     @State private var extra: [String: AgentWorkItem] = [:]
     @State private var extraCursor: String?
@@ -313,57 +348,106 @@ struct AgentWorkTurnView: View {
         return agentVisibleWorkItems(Array(map.values))
     }
     private var state: String { !online && ["running", "waiting_permission"].contains(turn.status) ? "unknown" : turn.status }
-    private var recentSummary: String? {
-        for item in items.reversed() {
-            let keys = item.kind == "tool" ? ["output", "summary"] : ["text", "content"]
-            for key in keys {
-                if case .string(let text)? = item.payload[key], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return text }
+    private var delivery: WorkDelivery? { items.reversed().lazy.compactMap(WorkDelivery.init).first }
+    private var disclosureLabel: some View {
+        HStack(spacing: 5) {
+            Text(expanded ? L("收起过程", "Hide activity") : L("查看过程", "Show activity"))
+            Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption2.bold())
+        }.font(.footnote.weight(.medium))
+    }
+    private func toggleDetails() {
+        withAnimation(.easeOut(duration: 0.18)) { expanded.toggle() }
+    }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: toggleDetails) {
+                VStack(alignment: .leading, spacing: featured ? 13 : 7) {
+                    HStack {
+                        if let start = turn.started_at { NanoDateTime(value: start).font(.caption.weight(.medium)) }
+                        Spacer(minLength: 4)
+                        Label(agentWorkStatus(state), systemImage: state == "completed" ? "checkmark.circle.fill" : "clock")
+                            .font(.caption.weight(.semibold))
+                    }
+                    if focused {
+                        Label(L("这条回复的工作", "Work for this reply"), systemImage: "arrowshape.turn.up.left").font(.footnote)
+                    }
+                    HStack(spacing: 10) {
+                        if featured, let contact {
+                            AssistantPortrait(personal: contact.role == "personal", seed: agentID, selected: contact.avatar_variant, size: 44)
+                        }
+                        Text(delivery != nil ? L("发出了一条消息", "Sent a message") : turn.title)
+                            .font(featured ? .title2.bold() : .headline)
+                    }
+                    if let stage = turn.maintenance_stage { Text(stage).font(.caption).foregroundStyle(.secondary) }
+                    if let preview, featured {
+                        Text(verbatim: preview).font(.body).lineSpacing(3).lineLimit(4)
+                            .padding(.leading, 12)
+                            .overlay(alignment: .leading) { Capsule().fill(NanoTheme.ink.opacity(0.24)).frame(width: 3) }
+                    }
+                    if !featured || preview == nil { disclosureLabel }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).accessibilityIdentifier("work.turn." + turn.id)
+            if featured, let delivery, preview != nil {
+                Divider().padding(.top, 12)
+                HStack {
+                    WorkSourceLink(client: client, conversation: delivery.conversation, message: delivery.message, onOpenChat: onOpenChat)
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(NanoTheme.accent)
+                    Spacer()
+                    Button(action: toggleDetails) { disclosureLabel }.buttonStyle(.plain)
+                }.frame(minHeight: 44)
+            }
+            if expanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    DisclosureGroup(L("执行信息", "Execution information")) {
+                        Text(turn.turn_id).font(.caption).textSelection(.enabled)
+                        Text(turn.model_id ?? L("模型未报告", "Model unreported")).font(.caption)
+                        if let origin = turn.origin { JSONDetailView(value: origin) }
+                        if let trigger = turn.trigger { JSONDetailView(value: .object(trigger)) }
+                        if let start = turn.started_at { NanoDateTime(value: start) }
+                        if let finish = turn.finished_at { NanoDateTime(value: finish) }
+                    }
+                    ForEach(items) { item in
+                        AgentWorkItemView(client: client, agentID: agentID, sessionID: turn.session_id, item: item, sessions: sessions, online: online, canManage: canManage, onOpenChat: onOpenChat, separate: separate)
+                        Divider()
+                    }
+                    AgentWorkUsage(value: turn.usage, title: L("本轮统计", "Turn statistics"))
+                    if let elapsed = turn.elapsed_ms { LabeledContent(L("耗时", "Duration"), value: String(format: "%.2f s", elapsed / 1000)) }
+                    if (didLoad ? extraCursor : turn.next_items_cursor) != nil { Button(L("加载更多过程", "Load more process")) { Task { await loadMore() } }.disabled(busy) }
+                    if busy && separate && !didLoad { ProgressView() }
+                    if let error {
+                        ErrorNotice(message: error)
+                        Button(L("重试", "Retry")) { Task { await loadMore() } }.disabled(busy)
+                    }
+                    if let changesError { ErrorNotice(message: changesError) }
+                    if moreChanges || changesError != nil {
+                        Button(changesError == nil ? L("加载更多更新", "Load more updates") : L("重试", "Retry")) { Task { await refreshItems() } }.disabled(busy)
+                    }
+                }.padding(.vertical, 8)
             }
         }
-        return nil
-    }
-
-    var body: some View {
-        DisclosureGroup(isExpanded: $expanded) {
-            VStack(alignment: .leading, spacing: 12) {
-                DisclosureGroup(L("执行信息", "Execution information")) {
-                    Text(turn.turn_id).font(.caption).textSelection(.enabled)
-                    Text(turn.model_id ?? L("模型未报告", "Model unreported")).font(.caption)
-                    if let origin = turn.origin { JSONDetailView(value: origin) }
-                    if let trigger = turn.trigger { JSONDetailView(value: .object(trigger)) }
-                    if let start = turn.started_at { NanoDateTime(value: start) }
-                    if let finish = turn.finished_at { NanoDateTime(value: finish) }
-                }
-                ForEach(items) { item in
-                    AgentWorkItemView(client: client, agentID: agentID, sessionID: turn.session_id, item: item, sessions: sessions, online: online, canManage: canManage, onOpenChat: onOpenChat, separate: separate)
-                    Divider()
-                }
-                AgentWorkUsage(value: turn.usage, title: L("本轮统计", "Turn statistics"))
-                if let elapsed = turn.elapsed_ms { LabeledContent(L("耗时", "Duration"), value: String(format: "%.2f s", elapsed / 1000)) }
-                if (didLoad ? extraCursor : turn.next_items_cursor) != nil { Button(L("加载更多过程", "Load more process")) { Task { await loadMore() } }.disabled(busy) }
-                if busy && separate && !didLoad { ProgressView() }
-                if let error {
-                    ErrorNotice(message: error)
-                    Button(L("重试", "Retry")) { Task { await loadMore() } }.disabled(busy)
-                }
-                if let changesError { ErrorNotice(message: changesError) }
-                if moreChanges || changesError != nil {
-                    Button(changesError == nil ? L("加载更多更新", "Load more updates") : L("重试", "Retry")) { Task { await refreshItems() } }.disabled(busy)
-                }
-            }.padding(.vertical, 8)
-        } label: {
-            VStack(alignment: .leading) {
-                if focused { Label(L("这条回复的工作", "Work for this reply"), systemImage: "arrowshape.turn.up.left").font(.caption.weight(.semibold)).foregroundStyle(NanoTheme.accent) }
-                Text(turn.title).font(.headline)
-                if let stage = turn.maintenance_stage { Text(stage).font(.caption).foregroundStyle(.secondary) }
-                HStack { Text(agentWorkStatus(state)).font(.caption).foregroundStyle(.secondary); if let start = turn.started_at { NanoDateTime(value: start).font(.caption2) } }
-                if let summary = recentSummary { Text(summary).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
-            }
-        }.onChange(of: state, initial: true) { _, value in if value == "waiting_permission" || focused { expanded = true } }
-            .onChange(of: expanded) { _, open in if open && separate && !didLoad { Task { await loadMore() } } }
-            .onChange(of: headUpdate) { _, _ in
-                if separate && expanded && (active || wasActive || moreChanges) { Task { await refreshItems() } }
-            }
+        .foregroundStyle(NanoTheme.ink)
+        .padding(featured ? 18 : 0)
+        .background {
+            if featured { RoundedRectangle(cornerRadius: 16).fill(Color("Butter").opacity(0.74)) }
+        }
+        .overlay(alignment: .bottom) { if !featured { Divider().offset(y: 7) } }
+        .onChange(of: state, initial: true) { _, value in if value == "waiting_permission" || focused { expanded = true } }
+        .task(id: (expanded || featured) && separate && !didLoad) {
+            if (expanded || featured) && separate && !didLoad { await loadMore() }
+        }
+        .task(id: featured ? delivery : nil) {
+            preview = nil
+            guard featured, let delivery else { return }
+            struct Reply: Decodable { let message: ChatMessage }
+            let reply: Reply? = try? await client.get("/im/v1/conversations/" + agentSegment(delivery.conversation) + "/messages/" + agentSegment(delivery.message))
+            guard !Task.isCancelled else { return }
+            preview = reply?.message.availableReply?.preview(participants: [])
+        }
+        .onChange(of: headUpdate) { _, _ in
+            if separate && (expanded || featured) && (active || wasActive || moreChanges) { Task { await refreshItems() } }
+        }
     }
     private func store(_ items: [AgentWorkItem]) {
         for item in items where (extra[item.id]?.revision ?? 0) <= (item.revision ?? 0) { extra[item.id] = item }

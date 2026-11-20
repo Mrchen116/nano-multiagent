@@ -30,6 +30,7 @@ struct PersonalAssistantSetup: View {
     @State private var busy = false
     @State private var requestKey = UUID().uuidString
     @State private var copyDone = false
+    @State private var choosingAppearance = false
 
     private struct ModelState: Decodable {
         struct Choice: Decodable { let model: String }
@@ -44,39 +45,71 @@ struct PersonalAssistantSetup: View {
         return personal?.binding?.conversation_id
     }
 
+    private var canSetIdentity: Bool {
+        node?.status == "online" && personal != nil && (setup?.ready == true || personal?.creation != nil)
+    }
+
     var body: some View {
-        Form {
-            if let creationError { Section { ErrorNotice(message: creationError) } }
-            if let error { Section { ErrorNotice(message: error); Button(L("重新检查", "Check again")) { Task { await refresh() } } } }
-            if let chat = boundChat, let binding = personal?.binding {
-                Section {
-                    HStack {
-                        AssistantPortrait(personal: true, seed: binding.agent_id, selected: binding.avatar_variant)
-                        Text(binding.display_name).font(.headline)
-                    }
-                    Button(L("打开聊天", "Open chat")) { openChat(chat) }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                if let creationError { ErrorNotice(message: creationError) }
+                if let error {
+                    ErrorNotice(message: error)
+                    Button(L("重新检查", "Check again")) { Task { await refresh() } }
                 }
-            } else if let onboarding {
-                if node?.status == "online", personal != nil, setup?.ready == true || personal?.creation != nil {
-                    assistantIdentity
-                    Section {
-                        DisclosureGroup(L("工作电脑与模型", "Computer and model")) {
+                if let chat = boundChat, let binding = personal?.binding {
+                    VStack(spacing: 10) {
+                        AssistantPortrait(personal: true, seed: binding.agent_id, selected: binding.avatar_variant, size: 104)
+                        Text(binding.display_name).font(.largeTitle.bold())
+                        if binding.status == "unavailable" {
+                            Label(L("助手暂时不可用", "Assistant temporarily unavailable"), systemImage: "pause.circle").foregroundStyle(.secondary)
+                        }
+                    }.frame(maxWidth: .infinity).padding(.vertical, 20)
+                    Button { openChat(chat) } label: { primaryLabel(L("打开聊天", "Open chat"), symbol: "bubble.left.fill") }
+                        .buttonStyle(.plain)
+                    if binding.status == "active" {
+                        NavigationLink { PersonalAgentManagementView(client: client, agentID: binding.agent_id) } label: {
+                            CrewdenDestination(title: L("个人助手设置", "Personal assistant settings"), symbol: "slider.horizontal.3")
+                        }.buttonStyle(.plain)
+                    }
+                } else if let onboarding {
+                    if canSetIdentity {
+                        assistantIdentity
+                        Button { Task { await create() } } label: {
+                            primaryLabel(personal?.creation == nil ? L("创建个人助手", "Create personal assistant") : L("继续创建", "Resume setup"), symbol: "arrow.right")
+                        }.buttonStyle(.plain)
+                            .accessibilityIdentifier("assistant.setup.submit")
+                            .disabled(busy || (personal?.binding?.display_name ?? name).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        DisclosureGroup {
+                            VStack(alignment: .leading, spacing: 14) {
+                                computerOptions(onboarding)
+                                modelOptions
+                            }.padding(.vertical, 10)
+                        } label: {
+                            Label(L("工作电脑与模型", "Computer and model"), systemImage: "desktopcomputer").font(.subheadline.weight(.medium))
+                        }
+                    } else {
+                        VStack(alignment: .leading, spacing: 15) {
+                            Label(L("工作电脑", "Work computer"), systemImage: "desktopcomputer").font(.title3.bold())
                             computerOptions(onboarding)
-                            modelOptions
+                        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 17))
+                        if node?.status == "online" {
+                            VStack(alignment: .leading, spacing: 12) {
+                                Label(L("模型服务", "Model service"), systemImage: "square.stack.3d.up").font(.title3.bold())
+                                modelOptions
+                            }
                         }
                     }
-                } else {
-                    Section(L("工作电脑", "Work computer")) { computerOptions(onboarding) }
-                    if node?.status == "online" {
-                        Section(L("模型服务", "Model service")) { modelOptions }
-                    }
-                }
-            } else if error == nil { ProgressView() }
-        }
+                } else if error == nil { ProgressView().frame(maxWidth: .infinity) }
+            }.padding(.horizontal, 20).padding(.vertical, 14)
+        }.background(NanoTheme.surface)
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle(L("设置个人助手", "Set up your assistant")).navigationBarTitleDisplayMode(.inline)
         .onAppear { restoreDraft() }
         .onChange(of: name) { saveDraft() }
         .onChange(of: variant) { saveDraft() }
+        .onChange(of: nodeID) { saveDraft() }
         .task(id: nodeID) { setup = nil; await readModel() }
         .task(id: phase) {
             guard phase == .active else { return }
@@ -88,24 +121,37 @@ struct PersonalAssistantSetup: View {
     }
 
     private var assistantIdentity: some View {
-        Section {
+        VStack(spacing: 14) {
             if let pending = personal?.binding {
-                HStack(spacing: 14) {
-                    AssistantPortrait(personal: true, seed: pending.agent_id, selected: pending.avatar_variant, size: 54)
-                    Text(pending.display_name).font(.title3.bold())
-                }
+                AssistantPortrait(personal: true, seed: pending.agent_id, selected: pending.avatar_variant, size: 100)
+                Text(pending.display_name).font(.title.bold())
             } else {
-                HStack {
-                    AssistantPortrait(personal: true, seed: user.id, selected: variant, size: 54)
-                    TextField(L("助手名称", "Assistant name"), text: $name).font(.title3.bold())
+                Button { choosingAppearance.toggle() } label: {
+                    ZStack(alignment: .bottomTrailing) {
+                        AssistantPortrait(personal: true, seed: user.id, selected: variant, size: 90)
+                        Image(systemName: "paintpalette.fill").font(.caption.bold()).foregroundStyle(NanoTheme.accent)
+                            .frame(width: 26, height: 26).background(NanoTheme.surface, in: Circle())
+                    }.padding(6)
+                }.accessibilityLabel(L("选择形象", "Choose appearance")).buttonStyle(.plain)
+                if choosingAppearance {
+                    PortraitPicker(personal: true, variant: $variant)
                 }
-                DisclosureGroup(L("选择形象", "Choose appearance")) { PortraitPicker(personal: true, variant: $variant) }
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L("助手名称", "Assistant name")).font(.caption.weight(.medium)).foregroundStyle(NanoTheme.muted)
+                    TextField(L("助手名称", "Assistant name"), text: $name).font(.title3.bold()).submitLabel(.done)
+                }.padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12))
             }
-            Button(personal?.creation == nil ? L("创建个人助手", "Create personal assistant") : L("继续创建", "Resume setup")) { Task { await create() } }
-                .accessibilityIdentifier("assistant.setup.submit")
-                .disabled(busy || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            if busy { ProgressView() }
-        }
+        }.padding(14).frame(maxWidth: .infinity)
+            .background(NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: 22))
+    }
+
+    private func primaryLabel(_ title: String, symbol: String) -> some View {
+        HStack(spacing: 8) {
+            if busy { ProgressView().tint(.white) } else { Image(systemName: symbol) }
+            Text(title)
+        }.font(.headline).padding(.vertical, 14).frame(maxWidth: .infinity)
+            .background(NanoTheme.accent, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(.white)
     }
 
     @ViewBuilder private func computerOptions(_ onboarding: AssistantOnboarding) -> some View {
@@ -114,10 +160,10 @@ struct PersonalAssistantSetup: View {
                 ForEach(onboarding.nodes) { item in
                     Text(item.name + " · " + settingsStatus(item.status)).tag(item.id)
                 }
-            }.disabled(personal?.creation != nil || busy)
+            }.pickerStyle(.menu).disabled(personal?.creation != nil || busy)
         }
         if node?.status != "online" {
-            Text(L("助手在你的电脑上执行任务。请先在电脑上完成安装并保持在线。", "Install Crewden on the computer where your assistant will work and keep it online.")).font(.callout)
+            Text(node == nil ? L("在电脑上安装 Crewden，然后用绑定链接连接。", "Install Crewden on your computer, then connect it with the binding link.") : L("打开这台电脑上的 Crewden 以继续设置。", "Open Crewden on this computer to continue.")).font(.callout)
             ShareLink(item: client.baseURL.appendingPathComponent("onboarding")) { Label(L("发送设置链接到电脑", "Share computer setup link"), systemImage: "square.and.arrow.up") }
             NavigationLink(L("已有电脑绑定链接", "I have a binding link")) {
                 SettingsBindingView(client: client, user: user, onAccountUpdated: { Task { await refresh() } })

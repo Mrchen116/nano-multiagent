@@ -4,6 +4,25 @@ struct AgentWorkItem: Codable, Identifiable, Sendable {
     var item_id: String; var seq: Int; var kind: String; var observed_at: String?; var revision: Int?; var has_exact_child: Bool?; var payload: [String: JSONValue]
     var id: String { item_id }
 }
+/// A confirmed delivery can identify a chat message. Read its current text with chat permissions.
+struct WorkDelivery: Equatable {
+    let conversation: String
+    let message: String
+
+    init?(_ item: AgentWorkItem) {
+        guard item.kind == "tool" else { return nil }
+        let p = item.payload
+        let fact = p["work_facts"]?.agentArray.last { $0["type"].stringValue == "message_sent" }
+        let detail = p["detail"]?.agentObject
+        let sent = p["name"]?.stringValue == "send_message" && detail?["status"]?.stringValue == "sent"
+        guard let source = fact?.agentObject ?? (sent ? detail : nil),
+              let target = (source["conversation_id"] ?? source["target"])?.stringValue, !target.isEmpty, !target.hasPrefix("local:"),
+              let id = source["message_id"]?.stringValue, !id.isEmpty else { return nil }
+        conversation = target
+        message = id
+    }
+}
+
 struct AgentWorkTurn: Codable, Identifiable, Sendable {
     var description: String?; var session_id: String; var turn_id: String; var scope: String?; var job_id: String?; var run_id: String?
     var status: String; var origin: JSONValue?; var trigger: [String: JSONValue]?; var model_id: String?

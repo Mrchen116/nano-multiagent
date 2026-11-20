@@ -82,7 +82,7 @@ struct AgentActivityView: View {
                     }
                     HStack(spacing: 10) {
                         NavigationLink {
-                            AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, displayName: contact.display_name)
+                            AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, displayName: contact.display_name, contact: contact)
                                 .onAppear { detent = .large }
                         } label: {
                             Label(L("查看工作记录", "View work records"), systemImage: "clock.arrow.circlepath")

@@ -74,7 +74,7 @@ final class CrewdenParityUITests: XCTestCase {
         XCTAssertTrue(app.navigationBars["创建任务"].waitForExistence(timeout: 10))
         capture("crewden-task-editor")
         app.buttons["取消"].tap()
-        app.tabBars.buttons["智能体"].tap()
+        app.tabBars.buttons["助手"].tap()
         let profile = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", try required("NANO_UI_AGENT_NAME"))).firstMatch
         XCTAssertTrue(profile.waitForExistence(timeout: 15))
         capture("crewden-assistants")
@@ -82,12 +82,38 @@ final class CrewdenParityUITests: XCTestCase {
         XCTAssertTrue(app.buttons["发消息"].waitForExistence(timeout: 10))
         capture("crewden-assistant-profile")
         app.buttons["工作记录"].tap()
-        let delegation = app.segmentedControls.buttons["派工关系"]
+        let delegation = app.buttons["派工关系"]
         XCTAssertTrue(delegation.waitForExistence(timeout: 15))
         XCTAssertTrue(app.staticTexts["最近的工作"].firstMatch.waitForExistence(timeout: 10))
         capture("crewden-work")
         delegation.tap()
         XCTAssertTrue(delegation.isSelected)
+    }
+
+    /// Checks that the Work preview really opens the chat message its text came from.
+    func testReadLatestAssistantDelivery() throws {
+        let env = ProcessInfo.processInfo.environment
+        let title = try XCTUnwrap(env["NANO_UI_WORK_CHAT"])
+        let excerpt = try XCTUnwrap(env["NANO_UI_LATEST_DELIVERY"])
+        try launch()
+        let assistant = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+        XCTAssertTrue(assistant.waitForExistence(timeout: 15))
+        assistant.tap()
+        let activity = app.buttons["查看" + title + "的活动"]
+        XCTAssertTrue(activity.waitForExistence(timeout: 10))
+        capture("crewden-fitted-bubble")
+        activity.tap()
+        let records = app.buttons["查看工作记录"]
+        XCTAssertTrue(records.waitForExistence(timeout: 10))
+        capture("crewden-assistant-availability")
+        records.tap()
+        let original = app.buttons["查看原消息"]
+        XCTAssertTrue(original.waitForExistence(timeout: 15))
+        let note = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", excerpt)).firstMatch
+        XCTAssertTrue(note.exists)
+        capture("crewden-work-history")
+        original.tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", excerpt)).firstMatch.waitForExistence(timeout: 15))
     }
 
     func testRegisterAndFindFirstAssistant() throws {
@@ -179,7 +205,7 @@ final class CrewdenParityUITests: XCTestCase {
     func testManagePersonalAssistantExclusions() throws {
         try launch()
         let chatID = try required("NANO_UI_POLICY_CHAT")
-        app.tabBars.buttons["智能体"].tap()
+        app.tabBars.buttons["助手"].tap()
         let settings = app.buttons["personal-agent-settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 20))
         settings.tap()
@@ -242,7 +268,7 @@ extension CrewdenParityUITests {
         capture("crewden-agent-activity")
         if !records.isHittable { app.swipeUp() }
         records.tap()
-        let delegation = app.segmentedControls.buttons["派工关系"]
+        let delegation = app.buttons["派工关系"]
         XCTAssertTrue(delegation.waitForExistence(timeout: 10))
         delegation.tap()
         let sessionLink = app.descendants(matching: .any)["work.delegation." + child].firstMatch

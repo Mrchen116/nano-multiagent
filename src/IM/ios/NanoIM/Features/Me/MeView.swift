@@ -7,6 +7,7 @@ struct MeView: View {
     var openChat: (String) -> Void
     let onSignOut: @MainActor () -> Void
     @State private var personal: NativePersonalAgentState?
+    @State private var computers: [SettingsNode]?
     @State private var confirmSignOut = false
     @State private var applying = false
     @State private var membershipError: String?
@@ -18,53 +19,23 @@ struct MeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 26) {
+            VStack(alignment: .leading, spacing: 20) {
                 if user.accountEnabled {
-                    NavigationLink { SettingsAccountView(client: client, onAccountUpdated: onAccountUpdated) } label: {
-                        identity
-                    }.accessibilityHint(L("编辑个人资料与语言", "Edit profile and language"))
+                    NavigationLink { SettingsAccountView(client: client, onAccountUpdated: onAccountUpdated) } label: { identity }
+                        .accessibilityHint(L("编辑个人资料与语言", "Edit profile and language"))
                     if let chatID = assistant?.conversation_id {
-                        Button { openChat(chatID) } label: { assistantPanel }
+                        Button { openChat(chatID) } label: { assistantContact }
                     } else {
-                        NavigationLink { PersonalAssistantSetup(client: client, user: user, openChat: openChat) } label: { assistantPanel }
+                        NavigationLink { PersonalAssistantSetup(client: client, user: user, openChat: openChat) } label: { assistantContact }
+                    }
+                    NavigationLink { SettingsNodesView(client: client, user: user, accountUpdated: onAccountUpdated) } label: {
+                        computerShelf
                     }
                 } else { identity }
 
-                VStack(spacing: 0) {
-                    if user.accountEnabled {
-                        NavigationLink { SettingsNodesView(client: client, user: user, accountUpdated: onAccountUpdated) } label: {
-                            CrewdenDestination(title: L("我的电脑", "My computers"), symbol: "laptopcomputer",
-                                detail: user.owned_node_ids.isEmpty ? nil : L("\(user.owned_node_ids.count) 台", "\(user.owned_node_ids.count)"))
-                        }
-                    }
-                    if user.membership_status == "active" {
-                        NavigationLink {
-                            List {
-                                if user.is_company_admin {
-                                    NavigationLink(L("团队成员", "Team members")) {
-                                        SettingsCompanyView(client: client, user: user, onAccountUpdated: onAccountUpdated)
-                                    }
-                                }
-                                NavigationLink(L("团队设置", "Team settings")) {
-                                    SettingsPoliciesView(client: client, isAdmin: user.is_company_admin)
-                                }
-                            }.navigationTitle(L("我的团队", "My team")).toolbar(.hidden, for: .tabBar)
-                        } label: {
-                            CrewdenDestination(title: L("我的团队", "My team"), symbol: "person.2",
-                                detail: user.is_company_admin ? L("管理员", "Admin") : nil)
-                        }
-                    } else if user.membership_status == "none" {
-                        Button { Task { await applyToTeam() } } label: {
-                            CrewdenDestination(title: L("加入团队", "Join a team"), symbol: "person.2")
-                        }.disabled(applying)
-                    } else {
-                        Button { onAccountUpdated() } label: {
-                            CrewdenDestination(title: L("团队申请", "Team membership"), symbol: "person.2", detail: settingsStatus(user.membership_status))
-                        }.accessibilityHint(L("刷新状态", "Refresh status"))
-                    }
-                    if let membershipError { ErrorNotice(message: membershipError) }
-                }
-            }.padding(.horizontal, 22).padding(.top, 12).padding(.bottom, 36)
+                teamAccess
+                if let membershipError { ErrorNotice(message: membershipError) }
+            }.padding(.horizontal, 20).padding(.top, 4).padding(.bottom, 36)
         }
         .buttonStyle(.plain).background(NanoTheme.surface)
         .navigationTitle(L("我的", "Me")).navigationBarTitleDisplayMode(.inline)
@@ -74,35 +45,107 @@ struct MeView: View {
                     .accessibilityLabel(L("设置", "Settings"))
             }
         }
-        .task { if user.accountEnabled { personal = try? await client.get("/im/v1/personal-agent") } }
+        .task { await refreshSpace() }
+        .refreshable { await refreshSpace() }
     }
 
     private var identity: some View {
-        HStack(spacing: 16) {
-            AvatarView(name: user.display_name, size: 62)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(user.display_name).font(.title.bold()).foregroundStyle(NanoTheme.ink)
-                Text("@" + user.username).font(.subheadline).foregroundStyle(.secondary)
+        VStack(spacing: 10) {
+            AvatarView(name: user.display_name, size: 76)
+            VStack(spacing: 3) {
+                Text(user.display_name).font(.system(.largeTitle, design: .rounded, weight: .bold)).foregroundStyle(NanoTheme.ink)
+                Text("@" + user.username).font(.subheadline).foregroundStyle(NanoTheme.muted)
             }
-            Spacer()
-            if user.accountEnabled { Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.secondary) }
-        }.padding(.vertical, 10).contentShape(Rectangle())
+            if user.accountEnabled {
+                Label(L("编辑资料", "Edit profile"), systemImage: "pencil")
+                    .font(.caption.weight(.semibold)).foregroundStyle(NanoTheme.ink)
+                    .padding(.horizontal, 12).padding(.vertical, 6).background(NanoTheme.canvas, in: Capsule())
+            }
+        }.multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(.vertical, 10)
+            .contentShape(Rectangle()).accessibilityElement(children: .combine)
     }
 
-    private var assistantPanel: some View {
+    private var assistantContact: some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(assistant?.display_name ?? L("我的个人助手", "My assistant"))
-                    .font(.title3.bold()).foregroundStyle(NanoTheme.ink)
-                Label(assistant?.conversation_id != nil ? L("打开聊天", "Open chat") :
-                        personal == nil ? L("查看助手", "View assistant") :
-                        personal?.creation == nil ? L("创建助手", "Create assistant") : L("继续设置", "Continue setup"),
-                      systemImage: assistant?.conversation_id != nil ? "bubble.left" : "arrow.right")
-                    .font(.subheadline.weight(.semibold)).foregroundStyle(NanoTheme.accent)
+            AssistantPortrait(personal: true, seed: assistant?.agent_id ?? user.id, selected: assistant?.avatar_variant, size: 56)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L("个人助手", "Personal assistant")).font(.caption.weight(.medium)).foregroundStyle(NanoTheme.muted)
+                Text(assistant?.display_name ?? (personal?.creation != nil ? L("继续设置", "Continue setup") :
+                      personal == nil ? L("查看助手", "View assistant") : L("创建助手", "Create assistant")))
+                    .font(.headline).foregroundStyle(NanoTheme.ink)
             }
-            Spacer(minLength: 4)
-            AssistantPortrait(personal: true, seed: assistant?.agent_id ?? user.id, selected: assistant?.avatar_variant, size: 76)
-        }.padding(20).background(NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: 20))
+            Spacer(minLength: 2)
+            Image(systemName: assistant?.conversation_id == nil ? "arrow.right" : "bubble.left.fill")
+                .font(.body.weight(.medium)).foregroundStyle(NanoTheme.accent).frame(width: 44, height: 44)
+                .background(NanoTheme.surface, in: Circle())
+        }.padding(.horizontal, 14).padding(.vertical, 10)
+            .background(NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: 18))
+            .accessibilityHint(assistant?.conversation_id == nil ? L("打开个人助手设置", "Open assistant setup") : L("打开聊天", "Open chat"))
+    }
+
+    private var computerShelf: some View {
+        let count = computers?.count ?? user.owned_node_ids.count
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(L("我的电脑", "My computers")).font(.headline)
+                Spacer()
+                Text(count, format: .number).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.caption.bold()).foregroundStyle(.tertiary)
+            }
+            if let computer = computers?.first(where: { $0.id == user.default_entry_node_id }) ?? computers?.first(where: { $0.status == "online" }) ?? computers?.first {
+                HStack(spacing: 14) {
+                    Image(systemName: "desktopcomputer").font(.system(size: 31, weight: .regular)).foregroundStyle(NanoTheme.ink)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(computer.name).font(.subheadline.weight(.semibold))
+                        HStack(spacing: 5) {
+                            Circle().fill(computer.status == "online" ? Color.green : Color.secondary).frame(width: 7, height: 7)
+                            Text(settingsStatus(computer.status)).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } else if count == 0 {
+                Label(L("连接电脑", "Connect a computer"), systemImage: "desktopcomputer.badge.plus")
+                    .font(.subheadline).foregroundStyle(NanoTheme.accent)
+            }
+        }.foregroundStyle(NanoTheme.ink).padding(16).frame(maxWidth: .infinity, alignment: .leading)
+            .background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 16))
+            .contentShape(Rectangle()).accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder private var teamAccess: some View {
+        if user.membership_status == "active" {
+            NavigationLink {
+                List {
+                    if user.is_company_admin {
+                        NavigationLink(L("团队成员", "Team members")) {
+                            SettingsCompanyView(client: client, user: user, onAccountUpdated: onAccountUpdated)
+                        }
+                    }
+                    NavigationLink(L("团队设置", "Team settings")) { SettingsPoliciesView(client: client, isAdmin: user.is_company_admin) }
+                }.navigationTitle(L("我的团队", "My team")).toolbar(.hidden, for: .tabBar)
+            } label: {
+                CrewdenDestination(title: L("我的团队", "My team"), symbol: "person.2",
+                    detail: user.is_company_admin ? L("管理员", "Admin") : L("成员", "Member"))
+            }
+        } else if user.membership_status == "none" {
+            Button { Task { await applyToTeam() } } label: {
+                CrewdenDestination(title: L("加入团队", "Join a team"), symbol: "person.2")
+            }.disabled(applying)
+        } else {
+            Button { onAccountUpdated() } label: {
+                CrewdenDestination(title: L("团队申请", "Team membership"), symbol: "person.2", detail: settingsStatus(user.membership_status))
+            }.accessibilityHint(L("刷新状态", "Refresh status"))
+        }
+    }
+
+    private func refreshSpace() async {
+        guard user.accountEnabled else { return }
+        async let binding: NativePersonalAgentState? = try? client.get("/im/v1/personal-agent")
+        async let nodes = try? client.settingsNodes()
+        let (next, devices) = await (binding, nodes)
+        guard !Task.isCancelled else { return }
+        personal = next
+        computers = devices?.filter { $0.owner_id == user.owner_id }
     }
 
     private var preferences: some View {

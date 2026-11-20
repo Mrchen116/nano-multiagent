@@ -4,6 +4,30 @@ struct ChatCardPreview: Codable, Sendable, Hashable {
     var title: String?
 }
 
+/// Only task notices have the server-generated actor prefix and task link.
+struct ChatPreviewNotice: Codable, Sendable, Hashable {
+    let kind: String?
+    let graph_id: String?
+    let change_kinds: [String]?
+
+    func summary(content: String?) -> String? {
+        guard kind == "task_graph" else { return nil }
+        let changes = change_kinds ?? []
+        let action: String
+        if changes.contains("created") { action = L("新建任务", "Task created") }
+        else if changes.contains("deleted") { action = L("任务已删除", "Task deleted") }
+        else if changes.contains("assignment") { action = L("任务分配更新", "Task assignment updated") }
+        else if changes.contains("status") { action = L("任务状态更新", "Task status updated") }
+        else { action = L("任务更新", "Task updated") }
+        // The server caps previews at 120 characters. Require a link to this graph
+        // before using its label, as the truncated content alone is ambiguous.
+        guard let graph_id, !graph_id.isEmpty, let content, let start = content.range(of: "：["),
+              let end = content.range(of: "](/tasks/" + graph_id, range: start.upperBound..<content.endIndex) else { return action }
+        let title = MarkdownContent.copy(String(content[start.upperBound..<end.lowerBound]))
+        return title.isEmpty ? action : action + " · " + title
+    }
+}
+
 struct Conversation: Codable, Identifiable, Sendable, Hashable {
     var id: String
     var title: String
@@ -19,6 +43,7 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
     var last_message_preview: String?
     var last_message_sender_name: String?
     var last_message_card: ChatCardPreview?
+    var last_message_system_notice: ChatPreviewNotice?
     var last_message_at: String?
     var created_at: String
     var run_state: String?

@@ -72,8 +72,7 @@ struct TaskStatusBadge: View {
         Label(taskStatus(status), systemImage: taskStatusIcon(status))
             .font(.subheadline.weight(.medium))
             .foregroundStyle(status == "closed" ? NanoTheme.muted : NanoTheme.accent)
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(status == "closed" ? NanoTheme.canvas : NanoTheme.softAccent, in: Capsule())
+
     }
 }
 
@@ -258,16 +257,15 @@ struct TaskStatusSummary: View {
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: 22) {
                 ForEach(taskStatuses.filter { counts[$0, default: 0] > 0 }, id: \.self) { status in
                     let count = counts[status, default: 0]
                     Button { locate(status == "paused" ? "todo" : status == "waiting" ? "doing" : status) } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: taskStatusIcon(status))
-                            Text(taskStatus(status))
-                            Text("\(count)").monospacedDigit().fontWeight(.semibold)
-                        }.font(.caption).padding(.horizontal, 10).padding(.vertical, 9)
-                            .background(NanoTheme.surface, in: Capsule())
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("\(count)").font(.title2.weight(.semibold)).monospacedDigit()
+                            Label(taskStatus(status), systemImage: taskStatusIcon(status)).font(.caption)
+                        }.frame(minHeight: 56, alignment: .leading)
+
                     }.buttonStyle(.plain).foregroundStyle(count > 0 ? NanoTheme.accent : NanoTheme.muted)
                         .disabled(count == 0)
                         .accessibilityLabel(taskStatus(status) + (partial ? L("，已加载 \(count) 项", ", \(count) loaded") : L("，\(count) 项", ", \(count) tasks")))
@@ -295,7 +293,10 @@ struct TaskCompactCard<Actions: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             Button(action: open) {
                 HStack(alignment: .top, spacing: 10) {
-                    Text(title).font(.headline).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: taskStatusIcon(status))
+                        .font(.title3).foregroundStyle(status == "done" || status == "closed" ? NanoTheme.muted : NanoTheme.accent)
+                        .frame(width: 24).padding(.top, 1).accessibilityHidden(true)
+                    Text(title).font(.headline).lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
                     if showsStatus {
                         Label(taskStatus(status), systemImage: taskStatusIcon(status))
                             .font(.caption).foregroundStyle(status == "paused" ? .orange : NanoTheme.accent)
@@ -322,8 +323,9 @@ struct TaskCompactCard<Actions: View>: View {
                 Label(L("已选方案", "Selected candidate"), systemImage: "checkmark.circle.fill")
                     .font(.caption).foregroundStyle(NanoTheme.accent)
             }
-        }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
-            .background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+        }.padding(.vertical, 16).padding(.horizontal, 14).frame(maxWidth: .infinity, alignment: .leading)
+            .background(NanoTheme.surface)
+            .overlay(alignment: .bottom) { Rectangle().fill(NanoTheme.muted.opacity(0.15)).frame(height: 0.5) }
     }
     private var metadata: some View {
         ViewThatFits(in: .horizontal) {

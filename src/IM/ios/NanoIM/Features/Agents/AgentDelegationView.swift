@@ -47,65 +47,81 @@ private struct AgentDelegationWindow: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                Picker(L("活动范围", "Activity window"), selection: $window) {
-                    Text(L("最近 3 天", "Last 3 days")).tag("3d")
-                    Text(L("最近 2 小时", "Last 2 hours")).tag("2h")
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text(L("协作动态", "Working together")).font(.title.bold()).accessibilityAddTraits(.isHeader)
+                    Spacer(minLength: 4)
+                    Menu {
+                        Picker(L("活动范围", "Activity window"), selection: $window) {
+                            Text(L("最近 3 天", "Last 3 days")).tag("3d")
+                            Text(L("最近 2 小时", "Last 2 hours")).tag("2h")
+                        }
+                    } label: {
+                        Label(window == "3d" ? L("最近 3 天", "Last 3 days") : L("最近 2 小时", "Last 2 hours"),
+                              systemImage: "calendar").font(.footnote.weight(.semibold)).frame(minHeight: 44)
+                    }
                 }
                 if let head {
-                    HStack { NanoTimestamp(value: head.from); Text("–"); NanoTimestamp(value: head.until) }.font(.caption).foregroundStyle(.secondary)
+                    HStack { NanoDateTime(value: head.from); Text("–"); NanoDateTime(value: head.until) }
+                        .font(.caption).foregroundStyle(.secondary)
                     if head.record_sync_state != "current" {
                         Label(head.record_sync_state == "catching_up" ? L("记录同步中", "Syncing records") : L("已保存记录", "Saved records"),
                               systemImage: "clock").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-            }
-            if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await read(more: false) } } }
-            if head == nil && error == nil { ProgressView() }
-            if head != nil {
-                Section {
-                    if nodes.isEmpty { Text(L("这个时间范围内没有派工记录。", "No delegations in this time window.")).foregroundStyle(.secondary) }
-                    ForEach(visibleRows, id: \.node.id) { row in
-                        HStack(spacing: 2) {
-                            if row.hasChildren {
-                                Button {
-                                    if !expanded.insert(row.node.id).inserted { expanded.remove(row.node.id) }
-                                } label: {
-                                    Image(systemName: expanded.contains(row.node.id) ? "chevron.down" : "chevron.right")
-                                        .font(.caption.weight(.bold)).frame(width: 44, height: 44)
-                                }
-                                .buttonStyle(.borderless)
-                                .accessibilityLabel(expanded.contains(row.node.id) ? L("收起子执行", "Collapse children") : L("展开子执行", "Expand children"))
-                            } else if row.depth > 0 {
-                                Image(systemName: "arrow.turn.down.right").font(.caption).foregroundStyle(.tertiary).frame(width: 24)
-                            }
-                            if row.node.canOpenRecords {
-                                NavigationLink {
-                                    AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, sessionID: row.node.id)
-                                } label: { nodeLabel(row.node) }
-                                .accessibilityIdentifier("work.delegation." + row.node.id)
-                            } else { nodeLabel(row.node) }
+                if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await read(more: false) } } }
+                if head == nil && error == nil { ProgressView() }
+                if head != nil {
+                    Section {
+                        if nodes.isEmpty {
+                            Label(L("这段时间还没有派工", "No delegations during this period"), systemImage: "point.3.connected.trianglepath.dotted")
+                                .padding(.vertical, 18).foregroundStyle(.secondary)
                         }
-                        .padding(.leading, CGFloat(min(row.depth, 3)) * 8)
+                        ForEach(visibleRows, id: \.node.id) { row in
+                            HStack(spacing: 2) {
+                                if row.hasChildren {
+                                    Button {
+                                        if !expanded.insert(row.node.id).inserted { expanded.remove(row.node.id) }
+                                    } label: {
+                                        Image(systemName: expanded.contains(row.node.id) ? "chevron.down" : "chevron.right")
+                                            .font(.caption.weight(.bold)).frame(width: 44, height: 44)
+                                    }
+                                    .buttonStyle(.borderless)
+                                    .accessibilityLabel(expanded.contains(row.node.id) ? L("收起子执行", "Collapse children") : L("展开子执行", "Expand children"))
+                                } else if row.depth > 0 {
+                                    Image(systemName: "arrow.turn.down.right").font(.caption).foregroundStyle(.tertiary).frame(width: 24)
+                                }
+                                if row.node.canOpenRecords {
+                                    NavigationLink {
+                                        AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, sessionID: row.node.id)
+                                    } label: { nodeLabel(row.node) }
+                                    .accessibilityIdentifier("work.delegation." + row.node.id)
+                                } else { nodeLabel(row.node) }
+                            }
+                            .padding(12)
+                            .background(row.node.id == head?.main_session_id ? NanoTheme.softAccent : NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 12))
+                            .padding(.leading, CGFloat(min(row.depth, 3)) * 12)
+                        }
+                        if cursor != nil {
+                            Button(L("加载更多派工", "Load more delegations")) { Task { await read(more: true) } }.disabled(loadingMore)
+                        }
                     }
-                    if cursor != nil {
-                        Button(L("加载更多派工", "Load more delegations")) { Task { await read(more: true) } }.disabled(loadingMore)
+                    Section {
+                        Divider().padding(.top, 12)
+                        AgentHistoricalSessions(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat)
                     }
                 }
-                Section {
-                    AgentHistoricalSessions(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat)
-                }
-            }
+            }.padding(.horizontal, 20).padding(.vertical, 16)
         }
-        .listStyle(.insetGrouped).scrollContentBackground(.hidden)
+        .background(NanoTheme.surface)
         .refreshable { await read(more: false) }
         .workRefresh(client: client, agentID: agentID, every: 30) { await read(more: false) }
     }
 
     private func nodeLabel(_ node: AgentDelegationNode) -> some View {
         let isMain = node.id == head?.main_session_id
-        let title = isMain ? L("主 Agent", "Main agent") : node.title ?? node.id
+        let title = isMain ? L("主助手", "Lead assistant") : node.title ?? node.id
         let ambiguous = !isMain && nodes.values.contains { $0.id != node.id && $0.title != nil && $0.title == node.title }
         return VStack(alignment: .leading, spacing: 5) {
             Text(ambiguous ? title + " · " + node.id.suffix(8) : title).font(.headline)
@@ -122,7 +138,7 @@ private struct AgentDelegationWindow: View {
                 }
             } else { Text(L("用量尚未报告", "Usage not reported yet")).font(.caption).foregroundStyle(.secondary) }
             if node.ancestor_only == true { Text(L("仅显示派工路径", "Ancestor on this path")).font(.caption).foregroundStyle(.secondary) }
-        }.padding(.vertical, 4)
+        }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
     }
 
     private func read(more: Bool) async {

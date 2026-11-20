@@ -259,7 +259,7 @@ private struct RootTabs: View {
             NavigationStack { TasksView(client: client, onReference: reference) }.id(taskNavigationID)
                 .tabItem { Label(L("任务", "Tasks"), systemImage: "checklist") }.tag(1)
             NavigationStack { AgentsView(client: client, user: user, onOpenChat: openChat) }
-                .tabItem { Label(L("智能体", "Agents"), systemImage: "person.2") }.tag(2)
+                .tabItem { Label(L("助手", "Assistants"), systemImage: "person.2") }.tag(2)
             NavigationStack { MeView(client: client, user: user, onAccountUpdated: accountUpdated, openChat: openChat, onSignOut: signOut) }
                 .tabItem { Label(L("我的", "Me"), systemImage: "person.crop.circle") }.tag(3)
         }
@@ -344,7 +344,9 @@ private struct RootTabs: View {
         chatPath = [ChatRoute(conversationID: id, requestID: requestID)]
     }
     private func reference(_ id: String, _ text: String) {
-        chat.setDraft(id, [chat.drafts[id] ?? "", text].filter { !$0.isEmpty }.joined(separator: "\n\n"))
+        if !text.isEmpty {
+            chat.setDraft(id, [chat.drafts[id] ?? "", text].filter { !$0.isEmpty }.joined(separator: "\n\n"))
+        }
         openChat(id)
     }
 }

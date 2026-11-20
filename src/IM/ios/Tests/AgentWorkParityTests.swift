@@ -43,6 +43,19 @@ struct AgentWorkParityTests {
         #expect(!activity.confirmedChildren)
     }
 
+    @Test func onlyConfirmedChatDeliveriesCanPreviewAnOriginalMessage() throws {
+        func delivery(_ payload: String) throws -> WorkDelivery? {
+            let item: AgentWorkItem = try decode("""
+            {"item_id":"call","seq":1,"kind":"tool","payload":\(payload)}
+            """)
+            return WorkDelivery(item)
+        }
+        #expect(try delivery(#"{"name":"send_message","status":"completed","input":{"text":"draft"}}"#) == nil)
+        #expect(try delivery(#"{"work_facts":[{"type":"draft_withheld","target":"chat","message_id":"draft"}]}"#) == nil)
+        #expect(try delivery(#"{"name":"send_message","detail":{"status":"sent","target":"chat","message_id":"sent"}}"#)?.message == "sent")
+        #expect(try delivery(#"{"work_facts":[{"type":"message_sent","conversation_id":"chat","message_id":"sent"}]}"#)?.conversation == "chat")
+    }
+
     @Test func delegationKeepsUnreportedUsageDistinctFromZero() throws {
         let page: AgentDelegationPage = try decode(#"{"from":"2026-11-18","until":"2026-11-21","revision":5,"node_connection_state":"offline","record_sync_state":"unknown","main_session_id":"main","nodes":[{"session_id":"child","parent_session_id":"main","status":"completed","usage":{"total_tokens":null,"reported_turns":0,"missing_turns":1}},{"session_id":"main","status":"idle","ancestor_only":true,"usage":{"total_tokens":0,"reported_turns":1,"missing_turns":1}},{"session_id":"starting","scope":"worker","status":"starting","runtime":"codex"}],"next_cursor":"child"}"#)
         #expect(page.nodes[0].usage?.total_tokens == nil)

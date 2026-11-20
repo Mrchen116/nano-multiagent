@@ -13,6 +13,7 @@ struct PersonalAgentPolicy: Decodable, Sendable, Equatable {
 private struct PersonalSettings: Decodable, Sendable {
     struct Binding: Decodable, Sendable {
         let binding_id, agent_id, conversation_id, display_name, status: String
+        let avatar_variant: Int?
     }
     let binding: Binding?
     let policy: PersonalAgentPolicy?
@@ -68,10 +69,17 @@ struct PersonalAgentManagementView: View {
             if let binding = state?.binding, let policy = state?.policy {
                 profile(binding)
                 exclusions(binding, policy)
-                incidentSection
-                blockedSection
+                if !incidents.isEmpty { incidentSection }
+                if !blocked.isEmpty { blockedSection }
+                if incidents.isEmpty && blocked.isEmpty {
+                    Label(L("暂无风险事件或受限联系人", "No privacy incidents or blocked contacts"), systemImage: "checkmark.shield")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                runtimeSettings
             }
         }
+        .scrollContentBackground(.hidden).background(NanoTheme.canvas)
+        .scrollDismissesKeyboard(.interactively)
         .navigationTitle(L("个人助手设置", "Personal assistant")).navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .nanoUnsavedChanges(dirty)
@@ -86,20 +94,37 @@ struct PersonalAgentManagementView: View {
     }
 
     private func profile(_ binding: PersonalSettings.Binding) -> some View {
-        Section(L("个人助手", "Personal assistant")) {
-            TextField(L("名称", "Name"), text: $name)
+        Section {
+            HStack(spacing: 14) {
+                AssistantPortrait(personal: true, seed: binding.agent_id, selected: binding.avatar_variant, size: 62)
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(L("助手名称", "Assistant name"), systemImage: "pencil").font(.caption).foregroundStyle(.secondary)
+                    TextField(L("名称", "Name"), text: $name).font(.title3.bold()).submitLabel(.done)
+                }
+                Button { openChat(binding.conversation_id) } label: {
+                    Image(systemName: "bubble.left.fill").frame(width: 44, height: 44)
+                        .foregroundStyle(NanoTheme.accent).background(NanoTheme.surface, in: Circle())
+                }.buttonStyle(.plain).accessibilityLabel(L("打开聊天", "Open chat")).disabled(dirty || busy)
+            }.listRowBackground(NanoTheme.softAccent).padding(.vertical, 3)
             if name != binding.display_name {
                 Button(L("保存名称", "Save name")) { Task { await perform {
                     let _: PersonalSettings = try await client.send(base, method: "PATCH", body: ["display_name": name.trimmingCharacters(in: .whitespacesAndNewlines)])
                 } } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !current || busy)
             }
-            NavigationLink(L("模型、技能和运行设置", "Model, skills and runtime")) {
+        }
+    }
+
+    private var runtimeSettings: some View {
+        Section(L("工作设置", "Work settings")) {
+            NavigationLink {
                 AgentConfigView(client: client, agentID: agentID, personal: true)
+            } label: { Label(L("模型、技能和运行设置", "Model, skills and runtime"), systemImage: "slider.horizontal.3") }
+            NavigationLink { AgentChannelsView(client: client, agentID: agentID) } label: {
+                Label(L("外部通道", "Channels"), systemImage: "antenna.radiowaves.left.and.right")
             }
-            NavigationLink(L("外部通道", "Channels")) { AgentChannelsView(client: client, agentID: agentID) }
-            NavigationLink(L("技能使用情况", "Skill usage")) {
+            NavigationLink {
                 AgentSkillsView(client: client, agentID: agentID, canManage: true, global: true, onOpenChat: openChat)
-            }
+            } label: { Label(L("技能使用情况", "Skill usage"), systemImage: "sparkles") }
         }
     }
 
@@ -123,7 +148,6 @@ struct PersonalAgentManagementView: View {
 
     private var incidentSection: some View {
         Section(L("风险事件", "Privacy incidents")) {
-            if incidents.isEmpty { Text(L("暂无风险事件", "No privacy incidents")).foregroundStyle(.secondary) }
             ForEach(incidents) { item in
                 DisclosureGroup {
                     Text(item.reason).font(.callout)
@@ -149,7 +173,6 @@ struct PersonalAgentManagementView: View {
 
     private var blockedSection: some View {
         Section(L("已限制的联系人", "Blocked contacts")) {
-            if blocked.isEmpty { Text(L("暂无已限制联系人", "No blocked contacts")).foregroundStyle(.secondary) }
             ForEach(blocked) { contact in
                 DisclosureGroup(contact.actor_name) {
                     Text(contact.reason)
