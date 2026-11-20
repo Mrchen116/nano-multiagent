@@ -134,6 +134,13 @@ internal static class Package {
         }
         Check(new FileInfo(file).Length == size && Hash(file) == sha, "下载文件校验失败，请重试。");
     }
+    // Framework ZIP extraction otherwise hits MAX_PATH on ordinary Windows 10 configurations.
+    // Keep normal paths for launching processes and use the extended form only for filesystem I/O.
+    static string ExtendedPath(string path) {
+        if (path.StartsWith(@"\\?\")) return path;
+        var absolute = Path.GetFullPath(path);
+        return absolute.StartsWith(@"\\") ? @"\\?\UNC\" + absolute.Substring(2) : @"\\?\" + absolute;
+    }
     static void Extract(string zipPath, string destination) {
         using (var zip = ZipFile.OpenRead(zipPath)) {
             foreach (var entry in zip.Entries) {
@@ -147,8 +154,8 @@ internal static class Package {
                 Check((type == 0 || type == 0x8000) && (entry.ExternalAttributes & 0x400) == 0,
                     "发行包中仅允许普通文件。");
                 var path = Path.Combine(destination, relative.Replace('/', Path.DirectorySeparatorChar));
-                Directory.CreateDirectory(Path.GetDirectoryName(path));
-                entry.ExtractToFile(path, false);
+                Directory.CreateDirectory(ExtendedPath(Path.GetDirectoryName(path)));
+                entry.ExtractToFile(ExtendedPath(path), false);
             }
         }
     }
@@ -159,7 +166,7 @@ internal static class Package {
         report(runtime ? "正在准备运行环境。首次下载可能需要几分钟…" : "正在准备 Crewden 应用…");
         var zip = Path.Combine(temp, asset.name);
         Download(zip, remote + asset.name, asset.size, asset.sha256);
-        var stage = Path.Combine(temp, asset.sha256);
+        var stage = Path.Combine(temp, runtime ? "runtime" : "app");
         Directory.CreateDirectory(stage);
         Extract(zip, stage);
         if (runtime) Launcher.Run(Path.Combine(stage, "node.exe"), Path.Combine(stage, "layout.mjs"), "runtime", stage, final);
@@ -217,6 +224,7 @@ internal static class Package {
     }
     // Never recurse into junctions. A partially prepared version points at shared healthy caches.
     static void RemoveTree(string directory) {
+        directory = ExtendedPath(directory);
         foreach (string child in Directory.GetDirectories(directory)) {
             if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) != 0) Directory.Delete(child);
             else RemoveTree(child);
