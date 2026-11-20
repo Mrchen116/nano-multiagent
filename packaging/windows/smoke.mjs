@@ -3,11 +3,24 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 const [version, home] = process.argv.slice(2);
 const fromNode = createRequire(join(version, 'apps/node/lib/cli.js'));
 const { prepareProfile, RuntimeClient } = await import(pathToFileURL(fromNode.resolve('@nano/dsh-integration/client')).href);
 mkdirSync(home, { recursive: true });
+// A reboot can leave the former Gateway PID occupied by an unrelated process.
+const {manageGateway, processBirth} = await import(pathToFileURL(join(version, 'apps/node/lib/lifecycle.js')).href);
+const configPath = join(home, 'gateway.yaml');
+writeFileSync(configPath, '');
+const statePath = join(home, '.gateway-state.json');
+const recordBirth = birth => writeFileSync(statePath, JSON.stringify({pid:process.pid, config_path:configPath, process_start:birth}));
+recordBirth('1'); // Positive Windows FILETIME before the current system boot.
+assert.equal((await manageGateway(configPath, {}, 'status')).text, 'NOT RUNNING');
+const currentBirth = BigInt(await processBirth(process.pid));
+recordBirth(String(currentBirth + 1n));
+await assert.rejects(manageGateway(configPath, {}, 'stop'), /PID identity changed/);
+console.log('Previous-boot state expired; same-boot PID reuse preserved');
+
 await prepareProfile(home);
 const runtime = new RuntimeClient({home, cwd:home, onLog: text => process.stderr.write(text)});
 const timer = setTimeout(() => { runtime.process.kill(); throw new Error('Installed DSH did not initialize'); }, 120_000);

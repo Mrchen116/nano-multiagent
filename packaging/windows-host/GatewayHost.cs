@@ -33,9 +33,11 @@ internal static class GatewayHost {
             switch (args[0]) {
                 case "birth": Console.Write(Birth(Int32.Parse(args[1]))); return 0;
                 case "boot":
+                case "boot-filetime":
                     using (var os = new ManagementObjectSearcher("SELECT LastBootUpTime FROM Win32_OperatingSystem"))
                     using (var rows = os.Get()) foreach (ManagementObject row in rows) {
-                        Console.Write(ManagementDateTimeConverter.ToDateTime((string)row["LastBootUpTime"]).ToUniversalTime().Ticks); return 0;
+                        DateTime boot = ManagementDateTimeConverter.ToDateTime((string)row["LastBootUpTime"]).ToUniversalTime();
+                        Console.Write(args[0] == "boot-filetime" ? boot.ToFileTimeUtc() : boot.Ticks); return 0;
                     }
                     throw new Exception("Windows did not report LastBootUpTime");
                 case "open-browser":

@@ -92,6 +92,7 @@ export async function gatewayState(
     throw error;
   }
 }
+let windowsBootFileTime: Promise<bigint> | undefined;
 async function ownedState(config: string) {
   const state = await gatewayState(config);
   if (!state) return;
@@ -99,6 +100,14 @@ async function ownedState(config: string) {
     throw new Error(
       "Gateway state belongs to another config; refusing to signal it",
     );
+  // A previous boot cannot own a live PID, even if Windows has reassigned it.
+  if (process.platform === "win32" && /^[1-9]\d*$/.test(state.process_start)) {
+    windowsBootFileTime ??= windowsHost("boot-filetime").then(BigInt).catch(error => {
+      windowsBootFileTime = undefined;
+      throw error;
+    });
+    if (BigInt(state.process_start) < await windowsBootFileTime) return;
+  }
   const birth = await processBirth(state.pid);
   if (!birth) return;
   if (!state.process_start || birth !== state.process_start)
