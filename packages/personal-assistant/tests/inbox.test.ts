@@ -34,6 +34,20 @@ it('erases a retired Inbox without invalidating a peer read or reusing an input 
   } finally { store.close(); }
 });
 
+it('redacts external worker details without treating CLI worker ids as native DSH sessions', () => {
+  const store = new InboxStore(':memory:');
+  try {
+    for (const runtime of ['codex','claude','dsh'] as const) {
+      const worker = {root_agent_id:'alice', session_id:runtime};
+      store.append({...worker,event_id:runtime,type:'worker_state',
+        payload:{runtime,parent_session_id:'root',call_id:runtime,title:runtime,status:'running'}});
+      store.append({...worker,event_id:runtime+'-turn',turn_id:'1',type:'turn_started',payload:{}});
+    }
+    expect(store.deletionSessionIds('alice')).toEqual(['dsh']);
+    expect(store.deletionWork('alice').entries).toHaveLength(6);
+  } finally {store.close();}
+});
+
 it('only consumes exact durable read fragments, across restart and a frozen page snapshot', () => {
   const dir = mkdtempSync(join(tmpdir(), 'nano-inbox-'));
   let store = new InboxStore(join(dir, 'inbox.sqlite3'));

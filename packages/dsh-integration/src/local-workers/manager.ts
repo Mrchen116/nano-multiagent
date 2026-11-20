@@ -4,8 +4,9 @@ import type { Agent } from '@deepseek-ai/dsh-agent';
 import { SessionId, SessionLogOffset, type Session } from '@deepseek-ai/dsh-session';
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain';
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools';
-import type { ModelRunProjection, RuntimeWorkerChange } from '@nano/product-contracts';
+import type { ModelRunProjection, RuntimeWorkerChange, RuntimeWorkerDetail } from '@nano/product-contracts';
 import { z } from 'zod';
+import { jsonBytes, workPageBytes } from '../work-page.js';
 import { openCliWorker } from './drivers.js';
 import { workerReportBridge } from './report-bridge.js';
 
@@ -17,11 +18,16 @@ const recordSchema = z.object({
   runtime: z.enum(['dsh', 'codex', 'claude']),
   state: z.enum(['starting', 'running', 'completed', 'failed', 'interrupted']),
   sessionId: z.string().optional(),
+  activationId: z.string().optional(),
 });
 export type WorkerRecord = z.infer<typeof recordSchema>;
 const turnUsage = z.object({ id: z.string(), totalTokens: z.number().int().nonnegative().nullable() });
+const workerDetail = z.object({
+  turnId: z.string(),
+  fact: z.custom<RuntimeWorkerDetail['fact']>(),
+});
 const workState = z.object({
-  id: z.string(), time: z.number(), state: recordSchema.shape.state, turnUsage: turnUsage.optional(),
+  id: z.string(), time: z.number(), state: recordSchema.shape.state, turnUsage: turnUsage.optional(), detail: workerDetail.optional(),
 });
 const storedWorker = recordSchema.extend({ pending: z.array(workState).optional(), nativeThrough: z.number().optional() });
 type EndedTurn = z.infer<typeof turnUsage> & { time: number };
@@ -29,6 +35,7 @@ const reportSchema = z.object({
   rootId: z.string(),
   workerId: z.string(),
   eventId: z.string(),
+  activationId: z.string().optional(),
   text: z.string(),
   state: z.enum(['completed', 'failed', 'interrupted']).optional(),
 });
@@ -44,6 +51,10 @@ declare module '@deepseek-ai/cordis' {
     nanoWorkers: LocalWorkers;
   }
 }
+function reportKey(worker: string, event: string): string {
+  return createHash('sha256').update(JSON.stringify([worker, event])).digest('hex');
+}
+
 type Cli = Awaited<ReturnType<typeof openCliWorker>>;
 type Active = { rootId: string; cli: Cli; bridge: Awaited<ReturnType<typeof workerReportBridge>> };
 type Report = (rootId: string, workerId: string, eventId: string, text: string) => Promise<void>;
@@ -125,6 +136,8 @@ export class LocalWorkers {
       if (previous && previous.state === next.state && previous.sessionId === next.sessionId) return previous;
       // DSH rejects unknown native events on replay. Commit the relation and its Work delivery together.
       const update = { id: randomUUID(), time: Date.now(), state: next.state };
+      if (next.runtime !== 'dsh' && (!previous || (next.state === 'running' && previous.state !== 'starting' && previous.state !== 'running')))
+        next.activationId = update.id;
       await table.put(next.workerId, { ...next, pending: [...(previous?.pending ?? []), update] });
       this.workChanged(next.rootId);
       return next;
@@ -173,17 +186,28 @@ export class LocalWorkers {
     });
   }
 
-  async workPage(rootId: string): Promise<RuntimeWorkerChange[]> {
+  async hasPendingWork(rootId: string): Promise<boolean> {
+    for (const [, row] of (await this.domain).table('workers').entries()) {
+      if (row.rootId === rootId && row.pending?.length) return true;
+    }
+    return false;
+  }
+
+  async workPage(rootId: string) {
     const page: RuntimeWorkerChange[] = [];
+    let bytes = 0;
     for (const [, row] of (await this.domain).table('workers').entries()) {
       if (row.rootId !== rootId || !row.pending?.length) continue;
       const { workerId, callId, label, runtime } = row;
       for (const update of row.pending) {
-        page.push({ workerId, rootId, callId, label, runtime, ...update });
-        if (page.length === 128) return page;
+        const change = { workerId, rootId, callId, label, runtime, ...update };
+        const size = jsonBytes(change);
+        if (page.length && (page.length >= 128 || bytes + size > workPageBytes)) return {page, more: true};
+        page.push(change);
+        bytes += size;
       }
     }
-    return page;
+    return {page, more: false};
   }
 
   async confirmWork(rootId: string, changes: {workerId: string; id: string}[]) {
@@ -201,12 +225,24 @@ export class LocalWorkers {
   /** A crash cannot leave an old external call displayed as still running. */
   async recover(root: Agent) {
     const cold = await this.cold;
+    if (!cold.size) return;
+    const domain = await this.domain;
+    const reports = domain.table('reports');
     for (const id of cold) {
-      const row = (await this.domain).table('workers').get(id);
-      if (row?.rootId === root.id) {
-        await this.change(row, { state: 'interrupted' });
-        cold.delete(id);
+      const row = domain.table('workers').get(id);
+      if (row?.rootId !== root.id) continue;
+      // The CLI may already have delivered a final frame just before the host exited.
+      const terminal = [...reports.entries()].find(([, report]) =>
+        report.workerId === id && report.state && report.activationId === row.activationId)?.[1];
+      if (!terminal) {
+        const eventId = 'recovery:' + (row.activationId ?? randomUUID());
+        const item: WorkerReport = {workerId:id, rootId:root.id, activationId:row.activationId,
+          eventId, state:'interrupted', text:'The execution runtime was interrupted before this worker finished. No closing message was received.'};
+        // Stage the parent notification first. ensure() flushes it after the parent can accept input.
+        await reports.put(reportKey(id, eventId), item);
       }
+      await this.change(row, {state: terminal?.state ?? 'interrupted'});
+      cold.delete(id);
     }
   }
 
@@ -273,7 +309,7 @@ export class LocalWorkers {
       if (!row || row.rootId !== item.rootId) throw new Error('Worker report lost its parent binding');
       const pending = domain.table('reports');
       await pending.put(key, item);
-      if (item.state) await this.change(row, { state: item.state });
+      if (item.state && row.activationId === item.activationId) await this.change(row, { state: item.state });
       await this.report(
         row.rootId,
         row.workerId,
@@ -296,11 +332,10 @@ export class LocalWorkers {
     if (row.runtime === 'dsh') throw new Error('Expected a CLI worker');
     const cwd = root.session.header.cwd;
     if (!cwd) throw new Error('Worker workspace is unavailable');
-    const notify = (eventId: string, text: string, state?: WorkerReport['state']) => {
-      const key = createHash('sha256')
-        .update(JSON.stringify([row.workerId, eventId]))
-        .digest('hex');
-      return this.deliver(key, { rootId: root.id, workerId: row.workerId, eventId, text, state });
+    const notify = async (eventId: string, text: string, state?: WorkerReport['state']) => {
+      const current = (await this.domain).table('workers').get(row.workerId);
+      return this.deliver(reportKey(row.workerId, eventId), {rootId:root.id, workerId:row.workerId,
+        activationId:current?.activationId, eventId, text, state});
     };
     const bridge = await workerReportBridge(notify);
     try {
@@ -311,14 +346,23 @@ export class LocalWorkers {
         instructions,
         mcp: bridge.mcp,
         onReport: notify,
-        onTurnEnd: (id, totalTokens) => this.serialize(this.changes, row.workerId, async () => {
-          const current = (await this.domain).table('workers').get(row.workerId);
-          if (current) await this.publishTurns(current, [{ id, totalTokens, time: Date.now() }]);
+        onDetail: (id, detail) => this.serialize(this.changes, row.workerId, async () => {
+          const table = (await this.domain).table('workers');
+          const current = table.get(row.workerId);
+          if (!current) return;
+          const eventId = JSON.stringify([row.workerId, detail.turnId, detail.fact.type, id]);
+          const pending = current.pending ?? [];
+          if (pending.some(change => change.id === eventId)) return;
+          const change = {id: eventId, state: current.state, time: Date.now(), detail};
+          await table.put(row.workerId, {...current, pending: [...pending, change]});
+          this.workChanged(row.rootId);
         }),
         onEnd: async (id, state, text) => {
           if (this.muted.has(row.workerId)) return;
           try {
-            await notify('end:' + id, state + ': ' + text, state);
+            const ending = state === 'completed' ? 'This turn ended. The worker will do no further work unless you send it more.'
+              : state === 'interrupted' ? 'The worker was interrupted.' : 'The worker failed before it finished.';
+            await notify('end:' + id, ending + '\n' + text, state);
           } finally {
             // Release an idle CLI, unless a newer correction already restarted the same session.
             void this.serialize(this.commands, root.id, async () => {

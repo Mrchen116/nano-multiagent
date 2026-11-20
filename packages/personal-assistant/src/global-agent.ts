@@ -1126,6 +1126,12 @@ export class GlobalAgent {
     const facts=this.modelNotices(binding, result.modelRuns ?? []);
     for (const change of result.workerChanges ?? []) {
       const {workerId, rootId, callId, label, runtime, state, id, time} = change;
+      if (change.detail) {
+        const {turnId, fact} = change.detail;
+        const event = this.workEvent(binding, `worker:${id}`, fact, turnId, time);
+        facts.push({...event, session_id:workerId});
+        continue;
+      }
       const draft=this.workEvent(binding,`worker:${id}`,{type:'worker_state', payload:{
         parent_session_id:rootId, title:label, runtime, status:state, call_id:callId,
         ...(change.turnUsage && {turn_usage:{turn_id:change.turnUsage.id, total_tokens:change.turnUsage.totalTokens}}),
@@ -1300,11 +1306,11 @@ export class GlobalAgent {
     }
   }
 
-  private workEvent(binding: SessionBinding, key: string, fact: WorkFact, turn?: number, time = Date.now()): WorkDraft {
+  private workEvent(binding: SessionBinding, key: string, fact: WorkFact, turn?: number | string, time = Date.now()): WorkDraft {
     return { event_id: `${binding.sessionId}:${key}`, root_agent_id: binding.agentId,
       session_id: binding.sessionId, ...(turn === undefined ? {} : { turn_id: String(turn) }), ...fact, observed_at: new Date(time).toISOString() };
   }
-  private append(binding: SessionBinding, key: string, fact: WorkFact, turn?: number, time = Date.now()): void {
+  private append(binding: SessionBinding, key: string, fact: WorkFact, turn?: number | string, time = Date.now()): void {
     this.options.inbox.append(this.workEvent(binding,key,fact,turn,time));
     this.options.onWork?.();
   }

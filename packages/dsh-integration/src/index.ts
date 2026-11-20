@@ -102,12 +102,12 @@ interface Submit {
   mode: 'followup' | 'steer' | 'inject';
   onlyIfIdle?: boolean;
   content: PromptContentPart[];
-  source: { kind: 'human' | 'system'; nanoTeamChat?:boolean; directHumanText?:string; humanTaskControl?:Record<string,unknown>; lifecycle_revision?: number; contextEnvelope?: string; conversationId?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; roleAccountId?: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
+  source: { kind: 'human' | 'system'; nanoTeamChat?:boolean; directHumanText?:string; humanTaskControl?:Record<string,unknown>; lifecycle_revision?: number; contextEnvelope?: string; conversationId?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; roleAccountId?: string; channel: string; messageId: string; senderSessionId?: string; background_returns?: Record<string, unknown>[] };
 }
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     schedule: { kind: 'schedule'; lifecycle_revision?: number; scheduleId?: string; triggerKind?: 'manual' };
-    'nano-system': { kind: 'nano-system'; nanoTeamChat?:boolean; lifecycle_revision?: number; actorId: string; channel: string; messageId: string; conversationId?:string; humanTaskControl?:Record<string,unknown>; background_returns?: Record<string, unknown>[] };
+    'nano-system': { kind: 'nano-system'; nanoTeamChat?:boolean; lifecycle_revision?: number; actorId: string; channel: string; messageId: string; senderSessionId?: string; conversationId?:string; humanTaskControl?:Record<string,unknown>; background_returns?: Record<string, unknown>[] };
   }
 }
 
@@ -187,7 +187,7 @@ export default class NanoRuntime {
       if(!binding)throw new Error('Worker parent is no longer bound');
       const messageId=`worker:${worker}:${event}`;
       const receipt=await this.submit({sessionId:root,inputId:messageId,mode:'steer',content:[{type:'text',text}],
-        source:{kind:'system',channel:'worker-report',actorId:binding.agentId,messageId}});
+        source:{kind:'system',channel:'worker-report',actorId:binding.agentId,senderSessionId:worker,messageId}});
       if(!receipt.accepted)throw new Error('Parent did not accept the worker report');
     },id=>this.bindings.has(id),root=>this.peer.notify('session.work.changed',{sessionId:root,rootSessionId:root}));
     let configurationService: ConfigurationScopes;
@@ -657,7 +657,7 @@ export default class NanoRuntime {
       const rootSettled = await descendantReader.settled(id, {[id]:input.afterSeq ?? -1}, () =>
         fallback.hasActive(id) || input.modelVersion!==fallback.workVersion(id), false);
       return {rootSettled:rootSettled && !(await inboxDelivery.pending(input.sessionId)).length &&
-        !(await workers.workPage(input.sessionId)).length && !await descendantReader.hasInterruptedDescendants(id)};
+        !await workers.hasPendingWork(input.sessionId) && !await descendantReader.hasInterruptedDescendants(id)};
     });
     handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
     // The send path needs durable native facts, not frozen tool cards or Work projection.
@@ -713,8 +713,8 @@ export default class NanoRuntime {
       const input = value as WorkRead;
       await workBinding(input);
       const id = SessionId(input.sessionId), policy = await models;
-      const workerChanges=await workers.workPage(input.sessionId);
-      const withWorkers=(page:RuntimeWorkPage) => ({...page,workerChanges,more:page.more || workerChanges.length===128});
+      const workerPage=await workers.workPage(input.sessionId);
+      const withWorkers=(page:RuntimeWorkPage) => ({...page,workerChanges:workerPage.page,more:page.more || workerPage.more});
       if (input.stoppedRevision !== undefined) {
         if (!await ctx.sessionPersistence.stat(id))
           return withWorkers(await projectPage(input, 0, -1, () => undefined, policy));

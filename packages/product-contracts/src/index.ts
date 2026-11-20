@@ -108,6 +108,11 @@ export { interactiveCatalog } from './interactive-catalog.js';
 export * from './work-sync.js';
 export * from './task-execution.js';
 
+export interface RuntimeWorkerDetail {
+  turnId: string;
+  fact: Extract<import('./work-events.js').WorkFact, {type: 'turn_started' | 'message' | 'tool_start' | 'tool_end' | 'turn_end'}>;
+}
+
 export interface RuntimeWorkerChange {
   id: string;
   time: number;
@@ -117,6 +122,7 @@ export interface RuntimeWorkerChange {
   label: string;
   runtime: WorkerRuntime;
   state: import('./work-events.js').WorkWorkerFields['status'];
+  detail?: RuntimeWorkerDetail;
   /** One finished execution turn. A null total means the provider did not report it. */
   turnUsage?: {id:string; totalTokens:number | null};
 }

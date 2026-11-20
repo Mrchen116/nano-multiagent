@@ -28,6 +28,10 @@
 
 该答复确认 PA 与普通 Global 使用相同的本机一级派工配置。
 
+## 试用后的补充
+
+用户确认 Codex CLI 与 Claude Code 共用持久化 Work 页面，允许将明细存到 IM。运行期间从原聊天或派工图进入同一条工作记录，回看任务输入、消息、工具及已有结果。CLI 原生轨迹查看器留待后续。冷启动丢失执行时，原父 Agent 应收到带原 worker ID 的系统回报。旧 DSH 停止入口兼容不在本期范围。
+
 ## 澄清记录
 
 - 本次交付本机 worker 的 PR。跨机是后续独立决策，等待用户亲测本次体验。
@@ -37,7 +41,7 @@
 - 已确认现状。文档记忆会给普通一级 worker 注入所属 Agent 的记忆入口或快照；Dreaming 从一级工作轨迹提炼会话摘要，并可依来源回看后代。见[现行能力契约](../../../specs/gateway/agent-capabilities.md)、[上下文装配](../../../../packages/dsh-integration/src/knowledge/document-memory.ts)和[提炼输入](../../../../packages/dsh-integration/src/knowledge/dreaming.ts)。
 - 用户要求对所有工作 worker 取消 Nano 记忆消费和写入，并停止把工作 worker 轨迹作为 Dreaming 的材料。worker 使用自己的会话续做，Router 交办时提供任务需要的具体约束。
 - 记忆按产品集成边界处理。Nano 不向工作 worker 注入记忆正文、目录或读写指引，Dreaming 不用工作 worker 轨迹做总结。普通文件读取沿用当前工作环境的权限，无需为 Nano 记忆增加文件拦截或沙箱。
-- Global 自身的工作记录与原生轨迹保持可查看。Web Work 的「派工关系」显示 Global 对真实一级 worker 的委派，区分不同事项；对同一 worker 的后续补充和结果归回原委派。新派工入口创建的一级 worker 显示委派关系、各自的历史结束轮次与已报告 token，不提供内部轨迹查看入口。历史 DSH 子执行沿用已有轨迹入口，见[现行 Work 契约](../../../specs/im/agent-work.md#requirement-web-work-可以从派工关系进入同一工作记录)。
+- Global 自身的工作记录与原生轨迹保持可查看。Web Work 的「派工关系」显示 Global 对真实一级 worker 的委派，区分不同事项；对同一 worker 的后续补充和结果归回原委派。一级 worker 显示委派关系、已结束轮次和已报告 token；有执行明细的 Codex 与 Claude 可打开同一个 Work 页面。历史 DSH 子执行沿用已有轨迹入口，见[现行 Work 契约](../../../specs/im/agent-work.md#requirement-web-work-可以从派工关系进入同一工作记录)。
 - Raft 参考补充。其[活动页](https://github.com/botiverse/raft-source/blob/5214e34e/packages/web/src/components/agent/AgentActivityLog.tsx#L633)默认展示概览，工具行使用操作与输入摘要，近期内部子执行根据明确的父子标识归组。完整请求走另行启用的 [View Context](https://github.com/botiverse/raft-source/blob/5214e34e/manual/agent-knowledge/context.md)。本机临时文件的只读探针从 Codex CLI 0.169.1 取得命令、输出、退出码、最终答复和回合用量，回合结束后进程到达探针时限而被终止。Claude Code 2.1.325 的 Auto 尝试收到账号验证错误，未实测成功的工具调用。本次只以 Global 自身记录与一级派工关系作为新派工的 Work 展示范围。
 
 ## 用户场景
@@ -75,4 +79,4 @@
 
 ## 范围与非目标
 
-本次仅覆盖本机 Global 一级派工，新派出的一级 worker 的逐步活动、工具记录和内部 helper 轨迹不纳入 Work 展示。不额外限制用户目录的普通文件访问。
+本次覆盖本机 Global 一级派工及外部 CLI 一级 worker 的工作记录。内部 helper 的独立轨迹和外部原生查看器留待后续。不额外限制用户目录的普通文件访问。

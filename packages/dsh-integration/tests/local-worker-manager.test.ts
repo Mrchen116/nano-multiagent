@@ -35,7 +35,7 @@ it('binds follow-ups to the original worker and replays an unacknowledged result
   const other = { id: 'other', session } as unknown as Agent;
   const accepted: string[] = [];
   let online = false;
-  const report = vi.fn(async (_root: string, _worker: string, id: string) => {
+  const report = vi.fn(async (_root: string, _worker: string, id: string, _text: string) => {
     if (!online) throw new Error('runtime busy');
     accepted.push(id);
   });
@@ -59,18 +59,21 @@ it('binds follow-ups to the original worker and replays an unacknowledged result
     /belong/,
   );
   const launch = vi.mocked(openCliWorker).mock.calls[0]![0];
-  await launch.onTurnEnd('turn-1', 18);
-  await launch.onTurnEnd('turn-1', 18);
-  await expect(launch.onEnd('turn-1', 'completed', 'A exists')).rejects.toThrow('runtime busy');
+  const end = {turnId:'turn-1', fact:{type:'turn_end' as const, payload:{status:'completed', usage:{total_tokens:18}}}};
+  await launch.onDetail('end', end);
+  await launch.onDetail('end', end);
+  await expect(launch.onEnd('turn-1', 'completed', 'Which file should I inspect?')).rejects.toThrow('runtime busy');
   await expect.poll(() => close.mock.calls.length).toBe(1);
   online = true;
   const restored = new LocalWorkers(ctx as unknown as Context, report, () => true, vi.fn());
-  const turns=(await restored.workPage(root.id)).filter(update=>update.turnUsage);
-  expect(turns.map(update=>update.turnUsage)).toEqual([{id:'turn-1', totalTokens:18}]);
+  const turns=(await restored.workPage(root.id)).page.filter(update=>update.detail);
+  expect(turns.map(update=>update.detail)).toEqual([end]);
   await restored.confirmWork(root.id,turns);
   await restored.flushReports(root.id);
   await restored.flushReports(root.id);
   expect(accepted).toEqual(['end:turn-1']);
+  expect(report.mock.calls.at(-1)).toEqual([root.id, row.workerId, 'end:turn-1',
+    expect.stringContaining('This turn ended. The worker will do no further work unless you send it more.\nWhich file should I inspect?')]);
   await restored.control(root, row.workerId, 'send', 'inspect B', exec.signal);
   expect(vi.mocked(openCliWorker).mock.calls.at(-1)![0]).toMatchObject({
     runtime: 'codex',

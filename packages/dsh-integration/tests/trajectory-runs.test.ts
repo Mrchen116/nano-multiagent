@@ -1,6 +1,6 @@
 import {childProbe, nativeChildren} from './helpers/native-child-probe.js';
 import { workDescendants } from './helpers/work-history.js';
-import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -99,7 +99,7 @@ async function fixture() {
   };
   const ensure = () => client.rpc.request('session.ensure', binding);
   await start(); await prepare();
-  return { start, ensure, prepare, runs, submit, events, requests, notices, nativeChildren: () => nativeChildren(home),
+  return { home, start, ensure, prepare, runs, submit, events, requests, notices, nativeChildren: () => nativeChildren(home),
     failChildObservation: (id: string) => writeFile(failedObservation, id),
     restoreChildObservation: () => unlink(failedObservation),
     logs: () => logs, client: () => client,
@@ -175,6 +175,30 @@ it('keeps a continuable residency open across messages and records separate cold
   finally { await f.close(); }
 }, 30000);
 
+it('delivers a lost external worker to its original parent once after cold recovery', async () => {
+  const f = await fixture();
+  try {
+    await f.submit('Establish the original parent');
+    await f.client().shutdown();
+    const dir = join(f.home, 'storages/nano_local_workers/workers');
+    await mkdir(dir, {recursive:true});
+    const workerId = 'worker-cold-external';
+    await writeFile(join(dir, workerId + '.json'), JSON.stringify({version:1, record:{
+      workerId, rootId:'root', callId:'delegate', runtime:'codex', state:'running',
+      sessionId:'original-cli-thread', activationId:'activation-a', label:'Audit workspace',
+    }}));
+    await f.start();
+    const reports = async () => (await f.events('root')).filter(event => event.type === 'user/message' &&
+      event.data.source?.channel === 'worker-report' && event.data.source.senderSessionId === workerId);
+    await expect.poll(async () => (await reports()).length).toBe(1);
+    expect((await reports())[0].data.content[0].text).toContain('The execution runtime was interrupted');
+    expect((await f.requests()).some(r => r.sessionId === 'root' && r.messages.some((m:any) =>
+      m.source?.senderSessionId === workerId && m.content[0].text.includes('Audit workspace')))).toBe(true);
+    await f.client().shutdown(); await f.start();
+    expect(await reports()).toHaveLength(1);
+  } finally {await f.close();}
+},30000);
+
 it('resumes both interrupted child levels without new user input while preserving failed and cancelled terminals', async () => {
   const f = await fixture();
   try {
@@ -199,6 +223,10 @@ it('resumes both interrupted child levels without new user input while preservin
     expect(resumed.some(row=>row.sessionId==='root'&&JSON.stringify(row.messages).includes('resumed-result'))).toBe(true);
     for(const id of [child,grandchild])expect((await childEvents(id)).some(event=>event.type==='tool/result'&&event.data.message.toolCallId.startsWith('return-')&&!event.data.message.isError)).toBe(true);
     expect((await f.runs()).slice(0,2).map(run=>run.state)).toEqual(['failed','cancelled']);
+    // A child's turn/end precedes delivery and consumption of its settlement by the root.
+    await expect.poll(async () => (await f.events('root')).some(event => event.type === 'user/message' &&
+      event.data.source?.kind === 'subagent-settled' && event.data.source.senderSessionId === child)).toBe(true);
+    await expect.poll(async () => (await f.client().rpc.request('session.observe', {sessionId:'root'}) as any).status).toBe('idle');
     const settled=(await f.requests()).length;
     f.client().process.kill('SIGKILL');await f.client().exited;await f.start();
     expect(await f.requests()).toHaveLength(settled);

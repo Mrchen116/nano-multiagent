@@ -223,10 +223,12 @@ export class InboxStore {
   deletionSessionIds(agentId: string): string[] {
     const rows = this.db.prepare(`SELECT json_extract(event,'$.session_id') id FROM journal
       WHERE json_extract(event,'$.root_agent_id')=? AND json_extract(event,'$.type')!=?
-        AND (json_extract(event,'$.type')!='worker_state' OR json_extract(event,'$.payload.runtime')='dsh')
       UNION SELECT json_extract(event,'$.payload.child_session_id') id FROM journal
-      WHERE json_extract(event,'$.root_agent_id')=? AND json_extract(event,'$.type')='session_linked'`)
-      .all(agentId, workRedactedType, agentId);
+      WHERE json_extract(event,'$.root_agent_id')=? AND json_extract(event,'$.type')='session_linked'
+      EXCEPT SELECT json_extract(event,'$.session_id') id FROM journal
+      WHERE json_extract(event,'$.root_agent_id')=? AND json_extract(event,'$.type')='worker_state'
+        AND json_extract(event,'$.payload.runtime') IN ('codex','claude')`)
+      .all(agentId, workRedactedType, agentId, agentId);
     return rows.flatMap(({ id }) => typeof id === 'string' && id ? [id] : []);
   }
 
