@@ -8,9 +8,10 @@
 | 网页下载、连接、重试与不可用状态 | 隔离 IM、SQLite、登录测试账号与真实 Chrome，切换 Windows UA，下载测试响应为 13 字节。见[桌面](M1-windows-node/windows-1200.png)、[窄窗口](M1-windows-node/windows-390.png)、[正在等待](M1-windows-node/windows-waiting-390.png)及[尚未发布](M1-windows-node/windows-unavailable-390.png)。 | 作者走查。网页不会在点连接时提前显示在线。临时栈和测试浏览器已回收。跨浏览器补丁另有 18 项 onboarding 测试。 |
 | Windows 隔离工作区中的宿主和进程树 | [候选 A 的原生测试](https://github.com/Mrchen116/nano-multiagent/actions/runs/44771705408)运行两个配置、真实 Windows 任务与子进程，检查出生标识、优雅退出、超时收拢、异常和独立更新进程。 | Windows Server 2022 runner 通过。普通本地账户的桌面登录和系统重启需由客户机实测。 |
 | 安装器、运行图和缓存 | [候选 A](https://github.com/Mrchen116/nano-multiagent/actions/runs/44771705408)和[候选 B](https://github.com/Mrchen116/nano-multiagent/actions/runs/44772109381)执行按用户静默安装，验证协议注册，在 ZIP 解压后的版本目录中启动私有 Node、pnpm 和 DSH，实际创建会话、查询工具，然后关闭资产服务验证热缓存。 | 两次通过。包含空格和中文的目录覆盖真实宿主和 DSH。运行器测试使用本地资产 fixture。 |
-| Windows 10/11 真实用户旅程 | 在 Windows 10 22H2 x64（19045.2006）的普通账户中，确认 PATH 无 Node，核对候选 C 安装器的 SHA-256 后执行安装。 | 安装退出 0。当前用户的 `crewden://` 处理器指向已安装的 Crewden.exe。运行过程中的宿主离线，尚未取得该客户机的模型回复或 Windows 11 结果。 |
+| Windows 10 x64 普通用户 | [G 全新安装、两次系统重启与四次真实回复](https://github.com/Mrchen116/nano-multiagent/actions/runs/44826221155)、[E → G 受管更新](https://github.com/Mrchen116/nano-multiagent/actions/runs/44826432787) | LTSC 21H2 build 19044，无系统 Node、npm、pnpm 或 WSL，标准用户独立执行。登录自启、异常恢复、关闭自启及手动启动全部通过，更新保留原账号、电脑身份、助手、聊天和工作文件。另在 22H2 build 19045 验证 C 的安装及协议注册。 |
+| Windows 11 x64 普通用户 | [正式 F 安装器与运行环境](https://github.com/Mrchen116/nano-multiagent/actions/runs/44821776271) | Windows 11 从公开源安装 F、注册协议、准备固定版本并运行私有 Node 与产品 CLI。 |
 
-最终用于桌面验收的是[候选 C](https://github.com/Mrchen116/nano-multiagent/actions/runs/44773547448)（`d3390ef8e9b3ab6113aff34f1dadd8804651af34`）和[候选 D](https://github.com/Mrchen116/nano-multiagent/actions/runs/44773636434)（`109ccf5b542f01aee6dbc8dce8eb83cc00990eb4`）。两次原生安装、离线复用、DSH 会话和工具发现均通过。D 增加了下载字节进度。核对其 EXE 的 PE 证书目录，偏移与大小均为 0，本次测试安装器未签 Authenticode；实际系统发布者提示由桌面验收记录。两版运行环境 ZIP 的 SHA-256 均为 `ee9852cc1d5edc86eb2655c794ec0520c201af9ee0b092c81da07a2478502df9`。
+早期用于桌面验收的是[候选 C](https://github.com/Mrchen116/nano-multiagent/actions/runs/44773547448)（`d3390ef8e9b3ab6113aff34f1dadd8804651af34`）和[候选 D](https://github.com/Mrchen116/nano-multiagent/actions/runs/44773636434)（`109ccf5b542f01aee6dbc8dce8eb83cc00990eb4`）。两次原生安装、离线复用、DSH 会话和工具发现均通过。D 增加了下载字节进度。核对其 EXE 的 PE 证书目录，偏移与大小均为 0，本次测试安装器未签 Authenticode；实际系统发布者提示由桌面验收记录。两版运行环境 ZIP 的 SHA-256 均为 `ee9852cc1d5edc86eb2655c794ec0520c201af9ee0b092c81da07a2478502df9`。
 
 | 体积 | 候选 B | 候选 D |
 |---|---:|---:|
@@ -22,9 +23,9 @@
 
 从 GitHub 下载后分别校验 A、B、C、D 的工件包 SHA-256，按清单逐项重算四份资产的大小与哈希。D 的首次资产合计 79.57 MiB，较 B 减少 20.0%。运行环境中最大的三项压缩内容为私有 node.exe（35,081,382 B）、图像处理的 sharp 原生组件（8,363,928 B）和受管包操作所需的 pnpm（4,658,848 B）。应用归档中的个人助手包为 1,872,318 B，DSH 集成为 416,694 B。构建剔除了仅其他 DSH 界面使用的 Office 预览、语音识别、Inspector，以及编译器类型声明和调试映射。D 的实际 Windows 会话仍列出 `read`、`write`、`pwsh`、`skill` 等 34 个工具。
 
-[Windows Server 实际传输测试](https://github.com/Mrchen116/nano-multiagent/actions/runs/44777807452)使用原始 C/D 工件，按发布清单核对哈希，再由本地资产服务器计量响应正文。已取得安装器后，C 首次准备下载 81,319,915 B。升级到 D 下载 2,630,235 B，共用运行环境的下载量为 0 B。故意提供损坏的 D 应用包时，更新被拒绝，C 仍可运行。恢复正确资产后升级成功，关闭资产服务器后重复准备并安装 D，传输 0 B。首个真实模型回复、Windows 10/11 桌面操作和完整安装后的磁盘占用仍待客户机实测。
+[Windows Server 实际传输测试](https://github.com/Mrchen116/nano-multiagent/actions/runs/44777807452)使用原始 C/D 工件，按发布清单核对哈希，再由本地资产服务器计量响应正文。已取得安装器后，C 首次准备下载 81,319,915 B。升级到 D 下载 2,630,235 B，共用运行环境的下载量为 0 B。故意提供损坏的 D 应用包时，更新被拒绝，C 仍可运行。恢复正确资产后升级成功，关闭资产服务器后重复准备并安装 D，传输 0 B。客户机的真实回复和安装目录占用见下方后续执行。
 
-跨机预览在初始化附带的 Mac 测试节点时两次遇到能力查询或应用失败，两次实例均自动回收。Windows 10 x64 测试机已进入桌面并保存干净快照，系统报告为 22H2 build 19045，初始 PATH 中无 Node.js，WSL 可选功能关闭。已通过 SSH 进入隔离宿主，启动候选 D 的 IM/Web，验证健康接口，以及独立真实测试模型的推理。客户机的 IM 与模型回复仍须从实际入口验证。
+跨机预览在初始化附带的 Mac 测试节点时两次遇到能力查询或应用失败，两次实例均自动回收。Windows 10 x64 测试机已进入桌面并保存干净快照，系统报告为 22H2 build 19045，初始 PATH 中无 Node.js，WSL 可选功能关闭。已通过 SSH 进入隔离宿主，启动候选 D 的 IM/Web，验证健康接口，以及独立真实测试模型的推理。此时只完成了宿主模型检查。
 
 [候选 C 测试版](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-d3390ef8e9b3ab6113aff34f1dadd8804651af34)和[候选 D 测试版](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-109ccf5b542f01aee6dbc8dce8eb83cc00990eb4)已公开到仓库的 GitHub Pre-release。两版各五份资产的大小和 GitHub SHA-256 与本地逐项相符。独立 IM 选择对应清单，客户端从 GitHub 下载原始资产。正式 Latest 仍为 v2.0.0，生产 IM 没有部署此改动。
 
@@ -53,3 +54,13 @@ Windows Server 2022 完成真实升级与异常恢复的全程验收。E 安装�
 另一次由 Windows Shell 打开相同下载文件，系统显示 Open File - Security Warning。该候选没有代码签名；自动化未完成系统警告的确认。上一项的普通安装向导验证从启动安装进程开始。[系统提示记录](https://github.com/Mrchen116/nano-multiagent/actions/runs/44804254815)
 
 Windows 10 Enterprise LTSC x64（build 19044）使用微软评估镜像启动，Secure Boot 开启、WSL 关闭，普通用户 nanoqa 没有预装 Node、npm 或 pnpm。F 安装器退出 0，注册了正确的协议处理器，从公开发布源取得运行环境和应用。安装后的私有 Node 和 DSH 跑通，电脑绑定并在 IM 上线，配置了真实模型。该助手在 IM 对话中收到“26 + 6”并回复“32”，隔离 IM 数据库保存了这两条消息。随后 Windows PowerShell 验收驱动读到了空的子进程退出码，这次执行在重启前中止。[Windows 10 客户机首次对话](https://github.com/Mrchen116/nano-multiagent/actions/runs/44816199522)
+
+Windows 10 LTSC 从干净普通用户安装 F 后，三次在原聊天得到真实回复。首次回复为 39，重启登录自动上线后回复 66，强制结束经创建时间确认的 Gateway 后自动恢复并回复 63。关闭登录自启并再次重启，连续 180 秒确认 Gateway 未启动、IM 也显示离线；手动启动后原节点再次上线。这次测试的模型转发进程在最后一题前退出，手动启动后该题没有收到回复。另一次创建助手时返回了可重试的 `capability_usage_unavailable`。按普通文件身份去除硬链接重复、不遍历连接目录，安装目录逻辑大小为 255,471,768 字节（243.64 MiB），未测 NTFS 实际分配块数。[登录、自启、故障恢复和落盘计量](https://github.com/Mrchen116/nano-multiagent/actions/runs/44820406588) · [创建助手失败记录](https://github.com/Mrchen116/nano-multiagent/actions/runs/44818227719)
+
+另一台 Windows 10 LTSC 在 F 上重现重启后的手动启动缺陷。该次首轮、自动登录、异常退出恢复分别收到 36、58、65；关闭自启并重启后，原 Gateway 的 PID 已被本次系统启动中的其他进程使用，手动启动返回 PID identity changed。G 将记录中的创建时间与 Windows 本次开机时间用同一 FILETIME 单位比较，忽略前次开机留下的记录。本次开机中的 PID 与创建时间不匹配时仍保留现场并拒绝发送信号。独立代码审查复核了两类情况和原生宿主的停机路径。[F 上的复现](https://github.com/Mrchen116/nano-multiagent/actions/runs/44823122066) · [G 修复](https://github.com/Mrchen116/nano-multiagent/commit/45d34317b)
+
+G 的原生打包回归将当前活进程的 PID 写入旧状态，分别验证前次开机记录已失效，以及本次开机创建时间不符时 stop 拒绝操作。G 安装器为 2,110,428 字节，首次全部产品资产为 83,432,625 字节（79.57 MiB）。应用压缩包 2,630,911 字节，运行环境与 F 相同。GitHub 上五个文件的大小和 SHA-256 已逐项核对。[原生构建及运行测试](https://github.com/Mrchen116/nano-multiagent/actions/runs/44826133809) · [候选 G](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-45d34317b43aa741d3bfb46e2ee7ca53cae46254)
+
+Windows 10 LTSC 普通账户在 E 版用原助手回答“22 + 6”为“28”。从同一 IM 的受管更新入口升级到 G，IM 报告成功，原账号、电脑身份、工作区中的随机校验内容及原对话均保留。之后在这台客户机切换登录自启并强制结束 Gateway，原助手再次回答“24 + 6”为“30”。[Windows 10 客户机真实升级](https://github.com/Mrchen116/nano-multiagent/actions/runs/44826432787)
+
+Windows 10 LTSC 的 G 在同一助手、同一对话里给出四次真实回复：首轮 33，重启登录后 57，强制退出自动恢复后 63。关闭自启、再次重启并观察 180 秒确认电脑离线，手动启动后原助手回答“69 + 27”为“96”，自启设置仍为关闭。新安装目录按文件身份去重的逻辑大小为 255,472,230 字节（243.64 MiB）。[G 的 Windows 10 客户端全程执行](https://github.com/Mrchen116/nano-multiagent/actions/runs/44826221155)
