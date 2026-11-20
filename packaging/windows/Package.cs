@@ -178,6 +178,11 @@ internal static class Package {
                     File.Exists(Path.Combine(version, "apps/node/lib/cli.js"))) return version;
                 Directory.CreateDirectory(Path.GetDirectoryName(version));
                 Directory.CreateDirectory(Path.Combine(Home, "cache"));
+                // Cancellation or power loss can skip finally. This mutex owns all preparation stages.
+                foreach (string left in Directory.GetDirectories(Home, "stage-*")) {
+                    if (Regex.IsMatch(Path.GetFileName(left), @"\Astage-[0-9a-f]{32}\z") &&
+                        (File.GetAttributes(left) & FileAttributes.ReparsePoint) == 0) RemoveTree(left);
+                }
                 var temp = Directory.CreateDirectory(Path.Combine(Home, "stage-" + Guid.NewGuid().ToString("N"))).FullName;
                 try {
                     string descriptor = Path.Combine(temp, m.package);
