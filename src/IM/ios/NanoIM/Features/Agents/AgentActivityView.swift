@@ -38,15 +38,12 @@ struct AgentActivityView: View {
                         if running + waiting > 0 {
                             DisclosureGroup(isExpanded: $expanded) {
                                 ForEach(sessions) { session in
-                                    NavigationLink {
-                                        AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, sessionID: session.id)
-                                            .onAppear(perform: onExpand)
-                                    } label: {
-                                        VStack(alignment: .leading) {
-                                            Text(session.title ?? session.id)
-                                            Text(agentWorkStatus(session.status)).font(.caption).foregroundStyle(.secondary)
-                                        }
-                                    }
+                                    if session.canOpenRecords {
+                                        NavigationLink {
+                                            AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, sessionID: session.id)
+                                                .onAppear(perform: onExpand)
+                                        } label: { sessionLabel(session) }
+                                    } else { sessionLabel(session) }
                                 }
                                 if cursor != nil {
                                     Button(L("更多子执行", "More child executions")) { Task { await loadMore() } }.disabled(paging)
@@ -81,6 +78,13 @@ struct AgentActivityView: View {
         .workRefresh(client: client, agentID: agentID, every: 15) { await refresh() }
     }
 
+    private func sessionLabel(_ session: AgentActivitySession) -> some View {
+        VStack(alignment: .leading) {
+            Text(session.title ?? session.id)
+            Text([session.runtime, agentWorkStatus(session.status)].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
     private func refresh() async {
         do {
             let next: AgentActivityPage = try await client.get(path)

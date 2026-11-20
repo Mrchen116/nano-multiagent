@@ -80,10 +80,12 @@ private struct AgentDelegationWindow: View {
                             } else if row.depth > 0 {
                                 Image(systemName: "arrow.turn.down.right").font(.caption).foregroundStyle(.tertiary).frame(width: 24)
                             }
-                            NavigationLink {
-                                AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, sessionID: row.node.id)
-                            } label: { nodeLabel(row.node) }
-                            .accessibilityIdentifier("work.delegation." + row.node.id)
+                            if row.node.canOpenRecords {
+                                NavigationLink {
+                                    AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, sessionID: row.node.id)
+                                } label: { nodeLabel(row.node) }
+                                .accessibilityIdentifier("work.delegation." + row.node.id)
+                            } else { nodeLabel(row.node) }
                         }
                         .padding(.leading, CGFloat(min(row.depth, 3)) * 8)
                     }
@@ -105,18 +107,20 @@ private struct AgentDelegationWindow: View {
         let isMain = node.id == head?.main_session_id
         let title = isMain ? L("主 Agent", "Main agent") : node.title ?? node.id
         let ambiguous = !isMain && nodes.values.contains { $0.id != node.id && $0.title != nil && $0.title == node.title }
-        let usage = node.usage
         return VStack(alignment: .leading, spacing: 5) {
             Text(ambiguous ? title + " · " + node.id.suffix(8) : title).font(.headline)
             HStack {
                 Text(agentWorkStatus(node.status))
+                if let runtime = node.runtime { Text(runtime) }
                 if let time = node.last_active_at { NanoTimestamp(value: time) }
             }.font(.caption).foregroundStyle(.secondary)
-            let tokens = usage.total_tokens.map { $0.formatted() + " tok" } ?? L("Token 未报告", "Tokens unreported")
-            Text(L("\(usage.turns) 轮累计 · \(tokens)", "\(usage.turns) turns · \(tokens)")).font(.subheadline)
-            if usage.missing_turns > 0 {
-                Text(L("\(usage.reported_turns)/\(usage.turns) 轮已报告用量", "Usage reported for \(usage.reported_turns)/\(usage.turns) turns")).font(.caption).foregroundStyle(.secondary)
-            }
+            if let usage = node.usage {
+                let tokens = usage.total_tokens.map { $0.formatted() + " tok" } ?? L("Token 未报告", "Tokens unreported")
+                Text(L("\(usage.turns) 轮累计 · \(tokens)", "\(usage.turns) turns · \(tokens)")).font(.subheadline)
+                if usage.missing_turns > 0 {
+                    Text(L("\(usage.reported_turns)/\(usage.turns) 轮已报告用量", "Usage reported for \(usage.reported_turns)/\(usage.turns) turns")).font(.caption).foregroundStyle(.secondary)
+                }
+            } else { Text(L("用量尚未报告", "Usage not reported yet")).font(.caption).foregroundStyle(.secondary) }
             if node.ancestor_only == true { Text(L("仅显示派工路径", "Ancestor on this path")).font(.caption).foregroundStyle(.secondary) }
         }.padding(.vertical, 4)
     }

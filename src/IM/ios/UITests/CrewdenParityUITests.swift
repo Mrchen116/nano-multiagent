@@ -77,7 +77,7 @@ final class CrewdenParityUITests: XCTestCase {
         let settings = app.buttons["personal-agent-settings"]
         XCTAssertTrue(settings.waitForExistence(timeout: 20))
         settings.tap()
-        let disclosure = app.buttons["pa-exclusions"]
+        let disclosure = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "排除的聊天")).firstMatch
         XCTAssertTrue(disclosure.waitForExistence(timeout: 20))
         disclosure.tap()
         let toggle = app.switches["pa-exclude-" + chatID]

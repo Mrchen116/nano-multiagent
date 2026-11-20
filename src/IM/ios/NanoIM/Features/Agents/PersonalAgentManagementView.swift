@@ -72,6 +72,7 @@ struct PersonalAgentManagementView: View {
             }
         }
         .navigationTitle(L("个人助手设置", "Personal assistant")).navigationBarTitleDisplayMode(.inline)
+        .toolbar(.hidden, for: .tabBar)
         .nanoUnsavedChanges(dirty)
         .refreshable { await refresh() }
         .task(id: scenePhase) {
@@ -103,7 +104,7 @@ struct PersonalAgentManagementView: View {
 
     private func exclusions(_ binding: PersonalSettings.Binding, _ policy: PersonalAgentPolicy) -> some View {
         Section {
-            DisclosureGroup(L("排除的聊天", "Excluded conversations") + " · \(selection.count)") {
+            DisclosureGroup {
                 TextField(L("查找聊天", "Find a conversation"), text: $query)
                 ForEach(chats.filter { $0.id != binding.conversation_id && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query)) }) { chat in
                     Toggle(chat.title, isOn: Binding(get: { selection.contains(chat.id) }, set: { excluded in
@@ -111,7 +112,7 @@ struct PersonalAgentManagementView: View {
                         if excluded { selection.insert(chat.id) } else { selection.remove(chat.id) }
                     })).accessibilityIdentifier("pa-exclude-" + chat.id).disabled(!current || busy)
                 }
-            }.accessibilityIdentifier("pa-exclusions")
+            } label: { Text(L("排除的聊天", "Excluded conversations") + " · \(selection.count)") }
             if selection != Set(policy.excluded_conversation_ids) {
                 Button(L("保存排除范围", "Save exclusions")) { Task { await savePolicy(policy) } }.disabled(!current || busy)
             }

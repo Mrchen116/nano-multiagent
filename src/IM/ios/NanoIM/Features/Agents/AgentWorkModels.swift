@@ -132,6 +132,10 @@ struct AgentWorkFocus: Decodable, Sendable {
 }
 
 struct AgentActivitySession: Decodable, Identifiable, Sendable {
+    let scope: String?
+    let runtime: String?
+    let has_work_records: Bool?
+    var canOpenRecords: Bool { scope != "worker" || has_work_records == true }
     let session_id: String
     let title: String?
     let status: String
@@ -162,13 +166,17 @@ struct AgentDelegationNode: Decodable, Identifiable, Sendable {
         let missing_turns: Int
         var turns: Int { reported_turns + missing_turns }
     }
+    let scope: String?
+    let runtime: String?
+    let has_work_records: Bool?
+    var canOpenRecords: Bool { scope != "worker" || has_work_records == true }
     let session_id: String
     let parent_session_id: String?
     let title: String?
     let status: String
     let last_active_at: String?
     let ancestor_only: Bool?
-    let usage: Usage
+    let usage: Usage?
     var id: String { session_id }
 }
 

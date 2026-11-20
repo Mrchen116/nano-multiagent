@@ -44,11 +44,13 @@ struct AgentWorkParityTests {
     }
 
     @Test func delegationKeepsUnreportedUsageDistinctFromZero() throws {
-        let page: AgentDelegationPage = try decode(#"{"from":"2026-11-18","until":"2026-11-21","revision":5,"node_connection_state":"offline","record_sync_state":"unknown","main_session_id":"main","nodes":[{"session_id":"child","parent_session_id":"main","status":"completed","usage":{"total_tokens":null,"reported_turns":0,"missing_turns":1}},{"session_id":"main","status":"idle","ancestor_only":true,"usage":{"total_tokens":0,"reported_turns":1,"missing_turns":1}}],"next_cursor":"child"}"#)
-        #expect(page.nodes[0].usage.total_tokens == nil)
+        let page: AgentDelegationPage = try decode(#"{"from":"2026-11-18","until":"2026-11-21","revision":5,"node_connection_state":"offline","record_sync_state":"unknown","main_session_id":"main","nodes":[{"session_id":"child","parent_session_id":"main","status":"completed","usage":{"total_tokens":null,"reported_turns":0,"missing_turns":1}},{"session_id":"main","status":"idle","ancestor_only":true,"usage":{"total_tokens":0,"reported_turns":1,"missing_turns":1}},{"session_id":"starting","scope":"worker","status":"starting","runtime":"codex"}],"next_cursor":"child"}"#)
+        #expect(page.nodes[0].usage?.total_tokens == nil)
         #expect(page.nodes[0].parent_session_id == "main")
-        #expect(page.nodes[1].usage.total_tokens == 0)
-        #expect(page.nodes[1].usage.turns == 2)
+        #expect(page.nodes[1].usage?.total_tokens == 0)
+        #expect(page.nodes[1].usage?.turns == 2)
+        #expect(page.nodes[2].usage == nil)
+        #expect(!page.nodes[2].canOpenRecords)
         #expect(page.next_cursor == "child")
     }
 }
