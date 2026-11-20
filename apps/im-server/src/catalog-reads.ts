@@ -1,3 +1,4 @@
+import {inspectionTimeouts} from '@nano/product-contracts';
 import {randomUUID} from 'node:crypto';
 import type {ImContext} from './context.js';
 import type {NodeCapabilities} from './node-rpc-contracts.js';
@@ -10,7 +11,7 @@ export interface CatalogScope {
   node_epoch: number;
   workspace_root?: string | null;
   profile_version?: number;
-  connection: object;
+  connection: {managedWindows?: boolean};
 }
 export interface CatalogRead {
   capabilities: NodeCapabilities;
@@ -82,7 +83,8 @@ export class CatalogReads {
       abort = () => reject(controller.signal.reason ?? unavailable());
       controller.signal.addEventListener('abort',abort,{once:true});
     });
-    const timer = setTimeout(() => controller.abort(Object.assign(new Error('Catalog response timeout'), {statusCode:504})),9000);
+    const timeoutMs = inspectionTimeouts(scope.connection.managedWindows === true).rpcMs;
+    const timer = setTimeout(() => controller.abort(Object.assign(new Error('Catalog response timeout'), {statusCode:504})),timeoutMs);
     // A loader may fail synchronously or ignore abort; neither may retain this slot's waiter.
     let loaded: Promise<NodeCapabilities>;
     try { loaded = load(controller.signal,entry.requestId); } catch (error) { loaded = Promise.reject(error); }
