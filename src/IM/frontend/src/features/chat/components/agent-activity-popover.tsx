@@ -23,7 +23,7 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
 }) {
   const {t} = useTranslation();
   const card = useRef<HTMLDivElement>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const path = `${workBase(anchor.agentId)}/activity`;
   const activity = useQuery({
     queryKey: ["chat-work-activity", anchor.agentId],

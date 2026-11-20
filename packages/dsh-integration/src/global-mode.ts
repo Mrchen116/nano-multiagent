@@ -19,7 +19,7 @@ export function apply(ctx: Context, config: { mode?: string; personal?: boolean;
   const nativeSend = ctx.tools.get('send_message');
   if(config.mode==='global') ctx.tools.register({
     name:'delegate_worker', description:'Delegate a complete matter to a background worker. Start returns its ID. Send a correction or stop the original worker by ID.',
-    parameters:{type:'object',properties:{action:{type:'string',enum:['start','send','stop']},label:{type:'string'},message:{type:'string'},worker_id:{type:'string'}},required:['action'],additionalProperties:false},
+    parameters:{type:'object',properties:{action:{type:'string',enum:['start','send','stop']},label:{type:'string',description:'Required on start. A short, user-visible task title in the user’s language. Name the action and its target.'},message:{type:'string',description:'The full assignment on start, or the follow-up instructions on send.'},worker_id:{type:'string'}},required:['action'],additionalProperties:false},
     output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},
     execute:async(args,exec)=>{
       const {action,label,message,worker_id}=args as {action:string;label?:string;message?:string;worker_id?:string};
