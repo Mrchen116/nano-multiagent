@@ -3,6 +3,7 @@ import { expect, it } from 'vitest';
 import { fixture } from './control-fixture.js';
 import { Messaging, registerMessagingRoutes } from '../src/messaging.js';
 import { searchMessages } from '../src/message-search.js';
+import { listUnread } from '../src/threads.js';
 
 it('keeps a topic off the main timeline and only unread-counts its followers', async () => {
   const {ctx, db} = fixture();
@@ -81,5 +82,33 @@ it('does not relay a group topic to an Agent who is not following it', async () 
     expect(found.map(row => row.id)).toContain(heard.json().id);
     const topic = searchMessages(db, {targets: ['chat'], terms: [], action: 'read', threadRoot: root.id});
     expect(topic.map(row => row.id).sort()).toEqual([reply.json().id, heard.json().id].sort());
+  } finally { await app.close(); }
+});
+
+it('clears only the opened group topic and keeps a direct topic on the watermark', async () => {
+  const {ctx, db} = fixture();
+  ctx.gateway.broadcast = () => {};
+  ctx.messaging = new Messaging(ctx);
+  const app = Fastify();
+  registerMessagingRoutes(app, ctx);
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat','u2')").run();
+  const root = ctx.messaging.insertMessage('chat', 'u1', 'user', '根');
+  const send = (content: string, key: string, extra: Record<string, string> = {}) => app.inject({
+    method: 'POST', url: '/im/v1/conversations/chat/messages', headers: {'idempotency-key': key, 'x-user': 'u2'},
+    payload: {sender: {type: 'user', id: 'u2'}, content, thread_root_message_id: root.id, ...extra},
+  });
+  try {
+    const reply = await send('话题里', 'group-reply');
+    expect(reply.statusCode, reply.body).toBe(201);
+    const before = db.prepare("SELECT unread_count FROM thread_follows WHERE user_id='u1' AND root_message_id=?").get(root.id) as {unread_count: number};
+    expect(before.unread_count).toBeGreaterThan(0);
+    expect((await app.inject({url: `/im/v1/conversations/chat/threads/${root.id}`, headers: {'x-user': 'u1'}})).statusCode).toBe(200);
+    expect((db.prepare("SELECT unread_count FROM thread_follows WHERE user_id='u1' AND root_message_id=?").get(root.id) as {unread_count: number}).unread_count).toBe(0);
+    db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
+    db.prepare("DELETE FROM thread_follows WHERE conversation_id='chat'").run();
+    const direct = ctx.messaging.insertMessage('chat', 'u2', 'user', '私聊话题', [], null, 'completed', {thread_root_id: root.id});
+    const watermark = (db.prepare('SELECT rowid FROM messages WHERE id=?').get(root.id) as {rowid: number}).rowid;
+    expect(listUnread(db, 'chat', 'u1', watermark)).toBeGreaterThan(0);
+    expect(direct.thread_root_message_id).toBe(root.id);
   } finally { await app.close(); }
 });

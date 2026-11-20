@@ -2,6 +2,22 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 
+
+private struct TopicEntryButton: View {
+    let count: Int
+    let preview: String?
+    let trailing: Bool
+    let open: () -> Void
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 6) {
+                Text(L("\(count) 条回复", "\(count) replies")).font(.caption.weight(.semibold)).foregroundStyle(NanoTheme.accent)
+                if let preview { Text(preview).font(.caption2).foregroundStyle(NanoTheme.muted).lineLimit(1) }
+            }.frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
+        }.buttonStyle(.plain)
+    }
+}
+
 struct ConversationView: View {
     @Bindable var store: ChatStore
     let conversationID: String
@@ -97,12 +113,7 @@ struct ConversationView: View {
                                     }
                                     ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, presentations: cardPresentations, scroll: scrollState, refreshed: { Task { await store.loadChat(conversationID) } })
                                     if let thread = message.thread {
-                                        Button { threadRoot = message } label: {
-                                            HStack(spacing: 6) {
-                                                Text(L("\(thread.reply_count) 条回复", "\(thread.reply_count) replies")).font(.caption.weight(.semibold)).foregroundStyle(NanoTheme.accent)
-                                                if let preview = thread.latest_preview { Text(preview).font(.caption2).foregroundStyle(NanoTheme.muted).lineLimit(1) }
-                                            }.frame(maxWidth: .infinity, alignment: message.sender.id == store.user.id ? .trailing : .leading)
-                                        }.buttonStyle(.plain)
+                                        TopicEntryButton(count: thread.reply_count, preview: thread.latest_preview, trailing: message.sender.id == store.user.id) { threadRoot = message }
                                     }
                                 }
                                     .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .row(item.id)))
@@ -465,52 +476,6 @@ struct ComposerFocusRequest {
     let selection: NSRange
 }
 
-struct ComposerTextView: UIViewRepresentable {
-    @Binding var text: String
-    @Binding var selection: NSRange
-    @Binding var editing: Bool
-    @Binding var composing: Bool
-    let focusRequest: ComposerFocusRequest?
-    let enabled: Bool
-    let pastedImage: (UIImage) -> Void
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-    func makeUIView(context: Context) -> PasteTextView {
-        let view = PasteTextView(); view.delegate = context.coordinator
-        view.font = .preferredFont(forTextStyle: .body); view.adjustsFontForContentSizeCategory = true
-        view.backgroundColor = .clear; view.textColor = UIColor(named: "Ink"); view.textContainerInset = UIEdgeInsets(top: 9, left: 0, bottom: 9, right: 0)
-        view.accessibilityLabel = L("消息", "Message"); view.imagePasted = pastedImage
-        return view
-    }
-    func updateUIView(_ view: PasteTextView, context: Context) {
-        context.coordinator.parent = self; view.isEditable = enabled; view.imagePasted = pastedImage
-        context.coordinator.updating = true
-        defer { context.coordinator.updating = false }
-        if view.markedTextRange == nil && view.text != text { view.text = text }
-        if let request = focusRequest, context.coordinator.lastFocusRequest != request.id {
-            context.coordinator.lastFocusRequest = request.id
-            view.selectedRange = request.selection
-            view.becomeFirstResponder()
-        }
-    }
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: PasteTextView, context: Context) -> CGSize? {
-        guard let width = proposal.width else { return nil }
-        let height = min(130, max(40, uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height))
-        return CGSize(width: width, height: height)
-    }
-    final class Coordinator: NSObject, UITextViewDelegate {
-        var parent: ComposerTextView
-        var updating = false
-        var lastFocusRequest: UUID?
-        init(_ parent: ComposerTextView) { self.parent = parent }
-        func textViewDidChange(_ textView: UITextView) {
-            guard !updating else { return }
-            parent.text = textView.text; updateSelection(textView)
-        }
-        func textViewDidChangeSelection(_ textView: UITextView) { if !updating { updateSelection(textView) } }
-        func textViewDidBeginEditing(_ textView: UITextView) { if !updating { parent.editing = true; updateSelection(textView) } }
-        func textViewDidEndEditing(_ textView: UITextView) { if !updating { parent.editing = false } }
-        private func updateSelection(_ textView: UITextView) { parent.selection = textView.selectedRange; parent.composing = textView.markedTextRange != nil }
-    }
 private struct ThreadSheet: View {
     @Bindable var store: ChatStore
     let conversationID: String
@@ -582,6 +547,53 @@ private struct ThreadSheet: View {
     }
 }
 
+
+struct ComposerTextView: UIViewRepresentable {
+    @Binding var text: String
+    @Binding var selection: NSRange
+    @Binding var editing: Bool
+    @Binding var composing: Bool
+    let focusRequest: ComposerFocusRequest?
+    let enabled: Bool
+    let pastedImage: (UIImage) -> Void
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeUIView(context: Context) -> PasteTextView {
+        let view = PasteTextView(); view.delegate = context.coordinator
+        view.font = .preferredFont(forTextStyle: .body); view.adjustsFontForContentSizeCategory = true
+        view.backgroundColor = .clear; view.textColor = UIColor(named: "Ink"); view.textContainerInset = UIEdgeInsets(top: 9, left: 0, bottom: 9, right: 0)
+        view.accessibilityLabel = L("消息", "Message"); view.imagePasted = pastedImage
+        return view
+    }
+    func updateUIView(_ view: PasteTextView, context: Context) {
+        context.coordinator.parent = self; view.isEditable = enabled; view.imagePasted = pastedImage
+        context.coordinator.updating = true
+        defer { context.coordinator.updating = false }
+        if view.markedTextRange == nil && view.text != text { view.text = text }
+        if let request = focusRequest, context.coordinator.lastFocusRequest != request.id {
+            context.coordinator.lastFocusRequest = request.id
+            view.selectedRange = request.selection
+            view.becomeFirstResponder()
+        }
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: PasteTextView, context: Context) -> CGSize? {
+        guard let width = proposal.width else { return nil }
+        let height = min(130, max(40, uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height))
+        return CGSize(width: width, height: height)
+    }
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var parent: ComposerTextView
+        var updating = false
+        var lastFocusRequest: UUID?
+        init(_ parent: ComposerTextView) { self.parent = parent }
+        func textViewDidChange(_ textView: UITextView) {
+            guard !updating else { return }
+            parent.text = textView.text; updateSelection(textView)
+        }
+        func textViewDidChangeSelection(_ textView: UITextView) { if !updating { updateSelection(textView) } }
+        func textViewDidBeginEditing(_ textView: UITextView) { if !updating { parent.editing = true; updateSelection(textView) } }
+        func textViewDidEndEditing(_ textView: UITextView) { if !updating { parent.editing = false } }
+        private func updateSelection(_ textView: UITextView) { parent.selection = textView.selectedRange; parent.composing = textView.markedTextRange != nil }
+    }
     final class PasteTextView: UITextView {
         var imagePasted: ((UIImage) -> Void)?
         override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {

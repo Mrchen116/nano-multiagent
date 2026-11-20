@@ -29,7 +29,7 @@ import {
 } from "./context.js";
 import { conversationAccess, conversationReaderIds, qualifiedUser, readableConversationIds } from "./conversation-access.js";
 import { searchMessages } from './message-search.js';
-import { assertThreadQuote, listUnread, threadAddressesAgent, threadRelayMetadata, threadRootOrFail } from './threads.js';
+import { assertThreadQuote, listUnread, markThreadRead, threadAddressesAgent, threadRelayMetadata, threadRootOrFail } from './threads.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
 import { InteractionBackground } from './interaction-background.js';
@@ -1032,9 +1032,10 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     db.prepare(
       "UPDATE conversation_participants SET last_read_message_id=?,unread_count=? WHERE conversation_id=? AND user_id=?",
     ).run(body(req).last_read_message_id, listUnread(db,id,p.id,m.rowid), id, p.id);
+    const grouped = one(db, 'SELECT type FROM conversations WHERE id=?', id)?.type === 'group';
     if (db.prepare(`
       UPDATE message_receipts SET status=2 WHERE recipient_id=? AND status<2 AND message_id IN
-        (SELECT id FROM messages WHERE conversation_id=? AND rowid<=?)
+        (SELECT id FROM messages WHERE conversation_id=? AND rowid<=?${grouped ? ' AND thread_root_id IS NULL' : ''})
     `).run(p.id,id,m.rowid).changes) s.event(id,null,'message.receipts_changed',{});
     return s.conversation(id, p.id);
   });
@@ -1081,6 +1082,13 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     const p = s.principal(req), id = params(req).conversation_id, root = params(req).root_id;
     s.access(p, id, query(req).agent_id);
     threadRootOrFail(db, id, root);
+    const reader = p.kind==='gateway' ? p.owner_id : p.id;
+    if (p.kind !== 'gateway') {
+      const cleared = markThreadRead(db, id, root, reader);
+      const watermark = one(db, 'SELECT m.rowid FROM conversation_participants p JOIN messages m ON m.id=p.last_read_message_id WHERE p.conversation_id=? AND p.user_id=?', id, reader)?.rowid ?? null;
+      if (watermark === null) db.prepare('UPDATE conversation_participants SET unread_count=MAX(unread_count-?,0) WHERE conversation_id=? AND user_id=?').run(cleared, id, reader);
+      else db.prepare('UPDATE conversation_participants SET unread_count=? WHERE conversation_id=? AND user_id=?').run(listUnread(db, id, reader, watermark), id, reader);
+    }
     const rows = all(db, 'SELECT id FROM messages WHERE conversation_id=? AND thread_root_id=? ORDER BY rowid', id, root);
     const follow = one(db, 'SELECT following FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=?', id, root, p.kind==='gateway'?p.owner_id:p.id);
     return {following: follow ? follow.following === 1 : false, items: rows.map(row => ({type:'message', message:s.records.senderView(s.message(row.id), p.kind==='gateway'?p.owner_id:p.id)}))};

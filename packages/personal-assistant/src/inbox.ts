@@ -17,6 +17,23 @@ interface Fragment { seq: number; part: number }
 interface Snapshot { agent: string; target: string; fragments: Fragment[] }
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
+/** A topic wake replaces the raw line with the root, earlier replies, and this message once. */
+function inboxText(input: RelayInput): string {
+  const current = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
+  const root = input.metadata.thread_root_message_id;
+  if (typeof root !== 'string' || typeof input.metadata.thread_root_excerpt !== 'string') return current;
+  const earlier = Array.isArray(input.metadata.thread_earlier) ? input.metadata.thread_earlier as {id?: string; sender?: string; excerpt?: string}[] : [];
+  const sender = input.metadata.sender_display_name ?? input.message.sender_user_id;
+  return [
+    `Thread on message ${JSON.stringify(root)} by ${input.metadata.thread_root_sender ?? 'unknown'} in this conversation. Reply with in_thread_of ${JSON.stringify(root)} if the answer belongs in the thread. Do not also post it on the main timeline.`,
+    `Root: ${input.metadata.thread_root_excerpt}`,
+    'Earlier in thread:',
+    ...earlier.map(item => `- ${item.id ?? ''} ${item.sender ?? ''}: ${item.excerpt ?? ''}`),
+    'Current message:',
+    `- ${input.message.id} ${sender}: ${current}`,
+  ].join('\n');
+}
+
 /** Durable cross-chat inbox; a read does not itself advance consumption. */
 export class InboxStore {
   readonly journalId: string;
@@ -664,7 +681,7 @@ export class InboxStore {
       const imported = this.db.prepare('SELECT body FROM imported_parts WHERE seq=? ORDER BY part').all(seq) as {body: string}[];
       if (imported.length) return imported.map(row => JSON.parse(row.body) as Record<string, unknown>[]);
     }
-    const text = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
+    const text = inboxText(input);
     const result: Record<string, unknown>[][] = [];
     for (let start = 0; start < text.length || start === 0; start += 6000) result.push([{ type: 'text', text: text.slice(start, start + 6000) }]);
     for (const attachment of input.message.attachments) result.push([{ type: 'attachment', ...attachment }]);

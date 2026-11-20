@@ -558,9 +558,8 @@ export class NodeStore {
   latestThreadRoot(sessionId: string, conversationId: string): string | undefined {
     const row = this.db.prepare(`SELECT json_extract(payload,'$.metadata.thread_root_message_id') AS root FROM inputs
       WHERE session_id=? AND json_extract(payload,'$.conversation_id')=?
-      AND typeof(json_extract(payload,'$.metadata.thread_root_message_id'))='text'
       ORDER BY rowid DESC LIMIT 1`).get(sessionId, conversationId) as {root?: string} | undefined;
-    return row?.root || undefined;
+    return typeof row?.root === 'string' && row.root ? row.root : undefined;
   }
 
   inputs(sessionId: string, turn?: number) {

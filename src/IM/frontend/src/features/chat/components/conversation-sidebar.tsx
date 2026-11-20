@@ -373,7 +373,9 @@ export function ConversationSidebar({
         {search.trim() && searchMessages && !distillMode ? <>
           {searchResult && searchResult.messages.length > 0 ? <li className="chat-search-heading">{t('chat.list.messageResults')}</li> : null}
           {searchResult?.messages.map(message => <li key={message.message_id}>
-            <button type="button" className="chat-sidebar-row chat-search-result" onClick={() => onSelectMessage?.(message.conversation_id, message.thread_root_message_id ?? message.message_id, message.thread_root_message_id)}>
+            <button type="button" className="chat-sidebar-row chat-search-result" onClick={() => message.thread_root_message_id
+              ? onSelectMessage?.(message.conversation_id, message.message_id, message.thread_root_message_id)
+              : onSelectMessage?.(message.conversation_id, message.message_id)}>
               <span className="chat-sidebar-row-avatar">{searchConversations.find(c => c.id === message.conversation_id)?.type === 'group' ? <GroupAvatar size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={message.conversation_name.slice(0, 2)} color={colorForAgentSeed(message.conversation_name)} size={36} />}</span>
               <span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title-line"><span className="chat-sidebar-row-title">{message.conversation_name}</span><span className="chat-sidebar-row-time">{formatSearchDate(message.created_at)}</span></span>
                 <span className="chat-search-snippet">{message.sender_name}: {highlightMatch(message.snippet, search)}</span></span>

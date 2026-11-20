@@ -566,7 +566,8 @@ export class SingleThread {
       if (!delivery.messageId) {
         store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
         // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
-        const wakeRoot = typeof input.input.metadata.thread_root_message_id === 'string' ? input.input.metadata.thread_root_message_id : undefined;
+        const current = [...turnInputs].reverse().find(row => !row.input.metadata.context_only)?.input ?? input.input;
+        const wakeRoot = typeof current.metadata.thread_root_message_id === 'string' ? current.metadata.thread_root_message_id : undefined;
         const threadRoot = deliveryThread(events ?? [], turn, wakeRoot);
       const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
           ...(threadRoot ? {thread_root_message_id:threadRoot} : {}),

@@ -3,6 +3,7 @@ import { conversationName } from './conversation-name.js';
 import {parseAvatarVariant} from './configuration-input.js';
 import {configurationOperations} from './configuration-assembly.js';
 import { captureTaskContextAccess, personalSourceAccess, revokeLostTaskContextAccess } from './task-context-access.js';
+import { threadRelayMetadata } from './threads.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
 import {isRecord} from './node-rpc-values.js';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
@@ -154,7 +155,9 @@ export class PersonalAgents {
       : !!one(this.db,'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',message.conversation_id,b.owner_user_id));
     const addressedOwner=!isOwner && (ownerRecipient || (provider ? provider.mentioned_owner||provider.replied_to_owner
       : mentioned.some(u=>u.id===b.owner_user_id)||reply?.sender?.user_id===b.owner_user_id));
-    const addressedAgent=participant && (chat.type==='direct' || (provider ? provider.mentioned_bot||provider.replied_to_bot : this.addressedAgents(message).includes(b.agent_id)));
+    const threadRoot = message.thread_root_id ?? message.thread_root_message_id;
+    const followedThread = !!threadRoot && chat.type==='group' && !!one(this.db, 'SELECT 1 FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=? AND following=1', message.conversation_id, threadRoot, this.ctx.messaging.agentUser(b.agent_id).id);
+    const addressedAgent=participant && (chat.type==='direct' || followedThread || (provider ? provider.mentioned_bot||provider.replied_to_bot : this.addressedAgents(message).includes(b.agent_id)));
     return {is_owner:isOwner&&!this.representedBy(message.id),delivery:participant?'participant':'observer',conversation_type:chat.type,channel:message.sender_type==='user' && !sourceId ? 'web' : chat.external_source??'web',
       owner_direct:direct,addressed_to_owner:addressedOwner,addressed_to_agent:addressedAgent,explicit_mentioned_agent_ids:explicit,
       ...(provider||sourceId?{provider_source_time:provider?.source_time??null,context_only:provider?.context_only===true}:{})};
@@ -293,7 +296,7 @@ export class PersonalAgents {
         const conversation=e.conversation_id?one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',e.conversation_id):undefined;
         const message=e.message_id?this.ctx.messaging.message(e.message_id):null;
         return {...e,lifecycle_revision:JSON.parse(e.payload_json).lifecycle_revision??1,conversation_type:conversation?.type,channel:conversation?.external_source??'web',
-          ...(message?{mentioned_agent_ids:this.addressedAgents(message),...this.sourceFacts(b,message)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
+          ...(message?{mentioned_agent_ids:this.addressedAgents(message),...this.sourceFacts(b,message),...threadRelayMetadata(this.db,message.id)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
           message:message?{...message,sender_source_id:message.sender_source_id}:null};
       });
     for(const event of items) if(event.message_id) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(b.binding_id,event.message_id,event.conversation_id,policy.revision);

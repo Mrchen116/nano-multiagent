@@ -625,6 +625,7 @@ export class GlobalAgent {
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
                 metadata:{pa_observation:true,owner_direct:event.owner_direct,addressed_to_owner:event.addressed_to_owner,addressed_to_agent:event.addressed_to_agent,
+                  ...(typeof message.thread_root_message_id==='string'?{thread_root_message_id:message.thread_root_message_id,thread_root_sender:event.thread_root_sender,thread_root_excerpt:event.thread_root_excerpt,thread_earlier:event.thread_earlier}:{}),
                   ...('provider_source_time' in event?{provider_source_time:event.provider_source_time}:{}),context_only:event.context_only,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,explicit_mentioned_agent_ids:event.explicit_mentioned_agent_ids,source_policy_revision:event.policy_revision},
                 message:{id:message.id,content:message.content,sender_type:message.sender_type,sender_user_id:message.sender_source_id??message.sender_user_id,
                   attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,reply_to:message.reply_to,sender:message.sender}},true);

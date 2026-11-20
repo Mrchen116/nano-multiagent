@@ -48,13 +48,31 @@ export function bumpThreadUnread(db: DatabaseSync, messageId: string): void {
   }
 }
 
-/** Recompute list unread without letting a main-timeline read erase unseen group threads. */
+/** Recompute list unread without letting a main-timeline read erase unseen group threads.
+ * Direct chats keep topic replies on the same watermark as ordinary messages.
+ */
 export function listUnread(db: DatabaseSync, conversationId: string, userId: string, mainWatermark: number | null): number {
+  const grouped = one(db, 'SELECT type FROM conversations WHERE id=?', conversationId)?.type === 'group';
   const main = mainWatermark === null
     ? (one(db, 'SELECT unread_count AS count FROM conversation_participants WHERE conversation_id=? AND user_id=?', conversationId, userId)?.count ?? 0)
-    : (one(db, 'SELECT COUNT(*) AS count FROM messages WHERE conversation_id=? AND thread_root_id IS NULL AND rowid>? AND sender_user_id!=?', conversationId, mainWatermark, userId) as {count:number}).count;
-  const threads = (one(db, 'SELECT coalesce(sum(unread_count),0) AS count FROM thread_follows WHERE conversation_id=? AND user_id=? AND following=1', conversationId, userId) as {count:number}).count;
+    : (one(db, `SELECT COUNT(*) AS count FROM messages WHERE conversation_id=? AND rowid>? AND sender_user_id!=?${grouped ? ' AND thread_root_id IS NULL' : ''}`, conversationId, mainWatermark, userId) as {count:number}).count;
+  const threads = grouped
+    ? (one(db, 'SELECT coalesce(sum(unread_count),0) AS count FROM thread_follows WHERE conversation_id=? AND user_id=? AND following=1', conversationId, userId) as {count:number}).count
+    : 0;
   return Number(main) + Number(threads);
+}
+
+/** Opening one topic marks that follower caught up, without touching other topics.
+ * Returns how many topic unreads were cleared so a missing watermark can subtract them.
+ */
+export function markThreadRead(db: DatabaseSync, conversationId: string, rootId: string, userId: string): number {
+  const current = one(db, 'SELECT unread_count FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=? AND following=1', conversationId, rootId, userId) as {unread_count?: number} | undefined;
+  const latest = one(db, 'SELECT id FROM messages WHERE conversation_id=? AND thread_root_id=? ORDER BY rowid DESC LIMIT 1', conversationId, rootId);
+  db.prepare('UPDATE thread_follows SET unread_count=0, last_read_message_id=? WHERE conversation_id=? AND root_message_id=? AND user_id=? AND following=1')
+    .run(latest?.id ?? null, conversationId, rootId, userId);
+  db.prepare(`UPDATE message_receipts SET status=2 WHERE recipient_id=? AND status<2 AND message_id IN
+    (SELECT id FROM messages WHERE conversation_id=? AND thread_root_id=?)`).run(userId, conversationId, rootId);
+  return Number(current?.unread_count ?? 0);
 }
 
 function excerpt(value: unknown): string {
