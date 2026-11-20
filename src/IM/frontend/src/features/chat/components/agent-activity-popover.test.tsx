@@ -16,7 +16,7 @@ it("shows active assignments on open and links each to its available records", a
   const worker = {scope: "worker", runtime: "claude", status: "running"};
   vi.mocked(authFetch).mockResolvedValue(new Response(JSON.stringify({
     revision: 1, main_execution: "idle", node_connection_state: "online", record_sync_state: "current",
-    running_count: 2, waiting_permission_count: 0, sessions: [
+    running_count: 2, waiting_permission_count: 1, sessions: [
       {...worker, session_id: "worker/one", title: "检查登录超时原因", has_work_records: true, latest_tool: {name: "Read", label: "README"}},
       {...worker, session_id: "old", title: "核对部署清单"},
     ],
@@ -24,6 +24,7 @@ it("shows active assignments on open and links each to its available records", a
   const anchor = {agentId: "root", name: "Global", element: document.createElement("button")};
   renderRouter({initialEntries: ["/"], routes: [{path: "/", element: <AgentActivityPopover anchor={anchor} canConfigure={false} onClose={() => {}} />}]});
   const toggle = await screen.findByRole("button", {name: /2 个执行中/});
+  expect(screen.queryByText(/个待授权/)).toBeNull();
   expect(toggle).toHaveAttribute("aria-expanded", "true");
   expect(screen.getByRole("link", {name: "检查登录超时原因"})).toHaveAttribute("href", "/settings/agents/root?view=work&work_session=worker%2Fone");
   expect(screen.getByText(/最近调用.*Read README/)).toBeVisible();

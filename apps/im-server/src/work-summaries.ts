@@ -128,7 +128,7 @@ export class WorkSummaries {
       FROM agent_work_sessions s WHERE s.root_agent_id=? AND ${activeWorker}
     )`;
     const count = complete ? one(this.db, `${activity}
-      SELECT COUNT(*) FILTER (WHERE child_rank=1 AND status IN ('starting','running')) AS running,
+      SELECT COUNT(*) FILTER (WHERE child_rank=1 AND status='running') AS running,
         COUNT(*) FILTER (WHERE child_rank=1 AND status='waiting_permission') AS waiting,
         COUNT(*) FILTER (WHERE child_rank IS NULL OR (child_rank=1 AND status='unknown')) AS unresolved
       FROM ranked`, root, root) : undefined;
@@ -144,7 +144,7 @@ export class WorkSummaries {
     const countsCurrent = complete && !count?.unresolved && !pendingLink;
     const rows = all(this.db, `${activity}
       SELECT session_id,parent_session_id,scope,title,status,turn_id,last_active_at
-      FROM ranked WHERE child_rank=1 AND session_id>? AND status IN ('starting','running','waiting_permission')
+      FROM ranked WHERE child_rank=1 AND session_id>? AND status='running'
       ORDER BY session_id LIMIT ?`, root, root, after, limit + 1) as WorkSummarySession[];
     const sessions = rows.slice(0, limit).map(row => {
       if (row.scope !== 'worker') return complete ? row : {...row, status:'unknown'};

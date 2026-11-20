@@ -213,7 +213,7 @@ IM SHALL 依据目标 Agent 已确认的记录，分别呈现头像弹窗的执�
 #### Scenario: 主 Agent 派工后空闲
 
 - **WHEN** 主 Agent 已结束当前轮次，派出的本机 worker 仍在启动或执行
-- **THEN** 头像弹窗显示主 Agent 空闲，并将该 worker 计入运行中的子 Agent。打开弹窗即显示各活动 worker 在派工时填写的任务标题与当前状态，列表可收起，有工作记录时可直接进入该 worker 的记录，其余事项可进入派工图。worker 结束后从活动列表和计数中移除。
+- **THEN** 头像弹窗显示主 Agent 空闲，并仅将状态为 `running` 的 worker 计入运行中的子 Agent。打开弹窗即显示这些 worker 在派工时填写的任务标题与当前状态，列表可收起，有工作记录时可直接进入该 worker 的记录，其余事项可进入派工图。worker 结束后从活动列表和计数中移除。
 
 #### Scenario: 主执行已确认而子执行仍在回补
 

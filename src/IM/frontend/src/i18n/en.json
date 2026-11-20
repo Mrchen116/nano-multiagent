@@ -1120,7 +1120,6 @@
       "waiting_permission": "Awaiting approval",
       "unknown": "Unknown",
       "runningCount": "{{count}} running",
-      "waitingCount": "{{count}} awaiting approval",
       "more": "Load more",
       "open": "Open Work",
       "computer": "Computer"

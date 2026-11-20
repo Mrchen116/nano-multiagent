@@ -110,7 +110,7 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   ]);
   await status(false);
   expect((await read('/activity?limit=1')).body).toMatchObject({
-    running_count: 1, waiting_permission_count: 1, sessions: [{session_id: 'child', parent_session_id: 'parent', status: 'waiting_permission'}], next_cursor: 'child',
+    running_count: 1, waiting_permission_count: 1, sessions: [{session_id: 'running', status: 'running'}], next_cursor: null,
   });
   expect((await read('/activity?after_session=child')).body).toMatchObject({sessions: [{session_id: 'running'}], next_cursor: null});
 
@@ -163,7 +163,7 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   for (const state of ['starting', 'running', 'completed']) {
     await append([['worker', 'worker_state', {...worker, status: state}]]);
     await status(false);
-    const active = state !== 'completed';
+    const active = state === 'running';
     const page = (await read('/activity?after_session=running')).body;
     expect(page).toMatchObject({
       running_count: active ? 2 : 1, waiting_permission_count: 1,
