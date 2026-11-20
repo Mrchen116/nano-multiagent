@@ -31,3 +31,17 @@
 [候选 C 的真实模型试验](https://github.com/Mrchen116/nano-multiagent/actions/runs/44789198104)从 GitHub 下载原始安装器，在 Windows Server 2022 上由安装器获取正式地址的资产。移除系统 Node 路径后，私有 Node v24.22.1、DSH 及具有 34 项工具的会话均正常启动。本地 Qwen 推理服务收到请求并生成了两个 token，后续应用助手配置时出现 `Temporary inspection cleanup could not be confirmed`。检查发现临时进程退出后仍调用仅 POSIX 提供的 `ps` 查询进程组。修复提交 `9d5232de2` 改用 Windows 进程树终止和存活检查，并让打包验收实际应用一次新配置。
 
 [候选 E 的 Windows 构建与回归](https://github.com/Mrchen116/nano-multiagent/actions/runs/44790882552)在完整安装的版本中，成功为首个助手应用配置、回收临时进程并建立实际 DSH 会话。对应的 8 项配置检查进程测试在本地支持的 Node v24.22.1 下也全部通过。[候选 E 测试版](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-4acc9145a62bddf5790a600baa1a970e885c91e4)共 83,431,741 字节，安装器 2,110,423 字节；5 份发布文件已逐项核对 GitHub SHA-256。
+
+[候选 E 的 Windows Server 2022 实机模型与 IM 试验](https://github.com/Mrchen116/nano-multiagent/actions/runs/44791673050)将系统 Node 从 PATH 移除。安装的 DSH 向真实 Qwen 提交“11 + 6”并得到“11 + 6 equals 17.”。随后从安装目录运行正式 setup，使用隔离账号确认绑定。IM 观察到该托管版本在线、模型服务配置成功并创建了个人助手。IM 聊天收到用户发出的“26 + 9”，五分钟截止时没有助手回复，这次完整聊天验收未通过。
+
+[候选 E 的 IM 端到端验收（Windows Server 2022）](https://github.com/Mrchen116/nano-multiagent/actions/runs/44794072668/attempts/2)通过：从 GitHub 安装未修改的 EXE，使用私有 Node 完成 setup，以正式账号确认接口接受绑定，在 IM 查看节点上线，配置真实 DeepSeek 服务并创建个人助手。用户在同一个 IM 会话发出“22 + 7”，收到该助手回复“29”。由正式聊天 HTTP 接口发消息和读取回复，独立 IM 数据库也保存了这两条消息。模型测试专用凭据按工作流签名限时发放，无需用户提供模型密钥。
+
+[通过 IM 从 C 升级到 E](https://github.com/Mrchen116/nano-multiagent/actions/runs/44795685103)。Windows 用旧版本正常绑定并在线，用户工作区写入校验文件；隔离 IM 发布 E 后，通过节点设置页使用的更新接口发起升级。升级操作返回成功，新 Gateway 在线，原账号、电脑 ID 和文件内容一致。随后关闭自启、手动启动、重新打开自启，再强制结束经创建时间确认的本机 Gateway，210 秒内未观察到恢复在线。
+
+独立复核 `4933326e1..4acc9145a` 的临时进程清理与安装回归测试，未发现阻塞项。[Windows 专项验证](https://github.com/Mrchen116/nano-multiagent/actions/runs/44796545814)使检查进程在其子进程启动后主动退出。通过 PID 与创建时间确认，清理完成和一秒后两个进程均已退出，临时目录已回收。
+
+用两个独立安装复现了 Gateway 异常退出后未能恢复。默认开启自启的电脑和曾经切换自启的电脑均在终止 Gateway 后持续离线，任务计划程序返回 Ready。[Windows 对照实验](https://github.com/Mrchen116/nano-multiagent/actions/runs/44796851157)
+
+候选 F 在当前用户的后台宿主内等待旧进程退出，回收其子进程，在锁过期后重新检查用户的自启设置并启动 Gateway。原生回归测试实际注册并运行 Windows 计划任务、终止子进程、观察新的进程 ID，随后正常停止服务。独立复核修复与设计的差异后没有发现阻塞项。[Windows 构建与回归](https://github.com/Mrchen116/nano-multiagent/actions/runs/44797807954)
+
+F 的五个公开文件合计 83,432,429 字节（79.57 MiB），其中双击安装器 2,110,422 字节，运行环境压缩包 78,689,983 字节，应用压缩包 2,630,721 字节。已核对所有文件的大小和 SHA-256。[候选 F 测试版](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-876525e0d2c94bdacc006809e7d56d0b36beeff2)
