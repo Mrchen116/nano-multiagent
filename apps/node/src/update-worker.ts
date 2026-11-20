@@ -7,13 +7,13 @@ import { pathToFileURL } from 'node:url';
 import lockfile from 'proper-lockfile';
 import { parseReleaseManifest, nodeUpdateTerminal, type NodeRelease, type NodeUpdateReport, type ReleaseManifest } from '@nano/product-contracts';
 import { NodeConfiguration } from './configuration.js';
-import { atomicPrivate, gatewayState, processBirth, type GatewayState } from './lifecycle.js';
+import { applyGatewayEnvironment, atomicPrivate, gatewayState, processBirth, type GatewayState } from './lifecycle.js';
 import { readUpdateFile, reportUpdate, updatePath, validLease, type UpdateLease, type UpdateHandoff } from './node-updater.js';
 import { loadNodeRelease, verifyReleaseMetadata } from './release.js';
 const exec = promisify(execFile);
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const matches = (actual: NodeRelease | undefined | null, expected: NodeRelease | ReleaseManifest) =>
-  !!actual && actual.version === expected.version && actual.sha256 === expected.sha256 && actual.source_commit === (expected.source_commit ?? expected.version);
+  !!actual && actual.platform === expected.platform && actual.version === expected.version && actual.sha256 === expected.sha256 && actual.source_commit === (expected.source_commit ?? expected.version);
 
 /** Download and install a validated immutable package without touching the running installation. */
 export async function installRelease(target: ReleaseManifest, root: string, onInstalling: () => Promise<void>, signal?: AbortSignal): Promise<string> {
@@ -61,6 +61,8 @@ async function prepareWindowsUpdate(target: ReleaseManifest, oldEntry: string, o
 /** Execute an authorized update under one config-scoped lock, independently of the Node it replaces. */
 export async function runUpdate(configPath: string, operationId: string): Promise<void> {
   const config = await NodeConfiguration.read(resolve(configPath));
+  // Task Scheduler starts the Windows worker outside the Gateway's environment.
+  if (process.platform === 'win32') applyGatewayEnvironment(config.value);
   const unlock = await lockfile.lock(config.path, {realpath: false, lockfilePath: updatePath(config.path, '.node-update.lock'), stale: 15000, update: 1000});
   let heartbeat: NodeJS.Timeout | undefined;
   let poller: NodeJS.Timeout | undefined;
