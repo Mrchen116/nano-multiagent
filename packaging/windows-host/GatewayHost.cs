@@ -84,8 +84,11 @@ internal static class GatewayHost {
                 case "autostart-off":
                 case "start":
                     bool start = args[0] == "start";
-                    bool enable = start ? (task == null ? Boolean.Parse(args[3]) : Enabled(task)) : args[0] == "autostart-on";
-                    task = Register(service, folder, key, enable, "serve " + Quote(config) + " " + Int32.Parse(args[2]) + " $(Arg0)");
+                    bool configured = Boolean.Parse(args[3]);
+                    string source = "Crewden gateway.autostart=" + configured;
+                    // Preserve an applied GUI choice until an explicit change to gateway.autostart.
+                    bool enable = start ? (task != null && task.Definition.RegistrationInfo.Description == source ? Enabled(task) : configured) : args[0] == "autostart-on";
+                    task = Register(service, folder, key, enable, "serve " + Quote(config) + " " + Int32.Parse(args[2]) + " $(Arg0)", source);
                     if (Enabled(task) != enable) throw new Exception("Windows did not apply the requested login setting");
                     if (start) {
                         string origin = args.Length == 6 && args[4] == "--im-service-url" ? Convert.ToBase64String(Utf8.GetBytes(args[5])) : "-";
@@ -116,8 +119,9 @@ internal static class GatewayHost {
     static bool Enabled(dynamic task) {
         return task != null && task.Enabled && task.Definition.Triggers.Count > 0 && task.Definition.Settings.RestartCount > 0;
     }
-    static dynamic Register(dynamic service, dynamic folder, string name, bool login, string args) {
+    static dynamic Register(dynamic service, dynamic folder, string name, bool login, string args, string description) {
         dynamic def = service.NewTask(0);
+        def.RegistrationInfo.Description = description;
         def.Principal.UserId = User.Value;
         def.Principal.LogonType = 3; // TASK_LOGON_INTERACTIVE_TOKEN
         def.Principal.RunLevel = 0;
@@ -145,7 +149,7 @@ internal static class GatewayHost {
         string name = key + "-Update";
         dynamic task = FindTask(folder, name);
         if (task != null && task.GetInstances(0).Count > 0) return;
-        task = Register(service, folder, name, false, "worker " + Quote(config) + " " + Guid.Parse(operation).ToString() + " " + Quote(package));
+        task = Register(service, folder, name, false, "worker " + Quote(config) + " " + Guid.Parse(operation).ToString() + " " + Quote(package), "Crewden update coordinator");
         task.Run(null);
     }
     static int Worker(string config, string operation, string package) {
@@ -158,7 +162,12 @@ internal static class GatewayHost {
             worker.OutputDataReceived += (s, e) => { if (e.Data != null) { log.WriteLine(e.Data); log.Flush(); } };
             worker.ErrorDataReceived += (s, e) => { if (e.Data != null) { log.WriteLine(e.Data); log.Flush(); } };
             worker.Start(); worker.BeginOutputReadLine(); worker.BeginErrorReadLine(); worker.WaitForExit();
-            return worker.ExitCode;
+            int code = worker.ExitCode;
+            // The coordinator is already gone. Retire the one-shot task's reference to its old release.
+            dynamic service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service"));
+            service.Connect();
+            service.GetFolder("\\").DeleteTask(Key(config) + "-Update", 0);
+            return code;
         }
     }
     static Dictionary<string, object> Read(string folder, string file) {
@@ -181,7 +190,10 @@ internal static class GatewayHost {
                 sha = (string)change["target_sha256"];
         }
         if (!Regex.IsMatch(sha, @"\A[a-f0-9]{64}\z")) throw new Exception("Invalid active Windows release identity");
-        return Path.Combine(Path.GetDirectoryName(Package), sha);
+        string selected = Path.Combine(Path.GetDirectoryName(Package), sha);
+        if (File.ReadAllText(Path.Combine(selected, ".ready")).Trim() != sha)
+            throw new Exception("Windows release has not finished preparation");
+        return selected;
     }
     static string Birth(int pid) {
         IntPtr handle = OpenProcess(0x101000, false, pid); // SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION
@@ -206,7 +218,7 @@ internal static class GatewayHost {
         using (var pipe = new NamedPipeClientStream(".", key, PipeDirection.InOut, PipeOptions.None, TokenImpersonationLevel.Identification)) {
             pipe.Connect(5000);
             using (var writer = new StreamWriter(pipe, Utf8, 1024, true))
-            using (var reader = new StreamReader(pipe, Utf8)) {
+            using (var reader = new StreamReader(pipe, Utf8, false, 1024, true)) {
                 writer.WriteLine(command); writer.Flush();
                 string reply = reader.ReadLine();
                 if (reply != "OK") throw new Exception(reply ?? "Gateway control channel closed");
