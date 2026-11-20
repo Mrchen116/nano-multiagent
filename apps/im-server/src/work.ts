@@ -15,7 +15,7 @@ import {
   type ImContext,
 } from "./context.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
-import { decodeWorkBatch, WorkEventError, type WorkAppendAck, type WorkSessionFields, formatLocalTime, projectChatReplyContext } from "@nano/product-contracts";
+import { decodeWorkBatch, WorkEventError, type WorkReadyCut, type WorkAppendAck, type WorkSessionFields, formatLocalTime, projectChatReplyContext } from "@nano/product-contracts";
 import type { Connection } from './gateway.js';
 import { WorkRecords } from './work-records.js';
 import type { WorkWindow } from './work-summaries.js';
@@ -30,29 +30,55 @@ export function readWorkBatch(input: unknown) {
   try { return decodeWorkBatch(input); }
   catch (error) { if (error instanceof WorkEventError) fail(400, error.message); throw error; }
 }
-export class Work {
-  private readonly progress = new WeakMap<Connection, { journal: string; produced: number; pending: boolean }>();
+type WorkProgress = { journal: string; produced: number; pending: boolean; readyAgents?: Map<string, WorkReadyCut> };
+type SyncState = 'current' | 'main_only' | 'catching_up' | 'unknown';
 
-  /** Accept a completeness declaration only for the connection that received it.
+function syncState(report: WorkProgress, through: number, root: string): SyncState {
+  if (through > report.produced) return 'unknown';
+  const cut = report.readyAgents?.get(root);
+  if (typeof cut === 'number' && through >= cut) return 'current';
+  if (typeof cut === 'object' && through >= cut.main) return 'main_only';
+  return report.pending || through < report.produced ? 'catching_up' : 'current';
+}
+
+export class Work {
+  private readonly progress = new WeakMap<Connection, WorkProgress>();
+  // A cursor-only report can settle an earlier read without appending any Work event.
+  private readonly waiting = new WeakMap<Connection, Map<string, SyncState>>();
+
+  /** Publish newly confirmed scopes to readers of this connection's incomplete records.
    *
    * Args:
    *   connection: Registration active when the authenticated HTTP request began.
-   *   journal: Durable source journal identity.
-   *   produced: Highest locally committed product event sequence.
-   *   pending: Whether product projection still has unprocessed source facts.
+   *   report: Producer completeness at the journal cut.
+   *   through: Journal position confirmed by this successful request.
    */
-  reportProgress(connection: Connection, journal: string, produced: number, pending: boolean): void {
-    if (this.ctx.gateway.nodes.get(connection.node_id) === connection && this.ctx.gateway.valid(connection))
-      this.progress.set(connection, { journal, produced, pending });
+  reportProgress(connection: Connection, report: WorkProgress, through: number): void {
+    if (this.ctx.gateway.nodes.get(connection.node_id) !== connection || !this.ctx.gateway.valid(connection)) return;
+    this.progress.set(connection, report);
+    const waiting = this.waiting.get(connection);
+    if (!waiting) return;
+    for (const [root, previous] of waiting) {
+      const state = syncState(report, through, root);
+      if (state === 'current') waiting.delete(root);
+      else waiting.set(root, state);
+      if (state !== previous && (state === 'current' || state === 'main_only'))
+        this.notifyUpdated(root, connection.node_id, true);
+    }
   }
 
-  private recordSyncState(node: string): 'current' | 'catching_up' | 'unknown' {
+  private recordSyncState(node: string, root: string): SyncState {
     const connection = this.ctx.gateway.nodes.get(node);
-    const report = connection && this.ctx.gateway.valid(connection) && this.progress.get(connection);
-    if (!report) return 'unknown';
-    const through = one(this.db, 'SELECT through_seq FROM agent_work_journals WHERE node_id=? AND journal_id=?', node, report.journal)?.through_seq ?? 0;
-    if (through > report.produced) return 'unknown';
-    return report.pending || through < report.produced ? 'catching_up' : 'current';
+    if (!connection || !this.ctx.gateway.valid(connection)) return 'unknown';
+    const report = this.progress.get(connection);
+    const through = report && one(this.db, 'SELECT through_seq FROM agent_work_journals WHERE node_id=? AND journal_id=?', node, report.journal)?.through_seq;
+    const state = report ? syncState(report, through ?? 0, root) : 'unknown';
+    if (state !== 'current') {
+      let waiting = this.waiting.get(connection);
+      if (!waiting) this.waiting.set(connection, waiting = new Map());
+      if (!waiting.has(root) || state !== 'main_only') waiting.set(root, state);
+    }
+    return state;
   }
 
   private readonly records: WorkRecords;
@@ -75,53 +101,58 @@ export class Work {
     const page = this.records.turns(root, session, before, limit, summary, separate);
     if (!separate) return page;
     const agent = one(this.db, "SELECT node_id FROM agent_profiles WHERE agent_id=?", root)!;
-    return {...page, catalog: 'separate', revision: this.revision(root), ...this.connection(agent.node_id)};
+    return {...page, catalog: 'separate', revision: this.revision(root), ...this.connection(agent.node_id, root)};
   }
   revision(root: string) { return this.records.revision(root); }
   focus(root: string, messageId: string, separate = false) { return this.records.focus(root, messageId, separate); }
   append(node: string, input: unknown, historical = false): WorkAppendAck {
     const batch = readWorkBatch(input);
     const {ack, appliedRoots} = this.records.append(node, batch, historical);
-    for (const root of appliedRoots) {
-      const personal = one(this.db, "SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?", root);
-      const space = one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=?", root)!.space_id;
-      const users = all(
-        this.db,
-        "SELECT * FROM users WHERE (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL",
-      ).filter(u => (!personal || personal.owner_user_id === u.id) && canAccessSpace(u, space)).map((u) => u.id);
-      this.ctx.gateway.broadcast(users, {
-        op: "event",
-        event_type: "agent.work.updated",
-        data: { agent_id: root, revision: this.revision(root) },
-      });
-    }
+    for (const root of appliedRoots) this.notifyUpdated(root, node);
     return ack;
   }
-  private connection(node: string) {
+  private notifyUpdated(root: string, node: string, readinessChanged = false) {
+    const connected = Array.from(this.ctx.gateway.browsers, browser => browser.userId);
+    if (!connected.length) return;
+    const profile = one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=? AND node_id=? AND is_stale=0", root, node);
+    if (!profile) return;
+    const personal = one(this.db, "SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?", root);
+    const users = all(this.db,
+      `SELECT id,owner_id,personal_space_enabled,membership_status FROM users WHERE id IN (SELECT value FROM json_each(?))
+       AND (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL`, JSON.stringify(connected),
+    ).filter(u => (!personal || personal.owner_user_id === u.id) && canAccessSpace(u, profile.space_id)).map(u => u.id);
+    this.ctx.gateway.broadcast(users, {
+      op: "event", event_type: "agent.work.updated",
+      data: { agent_id: root, revision: this.revision(root), ...(readinessChanged && {readiness_changed: true}) },
+    });
+  }
+  private connection(node: string, root: string, state = this.recordSyncState(node, root)) {
     return {
       node_connection_state: this.ctx.gateway.isOnline(node) ? 'online' as const : 'offline' as const,
-      record_sync_state: this.recordSyncState(node),
+      record_sync_state: state === 'main_only' ? 'catching_up' as const : state,
     };
   }
   view(root: string, before?: string, limit = 20, summary = false, messageId?: string, separate = false, combinedBefore?: number): WorkView {
     const {node_id, ...view} = this.records.view(root, before, limit, summary, messageId, separate, combinedBefore);
-    const connection = this.connection(node_id);
+    const connection = this.connection(node_id, root);
     return {...view, ...connection,
       main_execution: connection.node_connection_state === 'offline' && ['running', 'waiting_permission'].includes(view.main_execution) ? 'unknown' : view.main_execution,
     };
   }
   /** Read activity without materializing the main timeline or catalog. */
   activity(root: string, node: string, after: string, limit: number) {
-    const connection = this.connection(node);
+    const state = this.recordSyncState(node, root);
+    const connection = this.connection(node, root, state);
+    const online = connection.node_connection_state === 'online';
     const main = this.records.mainSessionId(root);
     return {...connection, revision: this.revision(root), main_session_id: main,
       ...this.records.summaries.activity(root, main,
-        connection.node_connection_state === 'online' && connection.record_sync_state === 'current', after, limit)};
+        online && state === 'current', after, limit, online && (state === 'current' || state === 'main_only'))};
   }
 
   /** Read the delegation window under the same Agent scope as Work records. */
   delegation(root: string, node: string, window: WorkWindow, until: string, after: string, limit: number) {
-    const connection = this.connection(node);
+    const connection = this.connection(node, root);
     const main = this.records.mainSessionId(root);
     return {...connection, revision: this.revision(root), main_session_id: main,
       ...this.records.summaries.delegation(root, main, window, until, after, limit)};

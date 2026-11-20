@@ -111,7 +111,10 @@ export class RpcPeer {
       const frame = this.frames.shift();
       if (!frame) return;
       let data: string;
-      try { data = `${JSON.stringify(frame.value)}\n`; }
+      try {
+        // Node readline also treats literal Unicode line and paragraph separators as frame boundaries.
+        data = JSON.stringify(frame.value).replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029') + '\n';
+      }
       catch (error) { frame.reject(error as Error); continue; }
       frame.value = undefined;
       try {

@@ -1,3 +1,4 @@
+import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { tr } from "./agent-work-text";
 import { authFetch } from "../../auth/auth-fetch";
 import { readHttpError } from "../../auth/http-error";
@@ -23,6 +24,13 @@ export class AgentExecutionDeletedError extends WorkRequestError {
 
 export const workAccessLost = (error: unknown) =>
   error instanceof WorkRequestError && [401, 403, 404, 409, 410].includes(error.status);
+
+/** Re-read an open view even when its first, pre-confirmation response is still in flight. */
+export async function refreshReadyWork(client: QueryClient, queryKey: QueryKey) {
+  const filter = {queryKey, type: "active" as const};
+  await client.cancelQueries(filter);
+  await client.refetchQueries(filter);
+}
 
 export async function workRequest<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await authFetch(path, {signal});

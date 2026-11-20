@@ -209,3 +209,21 @@ test('redaction refreshes a stale partial cursor and preserves a following peer 
   expect(f.calls.slice(0, 3).map(call => call.method)).toEqual(['GET', 'GET', 'POST']);
   expect(f.errors).toEqual([]);
 });
+
+test('only settled execution scopes are announced while local Work remains pending', async () => {
+  const f = await fixture((_call, response) => json(response, {through_seq:0}));
+  const agents = ['root', 'peer'];
+  const ready = () => f.inbox.readyWorkAgents(agents, session => session === 'main' ? 'root' : undefined);
+  f.inbox.append(event(1));
+  f.inbox.append({...event(2), root_agent_id:'peer'});
+  f.inbox.workPending('main', true);
+  expect(ready()).toEqual({peer:2});
+  f.inbox.workPending('main', true, true);
+  expect(ready()).toEqual({root:{main:1},peer:2});
+  f.inbox.appendAfterWork({...event(3), root_agent_id:'peer'}, 5);
+  expect(ready()).toEqual({root:{main:1}});
+  f.inbox.workPending('main', false);
+  expect(ready()).toEqual({root:1});
+  f.inbox.workPending('unbound', true);
+  expect(ready()).toEqual({});
+});
