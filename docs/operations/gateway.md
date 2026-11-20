@@ -72,6 +72,17 @@ llm:
 - `gateway.environment` 只接受操作系统环境可用的字符串键值，作为普通后台和登录自启共同使用的稳定环境。配置值覆盖同名继承环境；本次显式 CLI 控制仍有最高优先级。macOS 登录服务默认可发现系统目录和 Homebrew 常用目录；工具位于其他目录时，在这里显式设置 `PATH`。
 - 本地 LLM 代理配置、协议、交互日志和验证方法见 [`../development/llm-integration.md`](../development/llm-integration.md)。
 
+### 本机 Global worker 框架
+
+在本机 Gateway 配置文件的 `gateway` 段设置 `worker_runtime`，可选 `dsh`（默认）、`codex` 或 `claude`。例如：
+
+```yaml
+gateway:
+  worker_runtime: codex
+```
+
+用运行 Gateway 的系统用户登录相应 CLI，并确认该用户的 PATH 能找到可执行文件。重启 Gateway 后，普通 Global 和 PA 的新派工使用本机 CLI 的账号、workspace 及默认模型。已有事项仍按创建时的框架续做。登录失效或 CLI 启动失败时，从 Global 收到失败原因。
+
 ### 使用普通 HTTP 代理
 
 只开启 Clash 等普通代理即可，无需 TUN。后台 Node 服务不会自动继承浏览器使用的系统代理；在 `gateway.environment` 持久配置自己的代理端口，停止后编辑并重启 Gateway：

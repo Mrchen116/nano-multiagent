@@ -20,7 +20,7 @@ async function fixture(){
   const ctx={llm:{resolveModelInfo:async()=>({context:{contextWindow:256000}})},storageDomain:{open:async()=>({table:(name:string)=>{const rows=name==='owners'?owners:name==='runs'?runs:summaries;return {get:(id:string)=>rows.get(id),put:async(id:string,value:any)=>{rows.set(id,structuredClone(value));},entries:()=>rows.entries()};}})},
     on:()=>{},effect:(f:()=>()=>void)=>cleanup.push(f()),nanoTrajectoryRuns:{finishMaintenance:async()=>{}},sessions:{get:()=>undefined},sessionQuery:{}};
   const config={agentId:'a',revision:'1',workspace,provider:'fixture',model:'test'};
-  const make=()=>new Dreaming(ctx as never,{forConfig:async()=>library} as never,{configOf:()=>config,configs:new Map([['a',config]]),bindings:new Map(),notify:()=>{}});
+  const make=()=>new Dreaming(ctx as never,{forConfig:async()=>library} as never,{childConfiguration:async()=>undefined,configOf:()=>config,configs:new Map([['a',config]]),bindings:new Map(),notify:()=>{}});
   const directory=join(workspace,'frozen');await mkdir(join(directory,'staging/knowledge'),{recursive:true});
   const lesson='One verified lesson, recorded once.';
   const originalPath='knowledge/old-lesson.md';
@@ -98,7 +98,7 @@ it.each([false,true])('repairs only a recorded legacy Dreaming identity, preserv
   const handle={header:session.header,inheritedEventCount:0,read:async()=>({events}),append:async(batch:any[])=>{events.push(...batch);},flush:async()=>{durable=true;},[Symbol.asyncDispose]:async()=>{}};
   const ctx={llm:{resolveModelInfo:async()=>({context:{contextWindow:256000}})},storageDomain:{open:async()=>({table:()=>({entries:()=>runs.entries(),put:async(id:string,value:any)=>{runs.set(id,structuredClone(value));}})})},
     sessionPersistence:{stat:async()=>({header:session.header}),open:async()=>handle},on:()=>{},effect:(f:()=>()=>void)=>cleanup.push(f())};
-  const dreaming=new Dreaming(ctx as never,{} as never,{configOf:()=>undefined,configs:new Map(),bindings:new Map(),notify:()=>{}});
+  const dreaming=new Dreaming(ctx as never,{} as never,{childConfiguration:async()=>undefined,configOf:()=>undefined,configs:new Map(),bindings:new Map(),notify:()=>{}});
   try{
     if(wrongParent){
       await expect(dreaming.recover()).rejects.toThrow('does not match');

@@ -74,7 +74,7 @@ export function apply(ctx){
     client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
     registerNoopTaskHosts(client);
     const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
-    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},knowledge:{dreaming:{maxSteps:24,maxRunMs:1}},toolAllowlist:['read','write','edit','memory_maintenance','subagent','subagent_fork'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
+    await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',workspace:home,mode:'single_thread',provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},knowledge:{dreaming:{maxSteps:24,maxRunMs:1}},toolAllowlist:['read','write','edit','memory_maintenance','subagent','subagent_fork'],approval:{dangerouslySkipPermissions:true}}],bindings:[binding]});
     await client.rpc.request('session.ensure',binding);
     const submit=async(id:string,text=id)=>{
       await client!.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
@@ -98,11 +98,6 @@ export function apply(ctx){
     });
     if(mode!=='valid')expect(consolidate.workMetrics).not.toHaveProperty('model');
     expect(extract.childSessionId).not.toBe(consolidate.childSessionId);
-    await client.rpc.request('trajectory.prepare', { observerId: 'dreaming-stages', rootAgentId: 'a', rootSessionId: 'root', sessionId: 'root', ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
-    const runs = await client.rpc.request('trajectory.call', { observerId: 'dreaming-stages', method: 'trajectory/runs' }) as { value: import('@nano/product-contracts').TrajectoryRun[] };
-    expect(runs.value.filter(run => run.kind === 'dreaming')).toEqual(expect.arrayContaining(reviews.map((review: any) =>
-      expect.objectContaining({ sessionId: review.childSessionId, label: review.title, state: review.status }))));
-    await client.rpc.request('trajectory.close', { observerId: 'dreaming-stages' });
     if(mode!=='valid'){
       expect(extract.summary).toContain('未生成有效的新版本');
       await expect(readFile(join(home,'.nanoassistant/memory/knowledge/travel.md'))).rejects.toMatchObject({code:'ENOENT'});

@@ -1,3 +1,4 @@
+import { workerRuntimes } from '@nano/product-contracts/worker-runtimes';
 import { mkdtemp, readFile, writeFile, rm, stat, symlink, realpath } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
@@ -259,4 +260,20 @@ it('checks ROLE workspace ownership across configured and prepared Agent paths b
     config.releaseWorkspace('pending');
     expect(await config.roleWorkspace('ordinary')).toBe(workspace);
   } finally { await rm(home, {recursive: true, force: true}); }
+});
+
+it('selects the machine worker runtime for new Global and PA delegations', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'nano-worker-config-'));
+  try {
+    const path = join(dir, 'gateway.yaml');
+    const base = {node:{},agents:[],llm:{default_model:'test',providers:[{name:'test',models:[{name:'test'}]}]}};
+    const agent = {agent_id:'a',workspace_root:dir,work_mode:'global' as const};
+    for (const runtime of [undefined, ...workerRuntimes]) {
+      await writeFile(path, JSON.stringify({...base,gateway:{worker_runtime:runtime}}));
+      const node = await NodeConfiguration.read(path);
+      expect(node.runtime(agent).workerRuntime).toBe(runtime ?? 'dsh');
+    }
+    await writeFile(path,JSON.stringify({...base,gateway:{worker_runtime:'unknown'}}));
+    await expect(NodeConfiguration.read(path)).rejects.toThrow(/worker_runtime/);
+  } finally { await rm(dir,{recursive:true,force:true}); }
 });

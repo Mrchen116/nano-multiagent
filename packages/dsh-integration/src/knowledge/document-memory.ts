@@ -18,6 +18,7 @@ declare module '@deepseek-ai/dsh-llm' {
 }
 
 interface Options {
+  isWorkWorker(agent: Agent): boolean;
   configOf(agent: Agent): AgentConfiguration | undefined;
   configs: Map<string, AgentConfiguration>;
   bindings: Map<string, SessionBinding>;
@@ -63,7 +64,7 @@ export class DocumentMemory {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
       const config = agent && options.configOf(agent);
       if (agent) this.roleAgents.delete(agent);
-      if (!agent || !config || config.knowledge?.memoryMode === 'legacy' || ![...options.bindings.values()].some(binding => binding.agentId === config.agentId)) return assembly;
+      if (!agent || !config || options.isWorkWorker(agent) || config.knowledge?.memoryMode === 'legacy' || ![...options.bindings.values()].some(binding => binding.agentId === config.agentId)) return assembly;
       const binding = options.bindings.get(agent.id);
       const main = binding?.agentId === config.agentId;
       const documents = await this.forConfig(config);
@@ -177,6 +178,7 @@ export class DocumentMemory {
   }
   private async control(exec: ToolExecution, args: MaintenanceArguments): Promise<unknown> {
     const agent = exec.agent!; const config = this.options.configOf(agent)!;
+    if (this.options.isWorkWorker(agent)) throw new Error('Memory maintenance is unavailable for workers.');
     if (config.knowledge?.memoryMode === 'legacy') throw new Error('Document maintenance is unavailable in legacy mode.');
     const documents = await this.forConfig(config);
     if (args.action === 'status') return { mode: 'document', ...await this.status(documents), maintenance: await this.maintenanceStatus?.(config.agentId) };

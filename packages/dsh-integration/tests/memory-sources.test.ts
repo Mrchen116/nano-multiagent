@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createHistoryView } from 'dsh-agent-context';
 import { qualifiedEvents } from '../src/knowledge/memory-source-view.js';
 import { MemorySources, renderMaterial, selectChildMaterial } from '../src/knowledge/memory-sources.js';
@@ -20,6 +20,13 @@ function fixture(events: any[], options: { inherited?: number; onFlush?: (count:
 }
 const streams = { s: { baseline: -1, cursor: -1 } };
 describe('certified bounded memory sources', () => {
+  it('keeps external worker reports received by the root as internal messages', async () => {
+    const report = event(0, 'user/message', {id:'report', source:{kind:'nano-system', channel:'worker-report', actorId:'a', messageId:'worker:turn'}, content:[{type:'text',text:'Owner-facing result from worker'}]});
+    const batch = await fixture([report,event(1,'step/end')]).sources.freeze('a',streams,{maxInputTokens:2000});
+    expect(batch.text).toContain('[other agent]');
+    expect(batch.text).toContain('Owner-facing result from worker');
+    expect(qualifiedEvents([report as never])).toHaveLength(1);
+  });
   it('freezes before the second flush and never exports later appended events', async () => {
     const events = [human(0, 'First'), event(1, 'step/end')];
     const f = fixture(events, { onFlush: count => { if (count === 2) events.push(human(2, 'After the cut'), event(3, 'step/end')); } });
@@ -89,7 +96,7 @@ it('continues an oversized source across persisted bounded pages before advancin
   expect(later.ranges[0]?.through).toBe(3);
 });
 
-function taskFixture() {
+function taskFixture(eligibleChild?: (agentId: string, childId: string) => Promise<boolean>) {
   const at = (e: any, time: number) => ({...e,time});
   const root: any[] = [at(human(0,'Must be refundable; budget 5000'),110),at(event(1,'step/end'),120),at(event(2,'subagent/catalog',{mode:'continuable',childId:'child',childCreatedAt:125}),125),at(event(3,'step/end'),130)];
   const child: any[] = [...root.slice(0,2),at(human(2,'Compare using those conditions'),140),at(event(3,'assistant/message',{message:{content:[{type:'text',text:'Compared two hotels; not booked.'}]}}),150),at(event(4,'step/end'),160)];
@@ -97,8 +104,17 @@ function taskFixture() {
     const events=structuredClone(id==='s'?root:child);
     return {source:'prepared',revision:'disk',header:id==='s'?{cwd:'/owner',origin:'root'}:{cwd:'/task',origin:'subagent',parentSession:'s'},inheritedEventCount:id==='s'?0:2,events,cursor:events.at(-1).seq,[Symbol.dispose]:()=>{}};
   }}};
-  return {root,child,sources:new MemorySources(ctx as never,new Map([['s',{sessionId:'s',agentId:'a',ownerId:'owner',cwd:'/owner',revision:'1'}]]))};
+  return {root,child,sources:new MemorySources(ctx as never,new Map([['s',{sessionId:'s',agentId:'a',ownerId:'owner',cwd:'/owner',revision:'1'}]]),eligibleChild)};
 }
+
+it('leaves ineligible old work children out before opening their trajectory',async()=>{
+  const {sources}=taskFixture(async (_agent,id)=>id!=='child');
+  const snapshot=vi.spyOn(sources,'snapshot');
+  const target=await sources.freezeTarget('a',streams,100);
+  expect(target.children).toEqual({});
+  expect(target.blocked).toEqual([]);
+  expect(snapshot.mock.calls).toEqual([['s']]);
+});
 
 it('discovers unreported direct tasks, retains inherited conditions and excludes future arrivals from a frozen cycle',async()=>{
   const f=taskFixture();

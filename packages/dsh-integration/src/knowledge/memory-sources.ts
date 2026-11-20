@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
 import type { SessionBinding } from '../index.js';
-import { qualifiedEvents, safeBoundary, sourceConversations } from './memory-source-view.js';
+import { isWorkerReport, qualifiedEvents, safeBoundary, sourceConversations } from './memory-source-view.js';
 import { estimateInputTokens } from './dreaming-budget.js';
 import { isHumanSource } from '../input-source.js';
 import { batchToolResult, historyLocators, nativeMaterial, renderMaterial, renderSessionMaterials, type HistoryLocators } from './memory-trajectory.js';
@@ -52,7 +52,8 @@ function materialSegments(values: readonly unknown[]): Array<{messageId:string;t
 
 /** Exports only certified, paired own history from this business Agent's trusted roots. */
 export class MemorySources {
-  constructor(private readonly ctx: Pick<Context, 'sessionQuery' | 'sessions'>, private readonly bindings: Map<string, SessionBinding>) {}
+  constructor(private readonly ctx: Pick<Context, 'sessionQuery' | 'sessions'>, private readonly bindings: Map<string, SessionBinding>,
+    private readonly eligibleChild: (agentId: string, childId: string) => Promise<boolean> = async () => true) {}
   /** Freeze a bounded continuous prefix per stream, without retaining observations across streams.
    *
    * Args:
@@ -102,7 +103,7 @@ export class MemorySources {
               : batchToolResult(event, call.data.name, locators[event.seq]));
           } else if (event.type === 'user/message') {
             const source = event.data.source;
-            if (isHumanSource(source) || source.kind === 'agent-message' || source.kind === 'subagent-settled') {
+            if (isHumanSource(source) || source.kind === 'agent-message' || source.kind === 'subagent-settled' || isWorkerReport(source)) {
               const conversation = 'conversationId' in source ? String(source.conversationId) : '';
               if(conversation)(result.conversations??=[]).push(conversation);
               selected.push(nativeMaterial(event, locators[event.seq]));
@@ -178,6 +179,7 @@ export class MemorySources {
           if (event.type !== 'subagent/catalog' || event.data.mode === 'unknown') continue;
           const id = event.data.childId;
           try {
+            if (!await this.eligibleChild(agentId, id)) continue;
             const child = await this.snapshot(id);
             if (child.header.parentSession !== binding.sessionId || child.header.origin !== 'subagent') throw new Error('Untrusted direct child identity.');
             const events = child.events.slice(child.inheritedEventCount);

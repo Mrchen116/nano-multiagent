@@ -51,7 +51,7 @@ function WorkToolSection({title, children}: {title: string; children: ReactNode}
 }
 
 /** Work cards share presenter data and detail rendering, with their own visual hierarchy. */
-export function WorkTool({ call, expanded, onExpandedChange, detailFooter, childLink, originalLinks, observedAt, previewOnly, itemRef, timeline }: { call: ToolCall; expanded?: boolean; onExpandedChange?: (open: boolean) => void; detailFooter?: ReactNode; childLink?: ReactNode; originalLinks?: ReactNode[]; observedAt?: string; previewOnly?: boolean; itemRef?: Ref<HTMLLIElement>; timeline?: boolean }) {
+export function WorkTool({ call, workerTool, expanded, onExpandedChange, detailFooter, childLink, originalLinks, observedAt, previewOnly, itemRef, timeline }: { call: ToolCall; workerTool?: boolean; expanded?: boolean; onExpandedChange?: (open: boolean) => void; detailFooter?: ReactNode; childLink?: ReactNode; originalLinks?: ReactNode[]; observedAt?: string; previewOnly?: boolean; itemRef?: Ref<HTMLLIElement>; timeline?: boolean }) {
   useTranslation();
   const navigation = useContext(WorkNavigationContext);
   const names = navigation?.names ?? {};
@@ -71,7 +71,7 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
     summary = recipient ? `${tr("补充给")} ${recipient}` : tr("发送 Agent 消息");
   }
   if (timeline && call.name === "notes" && text(input.path)) summary = text(input.path);
-  const sendError = call.name === "send_message" && text(detail.status) && !["ok", "sent", "held_for_revalidation", "pending_revalidation"].includes(text(detail.status)) ? text(detail.status) : "";
+  const sendError = !workerTool && call.name === "send_message" && text(detail.status) && !["ok", "sent", "held_for_revalidation", "pending_revalidation"].includes(text(detail.status)) ? text(detail.status) : "";
   const error = Boolean(sendError) || Boolean(detail.error) || detail.success === false || call.status === "failed";
   const pending = call.status === "running";
   const denied = call.approval === "user_deny" || call.reason === "denied";
@@ -87,6 +87,12 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
   const deliveryFields = Object.fromEntries(Object.entries(detail).filter(([key]) =>
     !["status", "target", "messageId", "message_id", "text", "error"].includes(key)
   ));
+  if (workerTool) summary = text(input.command) || text(input.file_path) || output;
+  if (call.name === "delegate_worker") {
+    if (input.action === "start") summary = text(input.label) || tr("委派");
+    if (input.action === "send") summary = tr("追加要求");
+    if (input.action === "stop") summary = tr("停止执行");
+  }
   const argumentFields = Object.entries(input);
   const requestText = text(input.text) || text(input.message) || text(detail.text);
   const structuredInput = Object.fromEntries(argumentFields.filter(([key]) =>
@@ -116,14 +122,16 @@ export function WorkTool({ call, expanded, onExpandedChange, detailFooter, child
     {expanded && <div className="im-work-tool-body">
       {previewOnly ? detailFooter : <>
         <WorkToolSection title="调用">
-          {delegation && <><strong className="im-work-detail-label">{tr(input.agent_id ? "补充给" : "委派")} {text(input.agent_id) || text(input.description)}</strong><pre>{prompt}</pre></>}
-          {internalMessage && <><p>{tr("补充给")} {text(input.agent_id)}</p><pre>{text(input.message)}</pre></>}
-          {outgoing && <>{target && <p>{tr("发送到")} {people[targetId] && !names[targetId] ? <span>{target}</span> : <WorkThreadLink conversationId={targetId}>{target}</WorkThreadLink>}</p>}{requestText && <pre>{requestText}</pre>}</>}
-          {Object.keys(structuredInput).length > 0 ? <WorkFields value={structuredInput} />
-            : !delegation && !internalMessage && !outgoing && <code>{call.name}</code>}
+          {workerTool ? <WorkFields value={call.input} /> : <>
+            {delegation && <><strong className="im-work-detail-label">{tr(input.agent_id ? "补充给" : "委派")} {text(input.agent_id) || text(input.description)}</strong><pre>{prompt}</pre></>}
+            {internalMessage && <><p>{tr("补充给")} {text(input.agent_id)}</p><pre>{text(input.message)}</pre></>}
+            {outgoing && <>{target && <p>{tr("发送到")} {people[targetId] && !names[targetId] ? <span>{target}</span> : <WorkThreadLink conversationId={targetId}>{target}</WorkThreadLink>}</p>}{requestText && <pre>{requestText}</pre>}</>}
+            {Object.keys(structuredInput).length > 0 ? <WorkFields value={structuredInput} />
+              : !delegation && !internalMessage && !outgoing && <code>{call.name}</code>}
+          </>}
         </WorkToolSection>
         <WorkToolSection title="结果">
-          {delegation ? <>
+          {workerTool ? <WorkFields value={detail.content ?? call.detail ?? call.output} /> : delegation ? <>
             {detail.error && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message)}</p>}
             {!pending && <p><span className="im-work-status-label">{tr(labels[business] || (error ? "失败" : "已完成"))}</span> {text(detail.agent_id)}</p>}
             {text(detail.content) && <pre>{text(detail.content)}</pre>}

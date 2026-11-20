@@ -3,8 +3,10 @@ export * from './personal-agent.js';
 export * from './agent-lifecycle.js';
 export * from './collaboration.js';
 export * from './agent-deletion.js';
-/** Product vocabulary. This package deliberately imports no execution runtime. */
+import type { WorkerRuntime } from './worker-runtimes.js';
+export * from './worker-runtimes.js';
 export interface AgentConfiguration {
+  workerRuntime?: WorkerRuntime;
   agentId: string;
   displayName?: string;
   /** Server-issued personal identity; ordinary Agent configuration cannot grant this role. */
@@ -106,11 +108,31 @@ export { interactiveCatalog } from './interactive-catalog.js';
 export * from './work-sync.js';
 export * from './task-execution.js';
 
+export interface RuntimeWorkerDetail {
+  turnId: string;
+  fact: Extract<import('./work-events.js').WorkFact, {type: 'turn_started' | 'message' | 'tool_start' | 'tool_end' | 'turn_end'}>;
+}
+
+export interface RuntimeWorkerChange {
+  id: string;
+  time: number;
+  workerId: string;
+  rootId: string;
+  callId: string;
+  label: string;
+  runtime: WorkerRuntime;
+  state: import('./work-events.js').WorkWorkerFields['status'];
+  detail?: RuntimeWorkerDetail;
+  /** One finished execution turn. A null total means the provider did not report it. */
+  turnUsage?: {id:string; totalTokens:number | null};
+}
+
 /** Private runtime Work protocol; a page advances only over the included durable prefix. */
 export interface RuntimeWorkPage {
   durable: true;
   /** Durable Inbox notification deliveries awaiting product projection acknowledgement. */
   inboxDelivered?: string[];
+  workerChanges?: RuntimeWorkerChange[];
   events: RuntimeEvent[];
   modelRuns: ModelRunProjection[];
   modelVersion: string;

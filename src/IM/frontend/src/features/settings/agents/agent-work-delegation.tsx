@@ -3,13 +3,13 @@ import { Archive, LoaderCircle } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 
 import { i18n } from "../../../i18n";
-import { workAccessLost, workBase, workCatalogPath, workRequest, type WorkCatalogPage, type WorkDelegationNode, type WorkDelegationPage } from "./agent-work-api";
+import { hasSessionRecords, workerRuntimeNames, workAccessLost, workBase, workCatalogPath, workRequest, type WorkCatalogPage, type WorkDelegationNode, type WorkDelegationPage } from "./agent-work-api";
 import { formatWorkTokens, tr } from "./agent-work-text";
 
 type Window = WorkDelegationPage["window"];
 
 const states: Record<string, string> = {
-  running: "运行中", waiting_permission: "等待授权", completed: "已完成", failed: "失败",
+  starting: "启动中", running: "运行中", waiting_permission: "等待授权", completed: "已完成", failed: "失败",
   interrupted: "已中断", unknown: "状态未知", idle: "空闲",
 };
 
@@ -114,28 +114,39 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
     const path = new Set(parents).add(id);
     const label = isRoot ? agentName || tr("主 Agent") : node.title || id;
     const ambiguous = node.title && (sameTitle.get(node.title) ?? 0) > 1;
-    const totalTurns = usage.reported_turns + usage.missing_turns;
+    const totalTurns = usage ? usage.reported_turns + usage.missing_turns : 0;
+    const metrics = usage ? <>
+      <span className="im-work-graph-node-metrics">
+        {`${totalTurns} ${tr("轮累计")} · `}
+        {usage.total_tokens === null ? tr("Token 未报告") :
+          <span title={`${usage.total_tokens.toLocaleString(i18n.language)} tok`}>{formatWorkTokens(usage.total_tokens)} tok</span>}
+      </span>
+      {(isRoot && totalTurns > 0 || usage.missing_turns > 0) &&
+        <small>{`${usage.reported_turns}/${totalTurns} ${tr("轮次已报告")}`}</small>}
+    </> : node.scope === "worker" && <small>{tr("轮次及 Token 未报告")}</small>;
+    const worker = node.scope === "worker";
+    const content = <>
+      <strong>{label}</strong>
+      <span className={`im-work-graph-node-meta ${node.status}`}>
+        {isRoot ? agentName && tr("主 Agent") : <>
+          {worker && node.runtime && `${workerRuntimeNames[node.runtime]} · `}
+          {!worker && node.last_active_at && <time dateTime={node.last_active_at}>{timestamp(node.last_active_at)} · </time>}
+          {tr(states[node.status] ?? node.status)}
+          {ambiguous && ` · ${id.slice(-8)}`}
+        </>}
+      </span>
+      {worker && node.last_active_at && <time className="im-work-graph-node-meta" dateTime={node.last_active_at}>{timestamp(node.last_active_at)}</time>}
+      {node.latest_tool && <small>{i18n.t("chat.agentActivity.latestTool")} · {node.latest_tool.name} {node.latest_tool.label}
+        {node.latest_tool.status && ` · ${i18n.t('chat.agentActivity.' + node.latest_tool.status)}`}</small>}
+      {metrics}
+      {node.ancestor_only && <small>{tr("仅显示派工路径")}</small>}
+    </>;
     return <li key={id} className="im-work-graph-branch">
-      <button type="button" className="im-work-graph-node" title={id} data-work-node={id}
-        data-root={isRoot} data-selected={selected === id}
-        onClick={() => { setSelected(id); openSession(isRoot ? null : id); }}>
-        <strong>{label}</strong>
-        <span className={`im-work-graph-node-meta ${node.status}`}>
-          {isRoot ? agentName && tr("主 Agent") : <>
-            {node.last_active_at && <time dateTime={node.last_active_at}>{timestamp(node.last_active_at)} · </time>}
-            {tr(states[node.status] ?? node.status)}
-            {ambiguous && ` · ${id.slice(-8)}`}
-          </>}
-        </span>
-        <span className="im-work-graph-node-metrics">
-          {`${totalTurns} ${tr("轮累计")} · `}
-          {usage.total_tokens === null ? tr("Token 未报告") :
-            <span title={`${usage.total_tokens.toLocaleString(i18n.language)} tok`}>{formatWorkTokens(usage.total_tokens)} tok</span>}
-        </span>
-        {(isRoot && totalTurns > 0 || usage.missing_turns > 0) &&
-          <small>{`${usage.reported_turns}/${totalTurns} ${tr("轮次已报告")}`}</small>}
-        {node.ancestor_only && <small>{tr("仅显示派工路径")}</small>}
-      </button>
+      {hasSessionRecords(node)
+        ? <button type="button" className="im-work-graph-node" title={id} data-work-node={id}
+            data-root={isRoot} data-selected={selected === id}
+            onClick={() => { setSelected(id); openSession(isRoot ? null : id); }}>{content}</button>
+        : <div className="im-work-graph-node" data-work-node={id} title={id}>{content}</div>}
       {children.length > 0 && <ul>{children.map(child => renderNode(child, path))}</ul>}
     </li>;
   };

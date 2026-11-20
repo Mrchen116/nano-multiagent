@@ -1109,8 +1109,9 @@ export class GlobalAgent {
     }).finally(() => {this.drains.delete(root);this.updateWorkPending(root);});
     this.drains.set(root, task);this.updateWorkPending(root);return task;
   }
-  private async projectRootPage(binding: SessionBinding, result: RuntimeWorkPage, stopped = false): Promise<void> {
+  private async projectRootPage(binding: SessionBinding, result: RuntimeWorkPage, stoppedRevision?: number, read: Options['runtime']['request'] = (method, input) => this.options.runtime.request(method,input)): Promise<void> {
     const {store,inbox}=this.options;
+    const stopped = stoppedRevision !== undefined;
     if (!result.durable) throw new Error('No durable event barrier');
     store.recordEvents(binding.sessionId,result.events);
     if (this.options.agents.find(agent=>agent.agentId===binding.agentId)?.mode!=='global') return;
@@ -1123,6 +1124,20 @@ export class GlobalAgent {
     const throughSeq=result.throughSeq ?? store.cursor(binding.sessionId);
     const events=logicalEvents(workSuffix(store.events(binding.sessionId,(prior?.replayFrom??0)-1,throughSeq),prior),result.modelRuns ?? [],true);
     const facts=this.modelNotices(binding, result.modelRuns ?? []);
+    for (const change of result.workerChanges ?? []) {
+      const {workerId, rootId, callId, label, runtime, state, id, time} = change;
+      if (change.detail) {
+        const {turnId, fact} = change.detail;
+        const event = this.workEvent(binding, `worker:${id}`, fact, turnId, time);
+        facts.push({...event, session_id:workerId});
+        continue;
+      }
+      const draft=this.workEvent(binding,`worker:${id}`,{type:'worker_state', payload:{
+        parent_session_id:rootId, title:label, runtime, status:state, call_id:callId,
+        ...(change.turnUsage && {turn_usage:{turn_id:change.turnUsage.id, total_tokens:change.turnUsage.totalTokens}}),
+      }},undefined,time);
+      facts.push({...draft,session_id:workerId});
+    }
     const positioned: {seq: number; event: WorkDraft}[] = [];
     for (const event of events) {
       const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
@@ -1140,6 +1155,9 @@ export class GlobalAgent {
       }
     }
     inbox.commitWork(binding.sessionId,workCheckpoint(binding.sessionId,throughSeq,events,result.modelVersion),facts,undefined,positioned);
+    if (result.workerChanges?.length) await read('session.work.workers.confirm',{
+      sessionId:binding.sessionId, stoppedRevision, changes:result.workerChanges.map(({workerId,id})=>({workerId,id})),
+    });
     this.options.onWork?.();
   }
 
@@ -1277,7 +1295,7 @@ export class GlobalAgent {
         const cut=global ? inbox.workCut(binding.sessionId) : undefined;
         const page=await read('session.work.root',{sessionId:binding.sessionId,stoppedRevision,
           afterSeq:global ? cut?.throughSeq : store.cursor(binding.sessionId),replayFrom:cut?.replayFrom}) as RuntimeWorkPage;
-        await this.projectRootPage(binding,page,true);
+        await this.projectRootPage(binding,page,stoppedRevision,read);
         more=page.more;
       } while (more);
       if (global) {
@@ -1288,11 +1306,11 @@ export class GlobalAgent {
     }
   }
 
-  private workEvent(binding: SessionBinding, key: string, fact: WorkFact, turn?: number, time = Date.now()): WorkDraft {
+  private workEvent(binding: SessionBinding, key: string, fact: WorkFact, turn?: number | string, time = Date.now()): WorkDraft {
     return { event_id: `${binding.sessionId}:${key}`, root_agent_id: binding.agentId,
       session_id: binding.sessionId, ...(turn === undefined ? {} : { turn_id: String(turn) }), ...fact, observed_at: new Date(time).toISOString() };
   }
-  private append(binding: SessionBinding, key: string, fact: WorkFact, turn?: number, time = Date.now()): void {
+  private append(binding: SessionBinding, key: string, fact: WorkFact, turn?: number | string, time = Date.now()): void {
     this.options.inbox.append(this.workEvent(binding,key,fact,turn,time));
     this.options.onWork?.();
   }

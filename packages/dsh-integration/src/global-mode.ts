@@ -3,23 +3,42 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools';
 import type {} from './product-bridge.js';
+import type {} from './local-workers/manager.js';
+import type {WorkerRuntime} from '@nano/product-contracts';
 import type {} from './policy/approval.js';
 import { delegatedSourceInstructions, inboxSourceInstructions } from './policy/sources.js';
 import { normalizeMessageArguments, screenshotMessageProperties, screenshotMessageParameters, publicMessageParameters } from './message-arguments.js';
 import type { AttachmentSource } from './trajectory-attachments.js';
 
 export const name = 'nano-global-mode';
-export const inject = ['nanoProduct', 'tools', 'systemPrompt', 'attachments', 'nanoApproval', 'nanoTrajectoryAttachments'];
+export const inject = ['nanoWorkers', 'nanoProduct', 'tools', 'systemPrompt', 'attachments', 'nanoApproval', 'nanoTrajectoryAttachments'];
 
 /** Global mode supplies root Inbox access and explicit product communication. */
-export function apply(ctx: Context, config: { mode?: string; personal?: boolean }) {
+export function apply(ctx: Context, config: { mode?: string; personal?: boolean; workerRuntime?: WorkerRuntime }) {
   ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions });
   const nativeSend = ctx.tools.get('send_message');
+  if(config.mode==='global') ctx.tools.register({
+    name:'delegate_worker', description:'Delegate a complete matter to a background worker. Start returns its ID. Send a correction or stop the original worker by ID.',
+    parameters:{type:'object',properties:{action:{type:'string',enum:['start','send','stop']},label:{type:'string',description:'Required on start. A short, user-visible task title in the user’s language. Name the action and its target.'},message:{type:'string',description:'The full assignment on start, or the follow-up instructions on send.'},worker_id:{type:'string'}},required:['action'],additionalProperties:false},
+    output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},
+    execute:async(args,exec)=>{
+      const {action,label,message,worker_id}=args as {action:string;label?:string;message?:string;worker_id?:string};
+      const root=exec.agent;
+      if(!root || root.session.header.origin==='subagent')throw new Error('Only the Global root can delegate work');
+      if(action==='start' && label?.trim() && message?.trim()) {
+        const row=await ctx.nanoWorkers.start(root,config.workerRuntime??'dsh',label,message,exec);
+        return {worker_id:row.workerId,runtime:row.runtime,state:row.state};
+      }
+      if(worker_id && (action==='stop' || action==='send' && message?.trim()))
+        return ctx.nanoWorkers.control(root,worker_id,action,message??'',exec.signal);
+      throw new Error('start requires label and message; send requires worker_id and message; stop requires worker_id');
+    },
+  });
   if (config.mode === 'global') ctx.systemPrompt.section({ name: 'nano-global-mode', order: 800, text:
     `You are the long-lived Agent defined above. Work toward your assigned responsibilities and goals, using relevant conversations, memory and execution results to decide what needs attention. Within your responsibilities and authority, initiate useful work and follow through on existing work without waiting for a new request. Collaborate with people and other Agents as peers, and remain responsible for your external communication and results.
 
 Internal coordination
-Handle everyday conversation and small direct actions yourself. Delegate each complete matter that requires investigation and produces an analysis, document or implementation to one background, continuable subagent.
+Handle everyday conversation and small direct actions yourself. Delegate each complete matter that requires investigation and produces an analysis, document or implementation to one background, continuable worker using delegate_worker(action="start", label, message). Send a correction to the same worker with action="send" and its worker_id. Use action="stop" when asked to stop that matter.
 
 Ordinary subagents work in your workspace by default and receive its repository instructions. They do not inherit your conversations or memory and cannot query product chats, read your Inbox, or send public product messages. For user requests and follow-ups, quote the relevant original words verbatim and include the context and usable materials the executor needs. Identify the speaker in plain language when it matters. Keep IM conversation, user and message IDs in your own routing records. Omit the default workspace, repository instructions and tool restrictions from the handoff. State the goal, task-specific constraints and expected deliverable.
 
@@ -68,6 +87,9 @@ Respect denials; do not repeat the rejected action through another tool, channel
     execute: async (args, exec) => {
       if (tool.name === 'send_message' && typeof (args as { agent_id?: unknown }).agent_id === 'string') {
         if ((args as { interactive?: unknown }).interactive !== undefined || (args as {reply_to_message_id?:unknown}).reply_to_message_id !== undefined) throw new Error('Interactive and quoted replies require a public target');
+        const {agent_id,message}=args as {agent_id:string;message:string};
+        if(config.mode==='global' && exec.agent && await ctx.nanoWorkers.isWorker(agent_id))
+          return ctx.nanoWorkers.control(exec.agent,agent_id,'send',message,exec.signal);
         if (!nativeSend) throw new Error('Native child communication is unavailable');
         return nativeSend.execute(args, exec);
       }

@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RpcPeer } from './rpc.js';
+import { cliEnvironmentRestoration } from './local-workers/cli-environment.js';
 import { RuntimeHealth, terminateRuntimeTree } from './runtime-health.js';
 import {load as loadYaml} from 'js-yaml';
 import {ConfigurationInspector, type ConfigurationInspection} from './configuration-inspector.js';
@@ -59,7 +60,7 @@ export class RuntimeClient {
     const preload = watchOwner ? ['--import', new URL('./inspection-owner-watch.js', import.meta.url).href] : [];
     this.process = spawn(process.execPath, [...preload, join(dirname(cli), 'lib/bin.js'), '--profile', 'nano', ...(options.inspectionWorker ? [`--nano-inspection-id=${options.inspectionWorker.id}`] : [])], {
       cwd: options.cwd, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32',
-      env: { ...process.env, ...options.env, DSH_HOME: options.home, DSH_TELEMETRY_DISABLED: '1',
+      env: { ...process.env, ...options.env, ...cliEnvironmentRestoration(options.env), DSH_HOME: options.home, DSH_TELEMETRY_DISABLED: '1',
         ...(options.inspectionWorker ? {NANO_CONFIGURATION_INSPECTION_ID:options.inspectionWorker.id, NANO_CONFIGURATION_INSPECTION_DEADLINE:String(options.inspectionWorker.deadlineAt), NANO_CONFIGURATION_INSPECTION_REQUEST:options.inspectionWorker.requestId} : {}),
         ...(watchOwner ? {NANO_CONFIGURATION_INSPECTION_OWNER_PID:String(process.pid)} : {}),
       },

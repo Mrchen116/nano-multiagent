@@ -36,7 +36,7 @@ it.each(['resume','stopped','background'])('recovers FS progress and new Inbox i
   let childId:string|undefined;
   const root=store.bindingFor('a','global:a')!.sessionId;
   if(mode==='background'){
-    requests[1]!.response.end(JSON.stringify([{type:'block-end',index:0,block:{type:'tool-call',id:'delegate',name:'subagent',arguments:JSON.stringify({prompt:'Finish delegated original task',description:'Background original',run_in_background:true})}},{type:'finish',reason:{kind:'tool-calls'}}]));
+    requests[1]!.response.end(JSON.stringify([{type:'block-end',index:0,block:{type:'tool-call',id:'delegate',name:'delegate_worker',arguments:JSON.stringify({action:'start',message:'Finish delegated original task',label:'Background original'})}},{type:'finish',reason:{kind:'tool-calls'}}]));
     await expect.poll(()=>requests.some(row=>row.sessionId!==root)).toBe(true);
     childId=requests.find(row=>row.sessionId!==root)!.sessionId;
     await expect.poll(()=>requests.findIndex((row,index)=>index>1&&row.sessionId===root)).toBeGreaterThan(1);

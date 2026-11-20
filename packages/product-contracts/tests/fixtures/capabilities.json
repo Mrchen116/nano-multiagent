@@ -793,7 +793,7 @@
       }
     },
     {
-      "name": "global_fixed_subagent",
+      "name": "global_fixed_worker",
       "draft": {
         "features": {
           "intelligent_ui": false,
@@ -813,7 +813,7 @@
           "inbox",
           "conversations",
           "send_message",
-          "subagent",
+          "delegate_worker",
           "notes",
           "history",
           "new_context",
@@ -823,7 +823,7 @@
       "actions": [
         {
           "kind": "tool",
-          "name": "subagent",
+          "name": "delegate_worker",
           "enabled": false
         }
       ],
@@ -847,7 +847,7 @@
             "code": "fixed_capability",
             "target": {
               "kind": "tool",
-              "name": "subagent"
+              "name": "delegate_worker"
             }
           }
         ]
@@ -874,7 +874,7 @@
           "inbox",
           "conversations",
           "send_message",
-          "subagent",
+          "delegate_worker",
           "personal_sources",
           "notes",
           "history",

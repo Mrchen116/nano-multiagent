@@ -6,12 +6,24 @@ import type { TokenUsage } from "../../chat/chat-types";
 
 export interface WorkItem { item_id: string; seq: number; revision?: number; has_exact_child?: boolean; detail_deferred?: true; kind: string; observed_at?: string; payload: Record<string, unknown> }
 export interface WorkTurn { seq: number; description?: string; session_id: string; turn_id: string; scope?: string; job_id?: string; run_id?: string; status: string; origin?: string | Record<string, unknown>; trigger?: Record<string, unknown>; model_id?: string; started_at?: string; finished_at?: string; elapsed_ms?: number; error?: {code?: string; message?: string}; usage: (Partial<TokenUsage> & {total_tokens?: number}) | null; items: WorkItem[]; next_items_cursor: string | null; items_deferred?: boolean; tool_count?: number; maintenance_stage?: string; maintenance_title?: string; model_request_state?: string; has_background_returns?: boolean; background_task_type?: string | null }
-export interface WorkSession { session_id: string; scope: string; job_id?: string; trigger?: string; parent_session_id?: string; parent_tool_call_id?: string; child_agent_id?: string; description?: string; title?: string; status?: string }
+interface WorkerSessionFields {
+  scope?: string;
+  runtime?: "codex" | "claude" | "dsh";
+  has_work_records?: boolean;
+}
+
+export const workerRuntimeNames = {codex: "Codex", claude: "Claude Code", dsh: "DSH"};
+
+export function hasSessionRecords(session: WorkerSessionFields) {
+  return session.scope !== "worker" || session.has_work_records === true;
+}
+
+export interface WorkSession extends WorkerSessionFields { session_id: string; scope: string; job_id?: string; trigger?: string; parent_session_id?: string; parent_tool_call_id?: string; child_agent_id?: string; description?: string; title?: string; status?: string }
 export interface WorkItemsPage { items: WorkItem[]; next_cursor: string | null; revision?: number }
 export interface WorkCatalogPage { sessions: WorkSession[]; next_cursor: string | null; match_mode?: "exact" | "weak" }
 export interface WorkTurnPage { control_items?: WorkItem[]; turns: WorkTurn[]; next_cursor: string | null; next_turn_id?: string | null; next_turn_seq?: number | null }
 export interface WorkFocus { turn: WorkTurn; newer_turn_id: string | null; older_turn_id?: string | null }
-export interface WorkView extends WorkTurnPage { catalog?: 'separate'; timeline?: 'combined'; root_agent_id: string; main_session_id: string | null; revision: number; node_connection_state: string; record_sync_state?: "current" | "catching_up" | "unknown"; main_execution: string; latest_main_usage: (Partial<TokenUsage> & { turn_id: string; model_id?: string }) | null; other_executions: WorkSession[] }
+export interface WorkView extends WorkTurnPage { worker_records_revision?: number; catalog?: 'separate'; timeline?: 'combined'; root_agent_id: string; main_session_id: string | null; revision: number; node_connection_state: string; record_sync_state?: "current" | "catching_up" | "unknown"; main_execution: string; latest_main_usage: (Partial<TokenUsage> & { turn_id: string; model_id?: string }) | null; other_executions: WorkSession[] }
 export class WorkRequestError extends Error {
   constructor(readonly status: number, message = `${tr("工作记录读取失败")} (${status})`) {
     super(message);
@@ -47,7 +59,14 @@ export const workSessionPath = (agentId: string, sessionId: string) => `${workBa
 export const workCatalogPath = (agentId: string, params: Record<string, string>) =>
   `${workBase(agentId)}/sessions?${new URLSearchParams(params)}`;
 
-export interface WorkActivitySession {
+interface WorkLatestTool {
+  name: string;
+  label?: string;
+  status?: string;
+}
+
+export interface WorkActivitySession extends WorkerSessionFields {
+  latest_tool?: WorkLatestTool | null;
   session_id: string;
   parent_session_id?: string | null;
   title?: string;
@@ -62,7 +81,7 @@ export interface WorkActivity {
   record_sync_state: "current" | "catching_up" | "unknown";
   main_execution: string;
   main_session_id: string | null;
-  latest_tool: {name: string; label?: string; status?: string; turn_id: string; item_id: string; session_id: string} | null;
+  latest_tool: (WorkLatestTool & {turn_id: string; item_id: string; session_id: string}) | null;
   running_count: number | null;
   waiting_permission_count: number | null;
   sessions: WorkActivitySession[];
@@ -70,9 +89,8 @@ export interface WorkActivity {
 }
 
 export interface WorkDelegationNode extends WorkActivitySession {
-  scope?: string;
   ancestor_only?: boolean;
-  usage: {total_tokens: number | null; reported_turns: number; missing_turns: number};
+  usage?: {total_tokens: number | null; reported_turns: number; missing_turns: number};
 }
 
 export interface WorkDelegationPage {
