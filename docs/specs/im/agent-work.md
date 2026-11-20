@@ -210,6 +210,11 @@ IM SHALL 依据目标 Agent 已确认的记录，分别呈现头像弹窗的执�
 - **WHEN** 其他 Agent 在同一节点回补或上传历史，且目标 Agent 的记录已获中心确认
 - **THEN** 头像弹窗显示目标 Agent 的主执行状态和子执行数量，派工图显示目标 Agent 的同步状态。
 
+#### Scenario: 主 Agent 派工后空闲
+
+- **WHEN** 主 Agent 已结束当前轮次，派出的本机 worker 仍在启动或执行
+- **THEN** 头像弹窗显示主 Agent 空闲，并将该 worker 计入运行中的子 Agent。展开可见任务标题与状态，点击可进入派工图。worker 结束后从活动列表和计数中移除。
+
 #### Scenario: 主执行已确认而子执行仍在回补
 
 - **WHEN** 主执行的记录已确认而该 Agent 的子执行仍在回补

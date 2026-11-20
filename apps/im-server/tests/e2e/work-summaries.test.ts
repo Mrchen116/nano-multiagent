@@ -159,6 +159,19 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   expect((await read('/activity', f.tokens.outsider)).status).toBe(404);
   expect((await read('/delegation', f.tokens.outsider)).status).toBe(404);
 
+  const worker = {parent_session_id: 'root', title: '审查修改', runtime: 'codex', call_id: 'dispatch'};
+  for (const state of ['starting', 'running', 'completed']) {
+    await append([['worker', 'worker_state', {...worker, status: state}]]);
+    await status(false);
+    const active = state !== 'completed';
+    const page = (await read('/activity?after_session=running')).body;
+    expect(page).toMatchObject({
+      running_count: active ? 2 : 1, waiting_permission_count: 1,
+      sessions: active ? [{session_id: 'worker', scope: 'worker', status: state, title: worker.title}] : [],
+      next_cursor: null,
+    });
+  }
+
   const closed = once(g.socket, 'close');
   g.socket.terminate();
   await closed;

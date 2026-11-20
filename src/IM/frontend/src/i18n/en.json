@@ -1094,6 +1094,7 @@
       "startError": "Could not prepare the selected chats. Check that their Gateway is online and their history is available, then try again."
     },
     "agentActivity": {
+      "starting": "Starting",
       "trigger": "View {{name}}’s activity",
       "title": "Work activity",
       "config": "Agent configuration",

@@ -156,7 +156,9 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
             {syncing ? spinner : countsKnown ? <strong>{t("chat.agentActivity.runningCount", {count: 0})}</strong> : <span>{label("unknown")}</span>}
           </div>}
           {expanded && active && <ul>{rows.map(session => <li key={session.session_id}>
-            <Link to={`${profile}?view=work&work_session=${encodeURIComponent(session.session_id)}`}>{session.title || session.session_id}</Link>
+            <Link to={session.scope === "worker" ? `${profile}?view=work&work_view=delegation` : `${profile}?view=work&work_session=${encodeURIComponent(session.session_id)}`}>
+              {session.title || session.session_id}
+            </Link>
             <small>{label(session.status)}</small>
           </li>)}</ul>}
           {expanded && active && (extra.data ? extra.hasNextPage : data.next_cursor) && <button type="button" className="chat-agent-activity-more"

@@ -12,6 +12,7 @@ const ordinary = `s.scope='subagent' AND json_type(s.payload,'$.child_agent_id')
   AND json_extract(s.payload,'$.maintenance_kind') IS NULL`;
 const workflow = "s.scope='workflow' AND json_type(s.payload,'$.workflow_run_id')='text'";
 const graphChild = `((${ordinary}) OR (${workflow}) OR s.scope='worker')`;
+const activeWorker = "s.scope='worker' AND json_extract(s.payload,'$.status') IN ('starting','running')";
 const latestActive = `NOT EXISTS (SELECT 1 FROM agent_work_turns newer
   WHERE newer.session_id=a.session_id AND newer.seq>a.seq)`;
 
@@ -119,12 +120,16 @@ export class WorkSummaries {
       WHERE a.root_agent_id=? AND ${latestActive} AND s.scope='subagent'
         AND json_extract(s.payload,'$.maintenance_kind') IS NULL
         AND COALESCE(json_extract(t.payload,'$.origin'),'')!='dreaming'
+      UNION ALL
+      SELECT s.session_id,s.parent_session_id,s.scope,substr(json_extract(s.payload,'$.title'),1,240),
+        json_extract(s.payload,'$.status'),NULL,json_extract(s.payload,'$.last_active_at'),1
+      FROM agent_work_sessions s WHERE s.root_agent_id=? AND ${activeWorker}
     )`;
     const count = complete ? one(this.db, `${activity}
-      SELECT COUNT(*) FILTER (WHERE child_rank=1 AND status='running') AS running,
+      SELECT COUNT(*) FILTER (WHERE child_rank=1 AND status IN ('starting','running')) AS running,
         COUNT(*) FILTER (WHERE child_rank=1 AND status='waiting_permission') AS waiting,
         COUNT(*) FILTER (WHERE child_rank IS NULL OR (child_rank=1 AND status='unknown')) AS unresolved
-      FROM ranked`, root) : undefined;
+      FROM ranked`, root, root) : undefined;
     const pendingLink = complete && one(this.db, `SELECT 1 FROM agent_work_sessions s INDEXED BY agent_work_sessions_unclassified
       WHERE s.root_agent_id=? AND s.scope='subagent' AND json_extract(s.payload,'$.maintenance_kind') IS NULL
       AND json_type(s.payload,'$.child_agent_id') IS NULL AND NOT EXISTS (
@@ -137,8 +142,8 @@ export class WorkSummaries {
     const countsCurrent = complete && !count?.unresolved && !pendingLink;
     const rows = all(this.db, `${activity}
       SELECT session_id,parent_session_id,scope,title,status,turn_id,last_active_at
-      FROM ranked WHERE child_rank=1 AND session_id>? AND status IN ('running','waiting_permission')
-      ORDER BY session_id LIMIT ?`, root, after, limit + 1) as WorkSummarySession[];
+      FROM ranked WHERE child_rank=1 AND session_id>? AND status IN ('starting','running','waiting_permission')
+      ORDER BY session_id LIMIT ?`, root, root, after, limit + 1) as WorkSummarySession[];
     const sessions = rows.slice(0, limit);
     return {
       main_execution, latest_tool,
@@ -186,8 +191,7 @@ export class WorkSummaries {
       SELECT session_id FROM agent_work_events WHERE root_agent_id=? AND type='worker_state'
         AND observed_at BETWEEN ? AND ? AND session_id>?
       UNION
-      SELECT session_id FROM agent_work_sessions WHERE root_agent_id=? AND scope='worker'
-        AND json_extract(payload,'$.status') IN ('starting','running') AND session_id>?
+      SELECT s.session_id FROM agent_work_sessions s WHERE s.root_agent_id=? AND ${activeWorker} AND s.session_id>?
       UNION
       SELECT a.session_id FROM agent_work_active_turns a
       WHERE a.root_agent_id=? AND a.session_id>? AND a.status IN ('running','waiting_permission') AND ${latestActive}

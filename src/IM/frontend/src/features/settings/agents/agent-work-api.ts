@@ -48,6 +48,7 @@ export const workCatalogPath = (agentId: string, params: Record<string, string>)
   `${workBase(agentId)}/sessions?${new URLSearchParams(params)}`;
 
 export interface WorkActivitySession {
+  scope?: string;
   session_id: string;
   parent_session_id?: string | null;
   title?: string;
@@ -70,7 +71,6 @@ export interface WorkActivity {
 }
 
 export interface WorkDelegationNode extends WorkActivitySession {
-  scope?: string;
   ancestor_only?: boolean;
   runtime?: "codex" | "claude" | "dsh";
   usage?: {total_tokens: number | null; reported_turns: number; missing_turns: number};

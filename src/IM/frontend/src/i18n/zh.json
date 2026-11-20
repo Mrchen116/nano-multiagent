@@ -1093,6 +1093,7 @@
       "startError": "无法准备所选聊天记录。请确认对应设备在线、历史记录可用后重试。"
     },
     "agentActivity": {
+      "starting": "启动中",
       "trigger": "查看{{name}}的工作状态",
       "title": "工作状态",
       "config": "Agent 配置",
