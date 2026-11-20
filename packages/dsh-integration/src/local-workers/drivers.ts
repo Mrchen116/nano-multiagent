@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { RuntimeWorkerDetail } from '@nano/product-contracts';
+import type { WorkerRuntime, RuntimeWorkerDetail } from '@nano/product-contracts';
 import { WorkerTurnDetails, codexItem, type CodexItem } from './work-details.js';
 import { CliProcess, acknowledged } from './cli-process.js';
 
 export type CliEndState = 'completed' | 'failed' | 'interrupted';
 export interface CliWorkerOptions {
-  runtime: 'codex' | 'claude';
+  runtime: Exclude<WorkerRuntime, 'dsh'>;
   cwd: string;
   sessionId?: string;
   instructions: string;
@@ -512,7 +512,9 @@ async function claude(options: CliWorkerOptions) {
   };
 }
 
+const cliDrivers = { codex, claude };
+
 /** Open the native CLI session in the assigned workspace and use its installed model and identity. */
 export async function openCliWorker(options: CliWorkerOptions) {
-  return options.runtime === 'codex' ? codex(options) : claude(options);
+  return cliDrivers[options.runtime](options);
 }

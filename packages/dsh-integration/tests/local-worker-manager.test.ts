@@ -1,3 +1,4 @@
+import { cliWorkerRuntimes } from '@nano/product-contracts/worker-runtimes';
 import { expect, it, vi } from 'vitest';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
@@ -7,7 +8,8 @@ import { openCliWorker } from '../src/local-workers/drivers.js';
 
 vi.mock('../src/local-workers/drivers.js', () => ({ openCliWorker: vi.fn() }));
 
-it('binds follow-ups to the original worker and replays an unacknowledged result with its stable id', async () => {
+it.each(cliWorkerRuntimes)('%s binds follow-ups to the original session and replays a result once', async (runtime) => {
+  vi.mocked(openCliWorker).mockClear();
   const domain = new Map<string, Map<string, unknown>>();
   const storage = {
     table: (name: string) => {
@@ -49,10 +51,10 @@ it('binds follow-ups to the original worker and replays an unacknowledged result
     stop: async () => {},
   }));
   const exec = { callId: 'dispatch', signal: new AbortController().signal } as ToolRunContext;
-  const row = await manager.start(root, 'codex', 'review', 'inspect A', exec);
-  expect(await manager.start(root, 'claude', 'review', 'inspect A', exec)).toMatchObject({
+  const row = await manager.start(root, runtime, 'review', 'inspect A', exec);
+  expect(await manager.start(root, 'dsh', 'review', 'inspect A', exec)).toMatchObject({
     workerId: row.workerId,
-    runtime: 'codex',
+    runtime,
   });
   expect(send.mock.calls).toHaveLength(1);
   await expect(manager.control(other, row.workerId, 'send', 'replace the task', exec.signal)).rejects.toThrow(
@@ -76,7 +78,7 @@ it('binds follow-ups to the original worker and replays an unacknowledged result
     expect.stringContaining('This turn ended. The worker will do no further work unless you send it more.\nWhich file should I inspect?')]);
   await restored.control(root, row.workerId, 'send', 'inspect B', exec.signal);
   expect(vi.mocked(openCliWorker).mock.calls.at(-1)![0]).toMatchObject({
-    runtime: 'codex',
+    runtime,
     sessionId: 'original-session',
   });
   expect(send).toHaveBeenLastCalledWith('inspect B');

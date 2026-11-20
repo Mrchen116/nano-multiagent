@@ -1,3 +1,4 @@
+import { workerRuntimes } from '@nano/product-contracts/worker-runtimes';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -37,14 +38,14 @@ it('erases a retired Inbox without invalidating a peer read or reusing an input 
 it('redacts external worker details without treating CLI worker ids as native DSH sessions', () => {
   const store = new InboxStore(':memory:');
   try {
-    for (const runtime of ['codex','claude','dsh'] as const) {
+    for (const runtime of workerRuntimes) {
       const worker = {root_agent_id:'alice', session_id:runtime};
       store.append({...worker,event_id:runtime,type:'worker_state',
         payload:{runtime,parent_session_id:'root',call_id:runtime,title:runtime,status:'running'}});
       store.append({...worker,event_id:runtime+'-turn',turn_id:'1',type:'turn_started',payload:{}});
     }
     expect(store.deletionSessionIds('alice')).toEqual(['dsh']);
-    expect(store.deletionWork('alice').entries).toHaveLength(6);
+    expect(store.deletionWork('alice').entries).toHaveLength(2 * workerRuntimes.length);
   } finally {store.close();}
 });
 

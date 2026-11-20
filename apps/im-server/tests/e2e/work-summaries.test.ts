@@ -1,10 +1,11 @@
+import { cliWorkerRuntimes } from '@nano/product-contracts/worker-runtimes';
 import { once } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
 import { expect, it } from 'vitest';
 import { openDatabase } from '../../src/db.js';
 import { bind, start } from './helpers.js';
 
-it('pages main and Dreaming facts without affecting exact reply focus and reports own usage on the delegation tree', async () => {
+it.each(cliWorkerRuntimes)('%s Work preserves exact focus, live activity, tool records and per-worker usage', async (runtime) => {
   const f = await start();
   const g = await bind(f, 'work-summary-node');
   const base = '/im/v1/agents/global/work';
@@ -159,7 +160,7 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   expect((await read('/activity', f.tokens.outsider)).status).toBe(404);
   expect((await read('/delegation', f.tokens.outsider)).status).toBe(404);
 
-  const worker = {parent_session_id: 'root', title: '审查修改', runtime: 'codex', call_id: 'dispatch'};
+  const worker = {parent_session_id: 'root', title: '审查修改', runtime, call_id: 'dispatch'};
   for (const state of ['starting', 'running', 'completed']) {
     await append([['worker', 'worker_state', {...worker, status: state}]]);
     await status(false);
@@ -193,19 +194,19 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   expect((await read('/sessions?parent_session_id=root&tool_call_id=dispatch')).body.sessions).toEqual([]);
   expect((await read(rootItems)).body.items.find((item:{item_id:string})=>item.item_id==='message:report').payload.source_session_id).toBeUndefined();
   const relationRevision = (await read('?catalog=separate&view=summary')).body.worker_records_revision;
-  await invalidWorkerEvent('worker','worker_state',{...reopen,runtime:'claude'});
+  await invalidWorkerEvent('worker','worker_state',{...reopen,runtime:'dsh'});
   await invalidWorkerEvent('worker','worker_state',{...reopen,call_id:'different'});
   await invalidWorkerEvent('worker','worker_state',{...reopen,title:'不同派工'});
   await invalidWorkerEvent('dsh-worker','message',{text:'不应接收'},'d');
   await invalidWorkerEvent('worker','permission_request',{request_id:'unbound'},'t');
   await append([
-    ['worker','turn_started',{model:'codex-test'},'cli-turn'],
+    ['worker','turn_started',{model:'test-model'},'cli-turn'],
     ['worker','tool_start',{name:'exec',call_id:'cmd',arguments:{command:'pwd'},presentation:{label:'读取目录'}},'cli-turn'],
   ]);
   await status(false);
   const firstDetailRevision = (await read('?catalog=separate&view=summary')).body.worker_records_revision;
   expect(firstDetailRevision).toBeGreaterThan(relationRevision);
-  expect((await read('/sessions/worker')).body).toMatchObject({runtime:'codex',has_work_records:true,parent_tool_call_id:'dispatch'});
+  expect((await read('/sessions/worker')).body).toMatchObject({runtime,has_work_records:true,parent_tool_call_id:'dispatch'});
   expect((await read('/sessions?parent_session_id=root&tool_call_id=dispatch')).body.sessions).toMatchObject([{session_id:'worker'}]);
   const itemRows = (await read(rootItems)).body.items as Array<{item_id:string;payload:Record<string,unknown>}>;
   for (const id of ['tool:dispatch','tool:send','tool:native-send'])

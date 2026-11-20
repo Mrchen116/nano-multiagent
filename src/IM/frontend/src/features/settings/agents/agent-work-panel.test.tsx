@@ -1,10 +1,11 @@
+import { cliWorkerRuntimes } from '@nano/product-contracts/worker-runtimes';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLocation, useNavigate } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setLanguage } from "../../../i18n";
 import { AgentWorkPanel } from "./agent-work-panel";
-import type { WorkFocus, WorkView } from "./agent-work-api";
+import { workerRuntimeNames, type WorkFocus, type WorkView } from "./agent-work-api";
 
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), subscribe: vi.fn() }));
 vi.mock("../../auth/auth-fetch", () => ({ authFetch: mocks.fetch }));
@@ -888,8 +889,11 @@ it('replaces an in-flight first Work read when the Agent becomes ready at the sa
   } finally { release(); }
 });
 
-it.each([["codex", "Codex", "commandExecution"], ["claude", "Claude Code", "Bash"]])(
-  "opens %s worker records from the graph and updates its real tool in place", async (runtime, framework, tool) => {
+it.each(cliWorkerRuntimes)(
+  "opens %s worker records from the graph and updates its real tool in place", async (runtime) => {
+    const framework = workerRuntimeNames[runtime];
+    expect(framework).toMatch(/\S/);
+    const tool = "inspect";
     const session = {session_id: "external", parent_session_id: "main", scope: "worker", title: "核对账单",
       runtime, has_work_records: true, status: "running", latest_tool: {name: tool}};
     const workerTurn = {...view.turns[0], session_id: session.session_id, turn_id: "first", scope: "worker",

@@ -3,8 +3,8 @@ export * from './personal-agent.js';
 export * from './agent-lifecycle.js';
 export * from './collaboration.js';
 export * from './agent-deletion.js';
-/** Product vocabulary. This package deliberately imports no execution runtime. */
-export type WorkerRuntime = 'dsh' | 'codex' | 'claude';
+import type { WorkerRuntime } from './worker-runtimes.js';
+export * from './worker-runtimes.js';
 export interface AgentConfiguration {
   workerRuntime?: WorkerRuntime;
   agentId: string;
