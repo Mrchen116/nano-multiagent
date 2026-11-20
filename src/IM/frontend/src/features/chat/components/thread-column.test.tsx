@@ -11,7 +11,7 @@ vi.mock("../../auth/auth-fetch", () => ({authFetchJson: vi.fn()}));
 
 const message = (id: string): Message => ({
   id, conversation_id: "group", sender: {type: "user", id: "peer"}, sender_type: "user",
-  sender_user_id: "peer", content: id, created_at: "", attachments: [], delivery_status: "completed"
+  sender_user_id: "peer", content: id, created_at: "", attachments: [], permission_requests: [], delivery_status: "completed"
 });
 const root = message("proposal");
 const group: Conversation = {id: "group", type: "group", title: "Planning", participants: [],

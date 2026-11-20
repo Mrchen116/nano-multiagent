@@ -1537,6 +1537,14 @@ body {
   background: var(--im-surface);
 }
 
+.chat-thread-column .chat-pane-composer-row > .chat-message-action {
+  flex: 0 0 36px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  justify-content: center;
+}
+
 @media (max-width: 767px) {
   .chat-pane--with-thread {
     flex-direction: column;

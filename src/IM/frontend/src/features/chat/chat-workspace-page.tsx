@@ -1422,7 +1422,7 @@ export function ChatWorkspacePage() {
           agents={publicAgents.map(a => ({ agent_id: a.agent_id!, display_name: a.display_name, status: a.status ?? "offline" }))}
         />
       )}
-      {isMobile && conversationId && <button className="chat-pane-back chat-workspace-back" type="button"
+      {isMobile && conversationId && !threadLocator && <button className="chat-pane-back chat-workspace-back" type="button"
         aria-label={t("common.back")} onClick={() => navigate("/chat")}><ArrowLeft size={20} /></button>}
       {!showFirstUseWelcome && showDetail && (
         activeConversation ? (
