@@ -1,6 +1,11 @@
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import { isHumanSource } from '../input-source.js';
 
+/** Host-delivered reports have the same evidentiary role as native child messages. */
+export function isWorkerReport(source: import('@deepseek-ai/dsh-llm').MessageSource): boolean {
+  return source.kind === 'nano-system' && source.channel === 'worker-report';
+}
+
 /** Keep original event identity while selecting model-visible messages and paired tool records. */
 export function qualifiedEvents(events: readonly SessionEvent[]): SessionEvent[] {
   const calls = new Set<string>();
@@ -9,7 +14,7 @@ export function qualifiedEvents(events: readonly SessionEvent[]): SessionEvent[]
     const event = structuredClone(original);
     if (event.type === 'user/message') {
       const source = event.data.source;
-      if (!isHumanSource(source) && source.kind !== 'user' && source.kind !== 'agent-message' && source.kind !== 'subagent-settled') return [];
+      if (!isHumanSource(source) && source.kind !== 'user' && source.kind !== 'agent-message' && source.kind !== 'subagent-settled' && !isWorkerReport(source)) return [];
       return [{...event,data:{...event.data,content:event.data.content.filter(block => block.type !== 'reasoning')}}];
     }
     if (event.type === 'assistant/message') {

@@ -1,6 +1,6 @@
 # Gateway - 工具审批
 
-> 对齐: feat-766
+> 对齐: feat-778
 > 上级: [Gateway Specification](spec.md)
 
 ## Purpose
@@ -65,9 +65,13 @@
 - **AND** 估算不是供应商精确分词；供应商实际返回的超限或其它错误仍按原失败路径处理。
 
 #### Scenario: 子 Agent 统一采用委派权限
-- **WHEN** 普通 subagent、Workflow child 或后台知识维护子任务执行工具
+- **WHEN** 原生 DSH 普通 subagent、Workflow child 或后台知识维护子任务执行工具
 - **THEN** 使用原生 `approval=never`；Auto 放行才可执行，不放行时返回阻断原因交回父 Agent，不发起子 Agent人工审批卡，也不借无人值守 fallback 扩权。
 - **AND** 既有工具范围、Auto 规则和父级指令来源继续生效；父级补充指令后的重试仍需重新判定。
+
+#### Scenario: 外部 worker 的 Auto 请求
+- **WHEN** 外部 CLI 需要新授权或明确拒绝动作
+- **THEN** 使用框架 Auto，待定请求先回送拒绝或取消，并向原 Global 说明动作、对象和原因。后续授权作为同一会话的新输入重新判定；普通更正、终局拒绝或停止后的迟答不能放行原请求。
 
 #### Scenario: 配置切换规则
 - **WHEN** 运维者选择DSH默认规则并重启节点完成生效

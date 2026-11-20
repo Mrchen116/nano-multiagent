@@ -21,7 +21,7 @@ export interface NodeConfigurationFile {
   node: { node_id: string; node_name?: string; user_id: string; workspace_base?: string };
   im_service: { url: string; token: string;username?:string;password?:string;refresh_token?:string };
   agents: LocalAgent[];
-  gateway?: {autostart?:boolean;environment?:Record<string,string>;startup_timeout_seconds?:number;shutdown_grace_seconds?:number;poll_interval_seconds?:number};
+  gateway?: {worker_runtime?:import('@nano/product-contracts').WorkerRuntime;autostart?:boolean;environment?:Record<string,string>;startup_timeout_seconds?:number;shutdown_grace_seconds?:number;poll_interval_seconds?:number};
   display?: { runtime_footer?: { enabled?: boolean }; platforms?: { feishu?: { runtime_footer?: { enabled?: boolean } } } };
   channels?: { name: string; enabled?: boolean; settings: Record<string, string> }[];
   llm: ModelConfiguration;
@@ -43,6 +43,9 @@ export class NodeConfiguration {
   private constructor(readonly path: string, readonly value: NodeConfigurationFile) {}
   static async read(path: string, deletions: ReadonlyMap<string,boolean> = new Map()) {
     const value=load(await readFile(path,'utf8')) as NodeConfigurationFile;const config=new NodeConfiguration(path,value);
+    const runtime=value.gateway?.worker_runtime;
+    if (runtime!==undefined && !['dsh','codex','claude'].includes(runtime))
+      throw new Error('gateway.worker_runtime must be dsh, codex, or claude');
     value.agents=value.agents.filter(agent=>deletions.get(agent.agent_id)!==true);
     for (const agent of value.agents) {
       agent.workspace_root=resolve(agent.workspace_root??config.defaultWorkspace(agent.agent_id));
@@ -102,7 +105,7 @@ export class NodeConfiguration {
     }
     // A missing mode here is a pre-existing local record, not a new Agent: keep
     // reading it as single_thread so an upgrade cannot silently convert it.
-    return { agentId: agent.agent_id, displayName: String(('title' in agent ? agent.title : undefined) ?? agent.display_name ?? agent.agent_id), workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
+    return { agentId: agent.agent_id, workerRuntime:this.value.gateway?.worker_runtime ?? 'dsh', displayName: String(('title' in agent ? agent.title : undefined) ?? agent.display_name ?? agent.agent_id), workspace: agent.workspace_root!, mode: agent.work_mode as AgentConfiguration['mode'] || 'single_thread',
       ...(canonical.personal_agent ? {personal: canonical.personal_agent} : {}),
       revision: agentConfigurationFingerprint({ ...agent, display_name: 'title' in agent ? agent.title : agent.display_name }), provider: provider.name, model: selected.id ?? model,
       ...(effort ? { reasoningEffort: effort === 'none' ? 'off' : effort } : {}),

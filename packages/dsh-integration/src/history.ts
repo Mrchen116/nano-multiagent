@@ -100,6 +100,10 @@ export class NativeHistory {
       await (await this.state).close();
     });
   }
+  /** Read the original child role when selecting cold sessions for Dreaming. */
+  async childConfiguration(sessionId: string): Promise<AgentConfiguration | undefined> {
+    return (await this.state).table("overrides").get(key(sessionId))?.config;
+  }
   async configuration(
     agent: Agent,
     desired: AgentConfiguration,

@@ -1,4 +1,4 @@
-import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useInfiniteQuery, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
@@ -13,7 +13,7 @@ import { formatWorkDuration, tr, WorkEventTime } from "./agent-work-text";
 import { i18n, useTranslation } from "../../../i18n";
 import { PermissionCard } from "../../chat/components/permission-card";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
-import { refreshReadyWork, AgentExecutionDeletedError, workAccessLost, workBase, workRequest, workSessionPath, type WorkItemsPage, type WorkFocus, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
+import { workerRuntimeNames, refreshReadyWork, AgentExecutionDeletedError, workAccessLost, workBase, workRequest, workSessionPath, type WorkItemsPage, type WorkFocus, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
 import "./agent-work.css";
 import { useWorkHistory, workHistoryTurnKey } from './agent-work-history';
 import { LegacyWorkLinks, WorkLink } from './agent-work-links';
@@ -154,6 +154,7 @@ function turnTitle(turn: WorkTurn) {
   if (type === "heartbeat") return "Heartbeat";
   if (turn.scope === "cron" || type === "cron") return cronTitle(trigger.source, turn.job_id);
   if (turn.scope === "workflow") return "Workflow 执行";
+  if (turn.scope === "worker") return "任务执行";
   if (type === "background_task") {
     const returns = turn.items.flatMap(item => Array.isArray(item.payload.background_returns) ? item.payload.background_returns.map(obj) : item.kind === "background_return" ? [item.payload] : []);
     if (turn.scope === "subagent" && returns.length === 0 && !turn.has_background_returns && !trigger.task_type) {
@@ -309,7 +310,17 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
     queryFn: ({signal}) => workRequest<WorkSession>(workSessionPath(agentId, metadataId!), signal), staleTime: Infinity, retry: false,
   });
   const sessions = separate ? [] : view?.other_executions ?? [];
-  const selected = separate ? metadata.data : sessions.find(s => s.session_id === saved.selected);
+  const selected = separate ? metadata.data : sessions.find(s => s.session_id === metadataId);
+  const externalWorker = selected?.scope === "worker" && (selected.runtime === "codex" || selected.runtime === "claude");
+  const nativeAvailable = !externalWorker && (!separate || !metadataId || metadataId === view?.main_session_id || metadata.isSuccess);
+  useEffect(() => {
+    if (!nativeMode || !externalWorker || !metadataId) return;
+    const next = new URLSearchParams(location.search);
+    next.delete("execution");
+    next.delete("work_view");
+    next.set("work_session", metadataId);
+    navigate({search: next.toString()}, {replace: true});
+  }, [nativeMode, externalWorker, metadataId, location.search, navigate]);
   const nativeTitle = nativeSession === view?.main_session_id ? tr("主 Agent")
     : tr(sessionTitle(separate ? metadata.data : sessions.find(session => session.session_id === nativeSession)));
   const currentNativeTitle = activeNative?.base === nativeSession && activeNative.sessionId !== nativeSession
@@ -451,7 +462,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
     const active = !nativeMode && head?.turns.some(item => item.turn_id === turn.turn_id) && ["running", "waiting_permission", "unknown"].includes(turn.status);
     return <Turn key={`${turn.session_id}:${turn.turn_id}`} turn={turn} agentId={agentId} online={online} separate={separate}
       sessions={sessions} expanded={saved.expanded} expand={expand} onChild={selectChild} refresh={refresh} onNative={showNative}
-      activity={active} preview={continuous ? loadPreview : undefined} visible={!nativeMode && !graphMode} headUpdate={nativeMode || graphMode ? 0 : main ? viewQuery.dataUpdatedAt : childQuery.dataUpdatedAt}
+      activity={active} workerRecordsRevision={view?.worker_records_revision} preview={continuous ? loadPreview : undefined} visible={!nativeMode && !graphMode} headUpdate={nativeMode || graphMode ? 0 : main ? viewQuery.dataUpdatedAt : childQuery.dataUpdatedAt}
       focusToken={!nativeMode && focus?.session_id === turn.session_id && focus?.turn_id === turn.turn_id ? replyFocusToken : undefined} />;
   };
   return <WorkNavigationContext.Provider value={{ returnUrl: `${location.pathname}?view=work`, beforeLeave: save, names, people }}>
@@ -459,7 +470,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
       {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError && !view && !viewQuery.isFetchNextPageError ? <div role="alert" className="im-work-state">{viewQuery.error.message}{!(viewQuery.error instanceof AgentExecutionDeletedError) && <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button>}</div> : view && <>
         {viewQuery.isRefetchError && <p className="im-work-callout" role="status">{viewQuery.error.message} <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button></p>}
         <div className="im-work-toolbar">
-          <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode && !graphMode} onClick={showRecords}>{tr('工作记录')}</button>{continuous && <button role="tab" aria-selected={graphMode} onClick={showGraph}>{tr('派工关系')}</button>}<button role="tab" aria-selected={nativeMode} onClick={() => { if (!nativeMode) showNative(saved.selected || focus?.session_id || view.main_session_id); }}>{tr('原生轨迹')}</button></div>
+          <div className="im-work-view-switch" role="tablist" aria-label="工作查看方式"><button role="tab" aria-selected={!nativeMode && !graphMode} onClick={showRecords}>{tr('工作记录')}</button>{continuous && <button role="tab" aria-selected={graphMode} onClick={showGraph}>{tr('派工关系')}</button>}{nativeAvailable && <button role="tab" aria-selected={nativeMode} onClick={() => { if (!nativeMode) showNative(saved.selected || focus?.session_id || view.main_session_id); }}>{tr('原生轨迹')}</button>}</div>
           {nativeMode && nativeSession && <span className="im-native-current">{currentNativeTitle}</span>}
           <div className="im-work-toolbar-status" role="status">
             {online && !nativeMode && (graphMode || !continuous || !saved.selected) && <span>{tr("主 Agent")} · {statusLabel(view.main_execution)}</span>}
@@ -468,7 +479,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
             </span>}
           </div>
         </div>
-        {nativeMode && <AgentTrajectory key={nativeSelectionVersion} onActiveSessionChange={onActiveNative} rootSessionId={view.main_session_id} initialTitle={nativeTitle} agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} />}
+        {nativeMode && (nativeAvailable || metadata.isError) && <AgentTrajectory key={nativeSelectionVersion} onActiveSessionChange={onActiveNative} rootSessionId={view.main_session_id} initialTitle={nativeTitle} agentId={agentId} sessionId={nativeSession === view.main_session_id && !mainTurns.length ? null : nativeSession} positions={nativePositions.current} onBack={showRecords} />}
         {continuous && <WorkDelegation agentId={agentId} agentName={agentName} visible={graphMode} openSession={openGraphSession} />}
         <div hidden={nativeMode || graphMode}>
         {graphReturn.current && !saved.selected && <button type="button" className="im-work-child-link" onClick={backToGraph}>{tr("← 返回派工关系")}</button>}
@@ -499,14 +510,14 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
               : parentPositions.current.length ? "← 返回发起位置" : graphReturn.current ? "← 返回派工关系" : "← 返回主工作记录")}</button>
             <header><div>
               <h3>{tr(sessionTitle(selected))}</h3>
-              <small>{tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子 Agent" : selected?.scope || "关联执行")}{!continuous && ` · ${saved.selected}`}</small>
+              <small>{selected?.scope === "worker" && selected.runtime ? workerRuntimeNames[selected.runtime] : tr(selected?.scope === "workflow" ? "Workflow 执行" : selected?.scope === "subagent" ? "子 Agent" : selected?.scope || "关联执行")}{!continuous && ` · ${saved.selected}`}</small>
               {continuous && <details className="im-work-child-id"><summary>{tr("执行标识")}</summary><code>{saved.selected}</code></details>}
             </div>
             {continuous
-              ? <button className="im-work-child-native" type="button" onClick={() => showNative(saved.selected)}>{tr("查看原生轨迹")}</button>
+              ? nativeAvailable && <button className="im-work-child-native" type="button" onClick={() => showNative(saved.selected)}>{tr("查看原生轨迹")}</button>
               : <button type="button" aria-label={tr("关闭子轨迹")} onClick={() => selectChild(null)}>×</button>}
             </header>
-            {!continuous && <button type="button" onClick={() => showNative(saved.selected)}>{tr("查看原生轨迹")}</button>}
+            {!continuous && nativeAvailable && <button type="button" onClick={() => showNative(saved.selected)}>{tr("查看原生轨迹")}</button>}
             {(!continuous || selected?.scope === "cron") && !workAccessLost(childQuery.error) && !workAccessLost(metadata.error) && (!childQuery.isError || childQuery.isFetchNextPageError) &&
               (separate ? <SessionControls key={saved.selected} agentId={agentId} sessionId={saved.selected} title={continuous ? "定时任务投递记录" : "执行记录"} cronOnly={Boolean(continuous)} /> : <SessionFacts items={childQuery.data?.pages[0]?.control_items} />)}
             {childQuery.isRefetchError && childQuery.data && <p role="status">{childQuery.error.message} <button type="button" onClick={() => void childQuery.refetch()}>{tr("重试")}</button></p>}
@@ -522,10 +533,10 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
   </WorkNavigationContext.Provider>;
 }
 
-function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refresh, focusToken, separate, activity, headUpdate, preview, visible, onNative}: {
+function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refresh, focusToken, separate, activity, headUpdate, workerRecordsRevision = 0, preview, visible, onNative}: {
   turn: WorkTurn; agentId: string; online?: boolean; sessions: WorkSession[]; expanded: Record<string, boolean>;
   expand(key: string, open: boolean): void; onChild(id: string): void; onNative(id: string): void; refresh(): void; focusToken?: string;
-  separate: boolean; activity?: boolean; headUpdate: number; preview?: PreviewLoader; visible: boolean;
+  separate: boolean; activity?: boolean; headUpdate: number; workerRecordsRevision?: number; preview?: PreviewLoader; visible: boolean;
 }) {
   const key = `${turn.session_id}:${turn.turn_id}`;
   const client = useQueryClient();
@@ -533,12 +544,18 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
   const row = useRef<HTMLElement>(null);
   const path = `${workSessionPath(agentId, turn.session_id)}/turns/${encodeURIComponent(turn.turn_id)}/items`;
   const [loaded, setLoaded] = useState(() => Boolean(client.getQueryData(queryKey)) || Boolean(turn.items_deferred && (expanded[key] || focusToken)));
+  // Worker links are resolved at read time. Keep the relation revision of each
+  // preview so a newly readable worker can update just its pending card links.
+  const readPreview = async (url: string, signal: AbortSignal) => {
+    const page = await preview!(url, signal);
+    return {...page, items: page.items.map(item => ({...item, workerRecordsRevision}))};
+  };
   const pages = useInfiniteQuery({
     queryKey,
     enabled: loaded && (!preview || visible), staleTime: separate ? Infinity : undefined,
     initialPageParam: String(turn.items.at(-1)?.seq ?? 0),
     queryFn: ({pageParam, signal}) => preview
-      ? preview(`${path}?view=preview&after_seq=${pageParam}`, signal)
+      ? readPreview(`${path}?view=preview&after_seq=${pageParam}`, signal)
       : workRequest<WorkItemsPage>(`${path}?after_seq=${pageParam}${separate ? "&catalog=separate" : ""}`, signal),
     getNextPageParam: page => page.next_cursor ?? undefined,
   });
@@ -563,7 +580,7 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
       const previous = client.getQueryData<WorkItemsPage>(changesKey);
       const after = previous?.revision ?? watermark;
       const page = preview
-        ? await preview(`${path}?view=preview&after_revision=${after}`, signal)
+        ? await readPreview(`${path}?view=preview&after_revision=${after}`, signal)
         : await workRequest<WorkItemsPage>(`${path}?catalog=separate&after_revision=${after}`, signal);
       return {...page, items: [...new Map([...(previous?.items ?? []), ...page.items].map(item => [item.item_id, item])).values()]};
     },
@@ -608,6 +625,20 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
     if ((byId.get(item.item_id)?.revision ?? 0) <= (item.revision ?? 0)) byId.set(item.item_id, item);
   }
   const items = withVisibleReasoning([...byId.values()].sort((a, b) => a.seq - b.seq));
+  const pendingLinks = preview && workerRecordsRevision ? items.filter(item => {
+    const readAt = (item as WorkItem & {workerRecordsRevision?: number}).workerRecordsRevision;
+    return readAt !== undefined && readAt < workerRecordsRevision &&
+      (item.payload.worker_relation === true || Boolean(item.payload.source_worker_id && !item.payload.source_session_id));
+  }) : [];
+  const linkReads = useQueries({queries: pendingLinks.map(item => ({
+    queryKey: ["work-worker-link", agentId, path, item.item_id, workerRecordsRevision],
+    enabled: visible, staleTime: Infinity,
+    queryFn: async ({signal}: {signal: AbortSignal}) => {
+      const page = await preview!(`${path}?view=preview&after_seq=${item.seq - 1}&limit=1`, signal);
+      return page.items.find(candidate => candidate.item_id === item.item_id)?.payload ?? {};
+    },
+  }))});
+  const refreshedLinks = new Map(pendingLinks.map((item, index) => [item.item_id, linkReads[index].data]));
   const status = !online && ["running", "waiting_permission"].includes(turn.status) ? "unknown" : turn.status;
   const load = () => { if (loaded) void pages.fetchNextPage(); else setLoaded(true); };
   const seenBackgroundReturns = new Set<string>();
@@ -628,12 +659,14 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
   })}</ul>;
   const renderItem = (item: WorkItem, deferredDetail?: ReactNode, detailRef?: Ref<HTMLLIElement>) => {
         const p = item.payload;
+        const linkUpdate = refreshedLinks.get(item.item_id);
         const eventTime = preview && item.observed_at && <WorkEventTime value={item.observed_at} />;
-        if (!item.detail_deferred && ["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind) && !str(p.reasoning_content) && !str(p.text) && !str(p.content) && !str(p.delta) && !str(p.source_session_id) && !(Array.isArray(p.background_returns) && p.background_returns.length)) return null;
+        if (!item.detail_deferred && ["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind) && !str(p.reasoning_content) && !str(p.text) && !str(p.content) && !str(p.delta) && !str(linkUpdate?.source_session_id || p.source_session_id) && !(Array.isArray(p.background_returns) && p.background_returns.length)) return null;
         const itemKey = `${key}:${item.item_id}`;
         if (item.kind === "tool" && str(p.name)) {
           const call = { ...p, input: p.input ?? p.arguments ?? {}, output: p.output ?? p.summary } as unknown as ToolCall;
-          const childId = str(p.child_session_id) || str(obj(p.detail).child_session_id);
+          const workerCall = call.name === "delegate_worker" || p.worker_relation === true;
+          const childId = str(linkUpdate?.child_session_id || p.child_session_id) || (!workerCall ? str(obj(p.detail).child_session_id) : "");
           const callId = str(p.id) || str(p.call_id) || str(p.tool_call_id) || (item.item_id.startsWith("tool:") ? item.item_id.slice(5) : "");
           const agent = str(obj(p.detail).agent_id) || str(obj(p.input ?? p.arguments).agent_id);
           const exact = sessions.filter(s => callId && s.parent_session_id === turn.session_id && s.parent_tool_call_id === callId);
@@ -641,11 +674,12 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
             : sessions.filter(s => agent && s.parent_session_id === turn.session_id && s.child_agent_id === agent);
           const filter = {parent_session_id: turn.session_id, ...(callId ? {tool_call_id: callId} : {}), ...(agent ? {child_agent_id: agent} : {})};
           const delegation = item.has_exact_child || agent || /agent|workflow/.test(call.name ?? "");
-          const link = childId ? <WorkLink id={childId} session={preview ? undefined : children[0]} label="查看子执行" onChild={onChild} />
+          const relationOnly = turn.scope === "worker" || (workerCall && !childId);
+          const link = relationOnly ? null : childId ? <WorkLink id={childId} session={preview ? undefined : children[0]} label="查看子执行" onChild={onChild} />
             : separate && delegation && (callId || agent) ? <LegacyWorkLinks agentId={agentId} filter={filter} onChild={onChild} label={call.name === "send_message" && !item.has_exact_child ? "选择关联执行" : "查看子执行"} />
             : children.map(child => <WorkLink key={child.session_id} id={child.session_id} session={child} label="查看子执行" distinguish={children.length > 1} onChild={onChild} />);
           // An exact link can arrive after this historical item was loaded.
-          const lateLink = separate && !preview && !childId && !delegation && callId
+          const lateLink = !relationOnly && separate && !preview && !childId && !delegation && callId
             ? <LegacyWorkLinks agentId={agentId} filter={{parent_session_id: turn.session_id, tool_call_id: callId}} onChild={onChild} label="查看子执行" />
             : null;
           const facts = Array.isArray(p.work_facts) ? p.work_facts.filter(fact => obj(fact).type !== "inbox_read_committed") : [];
@@ -661,7 +695,7 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
             {facts.length > 0 && <WorkFacts facts={facts} rowOriginals={originals} displayedText={[str(obj(call.input).text), str(obj(call.input).message), str(obj(call.detail).text), str(call.output)]} />}
             {lateLink}
           </> : undefined;
-          return <WorkTool key={item.item_id} itemRef={detailRef} call={call} observedAt={item.observed_at} timeline={Boolean(preview)}
+          return <WorkTool key={item.item_id} itemRef={detailRef} call={call} workerTool={turn.scope === "worker"} observedAt={item.observed_at} timeline={Boolean(preview)}
             previewOnly={Boolean(item.detail_deferred)} expanded={expanded[itemKey] ?? false}
             onExpandedChange={open => expand(itemKey, open)} detailFooter={sources} childLink={link} originalLinks={[...originals.values()]} />;
         }
@@ -686,7 +720,24 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
           </li>;
         }
         if (item.kind === "permission") return <li ref={detailRef} key={item.item_id}>{eventTime}<PermissionCard request={p as unknown as PermissionRequest} endpoint={`${workBase(agentId)}/permissions/${encodeURIComponent(str(p.request_id))}`} disabled={!online} onResolved={refresh} /></li>;
-        if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind)) return <li ref={detailRef} className="im-work-body" key={item.item_id}>{eventTime}{str(p.reasoning_content) && <details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey, event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.reasoning_content)}</p></details>}{(str(p.text) || str(p.content) || str(p.delta) || str(p.source_session_id)) && <div className="im-work-assistant"><header className="im-work-message-head"><strong>{tr(p.source_kind === "subagent-settled" ? "子执行返回" : p.source_kind === "agent-message" ? "Agent 消息" : "Agent 正文")}</strong>{str(p.source_session_id) && <button type="button" className="im-work-child-link" onClick={() => onChild(str(p.source_session_id))}>{tr("查看关联执行")}<span aria-hidden="true">↗</span></button>}</header><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{str(p.text) || str(p.content) || str(p.delta)}</ReactMarkdown></div>}{backgroundRows(p.background_returns, itemKey)}</li>;
+        if (["message", "message_delta", "text_delta", "assistant_message"].includes(item.kind)) {
+          const originLabel = ["worker-report", "subagent-settled"].includes(str(p.source_kind)) ? "子执行返回"
+            : p.source_kind === "agent-message" ? "Agent 消息" : turn.scope === "worker" && p.role === "user" ? "任务输入"
+            : turn.scope === "worker" && p.role === "system" ? "系统消息" : "Agent 正文";
+          const bodyText = str(p.text) || str(p.content) || str(p.delta);
+          const source = str(linkUpdate?.source_session_id || p.source_session_id);
+          return <li ref={detailRef} className="im-work-body" key={item.item_id}>{eventTime}
+            {str(p.reasoning_content) && <details open={expanded[itemKey] ?? false}
+              onToggle={event => { if (event.target === event.currentTarget) expand(itemKey, event.currentTarget.open); }}>
+              <summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.reasoning_content)}</p>
+            </details>}
+            {(bodyText || source) && <div className="im-work-assistant"><header className="im-work-message-head">
+              <strong>{tr(originLabel)}</strong>
+              {source && <button type="button" className="im-work-child-link" onClick={() => onChild(source)}>{tr("查看关联执行")}<span aria-hidden="true">↗</span></button>}
+            </header><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{bodyText}</ReactMarkdown></div>}
+            {backgroundRows(p.background_returns, itemKey)}
+          </li>;
+        }
         if (["thinking", "thinking_delta", "reasoning"].includes(item.kind)) return <li ref={detailRef} key={item.item_id}>{eventTime}<details open={expanded[itemKey] ?? false} onToggle={event => { if (event.target === event.currentTarget) expand(itemKey,event.currentTarget.open); }}><summary>{tr("思考")}</summary><p className="whitespace-pre-wrap">{str(p.text) || str(p.content) || str(p.reasoning_content)}</p></details></li>;
         if (item.kind === "cron_delivery" || item.kind === "cron_trigger") return <li ref={detailRef} key={item.item_id}>{eventTime}<SessionFacts items={[item]} /></li>;
         if (item.kind === "injection_consumed" && (str(p.source_session_id) || Array.isArray(p.background_returns) && p.background_returns.length > 0)) return <li ref={detailRef} key={item.item_id}>{eventTime}{str(p.source_session_id) && <WorkLink id={str(p.source_session_id)} label="查看关联执行" onChild={onChild} />}{backgroundRows(p.background_returns, itemKey)}</li>;
@@ -701,10 +752,11 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
   const maintenanceLabel = stage === "extract" ? "提取任务摘要" : stage === "consolidate" ? "整合长期记忆" : "自动整理记忆";
   const title = dreaming ? (!stage && turn.maintenance_title) || `Dreaming · ${tr(maintenanceLabel)}`
     : tr(turnTitle(separate ? {...turn, items} : turn));
-  const label = <span className={`im-work-status-label ${status}`}>{statusLabel(status)}</span>;
+  const usageOnly = turn.scope === "worker" && turn.status === "ended";
+  const label = <span className={`im-work-status-label ${status}`}>{usageOnly ? tr("仅有轮次统计") : statusLabel(status)}</span>;
   const timing = <>
     <span>{turn.started_at ? new Date(turn.started_at).toLocaleTimeString(i18n.language, {hour12:false}) : tr("时间未报告")}{turn.finished_at ? ` — ${new Date(turn.finished_at).toLocaleTimeString(i18n.language, {hour12:false})}` : ""}</span>
-    {dreaming && turn.tool_count === undefined ? <span>{tr("工具次数未报告")}</span>
+    {(dreaming || usageOnly) && turn.tool_count === undefined ? <span>{tr("工具次数未报告")}</span>
       : (!separate || pages.data || typeof turn.tool_count === "number") && <span>{turn.tool_count ?? items.filter(item => item.kind === "tool").length}{turn.tool_count === undefined && cursor ? "+" : ""} {tr("次工具")}</span>}
   </>;
   const model = dreaming && turn.model_request_state === "none" ? tr("未发起模型请求") : turn.model_id || tr("模型未报告");
@@ -773,7 +825,11 @@ function DeferredWorkItem({item, path, agentId, visible, expanded, reveal, rende
     staleTime: Infinity,
     retry: false,
   });
-  if (detail.data && !workAccessLost(detail.error)) return render(detail.data, undefined, observe);
+  if (detail.data && !workAccessLost(detail.error)) return render({...detail.data, payload: {
+    ...detail.data.payload,
+    ...(str(item.payload.child_session_id) && {child_session_id: item.payload.child_session_id}),
+    ...(str(item.payload.source_session_id) && {source_session_id: item.payload.source_session_id}),
+  }}, undefined, observe);
   return render(item, detail.isFetching ? <span role="status">{tr("正在加载原文…")}</span>
     : <button type="button" className="im-work-child-link" onClick={() => {
       if (opened || expanded) void detail.refetch();

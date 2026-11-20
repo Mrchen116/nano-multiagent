@@ -115,8 +115,8 @@ export class DescendantReader {
     edge.pendingSeq = undefined;
   }
 
-  /** Fetch one trusted lineage, without reading unrelated sibling catalogs. */
-  async targets(root: SessionId, child: SessionId): Promise<Descendant[]> {
+  /** The first edge determines whether the entire subtree has a readable Work trace. */
+  private async workLineage(root: SessionId, child: SessionId): Promise<Edge[]> {
     await this.ready;
     const ancestry: Edge[] = [];
     const visited = new Set<SessionId>();
@@ -127,8 +127,15 @@ export class DescendantReader {
       ancestry.push(edge);
       id = edge.parent;
     }
+    const first = ancestry.at(-1);
+    if (!first || await this.ctx.nanoWorkers.isWorker(first.entry.id)) return [];
+    return ancestry.reverse();
+  }
+
+  /** Fetch one trusted lineage, without reading unrelated sibling catalogs. */
+  async targets(root: SessionId, child: SessionId): Promise<Descendant[]> {
     const rows: Descendant[] = [];
-    for (const edge of ancestry.reverse()) {
+    for (const edge of await this.workLineage(root, child)) {
       await this.confirm(edge);
       const live = this.ctx.sessions.get(edge.entry.id);
       const cached = this.catalogs.get(edge.entry.id);
@@ -190,7 +197,7 @@ export class DescendantReader {
 
   /** A settled parent must still activate cold interrupted delegated work. */
   async hasInterruptedDescendants(rootId: SessionId): Promise<boolean> {
-    for await (const entry of this.catalog(rootId)) {
+    for await (const entry of this.catalog(rootId, 'recovery')) {
       if (entry.kind !== 'child') return true;
       if (!this.ctx.agents.get(entry.id) && this.catalogs.get(entry.id)?.interruptedTurnEnd != null) return true;
     }
@@ -198,14 +205,16 @@ export class DescendantReader {
   }
 
   /** Walk native lineage without attaching event bodies to catalog rows. */
-  catalog(rootId: SessionId): AsyncIterable<Descendant> { return this.scan(rootId); }
+  catalog(rootId: SessionId, purpose: 'work' | 'recovery' = 'work'): AsyncIterable<Descendant> {
+    return this.scan(rootId, purpose);
+  }
 
   /** A hot event page does not materialize that Session's historical child catalog. */
   async eventPage(root: SessionId, id: SessionId, afterSeq: number, modelChanged: boolean,
     livePage: (session: Session, head: number) => Promise<RuntimeWorkPage>,
     coldPage: (cut: SessionObservation) => Promise<RuntimeWorkPage>): Promise<RuntimeWorkPage | undefined> {
-    const edge = this.edges.get(id);
-    if (!edge || edge.root !== root) throw new RpcError(-32004,'Child has no trusted Work lineage');
+    const edge = (await this.workLineage(root, id)).at(-1);
+    if (!edge) throw new RpcError(-32004,'Child has no readable Work trajectory');
     await this.confirm(edge);
     const readLive = async (session: Session) => {
       const head = session.seq - 1;
@@ -227,14 +236,14 @@ export class DescendantReader {
     return coldPage(cut);
   }
 
-  private async *scan(rootId: SessionId): AsyncGenerator<Descendant> {
+  private async *scan(rootId: SessionId, purpose: 'work' | 'recovery'): AsyncGenerator<Descendant> {
     await this.ready;
     const root = await this.observe(rootId,rootId);
     const stack = root.catalog.children.map(entry => ({ entry, parentId: rootId, depth: 1 })).reverse();
     const visited = new Set([rootId]);
     for (let position = stack.pop(); position; position = stack.pop()) {
       const { entry, parentId, depth } = position;
-      if (visited.has(entry.id)) continue;
+      if (visited.has(entry.id) || (purpose === 'work' && depth === 1 && await this.ctx.nanoWorkers.isWorker(entry.id))) continue;
       visited.add(entry.id);
       if (entry.mode === 'unknown') {
         yield {kind:'diagnostic',id:entry.id,parentId,depth,reason:'unsupported'};

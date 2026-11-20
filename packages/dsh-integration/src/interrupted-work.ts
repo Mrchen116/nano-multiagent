@@ -44,7 +44,7 @@ export class InterruptedWork {
     const rows = new Map<string,{id:string;parentId:string;cut?:Cut;head:number}>();
     const nonresumable = new Set<string>(), wanted = new Set<string>();
     const orphaned: {id:string;seq:number}[] = [];
-    for await (const child of this.descendants.catalog(root.id)) {
+    for await (const child of this.descendants.catalog(root.id, 'recovery')) {
       signal.throwIfAborted();
       if (child.kind !== 'child') throw new Error(`Cannot inspect interrupted child ${child.id}: ${child.reason}`);
       if (child.mode !== 'continuable' || nonresumable.has(child.parentId)) nonresumable.add(child.id);

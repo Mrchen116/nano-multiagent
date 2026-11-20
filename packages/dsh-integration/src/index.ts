@@ -58,11 +58,13 @@ import { NativeTrajectory } from './trajectory.js';
 import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
 import { DescendantReader } from './descendants.js';
 import { SubagentRecovery } from './subagent-recovery.js';
+import {LocalWorkers} from './local-workers/manager.js';
 import { InterruptedWork } from './interrupted-work.js';
 import { SessionDeletion } from './agent-deletion.js';
 import { ownedLinks, purgeDerived } from './agent-deletion-derived.js';
 
 export interface AgentConfiguration {
+  workerRuntime?: import('@nano/product-contracts').WorkerRuntime;
   personal?: {bindingId:string;ownerId:string;conversationId:string;epoch:number};
   agentId: string;
   displayName?: string;
@@ -100,12 +102,12 @@ interface Submit {
   mode: 'followup' | 'steer' | 'inject';
   onlyIfIdle?: boolean;
   content: PromptContentPart[];
-  source: { kind: 'human' | 'system'; nanoTeamChat?:boolean; directHumanText?:string; humanTaskControl?:Record<string,unknown>; lifecycle_revision?: number; contextEnvelope?: string; conversationId?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; roleAccountId?: string; channel: string; messageId: string; background_returns?: Record<string, unknown>[] };
+  source: { kind: 'human' | 'system'; nanoTeamChat?:boolean; directHumanText?:string; humanTaskControl?:Record<string,unknown>; lifecycle_revision?: number; contextEnvelope?: string; conversationId?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; roleAccountId?: string; channel: string; messageId: string; senderSessionId?: string; background_returns?: Record<string, unknown>[] };
 }
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     schedule: { kind: 'schedule'; lifecycle_revision?: number; scheduleId?: string; triggerKind?: 'manual' };
-    'nano-system': { kind: 'nano-system'; nanoTeamChat?:boolean; lifecycle_revision?: number; actorId: string; channel: string; messageId: string; conversationId?:string; humanTaskControl?:Record<string,unknown>; background_returns?: Record<string, unknown>[] };
+    'nano-system': { kind: 'nano-system'; nanoTeamChat?:boolean; lifecycle_revision?: number; actorId: string; channel: string; messageId: string; senderSessionId?: string; conversationId?:string; humanTaskControl?:Record<string,unknown>; background_returns?: Record<string, unknown>[] };
   }
 }
 
@@ -180,6 +182,14 @@ export default class NanoRuntime {
     });
     this.chatScope = new ChatScope(ctx,id=>this.bindings.get(id)?.agentId);
     new TrajectoryRuns(ctx);
+    const workers=new LocalWorkers(ctx,async(root,worker,event,text)=>{
+      const binding=this.bindings.get(root);
+      if(!binding)throw new Error('Worker parent is no longer bound');
+      const messageId=`worker:${worker}:${event}`;
+      const receipt=await this.submit({sessionId:root,inputId:messageId,mode:'steer',content:[{type:'text',text}],
+        source:{kind:'system',channel:'worker-report',actorId:binding.agentId,senderSessionId:worker,messageId}});
+      if(!receipt.accepted)throw new Error('Parent did not accept the worker report');
+    },id=>this.bindings.has(id),root=>this.peer.notify('session.work.changed',{sessionId:root,rootSessionId:root}));
     let configurationService: ConfigurationScopes;
     this.capabilities = new CapabilityState((config, names) => configurationService.selection(config, names));
     const history = new NativeHistory(ctx, process.env.DSH_HOME!);
@@ -225,13 +235,21 @@ export default class NanoRuntime {
     };
     const modelFiber = ctx.plugin(ModelPolicy, { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => this.peer.request('model.check', { sessionId: agent.id, turn: run.turn, turns: run.attempts.map(attempt => attempt.turn) }) as Promise<{ published: boolean }>, notify: (sessionId: string) => {
       const rootSessionId = boundRoot(sessionId);
+      const session = ctx.sessions.get(SessionId(sessionId));
+      if (session?.header.origin === 'subagent')
+        void captureWorkerTurns(session).catch(error=>ctx.logger.error(error));
       this.peer.notify('model.changed', { sessionId, rootSessionId, workChild:descendantReader.hasChild(sessionId) });
     } });
     const webFiber = ctx.plugin(NanoWeb);
     const workflowFiber = ctx.plugin(NanoWorkflowEngine, { configuration: (agent: Agent) => configurationService.forAgent(agent)!, completed: (record: import('./workflow/state.js').WorkflowRecord) => this.peer.notify('workflow.completed', record) });
     const workflow = new Promise<NanoWorkflowEngine>(resolve => { ctx.inject(['workflowEngine', 'nanoApproval', 'nanoModels'], child => { const engine = child.workflowEngine as NanoWorkflowEngine; registerWorkflowTool(child, engine, agent => configurationService.forAgent(agent)!); resolve(engine); }); });
     const models = this.models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
+    const captureWorkerTurns = async (session: import('@deepseek-ai/dsh-session').Session) => {
+      const {fallback} = await models;
+      await workers.nativeTurns(session,turn=>fallback.workModel(session.id,turn));
+    };
     const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configOf: (agent: Agent) => configurationService.forAgent(agent), configs: this.configurations, bindings: this.bindings,
+      childConfiguration: (sessionId: string) => history.childConfiguration(sessionId),
       roleWorkspace: async (agentId: string) => (await this.peer.request('knowledge.role.workspace', {agentId}) as {workspace: string | null}).workspace,
       notify: () => this.peer.notify('knowledge.changed', {}), held: (agentId: string, kind: 'memory' | 'skills') => lifecycle.current(agentId).disabled === true || this.capabilities.held(agentId, {kind: 'feature', name: kind === 'memory' ? 'memory_curation' : 'skill_creation'}) });
     const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
@@ -332,20 +350,23 @@ export default class NanoRuntime {
       if (preset?.startsWith('nano:') || agent.id.startsWith('dreaming-')) attachModelConnectionRetry(agent, takeConnectionFailure,
         async (turn, signal) => (await models).fallback.canSwitchAfterFailure(agent, turn, signal));
       if (!preset?.startsWith('nano:')) return;
+      if(source==='resume' && !agent.session.header.parentSession)await workers.recover(agent);
       const desired = this.configurations.get(preset);
       if (!desired) throw new Error(`Missing Nano configuration for ${preset}`);
       const scopes = await configuration;
       const parent = agent.session.header.parentSession && ctx.agents.get(agent.session.header.parentSession);
       const config = await history.configuration(agent, desired, parent ? (await workflow).childConfiguration(scopes.forAgent(parent)!) : undefined);
+      config.workerRuntime=desired.workerRuntime;
       if (source === 'resume' && agent.session.header.origin === 'subagent'
         && foldSubagentDescriptor(agent.session.snapshotEvents().filter(event => agent.session.isOwnSeq(event.seq)))?.mode === 'continuable') {
         // Historical execution choices survive resume, but approval follows the current owner configuration.
         config.approval = desired.approval;
       }
       if (desired.personal) { config.personal = desired.personal; assertPersonalConfiguration(config); }
-      await scopes.attachAgent(agent, config);
+      await scopes.attachAgent(agent, config, (await knowledge).isWorkWorker(agent, config));
       await (await approval).attach(agent, config);
       const modelPolicy = await models; await modelPolicy.attach(agent, config);
+      if (source === 'resume' && agent.session.header.origin === 'subagent') await captureWorkerTurns(agent.session);
       history.attach(agent, config, () => modelPolicy.route(agent));
       if (agentId) lifecycle.assertEnabled(agentId);
       await (await workflow).recordWorkChild(agent);
@@ -353,6 +374,8 @@ export default class NanoRuntime {
     });
     const toolViews = recordToolPresentations(ctx, process.env.DSH_HOME!);
     ctx.on('session/event', (session, event) => {
+      if (event.type === 'turn/end' && session.header.origin === 'subagent' && session.isOwnSeq(event.seq))
+        void captureWorkerTurns(session).catch(error=>ctx.logger.error(error));
       const rootSessionId = boundRoot(session.id);
       if (rootSessionId) {
         const discovered = descendantReader.remember(session,event,rootSessionId);
@@ -571,7 +594,7 @@ export default class NanoRuntime {
       await using preset = await ctx.agentPresets.acquireScope(entry[0]);
       const key = {}; const diagnostic = createScope(ctx, key, { parent: preset.key });
       try {
-        await diagnostic.ctx.plugin(SelectedSkills, entry[1]).await();
+        await diagnostic.ctx.plugin(SelectedSkills, {config: entry[1], isWorkWorker: false}).await();
         return { tools: (await configuration).selection(entry[1], ctx.tools.schemas(key).map(tool => tool.name)),
           skills: await ctx.skills.list({ scope: key, cwd }) };
       } finally { await diagnostic.dispose(); }
@@ -633,7 +656,8 @@ export default class NanoRuntime {
       const id = SessionId(input.sessionId), fallback = (await models).fallback;
       const rootSettled = await descendantReader.settled(id, {[id]:input.afterSeq ?? -1}, () =>
         fallback.hasActive(id) || input.modelVersion!==fallback.workVersion(id), false);
-      return {rootSettled:rootSettled && !(await inboxDelivery.pending(input.sessionId)).length && !await descendantReader.hasInterruptedDescendants(id)};
+      return {rootSettled:rootSettled && !(await inboxDelivery.pending(input.sessionId)).length &&
+        !await workers.hasPendingWork(input.sessionId) && !await descendantReader.hasInterruptedDescendants(id)};
     });
     handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
     // The send path needs durable native facts, not frozen tool cards or Work projection.
@@ -679,15 +703,23 @@ export default class NanoRuntime {
       const input = value as WorkRead & {inputIds:string[]};
       await workBinding(input); await inboxDelivery.confirm(input.sessionId,input.inputIds); return {};
     });
+    handle('session.work.workers.confirm', async value => {
+      const input = value as WorkRead & {changes:{workerId:string; id:string}[]};
+      await workBinding(input);
+      await workers.confirmWork(input.sessionId,input.changes);
+      return {};
+    });
     handle('session.work.root', async value => {
       const input = value as WorkRead;
       await workBinding(input);
       const id = SessionId(input.sessionId), policy = await models;
+      const workerPage=await workers.workPage(input.sessionId);
+      const withWorkers=(page:RuntimeWorkPage) => ({...page,workerChanges:workerPage.page,more:page.more || workerPage.more});
       if (input.stoppedRevision !== undefined) {
         if (!await ctx.sessionPersistence.stat(id))
-          return projectPage(input, 0, -1, () => undefined, policy);
+          return withWorkers(await projectPage(input, 0, -1, () => undefined, policy));
         using cut = await ctx.sessionQuery.observeSession(id, {projectionMode:'none'});
-        return await projectPage(input, cut.inheritedEventCount, cut.cursor, seq => cut.events[seq], policy);
+        return withWorkers(await projectPage(input, cut.inheritedEventCount, cut.cursor, seq => cut.events[seq], policy));
       }
       const {session} = await this.agent(id);
       const head = session.seq - 1;
@@ -695,7 +727,7 @@ export default class NanoRuntime {
       const page = await projectPage(input, session.inheritedEventCount, head,
         seq => session.snapshotEvents(SessionLogOffset(seq), SessionLogOffset(seq + 1))[0], policy);
       const inboxDelivered = await inboxDelivery.pending(input.sessionId);
-      return {...page,inboxDelivered,more:page.more || inboxDelivered.length === 256};
+      return withWorkers({...page,inboxDelivered,more:page.more || inboxDelivered.length === 256});
     }, {pull:'work-root'});
     type CatalogEntry = Awaited<ReturnType<DescendantReader['targets']>>[number];
     const workChild = (entry: CatalogEntry, policy: ModelPolicy, engine: NanoWorkflowEngine): RuntimeWorkChild => {
@@ -771,6 +803,7 @@ export default class NanoRuntime {
     handle('session.cancel', async value => {
       const { sessionId,stoppedAt,settleTaskContext } = value as { sessionId: string;stoppedAt?:string;settleTaskContext?:boolean };
       this.interruptedWork.stop(sessionId,stoppedAt);
+      await workers.stopRoot(sessionId);
       this.tasks.interrupt(sessionId,stoppedAt);
       const agent = await this.agent(sessionId);
       (await models).cancelCommands(sessionId);
@@ -1036,7 +1069,7 @@ export default class NanoRuntime {
         const ids = new Set(sessionIds);
         await Promise.all([
           (await models).fallback.forget(ids),
-          inboxDelivery.forget(ids), this.chatScope.forget(ids),
+          inboxDelivery.forget(ids), this.chatScope.forget(ids), workers.forget(ids),
           ctx.nanoTrajectoryRuns.forget(ids),
           ctx.nanoTrajectoryAttachments.settle(ids),
           toolViews.purge(ids),
@@ -1069,6 +1102,7 @@ export default class NanoRuntime {
         let disposingScopes = false;
         task = (async () => {
           await this.owned.settle(agentId);
+          for(const binding of this.bindings.values())if(binding.agentId===agentId)await workers.stopRoot(binding.sessionId);
           const agents = ctx.agents.list().filter(agent => this.ownerOf(agent.id) === agentId);
           for (const agent of agents) agent.cancel({kind: 'user'});
           // Close owned terminals before cancelling their Jobs. Cancelling a
@@ -1172,6 +1206,7 @@ export default class NanoRuntime {
     const agent = await this.owned.resolve(binding.sessionId, true);
     if (config?.mode === 'global') await this.interruptedWork.recover(agent, {agentId:binding.agentId,revision:this.lifecycle.current(binding.agentId).revision});
     await this.flush(agent);
+    if(config?.mode==='global')await this.ctx.nanoWorkers.flushReports(agent.id);
     void this.tasks.poke(agent);
     return { sessionId: agent.id, revision: binding.revision };
   }

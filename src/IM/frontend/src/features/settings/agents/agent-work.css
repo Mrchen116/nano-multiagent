@@ -285,8 +285,9 @@
   color: var(--im-text);
   text-align: start;
 }
+.im-work-graph-node small { overflow-wrap: anywhere; }
 .im-work-graph-node strong { font-size: 15px; }
-.im-work-graph-node:hover, .im-work-graph-node:focus-visible,
+button.im-work-graph-node:hover, .im-work-graph-node:focus-visible,
 .im-work-graph-node[data-root=true], .im-work-graph-node[data-selected=true] { border-color: var(--im-accent); background: #e6f3f1; }
 .im-work-graph-node-meta { color: var(--im-text-muted); font-size: 12px; }
 .im-work-graph-node-meta.running { color: var(--im-accent); }

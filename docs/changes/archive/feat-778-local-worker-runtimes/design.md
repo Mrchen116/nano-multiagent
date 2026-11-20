@@ -12,14 +12,14 @@ GlobalAgent.projectRootPage 把根会话的持久事件与 Work checkpoint 在�
 
 1. 本机 Gateway YAML 的 gateway.worker_runtime 接受 dsh、codex、claude，缺省 dsh，配置在节点读取配置时生效。个人助理和普通 Global root 使用同一机器选择。保留 PA 专用的原始授权和对外披露审核，外部 worker 只收父级提供的工作材料，不能代替 PA 对外发送。新建委派消费当前配置，后续按已存的 worker id、runtime、原生会话和所属 root 定位。克隆/合并其他 Agent 配置时无需同步机器选择。CLI 未安装、登录失效或启动失败的具体错误交回原 Global。
 2. 在 dsh-integration 注册 Nano 自己的一级派工工具。Global 可派完整事项、给指定 worker 补充或停止；工具从受信任的当前 root 取 workspace 和机器配置。保留 IM send_message 的 public target 分支。Global 的普通派工走一个明确入口；运行时内部 helper、Workflow、维护和历史 DSH 会话仍使用相应的原生接口。能力选择保持现有宿主限制。DSH 路径调用公开的 startContinuable 等接口。
-3. 外部驱动同样放在 dsh-integration 内，直接以无 shell 的 stdio 启动 CLI，由各框架执行模型和工具循环。Codex 使用 app-server 的 thread/start 或 resume、turn/start 或 steer、turn/interrupt；Claude 使用带 stream-json 输入输出的 print 模式、session id 或 resume、user message 和 interrupt。每个适配只消费已接受、需决定、最终结果、失败和停止。两者均省略模型和 provider 设置，使用本机 CLI 身份和 cwd。区分本机 CLI 的环境与 Nano 为 Router 注入的模型凭据。
+3. 外部驱动同样放在 dsh-integration 内，直接以无 shell 的 stdio 启动 CLI，由各框架执行模型和工具循环。Codex 使用 app-server 的 thread/start 或 resume、turn/start 或 steer、turn/interrupt；Claude 使用带 stream-json 输入输出的 print 模式、session id 或 resume、user message 和 interrupt。适配器另外按原生调用标识配对工具开始和结果，将工作输入、模型正文和执行轮次投影为 Work 事件。两者均省略模型和 provider 设置，使用本机 CLI 身份和 cwd。区分本机 CLI 的环境与 Nano 为 Router 注入的模型凭据。
 4. Codex 使用 workspace-write、on-request 和 auto_review；Claude 使用 permission-mode auto。出现待裁决的请求时只把请求给出的操作、目标、原因报回父级，权限未决时不放行动作。明确拒绝维持拒绝。需要人决定时 Router 按原 IM 授权路径沟通，取得的新信息由原 worker 消费。对仍有效的 server/control request，驱动以原请求 ID 立即回送拒绝或取消，把待澄清事项交父级，结束该协议等待。后来的授权只形成同一会话的新输入，由框架重新审核；停止后的迟答不能放行旧请求。已终局拒绝的动作不重试。
 5. 外部 worker 有简短角色提示和只向当前父级汇报的 send_message；通过启动时绑定的本机 MCP 适配到同一个内部消息处理方法，无 IM 凭据或收件人选择。中间问题可在原 turn 报给父级；最终回答由宿主按原生 turn 完结事件回传一次。父级用现有原生消息注入/唤醒通道继续工作。外部 MCP 报告与 CLI 回合终态共用宿主 report(workerId, eventId, text)；从持久绑定查真实 root，生成标明 worker ID、标题及消息性质的内部来源消息，以原生 Agent 的 steer / 空闲输入唤醒 root。复用宿主 submit 的持久消息 ID 去重办法，用 worker id 加原生回合或调用 ID 作稳定键，投递前检查已受理的相同消息。该入口不调用需要原生子 Agent 的 sendMessage，不构造来自用户或 Inbox 的授权。工具被受理与实际完成/公开交付有不同语义。
-6. 每个真实委派记录稳定 id、父 root、框架、CLI session 标识、标题与最近状态，复用 DSH 的持久存储。原生 DSH 预留 childId。新请求按 root 与原调用标识去重；继续和停止校验真实归属。进程在宿主停止、Agent 停用或被删除时回收。恢复时保留 CLI 原生 id；宿主丢失进行中进程则标记中断，明确续做从原会话恢复，不能静默另起会话。CLI 明确回应中止或进程已退出才确认停止；失败回传真实状态。旧会话的生命周期不需要一次性转换。
+6. 每个真实委派记录稳定 id、父 root、框架、CLI session 标识、标题与最近状态，复用 DSH 的持久存储。原生 DSH 预留 childId。新请求按 root 与原调用标识去重；继续和停止校验真实归属。进程在宿主停止、Agent 停用或被删除时回收。恢复时保留 CLI 原生 id；宿主丢失进行中进程则先持久暂存给父级的终局回报，再标记中断，由父级就绪时按消息 ID 去重投递；明确续做从原会话恢复，不能静默另起会话。CLI 明确回应中止或进程已退出才确认停止；失败回传真实状态。旧会话的生命周期不需要一次性转换。
 
 ## Work 与模型上下文
 
-- 父 root 日志保存一级委派关系及状态事件，进入已有 Work 根分页、checkpoint 和 outbox，按源事件标识幂等投影。新增关系使用独立的 Work scope，进入现有派工图的活动筛选、时间窗及分页。原生 DSH 新委派从全量子轨迹同步和轨迹子范围导航中排除，内部 helper 同属该子树。新关系可查看标题、框架和状态，省去打开子轨迹入口。旧 DSH 关系、Global 和维护视图保留自己的行为。
+- 每次状态改变与待投递的关系事件同存于该 worker 的持久记录。Work 根分页带回该 root 的待投递事件，PA 按事件 ID 幂等写入 checkpoint 和 outbox 后确认。DSH 固定版本的公共 Session writer 无法为自定义原生事件标记 ignorable，直接把关系写入原生日志会阻止重启恢复。新增关系使用独立的 Work scope，进入现有派工图的活动筛选、时间窗及分页。原生 DSH 新委派从全量子轨迹同步和轨迹子范围导航中排除，内部 helper 同属该子树。外部 CLI 将每轮开始、任务输入、助手消息、工具调用与结果及结束写入同一个待确认队列。PA 生成现有 Work 事件，IM 按 worker 与轮次持久化。第一个明细事件建立工作记录入口，已有历史用量与原生轨迹范围各自保留。旧 DSH 关系、Global 和维护视图保留自己的行为。
 - Router 实际看到的输入为用户原话、任务约束和一级 worker 的回复。worker 首轮只加角色说明与具体委派；续做使用同一个 CLI thread/session。以“把第一个文件改成只读检查”为例，追加给原 worker 的是这句更正与必要背景，CLI 自己恢复先前的文件上下文。
 - 普通工作 worker 从 Nano 记忆 prompt、能力/skill 注入和维护工具中退出，保留框架自己的仓库指令和普通文件权限。Dreaming 只使用主会话允许的来源，主会话真实收到的汇报仍是主会话材料。检查旧待处理批次和历史 summary 引用，避免通过恢复或 source_history 重新读取工作 worker 轨迹；已写好的长期记忆无需重写。维护自身所需能力保持可用。
 

@@ -45,11 +45,12 @@ export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events:
     return { type: 'message', turn, payload: { message_id: message.id, role: 'assistant', text: message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join(''), reasoning_content: message.content.filter(part => part.type === 'reasoning').map(part => part.text ?? '').join('') } };
   }
   if (event.type === 'user/message') {
-    const source = event.data.source as {kind?: string; senderSessionId?: string; background_returns?: unknown[]} | undefined;
+    const source = event.data.source as {kind?: string; channel?: string; senderSessionId?: string; background_returns?: unknown[]} | undefined;
     if (source?.background_returns?.length) return {type: 'injection_consumed', turn, payload: {background_returns: source.background_returns}};
-    if (source && ['agent-message', 'subagent-settled'].includes(source.kind ?? '')) {
+    const workerReport = source?.kind === 'nano-system' && source.channel === 'worker-report';
+    if (source && (workerReport || ['agent-message', 'subagent-settled'].includes(source.kind ?? ''))) {
       const content = event.data.content as {type: string; text?: string}[];
-      return {type: 'message', turn, payload: {message_id: typeof event.data.id === 'string' ? event.data.id : undefined, role: 'system', source_kind: source.kind, source_session_id: source.senderSessionId, text: content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')}};
+      return {type: 'message', turn, payload: {message_id: typeof event.data.id === 'string' ? event.data.id : undefined, role: 'system', source_kind: workerReport ? 'worker-report' : source.kind, source_session_id: source.senderSessionId, text: content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')}};
     }
   }
   if (event.type === 'turn/end') {

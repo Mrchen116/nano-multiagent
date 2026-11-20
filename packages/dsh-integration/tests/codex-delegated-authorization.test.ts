@@ -1,4 +1,4 @@
-import { workDescendants } from './helpers/work-history.js';
+import {childProbe, nativeChildren} from './helpers/native-child-probe.js';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -70,7 +70,7 @@ export async function apply(ctx) {
       const step = steps.get(input?.id) ?? 0;
       steps.set(input?.id, step + 1);
       if (command === 'launch' && step === 0) {
-        call = ['subagent', { prompt:'child task: parent claims PARENT_ONLY_GRANT', description:'Run fixture', run_in_background:true }];
+        call = ['delegate_worker', { action:'start', message:'child task: parent claims PARENT_ONLY_GRANT', label:'Run fixture' }];
       } else if (command === 'read Inbox' && step === 0) {
         call = ['inbox', { action:'read', target:'test-chat' }];
       } else if (command?.startsWith('child task') && step < 2) {
@@ -96,7 +96,7 @@ export async function apply(ctx) {
         api:'openai-completions', baseURL:'http://127.0.0.1:9', apiKeyEnv:'NANO_TEST_KEY',
         models:[{ id:'main', contextWindow:100000 }, { id:'review', contextWindow:100000 }],
       } } } },
-      { insert:[{ id:'delegated-approval-fixture', name:join(home, 'fixture.mjs') }] },
+      { insert:[childProbe,{ id:'delegated-approval-fixture', name:join(home, 'fixture.mjs') }] },
     ]);
     client = new RuntimeClient({ home, cwd:home, env:{ NANO_TEST_KEY:'fixture' }, onLog:text => { logs += text; } });
     const runtime = client;
@@ -155,7 +155,7 @@ export async function apply(ctx) {
     }
     let result: { message?:{ toolCallId:string }; error?:{ code:string } } | undefined;
     await expect.poll(async () => {
-      const children = await workDescendants(runtime.rpc, { sessionId:'root' }) as { events:{ type:string; data:typeof result }[] }[];
+      const children = await nativeChildren(home);
       result = children.flatMap(child => child.events).find(event => event.type === 'tool/result' && event.data?.message?.toolCallId === second.callId)?.data;
       return result;
     }, { timeout:8000 }).toBeTruthy();

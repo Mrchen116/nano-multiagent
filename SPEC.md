@@ -6,7 +6,7 @@ nano-multiagent 面向以 IM 为协作与工作主体的组织级 Agent 平台�
 
 系统提供常驻 Agent 和独立 IM 中心。用户从 Web IM、原生 iPhone App 或飞书与数字人交互。数字人由配置定义，拥有身份、workspace、模型和能力；PA 的个人服务角色复用 Global 执行模式，内部 subagent 是一次工作的执行单元，不是新的公司成员。
 
-DSH 是唯一 Agent 执行运行时，以未修改的官方包启动在每个节点的受管子进程中。版本由 pnpm lockfile 锁定；当前为 `0.2.1-alpha.1`。Nano 不维护第二套 Agent Loop，不复制 DSH 执行运行时源码，不导入其私有实现。浏览器轨迹 UI 的单包分叉例外见下文。旧 Python `agent`、`coding_cli`、`personal_assistant` 和 Python IM 后端已退役，旧文档见 [历史入口](docs/archive/pre-dsh-581/README.md)。
+DSH 是产品主 Agent 执行运行时，以未修改的官方包启动在每个节点的受管子进程中。版本由 pnpm lockfile 锁定；当前为 `0.2.1-alpha.1`。Nano 不维护第二套 Agent Loop，不复制 DSH 执行运行时源码，不导入其私有实现。浏览器轨迹 UI 的单包分叉例外见下文。旧 Python `agent`、`coding_cli`、`personal_assistant` 和 Python IM 后端已退役，旧文档见 [历史入口](docs/archive/pre-dsh-581/README.md)。
 
 能力目录枚举、提示词预览及配置校验所需的临时能力检查在独立的官方 DSH 子进程和临时 home 中执行；`packages/dsh-integration` 负责有界等待、取消和回收，与持久聊天运行时隔离。
 
@@ -21,6 +21,7 @@ flowchart TD
   Node <-->|stdio JSON RPC| DSH[普通 Agent 共享 DSH host；PA 按 binding/epoch 隔离]
   DSH --> LLM[配置的模型服务]
   DSH --> Workspace[Agent workspace / tools / skills]
+  DSH --> CLI[可选本机 Codex CLI 或 Claude Code 一级 worker]
 ```
 
 节点主动连接中心，不开放 Agent 业务监听端口。中心不执行 Agent、不读节点 workspace、不直接连接外部渠道。中心离线时，已绑定且具备本地密文凭据的外部渠道仍可自治，待连接恢复后补交付已有持久结果。
@@ -40,6 +41,8 @@ flowchart TD
 | `src/IM/frontend` | 既有 React/TypeScript Web 客户端 |
 | `src/IM/ios` | 既有 Swift 原生 iPhone 客户端 |
 | `scripts`、`tests` | 运维和验收工具；Python 仅保留辅助脚本与黑盒回归 |
+
+Global 和 PA 的一级委派由 integration 选择本机配置的 DSH、Codex CLI 或 Claude Code，使用各自原生的执行循环、账号和会话；外部 worker 只向所属根会话汇报，并将执行步骤投影到 IM 的工作记录。
 
 Node 仅通过 `@nano/dsh-integration/client` 管理 stdio 进程客户端；产品层依赖 `RuntimePort`，不持有 DSH 对象。运行时接线集中在 integration，跨进程传递的是产品身份、输入来源、操作 ID、持久序号及真实事件。
 

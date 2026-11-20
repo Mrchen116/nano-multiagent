@@ -1,10 +1,11 @@
+import { cliWorkerRuntimes } from '@nano/product-contracts/worker-runtimes';
 import { once } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
 import { expect, it } from 'vitest';
 import { openDatabase } from '../../src/db.js';
 import { bind, start } from './helpers.js';
 
-it('pages main and Dreaming facts without affecting exact reply focus and reports own usage on the delegation tree', async () => {
+it.each(cliWorkerRuntimes)('%s Work preserves exact focus, live activity, tool records and per-worker usage', async (runtime) => {
   const f = await start();
   const g = await bind(f, 'work-summary-node');
   const base = '/im/v1/agents/global/work';
@@ -110,7 +111,7 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   ]);
   await status(false);
   expect((await read('/activity?limit=1')).body).toMatchObject({
-    running_count: 1, waiting_permission_count: 1, sessions: [{session_id: 'child', parent_session_id: 'parent', status: 'waiting_permission'}], next_cursor: 'child',
+    running_count: 1, waiting_permission_count: 1, sessions: [{session_id: 'running', status: 'running'}], next_cursor: null,
   });
   expect((await read('/activity?after_session=child')).body).toMatchObject({sessions: [{session_id: 'running'}], next_cursor: null});
 
@@ -158,6 +159,72 @@ it('pages main and Dreaming facts without affecting exact reply focus and report
   expect(recovered.some((node: {session_id: string}) => node.session_id === 'retired')).toBe(false);
   expect((await read('/activity', f.tokens.outsider)).status).toBe(404);
   expect((await read('/delegation', f.tokens.outsider)).status).toBe(404);
+
+  const worker = {parent_session_id: 'root', title: '审查修改', runtime, call_id: 'dispatch'};
+  for (const state of ['starting', 'running', 'completed']) {
+    await append([['worker', 'worker_state', {...worker, status: state}]]);
+    await status(false);
+    const active = state === 'running';
+    const page = (await read('/activity?after_session=running')).body;
+    expect(page).toMatchObject({
+      running_count: active ? 2 : 1, waiting_permission_count: 1,
+      sessions: active ? [{session_id: 'worker', scope: 'worker', status: state, title: worker.title}] : [],
+      next_cursor: null,
+    });
+  }
+
+  const reopen = {...worker, status:'running'};
+  const rootItems = '/sessions/root/turns/last/items?view=preview';
+  const cliTurns = '/sessions/worker/turns';
+  const invalidWorkerEvent = async (session_id: string, type: string, payload: object, turn_id?: string) => {
+    const position = seq + 1;
+    const response = await g.frames.send('agent.work.append', {node_id:g.node,journal_id:journal,from_seq:position,
+      events:[{seq:position,event_id:`invalid-${position}`,root_agent_id:'global',session_id,type,payload,turn_id}]});
+    expect(response.type).toBe('error');
+  };
+  await append([
+    ['worker','worker_state',{...reopen, has_work_records:true, worker_records_revision:10}],
+    ['dsh-worker','worker_state',{...reopen, runtime:'dsh', call_id:'other-dispatch'}],
+    ['root','tool_start',{name:'delegate_worker',call_id:'dispatch',arguments:{action:'start'}},'last'],
+    ['root','tool_start',{name:'delegate_worker',call_id:'send',arguments:{action:'send',worker_id:'worker',message:'x'.repeat(5000)}},'last'],
+    ['root','tool_start',{name:'send_message',call_id:'native-send',arguments:{agent_id:'worker'}},'last'],
+    ['root','message',{message_id:'report',source_session_id:'worker',source_kind:'worker-report',text:'报告'},'last'],
+  ]);
+  expect((await read(cliTurns)).status).toBe(404);
+  expect((await read('/sessions?parent_session_id=root&tool_call_id=dispatch')).body.sessions).toEqual([]);
+  expect((await read(rootItems)).body.items.find((item:{item_id:string})=>item.item_id==='message:report').payload.source_session_id).toBeUndefined();
+  const relationRevision = (await read('?catalog=separate&view=summary')).body.worker_records_revision;
+  await invalidWorkerEvent('worker','worker_state',{...reopen,runtime:'dsh'});
+  await invalidWorkerEvent('worker','worker_state',{...reopen,call_id:'different'});
+  await invalidWorkerEvent('worker','worker_state',{...reopen,title:'不同派工'});
+  await invalidWorkerEvent('dsh-worker','message',{text:'不应接收'},'d');
+  await invalidWorkerEvent('worker','permission_request',{request_id:'unbound'},'t');
+  await append([
+    ['worker','turn_started',{model:'test-model'},'cli-turn'],
+    ['worker','tool_start',{name:'exec',call_id:'cmd',arguments:{command:'pwd'},presentation:{label:'读取目录'}},'cli-turn'],
+  ]);
+  await status(false);
+  const firstDetailRevision = (await read('?catalog=separate&view=summary')).body.worker_records_revision;
+  expect(firstDetailRevision).toBeGreaterThan(relationRevision);
+  expect((await read('/sessions/worker')).body).toMatchObject({runtime,has_work_records:true,parent_tool_call_id:'dispatch'});
+  expect((await read('/sessions?parent_session_id=root&tool_call_id=dispatch')).body.sessions).toMatchObject([{session_id:'worker'}]);
+  const itemRows = (await read(rootItems)).body.items as Array<{item_id:string;payload:Record<string,unknown>}>;
+  for (const id of ['tool:dispatch','tool:send','tool:native-send'])
+    expect(itemRows.find(item=>item.item_id===id)?.payload.child_session_id).toBe('worker');
+  expect(itemRows.find(item=>item.item_id==='message:report')?.payload.source_session_id).toBe('worker');
+  expect((await read('/activity')).body.sessions).toContainEqual(expect.objectContaining({session_id:'worker',status:'running',
+    has_work_records:true,turn_id:'cli-turn',latest_tool:expect.objectContaining({name:'exec',item_id:'tool:cmd',status:'running'})}));
+  expect((await read(cliTurns,f.tokens.outsider)).status).toBe(404);
+  expect((await f.http('POST','/im/v1/agents/global/trajectory/prepare',{session_id:'worker'},f.tokens.alice)).status).toBe(404);
+  await append([['worker','worker_state',{...reopen,status:'interrupted'}]]);
+  expect((await read(cliTurns)).body.turns).toMatchObject([{turn_id:'cli-turn',status:'interrupted',finished_at:recent}]);
+  expect((await read('/delegation')).body.nodes.find((row:{session_id:string})=>row.session_id==='worker')).toMatchObject({
+    has_work_records:true,status:'interrupted',usage:{total_tokens:null,reported_turns:0,missing_turns:1}});
+  await append([['worker','turn_end',{status:'failed',error:'进程失败',usage:{total_tokens:25}},'cli-turn']]);
+  expect((await read(cliTurns)).body.turns).toMatchObject([{status:'failed',error:'进程失败'}]);
+  expect((await read('/delegation')).body.nodes.find((row:{session_id:string})=>row.session_id==='worker').usage)
+    .toEqual({total_tokens:25,reported_turns:1,missing_turns:0});
+  expect((await read('?catalog=separate&view=summary')).body.worker_records_revision).toBe(firstDetailRevision);
 
   const closed = once(g.socket, 'close');
   g.socket.terminate();

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Global Agent Specification
 
-> 对齐: feat-774
+> 对齐: feat-778
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 
 ## Purpose
@@ -420,8 +420,13 @@
 
 #### Scenario: 原执行者更正、停止与明确接续
 - **WHEN** 用户在聊天内更正、停止或明确接续一个委派事项
-- **THEN** 主 Agent 沿已有原生机制处理原执行者和对应范围，保持其他独立工作；不把中断受理描述为已经停止，不把晚到成果当恢复授权。
+- **THEN** 主 Agent 按创建时的框架处理原执行者和对应范围，保持其他独立工作；不把中断受理描述为已经停止，不把晚到成果当恢复授权。
 - **AND** 原执行者不可接续或当前能力不足时说明真实原因与保留成果，不冒充已执行、不静默复制工作；已发生副作用按真实结果保留。
+
+#### Scenario: 机器级派工与中断恢复
+- **WHEN** 本机普通 Global 或 PA 派出新事项
+- **THEN** 使用节点配置的 DSH、Codex CLI 或 Claude Code，默认 DSH。框架及会话随该事项固定，追加与结果归原委派。
+- **AND** 宿主恢复时将丢失的外部执行标为中断，携原 worker ID 向所属父 Agent 投递可重放、去重的中断通知；已保存的终局回报优先交付。用户明确续做时恢复原 CLI 会话。正常轮次结束时保留 worker 原文，由父级根据内容判断成果或待补问题。
 
 #### Scenario: 外部通信能力不等于派工权限
 - **GIVEN** 用户未授予对其他 IM Agent 的任务分配权限

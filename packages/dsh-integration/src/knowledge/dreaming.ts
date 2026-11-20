@@ -22,6 +22,7 @@ import type {} from '../product-bridge.js';
 import type {} from '../trajectory-runs.js';
 
 interface Options {
+  childConfiguration(sessionId: string): Promise<AgentConfiguration | undefined>;
   configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>;
   held?(agentId: string): boolean; notify(): void;
 }
@@ -45,7 +46,13 @@ export class Dreaming {
   private readonly timer: ReturnType<typeof setInterval>;
   constructor(private readonly ctx: Context, private readonly documents: DocumentMemory, private readonly options: Options,
     private readonly readRole?: (config: AgentConfiguration) => Promise<string | undefined>) {
-    this.domain = ctx.storageDomain.open(dreamingDomain); this.sources = new MemorySources(ctx, options.bindings);
+    this.domain = ctx.storageDomain.open(dreamingDomain);
+    this.sources = new MemorySources(ctx, options.bindings, async (agentId, childId) => {
+      // Workflow children persist their scoped configuration. Ordinary workers (including old
+      // ones without an override) are outside Dreaming; maintenance has its own catalog.
+      const config = await options.childConfiguration(childId) ?? this.configuration(agentId);
+      return config?.mode !== 'global' || config.modelRouteFrozen === true;
+    });
     documents.run = (agent, requestRef, importLegacy) => this.start(agent, false, requestRef, importLegacy);
     ctx.on('agent/created', async ({ agent }) => {
       const binding = options.bindings.get(agent.id);

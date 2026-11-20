@@ -6,7 +6,7 @@ import { NodeStore } from '../../../../packages/personal-assistant/src/store.js'
 import { InboxStore } from '../../../../packages/personal-assistant/src/inbox.js';
 import { GlobalAgent } from '../../../../packages/personal-assistant/src/global-agent.js';
 import { WorkSync } from '../../../../packages/personal-assistant/src/work-sync.js';
-import type { RuntimeEvent, RuntimePort } from '@nano/product-contracts';
+import type { RuntimeEvent, RuntimePort, RuntimeWorkerChange } from '@nano/product-contracts';
 
 // Compose real product owners at the integration boundary; only native execution is a fixture.
 it('projects real PA main/child facts through its durable journal and HTTP uploader into refreshable Work', async () => {
@@ -16,6 +16,31 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   cleanups.push(() => store.close(), () => inbox.close());
   store.bind({agentId: 'global', sessionId: 'main', conversationId: 'global:global', ownerId: 'alice', cwd: center.dir, revision: '1'});
   const content = '中文😀\n"原始参数"'.repeat(6000), output = '完整工具结果\n'.repeat(5000);
+  const workerTime = Date.now() - 1000;
+  const worker = (seq:number, workerId:string, label:string, runtime:RuntimeWorkerChange['runtime'], state:RuntimeWorkerChange['state'], turnUsage?:RuntimeWorkerChange['turnUsage']): RuntimeWorkerChange => ({
+    id:String(seq), time:workerTime+seq, workerId, rootId:'main', callId:workerId+'-call', label, runtime, state, turnUsage,
+  });
+  const detailed = (seq: number, fact: NonNullable<RuntimeWorkerChange['detail']>['fact']): RuntimeWorkerChange => ({
+    ...worker(seq, 'c-worker', '读取核对结果', 'claude', 'running'),
+    detail: {turnId:'cli-turn-1', fact},
+  });
+  let pendingWorkers = [
+    worker(8, 'a-worker', '核对报表', 'codex', 'starting'),
+    worker(9, 'b-worker', '核对附件', 'dsh', 'running'),
+    worker(10, 'a-worker', '核对报表', 'codex', 'running', {id:'item-1',totalTokens:410}),
+    worker(11, 'a-worker', '核对报表', 'codex', 'completed', {id:'item-2',totalTokens:null}),
+    worker(12, 'a-worker', '核对报表', 'codex', 'completed', {id:'item-1',totalTokens:410}),
+    worker(13, 'b-worker', '核对附件', 'dsh', 'running', {id:'1',totalTokens:0}),
+    worker(14, 'claude-worker', '审阅', 'claude', 'completed', {id:'msg-1',totalTokens:null}),
+    worker(15, 'legacy-worker', '旧事项', 'dsh', 'completed'),
+    worker(16, 'c-worker', '读取核对结果', 'claude', 'starting'),
+    detailed(17, {type:'turn_started', payload:{model:'cli-model', origin:'background_task'}}),
+    detailed(18, {type:'message', payload:{message_id:'answer',role:'assistant',text:'我先读取结果。'}}),
+    detailed(19, {type:'tool_start', payload:{name:'Read',call_id:'read',arguments:{path:'report.txt'}}}),
+    detailed(20, {type:'tool_end', payload:{call_id:'read',presentation:{summary:'核对通过',detail:{content:output}}}}),
+    detailed(21, {type:'turn_end', payload:{status:'completed',usage:{total_tokens:98,output:8}}}),
+    worker(22, 'c-worker', '读取核对结果', 'claude', 'completed', {id:'cli-turn-1',totalTokens:98}),
+  ];
   const source: RuntimeEvent[] = [
     {seq: 0, time: 1000, type: 'request/header', data: {header: {config: {model: 'fixture-model'}}}},
     {seq: 1, time: 1001, type: 'request/context', data: {contextWindow: 8192}},
@@ -25,6 +50,10 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     {seq: 5, time: 1008, type: 'tool/result', data: {turn: 1, message: {toolCallId: 'write', content: [{type: 'text', text: output}], isError: false}}},
     {seq: 6, time: 1009, type: 'assistant/message', data: {turn: 1, message: {id: 'answer', content: [{type: 'text', text: '主执行正文'}]}, usage: {inputTokens: 10, outputTokens: 3, cacheReadTokens: 2}}},
     {seq: 7, time: 1010, type: 'turn/end', data: {turn: 1, reason: {kind: 'completed'}}},
+    {seq:12, time:workerTime+12, type:'turn/start', data:{turn:2}},
+    {seq:13, time:workerTime+13, type:'user/message', data:{turn:2, id:'report', source:{kind:'nano-system', channel:'worker-report'}, content:[{type:'text',text:'报表已确认'}]}},
+    {seq:14, time:workerTime+14, type:'user/message', data:{turn:2, id:'dsh-report', source:{kind:'agent-message',senderSessionId:'b-worker'}, content:[{type:'text',text:'正在核对附件'}]}},
+    {seq:15, time:workerTime+15, type:'turn/end', data:{turn:2, reason:{kind:'completed'}}},
   ];
   const child: RuntimeEvent[] = [
     {seq: 1, time: 1004, type: 'turn/start', data: {turn: 1}},
@@ -37,13 +66,18 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     onNotification: () => () => {},
     request: async (method, input) => {
       const args = input as {afterSeq?: number};
+      if (method === 'session.work.workers.confirm') {
+        const ids = new Set((input as {changes:{id:string}[]}).changes.map(row=>row.id));
+        pendingWorkers=pendingWorkers.filter(row=>!ids.has(row.id));
+        return {};
+      }
       if (method === 'session.work.check') return {rootSettled:true};
       if (method === 'session.work.children') return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:4,modelVersion:'done'}]};
       const isChild=method==='session.work.child';
       const events=isChild ? child : source;
       const after=args.afterSeq??-1;
-      const throughSeq=isChild ? (after<2?2:4) : (after<4?4:7);
-      return {events:events.filter(event=>event.seq>after && event.seq<=throughSeq),durable:true,
+      const throughSeq=isChild ? (after<2?2:4) : (after<4?4:after<10?10:15);
+      return {workerChanges:isChild ? [] : pendingWorkers,events:events.filter(event=>event.seq>after && event.seq<=throughSeq),durable:true,
         modelRuns:[],modelVersion:'done',throughSeq,more:throughSeq<events.at(-1)!.seq};
     },
   };
@@ -55,7 +89,7 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   await expect.poll(()=>inbox.workProcessingPending).toBe(false);
   const produced = inbox.journalSeq;
   expect(inbox.journal(0).some(event => event.type === 'tool_end')).toBe(true);
-  expect(inbox.workCheckpoints('main')).toMatchObject({main: {throughSeq: 7}, child: {throughSeq: 4}});
+  expect(inbox.workCheckpoints('main')).toMatchObject({main: {throughSeq: 15}, child: {throughSeq: 4}});
   const makeSync = (url: string) => new WorkSync({nodeId: node.node, inbox, url, credentials: () => node.runtime, onError: error => errors.push(error)});
   let sync = makeSync(center.base); cleanups.push(() => sync.stop()); sync.start();
   await expect.poll(() => inbox.throughSeq, {timeout: 10000}).toBe(produced);
@@ -63,9 +97,40 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   const read = () => center.http('GET', '/im/v1/agents/global/work', undefined, center.tokens.alice);
   const first = await read(); expect(first.status, first.body).toBe(200);
   expect(first.body).toMatchObject({main_session_id: 'main', main_execution: 'idle', record_sync_state: 'current'});
-  expect(first.body.turns[0]).toMatchObject({status: 'completed', usage: {context_used: 12, output: 3, context_window: 8192}, elapsed_ms: 8});
-  expect(first.body.turns[0].usage.total_tokens).toBeUndefined();
-  const tool = first.body.turns[0].items.find((item: {item_id: string}) => item.item_id === 'tool:write');
+  expect(first.body.turns[0].items).toEqual(expect.arrayContaining([
+    expect.objectContaining({payload:expect.objectContaining({text:'报表已确认',source_kind:'worker-report'})}),
+    expect.objectContaining({payload:expect.objectContaining({text:'正在核对附件',source_worker_id:'b-worker'})}),
+  ]));
+  expect(first.body.turns[0].items.some((item:{payload:{source_session_id?:string}})=>item.payload.source_session_id==='b-worker')).toBe(false);
+  const graph = (query:string) => center.http('GET','/im/v1/agents/global/work/delegation?window=2h&limit=1'+query,undefined,center.tokens.alice);
+  const page = (await graph('')).body;
+  expect(page.next_cursor).toBe('a-worker');
+  expect(page.nodes.find((node:{scope:string})=>node.scope==='worker')).toEqual({
+    session_id:'a-worker',parent_session_id:'main',scope:'worker',runtime:'codex',title:'核对报表',
+    status:'completed',turn_id:null,last_active_at:new Date(workerTime+12).toISOString(),ancestor_only:false,
+    usage:{total_tokens:410,reported_turns:1,missing_turns:1},
+  });
+  const next = (await graph('&after_session=a-worker&until='+encodeURIComponent(page.until))).body;
+  expect(next.nodes).toContainEqual(expect.objectContaining({session_id:'b-worker',runtime:'dsh',status:'running',usage:{total_tokens:0,reported_turns:1,missing_turns:0}}));
+  const allWorkers = (await center.http('GET','/im/v1/agents/global/work/delegation?window=2h',undefined,center.tokens.alice)).body.nodes;
+  expect(allWorkers.find((row:any) => row.session_id==='claude-worker')).toMatchObject({usage:{total_tokens:null,reported_turns:0,missing_turns:1}});
+  expect(allWorkers.find((row:any) => row.session_id==='legacy-worker')).not.toHaveProperty('usage');
+  const cli = allWorkers.find((row:{session_id:string}) => row.session_id==='c-worker');
+  expect(cli).toMatchObject({runtime:'claude',has_work_records:true,turn_id:'cli-turn-1',
+    usage:{total_tokens:98,reported_turns:1,missing_turns:0},latest_tool:{item_id:'tool:read',name:'Read'}});
+  const cliTurns = '/im/v1/agents/global/work/sessions/c-worker/turns';
+  expect((await center.http('GET',cliTurns,undefined,center.tokens.alice)).body.turns).toMatchObject([{
+    turn_id:'cli-turn-1',status:'completed',model_id:'cli-model',usage:{total_tokens:98,output:8},items:[
+      {kind:'message',payload:{text:'我先读取结果。'}},
+      {kind:'tool',payload:{input:{path:'report.txt'},detail:{content:output},status:'completed'}},
+    ],
+  }]);
+  expect(first.body.other_executions.map((row:{session_id:string})=>row.session_id).sort()).toEqual(['c-worker','child']);
+  expect((await center.http('GET','/im/v1/agents/global/work/sessions/a-worker/turns',undefined,center.tokens.alice)).status).toBe(404);
+  expect((await center.http('GET','/im/v1/agents/global/work/sessions/b-worker/turns',undefined,center.tokens.alice)).status).toBe(404);
+  expect(first.body.turns[1]).toMatchObject({status: 'completed', usage: {context_used: 12, output: 3, context_window: 8192}, elapsed_ms: 8});
+  expect(first.body.turns[1].usage.total_tokens).toBeUndefined();
+  const tool = first.body.turns[1].items.find((item: {item_id: string}) => item.item_id === 'tool:write');
   expect(tool.payload).toMatchObject({input: {path: 'report.txt', content}, detail: {content: output}, status: 'completed', duration_ms: 4});
   expect(first.body.other_executions).toContainEqual(expect.objectContaining({session_id: 'child', parent_session_id: 'main', scope: 'subagent'}));
   const childPage = await center.http('GET', '/im/v1/agents/global/work/sessions/child/turns', undefined, center.tokens.alice);
@@ -76,6 +141,11 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   const invalid = await node.frames.send('agent.work.append', {node_id: node.node, journal_id: inbox.journalId, from_seq: produced + 1,
     events: [{seq: produced + 1, event_id: 'malformed', root_agent_id: 'global', session_id: 'main', turn_id: '1', type: 'tool_end', payload: {presentation: {summary: 7}}}]});
   expect(invalid.type).toBe('error');
+  const malformedUsage = await node.frames.send('agent.work.append', {node_id:node.node,journal_id:inbox.journalId,from_seq:produced+1,
+    events:[{seq:produced+1,event_id:'malformed-usage',root_agent_id:'global',session_id:'a-worker',type:'worker_state',
+      payload:{parent_session_id:'main',title:'核对报表',runtime:'codex',status:'completed',call_id:'a-worker-call',
+        turn_usage:{turn_id:'item-3',total_tokens:-1}}}]});
+  expect(malformedUsage.type).toBe('error');
   const path = `/im/v1/gateway/work-sync/journals/${inbox.journalId}`;
   expect((await center.http('GET', path, undefined, node.runtime)).body.through_seq).toBe(produced);
 
@@ -93,6 +163,8 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     expect(duplicate.body.through_seq).toBe(produced);
   }
   const restored = await restarted.http('GET', '/im/v1/agents/global/work', undefined, restarted.tokens.alice);
+  const restoredGraph = await restarted.http('GET', '/im/v1/agents/global/work/delegation?window=2h',undefined,restarted.tokens.alice);
+  expect(restoredGraph.body.nodes).toEqual(allWorkers);
   expect(restored.body.turns).toEqual(first.body.turns);
   expect(restored.body.other_executions).toEqual(first.body.other_executions);
   expect(restored.body.revision).toBe(first.body.revision);

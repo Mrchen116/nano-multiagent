@@ -343,7 +343,7 @@ it('resumes a paged native child after runtime loss and pairs the complete tool 
   const store=new NodeStore(join(home,'node.sqlite'),'owner'),inbox=new InboxStore(join(home,'inbox.sqlite'));
   const binding=store.bind({sessionId:'root',agentId:'a',conversationId:'global:a',ownerId:'owner',cwd:home,revision:'1'});
   const config:AgentConfiguration={agentId:'a',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',
-    toolAllowlist:['subagent','work_probe'],approval:{dangerouslySkipPermissions:true}};
+    toolAllowlist:['subagent_fork','work_probe'],approval:{dangerouslySkipPermissions:true}};
   let client:RuntimeClient|undefined,product:GlobalAgent|undefined,cut:number|undefined,childId:string|undefined;
   let cutAtReconnect:number|undefined,inject=true,logs='';
   const errors:unknown[]=[];
@@ -357,7 +357,7 @@ it('resumes a paged native child after runtime loss and pairs the complete tool 
         const id=o.sessionId;
         if(!called.has(id)){
           called.add(id);
-          yield {type:'block-end',index:0,block:{type:'tool-call',id:'call-'+id,name:id==='root'?'subagent':'work_probe',
+          yield {type:'block-end',index:0,block:{type:'tool-call',id:'call-'+id,name:id==='root'?'subagent_fork':'work_probe',
             arguments:id==='root'?JSON.stringify({prompt:'Use work_probe',description:'Child Work',run_in_background:false}):'{}'}};
           yield {type:'finish',reason:{kind:'tool-calls'}};return;
         }

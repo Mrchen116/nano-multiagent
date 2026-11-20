@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
-import { workDescendants } from './helpers/work-history.js';
+import {childProbe, nativeChildren} from './helpers/native-child-probe.js';
 
 type ModelApi = 'anthropic-messages' | 'openai-completions' | 'openai-responses';
 
@@ -15,7 +15,7 @@ function configureProvider(home: string, baseURL: string, api: ModelApi, observe
     api, baseURL, apiKeyEnv: 'NANO_TEST_KEY', streamIdleTimeoutMs,
     models: [{ id: 'fixture', contextWindow: 100000 }],
     retryPolicy: { mode: 'normal', maxRetries: 1, backoff: { initialDelayMs: 5, maxDelayMs: 5, jitterRatio: 0 } },
-  } } } }, ...(observer ? [{ insert: [{ id: 'connection-observer', name: observer }] }] : [])]);
+  } } } }, {insert:[childProbe]}, ...(observer ? [{ insert: [{ id: 'connection-observer', name: observer }] }] : [])]);
 }
 
 async function ensureRoot(client: RuntimeClient, home: string, toolAllowlist: string[] = []) {
@@ -88,10 +88,10 @@ it.each(['closed', 'stalled'] as const)('keeps parent and nested turns through %
     emit('message_start', { message: { id: 'fixture', type: 'message', role: 'assistant', model: 'fixture', content: [], stop_reason: null, usage: { input_tokens: 20, output_tokens: 0 } } });
     if (phase === 'incomplete') { res.end(); return; }
     const block = delegate
-      ? { type: 'tool_use', id: `delegate-${session}`, name: 'subagent', input: {} }
+      ? { type: 'tool_use', id: `delegate-${session}`, name: session === 'root' ? 'delegate_worker' : 'subagent', input: {} }
       : { type: 'text', text: 'Completed original work.' };
     emit('content_block_start', { index: 0, content_block: block });
-    if (delegate) emit('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify({
+    if (delegate) emit('content_block_delta', { index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(session === 'root' ? {action:'start',label:'fixture delegation',message:'Complete delegated work from root'} : {
       prompt: `Complete delegated work from ${session}`, description: 'fixture delegation', run_in_background: true,
     }) } });
     emit('content_block_stop', { index: 0 });
@@ -106,7 +106,7 @@ it.each(['closed', 'stalled'] as const)('keeps parent and nested turns through %
   });
   const observeAll = async () => {
     const root = await observeRoot(client!);
-    const descendants = await workDescendants(client!.rpc, { sessionId: 'root' });
+    const descendants = await nativeChildren(home);
     return new Map([['root', root.events], ...descendants.map(({ id, events }) => [id, events] as const)]);
   };
   try {
