@@ -68,3 +68,41 @@
 - R1-R1 accepted。话题块替换该条的默认 `messageContent`，当前消息只出现一次。
 - R1-R2 accepted。索引在 `thread_root_id` 列存在之后创建，仍不需要 `deployment-prompt.md`。
 - R1-R3 accepted。外部会话在根校验处拒绝非空 `thread_root_id` 与 `in_thread_of`。
+
+## Round 2
+
+- reviewer: 同一 independent Gate 2 reviewer (subagent)，未参与本设计编写
+- target: `4a703c84d68922b38fae4be9feeb90a506f59e4b`。Round 1 的 `754a8935a` 原样重放到 `ad86cd6d6`，本轮只看 `4a703c84d` 对 design、原型、delta 和 M1 的修订。代码仍是 develop 上的 `schema.sql`、`gateway.ts`、`message-records.ts`、`conversation-actions.ts`、`ConversationView`。
+- review_mode: closure
+- mode_reason: diff 只关闭 Round 1 的五条问题和三条建议。会话仍按聊天绑定，不按话题拆 session；仅限本人和私聊的分类结论沿用 Round 1。
+- started_at: 2026-11-20T15:50:15+00:00
+- completed_at: 2026-11-20T15:53:00+00:00
+- duration: 2m45s
+- Verdict: **Approved · 0 CRITICAL / 0 WARNING**
+
+### Coverage 与证据
+
+`retained_from: Round 1`。本轮不重审话题存储、`chatBinding`、Inbox target、一句与多步不双写，以及仅限本人在缺少 `ownerDirect` 时 `skip`、私聊不按关注表过滤。这些没有改口。
+
+变更集中在入箱谓词、未读公式、fork 查询、阅读位置和窄屏菜单。`personal_observation_event` 仍在 `conversation_events` 插入后写 `pa_source_events`，不经过 `enqueueRelays`。`groupReply` 仍把已完成的 Agent 群消息转给其他 Agent，`relayMessage` 由它调用。`insert` 仍会给全员加未读并改写 `last_message_preview`。fork 仍是 `SELECT * FROM messages WHERE conversation_id=? ORDER BY rowid`。iPhone 菜单仍只有复制和分支。design 现在按这些入口改条件，而不是换一条不存在的路径。
+
+### 历史问题闭环
+
+| ID | Author Resolution、本轮核验与结论 |
+|---|---|
+| R1-C1 | **closed**。关键决策要求 `enqueueRelays` 和 `groupReply` 使用同一谓词：正在关注、被 @ 或被引用才中继，且 `addressed_to_agent` 为真；未命中不调用 `relayMessage`，因此到不了 `bufferGroup` 和参与者 Inbox。`personal_observation_event` 对未关注且未被点名的话题回复不写 `pa_source_events`；已按该谓词写入的事件在 `recoverPersonalObservations` 标成 high，不再落成 background。路由 delta 的未关注场景覆盖人和 Agent 两种发送者。PA delta 写成「不写入观察事件」。M1 的 reviewer / worker 都包含观察事件和 `groupReply`。仅限本人仍由 `classifyChatDelivery` 兜底，私聊不走这张关注表。 |
+| R1-W1 | **closed**。写入节规定列表 `unread_count` 等于主时间线水位计数加上该用户各话题的 `thread_follows.unread_count`；打开主时间线、丢弃和按水位重算都先算主时间线再加回话题未读。群话题回复不改 `last_message_preview`。水位之前的话题回复不再被标成已读。`message_receipts` 的收件人与该条未读对象相同，群话题只含当时 `following=1` 的其他人。回执 delta 仍保留聚合、分人推进和离线不提前送达三个 Scenario。私聊继续用现有水位。 |
+| R1-W2 | **closed**。M1 范围加入 `conversation-actions.ts`。design 点名现有 `SELECT * FROM messages WHERE conversation_id=?`，改为只复制 `thread_root_id IS NULL`。worker 断言 fork 不复制话题行，reviewer 要求新单聊不带走话题回复。 |
+| R1-W3 | **closed**。实时事件写明已经向上翻时保持滚动位置，新回复只加在末尾。conversations、Web、iOS 三份 delta 都有对应 Scenario，M1 reviewer 也有这一条。 |
+| R1-W4 | **closed**。窄屏和 iPhone 使用长按菜单，与复制、分支以及 779 的引用并集，气泡下不常驻按钮。话题顶栏在桌面、窄屏和 iPhone 都有关注，主时间线消息上没有这个开关。`phone-timeline.png` 的菜单是「复制 · 分支 · 在话题中回复」，气泡下没有常驻动作；`phone-thread.png` 顶栏有「关注中」。相关历史改为 779 的设计审查 Round 2 已通过、代码尚未进入本树。iOS 菜单现状仍是复制和分支，本 unit 不依赖 779 先合并。 |
+| R1-R1 | **已纳入，不阻断**。话题块替换该条默认 `messageContent`，当前消息只出现一次。worker 有对应断言。 |
+| R1-R2 | **已纳入，不阻断**。索引写在 `thread_root_id` 列已经存在之后。仍不需要 `deployment-prompt.md`。 |
+| R1-R3 | **已纳入，不阻断**。外部影子会话在根校验处拒绝非空 `thread_root_id` 和 `in_thread_of`。 |
+
+### Issues
+
+无。
+
+### Recommendations
+
+无。
