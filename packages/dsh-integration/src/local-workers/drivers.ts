@@ -9,6 +9,7 @@ export interface CliWorkerOptions {
   instructions: string;
   mcp: { command: string; args: string[]; env: Record<string, string> };
   onReport(id: string, message: string): Promise<void>;
+  onTurnEnd(id: string, totalTokens: number | null): Promise<void>;
   onEnd(id: string, state: CliEndState, text: string): Promise<void>;
 }
 
@@ -17,6 +18,7 @@ class TurnEvents {
   active?: string;
   private delivery = Promise.resolve();
   private terminal = Promise.withResolvers<void>();
+  private lastTurn?: string;
   constructor(private readonly options: CliWorkerOptions) {}
 
   begin(id: string) {
@@ -26,6 +28,13 @@ class TurnEvents {
 
   report(id: string, text: string) {
     this.deliver(() => this.options.onReport(id, text));
+  }
+
+  recordTurn(id: string, totalTokens: number | null) {
+    if (!this.active || id === this.lastTurn) return false;
+    this.lastTurn = id;
+    this.deliver(() => this.options.onTurnEnd(id, totalTokens));
+    return true;
   }
 
   end(id: string, state: CliEndState, text: string) {
@@ -62,6 +71,21 @@ interface CodexTurn {
 }
 const finalMessage = (item: CodexItem) =>
   item.type === 'agentMessage' && (!item.phase || item.phase === 'final_answer');
+
+const tokenCount = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+
+function claudeResultTokens(usage?: Record<string, unknown>): number | null {
+  if (!usage) return null;
+  // result.usage aggregates the requests for this prompt. Cache detail fields subdivide these counts.
+  const counts = [
+    usage.input_tokens,
+    usage.output_tokens,
+    usage.cache_read_input_tokens ?? 0,
+    usage.cache_creation_input_tokens ?? 0,
+  ];
+  return counts.every(tokenCount) ? counts.reduce((total, count) => total + count, 0) : null;
+}
 
 function details(subject: string, fields: Record<string, unknown>) {
   return `${subject} ${JSON.stringify(Object.fromEntries(Object.entries(fields).filter(([, value]) => value != null)))}`;
@@ -103,6 +127,8 @@ async function codex(options: CliWorkerOptions) {
   let nextId = 0;
   let finalText = '';
   let stopping = false;
+  let previousTotal = options.sessionId ? undefined : 0;
+  let usage: { turnId: string; baseline?: number } | undefined;
   const fileTargets = new Map<string, string[]>();
   const commands = new Map<string, string>();
   const request = <T>(method: string, params: unknown) => {
@@ -151,6 +177,17 @@ async function codex(options: CliWorkerOptions) {
       return;
     }
     if (!threadId || params?.threadId !== threadId) return;
+    if (method === 'thread/tokenUsage/updated') {
+      const total = params.tokenUsage.total.totalTokens;
+      if (!tokenCount(total)) return;
+      if (usage?.turnId !== params.turnId) {
+        // Resume replays the previous turn's thread total. Without a replay, last is one model request.
+        const last = params.tokenUsage.last?.totalTokens;
+        const baseline = previousTotal ?? (tokenCount(last) ? total - last : undefined);
+        usage = { turnId: params.turnId, baseline };
+      }
+      previousTotal = total;
+    }
     if (method === 'turn/started') events.begin(params.turn.id);
     if (method === 'item/started' && params.item.type === 'commandExecution')
       commands.set(params.item.id, params.item.command);
@@ -175,6 +212,11 @@ async function codex(options: CliWorkerOptions) {
     }
     if (method === 'turn/completed') {
       const turn = params.turn as CodexTurn;
+      const tokens =
+        usage?.turnId === turn.id && usage.baseline !== undefined && previousTotal !== undefined
+          ? previousTotal - usage.baseline
+          : null;
+      if (!events.recordTurn(turn.id, tokenCount(tokens) ? tokens : null)) return;
       const state = turn.status === 'completed' || turn.status === 'interrupted' ? turn.status : 'failed';
       events.end(
         turn.id,
@@ -334,6 +376,7 @@ async function claude(options: CliWorkerOptions) {
       throw new Error('Claude returned a different session id');
     if (message.type === 'user' && message.isReplay) unconsumed.delete(message.uuid);
     if (message.type !== 'result' || !events.active) return;
+    if (!events.recordTurn(message.uuid ?? events.active, claudeResultTokens(message.usage))) return;
     const state = message.subtype === 'success' && !message.is_error ? 'completed' : 'failed';
     const text = (message.errors ?? []).join('\n') || message.result || `Claude turn ${message.subtype}`;
     for (const denial of message.permission_denials ?? []) {

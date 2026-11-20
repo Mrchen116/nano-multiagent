@@ -9,6 +9,7 @@ import { cliEnvironmentRestoration, nativeCliEnvironment } from '../src/local-wo
 let cwd: string;
 let cli: Awaited<ReturnType<typeof openCliWorker>> | undefined;
 const onReport = vi.fn<CliWorkerOptions['onReport']>(async () => {});
+const onTurnEnd = vi.fn<CliWorkerOptions['onTurnEnd']>(async () => {});
 const onEnd = vi.fn<CliWorkerOptions['onEnd']>(async () => {});
 const mcp = { command: 'mcp-bridge', args: ['parent-socket'], env: {} };
 async function fakeCli(runtime: 'codex' | 'claude', code: string, sessionId?: string) {
@@ -30,6 +31,7 @@ async function fakeCli(runtime: 'codex' | 'claude', code: string, sessionId?: st
     instructions: 'Help the parent',
     mcp,
     onReport,
+    onTurnEnd,
     onEnd,
     sessionId,
   }));
@@ -132,6 +134,43 @@ it('binds Codex review, steering and confirmed interruption to the original thre
     /extra access[\s\S]*outside original scope/,
   );
   expect(onEnd.mock.calls).toEqual([['turn-1', 'interrupted', 'Codex turn interrupted']]);
+  expect(onTurnEnd.mock.calls).toEqual([['turn-1', null]]);
+});
+
+it('attributes Codex thread totals to finished turns across resume, repeats and multiple model requests', async () => {
+  const worker = await fakeCli(
+    'codex',
+    `
+    const answer = result => emit({id:m.id, result});
+    const notify = (method, params) => emit({method, params:{threadId:'original', ...params}});
+    const usage = (turnId, total, last) => notify('thread/tokenUsage/updated', {
+      turnId, tokenUsage:{total:{totalTokens:total},last:{totalTokens:last}}});
+    if(m.method==='initialize') answer({});
+    if(m.method==='thread/resume') {
+      answer({thread:{id:'original'}});
+      usage('previous', 200, 45);
+    }
+    if(m.method==='turn/start') {
+      const id=m.params.input[0].text;
+      answer({turn:{id}});
+      notify('turn/started', {turn:{id}});
+      if(id==='a') {usage(id, 220, 20);usage(id, 220, 20);usage(id, 260, 40);}
+      if(id==='b') usage(id, 275, 15);
+      const turn={id, status:id==='b'?'failed':'completed'};
+      notify('turn/completed',{turn});notify('turn/completed',{turn});
+    }
+  `,
+    'original',
+  );
+  for (const [index, id] of ['a', 'b', 'c'].entries()) {
+    await worker.send(id);
+    await expect.poll(() => onEnd.mock.calls.length).toBe(index + 1);
+  }
+  expect(onTurnEnd.mock.calls).toEqual([
+    ['a', 60],
+    ['b', 15],
+    ['c', null],
+  ]);
 });
 
 it('forwards a Claude control denial, native denial and final answer once while consuming a queued correction', async () => {
@@ -144,9 +183,10 @@ it('forwards a Claude control denial, native denial and final answer once while 
       emit({type:'control_request',request_id:'q',request:{subtype:'can_use_tool',tool_use_id:'one',tool_name:'Read',input:{file_path:'/work/a'},blocked_path:'/work/a',decision_reason:'outside workspace'}});
     }
     if(m.type==='user' && m.message.content==='amend') {
-      emit({type:'result',session_id:'original',uuid:'r1',subtype:'success',result:'partial',permission_denials:[{tool_use_id:'one',tool_name:'Read',tool_input:{}}]});
+      const first={type:'result',session_id:'original',uuid:'r1',subtype:'success',result:'partial',num_turns:3,usage:{input_tokens:12,output_tokens:5,cache_read_input_tokens:20,cache_creation_input_tokens:10,cache_creation:{ephemeral_5m_input_tokens:10}},permission_denials:[{tool_use_id:'one',tool_name:'Read',tool_input:{}}]};
+      emit(first);emit(first);
       emit({type:'user',isReplay:true,uuid:m.uuid,session_id:'original'});
-      emit({type:'result',session_id:'original',uuid:'r2',subtype:'success',result:'done',permission_denials:[{tool_use_id:'two',tool_name:'Write',tool_input:{path:'file',content:'private body'}}]});
+      emit({type:'result',session_id:'original',uuid:'r2',subtype:'success',result:'done',num_turns:2,usage:{input_tokens:7,output_tokens:4},modelUsage:{mock:{inputTokens:38,outputTokens:17}},permission_denials:[{tool_use_id:'two',tool_name:'Write',tool_input:{path:'file',content:'private body'}}]});
     }
   `,
     'original',
@@ -156,6 +196,10 @@ it('forwards a Claude control denial, native denial and final answer once while 
   await worker.send('amend');
   await expect.poll(() => onEnd.mock.calls.length).toBe(1);
   expect(onEnd.mock.calls).toEqual([['r2', 'completed', 'done']]);
+  expect(onTurnEnd.mock.calls).toEqual([
+    ['r1', 47],
+    ['r2', 11],
+  ]);
   expect(onReport.mock.calls.map(([id]) => id)).toEqual(['request:one', 'r1', 'request:two']);
   expect(onReport.mock.calls.at(-1)?.[1]).toContain('file');
   expect(onReport.mock.calls.at(-1)?.[1]).not.toContain('private body');
@@ -186,6 +230,7 @@ it('confirms exit after Claude acknowledges interruption and blocks queued input
   expect((await frames()).at(-1).request.subtype).toBe('interrupt');
   expect(onEnd.mock.calls).toHaveLength(1);
   expect(onEnd.mock.calls[0]?.[1]).toBe('interrupted');
+  expect(onTurnEnd).not.toHaveBeenCalled();
   await expect(worker.send('late')).rejects.toThrow(/exited|closing/);
 });
 
