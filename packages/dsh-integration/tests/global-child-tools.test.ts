@@ -250,6 +250,11 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
         expect(await workDescendants(client!.rpc, {sessionId:'root'})).toEqual([]);
         const root = await client!.rpc.request('session.observe',{sessionId:'root'}) as any;
         const children = await nativeChildren(home);
+        const page=await client!.rpc.request('session.work.root',{sessionId:'root',afterSeq:root.throughSeq}) as import('@nano/product-contracts').RuntimeWorkPage;
+        if (page.workerChanges?.length) {
+          expect(await client!.rpc.request('session.work.check',{sessionId:'root',afterSeq:root.throughSeq,modelVersion:root.modelVersion})).toEqual({rootSettled:false});
+          await client!.rpc.request('session.work.workers.confirm',{sessionId:'root',changes:page.workerChanges.map(({id,workerId})=>({id,workerId}))});
+        }
         const check=await client!.rpc.request('session.work.check',{sessionId:'root',afterSeq:root.throughSeq,modelVersion:root.modelVersion}) as {rootSettled:boolean};
         return {rootSettled:check.rootSettled, activeChildren:children.filter(row =>
           row.events.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')?.type !== 'turn/end'

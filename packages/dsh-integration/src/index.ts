@@ -656,7 +656,8 @@ export default class NanoRuntime {
       const id = SessionId(input.sessionId), fallback = (await models).fallback;
       const rootSettled = await descendantReader.settled(id, {[id]:input.afterSeq ?? -1}, () =>
         fallback.hasActive(id) || input.modelVersion!==fallback.workVersion(id), false);
-      return {rootSettled:rootSettled && !(await inboxDelivery.pending(input.sessionId)).length && !await descendantReader.hasInterruptedDescendants(id)};
+      return {rootSettled:rootSettled && !(await inboxDelivery.pending(input.sessionId)).length &&
+        !(await workers.workPage(input.sessionId)).length && !await descendantReader.hasInterruptedDescendants(id)};
     });
     handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
     // The send path needs durable native facts, not frozen tool cards or Work projection.
