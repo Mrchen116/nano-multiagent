@@ -9,7 +9,7 @@ import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayIn
 import { chatAttachments, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText, chatDelivery } from './attention.js';
-import { NodeStore } from './store.js';
+import { hintedConversation, NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
 import { argumentsObject, logicalEvents } from './presentation.js';
 import { projectWorkEvent, workSuffix, workCheckpoint } from './work-projection.js';
@@ -862,7 +862,10 @@ export class GlobalAgent {
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
     const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
-    const quote = replyTo ? { reply_to_message_id: replyTo } : {};
+    let inThread=typeof call.args.in_thread_of==='string'?call.args.in_thread_of:undefined;
+    const hinted = hintedConversation(target, binding.conversationId);
+    if (!inThread && hinted && !hinted.startsWith('external:')) inThread = store.latestThreadRoot(binding.sessionId, hinted);
+    const quote = { ...(replyTo ? { reply_to_message_id: replyTo } : {}), ...(inThread ? { in_thread_of: inThread } : {}) };
     const paths = call.args.local_images as string[] | undefined;
     const publicationBody = paths || call.args.attachments ? sortedJsonAscii({text, interactive, local_images:paths, attachments:call.args.attachments ?? [], ...quote})
       : interactive || replyTo ? sortedJsonAscii({text, interactive, ...quote}) : text;
@@ -947,6 +950,7 @@ export class GlobalAgent {
     try {
       const response = await this.publishMessage({ node_id: this.options.nodeId, text, ...(attachments ? {attachments} : {}),
         ...(replyTo?{reply_to_message_id:replyTo}:{}),
+        ...(inThread?{in_thread_of:inThread}:{}),
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload,position);

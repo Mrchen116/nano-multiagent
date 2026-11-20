@@ -1,8 +1,9 @@
 import { AssistantPortrait } from "./assistant-portrait";
+import { ThreadColumn } from "./thread-column";
 import { CooperationGuide, type CooperationGuideAgent } from "./cooperation-guide";
 import { AgentActivityPopover, type AgentActivityAnchor } from "./agent-activity-popover";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, CheckCheck, Copy, GitFork, ListTodo, ListTree, Reply } from "lucide-react";
+import { Check, CheckCheck, Copy, GitFork, ListTodo, ListTree, MessagesSquare, Reply } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -113,6 +114,7 @@ export interface MessagePaneProps {
   lifecycleNotice?: React.ReactNode;
   headerActions?: React.ReactNode;
   focusMessageId?: string | null;
+  initialThreadId?: string | null;
   personalAgent?: boolean;
   returnNavigation?: React.ReactNode;
   /** Typed timeline keeps durable non-message entries out of MessageBubble. */
@@ -252,6 +254,7 @@ export function MessagePane({
   lifecycleNotice,
   headerActions,
   focusMessageId,
+  initialThreadId,
   cooperationAgent,
   personalAgent = false,
   returnNavigation,
@@ -323,6 +326,8 @@ export function MessagePane({
   const initialSnapshot = composerSnapshots.get(conversation.id);
   const [draft, setDraft] = useState(initialSnapshot?.draft ?? "");
   const [replyTo, setReplyTo] = useState<ReplyReference | undefined>(initialSnapshot?.replyTo);
+  const [openThreadId, setOpenThreadId] = useState<string | null>(initialThreadId ?? null);
+  useEffect(() => { if (initialThreadId) setOpenThreadId(initialThreadId); }, [initialThreadId]);
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>(
     () => (initialSnapshot ? [...initialSnapshot.draftMentions] : [])
   );
@@ -1323,6 +1328,7 @@ export function MessagePane({
                     : null;
                 }
                 const m = item.message;
+                if (m.thread_root_message_id) return null;
                 return (
                   <React.Fragment key={m.id}>
                     {timeDividers.has(m.id) && (
@@ -1349,6 +1355,7 @@ export function MessagePane({
                     showSender={isGroup || Boolean(conversation.is_observer)}
                     agentOnline={agentOnline}
                     onReply={composerBusy ? undefined : replyToMessage}
+                    onOpenThread={setOpenThreadId}
                     onFork={onFork}
                     forkPending={forkPending}
                     onCopyRequest={requestCopy}
@@ -1491,6 +1498,7 @@ export function MessagePane({
             workHref={workHrefFor(activeMessage)}
             onOpenWork={dismissActionSurface}
             onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
+            onOpenThread={() => { setOpenThreadId(activeMessage.id); dismissActionSurface(); }}
             copyAvailable={activeSurface.bodyElement !== null}
             isDirectChat={isDirectChat}
             agentOnline={agentOnline}
@@ -1544,6 +1552,7 @@ export function MessagePane({
                 workHref={workHrefFor(activeMessage)}
                 onOpenWork={dismissActionSurface}
                 onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
+                onOpenThread={() => { setOpenThreadId(activeMessage.id); dismissActionSurface(); }}
                 copyAvailable={activeSurface.bodyElement !== null}
                 isDirectChat={isDirectChat}
                 agentOnline={agentOnline}
@@ -1566,6 +1575,7 @@ export function MessagePane({
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+      {openThreadId && <ThreadColumn conversationId={conversation.id} selfUserId={selfUserId} root={messages.find(item => item.id === openThreadId) ?? ({id: openThreadId, conversation_id: conversation.id, content: '', sender: {id: '', type: 'user', display_name: ''}, sender_user_id: '', sender_type: 'user', delivery_status: 'completed', created_at: '', attachments: [], tool_calls: [], token_usage: null} as unknown as Message)} onClose={() => setOpenThreadId(null)} onSent={message => onRecoveredRef.current?.(message)} />}
     </section>
   );
 }
@@ -1625,6 +1635,7 @@ function MessageActionList({
   onCopy,
   onFork,
   onReply,
+  onOpenThread,
 }: {
   message: Message;
   copyAvailable?: boolean;
@@ -1635,6 +1646,7 @@ function MessageActionList({
   workHref?: string;
   onOpenWork?: () => void;
   onReply?: () => void;
+  onOpenThread?: () => void;
   onCopy: () => void;
   onFork: () => void;
 }) {
@@ -1671,6 +1683,10 @@ function MessageActionList({
       {onReply && <button type="button" role={itemRole} className="chat-message-action" data-testid={`message-reply-${message.id}`}
         onClick={onReply} aria-label={t('chat.messagePane.reply','回复')} title={t('chat.messagePane.reply','回复')}>
         {surface === 'toolbar' ? <Reply size={16} strokeWidth={1.8} aria-hidden="true" /> : t('chat.messagePane.reply','回复')}
+      </button>}
+      {onOpenThread && !message.thread_root_message_id && <button type="button" role={itemRole} className="chat-message-action" data-testid={`message-thread-${message.id}`}
+        onClick={onOpenThread} aria-label={t('chat.messagePane.thread')} title={t('chat.messagePane.thread')}>
+        {surface === 'toolbar' ? <MessagesSquare size={16} strokeWidth={1.8} aria-hidden="true" /> : t('chat.messagePane.thread')}
       </button>}
       {copyAvailable && (
         <button
@@ -1923,6 +1939,7 @@ function MessageBubble({
   agentOnline = false,
   onFork,
   onReply,
+  onOpenThread,
   forkPending = false,
   onCopyRequest,
   onMenuRequest,
@@ -1950,6 +1967,7 @@ function MessageBubble({
   agentOnline?: boolean;
   onFork?(messageId: string): void;
   onReply?(message:Message):void;
+  onOpenThread?(messageId:string):void;
   forkPending?: boolean;
   onCopyRequest(payload: {
     conversationId: string;
@@ -2223,6 +2241,10 @@ function MessageBubble({
               <dt>{field.label}</dt><dd>{field.display_value ?? (typeof field.value === 'string' ? field.value : JSON.stringify(field.value))}</dd>
             </React.Fragment>)}</dl>
           </details>}
+          {message.thread && <button type="button" className="chat-message-quote" data-testid={`thread-entry-${message.id}`} onClick={() => onOpenThread?.(message.id)}>
+            <strong>{t('chat.messagePane.threadReplies', {n: message.thread.reply_count})}</strong>
+            {message.thread.latest_preview && <span>{message.thread.latest_preview}</span>}
+          </button>}
           {!!fallbackAttachments?.length && (
             <div className="chat-bubble-attachments">
               {fallbackAttachments.map(({attachment, index}) => (
@@ -2284,6 +2306,7 @@ function MessageBubble({
                 surface="toolbar"
                 workHref={workHref}
                 onReply={replyAvailable ? ()=>onReply?.(message) : undefined}
+                onOpenThread={onOpenThread ? () => onOpenThread(message.id) : undefined}
                 onCopy={handleCopy}
                 onFork={handleFork}
               />

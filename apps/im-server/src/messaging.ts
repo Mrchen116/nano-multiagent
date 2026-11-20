@@ -29,6 +29,7 @@ import {
 } from "./context.js";
 import { conversationAccess, conversationReaderIds, qualifiedUser, readableConversationIds } from "./conversation-access.js";
 import { searchMessages } from './message-search.js';
+import { listUnread, threadAddressesAgent, threadRelayMetadata, threadRootOrFail } from './threads.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
 import { InteractionBackground } from './interaction-background.js';
@@ -481,7 +482,7 @@ export class Messaging {
       this.access(principal, previous.conversation_id, agentId);
       const saved = this.message(previous.message_id);
       const savedInteractive = this.interactions.publication(previous.message_id);
-      if (saved.reply_to?.message_id !== p.reply_to_message_id || saved.content !== p.text.trim() || sortedJsonAscii(saved.attachments.map(item => item.url)) !== sortedJsonAscii((p.attachments ?? []).map(item => item.url))
+      if (saved.reply_to?.message_id !== p.reply_to_message_id || saved.thread_root_message_id !== p.in_thread_of || saved.content !== p.text.trim() || sortedJsonAscii(saved.attachments.map(item => item.url)) !== sortedJsonAscii((p.attachments ?? []).map(item => item.url))
         || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
         || this.resolveTarget(agentId, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
       return {
@@ -497,6 +498,7 @@ export class Messaging {
     if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
     this.access(principal, id, agentId, "write");
     const attachments = this.publicationAttachments(id, p.attachments);
+    const threadRoot=threadRootOrFail(db,id,p.in_thread_of);
     const replyTo=this.replyReference(id,p.reply_to_message_id);
     const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
     const targetUser = one(
@@ -521,7 +523,7 @@ export class Messaging {
       attachments,
       key,
       'completed',
-      { interactive, reply_to:replyTo, publish: false },
+      { interactive, reply_to:replyTo, thread_root_id:threadRoot, publish: false },
     );
     if (p.background_returns)
       this.records.background(created.id,p.background_returns);
@@ -583,6 +585,7 @@ export class Messaging {
     for (const a of attachments) a.url = this.validateReferences(p, id, a.url!, agentId);
     const old=key?this.records.attempt(id,key):undefined;
     if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
+    const threadRoot=threadRootOrFail(this.db,id,b.thread_root_message_id ?? b.in_thread_of);
     const replyTo=this.replyReference(id,b.reply_to_message_id);
     // Must stay after the attempt hit: a retry returns the original message, so a carried
     // background can never reappear as a second injection or vanish from a retried send.
@@ -598,7 +601,7 @@ export class Messaging {
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, thread_root_id:threadRoot, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
@@ -687,7 +690,7 @@ export class Messaging {
     const c = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
     const relays: Pick<MessageRelayRecord,'relay_task_id'|'target_node_id'|'payload_json'|'conversation_id'>[] = [];
     for (const a of agents) {
-      if ((m.sender.type==='agent' && m.sender.id===a.agent_id) || !chatAllowed(this.db,a.agent_id,m.id)) continue;
+      if ((m.sender.type==='agent' && m.sender.id===a.agent_id) || !chatAllowed(this.db,a.agent_id,m.id) || !threadAddressesAgent(this.db,m.id,a.agent_id)) continue;
       const background = contexts.filter(context => context.agent_id === a.agent_id);
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
       const mentioned = [...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : []), ...(m.reply_to?.sender.type==='agent' ? [m.reply_to.sender.id] : [])])];
@@ -700,6 +703,8 @@ export class Messaging {
           conversation_type:c.type,mentioned_agent_ids:mentioned,participant_agent_ids:agents.map(a=>a.agent_id),
           ...(agentReceipt ? {agent_receipt:true} : {}),
           ...this.deliveryFacts(a.agent_id,m),
+          ...threadRelayMetadata(this.db, m.id),
+          ...(m.thread_root_message_id && c.type==='group' ? {addressed_to_agent:true} : {}),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(background.length ? {interaction_contexts:background} : {}),
           ...(a.agent_id===contextOnlyAgentId ? {context_only:true} : {}),
@@ -885,6 +890,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       const position = Math.max(0, content.toLowerCase().indexOf(needle));
       const start = Math.max(0, position - 40), end = Math.min(content.length, position + term.length + 80);
       return {message_id:message.id, conversation_id:message.conversation_id, conversation_name:chat.title,
+        ...(message.thread_root_message_id ? {thread_root_message_id:message.thread_root_message_id} : {}),
         sender_name:row.sender_source_id ? row.sender_display_name || row.sender_source_id : message.sender.display_name, created_at:message.created_at,
         snippet:`${start ? '…' : ''}${content.slice(start,end)}${end < content.length ? '…' : ''}`};
     });
@@ -1022,8 +1028,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     );
     if (!m) fail(400, "message not found");
     db.prepare(
-      "UPDATE conversation_participants SET last_read_message_id=?,unread_count=(SELECT COUNT(*) FROM messages WHERE conversation_id=? AND rowid>? AND sender_user_id!=?) WHERE conversation_id=? AND user_id=?",
-    ).run(body(req).last_read_message_id, id, m.rowid, p.id, id, p.id);
+      "UPDATE conversation_participants SET last_read_message_id=?,unread_count=? WHERE conversation_id=? AND user_id=?",
+    ).run(body(req).last_read_message_id, listUnread(db,id,p.id,m.rowid), id, p.id);
     if (db.prepare(`
       UPDATE message_receipts SET status=2 WHERE recipient_id=? AND status<2 AND message_id IN
         (SELECT id FROM messages WHERE conversation_id=? AND rowid<=?)
@@ -1069,6 +1075,24 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     s.access(principal,conversation_id,query(req).agent_id);
     return {message:s.records.senderView(s.records.conversationMessage(conversation_id,message_id),principal.id),execution_cleanup_revision:executionCleanupRevision(ctx,conversation_id)};
   });
+  app.get('/im/v1/conversations/:conversation_id/threads/:root_id', (req) => {
+    const p = s.principal(req), id = params(req).conversation_id, root = params(req).root_id;
+    s.access(p, id, query(req).agent_id);
+    threadRootOrFail(db, id, root);
+    const rows = all(db, 'SELECT id FROM messages WHERE conversation_id=? AND thread_root_id=? ORDER BY rowid', id, root);
+    const follow = one(db, 'SELECT following FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=?', id, root, p.kind==='gateway'?p.owner_id:p.id);
+    return {following: follow ? follow.following === 1 : false, items: rows.map(row => ({type:'message', message:s.records.senderView(s.message(row.id), p.kind==='gateway'?p.owner_id:p.id)}))};
+  });
+  app.post('/im/v1/conversations/:conversation_id/threads/:root_id/follow', (req) => {
+    const p = s.principal(req), id = params(req).conversation_id, root = params(req).root_id;
+    if (p.kind==='gateway') fail(403, 'Human viewer required');
+    s.access(p, id, undefined, 'write');
+    threadRootOrFail(db, id, root);
+    const follow = body(req).following !== false;
+    db.prepare(`INSERT INTO thread_follows(conversation_id,root_message_id,user_id,following,unread_count) VALUES(?,?,?,?,0)
+      ON CONFLICT(conversation_id,root_message_id,user_id) DO UPDATE SET following=excluded.following`).run(id, root, p.id, follow ? 1 : 0);
+    return {following: follow};
+  });
   app.get("/im/v1/conversations/:conversation_id/messages", (req) => {
     const p = s.principal(req),
       id = params(req).conversation_id,
@@ -1085,7 +1109,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       : undefined;
     const rows = all(
       db,
-      "SELECT id,rowid FROM messages WHERE conversation_id=? AND rowid<? ORDER BY rowid DESC LIMIT ?",
+      "SELECT id,rowid FROM messages WHERE conversation_id=? AND thread_root_id IS NULL AND rowid<? ORDER BY rowid DESC LIMIT ?",
       id,
       before ?? Number.MAX_SAFE_INTEGER,
       limit + 1,

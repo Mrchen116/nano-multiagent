@@ -319,6 +319,7 @@ export function ChatWorkspacePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const explicitLocator = new URLSearchParams(location.search).get("message_id");
+  const threadLocator = new URLSearchParams(location.search).get("thread");
   const [cleanupAnchor, setCleanupAnchor] = useState<{conversationId: string; messageId: string} | null>(null);
   const locatorMessageId = explicitLocator ?? (cleanupAnchor?.conversationId === conversationId ? cleanupAnchor?.messageId ?? null : null);
   const workReturnUrl = typeof location.state?.workReturnUrl === "string" ? location.state.workReturnUrl : null;
@@ -1390,7 +1391,7 @@ export function ChatWorkspacePage() {
           searchMessages={searchMessages}
           initialSearch={queryClient.getQueryData(["chat", "sidebar-search", selfUserId])}
           onSearchChange={state => queryClient.setQueryData(["chat", "sidebar-search", selfUserId], state)}
-          onSelectMessage={(id, messageId) => navigate(`/chat/${encodeURIComponent(id)}?message_id=${encodeURIComponent(messageId)}`)}
+          onSelectMessage={(id, messageId, threadRoot) => navigate(`/chat/${encodeURIComponent(id)}?message_id=${encodeURIComponent(messageId)}${threadRoot ? `&thread=${encodeURIComponent(threadRoot)}` : ""}`)}
           onNewChat={() => setShowNewChat(true)}
           onDiscover={() => setShowPublicGroups(true)}
           onNewGroup={() => setShowNewGroup(true)}
@@ -1442,6 +1443,7 @@ export function ChatWorkspacePage() {
             } : undefined}
             timeline={visibleTimeline}
             focusMessageId={locatorMessageId}
+            initialThreadId={threadLocator}
             personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
             cooperationAgent={messagesQuery.isSuccess && !messagesQuery.isFetching && hasMoreHistory === false && messagesQuery.data.items.length === 0 ? cooperationAgent : undefined}
             returnNavigation={location.state?.personalAgentReturn && personalBinding && !isPersonalConversation

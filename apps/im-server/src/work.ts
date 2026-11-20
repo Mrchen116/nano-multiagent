@@ -244,6 +244,7 @@ export class Work {
     if (p.sort !== undefined && !['relevance', 'recent'].includes(p.sort)) fail(400, 'invalid_arguments');
     if (p.sender_source_id && (!p.target || !target?.external_source || p.participant_id)) fail(400, 'invalid_arguments');
     if (p.around_message_id && (p.action !== 'read' || !p.target || p.message_id || p.query || p.keywords || p.before || p.after || p.participant_id || p.sender_source_id)) fail(400, 'invalid_arguments');
+    if (p.thread_root_message_id && (p.action !== 'read' || !p.target || p.message_id || p.around_message_id)) fail(400, 'invalid_arguments');
     if (p.action === "info") {
       if (!target) fail(404, "target_not_accessible");
       return {
@@ -274,7 +275,8 @@ export class Work {
       ...(memory ? {memory_cutoff:p.memory_cutoff,memory_after:p.memory_after} : {}),
     };
     const newIdentity: Row = { ...identity, keywords: keywords ?? null, sort: p.action === 'search' ? p.sort ?? 'relevance' : null,
-      sender_source_id: p.sender_source_id ?? null, around_message_id: p.around_message_id ?? null };
+      sender_source_id: p.sender_source_id ?? null, around_message_id: p.around_message_id ?? null,
+      thread_root_message_id: p.thread_root_message_id ?? null };
     let cursor: Row | undefined, snapshot: Row | undefined;
     if (p.cursor) {
       try {
@@ -345,6 +347,7 @@ export class Work {
     const terms = keywords ?? (typeof p.query === 'string' && p.query.trim() ? [p.query] : []);
     const matches = searchMessages(this.db, { targets, terms, action:p.action, sort:p.sort, around:p.around_message_id,
       messageId:p.message_id, before:p.before, after:p.after, participantId:p.participant_id, senderSourceId:p.sender_source_id,
+      threadRoot: typeof p.thread_root_message_id === 'string' ? p.thread_root_message_id : undefined,
       ...(memory ? {memoryRange:{after:new Date(p.memory_after).toISOString(),cutoff:new Date(p.memory_cutoff).toISOString()}} : {}) });
     const matchesById = new Map(matches.map(row => [row.id, row]));
     let currentIds: string[] = matches.map(row=>row.id);
@@ -425,6 +428,7 @@ export class Work {
           },
           ...(m.interactive ? {interactive:Object.fromEntries(Object.entries(m.interactive).filter(([key])=>key!=='format'&&key!=='catalog_version'))} : {}),
           ...(m.reply_to ? {reply_to:projectChatReplyContext(m.reply_to)} : {}),
+          ...(m.thread_root_message_id ? {thread_root_message_id:m.thread_root_message_id} : {}),
           ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
           part_key: String(part),
           total_parts: partCount,

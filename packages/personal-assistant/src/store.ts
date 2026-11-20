@@ -21,6 +21,14 @@ function decodeInput(row: InputRow) {
 }
 
 /** Node-owned durable handoff and delivery facts, independent of DSH storage. */
+/** Conversation id a send target already names, before the server resolves people. */
+export function hintedConversation(target: string, current: string): string | undefined {
+  if (target === 'current') return current;
+  if (target.startsWith('conversation:')) return target.slice('conversation:'.length);
+  if (target.startsWith('c_') || target.startsWith('external:')) return target;
+  return undefined;
+}
+
 export class NodeStore {
   /** Read durable ingestion progress, independent of model consumption. */
   taskContextCursor(agentId:string):number { return (this.db.prepare('SELECT seq FROM task_context_cursors WHERE agent_id=?').get(agentId) as {seq:number}|undefined)?.seq??0; }
@@ -546,6 +554,15 @@ export class NodeStore {
    *   sessionId: Durable session identity.
    *   turn: Limit to this logical turn, or omit for session-wide recovery.
    */
+  /** Latest topic root that woke this session inside one conversation. */
+  latestThreadRoot(sessionId: string, conversationId: string): string | undefined {
+    const row = this.db.prepare(`SELECT json_extract(payload,'$.metadata.thread_root_message_id') AS root FROM inputs
+      WHERE session_id=? AND json_extract(payload,'$.conversation_id')=?
+      AND typeof(json_extract(payload,'$.metadata.thread_root_message_id'))='text'
+      ORDER BY rowid DESC LIMIT 1`).get(sessionId, conversationId) as {root?: string} | undefined;
+    return row?.root || undefined;
+  }
+
   inputs(sessionId: string, turn?: number) {
     const query = 'SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=?';
     const rows = turn === undefined ? this.db.prepare(query + ' ORDER BY rowid').all(sessionId)

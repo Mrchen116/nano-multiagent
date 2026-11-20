@@ -213,6 +213,8 @@ export interface ReplyReference {message_id:string;sender:Actor;content:string;a
 
 export interface Message {
   reply_to?: ReplyReference;
+  thread_root_message_id?: string;
+  thread?: {reply_count: number; latest_preview?: string};
   interactive?: MessageInteractive;
   interaction_reply?: InteractionSnapshot;
   id: string;

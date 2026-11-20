@@ -25,6 +25,28 @@ interface Options {
 }
 
 /** Single-thread product routing; DSH remains the only model/turn scheduler. */
+function threadEnvelope(input: RelayInput, root: string, current: string): string {
+  const earlier = Array.isArray(input.metadata.thread_earlier) ? input.metadata.thread_earlier as {id?: string; sender?: string; excerpt?: string}[] : [];
+  const sender = input.metadata.sender_display_name ?? input.message.sender_user_id;
+  return [
+    `Thread on message ${JSON.stringify(root)} by ${input.metadata.thread_root_sender ?? 'unknown'} in this conversation. Reply with in_thread_of ${JSON.stringify(root)} if the answer belongs in the thread. Do not also post it on the main timeline.`,
+    `Root: ${input.metadata.thread_root_excerpt}`,
+    'Earlier in thread:',
+    ...earlier.map(item => `- ${item.id ?? ''} ${item.sender ?? ''}: ${item.excerpt ?? ''}`),
+    'Current message:',
+    `- ${input.message.id} ${sender}: ${current}`,
+  ].join('\n');
+}
+
+/** The topic this turn already joined, otherwise the topic that woke it. */
+function deliveryThread(events: RuntimeEvent[], turn: number, wakeRoot: string | undefined): string | undefined {
+  const explicit = events.filter(event => event.type === 'tool/call' && event.data.turn === turn && event.data.name === 'send_message')
+    .map(event => argumentsObject(event.data.arguments).in_thread_of)
+    .filter((root): root is string => typeof root === 'string' && root.length > 0)
+    .at(-1);
+  return explicit ?? wakeRoot;
+}
+
 export class SingleThread {
   private readonly modelRuns = new Map<string, ModelRunProjection[]>();
   private readonly controls: SessionControls;
@@ -297,7 +319,10 @@ export class SingleThread {
 
   private async messageContent(binding:SessionBinding, input:RelayInput, includeRoster:boolean) {
     const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
-    const text = input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText;
+    const threadRoot = typeof input.metadata.thread_root_message_id === 'string' ? input.metadata.thread_root_message_id : undefined;
+    const threadText = threadRoot && typeof input.metadata.thread_root_excerpt === 'string'
+      ? threadEnvelope(input, threadRoot, humanText) : undefined;
+    const text = threadText ?? (input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText);
     const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
     const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
     const content: Record<string, unknown>[] = [];
@@ -541,7 +566,10 @@ export class SingleThread {
       if (!delivery.messageId) {
         store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
         // IM's caller_idempotency_key makes a lost creation ACK recover the same bubble.
-        const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
+        const wakeRoot = typeof input.input.metadata.thread_root_message_id === 'string' ? input.input.metadata.thread_root_message_id : undefined;
+        const threadRoot = deliveryThread(events ?? [], turn, wakeRoot);
+      const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
+          ...(threadRoot ? {thread_root_message_id:threadRoot} : {}),
           agent_id: binding.agentId, idempotency_key: store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId,
           background_returns: Array.isArray(input.input.metadata.background_returns) ? input.input.metadata.background_returns : undefined,
           external_reply: externalReply ?? undefined });

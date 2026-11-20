@@ -22,6 +22,7 @@ struct ConversationView: View {
     @State private var focusRequest: ComposerFocusRequest?
     @State private var dismissedCompletion = false
     @State private var copied = false
+    @State private var threadRoot: ChatMessage?
     @State private var loadingHistory = false
     @ScaledMetric(relativeTo: .body) private var mentionRowHeight = 48.0
     @ScaledMetric(relativeTo: .body) private var commandRowHeight = 80.0
@@ -29,7 +30,7 @@ struct ConversationView: View {
     private var items: [TimelineItem] {
         // A visitor's cached window can be retained during authority verification.
         guard !store.checkingAccess.contains(conversationID) else { return [] }
-        let timeline = store.timelines[conversationID] ?? []
+        let timeline = (store.timelines[conversationID] ?? []).filter { $0.message?.thread_root_message_id == nil }
         guard timeline.contains(where: { $0.message == nil }) else { return timeline }
         let messageIDs = Set(timeline.compactMap { $0.message?.id })
         return timeline.filter { $0.message != nil || messageIDs.contains($0.before_message_id ?? "") }
@@ -95,6 +96,14 @@ struct ConversationView: View {
                                             .font(.caption2).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
                                     }
                                     ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, presentations: cardPresentations, scroll: scrollState, refreshed: { Task { await store.loadChat(conversationID) } })
+                                    if let thread = message.thread {
+                                        Button { threadRoot = message } label: {
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(L("\(thread.reply_count) 条话题", "\(thread.reply_count) replies")).font(.caption).foregroundStyle(NanoTheme.accent)
+                                                if let preview = thread.latest_preview { Text(preview).font(.caption2).foregroundStyle(NanoTheme.muted).lineLimit(1) }
+                                            }.frame(maxWidth: .infinity, alignment: .leading).padding(8).background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 8))
+                                        }.buttonStyle(.plain)
+                                    }
                                 }
                                     .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .row(item.id)))
                                     .id(item.id).contextMenu { messageActions(message) }
@@ -201,6 +210,9 @@ struct ConversationView: View {
         }
         .background(NanoTheme.canvas)
         .overlay(alignment: .top) { if copied { Label(L("已复制正文", "Message copied"), systemImage: "checkmark.circle.fill").font(.callout).padding(12).background(.regularMaterial, in: Capsule()).padding(.top, 8) } }
+        .sheet(item: $threadRoot) { root in
+            ThreadSheet(store: store, conversationID: conversationID, root: root)
+        }
         .task(id: copied) { if copied { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { copied = false } } }
         .chatContinuityTitle(conversation?.title ?? L("聊天", "Conversation"), store: store,
                              surface: .conversation(conversationID), loadEarlier: loadEarlier)
@@ -414,6 +426,9 @@ struct ConversationView: View {
         await store.addUpload(conversationID, data: data, name: name, type: type)
     }
     @ViewBuilder private func messageActions(_ message: ChatMessage) -> some View {
+        if message.sender.type != "system" && message.thread_root_message_id == nil {
+            Button(L("在话题中回复", "Reply in thread"), systemImage: "bubble.left.and.bubble.right") { threadRoot = message }
+        }
         Button(L("复制正文", "Copy message"), systemImage: "doc.on.doc") {
             UIPasteboard.general.string = MarkdownContent.copy(ChatText.display(message.content, participants: conversation?.participants ?? []))
             copied = true
@@ -496,6 +511,61 @@ struct ComposerTextView: UIViewRepresentable {
         func textViewDidEndEditing(_ textView: UITextView) { if !updating { parent.editing = false } }
         private func updateSelection(_ textView: UITextView) { parent.selection = textView.selectedRange; parent.composing = textView.markedTextRange != nil }
     }
+private struct ThreadSheet: View {
+    @Bindable var store: ChatStore
+    let conversationID: String
+    let root: ChatMessage
+    @Environment(\.dismiss) private var dismiss
+    @State private var items: [ChatMessage] = []
+    @State private var following = true
+    @State private var draft = ""
+    @State private var error: String?
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                if let error { ErrorNotice(message: error).padding(10) }
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 18) {
+                        ForEach(items) { message in
+                            ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, refreshed: {})
+                        }
+                    }.padding()
+                }
+                HStack {
+                    TextField(L("写在话题里", "Reply in thread"), text: $draft, axis: .vertical).textFieldStyle(.roundedBorder)
+                    Button(L("发送", "Send")) { Task { await send() } }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }.padding()
+            }
+            .background(NanoTheme.canvas)
+            .navigationTitle(root.content)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button(L("返回", "Back")) { dismiss() } }
+                ToolbarItem(placement: .primaryAction) { Button(following ? L("关注中", "Following") : L("关注", "Follow")) { Task { await toggle() } } }
+            }
+        }
+        .task { await load() }
+    }
+    private func load() async {
+        do {
+            let page = try await store.client.threadMessages(conversationID, root: root.id)
+            items = page.items.compactMap(\.message); following = page.following
+        } catch { self.error = error.localizedDescription }
+    }
+    private func send() async {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        do {
+            let created = try await store.client.sendThread(conversationID, root: root.id, text: text, userID: store.user.id)
+            items.append(created); draft = ""
+        } catch { self.error = error.localizedDescription }
+    }
+    private func toggle() async {
+        do { try await store.client.setThreadFollow(conversationID, root: root.id, following: !following); following.toggle() }
+        catch { self.error = error.localizedDescription }
+    }
+}
+
     final class PasteTextView: UITextView {
         var imagePasted: ((UIImage) -> Void)?
         override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {

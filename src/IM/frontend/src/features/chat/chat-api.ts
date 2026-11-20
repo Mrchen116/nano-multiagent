@@ -25,7 +25,7 @@ export async function listConversations(): Promise<Conversation[]> {
 }
 
 export interface MessageSearchResult {
-  messages: { message_id: string; conversation_id: string; conversation_name: string; sender_name: string; created_at: string; snippet: string }[];
+  messages: { message_id: string; conversation_id: string; conversation_name: string; sender_name: string; created_at: string; snippet: string; thread_root_message_id?: string }[];
   next_cursor?: string;
 }
 
@@ -77,6 +77,7 @@ import type { InteractionDraft, InteractionReplyInput } from "./interactive/type
 
 export interface CreateMessageRequest {
   replyToMessageId?: string;
+  threadRootMessageId?: string;
   interactionReply?: InteractionReplyInput;
   idempotencyKey?: string;
   conversationId: string;
@@ -108,6 +109,7 @@ export async function createMessage(req: CreateMessageRequest): Promise<Message>
     sender: { type: "user", id: self.id } as Actor,
     content: req.content,
     ...(req.replyToMessageId ? {reply_to_message_id:req.replyToMessageId} : {}),
+    ...(req.threadRootMessageId ? {thread_root_message_id:req.threadRootMessageId} : {}),
     attachments: req.attachments ?? [],
     timezone: browserTimezone(),
     ...(req.interactionReply ? { interaction_reply: req.interactionReply } : {})

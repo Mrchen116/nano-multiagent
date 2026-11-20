@@ -266,7 +266,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     if (c.direct_kind !== "user-agent") fail(400, "fork is only available in direct agent chats");
     const agent = c.participants.find((x: Row) => x.type === "agent"),
       a = one(db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0", agent.id)!;
-    const history = all(db, "SELECT * FROM messages WHERE conversation_id=? ORDER BY rowid", id),
+    const history = all(db, "SELECT * FROM messages WHERE conversation_id=? AND thread_root_id IS NULL ORDER BY rowid", id),
       index = history.findIndex((m) => m.id === body(req).fork_message_id),
       anchor = history[index];
     if (

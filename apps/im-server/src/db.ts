@@ -30,6 +30,9 @@ export function openDatabase(path: string): DatabaseSync {
     db.exec('ALTER TABLE messages ADD COLUMN lifecycle_revision INTEGER');
   if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'reply_to_json'))
     db.exec('ALTER TABLE messages ADD COLUMN reply_to_json TEXT');
+  if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'thread_root_id'))
+    db.exec('ALTER TABLE messages ADD COLUMN thread_root_id TEXT REFERENCES messages(id)');
+  db.exec('CREATE INDEX IF NOT EXISTS messages_thread_root ON messages(thread_root_id, created_at, id)');
   // CREATE TABLE does not upgrade deployed databases. Keep the old company rows
   // intact; new private inserts must choose their scope explicitly.
   db.exec("BEGIN IMMEDIATE");
