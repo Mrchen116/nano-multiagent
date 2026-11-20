@@ -84,8 +84,12 @@ final class CrewdenParityUITests: XCTestCase {
         XCTAssertTrue(toggle.waitForExistence(timeout: 5))
         for expected in ["0", "1"] {
             XCTAssertEqual(toggle.value as? String, expected)
-            toggle.tap()
-            app.buttons["保存排除范围"].tap()
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.91, dy: 0.5)).tap()
+            XCTAssertNotEqual(toggle.value as? String, expected)
+            let save = app.buttons["保存排除范围"]
+            XCTAssertTrue(save.waitForExistence(timeout: 5))
+            if !save.isHittable { app.swipeUp() }
+            save.tap()
             XCTAssertTrue(app.staticTexts["已保存"].waitForExistence(timeout: 12))
             capture("crewden-pa-exclusion-" + expected)
             app.navigationBars.buttons.element(boundBy: 0).tap()

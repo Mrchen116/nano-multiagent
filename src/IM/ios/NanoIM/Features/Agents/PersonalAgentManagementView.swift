@@ -50,6 +50,7 @@ struct PersonalAgentManagementView: View {
     @State private var error: String?
     @State private var notice: String?
     @State private var busy = false
+    @State private var readGeneration = UUID()
     @State private var current = false
     @State private var ready = false
     private let base = "/im/v1/personal-agent"
@@ -198,6 +199,7 @@ struct PersonalAgentManagementView: View {
 
     private func perform(_ operation: () async throws -> Void) async {
         guard current, !busy else { return }
+        readGeneration = UUID()
         busy = true; notice = nil
         var failure: String?
         do { try await operation() }
@@ -210,10 +212,12 @@ struct PersonalAgentManagementView: View {
 
     private func refresh() async {
         guard !busy else { return }
-        busy = true; defer { busy = false }
+        let generation = UUID()
+        readGeneration = generation
         do {
             let latest: PersonalSettings = try await client.get(base)
             try Task.checkCancellation()
+            guard readGeneration == generation else { return }
             guard let binding = latest.binding, binding.status == "active", binding.agent_id == agentID, let policy = latest.policy else {
                 clear(); ready = true; error = L("此个人助手已无法管理。", "This personal assistant is no longer available."); return
             }
@@ -223,6 +227,7 @@ struct PersonalAgentManagementView: View {
             async let blockedList: ItemsPage<PersonalBlockedContact> = client.get(base + "/blocked-contacts")
             let lists = try await (conversationList, incidentList, blockedList)
             try Task.checkCancellation()
+            guard readGeneration == generation else { return }
             if let previous = state?.policy, selection != Set(previous.excluded_conversation_ids) {
                 selection = policy.rebasing(selection, from: previous)
             } else { selection = Set(policy.excluded_conversation_ids) }
@@ -230,7 +235,7 @@ struct PersonalAgentManagementView: View {
             state = latest; chats = lists.0.items; incidents = lists.1.items; blocked = lists.2.items
             current = true; ready = true; error = nil
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, readGeneration == generation else { return }
             if let api = error as? APIError, [401, 403, 404].contains(api.status) { clear() }
             current = false; self.error = agentError(error)
         }
