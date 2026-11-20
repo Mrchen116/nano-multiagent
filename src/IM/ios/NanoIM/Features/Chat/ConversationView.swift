@@ -275,7 +275,7 @@ struct ConversationView: View {
                 guard !Task.isCancelled else { return }
                 workContacts = Dictionary(contacts.compactMap { contact -> (String, Contact)? in
                     guard let id = contact.agent_id, contact.work_mode == "global",
-                          contact.role != "personal" || contact.owner_id == store.user.id else { return nil }
+                          contact.role != "personal" || contact.owner_id == store.user.id || contact.owner_id == store.user.owner_id else { return nil }
                     return (id, contact)
                 }, uniquingKeysWith: { first, _ in first })
             } catch { if !Task.isCancelled { workContacts = [:] } }
