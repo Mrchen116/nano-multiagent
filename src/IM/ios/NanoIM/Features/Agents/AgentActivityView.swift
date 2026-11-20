@@ -43,7 +43,13 @@ struct AgentActivityView: View {
                                             AgentWorkView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat, sessionID: session.id)
                                                 .onAppear(perform: onExpand)
                                         } label: { sessionLabel(session) }
-                                    } else { sessionLabel(session) }
+                                    } else {
+                                        NavigationLink {
+                                            AgentDelegationView(client: client, agentID: agentID, canManage: canManage, onOpenChat: onOpenChat)
+                                                .navigationTitle(L("派工关系", "Delegations")).onAppear(perform: onExpand)
+                                        } label: { sessionLabel(session) }
+                                        .accessibilityHint(L("查看派工关系", "View delegations"))
+                                    }
                                 }
                                 if cursor != nil {
                                     Button(L("更多子执行", "More child executions")) { Task { await loadMore() } }.disabled(paging)
