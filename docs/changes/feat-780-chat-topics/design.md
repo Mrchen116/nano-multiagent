@@ -42,7 +42,7 @@
 
 - feat-730：Web 与服务端已有单层引用。本设计只增加话题地址，并允许话题里的新消息同时带这个引用。
 - feat-774：协作范围取代了旧的「仅被提及 / 回复所有群消息」。话题门控必须建在 `high | background | skip` 上。
-- feat-779：要求 iPhone 补齐引用回复和搜索，其 M2 打算在长按菜单里做引用。该设计尚未收口。本 unit 只在同一菜单增加「在话题中回复」，保留复制、分支，以及 779 落地后的引用。两边都改 `ConversationView` 时，菜单是并集，不互相删除。本 unit 不依赖 779 先合并。
+- feat-779：设计审查 Round 2 已通过。其 M2 用长按菜单做引用，不在每条气泡下常驻一排按钮。本 unit 用同一个菜单增加「在话题中回复」，保留复制、分支和 779 的引用。两边都改 `ConversationView` 时菜单取并集，不互相删除，也不做成两套入口。779 尚未写进当前 iOS 代码，本 unit 不依赖它先合并。
 
 ## 架构总览
 
@@ -79,7 +79,11 @@ flowchart LR
 
 **群里谁收到话题，由 `thread_follows` 决定。** 一行是聊天、话题根、用户。第一条话题回复出现时，根消息的发送者和回复者成为关注者。之后在话题里发送、被 @、或被引用，都会重新关注。人可以取消关注。取消后，直到再次发送、被 @ 或被引用，不再计未读。Agent 不提供取消关注，避免做完就听不见纠正。仅限本人的 Agent 不会因群话题被写入关注，也不会收到群话题中继。私聊不使用这张表做过滤：对方仍按一条普通私聊新消息收到未读和中继。
 
-**未关注的群话题不中继。** IM 在 `enqueueRelays` 之前丢掉这些 Agent。它们进不了 `group_background`，也进不了 Inbox 的十分钟批。被关注、被 @ 或被引用的 Agent 仍收到中继，并且 `addressed_to_agent` 为真，于是 `classifyChatDelivery` 得到 `high`。私聊话题保持现在的 direct/high。仅限本人在群里仍是 `skip`；创建者的私聊话题仍是 high。PA 的观察入箱使用同一刀：未关注的话题回复不写观察 Inbox，但聊天读取在有权限时仍能按话题根读到。
+**未关注的群话题不进入任何十分钟批。** 人发出的话题回复仍可能走到 `enqueueRelays`，Agent 发出的话题回复还会走到 `gateway.ts` 的 `groupReply`（`chat-streaming.ts` 在 `message_completed` 时，以及 `publishAgent`）。两条都先用同一谓词：仅当该 Agent 正在关注、被 @ 或被引用时才中继，并且这次中继的 `addressed_to_agent` 为真，因此是 `high`，不是 `background`。不满足谓词的不调用 `relayMessage`，进不了 `bufferGroup`，也进不了参与者 Inbox。
+
+PA 观察不经过 `enqueueRelays`。`schema.sql` 的 `personal_observation_event` 在 `conversation_events` 插入后写 `pa_source_events`。话题回复只有在该 PA 正在关注、被 @ 或被引用时才插入；其余话题回复不写观察事件。`recoverPersonalObservations` 摄入这些已插入的事件时标成 high，不得再落成 background。消息本身仍在 IM，有读权限时可以按话题根读取。
+
+私聊话题保持现在的 direct/high，不使用关注表过滤。仅限本人在群里仍由 `classifyChatDelivery` 因缺少 `ownerDirect` 而 `skip`，即使谓词误放行也不会进十分钟批；创建者的私聊话题仍是 high。
 
 **不按话题拆 session，也不按话题拆 Inbox target。** single_thread 继续用 `chatBinding` 的一个聊天 session。Global 与 PA 继续用主 session，Inbox target 仍是 `conversation_id`。叫醒时的模型和自动回帖地址改到话题上。同一聊天里的话题和主时间线会留在同一段记忆里；这是现有聊天绑定的结果，不是把话题内容刷回主时间线。
 
@@ -104,11 +108,17 @@ flowchart LR
 创建消息增加可选 `thread_root_message_id`。校验失败沿用现在的 422/404，不创建半条消息。成功后在同一事务里：
 
 1. 写入消息。群话题则更新关注：根发送者、当前发送者、正文里的 @、引用对象。仅限本人的 Agent 跳过。
-2. 未读：私聊仍给其他参与者加聊天未读，并参与现有已读水位。群主时间线消息仍按现在加给所有其他人。群话题回复只给 `following=1` 且不是发送者的人增加 `thread_follows.unread_count`，并加到聊天列表使用的总未读。
-3. 已读水位的 SQL 不再把群话题回复算进「打开主时间线就读完」。打开话题才清该根的 `unread_count` 并把 `last_read_message_id` 设为已看到的最后一条。私聊打开聊天仍按现在的水位清掉，包括话题回复。
-4. 中继只发给仍应收到的 Agent。群话题的元数据包含 `thread_root_message_id`、根消息的发送者与正文摘录、以及这条之前有限条话题回复。`addressed_to_agent` 对这次中继为真。
+2. 未读和列表：私聊仍给其他参与者加聊天未读，并参与现有已读水位。群主时间线消息仍按现在加给所有其他人，并更新 `conversations.last_message_preview`。群话题回复不改写这条全员预览。它只给 `following=1` 且不是发送者的人增加 `thread_follows.unread_count`。列表上的 `unread_count` 等于主时间线水位计数，加上该用户各话题的 `thread_follows.unread_count`。打开主时间线、丢弃消息或按水位重算时，都先算主时间线，再加回这些话题未读，避免一次重算把刚计入的话题未读清掉。水位之前的话题回复也不再被标成已读。打开话题才清该根的 `unread_count`，并把 `last_read_message_id` 设为已看到的最后一条。私聊打开聊天仍按现在的水位清掉，包括话题回复。
+3. 回执：`message_receipts` 的收件人与这一条的未读对象相同。群话题只包含当时 `following=1` 的其他人；主时间线和私聊仍按现在的收件范围。已读推进仍只标记这些人。
+4. 中继使用上一节的同一谓词，包括 `enqueueRelays` 和 `groupReply`。群话题的元数据包含 `thread_root_message_id`、根消息的发送者与正文摘录、以及这条之前有限条话题回复。`addressed_to_agent` 对这次中继为真。观察事件的插入条件与此相同，但不走中继表。
 
-实时 `message.created` 带 `thread_root_id`。主时间线客户端只更新根上的入口；正在看该话题时才追加气泡。
+实时 `message.created` 带 `thread_root_id`。主时间线客户端只更新根上的入口。正在看该话题且视口贴着底部时，新回复出现在末尾；人已经往上翻时，保持当前滚动位置，新回复只加在末尾，不把阅读位置拉走。Web 与 iPhone 同一规则。
+
+外部影子会话和带 `external_source` 的聊天拒绝非空 `thread_root_id` 与 `in_thread_of`，与根校验同一处返回，不只是藏起按钮。
+
+`db.ts` 先执行整份 `schema.sql`。`thread_root_id` 与 `(thread_root_id, created_at, id)` 索引必须在列已经存在之后创建；旧库不能在补列之前执行依赖该列的索引。这仍不是一次性历史搬迁。
+
+fork 在 `conversation-actions.ts` 复制 `SELECT * FROM messages WHERE conversation_id=?`。查询改为只复制 `thread_root_id IS NULL` 的行，新单聊不带话题回复。原聊天的话题不删。
 
 根消息的读取附带 `thread`：回复数、当前用户是否关注、最后一条回复的发送者和一行摘录。没有回复就不带 `thread`。
 
@@ -118,7 +128,7 @@ flowchart LR
 
 消费者是 single_thread 的该聊天 session、Global/PA 的主 session。生命周期只覆盖被中继的那一条：未关注的群话题没有 Inbox 行、没有 group buffer、没有模型输入。被叫醒时，这一轮在现有消息前增加一段来源明确的话题说明，而不是把话题回复伪装成主时间线新消息。
 
-叫醒前，群里未点名的消息是「Background message」或 Inbox 背景。叫醒后，话题轮次的可见内容是：
+叫醒前，群里未点名的消息是「Background message」或 Inbox 背景。叫醒后，这一轮用下面这一段替换该条消息的默认 `messageContent`，不在前面再贴一份相同正文。根和更早回复是这段里的额外上下文。
 
 ```text
 Thread on message "m-root" by 小李 in this conversation. Reply with in_thread_of "m-root" if the answer belongs in the thread. Do not also post it on the main timeline.
@@ -160,7 +170,7 @@ sequenceDiagram
 
 ### 客户端
 
-Web 桌面在现有消息面板右侧打开话题，时间线留在原处。窄屏浏览器和 iPhone 把话题推成一层，带返回。根消息在两行动作里分清「回复」和「在话题中回复」；iPhone 只有后者，外加入口上的回复数。话题顶栏有关注状态。话题内引用沿用现有引用卡片，发送结果仍留在这一层。没有回复时不显示入口。发送失败保留草稿。
+Web 桌面在现有消息面板右侧打开话题，时间线留在原处。窄屏浏览器和 iPhone 把话题推成一层，带返回。桌面沿用现有悬停/消息菜单，在「回复」旁增加「在话题中回复」，不在每条气泡下再常驻一排按钮。窄屏和 iPhone 使用现有长按菜单，与复制、分支以及 feat-779 的引用并集；iPhone 在 779 落地前菜单里还没有「回复」。话题顶栏在桌面、窄屏和 iPhone 都有关注状态，主时间线的每条消息上没有这个开关。话题内引用沿用现有引用卡片，发送结果仍留在这一层。没有回复时不显示入口。发送失败保留草稿。向上翻阅时新回复不拉动位置。
 
 具体画面和必须对齐的层级见 `prototype.html`。色板和字号适配现有聊天样式，信息层级和操作结果不能改。
 
@@ -188,9 +198,9 @@ Web 桌面在现有消息面板右侧打开话题，时间线留在原处。窄�
 |---|---|---|---|---|
 | 主时间线上两个动作，话题回复不插入时间线 | must-match | Web 消息菜单与时间线 | 桌面 1100 宽；已有一条话题入口 | M1 `[reviewer]` 两个动作和入口 |
 | 桌面话题列与主时间线同时可读 | must-match | Web 聊天页 | 1100 宽，打开话题、继续回复 | M1 `[reviewer]` 桌面阅读 |
-| 窄屏推入话题并可返回 | must-match | 窄屏 Web | 390 宽，打开、返回、失败草稿还在 | M1 `[reviewer]` 窄屏 |
-| iPhone 只有话题动作和推入层 | must-match | iOS 聊天 | 390 宽的手机结构，无「回复」按钮 | M1 `[reviewer]` iPhone |
-| 话题顶栏的关注 / 已取消 | must-match | 话题顶栏 | 两种状态 | M1 `[reviewer]` 关注 |
+| 窄屏从长按菜单推入话题并可返回，顶栏可关注 | must-match | 窄屏 Web | 390 宽，菜单、打开、返回、关注 | M1 `[reviewer]` 窄屏 |
+| iPhone 长按菜单进入话题，顶栏可关注，没有气泡下的「回复」 | must-match | iOS 聊天 | 390 宽，菜单与话题层 | M1 `[reviewer]` iPhone |
+| 话题顶栏的关注 / 已取消 | must-match | 桌面、窄屏和 iPhone 的话题顶栏 | 两种状态；主时间线消息上没有这个开关 | M1 `[reviewer]` 关注 |
 | 话题内单层引用仍留在话题 | must-match | 话题输入 | 引用一条话题消息后发送 | M1 `[reviewer]` 话题内引用 |
 | 色板、圆角、精确间距 | may-adapt | 现有消息气泡样式 | 不单独验收像素 | N/A |
 | 登录、搜索页、Agent 设置、飞书影子会话 | out-of-scope | 相应现有页面 | 不在原型中 | N/A |
@@ -246,4 +256,4 @@ Web 桌面在现有消息面板右侧打开话题，时间线留在原处。窄�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| M1 | 聊天内话题 | 无 | 无 | `apps/im-server/src/schema.sql`、`db.ts`、`messaging.ts`、`message-records.ts`、`message-search.ts`、`message-input.ts`、`gateway.ts`；`packages/product-contracts/src/chat.ts`；`packages/personal-assistant/src/single-thread.ts`、`global-agent.ts`、`attention.ts`；`packages/dsh-integration/src/message-arguments.ts` 及话题读取的 conversations 投影；`src/IM/frontend` 消息面板与话题层；`src/IM/ios` 话题层与菜单。不改 feat-730 的引用语义，不实现 feat-779 的手机「回复」。 | `[reviewer]` Web 与 iPhone 能把一条消息收成话题，主时间线不出现回复正文；Web 的「回复」仍留在主时间线；话题内引用不离开话题；群里只有关注者得到未读，私聊仍像新消息；取消关注后不再提醒，再回复或被 @ 会恢复；团队协作的 Agent 不被未关注话题及时叫醒，那些消息也不在约十分钟后冒出来；被 @、被引用或已经参与则会及时接上，确认和结果写在请求那条的话题里；一句回答仍在主时间线；仅限本人不会被群话题叫进来；搜索能打开话题里的原文；影子会话不能建话题；分支仍是另一段单聊。桌面并排、窄屏和 iPhone 推入符合原型 must-match 的层级，而不是只多一个按钮。 `[worker]` 覆盖根校验、游标排除、群/私聊未读、中继裁剪、`high` 与不入 buffer、`in_thread_of`、自动正文不双写、模型可见话题块的脚本断言；并留下 Web 1100 与 390、以及 iPhone 结构与原型的对照记录。 |
+| M1 | 聊天内话题 | 无 | 无 | `apps/im-server/src/schema.sql`、`db.ts`、`messaging.ts`、`message-records.ts`、`message-search.ts`、`message-input.ts`、`gateway.ts`、`conversation-actions.ts`；`packages/product-contracts/src/chat.ts`；`packages/personal-assistant/src/single-thread.ts`、`global-agent.ts`、`attention.ts`；`packages/dsh-integration/src/message-arguments.ts` 及话题读取的 conversations 投影；`src/IM/frontend` 消息菜单与话题层；`src/IM/ios` 长按菜单与话题层。不改 feat-730 的引用语义，不实现 feat-779 的手机「回复」。 | `[reviewer]` Web 与 iPhone 能把一条消息收成话题，主时间线不出现回复正文，列表预览也不改成话题正文；Web 的「回复」仍留在主时间线；窄屏和 iPhone 从长按菜单进入话题，顶栏能关注和取消；向上翻阅时新回复不拉动位置；话题内引用不离开话题；群里只有关注者得到未读和回执，打开主时间线不清掉还没看的群话题；私聊仍像新消息；取消关注后不再提醒，再回复或被 @ 会恢复；人发的、Agent 发的和 PA 观察到的未关注群话题都不在约十分钟后冒出来；被 @、被引用或已经参与则会及时接上，确认和结果写在请求那条的话题里；一句回答仍在主时间线；仅限本人不会被群话题叫进来；搜索能打开话题里的原文；影子会话不能建话题；分支仍是另一段单聊且不带走话题回复。桌面并排、窄屏和 iPhone 推入符合原型 must-match 的层级。 `[worker]` 覆盖根校验、外部会话拒绝、游标排除、列表未读重算、预览不改写、回执收件人、fork 不复制话题行、`enqueueRelays` 与 `groupReply` 的同一谓词、观察事件不写入未关注话题、`high` 与不入 buffer、`in_thread_of`、自动正文不双写、模型可见话题块只含一次当前消息；并留下 Web 1100 与 390、以及 iPhone 长按菜单、顶栏关注与原型的对照记录。 |

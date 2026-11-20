@@ -70,10 +70,11 @@
       </section>
     </section>
     <section class="phone hidden" id="phone">
-      <div class="top"><button id="phone-back" type="button">返回</button><h2 id="phone-title">评审群</h2><span class="tag" id="phone-tag">现有</span></div>
+      <div class="top"><button id="phone-back" type="button">返回</button><h2 id="phone-title">评审群</h2><button id="phone-follow" type="button" class="hidden">关注中</button></div>
       <div class="stream" id="phone-main">
-        <article class="msg"><strong>小李</strong>下周三要补哪三页？<div class="entry">2 条话题</div>
-          <div class="actions"><button id="phone-open">在话题中回复</button></div></article>
+        <article class="msg"><strong>小李</strong>下周三要补哪三页？<div class="entry">2 条话题</div></article>
+        <div class="msg" id="phone-menu"><strong>长按菜单</strong>复制 · 分支 · 在话题中回复
+          <div class="actions"><button id="phone-open" type="button">在话题中回复</button></div></div>
       </div>
       <div class="stream hidden" id="phone-thread">
         <article class="msg"><strong>小李</strong>先看第二页。</article>
@@ -104,7 +105,8 @@
       document.querySelector('#phone-main').classList.toggle('hidden', phoneInThread);
       document.querySelector('#phone-thread').classList.toggle('hidden', !phoneInThread);
       document.querySelector('#phone-title').textContent = phoneInThread ? '话题' : '评审群';
-      document.querySelector('#phone-tag').textContent = phoneInThread ? '本次新增' : '现有';
+      document.querySelector('#phone-follow').classList.toggle('hidden', !phoneInThread);
+      document.querySelector('#phone-follow').textContent = following ? '关注中' : '已取消关注';
       hint.textContent = desktopMode
         ? (threadOpen ? '桌面：时间线与话题同时可见。右侧发送不会出现在中间。' : '桌面：话题列已关，主时间线只留「2 条话题」。')
         : (phoneInThread ? '390 宽：话题占满这一层，返回才回到主时间线。' : '390 宽：只有「在话题中回复」，没有主时间线「回复」。');
@@ -133,6 +135,7 @@
     };
     document.querySelector('#phone-open').onclick = () => { phoneInThread = true; paint(); };
     document.querySelector('#phone-back').onclick = () => { phoneInThread = false; paint(); };
+    document.querySelector('#phone-follow').onclick = () => { following = !following; paint(); };
     document.querySelector('#phone-send').onclick = () => {
       const input = document.querySelector('#phone-input');
       if (!phoneInThread || !input.value.trim()) return;
