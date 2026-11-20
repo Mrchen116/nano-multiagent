@@ -40,9 +40,13 @@ final class ChatStateTests: XCTestCase {
         let list = Data(#"{"items":[{"id":"chat","title":"Chat","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}]}"#.utf8)
         let store = try await makeStore(list: list)
         await store.loadConversations()
-        func event(_ type: String, _ id: Int, sender: String = "peer", kind: String = "user", pa: String? = nil) throws -> UserEvent {
+        func event(_ type: String, _ id: Int, sender: String = "peer", kind: String = "user", pa: String? = nil, threadRecipients: [String]? = nil) throws -> UserEvent {
             var payload: [String: Any] = ["conversation_id": "chat", "message_id": "message", "sender_user_id": sender, "sender_type": kind]
             if let pa { payload["pa_agent_id"] = pa }
+            if let threadRecipients {
+                payload["thread_root_message_id"] = "root"
+                payload["thread_notify_user_ids"] = threadRecipients
+            }
             let data: [String: Any] = ["op": "event", "event_type": type, "event_id": id, "data": payload]
             return try JSONDecoder().decode(UserEvent.self, from: JSONSerialization.data(withJSONObject: data))
         }
@@ -71,6 +75,10 @@ final class ChatStateTests: XCTestCase {
         store.banner = nil
         await store.consume(try event("message.created", 9, sender: "user", pa: "own-pa"))
         XCTAssertNil(store.banner)
+        await store.consume(try event("message.sent", 10, threadRecipients: ["other"]))
+        XCTAssertNil(store.banner)
+        await store.consume(try event("message.sent", 11, threadRecipients: ["user"]))
+        XCTAssertEqual(store.banner?.conversationID, "chat")
         store.resetProjection()
     }
 

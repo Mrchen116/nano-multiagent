@@ -3,21 +3,6 @@ import PhotosUI
 import UniformTypeIdentifiers
 
 
-private struct TopicEntryButton: View {
-    let count: Int
-    let preview: String?
-    let trailing: Bool
-    let open: () -> Void
-    var body: some View {
-        Button(action: open) {
-            HStack(spacing: 6) {
-                Text(L("\(count) 条回复", "\(count) replies")).font(.caption.weight(.semibold)).foregroundStyle(NanoTheme.accent)
-                if let preview { Text(preview).font(.caption2).foregroundStyle(NanoTheme.muted).lineLimit(1) }
-            }.frame(maxWidth: .infinity, alignment: trailing ? .trailing : .leading)
-        }.buttonStyle(.plain)
-    }
-}
-
 struct ConversationView: View {
     @Bindable var store: ChatStore
     let conversationID: String
@@ -106,31 +91,7 @@ struct ConversationView: View {
                         }
                         ForEach(items) { item in
                             if let message = item.message {
-                                VStack(spacing: 12) {
-                                    if timestampIDs.contains(message.id), let date = nanoDate(message.created_at) {
-                                        Text(date, format: Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.year().month().day().hour().minute())
-                                            .font(.caption2).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
-                                    }
-                                    ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, presentations: cardPresentations, scroll: scrollState, refreshed: { Task { await store.loadChat(conversationID) } })
-                                    if let thread = message.thread {
-                                        TopicEntryButton(count: thread.reply_count, preview: thread.latest_preview, trailing: message.sender.id == store.user.id) { threadRoot = message }
-                                    }
-                                }
-                                    .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .row(item.id)))
-                                    .id(item.id).contextMenu { messageActions(message) }
-                                    .accessibilityElement(children: .contain)
-                                    .accessibilityActions { messageActions(message) }
-                                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in
-                                        scrollState.rowChanged(item.id, frame: frame)
-                                    }
-                                    .onDisappear { scrollState.rowDisappeared(item.id) }
-                                    .onGeometryChange(for: Bool.self) { geometry in
-                                        let frame = geometry.frame(in: .global)
-                                        let viewport = scrollState.viewport
-                                        return frame.intersection(viewport).height >= min(44, frame.height) && !viewport.isEmpty
-                                    } action: { _, visible in
-                                        if visible { Task { await store.markRead(conversationID, messageID: message.id) } }
-                                    }
+                                timelineRow(message, showTimestamp: timestampIDs.contains(message.id))
                             } else {
                                 Label(L("Agent 配置已更新", "Agent configuration updated"), systemImage: "slider.horizontal.3").font(.caption).foregroundStyle(.secondary).id(item.id)
                             }
@@ -221,8 +182,10 @@ struct ConversationView: View {
         }
         .background(NanoTheme.canvas)
         .overlay(alignment: .top) { if copied { Label(L("已复制正文", "Message copied"), systemImage: "checkmark.circle.fill").font(.callout).padding(12).background(.regularMaterial, in: Capsule()).padding(.top, 8) } }
-        .sheet(item: $threadRoot) { root in
-            ThreadSheet(store: store, conversationID: conversationID, root: root)
+        .navigationDestination(isPresented: Binding(get: { threadRoot != nil }, set: { if !$0 { threadRoot = nil } })) {
+            if let root = threadRoot, let conversation, !store.checkingAccess.contains(conversationID), !store.revokedChats.contains(conversationID) {
+                ThreadView(store: store, conversation: conversation, root: root)
+            }
         }
         .task(id: copied) { if copied { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { copied = false } } }
         .chatContinuityTitle(conversation?.title ?? L("聊天", "Conversation"), store: store,
@@ -256,7 +219,7 @@ struct ConversationView: View {
             store.composeRequest = nil
         }
         .onDisappear {
-            if store.selectedID == conversationID { store.selectedID = nil }
+            if threadRoot == nil && store.selectedID == conversationID { store.selectedID = nil }
             cardPresentations.clear()
             // Leaving is a draft flush point: the next screen may be a different account.
             Task { await store.flushDrafts() }
@@ -436,8 +399,36 @@ struct ConversationView: View {
         operationError = nil
         await store.addUpload(conversationID, data: data, name: name, type: type)
     }
+    private func timelineRow(_ message: ChatMessage, showTimestamp: Bool) -> some View {
+        VStack(spacing: 12) {
+            if showTimestamp, let date = nanoDate(message.created_at) {
+                Text(date, format: Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.year().month().day().hour().minute())
+                    .font(.caption2).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
+            }
+            ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, presentations: cardPresentations, scroll: scrollState, refreshed: { Task { await store.loadChat(conversationID) } })
+            if let thread = message.thread {
+                TopicEntryButton(summary: thread, trailing: message.sender.id == store.user.id) { threadRoot = message }
+            }
+        }
+            .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .row(message.id)))
+            .id(message.id).contextMenu { messageActions(message) }
+            .accessibilityElement(children: .contain)
+            .accessibilityActions { messageActions(message) }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in
+                scrollState.rowChanged(message.id, frame: frame)
+            }
+            .onDisappear { scrollState.rowDisappeared(message.id) }
+            .onGeometryChange(for: Bool.self) { geometry in
+                let frame = geometry.frame(in: .global)
+                let viewport = scrollState.viewport
+                return frame.intersection(viewport).height >= min(44, frame.height) && !viewport.isEmpty
+            } action: { _, visible in
+                if visible { Task { await store.markRead(conversationID, messageID: message.id) } }
+            }
+    }
+
     @ViewBuilder private func messageActions(_ message: ChatMessage) -> some View {
-        if message.sender.type != "system" && message.thread_root_message_id == nil {
+        if let conversation, conversation.can_write != false, conversation.external_source == nil, message.canStartThread {
             Button(L("在话题中回复", "Reply in thread"), systemImage: "bubble.left.and.bubble.right") { threadRoot = message }
         }
         Button(L("复制正文", "Copy message"), systemImage: "doc.on.doc") {
@@ -475,78 +466,6 @@ struct ComposerFocusRequest {
     let id = UUID()
     let selection: NSRange
 }
-
-private struct ThreadSheet: View {
-    @Bindable var store: ChatStore
-    let conversationID: String
-    let root: ChatMessage
-    @Environment(\.dismiss) private var dismiss
-    @State private var items: [ChatMessage] = []
-    @State private var following = true
-    @State private var draft = ""
-    @State private var replyTo: ChatMessage?
-    @State private var error: String?
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
-                if let error { ErrorNotice(message: error).padding(10) }
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 18) {
-                            ChatMessageView(client: store.client, chat: store, message: root, selfID: store.user.id, refreshed: {})
-                                .contextMenu { Button(L("回复", "Reply")) { replyTo = root } }
-                            HStack { Divider(); Text(L("\(items.count) 条回复", "\(items.count) replies")).font(.caption).foregroundStyle(NanoTheme.muted); Divider() }
-                            ForEach(items) { message in
-                                ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, refreshed: {})
-                                    .contextMenu { Button(L("回复", "Reply")) { replyTo = message } }
-                            }
-                            Color.clear.frame(height: 1).id("thread-end")
-                        }.padding()
-                    }
-                    .onChange(of: items.count) { _, _ in proxy.scrollTo("thread-end", anchor: .bottom) }
-                }
-                if let replyTo {
-                    HStack {
-                        Text(L("回复 \(replyTo.sender.display_name ?? replyTo.sender.id)", "Reply to \(replyTo.sender.display_name ?? replyTo.sender.id)")).font(.caption).lineLimit(1)
-                        Spacer()
-                        Button(L("取消", "Cancel")) { self.replyTo = nil }
-                    }.padding(.horizontal).padding(.top, 8)
-                }
-                HStack {
-                    TextField(L("写在话题里", "Reply in thread"), text: $draft, axis: .vertical).textFieldStyle(.roundedBorder)
-                    Button(L("发送", "Send")) { Task { await send() } }.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }.padding()
-            }
-            .background(NanoTheme.canvas)
-            .navigationTitle(root.content)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button(L("返回", "Back")) { dismiss() } }
-                ToolbarItem(placement: .primaryAction) { Button(following ? L("关注中", "Following") : L("关注", "Follow")) { Task { await toggle() } } }
-            }
-        }
-        .task { await load() }
-    }
-    private func load() async {
-        do {
-            let page = try await store.client.threadMessages(conversationID, root: root.id)
-            items = page.items.compactMap(\.message); following = page.following
-        } catch { self.error = error.localizedDescription }
-    }
-    private func send() async {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
-        do {
-            let created = try await store.client.sendThread(conversationID, root: root.id, text: text, userID: store.user.id, replyTo: replyTo?.id)
-            items.append(created); draft = ""; replyTo = nil
-        } catch { self.error = error.localizedDescription }
-    }
-    private func toggle() async {
-        do { try await store.client.setThreadFollow(conversationID, root: root.id, following: !following); following.toggle() }
-        catch { self.error = error.localizedDescription }
-    }
-}
-
 
 struct ComposerTextView: UIViewRepresentable {
     @Binding var text: String

@@ -124,6 +124,9 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var thread_root_message_id: String?
     var thread: ThreadSummary?
     var reply_to: ChatReplyRef?
+    var canStartThread: Bool {
+        thread_root_message_id == nil && ["agent", "user"].contains(sender_type) && ["completed", "sent", "pending"].contains(delivery_status)
+    }
 }
 struct ThreadParticipant: Codable, Sendable { var id: String; var display_name: String }
 struct ThreadSummary: Codable, Sendable { var reply_count: Int; var latest_preview: String?; var latest_at: String?; var participants: [ThreadParticipant]? }
