@@ -1,171 +1,202 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Reply } from "lucide-react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowLeft, ArrowUp, Reply } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { authFetchJson } from "../../auth/auth-fetch";
 import { createMessage } from "../chat-api";
-import type { Message, ReplyReference } from "../chat-types";
+import type { Conversation, Message, MentionCandidate, ReplyReference } from "../chat-types";
+import { AttachmentChip } from "../attachments/attachment-chip";
+import { MentionPicker } from "./mention-picker";
+import { MENTION_RE, reconstructWireContent, type DraftMention } from "./mention-parser";
 
-/** Topic column using the same chat pane, bubble and composer as the main timeline. */
-export function ThreadColumn({
-  conversationId,
-  root,
-  selfUserId,
-  incoming,
-  onClose,
-  onSent,
-}: {
-  conversationId: string;
+interface ThreadPage {
   root: Message;
+  following: boolean;
+  items: {message: Message}[];
+}
+
+interface ThreadColumnProps {
+  conversation: Conversation;
+  rootId: string;
+  targetId?: string | null;
   selfUserId?: string | null;
-  incoming?: Message[];
-  onClose(): void;
+  mentionCandidates: MentionCandidate[];
+  isMobile: boolean;
+  onRead?(id: string): void;
   onSent(message: Message): void;
-}) {
+  onClose(): void;
+  renderBody(message: Message): ReactNode;
+  renderQuote(reference: ReplyReference): ReactNode;
+}
+
+/** A reader and composer scoped to one root, including its own scroll and draft state. */
+export function ThreadColumn({ conversation, rootId, targetId, selfUserId, mentionCandidates, isMobile,
+  onRead, onSent, onClose, renderBody, renderQuote }: ThreadColumnProps) {
   const { t } = useTranslation();
-  const [items, setItems] = useState<Message[]>([]);
-  const [following, setFollowing] = useState(true);
+  const queryClient = useQueryClient();
+  const key = ["chat", "thread", conversation.id, rootId, selfUserId];
+  const path = `/im/v1/conversations/${encodeURIComponent(conversation.id)}/threads/${encodeURIComponent(rootId)}`;
+  const {data, isError, refetch} = useQuery({
+    queryKey: key, queryFn: ({signal}) => authFetchJson<ThreadPage>(path, {signal}, "readThread"), gcTime: 0
+  });
   const [draft, setDraft] = useState("");
-  const [replyTo, setReplyTo] = useState<ReplyReference | undefined>();
-  const [error, setError] = useState<string | null>(null);
+  const [mentions, setMentions] = useState<DraftMention[]>([]);
+  const [replyTo, setReplyTo] = useState<Message>();
+  const [sending, setSending] = useState(false);
+  const [updatingFollow, setUpdatingFollow] = useState(false);
+  const [error, setError] = useState("");
+  const [highlight, setHighlight] = useState<string>();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
-  useEffect(() => {
-    let live = true;
-    void authFetchJson<{following: boolean; items: {message: Message}[]}>(
-      `/im/v1/conversations/${encodeURIComponent(conversationId)}/threads/${encodeURIComponent(root.id)}`,
-      undefined,
-      "readThread",
-    ).then(page => {
-      if (!live) return;
-      setFollowing(page.following);
-      setItems(page.items.map(item => item.message));
-    }).catch(() => { if (live) setError(t("chat.messagePane.sendError")); });
-    return () => { live = false; };
-  }, [conversationId, root.id, t]);
-  useEffect(() => {
-    const extra = (incoming ?? []).filter(message => message.thread_root_message_id === root.id);
-    if (!extra.length) return;
-    setItems(current => {
-      const known = new Set(current.map(message => message.id));
-      const added = extra.filter(message => !known.has(message.id));
-      return added.length ? [...current, ...added] : current;
-    });
-  }, [incoming, root.id]);
-  useLayoutEffect(() => {
-    const node = scrollerRef.current;
-    if (node && stickRef.current) node.scrollTop = node.scrollHeight;
-  }, [items]);
+  const locatedRef = useRef<string | null>(null);
+  const readRef = useRef<string | undefined>(undefined);
+  const attempt = useRef<{payload: string; key: string} | undefined>(undefined);
+  const lastId = data?.items.at(-1)?.message.id;
+  const canWrite = conversation.can_write !== false;
+  const mentionMatch = conversation.type === "group" ? MENTION_RE.exec(draft) : null;
+
+  function markVisibleTail() {
+    if (stickRef.current && document.visibilityState !== "hidden" && lastId && readRef.current !== lastId) {
+      readRef.current = lastId;
+      onRead?.(lastId);
+    }
+  }
+  function locate(id: string) {
+    const element = document.getElementById(`thread-message-${id}`);
+    if (!element) return false;
+    setHighlight(id);
+    element.scrollIntoView?.({block: "center"});
+    element.focus({preventScroll: true});
+    trackScroll();
+    return true;
+  }
   function trackScroll() {
     const node = scrollerRef.current;
     if (!node) return;
     stickRef.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48;
+    markVisibleTail();
   }
+  useLayoutEffect(() => {
+    if (!data) return;
+    if (targetId && targetId !== locatedRef.current && locate(targetId)) {
+      locatedRef.current = targetId;
+      return;
+    }
+    const node = scrollerRef.current;
+    if (node && stickRef.current) {
+      node.scrollTop = node.scrollHeight;
+      markVisibleTail();
+    }
+  }, [data, targetId]);
+  useLayoutEffect(() => {
+    document.addEventListener("visibilitychange", markVisibleTail);
+    return () => document.removeEventListener("visibilitychange", markVisibleTail);
+  }, [lastId, onRead]);
+
   async function send() {
-    const text = draft.trim();
-    if (!text) return;
-    setError(null);
+    const text = reconstructWireContent(draft.trim(), mentions);
+    if (!text || sending) return;
+    setSending(true);
+    setError("");
+    const payload = JSON.stringify([text, replyTo?.id]);
+    if (attempt.current?.payload !== payload) attempt.current = {payload, key: crypto.randomUUID()};
     try {
-      const created = await createMessage({
-        conversationId,
-        content: text,
-        threadRootMessageId: root.id,
-        ...(replyTo ? {replyToMessageId: replyTo.message_id} : {}),
-      });
+      const created = await createMessage({conversationId: conversation.id, content: text,
+        threadRootMessageId: rootId, replyToMessageId: replyTo?.id, idempotencyKey: attempt.current.key});
       stickRef.current = true;
-      setItems(current => current.some(message => message.id === created.id) ? current : [...current, created]);
+      queryClient.setQueryData<ThreadPage>(key, page => page && ({...page, following: true,
+        items: page.items.some(item => item.message.id === created.id) ? page.items : [...page.items, {message: created}]}));
       setDraft("");
+      setMentions([]);
       setReplyTo(undefined);
+      attempt.current = undefined;
       onSent(created);
     } catch {
       setError(t("chat.messagePane.sendError"));
+    } finally {
+      setSending(false);
     }
   }
   async function toggleFollow() {
-    const next = !following;
-    await authFetchJson(`/im/v1/conversations/${encodeURIComponent(conversationId)}/threads/${encodeURIComponent(root.id)}/follow`,
-      {method: "POST", body: JSON.stringify({following: next})}, "followThread");
-    setFollowing(next);
+    if (!data || updatingFollow) return;
+    setUpdatingFollow(true);
+    setError("");
+    try {
+      const following = !data.following;
+      await authFetchJson(path + "/follow", {method: "POST", body: JSON.stringify({following})}, "followThread");
+      queryClient.setQueryData<ThreadPage>(key, page => page && {...page, following});
+      void queryClient.invalidateQueries({queryKey: ["chat", "conversations"]});
+    } catch {
+      setError(t("chat.messagePane.threadFollowError"));
+    } finally {
+      setUpdatingFollow(false);
+    }
   }
-  function quote(message: Message) {
-    setReplyTo({message_id: message.id, sender: message.sender, content: message.content, attachments: message.attachments ?? []});
-  }
-  return (
-    <aside className="chat-thread-column" aria-label={t("chat.messagePane.threadTitle")}>
-      <header className="chat-pane-header">
-        <button type="button" className="chat-pane-back" onClick={onClose} aria-label={t("common.back", "返回")}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m12 5-7 7 7 7M5 12h14" /></svg>
-        </button>
-        <div className="chat-pane-header-body">
-          <h2 className="chat-pane-title">{t("chat.messagePane.threadTitle")}</h2>
-          <div className="chat-pane-header-meta">{t("chat.messagePane.threadCount", {n: items.length})}</div>
-        </div>
-        <button type="button" className="chat-pane-config" aria-pressed={following} onClick={() => void toggleFollow()}>
-          {following ? t("chat.messagePane.following") : t("chat.messagePane.follow")}
-        </button>
-      </header>
-      <div ref={scrollerRef} className="chat-pane-messages" onScroll={trackScroll}>
-        <div className="chat-pane-message-list">
-          <ThreadBubble message={root} selfUserId={selfUserId} onReply={() => quote(root)} />
-          <div className="chat-thread-replies" role="separator">{t("chat.messagePane.threadCount", {n: items.length})}</div>
-          {items.map(message => (
-            <ThreadBubble key={message.id} message={message} selfUserId={selfUserId} onReply={() => quote(message)} />
-          ))}
-          {error && <p role="alert" className="tasks-notice">{error}</p>}
-        </div>
-      </div>
-      <form className="chat-pane-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
-        <div className="chat-pane-composer-dropzone">
-        {replyTo && <div className="chat-composer-reply" data-testid="thread-composer-reply">
-          <div>
-            <strong>{t("chat.messagePane.reply")} {replyTo.sender.display_name ?? replyTo.sender.id}</strong>
-            <span>{replyTo.content}</span>
-          </div>
-          <button type="button" aria-label={t("common.close", "取消")} onClick={() => setReplyTo(undefined)}>×</button>
-        </div>}
-          <div className="chat-composer-input">
-            <div className="chat-pane-composer-row">
-              <div className="chat-composer-highlight-wrapper">
-                <textarea className="chat-pane-composer-input" rows={2} value={draft} placeholder={t("chat.messagePane.threadPlaceholder")}
-                  aria-label={t("chat.messagePane.threadTitle")}
-                  onChange={event => setDraft(event.target.value)}
-                  onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} />
-              </div>
-              <button type="submit" className="chat-pane-composer-send" disabled={!draft.trim()} aria-label={t("chat.messagePane.send", "发送")}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 19V5m-6 6 6-6 6 6" />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-      </form>
-    </aside>
-  );
-}
-
-function ThreadBubble({message, selfUserId, onReply}: {message: Message; selfUserId?: string | null; onReply(): void}) {
-  const {t} = useTranslation();
-  const mine = message.sender.id === selfUserId || message.sender_user_id === selfUserId;
-  return (
-    <div id={`thread-message-${message.id}`} className={mine ? "chat-bubble chat-bubble--user" : "chat-bubble chat-bubble--agent"}
-      onContextMenu={event => { event.preventDefault(); onReply(); }}>
+  function bubble(message: Message) {
+    const mine = message.sender.id === selfUserId || message.sender_user_id === selfUserId;
+    return <div key={message.id} id={`thread-message-${message.id}`} tabIndex={-1}
+      className={`chat-bubble chat-bubble--${mine ? "user" : "agent"}${highlight === message.id ? " im-work-message-target" : ""}`}>
       <div className="chat-bubble-column">
         {!mine && <div className="chat-bubble-meta"><span className="chat-bubble-sender">{message.sender.display_name ?? message.sender.id}</span></div>}
         <div className="chat-bubble-card">
-          {message.reply_to && <button type="button" className="chat-message-quote" onClick={() => document.getElementById(`thread-message-${message.reply_to!.message_id}`)?.scrollIntoView({block: "center", behavior: "smooth"})}>
+          {message.reply_to && <button type="button" className="chat-message-quote" onClick={() => locate(message.reply_to!.message_id)}>
             <strong>{message.reply_to.sender.display_name ?? message.reply_to.sender.id}</strong>
-            <span>{message.reply_to.content}</span>
+            <span>{renderQuote(message.reply_to)}</span>
           </button>}
-          <div className={`chat-message-body${mine ? " chat-bubble-content" : ""}`}>{message.content}</div>
-          <div className="chat-message-toolbar" role="toolbar">
-            <div className="chat-message-actions chat-message-actions--horizontal">
-              <button type="button" className="chat-message-action" aria-label={t("chat.messagePane.reply")} title={t("chat.messagePane.reply")} onClick={onReply}>
-                <Reply size={16} strokeWidth={1.8} aria-hidden="true" />
-              </button>
-            </div>
-          </div>
+          {renderBody(message)}
+          {message.attachments?.map((attachment, index) => <AttachmentChip key={index} attachment={attachment} />)}
+          {canWrite && ["completed", "sent", "pending"].includes(message.delivery_status) && <div className="chat-message-toolbar" role="toolbar">
+            <button type="button" className="chat-message-action" aria-label={t("chat.messagePane.reply")}
+              onClick={() => { setReplyTo(message); inputRef.current?.focus(); }}><Reply size={16} /></button>
+          </div>}
         </div>
       </div>
+    </div>;
+  }
+  return <aside className="chat-thread-column" aria-label={t("chat.messagePane.threadTitle")}>
+    <header className="chat-pane-header">
+      <button type="button" className="chat-pane-back" onClick={onClose} aria-label={t("common.back", "Back")}><ArrowLeft size={20}/></button>
+      <h2 className="chat-pane-title chat-pane-header-body">{t("chat.messagePane.threadTitle")}</h2>
+      {conversation.type === "group" && canWrite && data && <button type="button" className="chat-pane-config"
+        disabled={updatingFollow} aria-pressed={data.following} onClick={() => void toggleFollow()}>
+        {t(data.following ? "chat.messagePane.following" : "chat.messagePane.follow")}
+      </button>}
+    </header>
+    <div ref={scrollerRef} className="chat-pane-messages" onScroll={trackScroll}>
+      <div className="chat-pane-message-list">
+        {data && <>{bubble(data.root)}
+          <div className="chat-thread-replies" role="separator">{t("chat.messagePane.threadCount", {n: data.items.length})}</div>
+          {data.items.map(item => bubble(item.message))}
+        </>}
+        {!data && !isError && <p role="status">{t("common.loading")}</p>}
+        {isError && <button className="tasks-button" onClick={() => void refetch()}>{t("chat.messagePane.threadRetry")}</button>}
+      </div>
     </div>
-  );
+    {error && <p role="alert" className="tasks-notice">{error}</p>}
+    {canWrite && data && <form className="chat-pane-composer" onSubmit={event => { event.preventDefault(); void send(); }}>
+      {replyTo && <div className="chat-composer-reply"><div><strong>{t("chat.messagePane.reply")} {replyTo.sender.display_name ?? replyTo.sender.id}</strong>
+        <span>{renderQuote({message_id: replyTo.id, sender: replyTo.sender, content: replyTo.content, attachments: replyTo.attachments})}</span></div>
+        <button type="button" aria-label={t("common.close")} onClick={() => setReplyTo(undefined)}>×</button></div>}
+      <div className="chat-pane-composer-dropzone"><div className="chat-composer-input"><div className="chat-pane-composer-row">
+        {mentionMatch && <MentionPicker candidates={mentionCandidates} query={mentionMatch[1]} onClose={() => setDraft(draft.replace(MENTION_RE, ""))}
+          onSelect={candidate => {
+            const label = "@" + candidate.display_name;
+            setDraft(draft.slice(0, mentionMatch.index) + label + " ");
+            setMentions([...mentions, {label, type: "user", target_id: candidate.user_id}]);
+            inputRef.current?.focus();
+          }}/>}
+        <div className="chat-composer-highlight-wrapper"><textarea ref={inputRef} className="chat-pane-composer-input" rows={2}
+          value={draft} disabled={sending} placeholder={t("chat.messagePane.threadPlaceholder")} aria-label={t("chat.messagePane.threadTitle")}
+          onChange={event => setDraft(event.target.value)} onKeyDown={event => {
+            if (event.key === "Enter" && !isMobile && !mentionMatch && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              void send();
+            }
+          }}/></div>
+        <button type="submit" className="chat-pane-composer-send" disabled={sending || !draft.trim()} aria-label={t("chat.messagePane.send", "Send")}>
+          <ArrowUp size={18}/></button>
+      </div></div></div>
+    </form>}
+  </aside>;
 }

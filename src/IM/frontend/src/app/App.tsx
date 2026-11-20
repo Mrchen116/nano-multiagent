@@ -35,6 +35,7 @@ export function App() {
           senderName={toast.isGroup ? toast.senderName : undefined}
           preview={toast.preview}
           conversationId={toast.conversationId}
+          threadRootId={toast.threadRootId}
           onDismiss={dismiss}
         />
       )}

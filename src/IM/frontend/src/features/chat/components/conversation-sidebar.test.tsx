@@ -50,7 +50,7 @@ describe("ConversationSidebar", () => {
   it('shows message matches alongside conversations, pages and opens the original', async () => {
     const user = userEvent.setup(), select = vi.fn();
     const searchMessages = vi.fn(async (_q:string, _kind:string, cursor?:string) => cursor
-      ? {messages:[{message_id:'m2',conversation_id:'c2',conversation_name:'Sprint Planning',sender_name:'Bob',created_at:'2026-01-01T00:00:00Z',snippet:'plan older'}]}
+      ? {messages:[{message_id:'m2',thread_root_message_id:'root',conversation_id:'c2',conversation_name:'Sprint Planning',sender_name:'Bob',created_at:'2026-01-01T00:00:00Z',snippet:'plan older'}]}
       : {messages:[{message_id:'m1',conversation_id:'c2',conversation_name:'Sprint Planning',sender_name:'Alice',created_at:'2025-02-01T00:00:00Z',snippet:'plan approved'}],next_cursor:'next'});
     render(<ConversationSidebar conversations={CONVS} activeConversationId={null} onSelect={() => {}} onNewGroup={() => {}} searchMessages={searchMessages} onSelectMessage={select} />);
     await user.type(screen.getByRole('searchbox'), 'plan');
@@ -61,6 +61,8 @@ describe("ConversationSidebar", () => {
     expect(await screen.findByRole('button', {name:/Bob: plan older/})).toBeVisible();
     await user.click(screen.getByRole('button', {name:/Alice: plan approved/}));
     expect(select).toHaveBeenCalledWith('c2','m1');
+    await user.click(screen.getByRole('button', {name:/Bob: plan older/}));
+    expect(select).toHaveBeenCalledWith('c2','m2','root');
     await user.click(screen.getByRole('tab', {name:'Group'}));
     await waitFor(() => expect(searchMessages).toHaveBeenLastCalledWith('plan', 'group', undefined, expect.any(AbortSignal)));
   });

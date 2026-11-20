@@ -138,6 +138,21 @@ describe("useGlobalMessageToast", () => {
     await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalledTimes(1));
   });
 
+  it("keeps the timeline preview and only notifies the thread recipients", async () => {
+    const client = new QueryClient({defaultOptions: {queries: {retry: false}}});
+    const room = {id: "group", type: "group", title: "Planning", participants: [], last_message_preview: "timeline"};
+    client.setQueryData(["chat", "conversations"], [room]);
+    const {result} = renderHook(() => useGlobalMessageToast(), {wrapper: buildWrapper(client, "/")});
+    await waitFor(() => expect(subscribeUserStreamMock).toHaveBeenCalled());
+    const payload = {message_id: "reply", sender_type: "user", sender_user_id: "peer",
+      content: "thread reply", thread_root_message_id: "root"};
+    emit(room.id, {eventType: "message.created", eventId: 1, payload: {...payload, thread_notify_user_ids: []}});
+    expect(result.current.toast).toBeNull();
+    emit(room.id, {eventType: "message.created", eventId: 2, payload: {...payload, thread_notify_user_ids: ["self-user"]}});
+    expect(result.current.toast).toMatchObject({preview: "thread reply", threadRootId: "root"});
+    expect(client.getQueryData(["chat", "conversations"])).toEqual([room]);
+  });
+
   it("同一会话上重复 eventId 不重复提示", async () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const { result } = renderHook(() => useGlobalMessageToast(), { wrapper: buildWrapper(queryClient, "/") });

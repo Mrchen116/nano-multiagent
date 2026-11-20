@@ -321,7 +321,7 @@ export function ChatWorkspacePage() {
   const explicitLocator = new URLSearchParams(location.search).get("message_id");
   const threadLocator = new URLSearchParams(location.search).get("thread");
   const [cleanupAnchor, setCleanupAnchor] = useState<{conversationId: string; messageId: string} | null>(null);
-  const locatorMessageId = explicitLocator ?? (cleanupAnchor?.conversationId === conversationId ? cleanupAnchor?.messageId ?? null : null);
+  const locatorMessageId = threadLocator ? null : explicitLocator ?? (cleanupAnchor?.conversationId === conversationId ? cleanupAnchor?.messageId ?? null : null);
   const workReturnUrl = typeof location.state?.workReturnUrl === "string" ? location.state.workReturnUrl : null;
   const [locatorNotice, setLocatorNotice] = useState("");
   const locatedRef = useRef("");
@@ -814,6 +814,7 @@ export function ChatWorkspacePage() {
   sendersByIdRef.current = sendersById;
 
   function retireConversationReads(id: string) {
+    queryClient.removeQueries({queryKey: ["chat", "thread", id]});
     readingPositions.delete(id);
     retireChatReadCache(queryClient, id);
     if (historyRequestRef.current?.conversationId === id) {
@@ -914,6 +915,7 @@ export function ChatWorkspacePage() {
         // The selected chat is reauthorized independently before stream replay.
         void refreshSidebarMembership(priorAnchor).catch(() => {});
         await recheckActiveMembership();
+        void queryClient.invalidateQueries({ queryKey: ["chat", "thread", conversationIdRef.current] });
         await queryClient.invalidateQueries({ queryKey: ["contacts"] });
         await queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
       },
@@ -943,6 +945,11 @@ export function ChatWorkspacePage() {
         if (event.eventType === 'node.update_changed') void queryClient.invalidateQueries({queryKey:['chat','nodes']});
         if ((['node.update_wait_changed', 'relay.delivery_receipt', 'message.receipts_changed'].includes(event.eventType)) && event.payload.conversation_id === conversationIdRef.current) {
           void queryClient.invalidateQueries({queryKey:['chat','messages',conversationIdRef.current]});
+        }
+        const threadRoot = event.payload.thread_root_message_id;
+        if (typeof threadRoot === "string" && event.payload.conversation_id === conversationIdRef.current &&
+            ["message.created", "message.sent", "message.completed", "message.reconciled", "message.discarded"].includes(event.eventType)) {
+          void queryClient.invalidateQueries({queryKey: ["chat", "thread", conversationIdRef.current, threadRoot]});
         }
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
         if (chatEvent && chatEvent.conversation_id === conversationIdRef.current) {
@@ -1041,6 +1048,9 @@ export function ChatWorkspacePage() {
 
   function acceptCreatedMessage(created: Message) {
     clearSendError(created.conversation_id);
+    if (created.thread_root_message_id) {
+      void queryClient.invalidateQueries({ queryKey: ["chat", "messages", created.conversation_id] });
+    }
     // HTTP success and attempt recovery share the message-id merge so either may
     // arrive before or after the WS echo and an in-flight history response.
     if (messagesQueryFetchingRef.current) {
@@ -1444,6 +1454,8 @@ export function ChatWorkspacePage() {
             timeline={visibleTimeline}
             focusMessageId={locatorMessageId}
             initialThreadId={threadLocator}
+            threadMessageId={explicitLocator}
+            onCloseLocatedThread={() => navigate(location.pathname, {replace: true, state: location.state})}
             personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
             cooperationAgent={messagesQuery.isSuccess && !messagesQuery.isFetching && hasMoreHistory === false && messagesQuery.data.items.length === 0 ? cooperationAgent : undefined}
             returnNavigation={location.state?.personalAgentReturn && personalBinding && !isPersonalConversation

@@ -51,7 +51,7 @@ import {
   type TimelineItem
 } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName, initialsOf } from "./avatar";
-import { parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
+import { MENTION_RE, reconstructWireContent, type DraftMention, parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { DirectConversationMenu } from "./direct-conversation-menu";
 import { NodeChip } from "./node-chip";
@@ -88,12 +88,6 @@ import type { InteractionReplyInput } from "../interactive/types";
 import { lookupMessageAttempt } from "../chat-api";
 import { listSendAttempts, prepareSendAttempt, removeSendAttempt, type SendAttempt } from "./send-attempt-store";
 
-type DraftMention = {
-  label: string;       // e.g. "@架构" — visible text inserted into textarea
-  type: "agent" | "user";
-  target_id: string;
-};
-
 export type { ComposerSnapshot };
 
 export interface ReadingPosition {
@@ -115,6 +109,8 @@ export interface MessagePaneProps {
   headerActions?: React.ReactNode;
   focusMessageId?: string | null;
   initialThreadId?: string | null;
+  threadMessageId?: string | null;
+  onCloseLocatedThread?(): void;
   personalAgent?: boolean;
   returnNavigation?: React.ReactNode;
   /** Typed timeline keeps durable non-message entries out of MessageBubble. */
@@ -186,7 +182,6 @@ export interface MessagePaneProps {
   composerStore?: Map<string, ComposerSnapshot>;
 }
 
-const MENTION_RE = /@([^@\s]*)$/;
 const NEAR_BOTTOM_PX = 80;
 
 /**
@@ -210,24 +205,6 @@ function buildMirrorNodes(text: string): React.ReactNode[] {
   // Mirror needs a trailing zero-width space so the last line has correct height.
   nodes.push("​");
   return nodes;
-}
-
-/**
- * Reconstruct wire content from visible draft + picker-tracked mention metadata.
- *
- * 遍历每个 tracked mention,在 draft 中按 label 找第一处匹配替换为对应的 inline XML 标签。
- * 同一 label 多次出现(用户连续选同一 agent): 每次循环替换第一处, 下一轮自然替换下一处。
- * 用户已删除某 label: indexOf 返回 -1, 该项跳过——不会污染最终 wire 文本。
- */
-function reconstructWireContent(draftText: string, mentions: DraftMention[]): string {
-  let wire = draftText;
-  for (const m of mentions) {
-    const pos = wire.indexOf(m.label);
-    if (pos === -1) continue;
-    const xml = `<mention type="${m.type}" target_id="${m.target_id}"/>`;
-    wire = wire.slice(0, pos) + xml + wire.slice(pos + m.label.length);
-  }
-  return wire;
 }
 
 /**
@@ -255,6 +232,8 @@ export function MessagePane({
   headerActions,
   focusMessageId,
   initialThreadId,
+  threadMessageId,
+  onCloseLocatedThread,
   cooperationAgent,
   personalAgent = false,
   returnNavigation,
@@ -303,8 +282,11 @@ export function MessagePane({
   const { t, i18n } = useTranslation();
   const zh = i18n.language.startsWith("zh");
   const hasFocusedMessage = Boolean(focusMessageId);
-  const messages = messagesProp ?? timeline?.flatMap((item) => item.type === "message" ? [item.message] : []) ?? [];
-  const renderedTimeline = timeline ?? messages.map((message) => ({ type: "message" as const, message }));
+  const renderedTimeline = useMemo(() => (timeline ?? (messagesProp ?? []).map(message => ({ type: "message" as const, message })))
+    .filter(item => item.type !== "message" || !item.message.thread_root_message_id), [timeline, messagesProp]);
+  const messages = useMemo(() => renderedTimeline.flatMap(item => item.type === "message" ? [item.message] : []), [renderedTimeline]);
+  const canStartThread = (message: Message) => !conversation.external_source && conversation.can_write !== false && canReply(message) &&
+    (message.sender.type !== "agent" || message.delivery_status === "completed");
   const timeDividers = timelineTimeDividers(renderedTimeline, i18n.language);
   const anchoredMessageIds = new Set(messages.map((message) => message.id));
   const [sendAttempts, setSendAttempts] = useState<Record<string, SendAttempt>>({});
@@ -327,7 +309,7 @@ export function MessagePane({
   const [draft, setDraft] = useState(initialSnapshot?.draft ?? "");
   const [replyTo, setReplyTo] = useState<ReplyReference | undefined>(initialSnapshot?.replyTo);
   const [openThreadId, setOpenThreadId] = useState<string | null>(initialThreadId ?? null);
-  useEffect(() => { if (initialThreadId) setOpenThreadId(initialThreadId); }, [initialThreadId]);
+  useEffect(() => { setOpenThreadId(initialThreadId ?? null); }, [initialThreadId]);
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>(
     () => (initialSnapshot ? [...initialSnapshot.draftMentions] : [])
   );
@@ -1329,7 +1311,6 @@ export function MessagePane({
                     : null;
                 }
                 const m = item.message;
-                if (m.thread_root_message_id) return null;
                 return (
                   <React.Fragment key={m.id}>
                     {timeDividers.has(m.id) && (
@@ -1356,7 +1337,7 @@ export function MessagePane({
                     showSender={isGroup || Boolean(conversation.is_observer)}
                     agentOnline={agentOnline}
                     onReply={composerBusy ? undefined : replyToMessage}
-                    onOpenThread={setOpenThreadId}
+                    onOpenThread={canStartThread(m) || Boolean(m.thread) ? setOpenThreadId : undefined}
                     onFork={onFork}
                     forkPending={forkPending}
                     onCopyRequest={requestCopy}
@@ -1499,7 +1480,7 @@ export function MessagePane({
             workHref={workHrefFor(activeMessage)}
             onOpenWork={dismissActionSurface}
             onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
-            onOpenThread={() => { setOpenThreadId(activeMessage.id); dismissActionSurface(); }}
+            onOpenThread={canStartThread(activeMessage) ? () => { setOpenThreadId(activeMessage.id); dismissActionSurface(); } : undefined}
             copyAvailable={activeSurface.bodyElement !== null}
             isDirectChat={isDirectChat}
             agentOnline={agentOnline}
@@ -1553,7 +1534,7 @@ export function MessagePane({
                 workHref={workHrefFor(activeMessage)}
                 onOpenWork={dismissActionSurface}
                 onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
-                onOpenThread={() => { setOpenThreadId(activeMessage.id); dismissActionSurface(); }}
+                onOpenThread={canStartThread(activeMessage) ? () => { setOpenThreadId(activeMessage.id); dismissActionSurface(); } : undefined}
                 copyAvailable={activeSurface.bodyElement !== null}
                 isDirectChat={isDirectChat}
                 agentOnline={agentOnline}
@@ -1577,7 +1558,19 @@ export function MessagePane({
         </Dialog.Portal>
       </Dialog.Root>
       </div>
-      {openThreadId && <ThreadColumn conversationId={conversation.id} selfUserId={selfUserId} incoming={messages} root={messages.find(item => item.id === openThreadId) ?? ({id: openThreadId, conversation_id: conversation.id, content: '', sender: {id: '', type: 'user', display_name: ''}, sender_user_id: '', sender_type: 'user', delivery_status: 'completed', created_at: '', attachments: [], tool_calls: [], token_usage: null} as unknown as Message)} onClose={() => setOpenThreadId(null)} onSent={message => onRecoveredRef.current?.(message)} />}
+      {openThreadId && !conversation.external_source && (
+        <ThreadColumn key={openThreadId} conversation={conversation} rootId={openThreadId}
+          targetId={openThreadId === initialThreadId ? threadMessageId : null} selfUserId={selfUserId}
+          mentionCandidates={mentionCandidates} isMobile={isMobile} onRead={onReadMessage}
+          renderQuote={quote => replyPreview(quote, conversation.participants, zh)}
+          renderBody={message => <><div className="chat-message-body">{message.sender.type === "user"
+            ? renderInlineContent(message.content, conversation.participants)
+            : <MarkdownContent content={message.content} participants={conversation.participants}/>}</div>
+            {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly isGroup={isGroup}
+              onSend={() => Promise.resolve()} /></React.Suspense>}</>}
+          onClose={() => { setOpenThreadId(null); if (initialThreadId) onCloseLocatedThread?.(); }}
+          onSent={message => onRecoveredRef.current?.(message)} />
+      )}
     </section>
   );
 }
@@ -2304,7 +2297,7 @@ function MessageBubble({
                 surface="toolbar"
                 workHref={workHref}
                 onReply={replyAvailable ? ()=>onReply?.(message) : undefined}
-                onOpenThread={onOpenThread ? () => onOpenThread(message.id) : undefined}
+                onOpenThread={!readOnly && onOpenThread ? () => onOpenThread(message.id) : undefined}
                 onCopy={handleCopy}
                 onFork={handleFork}
               />

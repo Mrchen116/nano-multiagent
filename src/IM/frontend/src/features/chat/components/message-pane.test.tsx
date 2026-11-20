@@ -128,10 +128,9 @@ describe("MessagePane", () => {
     const rightClick = createEvent.contextMenu(bubble, {button: 2, buttons: 2});
     Object.defineProperty(rightClick, "pointerType", {value: "mouse"});
     fireEvent(bubble, rightClick);
-    const menu = screen.getByRole("menu");
     const action = screen.getByRole("menuitem", {name: /^(Execution record|执行记录)$/i});
     expect(action).toHaveAttribute("href", "/settings/agents/a-planner?view=work&message_id=m2");
-    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(screen.queryByTestId("message-thread-m2")).toBeNull();
     expect(action).toHaveFocus();
   });
 

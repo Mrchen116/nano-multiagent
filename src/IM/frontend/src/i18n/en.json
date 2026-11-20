@@ -1174,6 +1174,8 @@
       "threadCount": "{{n}} replies",
       "following": "Following",
       "follow": "Follow",
+      "threadFollowError": "Could not update thread notifications.",
+      "threadRetry": "Could not load thread. Retry",
       "threadPlaceholder": "Reply in thread",
       "viewOriginal": "View original message",
       "viewReplyWork": "Execution record",

@@ -69,3 +69,29 @@ export function mentionPlainText(content: string, names: ReadonlyMap<string, str
     ? segment.text
     : `@${mentionDisplayName(segment.target_id, names)}`).join("");
 }
+
+export type DraftMention = {
+  label: string;       // e.g. "@架构" — visible text inserted into textarea
+  type: "agent" | "user";
+  target_id: string;
+};
+
+export const MENTION_RE = /@([^@\s]*)$/;
+
+/**
+ * Reconstruct wire content from visible draft + picker-tracked mention metadata.
+ *
+ * 遍历每个 tracked mention,在 draft 中按 label 找第一处匹配替换为对应的 inline XML 标签。
+ * 同一 label 多次出现(用户连续选同一 agent): 每次循环替换第一处, 下一轮自然替换下一处。
+ * 用户已删除某 label: indexOf 返回 -1, 该项跳过——不会污染最终 wire 文本。
+ */
+export function reconstructWireContent(draftText: string, mentions: DraftMention[]): string {
+  let wire = draftText;
+  for (const m of mentions) {
+    const pos = wire.indexOf(m.label);
+    if (pos === -1) continue;
+    const xml = `<mention type="${m.type}" target_id="${m.target_id}"/>`;
+    wire = wire.slice(0, pos) + xml + wire.slice(pos + m.label.length);
+  }
+  return wire;
+}
