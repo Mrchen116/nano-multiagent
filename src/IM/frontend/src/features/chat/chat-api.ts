@@ -43,6 +43,7 @@ export interface ListMessagesOptions {
 }
 
 export interface ListMessagesResult {
+  direct_read_through_message_id?: string;
   execution_cleanup_revision?: number;
   items: TimelineItem[];
   next_before_message_id: string | null;

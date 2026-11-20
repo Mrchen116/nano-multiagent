@@ -36,10 +36,10 @@ import {
 } from "./message-content-policy";
 import { AttachmentLink } from "../attachments/attachment-link";
 import { protectedResourceUrl } from "./message-image";
-import { ComposerAttachmentCard } from "../attachments/composer-attachment-card";
+import { ComposerAttachmentCard, useUploadRetryClock } from "../attachments/composer-attachment-card";
 import { AttachmentChip } from "../attachments/attachment-chip";
 import { AttachmentDropzone } from "../attachments/attachment-dropzone";
-import { AttachmentUploadError, uploadOneAttachment } from "../attachments/use-attachment-upload";
+import { AttachmentUploadError, pastedImages, uploadOneAttachment } from "../attachments/use-attachment-upload";
 import {
   classifyConversationKind,
   type Actor,
@@ -108,8 +108,10 @@ export interface MessagePaneProps {
   lifecycleNotice?: React.ReactNode;
   headerActions?: React.ReactNode;
   focusMessageId?: string | null;
+  directReadThroughId?: string;
   initialThreadId?: string | null;
   threadMessageId?: string | null;
+  onOpenThread?(id: string): void;
   onCloseLocatedThread?(): void;
   personalAgent?: boolean;
   returnNavigation?: React.ReactNode;
@@ -232,7 +234,9 @@ export function MessagePane({
   headerActions,
   focusMessageId,
   initialThreadId,
+  directReadThroughId,
   threadMessageId,
+  onOpenThread,
   onCloseLocatedThread,
   cooperationAgent,
   personalAgent = false,
@@ -310,6 +314,10 @@ export function MessagePane({
   const [replyTo, setReplyTo] = useState<ReplyReference | undefined>(initialSnapshot?.replyTo);
   const [openThreadId, setOpenThreadId] = useState<string | null>(initialThreadId ?? null);
   useEffect(() => { setOpenThreadId(initialThreadId ?? null); }, [initialThreadId]);
+  function openThread(id: string) {
+    setOpenThreadId(id);
+    onOpenThread?.(id);
+  }
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>(
     () => (initialSnapshot ? [...initialSnapshot.draftMentions] : [])
   );
@@ -319,15 +327,7 @@ export function MessagePane({
   const [uploads, setUploads] = useState(initialSnapshot?.uploads ?? []);
   const failed = uploads.filter(item => item.status === "failed");
   const uploading = uploads.filter(item => item.status === "queued" || item.status === "uploading").length;
-  const [retryClock, setRetryClock] = useState(Date.now());
-  useEffect(() => {
-    const now = Date.now();
-    // A new failure or a restored draft must not compare against an old clock.
-    setRetryClock(now);
-    if (!failed.some(item => (item.retryAt ?? 0) > now)) return;
-    const timer = window.setInterval(() => setRetryClock(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, [uploads]);
+  const retryClock = useUploadRetryClock(uploads);
   const [composerSending, setComposerSending] = useState(() => isComposerSending(conversation.id));
   // feat-430: Esc / click-outside hides the slash picker but keeps the `/` text;
   // any further typing re-opens it (reset on draft change).
@@ -957,15 +957,7 @@ export function MessagePane({
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
     if (composerBusy) return;
 
-    const itemImages = Array.from(event.clipboardData.items)
-      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => file !== null);
-    // Browsers commonly expose the same image through both collections. Files
-    // are therefore compatibility fallback, never an additional source.
-    const images = itemImages.length > 0
-      ? itemImages
-      : Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
+    const images = pastedImages(event.clipboardData);
     if (images.length === 0) return;
 
     event.preventDefault();
@@ -1022,8 +1014,8 @@ export function MessagePane({
   }
 
   function reportReadBoundary() {
-    if (document.visibilityState === "hidden" || !nearBottomRef.current) return;
-    const id = [...messages].reverse().find(message => !message.id.includes(":relay:"))?.id;
+    if (document.visibilityState === "hidden" || !nearBottomRef.current || (isMobile && openThreadId)) return;
+    const id = directReadThroughId ?? [...messages].reverse().find(message => !message.id.includes(":relay:"))?.id;
     if (!id || id === lastReadRef.current) return;
     lastReadRef.current = id;
     onReadMessage?.(id);
@@ -1163,9 +1155,10 @@ export function MessagePane({
   }, [hasFocusedMessage, messages.length === 0]);
 
   useEffect(() => {
+    reportReadBoundary();
     document.addEventListener("visibilitychange", reportReadBoundary);
     return () => document.removeEventListener("visibilitychange", reportReadBoundary);
-  }, [messages, onReadMessage]);
+  }, [messages, onReadMessage, directReadThroughId, isMobile, openThreadId]);
 
 
   useEffect(() => {
@@ -1337,7 +1330,7 @@ export function MessagePane({
                     showSender={isGroup || Boolean(conversation.is_observer)}
                     agentOnline={agentOnline}
                     onReply={composerBusy ? undefined : replyToMessage}
-                    onOpenThread={canStartThread(m) || Boolean(m.thread) ? setOpenThreadId : undefined}
+                    onOpenThread={canStartThread(m) || Boolean(m.thread) ? openThread : undefined}
                     onFork={onFork}
                     forkPending={forkPending}
                     onCopyRequest={requestCopy}
@@ -1480,7 +1473,7 @@ export function MessagePane({
             workHref={workHrefFor(activeMessage)}
             onOpenWork={dismissActionSurface}
             onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
-            onOpenThread={canStartThread(activeMessage) ? () => { setOpenThreadId(activeMessage.id); dismissActionSurface(); } : undefined}
+            onOpenThread={canStartThread(activeMessage) ? () => { openThread(activeMessage.id); dismissActionSurface(); } : undefined}
             copyAvailable={activeSurface.bodyElement !== null}
             isDirectChat={isDirectChat}
             agentOnline={agentOnline}
@@ -1534,7 +1527,7 @@ export function MessagePane({
                 workHref={workHrefFor(activeMessage)}
                 onOpenWork={dismissActionSurface}
                 onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
-                onOpenThread={canStartThread(activeMessage) ? () => { setOpenThreadId(activeMessage.id); dismissActionSurface(); } : undefined}
+                onOpenThread={canStartThread(activeMessage) ? () => { openThread(activeMessage.id); dismissActionSurface(); } : undefined}
                 copyAvailable={activeSurface.bodyElement !== null}
                 isDirectChat={isDirectChat}
                 agentOnline={agentOnline}

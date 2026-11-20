@@ -26,6 +26,7 @@ export function toChatWsEvent(
 
 export interface ConversationState {
   conversation_id: string | null;
+  readThroughMessageId?: string;
   /** Compatibility projection for message-specific consumers. */
   messages: Message[];
   /** Canonical union used to preserve non-message entries across every load path. */

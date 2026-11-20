@@ -172,7 +172,7 @@ export function mergeMessageWithExisting(message: Message, existing?: Message): 
 function streamReducer(
   state: ConversationState,
   action:
-    | { type: "reset"; conversationId: string; timeline: TimelineItem[]; preserveMessageIds?: ReadonlySet<string>; discardedMessageIds?: ReadonlySet<string> }
+    | { type: "reset"; conversationId: string; timeline: TimelineItem[]; readThroughMessageId?: string; preserveMessageIds?: ReadonlySet<string>; discardedMessageIds?: ReadonlySet<string> }
     | { type: "prepend_history"; timeline: TimelineItem[] }
     | { type: "retire_history"; conversationId: string }
     | { type: "event"; event: WsEvent; sendersById?: Record<string, string | undefined> }
@@ -213,7 +213,10 @@ function streamReducer(
       : state.timeline ?? state.messages.map((message) => ({ type: "message" as const, message }));
     const merged = mergeTimelineItems(retained, incoming);
     const messages = merged.flatMap((item) => item.type === "message" ? [item.message] : []);
-    return { conversation_id: targetConversationId, timeline: merged, messages };
+    const preserveBoundary = state.readThroughMessageId && action.type === "reset" && action.preserveMessageIds?.has(state.readThroughMessageId);
+    const readThroughMessageId = action.type === "prepend_history" || preserveBoundary
+      ? state.readThroughMessageId : action.readThroughMessageId;
+    return { conversation_id: targetConversationId, timeline: merged, messages, readThroughMessageId };
   }
   if (action.type === "append_optimistic") {
     // feat-340-M18 R9-3: insert the user-authored bubble the moment the POST
@@ -226,9 +229,11 @@ function streamReducer(
     // bugfix-419: sort the new list so a WS echo with a different created_at
     // (e.g. server clock vs. client optimistic timestamp) lands in order.
     const timeline = mergeTimelineItems(state.timeline ?? [], [{ type: "message", message: action.message }]);
-    return { ...state, timeline, messages: timeline.flatMap((item) => item.type === "message" ? [item.message] : []) };
+    return { ...state, readThroughMessageId: action.message.id, timeline, messages: timeline.flatMap((item) => item.type === "message" ? [item.message] : []) };
   }
-  return applyWsEvent(state, action.event, { sendersById: action.sendersById });
+  const next = applyWsEvent(state, action.event, { sendersById: action.sendersById });
+  return next !== state && action.event.type === "message.created"
+    ? {...next, readThroughMessageId: action.event.message_id} : next;
 }
 
 async function fetchAgents(): Promise<AgentRow[]> {
@@ -721,7 +726,7 @@ export function ChatWorkspacePage() {
         if (!latestIds.has(id) && !discardedMessageIds.has(id)) preserveMessageIds.add(id);
       }
     }
-    dispatch({ type: "reset", conversationId, timeline: restored, preserveMessageIds, discardedMessageIds });
+    dispatch({ type: "reset", conversationId, timeline: restored, readThroughMessageId: messagesQuery.data.direct_read_through_message_id, preserveMessageIds, discardedMessageIds });
     pendingLiveMessageIdsRef.current.clear();
     pendingDiscardedMessageIdsRef.current.clear();
   }, [conversationId, Boolean(activeConversation), messagesQuery.data]);
@@ -1452,10 +1457,15 @@ export function ChatWorkspacePage() {
               }
             } : undefined}
             timeline={visibleTimeline}
+            directReadThroughId={activeConversation.type === "direct" ? streamState.readThroughMessageId : undefined}
             focusMessageId={locatorMessageId}
             initialThreadId={threadLocator}
             threadMessageId={explicitLocator}
-            onCloseLocatedThread={() => navigate(location.pathname, {replace: true, state: location.state})}
+            onOpenThread={id => navigate(`${location.pathname}?thread=${encodeURIComponent(id)}`, {
+              state: {...location.state, fromThreadTimeline: true}
+            })}
+            onCloseLocatedThread={() => location.state?.fromThreadTimeline
+              ? navigate(-1) : navigate(location.pathname, {replace: true, state: location.state})}
             personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
             cooperationAgent={messagesQuery.isSuccess && !messagesQuery.isFetching && hasMoreHistory === false && messagesQuery.data.items.length === 0 ? cooperationAgent : undefined}
             returnNavigation={location.state?.personalAgentReturn && personalBinding && !isPersonalConversation
