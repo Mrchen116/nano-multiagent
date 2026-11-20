@@ -52,6 +52,69 @@ final class CrewdenParityUITests: XCTestCase {
         XCTAssertTrue(app.buttons["模型服务"].exists)
     }
 
+    func testDailyNavigation() throws {
+        try launch()
+        let newChat = app.buttons["新建聊天"]
+        XCTAssertTrue(newChat.waitForExistence(timeout: 20))
+        capture("crewden-chat-list")
+        newChat.tap()
+        app.segmentedControls.buttons["群聊"].tap()
+        XCTAssertTrue(app.textFields["群名称（可选）"].exists)
+        app.segmentedControls.buttons["私聊"].tap()
+        let person = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", try required("NANO_UI_CONTACT_NAME"))).firstMatch
+        XCTAssertTrue(person.waitForExistence(timeout: 15))
+        capture("crewden-new-chat")
+        person.tap()
+        XCTAssertTrue(app.buttons["聊天详情"].waitForExistence(timeout: 15))
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.tabBars.buttons["任务"].tap()
+        XCTAssertTrue(app.buttons["创建根任务"].waitForExistence(timeout: 10))
+        capture("crewden-tasks")
+        app.buttons["创建根任务"].tap()
+        XCTAssertTrue(app.navigationBars["创建任务"].waitForExistence(timeout: 10))
+        capture("crewden-task-editor")
+        app.buttons["取消"].tap()
+        app.tabBars.buttons["智能体"].tap()
+        let profile = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", try required("NANO_UI_AGENT_NAME"))).firstMatch
+        XCTAssertTrue(profile.waitForExistence(timeout: 15))
+        capture("crewden-assistants")
+        profile.tap()
+        XCTAssertTrue(app.buttons["发消息"].waitForExistence(timeout: 10))
+        capture("crewden-assistant-profile")
+        app.buttons["工作记录"].tap()
+        let delegation = app.segmentedControls.buttons["派工关系"]
+        XCTAssertTrue(delegation.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["最近的工作"].firstMatch.waitForExistence(timeout: 10))
+        capture("crewden-work")
+        delegation.tap()
+        XCTAssertTrue(delegation.isSelected)
+    }
+
+    func testRegisterAndFindFirstAssistant() throws {
+        continueAfterFailure = false
+        let origin = try required("NANO_UI_ORIGIN")
+        XCTAssertEqual(URL(string: origin)?.host, "127.0.0.1")
+        app.launchEnvironment["NANO_IM_BASE_URL"] = origin
+        app.launchArguments = ["-nano.locale", "zh"]
+        app.launch()
+        let register = app.buttons["还没有账号？创建账号"]
+        XCTAssertTrue(register.waitForExistence(timeout: 20))
+        capture("crewden-login")
+        register.tap()
+        capture("crewden-register")
+        let username = app.textFields["输入用户名"]
+        username.tap()
+        username.typeText("first-" + UUID().uuidString.prefix(8) + "\n")
+        app.secureTextFields["输入密码"].typeText("Walkthrough" + UUID().uuidString.prefix(8) + "\n")
+        app.textFields["其他人看到的名字"].typeText("Mia\n")
+        let setup = app.buttons["assistant.setup.entry"]
+        XCTAssertTrue(setup.waitForExistence(timeout: 25))
+        capture("crewden-first-inbox")
+        setup.tap()
+        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 10))
+        capture("crewden-first-setup")
+    }
+
     func testCreateAssistantAndEditFirstDraft() throws {
         try launch()
         let setup = app.buttons["assistant.setup.entry"]
@@ -168,7 +231,7 @@ extension CrewdenParityUITests {
         if !sessionLink.isHittable { app.swipeUp() }
         capture("crewden-delegation")
         sessionLink.tap()
-        XCTAssertTrue(app.staticTexts["执行轮次 · 最新在前"].firstMatch.waitForExistence(timeout: 10)
+        XCTAssertTrue(app.staticTexts["最近的工作"].firstMatch.waitForExistence(timeout: 10)
                       || app.staticTexts["执行信息与上下文"].firstMatch.exists)
         capture("crewden-child-execution")
         app.navigationBars.buttons.element(boundBy: 0).tap()

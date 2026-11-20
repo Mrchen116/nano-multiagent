@@ -133,7 +133,7 @@ struct PersonalAssistantSetup: View {
 
     @ViewBuilder private var modelOptions: some View {
         if let setup, setup.ready { Label(setup.default_model, systemImage: "checkmark.circle").font(.subheadline) }
-        NavigationLink(L("设置模型服务", "Configure model services")) { ModelServicesView(client: client, nodeID: node.id) }
+        NavigationLink(L("设置模型服务", "Configure model services")) { ModelServicesView(client: client, nodeID: nodeID) }
     }
 
     private func restoreDraft() {

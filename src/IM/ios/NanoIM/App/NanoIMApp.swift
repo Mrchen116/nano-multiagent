@@ -34,6 +34,7 @@ final class AppModel {
     var ready = false
     var error: String?
     var busy = false
+    private(set) var needsLocalRecovery = false
     var retryUntil: Date?
     /// The only owner of the local chat partition. Replaced together with `client`, because a
     /// partition identity is `(origin, userID)` and a new origin must never reuse the old one.
@@ -130,6 +131,7 @@ final class AppModel {
     /// contains its cached seed, rather than scheduling another read from a View initializer.
     func bootstrapLocal() async {
         guard !ready else { return }
+        needsLocalRecovery = false
         observe()
         let current = client
         let revision = await current.session.revision()
@@ -150,6 +152,7 @@ final class AppModel {
             guard current === client, revision == (await current.session.revision()) else { return }
             user = stored
         } catch {
+            needsLocalRecovery = true
             self.error = error.localizedDescription
         }
     }
@@ -164,9 +167,9 @@ final class AppModel {
             // transport failure says nothing about whether these credentials are valid.
         }
     }
-    func retryRestore() async { ready = false; await start() }
+    func retryRestore() async { ready = false; error = nil; await start() }
     func authenticate(server: String, username: String, password: String, displayName: String?) async {
-        guard !busy else { return }; busy = true; error = nil
+        guard !busy else { return }; busy = true; error = nil; needsLocalRecovery = false
         defer { busy = false }
         do {
             #if DEBUG
@@ -211,6 +214,8 @@ final class AppModel {
         catch { self.error = error.localizedDescription }
     }
     func signOut() async {
+        needsLocalRecovery = false
+        error = nil
         let current = client
         user = nil
         clearChat()

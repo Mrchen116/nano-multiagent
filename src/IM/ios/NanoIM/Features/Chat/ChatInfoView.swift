@@ -12,6 +12,8 @@ struct ChatInfoView: View {
     @State private var selected: Set<String> = []
     @State private var addingMembers = false
     @State private var memberSearch = ""
+    @State private var contactsLoaded = false
+    @State private var contactsError: String?
     @State private var error: String?
     @State private var personal: NativePersonalAgentState.Binding?
     @State private var busy = false
@@ -141,25 +143,29 @@ struct ChatInfoView: View {
                 }
             }
         }
-            .task { await load(); contacts = (try? await store.client.contacts()) ?? [] }
-            .sheet(isPresented: $addingMembers, onDismiss: { selected = []; memberSearch = "" }) {
+            .task { await load() }
+            .sheet(isPresented: $addingMembers, onDismiss: { selected = []; memberSearch = ""; contactsLoaded = false; contacts = []; contactsError = nil }) {
                 NavigationStack {
                     List {
                         if let error { ErrorNotice(message: error) }
+                        if let contactsError {
+                            ErrorNotice(message: contactsError)
+                            Button(L("重试", "Retry")) { Task { await loadContacts() } }
+                        } else if !contactsLoaded { ProgressView() }
                         ForEach(availableContacts) { contact in
                             Button { if selected.contains(contact.id) { selected.remove(contact.id) } else { selected.insert(contact.id) } } label: {
                                 HStack(spacing: 12) {
                                     AvatarView(name: contact.display_name, online: contact.status == "online", kind: contact.kind == "agent" ? "agent" : "person", agentID: contact.agent_id, role: contact.role, variant: contact.avatar_variant)
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(contact.display_name).foregroundStyle(NanoTheme.ink)
-                                        Text([contact.kind == "agent" ? "Agent" : L("真人", "Person"), contact.agent_id, contact.owner_display_name, contact.node_name].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(NanoTheme.muted)
+                                        if contact.kind == "agent" { Text(contact.owner_display_name.map { L("\($0) 的助手", "Assistant for \($0)") } ?? L("助手", "Assistant")).font(.caption).foregroundStyle(NanoTheme.muted) }
                                     }
                                     Spacer(); Image(systemName: selected.contains(contact.id) ? "checkmark.circle.fill" : "circle")
                                 }.contentShape(Rectangle())
                             }.buttonStyle(.plain)
                         }
-                        if availableContacts.isEmpty { Text(memberSearch.isEmpty ? L("没有可添加的成员", "No members to add") : L("没有匹配的成员", "No matching members")).foregroundStyle(.secondary) }
-                    }.nanoList().navigationTitle(L("添加成员", "Add members"))
+                        if contactsLoaded && availableContacts.isEmpty { Text(memberSearch.isEmpty ? L("没有可添加的成员", "No members to add") : L("没有匹配的成员", "No matching members")).foregroundStyle(.secondary) }
+                    }.task { await loadContacts() }.nanoList().navigationTitle(L("添加成员", "Add members"))
                         .searchable(text: $memberSearch, prompt: L("搜索名称、ID 或设备", "Search name, ID, or device"))
                         .toolbar {
                             ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { addingMembers = false }.disabled(busy) }
@@ -237,6 +243,11 @@ struct ChatInfoView: View {
             }
             catch { self.error = error.localizedDescription }
         }
+    }
+    private func loadContacts() async {
+        contactsError = nil
+        do { contacts = try await store.client.contacts(); contactsLoaded = true }
+        catch { if !Task.isCancelled { contactsError = error.localizedDescription } }
     }
     private func addMember() async {
         let members = contacts.filter { selected.contains($0.id) }

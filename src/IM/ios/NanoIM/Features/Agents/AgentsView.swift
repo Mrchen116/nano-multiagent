@@ -53,11 +53,11 @@ struct AgentsView: View {
             }
             } }
             if loaded && regular.isEmpty && !personalMatches && error == nil {
-                ContentUnavailableView(search.isEmpty ? L("暂无 Agent", "No Agents") : L("没有找到 Agent", "No matching Agents"), systemImage: search.isEmpty ? "person.crop.square" : "magnifyingglass", description: Text(search.isEmpty ? L("绑定设备后即可创建 Agent。", "Bind a device to create an Agent.") : L("试试其他名称、ID 或设备。", "Try another name, ID, or device.")))
+                ContentUnavailableView(search.isEmpty ? L("还没有助手", "No assistants yet") : L("没有找到助手", "No matching assistants"), systemImage: search.isEmpty ? "person.crop.square" : "magnifyingglass", description: Text(search.isEmpty ? L("连接电脑后就可以创建助手。", "Connect a computer to create an assistant.") : L("试试其他名称、ID 或设备。", "Try another name, ID, or device.")))
             }
         }
-        .nanoList().nanoRootTitle(L("Agent", "Agents"))
-        .toolbar { Button { creating = true } label: { Label(L("新建 Agent", "New Agent"), systemImage: "plus") } }
+        .nanoList().nanoRootTitle(L("智能体", "Agents"))
+        .toolbar { Button { creating = true } label: { Label(L("新建助手", "New assistant"), systemImage: "plus") } }
         .sheet(isPresented: $creating, onDismiss: { Task { await load() } }) { NavigationStack { AgentCreateView(client: client) } }
         .refreshable { await load() }
         .task(id: scenePhase) {
@@ -134,7 +134,7 @@ struct AgentProfileView: View {
                         AvatarView(name: shownContact.display_name, online: shownContact.status == "online", kind: "agent", agentID: agentID, role: shownContact.role, variant: shownContact.avatar_variant)
                         VStack(alignment: .leading, spacing: 5) {
                             Text(shownContact.display_name).font(.title3.bold())
-                            Text(agentID).font(.caption).foregroundStyle(NanoTheme.muted)
+                            if let owner = shownContact.owner_display_name { Text(L("\(owner) 的助手", "Assistant for \(owner)")).font(.subheadline).foregroundStyle(NanoTheme.muted) }
                         }
                     }
                     HStack(spacing: 7) {
@@ -149,28 +149,29 @@ struct AgentProfileView: View {
                     if let statusError { Text(statusError).font(.caption).foregroundStyle(NanoTheme.muted) }
                     else if shownContact.status != "online" { Text(L("设备离线，Agent 回复需设备恢复在线。", "The device is offline. Agent replies require it to reconnect.")).font(.caption).foregroundStyle(NanoTheme.muted) }
                 }.padding(.vertical, 8)
-                AgentLifecycleControls(client: client, agentID: agentID, canManage: owned, online: shownContact.status == "online")
-            }
-            Section(L("概览", "Overview")) {
-                LabeledContent(L("管理者", "Owner"), value: shownContact.owner_display_name ?? shownContact.owner_id ?? "—")
-                LabeledContent(L("工作模式", "Work mode"), value: shownContact.work_mode == "global" ? L("全局模式", "Global") : L("单会话", "Single conversation"))
             }
             if shownContact.work_mode == "global" {
                 Section { NavigationLink { AgentWorkView(client: client, agentID: agentID, canManage: owned, onOpenChat: onOpenChat, displayName: shownContact.display_name) } label: { Label(L("工作记录", "Work records"), systemImage: "point.3.connected.trianglepath.dotted") } }
             }
+            Section {
+                DisclosureGroup(L("助手资料", "Assistant details")) {
+                    LabeledContent(L("助手 ID", "Assistant ID"), value: agentID).textSelection(.enabled)
+                    LabeledContent(L("管理者", "Owner"), value: shownContact.owner_display_name ?? shownContact.owner_id ?? "—")
+                    LabeledContent(L("工作模式", "Work mode"), value: shownContact.work_mode == "global" ? L("全局模式", "Global") : L("单会话", "Single conversation"))
+                }
+            }
+            Section { AgentLifecycleControls(client: client, agentID: agentID, canManage: owned, online: shownContact.status == "online") }
             if owned {
                 Section(L("管理", "Manage")) {
                     NavigationLink {
                         AgentConfigView(client: client, agentID: agentID, personal: shownContact.role == "personal", onDeleted: shownContact.role == "personal" ? nil : { deleted = true })
                     } label: { Label(L("配置", "Configuration"), systemImage: "slider.horizontal.3") }
                     NavigationLink { AgentChannelsView(client: client, agentID: agentID) } label: { Label(L("外部通道", "Channels"), systemImage: "antenna.radiowaves.left.and.right") }
-                    NavigationLink { AgentSkillsView(client: client, agentID: agentID, canManage: owned, global: shownContact.work_mode == "global", onOpenChat: onOpenChat) } label: { Label(L("Skills 使用情况", "Skill usage"), systemImage: "sparkles") }
+                    NavigationLink { AgentSkillsView(client: client, agentID: agentID, canManage: owned, global: shownContact.work_mode == "global", onOpenChat: onOpenChat) } label: { Label(L("技能使用情况", "Skill usage"), systemImage: "sparkles") }
                 }
-            } else {
-                Text(L("这是公开资料，配置由管理者维护。", "This is a public profile. Configuration is managed by its owner.")).font(.caption).foregroundStyle(NanoTheme.muted)
             }
         }.listStyle(.insetGrouped).contentMargins(.top, 12, for: .scrollContent).scrollContentBackground(.hidden).background(NanoTheme.canvas)
-            .navigationTitle(L("Agent 详情", "Agent profile")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+            .navigationTitle(L("助手详情", "Assistant profile")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
             .onAppear { if deleted { dismiss() } }
             .task(id: scenePhase) {
                 guard scenePhase == .active else { return }

@@ -99,8 +99,12 @@ struct ChatListView: View {
             }
             if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 ChatMessageSearch(store: store, query: search, category: category, open: open)
-            } else if filtered.isEmpty, store.listPhase == .empty, personal == nil || !showPersonalRow {
-                ContentUnavailableView(search.isEmpty ? L("暂无聊天", "No conversations") : L("没有找到聊天", "No matching conversations"), systemImage: search.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass", description: Text(search.isEmpty ? L("使用右上角 + 创建聊天。", "Use + to start a conversation.") : L("试试其他名称或关键词。", "Try another name or keyword.")))
+            } else if filtered.isEmpty, [.empty, .loaded].contains(store.listPhase), personalID == nil || !showPersonalRow {
+                VStack(spacing: 10) {
+                    Text(category == "all" ? L("还没有聊天", "No conversations yet") : L("这里还没有会话", "No conversations here yet"))
+                        .font(.headline)
+                    Button(L("发起聊天", "Start a chat")) { newChat = true }.buttonStyle(.bordered)
+                }.frame(maxWidth: .infinity).padding(.vertical, 20).listRowSeparator(.hidden)
             }
         }.nanoList().chatContinuityTitle(L("聊天", "Chats"), store: store, surface: .list)
             .task { await readPersonal() }
@@ -204,7 +208,10 @@ struct NewChatView: View {
         NavigationStack {
             Form {
                 Section {
-                    Toggle(L("创建群聊", "Create group"), isOn: $group).onChange(of: group) { _, value in if !value { selection = Set(selection.prefix(1)) } }
+                    Picker(L("聊天类型", "Conversation type"), selection: $group) {
+                        Text(L("私聊", "Direct")).tag(false)
+                        Text(L("群聊", "Group")).tag(true)
+                    }.pickerStyle(.segmented)
                 }
                 if group {
                     Section(L("群设置", "Group settings")) {
@@ -215,30 +222,50 @@ struct NewChatView: View {
                 Section {
                     NavigationLink(L("发现公开群", "Discover public groups")) { PublicGroupsView(client: client, completed: completed) }
                 }
-                if let error { Section { ErrorNotice(message: error) } }
+                if let error { Section {
+                    ErrorNotice(message: error)
+                    if !loaded { Button(L("重试", "Retry")) { Task { await loadContacts() } } }
+                } }
                 Section(L("联系人", "Contacts")) {
                     if !loaded && error == nil { ProgressView(L("正在加载联系人…", "Loading contacts…")) }
                     if loaded && filtered.isEmpty && error == nil { Text(search.isEmpty ? L("暂无联系人", "No contacts") : L("没有匹配的联系人", "No matching contacts")).foregroundStyle(.secondary) }
                     ForEach(filtered) { contact in
-                        Button { if selection.contains(contact.id) { selection.remove(contact.id) } else if group { selection.insert(contact.id) } else { selection = [contact.id] } } label: {
+                        Button {
+                            if !group { Task { await create(with: [contact]) } }
+                            else if selection.contains(contact.id) { selection.remove(contact.id) }
+                            else { selection.insert(contact.id) }
+                        } label: {
                             HStack { AvatarView(name: contact.display_name, online: contact.status == "online", kind: contact.kind == "agent" ? "agent" : "person", agentID: contact.agent_id, role: contact.role, variant: contact.avatar_variant); VStack(alignment: .leading) {
                                 Text(contact.display_name).foregroundStyle(.primary)
-                                Text([contact.kind == "agent" ? "Agent" : L("真人", "Person"), contact.owner_display_name, contact.node_name].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
-                            }; Spacer(); Image(systemName: selection.contains(contact.id) ? "checkmark.circle.fill" : "circle") }
+                                if contact.kind == "agent" { Text(contact.owner_display_name.map { L("\($0) 的助手", "Assistant for \($0)") } ?? L("助手", "Assistant")).font(.caption).foregroundStyle(.secondary) }
+                            }; Spacer()
+                                if group { Image(systemName: selection.contains(contact.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(NanoTheme.accent) }
+                            }.contentShape(Rectangle())
                         }
                     }
                 }
-            }.navigationTitle(L("新建聊天", "New conversation"))
+            }.disabled(busy).navigationTitle(L("新建聊天", "New conversation")).navigationBarTitleDisplayMode(.inline)
                 .searchable(text: $search, prompt: L("搜索联系人", "Search contacts"))
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) { Button(L("创建", "Create")) { Task { await create() } }.disabled(busy || selection.isEmpty) }
-                }.task { do { contacts = try await client.contacts(); loaded = true } catch { self.error = error.localizedDescription } }
+                    ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { dismiss() }.disabled(busy) }
+                    if group {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(L("创建", "Create")) { Task { await create(with: contacts.filter { selection.contains($0.id) }) } }
+                                .disabled(busy || selection.isEmpty)
+                        }
+                    }
+                }.task { await loadContacts() }
+                .interactiveDismissDisabled(busy)
         }
     }
-    private func create() async {
+    private func loadContacts() async {
+        error = nil
+        do { contacts = try await client.contacts(); loaded = true }
+        catch { if !Task.isCancelled { self.error = error.localizedDescription } }
+    }
+    private func create(with selected: [Contact]) async {
+        guard !busy, !selected.isEmpty else { return }
         busy = true; error = nil; defer { busy = false }
-        let selected = contacts.filter { selection.contains($0.id) }
         let groupTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? selected.map(\.display_name).joined(separator: "、") : title
         do { let chat = try await client.createConversation(title: group ? groupTitle : selected.first?.display_name ?? "", type: group ? "group" : "direct", participants: selected.map(\.actor), userID: userID, visibility: visibility); completed(chat) }
         catch { self.error = error.localizedDescription }
@@ -258,26 +285,40 @@ struct DistillView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section { Text(L("选择同一设备上的已空闲会话。生成的内容会进入草稿，确认后再发送。", "Select idle conversations on one device. The generated prompt remains a draft for review.")) }
-                Section(L("来源会话", "Source conversations")) { ForEach(candidates) { item in
-                    Toggle(item.title, isOn: Binding(get: { selected.contains(item.id) }, set: { if $0 { selected.insert(item.id) } else { selected.remove(item.id) } }))
-                } }
-                Section {
-                    Picker(L("执行 Agent", "Execution agent"), selection: $execution) {
-                        Text(L("请选择", "Select")).tag("")
-                        ForEach(executionCandidates, id: \.self) { agent in Text(agent).tag(agent) }
-                    }.pickerStyle(.navigationLink)
-                    Picker(L("目标范围", "Target scope"), selection: $scope) { Text("Agent").tag("agent"); Text(L("全局", "Global")).tag("global") }.pickerStyle(.navigationLink)
+                if candidates.isEmpty {
+                    ContentUnavailableView(L("还没有可整理的对话", "No conversations to distill yet"), systemImage: "text.bubble",
+                        description: Text(L("和助手完成一轮对话后，就可以在这里把它整理成笔记草稿。", "Finish a conversation with an assistant to turn it into a draft note here.")))
+                } else {
+                    Section {
+                        ForEach(candidates) { item in
+                            Toggle(item.title, isOn: Binding(get: { selected.contains(item.id) }, set: {
+                                if $0 { selected.insert(item.id) } else { selected.remove(item.id) }
+                                if !executionCandidates.contains(execution) { execution = executionCandidates.count == 1 ? executionCandidates[0] : "" }
+                            }))
+                            .disabled(selectedNode != nil && selectedNode != item.source_node_id)
+                        }
+                    } header: { Text(L("从哪些对话整理？", "Choose conversations")) } footer: { Text(L("一次可以整理同一台电脑上的多段对话。", "Choose conversations from one computer at a time.")) }
+                    if !selected.isEmpty {
+                        Section {
+                            Picker(L("交给谁整理", "Choose an assistant"), selection: $execution) {
+                                Text(L("请选择", "Select")).tag("")
+                                ForEach(executionCandidates, id: \.self) { id in
+                                    Text(candidates.first { $0.source_agent_id == id }?.peerAgent?.display_name ?? candidates.first { $0.source_agent_id == id }?.title ?? id).tag(id)
+                                }
+                            }.pickerStyle(.navigationLink)
+                            Picker(L("保存范围", "Scope"), selection: $scope) { Text(L("此助手", "This assistant")).tag("agent"); Text(L("全局", "Global")).tag("global") }.pickerStyle(.navigationLink)
+                        }
+                        if let error { ErrorNotice(message: error) }
+                        Button(L("生成待发草稿", "Generate draft")) { Task { await create() } }.disabled(busy || execution.isEmpty)
+                    }
                 }
-                if let error { ErrorNotice(message: error) }
-                Button(L("生成待发草稿", "Generate draft")) { Task { await create() } }.disabled(busy || selected.isEmpty || execution.isEmpty)
             }.navigationTitle(L("整理知识", "Distill knowledge"))
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { dismiss() } } }
         }
     }
+    private var selectedNode: String? { candidates.first { selected.contains($0.id) }?.source_node_id }
     private var executionCandidates: [String] {
-        let node = candidates.first { selected.contains($0.id) }?.source_node_id
-        return Array(Set(candidates.filter { $0.source_node_id == node }.compactMap(\.source_agent_id))).sorted()
+        return Array(Set(candidates.filter { $0.source_node_id == selectedNode }.compactMap(\.source_agent_id))).sorted()
     }
     private func create() async {
         let sources = candidates.filter { selected.contains($0.id) }

@@ -29,8 +29,7 @@ struct SettingsNodesView: View {
                             Spacer()
                             Text(settingsStatus(node.status)).font(.caption).foregroundStyle(node.status == "online" ? .green : .secondary)
                         }
-                        Text(node.node_id).font(.caption.monospaced()).foregroundStyle(.secondary)
-                        Text(L("\(node.agent_count) 个 Agent · 版本 \(node.version)", "\(node.agent_count) agents · Version \(node.version)")).font(.caption).foregroundStyle(.secondary)
+                        Text(L("\(node.agent_count) 位助手", "\(node.agent_count) assistants")).font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 4)
                 }
             }

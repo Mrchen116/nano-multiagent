@@ -74,7 +74,6 @@ struct AgentWorkView: View {
     private var recordList: some View {
         List {
             Section {
-                Text(displayName ?? selectedSession?.label ?? agentID).font(.headline)
                 if let root {
                     HStack(spacing: 8) {
                         Circle().fill(online ? NanoTheme.accent : NanoTheme.muted).frame(width: 7, height: 7)
@@ -98,11 +97,26 @@ struct AgentWorkView: View {
                         if sessionID == nil { AgentWorkUsage(value: root.latest_main_usage, title: L("最近上下文", "Latest context")) }
                     }.font(.subheadline)
                 }
-                if sessionID == nil, root != nil { AgentLifecycleControls(client: client, agentID: agentID, canManage: canManage, online: online) }
             }
             if executionDeleted { Text(L("执行记录已删除", "Execution record deleted")).foregroundStyle(.secondary) }
             else if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await refresh() } } }
             if !loaded { ProgressView() }
+            Section(L("最近的工作", "Recent work")) {
+                let displayed = visibleTurns
+                ForEach(Array(displayed.enumerated()), id: \.element.id) { index, turn in
+                    if index > 0 && executionHistory?.hasGap(after: displayed[index - 1], before: turn) == true {
+                        earlierPage(displayed[index - 1])
+                        Text(L("中间轮次尚未加载", "Turns between these records have not loaded")).font(.caption).foregroundStyle(.secondary)
+                    }
+                    AgentWorkTurnView(client: client, agentID: agentID, turn: turn, sessions: root?.other_executions ?? [], online: online,
+                        canManage: canManage, onOpenChat: onOpenChat, separate: separate,
+                        active: headTurnIDs.contains(turn.id) && ["running", "waiting_permission", "unknown"].contains(turn.status), headUpdate: headUpdate, focused: focus?.turn.id == turn.id)
+                        .id(turn.id)
+                        .accessibilityIdentifier("work.turn." + turn.id)
+                }
+                if loaded && displayed.isEmpty && !executionDeleted { Text(L("还没有工作记录", "No work records yet")) }
+                if let last = displayed.last, executionHistory?.hasEarlier(after: last) == true { earlierPage(last) }
+            }
             if separate || !sessions.isEmpty {
                 Section(L("关联执行", "Related executions")) {
                     if separate {
@@ -116,22 +130,7 @@ struct AgentWorkView: View {
                     } else { executionLinks }
                 }
             }
-            Section(L("执行轮次 · 最新在前", "Turns · newest first")) {
-                let displayed = visibleTurns
-                ForEach(Array(displayed.enumerated()), id: \.element.id) { index, turn in
-                    if index > 0 && executionHistory?.hasGap(after: displayed[index - 1], before: turn) == true {
-                        earlierPage(displayed[index - 1])
-                        Text(L("中间轮次尚未加载", "Turns between these records have not loaded")).font(.caption).foregroundStyle(.secondary)
-                    }
-                    AgentWorkTurnView(client: client, agentID: agentID, turn: turn, sessions: root?.other_executions ?? [], online: online,
-                        canManage: canManage, onOpenChat: onOpenChat, separate: separate,
-                        active: headTurnIDs.contains(turn.id) && ["running", "waiting_permission", "unknown"].contains(turn.status), headUpdate: headUpdate, focused: focus?.turn.id == turn.id)
-                        .id(turn.id)
-                        .accessibilityIdentifier("work.turn." + turn.id)
-                }
-                if loaded && displayed.isEmpty && !executionDeleted { Text(L("尚未报告执行轮次", "No reported turns")) }
-                if let last = displayed.last, executionHistory?.hasEarlier(after: last) == true { earlierPage(last) }
-            }
+            if sessionID == nil, root != nil { AgentLifecycleControls(client: client, agentID: agentID, canManage: canManage, online: online) }
             if separate, let executionID {
                 Section(L("控制记录", "Control records")) { AgentWorkControls(client: client, base: base, sessionID: executionID, onOpenChat: onOpenChat).id(executionID) }
             }

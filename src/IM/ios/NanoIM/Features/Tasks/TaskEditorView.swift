@@ -25,6 +25,7 @@ struct TaskEditorView: View {
     @State private var showingAssignee = false
     @State private var showingConversation = false
     @State private var showingNote = false
+    @State private var addingResult = false
     @State private var confirmLeave = false
     @State private var requestKey = UUID().uuidString
     @State private var submittedBody: [String: JSONValue]?
@@ -85,18 +86,22 @@ struct TaskEditorView: View {
                         }.buttonStyle(.plain)
                     }.padding(.horizontal, 16).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 14))
                     field(L("任务说明", "Description"), prompt: L("补充目标与必要背景", "Add the goal and useful context"), text: $draft.description, key: "description")
-                    Divider()
-                    field(L("当前结果", "Result"), prompt: L("记录进展或交付结果", "Record progress or the outcome"), text: $draft.result, key: "result")
+                    if node != nil || addingResult || !draft.result.isEmpty || draft.status == "done" {
+                        field(L("当前结果", "Result"), prompt: L("记录进展或交付结果", "Record progress or the outcome"), text: $draft.result, key: "result")
+                    } else {
+                        Button { addingResult = true; focusedField = "result" } label: {
+                            Label(L("添加已有进展", "Add existing progress"), systemImage: "plus").font(.subheadline)
+                        }
+                    }
                     if node == nil {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(L("子任务结构", "Subtask structure")).font(.subheadline).foregroundStyle(NanoTheme.muted)
+                        DisclosureGroup(L("子任务结构", "Subtask structure")) {
                             Picker(L("子任务结构", "Subtask structure"), selection: $draft.mode) {
                                 Text(L("计划", "Plan")).tag("dag"); Text(L("探索", "Exploration")).tag("explore")
                             }.pickerStyle(.segmented)
                         }
                         if let graph, let parentID, graph.nodes.first(where: { $0.id == parentID })?.mode == "none" {
                             VStack(alignment: .leading, spacing: 10) {
-                                Text(L("首次拆分的本层结构", "Structure for this first decomposition")).font(.subheadline).foregroundStyle(NanoTheme.muted)
+                                Text(L("父任务的拆分方式", "How to organize the parent task")).font(.subheadline).foregroundStyle(NanoTheme.muted)
                                 Picker(L("本层结构", "Parent structure"), selection: $parentMode) {
                                     Text(L("计划", "Plan")).tag("dag"); Text(L("探索", "Exploration")).tag("explore")
                                 }.pickerStyle(.segmented)

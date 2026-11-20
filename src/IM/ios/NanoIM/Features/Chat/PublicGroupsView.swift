@@ -5,6 +5,7 @@ struct PublicGroupsView: View {
     let completed: (Conversation) -> Void
     @State private var groups: [Conversation] = []
     @State private var error: String?
+    @State private var loaded = false
     var body: some View {
         List {
             if let error { ErrorNotice(message: error) }
@@ -16,12 +17,13 @@ struct PublicGroupsView: View {
                     }
                 }
             }
-            if groups.isEmpty && error == nil { Text(L("暂无公开群", "No public groups")) }
+            if !loaded && error == nil { ProgressView() }
+            if loaded && groups.isEmpty && error == nil { Text(L("暂无公开群", "No public groups")) }
         }.navigationTitle(L("发现公开群", "Discover public groups"))
             .task { await load() }.refreshable { await load() }
     }
     private func load() async {
-        do { let page: ItemsPage<Conversation> = try await client.get("/im/v1/conversations", query: [.init(name: "scope", value: "public")]); groups = page.items; error = nil }
+        do { let page: ItemsPage<Conversation> = try await client.get("/im/v1/conversations", query: [.init(name: "scope", value: "public")]); groups = page.items; loaded = true; error = nil }
         catch { self.error = error.localizedDescription }
     }
 }
