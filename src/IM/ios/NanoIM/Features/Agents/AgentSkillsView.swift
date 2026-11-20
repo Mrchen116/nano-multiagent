@@ -3,7 +3,8 @@ import Charts
 
 struct AgentSkillsView: View {
     let client: IMClient; let agentID: String; let canManage: Bool; let global: Bool; let onOpenChat: @MainActor (String) -> Void
-    @State private var usage: AgentSkillUsage?
+    @State private var read: AgentSettingsRead<AgentSkillUsage>?
+    private var usage: AgentSkillUsage? { read?.data }
     @State private var error: String?
     @State private var view = "list"
     @State private var showArchived = false
@@ -11,6 +12,7 @@ struct AgentSkillsView: View {
     var body: some View {
         List {
             if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } }
+            if let read { AgentSettingsNotice(read: read) }
             if let usage {
                 if !usage.node_online { Text(L("节点离线，使用统计暂不可用。", "Node offline; usage statistics are unavailable.")) }
                 Picker(L("视图", "View"), selection: $view) {
@@ -42,7 +44,7 @@ struct AgentSkillsView: View {
                     ForEach(usage.skills.filter { ["F3", "F4"].contains($0.source) }) { skillRow($0) }
                 }
                 if usage.skills.isEmpty && usage.node_online { Text(L("暂无 Skill 使用记录", "No Skill usage records")) }
-            } else if error == nil { ProgressView() }
+            } else if read == nil && error == nil { ProgressView() }
         }.navigationTitle(L("Skills 使用情况", "Skill usage")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .task { await load() }.refreshable { await load() }
     }
@@ -77,7 +79,7 @@ struct AgentSkillsView: View {
         since.map { L("新统计始于 ", "Statistics since ") + String($0.prefix(10)) + " (UTC)" } ?? L("尚无新调用", "No new calls yet")
     }
     private func load() async {
-        do { usage = try await client.get(agentPath(agentID) + "/skills/usage"); error = nil } catch { self.error = agentError(error); if let api = error as? APIError, [401, 403, 404].contains(api.status) { usage = nil } }
+        do { read = try await client.get(agentPath(agentID) + "/settings/sections/usage"); error = nil } catch { self.error = agentError(error); if let api = error as? APIError, [401, 403, 404].contains(api.status) { read = nil } }
     }
 }
 
@@ -95,8 +97,8 @@ struct AgentUsageChart: View {
 
 struct AgentCronView: View {
     let client: IMClient; let agentID: String
-    @State private var jobs: [AgentCronJob] = []
-    @State private var online: Bool?
+    @State private var read: AgentSettingsRead<[AgentCronJob]>?
+    private var jobs: [AgentCronJob] { read?.data ?? [] }
     @State private var error: String?
     @State private var loaded = false
     @State private var deleting: AgentCronJob?
@@ -105,8 +107,7 @@ struct AgentCronView: View {
         List {
             if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } }
             if !loaded { ProgressView() }
-            if online == false { Text(L("节点离线；任务空列表不能代表设备没有任务。", "Node offline. An empty response does not mean the device has no jobs.")) }
-            if online == nil && loaded { Text(L("节点状态未知；空列表也可能表示读取超时。", "Node state unknown; an empty response may also indicate a timeout.")) }
+            if let read { AgentSettingsNotice(read: read) }
             ForEach(jobs) { job in
                 DisclosureGroup(job.name) {
                     Text(job.instruction).textSelection(.enabled)
@@ -114,10 +115,10 @@ struct AgentCronView: View {
                     LabeledContent(L("启用", "Enabled"), value: job.enabled ? L("是", "Yes") : L("否", "No"))
                     LabeledContent(L("执行后删除", "Delete after run"), value: job.delete_after_run ? L("是", "Yes") : L("否", "No"))
                     ForEach(job.schedule.keys.sorted(), id: \.self) { key in LabeledContent(key, value: job.schedule[key]?.agentString.isEmpty == false ? job.schedule[key]!.agentString : job.schedule[key]?.prettyPrinted ?? "—") }
-                    Button(L("删除此任务", "Delete this job"), role: .destructive) { deleting = job }.disabled(busy || online != true)
+                    Button(L("删除此任务", "Delete this job"), role: .destructive) { deleting = job }.disabled(busy || error != nil || read?.source != "current")
                 }
             }
-            if loaded && jobs.isEmpty && online == true { Text(L("暂无返回的任务（节点读取超时也可能返回空列表）。", "No jobs returned (a node read timeout can also return an empty list).")) }
+            if jobs.isEmpty && read?.source == "current" { Text(L("暂无定时任务", "No scheduled jobs")) }
             Text(L("此页仅查看和删除现有任务；通过 Agent 对话安排任务。", "View and delete existing jobs here. Arrange jobs through the Agent conversation.")).font(.caption).foregroundStyle(.secondary)
         }.navigationTitle(L("定时任务", "Scheduled jobs")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .task { await load() }.refreshable { await load() }
@@ -127,11 +128,12 @@ struct AgentCronView: View {
     }
     private func load() async {
         do {
-            let config: AgentConfig = try await client.get(agentPath(agentID) + "/config", query: [URLQueryItem(name: "source", value: "mirror")])
-            let nodes: [AgentNode] = try await client.get("/im/v1/nodes")
-            online = nodes.first { $0.id == config.node_id }.map { $0.status == "online" }
-            jobs = try await client.get(agentPath(agentID) + "/cron/jobs"); loaded = true; error = nil
-        } catch { self.error = agentError(error); loaded = true }
+            read = try await client.get(agentPath(agentID) + "/settings/sections/cron")
+            loaded = true; error = nil
+        } catch {
+            if let api = error as? APIError, [401, 403, 404].contains(api.status) { read = nil }
+            self.error = agentError(error); loaded = true
+        }
     }
     private func remove(_ job: AgentCronJob) async {
         busy = true; defer { busy = false }

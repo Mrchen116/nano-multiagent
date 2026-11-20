@@ -37,6 +37,7 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
         if type == "direct" { if direct_kind == "agent-agent" { return "network" }; return ["user-user", "user"].contains(direct_kind ?? "") ? "people" : "agent" }
         return !participants.isEmpty && participants.allSatisfy { $0.type == "agent" } ? "network" : "group"
     }
+    var peerAgent: ActorRef? { type == "direct" ? participants.first { $0.type == "agent" } : nil }
     func avatarName(selfID: String) -> String {
         guard type != "group" else { return title }
         let peer = participants.first { category == "agent" ? $0.type == "agent" : $0.type == "user" && ($0.user_id ?? $0.id) != selfID }
@@ -96,6 +97,22 @@ struct MessageReceipt: Codable, Sendable, Identifiable {
     var id: String { recipient_id }
 }
 
+struct ChatReply: Codable, Sendable, Equatable {
+    let message_id: String
+    let sender: ActorRef
+    let content: String
+    let attachments: [ChatAttachment]
+
+    func preview(participants: [ActorRef]) -> String {
+        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { return ChatText.display(String(text.prefix(180)), participants: participants) }
+        let names = attachments.map { file in
+            file.file_name ?? (file.content_type?.hasPrefix("image/") == true ? L("图片", "Image") : L("文件", "File"))
+        }
+        return names.isEmpty ? L("消息", "Message") : names.joined(separator: " · ")
+    }
+}
+
 struct ChatMessage: Codable, Sendable, Identifiable {
     var id: String
     var conversation_id: String
@@ -110,6 +127,12 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var thinking: [ChatThinking]?
     var background_returns: [JSONValue]?
     var reply_process: [JSONValue]?
+    var reply_to: ChatReply?
+    var work_record_deleted: Bool?
+    var availableReply: ChatReply? {
+        guard ["agent", "user"].contains(sender_type), ["completed", "sent", "pending"].contains(delivery_status) else { return nil }
+        return ChatReply(message_id: id, sender: sender, content: String(content.trimmingCharacters(in: .whitespacesAndNewlines).prefix(180)), attachments: attachments)
+    }
     var permission_requests: [ChatPermission]?
     var token_usage: JSONValue?
     var elapsed_ms: Double?
@@ -155,6 +178,7 @@ struct PendingSend: Codable, Sendable {
     let content: String
     let attachments: [ChatAttachment]
     var requestBody: Data?
+    var reply: ChatReply?
 }
 
 enum ChatTimelinePresentation {

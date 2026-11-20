@@ -42,6 +42,16 @@ struct CapabilityUsage: Decodable, Sendable {
 }
 
 extension AgentDraft {
+    mutating func changeCapabilities(_ actions: [CapabilityAction], capabilities: AgentCapabilities) -> [CapabilityBlock] {
+        var candidate = self
+        for action in actions {
+            let blocks = candidate.changeCapability(action, capabilities: capabilities)
+            if !blocks.isEmpty { return blocks }
+        }
+        self = candidate
+        return []
+    }
+
     func removingCapabilities(from previous: AgentDraft, capabilities: AgentCapabilities) -> [CapabilityTarget] {
         capabilities.features.filter { (previous.features[$0.key] ?? $0.default_on) && features[$0.key] != true }.map { .init(kind: "feature", name: $0.key) }
         + previous.tool_allowlist.filter { !tool_allowlist.contains($0) }.map { .init(kind: "tool", name: $0) }

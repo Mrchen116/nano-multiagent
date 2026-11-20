@@ -14,9 +14,9 @@ struct AuthView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     HStack(spacing: 10) {
-                        Image(systemName: "checkmark").font(.system(size: 21, weight: .bold)).foregroundStyle(.white)
-                            .frame(width: 42, height: 42).background(NanoTheme.accent, in: RoundedRectangle(cornerRadius: 14))
-                        Text("Nano IM").font(.title3.bold())
+                        Image("CrewdenMark").resizable().scaledToFit().frame(width: 38, height: 38)
+                            .foregroundStyle(NanoTheme.accent).accessibilityHidden(true)
+                        Text("Crewden").font(.title.bold())
                         Spacer()
                         Menu { Picker(L("语言", "Language"), selection: $locale) { Text("中文").tag("zh"); Text("English").tag("en") } }
                             label: { Label(locale == "zh" ? "中文" : "EN", systemImage: "globe").font(.subheadline).foregroundStyle(NanoTheme.muted) }
@@ -95,7 +95,7 @@ struct MembershipView: View {
                 if let error = model.error { ErrorNotice(message: error) }
                 Button(L("刷新状态", "Refresh status")) { Task { await model.refreshUser() } }.buttonStyle(.borderedProminent)
                 Button(L("退出登录", "Sign out")) { Task { await model.signOut() } }
-            }.padding().navigationTitle("Nano IM")
+            }.padding().navigationTitle("Crewden")
         }
     }
 }

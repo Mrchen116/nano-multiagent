@@ -9,8 +9,10 @@ struct AgentWorkTurn: Codable, Identifiable, Sendable {
     var status: String; var origin: JSONValue?; var trigger: [String: JSONValue]?; var model_id: String?
     var started_at: String?; var finished_at: String?; var elapsed_ms: Double?; var usage: JSONValue?
     var items: [AgentWorkItem]; var next_items_cursor: String?; var seq: Int?; var items_deferred: Bool?
+    var maintenance_title: String?; var maintenance_stage: String?
     var id: String { session_id + ":" + turn_id }
     var title: String {
+        if let maintenance_title, !maintenance_title.isEmpty { return maintenance_title }
         let kind = trigger?["kind"]?.agentString ?? (origin?.agentString.isEmpty == false ? origin?.agentString : origin?["kind"].stringValue) ?? ""
         switch kind {
         case "inbox": return L("收到新消息", "New messages")
@@ -35,6 +37,7 @@ struct AgentWorkPage: Codable, Sendable {
     var record_sync_state: String?
     var latest_main_usage: JSONValue?; var other_executions: [AgentWorkSession]?; var control_items: [AgentWorkItem]?
     var turns: [AgentWorkTurn]; var next_cursor: String?; var next_turn_id: String?; var catalog: String?
+    var timeline: String?; var next_turn_seq: Int?
 }
 struct AgentWorkItemPage: Codable, Sendable { var items: [AgentWorkItem]; var next_cursor: String?; var revision: Int? }
 
@@ -48,21 +51,42 @@ struct AgentWorkHistory {
 
     var turns: [AgentWorkTurn] { records.values.sorted { ($0.seq ?? 0) > ($1.seq ?? 0) } }
 
-    mutating func merge(_ page: AgentWorkPage, before: String? = nil) {
-        if let before, let first = page.turns.first {
-            older[first.session_id + ":" + before] = first.turn_id
+    private var combined = false
+
+    private func position(_ turn: AgentWorkTurn) -> String {
+        if combined, let seq = turn.seq { return String(seq) }
+        return turn.turn_id
+    }
+
+    mutating func merge(_ page: AgentWorkPage, after boundary: AgentWorkTurn? = nil) {
+        combined = page.timeline == "combined"
+        if let boundary {
+            older[boundary.id] = page.turns.first.map { position($0) }
+            earlier.remove(boundary.id)
         }
         for (offset, turn) in page.turns.enumerated() {
-            if before != nil && records[turn.id] != nil { continue }
+            if boundary != nil && records[turn.id] != nil { continue }
             records[turn.id] = turn
-            older[turn.id] = offset + 1 < page.turns.count ? page.turns[offset + 1].turn_id : page.next_turn_id
+            let next = page.turns.dropFirst(offset + 1).first
+            older[turn.id] = next.map { position($0) } ?? (combined ? page.next_turn_seq.map { String($0) } : page.next_turn_id)
             if offset + 1 == page.turns.count && page.next_cursor != nil { earlier.insert(turn.id) }
             else { earlier.remove(turn.id) }
         }
     }
 
+    /// Focus neighbors belong to the anchored session; combined pages have a different ordering.
+    mutating func merge(_ focus: AgentWorkFocus) {
+        let turn = focus.turn
+        guard !combined, records[turn.id] == nil else { return }
+        records[turn.id] = turn
+        older[turn.id] = focus.older_turn_id
+        if let newer = focus.newer_turn_id {
+            older[turn.session_id + ":" + newer] = turn.turn_id
+        }
+    }
+
     func hasGap(after turn: AgentWorkTurn, before following: AgentWorkTurn) -> Bool {
-        older[turn.id] != following.turn_id
+        older[turn.id] != position(following)
     }
 
     func hasEarlier(after turn: AgentWorkTurn) -> Bool { older[turn.id] != nil || earlier.contains(turn.id) }
@@ -99,4 +123,62 @@ func agentVisibleWorkItems(_ source: [AgentWorkItem]) -> [AgentWorkItem] {
         }
         return item
     }
+}
+
+struct AgentWorkFocus: Decodable, Sendable {
+    let turn: AgentWorkTurn
+    let newer_turn_id: String?
+    let older_turn_id: String?
+}
+
+struct AgentActivitySession: Decodable, Identifiable, Sendable {
+    let session_id: String
+    let title: String?
+    let status: String
+    var id: String { session_id }
+}
+
+struct AgentActivityPage: Decodable, Sendable {
+    struct Tool: Decodable, Sendable { let name: String; let label: String?; let status: String? }
+    let revision: Int
+    let node_connection_state: String
+    let record_sync_state: String
+    let main_execution: String
+    let latest_tool: Tool?
+    let running_count: Int?
+    let waiting_permission_count: Int?
+    let sessions: [AgentActivitySession]
+    let next_cursor: String?
+
+    var confirmedChildren: Bool {
+        node_connection_state == "online" && record_sync_state == "current" && running_count != nil && waiting_permission_count != nil
+    }
+}
+
+struct AgentDelegationNode: Decodable, Identifiable, Sendable {
+    struct Usage: Decodable, Sendable {
+        let total_tokens: Int?
+        let reported_turns: Int
+        let missing_turns: Int
+        var turns: Int { reported_turns + missing_turns }
+    }
+    let session_id: String
+    let parent_session_id: String?
+    let title: String?
+    let status: String
+    let last_active_at: String?
+    let ancestor_only: Bool?
+    let usage: Usage
+    var id: String { session_id }
+}
+
+struct AgentDelegationPage: Decodable, Sendable {
+    let from: String
+    let until: String
+    let revision: Int
+    let node_connection_state: String
+    let record_sync_state: String
+    let main_session_id: String?
+    let nodes: [AgentDelegationNode]
+    let next_cursor: String?
 }

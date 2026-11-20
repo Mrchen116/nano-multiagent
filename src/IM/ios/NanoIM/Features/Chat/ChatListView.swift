@@ -4,6 +4,14 @@ struct ChatListView: View {
     @Bindable var store: ChatStore
     let open: (String) -> Void
     @State private var search = ""
+    @State private var personal: NativePersonalAgentState?
+    @State private var setupAssistant = false
+    private var personalID: String? {
+        if let personal { return personal.creation == nil ? personal.binding?.conversation_id : nil }
+        return store.conversations.first {
+            $0.type == "direct" && $0.peerAgent?.role == "personal" && $0.participants.contains { $0.type == "user" && $0.id == store.user.id }
+        }?.id
+    }
     @State private var category = "all"
     @State private var newChat = false
     @State private var distill = false
@@ -25,7 +33,7 @@ struct ChatListView: View {
     var body: some View {
         List {
             NanoSearchField(text: $search, prompt: L("搜索聊天", "Search conversations"))
-                .listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 8, trailing: 20))
+                .listRowSeparator(.hidden).listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 8, trailing: 16))
             if let reason = store.storageDegradedReason {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L("本次没有本地缓存", "No local cache this time")).font(.callout.weight(.semibold))
@@ -56,55 +64,104 @@ struct ChatListView: View {
             if let error = store.listError, store.listPhase == .loaded || store.listPhase == .empty {
                 ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await store.retryListError() } }
             }
+            if showPersonalRow {
+                if let chat = store.conversations.first(where: { $0.id == personalID }) {
+                    conversationRow(chat, pinnedPA: true)
+                } else if let binding = personal?.binding, let id = personalID {
+                    Button { open(id) } label: {
+                        HStack {
+                            AssistantPortrait(personal: true, seed: binding.agent_id, selected: binding.avatar_variant, size: 38)
+                            Text(binding.display_name).font(.headline)
+                            Image(systemName: "pin").font(.caption2)
+                        }
+                    }.buttonStyle(.plain)
+                } else if personal != nil {
+                    Button { setupAssistant = true } label: {
+                        HStack(spacing: 10) {
+                            AssistantPortrait(personal: true, seed: store.user.id, selected: nil, size: 38)
+                            Text(personal?.creation == nil ? L("创建个人助手", "Create personal assistant") : L("继续设置个人助手", "Continue assistant setup")).font(.subheadline.weight(.semibold))
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption)
+                        }.contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityIdentifier("assistant.setup.entry")
+                }
+            }
             Group {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        categoryButton("all", L("全部", "All")); categoryButton("people", L("真人", "People"))
-                        categoryButton("agent", "Agent"); categoryButton("group", L("群聊", "Groups")); categoryButton("network", L("协作网", "Network"))
+                        categoryButton("all", L("全部", "All")); categoryButton("people", L("同事", "People"))
+                        categoryButton("agent", L("助手", "Assistants")); categoryButton("group", L("群聊", "Groups")); categoryButton("network", L("AI 协作", "Network"))
                     }.padding(.vertical, 2)
                 }
-            }.listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 10, trailing: 20)).listRowSeparator(.hidden)
-            ForEach(filtered) { chat in
-                Button { open(chat.id) } label: {
-                    HStack(spacing: 12) {
-                        AvatarView(name: chat.avatarName(selfID: store.user.id), kind: chat.type == "group" ? "group" : chat.category == "agent" ? "agent" : "person")
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 6) {
-                                Text(chat.title).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).lineLimit(1)
-                                if chat.is_pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(NanoTheme.muted) }
-                                if chat.is_muted { Image(systemName: "bell.slash").font(.caption2).foregroundStyle(NanoTheme.muted) }
-                                if chat.run_state == "running" { Label(L("进行中", "Running"), systemImage: "ellipsis.circle").font(.caption2).foregroundStyle(NanoTheme.accent) }
-                                Spacer(minLength: 4)
-                                NanoTimestamp(value: chat.last_message_at ?? chat.created_at)
-                            }
-                            HStack(spacing: 8) {
-                                Text(preview(chat) ?? L("开始聊天", "Start a conversation"))
-                                    .font(.subheadline).foregroundStyle(NanoTheme.muted).lineLimit(1)
-                                Spacer(minLength: 0)
-                                if chat.unread_count > 0 { Text(chat.unread_count > 99 ? "99+" : "\(chat.unread_count)").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 3).foregroundStyle(.white).background(NanoTheme.accent, in: Capsule()) }
-                            }
-                        }
-                    }.padding(.vertical, 8)
-                }.buttonStyle(.plain).listRowInsets(EdgeInsets(top: 3, leading: 20, bottom: 3, trailing: 20)).contextMenu {
-                    if chat.can_write != false {
-                    Button(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin")) { patch(chat, "is_pinned", !chat.is_pinned) }
-                    Button(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute")) { patch(chat, "is_muted", !chat.is_muted) }
-                    }
-                }
-                .swipeActions(edge: .leading, allowsFullSwipe: false) { if chat.can_write != false { Button { patch(chat, "is_pinned", !chat.is_pinned) } label: { Label(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin"), systemImage: "pin") }.tint(NanoTheme.accent) } }
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) { if chat.can_write != false { Button { patch(chat, "is_muted", !chat.is_muted) } label: { Label(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute"), systemImage: "bell.slash") }.tint(.gray) } }
+            }.listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 2, trailing: 12)).listRowSeparator(.hidden)
+            ForEach(filtered.filter { !showPersonalRow || $0.id != personalID }) { chat in
+                conversationRow(chat, pinnedPA: false)
             }
-            if filtered.isEmpty, store.listPhase == .empty {
+            if !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ChatMessageSearch(store: store, query: search, category: category, open: open)
+            } else if filtered.isEmpty, store.listPhase == .empty, personal == nil || !showPersonalRow {
                 ContentUnavailableView(search.isEmpty ? L("暂无聊天", "No conversations") : L("没有找到聊天", "No matching conversations"), systemImage: search.isEmpty ? "bubble.left.and.bubble.right" : "magnifyingglass", description: Text(search.isEmpty ? L("使用右上角 + 创建聊天。", "Use + to start a conversation.") : L("试试其他名称或关键词。", "Try another name or keyword.")))
             }
         }.nanoList().chatContinuityTitle(L("聊天", "Chats"), store: store, surface: .list)
-            .refreshable { await store.loadConversations() }
+            .task { await readPersonal() }
+            .sheet(isPresented: $setupAssistant, onDismiss: { Task { await readPersonal() } }) {
+                NavigationStack {
+                    PersonalAssistantSetup(client: store.client, user: store.user) { id in
+                        setupAssistant = false
+                        open(id)
+                        Task { await store.loadConversations() }
+                    }
+                    .toolbar { ToolbarItem(placement: .cancellationAction) {
+                        Button(L("稍后", "Later")) { setupAssistant = false }
+                    } }
+                }
+            }
+            .refreshable { await store.loadConversations(); await readPersonal() }
             .toolbar { ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu { Button(L("整理会话知识", "Distill conversations"), systemImage: "sparkles") { distill = true } } label: { Image(systemName: "ellipsis") }.accessibilityLabel(L("更多聊天操作", "More conversation actions"))
                 Button { newChat = true } label: { Image(systemName: "plus") }.accessibilityLabel(L("新建聊天", "New conversation"))
             } }
             .sheet(isPresented: $newChat) { NewChatView(client: store.client, userID: store.user.id) { chat in newChat = false; Task { await store.loadConversations() }; open(chat.id) } }
             .sheet(isPresented: $distill) { DistillView(store: store) { id, text in store.setDraft(id, text); distill = false; open(id) } }
+    }
+    private var showPersonalRow: Bool { search.isEmpty && (category == "all" || category == "agent") }
+    private func readPersonal() async {
+        do {
+            let state: NativePersonalAgentState = try await store.client.get("/im/v1/personal-agent")
+            try Task.checkCancellation()
+            personal = state
+        } catch let error as APIError where error.status == 403 { personal = nil }
+        catch { }
+    }
+    private func conversationRow(_ chat: Conversation, pinnedPA: Bool) -> some View {
+        Button { open(chat.id) } label: {
+            HStack(spacing: 12) {
+                AvatarView(name: chat.avatarName(selfID: store.user.id), kind: chat.type == "group" ? "group" : chat.category == "agent" ? "agent" : "person", size: 38, agentID: chat.peerAgent?.id, role: pinnedPA ? "personal" : chat.peerAgent?.role, variant: chat.peerAgent?.avatar_variant ?? (pinnedPA ? personal?.binding?.avatar_variant : nil))
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(chat.title).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).lineLimit(1)
+                        if chat.is_pinned || pinnedPA { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(NanoTheme.muted) }
+                        if chat.is_muted { Image(systemName: "bell.slash").font(.caption2).foregroundStyle(NanoTheme.muted) }
+                        if chat.run_state == "running" { Label(L("进行中", "Running"), systemImage: "ellipsis.circle").font(.caption2).foregroundStyle(NanoTheme.accent) }
+                        Spacer(minLength: 4)
+                        if let time = chat.last_message_at { NanoTimestamp(value: time) }
+                    }
+                    HStack(spacing: 8) {
+                        Text(preview(chat) ?? L("开始聊天", "Start a conversation"))
+                            .font(.subheadline).foregroundStyle(NanoTheme.muted).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if chat.unread_count > 0 { Text(chat.unread_count > 99 ? "99+" : "\(chat.unread_count)").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 3).foregroundStyle(.white).background(NanoTheme.accent, in: Capsule()) }
+                    }
+                }
+            }.padding(.vertical, 5).contentShape(Rectangle())
+        }.buttonStyle(.plain).listRowInsets(EdgeInsets(top: 3, leading: 16, bottom: 3, trailing: 16)).contextMenu {
+            if chat.can_write != false {
+            Button(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin")) { patch(chat, "is_pinned", !chat.is_pinned) }
+            Button(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute")) { patch(chat, "is_muted", !chat.is_muted) }
+            }
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) { if chat.can_write != false { Button { patch(chat, "is_pinned", !chat.is_pinned) } label: { Label(chat.is_pinned ? L("取消置顶", "Unpin") : L("置顶", "Pin"), systemImage: "pin") }.tint(NanoTheme.accent) } }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) { if chat.can_write != false { Button { patch(chat, "is_muted", !chat.is_muted) } label: { Label(chat.is_muted ? L("取消静音", "Unmute") : L("静音", "Mute"), systemImage: "bell.slash") }.tint(.gray) } }
     }
     /// A3. A first load with nothing to show must not claim "no conversations" — it may be the
     /// network or the service, and the two say different things.
@@ -119,7 +176,7 @@ struct ChatListView: View {
         Button { category = value } label: {
             Text(title).font(.subheadline.weight(category == value ? .semibold : .regular))
                 .foregroundStyle(category == value ? NanoTheme.accent : NanoTheme.muted)
-                .padding(.horizontal, 13).padding(.vertical, 9)
+                .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(category == value ? NanoTheme.softAccent : Color.clear, in: Capsule())
         }.buttonStyle(.plain).accessibilityAddTraits(category == value ? .isSelected : [])
     }
@@ -164,7 +221,7 @@ struct NewChatView: View {
                     if loaded && filtered.isEmpty && error == nil { Text(search.isEmpty ? L("暂无联系人", "No contacts") : L("没有匹配的联系人", "No matching contacts")).foregroundStyle(.secondary) }
                     ForEach(filtered) { contact in
                         Button { if selection.contains(contact.id) { selection.remove(contact.id) } else if group { selection.insert(contact.id) } else { selection = [contact.id] } } label: {
-                            HStack { AvatarView(name: contact.display_name, online: contact.status == "online", kind: contact.kind == "agent" ? "agent" : "person"); VStack(alignment: .leading) {
+                            HStack { AvatarView(name: contact.display_name, online: contact.status == "online", kind: contact.kind == "agent" ? "agent" : "person", agentID: contact.agent_id, role: contact.role, variant: contact.avatar_variant); VStack(alignment: .leading) {
                                 Text(contact.display_name).foregroundStyle(.primary)
                                 Text([contact.kind == "agent" ? "Agent" : L("真人", "Person"), contact.owner_display_name, contact.node_name].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
                             }; Spacer(); Image(systemName: selection.contains(contact.id) ? "checkmark.circle.fill" : "circle") }

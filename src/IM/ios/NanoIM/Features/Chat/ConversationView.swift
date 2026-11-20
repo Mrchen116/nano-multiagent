@@ -16,6 +16,21 @@ struct ConversationView: View {
     @State private var cardPresentations = InteractiveCardPresentations()
     @State private var confirmFork: ChatMessage?
     @State private var operationError: String?
+    @State private var activityContact: Contact?
+    @State private var workDestination: WorkDestination?
+    @State private var workContacts: [String: Contact] = [:]
+    private struct WorkDestination: Hashable {
+        let agentID: String
+        let messageID: String
+        let canManage: Bool
+    }
+    private var location: ChatMessageLocation? {
+        store.messageLocation.flatMap { $0.conversationID == conversationID ? $0 : nil }
+    }
+    private var directContact: Contact? {
+        guard conversation?.type == "direct", let actor = conversation?.participants.first(where: { $0.type == "agent" }) else { return nil }
+        return workContacts[actor.id]
+    }
     @State private var selection = NSRange(location: 0, length: 0)
     @State private var editing = false
     @State private var composing = false
@@ -54,7 +69,7 @@ struct ConversationView: View {
             if let error = store.errors[conversationID] ?? operationError { ErrorNotice(message: error).padding(10) }
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 18) {
+                    LazyVStack(alignment: .leading, spacing: 12) {
                         // A confirmed access loss is not a missing cache or a connection
                         // problem; the dedicated revocation notice below owns that state.
                         if items.isEmpty && !store.revokedChats.contains(conversationID)
@@ -68,10 +83,11 @@ struct ConversationView: View {
                                     Button(L("重试", "Retry")) { Task { await store.loadChat(conversationID) } }
                                 }.frame(maxWidth: .infinity).padding(.vertical, 24)
                             } else if timelinePhase == .empty {
-                                Text(L("还没有消息", "No messages yet"))
-                                    .font(.callout).foregroundStyle(.secondary)
-                                    .frame(maxWidth: .infinity).padding(.vertical, 24)
-                                    .accessibilityIdentifier("conversation.empty")
+                                ConversationStarters(store: store, conversation: conversation,
+                                    canStart: draft.wrappedValue.isEmpty && uploads.isEmpty && store.pending[conversationID] == nil) { text in
+                                    guard draft.wrappedValue.isEmpty else { return }
+                                    store.setDraft(conversationID, text)
+                                }
                             } else {
                                 ProgressView(L("正在加载聊天…", "Loading conversation…")).frame(maxWidth: .infinity).padding(.vertical, 24)
                             }
@@ -94,7 +110,7 @@ struct ConversationView: View {
                                         Text(date, format: Calendar.current.isDateInToday(date) ? .dateTime.hour().minute() : .dateTime.year().month().day().hour().minute())
                                             .font(.caption2).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity)
                                     }
-                                    ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, presentations: cardPresentations, scroll: scrollState, refreshed: { Task { await store.loadChat(conversationID) } })
+                                    ChatMessageView(client: store.client, chat: store, message: message, selfID: store.user.id, participants: conversation?.participants ?? [], showSenderName: conversation?.type == "group" || conversation?.is_observer == true, readOnly: conversation?.can_write == false, presentations: cardPresentations, scroll: scrollState, openActivity: activityAction(for: message), refreshed: { Task { await store.loadChat(conversationID) } })
                                 }
                                     .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .row(item.id)))
                                     .id(item.id).contextMenu { messageActions(message) }
@@ -109,7 +125,7 @@ struct ConversationView: View {
                                         let viewport = scrollState.viewport
                                         return frame.intersection(viewport).height >= min(44, frame.height) && !viewport.isEmpty
                                     } action: { _, visible in
-                                        if visible { Task { await store.markRead(conversationID, messageID: message.id) } }
+                                        if visible, location == nil { Task { await store.markRead(conversationID, messageID: message.id) } }
                                     }
                             } else {
                                 Label(L("Agent 配置已更新", "Agent configuration updated"), systemImage: "slider.horizontal.3").font(.caption).foregroundStyle(.secondary).id(item.id)
@@ -121,8 +137,8 @@ struct ConversationView: View {
                 }
                 .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .viewport))
                 .contentMargins(16, for: .scrollContent)
-                .defaultScrollAnchor(.bottom, for: .initialOffset)
-                .defaultScrollAnchor(.bottom, for: .alignment)
+                .defaultScrollAnchor(location == nil ? .bottom : .top, for: .initialOffset)
+                .defaultScrollAnchor(.top, for: .alignment)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in
                     scrollState.viewportChanged(frame)
                 }
@@ -132,8 +148,14 @@ struct ConversationView: View {
                 .onScrollPhaseChange { _, phase, context in
                     scrollState.phaseChanged(phase, geometry: context.geometry)
                 }
+                .overlay(alignment: .top) {
+                    if location != nil {
+                        ProgressView(L("正在定位原文", "Finding original message")).font(.caption)
+                            .padding(8).background(.regularMaterial, in: Capsule())
+                    }
+                }
                 .overlay(alignment: .bottomTrailing) {
-                    LatestMessagesButton(scroll: scrollState)
+                    LatestMessagesButton(scroll: scrollState, locating: location != nil) { store.messageLocation = nil }
                 }
                 .onChange(of: items.compactMap { $0.message?.id }, initial: true) { _, ids in scrollState.contentChanged(orderedMessageIDs: ids) }
                 .onChange(of: store.restoreReadingPositions[conversationID]) { _, anchor in
@@ -199,19 +221,63 @@ struct ConversationView: View {
                 }.padding().frame(maxWidth: .infinity).background(.bar)
             } else { composer.disabled(conversation == nil) }
         }
-        .background(NanoTheme.canvas)
+        .background(NanoTheme.surface)
         .overlay(alignment: .top) { if copied { Label(L("已复制正文", "Message copied"), systemImage: "checkmark.circle.fill").font(.callout).padding(12).background(.regularMaterial, in: Capsule()).padding(.top, 8) } }
+        .navigationDestination(item: $workDestination) { target in
+            AgentMessageWorkView(client: store.client, agentID: target.agentID, messageID: target.messageID,
+                                 canManage: target.canManage, onOpenChat: openChat)
+        }
+        .sheet(item: $activityContact) { contact in
+            NavigationStack {
+                AgentActivityView(client: store.client, contact: contact, canManage: contact.owner_id == store.user.id || contact.owner_id == store.user.owner_id, onOpenChat: { id in
+                    activityContact = nil
+                    openChat(id)
+                }).toolbar { ToolbarItem(placement: .confirmationAction) {
+                    Button(L("完成", "Done")) { activityContact = nil }
+                } }
+            }.presentationDetents([.medium, .large])
+        }
+        .task(id: location) {
+            guard let target = location else { return }
+            operationError = nil
+            let revision = scrollState.beginLocation(target.messageID)
+            do {
+                try await store.locate(target)
+                if !Task.isCancelled, store.messageLocation == target, scrollState.policy.revision == revision {
+                    scrollState.endLocation(target.messageID, revision: revision, found: true)
+                }
+            } catch {
+                if !Task.isCancelled, store.messageLocation == target, scrollState.policy.revision == revision {
+                    scrollState.endLocation(target.messageID, revision: revision, found: false)
+                    operationError = error.localizedDescription
+                }
+            }
+            if !Task.isCancelled, store.messageLocation == target { store.messageLocation = nil }
+        }
         .task(id: copied) { if copied { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { copied = false } } }
         .chatContinuityTitle(conversation?.title ?? L("聊天", "Conversation"), store: store,
-                             surface: .conversation(conversationID), loadEarlier: loadEarlier)
+                             surface: .conversation(conversationID), titleAction: directContact.map { contact in { activityContact = contact } }, loadEarlier: loadEarlier)
         .toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink {
             ChatInfoView(store: store, conversationID: conversationID, openChat: openChat)
         } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel(L("聊天详情", "Conversation details")) } }
         .task(id: conversationID) {
-            await store.openConversation(conversationID)
+            if location == nil { await store.openConversation(conversationID) }
+            else { store.selectedID = conversationID }
             do { let result: ItemsPage<ChatCommandSet> = try await store.client.get("/im/v1/conversations/\(conversationID.pathComponent)/commands"); commands = result.items }
             catch { /* Commands are optional when a target device is offline; message sending remains available. */ }
+        }
+        .task(id: conversationID + String(phase == .active)) {
+            guard phase == .active else { return }
+            do {
+                let contacts = try await store.client.contacts(kind: "agent")
+                guard !Task.isCancelled else { return }
+                workContacts = Dictionary(contacts.compactMap { contact -> (String, Contact)? in
+                    guard let id = contact.agent_id, contact.work_mode == "global",
+                          contact.role != "personal" || contact.owner_id == store.user.id else { return nil }
+                    return (id, contact)
+                }, uniquingKeysWith: { first, _ in first })
+            } catch { if !Task.isCancelled { workContacts = [:] } }
         }
         .task(id: "\(conversationID)-\(phase == .active)") {
             guard phase == .active else { return }
@@ -248,6 +314,16 @@ struct ConversationView: View {
     }
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if let reply = store.pending[conversationID]?.reply ?? store.replies[conversationID] {
+                HStack {
+                    ChatReplyLabel(reply: reply, participants: conversation?.participants ?? [])
+                    Spacer()
+                    if store.pending[conversationID] == nil {
+                        Button { store.setReply(conversationID, nil) } label: { Image(systemName: "xmark.circle.fill") }
+                            .foregroundStyle(.secondary).accessibilityLabel(L("取消引用", "Remove quote"))
+                    }
+                }
+            }
             if let pending = store.pending[conversationID], !store.sending.contains(conversationID) {
                 HStack { Text(L("等待核对发送结果", "Awaiting delivery confirmation")).font(.caption); Spacer(); Button(L("重试核对", "Retry")) { Task { await store.send(conversationID, retry: true) } } }
                     .accessibilityHint(pending.content)
@@ -366,7 +442,7 @@ struct ConversationView: View {
                         ForEach(members, id: \.id) { actor in
                             Button { selectCompletion(completion, value: ChatText.mention(actor, participants: conversation?.participants ?? [])) } label: {
                                 HStack(spacing: 10) {
-                                    AvatarView(name: actor.display_name ?? actor.id, kind: actor.type == "agent" ? "agent" : "person", size: 32)
+                                    AvatarView(name: actor.display_name ?? actor.id, kind: actor.type == "agent" ? "agent" : "person", size: 32, agentID: actor.id, role: actor.role, variant: actor.avatar_variant)
                                     Text(actor.display_name ?? actor.id).foregroundStyle(NanoTheme.ink)
                                     Spacer()
                                     Text(actor.type == "agent" ? "Agent" : L("真人", "Person")).font(.caption).foregroundStyle(NanoTheme.muted)
@@ -413,10 +489,29 @@ struct ConversationView: View {
         operationError = nil
         await store.addUpload(conversationID, data: data, name: name, type: type)
     }
+    private func activityAction(for message: ChatMessage) -> (() -> Void)? {
+        guard message.sender.type == "agent", message.work_record_deleted != true,
+              let contact = workContacts[message.sender.id] else { return nil }
+        return { activityContact = contact }
+    }
     @ViewBuilder private func messageActions(_ message: ChatMessage) -> some View {
         Button(L("复制正文", "Copy message"), systemImage: "doc.on.doc") {
             UIPasteboard.general.string = MarkdownContent.copy(ChatText.display(message.content, participants: conversation?.participants ?? []))
             copied = true
+        }
+        if conversation?.can_write != false, conversation != nil, store.pending[conversationID] == nil,
+           let reply = message.availableReply {
+            Button(L("引用", "Quote reply"), systemImage: "quote.opening") {
+                store.setReply(conversationID, reply)
+                focusRequest = ComposerFocusRequest(selection: selection)
+            }
+        }
+        if message.sender.type == "agent", workContacts[message.sender.id] != nil || message.work_record_deleted == true,
+           message.delegation == nil || message.delegation?["authorized_by"].stringValue == store.user.id {
+            Button(L("查看这条回复的工作记录", "View work for this reply"), systemImage: "list.bullet.rectangle") {
+                workDestination = WorkDestination(agentID: message.sender.id, messageID: message.id,
+                                                  canManage: workContacts[message.sender.id]?.owner_id == store.user.id)
+            }
         }
         if conversation?.category == "agent", message.sender.type == "agent", message.kernel_message_id != nil, message.delivery_status == "completed" {
             Button(L("从这里分支", "Fork from here"), systemImage: "arrow.triangle.branch") { confirmFork = message }
@@ -432,10 +527,12 @@ struct ConversationView: View {
 
 private struct LatestMessagesButton: View {
     let scroll: ChatScrollCoordinator
+    let locating: Bool
+    let cancel: () -> Void
 
     var body: some View {
-        if scroll.showLatest {
-            Button { scroll.latest() } label: {
+        if scroll.showLatest || locating {
+            Button { cancel(); scroll.latest() } label: {
                 Image(systemName: "arrow.down").padding(12).background(.regularMaterial, in: Circle())
             }
             .padding()

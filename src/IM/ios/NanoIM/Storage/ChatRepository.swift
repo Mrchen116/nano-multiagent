@@ -14,6 +14,7 @@ enum ChatRevokeReason: String, Sendable {
 struct ChatBootstrapSeed: Sendable {
     var conversations: [Conversation]
     var drafts: [String: String]
+    var replies: [String: ChatReply] = [:]
     var pendingCount: Int
     var connection: ChatConnectionSeed
 }
@@ -150,11 +151,15 @@ actor ChatRepository {
                 ALTER TABLE actors ADD COLUMN is_deleted INTEGER;
                 """)
         }
+        migrator.registerMigration("v4_message_replies") { db in
+            try db.execute(sql: "ALTER TABLE drafts ADD COLUMN reply_json BLOB")
+            try db.execute(sql: "ALTER TABLE pending_sends ADD COLUMN reply_json BLOB")
+        }
         try migrator.migrate(queue)
         let policy = try persistence.policy()
         let handoffs = try persistence.loadHandoffs()
         try queue.write { db in
-            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '3')")
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '4')")
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.origin', ?)", arguments: [partition.origin.absoluteString])
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.user_id', ?)", arguments: [partition.userID])
             try applyPolicy(policy, db: db)
@@ -295,12 +300,14 @@ actor ChatRepository {
         return try read { db in
             let conversations = try Self.loadConversations(db)
             var drafts: [String: String] = [:]
-            for row in try Row.fetchAll(db, sql: "SELECT conversation_id, body FROM drafts") {
+            var replies: [String: ChatReply] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT conversation_id, body, reply_json FROM drafts") {
                 let id: String = row["conversation_id"]
                 drafts[id] = row["body"]
+                if let data: Data = row["reply_json"] { replies[id] = try JSONDecoder().decode(ChatReply.self, from: data) }
             }
             let pending = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM pending_sends") ?? 0
-            return ChatBootstrapSeed(conversations: conversations, drafts: drafts, pendingCount: pending,
+            return ChatBootstrapSeed(conversations: conversations, drafts: drafts, replies: replies, pendingCount: pending,
                                      connection: try Self.connectionSeed(db))
         }
     }
@@ -353,7 +360,8 @@ actor ChatRepository {
                         guard let body: Data = row["request_body"], let content: String = row["content"] else { return nil }
                         let source: String = row["source_message_id"]
                         let attachments = (try? Self.decode([ChatAttachment].self, from: row["attachments_json"] as String? ?? "[]")) ?? []
-                        let draft = PendingSend(key: row["attempt_key"], content: content, attachments: attachments, requestBody: body)
+                        let reply = try (row["reply_json"] as Data?).map { try JSONDecoder().decode(ChatReply.self, from: $0) }
+                        let draft = PendingSend(key: row["attempt_key"], content: content, attachments: attachments, requestBody: body, reply: reply)
                         return SendAttempt(conversationID: row["conversation_id"], sourceMessageID: source.isEmpty ? nil : source, draft: draft)
                     }
             }
@@ -615,13 +623,13 @@ actor ChatRepository {
         try attemptPersistence.removeHandoffs(conversationID: id)
     }
 
-    func setDraft(_ id: String, body: String) throws {
+    func setDraft(_ id: String, body: String, reply: ChatReply? = nil) throws {
         try write { db in
-            if body.isEmpty {
+            if body.isEmpty && reply == nil {
                 try db.execute(sql: "DELETE FROM drafts WHERE conversation_id=?", arguments: [id])
             } else {
-                try db.execute(sql: "INSERT OR REPLACE INTO drafts(conversation_id, body, updated_at) VALUES(?,?,?)",
-                               arguments: [id, body, Self.iso(Date())])
+                try db.execute(sql: "INSERT OR REPLACE INTO drafts(conversation_id, body, updated_at, reply_json) VALUES(?,?,?,?)",
+                               arguments: [id, body, Self.iso(Date()), try reply.map(Self.encodeReply)])
             }
         }
     }
@@ -638,8 +646,8 @@ actor ChatRepository {
             // Only this frozen ordinary message consumes matching composer text. A newer
             // draft (or an interaction reply) is independent and must survive the transaction.
             if attempt.sourceMessageID == nil {
-                try db.execute(sql: "DELETE FROM drafts WHERE conversation_id=? AND body=?",
-                               arguments: [attempt.conversationID, attempt.draft.content])
+                try db.execute(sql: "DELETE FROM drafts WHERE conversation_id=? AND body=? AND reply_json IS ?",
+                               arguments: [attempt.conversationID, attempt.draft.content, try attempt.draft.reply.map(Self.encodeReply)])
             }
         }
     }
@@ -647,10 +655,10 @@ actor ChatRepository {
     func removePending(_ attempt: SendAttempt, restoreDraft: Bool = false, write context: ChatWriteContext) throws {
         try write { db in
             try validate(context, db: db)
-            if restoreDraft, attempt.sourceMessageID == nil, !attempt.draft.content.isEmpty {
+            if restoreDraft, attempt.sourceMessageID == nil {
                 try db.execute(sql: """
-                    INSERT OR IGNORE INTO drafts(conversation_id, body, updated_at)
-                    SELECT conversation_id, ?, ? FROM pending_sends
+                    INSERT OR IGNORE INTO drafts(conversation_id, body, updated_at, reply_json)
+                    SELECT conversation_id, ?, ?, reply_json FROM pending_sends
                     WHERE conversation_id=? AND source_message_id='' AND attempt_key=?
                     """, arguments: [attempt.draft.content, Self.iso(Date()), attempt.conversationID, attempt.draft.key])
             }
@@ -797,15 +805,22 @@ actor ChatRepository {
         }
     }
 
+    // Compare the frozen composer with the live draft in the same SQLite transaction.
+    private static func encodeReply(_ reply: ChatReply) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return try encoder.encode(reply)
+    }
+
     private static func upsertPendingRow(_ attempt: SendAttempt, db: Database) throws {
         guard let body = attempt.draft.requestBody else { throw ChatRepositoryError.staleWrite }
         let attachments = try encode(attempt.draft.attachments)
         try db.execute(sql: """
-            INSERT OR IGNORE INTO pending_sends(conversation_id,source_message_id,attempt_key,content,attachments_json,request_body,created_at,last_error,updated_at)
-            VALUES(?,?,?,?,?,?,?,?,?)
+            INSERT OR IGNORE INTO pending_sends(conversation_id,source_message_id,attempt_key,content,attachments_json,request_body,created_at,last_error,updated_at,reply_json)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
             """, arguments: [attempt.conversationID, attempt.sourceMessageID ?? "", attempt.draft.key,
                              attempt.draft.content, String(decoding: attachments, as: UTF8.self), body,
-                             iso(Date()), nil, iso(Date())])
+                             iso(Date()), nil, iso(Date()), try attempt.draft.reply.map(encodeReply)])
     }
 
     private static func snapshotSeq(_ db: Database) throws -> Int {

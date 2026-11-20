@@ -4,6 +4,7 @@ struct MeView: View {
     let client: IMClient
     let user: AuthUser
     let onAccountUpdated: @MainActor () -> Void
+    var openChat: (String) -> Void
     let onSignOut: @MainActor () -> Void
     @AppStorage("nano.locale") private var locale = "zh"
     @State private var confirmSignOut = false
@@ -21,6 +22,11 @@ struct MeView: View {
                 }.padding(.vertical, 8)
             }
             if user.accountEnabled {
+                Section {
+                    NavigationLink { PersonalAssistantSetup(client: client, user: user, openChat: openChat) } label: {
+                        Label(L("我的个人助手", "My personal assistant"), systemImage: "bubble.left.and.sparkles")
+                    }
+                }
                 Section(L("账号与设备", "Account and devices")) {
                     NavigationLink {
                         SettingsAccountView(client: client, onAccountUpdated: onAccountUpdated)
@@ -157,7 +163,7 @@ struct SettingsHelpView: View {
     var body: some View {
         Form {
             Section(L("版本", "Version")) {
-                LabeledContent("Nano IM", value: (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") + " (" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") + ")")
+                LabeledContent("Crewden", value: (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "") + " (" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "") + ")")
                 if let revision = Bundle.main.object(forInfoDictionaryKey: "NanoIMBuildRevision") as? String { LabeledContent(L("代码版本", "Source revision"), value: revision).font(.caption).textSelection(.enabled) }
             }
             Section {
@@ -166,18 +172,18 @@ struct SettingsHelpView: View {
                 Text(L("App 打开时，提示其他未静音聊天的新消息，不显示正文。后台或锁屏时暂不提供系统推送；重新打开后会同步消息。", "While the app is active, show reminders for new messages in other unmuted chats without message text. Chat works with reminders off. This version does not guarantee system notifications in the background, on the lock screen or after termination. Messages catch up when you return."))
             }
             Section(L("免费安装", "Free installation")) {
-                Text(L("通过 AltStore 安装和管理 Nano IM。首次安装时，在 Mac 上运行 AltServer，并用 USB 连接手机完成配对。Apple 账号和验证码请只在系统或 AltStore 中输入。", "Install and manage Nano IM with AltStore. For first installation, run AltServer on your Mac and pair your iPhone over USB. Enter Apple credentials only in the system or AltStore."))
+                Text(L("通过 AltStore 安装和管理 Crewden。首次安装时，在 Mac 上运行 AltServer，并用 USB 连接手机完成配对。Apple 账号和验证码请只在系统或 AltStore 中输入。", "Install and manage Crewden with AltStore. For first installation, run AltServer on your Mac and pair your iPhone over USB. Enter Apple credentials only in the system or AltStore."))
                 Text(L("首次安装：USB 连接并信任 iPhone，在 Mini 的 AltServer 菜单选择 Install AltStore。按系统提示启用开发者模式，然后在 AltStore 的 My Apps 使用 + 选择本次构建的 IPA。", "First installation: connect and trust your iPhone over USB, then choose Install AltStore from Mini’s AltServer menu. Enable Developer Mode when prompted, then use + in AltStore → My Apps to select the built IPA."))
-                Text(L("免费签名通常有效 7 天。请在 AltStore 的 My Apps 查看 Nano IM 的实际到期时间和刷新结果。", "Free signing typically lasts 7 days. Check Nano IM’s actual expiration and refresh result in AltStore → My Apps."))
+                Text(L("免费签名通常有效 7 天。请在 AltStore 的 My Apps 查看 Crewden 的实际到期时间和刷新结果。", "Free signing typically lasts 7 days. Check Crewden’s actual expiration and refresh result in AltStore → My Apps."))
             }
             Section(L("同一 Wi-Fi 下续签", "Refresh on the same Wi-Fi")) {
                 Label(L("让 Mini 与 iPhone 连到同一局域网，并保持 AltServer 运行。", "Connect Mini and iPhone to the same local network and keep AltServer running."), systemImage: "1.circle")
-                Label(L("先完成 USB 配对并开启 Wi-Fi 同步；在 AltStore 的 My Apps 手动刷新 Nano IM。", "Pair over USB first and enable Wi-Fi sync. Refresh Nano IM in AltStore → My Apps."), systemImage: "2.circle")
-                Label(L("在 AltStore 检查新的到期时间，再打开 Nano IM。自动刷新依赖系统调度，不保证每次成功。", "Check the new expiration in AltStore, then open Nano IM. Automatic refresh depends on system scheduling and may not succeed every time."), systemImage: "3.circle")
+                Label(L("先完成 USB 配对并开启 Wi-Fi 同步；在 AltStore 的 My Apps 手动刷新 Crewden。", "Pair over USB first and enable Wi-Fi sync. Refresh Crewden in AltStore → My Apps."), systemImage: "2.circle")
+                Label(L("在 AltStore 检查新的到期时间，再打开 Crewden。自动刷新依赖系统调度，不保证每次成功。", "Check the new expiration in AltStore, then open Crewden. Automatic refresh depends on system scheduling and may not succeed every time."), systemImage: "3.circle")
             }
             Section(L("失败与过期恢复", "Failure and expiration recovery")) {
                 Text(L("找不到 AltServer：检查同网连接、Mini 是否唤醒及 AltServer 是否运行；必要时重新通过 USB 连接并确认设备信任。账号或签名错误按 AltStore 提示在系统界面处理。", "If AltServer cannot be found, check the network, ensure Mini is awake and AltServer is running. Reconnect over USB and confirm device trust if needed. Resolve account or signing errors through the AltStore and system prompts."))
-                Text(L("如果 Nano IM 已无法打开，若 AltStore 也已过期，USB 连接后从 AltServer 菜单重新安装 AltStore，再以同一 Apple 账号和 App 标识重新签名安装。不要先删除 App；服务端历史仍保留，重新登录后可继续访问有权限的聊天。续签不需要删除聊天数据或重启 Mini 的 IM/Gateway。", "If Nano IM can no longer open, if AltStore is also expired, reconnect over USB and reinstall AltStore from AltServer’s menu, then re-sign the app with the same Apple account and app identity. Do not delete the app first. Server history is retained and authorized chats remain accessible after signing in. Refreshing does not require deleting chat data or restarting Mini’s IM/Gateway."))
+                Text(L("如果 Crewden 已无法打开，若 AltStore 也已过期，USB 连接后从 AltServer 菜单重新安装 AltStore，再以同一 Apple 账号和 App 标识重新签名安装。不要先删除 App；服务端历史仍保留，重新登录后可继续访问有权限的聊天。续签不需要删除聊天数据或重启 Mini 的 IM/Gateway。", "If Crewden can no longer open, if AltStore is also expired, reconnect over USB and reinstall AltStore from AltServer’s menu, then re-sign the app with the same Apple account and app identity. Do not delete the app first. Server history is retained and authorized chats remain accessible after signing in. Refreshing does not require deleting chat data or restarting Mini’s IM/Gateway."))
                 Link(L("AltStore 官方帮助", "Official AltStore help"), destination: URL(string: "https://faq.altstore.io/altstore-classic/your-altstore")!)
             }
         }

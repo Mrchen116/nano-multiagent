@@ -35,9 +35,10 @@ struct AgentsView: View {
             } }
             if let binding, personalMatches {
                 Section(L("我的个人助手", "My personal assistant")) {
-                    NavigationLink { AgentConfigView(client: client, agentID: binding.agent_id) } label: {
+                    NavigationLink { PersonalAgentManagementView(client: client, agentID: binding.agent_id) } label: {
                         agentRow(agentID: binding.agent_id, name: binding.display_name, subtitle: L("个人助手", "Personal assistant"), status: contacts.first { $0.agent_id == binding.agent_id }?.status)
                     }.listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 12, trailing: 20))
+                        .accessibilityIdentifier("personal-agent-settings")
                         .accessibilityHint(L("打开个人助手配置", "Open personal assistant settings"))
                 }
             }
@@ -66,7 +67,9 @@ struct AgentsView: View {
     }
     private func agentRow(agentID: String, name: String, subtitle: String, status: String?) -> some View {
         HStack(spacing: 12) {
-            AvatarView(name: name, online: status == "online", kind: "agent")
+            AvatarView(name: name, online: status == "online", kind: "agent", agentID: agentID,
+                       role: binding?.agent_id == agentID ? "personal" : contacts.first { $0.agent_id == agentID }?.role,
+                       variant: contacts.first { $0.agent_id == agentID }?.avatar_variant ?? (binding?.agent_id == agentID ? binding?.avatar_variant : nil))
             VStack(alignment: .leading, spacing: 6) {
                 Text(name).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink).fixedSize(horizontal: false, vertical: true)
                 Text(subtitle).font(.caption).foregroundStyle(NanoTheme.muted).fixedSize(horizontal: false, vertical: true)
@@ -107,6 +110,7 @@ struct NativePersonalAgentState: Decodable, Sendable {
     var creation: JSONValue?
     struct Binding: Decodable, Sendable {
         var agent_id: String; var display_name: String; var status: String
+        var node_id: String?; var conversation_id: String?; var avatar_variant: Int?
     }
 }
 
@@ -127,7 +131,7 @@ struct AgentProfileView: View {
             Section {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 14) {
-                        AvatarView(name: shownContact.display_name, online: shownContact.status == "online", kind: "agent")
+                        AvatarView(name: shownContact.display_name, online: shownContact.status == "online", kind: "agent", agentID: agentID, role: shownContact.role, variant: shownContact.avatar_variant)
                         VStack(alignment: .leading, spacing: 5) {
                             Text(shownContact.display_name).font(.title3.bold())
                             Text(agentID).font(.caption).foregroundStyle(NanoTheme.muted)
@@ -152,12 +156,12 @@ struct AgentProfileView: View {
                 LabeledContent(L("工作模式", "Work mode"), value: shownContact.work_mode == "global" ? L("全局模式", "Global") : L("单会话", "Single conversation"))
             }
             if shownContact.work_mode == "global" {
-                Section { NavigationLink { AgentWorkView(client: client, agentID: agentID, canManage: owned, onOpenChat: onOpenChat) } label: { Label(L("工作轨迹", "Work"), systemImage: "point.3.connected.trianglepath.dotted") } }
+                Section { NavigationLink { AgentWorkView(client: client, agentID: agentID, canManage: owned, onOpenChat: onOpenChat, displayName: shownContact.display_name) } label: { Label(L("工作记录", "Work records"), systemImage: "point.3.connected.trianglepath.dotted") } }
             }
             if owned {
                 Section(L("管理", "Manage")) {
                     NavigationLink {
-                        AgentConfigView(client: client, agentID: agentID, onDeleted: shownContact.role == "personal" ? nil : { deleted = true })
+                        AgentConfigView(client: client, agentID: agentID, personal: shownContact.role == "personal", onDeleted: shownContact.role == "personal" ? nil : { deleted = true })
                     } label: { Label(L("配置", "Configuration"), systemImage: "slider.horizontal.3") }
                     NavigationLink { AgentChannelsView(client: client, agentID: agentID) } label: { Label(L("外部通道", "Channels"), systemImage: "antenna.radiowaves.left.and.right") }
                     NavigationLink { AgentSkillsView(client: client, agentID: agentID, canManage: owned, global: shownContact.work_mode == "global", onOpenChat: onOpenChat) } label: { Label(L("Skills 使用情况", "Skill usage"), systemImage: "sparkles") }
@@ -202,7 +206,14 @@ struct AgentCreateView: View {
     @State private var capabilities: AgentCapabilities?
     @State private var draft: AgentDraft
     @State private var initialDraft: AgentDraft
+    @State private var resolvedApproval: String?
+    private var approvalWorkspace: String {
+        if customWorkspace { return draft.workspace_root.trimmingCharacters(in: .whitespacesAndNewlines) }
+        guard !draft.agent_id.isEmpty else { return "" }
+        return capabilities?.default_workspace_template?.replacingOccurrences(of: "{agent_id}", with: draft.agent_id) ?? ""
+    }
     @State private var purpose = "general"
+    @State private var selectedVariant = 0
     @State private var advanced = false
     @State private var openingChat = false
     init(client: IMClient, nodeID: String? = nil) {
@@ -239,6 +250,7 @@ struct AgentCreateView: View {
                         Text(L("名称", "Name")).font(.caption).foregroundStyle(NanoTheme.muted)
                         TextField(L("例如：研究助手", "For example: Research assistant"), text: $draft.display_name)
                     }
+                    DisclosureGroup(L("助手形象", "Appearance")) { PortraitPicker(personal: false, variant: $selectedVariant) }
                     Picker(L("用途", "Purpose"), selection: $purpose) {
                         Text(L("日常协助", "Everyday help")).tag("general")
                         Text(L("研究与资料比较", "Research and comparison")).tag("research")
@@ -263,7 +275,7 @@ struct AgentCreateView: View {
                     }
                     if nodes.first(where: { $0.id == selectedNode })?.status == "offline" { Text(L("电脑离线，恢复连接后可创建助手。", "This computer is offline. Reconnect it to create an assistant.")).font(.caption).foregroundStyle(.secondary) }
                 }
-                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability, showProfile: false, showCapabilities: false)
+                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapabilities, approvalRules: resolvedApproval, customApprovalWorkspace: customWorkspace || !approvalWorkspace.isEmpty, showProfile: false, showCapabilities: false)
                 Section {
                     DisclosureGroup(L("高级设置", "Advanced settings"), isExpanded: $advanced) {
                         VStack(alignment: .leading, spacing: 6) { Text(L("助手标识", "Assistant ID")).font(.caption).foregroundStyle(.secondary); TextField("Agent ID", text: $draft.agent_id).textInputAutocapitalization(.never).autocorrectionDisabled() }
@@ -274,7 +286,7 @@ struct AgentCreateView: View {
                         else { Text(L("使用电脑默认目录", "Use the computer's default directory")).font(.callout).foregroundStyle(.secondary) }
                     }
                 }
-                if advanced { AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability, showProfile: false, showModels: false) }
+                if advanced { AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapabilities, showProfile: false, showModels: false) }
                 }.disabled(pending)
                 Section {
                     if let error { ErrorNotice(message: error) }
@@ -300,6 +312,16 @@ struct AgentCreateView: View {
         .sheet(item: $preview) { value in AgentTextSheet(title: L("指令预览", "Instruction preview"), text: value.prompt, preview: true) }
         .task { do { nodes = try await client.get("/im/v1/nodes"); if selectedNode.isEmpty { selectedNode = nodeID ?? nodes.first(where: { $0.status == "online" })?.id ?? "" } } catch { self.error = agentError(error) } }
         .task(id: selectedNode) { await loadCapabilities() }
+        .task(id: [selectedNode, approvalWorkspace]) {
+            resolvedApproval = nil
+            guard !selectedNode.isEmpty, !approvalWorkspace.isEmpty else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(300))
+                let result: JSONValue = try await client.get("/im/v1/nodes/" + agentSegment(selectedNode) + "/approval", query: [.init(name: "workspace_root", value: approvalWorkspace)])
+                try Task.checkCancellation()
+                resolvedApproval = result["inherited_approval_rules"].stringValue
+            } catch { }
+        }
         .onChange(of: purpose) { _, value in
             let instruction = value == "research" ? L("整理资料并比较方案，说明依据和待确认事项。", "Research and compare options, explaining evidence and open questions.") : value == "writing" ? L("协助构思、写作和修改，保留事实与原意。", "Help plan, write and revise while preserving facts and intent.") : ""
             draft.description = value == "research" ? L("研究与资料比较", "Research and comparison") : value == "writing" ? L("写作与内容策划", "Writing and planning") : ""
@@ -317,11 +339,11 @@ struct AgentCreateView: View {
             openURL(client.baseURL.appendingPathComponent("chat").appendingPathComponent(result.id))
         } catch { self.error = agentError(error) }
     }
-    private func changeCapability(_ action: CapabilityAction) {
+    private func changeCapabilities(_ actions: [CapabilityAction]) {
         capabilityToast = nil
         guard let capabilities else { return }
-        if let block = draft.changeCapability(action, capabilities: capabilities).first {
-            capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name)
+        if let block = draft.changeCapabilities(actions, capabilities: capabilities).first {
+            capabilityToast = .init(text: block.message, anchor: block.target.kind + ":" + block.target.name)
         }
     }
     private func loadCapabilities() async {
@@ -341,7 +363,11 @@ struct AgentCreateView: View {
     private func create(confirmed: Bool) async {
         guard draft.agent_id.range(of: "^[a-z0-9_-]+$", options: .regularExpression) != nil else { error = L("Agent ID 仅允许小写字母、数字、下划线和短横线。", "Agent ID accepts lowercase letters, digits, underscores, and hyphens only."); return }
         busy = true; error = nil; defer { busy = false }
-        do { created = try await client.send("/im/v1/nodes/\(agentSegment(selectedNode))/agents", body: draft.payload(creating: true, customWorkspace: customWorkspace, confirmed: confirmed)) }
+        do {
+            var payload = draft.payload(creating: true, customWorkspace: customWorkspace, confirmed: confirmed)
+            payload["avatar_variant"] = .number(Double(selectedVariant))
+            created = try await client.send("/im/v1/nodes/\(agentSegment(selectedNode))/agents", body: payload)
+        }
         catch {
             if let api = error as? APIError, api.code == "workspace_confirmation_required" { confirmWorkspace = true }
             else if let api = error as? APIError, api.code == "role_conflict" { self.error = L("这个工作区已有不同的角色约定。清空初始角色可保留现有约定，或选择另一个工作区。", "This workspace already has a different role agreement. Leave the initial role empty to keep it, or choose another workspace.") }

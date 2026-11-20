@@ -12,6 +12,7 @@ struct ChatInfoView: View {
     @State private var addingMembers = false
     @State private var memberSearch = ""
     @State private var error: String?
+    @State private var personal: NativePersonalAgentState.Binding?
     @State private var busy = false
     @State private var confirmDelete = false
     @State private var remove: ActorRef?
@@ -35,6 +36,11 @@ struct ChatInfoView: View {
                     Toggle(L("静音", "Muted"), isOn: Binding(get: { chat.is_muted }, set: { mutate(["is_muted": .bool($0)]) })).disabled(busy)
                 }
                 .disabled(chat.can_write == false) }
+                if let personal, personal.conversation_id == chat.id {
+                    Section { NavigationLink(L("个人助手设置", "Personal assistant settings")) {
+                        PersonalAgentManagementView(client: store.client, agentID: personal.agent_id)
+                    } }
+                }
                 if chat.type == "group" {
                     Section(L("可见范围", "Visibility")) {
                         if chat.can_change_visibility == true {
@@ -45,7 +51,7 @@ struct ChatInfoView: View {
                 }
                 Section(L("成员", "Members")) {
                     ForEach(chat.participants, id: \.id) { actor in
-                        HStack(spacing: 12) { AvatarView(name: actor.display_name ?? actor.id, kind: actor.type == "agent" ? "agent" : "person", size: 36); Text(actor.display_name ?? actor.id); Spacer(); Text(actor.type == "agent" ? "Agent" : L("真人", "Person")).font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 12) { AvatarView(name: actor.display_name ?? actor.id, kind: actor.type == "agent" ? "agent" : "person", size: 36, agentID: actor.id, role: actor.role, variant: actor.avatar_variant); Text(actor.display_name ?? actor.id); Spacer(); Text(actor.type == "agent" ? "Agent" : L("真人", "Person")).font(.caption).foregroundStyle(.secondary)
                             if chat.type == "group", chat.creator_id == store.user.id, chat.can_write != false, actor.user_id != store.user.id {
                                 Button(role: .destructive) { remove = actor } label: { Image(systemName: "minus.circle") }.accessibilityLabel(L("移除", "Remove"))
                             }
@@ -76,7 +82,7 @@ struct ChatInfoView: View {
                         ForEach(availableContacts) { contact in
                             Button { if selected.contains(contact.id) { selected.remove(contact.id) } else { selected.insert(contact.id) } } label: {
                                 HStack(spacing: 12) {
-                                    AvatarView(name: contact.display_name, online: contact.status == "online", kind: contact.kind == "agent" ? "agent" : "person")
+                                    AvatarView(name: contact.display_name, online: contact.status == "online", kind: contact.kind == "agent" ? "agent" : "person", agentID: contact.agent_id, role: contact.role, variant: contact.avatar_variant)
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(contact.display_name).foregroundStyle(NanoTheme.ink)
                                         Text([contact.kind == "agent" ? "Agent" : L("真人", "Person"), contact.agent_id, contact.owner_display_name, contact.node_name].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(NanoTheme.muted)
@@ -103,12 +109,30 @@ struct ChatInfoView: View {
     }
     private func load() async {
         let unsavedTitle = dirtyTitle ? title : nil
-        do { let value: Conversation = try await store.client.get("/im/v1/conversations/\(conversationID.pathComponent)"); chat = value; title = unsavedTitle ?? value.title; error = nil }
+        do { let value: Conversation = try await store.client.get("/im/v1/conversations/\(conversationID.pathComponent)"); chat = value; title = unsavedTitle ?? value.title; error = nil
+            if value.peerAgent?.role == "personal" {
+                let state: NativePersonalAgentState = try await store.client.get("/im/v1/personal-agent")
+                personal = state.binding?.conversation_id == value.id ? state.binding : nil
+            } else { personal = nil }
+        }
         catch { self.error = error.localizedDescription }
     }
     private func mutate(_ patch: [String: JSONValue]) {
         Task { busy = true; defer { busy = false }
-            do { let value: Conversation = try await store.client.send("/im/v1/conversations/\(conversationID.pathComponent)", method: "PATCH", body: patch); chat = value; if patch["title"] != nil { title = value.title }; error = nil; await store.loadConversations() }
+            do {
+                if let name = patch["title"]?.stringValue, chat?.peerAgent?.role == "personal" {
+                    let state: NativePersonalAgentState = try await store.client.get("/im/v1/personal-agent")
+                    if state.binding?.conversation_id == conversationID {
+                        let _: NativePersonalAgentState = try await store.client.send("/im/v1/personal-agent", method: "PATCH", body: ["display_name": name])
+                        title = chat?.title ?? ""
+                        await load()
+                        await store.loadConversations()
+                        return
+                    }
+                }
+                let value: Conversation = try await store.client.send("/im/v1/conversations/\(conversationID.pathComponent)", method: "PATCH", body: patch)
+                chat = value; if patch["title"] != nil { title = value.title }; error = nil; await store.loadConversations()
+            }
             catch { self.error = error.localizedDescription }
         }
     }

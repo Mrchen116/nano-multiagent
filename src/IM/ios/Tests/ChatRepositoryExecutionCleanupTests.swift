@@ -203,6 +203,36 @@ extension ChatRepositoryTests {
         return try JSONDecoder().decode(UserEvent.self, from: JSONSerialization.data(withJSONObject: body))
     }
 
+    func testReplyMigrationPreservesPlainDraftAndFrozenPendingBody() async throws {
+        let repo = try open()
+        let context = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a"), members: [], write: context)
+        try await repo.setDraft("a", body: "older draft")
+        let old = attempt("a", "already-sent")
+        try await repo.upsertPending(old, write: context)
+        let databaseURL = repo.location.databaseURL
+        try await repo.close()
+
+        let queue = try DatabaseQueue(path: databaseURL.path)
+        try await queue.write { db in
+            try db.execute(sql: """
+                ALTER TABLE drafts DROP COLUMN reply_json;
+                ALTER TABLE pending_sends DROP COLUMN reply_json;
+                DELETE FROM grdb_migrations WHERE identifier='v4_message_replies';
+                """)
+        }
+        try queue.close()
+        let upgraded = try open()
+        let seed = try await upgraded.bootstrapSeed()
+        let pending = try await upgraded.pendingAttempts()
+        XCTAssertEqual(seed.drafts["a"], "older draft")
+        XCTAssertNil(seed.replies["a"])
+        XCTAssertEqual(pending.first?.draft.requestBody, old.draft.requestBody)
+        XCTAssertEqual(pending.first?.draft.key, old.draft.key)
+        XCTAssertNil(pending.first?.draft.reply)
+        try await upgraded.close()
+    }
+
     func testPreviewMigrationPreservesExistingV2DraftPendingAndMessages() async throws {
         let repo = try open()
         let context = try await repo.writeContext()

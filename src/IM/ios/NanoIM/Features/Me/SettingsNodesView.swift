@@ -11,6 +11,7 @@ struct SettingsNodesView: View {
 
     var body: some View {
         List {
+            NavigationLink { ComputerInstallView(client: client) } label: { Label(L("连接新电脑", "Connect a computer"), systemImage: "desktopcomputer") }
             if let error { Section { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } } }
             if !loaded && error == nil { ProgressView(L("正在加载设备", "Loading devices")) }
             if loaded && nodes.isEmpty { ContentUnavailableView(L("尚未绑定设备", "No devices yet"), systemImage: "desktopcomputer", description: Text(L("返回“我的”，使用设备提供的链接绑定。", "Return to Me and bind with the link provided by your device."))) }
@@ -71,40 +72,45 @@ struct SettingsNodeView: View {
         _draft = State(initialValue: SettingsNodeUpdate(initial))
     }
     private var dirty: Bool { draft != SettingsNodeUpdate(node) }
-    private var canManage: Bool { accessible && node.owner_id == ownerID }
+    private var canManage: Bool { accessible && refreshError == nil && node.owner_id == ownerID }
     var body: some View {
         Form {
-            SettingsFeedback(error: error ?? refreshError, success: success)
-            Section { NavigationLink { ModelServicesView(client: client, nodeID: node.node_id) } label: { Label(L("模型服务", "Model services"), systemImage: "square.stack.3d.up") } }
-            Section(L("设备状态", "Device status")) {
-                LabeledContent(L("设备名称", "Device name"), value: node.node_name)
-                LabeledContent(L("设备 ID", "Device ID"), value: node.node_id).textSelection(.enabled)
-                LabeledContent(L("状态", "Status"), value: settingsStatus(node.status))
-                LabeledContent(L("最近心跳", "Last heartbeat")) { NanoDateTime(value: node.last_heartbeat_at) }
-                LabeledContent(L("版本", "Version"), value: node.version)
-                LabeledContent("Agent", value: String(node.agent_count))
-                if let message = node.last_error, !message.isEmpty { Text(message).foregroundStyle(.secondary).textSelection(.enabled) }
-            }
-            Section(L("设备配置", "Device settings")) {
-                VStack(alignment: .leading, spacing: 6) { Text(L("别名", "Alias")).font(.caption).foregroundStyle(.secondary); TextField(L("别名", "Alias"), text: $draft.alias) }
-                Toggle(L("启用中继", "Enable relay"), isOn: $draft.relay_enabled)
-                Toggle(L("启用上报", "Enable reporting"), isOn: $draft.reporting_enabled)
-            }.disabled(!canManage || busy)
-            if dirty { Section {
-                Button(L("放弃修改", "Discard changes")) { draft = SettingsNodeUpdate(node); error = nil; success = nil }.disabled(busy)
-            } }
-            Section {
-                NavigationLink {
-                    AgentCreateView(client: client, nodeID: node.node_id)
-                } label: { Label(L("在此设备创建 Agent", "Create agent on this device"), systemImage: "plus.circle") }
-                    .disabled(!canManage || node.status != "online")
-                if node.status != "online" { Text(L("设备恢复在线后可创建 Agent。", "Agent creation is available when the device is online.")).font(.footnote).foregroundStyle(.secondary) }
-            }
+            if accessible {
+                SettingsFeedback(error: error ?? refreshError, success: success)
+                Section { NavigationLink { ModelServicesView(client: client, nodeID: node.node_id) } label: { Label(L("模型服务", "Model services"), systemImage: "square.stack.3d.up") } }
+                Section(L("设备状态", "Device status")) {
+                    LabeledContent(L("设备名称", "Device name"), value: node.node_name)
+                    LabeledContent(L("设备 ID", "Device ID"), value: node.node_id).textSelection(.enabled)
+                    LabeledContent(L("状态", "Status"), value: settingsStatus(node.status))
+                    LabeledContent(L("最近心跳", "Last heartbeat")) { NanoDateTime(value: node.last_heartbeat_at) }
+                    LabeledContent(L("版本", "Version"), value: node.version)
+                    LabeledContent("Agent", value: String(node.agent_count))
+                    if let message = node.last_error, !message.isEmpty { Text(message).foregroundStyle(.secondary).textSelection(.enabled) }
+                }
+                if let update = node.update {
+                    ComputerUpdateSection(client: client, nodeID: node.id, update: update, canManage: canManage, refresh: refresh)
+                }
+                Section(L("设备配置", "Device settings")) {
+                    VStack(alignment: .leading, spacing: 6) { Text(L("别名", "Alias")).font(.caption).foregroundStyle(.secondary); TextField(L("别名", "Alias"), text: $draft.alias) }
+                    Toggle(L("启用中继", "Enable relay"), isOn: $draft.relay_enabled)
+                    Toggle(L("启用上报", "Enable reporting"), isOn: $draft.reporting_enabled)
+                }.disabled(!canManage || busy || node.update?.operation?.switching == true)
+                if dirty { Section {
+                    Button(L("放弃修改", "Discard changes")) { draft = SettingsNodeUpdate(node); error = nil; success = nil }.disabled(busy)
+                } }
+                Section {
+                    NavigationLink {
+                        AgentCreateView(client: client, nodeID: node.node_id)
+                    } label: { Label(L("在此设备创建 Agent", "Create agent on this device"), systemImage: "plus.circle") }
+                        .disabled(!canManage || node.status != "online")
+                    if node.status != "online" { Text(L("设备恢复在线后可创建 Agent。", "Agent creation is available when the device is online.")).font(.footnote).foregroundStyle(.secondary) }
+                }
+            } else if let refreshError { ErrorNotice(message: refreshError) }
         }
         .navigationTitle(node.name)
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .nanoUnsavedChanges(dirty)
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button(busy ? L("保存中…", "Saving…") : L("保存", "Save")) { Task { await save() } }.disabled(!canManage || busy || !dirty) } }
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button(busy ? L("保存中…", "Saving…") : L("保存", "Save")) { Task { await save() } }.disabled(!canManage || busy || !dirty || node.update?.operation?.switching == true) } }
         .onAppear { visible = true }
         .onDisappear { visible = false }
         .task(id: visible && scenePhase == .active) {
@@ -128,7 +134,10 @@ struct SettingsNodeView: View {
             // Live status refresh does not discard edits to alias or switches.
             if !dirty { draft = SettingsNodeUpdate(updated) }
             node = updated; accessible = true; refreshError = nil
-        } catch is CancellationError {} catch { self.refreshError = settingsError(error) }
+        } catch is CancellationError {} catch {
+            if let api = error as? APIError, [401, 403, 404].contains(api.status) { accessible = false }
+            self.refreshError = settingsError(error)
+        }
     }
     @MainActor private func save() async {
         guard canManage, !busy else { return }

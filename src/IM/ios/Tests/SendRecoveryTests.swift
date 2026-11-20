@@ -201,6 +201,43 @@ final class SendRecoveryTests: XCTestCase {
         store.resetProjection(); next.resetProjection()
     }
 
+    func testQuotedSendFreezesIdentityAndCardSubmissionLeavesQuoteDraftIntact() async throws {
+        let (store, _, _) = try await makeStore()
+        let repository = try await openRepository(for: store)
+        await store.loadConversations()
+        let reply = ChatReply(message_id: "original", sender: ActorRef(type: "user", id: "peer"),
+                              content: "Original text", attachments: [])
+        store.setReply("chat", reply)
+        await store.flushDrafts()
+        let seed = try await repository.bootstrapSeed()
+        XCTAssertEqual(seed.replies["chat"], reply)
+        let input = InteractionReplyInput(source_message_id: "card", state: [:])
+        let card = try store.client.prepareMessage(PendingSend(content: "", attachments: [], reply: reply),
+                                                   userID: user.id, interaction: input)
+        let cardBody = try JSONDecoder().decode(JSONValue.self, from: XCTUnwrap(card.requestBody))
+        XCTAssertNil(cardBody.objectValue?["reply_to_message_id"])
+        XCTAssertNotNil(cardBody.objectValue?["interaction_reply"])
+        try await repository.upsertPending(SendAttempt(conversationID: "chat", sourceMessageID: "card", draft: card),
+                                           write: repository.writeContext())
+        let afterCard = try await repository.bootstrapSeed()
+        XCTAssertEqual(afterCard.replies["chat"], reply)
+
+        store.setDraft("chat", "My reply")
+        await store.send("chat")
+        let frozen = try XCTUnwrap(store.pending["chat"])
+        let payload = try JSONDecoder().decode(JSONValue.self, from: XCTUnwrap(frozen.requestBody))
+        XCTAssertEqual(payload["reply_to_message_id"].stringValue, "original")
+        let pending = try await repository.pendingAttempts()
+        let restored = try XCTUnwrap(pending.first { $0.sourceMessageID == nil }?.draft)
+        XCTAssertEqual(restored.reply, reply)
+        XCTAssertEqual(restored.key, frozen.key)
+        XCTAssertEqual(restored.requestBody, frozen.requestBody)
+        let consumed = try await repository.bootstrapSeed()
+        XCTAssertNil(consumed.replies["chat"])
+        store.resetProjection()
+        try await repository.close()
+    }
+
     func testNewBodiesOmitPrivateBackgroundButLegacyFrozenBodyIsUnchanged() async throws {
         let (store, transport, _) = try await makeStore()
         let draft = try store.client.prepareMessage(PendingSend(content: "handwritten", attachments: []), userID: user.id)

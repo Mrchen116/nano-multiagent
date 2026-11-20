@@ -84,10 +84,10 @@ struct TaskActorLabel: View {
     var compact = false
     var body: some View {
         HStack(spacing: compact ? 5 : 8) {
-            if let actor, actor.type == "user" {
-                AvatarView(name: actor.taskName, size: size)
+            if let actor {
+                AvatarView(name: actor.taskName, kind: actor.type == "agent" ? "agent" : "person", size: size, agentID: actor.id, role: actor.role, variant: actor.avatar_variant)
             } else {
-                Image(systemName: actor == nil ? "person" : "cpu")
+                Image(systemName: "person")
                     .font(.system(size: size * 0.5, weight: .medium))
                     .foregroundStyle(NanoTheme.accent).frame(width: size, height: size)
                     .background(NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: size * 0.3))
