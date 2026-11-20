@@ -274,7 +274,7 @@ export async function manageGateway(
   try {
     if (action === "autostart-on" || action === "autostart-off" || action === "autostart-status") {
       if (process.platform !== "win32") throw new Error("Windows login task required");
-      const text = await windowsHost(action, path, String(Math.ceil(grace * 1000)));
+      const text = await windowsHost(action, path, String(Math.ceil(grace * 1000)), String(config.gateway?.autostart !== false));
       return { text, success: true };
     }
     if (action === "status") {

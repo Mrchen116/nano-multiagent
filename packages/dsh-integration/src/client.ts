@@ -43,7 +43,10 @@ async function link(target: string, path: string) {
     // readlink rejects ordinary paths. A retained Windows junction additionally
     // needs the recorded target from our own earlier profile preparation.
     const existing = canonical(resolve(dirname(path), await readlink(path)));
-    if (existing === canonical(resolve(target))) return;
+    if (existing === canonical(resolve(target))) {
+      if (windows) await writeFile(marker, existing);
+      return;
+    }
     if (windows && existing !== await readFile(marker, 'utf8'))
       throw new Error(`Unrecognized DSH profile junction: ${path}`);
     await unlink(path);
