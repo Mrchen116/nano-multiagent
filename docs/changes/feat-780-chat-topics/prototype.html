@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>feat-780 话题原型</title>
+  <style>
+    :root { color-scheme: light; --bg:#f4f1ea; --panel:#fffdf8; --ink:#241c14; --muted:#74685c; --line:#e4d9cc; --mine:#e7f0e4; --accent:#0f6b4c; --warn:#8a3b12; }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.45 "Iowan Old Style", Palatino, serif; color:var(--ink); background:var(--bg); }
+    .banner { padding:10px 16px; background:#2a2118; color:#f6efe4; font:12px/1.4 ui-sans-serif, sans-serif; }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; padding:12px 16px; font:13px/1 ui-sans-serif, sans-serif; }
+    button { border:1px solid var(--line); background:#fff; border-radius:999px; padding:7px 12px; cursor:pointer; }
+    button[aria-pressed="true"] { background:var(--accent); color:white; border-color:var(--accent); }
+    .stage { display:flex; gap:16px; padding:0 16px 24px; align-items:flex-start; }
+    .phone, .desktop { background:var(--panel); border:1px solid var(--line); border-radius:16px; overflow:hidden; box-shadow:0 10px 30px #0001; }
+    .desktop { width:1100px; display:grid; grid-template-columns:220px 1fr 360px; min-height:640px; }
+    .desktop.closed { grid-template-columns:220px 1fr; }
+    .phone { width:390px; min-height:700px; display:flex; flex-direction:column; }
+    .rail, .col { border-right:1px solid var(--line); padding:14px; }
+    .rail h2, .top h2 { margin:0 0 10px; font:600 14px ui-sans-serif, sans-serif; }
+    .chat-item { padding:8px; border-radius:8px; background:#f7f1e8; font:13px ui-sans-serif, sans-serif; }
+    .col { display:flex; flex-direction:column; min-width:0; }
+    .top { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+    .tag { font:11px ui-sans-serif, sans-serif; color:var(--muted); }
+    .stream { flex:1; display:flex; flex-direction:column; gap:10px; }
+    .msg { max-width:92%; padding:8px 10px; border-radius:12px; background:#f6f3ee; }
+    .msg.me { align-self:flex-end; background:var(--mine); }
+    .msg strong { display:block; font:12px ui-sans-serif, sans-serif; }
+    .actions { display:flex; gap:6px; margin-top:6px; }
+    .actions button { padding:4px 8px; font:12px ui-sans-serif, sans-serif; }
+    .entry { margin-top:6px; font:12px ui-sans-serif, sans-serif; color:var(--accent); }
+    .composer, .thread-compose { border-top:1px solid var(--line); padding:10px; display:flex; gap:8px; }
+    input { flex:1; border:1px solid var(--line); border-radius:8px; padding:8px; font:inherit; }
+    .thread { background:#fffaf3; display:flex; flex-direction:column; min-width:0; }
+    .quote { border-left:3px solid var(--accent); padding:4px 8px; margin-bottom:6px; color:var(--muted); font-size:13px; }
+    .hidden { display:none !important; }
+    .note { margin:8px 16px 0; color:var(--warn); font:12px ui-sans-serif, sans-serif; }
+  </style>
+</head>
+<body>
+  <div class="banner">原型外层：深色条是演示控制。白色区域里，会话列表和主时间线是现有界面背景；「在话题中回复」、话题列和关注是本次新增。不连接后端。</div>
+  <div class="controls">
+    <button id="mode-desktop" aria-pressed="true">桌面 1100</button>
+    <button id="mode-phone" aria-pressed="false">窄屏 / iPhone 390</button>
+    <button id="open-thread" aria-pressed="true">打开话题</button>
+    <button id="follow" aria-pressed="true">关注中</button>
+    <button id="quote">话题内引用第二条</button>
+  </div>
+  <p class="note" id="hint">桌面：主时间线留在中间，话题在右侧。主时间线上的「回复」不会把字写进右侧。</p>
+  <div class="stage">
+    <section class="desktop" id="desktop">
+      <aside class="rail"><h2>现有 · 会话</h2><div class="chat-item">评审群 · 3</div></aside>
+      <section class="col">
+        <div class="top"><h2>评审群</h2><span class="tag">现有主时间线</span></div>
+        <div class="stream">
+          <article class="msg"><strong>小李</strong>下周三要补哪三页？<div class="entry">2 条话题 · 小王：第二页不用了</div>
+            <div class="actions"><button>回复</button><button id="open-from-msg">在话题中回复</button></div></article>
+          <article class="msg me"><strong>我</strong>我先看日程。</article>
+        </div>
+        <form class="composer"><input value="回复会留在这里" aria-label="主时间线输入" /><button type="button">发送</button></form>
+      </section>
+      <section class="thread" id="thread-col">
+        <div class="top"><h2>话题</h2><button id="follow-label" type="button">关注中</button></div>
+        <p class="tag">根消息：下周三要补哪三页？</p>
+        <div class="stream" id="thread-stream">
+          <article class="msg"><strong>小李</strong>先看第二页。</article>
+          <article class="msg"><strong>小王</strong>第二页不用了。</article>
+        </div>
+        <form class="thread-compose"><input id="thread-input" aria-label="话题输入" placeholder="写在话题里" /><button type="button" id="send-thread">发送</button></form>
+      </section>
+    </section>
+    <section class="phone hidden" id="phone">
+      <div class="top"><button id="phone-back" type="button">返回</button><h2 id="phone-title">评审群</h2><button id="phone-follow" type="button" class="hidden">关注中</button></div>
+      <div class="stream" id="phone-main">
+        <article class="msg"><strong>小李</strong>下周三要补哪三页？<div class="entry">2 条话题</div></article>
+        <div class="msg" id="phone-menu"><strong>长按菜单</strong>复制 · 分支 · 在话题中回复
+          <div class="actions"><button id="phone-open" type="button">在话题中回复</button></div></div>
+      </div>
+      <div class="stream hidden" id="phone-thread">
+        <article class="msg"><strong>小李</strong>先看第二页。</article>
+        <article class="msg"><strong>小王</strong>第二页不用了。</article>
+      </div>
+      <form class="composer"><input id="phone-input" aria-label="手机输入" /><button type="button" id="phone-send">发送</button></form>
+    </section>
+  </div>
+  <script>
+    const desktop = document.querySelector('#desktop');
+    const phone = document.querySelector('#phone');
+    const threadCol = document.querySelector('#thread-col');
+    const hint = document.querySelector('#hint');
+    let desktopMode = true;
+    let threadOpen = true;
+    let following = true;
+    let phoneInThread = false;
+    function paint() {
+      document.querySelector('#mode-desktop').setAttribute('aria-pressed', String(desktopMode));
+      document.querySelector('#mode-phone').setAttribute('aria-pressed', String(!desktopMode));
+      document.querySelector('#open-thread').setAttribute('aria-pressed', String(threadOpen));
+      document.querySelector('#follow').setAttribute('aria-pressed', String(following));
+      desktop.classList.toggle('hidden', !desktopMode);
+      phone.classList.toggle('hidden', desktopMode);
+      threadCol.classList.toggle('hidden', !threadOpen);
+      desktop.classList.toggle('closed', !threadOpen);
+      document.querySelector('#follow-label').textContent = following ? '关注中' : '已取消关注';
+      document.querySelector('#phone-main').classList.toggle('hidden', phoneInThread);
+      document.querySelector('#phone-thread').classList.toggle('hidden', !phoneInThread);
+      document.querySelector('#phone-title').textContent = phoneInThread ? '话题' : '评审群';
+      document.querySelector('#phone-follow').classList.toggle('hidden', !phoneInThread);
+      document.querySelector('#phone-follow').textContent = following ? '关注中' : '已取消关注';
+      hint.textContent = desktopMode
+        ? (threadOpen ? '桌面：时间线与话题同时可见。右侧发送不会出现在中间。' : '桌面：话题列已关，主时间线只留「2 条话题」。')
+        : (phoneInThread ? '390 宽：话题占满这一层，返回才回到主时间线。' : '390 宽：只有「在话题中回复」，没有主时间线「回复」。');
+    }
+    document.querySelector('#mode-desktop').onclick = () => { desktopMode = true; paint(); };
+    document.querySelector('#mode-phone').onclick = () => { desktopMode = false; paint(); };
+    document.querySelector('#open-thread').onclick = () => { threadOpen = !threadOpen; paint(); };
+    document.querySelector('#open-from-msg').onclick = () => { threadOpen = true; paint(); };
+    document.querySelector('#follow').onclick = () => { following = !following; paint(); };
+    document.querySelector('#follow-label').onclick = () => { following = !following; paint(); };
+    document.querySelector('#quote').onclick = () => {
+      threadOpen = true;
+      const node = document.createElement('article');
+      node.className = 'msg me';
+      node.innerHTML = '<div class="quote">小王：第二页不用了</div><strong>我</strong>那就只留第一页和第三页。';
+      document.querySelector('#thread-stream').appendChild(node);
+    };
+    document.querySelector('#send-thread').onclick = () => {
+      const input = document.querySelector('#thread-input');
+      if (!input.value.trim()) return;
+      const node = document.createElement('article');
+      node.className = 'msg me';
+      node.innerHTML = '<strong>我</strong>' + input.value;
+      document.querySelector('#thread-stream').appendChild(node);
+      input.value = '';
+    };
+    document.querySelector('#phone-open').onclick = () => { phoneInThread = true; paint(); };
+    document.querySelector('#phone-back').onclick = () => { phoneInThread = false; paint(); };
+    document.querySelector('#phone-follow').onclick = () => { following = !following; paint(); };
+    document.querySelector('#phone-send').onclick = () => {
+      const input = document.querySelector('#phone-input');
+      if (!phoneInThread || !input.value.trim()) return;
+      const node = document.createElement('article');
+      node.className = 'msg me';
+      node.innerHTML = '<strong>我</strong>' + input.value;
+      document.querySelector('#phone-thread').appendChild(node);
+      input.value = '';
+    };
+    const hash = location.hash.replace('#','');
+    if (hash === 'phone' || hash === 'phone-thread') desktopMode = false;
+    if (hash === 'phone-thread') phoneInThread = true;
+    if (hash === 'closed') threadOpen = false;
+    if (hash === 'unfollowed') following = false;
+    paint();
+  </script>
+</body>
+</html>
