@@ -51,3 +51,5 @@ Windows Server 2022 完成真实升级与异常恢复的全程验收。E 安装�
 在 Windows Server 2022 的 Edge 中使用隔离 IM 的已登录新账号，从欢迎页点击设置助手，再点击网页的 Download Windows installer。浏览器从 GitHub 下载原始 F 安装器，校验 2,110,422 字节和 SHA-256，原网页随后显示 Open Crewden to connect。用无参数普通进程启动该下载文件，在真实安装向导中按控件名点击 Install、Finish，进程退出 0，当前用户协议处理器指向安装后的正确版本。[网页下载和普通安装向导](https://github.com/Mrchen116/nano-multiagent/actions/runs/44804867676)
 
 另一次由 Windows Shell 打开相同下载文件，系统显示 Open File - Security Warning。该候选没有代码签名；自动化未完成系统警告的确认。上一项的普通安装向导验证从启动安装进程开始。[系统提示记录](https://github.com/Mrchen116/nano-multiagent/actions/runs/44804254815)
+
+Windows 10 Enterprise LTSC x64（build 19044）使用微软评估镜像启动，Secure Boot 开启、WSL 关闭，普通用户 nanoqa 没有预装 Node、npm 或 pnpm。F 安装器退出 0，注册了正确的协议处理器，从公开发布源取得运行环境和应用。安装后的私有 Node 和 DSH 跑通，电脑绑定并在 IM 上线，配置了真实模型。该助手在 IM 对话中收到“26 + 6”并回复“32”，隔离 IM 数据库保存了这两条消息。随后 Windows PowerShell 验收驱动读到了空的子进程退出码，这次执行在重启前中止。[Windows 10 客户机首次对话](https://github.com/Mrchen116/nano-multiagent/actions/runs/44816199522)
