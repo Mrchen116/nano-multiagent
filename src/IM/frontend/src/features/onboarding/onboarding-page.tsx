@@ -138,7 +138,18 @@ export function OnboardingPage() {
             </> : <div className="onboarding-unavailable" role="status"><strong>{text('安装包暂不可用', 'The installer is not available yet')}</strong><p>{text('当前服务尚未提供电脑端安装包。你的账号已就绪，可以稍后回来继续。', 'This service has not published a computer installer. Your account is ready; you can return and continue later.')}</p><button className="onboarding-secondary" onClick={() => void state.refetch()}>{text('重新检查', 'Check again')}</button></div>}
             </>}
             </div>}
-            {bindingTarget !== '' && state.data && state.data.nodes.length > 1 && <label>{text('选择电脑', 'Choose computer')}<select value={currentNodeId} onChange={e => { setNodeId(e.target.value); localStorage.setItem(targetKey, e.target.value); setBindingTarget(e.target.value); }}>{state.data.nodes.map(n => <option key={n.node_id} value={n.node_id}>{n.alias || n.node_name}</option>)}</select></label>}
+            {state.data && state.data.nodes.length > (bindingTarget === '' ? 0 : 1) && <label>
+              {bindingTarget === '' ? text('选择你刚刚确认的电脑', 'Choose the computer you just confirmed') : text('选择电脑', 'Choose computer')}
+              <select value={currentNodeId ?? ''} onChange={e => {
+                const selected = e.target.value;
+                localStorage.setItem(targetKey, selected);
+                setNodeId(selected);
+                setBindingTarget(selected);
+              }}>
+                {!currentNodeId && <option value="" disabled>{text('选择电脑', 'Choose computer')}</option>}
+                {state.data.nodes.map(n => <option key={n.node_id} value={n.node_id}>{n.alias || n.node_name}</option>)}
+              </select>
+            </label>}
             {installAvailable || node ? <p className={`onboarding-status ${node?.status === 'online' ? 'ok' : ''}`} role="status"><span />{node ? `${node.alias || node.node_name} · ${node.status === 'online' ? text('已连接', 'Connected') : text('暂时离线', 'Offline')}` : windows && windowsOpened ? t('computers.windows.waiting') : text('等待电脑连接，连接后会自动更新', 'Waiting for your computer. This updates when it connects.')}</p> : null}
             {node?.status !== 'online' && node && !windows && install?.available && <p className="onboarding-detail">{text('在该电脑重跑上方命令即可恢复。已有身份、配置和文件会保留。', 'Run the command on that computer again to reconnect. Your identity, settings, and files are preserved.')}</p>}
             {node?.status === 'online' && <div className="onboarding-footer"><span />{next(configured ? 2 : 1)}</div>}

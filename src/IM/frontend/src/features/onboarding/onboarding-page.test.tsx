@@ -237,6 +237,21 @@ it('offers a Windows download or handoff and waits for the specifically bound co
  } finally { ua.mockRestore(); }
 });
 
+it('lets the original browser choose its confirmed computer when the default browser holds the binding receipt', async () => {
+ const targetKey = bindingTargetKey(TEST_AUTH_USER.id);
+ localStorage.setItem(targetKey, '');
+ localStorage.setItem(`nano-onboarding:${TEST_AUTH_USER.id}`, JSON.stringify({started:true}));
+ vi.mocked(getOnboarding).mockResolvedValue({nodes:[computer],agents:[],install});
+ mount();
+ const choose = await screen.findByRole('combobox', {name:'Choose the computer you just confirmed'});
+ expect(choose).toHaveValue('');
+ expect(screen.queryByText('My computer · Connected')).toBeNull();
+ await userEvent.selectOptions(choose, computer.node_id);
+ expect(await screen.findByRole('heading', {name:'Connect a model'})).toBeInTheDocument();
+ expect(setupNode).toHaveBeenCalledWith(computer.node_id, {action:'status'});
+ expect(localStorage.getItem(targetKey)).toBe(computer.node_id);
+});
+
 it('selects the authenticated reconnect target before resuming setup', async () => {
  const key = bindingTargetKey(TEST_AUTH_USER.id);
  const selected = {...computer,node_id:'windows-computer',node_name:'My Windows PC',status:'offline'};
