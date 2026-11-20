@@ -261,7 +261,7 @@ struct ConversationView: View {
         .toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink {
             ChatInfoView(store: store, conversationID: conversationID, openChat: openChat, openInbox: openInbox)
-        } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel(L("聊天详情", "Conversation details")) } }
+        } label: { Image(systemName: "ellipsis") }.tint(NanoTheme.ink).accessibilityLabel(L("聊天详情", "Conversation details")) } }
         .task(id: conversationID) {
             if location == nil { await store.openConversation(conversationID) }
             else { store.selectedID = conversationID }

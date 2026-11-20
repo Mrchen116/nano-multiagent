@@ -18,25 +18,31 @@ private struct ChatContinuityTitle: ViewModifier {
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     HStack(spacing: 8) {
-                        if let chat = headerChat {
+                        if let chat = headerChat, chat.type != "group" {
                             let avatar = AvatarView(name: chat.avatarName(selfID: store.user.id),
-                                kind: chat.type == "group" ? "group" : chat.peerAgent == nil ? "person" : "agent", size: 32,
+                                kind: chat.peerAgent == nil ? "person" : "agent", size: 32,
                                 agentID: chat.peerAgent?.id, role: chat.peerAgent?.role, variant: chat.peerAgent?.avatar_variant)
                             if let titleAction {
                                 Button(action: titleAction) { avatar }.buttonStyle(.plain)
                                     .accessibilityLabel(L("查看当前活动", "Show current activity"))
                             } else { avatar }
                         }
-                        VStack(alignment: headerChat == nil ? .center : .leading, spacing: 1) {
+                        VStack(spacing: 1) {
                             if let titleAction {
                                 Button(action: titleAction) { titleLabel }.buttonStyle(.plain)
                                     .accessibilityHint(L("查看当前活动", "Show current activity"))
+                            } else if let chat = headerChat, chat.type == "group" {
+                                let count = chat.participants.count
+                                HStack(spacing: 4) {
+                                    titleLabel
+                                    Text("(\(count))")
+                                        .font(.subheadline).foregroundStyle(.secondary).fixedSize()
+                                }
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(L("\(title)，\(count) 位成员", "\(title), \(count) members"))
+                                .accessibilityAddTraits(.isHeader)
                             } else { titleLabel }
-                            if presentation == nil, let chat = headerChat, chat.type == "group" {
-                                Text(L("\(chat.participants.count) 位成员", "\(chat.participants.count) members"))
-                                    .font(.caption2).foregroundStyle(NanoTheme.muted).lineLimit(1)
-                                    .frame(height: auxiliaryHeight)
-                            } else if let presentation {
+                            if let presentation {
                                 Button {
                                     showingDetails = true
                                     Task { await store.retryConnectionReads(surface, loadEarlier: loadEarlier) }
