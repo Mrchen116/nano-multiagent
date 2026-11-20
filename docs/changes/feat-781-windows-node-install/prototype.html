@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Crewden · 连接工作电脑（交互原型）</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f8f6fc;color:#302a38;font:15px/1.6 system-ui,sans-serif}header{background:white;padding:14px 6vw;border-bottom:1px solid #e8e1ec;display:flex;align-items:center;justify-content:space-between}header strong{font-size:20px}main{margin:46px auto;width:min(1020px,92%);display:grid;grid-template-columns:290px 1fr;border:1px solid #e5deee;border-radius:24px;overflow:hidden;background:white}aside{background:#fff7df;padding:36px 30px}h1{font-size:30px;line-height:1.4;margin:12px 0}h2{font-size:26px;margin:8px 0}p{margin:10px 0 18px}.muted,.status,small{color:#716579}.accent{color:#68449a;font-weight:650}.steps{padding-left:22px;line-height:2.6}section{padding:38px}.panel{padding:22px 0;border-block:1px solid #e6dfeb;margin:24px 0 16px}button,select{font:inherit}button{cursor:pointer;border-radius:10px;border:1px solid #cfc3dc;background:white;color:#563e73;padding:9px 14px}button.primary{background:#64428b;color:white;border-color:#64428b;font-weight:650}.actions{display:flex;gap:10px;flex-wrap:wrap}.status{margin-top:20px}.status:before{content:'●';color:#957e46;margin-right:7px}.status.ok:before{color:#327452}footer{margin:0 auto 32px;width:min(1020px,92%);font-size:13px;color:#655771}footer select{margin-left:6px}small{font-size:13px}@media(max-width:700px){main{grid-template-columns:1fr;margin:18px auto}aside{padding:12px 20px}aside h1,aside .steps,aside p{display:none}section{padding:22px}.panel{margin-top:16px}.actions button{min-height:44px}}
+</style>
+<header><strong>Crewden</strong><span>小林</span></header>
+<main><aside><small class="accent">首次设置</small><h1>一起把助手<br>准备好。</h1><p class="muted">完成这三步，开始和你的长期个人助手对话。</p><ol class="steps"><li class="accent">连接电脑</li><li>连接模型</li><li>创建个人助手</li></ol></aside>
+<section><small class="accent">第一步 · 工作环境</small><h2>连接你的工作电脑</h2><p>在这台电脑上安装 Crewden 电脑端，让助手可以执行任务、处理文件。</p><div id="content" aria-live="polite"></div></section></main>
+<footer>交互原型 · 仅演示网页状态，无实际下载或绑定。<label>演示状态<select id="state"><option value="initial">首次连接</option><option value="download">下载后</option><option value="waiting">等待确认</option><option value="online">电脑上线</option><option value="unpublished">尚未发布</option></select></label></footer>
+<script>
+const states = {
+ initial: ['Windows 10 / 11 · x64','双击下载的安装包，完成后回到此页连接。','下载 Windows 安装包','download','已安装，连接这台电脑','waiting','等待电脑连接'],
+ download:['连接这台电脑','双击安装包并完成安装，再打开 Crewden 连接当前账号。','打开 Crewden 连接','waiting','重新下载','download','等待电脑连接'],
+ waiting:['确认你的账号和电脑','请在打开的窗口核对连接地址，再到浏览器确认账号。如果没有打开，可以重试。','重新打开 Crewden','waiting','重新下载','download','等待电脑上线'],
+ online:['小林的电脑','现在可以为这台电脑连接模型。','继续连接模型','model','','','小林的电脑 · 已连接'],
+ unpublished:['Windows 安装包暂不可用','当前服务尚未发布 Windows 安装包。稍后可以回来继续。','重新检查','unpublished','','','等待安装包'],
+ model:['连接模型','后续沿用当前产品的模型设置页面。','返回连接电脑','online','','','小林的电脑 · 已连接']};
+const state = document.querySelector('#state');
+function render(id){
+ const [title,hint,a,next,b,other,status]=states[id];
+ const content=document.querySelector('#content');
+ content.replaceChildren();
+ const panel=document.createElement('div');panel.className='panel';content.append(panel);
+ const name=document.createElement('strong');name.textContent=title;panel.append(name);
+ const p=document.createElement('p');p.className='muted';p.textContent=hint;panel.append(p);
+ const actions=document.createElement('div');actions.className='actions';panel.append(actions);
+ for(const [i,label,to] of [[0,a,next],[1,b,other]])if(label){const button=document.createElement('button');button.textContent=label;button.className=i?'':'primary';button.onclick=()=>render(to);actions.append(button)}
+ const live=document.createElement('p');live.className='status'+(['online','model'].includes(id)?' ok':'');live.textContent=status;content.append(live);state.value=id==='model'?'online':id;
+}
+state.onchange=()=>render(state.value);render('initial');
+</script></html>
