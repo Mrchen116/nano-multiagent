@@ -1,0 +1,59 @@
+name: Windows installer candidate
+
+on:
+  push:
+    branches: [codex/feat-781]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      commit:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+          # Native package paths can exceed MAX_PATH inside the pnpm virtual store.
+          path: src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          package_json_file: src/package.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install and compile the node workspace
+        working-directory: src
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          pnpm --filter '@nano/node...' -r --if-present build
+      - name: Build installer and locked archives
+        working-directory: src
+        run: ./scripts/build-windows-installer.ps1
+      - name: Exercise relocated archives and native bootstrap
+        working-directory: src
+        run: ./packaging/windows/smoke.ps1
+      - name: Preserve candidate for desktop acceptance or separately authorized release
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-${{ inputs.commit || github.sha }}
+          path: src/dist/windows-release/
+          if-no-files-found: error
+          compression-level: 0
