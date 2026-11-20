@@ -33,6 +33,7 @@ ALLOWED = {
         "@nano/product-contracts/interactive-functions",
         "@nano/product-contracts/capabilities",
         "@nano/product-contracts/agent-lifecycle",
+        "@nano/product-contracts/worker-runtimes",
     },
     "apps/im-server": {
         "@nano/product-contracts/interactive-functions",
