@@ -40,6 +40,7 @@
 .chat-agent-activity-children ul { list-style:none; margin:4px 0 0; padding:0; max-height:160px; overflow:auto; }
 .chat-agent-activity-children li { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding:5px 0; }
 .chat-agent-activity-children li span { overflow-wrap:anywhere; }
+.chat-agent-activity-last-tool { display:block; overflow-wrap:anywhere; }
 .chat-agent-activity-children li small { flex-shrink:0; }
 .chat-agent-activity-children>button.chat-agent-activity-more { color:var(--im-accent); }
 .chat-agent-activity footer { padding:9px 12px 12px; border-top:1px solid var(--im-border); }

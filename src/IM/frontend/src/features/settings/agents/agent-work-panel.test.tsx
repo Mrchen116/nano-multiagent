@@ -887,3 +887,92 @@ it('replaces an in-flight first Work read when the Agent becomes ready at the sa
     expect(firstSignal?.aborted).toBe(true);
   } finally { release(); }
 });
+
+it.each([["codex", "Codex", "commandExecution"], ["claude", "Claude Code", "Bash"]])(
+  "opens %s worker records from the graph and updates its real tool in place", async (runtime, framework, tool) => {
+    const session = {session_id: "external", parent_session_id: "main", scope: "worker", title: "核对账单",
+      runtime, has_work_records: true, status: "running", latest_tool: {name: tool}};
+    const workerTurn = {...view.turns[0], session_id: session.session_id, turn_id: "first", scope: "worker",
+      trigger: {kind: "background_task"}, items: [], items_deferred: true};
+    const message = (seq: number, role: string, text: string) => ({
+      item_id: `msg-${seq}`, kind: "message", seq, revision: seq, payload: {role, text},
+    });
+    let finished = false;
+    const call = () => ({item_id: "tool:1", kind: "tool", seq: 2, revision: finished ? 3 : 2, payload: {
+      name: tool, input: {command: "wc -l ledger.csv"}, status: finished ? "completed" : "running",
+      ...(finished && {detail: {content: "18 ledger.csv"}}),
+    }});
+    view = {...view, timeline: "combined", catalog: "separate"};
+    mocks.fetch.mockImplementation(async (url: string) => new Response(JSON.stringify(
+      url === "/im/v1/conversations" ? {items: []}
+      : url.includes("/work/delegation?") ? {main_session_id: "main", record_sync_state: "current", nodes: [
+        {session_id: "main", title: "Root", status: "idle"}, session,
+      ]}
+      : url.endsWith("/sessions/external") ? session
+      : url.includes("/items?") ? {
+        items: url.includes("after_revision=")
+          ? [call(), message(4, "assistant", "共 18 行。")] : [message(1, "user", "请核对账单"), call()],
+        revision: finished ? 4 : 2, next_cursor: null,
+      }
+      : url.includes("/sessions/external/turns?") ? {turns: [{...workerTurn, status: finished ? "completed" : "running"}], next_cursor: null}
+      : view)));
+    const {router} = renderWork("/settings/agents/global?view=work&work_view=delegation");
+    fireEvent.click(await screen.findByRole("button", {name: new RegExp(`核对账单.*${framework}.*最近调用.*${tool}`)}));
+    const worker = (await screen.findByRole("heading", {name: "核对账单"})).closest("aside")!;
+    expect(within(worker).getByText(framework)).toBeVisible();
+    expect(screen.queryByRole("tab", {name: "原生轨迹"})).toBeNull();
+    expect(screen.queryByRole("button", {name: "查看原生轨迹"})).toBeNull();
+    const article = (await within(worker).findByRole("heading", {name: "任务执行"})).closest("article")!;
+    reachEarlierPage(article);
+    expect(await within(article).findByText("任务输入")).toBeVisible();
+    expect(within(article).getByText("请核对账单")).toBeVisible();
+    fireEvent.click(within(article).getByRole("button", {name: new RegExp(`${tool}.*调用中`)}));
+    expect(within(article).getByText("command")).toBeVisible();
+    finished = true;
+    act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType: "agent.work.updated", payload: {agent_id: "global"}}));
+    expect(await within(article).findByText("18 ledger.csv")).toBeVisible();
+    expect(within(article).getByText("共 18 行。")).toBeVisible();
+    expect(within(article).getAllByTestId("process-item")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", {name: "← 返回派工关系"}));
+    expect(await screen.findByRole("button", {name: /核对账单/})).toBeVisible();
+    await act(() => router.navigate("/settings/agents/global?view=work&work_view=trajectory&execution=external"));
+    await waitFor(() => expect(router.state.location.search).toBe("?view=work&work_session=external"));
+    expect(screen.queryByText("Native trajectory")).toBeNull();
+  },
+);
+
+it("links dispatch, follow-up and report cards when worker records arrive after the parent turn ended", async () => {
+  view = {...view, timeline: "combined", catalog: "separate", worker_records_revision: 0,
+    turns: [{...view.turns[0], items: [], status: "completed", items_deferred: true}]};
+  const session = {session_id: "external", scope: "worker", title: "审阅文稿", runtime: "claude", has_work_records: true};
+  const items = () => [
+    ...["start", "send"].map((action, i) => ({item_id: `tool:${action}`, kind: "tool", seq: i + 1, payload: {
+      name: "delegate_worker", input: {action, worker_id: "external"}, status: "completed",
+      ...(view.worker_records_revision ? {child_session_id: "external"} : {worker_relation: true}),
+    }})),
+    {item_id: "report", kind: "message", seq: 3, payload: {source_kind: "worker-report", source_worker_id: "external",
+      text: "已检查", ...(view.worker_records_revision && {source_session_id: "external"})}},
+  ];
+  mocks.fetch.mockImplementation(async (url: string) => {
+    const query = new URL(url, "http://nano.test").searchParams;
+    return new Response(JSON.stringify(url === "/im/v1/conversations" ? {items: []}
+      : url.includes("/items?") ? {items: query.get("limit") === "1" ? [items()[Number(query.get("after_seq"))]] : items(), revision: 3}
+      : url.includes("/sessions/external/turns?") ? {turns: [], next_cursor: null}
+      : url.endsWith("/sessions/external") ? session : view));
+  });
+  renderWork();
+  const article = (await screen.findByRole("heading", {name: "Inbox 唤醒"})).closest("article")!;
+  reachEarlierPage(article);
+  expect(await within(article).findByText("已检查")).toBeVisible();
+  expect(within(article).queryByRole("button", {name: /查看子执行|查看关联执行/})).toBeNull();
+  view = {...view, worker_records_revision: 5, revision: 6};
+  act(() => mocks.subscribe.mock.calls[0][0].onEvent({eventType: "agent.work.updated", payload: {agent_id: "global"}}));
+  await waitFor(() => expect(within(article).getAllByRole("button", {name: "查看子执行"})).toHaveLength(2));
+  expect(within(article).getByRole("button", {name: /查看关联执行/})).toBeVisible();
+  const followUp = within(article).getByRole("button", {name: /delegate_worker.*追加要求/}).closest("li")!;
+  fireEvent.click(within(followUp).getByRole("button", {name: "查看子执行"}));
+  expect(await screen.findByRole("heading", {name: "审阅文稿"})).toBeVisible();
+  expect(screen.queryByRole("tab", {name: "原生轨迹"})).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "← 返回发起位置"}));
+  expect(await screen.findByText("已检查")).toBeVisible();
+});

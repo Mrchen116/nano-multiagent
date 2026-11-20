@@ -6,7 +6,7 @@ import { Link } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
 import { subscribeUserStream } from "../../../realtime/user-stream";
-import { refreshReadyWork, workBase, workRequest, type WorkActivity } from "../../settings/agents/agent-work-api";
+import { hasSessionRecords, workerRuntimeNames, refreshReadyWork, workBase, workRequest, type WorkActivity } from "../../settings/agents/agent-work-api";
 import "./agent-activity-popover.css";
 
 export interface AgentActivityAnchor {
@@ -156,10 +156,14 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
             {syncing ? spinner : countsKnown ? <strong>{t("chat.agentActivity.runningCount", {count: 0})}</strong> : <span>{label("unknown")}</span>}
           </div>}
           {expanded && active && <ul>{rows.map(session => <li key={session.session_id}>
-            <Link to={session.scope === "worker" ? `${profile}?view=work&work_view=delegation` : `${profile}?view=work&work_session=${encodeURIComponent(session.session_id)}`}>
-              {session.title || session.session_id}
-            </Link>
-            <small>{label(session.status)}</small>
+            <div>
+              <Link to={hasSessionRecords(session) ? `${profile}?view=work&work_session=${encodeURIComponent(session.session_id)}` : `${profile}?view=work&work_view=delegation`}>
+                {session.title || session.session_id}
+              </Link>
+              {session.latest_tool && <small className="chat-agent-activity-last-tool">{label("latestTool")} · {session.latest_tool.name} {session.latest_tool.label}
+                {session.latest_tool.status && ` · ${label(session.latest_tool.status)}`}</small>}
+            </div>
+            <small>{session.runtime && `${workerRuntimeNames[session.runtime]} · `}{label(session.status)}</small>
           </li>)}</ul>}
           {expanded && active && (extra.data ? extra.hasNextPage : data.next_cursor) && <button type="button" className="chat-agent-activity-more"
             disabled={extra.isFetching} onClick={() => extra.data ? void extra.fetchNextPage() : void extra.refetch()}>{label("more")}</button>}
