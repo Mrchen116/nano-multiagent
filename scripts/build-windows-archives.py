@@ -1,4 +1,5 @@
 """Archive the installed Windows production graph, retaining peers and optional native packages."""
+
 import hashlib
 import json
 import os
@@ -17,7 +18,9 @@ INSTALLER = "Crewden-Setup-x64.exe"
 
 
 def encoded(value):
-    return (json.dumps(value, sort_keys=True, ensure_ascii=False, indent=2) + "\n").encode()
+    return (
+        json.dumps(value, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
+    ).encode()
 
 
 def digest(path):
@@ -32,8 +35,18 @@ def files(source, prefix):
         for name in entries:
             path = Path(directory) / name
             relative = path.relative_to(source)
-            if any(p in {"linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64",
-                         "win32-arm64", "win10-arm64"} for p in relative.parts):
+            if any(
+                p
+                in {
+                    "linux-x64",
+                    "linux-arm64",
+                    "darwin-x64",
+                    "darwin-arm64",
+                    "win32-arm64",
+                    "win10-arm64",
+                }
+                for p in relative.parts
+            ):
                 continue
             if path.is_file() and path.suffix.lower() != ".pdb":
                 yield f"{prefix}/{relative.as_posix()}", path
@@ -44,7 +57,10 @@ def dependencies(directory):
         if entry.name.startswith("."):
             continue
         if entry.name.startswith("@"):
-            yield from ((f"{entry.name}/{child.name}", child) for child in sorted(entry.iterdir()))
+            yield from (
+                (f"{entry.name}/{child.name}", child)
+                for child in sorted(entry.iterdir())
+            )
         else:
             yield entry.name, entry
 
@@ -80,8 +96,10 @@ def build_graph():
             for name in info.get("dependencies", {}):
                 target = (package / "node_modules" / name).resolve(strict=True)
                 local_links[f"{prefix}/node_modules/{name}"] = (
-                    "runtime/" + store_path(target) if target.is_relative_to(STORE)
-                    else target.relative_to(ROOT).as_posix())
+                    "runtime/" + store_path(target)
+                    if target.is_relative_to(STORE)
+                    else target.relative_to(ROOT).as_posix()
+                )
                 pending.append(target)
     runtime["dependencies.json"] = encoded(external_links)
     app["workspaces.json"] = encoded(local_links)
@@ -111,26 +129,50 @@ def archive(name, entries, groups=None):
                         shutil.copyfileobj(reader, dest, 1024 * 1024)
             prefix = "/".join(relative.split("/")[:2])
             sizes[(groups or {}).get(prefix, prefix)] += entry.compress_size
-    print(name, "largest compressed contributors", sorted(sizes.items(), key=lambda row: -row[1])[:8])
+    print(
+        name,
+        "largest compressed contributors",
+        sorted(sizes.items(), key=lambda row: -row[1])[:8],
+    )
     return {"name": name, "size": path.stat().st_size, "sha256": digest(path)}
 
 
 def main():
-    commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
     version = os.environ.get("RELEASE_VERSION") or commit
     metadata = {"source_commit": commit, "updater_protocol": 1, "data_epoch": 1}
     OUT.mkdir(parents=True, exist_ok=True)
     app, runtime, groups = build_graph()
-    for path in subprocess.check_output(
-        ["git", "ls-files", "-z", "--", "packages/dsh-integration/assets",
-         "packages/dsh-integration/cordis.patch.yml", "packages/personal-assistant/assets"],
-        cwd=ROOT).decode().split("\0"):
+    for path in (
+        subprocess.check_output(
+            [
+                "git",
+                "ls-files",
+                "-z",
+                "--",
+                "packages/dsh-integration/assets",
+                "packages/dsh-integration/cordis.patch.yml",
+                "packages/personal-assistant/assets",
+            ],
+            cwd=ROOT,
+        )
+        .decode()
+        .split("\0")
+    ):
         if path:
             app[path] = ROOT / path
-    app.update({"package.json": ROOT / "package.json", ".nano-release.json": encoded(metadata),
-                "connection-name.cjs": ROOT / "packaging/windows/connection-name.cjs",
-                "Crewden.exe": BUILD / "Crewden.exe", "Crewden.exe.config": BUILD / "Crewden.exe.config",
-                "apps/node/lib/GatewayHost.exe": BUILD / "GatewayHost.exe"})
+    app.update(
+        {
+            "package.json": ROOT / "package.json",
+            ".nano-release.json": encoded(metadata),
+            "connection-name.cjs": ROOT / "packaging/windows/connection-name.cjs",
+            "Crewden.exe": BUILD / "Crewden.exe",
+            "Crewden.exe.config": BUILD / "Crewden.exe.config",
+            "apps/node/lib/GatewayHost.exe": BUILD / "GatewayHost.exe",
+        }
+    )
     if "apps/node/lib/cli.js" not in app:
         raise ValueError("Build the Node workspace before creating archives")
     runtime["node.exe"] = Path(sys.argv[1])
@@ -139,24 +181,46 @@ def main():
     runtime.update(files(BUILD / "pnpm/package", "tooling/node_modules/pnpm"))
     if "tooling/node_modules/pnpm/bin/pnpm.cjs" not in runtime:
         raise ValueError("Expected the locked pnpm distribution")
-    desc = {"version": version, **metadata, "launcher_protocol": 1,
-            "runtime": archive("windows-runtime-x64.zip", runtime, groups),
-            "app": archive("windows-app-x64.zip", app)}
+    desc = {
+        "version": version,
+        **metadata,
+        "launcher_protocol": 1,
+        "runtime": archive("windows-runtime-x64.zip", runtime, groups),
+        "app": archive("windows-app-x64.zip", app),
+    }
     descriptor = OUT / "windows-x64.json"
     descriptor.write_bytes(encoded(desc))
     tag = f"node-{commit}" if version == commit else f"v{version}"
     base = f"https://github.com/Mrchen116/nano-multiagent/releases/download/{tag}/"
     installer = OUT / INSTALLER
-    manifest = {"version": version, **metadata, "package": descriptor.name,
-                "platform": "win32-x64", "node_major": 24, "pnpm_version": "11.7.0",
-                "size": descriptor.stat().st_size, "sha256": digest(descriptor),
-                "download_url": base + descriptor.name,
-                "installer": {"download_url": base + INSTALLER, "size": installer.stat().st_size,
-                              "sha256": digest(installer)}}
+    manifest = {
+        "version": version,
+        **metadata,
+        "package": descriptor.name,
+        "platform": "win32-x64",
+        "node_major": 24,
+        "pnpm_version": "11.7.0",
+        "size": descriptor.stat().st_size,
+        "sha256": digest(descriptor),
+        "download_url": base + descriptor.name,
+        "installer": {
+            "download_url": base + INSTALLER,
+            "size": installer.stat().st_size,
+            "sha256": digest(installer),
+        },
+    }
     (OUT / "manifest.win32-x64.json").write_bytes(encoded(manifest))
-    print(json.dumps({"installer_bytes": installer.stat().st_size,
-                      "first_install_asset_bytes": sum(p.stat().st_size for p in OUT.iterdir() if p.is_file()),
-                      "runtime_sha256": desc["runtime"]["sha256"]}))
+    print(
+        json.dumps(
+            {
+                "installer_bytes": installer.stat().st_size,
+                "first_install_asset_bytes": sum(
+                    p.stat().st_size for p in OUT.iterdir() if p.is_file()
+                ),
+                "runtime_sha256": desc["runtime"]["sha256"],
+            }
+        )
+    )
 
 
 if __name__ == "__main__":

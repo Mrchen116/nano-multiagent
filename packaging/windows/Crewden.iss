@@ -1,4 +1,4 @@
-[Setup]
+﻿[Setup]
 AppId=CrewdenWindowsBootstrap
 AppName=Crewden 电脑端
 AppVersion=1.0
@@ -34,7 +34,6 @@ begin
       or (ExitCode <> 0) then RaiseException('未能安装 Crewden。请从原网页重新下载安装器。');
   end;
 end;
-procedure InitializeWizard();
-begin
-  WizardForm.FinishedLabel.Caption := '返回原网页，点击「连接这台电脑」。之后可从开始菜单打开 Crewden。';
-end;
+[Messages]
+FinishedLabelNoIcons=返回原网页，点击「连接这台电脑」。之后可从开始菜单打开 Crewden。
+FinishedLabel=返回原网页，点击「连接这台电脑」。之后可从开始菜单打开 Crewden。

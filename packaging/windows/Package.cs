@@ -191,6 +191,10 @@ internal static class Package {
                     d.app.Validate();
                     var runtime = Cache(d.runtime, m.Base, temp, true, report);
                     var app = Cache(d.app, m.Base, temp, false, report);
+                    var metadata = Json.Deserialize<Release>(File.ReadAllText(Path.Combine(app, ".nano-release.json")));
+                    Check(metadata != null && metadata.source_commit == m.source_commit &&
+                        metadata.updater_protocol == m.updater_protocol && metadata.data_epoch == m.data_epoch,
+                        "应用归档的源码或协议与版本描述不一致。");
                     var stage = Directory.CreateDirectory(Path.Combine(temp, "version")).FullName;
                     var node = Path.Combine(runtime, "node.exe");
                     var layout = Path.Combine(runtime, "layout.mjs");
