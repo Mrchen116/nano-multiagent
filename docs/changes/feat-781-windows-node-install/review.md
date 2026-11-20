@@ -47,3 +47,7 @@
 F 的五个公开文件合计 83,432,429 字节（79.57 MiB），其中双击安装器 2,110,422 字节，运行环境压缩包 78,689,983 字节，应用压缩包 2,630,721 字节。已核对所有文件的大小和 SHA-256。[候选 F 测试版](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-876525e0d2c94bdacc006809e7d56d0b36beeff2)
 
 Windows Server 2022 完成真实升级与异常恢复的全程验收。E 安装后，同一助手在 IM 回答了“21 + 7”为“28”。从 IM 触发升级到 F，原账号、节点 ID 和工作区文件均保留。关闭自启、手动启动、再打开自启后，脚本核对进程创建时间并强制结束 PID 7324；新进程 8180 自动就绪并连接。原助手、会话与旧回复仍在，随后回答“30 + 8”为“38”。隔离 IM 数据库同时保留了两次问答。安装器使用静默参数，绑定和聊天使用正式 HTTP 接口。之前两个独立执行分别在首轮就绪检查和创建个人助手时超时（HTTP 504）；第三次全程执行成功。[通过的执行](https://github.com/Mrchen116/nano-multiagent/actions/runs/44800187164) · [就绪超时](https://github.com/Mrchen116/nano-multiagent/actions/runs/44798577635) · [创建超时](https://github.com/Mrchen116/nano-multiagent/actions/runs/44799775310)
+
+在 Windows Server 2022 的 Edge 中使用隔离 IM 的已登录新账号，从欢迎页点击设置助手，再点击网页的 Download Windows installer。浏览器从 GitHub 下载原始 F 安装器，校验 2,110,422 字节和 SHA-256，原网页随后显示 Open Crewden to connect。用无参数普通进程启动该下载文件，在真实安装向导中按控件名点击 Install、Finish，进程退出 0，当前用户协议处理器指向安装后的正确版本。[网页下载和普通安装向导](https://github.com/Mrchen116/nano-multiagent/actions/runs/44804867676)
+
+另一次由 Windows Shell 打开相同下载文件，系统显示 Open File - Security Warning。该候选没有代码签名；自动化未完成系统警告的确认。上一项的普通安装向导验证从启动安装进程开始。[系统提示记录](https://github.com/Mrchen116/nano-multiagent/actions/runs/44804254815)
