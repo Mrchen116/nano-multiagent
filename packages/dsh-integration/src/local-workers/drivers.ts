@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import type { RuntimeWorkerDetail } from '@nano/product-contracts';
+import { WorkerTurnDetails, codexItem, type CodexItem } from './work-details.js';
 import { CliProcess, acknowledged } from './cli-process.js';
 
 export type CliEndState = 'completed' | 'failed' | 'interrupted';
@@ -9,7 +11,7 @@ export interface CliWorkerOptions {
   instructions: string;
   mcp: { command: string; args: string[]; env: Record<string, string> };
   onReport(id: string, message: string): Promise<void>;
-  onTurnEnd(id: string, totalTokens: number | null): Promise<void>;
+  onDetail(id: string, detail: RuntimeWorkerDetail): Promise<void>;
   onEnd(id: string, state: CliEndState, text: string): Promise<void>;
 }
 
@@ -18,27 +20,25 @@ class TurnEvents {
   active?: string;
   private delivery = Promise.resolve();
   private terminal = Promise.withResolvers<void>();
-  private lastTurn?: string;
-  constructor(private readonly options: CliWorkerOptions) {}
+  readonly details: WorkerTurnDetails;
+  constructor(private readonly options: CliWorkerOptions) {
+    this.details = new WorkerTurnDetails((id, detail) => this.deliver(() => options.onDetail(id, detail)));
+  }
 
-  begin(id: string) {
+  begin(id: string, model?: string) {
     if (!this.active) this.terminal = Promise.withResolvers<void>();
     this.active = id;
+    this.details.begin(id, model);
   }
 
   report(id: string, text: string) {
+    this.details.message(id, 'system', text);
     this.deliver(() => this.options.onReport(id, text));
   }
 
-  recordTurn(id: string, totalTokens: number | null) {
-    if (!this.active || id === this.lastTurn) return false;
-    this.lastTurn = id;
-    this.deliver(() => this.options.onTurnEnd(id, totalTokens));
-    return true;
-  }
-
-  end(id: string, state: CliEndState, text: string) {
+  end(id: string, state: CliEndState, text: string, tokens: number | null = null) {
     if (!this.active) return;
+    this.details.end(state, tokens, text);
     this.active = undefined;
     const terminal = this.terminal;
     this.deliver(() => this.options.onEnd(id, state, text));
@@ -56,13 +56,6 @@ class TurnEvents {
   }
 }
 
-interface CodexItem {
-  id: string;
-  type: string;
-  text?: string;
-  phase?: string;
-  changes?: { path: string }[];
-}
 interface CodexTurn {
   id: string;
   status: string;
@@ -125,6 +118,16 @@ async function codex(options: CliWorkerOptions) {
   const events = new TurnEvents(options);
   let threadId = options.sessionId;
   let nextId = 0;
+  let errorCount = 0;
+  let model: string | undefined;
+  // LocalWorkers serializes sends. A full turn can finish within the stdout chunk containing its RPC reply.
+  let inputRequest: { rpcId: number; messageId: string; text: string; turnId?: string } | undefined;
+  function acceptInput(turnId: string) {
+    if (!inputRequest || (inputRequest.turnId && inputRequest.turnId !== events.active)) return;
+    events.begin(turnId, model);
+    events.details.message(inputRequest.messageId, 'user', inputRequest.text);
+    inputRequest = undefined;
+  }
   let finalText = '';
   let stopping = false;
   let previousTotal = options.sessionId ? undefined : 0;
@@ -140,6 +143,7 @@ async function codex(options: CliWorkerOptions) {
   };
   proc.onMessage = ({ id, method, params, result, error }) => {
     if (!method) {
+      if (inputRequest?.rpcId === id && !error) acceptInput(result.turn?.id ?? result.turnId);
       proc.resolve(id, result, error?.message);
       return;
     }
@@ -188,7 +192,20 @@ async function codex(options: CliWorkerOptions) {
       }
       previousTotal = total;
     }
-    if (method === 'turn/started') events.begin(params.turn.id);
+    if (method === 'turn/started' && !inputRequest?.turnId) acceptInput(params.turn.id);
+    if (
+      method === 'item/started' &&
+      params.item.type === 'userMessage' &&
+      inputRequest &&
+      params.item.clientId === inputRequest.messageId
+    )
+      acceptInput(params.turnId);
+    if (params.turnId && params.turnId === events.active) {
+      if (method === 'item/started' || method === 'item/completed')
+        codexItem(events.details, params.item, method === 'item/completed');
+      if (method === 'error' && params.error?.message)
+        events.details.message(`error:${++errorCount}`, 'system', params.error.message);
+    }
     if (method === 'item/started' && params.item.type === 'commandExecution')
       commands.set(params.item.id, params.item.command);
     if (method === 'item/started' && params.item.type === 'fileChange')
@@ -216,13 +233,15 @@ async function codex(options: CliWorkerOptions) {
         usage?.turnId === turn.id && usage.baseline !== undefined && previousTotal !== undefined
           ? previousTotal - usage.baseline
           : null;
-      if (!events.recordTurn(turn.id, tokenCount(tokens) ? tokens : null)) return;
+      if (turn.id !== events.active) return;
+      for (const item of turn.items ?? []) codexItem(events.details, item, true);
       const state = turn.status === 'completed' || turn.status === 'interrupted' ? turn.status : 'failed';
       events.end(
         turn.id,
         state,
         turn.error?.message ??
           (turn.items?.findLast(finalMessage)?.text || finalText || `Codex turn ${state}`),
+        tokenCount(tokens) ? tokens : null,
       );
       finalText = '';
       fileTargets.clear();
@@ -243,13 +262,14 @@ async function codex(options: CliWorkerOptions) {
       approvalsReviewer: 'auto_review',
       config: { 'mcp_servers.nano-parent': { ...options.mcp, required: true } },
     };
-    const response = await request<{ thread: { id: string } }>(
+    const response = await request<{ thread: { id: string }; model?: string }>(
       threadId ? 'thread/resume' : 'thread/start',
       threadId ? { ...common, threadId } : common,
     );
     if (!response.thread.id || (threadId && threadId !== response.thread.id))
       throw new Error('Codex returned a different or empty thread id');
     threadId = response.thread.id;
+    model = response.model;
   } catch (error) {
     await proc.close();
     throw error;
@@ -258,17 +278,21 @@ async function codex(options: CliWorkerOptions) {
     sessionId: threadId,
     async send(text: string) {
       const input = [{ type: 'text', text, text_elements: [] }];
-      if (events.active) {
-        await request('turn/steer', { threadId, expectedTurnId: events.active, input });
-        return;
-      }
-      // The response and started/completed notifications can share a single stdout chunk.
-      const provisional = randomUUID();
-      events.begin(provisional);
+      const messageId = randomUUID();
+      const turnId = events.active;
+      inputRequest = { rpcId: nextId + 1, messageId, text, turnId };
       try {
-        const { turn } = await request<{ turn: CodexTurn }>('turn/start', { threadId, input });
-        if (events.active === provisional) events.begin(turn.id);
+        if (turnId)
+          await request('turn/steer', {
+            threadId,
+            expectedTurnId: turnId,
+            clientUserMessageId: messageId,
+            input,
+          });
+        else await request('turn/start', { threadId, clientUserMessageId: messageId, input });
       } catch (error) {
+        if (!turnId && inputRequest) acceptInput(messageId);
+        inputRequest = undefined;
         if (events.active) events.end(events.active, 'failed', String(error));
         throw error;
       }
@@ -286,7 +310,11 @@ async function codex(options: CliWorkerOptions) {
         }
       } else await finished;
     },
-    close: () => proc.close(),
+    async close() {
+      await proc.close();
+      if (events.active) events.end(events.active, 'interrupted', 'Worker session closed');
+      await events.finished;
+    },
   };
 }
 
@@ -315,7 +343,14 @@ async function claude(options: CliWorkerOptions) {
   ];
   const proc = new CliProcess('claude', args, options.cwd);
   const events = new TurnEvents(options);
-  const unconsumed = new Set<string>();
+  const unconsumed = new Map<string, string>();
+  let model: string | undefined;
+  let lastResultId: string | undefined;
+  const consume = (id: string) => {
+    const text = unconsumed.get(id);
+    if (text !== undefined) events.details.message(id, 'user', text);
+    unconsumed.delete(id);
+  };
   const reportedDenials = new Set<string>();
   let stopping = false;
   const control = (subtype: string, params: Record<string, unknown> = {}) => {
@@ -374,11 +409,32 @@ async function claude(options: CliWorkerOptions) {
     }
     if (message.session_id && message.session_id !== sessionId)
       throw new Error('Claude returned a different session id');
-    if (message.type === 'user' && message.isReplay) unconsumed.delete(message.uuid);
-    if (message.type !== 'result' || !events.active) return;
-    if (!events.recordTurn(message.uuid ?? events.active, claudeResultTokens(message.usage))) return;
+    if (message.type === 'system' && message.subtype === 'init') {
+      model = message.model;
+      events.details.model = model;
+    }
+    if (!events.active || message.parent_tool_use_id) return;
+    if (message.type === 'user' && message.isReplay) consume(message.uuid);
+    if (message.type === 'assistant' || message.type === 'user') {
+      for (const [i, block] of (Array.isArray(message.message?.content)
+        ? message.message.content
+        : []
+      ).entries()) {
+        if (message.type === 'assistant' && block.type === 'text')
+          events.details.message(`${message.uuid ?? message.message.id}:${i}`, 'assistant', block.text);
+        if (message.type === 'assistant' && block.type === 'tool_use')
+          events.details.toolStart(block.id, block.name, block.input);
+        if (message.type === 'user' && block.type === 'tool_result')
+          events.details.toolEnd(block.tool_use_id, undefined, block.content, !!block.is_error);
+      }
+    }
+    if (message.type !== 'result' || (message.uuid && lastResultId === message.uuid)) return;
+    lastResultId = message.uuid;
+    const tokens = claudeResultTokens(message.usage);
     const state = message.subtype === 'success' && !message.is_error ? 'completed' : 'failed';
     const text = (message.errors ?? []).join('\n') || message.result || `Claude turn ${message.subtype}`;
+    if (state === 'completed' && message.result)
+      events.details.finalMessage(`result:${message.uuid ?? events.active}`, message.result);
     for (const denial of message.permission_denials ?? []) {
       if (reportedDenials.has(denial.tool_use_id)) continue;
       reportedDenials.add(denial.tool_use_id);
@@ -392,14 +448,18 @@ async function claude(options: CliWorkerOptions) {
     }
     // The CLI may queue steering behind the active turn. Retain the process until it consumes the correction.
     if (!stopping && state === 'completed' && unconsumed.size && !unconsumed.has(events.active)) {
+      events.details.end(state, tokens);
       events.report(message.uuid, text);
-      events.begin([...unconsumed][0]!);
+      const [next, correction] = unconsumed.entries().next().value!;
+      events.begin(next, model);
+      events.details.message(next, 'user', correction);
       return;
     }
     events.end(
       message.uuid ?? events.active,
       stopping ? 'interrupted' : state,
       stopping ? 'Claude turn interrupted' : text,
+      tokens,
     );
     unconsumed.clear();
   };
@@ -414,8 +474,12 @@ async function claude(options: CliWorkerOptions) {
     sessionId,
     async send(text: string) {
       const uuid = randomUUID();
-      if (!events.active) events.begin(uuid);
-      unconsumed.add(uuid);
+      if (proc.ended) throw new Error('Worker process is closing');
+      if (!events.active) {
+        events.begin(uuid, model);
+        events.details.message(uuid, 'user', text);
+      }
+      unconsumed.set(uuid, text);
       await proc.write({
         type: 'user',
         uuid,
@@ -440,7 +504,11 @@ async function claude(options: CliWorkerOptions) {
         stopping = false;
       }
     },
-    close: () => proc.close(),
+    async close() {
+      await proc.close();
+      if (events.active) events.end(events.active, 'interrupted', 'Worker session closed');
+      await events.finished;
+    },
   };
 }
 
