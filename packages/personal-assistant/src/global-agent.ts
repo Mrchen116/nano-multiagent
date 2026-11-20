@@ -1129,6 +1129,7 @@ export class GlobalAgent {
       const {workerId, rootId, callId, label, runtime, state, id, time} = change;
       const draft=this.workEvent(binding,`worker:${id}`,{type:'worker_state', payload:{
         parent_session_id:rootId, title:label, runtime, status:state, call_id:callId,
+        ...(change.turnUsage && {turn_usage:{turn_id:change.turnUsage.id, total_tokens:change.turnUsage.totalTokens}}),
       }},undefined,time);
       facts.push({...draft,session_id:workerId});
     }

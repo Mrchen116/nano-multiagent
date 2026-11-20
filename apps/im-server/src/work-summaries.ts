@@ -51,7 +51,7 @@ const latestTurnJoin = `LEFT JOIN agent_work_turns t ON t.session_id=s.session_i
 )`;
 const summaryFields = `s.session_id,s.parent_session_id,s.scope,substr(json_extract(s.payload,'$.title'),1,240) AS title,
   CASE WHEN s.scope='worker' THEN json_extract(s.payload,'$.status')
-    ELSE COALESCE(json_extract(t.payload,'$.status'),'unknown') END AS status,t.turn_id,
+    ELSE COALESCE(json_extract(t.payload,'$.status'),'unknown') END AS status,CASE WHEN s.scope!='worker' THEN t.turn_id END AS turn_id,
   CASE WHEN s.scope='worker' THEN json_extract(s.payload,'$.last_active_at')
     ELSE COALESCE(json_extract(t.payload,'$.finished_at'),json_extract(t.payload,'$.started_at')) END AS last_active_at`;
 
@@ -222,7 +222,8 @@ export class WorkSummaries {
     const nodes: WorkGraphNode[] = rows.map(({total_tokens, reported_turns, missing_turns, runtime, ...row}) => ({
       ...row,
       ancestor_only: !selectedSet.has(row.session_id) && !activeAncestors.has(row.session_id),
-      ...(row.scope === 'worker' ? {runtime} : {usage:{total_tokens, reported_turns, missing_turns}}),
+      ...(row.scope === 'worker' && {runtime}),
+      ...(row.scope !== 'worker' || reported_turns + missing_turns > 0 ? {usage:{total_tokens, reported_turns, missing_turns}} : {}),
     }));
     return {window, from, until, nodes, next_cursor: candidates.length > limit ? selected.at(-1)! : null};
   }

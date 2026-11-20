@@ -115,6 +115,15 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
     const label = isRoot ? agentName || tr("主 Agent") : node.title || id;
     const ambiguous = node.title && (sameTitle.get(node.title) ?? 0) > 1;
     const totalTurns = usage ? usage.reported_turns + usage.missing_turns : 0;
+    const metrics = usage ? <>
+      <span className="im-work-graph-node-metrics">
+        {`${totalTurns} ${tr("轮累计")} · `}
+        {usage.total_tokens === null ? tr("Token 未报告") :
+          <span title={`${usage.total_tokens.toLocaleString(i18n.language)} tok`}>{formatWorkTokens(usage.total_tokens)} tok</span>}
+      </span>
+      {(isRoot && totalTurns > 0 || usage.missing_turns > 0) &&
+        <small>{`${usage.reported_turns}/${totalTurns} ${tr("轮次已报告")}`}</small>}
+    </> : node.scope === "worker" && <small>{tr("轮次及 Token 未报告")}</small>;
     if (node.scope === "worker") return <li key={id} className="im-work-graph-branch">
       <div className="im-work-graph-node" data-work-node={id} title={id}>
         <strong>{label}</strong>
@@ -123,6 +132,7 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
           {ambiguous && ` · ${id.slice(-8)}`}
         </span>
         {node.last_active_at && <time className="im-work-graph-node-meta" dateTime={node.last_active_at}>{timestamp(node.last_active_at)}</time>}
+        {metrics}
       </div>
     </li>;
     return <li key={id} className="im-work-graph-branch">
@@ -137,13 +147,7 @@ export function WorkDelegation({agentId, agentName, visible, openSession}: {
             {ambiguous && ` · ${id.slice(-8)}`}
           </>}
         </span>
-        {usage && <span className="im-work-graph-node-metrics">
-          {`${totalTurns} ${tr("轮累计")} · `}
-          {usage.total_tokens === null ? tr("Token 未报告") :
-            <span title={`${usage.total_tokens.toLocaleString(i18n.language)} tok`}>{formatWorkTokens(usage.total_tokens)} tok</span>}
-        </span>}
-        {usage && (isRoot && totalTurns > 0 || usage.missing_turns > 0) &&
-          <small>{`${usage.reported_turns}/${totalTurns} ${tr("轮次已报告")}`}</small>}
+        {metrics}
         {node.ancestor_only && <small>{tr("仅显示派工路径")}</small>}
       </button>
       {children.length > 0 && <ul>{children.map(child => renderNode(child, path))}</ul>}

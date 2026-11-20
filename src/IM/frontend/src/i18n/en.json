@@ -852,6 +852,7 @@
       "结果文件": "Output file",
       "后台结果": "Background result",
       "本轮统计": "Turn statistics",
+      "轮次及 Token 未报告": "Turns and tokens not reported",
       "Token 未报告": "Tokens not reported",
       "未报告": "Not reported",
       "上下文窗口未报告": "Context window not reported",

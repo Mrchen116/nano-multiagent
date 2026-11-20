@@ -45,6 +45,10 @@ export function decodeWorkEvent(value: unknown): DecodedWorkEvent {
             !['dsh', 'codex', 'claude'].includes(String(p.runtime)) ||
             !['starting', 'running', 'completed', 'interrupted', 'failed'].includes(String(p.status)))
           throw new WorkEventError('invalid_event');
+        fields(p, ['turn_usage'], usage => workObject(usage) &&
+          typeof usage.turn_id === 'string' && usage.turn_id.length > 0 &&
+          (usage.total_tokens === null || typeof usage.total_tokens === 'number' &&
+            Number.isSafeInteger(usage.total_tokens) && usage.total_tokens >= 0));
         break;
       case 'session_registered':
         if (!['global_main', 'subagent', 'workflow', 'cron'].includes(String(p.scope))) throw new WorkEventError('invalid_scope');

@@ -240,7 +240,8 @@ export class WorkRecords {
         const fact = decodeWorkEvent(e).fact;
         const observedAt = e.observed_at ?? now();
         if (fact?.type === 'worker_state') {
-          const relation = {...fact.payload, scope:'worker' as const, last_active_at:observedAt};
+          const {turn_usage, ...worker} = fact.payload;
+          const relation = {...worker, scope:'worker' as const, last_active_at:observedAt};
           this.register(e.root_agent_id, e.session_id, node, relation, !available);
         } else if (fact?.type === "session_registered") {
           if (historical && fact.payload.scope === 'global_main') {
@@ -292,7 +293,8 @@ export class WorkRecords {
     const p = e.payload,
       kind = e.type,
       session = e.session_id;
-    let turnId = e.turn_id;
+    const workerUsage = fact?.type === 'worker_state' ? fact.payload.turn_usage : undefined;
+    let turnId = workerUsage?.turn_id ?? e.turn_id;
     if (!turnId && p.run_id && !["cron_trigger", "cron_delivery"].includes(kind))
       turnId = one(
         this.db,
@@ -385,6 +387,11 @@ export class WorkRecords {
           context_window: p.context_window ?? p.usage.context_window,
         };
     }
+    if (workerUsage) {
+      turn.status = 'ended';
+      turn.finished_at = observedAt;
+      if (workerUsage.total_tokens !== null) turn.usage = {total_tokens:workerUsage.total_tokens};
+    }
     if (fact?.type === "model_selected") turn.model_id = fact.payload.model;
     if (kind === "permission_request") turn.status = "waiting_permission";
     if (fact?.type === "permission_resolved" && turn.status === "waiting_permission") {
@@ -405,7 +412,8 @@ export class WorkRecords {
         "INSERT INTO agent_work_turns VALUES(?,?,?,?) ON CONFLICT(session_id,turn_id) DO UPDATE SET payload=excluded.payload",
       )
       .run(session, turnId, prior?.seq ?? revision, JSON.stringify(turn));
-    if (ended) updateWorkLifetimeUsage(this.db, session, wasEnded, previousTokens, turn.usage?.total_tokens);
+    if (ended || workerUsage) updateWorkLifetimeUsage(this.db, session, wasEnded, previousTokens, turn.usage?.total_tokens);
+    if (workerUsage) return;
     if (
       [
         "turn_started",

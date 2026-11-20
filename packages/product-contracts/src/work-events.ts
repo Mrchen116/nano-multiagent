@@ -10,6 +10,7 @@ export interface WorkWorkerFields extends WorkCommonFields {
   runtime: import('./index.js').WorkerRuntime;
   status: 'starting' | 'running' | 'completed' | 'interrupted' | 'failed';
   call_id: string;
+  turn_usage?: {turn_id:string; total_tokens:number | null};
 }
 export type DreamingWorkStage = 'extract' | 'consolidate';
 export interface WorkSessionFields extends WorkCommonFields {

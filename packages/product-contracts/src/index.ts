@@ -117,6 +117,8 @@ export interface RuntimeWorkerChange {
   label: string;
   runtime: WorkerRuntime;
   state: import('./work-events.js').WorkWorkerFields['status'];
+  /** One finished execution turn. A null total means the provider did not report it. */
+  turnUsage?: {id:string; totalTokens:number | null};
 }
 
 /** Private runtime Work protocol; a page advances only over the included durable prefix. */

@@ -17,14 +17,18 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   store.bind({agentId: 'global', sessionId: 'main', conversationId: 'global:global', ownerId: 'alice', cwd: center.dir, revision: '1'});
   const content = '中文😀\n"原始参数"'.repeat(6000), output = '完整工具结果\n'.repeat(5000);
   const workerTime = Date.now() - 1000;
-  const worker = (seq:number, workerId:string, label:string, runtime:RuntimeWorkerChange['runtime'], state:RuntimeWorkerChange['state']): RuntimeWorkerChange => ({
-    id:String(seq), time:workerTime+seq, workerId, rootId:'main', callId:workerId+'-call', label, runtime, state,
+  const worker = (seq:number, workerId:string, label:string, runtime:RuntimeWorkerChange['runtime'], state:RuntimeWorkerChange['state'], turnUsage?:RuntimeWorkerChange['turnUsage']): RuntimeWorkerChange => ({
+    id:String(seq), time:workerTime+seq, workerId, rootId:'main', callId:workerId+'-call', label, runtime, state, turnUsage,
   });
   let pendingWorkers = [
     worker(8, 'a-worker', '核对报表', 'codex', 'starting'),
     worker(9, 'b-worker', '核对附件', 'dsh', 'running'),
-    worker(10, 'a-worker', '核对报表', 'codex', 'running'),
-    worker(11, 'a-worker', '核对报表', 'codex', 'completed'),
+    worker(10, 'a-worker', '核对报表', 'codex', 'running', {id:'item-1',totalTokens:410}),
+    worker(11, 'a-worker', '核对报表', 'codex', 'completed', {id:'item-2',totalTokens:null}),
+    worker(12, 'a-worker', '核对报表', 'codex', 'completed', {id:'item-1',totalTokens:410}),
+    worker(13, 'b-worker', '核对附件', 'dsh', 'running', {id:'1',totalTokens:0}),
+    worker(14, 'claude-worker', '审阅', 'claude', 'completed', {id:'msg-1',totalTokens:null}),
+    worker(15, 'legacy-worker', '旧事项', 'dsh', 'completed'),
   ];
   const source: RuntimeEvent[] = [
     {seq: 0, time: 1000, type: 'request/header', data: {header: {config: {model: 'fixture-model'}}}},
@@ -92,10 +96,14 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   expect(page.next_cursor).toBe('a-worker');
   expect(page.nodes.find((node:{scope:string})=>node.scope==='worker')).toEqual({
     session_id:'a-worker',parent_session_id:'main',scope:'worker',runtime:'codex',title:'核对报表',
-    status:'completed',turn_id:null,last_active_at:new Date(workerTime+11).toISOString(),ancestor_only:false,
+    status:'completed',turn_id:null,last_active_at:new Date(workerTime+12).toISOString(),ancestor_only:false,
+    usage:{total_tokens:410,reported_turns:1,missing_turns:1},
   });
   const next = (await graph('&after_session=a-worker&until='+encodeURIComponent(page.until))).body;
-  expect(next.nodes).toContainEqual(expect.objectContaining({session_id:'b-worker',runtime:'dsh',status:'running'}));
+  expect(next.nodes).toContainEqual(expect.objectContaining({session_id:'b-worker',runtime:'dsh',status:'running',usage:{total_tokens:0,reported_turns:1,missing_turns:0}}));
+  const allWorkers = (await center.http('GET','/im/v1/agents/global/work/delegation?window=2h',undefined,center.tokens.alice)).body.nodes;
+  expect(allWorkers.find((row:any) => row.session_id==='claude-worker')).toMatchObject({usage:{total_tokens:null,reported_turns:0,missing_turns:1}});
+  expect(allWorkers.find((row:any) => row.session_id==='legacy-worker')).not.toHaveProperty('usage');
   expect(first.body.other_executions.map((row:{session_id:string})=>row.session_id)).toEqual(['child']);
   expect((await center.http('GET','/im/v1/agents/global/work/sessions/b-worker/turns',undefined,center.tokens.alice)).status).toBe(404);
   expect(first.body.turns[1]).toMatchObject({status: 'completed', usage: {context_used: 12, output: 3, context_window: 8192}, elapsed_ms: 8});
@@ -111,6 +119,11 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   const invalid = await node.frames.send('agent.work.append', {node_id: node.node, journal_id: inbox.journalId, from_seq: produced + 1,
     events: [{seq: produced + 1, event_id: 'malformed', root_agent_id: 'global', session_id: 'main', turn_id: '1', type: 'tool_end', payload: {presentation: {summary: 7}}}]});
   expect(invalid.type).toBe('error');
+  const malformedUsage = await node.frames.send('agent.work.append', {node_id:node.node,journal_id:inbox.journalId,from_seq:produced+1,
+    events:[{seq:produced+1,event_id:'malformed-usage',root_agent_id:'global',session_id:'a-worker',type:'worker_state',
+      payload:{parent_session_id:'main',title:'核对报表',runtime:'codex',status:'completed',call_id:'a-worker-call',
+        turn_usage:{turn_id:'item-3',total_tokens:-1}}}]});
+  expect(malformedUsage.type).toBe('error');
   const path = `/im/v1/gateway/work-sync/journals/${inbox.journalId}`;
   expect((await center.http('GET', path, undefined, node.runtime)).body.through_seq).toBe(produced);
 
@@ -128,6 +141,8 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     expect(duplicate.body.through_seq).toBe(produced);
   }
   const restored = await restarted.http('GET', '/im/v1/agents/global/work', undefined, restarted.tokens.alice);
+  const restoredGraph = await restarted.http('GET', '/im/v1/agents/global/work/delegation?window=2h',undefined,restarted.tokens.alice);
+  expect(restoredGraph.body.nodes).toEqual(allWorkers);
   expect(restored.body.turns).toEqual(first.body.turns);
   expect(restored.body.other_executions).toEqual(first.body.other_executions);
   expect(restored.body.revision).toBe(first.body.revision);
