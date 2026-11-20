@@ -130,7 +130,11 @@ struct AgentWorkView: View {
                     } else { executionLinks }
                 }
             }
-            if sessionID == nil, root != nil { AgentLifecycleControls(client: client, agentID: agentID, canManage: canManage, online: online) }
+            if sessionID == nil, root != nil {
+                VStack(alignment: .leading, spacing: 4) {
+                    AgentLifecycleControls(client: client, agentID: agentID, canManage: canManage, online: online, groupDisableAction: true)
+                }
+            }
             if separate, let executionID {
                 Section(L("控制记录", "Control records")) { AgentWorkControls(client: client, base: base, sessionID: executionID, onOpenChat: onOpenChat).id(executionID) }
             }

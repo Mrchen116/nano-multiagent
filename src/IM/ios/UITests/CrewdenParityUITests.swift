@@ -104,14 +104,19 @@ final class CrewdenParityUITests: XCTestCase {
         capture("crewden-register")
         let username = app.textFields["输入用户名"]
         username.tap()
-        username.typeText("first-" + UUID().uuidString.prefix(8) + "\n")
-        app.secureTextFields["输入密码"].typeText("Walkthrough" + UUID().uuidString.prefix(8) + "\n")
-        app.textFields["其他人看到的名字"].typeText("Mia\n")
+        username.typeText("first-" + UUID().uuidString.prefix(8))
+        let password = app.secureTextFields["输入密码"]
+        password.tap()
+        password.typeText("Crewden-demo-123")
+        let displayName = app.textFields["其他人看到的名字"]
+        displayName.tap()
+        displayName.typeText("Mia")
+        app.buttons["创建账号"].tap()
         let setup = app.buttons["assistant.setup.entry"]
         XCTAssertTrue(setup.waitForExistence(timeout: 25))
         capture("crewden-first-inbox")
         setup.tap()
-        XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["发送设置链接到电脑"].waitForExistence(timeout: 15))
         capture("crewden-first-setup")
     }
 

@@ -49,8 +49,10 @@ struct TasksView: View {
                                     Text(L("已显示 \(items.count) / \(total) 个任务，按当前列表统计", "Showing \(items.count) of \(total) tasks. Counts reflect this list."))
                                         .font(.caption).foregroundStyle(NanoTheme.muted)
                                 }
-                                TaskStatusSummary(counts: statusCounts, partial: partialCounts) { group in
-                                    withAnimation { proxy.scrollTo(group, anchor: .top) }
+                                if partialCounts || items.count > 5 {
+                                    TaskStatusSummary(counts: statusCounts, partial: partialCounts) { group in
+                                        withAnimation { proxy.scrollTo(group, anchor: .top) }
+                                    }
                                 }
                             }
                         }
@@ -61,7 +63,7 @@ struct TasksView: View {
                                     ForEach(rows) { item in
                                         TaskCompactCard(title: item.title, status: item.status, assignee: item.assignee, source: item.conversation.title,
                                                         parentPath: ownerMode ? item.parent_path?.map(\.title).joined(separator: " › ") : nil,
-                                                        wait: item.wait, waitHealth: item.wait_health,
+                                                        wait: item.wait, waitHealth: item.wait_health, showsStatus: item.status != group || group == "doing",
                                                         open: { selected = item }) {
                                             HStack(spacing: 12) {
                                                 NavigationLink {

@@ -12,7 +12,7 @@ struct AuthView: View {
     private enum Field { case username, password, name }
     @FocusState private var field: Field?
     private var canSubmit: Bool {
-        !model.busy && !username.isEmpty && !password.isEmpty && (!register || !displayName.isEmpty) && (model.retryUntil ?? .distantPast) <= now
+        !model.busy && !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty && (!register || (!displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && password.unicodeScalars.count >= 8)) && (model.retryUntil ?? .distantPast) <= now
     }
     private func submit() {
         guard canSubmit else { return }
@@ -48,6 +48,7 @@ struct AuthView: View {
                             Text(L("密码", "Password")).font(.subheadline.weight(.medium))
                             SecureField(L("输入密码", "Enter your password"), text: $password).textContentType(register ? .newPassword : .password).authInput()
                                 .focused($field, equals: .password).submitLabel(register ? .next : .go).onSubmit { if register { field = .name } else { submit() } }
+                            if register { Text(L("至少 8 个字符", "At least 8 characters")).font(.caption).foregroundStyle(NanoTheme.muted) }
                         }
                         if register {
                             VStack(alignment: .leading, spacing: 8) {

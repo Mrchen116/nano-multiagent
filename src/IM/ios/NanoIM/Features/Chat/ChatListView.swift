@@ -206,7 +206,7 @@ struct NewChatView: View {
     private var filtered: [Contact] { contacts.filter { $0.user_id != userID && (search.isEmpty || ($0.display_name + " " + ($0.agent_id ?? "") + " " + $0.user_id + " " + ($0.node_name ?? "")).localizedCaseInsensitiveContains(search)) } }
     var body: some View {
         NavigationStack {
-            Form {
+            List {
                 Section {
                     Picker(L("聊天类型", "Conversation type"), selection: $group) {
                         Text(L("私聊", "Direct")).tag(false)
@@ -236,15 +236,15 @@ struct NewChatView: View {
                             else { selection.insert(contact.id) }
                         } label: {
                             HStack { AvatarView(name: contact.display_name, online: contact.status == "online", kind: contact.kind == "agent" ? "agent" : "person", agentID: contact.agent_id, role: contact.role, variant: contact.avatar_variant); VStack(alignment: .leading) {
-                                Text(contact.display_name).foregroundStyle(.primary)
+                                Text(contact.display_name).foregroundStyle(NanoTheme.ink)
                                 if contact.kind == "agent" { Text(contact.owner_display_name.map { L("\($0) 的助手", "Assistant for \($0)") } ?? L("助手", "Assistant")).font(.caption).foregroundStyle(.secondary) }
                             }; Spacer()
                                 if group { Image(systemName: selection.contains(contact.id) ? "checkmark.circle.fill" : "circle").foregroundStyle(NanoTheme.accent) }
                             }.contentShape(Rectangle())
-                        }
+                        }.buttonStyle(.plain)
                     }
                 }
-            }.disabled(busy).navigationTitle(L("新建聊天", "New conversation")).navigationBarTitleDisplayMode(.inline)
+            }.nanoList().disabled(busy).navigationTitle(L("新建聊天", "New conversation")).navigationBarTitleDisplayMode(.inline)
                 .searchable(text: $search, prompt: L("搜索联系人", "Search contacts"))
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { dismiss() }.disabled(busy) }

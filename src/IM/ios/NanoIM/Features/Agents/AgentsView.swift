@@ -43,7 +43,7 @@ struct AgentsView: View {
                 }
             }
             if personal?.creation != nil { Text(L("个人助手正在设置，请稍后重试。", "Personal assistant setup is in progress.")).font(.callout).foregroundStyle(.secondary) }
-            if !regular.isEmpty { Section(L("其他助手", "Other assistants")) {
+            if !regular.isEmpty { Section(binding == nil ? L("团队助手", "Team assistants") : L("其他助手", "Other assistants")) {
             ForEach(regular) { contact in
                 NavigationLink {
                     AgentProfileView(client: client, user: user, contact: contact, onOpenChat: onOpenChat)
@@ -139,7 +139,7 @@ struct AgentProfileView: View {
                     }
                     HStack(spacing: 7) {
                         Circle().fill(shownContact.status == "online" ? NanoTheme.accent : NanoTheme.muted).frame(width: 6, height: 6)
-                        Text((shownContact.status == "online" ? L("在线", "Online") : L("离线", "Offline")) + " · " + (shownContact.node_name ?? L("未知设备", "Unknown device")))
+                        Text(shownContact.status == "online" ? L("在线", "Online") : L("离线", "Offline"))
                             .font(.subheadline).foregroundStyle(NanoTheme.muted)
                     }
                     Button { Task { await openChat() } } label: {
@@ -155,12 +155,17 @@ struct AgentProfileView: View {
             }
             Section {
                 DisclosureGroup(L("助手资料", "Assistant details")) {
+                    if let computer = shownContact.node_name { LabeledContent(L("工作电脑", "Work computer"), value: computer) }
                     LabeledContent(L("助手 ID", "Assistant ID"), value: agentID).textSelection(.enabled)
                     LabeledContent(L("管理者", "Owner"), value: shownContact.owner_display_name ?? shownContact.owner_id ?? "—")
                     LabeledContent(L("工作模式", "Work mode"), value: shownContact.work_mode == "global" ? L("全局模式", "Global") : L("单会话", "Single conversation"))
                 }
             }
-            Section { AgentLifecycleControls(client: client, agentID: agentID, canManage: owned, online: shownContact.status == "online") }
+            Section {
+                VStack(alignment: .leading, spacing: 4) {
+                    AgentLifecycleControls(client: client, agentID: agentID, canManage: owned, online: shownContact.status == "online", groupDisableAction: true)
+                }
+            }
             if owned {
                 Section(L("管理", "Manage")) {
                     NavigationLink {

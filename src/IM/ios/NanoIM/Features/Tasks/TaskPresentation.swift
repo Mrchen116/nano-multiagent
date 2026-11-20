@@ -259,7 +259,7 @@ struct TaskStatusSummary: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(taskStatuses, id: \.self) { status in
+                ForEach(taskStatuses.filter { counts[$0, default: 0] > 0 }, id: \.self) { status in
                     let count = counts[status, default: 0]
                     Button { locate(status == "paused" ? "todo" : status == "waiting" ? "doing" : status) } label: {
                         HStack(spacing: 5) {
@@ -287,6 +287,7 @@ struct TaskCompactCard<Actions: View>: View {
     var wait: TaskWait? = nil
     var waitHealth: TaskWaitHealth? = nil
     var selectedCandidate = false
+    var showsStatus = true
     let open: () -> Void
     @ViewBuilder var actions: () -> Actions
 
@@ -295,9 +296,11 @@ struct TaskCompactCard<Actions: View>: View {
             Button(action: open) {
                 HStack(alignment: .top, spacing: 10) {
                     Text(title).font(.headline).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                    Label(taskStatus(status), systemImage: taskStatusIcon(status))
-                        .font(.caption).foregroundStyle(status == "paused" ? .orange : NanoTheme.accent)
-                        .fixedSize(horizontal: true, vertical: true).padding(.top, 2)
+                    if showsStatus {
+                        Label(taskStatus(status), systemImage: taskStatusIcon(status))
+                            .font(.caption).foregroundStyle(status == "paused" ? .orange : NanoTheme.accent)
+                            .fixedSize(horizontal: true, vertical: true).padding(.top, 2)
+                    }
                 }.foregroundStyle(NanoTheme.ink).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel(title + ", " + taskStatus(status))
             ViewThatFits(in: .horizontal) {

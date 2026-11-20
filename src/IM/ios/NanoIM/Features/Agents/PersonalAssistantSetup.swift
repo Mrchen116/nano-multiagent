@@ -118,15 +118,17 @@ struct PersonalAssistantSetup: View {
         }
         if node?.status != "online" {
             Text(L("助手在你的电脑上执行任务。请先在电脑上完成安装并保持在线。", "Install Crewden on the computer where your assistant will work and keep it online.")).font(.callout)
-            if onboarding.install.available {
-                Button(copyDone ? L("已复制安装命令", "Installation command copied") : L("复制电脑安装命令", "Copy computer install command"), systemImage: "doc.on.doc") {
-                    UIPasteboard.general.string = onboarding.install.command
-                    copyDone = true
-                }
-            }
             ShareLink(item: client.baseURL.appendingPathComponent("onboarding")) { Label(L("发送设置链接到电脑", "Share computer setup link"), systemImage: "square.and.arrow.up") }
-            NavigationLink(L("确认绑定链接", "Confirm binding link")) {
+            NavigationLink(L("已有电脑绑定链接", "I have a binding link")) {
                 SettingsBindingView(client: client, user: user, onAccountUpdated: { Task { await refresh() } })
+            }
+            if onboarding.install.available {
+                DisclosureGroup(L("用命令安装", "Install with a command")) {
+                    Button(copyDone ? L("已复制安装命令", "Installation command copied") : L("复制电脑安装命令", "Copy computer install command"), systemImage: "doc.on.doc") {
+                        UIPasteboard.general.string = onboarding.install.command
+                        copyDone = true
+                    }
+                }
             }
         }
     }
