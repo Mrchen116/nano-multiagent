@@ -16,15 +16,15 @@ try {
   runtime.rpc.handle('product.task_context.prepare', () => ({messages:[], revoked:[]}));
   runtime.rpc.handle('product.task_context.commit', () => null);
   runtime.rpc.handle('product.task_execution.snapshot', () => ({kind:'quiescent', tasks:[], repair_task_ids:[]}));
-  const result = await runtime.rpc.request('initialize', {protocol:1, agents:[agent], bindings:[]});
+  const result = await runtime.rpc.request('initialize', {protocol:1, agents:[], bindings:[]});
   assert.equal(result.protocol, 1);
   console.log('Installed DSH initialized', result.version);
   await runtime.rpc.request('runtime.health', {});
   // Applying a new configuration spawns and reclaims a native inspection worker.
-  const updated = {...agent, revision:'2', workspace:home};
-  await runtime.rpc.request('configuration.apply', updated);
+  const applied = await runtime.rpc.request('configuration.apply', {...agent, workspace:home});
+  assert.equal(applied.effective, true, JSON.stringify(applied));
   const sessionId = 'installed-smoke';
-  await runtime.rpc.request('session.ensure', {sessionId, agentId:agent.agentId, revision:updated.revision, ownerId:'probe', cwd:home});
+  await runtime.rpc.request('session.ensure', {sessionId, agentId:agent.agentId, revision:agent.revision, ownerId:'probe', cwd:home});
   const capabilities = await runtime.rpc.request('session.capabilities', {sessionId});
   assert.ok(capabilities.tools.includes('read'), 'Installed session must offer the file reader');
   console.log('Installed session tools:', capabilities.tools.sort().join(', '));
