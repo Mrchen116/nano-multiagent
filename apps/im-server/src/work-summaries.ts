@@ -101,11 +101,11 @@ export class WorkSummaries {
    *   after: Exclusive session ID for the child list.
    *   limit: Maximum number of child sessions to return.
    */
-  activity(root: string, main: string | null, complete: boolean, after: string, limit: number) {
+  activity(root: string, main: string | null, complete: boolean, after: string, limit: number, mainComplete = complete) {
     const mainTurn = main ? one(this.db, `SELECT turn_id,json_extract(payload,'$.status') AS status
       FROM agent_work_turns WHERE session_id=? ORDER BY seq DESC LIMIT 1`, main) : undefined;
     const mainState = mainTurn?.status;
-    const main_execution = !complete ? 'unknown' : !mainState || ['completed', 'failed', 'interrupted'].includes(mainState) ? 'idle' : mainState;
+    const main_execution = !mainComplete ? 'unknown' : !mainState || ['completed', 'failed', 'interrupted'].includes(mainState) ? 'idle' : mainState;
     const latest_tool = main && mainTurn && ['running', 'waiting_permission'].includes(main_execution)
       ? this.latestTool(main, mainTurn.turn_id) : null;
     const activity = `WITH ranked AS (

@@ -13,7 +13,7 @@ import { formatWorkDuration, tr, WorkEventTime } from "./agent-work-text";
 import { i18n, useTranslation } from "../../../i18n";
 import { PermissionCard } from "../../chat/components/permission-card";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
-import { AgentExecutionDeletedError, workAccessLost, workBase, workRequest, workSessionPath, type WorkItemsPage, type WorkFocus, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
+import { refreshReadyWork, AgentExecutionDeletedError, workAccessLost, workBase, workRequest, workSessionPath, type WorkItemsPage, type WorkFocus, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
 import "./agent-work.css";
 import { useWorkHistory, workHistoryTurnKey } from './agent-work-history';
 import { LegacyWorkLinks, WorkLink } from './agent-work-links';
@@ -345,6 +345,13 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
       timer = window.setTimeout(() => { timer = undefined; refreshCurrent.current(); }, 500);
     };
     const unsubscribe = subscribeUserStream({onEvent: event => {
+      if (event.eventType === "agent.work.updated" && event.payload.agent_id === agentId && event.payload.readiness_changed === true) {
+        if (!document.hidden) {
+          void refreshReadyWork(client, ["agent-work-delegation", agentId]);
+          void refreshReadyWork(client, ["agent-work", agentId, "main"]);
+        }
+        return;
+      }
       if ((event.eventType === "agent.work.updated" || event.eventType === "agent.status_changed") && event.payload.agent_id === agentId) schedule();
     }, onRecovery: schedule});
     const refreshVisible = () => { if (document.visibilityState !== "hidden") refreshCurrent.current(); };
@@ -354,7 +361,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
       unsubscribe(); window.clearTimeout(timer); window.clearInterval(poll);
       document.removeEventListener("visibilitychange", refreshVisible);
     };
-  }, [agentId]);
+  }, [agentId, client]);
   useEffect(() => {
     if (!view || restored.current || (focus && !nativeMode)) return;
     restored.current = true;

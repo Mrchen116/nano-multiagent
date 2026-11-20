@@ -43,6 +43,7 @@ export function fixture() {
     publicUrl: 'http://im.test',
     gateway: {
       nodes: new Map(),
+      browsers: new Set(),
       request: async () => null,
       send: () => false,
       isOnline: () => false,

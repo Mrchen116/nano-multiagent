@@ -13,6 +13,9 @@ export const workSyncLimits = {
   partialTtlMs: 24 * 60 * 60 * 1000,
 } as const;
 
+/** Required journal ACK for all activity, or only the settled main execution. */
+export type WorkReadyCut = number | { main: number };
+
 export interface WorkSyncPendingEvent {
   seq: number;
   event_id: string;

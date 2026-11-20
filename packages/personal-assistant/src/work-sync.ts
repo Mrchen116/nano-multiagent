@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { workSyncLimits as limits, workSyncPrefix, workRedactedType, type WorkJournalEvent, type WorkSyncCursor, type WorkSyncPart } from '@nano/product-contracts';
+import { workSyncLimits as limits, workSyncPrefix, workRedactedType, type WorkJournalEvent, type WorkSyncCursor, type WorkSyncPart, type WorkReadyCut } from '@nano/product-contracts';
 import type { InboxStore } from './inbox.js';
 
 interface Options {
@@ -7,6 +7,7 @@ interface Options {
   inbox: InboxStore;
   url: string;
   credentials: () => string;
+  readyAgents?: () => Record<string, WorkReadyCut>;
   available?: () => boolean;
   onError: (error: unknown) => void;
 }
@@ -94,9 +95,21 @@ export class WorkSync {
     const path = `${workSyncPrefix}/journals/${encodeURIComponent(this.options.inbox.journalId)}${suffix}`;
     const text = body === undefined ? undefined : JSON.stringify(body);
     if (text !== undefined && Buffer.byteLength(text) > limits.requestMaxBytes) throw new SyncError('work_sync_request_too_large', true);
+    const produced = this.options.inbox.journalSeq;
+    const pending = this.options.inbox.workProcessingPending;
+    const headers: Record<string, string> = {
+      authorization: `Bearer ${this.options.credentials()}`,
+      'x-work-produced-seq': String(produced),
+      'x-work-processing-pending': String(pending),
+    };
+    if (this.options.readyAgents && (pending || this.options.inbox.throughSeq < produced)) {
+      const scoped = Buffer.from(JSON.stringify(this.options.readyAgents())).toString('base64url');
+      // Keep ordinary Work delivery possible within the HTTP header budget.
+      if (scoped.length <= 8192) headers['x-work-ready-agents'] = scoped;
+    }
+    if (text) headers['content-type'] = 'application/json';
     const response = await fetch(new URL(path, this.base), {
-      method, headers: { authorization: `Bearer ${this.options.credentials()}`,
-        'x-work-produced-seq': String(this.options.inbox.journalSeq), 'x-work-processing-pending': String(this.options.inbox.workProcessingPending), ...(text ? { 'content-type': 'application/json' } : {}) },
+      method, headers,
       body: text, signal: AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(limits.requestTimeoutMs)]),
     });
     const result = await response.json() as WorkSyncCursor & { detail?: string };

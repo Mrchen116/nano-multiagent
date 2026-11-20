@@ -4,7 +4,7 @@ import { open, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
-import { workSyncLimits as limits, workSyncPrefix, workRedactedType, type WorkRedactionManifest, type WorkSyncPart, type WorkSyncCursor, workObject } from '@nano/product-contracts';
+import { workSyncLimits as limits, workSyncPrefix, workRedactedType, type WorkRedactionManifest, type WorkReadyCut, type WorkSyncPart, type WorkSyncCursor, workObject } from '@nano/product-contracts';
 import { all, one, fail, transaction, type ImContext, type Row } from './context.js';
 import type { RuntimeIdentity } from './identity.js';
 import { readWorkBatch } from './work.js';
@@ -114,7 +114,7 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
   activeUploads.set(db, uploadsInFlight);
   const activeNodes = new Set<string>(), leases = new WeakMap<FastifyRequest, string>(), handlers = new WeakSet<FastifyRequest>();
   const connections = new WeakMap<FastifyRequest, Connection>();
-  const declarations = new WeakMap<FastifyRequest, { journal: string; produced: number; pending: boolean }>();
+  const declarations = new WeakMap<FastifyRequest, { journal: string; produced: number; pending: boolean; readyAgents?: Map<string, WorkReadyCut> }>();
   const removals = new Set<Promise<void>>();
   const removeFiles = (id: string) => {
     const removal = rm(join(directory, id), { recursive: true, force: true }).catch(error => app.log.error(error));
@@ -163,7 +163,22 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     const produced = request.headers['x-work-produced-seq'], pending = request.headers['x-work-processing-pending'];
     if (produced !== undefined || pending !== undefined) {
       if (typeof produced !== 'string' || !/^\d+$/.test(produced) || !integer(Number(produced)) || typeof pending !== 'string' || !['true', 'false'].includes(pending)) fail(400, 'invalid_work_progress');
-      declarations.set(request, { journal, produced: Number(produced), pending: pending === 'true' });
+      const scoped = request.headers['x-work-ready-agents'];
+      let readyAgents: Map<string, WorkReadyCut> | undefined;
+      if (scoped !== undefined) {
+        if (typeof scoped !== 'string' || scoped.length > 8192) fail(400, 'invalid_work_progress');
+        let values: unknown;
+        try { values = JSON.parse(Buffer.from(scoped, 'base64url').toString('utf8')); }
+        catch { fail(400, 'invalid_work_progress'); }
+        if (!workObject(values)) fail(400, 'invalid_work_progress');
+        readyAgents = new Map();
+        for (const [agent, cut] of Object.entries(values)) {
+          const seq = workObject(cut) ? cut.main : cut;
+          if (!agent || !integer(seq) || seq > Number(produced)) fail(400, 'invalid_work_progress');
+          readyAgents.set(agent, workObject(cut) ? {main: seq} : seq);
+        }
+      }
+      declarations.set(request, { journal, produced: Number(produced), pending: pending === 'true', readyAgents });
     }
     return { identity, journal };
   };
@@ -172,11 +187,11 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
     if (node !== undefined) { leases.delete(request); activeNodes.delete(node); active--; }
   };
   app.addHook('onRequestAbort', async request => { if (!handlers.has(request)) release(request); });
-  const serve = (handler: (request: FastifyRequest) => Promise<unknown>) => async (request: FastifyRequest) => {
+  const serve = (handler: (request: FastifyRequest) => Promise<{through_seq: number}>) => async (request: FastifyRequest) => {
     handlers.add(request);
     try {
       const result = await handler(request), connection = connections.get(request), report = declarations.get(request);
-      if (connection && report) ctx.gateway.work.reportProgress(connection, report.journal, report.produced, report.pending);
+      if (connection && report) ctx.gateway.work.reportProgress(connection, report, result.through_seq);
       return result;
     } finally { handlers.delete(request); release(request); }
   };

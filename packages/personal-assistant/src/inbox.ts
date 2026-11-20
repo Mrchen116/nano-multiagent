@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { CHAT_BACKGROUND_DELAY_MS, decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
-import type { WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
+import type { WorkReadyCut, WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
 import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
@@ -21,6 +21,8 @@ const hash = (value: string) => createHash('sha256').update(value).digest('hex')
 export class InboxStore {
   readonly journalId: string;
   readonly reviews: InboxReviews;
+  // A restart must re-confirm the main execution before exposing partial readiness.
+  private readonly childOnlyRecovery = new Set<string>();
   private readonly db: DatabaseSync;
   constructor(path: string) {
     this.db = new DatabaseSync(path);
@@ -789,9 +791,36 @@ export class InboxStore {
     }catch(error){this.db.exec('ROLLBACK');throw error;}
   }
   /** Keep incomplete reconciliation visible across a Node crash. */
-  workPending(rootSessionId:string,pending:boolean):void {
+  workPending(rootSessionId:string,pending:boolean,childrenOnly = false):void {
     if (this.deletedSession(rootSessionId)) return;
+    if (pending && childrenOnly) this.childOnlyRecovery.add(rootSessionId);
+    else this.childOnlyRecovery.delete(rootSessionId);
     this.db.prepare('INSERT INTO work_recovery VALUES(?,?) ON CONFLICT(root_session_id) DO UPDATE SET pending=excluded.pending WHERE pending!=excluded.pending').run(rootSessionId,Number(pending));
+  }
+  /** Report each settled Agent's last journal event while its peers catch up.
+   *
+   * Args:
+   *   agents: Configured Work producers on this node.
+   *   ownerOf: Resolve a durable recovery root to its Agent.
+   * Returns:
+   *   Agent IDs whose processing has settled and the ACK each one requires.
+   */
+  readyWorkAgents(agents: string[], ownerOf: (session: string) => string | undefined): Record<string, WorkReadyCut> {
+    const pending = new Set<string>();
+    const childOnly = new Set<string>();
+    for (const {root_session_id} of this.db.prepare('SELECT root_session_id FROM work_recovery WHERE pending=1').all()) {
+      const agent = ownerOf(String(root_session_id));
+      if (!agent) return {};
+      if (this.childOnlyRecovery.has(String(root_session_id))) childOnly.add(agent);
+      else pending.add(agent);
+    }
+    for (const row of this.db.prepare("SELECT DISTINCT json_extract(event,'$.root_agent_id') AS agent FROM work_waiting_facts").all())
+      pending.add(String(row.agent));
+    const last = this.db.prepare("SELECT seq FROM journal WHERE json_extract(event,'$.root_agent_id')=? ORDER BY seq DESC LIMIT 1");
+    return Object.fromEntries(agents.filter(agent => !pending.has(agent)).map(agent => {
+      const through = Number(last.get(agent)?.seq ?? 0);
+      return [agent, childOnly.has(agent) ? {main: through} : through];
+    }));
   }
   get workProcessingPending():boolean {
     return !!this.db.prepare('SELECT 1 FROM work_recovery WHERE pending=1 UNION ALL SELECT 1 FROM work_waiting_facts LIMIT 1').get();

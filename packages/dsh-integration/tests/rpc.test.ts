@@ -21,6 +21,17 @@ describe('runtime control transport', () => {
     node.close(); runtime.close();
   });
 
+  it('preserves Unicode line and paragraph separators inside a request and response', async () => {
+    const [node, runtime] = peers();
+    const paragraphs = 'first\u2028second\u2029third';
+    runtime.handle('echo', value => ({value, suffix: paragraphs}));
+    try {
+      await expect(node.request('echo', paragraphs)).resolves.toEqual({value: paragraphs, suffix: paragraphs});
+    } finally {
+      node.close(); runtime.close();
+    }
+  });
+
   it('rejects unresolved calls on disconnect without resending them', async () => {
     const [node, runtime] = peers();
     runtime.handle('submit', () => new Promise(() => {}));
