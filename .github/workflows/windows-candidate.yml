@@ -1,8 +1,21 @@
 name: Windows installer candidate
 
 on:
-  push:
-    branches: [codex/feat-781]
+  pull_request:
+    paths:
+      - '.github/workflows/windows-candidate.yml'
+      - '.github/workflows/node-release.yml'
+      - 'packaging/windows*/**'
+      - 'scripts/build-windows-*'
+      - 'scripts/publish-node-release.mjs'
+      - 'apps/node/**'
+      - 'packages/channels/**'
+      - 'packages/dsh-integration/**'
+      - 'packages/personal-assistant/**'
+      - 'packages/product-contracts/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
   workflow_dispatch:
   workflow_call:
     inputs:
