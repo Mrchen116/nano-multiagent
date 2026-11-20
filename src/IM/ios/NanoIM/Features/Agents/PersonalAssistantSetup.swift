@@ -88,6 +88,8 @@ struct PersonalAssistantSetup: View {
                         } label: {
                             Label(L("工作电脑与模型", "Computer and model"), systemImage: "desktopcomputer").font(.subheadline.weight(.medium))
                         }
+                    } else if onboarding.nodes.isEmpty {
+                        firstComputer(onboarding)
                     } else {
                         VStack(alignment: .leading, spacing: 15) {
                             Label(L("工作电脑", "Work computer"), systemImage: "desktopcomputer").font(.title3.bold())
@@ -154,6 +156,47 @@ struct PersonalAssistantSetup: View {
             .background(NanoTheme.accent, in: RoundedRectangle(cornerRadius: 14)).foregroundStyle(.white)
     }
 
+    private func firstComputer(_ onboarding: AssistantOnboarding) -> some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(spacing: 4) {
+                AssistantPortrait(personal: true, seed: user.id, selected: variant, size: 68)
+                    .frame(width: 118, height: 76)
+                    .background(NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: 9))
+                    .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(NanoTheme.ink, lineWidth: 3) }
+                Capsule().fill(NanoTheme.ink).frame(width: 138, height: 6)
+            }
+            .frame(maxWidth: .infinity, minHeight: 135)
+            .background(Color("Butter").opacity(0.7), in: RoundedRectangle(cornerRadius: 18))
+            .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(L("先连接一台电脑", "Connect your first computer")).font(.title.bold())
+                Text(L("助手在电脑上工作，你在手机上和它聊天。先去电脑安装 Crewden，再回来连接。", "Your assistant works on your computer. Install Crewden there, then come back to connect and chat on your phone."))
+                    .font(.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            connectionActions(onboarding)
+        }
+    }
+
+    @ViewBuilder private func connectionActions(_ onboarding: AssistantOnboarding) -> some View {
+        ShareLink(item: client.baseURL.appendingPathComponent("onboarding")) {
+            primaryLabel(L("发送设置链接到电脑", "Share computer setup link"), symbol: "square.and.arrow.up")
+        }.buttonStyle(.plain)
+        NavigationLink {
+            SettingsBindingView(client: client, user: user, onAccountUpdated: { Task { await refresh() } })
+        } label: {
+            Label(L("已有电脑绑定链接", "I have a binding link"), systemImage: "link")
+                .font(.subheadline.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 44)
+        }
+        if onboarding.install.available {
+            DisclosureGroup(L("用命令安装", "Install with a command")) {
+                Button(copyDone ? L("已复制安装命令", "Installation command copied") : L("复制电脑安装命令", "Copy computer install command"), systemImage: "doc.on.doc") {
+                    UIPasteboard.general.string = onboarding.install.command
+                    copyDone = true
+                }
+            }.font(.footnote)
+        }
+    }
+
     @ViewBuilder private func computerOptions(_ onboarding: AssistantOnboarding) -> some View {
         if !onboarding.nodes.isEmpty {
             Picker(L("电脑", "Computer"), selection: $nodeID) {
@@ -164,18 +207,7 @@ struct PersonalAssistantSetup: View {
         }
         if node?.status != "online" {
             Text(node == nil ? L("在电脑上安装 Crewden，然后用绑定链接连接。", "Install Crewden on your computer, then connect it with the binding link.") : L("打开这台电脑上的 Crewden 以继续设置。", "Open Crewden on this computer to continue.")).font(.callout)
-            ShareLink(item: client.baseURL.appendingPathComponent("onboarding")) { Label(L("发送设置链接到电脑", "Share computer setup link"), systemImage: "square.and.arrow.up") }
-            NavigationLink(L("已有电脑绑定链接", "I have a binding link")) {
-                SettingsBindingView(client: client, user: user, onAccountUpdated: { Task { await refresh() } })
-            }
-            if onboarding.install.available {
-                DisclosureGroup(L("用命令安装", "Install with a command")) {
-                    Button(copyDone ? L("已复制安装命令", "Installation command copied") : L("复制电脑安装命令", "Copy computer install command"), systemImage: "doc.on.doc") {
-                        UIPasteboard.general.string = onboarding.install.command
-                        copyDone = true
-                    }
-                }
-            }
+            connectionActions(onboarding)
         }
     }
 
