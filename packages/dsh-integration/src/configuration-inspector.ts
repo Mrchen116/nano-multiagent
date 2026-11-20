@@ -9,6 +9,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import type {ProfilePnpmInvocation} from '@deepseek-ai/dsh-app-boot';
 import type {AgentConfiguration} from './index.js';
 import {prepareProfile, RuntimeClient} from './client.js';
+import {terminateRuntimeTree} from './runtime-health.js';
 
 const execute = promisify(execFile);
 export type InspectionErrorCode = 'catalog_timeout' | 'catalog_cancelled' | 'catalog_busy' | 'catalog_failed' | 'catalog_cleanup_failed';
@@ -235,7 +236,7 @@ export class ConfigurationInspector {
 }
 
 function killGroup(pid: number, signal: NodeJS.Signals) {
-  try {process.kill(process.platform === 'win32' ? pid : -pid, signal);}
+  try {process.kill(-pid, signal);}
   catch (error) {if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;}
 }
 async function terminateWorker(worker: RuntimeClient): Promise<void> {
@@ -246,13 +247,23 @@ async function terminateWorker(worker: RuntimeClient): Promise<void> {
 }
 
 async function stopInspectionGroup(pid: number): Promise<void> {
-  if (process.platform === 'win32') killGroup(pid, 'SIGTERM');
+  if (process.platform === 'win32') {
+    // Windows has no POSIX process groups. Terminate descendants while the
+    // inspection leader still identifies its tree.
+    try { await terminateRuntimeTree(pid); }
+    catch (error) { if (await groupAlive(pid)) throw error; }
+    return;
+  }
   // Give configuration.cancel a chance to run without killing the POSIX watchdog
   // before children that can ignore SIGTERM have been stopped.
   await delay(150);
   killGroup(pid, 'SIGKILL');
 }
 async function groupAlive(pid: number): Promise<boolean> {
+  if (process.platform === 'win32') {
+    try { process.kill(pid, 0); return true; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false; throw error; }
+  }
   const {stdout} = await execute('ps', ['-eo','pgid=,stat='], {timeout:1000});
   return stdout.split('\n').some(line => {
     const [group,state] = line.trim().split(/\s+/);
@@ -267,6 +278,16 @@ async function waitForGroupExit(pid: number): Promise<void> {
   throw cleanupFailed();
 }
 async function processInfo(pid: number): Promise<string | undefined> {
+  if (process.platform === 'win32') {
+    // Recovery must verify the inspection ID before acting on a reused PID.
+    const {stdout} = await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `$ErrorActionPreference='Stop'; (Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`],
+      {timeout:10000, windowsHide:true});
+    const command = stdout.trim();
+    if (command) return command;
+    if (await groupAlive(pid)) throw cleanupFailed();
+    return;
+  }
   try {
     const {stdout} = await execute('ps', ['-p',String(pid),'-o','stat=','-o','args='], {timeout:1000});
     const text = stdout.trim();
