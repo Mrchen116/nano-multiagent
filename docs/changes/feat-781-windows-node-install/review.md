@@ -45,3 +45,5 @@
 候选 F 在当前用户的后台宿主内等待旧进程退出，回收其子进程，在锁过期后重新检查用户的自启设置并启动 Gateway。原生回归测试实际注册并运行 Windows 计划任务、终止子进程、观察新的进程 ID，随后正常停止服务。独立复核修复与设计的差异后没有发现阻塞项。[Windows 构建与回归](https://github.com/Mrchen116/nano-multiagent/actions/runs/44797807954)
 
 F 的五个公开文件合计 83,432,429 字节（79.57 MiB），其中双击安装器 2,110,422 字节，运行环境压缩包 78,689,983 字节，应用压缩包 2,630,721 字节。已核对所有文件的大小和 SHA-256。[候选 F 测试版](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-876525e0d2c94bdacc006809e7d56d0b36beeff2)
+
+Windows Server 2022 完成真实升级与异常恢复的全程验收。E 安装后，同一助手在 IM 回答了“21 + 7”为“28”。从 IM 触发升级到 F，原账号、节点 ID 和工作区文件均保留。关闭自启、手动启动、再打开自启后，脚本核对进程创建时间并强制结束 PID 7324；新进程 8180 自动就绪并连接。原助手、会话与旧回复仍在，随后回答“30 + 8”为“38”。隔离 IM 数据库同时保留了两次问答。安装器使用静默参数，绑定和聊天使用正式 HTTP 接口。之前两个独立执行分别在首轮就绪检查和创建个人助手时超时（HTTP 504）；第三次全程执行成功。[通过的执行](https://github.com/Mrchen116/nano-multiagent/actions/runs/44800187164) · [就绪超时](https://github.com/Mrchen116/nano-multiagent/actions/runs/44798577635) · [创建超时](https://github.com/Mrchen116/nano-multiagent/actions/runs/44799775310)
