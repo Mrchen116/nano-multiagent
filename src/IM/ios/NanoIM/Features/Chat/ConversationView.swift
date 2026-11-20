@@ -6,6 +6,7 @@ struct ConversationView: View {
     @Bindable var store: ChatStore
     let conversationID: String
     let openChat: (String) -> Void
+    let openInbox: () -> Void
     @Environment(\.scenePhase) private var phase
     @State private var photo: PhotosPickerItem?
     @State private var pickingPhoto = false
@@ -259,7 +260,7 @@ struct ConversationView: View {
                              surface: .conversation(conversationID), titleAction: directContact.map { contact in { activityContact = contact } }, loadEarlier: loadEarlier)
         .toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { NavigationLink {
-            ChatInfoView(store: store, conversationID: conversationID, openChat: openChat)
+            ChatInfoView(store: store, conversationID: conversationID, openChat: openChat, openInbox: openInbox)
         } label: { Image(systemName: "ellipsis.circle") }.accessibilityLabel(L("聊天详情", "Conversation details")) } }
         .task(id: conversationID) {
             if location == nil { await store.openConversation(conversationID) }

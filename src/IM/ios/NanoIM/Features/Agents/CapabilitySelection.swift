@@ -44,6 +44,11 @@ struct CapabilityUsage: Decodable, Sendable {
 extension AgentDraft {
     mutating func changeCapabilities(_ actions: [CapabilityAction], capabilities: AgentCapabilities) -> [CapabilityBlock] {
         var candidate = self
+        if actions.contains(where: { $0.kind == "skill" }), skills_selection_mode == "explicit_allowlist" {
+            let enabled = Set(skills)
+            candidate.skills = capabilities.skills.map(\.name).filter { !enabled.contains($0) }
+            candidate.skills_selection_mode = "explicit_denylist"
+        }
         for action in actions {
             let blocks = candidate.changeCapability(action, capabilities: capabilities)
             if !blocks.isEmpty { return blocks }

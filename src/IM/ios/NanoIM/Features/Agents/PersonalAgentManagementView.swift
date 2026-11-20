@@ -65,74 +65,10 @@ struct PersonalAgentManagementView: View {
             if let notice { Text(notice).font(.callout).foregroundStyle(.secondary).accessibilityAddTraits(.updatesFrequently) }
             if !ready && error == nil { ProgressView() }
             if let binding = state?.binding, let policy = state?.policy {
-                Section(L("个人助手", "Personal assistant")) {
-                    TextField(L("名称", "Name"), text: $name)
-                    if name != binding.display_name {
-                        Button(L("保存名称", "Save name")) { Task { await perform {
-                            let _: PersonalSettings = try await client.send(base, method: "PATCH", body: ["display_name": name.trimmingCharacters(in: .whitespacesAndNewlines)])
-                        } } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !current || busy)
-                    }
-                    NavigationLink(L("模型、技能和运行设置", "Model, skills and runtime")) {
-                        AgentConfigView(client: client, agentID: agentID, personal: true)
-                    }
-                    NavigationLink(L("外部通道", "Channels")) { AgentChannelsView(client: client, agentID: agentID) }
-                    NavigationLink(L("技能使用情况", "Skill usage")) {
-                        AgentSkillsView(client: client, agentID: agentID, canManage: true, global: true, onOpenChat: openChat)
-                    }
-                }
-                Section {
-                    DisclosureGroup(L("排除的聊天", "Excluded conversations") + " · \(selection.count)") {
-                        TextField(L("查找聊天", "Find a conversation"), text: $query)
-                        ForEach(chats.filter { $0.id != binding.conversation_id && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query)) }) { chat in
-                            Toggle(chat.title, isOn: Binding(get: { selection.contains(chat.id) }, set: { excluded in
-                                notice = nil
-                                if excluded { selection.insert(chat.id) } else { selection.remove(chat.id) }
-                            })).accessibilityIdentifier("pa-exclude-" + chat.id).disabled(!current || busy)
-                        }
-                    }.accessibilityIdentifier("pa-exclusions")
-                    if selection != Set(policy.excluded_conversation_ids) {
-                        Button(L("保存排除范围", "Save exclusions")) { Task { await savePolicy(policy) } }.disabled(!current || busy)
-                    }
-                } header: { Text(L("聊天观察范围", "Conversation access")) }
-                footer: { Text(L("选中的聊天会从助手的观察范围移除。", "Selected conversations are excluded from your assistant’s observation.")) }
-                Section(L("风险事件", "Privacy incidents")) {
-                    if incidents.isEmpty { Text(L("暂无风险事件", "No privacy incidents")).foregroundStyle(.secondary) }
-                    ForEach(incidents) { item in
-                        DisclosureGroup {
-                            Text(item.reason).font(.callout)
-                            source(item.conversation_id, item.source_message_id)
-                            if item.status == "open" {
-                                ForEach(["dismiss", "misunderstanding", "block"], id: \.self) { action in
-                                    Button(actionLabel(action), role: action == "block" ? .destructive : nil) {
-                                        Task { await perform {
-                                            let _: PersonalIncident = try await client.send(base + "/incidents/" + agentSegment(item.id), body: ["action": action])
-                                        } }
-                                    }.disabled(!current || busy)
-                                }
-                            }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(item.actor_name)
-                                Text("\(item.count) · " + actionLabel(item.status)).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
-                Section(L("已限制的联系人", "Blocked contacts")) {
-                    if blocked.isEmpty { Text(L("暂无已限制联系人", "No blocked contacts")).foregroundStyle(.secondary) }
-                    ForEach(blocked) { contact in
-                        DisclosureGroup(contact.actor_name) {
-                            Text(contact.reason)
-                            ForEach(contact.evidence) { record in
-                                Text(record.reason).font(.callout)
-                                if let id = record.message_id { source(record.conversation_id, id, original: record.original) }
-                            }
-                            Button(L("解除联系限制", "Unblock contact")) { Task { await perform {
-                                let _: JSONValue = try await client.delete(base + "/blocked-contacts/" + agentSegment(contact.id))
-                            } } }.disabled(!current || busy)
-                        }
-                    }
-                }
+                profile(binding)
+                exclusions(binding, policy)
+                incidentSection
+                blockedSection
             }
         }
         .navigationTitle(L("个人助手设置", "Personal assistant")).navigationBarTitleDisplayMode(.inline)
@@ -144,6 +80,86 @@ struct PersonalAgentManagementView: View {
                 await refresh()
                 do { try await Task.sleep(for: .seconds(5)) } catch { return }
             } while !Task.isCancelled
+        }
+    }
+
+    private func profile(_ binding: PersonalSettings.Binding) -> some View {
+        Section(L("个人助手", "Personal assistant")) {
+            TextField(L("名称", "Name"), text: $name)
+            if name != binding.display_name {
+                Button(L("保存名称", "Save name")) { Task { await perform {
+                    let _: PersonalSettings = try await client.send(base, method: "PATCH", body: ["display_name": name.trimmingCharacters(in: .whitespacesAndNewlines)])
+                } } }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !current || busy)
+            }
+            NavigationLink(L("模型、技能和运行设置", "Model, skills and runtime")) {
+                AgentConfigView(client: client, agentID: agentID, personal: true)
+            }
+            NavigationLink(L("外部通道", "Channels")) { AgentChannelsView(client: client, agentID: agentID) }
+            NavigationLink(L("技能使用情况", "Skill usage")) {
+                AgentSkillsView(client: client, agentID: agentID, canManage: true, global: true, onOpenChat: openChat)
+            }
+        }
+    }
+
+    private func exclusions(_ binding: PersonalSettings.Binding, _ policy: PersonalAgentPolicy) -> some View {
+        Section {
+            DisclosureGroup(L("排除的聊天", "Excluded conversations") + " · \(selection.count)") {
+                TextField(L("查找聊天", "Find a conversation"), text: $query)
+                ForEach(chats.filter { $0.id != binding.conversation_id && (query.isEmpty || $0.title.localizedCaseInsensitiveContains(query)) }) { chat in
+                    Toggle(chat.title, isOn: Binding(get: { selection.contains(chat.id) }, set: { excluded in
+                        notice = nil
+                        if excluded { selection.insert(chat.id) } else { selection.remove(chat.id) }
+                    })).accessibilityIdentifier("pa-exclude-" + chat.id).disabled(!current || busy)
+                }
+            }.accessibilityIdentifier("pa-exclusions")
+            if selection != Set(policy.excluded_conversation_ids) {
+                Button(L("保存排除范围", "Save exclusions")) { Task { await savePolicy(policy) } }.disabled(!current || busy)
+            }
+        } header: { Text(L("聊天观察范围", "Conversation access")) }
+        footer: { Text(L("选中的聊天会从助手的观察范围移除。", "Selected conversations are excluded from your assistant’s observation.")) }
+    }
+
+    private var incidentSection: some View {
+        Section(L("风险事件", "Privacy incidents")) {
+            if incidents.isEmpty { Text(L("暂无风险事件", "No privacy incidents")).foregroundStyle(.secondary) }
+            ForEach(incidents) { item in
+                DisclosureGroup {
+                    Text(item.reason).font(.callout)
+                    source(item.conversation_id, item.source_message_id)
+                    if item.status == "open" {
+                        ForEach(["dismiss", "misunderstanding", "block"], id: \.self) { action in
+                            Button(actionLabel(action), role: action == "block" ? .destructive : nil) {
+                                Task { await perform {
+                                    let _: PersonalIncident = try await client.send(base + "/incidents/" + agentSegment(item.id), body: ["action": action])
+                                } }
+                            }.disabled(!current || busy)
+                        }
+                    }
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.actor_name)
+                        Text("\(item.count) · " + actionLabel(item.status)).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var blockedSection: some View {
+        Section(L("已限制的联系人", "Blocked contacts")) {
+            if blocked.isEmpty { Text(L("暂无已限制联系人", "No blocked contacts")).foregroundStyle(.secondary) }
+            ForEach(blocked) { contact in
+                DisclosureGroup(contact.actor_name) {
+                    Text(contact.reason)
+                    ForEach(contact.evidence) { record in
+                        Text(record.reason).font(.callout)
+                        if let id = record.message_id { source(record.conversation_id, id, original: record.original) }
+                    }
+                    Button(L("解除联系限制", "Unblock contact")) { Task { await perform {
+                        let _: JSONValue = try await client.delete(base + "/blocked-contacts/" + agentSegment(contact.id))
+                    } } }.disabled(!current || busy)
+                }
+            }
         }
     }
 

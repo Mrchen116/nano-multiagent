@@ -39,6 +39,7 @@ extension ChatRepositoryTests {
         var chat = conversation("a")
         chat.last_message_sender_name = "Casey"
         chat.last_message_card = ChatCardPreview(title: "Review choices")
+        chat.participants.append(ActorRef(type: "agent", id: "assistant", role: "personal", avatar_variant: 17))
         chat.participants[0].is_deleted = true
         chat.execution_cleanup_revision = 2
         let context = try await repo.writeContext()
@@ -49,6 +50,8 @@ extension ChatRepositoryTests {
         XCTAssertEqual(restored?.last_message_sender_name, "Casey")
         XCTAssertEqual(restored?.last_message_card?.title, "Review choices")
         XCTAssertEqual(restored?.participants.first?.is_deleted, true)
+        XCTAssertEqual(restored?.participants.last?.role, "personal")
+        XCTAssertEqual(restored?.participants.last?.avatar_variant, 17)
         XCTAssertEqual(restored?.execution_cleanup_revision, 2)
         let fresh = try await reopened.writeContext()
         _ = try await reopened.applyPage("a", items: [item(try message(1))], executionCleanupRevision: 2, write: fresh)

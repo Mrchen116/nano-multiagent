@@ -26,6 +26,7 @@ struct PersonalAssistantSetup: View {
     @State private var variant = 0
     @State private var setup: ModelState?
     @State private var error: String?
+    @State private var creationError: String?
     @State private var busy = false
     @State private var requestKey = UUID().uuidString
     @State private var copyDone = false
@@ -45,6 +46,7 @@ struct PersonalAssistantSetup: View {
 
     var body: some View {
         Form {
+            if let creationError { Section { ErrorNotice(message: creationError) } }
             if let error { Section { ErrorNotice(message: error); Button(L("重新检查", "Check again")) { Task { await refresh() } } } }
             if let chat = boundChat, let binding = personal?.binding {
                 Section {
@@ -152,7 +154,7 @@ struct PersonalAssistantSetup: View {
     }
     private func create() async {
         guard !busy, personal != nil else { return }
-        busy = true; error = nil; saveDraft()
+        busy = true; creationError = nil; error = nil; saveDraft()
         defer { busy = false }
         let binding = personal?.binding
         let key = personal?.creation?["request_key"].stringValue ?? requestKey
@@ -168,6 +170,6 @@ struct PersonalAssistantSetup: View {
                 UserDefaults.standard.removeObject(forKey: draftKey)
                 openChat(id)
             }
-        } catch { self.error = error.localizedDescription }
+        } catch { creationError = error.localizedDescription; await refresh() }
     }
 }

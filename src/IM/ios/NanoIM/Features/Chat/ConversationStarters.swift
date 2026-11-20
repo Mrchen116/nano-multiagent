@@ -18,9 +18,9 @@ struct ConversationStarters: View {
                     Text(personal ? L("和\(agent.display_name)，从一件小事开始。", "Start small with \(agent.display_name).") : L("先和\(agent.display_name)对齐职责", "Agree on \(agent.display_name)’s responsibilities"))
                         .font(.title2.bold()).fixedSize(horizontal: false, vertical: true)
                     if personal {
-                        starter("pencil.line", L("理清一个想法", "Untangle an idea"), L("我有个还没想清楚的想法，想和你一起理一理。请先问我想做什么，一次问一个问题。", "I have an idea I haven’t quite figured out. Help me think it through. Start by asking what I want to do, one question at a time."))
-                        starter("calendar", L("安排接下来的一周", "Plan the week ahead"), L("帮我安排接下来的一周吧。先问我有哪些想做的事、截止时间和可用时间，再一起排个轻松可行的计划。", "Help me plan the week ahead. First ask about what I want to do, my deadlines, and the time I have, then help me make a manageable plan."))
-                        starter("checklist", L("找到第一步", "Find a first step"), L("我想推进一件事，但不知道从哪里开始。先问问我的目标和现在的情况，再帮我找到今天就能做的第一步。", "I want to move something forward but don’t know where to start. Ask about my goal and where I am now, then help me find one step I can take today."))
+                        starter("pencil.line", background: NanoTheme.softAccent, L("理清一个想法", "Untangle an idea"), L("我有个还没想清楚的想法，想和你一起理一理。请先问我想做什么，一次问一个问题。", "I have an idea I haven’t quite figured out. Help me think it through. Start by asking what I want to do, one question at a time."))
+                        starter("calendar", background: Color("GroupAvatar"), L("安排接下来的一周", "Plan the week ahead"), L("帮我安排接下来的一周吧。先问我有哪些想做的事、截止时间和可用时间，再一起排个轻松可行的计划。", "Help me plan the week ahead. First ask about what I want to do, my deadlines, and the time I have, then help me make a manageable plan."))
+                        starter("checklist", background: Color("Butter"), L("找到第一步", "Find a first step"), L("我想推进一件事，但不知道从哪里开始。先问问我的目标和现在的情况，再帮我找到今天就能做的第一步。", "I want to move something forward but don’t know where to start. Ask about my goal and where I am now, then help me find one step I can take today."))
                     }
                     if needsRole && !deferred {
                         if personal { DisclosureGroup(L("聊聊长期合作", "Discuss working together")) { agreement } }
@@ -43,14 +43,17 @@ struct ConversationStarters: View {
             Button(L("稍后再聊", "Maybe later")) { deferred = true }.font(.caption)
         }
     }
-    private func starter(_ icon: String, _ title: String, _ prompt: String) -> some View {
+    private func starter(_ icon: String, background: Color = NanoTheme.canvas, _ title: String, _ prompt: String) -> some View {
         Button { if canStart { start(prompt) } } label: {
             HStack(spacing: 10) {
-                Image(systemName: icon).frame(width: 24).foregroundStyle(NanoTheme.accent)
+                Image(systemName: icon).frame(width: 34, height: 34).foregroundStyle(NanoTheme.ink)
+                    .background(background, in: RoundedRectangle(cornerRadius: 10))
                 Text(title).font(.subheadline.weight(.medium)).foregroundStyle(NanoTheme.ink)
                 Spacer()
                 Image(systemName: "arrow.up.left").font(.caption).foregroundStyle(.secondary)
-            }.padding(10).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 10))
+            }.padding(8).background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                .overlay { RoundedRectangle(cornerRadius: 12).stroke(NanoTheme.border) }
+                .contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(!canStart)
     }
     private func resolveAgent() async {

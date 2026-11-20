@@ -4,6 +4,7 @@ struct ChatInfoView: View {
     @Bindable var store: ChatStore
     let conversationID: String
     let openChat: (String) -> Void
+    let openInbox: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var chat: Conversation?
     @State private var title = ""
@@ -15,6 +16,7 @@ struct ChatInfoView: View {
     @State private var personal: NativePersonalAgentState.Binding?
     @State private var busy = false
     @State private var confirmDelete = false
+    @State private var confirmExitGroup = false
     @State private var remove: ActorRef?
     @State private var confirmLeave = false
     private var dirtyTitle: Bool { chat != nil && title != chat?.title }
@@ -66,6 +68,9 @@ struct ChatInfoView: View {
                         store.setDraft(id, [store.drafts[id] ?? "", text].filter { !$0.isEmpty }.joined(separator: "\n\n"))
                         openChat(id)
                     } }
+                    if chat.creator_id != store.user.id, chat.is_member == true, chat.can_write != false {
+                        Section { Button(L("退出群聊", "Leave group"), role: .destructive) { confirmExitGroup = true }.disabled(busy) }
+                    }
                     if chat.creator_id == store.user.id, chat.can_write != false { Section { Button(L("解散群聊", "Dissolve group"), role: .destructive) { confirmDelete = true } } }
                 }
             } else { ProgressView() }
@@ -99,6 +104,9 @@ struct ChatInfoView: View {
                             ToolbarItem(placement: .confirmationAction) { Button(L("添加", "Add") + (selected.isEmpty ? "" : " (\(selected.count))")) { Task { await addMember() } }.disabled(selected.isEmpty || busy) }
                         }.interactiveDismissDisabled(busy)
                 }
+            }
+            .confirmationDialog(L("退出此群聊？", "Leave this group?"), isPresented: $confirmExitGroup, titleVisibility: .visible) {
+                Button(L("退出群聊", "Leave group"), role: .destructive) { Task { await leaveGroup() } }
             }
             .confirmationDialog(L("解散此群聊？", "Dissolve this group?"), isPresented: $confirmDelete, titleVisibility: .visible) {
                 Button(L("解散群聊", "Dissolve group"), role: .destructive) { Task { await deleteGroup() } }
@@ -149,6 +157,14 @@ struct ChatInfoView: View {
         busy = true; defer { busy = false }
         do { let _: EmptyResponse = try await store.client.delete("/im/v1/conversations/\(conversationID.pathComponent)/participants/\(userID.pathComponent)"); remove = nil; await load() }
         catch { self.error = error.localizedDescription }
+    }
+    private func leaveGroup() async {
+        busy = true; defer { busy = false }
+        do {
+            let _: EmptyResponse = try await store.client.delete("/im/v1/conversations/\(conversationID.pathComponent)/participants/\(store.user.id.pathComponent)")
+            await store.loadConversations()
+            openInbox()
+        } catch { self.error = error.localizedDescription }
     }
     private func deleteGroup() async {
         do { let _: EmptyResponse = try await store.client.delete("/im/v1/conversations/\(conversationID.pathComponent)"); await store.loadConversations(); dismiss() }

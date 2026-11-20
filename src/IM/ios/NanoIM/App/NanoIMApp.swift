@@ -247,7 +247,7 @@ private struct RootTabs: View {
             NavigationStack(path: $chatPath) {
                 ChatListView(store: chat, open: openChat)
                     .navigationDestination(for: ChatRoute.self) { route in
-                        ConversationView(store: chat, conversationID: route.conversationID, openChat: openChat)
+                        ConversationView(store: chat, conversationID: route.conversationID, openChat: openChat, openInbox: { chatPath = [] })
                     }
             }.tabItem { Label(L("聊天", "Chats"), systemImage: "bubble.left.and.bubble.right") }.tag(0)
                 .badge(chat.conversations.reduce(0) { $0 + $1.unread_count })

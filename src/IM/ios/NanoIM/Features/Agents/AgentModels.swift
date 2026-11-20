@@ -121,6 +121,14 @@ struct AgentNode: Codable, Identifiable, Sendable {
 struct AgentOption: Codable, Identifiable, Sendable {
     var name: String; var description: String?; var default_on: Bool?; var location: String?; var source_group: String?
     var id: String { location ?? name }
+    func skillGroup(workspaceRoot: String) -> String {
+        if let source_group { return source_group }
+        let path = (location ?? "").replacingOccurrences(of: "\\", with: "/")
+        let root = workspaceRoot.replacingOccurrences(of: "\\", with: "/")
+        if !root.isEmpty, path.hasPrefix(root.hasSuffix("/") ? root : root + "/") { return "workspace" }
+        if default_on == true || path.contains("/.nanoassistant/skills/") { return "global" }
+        return "compatibility"
+    }
 }
 struct AgentModelOption: Codable, Identifiable, Sendable {
     var name: String; var provider: String?; var reasoning: Reasoning?

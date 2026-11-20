@@ -8,6 +8,8 @@ struct MeView: View {
     let onSignOut: @MainActor () -> Void
     @AppStorage("nano.locale") private var locale = "zh"
     @State private var confirmSignOut = false
+    @State private var applying = false
+    @State private var membershipError: String?
 
     var body: some View {
         List {
@@ -42,12 +44,22 @@ struct MeView: View {
             }
             if user.membership_status == "active" {
                 Section(L("公司", "Company")) {
-                    NavigationLink {
+                    if user.is_company_admin { NavigationLink {
                         SettingsCompanyView(client: client, user: user, onAccountUpdated: onAccountUpdated)
-                    } label: { Label(L("公司成员", "Company members"), systemImage: "person.3") }
+                    } label: { Label(L("公司成员", "Company members"), systemImage: "person.3") } }
                     NavigationLink {
                         SettingsPoliciesView(client: client, isAdmin: user.is_company_admin)
                     } label: { Label(L("系统策略", "System policies"), systemImage: "slider.horizontal.3") }
+                }
+            } else {
+                Section(L("团队", "Team")) {
+                    if let membershipError { ErrorNotice(message: membershipError) }
+                    if user.membership_status == "none" {
+                        Button { Task { await applyToTeam() } } label: { Label(L("申请加入团队", "Apply to join team"), systemImage: "person.badge.plus") }.disabled(applying)
+                    } else {
+                        LabeledContent(L("成员状态", "Membership"), value: settingsStatus(user.membership_status))
+                        Button(L("刷新状态", "Refresh status")) { onAccountUpdated() }
+                    }
                 }
             }
             Section {
@@ -68,6 +80,15 @@ struct MeView: View {
             Text(L("本机的会话和待发内容将清除。服务端聊天历史会保留。", "Local session and unsent content will be cleared. Server chat history is retained."))
         }
     }
+    private func applyToTeam() async {
+        guard !applying else { return }
+        applying = true; defer { applying = false }
+        do {
+            let _: AuthUser = try await client.send("/im/v1/company/join", body: SettingsActionBody())
+            membershipError = nil; onAccountUpdated()
+        } catch { membershipError = settingsError(error) }
+    }
+
 }
 
 struct SettingsAccountView: View {

@@ -1,5 +1,13 @@
 import SwiftUI
 
+private struct AgentConfigSnapshot: Decodable, Sendable {
+    let config: AgentConfig
+    let display: AgentSettingsRead<JSONValue>
+    let live_capabilities: AgentCapabilities?
+    let pending_operation: JSONValue?
+    let ready: Bool
+}
+
 struct AgentConfigView: View {
     let client: IMClient; let agentID: String
     var personal = false
@@ -46,13 +54,7 @@ struct AgentConfigView: View {
             }
             if let config {
                 if let settingsRead, settingsRead.source != "current" {
-                    Section {
-                        AgentSettingsNotice(read: settingsRead)
-                        if let data = settingsRead.data {
-                            let labels = data["models"].agentArray.map { $0["display_name"].stringValue ?? $0["name"].agentString }.joined(separator: " · ")
-                            if !labels.isEmpty { LabeledContent(L("已知模型", "Reported models"), value: labels) }
-                        }
-                    }
+                    offlineDetails(settingsRead)
                 }
                 AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapabilities, personal: personal,
                                   configurationDisabled: !ready || pending || busy || conflicted || deleting,
@@ -135,6 +137,29 @@ struct AgentConfigView: View {
         .refreshable { await load() }
         .task { repeat { lifecycleContact = try? await client.contacts(kind: "agent").first { $0.agent_id == agentID }; try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled }
     }
+    private func offlineDetails(_ settingsRead: AgentSettingsRead<JSONValue>) -> some View {
+        Section {
+            AgentSettingsNotice(read: settingsRead)
+            if let data = settingsRead.data {
+                let labels = data["models"].agentArray.map { $0["display_name"].stringValue ?? $0["name"].agentString }.joined(separator: " · ")
+                if !labels.isEmpty { LabeledContent(L("已知模型", "Reported models"), value: labels) }
+                if let inherited = data["inherited_approval_rules"].stringValue {
+                    LabeledContent(L("继承的审批规则", "Inherited approval"), value: ["nano": "CC", "codex": "Codex", "dsh": "DSH"][inherited] ?? inherited)
+                }
+                DisclosureGroup(L("已报告的能力", "Reported capabilities")) {
+                    ForEach(["tools", "skills", "features"], id: \.self) { field in
+                        ForEach(data[field].agentArray.indices, id: \.self) { index in
+                            let option = data[field].agentArray[index]
+                            let label = option["name"].stringValue ?? agentFeatureName(option["key"].agentString)
+                            let enabled = option["enabled"].boolValue
+                            LabeledContent(label, value: enabled.map { $0 ? L("开启", "On") : L("关闭", "Off") } ?? (field == "tools" ? L("允许", "Allowed") : "—"))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private func changeCapabilities(_ actions: [CapabilityAction]) {
         guard let action = actions.first else { return }
         capabilityToast = nil
@@ -157,15 +182,8 @@ struct AgentConfigView: View {
         }
     }
     private func load() async {
-        struct Snapshot: Decodable, Sendable {
-            let config: AgentConfig
-            let display: AgentSettingsRead<JSONValue>
-            let live_capabilities: AgentCapabilities?
-            let pending_operation: JSONValue?
-            let ready: Bool
-        }
         do {
-            let value: Snapshot = try await client.get(agentPath(agentID) + "/settings")
+            let value: AgentConfigSnapshot = try await client.get(agentPath(agentID) + "/settings")
             try Task.checkCancellation()
             if !dirty { config = value.config; draft = value.config.draft }
             else if config?.profile_version != value.config.profile_version { currentConfig = value.config; conflicted = true }
@@ -197,10 +215,21 @@ struct AgentConfigView: View {
     private func reconcile() async {
         busy = true; defer { busy = false }
         do {
-            let value: AgentConfig = try await client.get(agentPath(agentID) + "/config")
-            if value.profile_version > (config?.profile_version ?? 0) { config = value; draft = value.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; pending = false; saved = true; error = nil }
-            else { pending = false; error = L("服务器版本未改变；草稿已恢复，可核对后重试保存。", "The server version is unchanged. The draft is restored; review it before retrying.") }
-            await load()
+            let snapshot: AgentConfigSnapshot = try await client.get(agentPath(agentID) + "/settings")
+            capabilities = snapshot.live_capabilities; settingsRead = snapshot.display; ready = snapshot.ready
+            guard snapshot.pending_operation == nil else { return }
+            pending = false
+            let value = snapshot.config
+            var current = value.draft
+            current.fixed_tools = draft.fixed_tools
+            if !dirty || current.payload() == draft.payload() {
+                config = value; draft = current; saved = true; error = nil
+            } else if value.profile_version != config?.profile_version {
+                currentConfig = value; conflicted = true; saved = false
+                error = L("电脑已确认其他配置，请核对当前版本及草稿。", "The computer confirmed different settings. Review the current version against your draft.")
+            } else {
+                error = L("服务器版本未改变；草稿已保留，可核对后重试。", "The server version is unchanged. Review the preserved draft before retrying.")
+            }
         } catch { self.error = agentError(error) }
     }
     private func readConflict() async {
@@ -324,8 +353,8 @@ struct AgentEditorFields: View {
             DisclosureGroup("Skills") {
                 Text(L("新技能默认启用；取消勾选的技能保持禁用。", "New skills are enabled by default; unchecked skills stay disabled.")).font(.caption).foregroundStyle(.secondary)
                 if let capabilities {
-                    ForEach(["workspace", "global", "compatibility", "unknown"], id: \.self) { group in
-                        let options = capabilities.skills.filter { $0.name != "skill-creator" && ($0.source_group ?? "unknown") == group }
+                    ForEach(["workspace", "global", "compatibility"], id: \.self) { group in
+                        let options = capabilities.skills.filter { $0.name != "skill-creator" && $0.skillGroup(workspaceRoot: draft.workspace_root) == group }
                         if !options.isEmpty {
                             DisclosureGroup(agentSkillGroupName(group)) {
                                 let enabled = Set(draft.enabledSkills(candidates: capabilities.skills.map(\.name)))
