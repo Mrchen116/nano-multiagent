@@ -151,7 +151,7 @@ export class Messaging {
               CASE WHEN i.message_id IS NOT NULL THEN json_extract(m.attachments_json, '$[0].file_name') END AS card_attachment_name
        FROM messages m LEFT JOIN message_interactive i ON i.message_id=m.id
        LEFT JOIN users u ON u.id=m.sender_user_id
-       WHERE m.conversation_id=? AND m.created_at=? ORDER BY m.rowid DESC LIMIT 1`,
+       WHERE m.conversation_id=? AND m.thread_root_id IS NULL AND m.created_at=? ORDER BY m.rowid DESC LIMIT 1`,
       id, c.last_message_at,
     ) : undefined;
     // Stored previews can end inside a mention tag. Resolve from the full message
@@ -1024,19 +1024,23 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     s.access(p, id);
     const m = one(
       db,
-      "SELECT rowid FROM messages WHERE id=? AND conversation_id=?",
-      body(req).last_read_message_id,
-      id,
+      "SELECT rowid,thread_root_id FROM messages WHERE id=? AND conversation_id=?",
+      body(req).last_read_message_id, id,
     );
     if (!m) fail(400, "message not found");
-    db.prepare(
-      "UPDATE conversation_participants SET last_read_message_id=?,unread_count=? WHERE conversation_id=? AND user_id=?",
-    ).run(body(req).last_read_message_id, listUnread(db,id,p.id,m.rowid), id, p.id);
-    const grouped = one(db, 'SELECT type FROM conversations WHERE id=?', id)?.type === 'group';
-    if (db.prepare(`
-      UPDATE message_receipts SET status=2 WHERE recipient_id=? AND status<2 AND message_id IN
-        (SELECT id FROM messages WHERE conversation_id=? AND rowid<=?${grouped ? ' AND thread_root_id IS NULL' : ''})
-    `).run(p.id,id,m.rowid).changes) s.event(id,null,'message.receipts_changed',{});
+    const grouped = one(db,'SELECT type FROM conversations WHERE id=?',id)?.type==='group';
+    const topic = grouped ? m.thread_root_id : null;
+    const lastRead = body(req).last_read_message_id;
+    const changed = transaction(db, () => {
+      if(topic) markThreadRead(db,id,topic,p.id,lastRead,m.rowid);
+      else db.prepare(`UPDATE conversation_participants SET last_read_message_id=?,unread_count=?
+        WHERE conversation_id=? AND user_id=? AND coalesce((SELECT rowid FROM messages WHERE id=last_read_message_id),0)<=?`)
+        .run(lastRead,listUnread(db,id,p.id,m.rowid),id,p.id,m.rowid);
+      return db.prepare(`UPDATE message_receipts SET status=2 WHERE recipient_id=? AND status<2 AND message_id IN
+        (SELECT id FROM messages WHERE conversation_id=? AND rowid<=?${grouped ? ' AND thread_root_id IS ?' : ''})`)
+        .run(p.id,id,m.rowid,...(grouped ? [topic] : [])).changes;
+    });
+    if(changed) s.event(id,null,'message.receipts_changed',{});
     return s.conversation(id, p.id);
   });
   app.post('/im/v1/message-receipts', req => {
@@ -1082,16 +1086,10 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     const p = s.principal(req), id = params(req).conversation_id, root = params(req).root_id;
     s.access(p, id, query(req).agent_id);
     threadRootOrFail(db, id, root);
-    const reader = p.kind==='gateway' ? p.owner_id : p.id;
-    if (p.kind !== 'gateway') {
-      const cleared = markThreadRead(db, id, root, reader);
-      const watermark = one(db, 'SELECT m.rowid FROM conversation_participants p JOIN messages m ON m.id=p.last_read_message_id WHERE p.conversation_id=? AND p.user_id=?', id, reader)?.rowid ?? null;
-      if (watermark === null) db.prepare('UPDATE conversation_participants SET unread_count=MAX(unread_count-?,0) WHERE conversation_id=? AND user_id=?').run(cleared, id, reader);
-      else db.prepare('UPDATE conversation_participants SET unread_count=? WHERE conversation_id=? AND user_id=?').run(listUnread(db, id, reader, watermark), id, reader);
-    }
+    const reader = p.kind==='gateway' ? s.agentUser(query(req).agent_id).id : p.id;
     const rows = all(db, 'SELECT id FROM messages WHERE conversation_id=? AND thread_root_id=? ORDER BY rowid', id, root);
-    const follow = one(db, 'SELECT following FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=?', id, root, p.kind==='gateway'?p.owner_id:p.id);
-    return {following: follow ? follow.following === 1 : false, items: rows.map(row => ({type:'message', message:s.records.senderView(s.message(row.id), p.kind==='gateway'?p.owner_id:p.id)}))};
+    const follow = one(db, 'SELECT following FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=?', id, root, reader);
+    return {root:s.records.senderView(s.message(root),reader), following:follow?.following===1, items: rows.map(row => ({type:'message', message:s.records.senderView(s.message(row.id),reader)}))};
   });
   app.post('/im/v1/conversations/:conversation_id/threads/:root_id/follow', (req) => {
     const p = s.principal(req), id = params(req).conversation_id, root = params(req).root_id;
@@ -1108,6 +1106,8 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       id = params(req).conversation_id,
       q = query(req);
     s.access(p, id, q.agent_id);
+    const directReadThrough = !q.before_message_id && one(db,
+      "SELECT m.id FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE c.id=? AND c.type='direct' ORDER BY m.rowid DESC LIMIT 1",id)?.id;
     const limit = Math.min(100, Math.max(1, Number(q.limit ?? 50)));
     const before = q.before_message_id
       ? one(
@@ -1145,6 +1145,6 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       const message = q.view === "summary" ? s.records.historySummary(id,row.id) : s.message(row.id);
       items.push({ type: "message", message: s.records.senderView(message,p.id) });
     }
-    return { items, next_before_message_id: more ? page[0]!.id : null, execution_cleanup_revision:executionCleanupRevision(ctx,id) };
+    return { items, ...(directReadThrough ? {direct_read_through_message_id:directReadThrough} : {}), next_before_message_id: more ? page[0]!.id : null, execution_cleanup_revision:executionCleanupRevision(ctx,id) };
   });
 }

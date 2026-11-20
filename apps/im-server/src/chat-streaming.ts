@@ -71,7 +71,7 @@ export class ChatStreaming<C extends ChatConnection> {
         // so a rolled-back discard is never announced.
         const tombstone=transaction(this.db,()=>{
           records.discard(m.id);
-          return records.chatEvent(m.conversation_id,null,{type:'message.discarded',data:{message_id:m.id,reason:p.reason}},'completed',false);
+          return records.chatEvent(m.conversation_id,null,{type:'message.discarded',data:{message_id:m.id,reason:p.reason,...(m.thread_root_message_id?{thread_root_message_id:m.thread_root_message_id}:{})}},'completed',false);
         });
         ports.publishCommitted(tombstone);
         return {message_id:m.id};

@@ -5,7 +5,7 @@ import { lifecycle } from './agent-lifecycle.js';
 import { fail, now, transaction } from './context.js';
 
 import { chatAllowed, type ProviderFacts } from './collaboration.js';
-import { bumpThreadUnread, listUnread, recordThreadFollows } from './threads.js';
+import { discardThreadUnread, listUnread, recordThreadDelivery, threadAddressesAgent } from './threads.js';
 
 /** Fixed SQLite columns are distinct from the public JSON projection. */
 export interface MessageRecord {
@@ -71,7 +71,10 @@ export class MessageRecords {
    *   publish: False suppresses immediate broadcast; the durable event remains replayable.
    */
   event(id:string,messageId:string|null,type:string,data:object,status='completed',publish=true):MessageEventFrame {
-    const at=now(),payload={created_at:at,delivery_status:status,conversation_id:id,...(messageId?{message_id:messageId}:{}),...data};
+    const topic = (data as {thread_root_message_id?:string}).thread_root_message_id;
+    const notify = topic && messageId && this.db.prepare("SELECT 1 FROM conversations WHERE id=? AND type='group'").get(id)
+      ? this.db.prepare('SELECT user_id FROM thread_deliveries WHERE message_id=?').all(messageId).map(row=>row.user_id) : undefined;
+    const at=now(),payload={...(notify ? {thread_notify_user_ids:notify} : {}),created_at:at,delivery_status:status,conversation_id:id,...(messageId?{message_id:messageId}:{}),...data};
     const result=this.db.prepare('INSERT INTO conversation_events(conversation_id,message_id,event_type,delivery_status,payload_json,created_at) VALUES(?,?,?,?,?,?)').run(id,messageId,type,status,JSON.stringify(payload),at);
     const frame:MessageEventFrame={op:'event',event_id:Number(result.lastInsertRowid),conversation_id:id,message_id:messageId,event_type:type,delivery_status:status,created_at:at,data:{...payload,event_id:Number(result.lastInsertRowid)}};
     this.ports.publish(frame,publish);return frame;
@@ -108,6 +111,7 @@ export class MessageRecords {
   /** Store the producer's final text/statistics and release its permission wait. */
   complete(m:ChatMessage,p:Extract<ChatStreamFact,{kind:'message_completed'}>):void {
     this.db.prepare('UPDATE messages SET content=?,delivery_status=?,token_usage_json=?,elapsed_ms=?,kernel_message_id=?,awaiting_permission_at=NULL WHERE id=?').run(p.final_content??m.content,p.delivery_status??'completed',p.token_usage?JSON.stringify(p.token_usage):null,p.elapsed_ms??null,p.kernel_message_id??null,m.id);
+    if(m.thread_root_message_id) recordThreadDelivery(this.db,m.id);
   }
   /** Apply the existing provisional-message deletion semantics and roll back the projection it wrote on insert.
    * Notes:
@@ -115,8 +119,13 @@ export class MessageRecords {
    *   row was already discarded together with its rollback, so a replay never rolls back twice.
    */
   discard(id:string):void {
-    const row=this.db.prepare('SELECT rowid AS row_id,conversation_id,sender_user_id FROM messages WHERE id=?').get(id) as unknown as {row_id:number;conversation_id:string;sender_user_id:string}|undefined;
+    const row=this.db.prepare('SELECT m.rowid AS row_id,m.conversation_id,m.sender_user_id,m.thread_root_id,c.type FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.id=?').get(id) as unknown as {row_id:number;conversation_id:string;sender_user_id:string;thread_root_id:string|null;type:string}|undefined;
     if(!row)return;
+    if(row.thread_root_id && row.type==='group'){
+      discardThreadUnread(this.db,row.conversation_id,row.thread_root_id,id);
+      this.db.prepare('DELETE FROM messages WHERE id=?').run(id);
+      return;
+    }
     this.db.prepare('DELETE FROM messages WHERE id=?').run(id);
     // insert() writes the projection from the row it just stored, and ingress can backdate
     // created_at, so insertion order (rowid) is what "the message before this one" means.
@@ -289,7 +298,7 @@ export class MessageRecords {
     status = "completed",
     extra: MessageMetadata = {},
   ): ChatMessage {
-    if ((extra.interactive || extra.personal_source) && !this.db.isTransaction)
+    if ((extra.interactive || extra.personal_source || extra.thread_root_id) && !this.db.isTransaction)
       return transaction(this.db, () => this.insert(cId, sender, type, content, attachments, key, status, extra));
     const old=key?this.attempt(cId,key):undefined;
     if (old) return this.message(old.id);
@@ -318,10 +327,12 @@ export class MessageRecords {
     const groupedThread = extra.thread_root_id
       ? (this.db.prepare('SELECT type FROM conversations WHERE id=?').get(cId) as {type?: string} | undefined)?.type === 'group'
       : false;
-    if (!groupedThread) {
+    if (!extra.thread_root_id) {
       this.db
         .prepare("UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?")
         .run(content.trim().slice(0, 120) || attachments[0]?.file_name || "", at, cId);
+    }
+    if (!groupedThread) {
       this.db
         .prepare(
           "UPDATE conversation_participants SET unread_count=unread_count+1 WHERE conversation_id=? AND user_id!=?",
@@ -343,11 +354,10 @@ export class MessageRecords {
     if (extra.reply_to) this.db.prepare('UPDATE messages SET reply_to_json=? WHERE id=?').run(JSON.stringify(extra.reply_to),id);
     if (extra.thread_root_id) {
       this.db.prepare('UPDATE messages SET thread_root_id=? WHERE id=?').run(extra.thread_root_id,id);
-      recordThreadFollows(this.db,id);
-      if (groupedThread) bumpThreadUnread(this.db,id);
+      if (groupedThread) recordThreadDelivery(this.db,id);
     }
     if (extra.provider_facts) this.db.prepare('INSERT INTO provider_message_facts VALUES(?,?)').run(id,JSON.stringify(extra.provider_facts));
-    if (status==='pending' && extra.pendingRelayAgents && !extra.pendingRelayAgents.some(agentId=>chatAllowed(this.db,agentId,id))) {
+    if (status==='pending' && extra.pendingRelayAgents && !extra.pendingRelayAgents.some(agentId=>chatAllowed(this.db,agentId,id) && (!groupedThread || threadAddressesAgent(this.db,id,agentId)))) {
       status='completed';
       this.db.prepare("UPDATE messages SET delivery_status='completed' WHERE id=?").run(id);
     }

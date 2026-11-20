@@ -1,5 +1,7 @@
 import Fastify from 'fastify';
 import { expect, it } from 'vitest';
+import { personalFixture } from './personal-fixture.js';
+import { Gateway } from '../src/gateway.js';
 import { fixture } from './control-fixture.js';
 import { Messaging, registerMessagingRoutes } from '../src/messaging.js';
 import { searchMessages } from '../src/message-search.js';
@@ -103,12 +105,56 @@ it('clears only the opened group topic and keeps a direct topic on the watermark
     const before = db.prepare("SELECT unread_count FROM thread_follows WHERE user_id='u1' AND root_message_id=?").get(root.id) as {unread_count: number};
     expect(before.unread_count).toBeGreaterThan(0);
     expect((await app.inject({url: `/im/v1/conversations/chat/threads/${root.id}`, headers: {'x-user': 'u1'}})).statusCode).toBe(200);
-    expect((db.prepare("SELECT unread_count FROM thread_follows WHERE user_id='u1' AND root_message_id=?").get(root.id) as {unread_count: number}).unread_count).toBe(0);
+    const count = () => (db.prepare("SELECT unread_count FROM conversation_participants WHERE user_id='u1' AND conversation_id='chat'").get() as {unread_count:number}).unread_count;
+    expect(count()).toBe(1); // Fetching a search result is not a read acknowledgement.
+    const later = await send('同时到达', 'later');
+    const mark = (id:string) => app.inject({method:'POST',url:'/im/v1/conversations/chat/read',payload:{last_read_message_id:id}});
+    await mark(reply.json().id);
+    expect(count()).toBe(1);
+    await mark(later.json().id);
+    expect(count()).toBe(0);
+    await app.inject({method:'POST',url:`/im/v1/conversations/chat/threads/${root.id}/follow`,payload:{following:false}});
+    await send('取消关注期间', 'muted');
+    expect(count()).toBe(0);
+    const mention = await send('<mention type="user" target_id="u1"/>', 'mentioned');
+    expect(count()).toBe(1);
+    await mark(mention.json().id);
+    expect(count()).toBe(0);
     db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
     db.prepare("DELETE FROM thread_follows WHERE conversation_id='chat'").run();
     const direct = ctx.messaging.insertMessage('chat', 'u2', 'user', '私聊话题', [], null, 'completed', {thread_root_id: root.id});
     const watermark = (db.prepare('SELECT rowid FROM messages WHERE id=?').get(root.id) as {rowid: number}).rowid;
     expect(listUnread(db, 'chat', 'u1', watermark)).toBeGreaterThan(0);
     expect(direct.thread_root_message_id).toBe(root.id);
+    expect(ctx.messaging.conversation('chat','u1').last_message_preview).toBe('根');
   } finally { await app.close(); }
+});
+
+
+it('keeps unaddressed streamed group replies out of PA observations and Agent relays', () => {
+  const {ctx,db,service,args,principal} = personalFixture();
+  db.prepare("UPDATE conversations SET type='group' WHERE id='peer'").run();
+  db.prepare("UPDATE agent_profiles SET collaboration_scope='team' WHERE agent_id='a'").run();
+  db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('author','agent:writer','Writer','o1',datetime('now'))").run();
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','author')").run();
+  const root=ctx.messaging.insertMessage('peer','u2','user','Planning');
+  const stream=(text:string)=>{
+    const m=ctx.messaging.insertMessage('peer','author','agent','',[],null,'running',{thread_root_id:root.id});
+    ctx.messaging.records.complete(m,{kind:'message_completed',message_id:m.id,lifecycle_revision:1,final_content:text});
+    ctx.messaging.event('peer',m.id,'message.completed',ctx.messaging.message(m.id));
+    return m.id;
+  };
+  const ignored=stream('ordinary text including a1');
+  expect(db.prepare('SELECT 1 FROM pa_source_events WHERE message_id=?').get(ignored)).toBeUndefined();
+  const addressed=stream('<mention type="user" target_id="a1"/> please help');
+  const observed=service.observations(principal,args).items.find((item:{message_id:string})=>item.message_id===addressed);
+  expect(observed).toMatchObject({delivery:'observer',addressed_to_agent:true,thread_root_message_id:root.id});
+  expect(service.admitSource(principal,{...args,conversation_id:'peer',source_message_id:addressed})).toMatchObject({delivery:'observer',addressed_to_agent:true,thread_root_excerpt:'Planning'});
+
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
+  const gateway=new Gateway(ctx);
+  const next=stream('one more question');
+  gateway.groupReply(next,{deferDelivery:true});
+  const relay=db.prepare('SELECT payload_json FROM relay_tasks WHERE message_id=?').get(next);
+  expect(JSON.parse(String(relay?.payload_json))).toMatchObject({metadata:{addressed_to_agent:true,thread_root_message_id:root.id}});
 });

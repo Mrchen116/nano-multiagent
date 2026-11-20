@@ -157,7 +157,7 @@ export class PersonalAgents {
       : mentioned.some(u=>u.id===b.owner_user_id)||reply?.sender?.user_id===b.owner_user_id));
     const threadRoot = message.thread_root_id ?? message.thread_root_message_id;
     const followedThread = !!threadRoot && chat.type==='group' && !!one(this.db, 'SELECT 1 FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=? AND following=1', message.conversation_id, threadRoot, this.ctx.messaging.agentUser(b.agent_id).id);
-    const addressedAgent=participant && (chat.type==='direct' || followedThread || (provider ? provider.mentioned_bot||provider.replied_to_bot : this.addressedAgents(message).includes(b.agent_id)));
+    const addressedAgent=followedThread || participant && (chat.type==='direct' || (provider ? provider.mentioned_bot||provider.replied_to_bot : this.addressedAgents(message).includes(b.agent_id)));
     return {is_owner:isOwner&&!this.representedBy(message.id),delivery:participant?'participant':'observer',conversation_type:chat.type,channel:message.sender_type==='user' && !sourceId ? 'web' : chat.external_source??'web',
       owner_direct:direct,addressed_to_owner:addressedOwner,addressed_to_agent:addressedAgent,explicit_mentioned_agent_ids:explicit,
       ...(provider||sourceId?{provider_source_time:provider?.source_time??null,context_only:provider?.context_only===true}:{})};
@@ -234,7 +234,7 @@ export class PersonalAgents {
     if(!chatAllowed(this.db,b.agent_id,m.id) || one(this.db,"SELECT 1 FROM pa_source_events WHERE binding_id=? AND message_id=? AND state='scope_skipped'",b.binding_id,m.id))
       return {allowed:false,scope_skipped:true};
     this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,this.policy(b.binding_id).revision);
-    return {allowed:true,...this.sourceFacts(b,m),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
+    return {allowed:true,...this.sourceFacts(b,m),...threadRelayMetadata(this.db,m.id),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
   }
   updatePolicy(owner: string, input: Row) {
     const b = this.binding(owner); if (!b) fail(404, 'personal_agent_not_found');
