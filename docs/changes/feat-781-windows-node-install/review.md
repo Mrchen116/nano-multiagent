@@ -8,7 +8,7 @@
 | 网页下载、连接、重试与不可用状态 | 隔离 IM、SQLite、登录测试账号与真实 Chrome，切换 Windows UA，下载测试响应为 13 字节。见[桌面](M1-windows-node/windows-1200.png)、[窄窗口](M1-windows-node/windows-390.png)、[正在等待](M1-windows-node/windows-waiting-390.png)及[尚未发布](M1-windows-node/windows-unavailable-390.png)。 | 作者走查。网页不会在点连接时提前显示在线。临时栈和测试浏览器已回收。跨浏览器补丁另有 18 项 onboarding 测试。 |
 | Windows 隔离工作区中的宿主和进程树 | [候选 A 的原生测试](https://github.com/Mrchen116/nano-multiagent/actions/runs/44771705408)运行两个配置、真实 Windows 任务与子进程，检查出生标识、优雅退出、超时收拢、异常和独立更新进程。 | Windows Server 2022 runner 通过。普通本地账户的桌面登录和系统重启需由客户机实测。 |
 | 安装器、运行图和缓存 | [候选 A](https://github.com/Mrchen116/nano-multiagent/actions/runs/44771705408)和[候选 B](https://github.com/Mrchen116/nano-multiagent/actions/runs/44772109381)执行按用户静默安装，验证协议注册，在 ZIP 解压后的版本目录中启动私有 Node、pnpm 和 DSH，实际创建会话、查询工具，然后关闭资产服务验证热缓存。 | 两次通过。包含空格和中文的目录覆盖真实宿主和 DSH。运行器测试使用本地资产 fixture。 |
-| Windows 10/11 真实用户旅程 | 两份已构建的安装包交给 Bbot，用于干净的 x64 客户机、隔离 IM 与测试模型。 | 待桌面实测。 |
+| Windows 10/11 真实用户旅程 | 在 Windows 10 22H2 x64（19045.2006）的普通账户中，确认 PATH 无 Node，核对候选 C 安装器的 SHA-256 后执行安装。 | 安装退出 0。当前用户的 `crewden://` 处理器指向已安装的 Crewden.exe。运行过程中的宿主离线，尚未取得该客户机的模型回复或 Windows 11 结果。 |
 
 最终用于桌面验收的是[候选 C](https://github.com/Mrchen116/nano-multiagent/actions/runs/44773547448)（`d3390ef8e9b3ab6113aff34f1dadd8804651af34`）和[候选 D](https://github.com/Mrchen116/nano-multiagent/actions/runs/44773636434)（`109ccf5b542f01aee6dbc8dce8eb83cc00990eb4`）。两次原生安装、离线复用、DSH 会话和工具发现均通过。D 增加了下载字节进度。核对其 EXE 的 PE 证书目录，偏移与大小均为 0，本次测试安装器未签 Authenticode；实际系统发布者提示由桌面验收记录。两版运行环境 ZIP 的 SHA-256 均为 `ee9852cc1d5edc86eb2655c794ec0520c201af9ee0b092c81da07a2478502df9`。
 
@@ -27,3 +27,7 @@
 跨机预览在初始化附带的 Mac 测试节点时两次遇到能力查询或应用失败，两次实例均自动回收。Windows 10 x64 测试机已进入桌面并保存干净快照，系统报告为 22H2 build 19045，初始 PATH 中无 Node.js，WSL 可选功能关闭。已通过 SSH 进入隔离宿主，启动候选 D 的 IM/Web，验证健康接口，以及独立真实测试模型的推理。客户机的 IM 与模型回复仍须从实际入口验证。
 
 [候选 C 测试版](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-d3390ef8e9b3ab6113aff34f1dadd8804651af34)和[候选 D 测试版](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-109ccf5b542f01aee6dbc8dce8eb83cc00990eb4)已公开到仓库的 GitHub Pre-release。两版各五份资产的大小和 GitHub SHA-256 与本地逐项相符。独立 IM 选择对应清单，客户端从 GitHub 下载原始资产。正式 Latest 仍为 v2.0.0，生产 IM 没有部署此改动。
+
+[候选 C 的真实模型试验](https://github.com/Mrchen116/nano-multiagent/actions/runs/44789198104)从 GitHub 下载原始安装器，在 Windows Server 2022 上由安装器获取正式地址的资产。移除系统 Node 路径后，私有 Node v24.22.1、DSH 及具有 34 项工具的会话均正常启动。本地 Qwen 推理服务收到请求并生成了两个 token，后续应用助手配置时出现 `Temporary inspection cleanup could not be confirmed`。检查发现临时进程退出后仍调用仅 POSIX 提供的 `ps` 查询进程组。修复提交 `9d5232de2` 改用 Windows 进程树终止和存活检查，并让打包验收实际应用一次新配置。
+
+[候选 E 的 Windows 构建与回归](https://github.com/Mrchen116/nano-multiagent/actions/runs/44790882552)在完整安装的版本中，成功为首个助手应用配置、回收临时进程并建立实际 DSH 会话。对应的 8 项配置检查进程测试在本地支持的 Node v24.22.1 下也全部通过。[候选 E 测试版](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-4acc9145a62bddf5790a600baa1a970e885c91e4)共 83,431,741 字节，安装器 2,110,423 字节；5 份发布文件已逐项核对 GitHub SHA-256。
