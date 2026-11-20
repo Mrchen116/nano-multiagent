@@ -21,7 +21,7 @@ try {
   console.log('Installed DSH initialized', result.version);
   await runtime.rpc.request('runtime.health', {});
   // Applying a new configuration spawns and reclaims a native inspection worker.
-  const applied = await runtime.rpc.request('configuration.apply', {...agent, workspace:home});
+  const applied = await runtime.rpc.request('configuration.apply', {...agent, workspace:home, features:{intelligent_ui:false, task_graph:false}});
   assert.equal(applied.effective, true, JSON.stringify(applied));
   const sessionId = 'installed-smoke';
   await runtime.rpc.request('session.ensure', {sessionId, agentId:agent.agentId, revision:agent.revision, ownerId:'probe', cwd:home});
