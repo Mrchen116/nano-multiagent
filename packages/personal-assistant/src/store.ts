@@ -21,14 +21,6 @@ function decodeInput(row: InputRow) {
 }
 
 /** Node-owned durable handoff and delivery facts, independent of DSH storage. */
-/** Conversation id a send target already names, before the server resolves people. */
-export function hintedConversation(target: string, current: string): string | undefined {
-  if (target === 'current') return current;
-  if (target.startsWith('conversation:')) return target.slice('conversation:'.length);
-  if (target.startsWith('c_') || target.startsWith('external:')) return target;
-  return undefined;
-}
-
 export class NodeStore {
   /** Read durable ingestion progress, independent of model consumption. */
   taskContextCursor(agentId:string):number { return (this.db.prepare('SELECT seq FROM task_context_cursors WHERE agent_id=?').get(agentId) as {seq:number}|undefined)?.seq??0; }
@@ -554,14 +546,6 @@ export class NodeStore {
    *   sessionId: Durable session identity.
    *   turn: Limit to this logical turn, or omit for session-wide recovery.
    */
-  /** Latest topic root that woke this session inside one conversation. */
-  latestThreadRoot(sessionId: string, conversationId: string): string | undefined {
-    const row = this.db.prepare(`SELECT json_extract(payload,'$.metadata.thread_root_message_id') AS root FROM inputs
-      WHERE session_id=? AND json_extract(payload,'$.conversation_id')=?
-      ORDER BY rowid DESC LIMIT 1`).get(sessionId, conversationId) as {root?: string} | undefined;
-    return typeof row?.root === 'string' && row.root ? row.root : undefined;
-  }
-
   inputs(sessionId: string, turn?: number) {
     const query = 'SELECT input_id,payload,accepted,turn,terminal FROM inputs WHERE session_id=?';
     const rows = turn === undefined ? this.db.prepare(query + ' ORDER BY rowid').all(sessionId)
@@ -673,6 +657,16 @@ export class NodeStore {
   }
   updateDelivery(operationId: string, state: DeliveryState, messageId: string | null, content: string): void {
     this.db.prepare('UPDATE deliveries SET state=?,message_id=?,content=? WHERE operation_id=?').run(state, messageId, content, operationId);
+  }
+  /** Reproject the turn's process history into its confirmed topic successor after discarding the old row. */
+  advanceTopicDelivery(operationId: string, marker: string): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.saveCommand(marker,'replaced');
+      this.db.prepare('DELETE FROM delivery_events WHERE operation_id=?').run(operationId);
+      this.updateDelivery(operationId,'prepared',null,'');
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
   /** Retire the failed placeholder and reserve a distinct backup bubble atomically. */
   advanceFallbackDelivery(operationId: string, noticeId: string, marker: string): void {

@@ -9,7 +9,7 @@ import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayIn
 import { chatAttachments, interactiveResponse } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText, chatDelivery } from './attention.js';
-import { hintedConversation, NodeStore } from './store.js';
+import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
 import { argumentsObject, logicalEvents } from './presentation.js';
 import { projectWorkEvent, workSuffix, workCheckpoint } from './work-projection.js';
@@ -27,7 +27,7 @@ export interface ProductCall {
   method: string; args: Record<string, unknown>; operationId: string; callId: string;
   sessionId: string; rootSessionId: string; agentId: string; ownerId: string; lifecycle_revision?:number;
 }
-type PublicationPosition = {turn?: number; seq?: number};
+type PublicationPosition = {turn?: number; seq?: number; threadRoot?:string};
 const callPosition = (event: RuntimeEvent | undefined): PublicationPosition | undefined => event && {
   seq: event.seq, turn: typeof event.data.turn === 'number' ? event.data.turn : undefined,
 };
@@ -314,6 +314,7 @@ export class GlobalAgent {
         text=result.paused?`已停止当前操作，并暂缓 ${result.paused} 项进行中的任务。`:result.wasRunning?'已停止当前操作。':'当前没有正在执行的操作。';
       }
       await this.publishMessage({ node_id: this.options.nodeId, to: `conversation:${input.conversation_id}`, text,
+        ...(typeof input.metadata.thread_root_message_id === 'string' ? {in_thread_of:input.metadata.thread_root_message_id} : {}),
         from_session_id: `${config.agentId}|tool_call:command:${input.message.id}` });
       await this.receipt(input, 'completed'); return;
     }
@@ -859,23 +860,28 @@ export class GlobalAgent {
     const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
     const global = config?.mode === 'global';
     if (typeof call.args.receipt_of === 'string') return this.screenshotReceipt(binding, call, config);
-    if(config?.personal) return this.personal.send(config,binding,call,signal);
+    if(config?.personal) return this.personal.send(config,binding,call,signal,async target => {
+      const saved = callPosition(store.toolCall(call.sessionId,call.callId));
+      const position = await this.publicationEvidence(binding,[target],signal,saved ? undefined : call.callId) ?? saved;
+      return position?.turn === undefined ? undefined : inbox.threadForTurn(binding.sessionId,position.turn,target);
+    });
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const interactive = interactiveResponse(call.args.interactive);
     const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
     let inThread=typeof call.args.in_thread_of==='string'?call.args.in_thread_of:undefined;
-    const hinted = hintedConversation(target, binding.conversationId);
-    if (!inThread && hinted && !hinted.startsWith('external:')) inThread = store.latestThreadRoot(binding.sessionId, hinted);
-    const quote = { ...(replyTo ? { reply_to_message_id: replyTo } : {}), ...(inThread ? { in_thread_of: inThread } : {}) };
     const paths = call.args.local_images as string[] | undefined;
-    const publicationBody = paths || call.args.attachments ? sortedJsonAscii({text, interactive, local_images:paths, attachments:call.args.attachments ?? [], ...quote})
-      : interactive || replyTo ? sortedJsonAscii({text, interactive, ...quote}) : text;
+    const publicationBody = () => {
+      const quote = {...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})};
+      if (paths || call.args.attachments) return sortedJsonAscii({text, interactive, local_images:paths, attachments:call.args.attachments ?? [], ...quote});
+      return interactive || replyTo || inThread ? sortedJsonAscii({text, interactive, ...quote}) : text;
+    };
     if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const savedCall = () => callPosition(store.toolCall(call.sessionId,call.callId));
     const confirm = (payload:Record<string,unknown>, position: PublicationPosition | undefined) => this.confirmPublication(binding,call,target,text,payload,position);
     const previous = inbox.publication(call.operationId);
     if (previous) {
-      if (previous.target !== target || previous.body !== publicationBody) throw new Error('Publication identity conflict');
+      if (!inThread && previous.source) inThread = (JSON.parse(previous.source) as PublicationPosition).threadRoot;
+      if (previous.target !== target || previous.body !== publicationBody()) throw new Error('Publication identity conflict');
       if(previous.state==='cancelled_by_disable')throw new Error('stale_lifecycle');
       if (previous.result) return JSON.parse(previous.result) as unknown;
       if(previous.state==='unknown' || previous.state==='sending') {
@@ -892,12 +898,12 @@ export class GlobalAgent {
       store.recordEvents(binding.sessionId, read.events);
     }
     let reviewConversation = conversation;
-    if (global && !reviewConversation) {
+    if (!reviewConversation && (global || target.startsWith('user:') || target.startsWith('agent:'))) {
       const resolved = await this.query(binding, { action: 'resolve_target', target });
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
-    if(replyTo && info?.channel && info.channel!=='web')throw new Error('Quoted replies require a Nano IM destination');
+    if((replyTo || inThread) && info?.channel && info.channel!=='web')throw new Error('Quoted replies and topics require a Nano IM destination');
     if (paths && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local screenshots require a writable Nano IM conversation');
     if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const targets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
@@ -931,9 +937,18 @@ export class GlobalAgent {
       } else inbox.settlePublication(call.operationId, 'held', result);
       return result;
     };
-    if (currentSingleGroup) await refreshTurnEvidence();
+    const sameChat = reviewConversation === binding.conversationId || info?.target === binding.conversationId;
+    if (currentSingleGroup || !global && sameChat && !inThread) await refreshTurnEvidence();
+    if (!previous && !inThread && turn !== undefined && reviewConversation && info?.channel === 'web') {
+      if (global) inThread = inbox.threadForTurn(binding.sessionId,turn,reviewConversation);
+      else if (sameChat) {
+        const source = store.inputs(binding.sessionId,turn).findLast(row => !row.input.metadata.context_only && !row.terminal?.includes('cancelled_by_scope'));
+        if (typeof source?.input.metadata.thread_root_message_id === 'string') inThread = source.input.metadata.thread_root_message_id;
+      }
+    }
     signal.throwIfAborted();
-    inbox.preparePublication(call.operationId, target, publicationBody, binding.agentId, global ? {...position, text} : undefined);
+    const source = {...position, ...(inThread ? {threadRoot:inThread} : {}), text};
+    inbox.preparePublication(call.operationId, target, publicationBody(), binding.agentId, global || inThread ? source : undefined);
     const held = revalidate();
     if (held) return held;
 
@@ -954,7 +969,7 @@ export class GlobalAgent {
         ...(inThread?{in_thread_of:inThread}:{}),
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
-      return confirm(response.payload,position);
+      return confirm(response.payload,source);
     } catch (error) {
       if (paths && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
         const result = {status:'not_sent',target,reason:error.message};
@@ -970,7 +985,7 @@ export class GlobalAgent {
         try {
           const status=await this.options.relay.request('agent.message.status',{node_id:this.options.nodeId,agent_id:binding.agentId,operation_id:call.operationId});
           if(status.payload.found===true) {
-            return confirm(status.payload,position);
+            return confirm(status.payload,source);
           }
         } catch { /* Retain the unknown publication when reconciliation is unavailable. */ }
       }
@@ -1029,7 +1044,8 @@ export class GlobalAgent {
   }
   private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'>,target:string,text:string,payload:Record<string,unknown>,position?:PublicationPosition) {
     const {inbox, store} = this.options;
-    const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id};
+    const publishedRoot = position?.threadRoot;
+    const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id,...(publishedRoot ? {in_thread_of:publishedRoot} : {})};
     const global=this.options.agents.find(agent=>agent.agentId===binding.agentId)?.mode==='global';
     const turn = position?.turn;
     if (global) {
@@ -1039,7 +1055,10 @@ export class GlobalAgent {
     } else {
       inbox.settlePublication(call.operationId,'confirmed',result);
       const sameConversation=payload.conversation_id===binding.conversationId||payload.conversation_id===store.imConversation(binding.agentId,binding.conversationId);
-      if(turn!==undefined&&typeof payload.conversation_id==='string'&&sameConversation)store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
+      if(turn!==undefined&&typeof payload.conversation_id==='string'&&sameConversation) {
+        store.saveCommand(`interactive-delivered:${binding.sessionId}:${turn}`,JSON.stringify(result));
+        if (publishedRoot) store.saveCommand(`sent-topic:${binding.sessionId}:${turn}:${publishedRoot}`,String(payload.message_id));
+      }
     }
     return result;
   }

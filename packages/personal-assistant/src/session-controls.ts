@@ -52,7 +52,7 @@ export class SessionControls {
       store.saveControl(intent);
     }
     const start = await relay.request('node.streaming_delta', { node_id: nodeId, kind: 'turn_start', conversation_id: input.conversation_id,
-      agent_id: binding.agentId, idempotency_key: `command:${intent.id}`, external_reply: input.metadata.external_reply });
+      agent_id: binding.agentId, ...(typeof input.metadata.thread_root_message_id === 'string' ? {thread_root_message_id:input.metadata.thread_root_message_id} : {}), idempotency_key: `command:${intent.id}`, external_reply: input.metadata.external_reply });
     if (cancelled()) {
       await relay.request('node.streaming_delta',{node_id:nodeId,kind:'message_discarded',message_id:start.payload.message_id,reason:'cancelled_by_scope'});
       return;
