@@ -11,6 +11,22 @@ globalThis.fetch = fetchMock as typeof fetch;
 afterEach(() => fetchMock.mockReset());
 
 describe("nodes page", () => {
+  it("offers an offline Windows computer a native reconnect on its own platform", async () => {
+    const node = {node_id:"win",node_name:"Studio",owner_id:"owner-1",status:"offline",agent_count:0,
+      update:{current:{version:"1.2.3",platform:"win32-x64"},target:null,reason:"offline",install_command:""}};
+    const windows = {connect_url:"crewden://connect?origin=https%3A%2F%2Fim.example",download_url:"https://example.test/setup.exe"};
+    fetchMock.mockImplementation(async input => {
+      if (input === "/im/v1/nodes") return jsonResponse([node]);
+      if (input === "/im/v1/onboarding") return jsonResponse({nodes:[node],agents:[],install:{available:false,windows_x64:windows}});
+      return jsonResponse({items:[]});
+    });
+    renderRouter({routes:appRoutes,initialEntries:["/settings/nodes"]});
+    await userEvent.click(await screen.findByRole("button",{name:"Reconnect this computer"}));
+    const drawer = within(screen.getByRole("dialog"));
+    expect(await drawer.findByRole("link",{name:"Open Crewden to connect"})).toHaveAttribute("href",windows.connect_url);
+    expect(drawer.getByRole("link",{name:"Download again"})).toHaveAttribute("href",windows.download_url);
+    expect(drawer.queryByText(/run this command/i)).toBeNull();
+  });
   it("offers creation only on online nodes and saves an alias through the node API", async () => {
     const user = userEvent.setup();
     const nodes: import("../im-settings-api").NodeSettingsProfile[] = [

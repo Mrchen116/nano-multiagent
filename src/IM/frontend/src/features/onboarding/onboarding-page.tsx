@@ -3,7 +3,7 @@ import { AssistantPortrait, avatarVariantFor } from "../chat/components/assistan
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useIsMobile } from '../../hooks/use-is-mobile';
 import { OnboardingWelcome } from './onboarding-welcome';
 import { ProductHeader } from '../home/product-header';
@@ -12,18 +12,34 @@ import { useAuthStore } from '../auth/auth-store';
 import { createPersonalAgent, getPersonalAgent } from '../personal-agent/personal-agent-api';
 import { ModelServicesPanel } from '../settings/models/model-services-panel';
 import { getOnboarding, setupNode } from './onboarding-api';
+import { bindingTargetKey } from './binding-target';
+import { InstallPlatformPicker, suggestedPlatform, WindowsInstallPanel } from './windows-install';
 import './onboarding.css';
 
 /** First-run progress is reconstructed from the user's actual node and model state. */
 export function OnboardingPage() {
-  useTranslation();
+  const { t } = useTranslation();
   const language = getCurrentLanguage(), zh = language === 'zh';
   const text = (cn: string, en: string) => zh ? cn : en;
   const user = useAuthStore(s => s.user)!;
   const navigate = useNavigate(), cache = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const reconnectId = searchParams.get('node') || null;
   const draftKey = `nano-onboarding:${user.id}`;
   const [draft] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey) ?? '{}'); } catch { return {}; } });
   const isMobile = useIsMobile();
+  const phoneHandoff = isMobile && suggestedPlatform() !== 'windows';
+  const [platform, setPlatform] = useState(suggestedPlatform);
+  const [windowsOpened, setWindowsOpened] = useState(false);
+  const targetKey = bindingTargetKey(user.id);
+  const [bindingTarget, setBindingTarget] = useState(() => localStorage.getItem(targetKey));
+  useEffect(() => {
+    const onBinding = (event: StorageEvent) => {
+      if (event.key === targetKey) setBindingTarget(event.newValue);
+    };
+    window.addEventListener('storage', onBinding);
+    return () => window.removeEventListener('storage', onBinding);
+  }, [targetKey]);
   const [started, setStarted] = useState(Boolean(draft.started));
   const [installExpanded, setInstallExpanded] = useState(false);
   const [requestKey] = useState<string>(() => draft.requestKey ?? crypto.randomUUID());
@@ -37,14 +53,21 @@ export function OnboardingPage() {
   const [editingModel, setEditingModel] = useState(false);
   const personal = useQuery({queryKey:['personal-agent',user.id],queryFn:getPersonalAgent,retry:false,refetchInterval:3000});
   const state = useQuery({ queryKey: ['onboarding', user.id], queryFn: getOnboarding, refetchInterval: 3000 });
-  const node = state.data?.nodes.find(n => n.node_id === (personal.data?.binding?.node_id ?? nodeId))
-    ?? state.data?.nodes.find(n => n.status === 'online') ?? state.data?.nodes[0];
+  const selectedId = reconnectId ?? bindingTarget ?? personal.data?.binding?.node_id ?? nodeId;
+  const node = state.data?.nodes.find(n => n.node_id === selectedId)
+    ?? (bindingTarget === null && !reconnectId ? state.data?.nodes.find(n => n.status === 'online') ?? state.data?.nodes[0] : undefined);
   const currentNodeId = node?.node_id;
+  useEffect(() => {
+    if (!reconnectId || currentNodeId !== reconnectId) return;
+    localStorage.setItem(targetKey, reconnectId);
+    setBindingTarget(reconnectId);
+    setSearchParams(params => { params.delete('node'); return params; }, { replace: true });
+  }, [reconnectId, currentNodeId, targetKey, setSearchParams]);
   const setup = useQuery({ queryKey: ['node-setup', user.id, currentNodeId], queryFn: () => setupNode(currentNodeId!, { action: 'status' }), enabled: !!currentNodeId && node?.status === 'online', refetchInterval: 2000, retry: false });
   const configured = !!setup.data?.default_model && setup.data.models.some(m => m.model === setup.data?.default_model);
   const existingAgent = personal.data?.binding;
   const suggestedStep = node?.status !== 'online' ? 0 : existingAgent ? 3 : configured ? 2 : 1;
-  const step = node?.status !== 'online' && viewStep !== 1 ? 0 : viewStep ?? suggestedStep;
+  const step = node?.status !== 'online' && (viewStep !== 1 || bindingTarget !== null || reconnectId) ? 0 : viewStep ?? suggestedStep;
   useEffect(() => { if (currentNodeId && !nodeId) setNodeId(currentNodeId); }, [currentNodeId, nodeId]);
   useEffect(() => { if (viewStep === null && setup.data && !configured && !existingAgent && node?.status === 'online') setViewStep(1); }, [viewStep, setup.data, configured, existingAgent, node?.status]);
   const operation = setup.data?.operation;
@@ -62,6 +85,14 @@ export function OnboardingPage() {
   });
   useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({requestKey,nodeId:currentNodeId??'',name,started,avatar})); }, [draftKey,requestKey,currentNodeId,name,started,avatar]);
   const install = state.data?.install;
+  const windows = platform === 'windows' && install?.windows_x64 !== undefined;
+  const installAvailable = windows ? !!install?.windows_x64 : install?.available;
+  function awaitWindowsBinding(opened: boolean) {
+    setWindowsOpened(opened);
+    setViewStep(0);
+    localStorage.setItem(targetKey, '');
+    setBindingTarget('');
+  }
   const installPrompt = install ? text(
       `请帮我安装 Crewden 电脑端并连接 ${install.origin}。运行这个服务的安装器：\n${install.command}\n保留已有配置、凭据和工作文件；不要部署 IM 服务。安装后打开浏览器让我确认电脑绑定，再回到网页完成模型和助手设置。不要向我索取账号密码、模型密钥或登录文件；不要改全局设置。`,
       `Install the Crewden computer client and connect it to ${install.origin}. Run the service installer:\n${install.command}\nPreserve existing configuration, credentials, and work files. Do not deploy an IM server. Open the browser for me to confirm this computer, then return to the webpage for model and assistant setup. Do not request passwords, model keys, or login files, or change global settings.`,
@@ -72,7 +103,7 @@ export function OnboardingPage() {
     catch { setCopied(false); setCopyError(true); }
   }
   const setupLink = `${window.location.origin}/onboarding`;
-  const showWelcome = !started && state.isSuccess && state.data.nodes.length === 0 && personal.isSuccess && !existingAgent;
+  const showWelcome = !started && bindingTarget === null && state.isSuccess && state.data.nodes.length === 0 && personal.isSuccess && !existingAgent;
   const completed = [node?.status === 'online', node?.status === 'online' && setup.isSuccess && configured, existingAgent?.status === 'active'];
   const stepHints = [text('助手工作的地方', 'A place for your assistant to work'), text('接入你已有的模型服务', 'Use a model service you have'), text('起个名字，开始合作', 'Give it a name and begin')];
   const title = [text('连接电脑', 'Connect computer'), text('连接模型', 'Connect model'), text('创建个人助手', 'Create personal assistant')];
@@ -81,15 +112,23 @@ export function OnboardingPage() {
   return <div className="onboarding-screen product-entry">
     <ProductHeader page="setup" accountName={user.display_name} />
     {showWelcome ? <OnboardingWelcome name={user.display_name} onStart={() => setStarted(true)} /> : <main className="onboarding-main"><div className="onboarding-layout"><aside><div className="onboarding-intro"><span>{text('首次设置', 'Getting started')}<span className="onboarding-mobile-step">{text(`步骤 ${Math.min(step + 1, 3)} / 3`, `Step ${Math.min(step + 1, 3)} of 3`)}</span></span><h1>{text('一起把助手\n准备好。', 'Get your\nassistant ready.')}</h1><p>{text('完成这三步，开始和你的长期个人助手对话。', 'Three steps to your first conversation with a long-term personal assistant.')}</p></div>
-      <ol className="onboarding-steps">{title.map((label, i) => <li key={label} aria-current={i === Math.min(step,2) ? 'step' : undefined} className={i === Math.min(step,2) ? 'active' : completed[i] ? 'done' : ''}><span>{completed[i] ? '✓' : i + 1}</span><div><strong>{label}</strong><small>{stepHints[i]}</small></div></li>)}</ol><p className="onboarding-note">{text('助手在连接的电脑上执行任务、保存工作文件。执行时需要保持电脑在线。', 'Your assistant runs tasks and saves work files on the connected computer. Keep it online while work runs.')}<br /><br />{text('已完成的设置会保留，随时可以回来继续。', 'Completed setup is saved. Come back whenever you are ready.')}</p>{state.isSuccess && state.data.nodes.length === 0 && !existingAgent && <button className="onboarding-intro-return" onClick={() => setStarted(false)}>{text('重新查看使用介绍', 'Review the introduction')}</button>}<Link className="onboarding-skip" to="/chat">{text('稍后继续，返回个人空间', 'Continue later, open your space')} <span aria-hidden="true">↗</span></Link></aside>
+      <ol className="onboarding-steps">{title.map((label, i) => <li key={label} aria-current={i === Math.min(step,2) ? 'step' : undefined} className={i === Math.min(step,2) ? 'active' : completed[i] ? 'done' : ''}><span>{completed[i] ? '✓' : i + 1}</span><div><strong>{label}</strong><small>{stepHints[i]}</small></div></li>)}</ol><p className="onboarding-note">{text('助手在连接的电脑上执行任务、保存工作文件。执行时需要保持电脑在线。', 'Your assistant runs tasks and saves work files on the connected computer. Keep it online while work runs.')}<br /><br />{text('已完成的设置会保留，随时可以回来继续。', 'Completed setup is saved. Come back whenever you are ready.')}</p>{state.isSuccess && state.data.nodes.length === 0 && bindingTarget === null && !existingAgent && <button className="onboarding-intro-return" onClick={() => setStarted(false)}>{text('重新查看使用介绍', 'Review the introduction')}</button>}<Link className="onboarding-skip" to="/chat">{text('稍后继续，返回个人空间', 'Continue later, open your space')} <span aria-hidden="true">↗</span></Link></aside>
         <section className="onboarding-card" aria-live="polite">
           {state.isPending ? <p>{text('正在准备你的空间…', 'Loading your space…')}</p> : state.error ? <>{error(text('暂时无法读取设置进度。你的数据仍会保留。', 'Setup progress could not be loaded. Your data is preserved.'))}<button className="onboarding-secondary" onClick={() => void state.refetch()}>{text('重试', 'Retry')}</button></> : <>
           {personal.isError && <div className="onboarding-error" role="alert"><p>{text('暂时无法确认个人助手状态，已填写的内容会保留。', 'We couldn’t check your personal assistant. Your input is preserved.')}</p><button className="onboarding-link" onClick={() => void personal.refetch()}>{text('重新检查助手状态', 'Retry assistant status')}</button></div>}
           {step === 0 && <><span className="onboarding-card-eyebrow">{text('第一步 · 工作环境', 'Your computer')}</span><h2>{text('连接你的工作电脑', 'Connect your computer')}</h2><p className="onboarding-sub">{text('在这台电脑上安装 Crewden 电脑端，让助手可以执行任务、处理文件。', 'Install the Crewden computer client on the computer where your assistant will run tasks and work with files.')}</p>
 
-            <div className="onboarding-handoff"><strong>{text('正在用手机？到电脑上继续', 'On your phone? Continue on a computer')}</strong><p>{text('在工作电脑上打开此链接，登录同一账号即可接着设置。', 'Open this link on your work computer and sign in to the same account to continue.')}</p><div><input aria-label={text('电脑端设置链接', 'Computer setup link')} value={setupLink} readOnly /><button className="onboarding-secondary" onClick={async () => { try { await navigator.clipboard.writeText(setupLink); setLinkCopied(true); setLinkCopyError(false); } catch { setLinkCopyError(true); } }}>{linkCopied ? text('已复制', 'Copied') : text('复制链接', 'Copy link')}</button></div>{linkCopyError && <p role="alert">{text('请选中上方链接手动复制。', 'Select and copy the link above.')}</p>}</div>
-            {isMobile && <button className="onboarding-install-toggle" aria-expanded={installExpanded} onClick={() => setInstallExpanded(!installExpanded)}>{text('查看电脑上的安装步骤', 'View computer installation steps')} <span aria-hidden="true">{installExpanded ? '−' : '+'}</span></button>}
-            {(!isMobile || installExpanded) && <div className="onboarding-install-content"><p className="onboarding-platforms">macOS <span>·</span> Linux <span>·</span> Windows (WSL)</p>
+            {phoneHandoff && <div className="onboarding-handoff"><strong>{text('正在用手机？到电脑上继续', 'On your phone? Continue on a computer')}</strong><p>{text('在工作电脑上打开此链接，登录同一账号即可接着设置。', 'Open this link on your work computer and sign in to the same account to continue.')}</p><div><input aria-label={text('电脑端设置链接', 'Computer setup link')} value={setupLink} readOnly /><button className="onboarding-secondary" onClick={async () => { try { await navigator.clipboard.writeText(setupLink); setLinkCopied(true); setLinkCopyError(false); } catch { setLinkCopyError(true); } }}>{linkCopied ? text('已复制', 'Copied') : text('复制链接', 'Copy link')}</button></div>{linkCopyError && <p role="alert">{text('请选中上方链接手动复制。', 'Select and copy the link above.')}</p>}</div>}
+            {phoneHandoff && <button className="onboarding-install-toggle" aria-expanded={installExpanded} onClick={() => setInstallExpanded(!installExpanded)}>{text('查看电脑上的安装步骤', 'View computer installation steps')} <span aria-hidden="true">{installExpanded ? '−' : '+'}</span></button>}
+            {(!phoneHandoff || installExpanded) && <div className="onboarding-install-content">
+            {install?.windows_x64 === undefined && <p className="onboarding-platforms">macOS <span>·</span> Linux <span>·</span> Windows (WSL)</p>}
+            {install?.windows_x64 !== undefined && <InstallPlatformPicker value={platform} onChange={value => {
+              setPlatform(value);
+              if (bindingTarget === '' && value === 'unix') { localStorage.removeItem(targetKey); setBindingTarget(null); }
+            }}/>}
+            {windows ? node?.status === 'online' ? <p>{t('computers.windows.online')}</p> :
+              <WindowsInstallPanel materials={install?.windows_x64} onStart={awaitWindowsBinding} onRecheck={() => void state.refetch()}/>
+              : <>
             {install?.available && <div className="onboarding-install-tabs" role="group" aria-label={text('安装方式', 'Installation method')}>{(['manual', 'agent'] as const).map(method => <button key={method} onClick={() => { setInstallMethod(method); setCopied(false); setCopyError(false); }} aria-pressed={installMethod === method}>{method === 'manual' ? text('在终端安装', 'Use a terminal') : text('交给本地 Agent', 'Use a local agent')}</button>)}</div>}
             {install?.available ? <>
               <ol className="onboarding-install-steps"><li><span>1</span>{installMethod === 'manual' ? text('复制命令，在工作电脑的终端粘贴运行。', 'Copy the command and run it in your computer’s terminal.') : text('复制说明，发给电脑上的 Codex、Claude Code 等。', 'Copy the instructions into Codex, Claude Code, or another local agent.')}</li><li><span>2</span>{text('安装后，在打开的网页中确认绑定这台电脑。', 'After installation, confirm the computer in the browser that opens.')}</li><li><span>3</span>{text('回到这里，电脑连接成功后即可继续。', 'Return here to continue once your computer connects.')}</li></ol>
@@ -97,10 +136,11 @@ export function OnboardingPage() {
               <button className="onboarding-primary onboarding-copy" onClick={() => void copy()}>{copied ? text('已复制，请到电脑上继续', 'Copied. Continue on your computer.') : installMethod === 'agent' ? text('复制安装说明', 'Copy agent instructions') : text('复制安装命令', 'Copy install command')}{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}</button>
               {copyError && error(text('无法自动复制，请选中上方内容手动复制。', 'Clipboard is unavailable. Select and copy the text above.'))}
             </> : <div className="onboarding-unavailable" role="status"><strong>{text('安装包暂不可用', 'The installer is not available yet')}</strong><p>{text('当前服务尚未提供电脑端安装包。你的账号已就绪，可以稍后回来继续。', 'This service has not published a computer installer. Your account is ready; you can return and continue later.')}</p><button className="onboarding-secondary" onClick={() => void state.refetch()}>{text('重新检查', 'Check again')}</button></div>}
+            </>}
             </div>}
-            {state.data && state.data.nodes.length > 1 && <label>{text('选择电脑', 'Choose computer')}<select value={currentNodeId} onChange={e => setNodeId(e.target.value)}>{state.data.nodes.map(n => <option key={n.node_id} value={n.node_id}>{n.alias || n.node_name}</option>)}</select></label>}
-            {install?.available || node ? <p className={`onboarding-status ${node?.status === 'online' ? 'ok' : ''}`} role="status"><span />{node ? `${node.alias || node.node_name} · ${node.status === 'online' ? text('已连接', 'Connected') : text('暂时离线', 'Offline')}` : text('等待电脑连接，连接后会自动更新', 'Waiting for your computer. This updates when it connects.')}</p> : null}
-            {node?.status !== 'online' && node && install?.available && <p className="onboarding-detail">{text('在该电脑重跑上方命令即可恢复。已有身份、配置和文件会保留。', 'Run the command on that computer again to reconnect. Your identity, settings, and files are preserved.')}</p>}
+            {bindingTarget !== '' && state.data && state.data.nodes.length > 1 && <label>{text('选择电脑', 'Choose computer')}<select value={currentNodeId} onChange={e => { setNodeId(e.target.value); localStorage.setItem(targetKey, e.target.value); setBindingTarget(e.target.value); }}>{state.data.nodes.map(n => <option key={n.node_id} value={n.node_id}>{n.alias || n.node_name}</option>)}</select></label>}
+            {installAvailable || node ? <p className={`onboarding-status ${node?.status === 'online' ? 'ok' : ''}`} role="status"><span />{node ? `${node.alias || node.node_name} · ${node.status === 'online' ? text('已连接', 'Connected') : text('暂时离线', 'Offline')}` : windows && windowsOpened ? t('computers.windows.waiting') : text('等待电脑连接，连接后会自动更新', 'Waiting for your computer. This updates when it connects.')}</p> : null}
+            {node?.status !== 'online' && node && !windows && install?.available && <p className="onboarding-detail">{text('在该电脑重跑上方命令即可恢复。已有身份、配置和文件会保留。', 'Run the command on that computer again to reconnect. Your identity, settings, and files are preserved.')}</p>}
             {node?.status === 'online' && <div className="onboarding-footer"><span />{next(configured ? 2 : 1)}</div>}
           </>}
           {step === 1 && <><span className="onboarding-card-eyebrow">{text('第二步 · 模型连接', 'Model connection')}</span><h2>{text('给助手接通一个模型', 'Connect a model')}</h2><p className="onboarding-sub">{text('模型提供理解和推理能力。选择你已有的接入方式，验证成功后就可以继续。', 'A model gives your assistant language and reasoning capabilities. Choose an access method you already have, then verify it to continue.')}</p><p className="onboarding-connected-computer"><span aria-hidden="true">✓</span> {node?.alias || node?.node_name}</p>

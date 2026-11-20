@@ -9,10 +9,26 @@ import { parseReleaseManifest } from '@nano/product-contracts';
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 export const defaultReleaseDirectory = fileURLToPath(new URL('../../../dist/node-release/', import.meta.url));
 
-export function releaseManifest(directory: string) {
+/** Read the selected platform's verified metadata.
+ *
+ * Args:
+ *   directory: Deployment's release selection directory.
+ *   platform: Registered platform, or undefined for the original Unix package.
+ * Returns:
+ *   Manifest matching the requested platform, or null when unavailable.
+ */
+export function releaseManifest(directory: string, platform?: string) {
+  if (platform !== undefined && platform !== 'win32-x64') return null;
+  const filename = platform === 'win32-x64' ? 'manifest.win32-x64.json' : 'manifest.json';
   try {
-    return parseReleaseManifest(JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8')));
+    const manifest = parseReleaseManifest(JSON.parse(readFileSync(join(directory, filename), 'utf8')));
+    return manifest?.platform === platform ? manifest : null;
   } catch { return null; }
+}
+
+/** Format the Unix recovery command using the configured public IM origin. */
+export function unixInstallCommand(origin: string) {
+  return `curl -fsSL ${quote(new URL(origin).origin + '/install.sh')} -o /tmp/nano-install.sh && bash /tmp/nano-install.sh`;
 }
 
 /** Describe the explicitly selected installer using only validated release metadata.
@@ -26,8 +42,11 @@ export function releaseManifest(directory: string) {
 export function installMaterials(origin: string, directory: string) {
   const base = new URL(origin).origin;
   const available = releaseManifest(directory) !== null;
-  const command = `curl -fsSL ${quote(base + '/install.sh')} -o /tmp/nano-install.sh && bash /tmp/nano-install.sh`;
-  return { available, origin: base, command, script_url: base + '/install.sh' };
+  const windows = releaseManifest(directory, 'win32-x64');
+  const windows_x64 = windows?.platform === 'win32-x64' && new URL(base).protocol === 'https:'
+    ? { download_url: windows.installer.download_url, connect_url: `crewden://connect?origin=${encodeURIComponent(base)}` }
+    : null;
+  return { available, origin: base, command: unixInstallCommand(base), script_url: base + '/install.sh', windows_x64 };
 }
 
 /** Register metadata and script routes without serving package bytes.
@@ -47,6 +66,11 @@ export function registerInstallRoutes(app: FastifyInstance, ctx: ImContext, dire
   app.get('/install/manifest.json', (_req, reply) => {
     const manifest = releaseManifest(directory);
     if (!manifest) fail(503, 'Computer installer is not published yet');
+    return reply.header('Cache-Control', 'no-store').send(manifest);
+  });
+  app.get('/install/manifest.win32-x64.json', (_req, reply) => {
+    const manifest = releaseManifest(directory, 'win32-x64');
+    if (!manifest) fail(503, 'Windows installer is not published yet');
     return reply.header('Cache-Control', 'no-store').send(manifest);
   });
   // Old scripts still request the IM path; redirect without reading the archive.

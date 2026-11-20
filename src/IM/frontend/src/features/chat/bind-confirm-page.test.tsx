@@ -6,6 +6,9 @@ import { describe, expect, it, vi } from "vitest";
 const fetch = vi.hoisted(() => vi.fn());
 vi.mock("../auth/auth-fetch", () => ({ authFetch: fetch }));
 import { BindConfirmPage } from "./bind-confirm-page";
+import { bindingTargetKey } from "../onboarding/binding-target";
+import { TEST_AUTH_USER } from "../../test/render-router";
+import { useAuthStore } from "../auth/auth-store";
 function page(url: string) {
   return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><MemoryRouter initialEntries={[url]}><BindConfirmPage /></MemoryRouter></QueryClientProvider>);
 }
@@ -22,5 +25,12 @@ describe("local device acceptance", () => {
   it("does not consume legacy query tokens", () => {
     page("/bind/confirm?token=legacy");
     expect(screen.getByRole("button",{name:"Connect this computer"})).toBeDisabled();
+  });
+  it("returns the confirmed computer to the signed-in account's setup", async () => {
+    useAuthStore.getState().setSession({access_token:"test",user:{...TEST_AUTH_USER, personal_space_enabled:true}});
+    fetch.mockResolvedValue({ok:true,json:async()=>({node_id:"confirmed-device",node_name:"Device",agents:[],state:"committed"})});
+    page("/bind/confirm#token=accepted");
+    await screen.findByRole("link",{name:"Continue model and assistant setup"});
+    expect(localStorage.getItem(bindingTargetKey(TEST_AUTH_USER.id))).toBe("confirmed-device");
   });
 });

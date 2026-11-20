@@ -2,7 +2,7 @@ import { authFetch } from "../auth/auth-fetch";
 
 export interface NodeUpdateView {
   installation: 'managed' | 'legacy' | 'source';
-  current: {version: string} | null;
+  current: {version: string; platform?: string} | null;
   target: {version: string; sha256: string; release_notes?: string} | null;
   available: boolean;
   reason: string;
