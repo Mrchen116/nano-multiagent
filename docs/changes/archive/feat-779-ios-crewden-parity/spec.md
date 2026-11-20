@@ -18,10 +18,10 @@
 
 ## 现状依据
 
-- [Web 首次使用与角色形象](../archive/feat-773-crewden-first-use/spec.md)覆盖了工作区，未包含原生 UI。Web 的[角色头像](../../../src/IM/frontend/src/features/chat/components/assistant-portrait.tsx)区分 PA 和专业 Agent，支持选定造型和稳定默认形象。[原生共用头像](../../../src/IM/ios/NanoIM/UI/CommonViews.swift)与[原生现行契约](../../specs/im/ios-client.md)仍使用名称缩写与固定配色。本次需更新 Agent 身份展示约定，保留私聊改名后的身份连续性。
-- iOS 已有[PA 绑定读取](../../../src/IM/ios/NanoIM/Features/Agents/AgentsView.swift)、[设备绑定](../../../src/IM/ios/NanoIM/Features/Me/SettingsBindingView.swift)与[模型管理](../../../src/IM/ios/NanoIM/Features/Me/ModelServicesView.swift)。Web 还把这些步骤串到[创建、恢复与首次聊天](../../../src/IM/frontend/src/features/onboarding/onboarding-page.tsx)，并提供 [PA 专属管理](../../../src/IM/frontend/src/features/personal-agent/personal-agent-settings.tsx)。
-- iOS 的[聊天列表](../../../src/IM/ios/NanoIM/Features/Chat/ChatListView.swift)按标题和末条预览筛选，[消息菜单](../../../src/IM/ios/NanoIM/Features/Chat/ConversationView.swift)有复制和分支。[Web 聊天](../../../src/IM/frontend/src/features/chat/chat-api.ts)另支持历史正文搜索与引用回复。
-- [原生 Work](../../../src/IM/ios/NanoIM/Features/Agents/AgentWorkView.swift)已有执行轮次、工具详情和关联子执行。[Web Work](../../../src/IM/frontend/src/features/settings/agents/agent-work-panel.tsx)还提供从具体回复定位、合并时间线、派工关系和轨迹查看。此处的“轨迹”指 Agent 的执行记录。
+- [Web 首次使用与角色形象](../feat-773-crewden-first-use/spec.md)覆盖了工作区，未包含原生 UI。Web 的[角色头像](../../../../src/IM/frontend/src/features/chat/components/assistant-portrait.tsx)区分 PA 和专业 Agent，支持选定造型和稳定默认形象。[原生共用头像](../../../../src/IM/ios/NanoIM/UI/CommonViews.swift)与[原生现行契约](../../../specs/im/ios-client.md)仍使用名称缩写与固定配色。本次需更新 Agent 身份展示约定，保留私聊改名后的身份连续性。
+- iOS 已有[PA 绑定读取](../../../../src/IM/ios/NanoIM/Features/Agents/AgentsView.swift)、[设备绑定](../../../../src/IM/ios/NanoIM/Features/Me/SettingsBindingView.swift)与[模型管理](../../../../src/IM/ios/NanoIM/Features/Me/ModelServicesView.swift)。Web 还把这些步骤串到[创建、恢复与首次聊天](../../../../src/IM/frontend/src/features/onboarding/onboarding-page.tsx)，并提供 [PA 专属管理](../../../../src/IM/frontend/src/features/personal-agent/personal-agent-settings.tsx)。
+- iOS 的[聊天列表](../../../../src/IM/ios/NanoIM/Features/Chat/ChatListView.swift)按标题和末条预览筛选，[消息菜单](../../../../src/IM/ios/NanoIM/Features/Chat/ConversationView.swift)有复制和分支。[Web 聊天](../../../../src/IM/frontend/src/features/chat/chat-api.ts)另支持历史正文搜索与引用回复。
+- [原生 Work](../../../../src/IM/ios/NanoIM/Features/Agents/AgentWorkView.swift)已有执行轮次、工具详情和关联子执行。[Web Work](../../../../src/IM/frontend/src/features/settings/agents/agent-work-panel.tsx)还提供从具体回复定位、合并时间线、派工关系和轨迹查看。此处的“轨迹”指 Agent 的执行记录。
 
 ## 用户场景
 
@@ -89,7 +89,7 @@
 | Work | 从聊天和 Agent 页查活动、工作记录、派工、用量及关联来源 |
 | 我的与工作区管理 | 管理账号与语言、成员与公司策略，连接和管理电脑与模型服务，查看设置结果、设备更新和恢复入口 |
 
-完整能力按基线的 [Web 路由](../../../src/IM/frontend/src/app/router.tsx)、各页面可用操作及 [IM 业务契约](../../specs/im/spec.md)逐项核对。表中列的是用户任务，同一业务内的低频操作也在范围内。
+完整能力按基线的 [Web 路由](../../../../src/IM/frontend/src/app/router.tsx)、各页面可用操作及 [IM 业务契约](../../../specs/im/spec.md)逐项核对。表中列的是用户任务，同一业务内的低频操作也在范围内。
 
 ## 范围与非目标
 
