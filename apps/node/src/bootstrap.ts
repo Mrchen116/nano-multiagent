@@ -4,6 +4,7 @@ import { homedir, hostname } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { dump } from 'js-yaml';
 import { NodeConfiguration } from './configuration.js';
+import { windowsHost } from './windows-platform.js';
 import { atomicPrivate } from './lifecycle.js';
 
 /** Create a dormant node for one hosted IM, preserving any existing connection. */
@@ -24,6 +25,7 @@ export async function bootstrapNode(origin: string, path?: string): Promise<Node
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
   const directory = dirname(configPath);
+  if (process.platform === 'win32') await windowsHost('private-directory', directory);
   await atomicPrivate(configPath, dump({
     node: { node_id: `computer-${randomUUID().slice(0, 8)}`, user_id: '', node_name: hostname(), workspace_base: join(directory, 'workspaces') },
     im_service: { url: url.origin, token: '' },

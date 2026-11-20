@@ -63,7 +63,7 @@ export async function bindDevice(
     recover?: boolean;
     signal: AbortSignal;
     confirm(text: string): Promise<boolean>;
-    open(url: string): void;
+    open(url: string): void | Promise<void>;
     report(text: string): void;
   },
 ) {
@@ -154,11 +154,14 @@ export async function bindDevice(
     if (options.auto)
       await post("accept", { browser_token: operation.browser_token }, true);
     else {
+      const bindingUrl = new URL(operation.bind_url);
+      if (bindingUrl.origin !== base.origin || bindingUrl.username || bindingUrl.password || !['http:', 'https:'].includes(bindingUrl.protocol))
+        throw new Error("The device confirmation link belongs to a different IM service");
       options.report(
         "Open this link and confirm your Nano account:\n" +
           operation.bind_url,
       );
-      options.open(operation.bind_url);
+      await options.open(bindingUrl.href);
     }
     while (state.state === "awaiting_account") {
       options.signal.throwIfAborted();
@@ -181,7 +184,7 @@ export async function bindDevice(
     if (
       transfer && !options.auto &&
       !(await options.confirm(
-        "Type yes to confirm the complete device transfer: ",
+        process.platform === "win32" ? `将这台电脑、助手及工作记录移交给 ${state.target_name}（${state.target_user_id}）？\n助手：${agents.join(", ")}` : "Type yes to confirm the complete device transfer: ",
       ))
     ) {
       await post("cancel", credential);

@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { setGlobalProxyFromEnv } from "node:http";
 import lockfile from "proper-lockfile";
+import { windowsHost } from "./windows-platform.js";
 import { loadNodeRelease } from "./release.js";
 import type { NodeRelease } from "@nano/product-contracts";
 import type { NodeConfigurationFile } from "./configuration.js";
@@ -54,6 +55,8 @@ export async function atomicPrivate(path: string, value: unknown) {
     await file.close();
   }
   await rename(temporary, path);
+  // Windows flushes the file before rename. Directory handles do not support fsync.
+  if (process.platform === "win32") return;
   const directory = await open(dirname(path), "r");
   try {
     await directory.sync();
@@ -62,6 +65,8 @@ export async function atomicPrivate(path: string, value: unknown) {
   }
 }
 export async function processBirth(pid: number): Promise<string | undefined> {
+  if (process.platform === "win32")
+    return await windowsHost("birth", String(pid)) || undefined;
   try {
     const { stdout } = await exec("/bin/ps", [
       "-p",
@@ -245,7 +250,7 @@ export function applyGatewayEnvironment(config: NodeConfigurationFile) {
 export async function manageGateway(
   configPath: string,
   config: NodeConfigurationFile,
-  action: "start" | "stop" | "restart" | "status",
+  action: "start" | "stop" | "restart" | "status" | "autostart-on" | "autostart-off" | "autostart-status",
   args: string[] = [],
 ) {
   const path = await realpath(configPath);
@@ -267,6 +272,11 @@ export async function manageGateway(
     retries: { retries: 120, factor: 1, minTimeout: 250, maxTimeout: 250 },
   });
   try {
+    if (action === "autostart-on" || action === "autostart-off" || action === "autostart-status") {
+      if (process.platform !== "win32") throw new Error("Windows login task required");
+      const text = await windowsHost(action, path, String(Math.ceil(grace * 1000)));
+      return { text, success: true };
+    }
     if (action === "status") {
       const state = await ownedState(path);
       return {
@@ -279,7 +289,12 @@ export async function manageGateway(
     }
     const stop = async () => {
       await unload(path);
-      let state = await ownedState(path);
+      const state = await ownedState(path);
+      if (process.platform === "win32") {
+        await windowsHost("stop", path, String(state?.pid ?? 0), state?.process_start ?? "");
+        await rm(statePath(path), { force: true });
+        return;
+      }
       if (!state) {
         await rm(statePath(path), { force: true });
         return;
@@ -345,7 +360,14 @@ export async function manageGateway(
     let autostart = "disabled";
     let failure: string | undefined;
     let state: GatewayState;
-    if (process.platform === "darwin" && config.gateway?.autostart !== false) {
+    if (process.platform === "win32") {
+      const enabled = await windowsHost("start", path, String(Math.ceil(grace * 1000)), String(config.gateway?.autostart !== false), ...args);
+      state = await waitReady();
+      const active = join(dirname(path), ".windows-active.json");
+      if (state.release?.kind === "managed" && !existsSync(active) && !existsSync(join(dirname(path), ".windows-switch.json")))
+        await atomicPrivate(active, {sha256: state.release.sha256});
+      autostart = enabled === "enabled" ? "enabled (Windows login and crash recovery)" : "disabled";
+    } else if (process.platform === "darwin" && config.gateway?.autostart !== false) {
       try {
         await unload(path);
         await atomicPrivate(gatewayPlist(path), launchDefinition(path, grace));

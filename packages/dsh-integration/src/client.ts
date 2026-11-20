@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdir, symlink, writeFile, readlink, unlink, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, toNamespacedPath } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RpcPeer } from './rpc.js';
 import { cliEnvironmentRestoration } from './local-workers/cli-environment.js';
@@ -32,14 +32,25 @@ export async function prepareProfile(home: string, providerPatch: unknown[] = []
 }
 
 async function link(target: string, path: string) {
-  try { await symlink(target, path, 'dir'); return; }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-  // DSH_HOME survives deployments; its bundles must use this locked install.
-  // readlink rejects ordinary files/directories without deleting owner content.
-  const existing = await readlink(path);
-  if (resolve(dirname(path), existing) === resolve(target)) return;
-  await unlink(path);
-  await symlink(target, path, 'dir');
+  const windows = process.platform === 'win32';
+  const type = windows ? 'junction' : 'dir';
+  const marker = path + '.crewden-target';
+  const canonical = (value: string) => windows ? toNamespacedPath(value).toLowerCase() : value;
+  try {
+    await symlink(resolve(target), path, type);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    // readlink rejects ordinary paths. A retained Windows junction additionally
+    // needs the recorded target from our own earlier profile preparation.
+    const existing = canonical(resolve(dirname(path), await readlink(path)));
+    if (existing === canonical(resolve(target))) return;
+    if (windows && existing !== await readFile(marker, 'utf8'))
+      throw new Error(`Unrecognized DSH profile junction: ${path}`);
+    await unlink(path);
+    await symlink(resolve(target), path, type);
+  }
+  if (windows) await writeFile(marker, canonical(resolve(target)));
+
 }
 
 /** Process exit is requested only after the runtime has drained durable owners. */
