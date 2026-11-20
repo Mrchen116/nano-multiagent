@@ -734,6 +734,9 @@ CREATE INDEX IF NOT EXISTS agent_work_events_dreaming
   WHERE type IN ('turn_started','turn_start') AND json_extract(payload,'$.origin')='dreaming';
 CREATE INDEX IF NOT EXISTS agent_work_events_worker_window ON agent_work_events(root_agent_id,observed_at,session_id)
   WHERE type='worker_state';
+CREATE INDEX IF NOT EXISTS agent_work_sessions_first_detail
+  ON agent_work_sessions(root_agent_id,json_extract(payload,'$.worker_records_revision') DESC)
+  WHERE scope='worker' AND json_extract(payload,'$.worker_records_revision') IS NOT NULL;
 CREATE INDEX IF NOT EXISTS agent_work_sessions_running_workers ON agent_work_sessions(root_agent_id,session_id)
   WHERE scope='worker' AND json_extract(payload,'$.status') IN ('starting','running');
 CREATE INDEX IF NOT EXISTS agent_work_events_activity_window

@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields } from '@nano/product-contracts';
+import { decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields, type WorkWorkerFields } from '@nano/product-contracts';
 import { all, one, now, fail, transaction } from './context.js';
 import { agentAvailable } from './identity.js';
 import { updateWorkLifetimeUsage } from './work-lifetime-usage.js';
@@ -10,8 +10,13 @@ import type { WorkSessionRecord, WorkEventRecord, WorkTurnRecord, WorkItemRecord
 const currentMainSql = `SELECT session_id FROM agent_work_sessions INDEXED BY agent_work_sessions_current_main
   WHERE root_agent_id=? AND scope='global_main' AND COALESCE(json_extract(payload,'$.retired'),0)=0 LIMIT 1`;
 
+const detailedWorker = "scope='worker' AND json_extract(payload,'$.worker_records_revision') IS NOT NULL";
+const readableSession = `(scope!='worker' OR (${detailedWorker}))`;
+type SessionMetadata = Partial<WorkSessionFields & Omit<WorkWorkerFields, 'parent_session_id'>> & {worker_records_revision?: number; parent_tool_call_id?: string};
+const workerDetailEvents = new Set(['turn_started', 'message', 'tool_start', 'tool_end', 'turn_end']);
+
 const workItemPreviewBytes = 4 * 1024;
-const previewIdentityFields = ['id', 'call_id', 'tool_call_id', 'message_id', 'source_session_id'] as const;
+const previewIdentityFields = ['id', 'call_id', 'tool_call_id', 'message_id', 'source_session_id', 'source_worker_id', 'target_worker_id', 'child_session_id'] as const;
 const previewFields = [
   ...previewIdentityFields, 'name', 'tool_name', 'label', 'emoji', 'role', 'status', 'duration_ms',
   'reason', 'source_kind', 'text', 'output',
@@ -22,7 +27,7 @@ type WorkPreviewRow = Omit<WorkItemRecord, 'payload'> & {payload: string | null;
 function previewPayload(payload: WorkItemData, budget = workItemPreviewBytes): WorkItemData {
   const preview: WorkItemData = payload.worker_relation ? {worker_relation:true} : {};
   for (const key of previewFields) {
-    const value = payload[key];
+    const value = key === 'target_worker_id' ? workerToolTarget(payload) : payload[key];
     if (typeof value === 'string') {
       // Link identities stay exact. Large labels and text get a plain fragment.
       const identity = previewIdentityFields.some(field => field === key);
@@ -32,6 +37,14 @@ function previewPayload(payload: WorkItemData, budget = workItemPreviewBytes): W
     if (Buffer.byteLength(JSON.stringify(preview)) > budget) delete preview[key];
   }
   return preview;
+}
+
+// Keep the addressed worker even when a large tool body is deferred.
+function workerToolTarget(payload: WorkItemData): string | undefined {
+  const input = payload.input as {agent_id?: unknown; worker_id?: unknown} | undefined;
+  const target = payload.target_worker_id ?? (payload.name === 'delegate_worker' ? input?.worker_id
+    : payload.name === 'send_message' ? input?.agent_id : undefined);
+  return typeof target === 'string' && target ? target : undefined;
 }
 
 /** Look up a removed Work position and reject incompatible retries.
@@ -77,17 +90,21 @@ export class WorkRecords {
    *   Public metadata without the stored JSON column.
    */
   session(root: string, id: string): WorkSessionView {
-    const r = one(
-      this.db,
-      "SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND session_id=? AND scope!='worker'",
-      root,
-      id,
-    ) as WorkSessionRecord | undefined;
-    if (!r) fail(404, "scope_not_allowed");
-    return this.sessionView(r);
+    const session = this.registeredSession(root, id);
+    if (session.scope === 'worker' && !session.has_work_records) fail(404, 'scope_not_allowed');
+    return session;
   }
-  private sessionView({payload, ...identity}: WorkSessionRecord): WorkSessionView {
-    return {...JSON.parse(payload) as Partial<WorkSessionFields>, ...identity};
+
+  private registeredSession(root: string, id: string) {
+    const row = one(this.db, 'SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND session_id=?', root, id) as WorkSessionRecord | undefined;
+    if (!row) fail(404, 'scope_not_allowed');
+    return this.sessionView(row);
+  }
+
+  private sessionView({payload, ...identity}: WorkSessionRecord) {
+    const metadata = JSON.parse(payload) as SessionMetadata;
+    const has_work_records = identity.scope === 'worker' && metadata.worker_records_revision ? true : undefined;
+    return {...metadata, ...identity, has_work_records};
   }
 
   /** Page a catalog or the matching executions for one legacy link.
@@ -114,7 +131,7 @@ export class WorkRecords {
     }
     const bindings: string[] = [root, after];
     let sql = `SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND session_id>?
-      AND scope!='worker' AND (scope!='global_main' OR COALESCE(json_extract(payload,'$.retired'),0)!=0)`;
+      AND ${readableSession} AND (scope!='global_main' OR COALESCE(json_extract(payload,'$.retired'),0)!=0)`;
     if (filter.historical) sql += " AND scope IN ('cron','global_main')";
     if (parent) { sql += ' AND parent_session_id=?'; bindings.push(parent); }
     if (mode === "exact") { sql += " AND json_extract(payload,'$.parent_tool_call_id')=?"; bindings.push(call!); }
@@ -127,7 +144,7 @@ export class WorkRecords {
   }
   private exactChild(root:string,parent:string,call:string):boolean {
     return !!one(this.db, `SELECT 1 FROM agent_work_sessions
-      WHERE root_agent_id=? AND parent_session_id=? AND json_extract(payload,'$.parent_tool_call_id')=? LIMIT 1`,root,parent,call);
+      WHERE root_agent_id=? AND parent_session_id=? AND json_extract(payload,'$.parent_tool_call_id')=? AND ${readableSession} LIMIT 1`,root,parent,call);
   }
   /** Retain execution identity while applying the existing main-session replacement rules.
    * Args:
@@ -137,12 +154,13 @@ export class WorkRecords {
    *   p: Decoded registration metadata.
    *   metadataOnly: Retain identity alone when content authority has been revoked.
    */
-  register(root: string, session: string, node: string, p: Partial<WorkSessionFields>, metadataOnly = false) {
+  register(root: string, session: string, node: string, p: SessionMetadata, metadataOnly = false) {
     if (!["global_main", "subagent", "workflow", "cron", "worker"].includes(p.scope ?? ""))
       fail(400, "invalid_scope");
     if (["subagent", "workflow", "worker"].includes(p.scope ?? "")) {
       const parent = this.session(root, p.parent_session_id ?? "");
-      if (p.scope === "worker" && parent.scope !== "global_main") fail(409, "invalid_worker_parent");
+      if (parent.scope === "worker" || (p.scope === "worker" && (parent.scope !== "global_main" || parent.node_id !== node)))
+        fail(409, "invalid_worker_parent");
     }
     const old = one(this.db, "SELECT * FROM agent_work_sessions WHERE session_id=?", session) as WorkSessionRecord | undefined;
     if (
@@ -153,6 +171,14 @@ export class WorkRecords {
         old.parent_session_id !== (p.parent_session_id ?? null))
     )
       fail(409, "session_identity_conflict");
+    if (p.scope === 'worker' && old) {
+      const previous = this.sessionView(old);
+      if ((previous.runtime !== undefined && previous.runtime !== p.runtime) ||
+          (previous.call_id !== undefined && previous.call_id !== p.call_id) ||
+          (previous.title !== undefined && previous.title !== p.title))
+        fail(409, 'session_identity_conflict');
+      if (previous.worker_records_revision) p.worker_records_revision = previous.worker_records_revision;
+    }
     if (p.scope === "global_main") {
       if(old && JSON.parse(old.payload).retired && !JSON.parse(old.payload).historical_only)fail(409,"retired_main_session");
       const other = one(
@@ -172,7 +198,7 @@ export class WorkRecords {
         "INSERT INTO agent_work_sessions VALUES(?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET payload=excluded.payload",
       )
       .run(session, root, node, p.scope!, p.parent_session_id ?? null, metadataOnly
-        ? old?.payload ?? JSON.stringify({ scope: p.scope, parent_session_id: p.parent_session_id ?? null })
+        ? old?.payload ?? JSON.stringify({ scope: p.scope, parent_session_id: p.parent_session_id ?? null, ...(p.scope === 'worker' && {runtime:p.runtime, call_id:p.call_id}) })
         : JSON.stringify(p));
   }
   /** Commit journal, projections and watermark in one transaction.
@@ -239,9 +265,11 @@ export class WorkRecords {
         const available = agentAvailable(this.db, profile);
         const fact = decodeWorkEvent(e).fact;
         const observedAt = e.observed_at ?? now();
+        let firstWorkerRecord = false;
         if (fact?.type === 'worker_state') {
-          const {turn_usage, ...worker} = fact.payload;
-          const relation = {...worker, scope:'worker' as const, last_active_at:observedAt};
+          const {runtime, call_id, parent_session_id, title, status} = fact.payload;
+          const relation = {runtime, call_id, parent_session_id, title, status, parent_tool_call_id:call_id,
+            scope:'worker' as const, last_active_at:observedAt};
           this.register(e.root_agent_id, e.session_id, node, relation, !available);
         } else if (fact?.type === "session_registered") {
           if (historical && fact.payload.scope === 'global_main') {
@@ -251,7 +279,14 @@ export class WorkRecords {
             } else this.db.prepare('INSERT INTO agent_work_sessions VALUES(?,?,?,?,?,?)').run(e.session_id,e.root_agent_id,node,'global_main',null,JSON.stringify({...e.payload,retired:true,historical_only:true}));
           } else this.register(e.root_agent_id, e.session_id, node, fact.payload, !available);
         }
-        else if (available || e.type === "session_linked") this.session(e.root_agent_id, e.session_id);
+        else if (available || e.type === "session_linked") {
+          const session = this.registeredSession(e.root_agent_id, e.session_id);
+          if (session.scope === 'worker') {
+            if (session.node_id !== node || !['codex','claude'].includes(session.runtime ?? '') || !workerDetailEvents.has(e.type) || !e.turn_id)
+              fail(403, 'scope_not_allowed');
+            firstWorkerRecord = !session.has_work_records;
+          }
+        }
         if (fact?.type === "session_linked") {
           if (fact.payload.parent_session_id !== e.session_id) fail(403, "scope_not_allowed");
           this.register(e.root_agent_id, fact.payload.child_session_id, node, {
@@ -277,7 +312,10 @@ export class WorkRecords {
             observedAt,
             JSON.stringify(e.payload),
           );
-        this.project({event: e, fact}, Number(result.lastInsertRowid), observedAt);
+        const revision = Number(result.lastInsertRowid);
+        if (firstWorkerRecord)
+          this.db.prepare("UPDATE agent_work_sessions SET payload=json_set(payload,'$.worker_records_revision',?) WHERE session_id=?").run(revision, e.session_id);
+        this.project({event: e, fact}, revision, observedAt);
         appliedRoots.add(e.root_agent_id);
         through = e.seq;
       }
@@ -295,6 +333,15 @@ export class WorkRecords {
       session = e.session_id;
     const workerUsage = fact?.type === 'worker_state' ? fact.payload.turn_usage : undefined;
     let turnId = workerUsage?.turn_id ?? e.turn_id;
+    let terminalWorker: WorkWorkerFields['status'] | undefined;
+    if (fact?.type === 'worker_state' && !workerUsage) {
+      if (fact.payload.runtime === 'dsh' || !['completed','failed','interrupted'].includes(fact.payload.status)) return;
+      // Cold recovery can report the process exit without a final CLI turn event.
+      const active = one(this.db, 'SELECT turn_id FROM agent_work_active_turns WHERE session_id=? ORDER BY seq DESC LIMIT 1', session);
+      if (!active) return;
+      turnId = active.turn_id;
+      terminalWorker = fact.payload.status;
+    }
     if (!turnId && p.run_id && !["cron_trigger", "cron_delivery"].includes(kind))
       turnId = one(
         this.db,
@@ -387,10 +434,18 @@ export class WorkRecords {
           context_window: p.context_window ?? p.usage.context_window,
         };
     }
-    if (workerUsage) {
-      turn.status = 'ended';
+    if (terminalWorker) {
+      turn.status = terminalWorker;
       turn.finished_at = observedAt;
-      if (workerUsage.total_tokens !== null) turn.usage = {total_tokens:workerUsage.total_tokens};
+    }
+    if (workerUsage) {
+      // A retried legacy usage report can share the native turn ID with a detailed end.
+      if (!wasEnded) {
+        turn.status = 'ended';
+        turn.finished_at = observedAt;
+      }
+      if (workerUsage.total_tokens !== null && (turn.status === 'ended' || turn.usage?.total_tokens === undefined))
+        turn.usage = {...turn.usage, total_tokens:workerUsage.total_tokens};
     }
     if (fact?.type === "model_selected") turn.model_id = fact.payload.model;
     if (kind === "permission_request") turn.status = "waiting_permission";
@@ -412,8 +467,8 @@ export class WorkRecords {
         "INSERT INTO agent_work_turns VALUES(?,?,?,?) ON CONFLICT(session_id,turn_id) DO UPDATE SET payload=excluded.payload",
       )
       .run(session, turnId, prior?.seq ?? revision, JSON.stringify(turn));
-    if (ended || workerUsage) updateWorkLifetimeUsage(this.db, session, wasEnded, previousTokens, turn.usage?.total_tokens);
-    if (workerUsage) return;
+    if (ended || workerUsage || terminalWorker) updateWorkLifetimeUsage(this.db, session, wasEnded, previousTokens, turn.usage?.total_tokens);
+    if (workerUsage || terminalWorker) return;
     if (
       [
         "turn_started",
@@ -460,10 +515,6 @@ export class WorkRecords {
           output: p.presentation?.summary ?? payload.output,
           name: p.name ?? p.tool_name ?? payload.name ?? "tool",
         });
-        const target = (payload.input as {agent_id?: unknown} | undefined)?.agent_id;
-        if (payload.name === 'send_message' && typeof target === 'string' && one(this.db,
-          "SELECT 1 FROM agent_work_sessions WHERE root_agent_id=? AND session_id=? AND scope='worker'",
-          e.root_agent_id, target)) payload.worker_relation = true;
         for (const key of ["label", "summary", "detail", "emoji"])
           if (p.presentation?.[key] !== undefined) payload[key] = p.presentation[key];
       } else (payload.work_facts ??= []).push({ type: kind, ...p });
@@ -481,16 +532,7 @@ export class WorkRecords {
       });
     } else if (fact?.type === "message_delta" || fact?.type === "text_delta")
       payload.text = (payload.text ?? "") + (fact.payload.text ?? fact.payload.delta ?? "");
-    else {
-      Object.assign(payload, p);
-      // Keep the parent-visible report without advertising an unreadable native worker.
-      if (fact?.type === 'message' && p.source_session_id && one(this.db,
-        "SELECT 1 FROM agent_work_sessions WHERE root_agent_id=? AND session_id=? AND scope='worker'",
-        e.root_agent_id, String(p.source_session_id))) {
-        payload.source_worker_id = p.source_session_id;
-        delete payload.source_session_id;
-      }
-    }
+    else Object.assign(payload, p);
     payload.seq = old?.seq ?? revision;
     const serialized = JSON.stringify(payload);
     this.db
@@ -587,6 +629,38 @@ export class WorkRecords {
     const payload: WorkItemData = row.payload === null ? {} : JSON.parse(row.payload);
     const call = payload.id ?? payload.call_id ?? payload.tool_call_id ??
       (preview && row.item_id.startsWith('tool:') ? row.item_id.slice('tool:'.length) : undefined);
+    // Resolve from the registered relation at read time. A dispatch or report can
+    // already be on disk when the first detailed worker event arrives.
+    if (row.kind === 'tool' && (payload.name === 'delegate_worker' || payload.name === 'send_message')) {
+      const target = workerToolTarget(payload);
+      let worker;
+      if (target) worker = this.childWorker(root, row.session_id, target);
+      else if (payload.name === 'delegate_worker' && typeof call === 'string')
+        worker = one(this.db, `SELECT session_id,json_extract(payload,'$.worker_records_revision') AS detailed
+          FROM agent_work_sessions WHERE root_agent_id=? AND parent_session_id=? AND scope='worker'
+          AND json_extract(payload,'$.parent_tool_call_id')=? LIMIT 1`, root, row.session_id, call);
+      delete payload.target_worker_id;
+      if (worker || payload.name === 'delegate_worker') {
+        if (worker?.detailed) {
+          payload.child_session_id = worker.session_id;
+          delete payload.worker_relation;
+        } else {
+          delete payload.child_session_id;
+          payload.worker_relation = true;
+        }
+      }
+    }
+    if (row.kind === 'message') {
+      const source = payload.source_worker_id ?? payload.source_session_id;
+      if (typeof source === 'string') {
+        const worker = this.childWorker(root, row.session_id, source);
+        if (worker) {
+          payload.source_worker_id = source;
+          if (worker.detailed) payload.source_session_id = source;
+          else delete payload.source_session_id;
+        }
+      }
+    }
     const linked = includeLink && row.kind === 'tool' && typeof call === 'string' && this.exactChild(root, row.session_id, call);
     const item: WorkItemView = {
       item_id: row.item_id, seq: row.seq, kind: row.kind, observed_at: row.observed_at, revision: row.revision, payload,
@@ -600,6 +674,10 @@ export class WorkRecords {
       item.payload = previewPayload(payload, budget);
     }
     return item;
+  }
+  private childWorker(root: string, parent: string, target: string) {
+    return one(this.db, `SELECT session_id,json_extract(payload,'$.worker_records_revision') AS detailed
+      FROM agent_work_sessions WHERE root_agent_id=? AND parent_session_id=? AND session_id=? AND scope='worker'`, root, parent, target);
   }
   /** Page logical turns with their initial item pages.
    * Args:
@@ -710,7 +788,7 @@ export class WorkRecords {
    *   Persisted main/child records and the node identity for the outer live-state adapter.
    */
   view(root: string, before?: string, limit = 20, summary = false, messageId?: string, separate = false, combinedBefore?: number): WorkRecordView {
-    const sessions = separate ? [] : all(this.db, "SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND scope!='worker'", root) as WorkSessionRecord[];
+    const sessions = separate ? [] : all(this.db, `SELECT * FROM agent_work_sessions WHERE root_agent_id=? AND ${readableSession}`, root) as WorkSessionRecord[];
     const main = separate ? this.mainSessionId(root)
       : sessions.find(s => s.scope === "global_main" && !JSON.parse(s.payload).retired)?.session_id ?? null;
     const reply = messageId ? this.replyTurn(root, messageId) : undefined;
@@ -753,6 +831,9 @@ export class WorkRecords {
       ...(combinedBefore !== undefined ? {timeline: 'combined' as const} : {}),
       root_agent_id: root,
       main_session_id: main,
+      worker_records_revision:one(this.db, `SELECT json_extract(payload,'$.worker_records_revision') AS revision
+        FROM agent_work_sessions WHERE root_agent_id=? AND ${detailedWorker}
+        ORDER BY json_extract(payload,'$.worker_records_revision') DESC LIMIT 1`, root)?.revision ?? 0,
       ...(messageId ? {focus: reply ? {session_id: reply.session_id, turn_id: reply.turn_id} : null} : {}),
       revision: this.revision(root),
       latest_main_usage: latest,

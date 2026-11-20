@@ -15,7 +15,9 @@ export interface WorkItemRecord {
   session_id: string; turn_id: string; item_id: string; seq: number; kind: string;
   observed_at: string | null; payload: string; revision: number;
 }
-export type WorkSessionView = Omit<WorkSessionRecord, 'payload'> & Omit<Partial<WorkSessionFields>, 'scope'>;
+export type WorkSessionView = Omit<WorkSessionRecord, 'payload'> & Omit<Partial<WorkSessionFields>, 'scope'> & {
+  has_work_records?: boolean; runtime?: import('@nano/product-contracts').WorkerRuntime;
+};
 export interface WorkTurnData {
   session_id: string; turn_id: string; status: string; usage: WorkUsage | null;
   source_refs: unknown[]; model_id?: string | null; run_id?: string | null;
@@ -38,7 +40,7 @@ export interface WorkTurnView extends WorkTurnData {seq: number; scope: string; 
 export interface WorkFocus {turn: WorkTurnView; newer_turn_id: string | null; older_turn_id: string | null}
 export interface WorkTurnsPage {turns: WorkTurnView[]; control_items: WorkItemView[]; next_cursor: string | null; next_turn_id: string | null}
 export interface WorkRecordView {
-  catalog?: 'separate'; timeline?: 'combined'; root_agent_id: string; main_session_id: string | null; revision: number;
+  catalog?: 'separate'; timeline?: 'combined'; worker_records_revision: number; root_agent_id: string; main_session_id: string | null; revision: number;
   focus?: {session_id: string; turn_id: string} | null;
   latest_main_usage: (WorkUsage & {session_id: string; turn_id: string; model_id?: string | null}) | null;
   main_execution: string; node_id: string; control_items: WorkItemView[];

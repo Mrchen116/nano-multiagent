@@ -20,6 +20,10 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   const worker = (seq:number, workerId:string, label:string, runtime:RuntimeWorkerChange['runtime'], state:RuntimeWorkerChange['state'], turnUsage?:RuntimeWorkerChange['turnUsage']): RuntimeWorkerChange => ({
     id:String(seq), time:workerTime+seq, workerId, rootId:'main', callId:workerId+'-call', label, runtime, state, turnUsage,
   });
+  const detailed = (seq: number, fact: NonNullable<RuntimeWorkerChange['detail']>['fact']): RuntimeWorkerChange => ({
+    ...worker(seq, 'c-worker', '读取核对结果', 'claude', 'running'),
+    detail: {turnId:'cli-turn-1', fact},
+  });
   let pendingWorkers = [
     worker(8, 'a-worker', '核对报表', 'codex', 'starting'),
     worker(9, 'b-worker', '核对附件', 'dsh', 'running'),
@@ -29,6 +33,13 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     worker(13, 'b-worker', '核对附件', 'dsh', 'running', {id:'1',totalTokens:0}),
     worker(14, 'claude-worker', '审阅', 'claude', 'completed', {id:'msg-1',totalTokens:null}),
     worker(15, 'legacy-worker', '旧事项', 'dsh', 'completed'),
+    worker(16, 'c-worker', '读取核对结果', 'claude', 'starting'),
+    detailed(17, {type:'turn_started', payload:{model:'cli-model', origin:'background_task'}}),
+    detailed(18, {type:'message', payload:{message_id:'answer',role:'assistant',text:'我先读取结果。'}}),
+    detailed(19, {type:'tool_start', payload:{name:'Read',call_id:'read',arguments:{path:'report.txt'}}}),
+    detailed(20, {type:'tool_end', payload:{call_id:'read',presentation:{summary:'核对通过',detail:{content:output}}}}),
+    detailed(21, {type:'turn_end', payload:{status:'completed',usage:{total_tokens:98,output:8}}}),
+    worker(22, 'c-worker', '读取核对结果', 'claude', 'completed', {id:'cli-turn-1',totalTokens:98}),
   ];
   const source: RuntimeEvent[] = [
     {seq: 0, time: 1000, type: 'request/header', data: {header: {config: {model: 'fixture-model'}}}},
@@ -104,7 +115,18 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   const allWorkers = (await center.http('GET','/im/v1/agents/global/work/delegation?window=2h',undefined,center.tokens.alice)).body.nodes;
   expect(allWorkers.find((row:any) => row.session_id==='claude-worker')).toMatchObject({usage:{total_tokens:null,reported_turns:0,missing_turns:1}});
   expect(allWorkers.find((row:any) => row.session_id==='legacy-worker')).not.toHaveProperty('usage');
-  expect(first.body.other_executions.map((row:{session_id:string})=>row.session_id)).toEqual(['child']);
+  const cli = allWorkers.find((row:{session_id:string}) => row.session_id==='c-worker');
+  expect(cli).toMatchObject({runtime:'claude',has_work_records:true,turn_id:'cli-turn-1',
+    usage:{total_tokens:98,reported_turns:1,missing_turns:0},latest_tool:{item_id:'tool:read',name:'Read'}});
+  const cliTurns = '/im/v1/agents/global/work/sessions/c-worker/turns';
+  expect((await center.http('GET',cliTurns,undefined,center.tokens.alice)).body.turns).toMatchObject([{
+    turn_id:'cli-turn-1',status:'completed',model_id:'cli-model',usage:{total_tokens:98,output:8},items:[
+      {kind:'message',payload:{text:'我先读取结果。'}},
+      {kind:'tool',payload:{input:{path:'report.txt'},detail:{content:output},status:'completed'}},
+    ],
+  }]);
+  expect(first.body.other_executions.map((row:{session_id:string})=>row.session_id).sort()).toEqual(['c-worker','child']);
+  expect((await center.http('GET','/im/v1/agents/global/work/sessions/a-worker/turns',undefined,center.tokens.alice)).status).toBe(404);
   expect((await center.http('GET','/im/v1/agents/global/work/sessions/b-worker/turns',undefined,center.tokens.alice)).status).toBe(404);
   expect(first.body.turns[1]).toMatchObject({status: 'completed', usage: {context_used: 12, output: 3, context_window: 8192}, elapsed_ms: 8});
   expect(first.body.turns[1].usage.total_tokens).toBeUndefined();
