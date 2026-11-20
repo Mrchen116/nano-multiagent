@@ -752,10 +752,11 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
   const maintenanceLabel = stage === "extract" ? "提取任务摘要" : stage === "consolidate" ? "整合长期记忆" : "自动整理记忆";
   const title = dreaming ? (!stage && turn.maintenance_title) || `Dreaming · ${tr(maintenanceLabel)}`
     : tr(turnTitle(separate ? {...turn, items} : turn));
-  const label = <span className={`im-work-status-label ${status}`}>{statusLabel(status)}</span>;
+  const usageOnly = turn.scope === "worker" && turn.status === "ended";
+  const label = <span className={`im-work-status-label ${status}`}>{usageOnly ? tr("仅有轮次统计") : statusLabel(status)}</span>;
   const timing = <>
     <span>{turn.started_at ? new Date(turn.started_at).toLocaleTimeString(i18n.language, {hour12:false}) : tr("时间未报告")}{turn.finished_at ? ` — ${new Date(turn.finished_at).toLocaleTimeString(i18n.language, {hour12:false})}` : ""}</span>
-    {dreaming && turn.tool_count === undefined ? <span>{tr("工具次数未报告")}</span>
+    {(dreaming || usageOnly) && turn.tool_count === undefined ? <span>{tr("工具次数未报告")}</span>
       : (!separate || pages.data || typeof turn.tool_count === "number") && <span>{turn.tool_count ?? items.filter(item => item.kind === "tool").length}{turn.tool_count === undefined && cursor ? "+" : ""} {tr("次工具")}</span>}
   </>;
   const model = dreaming && turn.model_request_state === "none" ? tr("未发起模型请求") : turn.model_id || tr("模型未报告");

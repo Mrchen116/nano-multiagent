@@ -94,7 +94,7 @@ export class WorkerTurnDetails {
         status: state,
         stop_reason: state,
         model: this.model,
-        error: state === 'failed' ? error : undefined,
+        error: state === 'failed' && error ? {message:error} : undefined,
         usage: total === null ? undefined : { total_tokens: total },
       },
     });

@@ -380,7 +380,7 @@ it('pairs Claude tool_use and tool_result by id, records complete text and close
   });
   expect(details().at(-1)?.fact.payload).toMatchObject({
     status: 'failed',
-    error: expect.stringMatching(/exited/),
+    error: {message:expect.stringMatching(/exited/)},
   });
   expect(new Set(details().map((d) => d.turnId)).size).toBe(1);
   expect(JSON.stringify(details())).not.toMatch(/private|nested message/);
