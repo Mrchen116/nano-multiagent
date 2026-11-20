@@ -1,3 +1,4 @@
+import {inspectionTimeouts} from '@nano/product-contracts';
 import {randomUUID} from 'node:crypto';
 import {nodeResponseTypes, type NodeCommand, type NodeInput, type NodeOutput, type NodeRequest} from './node-rpc-contracts.js';
 import {decodeNodeResult, isRecord} from './node-rpc-values.js';
@@ -8,6 +9,7 @@ interface Transport<Connection> {
   current(nodeId: string): Connection | undefined;
   send(nodeId: string, frame: {type: NodeCommand | 'node.request.cancel'; payload: object}): boolean;
   updating(nodeId: string): boolean;
+  windows(nodeId: string): boolean;
 }
 interface Pending<Connection> {
   connection: Connection | undefined;
@@ -25,6 +27,7 @@ export class NodeRpc<Connection> {
   readonly request: NodeRequest = <K extends NodeCommand>(nodeId: string, command: K, payload: NodeInput<NoInfer<K>>, signal?: AbortSignal): Promise<NodeOutput<K>> => {
     if (this.transport.updating(nodeId)) return Promise.reject(Object.assign(new Error('Computer is updating; try again when it reconnects'), {statusCode:409}));
     const inspection = inspections.has(command), requestId = payload.request_id ?? randomUUID();
+    const timeoutMs = inspection ? inspectionTimeouts(this.transport.windows(nodeId)).rpcMs : 10000;
     if (inspection && signal?.aborted) return Promise.reject(Object.assign(new Error('Catalog request cancelled'), {statusCode:503}));
     return new Promise((resolve, reject) => {
       const connection = this.transport.current(nodeId);
@@ -36,7 +39,7 @@ export class NodeRpc<Connection> {
         reject(error);
       };
       const abort = () => stop(Object.assign(new Error('Catalog request cancelled'), {statusCode:503}));
-      const timer = setTimeout(() => stop(Object.assign(new Error('node response timeout'), {statusCode:504})),inspection ? 9000 : 10000);
+      const timer = setTimeout(() => stop(Object.assign(new Error('node response timeout'), {statusCode:504})),timeoutMs);
       this.pending.set(requestId, {
         connection,
         responseType: nodeResponseTypes[command],
@@ -51,7 +54,7 @@ export class NodeRpc<Connection> {
         stop,
       });
       if (inspection) signal?.addEventListener('abort',abort,{once:true});
-      if (!this.transport.send(nodeId, {type:command, payload:{...payload,request_id:requestId,...(inspection ? {deadline_at:Date.now()+9000} : {})}})) {
+      if (!this.transport.send(nodeId, {type:command, payload:{...payload,request_id:requestId,...(inspection ? {deadline_at:Date.now()+timeoutMs} : {})}})) {
         cleanup();
         reject(Object.assign(new Error('node offline'), {statusCode:503}));
       }

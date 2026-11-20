@@ -1,4 +1,5 @@
 /** Own disposable native inspections independently of conversation runtimes. */
+import {inspectionTimeouts} from '@nano/product-contracts';
 import {createHash, randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {writeFileSync} from 'node:fs';
@@ -147,7 +148,7 @@ export class ConfigurationInspector {
 
   private async run(flight: Flight, input: ConfigurationInspection): Promise<unknown> {
     const started = Date.now();
-    const deadline = Math.min(input.deadlineAt ?? Infinity, started + (this.options.timeoutMs ?? 7000));
+    const deadline = Math.min(input.deadlineAt ?? Infinity, started + (this.options.timeoutMs ?? inspectionTimeouts(process.platform === 'win32').workerMs));
     const timer = setTimeout(() => flight.abort.abort(new InspectionError('catalog_timeout', 'Capability inspection deadline exceeded')), Math.max(0, deadline - started));
     const signal = flight.abort.signal;
     let home: string | undefined;
@@ -186,13 +187,15 @@ export class ConfigurationInspector {
     } finally {
       clearTimeout(timer);
       signal.removeEventListener('abort', abort);
+      let cleanupStage = 'terminate';
       try {
         if (worker) await terminateWorker(worker);
+        cleanupStage = 'remove-directory';
         if (home) await rm(home, {recursive:true,force:true});
         this.log('cleanup.done', {...trace,elapsed_ms:Date.now()-started});
-      } catch {
+      } catch (error) {
         failure = this.cleanupError = cleanupFailed();
-        this.log('cleanup.error', {...trace,inspection_home:home});
+        this.log('cleanup.error', {...trace,inspection_home:home,stage:cleanupStage,code:(error as NodeJS.ErrnoException).code});
       }
       const elapsed = Date.now()-started;
       const outcome = failure instanceof InspectionError && failure.code === 'catalog_timeout' ? 'timeout'

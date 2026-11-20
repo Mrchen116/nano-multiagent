@@ -27,6 +27,7 @@ export type Connection = {
   node_epoch: number;
   token: string;
   lastSeen: number;
+  managedWindows?: boolean;
   agent_lifecycle_v1?: boolean;
   agent_deletion_v1?: boolean;
 };
@@ -43,6 +44,7 @@ export class Gateway {
   readonly browsers = new Set<Browser>();
   private readonly rpc = new NodeRpc<Connection>({
     current: nodeId => this.nodes.get(nodeId),
+    windows: nodeId => this.nodes.get(nodeId)?.managedWindows === true,
     send: (nodeId, frame) => this.send(nodeId, frame),
     updating: nodeId => !!this.ctx.updates?.gate(nodeId),
   });
@@ -303,6 +305,7 @@ export class Gateway {
     }
     const old = this.nodes.get(c.node_id);
     if (old && old.socket !== c.socket) old.socket.close(1008, "connection replaced");
+    c.managedWindows=p.release?.kind==='managed' && p.release.platform==='win32-x64';
     c.agent_lifecycle_v1=p.capabilities?.agent_lifecycle_v1===true;
     c.agent_deletion_v1=p.capabilities?.agent_deletion_v1===true;
     this.nodes.set(c.node_id, c);

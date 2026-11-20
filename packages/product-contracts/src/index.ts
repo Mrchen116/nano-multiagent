@@ -168,7 +168,7 @@ export interface RuntimePublicationEvidence {
 }
 
 export type { AgentConfigurationFields, ConfigurationIntent, ConfigurationResult } from './configuration-rpc.js';
-export {parseAgentConfigurationFields} from './configuration-rpc.js';
+export {inspectionTimeouts, parseAgentConfigurationFields} from './configuration-rpc.js';
 export * from './work-events.js';
 export {decodeWorkEvent, decodeWorkBatch, WorkEventError, workObject} from './work-event-codec.js';
 export * from './chat.js';
