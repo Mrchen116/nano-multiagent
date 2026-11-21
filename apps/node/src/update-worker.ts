@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import lockfile from 'proper-lockfile';
 import { parseReleaseManifest, nodeUpdateTerminal, type NodeRelease, type NodeUpdateReport, type ReleaseManifest } from '@nano/product-contracts';
 import { NodeConfiguration } from './configuration.js';
-import { applyGatewayEnvironment, atomicPrivate, gatewayState, processBirth, type GatewayState } from './lifecycle.js';
+import { applyGatewayEnvironment, atomicPrivate, defaultGatewayStartupSeconds, gatewayState, processBirth, type GatewayState } from './lifecycle.js';
 import { readUpdateFile, reportUpdate, updatePath, validLease, type UpdateLease, type UpdateHandoff } from './node-updater.js';
 import { loadNodeRelease, verifyReleaseMetadata } from './release.js';
 const exec = promisify(execFile);
@@ -98,11 +98,13 @@ export async function runUpdate(configPath: string, operationId: string): Promis
   const terminal = async (state: UpdateLease['state'], error_code?: string, resumed?: boolean) => {
     await send('terminal', {state, error_code, resumed}); lease.state = state; delete lease.command; await write();
   };
+  const startupSeconds = config.value.gateway?.startup_timeout_seconds ?? defaultGatewayStartupSeconds;
   const cli = async (state: Pick<GatewayState, 'entry' | 'node_exec'>, action: string) => {
-    await exec(state.node_exec!, [state.entry!, action, '--config', config.path], {timeout: 120000, maxBuffer: 1024 * 1024});
+    const timeout = process.platform === 'win32' && action === 'start' ? Math.max(120, startupSeconds + 30) * 1000 : 120000;
+    await exec(state.node_exec!, [state.entry!, action, '--config', config.path], {timeout, maxBuffer: 1024 * 1024});
   };
   const verify = async (expected: NodeRelease | ReleaseManifest, previousPid: number) => {
-    const deadline = Date.now() + (config.value.gateway?.startup_timeout_seconds ?? 60) * 1000;
+    const deadline = Date.now() + startupSeconds * 1000;
     while (Date.now() < deadline) {
       const state = await gatewayState(config.path);
       if (state && state.pid !== previousPid && state.config_path === config.path && state.ready && state.connected && state.runtime_pid

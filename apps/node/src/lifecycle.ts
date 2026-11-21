@@ -35,6 +35,8 @@ export interface GatewayState {
   node_exec?: string;
   release?: NodeRelease;
 }
+// Cold startup after Windows logon can take over a minute on an ordinary desktop.
+export const defaultGatewayStartupSeconds = process.platform === "win32" ? 120 : 60;
 export interface GatewayTiming {
   startup_timeout_seconds?: number;
   shutdown_grace_seconds?: number;
@@ -93,8 +95,8 @@ export async function gatewayState(
   }
 }
 let windowsBootFileTime: Promise<bigint> | undefined;
-async function ownedState(config: string) {
-  const state = await gatewayState(config);
+async function ownedState(config: string, observed?: GatewayState) {
+  const state = observed ?? await gatewayState(config);
   if (!state) return;
   if (state.config_path !== config)
     throw new Error(
@@ -264,7 +266,7 @@ export async function manageGateway(
 ) {
   const path = await realpath(configPath);
   const timing = config.gateway ?? {};
-  const startup = timing.startup_timeout_seconds ?? 60,
+  const startup = timing.startup_timeout_seconds ?? defaultGatewayStartupSeconds,
     grace = timing.shutdown_grace_seconds ?? 15,
     poll = timing.poll_interval_seconds ?? 0.1;
   if (
@@ -337,8 +339,8 @@ export async function manageGateway(
     const waitReady = async () => {
       const deadline = Date.now() + startup * 1000;
       while (Date.now() < deadline) {
-        const state = await ownedState(path);
-        if (state?.ready) return state;
+        const state = await gatewayState(path);
+        if (state?.ready && await ownedState(path, state)) return state;
         await delay(poll * 1000);
       }
       throw new Error(`Gateway startup timed out; inspect ${log}`);
