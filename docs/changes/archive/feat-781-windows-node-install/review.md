@@ -1,6 +1,6 @@
 # feat-781 Windows 电脑安装验收
 
-初版实现基于 `7bcb6b25d`，桌面验收最终使用[候选 I](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-fb427015ad829153906b25baa948d6adb890edda)。独立代码审查覆盖 `6519ffe44`，差量复审关闭跨浏览器问题后，审查者又复核精简归档、安装器进度显示（`109ccf5b5`）与持续运行的 Windows PR 检查。最终 delta 与受审实现一致。
+初版实现基于 `7bcb6b25d`，桌面验收最终使用[候选 J](https://github.com/Mrchen116/nano-multiagent/releases/tag/node-9a53b14bed3eab7db518f67ea129dc0cf5254c03)。独立代码审查覆盖 `6519ffe44`，差量复审关闭跨浏览器问题后，审查者又复核精简归档、安装器进度显示（`109ccf5b5`）与持续运行的 Windows PR 检查。最终 delta 与受审实现一致。
 
 | 检查 | 证据 | 结果 |
 |---|---|---|
@@ -9,7 +9,7 @@
 | Windows 隔离工作区中的宿主和进程树 | [候选 A 的原生测试](https://github.com/Mrchen116/nano-multiagent/actions/runs/44771705408)运行两个配置、真实 Windows 任务与子进程，检查出生标识、优雅退出、超时收拢、异常和独立更新进程。 | Windows Server 2022 runner 通过。普通本地账户的桌面登录和系统重启需由客户机实测。 |
 | 安装器、运行图和缓存 | [候选 A](https://github.com/Mrchen116/nano-multiagent/actions/runs/44771705408)和[候选 B](https://github.com/Mrchen116/nano-multiagent/actions/runs/44772109381)执行按用户静默安装，验证协议注册，在 ZIP 解压后的版本目录中启动私有 Node、pnpm 和 DSH，实际创建会话、查询工具，然后关闭资产服务验证热缓存。 | 两次通过。包含空格和中文的目录覆盖真实宿主和 DSH。运行器测试使用本地资产 fixture。 |
 | Windows 10 x64 普通用户 | [J 全新安装、两次系统重启与四次真实回复](https://github.com/Mrchen116/nano-multiagent/actions/runs/44845056713)、[E → G 受管更新](https://github.com/Mrchen116/nano-multiagent/actions/runs/44826432787) | LTSC 21H2 build 19044，无系统 Node、npm、pnpm 或 WSL，标准用户独立执行。登录自启、异常恢复、关闭自启及手动启动全部通过，更新保留原账号、电脑身份、助手、聊天和工作文件。另在 22H2 build 19045 验证 C 的安装及协议注册。 |
-| Windows 11 x64 普通用户 | [正式 F 安装器与运行环境](https://github.com/Mrchen116/nano-multiagent/actions/runs/44821776271) | Windows 11 从公开源安装 F、注册协议、准备固定版本并运行私有 Node 与产品 CLI。 |
+| Windows 11 x64 普通用户 | [J 的完整桌面回归](https://github.com/Mrchen116/nano-multiagent/actions/runs/44851124367)、[I → J 受管更新](https://github.com/Mrchen116/nano-multiagent/actions/runs/44845287991) | Windows 11 Enterprise build 26300，普通账号，无系统 Node、npm、pnpm 或 WSL。安装、首轮对话、两次重启、异常恢复、关闭自启后正常手动启动均通过。原位更新保留绑定、聊天和工作文件。 |
 
 早期用于桌面验收的是[候选 C](https://github.com/Mrchen116/nano-multiagent/actions/runs/44773547448)（`d3390ef8e9b3ab6113aff34f1dadd8804651af34`）和[候选 D](https://github.com/Mrchen116/nano-multiagent/actions/runs/44773636434)（`109ccf5b542f01aee6dbc8dce8eb83cc00990eb4`）。两次原生安装、离线复用、DSH 会话和工具发现均通过。D 增加了下载字节进度。核对其 EXE 的 PE 证书目录，偏移与大小均为 0，本次测试安装器未签 Authenticode；实际系统发布者提示由桌面验收记录。两版运行环境 ZIP 的 SHA-256 均为 `ee9852cc1d5edc86eb2655c794ec0520c201af9ee0b092c81da07a2478502df9`。
 
@@ -94,3 +94,5 @@ Windows 11 的独立普通用户安装 I，从已绑定节点的原聊天得到 
 Windows 10 和 11 的 Edge 从实际 IM 入口下载 J，核对 SHA 后分别完成原生安装向导的 Install 和 Finish，并验证协议处理器指向已安装文件。Windows 10 经 Windows Shell 打开，Windows 11 以无参数普通进程打开。Windows 11 的 Shell 发布者确认仍以上一条观察为准。[Windows 10/11 的 J 图形安装](https://github.com/Mrchen116/nano-multiagent/actions/runs/44845414291)
 
 J 的首次 Windows 11 全程执行中，隔离 IM 保存了首次、重启登录和异常恢复后的三组题答，助手分别回复 39、58、63。宿主 32 分钟取回执超时，测试销毁了客体；该次运行没有取得关闭自启后手动启动的退出码或最终回复。[首轮 J 桌面运行](https://github.com/Mrchen116/nano-multiagent/actions/runs/44845080906)
+
+J 的最终 Windows 11 客体执行中，首装、重启登录和异常退出恢复分别得到真实助手回复 41、59、64。关闭登录自启并重启后持续观察 180 秒，系统保持离线。首次手动启动用时 53.598 秒，退出码为 0，原聊天对于“63 + 21”回复“84”，自启仍处于禁用状态。[Windows 11 J 完整回归](https://github.com/Mrchen116/nano-multiagent/actions/runs/44851124367)

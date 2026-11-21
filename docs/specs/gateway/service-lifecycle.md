@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-774
+> 对齐: feat-781
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -10,6 +10,10 @@
 同源首次安装、空节点设置、后台服务管理、IM 长连接、断线恢复和节点绑定的 Gateway 契约。
 
 ## Requirements
+
+#
+
+#
 
 ### Requirement: macOS Gateway 的登录自启意图和稳定运行环境由本地配置拥有
 
@@ -93,7 +97,9 @@ Gateway 的默认本机 config、持久状态和全局 extensions 归入 `~/.nan
 - **WHEN** Gateway 创建一个未显式提供 workspace_root 的 Agent
 - **THEN** 回报并使用 `~/.nanoassistant/workspaces/<agent-id>/` 作为其本机 workspace
 
-### Requirement: 运维者用启停命令把 Gateway 当后台服务管理
+#
+
+## Requirement: 运维者用启停命令把 Gateway 当后台服务管理
 
 默认启动让 Gateway 在后台运行并尽快返回；macOS 根据 `gateway.autostart` 选择当前用户
 登录服务或普通后台进程，其他平台保持普通后台进程。`stop` / `restart` 按配置定位并

@@ -6,10 +6,10 @@
 
 ## 现状分析
 
-- **涉及范围。** IM 的安装材料来自 `apps/im-server/src/install.ts`，首次设置和设置页的连接指引分别消费它。当前脚本能在 Darwin/Linux 下载私有 Node；Win32 没有原生入口。节点管理页的恢复材料也只有 shell 命令。正式发布由手动工作流构建、上传、匿名回读后生成清单。[首次设置](../../../src/IM/frontend/src/features/onboarding/onboarding-page.tsx) · [设备连接指引](../../../src/IM/frontend/src/features/settings/nodes/node-connect-guide.tsx) · [发布流程](../../../.github/workflows/node-release.yml)
-- **既有约束。** 发行版本由 IM 选定，程序包走独立发布源。产品身份、模型和工作区按连接保存。节点与 DSH 仍走 stdio，apps/node 只经公开 client 启动执行子进程。发行、部署分开授权。[架构](../../../SPEC.md) · [发行契约](../../specs/im/agents-nodes.md)
-- **可复用能力。** bootstrap 已按 IM origin 派生目录，bindDevice 已有浏览器确认、设备证明和丢失回执恢复；节点上线后已有模型配置与聊天。更新已有关闸、空闲屏障、worker 租约、回滚和新版注册验证，平台差异集中在包准备和进程生命周期。[首次接入](../../../apps/node/src/bootstrap.ts) · [设备绑定](../../../apps/node/src/device-binding.ts) · [更新执行](../../../apps/node/src/update-worker.ts)
-- **当前 Windows 阻点。** CLI 打开浏览器只会调用 open/xdg-open；lifecycle 查进程依赖 /bin/ps；main 在非 Mac 上无条件读取 Linux boot_id；配置写入采用 POSIX 目录 fsync；DSH profile 使用目录符号链接。单纯给已有压缩包加 EXE 外壳无法启动到聊天。[CLI](../../../apps/node/src/cli.ts) · [启动](../../../apps/node/src/main.ts) · [生命周期](../../../apps/node/src/lifecycle.ts) · [配置](../../../apps/node/src/configuration.ts) · [DSH client](../../../packages/dsh-integration/src/client.ts)
+- **涉及范围。** IM 的安装材料来自 `apps/im-server/src/install.ts`，首次设置和设置页的连接指引分别消费它。当前脚本能在 Darwin/Linux 下载私有 Node；Win32 没有原生入口。节点管理页的恢复材料也只有 shell 命令。正式发布由手动工作流构建、上传、匿名回读后生成清单。[首次设置](../../../../src/IM/frontend/src/features/onboarding/onboarding-page.tsx) · [设备连接指引](../../../../src/IM/frontend/src/features/settings/nodes/node-connect-guide.tsx) · [发布流程](../../../../.github/workflows/node-release.yml)
+- **既有约束。** 发行版本由 IM 选定，程序包走独立发布源。产品身份、模型和工作区按连接保存。节点与 DSH 仍走 stdio，apps/node 只经公开 client 启动执行子进程。发行、部署分开授权。[架构](../../../../SPEC.md) · [发行契约](../../../specs/im/agents-nodes.md)
+- **可复用能力。** bootstrap 已按 IM origin 派生目录，bindDevice 已有浏览器确认、设备证明和丢失回执恢复；节点上线后已有模型配置与聊天。更新已有关闸、空闲屏障、worker 租约、回滚和新版注册验证，平台差异集中在包准备和进程生命周期。[首次接入](../../../../apps/node/src/bootstrap.ts) · [设备绑定](../../../../apps/node/src/device-binding.ts) · [更新执行](../../../../apps/node/src/update-worker.ts)
+- **当前 Windows 阻点。** CLI 打开浏览器只会调用 open/xdg-open；lifecycle 查进程依赖 /bin/ps；main 在非 Mac 上无条件读取 Linux boot_id；配置写入采用 POSIX 目录 fsync；DSH profile 使用目录符号链接。单纯给已有压缩包加 EXE 外壳无法启动到聊天。[CLI](../../../../apps/node/src/cli.ts) · [启动](../../../../apps/node/src/main.ts) · [生命周期](../../../../apps/node/src/lifecycle.ts) · [配置](../../../../apps/node/src/configuration.ts) · [DSH client](../../../../packages/dsh-integration/src/client.ts)
 - **相关历史。** 延续 feat-587 的首次引导、feat-542 的登录运行语义、bugfix-591 的固定版本发行、feat-596 的受管更新，以及 feat-773 的 Crewden 首次使用界面。
 
 ## 架构总览与关键决策
