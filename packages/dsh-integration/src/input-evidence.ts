@@ -1,5 +1,19 @@
-import type { SessionEvent } from '@deepseek-ai/dsh-session';
+import type { SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session';
 import type { UserMessage } from '@deepseek-ai/dsh-llm';
+
+export const staleRuntimeMessage = 'Agent is disabled or runtime instance is stale';
+export const nodeShutdown = { kind: 'hook', reason: 'nano-node-shutdown' } as const;
+
+/** Identify a host interruption without changing the recorded native outcome. */
+export function interruptedByHost(terminal: unknown, turn: number | undefined, events: readonly SessionEvent[]): boolean {
+  const end = terminal as TurnEndReason | undefined;
+  if (end?.kind === 'aborted') return end.reason.kind === 'hook' && end.reason.reason === nodeShutdown.reason;
+  if (end?.kind !== 'error' || end.error.code !== 'UNKNOWN' || end.error.message !== staleRuntimeMessage) return false;
+  // v1.0.2 persisted the supervisor fence as a generic error. Require its failed
+  // tool result from the same turn; a provider error alone is not retry evidence.
+  return events.some(event => event.type === 'tool/result' && event.data.turn === turn && event.data.message.isError &&
+    event.data.message.content.some(block => block.type === 'text' && block.text === `Error: ${staleRuntimeMessage}`));
+}
 
 /** Durable input accounting also covers a claim interrupted before user/message. */
 export function inputEvidence(events: readonly SessionEvent[], inputId: string) {
