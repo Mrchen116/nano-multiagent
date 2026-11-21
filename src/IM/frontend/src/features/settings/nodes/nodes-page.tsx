@@ -84,7 +84,9 @@ export function NodesPage() {
               </div><button className="computer-detail-link" aria-label={t('computers.viewDetails', { name })} onClick={() => open('detail', node.node_id)}><span>{t('computers.details')}</span><NodeIcon name="next"/></button>
             </div>
             {node.update && <NodeUpdatePanel nodeId={node.node_id} update={node.update} onInstructions={() => open('recovery', node.node_id)}/>}
-            {offline && !nodeUpdateNeedsRecovery(node.update) && <p className="computer-offline-note">{node.last_heartbeat_at ? t('computers.lastSeen', { time: lastSeenTime(node.last_heartbeat_at, i18n.language) }) : t('computers.noConnection')} · {t('computers.reconnect')}</p>}
+            {offline && !nodeUpdateNeedsRecovery(node.update) && <p className="computer-offline-note">{node.last_heartbeat_at ? t('computers.lastSeen', { time: lastSeenTime(node.last_heartbeat_at, i18n.language) }) : t('computers.noConnection')} · {node.update?.current?.platform === 'win32-x64'
+              ? <button className="node-button text" onClick={() => open('recovery', node.node_id)}>{t('computers.reconnectAction')}</button>
+              : t('computers.reconnect')}</p>}
           </article>;
         })}
       </>}

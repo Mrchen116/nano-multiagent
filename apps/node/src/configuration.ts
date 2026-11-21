@@ -1,9 +1,10 @@
 import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
 import {builtinSkillsRoot, personalSkillsRoot} from '@nano/personal-assistant';
 import { readFileSync } from 'node:fs';
-import { readFile, open, rename, mkdir, realpath, lstat, rm } from 'node:fs/promises';
+import { readFile, rename, mkdir, realpath, lstat, rm } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { atomicPrivate } from './lifecycle.js';
 import { ModelSetupError, type ModelConfiguration } from './model-types.js';
 import { homedir } from 'node:os';
 import { load, dump } from 'js-yaml';
@@ -303,12 +304,7 @@ export class NodeConfiguration {
     this.value.agents = agents;
   }
   private async writeFile(value: NodeConfigurationFile): Promise<void> {
-    const temporary = join(dirname(this.path), `.nano-config-${randomUUID()}.tmp`);
-    const file = await open(temporary, 'wx', 0o600);
-    try { await file.writeFile(dump(value, { noRefs: true })); await file.sync(); } finally { await file.close(); }
-    await rename(temporary, this.path);
-    const directory = await open(dirname(this.path), 'r');
-    try { await directory.sync(); } finally { await directory.close(); }
+    await atomicPrivate(this.path, dump(value, { noRefs: true }));
   }
 }
 

@@ -46,6 +46,27 @@ it('checks metadata without dispatch, binds each click to the displayed target a
   expect(f.start('retry').id).not.toBe(a.id);
   expect(()=>f.updates.begin('n','o2',{request_id:'other'})).toThrow('Computer not found');
 });
+it('selects and snapshots the authenticated computer platform even when Windows and Unix publish the same version', () => {
+  const f = setup();
+  const view = () => f.updates.view(id);
+  const base = target.download_url.slice(0, target.download_url.lastIndexOf('/') + 1);
+  const windows = {...target, platform: 'win32-x64', package: 'windows-x64.json', size: 512, sha256: 'e'.repeat(64),
+    download_url: base + 'windows-x64.json', installer: {download_url: base + 'Crewden-Setup-x64.exe', size: 4096, sha256: 'f'.repeat(64)}};
+  const path = join(f.dir, 'manifest.win32-x64.json');
+  f.updates.register(id, {...old, platform: 'win32-x64'});
+  expect(view()).toMatchObject({target:null, reason:'unpublished', install_command:''});
+  writeFileSync(path, JSON.stringify(windows));
+  expect(view().target).toEqual(windows);
+  expect(() => f.start()).toThrow('Published version changed');
+  const op = f.updates.begin('n', 'o1', {request_id:'windows', version:windows.version, sha256:windows.sha256});
+  writeFileSync(path, JSON.stringify({...windows, sha256:'8'.repeat(64)}));
+  expect(view().operation?.target).toEqual(op.target);
+  f.progress(op.id, 'terminal', 'cancelled');
+  f.updates.register(id, {...old, platform:'win32-arm64'});
+  expect(view()).toMatchObject({target:null, available:false, install_command:''});
+  f.updates.register(id, old);
+  expect(view().target).toEqual(target);
+});
 it('arbitrates cancel and switch and rejects success until the exact release reconnects', () => {
   const f=setup();const a=f.prepare();f.updates.cancel('n','o1',a.id);
   expect(()=>f.progress(a.id,'claim_switch')).toThrow('no longer authorized');

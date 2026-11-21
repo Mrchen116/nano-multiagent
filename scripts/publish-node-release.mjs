@@ -7,7 +7,8 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { createReadStream, existsSync } from 'node:fs';
+import { mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 // The workflow keeps this publisher outside the selected source checkout.
@@ -38,6 +39,40 @@ const metadata = JSON.parse(execFileSync('tar', ['-xOf', archive, './.nano-relea
 if (metadata.source_commit !== revision || metadata.updater_protocol !== 1 || metadata.data_epoch !== 1
     || candidate.source_commit !== revision || candidate.updater_protocol !== 1 || candidate.data_epoch !== 1)
   throw new Error('Candidate package metadata does not match the source and updater protocol');
+// Windows metadata already names the formal version because its descriptor is itself hashed.
+const windowsName = 'manifest.win32-x64.json';
+const windowsDirectory = join(directory, 'windows');
+const windowsPath = join(windowsDirectory, windowsName);
+const windows = existsSync(windowsPath) ? JSON.parse(await readFile(windowsPath, 'utf8')) : null;
+if (!windows && existsSync(join(root, 'scripts/build-windows-installer.ps1')))
+  throw new Error('The selected source requires its matching Windows build');
+const windowsAssets = [];
+async function checksum(path) {
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest('hex');
+}
+if (windows) {
+  const base = `https://github.com/${repository}/releases/download/${tag}/`;
+  if (windows.package !== 'windows-x64.json' || windows.platform !== 'win32-x64'
+      || windows.version !== version || windows.source_commit !== revision
+      || windows.updater_protocol !== 1 || windows.data_epoch !== 1
+      || windows.node_major !== 24 || windows.pnpm_version !== '11.7.0'
+      || windows.download_url !== base + windows.package || windows.installer?.download_url !== base + 'Crewden-Setup-x64.exe')
+    throw new Error('Windows candidate does not match the requested release');
+  const descriptor = JSON.parse(await readFile(join(windowsDirectory, windows.package), 'utf8'));
+  if (descriptor.version !== version || descriptor.source_commit !== revision || descriptor.launcher_protocol !== 1
+      || descriptor.updater_protocol !== 1 || descriptor.data_epoch !== 1
+      || descriptor.runtime?.name !== 'windows-runtime-x64.zip' || descriptor.app?.name !== 'windows-app-x64.zip')
+    throw new Error('Windows descriptor has an incompatible source or asset layout');
+  for (const [name, asset] of [[windows.package, windows], ['Crewden-Setup-x64.exe', windows.installer],
+      [descriptor.runtime.name, descriptor.runtime], [descriptor.app.name, descriptor.app]]) {
+    const path = join(windowsDirectory, name);
+    if ((await stat(path)).size !== asset.size || await checksum(path) !== asset.sha256)
+      throw new Error(`Windows asset failed size or SHA-256 verification: ${name}`);
+    windowsAssets.push({name, path, url: base + name, sha256: asset.sha256});
+  }
+}
 const visibility = execFileSync('gh', ['repo', 'view', repository, '--json', 'visibility', '--jq', '.visibility'], { encoding: 'utf8' }).trim();
 if (visibility !== 'PUBLIC') throw new Error('Installer releases require a public repository');
 const notes = [
@@ -47,21 +82,29 @@ const notes = [
     `- 安装包 [${candidate.package}](${manifest.download_url})`,
     `- 源码提交 [\`${revision}\`](https://github.com/${repository}/commit/${revision})`,
     `- SHA-256 \`${candidate.sha256}\``,
+    ...windowsAssets.map(({name, url, sha256}) => `- [${name}](${url}) SHA-256 \`${sha256}\``),
   ].join('\n'),
 ].join('\n\n');
 // gh release create fails if this tag already has a Release; never use upload --clobber.
-execFileSync('gh', ['release', 'create', tag, archive, '--repo', repository, '--target', revision,
+execFileSync('gh', ['release', 'create', tag, archive, ...windowsAssets.map(asset => asset.path), '--repo', repository, '--target', revision,
   '--title', `Nano Node v${version}`, '--notes', notes, '--latest=false'], { stdio: 'inherit' });
 const temporary = await mkdtemp(join(directory, '.verify-'));
 try {
-  const downloaded = join(temporary, 'nano-node.tgz');
   // Disable curl config so publisher credentials cannot mask anonymous access failures.
-  execFileSync('curl', ['--disable', '--fail', '--location', '--silent', '--show-error', '--retry', '2',
-    '--proto', '=https', '--proto-redir', '=https', manifest.download_url, '-o', downloaded], { stdio: 'inherit' });
-  if (hash(await readFile(downloaded)) !== candidate.sha256) throw new Error('Anonymous Release download checksum does not match; IM manifest was not promoted');
+  for (const asset of [{name: candidate.package, url: manifest.download_url, sha256: candidate.sha256}, ...windowsAssets]) {
+    const downloaded = join(temporary, asset.name);
+    execFileSync('curl', ['--disable', '--fail', '--location', '--silent', '--show-error', '--retry', '2',
+      '--proto', '=https', '--proto-redir', '=https', asset.url, '-o', downloaded], { stdio: 'inherit' });
+    if (await checksum(downloaded) !== asset.sha256)
+      throw new Error(`Anonymous Release download checksum does not match: ${asset.name}`);
+  }
   const verified = join(temporary, 'manifest.json');
   await writeFile(verified, JSON.stringify(manifest, null, 2) + '\n');
   await rename(verified, join(directory, 'manifest.json'));
+  if (windows) {
+    await writeFile(join(temporary, windowsName), JSON.stringify(windows, null, 2) + '\n');
+    await rename(join(temporary, windowsName), join(directory, windowsName));
+  }
   console.log(`Verified IM manifest ready: ${join(directory, 'manifest.json')}`);
 } finally {
   await rm(temporary, { recursive: true, force: true });

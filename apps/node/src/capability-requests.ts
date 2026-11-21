@@ -1,4 +1,5 @@
 /** Transient capability reads do not wait behind execution or lifecycle recovery. */
+import {inspectionTimeouts} from '@nano/product-contracts';
 import {mkdir} from 'node:fs/promises';
 import {ConfigurationInspector, InspectionError} from '@nano/dsh-integration/client';
 import {NodeConfiguration} from './configuration.js';
@@ -34,7 +35,7 @@ export class CapabilityRequests {
     const requestId = String(payload.request_id);
     const controller = new AbortController();
     this.requests.set(requestId,controller);
-    const deadline = Math.min(typeof payload.deadline_at === 'number' ? payload.deadline_at : Infinity,Date.now()+8000);
+    const deadline = Math.min(typeof payload.deadline_at === 'number' ? payload.deadline_at : Infinity,Date.now()+inspectionTimeouts(process.platform === 'win32').nodeMs);
     const timer = setTimeout(()=>controller.abort(new InspectionError('catalog_timeout','Capability request deadline exceeded')),Math.max(0,deadline-Date.now()));
     const {configuration,inspector} = this.options, config = configuration.value;
     const preview = type.endsWith('preview.request');

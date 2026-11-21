@@ -1,5 +1,7 @@
 import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
 import { parseEnv } from 'node:util';
+import { windowsHost } from './windows-platform.js';
+import { createInterface } from 'node:readline';
 import { execFileSync } from 'node:child_process';
 import { AgentDeletionLedger, NodeAgentDeletions } from './agent-deletion.js';
 import { NodeAgentLifecycle } from './agent-lifecycle.js';
@@ -53,7 +55,7 @@ Object.assign(env, parseEnv(modelEnvironment));
 const inspector = new ConfigurationInspector({root:join(home,'.configuration-inspections'),env,onLog:text=>process.stderr.write(text)});
 // Failed inspection recovery must not prevent durable conversation runtimes from starting.
 await inspector.initialize().catch(error => process.stderr.write(`${String(error)}\n`));
-const machineBoot = process.platform === 'darwin' ? execFileSync('/usr/sbin/sysctl', ['-n', 'kern.boottime'], {encoding:'utf8'}).trim() : (await readFile('/proc/sys/kernel/random/boot_id','utf8')).trim();
+const machineBoot = process.platform === 'win32' ? await windowsHost('boot') : process.platform === 'darwin' ? execFileSync('/usr/sbin/sysctl', ['-n', 'kern.boottime'], {encoding:'utf8'}).trim() : (await readFile('/proc/sys/kernel/random/boot_id','utf8')).trim();
 await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
 for (const agent of config.agents) {
   // Persisted explicit tool restrictions may leave new Dreaming unavailable after upgrade.
@@ -731,3 +733,9 @@ async function stop() {
 }
 process.once('SIGTERM', () => { void stop(); });
 process.once('SIGINT', () => { void stop(); });
+
+// Only the supervising host owns the write end of this inherited anonymous pipe.
+if (process.platform === 'win32' && process.env.CREWDEN_SUPERVISED_GATEWAY === '1') {
+  const control = createInterface({input: process.stdin});
+  control.on('line', line => { if (line === 'stop') { control.close(); process.stdin.pause(); void stop(); } });
+}

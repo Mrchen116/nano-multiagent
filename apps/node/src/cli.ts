@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
+import { windowsHost } from "./windows-platform.js";
 import { loadNodeRelease } from "./release.js";
 import { nodeUpdateTerminal, type NodeUpdateReport } from "@nano/product-contracts";
 import { parseArgs } from "node:util";
@@ -39,7 +40,7 @@ if (values.help) {
       process.stdout.write(JSON.stringify({nodeId:report.nodeId,counts:report.counts,blockers:report.blockers,readyForCutover:report.readyForCutover})+'\n');
       process.exit(report.blockers.length?2:0);
     }
-    if (!["start", "stop", "restart", "status", "bind"].includes(action))
+    if (!["start", "stop", "restart", "status", "bind", "autostart-on", "autostart-off", "autostart-status"].includes(action))
       throw new Error("Unknown personal-assistant command: " + action);
     if (command === "setup" && !values["im-service-url"])
       throw new Error("setup requires --im-service-url <your Nano IM address>");
@@ -47,12 +48,21 @@ if (values.help) {
       ? await bootstrapNode(values["im-service-url"]!, values.config)
       : await NodeConfiguration.read(resolve(values.config ?? join(homedir(), ".nanoassistant/config.yaml")));
     const configPath = config.path;
+    const reconnect = process.platform === "win32" && command === "setup" && !!config.value.node.user_id && !!config.value.im_service.token;
+    const returnToSetup = async () => {
+      if (!reconnect) return;
+      const url = new URL("/onboarding", config.value.im_service.url);
+      url.searchParams.set("node", config.value.node.node_id);
+      await windowsHost("open-browser", url.href);
+    };
     if (command === "setup") {
       process.stdout.write(`Nano connection: ${config.value.im_service.url}\nConfiguration: ${configPath}\n`);
-      const current = await manageGateway(configPath, config.value, "status");
+      let current = await manageGateway(configPath, config.value, "status");
+      if (reconnect && !current.state) current = await manageGateway(configPath, config.value, "start");
       if (current.state?.ready) {
         const target = await loadNodeRelease();
         if (target.kind === 'source' || current.state.release?.sha256 === target.sha256) {
+          await returnToSetup();
           process.stdout.write("Your computer is already connected. Continue in the Nano webpage.\n");
           process.exit(0);
         }
@@ -69,6 +79,7 @@ if (values.help) {
           // The detached worker owns liveness; this CLI must not keep a crashed worker alive in IM.
           if (nodeUpdateTerminal(report.operation.state) && report.operation.state !== 'succeeded')
             throw new Error(`Update finished: ${report.operation.state}. Open Nano for recovery instructions.`);
+          await returnToSetup();
           process.exit(0);
         }
         process.stdout.write('Enabling safe updates for this older installation. Existing tasks must be finished before running this command. Preserving your configuration and workspace.\n');
@@ -95,7 +106,11 @@ if (values.help) {
         recover: values["recover-device"],
         signal: abort.signal,
         report: (text) => process.stdout.write(text + "\n"),
-        open: (url) => {
+        open: async (url) => {
+          if (process.platform === "win32") {
+            await windowsHost("open-browser", url);
+            return;
+          }
           const child = spawn(
             process.platform === "darwin" ? "open" : "xdg-open",
             [url],
@@ -105,6 +120,7 @@ if (values.help) {
           child.unref();
         },
         confirm: async (text) => {
+          if (process.platform === "win32") return await windowsHost("confirm-transfer", text) === "yes";
           const terminal = createInterface({
             input: process.stdin,
             output: process.stdout,

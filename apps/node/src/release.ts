@@ -16,7 +16,7 @@ export async function loadNodeRelease(root = releaseRoot): Promise<NodeRelease> 
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {kind: 'source', version: 'source'}; throw error; }
   if (!manifest) throw new Error('Invalid installed release manifest');
   await verifyReleaseMetadata(root, manifest);
-  return {kind: 'managed', version: manifest.version, source_commit: manifest.source_commit ?? manifest.version,
+  return {kind: 'managed', ...(manifest.platform ? {platform: manifest.platform} : {}), version: manifest.version, source_commit: manifest.source_commit ?? manifest.version,
     sha256: manifest.sha256, updater_protocol: manifest.updater_protocol, data_epoch: manifest.data_epoch};
 }
 /** Check extracted package identity against its independently verified manifest. */
@@ -38,6 +38,7 @@ export async function verifyReleaseMetadata(root: string, manifest: ReleaseManif
  */
 export function installedPackageManager(release: NodeRelease, root = releaseRoot) {
   if (release.kind !== 'managed') return;
-  return { command: process.execPath, args: [resolve(root, '../../tooling/node_modules/pnpm/bin/pnpm.cjs')],
+  const toolsRoot = release.platform === 'win32-x64' ? resolve(root, 'runtime') : resolve(root, '../..');
+  return { command: process.execPath, args: [resolve(toolsRoot, 'tooling/node_modules/pnpm/bin/pnpm.cjs')],
     env: { PATH: `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}` } };
 }
