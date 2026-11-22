@@ -31,33 +31,22 @@ private struct ChatContinuityTitle: ViewModifier {
                     }
                 } else {
                     ToolbarItem(placement: .principal) {
-                        HStack(spacing: 8) {
-                            if let chat = headerChat, chat.type != "group" {
-                                let avatar = AvatarView(name: chat.avatarName(selfID: store.user.id),
-                                    kind: chat.peerAgent == nil ? "person" : "agent", size: 32,
-                                    agentID: chat.peerAgent?.id, role: chat.peerAgent?.role, variant: chat.peerAgent?.avatar_variant)
-                                if let titleAction {
-                                    Button(action: titleAction) { avatar }.buttonStyle(.plain)
-                                        .accessibilityLabel(L("查看当前活动", "Show current activity"))
-                                } else { avatar }
-                            }
-                            VStack(spacing: 1) {
-                                if let titleAction {
-                                    Button(action: titleAction) { titleLabel }.buttonStyle(.plain)
-                                        .accessibilityHint(L("查看当前活动", "Show current activity"))
-                                } else if let chat = headerChat, chat.type == "group" {
-                                    let count = chat.participants.count
-                                    HStack(spacing: 4) {
-                                        titleLabel
-                                        Text("(\(count))")
-                                            .font(.subheadline).foregroundStyle(.secondary).fixedSize()
-                                    }
-                                    .accessibilityElement(children: .ignore)
-                                    .accessibilityLabel(L("\(title)，\(count) 位成员", "\(title), \(count) members"))
-                                    .accessibilityAddTraits(.isHeader)
-                                } else { titleLabel }
-                                if let presentation { feedbackButton(presentation) }
-                            }
+                        VStack(spacing: 1) {
+                            if let titleAction {
+                                Button(action: titleAction) { titleLabel }.buttonStyle(.plain)
+                                    .accessibilityHint(L("查看当前活动", "Show current activity"))
+                            } else if let chat = headerChat, chat.type == "group" {
+                                let count = chat.participants.count
+                                HStack(spacing: 4) {
+                                    titleLabel
+                                    Text("(\(count))")
+                                        .font(.subheadline).foregroundStyle(.secondary).fixedSize()
+                                }
+                                .accessibilityElement(children: .ignore)
+                                .accessibilityLabel(L("\(title)，\(count) 位成员", "\(title), \(count) members"))
+                                .accessibilityAddTraits(.isHeader)
+                            } else { titleLabel }
+                            if let presentation { feedbackButton(presentation) }
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: max(44, titleHeight + auxiliaryHeight + 2))
