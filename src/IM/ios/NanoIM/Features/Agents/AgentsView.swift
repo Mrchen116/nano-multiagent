@@ -50,7 +50,7 @@ struct AgentsView: View {
                         ForEach(regular) { contact in
                             NavigationLink {
                                 AgentProfileView(client: client, user: user, contact: contact, onOpenChat: onOpenChat)
-                            } label: { directoryPortrait(contact) }
+                            } label: { directoryEntry(contact) }
                             .buttonStyle(.plain)
                         }
                     }
@@ -78,7 +78,7 @@ struct AgentsView: View {
                 PersonalAgentManagementView(client: client, agentID: assistant.agent_id)
             } label: {
                 HStack(spacing: 12) {
-                    AssistantPortrait(personal: true, seed: assistant.agent_id, selected: assistant.avatar_variant, size: 54)
+                    AssistantPortrait(personal: true, seed: assistant.agent_id, selected: assistant.avatar_variant, size: 36)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(L("我的个人助手", "My personal assistant")).font(.caption.weight(.medium)).foregroundStyle(NanoTheme.muted)
                         Text(assistant.display_name).font(.headline).foregroundStyle(NanoTheme.ink)
@@ -98,30 +98,28 @@ struct AgentsView: View {
             .background(NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: 19))
     }
 
-    private func directoryPortrait(_ contact: Contact) -> some View {
+    private func directoryEntry(_ contact: Contact) -> some View {
         let id = contact.agent_id ?? contact.user_id
         let owned = contact.owner_id != nil && (contact.owner_id == user.id || contact.owner_id == user.owner_id)
-        return VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: 18).fill(assistantPaper(id, contact.avatar_variant))
-                    .frame(height: 92)
-                    .overlay {
-                        AssistantPortrait(personal: contact.role == "personal", seed: id, selected: contact.avatar_variant, size: 72)
+        return HStack(spacing: 9) {
+            AssistantPortrait(personal: contact.role == "personal", seed: id, selected: contact.avatar_variant, size: 32)
+                .overlay(alignment: .bottomTrailing) {
+                    if let status = contact.status {
+                        Circle().fill(status == "online" ? Color.green : Color.secondary)
+                            .frame(width: 7, height: 7)
+                            .overlay(Circle().stroke(NanoTheme.surface, lineWidth: 1.5))
+                            .accessibilityLabel(settingsStatus(status))
                     }
-                if let status = contact.status {
-                    Circle().fill(status == "online" ? Color.green : Color.secondary)
-                        .frame(width: 8, height: 8).padding(10).accessibilityLabel(settingsStatus(status))
                 }
-            }
             VStack(alignment: .leading, spacing: 3) {
-                Text(contact.display_name).font(.headline).foregroundStyle(NanoTheme.ink)
+                Text(contact.display_name).font(.subheadline.weight(.semibold)).foregroundStyle(NanoTheme.ink)
                 if let owner = contact.owner_display_name {
                     Text(owned ? L("我管理的助手", "Managed by me") : L("\(owner) 的助手", "Assistant for \(owner)"))
                         .font(.caption).foregroundStyle(NanoTheme.muted)
                 }
                 AgentLifecycleControls(client: client, agentID: id, canManage: false, online: contact.status == "online", compact: true)
-            }.padding(.horizontal, 3)
-        }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }.frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
             .contentShape(Rectangle()).accessibilityElement(children: .combine)
     }
     private func load() async {
@@ -147,7 +145,7 @@ struct AgentsView: View {
     }
 }
 
-/// Keep the directory’s portrait mat keyed to the same selected identity as the avatar.
+/// Keep the profile tint keyed to the selected assistant identity.
 private func assistantPaper(_ id: String, _ selected: Int?) -> Color {
     let variant = selected.flatMap { (0..<24).contains($0) ? $0 : nil } ?? AssistantPortrait.variant(for: id)
     return [Color.purple, .mint, .blue, .orange, .pink, .yellow][variant % 6].opacity(0.12)
