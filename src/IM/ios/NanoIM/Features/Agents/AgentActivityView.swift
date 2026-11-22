@@ -69,7 +69,7 @@ struct AgentActivityView: View {
                                     if cursor != nil {
                                         Button(L("查看更多", "Show more")) { Task { await loadMore() } }.disabled(paging)
                                     }
-                                }.padding(.top, 8)
+                                }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
                             } label: {
                                 Text([running > 0 ? L("\(running) 项协作进行中", "\(running) in progress") : nil,
                                       waiting > 0 ? L("\(waiting) 项待授权", "\(waiting) awaiting permission") : nil]
@@ -143,6 +143,8 @@ struct AgentActivityView: View {
             Text(agentWorkStatus(session.status))
                 .font(.caption).foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
     }
     private func refresh() async {
         do {
