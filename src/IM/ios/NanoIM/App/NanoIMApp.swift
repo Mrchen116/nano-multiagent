@@ -254,14 +254,14 @@ private struct RootTabs: View {
                     .navigationDestination(for: ChatRoute.self) { route in
                         ConversationView(store: chat, conversationID: route.conversationID, openChat: openChat, openInbox: { chatPath = [] })
                     }
-            }.tabItem { Label(L("聊天", "Chats"), systemImage: "bubble.left.and.bubble.right") }.tag(0)
+            }.tabItem { Label(L("聊天", "Chats"), image: selectedTab == 0 ? "TabChatsSelected" : "TabChats") }.tag(0)
                 .badge(chat.conversations.reduce(0) { $0 + $1.unread_count })
             NavigationStack { TasksView(client: client, onReference: reference) }.id(taskNavigationID)
-                .tabItem { Label(L("任务", "Tasks"), systemImage: "checklist") }.tag(1)
+                .tabItem { Label(L("任务", "Tasks"), image: selectedTab == 1 ? "TabTasksSelected" : "TabTasks") }.tag(1)
             NavigationStack { AgentsView(client: client, user: user, onOpenChat: openChat) }
-                .tabItem { Label(L("助手", "Assistants"), systemImage: "person.2") }.tag(2)
+                .tabItem { Label(L("助手", "Assistants"), image: selectedTab == 2 ? "TabAssistantsSelected" : "TabAssistants") }.tag(2)
             NavigationStack { MeView(client: client, user: user, onAccountUpdated: accountUpdated, openChat: openChat, onSignOut: signOut) }
-                .tabItem { Label(L("我的", "Me"), systemImage: "person.crop.circle") }.tag(3)
+                .tabItem { Label(L("我的", "Me"), image: selectedTab == 3 ? "TabMeSelected" : "TabMe") }.tag(3)
         }
         .onChange(of: chatPath) { _, path in if path.isEmpty { chat.messageLocation = nil } }
         .onChange(of: chat.composeRequest?.id) { _, _ in
