@@ -16,7 +16,7 @@ struct WorkDelivery: Equatable {
         let detail = p["detail"]?.agentObject
         let sent = p["name"]?.stringValue == "send_message" && detail?["status"]?.stringValue == "sent"
         guard let source = fact?.agentObject ?? (sent ? detail : nil),
-              let target = (source["conversation_id"] ?? source["target"])?.stringValue, !target.isEmpty, !target.hasPrefix("local:"),
+              let target = (source["conversation_id"] ?? source["target"])?.stringValue, !target.isEmpty, !target.hasPrefix("local:"), !target.hasPrefix("external:"),
               let id = source["message_id"]?.stringValue, !id.isEmpty else { return nil }
         conversation = target
         message = id
@@ -28,6 +28,8 @@ struct AgentWorkTurn: Codable, Identifiable, Sendable {
     var status: String; var origin: JSONValue?; var trigger: [String: JSONValue]?; var model_id: String?
     var started_at: String?; var finished_at: String?; var elapsed_ms: Double?; var usage: JSONValue?
     var items: [AgentWorkItem]; var next_items_cursor: String?; var seq: Int?; var items_deferred: Bool?
+    var tool_count: Int?
+    var startDay: Date? { started_at.flatMap(nanoDate).map { Calendar.current.startOfDay(for: $0) } }
     var maintenance_title: String?; var maintenance_stage: String?
     var id: String { session_id + ":" + turn_id }
     var title: String {

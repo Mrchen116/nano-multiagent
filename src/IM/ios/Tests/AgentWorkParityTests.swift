@@ -53,6 +53,7 @@ struct AgentWorkParityTests {
         #expect(try delivery(#"{"name":"send_message","status":"completed","input":{"text":"draft"}}"#) == nil)
         #expect(try delivery(#"{"work_facts":[{"type":"draft_withheld","target":"chat","message_id":"draft"}]}"#) == nil)
         #expect(try delivery(#"{"name":"send_message","detail":{"status":"sent","target":"chat","message_id":"sent"}}"#)?.message == "sent")
+        #expect(try delivery(#"{"name":"send_message","detail":{"status":"sent","target":"external:example","message_id":"sent"}}"#) == nil)
         #expect(try delivery(#"{"work_facts":[{"type":"message_sent","conversation_id":"chat","message_id":"sent"}]}"#)?.conversation == "chat")
     }
 

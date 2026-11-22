@@ -205,7 +205,7 @@ struct AgentProfileView: View {
                 else if shownContact.status == "offline" { Text(L("电脑重新上线后，助手就能回复。", "The assistant can reply once its computer reconnects.")).font(.footnote).foregroundStyle(.secondary) }
                 if shownContact.work_mode == "global" {
                     NavigationLink {
-                        AgentWorkView(client: client, agentID: agentID, canManage: owned, onOpenChat: onOpenChat, displayName: shownContact.display_name, contact: shownContact)
+                        AgentWorkView(client: client, agentID: agentID, canManage: owned, onOpenChat: onOpenChat, displayName: shownContact.display_name)
                     } label: {
                         CrewdenDestination(title: L("工作记录", "Work records"), symbol: "clock.arrow.circlepath")
                     }.accessibilityLabel(L("工作记录", "Work records"))

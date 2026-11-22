@@ -84,7 +84,7 @@ final class CrewdenParityUITests: XCTestCase {
         app.buttons["工作记录"].tap()
         let delegation = app.buttons["派工关系"]
         XCTAssertTrue(delegation.waitForExistence(timeout: 15))
-        XCTAssertTrue(app.staticTexts["最近的工作"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.scrollViews["work.records"].firstMatch.waitForExistence(timeout: 10))
         capture("crewden-work")
         delegation.tap()
         XCTAssertTrue(delegation.isSelected)
@@ -99,7 +99,7 @@ final class CrewdenParityUITests: XCTestCase {
         let assistant = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
         XCTAssertTrue(assistant.waitForExistence(timeout: 15))
         assistant.tap()
-        let activity = app.buttons["查看" + title + "的活动"]
+        let activity = app.navigationBars.buttons[title].firstMatch
         XCTAssertTrue(activity.waitForExistence(timeout: 10))
         capture("crewden-fitted-bubble")
         activity.tap()
@@ -109,8 +109,8 @@ final class CrewdenParityUITests: XCTestCase {
         records.tap()
         let original = app.buttons["查看原消息"]
         XCTAssertTrue(original.waitForExistence(timeout: 15))
-        let note = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", excerpt)).firstMatch
-        XCTAssertTrue(note.exists)
+        let note = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", excerpt)).firstMatch
+        XCTAssertTrue(note.waitForExistence(timeout: 10))
         capture("crewden-work-history")
         original.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", excerpt)).firstMatch.waitForExistence(timeout: 15))
@@ -260,7 +260,7 @@ extension CrewdenParityUITests {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(message.waitForExistence(timeout: 10))
 
-        let activity = app.buttons["查看" + title + "的活动"].firstMatch
+        let activity = app.navigationBars.buttons[title].firstMatch.firstMatch
         XCTAssertTrue(activity.waitForExistence(timeout: 10))
         activity.tap()
         let records = app.buttons["查看工作记录"].firstMatch
@@ -276,7 +276,7 @@ extension CrewdenParityUITests {
         if !sessionLink.isHittable { app.swipeUp() }
         capture("crewden-delegation")
         sessionLink.tap()
-        XCTAssertTrue(app.staticTexts["最近的工作"].firstMatch.waitForExistence(timeout: 10)
+        XCTAssertTrue(app.scrollViews["work.records"].firstMatch.waitForExistence(timeout: 10)
                       || app.staticTexts["执行信息与上下文"].firstMatch.exists)
         capture("crewden-child-execution")
         app.navigationBars.buttons.element(boundBy: 0).tap()
