@@ -360,60 +360,61 @@ struct AgentWorkTurnView: View {
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button(action: toggleDetails) {
-                VStack(alignment: .leading, spacing: featured ? 13 : 7) {
-                    HStack {
-                        if let start = turn.started_at { NanoDateTime(value: start).font(.caption.weight(.medium)) }
-                        Spacer(minLength: 4)
-                        Label(agentWorkStatus(state), systemImage: state == "completed" ? "checkmark.circle.fill" : "clock")
-                            .font(.caption.weight(.semibold))
-                    }
-                    if focused {
-                        Label(L("这条回复的工作", "Work for this reply"), systemImage: "arrowshape.turn.up.left").font(.footnote)
-                    }
-                    HStack(spacing: 10) {
-                        if featured, let contact {
-                            AssistantPortrait(personal: contact.role == "personal", seed: agentID, selected: contact.avatar_variant, size: 44)
+            VStack(alignment: .leading, spacing: 0) {
+                Button(action: toggleDetails) {
+                    VStack(alignment: .leading, spacing: featured ? 13 : 7) {
+                        HStack {
+                            if let start = turn.started_at { NanoDateTime(value: start).font(.caption.weight(.medium)) }
+                            Spacer(minLength: 4)
+                            Label(agentWorkStatus(state), systemImage: state == "completed" ? "checkmark.circle.fill" : "clock")
+                                .font(.caption.weight(.semibold))
                         }
-                        Text(delivery != nil ? L("发出了一条消息", "Sent a message") : turn.title)
-                            .font(featured ? .title2.bold() : .headline)
+                        if focused {
+                            Label(L("这条回复的工作", "Work for this reply"), systemImage: "arrowshape.turn.up.left").font(.footnote)
+                        }
+                        HStack(spacing: 10) {
+                            if featured, let contact {
+                                AssistantPortrait(personal: contact.role == "personal", seed: agentID, selected: contact.avatar_variant, size: 30)
+                            }
+                            Text(delivery != nil ? L("发出了一条消息", "Sent a message") : turn.title)
+                                .font(featured ? .title2.bold() : .headline)
+                        }
+                        if let stage = turn.maintenance_stage { Text(stage).font(.caption).foregroundStyle(.secondary) }
+                        if let preview, featured {
+                            Text(verbatim: preview).font(.body).lineSpacing(3).lineLimit(4)
+                                .padding(.leading, 12)
+                                .overlay(alignment: .leading) { Capsule().fill(NanoTheme.ink.opacity(0.24)).frame(width: 3) }
+                        }
+                        if !featured || preview == nil { disclosureLabel }
                     }
-                    if let stage = turn.maintenance_stage { Text(stage).font(.caption).foregroundStyle(.secondary) }
-                    if let preview, featured {
-                        Text(verbatim: preview).font(.body).lineSpacing(3).lineLimit(4)
-                            .padding(.leading, 12)
-                            .overlay(alignment: .leading) { Capsule().fill(NanoTheme.ink.opacity(0.24)).frame(width: 3) }
-                    }
-                    if !featured || preview == nil { disclosureLabel }
+                    .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }
-                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                .buttonStyle(.plain).accessibilityIdentifier("work.turn." + turn.id)
+                if featured, let delivery, preview != nil {
+                    Divider().padding(.top, 12)
+                    HStack {
+                        WorkSourceLink(client: client, conversation: delivery.conversation, message: delivery.message, onOpenChat: onOpenChat)
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(NanoTheme.accent)
+                        Spacer()
+                        Button(action: toggleDetails) { disclosureLabel }.buttonStyle(.plain)
+                    }.frame(minHeight: 44)
+                }
             }
-            .buttonStyle(.plain).accessibilityIdentifier("work.turn." + turn.id)
-            if featured, let delivery, preview != nil {
-                Divider().padding(.top, 12)
-                HStack {
-                    WorkSourceLink(client: client, conversation: delivery.conversation, message: delivery.message, onOpenChat: onOpenChat)
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(NanoTheme.accent)
-                    Spacer()
-                    Button(action: toggleDetails) { disclosureLabel }.buttonStyle(.plain)
-                }.frame(minHeight: 44)
+            .padding(featured ? 16 : 0)
+            .background {
+                if featured { RoundedRectangle(cornerRadius: 16).fill(Color("Butter").opacity(0.74)) }
             }
             if expanded {
                 VStack(alignment: .leading, spacing: 12) {
-                    DisclosureGroup(L("执行信息", "Execution information")) {
-                        Text(turn.turn_id).font(.caption).textSelection(.enabled)
-                        Text(turn.model_id ?? L("模型未报告", "Model unreported")).font(.caption)
-                        if let origin = turn.origin { JSONDetailView(value: origin) }
-                        if let trigger = turn.trigger { JSONDetailView(value: .object(trigger)) }
-                        if let start = turn.started_at { NanoDateTime(value: start) }
-                        if let finish = turn.finished_at { NanoDateTime(value: finish) }
-                    }
                     ForEach(items) { item in
-                        AgentWorkItemView(client: client, agentID: agentID, sessionID: turn.session_id, item: item, sessions: sessions, online: online, canManage: canManage, onOpenChat: onOpenChat, separate: separate)
-                        Divider()
+                        HStack(alignment: .firstTextBaseline, spacing: 12) {
+                            if let observed = item.observed_at, let time = nanoDate(observed) {
+                                Text(time, format: .dateTime.hour(.twoDigits(amPM: .omitted)).minute().second())
+                                    .font(.caption2.monospacedDigit()).foregroundStyle(NanoTheme.muted).fixedSize()
+                            }
+                            AgentWorkItemView(client: client, agentID: agentID, sessionID: turn.session_id, item: item, sessions: sessions, online: online, canManage: canManage, onOpenChat: onOpenChat, separate: separate)
+                        }
                     }
-                    AgentWorkUsage(value: turn.usage, title: L("本轮统计", "Turn statistics"))
-                    if let elapsed = turn.elapsed_ms { LabeledContent(L("耗时", "Duration"), value: String(format: "%.2f s", elapsed / 1000)) }
                     if (didLoad ? extraCursor : turn.next_items_cursor) != nil { Button(L("加载更多过程", "Load more process")) { Task { await loadMore() } }.disabled(busy) }
                     if busy && separate && !didLoad { ProgressView() }
                     if let error {
@@ -424,15 +425,19 @@ struct AgentWorkTurnView: View {
                     if moreChanges || changesError != nil {
                         Button(changesError == nil ? L("加载更多更新", "Load more updates") : L("重试", "Retry")) { Task { await refreshItems() } }.disabled(busy)
                     }
-                }.padding(.vertical, 8)
+                    HStack {
+                        if let elapsed = turn.elapsed_ms {
+                            Text(L("用时 ", "Duration ") + Duration.milliseconds(elapsed).formatted(.units(allowed: [.minutes, .seconds], width: .abbreviated)))
+                        }
+                        Spacer()
+                        NavigationLink(L("本轮详情", "Turn details")) { technicalDetails }
+                    }.font(.footnote).foregroundStyle(NanoTheme.muted)
+                }.padding(.top, 16)
             }
         }
         .foregroundStyle(NanoTheme.ink)
-        .padding(featured ? 18 : 0)
-        .background {
-            if featured { RoundedRectangle(cornerRadius: 16).fill(Color("Butter").opacity(0.74)) }
-        }
         .overlay(alignment: .bottom) { if !featured { Divider().offset(y: 7) } }
+        .onChange(of: featured, initial: true) { _, latest in if latest { expanded = true } }
         .onChange(of: state, initial: true) { _, value in if value == "waiting_permission" || focused { expanded = true } }
         .task(id: (expanded || featured) && separate && !didLoad) {
             if (expanded || featured) && separate && !didLoad { await loadMore() }
@@ -449,6 +454,25 @@ struct AgentWorkTurnView: View {
             if separate && (expanded || featured) && (active || wasActive || moreChanges) { Task { await refreshItems() } }
         }
     }
+    private var technicalDetails: some View {
+        List {
+            Section {
+                LabeledContent(L("轮次 ID", "Turn ID"), value: turn.turn_id)
+                if let model = turn.model_id { LabeledContent(L("模型", "Model"), value: model) }
+                if let start = turn.started_at { LabeledContent(L("开始", "Started")) { NanoDateTime(value: start) } }
+                if let finish = turn.finished_at { LabeledContent(L("结束", "Finished")) { NanoDateTime(value: finish) } }
+                if let origin = turn.origin { LabeledContent(L("来源", "Origin")) { JSONDetailView(value: origin) } }
+                if let trigger = turn.trigger { DisclosureGroup(L("触发条件", "Trigger")) { JSONDetailView(value: .object(trigger)) } }
+                AgentWorkUsage(value: turn.usage, title: L("本轮统计", "Turn statistics"))
+            }
+            ForEach(items.filter { $0.kind == "tool" }) { item in
+                Section(item.payload["name"]?.stringValue ?? item.payload["tool_name"]?.stringValue ?? L("工具调用", "Tool call")) {
+                    AgentWorkItemView(client: client, agentID: agentID, sessionID: turn.session_id, item: item, sessions: sessions, online: online, canManage: canManage, onOpenChat: onOpenChat, separate: separate).toolDetails
+                }
+            }
+        }.textSelection(.enabled).navigationTitle(L("本轮详情", "Turn details")).navigationBarTitleDisplayMode(.inline)
+    }
+
     private func store(_ items: [AgentWorkItem]) {
         for item in items where (extra[item.id]?.revision ?? 0) <= (item.revision ?? 0) { extra[item.id] = item }
     }
@@ -487,6 +511,20 @@ struct AgentWorkItemView: View {
     private var p: [String: JSONValue] { item.payload }
     private func text(_ key: String) -> String { p[key]?.agentString ?? "" }
     let separate: Bool
+    @ViewBuilder fileprivate var toolDetails: some View {
+        if let args = p["input"] ?? p["arguments"] {
+            Text(L("参数", "Arguments")).font(.caption).foregroundStyle(.secondary)
+            JSONDetailView(value: args)
+        }
+        if let output = p["output"] ?? p["summary"] {
+            Text(L("结果", "Result")).font(.caption).foregroundStyle(.secondary)
+            JSONDetailView(value: output)
+        }
+        if let approval = p["approval"] { LabeledContent(L("授权结果", "Approval"), value: approval.prettyPrinted) }
+        if let duration = p["duration_ms"] ?? p["elapsed_ms"] { LabeledContent(L("耗时（毫秒）", "Duration (ms)"), value: duration.prettyPrinted) }
+        if let detail = p["detail"] { DisclosureGroup(L("原始结果", "Raw result")) { JSONDetailView(value: detail) } }
+        toolLinks(late: true)
+    }
     @ViewBuilder private func toolLinks(late: Bool = false) -> some View {
         let detail = p["detail"]?.agentObject ?? [:]
         let input = (p["input"] ?? p["arguments"])?.agentObject ?? [:]
@@ -522,44 +560,70 @@ struct AgentWorkItemView: View {
             if item.kind == "permission" {
                 AgentWorkPermissionView(client: client, agentID: agentID, payload: p, enabled: online && canManage)
             } else if item.kind == "tool" {
-                DisclosureGroup {
-
-                    if let output = p["output"] ?? p["summary"] { Text(L("结果", "Result")).font(.caption); JSONDetailView(value: output) }
-                    DisclosureGroup(L("技术详情", "Technical details")) {
-                        if let input = p["input"] ?? p["arguments"] { Text(L("参数", "Arguments")).font(.caption); JSONDetailView(value: input) }
-                        if let detail = p["detail"] { JSONDetailView(value: detail) }
-                        toolLinks(late: true)
-                    }.font(.subheadline)
-                    if let approval = p["approval"] { DisclosureGroup(L("授权结果", "Approval result")) { JSONDetailView(value: approval) } }
-                    if let duration = p["duration_ms"] ?? p["elapsed_ms"] { LabeledContent(L("耗时（毫秒）", "Duration (ms)"), value: duration.prettyPrinted) }
-                    let business = p["detail"]?.agentObject["status"]?.agentString ?? ""
-                    if !business.isEmpty { Text(agentBusinessStatus(business)).font(.caption) }
-                    Text(L("工具结果与聊天发送分别记录。", "Tool results and chat deliveries are recorded separately.")).font(.caption).foregroundStyle(.secondary)
-                    workFacts
-                } label: { Text((text("name").isEmpty ? text("tool_name") : text("name")) + " · " + (text("status") == "completed" ? L("调用完成", "Call completed") : agentWorkStatus(text("status").isEmpty ? "unknown" : text("status")))) }
+                Text(toolTitle).font(.subheadline.weight(.semibold))
+                if let note = toolNote { Text(note).font(.footnote).foregroundStyle(NanoTheme.muted).lineLimit(3) }
+                workFacts
                 toolLinks()
             } else if ["message", "message_delta", "text_delta", "assistant_message", "thinking", "thinking_delta", "reasoning"].contains(item.kind) {
                 if !text("reasoning_content").isEmpty { DisclosureGroup(L("思考", "Reasoning")) { Text(text("reasoning_content")).textSelection(.enabled) } }
                 let body = [text("text"), text("content"), text("delta")].first { !$0.isEmpty } ?? ""
                 if !body.isEmpty {
                     if ["thinking", "thinking_delta", "reasoning"].contains(item.kind) { DisclosureGroup(L("思考", "Reasoning")) { Text(body).textSelection(.enabled) } }
-                    else { MarkdownView(text: body, client: client) }
+                    else {
+                        if text("role") == "assistant" { Text(L("助手记录", "Assistant note")).font(.footnote.weight(.semibold)) }
+                        MarkdownView(text: body, client: client)
+                    }
                 }
                 links(id: text("source_session_id"))
                 backgroundReturns
             } else if item.kind == "background_return" {
                 AgentBackgroundResult(value: .object(p))
                 links(id: text("child_session_id"), agent: text("agent_id"))
-            } else if item.kind == "injection_consumed" { links(id: text("source_session_id")); backgroundReturns }
+            } else if item.kind == "injection_consumed" {
+                if (p["user_message_count"]?.doubleValue ?? 0) > 0 { Text(L("收到补充输入", "Received additional input")) }
+                links(id: text("source_session_id")); backgroundReturns
+            }
             else if item.kind == "recording_degraded" { Label(L("工作记录存在缺口", "Work recording has gaps"), systemImage: "exclamationmark.triangle") }
             else {
                 DisclosureGroup(item.kind) { JSONDetailView(value: .object(p)) }
                 if !text("conversation_id").isEmpty { chatLink(text("conversation_id"), message: text("message_id")) }
             }
-            if let observed = item.observed_at { NanoTimestamp(value: observed) }
 
         }
     }
+    private var toolName: String { text("name").isEmpty ? text("tool_name") : text("name") }
+    private var input: [String: JSONValue] { (p["input"] ?? p["arguments"])?.agentObject ?? [:] }
+    private var toolTitle: String {
+        let action = input["action"]?.stringValue
+        switch toolName {
+        case "inbox" where action == "check": return L("检查新消息", "Check for new messages")
+        case "inbox" where action == "read": return L("读取新消息", "Read new messages")
+        case "skill": return L("使用技能", "Use skill")
+        case "send_message": return L("发送消息", "Send message")
+        case "conversations" where action == "list": return L("查找聊天", "Find conversations")
+        default: return toolName.isEmpty ? L("工具调用", "Tool call") : toolName
+        }
+    }
+    private var toolNote: String? {
+        let result = p["detail"]?.agentObject ?? [:]
+        var notes: [String] = []
+        if text("approval") == "user_deny" || text("reason") == "denied" { notes.append(L("已拒绝", "Denied")) }
+        else if text("reason") == "interrupted" { notes.append(agentWorkStatus("interrupted")) }
+        else if text("status") == "failed" || p["is_error"] == .bool(true) || result["success"] == .bool(false) || (result["error"] != nil && result["error"] != .null && result["error"] != .string("")) {
+            notes.append(agentWorkStatus("failed"))
+        } else if text("status") != "completed" { notes.append(agentWorkStatus(text("status").isEmpty ? "unknown" : text("status"))) }
+        if let business = result["status"]?.stringValue, !["ok", "completed", "success"].contains(business) {
+            notes.append(business == "sent" ? L("已发送", "Sent") : agentBusinessStatus(business))
+        }
+        if toolName == "skill", let name = input["name"]?.stringValue { notes.append(name) }
+        else if toolName == "inbox", let count = result["messages"]?.agentArray.count { notes.append(L("共 " + String(count) + " 条消息", String(count) + " messages")) }
+        else if let summary = (p["summary"] ?? p["output"])?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+                !summary.isEmpty, !summary.hasPrefix("{"), !summary.hasPrefix("["), summary != toolName {
+            notes.append(summary)
+        }
+        return notes.isEmpty ? nil : notes.joined(separator: " · ")
+    }
+
     @ViewBuilder private var backgroundReturns: some View {
         ForEach(Array((p["background_returns"]?.agentArray ?? []).enumerated()), id: \.offset) { _, value in
             AgentBackgroundResult(value: value)

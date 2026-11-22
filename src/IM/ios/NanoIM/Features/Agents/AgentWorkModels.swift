@@ -140,6 +140,14 @@ func agentVisibleWorkItems(_ source: [AgentWorkItem]) -> [AgentWorkItem] {
         if let values = item.payload["background_returns"]?.agentArray {
             item.payload["background_returns"] = .array(values.filter(keepBackground))
         }
+        let messageLike = ["message", "message_delta", "text_delta", "assistant_message", "thinking", "thinking_delta", "reasoning", "injection_consumed"]
+        if messageLike.contains(item.kind) {
+            let hasText = ["text", "content", "delta", "reasoning_content", "source_session_id"].contains {
+                !(item.payload[$0]?.agentString.trimmingCharacters(in: .whitespacesAndNewlines) ?? "").isEmpty
+            }
+            let hasInput = item.kind == "injection_consumed" && (item.payload["user_message_count"]?.doubleValue ?? 0) > 0
+            if !hasText && !hasInput && (item.payload["background_returns"]?.agentArray ?? []).isEmpty { return nil }
+        }
         return item
     }
 }

@@ -56,6 +56,21 @@ struct AgentWorkParityTests {
         #expect(try delivery(#"{"work_facts":[{"type":"message_sent","conversation_id":"chat","message_id":"sent"}]}"#)?.conversation == "chat")
     }
 
+    @Test func emptyEventsNeverBecomeTimestampOnlyRows() {
+        func event(_ seq: Int, _ kind: String, _ payload: [String: JSONValue]) -> AgentWorkItem {
+            AgentWorkItem(item_id: String(seq), seq: seq, kind: kind, observed_at: "2026-11-21T02:42:44Z", payload: payload)
+        }
+        let events = [
+            event(1, "message", ["text": .string("  ")]),
+            event(2, "tool", ["name": .string("inbox")]),
+            event(3, "message", ["source_session_id": .string("child")]),
+            event(4, "injection_consumed", ["user_message_count": .number(1)]),
+            event(5, "message", ["background_returns": .array([])]),
+            event(6, "message", ["text": .string("Done")])
+        ]
+        #expect(agentVisibleWorkItems(events).map(\.seq) == [2, 3, 4, 6])
+    }
+
     @Test func delegationKeepsUnreportedUsageDistinctFromZero() throws {
         let page: AgentDelegationPage = try decode(#"{"from":"2026-11-18","until":"2026-11-21","revision":5,"node_connection_state":"offline","record_sync_state":"unknown","main_session_id":"main","nodes":[{"session_id":"child","parent_session_id":"main","status":"completed","usage":{"total_tokens":null,"reported_turns":0,"missing_turns":1}},{"session_id":"main","status":"idle","ancestor_only":true,"usage":{"total_tokens":0,"reported_turns":1,"missing_turns":1}},{"session_id":"starting","scope":"worker","status":"starting","runtime":"codex"}],"next_cursor":"child"}"#)
         #expect(page.nodes[0].usage?.total_tokens == nil)
