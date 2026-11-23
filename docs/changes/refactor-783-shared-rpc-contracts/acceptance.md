@@ -26,7 +26,7 @@ daily 模板的三个预置角色都是 Global，为此在隔离配置增加了�
 | 停止该 Gateway，读取此前未产生计划快照的 `daily-quality` | 200 | unavailable | data 为 null，error.code 为 offline |
 | Gateway 仍离线，读取刚才的 `rpc783-reader` | 200 | last_known | 保留原计划，error.code 为 offline |
 
-节点为 `wt-daily-16835`，计划 ID 为 `schedule-a865cd2a-7a50-4e42-946c-8d48fa5864ae`。处理 UTC 时间为 `2026-11-24T16:49:56.025Z` 的定时任务前已回收现场；此处验收创建、读取和离线标记。
+节点为 `wt-daily-16835`，计划 ID 为 `schedule-a865cd2a-7a50-4e42-946c-8d48fa5864ae`。计划的触发时间为 `2026-11-24T16:49:56.025Z`。现场在触发前回收，验收覆盖创建、读取和离线标记。
 
 ## 配置确认中断与恢复 · 通过
 
@@ -40,7 +40,7 @@ daily 模板的三个预置角色都是 Global，为此在隔离配置增加了�
 
 ## 历史 Work 和正在等待的普通单聊授权 · 通过
 
-历史 Work 在独立 IM、在线 Node 和 DSH 进程运行的 `apps/im-server/tests/e2e/node-rpc-release.test.ts` 中构造。通过正式 Work 同步入口上传两条 Global 历史待确认项，读取历史能看到两条。对旧 epoch 提交返回 HTTP 409、`request_ended`，IM 没有发命令。对满足当前 owner、epoch、revision、轮次、选项条件的记录，IM 发 `agent.work.permission`，Node 回 `agent.work.permission.result`，两帧都携带 `request_id=current`。回复为 `{ok:false,error:"request_ended"}`，HTTP 同样得到 409。Global 历史记录是重建样本。
+历史 Work 在独立 IM、在线 Node 和 DSH 进程运行的 `apps/im-server/tests/e2e/node-rpc-release.test.ts` 中构造。通过正式 Work 同步入口上传两条 Global 历史待确认项，读取历史能看到两条。对旧 epoch 提交返回 HTTP 409、`request_ended`，IM 没有发命令。对满足当前 owner、epoch、revision、轮次、选项条件的记录，IM 发 `agent.work.permission`，Node 回 `agent.work.permission.result`，两帧都携带 `request_id=current`。回复为 `{ok:false,error:"request_ended"}`，HTTP 同样得到 409。Global 历史记录是重建样本。当前 IM 和当前 Node 的组合在 01:55:39 JST 再次运行通过，Vitest 报告 1 项通过，耗时 12.11 秒。
 
 普通单聊使用运行中的真实模型。把该测试 Agent 工作区设置为手动审批后，请它写入一个独占测试文件。收到 `permission.request` 时文件不存在；在原聊天提交 `allow_once`。随后按同一消息 ID 从 IM 读取到授权项为 resolved，工具 `write` 带有 `user_allow` 且状态为 completed，最终文件内容精确为 `SOCKET-783-OK`。授权 ID 为 `cd6b75a2-e91b-4091-8ef3-82a761956df5`，工具消息 ID 为 `b46eb411f323465e92355dc5be382f56`。
 
@@ -49,3 +49,4 @@ daily 模板的三个预置角色都是 Global，为此在隔离配置增加了�
 - 首轮 Web 构建期间依赖输入发生变化，启动脚本拒绝复用产物。冻结版本重试后，并行负载期间出现 7 秒 catalog 检查超时，日常模板能力同步一度得到 504，额外 Agent 的动态创建一度得到 503。为单聊配置独占测试 Agent 后，已在同一隔离实例重跑官方模板同步和 seed，确认 P、E、Q 和 PA 的 manifest 均已生成。上述超时缺少同等负载的改前对照。
 - 模型录制 fixture 的两项既有审批测试在准备配置时返回 503。一项普通 workspace 写入对照走了默认自动授权。实际人工等待、答复和写入结果由上面的手动模式真实模型旅程核实。
 - 脱敏原始 HTTP/模型结果、运行时 session 映射和构建摘要保存在本地 `output/refactor-783/acceptance/`。Git 中的表格和身份记录可在本地副本回收后独立审阅。生产资源未参与本次验证。
+- 已关闭本轮 IM、Gateway、DSH 和测试模型服务，核对七个独占监听端口均已释放，确认五个遗留 PID 文件对应的进程均已退出，并删除含临时数据库、工作区和凭据的隔离目录。
