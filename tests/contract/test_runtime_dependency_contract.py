@@ -12,7 +12,10 @@ ROOT = Path(__file__).resolve().parents[2]
 IMPORT = re.compile(r"(?:\bfrom\s*|\bimport\s*\(?\s*)['\"]([^'\"]+)['\"]")
 ALLOWED = {
     "packages/product-contracts": set(),
-    "packages/channels": {"@nano/product-contracts", "@nano/product-contracts/node-rpc"},
+    "packages/channels": {
+        "@nano/product-contracts",
+        "@nano/product-contracts/node-rpc",
+    },
     "packages/personal-assistant": {
         "@nano/product-contracts/node-rpc",
         "@nano/product-contracts/runtime-rpc",

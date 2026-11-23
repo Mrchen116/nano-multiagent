@@ -35,10 +35,10 @@ Agent 解读：本次要提前发现的是两端对同一请求或结果理解�
 
 核对基线为 `56b992e83`（`origin/develop`）。
 
-- IM 已将 23 条中心主动 RPC 的命令名与入参、结果、预期回包名关联，并在连接、请求标识和回包名匹配后解码结果。Node 端处理 `task.execution.state` 时独立拼写结果帧名。若只改错这里，IM 会忽略不匹配的回包，调用方最终看到超时。这是源码可推导的失效方式，本次没有观察到线上事故。[IM 命令表](../../../apps/im-server/src/node-rpc-contracts.ts) · [IM 关联与超时](../../../apps/im-server/src/node-rpc.ts) · [Node 接收与回包](../../../apps/node/src/main.ts)
+- IM 已将 23 条中心主动 RPC 的命令名与入参、结果、预期回包名关联，并在连接、请求标识和回包名匹配后解码结果。Node 端处理 `task.execution.state` 时独立拼写结果帧名。若只改错这里，IM 会忽略不匹配的回包，调用方最终看到超时。这是源码可推导的失效方式，本次没有观察到线上事故。[IM 命令表](https://github.com/Mrchen116/nano-multiagent/blob/56b992e83a84b44c63f218ed8b36ec8433eddbe4/apps/im-server/src/node-rpc-contracts.ts) · [IM 关联与超时](../../../apps/im-server/src/node-rpc.ts) · [Node 接收与回包](../../../apps/node/src/main.ts)
 - 会话分支横跨两条边界。Node 接到 IM 的 `session.fork.request` 后交给 PA 的历史服务，后者经 `RuntimePort.request("session.fork", …)` 调用 integration，并在本地断言返回形状。integration 单独注册该名称。修改一端的方法名或字段，另一端的真实调用与处理函数之间缺少静态检查。[历史服务](../../../packages/personal-assistant/src/history.ts) · [运行时端口](../../../packages/product-contracts/src/index.ts) · [integration 处理端](../../../packages/dsh-integration/src/index.ts)
 - 现有 IM 结果类型主要描述调用方消费的字段。例如 `task.execution.state` 的结果允许缺少 `state`，解码器也只检查已出现的值。迁移需核对有效成功、失败及缺省回包，避免将局部投影误作完整线上格式。[结果解码器](../../../apps/im-server/src/node-rpc-values.ts)
-- current spec 与线上帧名存在文字差异。例如 Gateway 文档用 `skills_usage_request` / `skills_usage_response` 描述技能使用统计，当前两端使用 `node.skills.usage.request` / `node.skills.usage`。兼容基线采用现有双方实际交换的名称，用户侧行为依据 current spec。[Relay 契约](../../specs/gateway/relay-protocol.md) · [IM 命令表](../../../apps/im-server/src/node-rpc-contracts.ts)
+- current spec 与线上帧名存在文字差异。例如 Gateway 文档用 `skills_usage_request` / `skills_usage_response` 描述技能使用统计，当前两端使用 `node.skills.usage.request` / `node.skills.usage`。兼容基线采用现有双方实际交换的名称，用户侧行为依据 current spec。[Relay 契约](../../specs/gateway/relay-protocol.md) · [IM 命令表](https://github.com/Mrchen116/nano-multiagent/blob/56b992e83a84b44c63f218ed8b36ec8433eddbe4/apps/im-server/src/node-rpc-contracts.ts)
 
 ## 目标状态
 

@@ -21,9 +21,9 @@
 #### Scenario: IM 前端通过 gateway 读取 skill 使用统计
 
 - **WHEN** IM 用 `node.skills.usage.request` 请求指定 Agent 的技能使用统计
-- **THEN** Gateway 从该 Agent 的 workspace 读取统计，使用 `node.skills.usage` 返回与请求关联的聚合结果。
+- **THEN** Gateway 从该 Agent 可用的技能目录（含共享目录）聚合属于该 Agent 的统计，使用 `node.skills.usage` 返回与请求关联的聚合结果。
 
-#### Scenario: workspace 不存在或 usage 缺失
+#### Scenario: 各技能目录均无该 Agent 的统计
 
-- **WHEN** Agent 的 workspace 不存在或统计文件缺失
+- **WHEN** 所有可用技能目录都没有该 Agent 的使用记录
 - **THEN** 返回空的技能列表。
