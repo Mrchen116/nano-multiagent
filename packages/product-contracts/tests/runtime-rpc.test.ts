@@ -64,6 +64,7 @@ describe('runtime RPC', () => {
     expect(() => decodeRuntimeResult('session.work.child', {...input, childId: 'c'}, workerOnly)).toThrow('throughSeq');
     expect(() => decodeRuntimeResult('session.work.root', input, {...workerOnly, workerChanges: []})).toThrow('throughSeq');
     expect(() => decodeRuntimeResult('session.work.root', {...input, afterSeq: 7}, page)).toThrow('throughSeq');
+    expect(() => decodeRuntimeResult('session.work.root', {sessionId:'s'}, {...page,events:[],throughSeq:100})).toThrow('throughSeq');
     expect(() => decodeRuntimeResult('session.work.root', input, {...page, events:[], throughSeq:100})).toThrow('throughSeq');
     expect(() => decodeRuntimeResult('session.work.root', input, {...page, events:[{...event,seq:100}], throughSeq:100})).toThrow('throughSeq');
     const inherited = {...page, events:[], throughSeq:100, inheritedThroughSeq:100};

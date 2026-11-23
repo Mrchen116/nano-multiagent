@@ -121,7 +121,7 @@ it('commits final stopped Work history and checkpoints without opening execution
   const product=new GlobalAgent({nodeId:'n',ownerId:'owner',store,inbox,agents:[{agentId:'a',revision:'1',mode:'global',provider:'p',model:'m',workspace:'/tmp'}],
     runtime:{onNotification:()=>()=>{},request:async()=>{calls++;throw new Error('Must not restore execution');}},
     relay:{request:async()=>{calls++;throw new Error('Must not publish');}},onError:()=>{}});
-  const events=[{seq:1,time:1,type:'turn/start',data:{turn:1}},{seq:2,time:2,type:'user/message',data:{id:'input',source:{kind:'human'},content:[{type:'text',text:'Old task'}]}},{seq:3,time:3,type:'turn/end',data:{turn:1,reason:{kind:'cancelled'}}}];
+  const events=[{seq:0,time:0,type:'session/header',data:{}},{seq:1,time:1,type:'turn/start',data:{turn:1}},{seq:2,time:2,type:'user/message',data:{id:'input',source:{kind:'human'},content:[{type:'text',text:'Old task'}]}},{seq:3,time:3,type:'turn/end',data:{turn:1,reason:{kind:'cancelled'}}}];
   try {
     let malformed=true;
     const read=typedRuntimeRequest(async (method,args)=>{
