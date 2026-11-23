@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import {inspectionTimeouts} from '@nano/product-contracts';
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
@@ -300,8 +301,11 @@ export class WebRelayConnection {
     const serverId = typeof frame.payload.request_id==='string' && frame.type!=='ack' && frame.type!=='error' && !frame.type.endsWith('.result') ? frame.payload.request_id : undefined;
     if (serverId) {
       this.releaseServerRequest(serverId);
-      const deadline = typeof frame.payload.deadline_at === 'number' ? frame.payload.deadline_at : Date.now()+10000;
-      this.serverRequests.set(serverId,setTimeout(()=>this.releaseServerRequest(serverId),Math.max(0,Math.min(10000,deadline-Date.now()))));
+      // A slow catalog reply still belongs to the IM request until its advertised deadline.
+      const ttl = typeof frame.payload.deadline_at === 'number'
+        ? Math.min(inspectionTimeouts(true).rpcMs, frame.payload.deadline_at - Date.now())
+        : 10_000;
+      this.serverRequests.set(serverId,setTimeout(()=>this.releaseServerRequest(serverId),Math.max(0,ttl)));
     }
     void Promise.resolve().then(() => this.options.onFrame(frame))
       .catch(error => this.report(error instanceof Error ? error : new Error('IM inbound callback failed')))

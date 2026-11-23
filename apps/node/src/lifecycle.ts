@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { createHash, randomUUID } from "node:crypto";
 import { setGlobalProxyFromEnv } from "node:http";
 import lockfile from "proper-lockfile";
+import { windowsHost } from "./windows-platform.js";
 import { loadNodeRelease } from "./release.js";
 import type { NodeRelease } from "@nano/product-contracts";
 import type { NodeConfigurationFile } from "./configuration.js";
@@ -34,6 +35,8 @@ export interface GatewayState {
   node_exec?: string;
   release?: NodeRelease;
 }
+// Cold startup after Windows logon can take over a minute on an ordinary desktop.
+export const defaultGatewayStartupSeconds = process.platform === "win32" ? 120 : 60;
 export interface GatewayTiming {
   startup_timeout_seconds?: number;
   shutdown_grace_seconds?: number;
@@ -54,6 +57,8 @@ export async function atomicPrivate(path: string, value: unknown) {
     await file.close();
   }
   await rename(temporary, path);
+  // Windows flushes the file before rename. Directory handles do not support fsync.
+  if (process.platform === "win32") return;
   const directory = await open(dirname(path), "r");
   try {
     await directory.sync();
@@ -62,6 +67,8 @@ export async function atomicPrivate(path: string, value: unknown) {
   }
 }
 export async function processBirth(pid: number): Promise<string | undefined> {
+  if (process.platform === "win32")
+    return await windowsHost("birth", String(pid)) || undefined;
   try {
     const { stdout } = await exec("/bin/ps", [
       "-p",
@@ -87,13 +94,22 @@ export async function gatewayState(
     throw error;
   }
 }
-async function ownedState(config: string) {
-  const state = await gatewayState(config);
+let windowsBootFileTime: Promise<bigint> | undefined;
+async function ownedState(config: string, observed?: GatewayState) {
+  const state = observed ?? await gatewayState(config);
   if (!state) return;
   if (state.config_path !== config)
     throw new Error(
       "Gateway state belongs to another config; refusing to signal it",
     );
+  // A previous boot cannot own a live PID, even if Windows has reassigned it.
+  if (process.platform === "win32" && /^[1-9]\d*$/.test(state.process_start)) {
+    windowsBootFileTime ??= windowsHost("boot-filetime").then(BigInt).catch(error => {
+      windowsBootFileTime = undefined;
+      throw error;
+    });
+    if (BigInt(state.process_start) < await windowsBootFileTime) return;
+  }
   const birth = await processBirth(state.pid);
   if (!birth) return;
   if (!state.process_start || birth !== state.process_start)
@@ -245,12 +261,12 @@ export function applyGatewayEnvironment(config: NodeConfigurationFile) {
 export async function manageGateway(
   configPath: string,
   config: NodeConfigurationFile,
-  action: "start" | "stop" | "restart" | "status",
+  action: "start" | "stop" | "restart" | "status" | "autostart-on" | "autostart-off" | "autostart-status",
   args: string[] = [],
 ) {
   const path = await realpath(configPath);
   const timing = config.gateway ?? {};
-  const startup = timing.startup_timeout_seconds ?? 60,
+  const startup = timing.startup_timeout_seconds ?? defaultGatewayStartupSeconds,
     grace = timing.shutdown_grace_seconds ?? 15,
     poll = timing.poll_interval_seconds ?? 0.1;
   if (
@@ -267,6 +283,11 @@ export async function manageGateway(
     retries: { retries: 120, factor: 1, minTimeout: 250, maxTimeout: 250 },
   });
   try {
+    if (action === "autostart-on" || action === "autostart-off" || action === "autostart-status") {
+      if (process.platform !== "win32") throw new Error("Windows login task required");
+      const text = await windowsHost(action, path, String(Math.ceil(grace * 1000)), String(config.gateway?.autostart !== false));
+      return { text, success: true };
+    }
     if (action === "status") {
       const state = await ownedState(path);
       return {
@@ -279,7 +300,12 @@ export async function manageGateway(
     }
     const stop = async () => {
       await unload(path);
-      let state = await ownedState(path);
+      const state = await ownedState(path);
+      if (process.platform === "win32") {
+        await windowsHost("stop", path, String(state?.pid ?? 0), state?.process_start ?? "");
+        await rm(statePath(path), { force: true });
+        return;
+      }
       if (!state) {
         await rm(statePath(path), { force: true });
         return;
@@ -313,8 +339,8 @@ export async function manageGateway(
     const waitReady = async () => {
       const deadline = Date.now() + startup * 1000;
       while (Date.now() < deadline) {
-        const state = await ownedState(path);
-        if (state?.ready) return state;
+        const state = await gatewayState(path);
+        if (state?.ready && await ownedState(path, state)) return state;
         await delay(poll * 1000);
       }
       throw new Error(`Gateway startup timed out; inspect ${log}`);
@@ -345,7 +371,14 @@ export async function manageGateway(
     let autostart = "disabled";
     let failure: string | undefined;
     let state: GatewayState;
-    if (process.platform === "darwin" && config.gateway?.autostart !== false) {
+    if (process.platform === "win32") {
+      const enabled = await windowsHost("start", path, String(Math.ceil(grace * 1000)), String(config.gateway?.autostart !== false), ...args);
+      state = await waitReady();
+      const active = join(dirname(path), ".windows-active.json");
+      if (state.release?.kind === "managed" && !existsSync(active) && !existsSync(join(dirname(path), ".windows-switch.json")))
+        await atomicPrivate(active, {sha256: state.release.sha256});
+      autostart = enabled === "enabled" ? "enabled (Windows login and crash recovery)" : "disabled";
+    } else if (process.platform === "darwin" && config.gateway?.autostart !== false) {
       try {
         await unload(path);
         await atomicPrivate(gatewayPlist(path), launchDefinition(path, grace));

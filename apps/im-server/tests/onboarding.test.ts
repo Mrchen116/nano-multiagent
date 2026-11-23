@@ -58,6 +58,29 @@ it('does not present an unpublished installer as downloadable', async () => {
   expect((await app.inject('/install.sh')).statusCode).toBe(503);
 });
 
+it('serves independently verified Windows materials for the configured origin and rejects a misplaced manifest', async () => {
+  const { app, headers, dir } = await fixture(false);
+  const base = manifest.download_url.slice(0, manifest.download_url.lastIndexOf('/') + 1);
+  const windows = { ...manifest, platform: 'win32-x64', package: 'windows-x64.json', download_url: base + 'windows-x64.json',
+    size: 8192, updater_protocol: 1, data_epoch: 1, installer: { download_url: base + 'Crewden-Setup-x64.exe', size: 4096, sha256: 'c'.repeat(64) } };
+  const windowsPath = join(dir, 'manifest.win32-x64.json');
+  const route = '/install/manifest.win32-x64.json';
+  expect((await app.inject(route)).statusCode).toBe(503);
+  writeFileSync(windowsPath, JSON.stringify(windows));
+  const state = await app.inject({ url: '/im/v1/onboarding', headers: {...headers, host: 'other.example'} });
+  expect(state.json().install).toMatchObject({ available: false, windows_x64: {
+    download_url: windows.installer.download_url, connect_url: 'crewden://connect?origin=https%3A%2F%2Fnano.example',
+  } });
+  const result = await app.inject(route);
+  expect(result.json()).toEqual(windows);
+  expect(result.headers['cache-control']).toBe('no-store');
+  writeFileSync(windowsPath, JSON.stringify(manifest));
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify(windows));
+  expect((await app.inject(route)).statusCode).toBe(503);
+  expect((await app.inject('/install/nano-node.tgz')).statusCode).toBe(503);
+  expect((await app.inject({ url: '/im/v1/onboarding', headers })).json().install.windows_x64).toBeNull();
+});
+
 it('serves a pinned manifest without the package and redirects old scripts without a body', async () => {
   const { app, dir } = await fixture();
   const response = await app.inject('/install/manifest.json');

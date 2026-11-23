@@ -65,3 +65,11 @@ it.each(['owner_id','node_id','agent_id','node_epoch','workspace_root','profile_
   await reads.read({...scope,[field]:field==='connection'?{}:typeof scope[field]==='number'?2:'other'},load);
   expect(load).toHaveBeenCalledTimes(2);
 });
+
+it('retains a Windows catalog refresh across a cold worker start',async()=>{
+  vi.useFakeTimers(); const reads=new CatalogReads(), pending=deferred<any>();
+  const read=reads.read({...scope,connection:{managedWindows:true}},()=>pending.promise);
+  await vi.advanceTimersByTimeAsync(12_000);
+  pending.resolve({tools:[]});
+  expect((await read).current()).toBe(true);
+});

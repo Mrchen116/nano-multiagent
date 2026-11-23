@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { nodeUpdateTerminal, type NodeUpdateReport, type NodeUpdateState } from '@nano/product-contracts';
 import type { NodeConfiguration } from './configuration.js';
+import { windowsHost } from './windows-platform.js';
 import { atomicPrivate, processBirth } from './lifecycle.js';
 
 export interface UpdateLease {
@@ -53,6 +54,10 @@ export class NodeUpdater {
   /** Launch one independent worker for an operation received on the authenticated relay. */
   async request(operationId: string): Promise<void> {
     if (!operationId || this.closed) throw new Error('Invalid update request');
+    if (process.platform === 'win32') {
+      await windowsHost('launch-worker', this.config.path, operationId, String(process.pid), (await processBirth(process.pid))!);
+      return;
+    }
     const fd = await open(updatePath(this.config.path, 'node-update.log'), 'a', 0o600);
     try {
       const child = spawn(process.execPath, [fileURLToPath(new URL('./update-worker.js', import.meta.url)), this.config.path, operationId],

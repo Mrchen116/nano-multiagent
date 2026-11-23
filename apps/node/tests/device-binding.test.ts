@@ -165,6 +165,9 @@ it("recovers a committed binding after a lost response and preserves the prior o
       open: () => {},
       report: () => {},
     };
+    await expect(bindDevice(config, {...options, auto: false,
+      open: () => { throw new Error("Opened an untrusted binding URL"); },
+    })).rejects.toThrow("different IM service");
     await expect(bindDevice(config, options)).rejects.toThrow();
     expect(
       JSON.parse(

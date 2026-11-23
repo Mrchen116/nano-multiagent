@@ -9,6 +9,7 @@ import { NanoBrand } from "../../app/shell/nano-brand";
 import { ProductHeader } from "../home/product-header";
 import "./bind-confirm.css";
 import { useTranslation } from "../../i18n";
+import { bindingTargetKey } from "../onboarding/binding-target";
 
 type Binding = { node_id: string; node_name: string; agents: string[]; state: string; is_transfer?: boolean; history_transferred?: boolean };
 
@@ -32,7 +33,11 @@ export function BindConfirmPage() {
   const binding = preview.data;
   const accepted = binding?.state === "awaiting_local_confirmation" || accept.isSuccess;
   const committed = binding?.state === "committed";
-  useEffect(()=>{if(committed) void queryClient.invalidateQueries();},[committed,queryClient]);
+  useEffect(() => {
+    if (!committed) return;
+    if (user?.personal_space_enabled && binding.node_id) localStorage.setItem(bindingTargetKey(user.id), binding.node_id);
+    void queryClient.invalidateQueries();
+  }, [committed, binding?.node_id, user?.id, user?.personal_space_enabled, queryClient]);
   const accountName = user?.display_name || user?.username || "";
   const failure = preview.error || accept.error || cancel.error;
   const phase = committed ? "connected" : accepted ? "connecting" : "confirm";

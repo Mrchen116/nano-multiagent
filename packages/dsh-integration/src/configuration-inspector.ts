@@ -1,4 +1,5 @@
 /** Own disposable native inspections independently of conversation runtimes. */
+import {inspectionTimeouts} from '@nano/product-contracts';
 import {createHash, randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {writeFileSync} from 'node:fs';
@@ -9,6 +10,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 import type {ProfilePnpmInvocation} from '@deepseek-ai/dsh-app-boot';
 import type {AgentConfiguration} from './index.js';
 import {prepareProfile, RuntimeClient} from './client.js';
+import {terminateRuntimeTree} from './runtime-health.js';
 
 const execute = promisify(execFile);
 export type InspectionErrorCode = 'catalog_timeout' | 'catalog_cancelled' | 'catalog_busy' | 'catalog_failed' | 'catalog_cleanup_failed';
@@ -146,7 +148,7 @@ export class ConfigurationInspector {
 
   private async run(flight: Flight, input: ConfigurationInspection): Promise<unknown> {
     const started = Date.now();
-    const deadline = Math.min(input.deadlineAt ?? Infinity, started + (this.options.timeoutMs ?? 7000));
+    const deadline = Math.min(input.deadlineAt ?? Infinity, started + (this.options.timeoutMs ?? inspectionTimeouts(process.platform === 'win32').workerMs));
     const timer = setTimeout(() => flight.abort.abort(new InspectionError('catalog_timeout', 'Capability inspection deadline exceeded')), Math.max(0, deadline - started));
     const signal = flight.abort.signal;
     let home: string | undefined;
@@ -185,13 +187,15 @@ export class ConfigurationInspector {
     } finally {
       clearTimeout(timer);
       signal.removeEventListener('abort', abort);
+      let cleanupStage = 'terminate';
       try {
         if (worker) await terminateWorker(worker);
+        cleanupStage = 'remove-directory';
         if (home) await rm(home, {recursive:true,force:true});
         this.log('cleanup.done', {...trace,elapsed_ms:Date.now()-started});
-      } catch {
+      } catch (error) {
         failure = this.cleanupError = cleanupFailed();
-        this.log('cleanup.error', {...trace,inspection_home:home});
+        this.log('cleanup.error', {...trace,inspection_home:home,stage:cleanupStage,code:(error as NodeJS.ErrnoException).code});
       }
       const elapsed = Date.now()-started;
       const outcome = failure instanceof InspectionError && failure.code === 'catalog_timeout' ? 'timeout'
@@ -235,7 +239,7 @@ export class ConfigurationInspector {
 }
 
 function killGroup(pid: number, signal: NodeJS.Signals) {
-  try {process.kill(process.platform === 'win32' ? pid : -pid, signal);}
+  try {process.kill(-pid, signal);}
   catch (error) {if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;}
 }
 async function terminateWorker(worker: RuntimeClient): Promise<void> {
@@ -246,13 +250,23 @@ async function terminateWorker(worker: RuntimeClient): Promise<void> {
 }
 
 async function stopInspectionGroup(pid: number): Promise<void> {
-  if (process.platform === 'win32') killGroup(pid, 'SIGTERM');
+  if (process.platform === 'win32') {
+    // Windows has no POSIX process groups. Terminate descendants while the
+    // inspection leader still identifies its tree.
+    try { await terminateRuntimeTree(pid); }
+    catch (error) { if (await groupAlive(pid)) throw error; }
+    return;
+  }
   // Give configuration.cancel a chance to run without killing the POSIX watchdog
   // before children that can ignore SIGTERM have been stopped.
   await delay(150);
   killGroup(pid, 'SIGKILL');
 }
 async function groupAlive(pid: number): Promise<boolean> {
+  if (process.platform === 'win32') {
+    try { process.kill(pid, 0); return true; }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false; throw error; }
+  }
   const {stdout} = await execute('ps', ['-eo','pgid=,stat='], {timeout:1000});
   return stdout.split('\n').some(line => {
     const [group,state] = line.trim().split(/\s+/);
@@ -267,6 +281,16 @@ async function waitForGroupExit(pid: number): Promise<void> {
   throw cleanupFailed();
 }
 async function processInfo(pid: number): Promise<string | undefined> {
+  if (process.platform === 'win32') {
+    // Recovery must verify the inspection ID before acting on a reused PID.
+    const {stdout} = await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+      `$ErrorActionPreference='Stop'; (Get-CimInstance Win32_Process -Filter 'ProcessId=${pid}').CommandLine`],
+      {timeout:10000, windowsHide:true});
+    const command = stdout.trim();
+    if (command) return command;
+    if (await groupAlive(pid)) throw cleanupFailed();
+    return;
+  }
   try {
     const {stdout} = await execute('ps', ['-p',String(pid),'-o','stat=','-o','args='], {timeout:1000});
     const text = stdout.trim();

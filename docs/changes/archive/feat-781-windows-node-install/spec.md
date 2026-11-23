@@ -6,7 +6,7 @@
 
 ## 当前体验
 
-从 IM 的「连接电脑」入口取得的命令用 Bash 执行安装脚本。在没有可用 Node.js 环境的电脑上，脚本可以为 macOS 或 Linux 下载运行环境，对 Windows 用户则提示使用 WSL。现有首次接入契约覆盖绑定本人电脑、连接模型和通过助手完成真实聊天。[安装入口](../../../apps/im-server/src/install.ts) · [安装脚本](../../../apps/im-server/assets/install.sh) · [首次接入契约](../../specs/im/agents-nodes.md)
+从 IM 的「连接电脑」入口取得的命令用 Bash 执行安装脚本。在没有可用 Node.js 环境的电脑上，脚本可以为 macOS 或 Linux 下载运行环境，对 Windows 用户则提示使用 WSL。现有首次接入契约覆盖绑定本人电脑、连接模型和通过助手完成真实聊天。[安装入口](../../../../apps/im-server/src/install.ts) · [安装脚本](../../../../apps/im-server/assets/install.sh) · [首次接入契约](../../../specs/im/agents-nodes.md)
 
 ## 澄清记录
 
@@ -17,7 +17,7 @@
 - 用户原话：「Windows 10 和 11 的 x64 电脑（推荐，覆盖常见 Intel／AMD 机型）」
 - 问：电脑重启、用户重新登录 Windows 后，助手应该怎么恢复工作？
 - 用户原话：「mac是啥体验？」
-- 对照依据：Mac 默认随当前用户登录在后台启动，异常退出后由系统尝试恢复。可以关闭登录自启。[电脑端操作说明](../../operations/gateway.md) · [后台启动实现](../../../apps/node/src/lifecycle.ts)
+- 对照依据：Mac 默认随当前用户登录在后台启动，异常退出后由系统尝试恢复。可以关闭登录自启。[电脑端操作说明](../../../operations/gateway.md) · [后台启动实现](../../../../apps/node/src/lifecycle.ts)
 - 问：Windows 是否沿用 Mac 的后台体验？
 - 用户原话：「跟 Mac 一样（推荐，默认登录自启、异常退出后恢复，可关闭自启）」
 
@@ -86,6 +86,6 @@
 
 ## 范围与非目标
 
-首版覆盖 Windows 10 x64 和 Windows 11 x64 的用户电脑、IM 下载入口、接入已有 IM 后的真实助手对话，以及上述后台运行和受管更新体验。安装与运行所需依赖由 Nano 准备，具体分发方式留给设计。沿用现有[固定版本分发与首次设置契约](../../specs/im/agents-nodes.md)和[受管电脑更新契约](../../specs/gateway/service-lifecycle.md)。
+首版覆盖 Windows 10 x64 和 Windows 11 x64 的用户电脑、IM 下载入口、接入已有 IM 后的真实助手对话，以及上述后台运行和受管更新体验。安装与运行所需依赖由 Nano 准备，具体分发方式留给设计。沿用现有[固定版本分发与首次设置契约](../../../specs/im/agents-nodes.md)和[受管电脑更新契约](../../../specs/gateway/service-lifecycle.md)。
 
 Windows ARM64、32 位 Windows、在 Windows 上部署 IM 服务端，以及独立的 Windows 桌面聊天客户端均在本次范围之外。

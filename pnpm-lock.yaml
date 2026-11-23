@@ -128,6 +128,9 @@ importers:
       '@larksuiteoapi/node-sdk':
         specifier: 1.74.0
         version: 1.74.0
+      '@nano/product-contracts':
+        specifier: workspace:*
+        version: link:../product-contracts
       ws:
         specifier: 8.18.3
         version: 8.18.3

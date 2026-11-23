@@ -14,11 +14,13 @@
 
 只有用户明确要求“发包/发布安装包/创建 Release”时才执行以下步骤；合并、构建、部署、重启或“更新到最新代码”均不隐含发包授权。普通部署保留当前已验证的 `manifest.json`，不因服务源码 SHA 改变而更换安装版本。切换 checkout 时将现有清单带到新的 `IM_NODE_RELEASE_DIR`；缺失时保留“未发布”状态，不能为补齐清单自行发包。若服务变更与已发布安装包存在已确认的不兼容，报告差异并请求用户决定，不能自动发布。
 
-选择已通过 CI 的完整源码 SHA，在 [Publish Node installer](../../.github/workflows/node-release.yml) 工作流中显式填写 `commit` 与 `version`。版本采用 `X.Y.Z`（例如 `0.2.0`，不含 `v` 前缀）；版本未确定时先确认，不用 SHA 代替、不自动递增。工作流构建并测试固定源码，再发布标题 `Nano Node vX.Y.Z`、tag `vX.Y.Z` 及资产 `nano-node.tgz`。源码 SHA 保留在 Release 说明和清单的 `source_commit`，清单 `version` 为版本号。同一版本不能覆盖；现有 `node-<SHA>` Release 不改名、不删除，仍可由旧清单安装。
+选择已通过 CI 的完整源码 SHA，在 [Publish Node installer](../../.github/workflows/node-release.yml) 工作流中显式填写 `commit` 与 `version`。版本采用 `X.Y.Z`（例如 `0.2.0`，不含 `v` 前缀）；版本未确定时先确认，不用 SHA 代替、不自动递增。工作流构建并测试固定源码，再发布标题 `Nano Node vX.Y.Z`、tag `vX.Y.Z` 及资产 `nano-node.tgz`。支持 Windows 的源码还会构建 `Crewden-Setup-x64.exe`、`windows-x64.json`、`windows-runtime-x64.zip` 和 `windows-app-x64.zip`。源码 SHA 保留在 Release 说明和清单的 `source_commit`，清单 `version` 为版本号。同一版本不能覆盖；现有 `node-<SHA>` Release 不改名、不删除，仍可由旧清单安装。
 
-发布后工作流匿名下载并校验实际包体，成功才生成 `manifest.json`，保存到本次运行的 `node-manifest-X.Y.Z` artifact。
+发布后工作流匿名下载并校验实际包体，成功才生成 `manifest.json` 和适用的 `manifest.win32-x64.json`，保存到本次运行的 `node-manifest-X.Y.Z` artifact。
 
 明确发布并选择该版本作为安装入口后，从成功运行下载原始 `manifest.json`，备份当前清单并原子替换到 IM 的 `IM_NODE_RELEASE_DIR`；未配置该变量时默认使用 IM checkout 的 `dist/node-release`。核对版本号、源码 SHA、固定下载地址和 SHA-256。IM 只需这份清单，包体留在 GitHub。普通服务更新或回退继续保留所选安装版本，不自动切换清单。
+
+Windows x64 安装入口单独读取同目录的 `manifest.win32-x64.json`。在隔离实例中选择候选时，核对平台、源码 SHA、安装器和 `windows-x64.json` 描述文件的大小及 SHA-256，保留前一份验证过的清单。正式启用 Windows 入口时使用对应 Release 实际下载验证后的清单。IM 提供 `/install/manifest.win32-x64.json`，浏览器从清单指定的固定 Release 下载 EXE。若只需撤回 Windows 下载入口，撤下这一份清单；其他平台使用各自的清单。
 
 IM 提供 `/install.sh` 与 `/install/manifest.json`，旧 `/install/nano-node.tgz` 仅重定向到清单中的固定 GitHub 地址。清单缺失或无效时返回未发布状态，不提供失效安装命令。正式开放安装前，还需从公网入口完成匿名下载、真实首次安装、绑定和助手回复；本地候选包或下载 fixture 不能替代这项验收。
 

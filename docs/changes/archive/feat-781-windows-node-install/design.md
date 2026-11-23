@@ -6,17 +6,17 @@
 
 ## 现状分析
 
-- **涉及范围。** IM 的安装材料来自 `apps/im-server/src/install.ts`，首次设置和设置页的连接指引分别消费它。当前脚本能在 Darwin/Linux 下载私有 Node；Win32 没有原生入口。节点管理页的恢复材料也只有 shell 命令。正式发布由手动工作流构建、上传、匿名回读后生成清单。[首次设置](../../../src/IM/frontend/src/features/onboarding/onboarding-page.tsx) · [设备连接指引](../../../src/IM/frontend/src/features/settings/nodes/node-connect-guide.tsx) · [发布流程](../../../.github/workflows/node-release.yml)
-- **既有约束。** 发行版本由 IM 选定，程序包走独立发布源。产品身份、模型和工作区按连接保存。节点与 DSH 仍走 stdio，apps/node 只经公开 client 启动执行子进程。发行、部署分开授权。[架构](../../../SPEC.md) · [发行契约](../../specs/im/agents-nodes.md)
-- **可复用能力。** bootstrap 已按 IM origin 派生目录，bindDevice 已有浏览器确认、设备证明和丢失回执恢复；节点上线后已有模型配置与聊天。更新已有关闸、空闲屏障、worker 租约、回滚和新版注册验证，平台差异集中在包准备和进程生命周期。[首次接入](../../../apps/node/src/bootstrap.ts) · [设备绑定](../../../apps/node/src/device-binding.ts) · [更新执行](../../../apps/node/src/update-worker.ts)
-- **当前 Windows 阻点。** CLI 打开浏览器只会调用 open/xdg-open；lifecycle 查进程依赖 /bin/ps；main 在非 Mac 上无条件读取 Linux boot_id；配置写入采用 POSIX 目录 fsync；DSH profile 使用目录符号链接。单纯给已有压缩包加 EXE 外壳无法启动到聊天。[CLI](../../../apps/node/src/cli.ts) · [启动](../../../apps/node/src/main.ts) · [生命周期](../../../apps/node/src/lifecycle.ts) · [配置](../../../apps/node/src/configuration.ts) · [DSH client](../../../packages/dsh-integration/src/client.ts)
+- **涉及范围。** IM 的安装材料来自 `apps/im-server/src/install.ts`，首次设置和设置页的连接指引分别消费它。当前脚本能在 Darwin/Linux 下载私有 Node；Win32 没有原生入口。节点管理页的恢复材料也只有 shell 命令。正式发布由手动工作流构建、上传、匿名回读后生成清单。[首次设置](../../../../src/IM/frontend/src/features/onboarding/onboarding-page.tsx) · [设备连接指引](../../../../src/IM/frontend/src/features/settings/nodes/node-connect-guide.tsx) · [发布流程](../../../../.github/workflows/node-release.yml)
+- **既有约束。** 发行版本由 IM 选定，程序包走独立发布源。产品身份、模型和工作区按连接保存。节点与 DSH 仍走 stdio，apps/node 只经公开 client 启动执行子进程。发行、部署分开授权。[架构](../../../../SPEC.md) · [发行契约](../../../specs/im/agents-nodes.md)
+- **可复用能力。** bootstrap 已按 IM origin 派生目录，bindDevice 已有浏览器确认、设备证明和丢失回执恢复；节点上线后已有模型配置与聊天。更新已有关闸、空闲屏障、worker 租约、回滚和新版注册验证，平台差异集中在包准备和进程生命周期。[首次接入](../../../../apps/node/src/bootstrap.ts) · [设备绑定](../../../../apps/node/src/device-binding.ts) · [更新执行](../../../../apps/node/src/update-worker.ts)
+- **当前 Windows 阻点。** CLI 打开浏览器只会调用 open/xdg-open；lifecycle 查进程依赖 /bin/ps；main 在非 Mac 上无条件读取 Linux boot_id；配置写入采用 POSIX 目录 fsync；DSH profile 使用目录符号链接。单纯给已有压缩包加 EXE 外壳无法启动到聊天。[CLI](../../../../apps/node/src/cli.ts) · [启动](../../../../apps/node/src/main.ts) · [生命周期](../../../../apps/node/src/lifecycle.ts) · [配置](../../../../apps/node/src/configuration.ts) · [DSH client](../../../../packages/dsh-integration/src/client.ts)
 - **相关历史。** 延续 feat-587 的首次引导、feat-542 的登录运行语义、bugfix-591 的固定版本发行、feat-596 的受管更新，以及 feat-773 的 Crewden 首次使用界面。
 
 ## 架构总览与关键决策
 
 1. **按用户安装的小型在线 EXE。** 网页和模型本来就需要联网，首版采用单个原生启动/安装入口，仅内含连接界面、固定协议处理、HTTPS 下载、SHA-256 校验及解包能力。用户双击后会看到「回到原网页，连接这台电脑」；网页唤起并确认来源后，原生窗口显示准备进度或可重试的失败原因。一次下载完整离线包会把低频使用的大依赖也提前交给每位用户。在线方式仍要对首次聊天的总传输量负责。[微软对小型在线安装器的说明](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution) · [按用户安装](https://jrsoftware.org/inno-setup/documentation/topic_setup_privilegesrequired.htm)
 2. **同一份 EXE 服务多个 IM。** Inno Setup 按当前用户安装启动器、开始菜单入口和专用 URI 处理程序；下载动作指向固定 GitHub Release 资产。用户回到发起下载的网页点连接，浏览器唤起电脑端，在本机显示要连接的 IM 域名，由用户确认后执行现有设备绑定。这样可复用同一包，既无需用户填写地址，也无需 IM 重新打包或转发二进制。
-3. **任务计划程序负责登录和重启。** 每个已绑定配置对应一个当前用户、普通权限、交互登录令牌的任务。任务直接运行该配置的 Windows 宿主，前台 Gateway 是宿主的被监护子进程。登录触发，异常结束交给 Task Scheduler 的 RestartOnFailure；设置允许电池运行、无固定运行时限和重复启动忽略。主动停止和更新切换先让宿主进入正常退出路径；关闭自启移除该配置的登录触发/恢复，保留开始菜单手动启动。以任务实际注册状态和 Gateway ready/online 分别判断是否启用、是否能工作。[微软任务重启设置](https://learn.microsoft.com/en-us/windows/win32/taskschd/tasksettings-restartcount)
+3. **任务计划程序负责登录，Windows 宿主负责当前会话的后台进程恢复。** 每个已绑定配置对应一个当前用户、普通权限、交互登录令牌的任务。任务直接运行该配置的 Windows 宿主，前台 Gateway 是宿主的被监护子进程。登录触发；Gateway 异常退出时，宿主清理旧进程树，等待运行锁到期并复核当前自启设置后重新拉起。宿主任务本身保留 Task Scheduler 的 RestartOnFailure；设置允许电池运行、无固定运行时限和重复启动忽略。主动停止和更新切换先让宿主进入正常退出路径；关闭自启移除该配置的登录触发/恢复，保留开始菜单手动启动。以任务实际注册状态和 Gateway ready/online 分别判断是否启用、是否能工作。[微软任务重启设置](https://learn.microsoft.com/en-us/windows/win32/taskschd/tasksettings-restartcount)
 4. **同一套更新事务。** 每个平台选择一个明确资产。首装与更新读取同一份不可变的 Windows 版本描述文件；该文件的 SHA-256 是 Windows 节点登记和比较的发布身份。现有 Unix TGZ 和 Windows 版本描述文件即使版本号相同也各有自己的哈希。旧 IM 或尚无 Windows 资产时仅揭示确实可用的平台。不改变模型提示词、历史或工具权限。
 
 ## 接口与数据流
