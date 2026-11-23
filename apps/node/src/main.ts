@@ -1,5 +1,5 @@
 import { typedRuntimeRequest } from '@nano/product-contracts/runtime-rpc';
-import {isNodeCommand,nodeCommands,type NodeHandlers,type NodeParams,type NodeReply} from '@nano/product-contracts/node-rpc';
+import {isCurrentSkillUsage,isNodeCommand,nodeCommands,type NodeHandlers,type NodeParams,type NodeReply} from '@nano/product-contracts/node-rpc';
 import {dispatchNodeCommand} from './node-rpc.js';
 import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
 import { parseEnv } from 'node:util';
@@ -375,7 +375,8 @@ const handlers:NodeHandlers = {
     } catch (error) {return {error:String(error)};}
   },
   'node.skills.usage.request':async input=>{
-    const usage = await runtime.request('knowledge.usage',{agentId:input.agent_id}) as NonNullable<NodeReply<'node.skills.usage.request'>['usage']>;
+    const usage = await runtime.request('knowledge.usage',{agentId:input.agent_id});
+    if (!isCurrentSkillUsage(usage)) throw new Error('Invalid skill usage result');
     return {usage:{agent_id:input.agent_id,node_id:config.node.node_id,...usage}};
   },
   'agent.capability-usage.request':async input=>{

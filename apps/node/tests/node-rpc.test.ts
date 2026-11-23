@@ -1,5 +1,5 @@
 import {expect,it,vi} from 'vitest';
-import {decodeNodeInput,decodeNodeResult,type NodeHandlers} from '@nano/product-contracts/node-rpc';
+import {decodeNodeInput,decodeNodeResult,isCurrentSkillUsage,type NodeHandlers} from '@nano/product-contracts/node-rpc';
 import {dispatchNodeCommand} from '../src/node-rpc.js';
 
 // The spy records all attempted business operations, including dispatch under the wrong key.
@@ -49,7 +49,7 @@ it('overrides result-supplied correlation metadata and waits for the original re
 });
 
 it('checks consumed setup fields without echoing credentials or bodies in schema errors',()=>{
-  expect(()=>decodeNodeInput('node.setup.request',{action:'save',api_key:'secret sample',models:[{id:42}]}))
+  expect(()=>decodeNodeInput('node.setup.request',{action:'save',revision:'1',api_key:'secret sample',models:[{id:42}]}))
     .toThrow('Invalid node.setup.request field models.0.id');
   expect(()=>decodeNodeResult('node.setup.request',{revision:'1',services:[{provider:'p',models:'secret sample'}]}))
     .toThrow('Invalid node.setup.request field services.0.models');
@@ -65,4 +65,13 @@ it('rejects malformed plans and accepts the old state fallback and partial confi
   expect(decodeNodeResult('task.execution.state',{state:'legacy'})).toEqual({state:'legacy'});
   const receipt = {agent:{display_name:null,provider_extension:{extra:1}},operation_id:'o',extension:'kept'};
   expect(decodeNodeResult('agent.config.apply',receipt)).toBe(receipt);
+});
+
+it('requires coverage dates for new skill samples and retains historical statistics on read',()=>{
+  const legacy={usage:{skills:[{name:'example'}]}};
+  expect(decodeNodeResult('node.skills.usage.request',legacy)).toBe(legacy);
+  expect(isCurrentSkillUsage(legacy.usage)).toBe(false);
+  const sample={statistics_since:null,period_start:'2026-10-01',period_end:'2026-10-30',skills:[{name:'example'}]};
+  expect(isCurrentSkillUsage(sample)).toBe(false);
+  expect(isCurrentSkillUsage({...sample,skills:[{name:'example',statistics_since:null}]})).toBe(true);
 });

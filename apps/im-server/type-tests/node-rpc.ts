@@ -54,12 +54,14 @@ function handlerContracts(handlers:NodeHandlers) {
   const emptyJobs:NodeHandlers['node.cron.jobs.request'] = () => ({});
   // @ts-expect-error A configuration receipt must identify the durable operation.
   const emptyReceipt:NodeHandlers['agent.create'] = () => ({});
+  // @ts-expect-error A fresh usage sample must supply the coverage period and rows.
+  const incompleteSample:NodeHandlers['node.skills.usage.request'] = () => ({usage:{}});
   const wrongInspection:NodeHandlers['node.prompt.preview.request'] = async (_input,_context,reply) => {
     // @ts-expect-error A preview reply must contain the preview or its failure.
     await reply({});
     // @ts-expect-error The bound preview callback cannot reply with a cron result.
     await reply({jobs:[]});
   };
-  return {removed,missing,wrongState,emptyJobs,emptyReceipt,wrongInspection};
+  return {removed,missing,wrongState,emptyJobs,emptyReceipt,incompleteSample,wrongInspection};
 }
 void handlerContracts;

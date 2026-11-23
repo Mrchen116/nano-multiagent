@@ -56,6 +56,16 @@ const usage = z.object({agent_id:text.optional(),node_id:text.optional(),statist
     archived_at:text.nullish(),archive_error:text.nullish(),trend_buckets:z.array(z.number()).optional(),
     session_refs:z.array(z.object({session_id:text,tool_call_id:text,timestamp:text.optional(),location:text.optional()})).optional()})).optional(),
   heatmap_data:z.array(z.number()).optional(),health:z.object({created_auto_total:z.int().optional(),active_auto_total:z.int().optional(),used_auto_total:z.int().optional()}).optional()});
+const legacyUsageReply = z.object({usage:usage.optional(),...errorText})
+  .refine((p): p is WithField<typeof p,'usage' | 'error'> => !!p.usage || !!p.error);
+const currentSkillUsage = usage.extend({
+  statistics_since:text.nullable(), period_start:text, period_end:text,
+  skills:z.array(usage.shape.skills.unwrap().element.extend({statistics_since:text.nullable()})),
+});
+/** Recognize fresh statistics without stripping provider fields from a retained sample. */
+export function isCurrentSkillUsage(value:unknown):value is z.output<typeof currentSkillUsage> {
+  return currentSkillUsage.safeParse(value).success;
+}
 const capabilityUsage = z.object({checked_at:text,active_schedules:z.int(),busy:z.array(z.object({kind:text,name:text}))});
 const publicError = z.object({code:text,message:text,dependencies:z.array(z.object({agent_id:id,display_name:text})).optional()});
 const model = z.object({id:id,display_name:text.optional(),context_window:z.int().positive().optional(),
@@ -106,7 +116,9 @@ export const nodeCommands = {
   'agent.prompt.preview.request':inspection('agent.prompt.preview',previewInput.extend({agent_id:id}),preview),
   'node.prompt.preview.request':inspection('node.prompt.preview',previewInput,preview),
   'node.plugins.request':command('node.plugins',plugin,z.object({plugins:plugins.optional(),...errorText}).refine((p): p is WithField<typeof p, 'plugins' | 'error'> =>!!p.plugins || !!p.error),{error:'Invalid plugin command'}),
-  'node.skills.usage.request':command('node.skills.usage',target,z.object({usage:usage.optional(),...errorText}).refine((p): p is WithField<typeof p, 'usage' | 'error'> =>!!p.usage || !!p.error)),
+  'node.skills.usage.request':{...command('node.skills.usage',target,z.union([
+    z.object({usage:currentSkillUsage}),z.object({error:id}),
+  ])),read:legacyUsageReply},
   'agent.capability-usage.request':command('agent.capability-usage',agent,z.object({usage:capabilityUsage.optional(),error:publicError.optional()}).refine((p): p is WithField<typeof p, 'usage' | 'error'> =>!!p.usage || !!p.error),
     {error:{code:'capability_usage_unavailable',message:'Unable to confirm capability usage'}}),
   'node.heartbeat.md.request':command('node.heartbeat.md',workspaceTarget,z.object({content:text})),
