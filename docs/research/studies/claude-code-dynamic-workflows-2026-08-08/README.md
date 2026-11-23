@@ -18,6 +18,6 @@ current-owner: pending-adoption
 |---|---|
 | [`research.md`](research.md) | 基线、来源、实验记录、逐项证据矩阵与未知项 |
 | [`Claude Code Dynamic Workflows 运行机制.md`](Claude%20Code%20Dynamic%20Workflows%20运行机制.md) | 面向实现者的运行机制、提示词分层与复刻蓝图 |
-| [`../../../../.claude/skills/reverse-engineer-claude-code/SKILL.md`](../../../../.claude/skills/reverse-engineer-claude-code/SKILL.md) | 从源码、官网和低成本 Luna trace 复刻其他 Claude Code 能力的程序化方法 |
+| [`reverse-engineer-claude-code`](https://github.com/Mrchen116/nano-multiagent/blob/e5cca51efe1c332d54e1b5654d46d7d0ac2f95cc/.claude/skills/reverse-engineer-claude-code/SKILL.md) | 从源码、官网和低成本 Luna trace 复刻其他 Claude Code 能力的程序化方法 |
 
 若后续决定把该能力引入 nano-multiagent，应单独建立 change unit，并将最终行为归并到相应 current spec；本包继续冻结为上游研究证据。

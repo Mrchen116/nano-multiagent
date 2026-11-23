@@ -14,6 +14,8 @@ nano-multiagent 是使用 DSH 执行运行时的多节点个人助手项目。`a
 
 ## 开工路由
 
+开发流程由 [dev-workflow-skills](https://github.com/Mrchen116/dev-workflow-skills) 提供。在当前开发环境 clone 该库，从该 checkout 运行 `python3 install.py` 注册 Codex 和 Claude Code 用户级 skills，新会话可从 `dev-workflow` 进入，也可以直接调用所需的 skill。修改通用 skill 时编辑、提交并推送独立库源码。在 Nano 中运行时，从当前 Nano checkout 读取本页及下表的项目约束；[独立库项目接入说明](https://github.com/Mrchen116/dev-workflow-skills/blob/main/docs/development/project.md) 描述两套路径的分工。Nano 的部署、iOS 安装与上下文缓存验证仍从本仓 `.agents/skills/` 加载。
+
 先从 [docs/README.md](docs/README.md) 判断任务属于哪类知识，再按需读取：
 
 | 任务 | 入口 |
@@ -26,6 +28,9 @@ nano-multiagent 是使用 DSH 执行运行时的多节点个人助手项目。`a
 | 模型可见信息及其选择、注入、加载、更新与恢复 | [Agent Context Engineering](docs/development/agent-context-engineering.md) |
 | 启动、观察、排障和恢复 current 系统 | [docs/operations/](docs/operations/README.md) |
 | change unit 目录、文件归属和归档 | [docs/changes/README.md](docs/changes/README.md) |
+| 前端产品取舍、平台验收与 reviewer runbook | [Nano 前端体验与验收](docs/development/frontend-experience.md) |
+| 真实产品试用场景和归因实例 | [Nano 产品试用](docs/development/product-tryout.md) |
+| 测试和验收证据、日志的入口与保存约束 | [Nano Evidence](docs/development/evidence.md) |
 | Agent 评测集、物化方法和实验协议 | [evals/README.md](evals/README.md) |
 
 当前任务涉及用户可观察行为时，先读对应 `docs/specs/<package>/`；active change 描述目标状态，完成归并前不能覆盖 current spec。需要 change unit 的工作按 `change-workflow.md` 调用相应 `change-*` skills；符合“不建 unit”判据的小修可以直接实施。Full 完成设计或 Bugfix lite 完成实施前首文档后，默认使用 `change-orchestrator-simple`；用户点名 `$change-orchestrator` 时改用原流程。用户明确选择快速开发模式时可以边对齐边实现，但交付前必须调用 `change-fast-close` 补齐 unit 并完成 code review。
