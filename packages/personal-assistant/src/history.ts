@@ -1,3 +1,4 @@
+import type {NodeParams,NodeReply} from '@nano/product-contracts/node-rpc';
 import type {
   AgentConfiguration,
   RuntimePort,
@@ -50,12 +51,12 @@ export class ConversationHistory {
       : undefined;
   }
   async fork(
-    payload: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
+    payload: NodeParams<'session.fork.request'>,
+  ): Promise<NodeReply<'session.fork.request'>> {
     const agentId = text(payload.agent_id);
     const destination = text(payload.new_conversation_id);
     const messageId = text(
-      (payload.fork_point as { message_id?: unknown } | undefined)?.message_id,
+      payload.fork_point?.message_id,
     );
     if (!agentId || !destination || !messageId)
       return { ok: false, error: "Invalid fork request" };
@@ -101,8 +102,8 @@ export class ConversationHistory {
     }
   }
   async distill(
-    payload: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
+    payload: NodeParams<'node.distill.prompt.request'>,
+  ): Promise<NodeReply<'node.distill.prompt.request'>> {
     const agentId = text(payload.execution_agent_id);
     const scope = text(payload.target_scope);
     if (
@@ -142,7 +143,7 @@ export class ConversationHistory {
     for (const item of payload.sources) {
       if (!item || !text(item.conversation_id) || !text(item.source_agent_id))
         return error("invalid_request", "Distill source is invalid");
-      const binding = this.source(item as Source);
+      const binding = this.source(item);
       if (!binding)
         return error(
           "source_unavailable",

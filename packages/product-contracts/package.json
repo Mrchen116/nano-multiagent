@@ -31,6 +31,10 @@
     "./interactive-functions": {
       "types": "./lib/interactive-functions/index.d.ts",
       "default": "./lib/interactive-functions/index.js"
+    },
+    "./node-rpc": {
+      "types": "./lib/node-rpc.d.ts",
+      "default": "./lib/node-rpc.js"
     }
   },
   "scripts": {

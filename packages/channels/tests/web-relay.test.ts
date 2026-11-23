@@ -187,14 +187,20 @@ test('connection refusal records a safe transport category and retry without exp
   expect(await started).toMatchObject({ delivery: 'not-sent' });
 });
 
-test.each(['expired','failed'])('does not send a %s inspection reply as a new business request', async outcome => {
+test.each([
+  ['agent.capabilities.resolve','agent.capabilities','expired'],
+  ['node.capabilities.resolve','node.capabilities','expired'],
+  ['agent.prompt.preview.request','agent.prompt.preview','expired'],
+  ['node.prompt.preview.request','node.prompt.preview','expired'],
+  ['agent.capabilities.resolve','agent.capabilities','failed'],
+])('does not send %s as a fresh upstream request after %s has %s', async (command,result,outcome) => {
   let received = false;
   const s = await server((socket, frame) => {
     ack(socket,frame);
-    if (frame.type === 'node.register') socket.send(JSON.stringify({type:'agent.capabilities.resolve',payload:{request_id:'inspection',deadline_at:Date.now()+20}}));
+    if (frame.type === 'node.register') socket.send(JSON.stringify({type:command,payload:{request_id:'inspection',deadline_at:Date.now()+20}}));
   });
   const relay = connection(s.url,{onFrame:async frame=>{
-    if (frame.type !== 'agent.capabilities.resolve') return;
+    if (frame.type !== command) return;
     received=true;
     if (outcome==='failed') throw new Error('inspection failed');
     await new Promise(()=>{});
@@ -202,8 +208,8 @@ test.each(['expired','failed'])('does not send a %s inspection reply as a new bu
   await relay.start();
   await expect.poll(()=>received).toBe(true);
   await pause(35);
-  await expect(relay.request('agent.capabilities',{request_id:'inspection',capabilities:{}})).rejects.toMatchObject({delivery:'not-sent'});
-  expect(s.frames.some(frame=>frame.type==='agent.capabilities')).toBe(false);
+  await expect(relay.request(result,{request_id:'inspection',capabilities:{}})).rejects.toMatchObject({delivery:'not-sent'});
+  expect(s.frames.some(frame=>frame.type===result)).toBe(false);
 });
 
 test('delivers a slow inspection response under its original request ID until the IM deadline', async () => {

@@ -1,3 +1,5 @@
+import {isNodeCommand,nodeCommands,type NodeHandlers,type NodeParams,type NodeReply} from '@nano/product-contracts/node-rpc';
+import {dispatchNodeCommand} from './node-rpc.js';
 import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
 import { parseEnv } from 'node:util';
 import { windowsHost } from './windows-platform.js';
@@ -16,7 +18,7 @@ import { installedPackageManager, loadNodeRelease } from './release.js';
 import { NodeUpdater, updatePath } from './node-updater.js';
 import {claimGateway,applyGatewayEnvironment} from './lifecycle.js';
 import { providerProfiles } from './providers.js';
-import { ModelSetup, type SetupRequest } from './model-setup.js';
+import { ModelSetup } from './model-setup.js';
 import {CapabilityRequests} from './capability-requests.js';
 import { NodeTrajectory } from './trajectory.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
@@ -244,17 +246,14 @@ const relay = new WebRelayConnection({
   heartbeatPayload: () => ({ node_id: config.node.node_id, status: 'online', agent_count: agents.length, version: release.version }),
   onFrame: async frame => {
     const payload = frame.payload;
-    if (frame.type === 'node.request.cancel') {await capabilityRequests.handle(frame);return;}
-    if (capabilityRequests.accepts(frame.type)) {await admitted(()=>capabilityRequests.handle(frame));return;}
+    if (frame.type === 'node.request.cancel') {capabilityRequests.cancel(payload.target_request_id);return;}
+    const command = isNodeCommand(frame.type) ? frame.type : undefined;
+    if (command && nodeCommands[command].inspection) {await admitted(()=>dispatch(command,payload));return;}
     if (frame.type === 'agent.deletion.apply') {
       void deletions.apply(payload as unknown as AgentDeletionIntent).catch(reportError);
       return;
     }
-    if (frame.type === 'agent.deletion.preview') {
-      const workspace = await configuration.deletionWorkspace(String(payload.agent_id),operations.pending().map(row=>row.candidate));
-      await relay.request('agent.deletion.preview.result',{node_id:config.node.node_id,request_id:payload.request_id,...(workspace ? {workspace} : {})});
-      return;
-    }
+    if (command === 'agent.deletion.preview') {await dispatch(command,payload);return;}
     if (frame.type === 'agent.lifecycle.apply') { await agentLifecycle.apply(payload as unknown as AgentLifecycleSnapshot); return; }
     if (frame.type === 'relay.message' && agentLifecycle.synchronized && typeof payload.agent_id === 'string')
       await agentLifecycle.waitFor(payload.agent_id);
@@ -266,92 +265,12 @@ const relay = new WebRelayConnection({
     if (updateHolding && !permission) return; // Unacknowledged relays remain in IM and are replayed after release.
     admissions++;
     try {
-    if (frame.type === 'node.setup.request') {
-      const status = await modelSetup.handle(payload as unknown as SetupRequest).catch(error => ({ error_code: 'setup_invalid', message: 'Model setup is unavailable' }));
-      await relay.request('node.setup', { request_id: payload.request_id, node_id: config.node.node_id, ...status });
-      return;
-    }
-    if(frame.type==='task.execution.state') {
-      const result=await runtime.request('task.execution.state',{agentId:String(payload.agent_id)}).catch(()=>({state:'unknown'})) as import('@nano/product-contracts').TaskExecutionState;
-      await relay.request('task.execution.state.result',{...result,request_id:payload.request_id,node_id:config.node.node_id});return;
-    }
-    if(frame.type==='task.wait.validate') {
-      const result=await tasks.inspect(payload as unknown as Parameters<TaskExecution['inspect']>[0]).catch(error=>({error:String(error)}));
-      await relay.request('task.wait.validate.result',{...result,request_id:payload.request_id,node_id:config.node.node_id});return;
-    }
+    if (command) {await dispatch(command,payload);return;}
     if(frame.type==='task.execution.changed'){await tasks.recover([String(payload.agent_id)]);return;}
     if (frame.type === 'trajectory.prepare') { trajectory.prepare(payload.scope as Parameters<NodeTrajectory['prepare']>[0], String(payload.ticket)); return; }
     if (frame.type === 'trajectory.close') { trajectory.close(String(payload.observer_id)); return; }
-    if (frame.type === 'session.fork.request') await relay.request('session.fork.result', { request_id: payload.request_id, node_id: config.node.node_id, ...await history.fork(payload) });
-    if (frame.type === 'node.distill.prompt.request') await relay.request('node.distill.prompt', { request_id: payload.request_id, node_id: config.node.node_id,
-      ...await history.distill(payload).catch(error => ({ error_code: 'runtime_unavailable', message: String(error) })) });
-    if (frame.type === 'node.approval.resolve') {
-      const workspace = resolve(String(payload.workspace_root));
-      await relay.request('node.approval.resolve.result', {request_id: payload.request_id, node_id: config.node.node_id,
-        inherited_approval_rules: configuration.inheritedApproval(workspace).rules});
-      return;
-    }
     if (['channels.bootstrap.request', 'channel.reconcile', 'channel.reconnect'].includes(frame.type)) await managed.handle(frame);
-    if (frame.type === 'node.agent.role.request') {
-      const agentId = String(payload.agent_id);
-      const result = await (async () => {
-        const workspace = await configuration.roleWorkspace(agentId);
-        if (!workspace) return {error: 'role_unavailable'};
-        const response = await runtime.request('configuration.role', {agentId, workspace,
-          ...(payload.update === undefined ? {} : {update: payload.update})}) as
-          {content: string; version: string | null} | {error: 'role_conflict' | 'role_unavailable' | 'role_too_long'};
-        return 'error' in response ? {error: response.error} : {role: response};
-      })().catch(() => ({error: 'role_unavailable'}));
-      await relay.request('node.agent.role', {request_id: payload.request_id, node_id: config.node.node_id, ...result});
-      return;
-    }
-    if (frame.type === 'node.plugins.request') {
-      const result = await (async () => {
-        const agentId = String(payload.agent_id);
-        if (!config.agents.some(agent => agent.agent_id === agentId)) throw new Error('Plugin request has no Agent on this node');
-        return {plugins: await runtime.request('plugins.manage', {agentId, action: payload.action, target: payload.target, enabled: payload.enabled})};
-      })().catch(error => ({error: String(error)}));
-      if (payload.action !== 'list_bundles' && !('error' in result)) publishCatalogChange();
-      await relay.request('node.plugins', {request_id: payload.request_id, node_id: config.node.node_id, ...result});
-    }
-    if (frame.type === 'agent.capability-usage.request') {
-      const agentId = String(payload.agent_id);
-      const result = await (async () => {
-        const usage = await runtime.request('configuration.usage', {agentId}) as {checked_at: string; active_schedules: number; busy: {kind: string; name: string}[]};
-        if (heartbeat.busyFor(agentId)) usage.busy.push({kind: 'feature', name: 'heartbeat'});
-        return {usage};
-      })().catch(() => ({error: {code: 'capability_usage_unavailable', message: 'Unable to confirm capability usage'}}));
-      await relay.request('agent.capability-usage', {request_id: payload.request_id, node_id: config.node.node_id, agent_id: agentId, ...result});
-    }
-    if (frame.type === 'node.skills.usage.request') {
-      const agentId = String(payload.agent_id);
-      const usage = await runtime.request('knowledge.usage', { agentId }) as Record<string, unknown>;
-      await relay.request('node.skills.usage', { request_id: payload.request_id, node_id: config.node.node_id, usage: { agent_id: agentId, node_id: config.node.node_id, ...usage } });
-    }
     if (frame.type === 'heartbeat.trigger') await heartbeat.tick(String(payload.agent_id), true);
-    if (frame.type === 'node.heartbeat.md.request') {
-      const agent = agents.find(agent => agent.agentId === payload.agent_id || !payload.agent_id && agent.workspace === payload.workspace_root);
-      if (!agent) throw new Error('Heartbeat request has no Agent on this node');
-      const content = await readFile(join(agent.workspace, '.nanoassistant', 'HEARTBEAT.md'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
-      await relay.request('node.heartbeat.md', { node_id: config.node.node_id, request_id: payload.request_id, content });
-    }
-    if (frame.type === 'agent.config.get') await relay.request('agent.config', { node_id: config.node.node_id, request_id: payload.request_id, agent_id: payload.agent_id, agent: configuration.current(String(payload.agent_id)) ?? null });
-    if (frame.type === 'agent.config.apply' || frame.type === 'agent.create') {
-      const result = await operations.handle(frame.type === 'agent.create' ? 'create' : 'apply', payload as unknown as Parameters<ConfigurationOperations['handle']>[1]).catch(error => { reportError(error); return operations.status(String(payload.operation_id)); });
-      await relay.request(frame.type === 'agent.create' ? 'agent.created' : 'agent.config.apply.result', { request_id: payload.request_id, node_id: config.node.node_id, ...result });
-    }
-    if (frame.type === 'agent.config.operation.status') await relay.request('agent.config.operation.status.result', { request_id: payload.request_id, node_id: config.node.node_id, ...operations.status(String(payload.operation_id)) });
-    if (frame.type === 'node.cron.jobs.request' || frame.type === 'node.cron.delete.request') {
-      const agent = agents.find(agent => agent.agentId === payload.agent_id || !payload.agent_id && agent.workspace === payload.workspace_root);
-      if (!agent) throw new Error('Cron request has no Agent on this node');
-      const jobs = await runtime.request('schedule.command', { agentId: agent.agentId, action: 'jobs' }) as { id: string; sessionId: string }[];
-      if (frame.type === 'node.cron.jobs.request') await relay.request('node.cron.jobs', { request_id: payload.request_id, node_id: config.node.node_id, jobs });
-      else {
-        const job = jobs.find(job => job.id === payload.job_id);
-        const result = job ? await scheduleDeletions.delete({agentId:agent.agentId,scheduleId:job.id,operationId:String(payload.operation_id??''),actor:{kind:'user',id:String(payload.actor_user_id??'')}}) : undefined;
-        await relay.request('node.cron.delete', { request_id: payload.request_id, node_id: config.node.node_id, deleted: result?.deleted === true });
-      }
-    }
     if (frame.type === 'relay.message') {
       const input = frame.payload as unknown as RelayInput;
       if(input.metadata.node_epoch !== undefined && input.metadata.node_epoch!==relay.registration?.node_epoch)throw new Error('Stale relay epoch');
@@ -423,8 +342,86 @@ const relay = new WebRelayConnection({
   onError: reportError,
   onDiagnostic: event => { process.stderr.write(`${JSON.stringify({ ...event, node_id: config.node.node_id, component: 'im_relay' })}\n`); },
 });
-const capabilityRequests = new CapabilityRequests({configuration,inspector,packageManager:installedPackageManager(release),
-  reply:(type,payload)=>relay.request(type,payload)});
+const capabilityRequests = new CapabilityRequests({configuration,inspector,packageManager:installedPackageManager(release)});
+function handleConfiguration(kind:'create'|'apply',input:NodeParams<'agent.create'>) {
+  return operations.handle(kind,input).catch(error=>{reportError(error);return operations.status(input.operation_id);});
+}
+function workspaceAgent(input:NodeParams<'node.cron.jobs.request'>) {
+  const agent = agents.find(agent=>agent.agentId===input.agent_id || !input.agent_id && agent.workspace===input.workspace_root);
+  if (!agent) throw new Error('Request has no Agent on this node');
+  return agent;
+}
+function scheduleJobs(agentId:string) {
+  return runtime.request('schedule.command',{agentId,action:'jobs'}) as Promise<{id:string;sessionId:string}[]>;
+}
+const handlers:NodeHandlers = {
+  'agent.create':input=>handleConfiguration('create',input),
+  'agent.config.apply':input=>handleConfiguration('apply',input),
+  'agent.config.operation.status':input=>operations.status(input.operation_id),
+  'agent.config.get':input=>({agent_id:input.agent_id,agent:configuration.current(input.agent_id) ?? null}),
+  'agent.capabilities.resolve':(input,context,reply)=>capabilityRequests.catalog(input,context,reply),
+  'node.capabilities.resolve':(input,context,reply)=>capabilityRequests.catalog(input,context,reply),
+  'agent.prompt.preview.request':(input,context,reply)=>capabilityRequests.preview(input,context,reply),
+  'node.prompt.preview.request':(input,context,reply)=>capabilityRequests.preview(input,context,reply),
+  'node.approval.resolve':input=>({inherited_approval_rules:configuration.inheritedApproval(resolve(input.workspace_root)).rules}),
+  'node.plugins.request':async input=>{
+    try {
+      if (!config.agents.some(agent=>agent.agent_id===input.agent_id)) throw new Error('Plugin request has no Agent on this node');
+      const plugins = await runtime.request('plugins.manage',{agentId:input.agent_id,action:input.action,
+        target:'target' in input ? input.target : undefined,enabled:'enabled' in input ? input.enabled : undefined}) as NonNullable<NodeReply<'node.plugins.request'>['plugins']>;
+      if (input.action !== 'list_bundles') publishCatalogChange();
+      return {plugins};
+    } catch (error) {return {error:String(error)};}
+  },
+  'node.skills.usage.request':async input=>{
+    const usage = await runtime.request('knowledge.usage',{agentId:input.agent_id}) as NonNullable<NodeReply<'node.skills.usage.request'>['usage']>;
+    return {usage:{agent_id:input.agent_id,node_id:config.node.node_id,...usage}};
+  },
+  'agent.capability-usage.request':async input=>{
+    try {
+      const usage = await runtime.request('configuration.usage',{agentId:input.agent_id}) as NonNullable<NodeReply<'agent.capability-usage.request'>['usage']>;
+      if (heartbeat.busyFor(input.agent_id)) usage.busy.push({kind:'feature',name:'heartbeat'});
+      return {agent_id:input.agent_id,usage};
+    } catch {return {agent_id:input.agent_id,error:{code:'capability_usage_unavailable',message:'Unable to confirm capability usage'}};}
+  },
+  'node.heartbeat.md.request':async input=>{
+    const content = await readFile(join(workspaceAgent(input).workspace,'.nanoassistant','HEARTBEAT.md'),'utf8')
+      .catch(error=>{if(error.code==='ENOENT') return '';throw error;});
+    return {content};
+  },
+  'node.agent.role.request':async input=>{
+    try {
+      const workspace = await configuration.roleWorkspace(input.agent_id);
+      if (!workspace) return {error:'role_unavailable'};
+      const response = await runtime.request('configuration.role',{agentId:input.agent_id,workspace,...(input.update ? {update:input.update} : {})}) as
+        NonNullable<NodeParams<'node.agent.role.request'>['update']> | {error:'role_conflict'|'role_unavailable'|'role_too_long'};
+      return 'error' in response ? {error:response.error} : {role:response};
+    } catch {return {error:'role_unavailable'};}
+  },
+  'node.cron.jobs.request':async input=>({jobs:await scheduleJobs(workspaceAgent(input).agentId)}),
+  'node.cron.delete.request':async input=>{
+    const {agentId} = workspaceAgent(input);
+    const job = (await scheduleJobs(agentId)).find(job=>job.id===input.job_id);
+    const result = job && await scheduleDeletions.delete({agentId,scheduleId:job.id,operationId:input.operation_id,actor:{kind:'user',id:input.actor_user_id}});
+    return {deleted:result?.deleted===true};
+  },
+  'node.setup.request':input=>modelSetup.handle(input).catch(()=>({error_code:'setup_invalid',message:'Model setup is unavailable'})),
+  'node.distill.prompt.request':input=>history.distill(input).catch(error=>({error_code:'runtime_unavailable',message:String(error)})),
+  'session.fork.request':input=>history.fork(input),
+  'agent.work.permission':()=>({ok:false,error:'request_ended'}),
+  'agent.deletion.preview':async input=>{
+    const workspace = await configuration.deletionWorkspace(input.agent_id,operations.pending().map(row=>row.candidate));
+    return workspace ? {workspace} : {};
+  },
+  'task.execution.state':async input=>{
+    const result = await runtime.request('task.execution.state',{agentId:input.agent_id}).catch(()=>({state:'unknown'}));
+    return nodeCommands['task.execution.state'].result.parse(result);
+  },
+  'task.wait.validate':input=>tasks.inspect(input).catch(error=>({error:String(error)})),
+};
+function dispatch(command:keyof NodeHandlers,payload:Record<string,unknown>):Promise<void> {
+  return dispatchNodeCommand(command,payload,handlers,config.node.node_id,(type,result)=>relay.request(type,result));
+}
 function publishCatalogChange() {
   inspector.invalidate();
   if (relay.ready) void relay.request('node.capabilities.changed',{node_id:config.node.node_id}).catch(reportError);

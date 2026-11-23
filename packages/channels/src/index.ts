@@ -1,3 +1,4 @@
+import {inspectionReplies} from '@nano/product-contracts/node-rpc';
 import WebSocket from 'ws';
 import {inspectionTimeouts} from '@nano/product-contracts';
 import { randomUUID } from 'node:crypto';
@@ -143,7 +144,7 @@ export class WebRelayConnection {
     }
     const preserve = typeof payload.request_id === 'string' && this.serverRequests.has(payload.request_id);
     if (preserve) this.releaseServerRequest(payload.request_id as string);
-    if (!preserve && typeof payload.request_id === 'string' && ['agent.capabilities','node.capabilities','agent.prompt.preview','node.prompt.preview'].includes(type))
+    if (!preserve && typeof payload.request_id === 'string' && inspectionReplies.has(type))
       return Promise.reject(new RelayDeliveryError('Server inspection request expired', 'not-sent'));
     return this.enqueue({ type, payload: this.correlated && !preserve ? {...payload,request_id:randomUUID()} : payload },options.priority);
   }

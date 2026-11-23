@@ -1,4 +1,4 @@
-import type {NodeRequest} from '../src/node-rpc-contracts.js';
+import type {NodeHandlers,NodeRequest} from '@nano/product-contracts/node-rpc';
 
 // These calls compile only; the errors protect the public command association,
 // not an implementation detail of the socket or its pending map.
@@ -37,3 +37,17 @@ function configurationContracts(dependencies: ConfigurationDependencies, record:
   return candidate;
 }
 void configurationContracts;
+
+function handlerContracts(handlers:NodeHandlers) {
+  const {['agent.work.permission']: removed, ...partial} = handlers;
+  // @ts-expect-error Omitting a supported command leaves the dispatch table incomplete.
+  const missing:NodeHandlers = partial;
+  // @ts-expect-error A new Node cannot emit arbitrary execution states.
+  const wrongState:NodeHandlers['task.execution.state'] = () => ({state:'made-up'});
+  const wrongInspection:NodeHandlers['node.prompt.preview.request'] = async (_input,_context,reply) => {
+    // @ts-expect-error The bound preview callback cannot reply with a cron result.
+    await reply({jobs:[]});
+  };
+  return {removed,missing,wrongState,wrongInspection};
+}
+void handlerContracts;

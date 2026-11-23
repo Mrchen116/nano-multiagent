@@ -1,4 +1,4 @@
-import type {NodeCommand, NodeInput, NodeOutput, NodeRequest, ConfigurationRequest, ConfigurationCommand} from './node-rpc-contracts.js';
+import type {NodeCommand, NodeInput, NodeOutput, NodeRequest, ConfigurationRequest, ConfigurationCommand} from '@nano/product-contracts/node-rpc';
 
 /** Optional reads keep the existing offline/timeout fallback at their HTTP boundary. */
 export async function gatewayRequest<K extends NodeCommand>(ctx: {gateway:{request:NodeRequest}}, node: string, action: K, payload: NodeInput<NoInfer<K>>): Promise<NodeOutput<K> | null> {
