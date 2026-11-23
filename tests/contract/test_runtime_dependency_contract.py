@@ -12,13 +12,16 @@ ROOT = Path(__file__).resolve().parents[2]
 IMPORT = re.compile(r"(?:\bfrom\s*|\bimport\s*\(?\s*)['\"]([^'\"]+)['\"]")
 ALLOWED = {
     "packages/product-contracts": set(),
-    "packages/channels": {"@nano/product-contracts"},
+    "packages/channels": {"@nano/product-contracts", "@nano/product-contracts/node-rpc"},
     "packages/personal-assistant": {
+        "@nano/product-contracts/node-rpc",
+        "@nano/product-contracts/runtime-rpc",
         "@nano/product-contracts",
         "@nano/product-contracts/serialization",
         "@nano/channels",
     },
     "packages/dsh-integration": {
+        "@nano/product-contracts/runtime-rpc",
         "@nano/product-contracts/serialization",
         "@nano/product-contracts",
         "@nano/product-contracts/capabilities",
@@ -36,12 +39,15 @@ ALLOWED = {
         "@nano/product-contracts/worker-runtimes",
     },
     "apps/im-server": {
+        "@nano/product-contracts/node-rpc",
         "@nano/product-contracts/interactive-functions",
         "@nano/product-contracts/serialization",
         "@nano/product-contracts",
         "@nano/product-contracts/capabilities",
     },
     "apps/node": {
+        "@nano/product-contracts/node-rpc",
+        "@nano/product-contracts/runtime-rpc",
         "@nano/product-contracts",
         "@nano/product-contracts/capabilities",
         "@nano/personal-assistant",

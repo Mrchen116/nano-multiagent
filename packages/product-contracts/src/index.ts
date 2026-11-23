@@ -72,7 +72,7 @@ export interface RuntimeEvent {
   data: Record<string, unknown>;
 }
 export interface RuntimePort {
-  request(method: string, params: unknown): Promise<unknown>;
+  request: import('./runtime-rpc.js').RuntimeRequest;
   onNotification(listener: (method: string, params: unknown) => void): () => void;
   /** Capture the current host generation for one asynchronous reconciliation. */
   capture?(): RuntimePort;

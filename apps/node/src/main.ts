@@ -1,3 +1,4 @@
+import { typedRuntimeRequest } from '@nano/product-contracts/runtime-rpc';
 import {isNodeCommand,nodeCommands,type NodeHandlers,type NodeParams,type NodeReply} from '@nano/product-contracts/node-rpc';
 import {dispatchNodeCommand} from './node-rpc.js';
 import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
@@ -474,11 +475,11 @@ managed = new ManagedChannels(join(home, 'channels.sqlite3'), { nodeId: config.n
 managed.seed((config.channels ?? []).filter(channel => channel.name.startsWith('feishu:') && (channel.enabled !== false || channel.settings.appId)).map(channel => ({
   agentId: channel.name.slice(7), enabled: channel.enabled !== false, appId: channel.settings.appId!, appSecret: channel.settings.appSecret!, botOpenId: channel.settings.botOpenId, ownerOpenId: channel.settings.ownerOpenId,
 })));
-tasks=new TaskExecution({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,runtime,relay,context:binding=>taskContext.prepare({sessionId:binding.sessionId,agentId:binding.agentId,ownerId:binding.ownerId}),
+tasks=new TaskExecution({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,runtime: runtime.product,relay,context:binding=>taskContext.prepare({sessionId:binding.sessionId,agentId:binding.agentId,ownerId:binding.ownerId}),
   drain:async sessionId=>{await Promise.allSettled([...productCalls.values()].filter(c=>c.sessionId===sessionId).map(c=>c.promise));},
 });
 product = new SingleThread({
-  nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, runtime, relay: external, onError: reportError,
+  nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, runtime: runtime.product, relay: external, onError: reportError,
   image: downloadImage, taskStop:(binding,input)=>tasks.stop(binding,input),
   queueMessageReceipt: (input, read) => {
     try {
@@ -505,7 +506,7 @@ const workSync=new WorkSync({nodeId:config.node.node_id,inbox,url:config.im_serv
   readyAgents: () => inbox.readyWorkAgents(agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId),
     session => store.bindingForSession(session)?.agentId),
 });
-globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime, relay: external, image: downloadImage, uploadScreenshot: input => uploadScreenshot(im, input), onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
+globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime: runtime.product, relay: external, image: downloadImage, uploadScreenshot: input => uploadScreenshot(im, input), onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
 runtime.handle('configuration.workflow', async value => {
   const {agentId, guideline} = value as {agentId: string; guideline: string};
   const next = await configuration.setWorkflowGuideline(agentId, guideline);
@@ -517,11 +518,11 @@ runtime.handle('model.check', value => product.modelCheck(value as { sessionId: 
 runtime.handle('knowledge.role.workspace', async value => ({
   workspace: await configuration.roleWorkspace((value as {agentId: string}).agentId),
 }));
-const scheduleDeletions=new ScheduleDeletions({ownerId:config.node.user_id,agents,store,runtime,onError:reportError,repair:intent=>tasks.scheduleDeleted(intent),
+const scheduleDeletions=new ScheduleDeletions({ownerId:config.node.user_id,agents,store,runtime: runtime.product,onError:reportError,repair:intent=>tasks.scheduleDeleted(intent),
  notify:async intent=>{
   await runtime.request('schedule.deleted.notify',{agentId:intent.agentId,sessionId:intent.sessionId,inputId:intent.changeInputId,content:[{type:'text',text:'The user deleted the Schedule identified below. It will no longer wake you as planned. Account for this change when checking your existing arrangements. This is a Schedule change, not a new task or permission, and it does not resume paused work.\n'+JSON.stringify({schedule_id:intent.scheduleId,title:intent.title,agent_id:intent.agentId,session_id:intent.sessionId,deleted_at:intent.deletedAt,actor:intent.actor})}]});
  }});
-const taskContext=new TaskContext({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,inbox,runtime,relay,refreshSources:agentId=>globalProduct.prepareSystemContext(agentId)});
+const taskContext=new TaskContext({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,inbox,runtime: runtime.product,relay,refreshSources:agentId=>globalProduct.prepareSystemContext(agentId)});
 runtime.handle('product.task_context.prepare',value=>taskContext.prepare(value as Parameters<TaskContext['prepare']>[0]));
 runtime.handle('product.task_context.commit',value=>taskContext.commit(value as Parameters<TaskContext['commit']>[0]));
 runtime.handle('product.task_execution.snapshot', value=>tasks.snapshot(value as Parameters<TaskExecution['snapshot']>[0]));
@@ -594,9 +595,9 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
   },
 });
 
-history = new ConversationHistory({ agents, store, runtime, externalConversation: (agentId, source, chatId) => external.historyConversation(agentId, source, chatId) });
+history = new ConversationHistory({ agents, store, runtime: runtime.product, externalConversation: (agentId, source, chatId) => external.historyConversation(agentId, source, chatId) });
 for (const partition of runtime.partitions.values()) installPartitionConsumers(partition);
-heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime, lifecycle: store.lifecycle, onError: reportError,
+heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime: runtime.product, lifecycle: store.lifecycle, onError: reportError,
   settings: agentId => ({ ...(config.agents.find(agent => agent.agent_id === agentId)?.heartbeat ?? {}), timezone: store.ownerTimezone }) as HeartbeatSettings,
   binding: agent => agent.mode === 'global' ? globalProduct.heartbeatBinding(agent) : product.heartbeatBinding(agent),
   available: agentId => !updateHolding && runtime.availableFor(agentId) && (relay.ready || external.available(agentId) && (agents.find(agent => agent.agentId === agentId)?.mode === 'global' || store.canonical(agentId)?.conversationId.startsWith('external:') === true)),
@@ -683,7 +684,7 @@ agentLifecycle = new NodeAgentLifecycle({
       const result=await supervisor.disableAgent(agentId,revision);
       if (result.confirmed) {
         agentLifecycle.recordCleanup(agentId,revision,result.processInstanceId);
-        await globalProduct.recordStopped(agentId,revision,supervisor.request.bind(supervisor));
+        await globalProduct.recordStopped(agentId,revision,typedRuntimeRequest(supervisor.request.bind(supervisor)));
       }
       return result;
     }};

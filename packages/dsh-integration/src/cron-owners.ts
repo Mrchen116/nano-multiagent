@@ -5,7 +5,8 @@ import { Context } from '@deepseek-ai/cordis';
 import { Storage } from '@deepseek-ai/dsh-storage';
 import * as StorageJson from '@deepseek-ai/dsh-storage-json';
 import * as StorageDomain from '@deepseek-ai/dsh-storage-domain';
-import { ScheduleService, scheduleDomain, isRecurringScheduleRecord, resolveRecurringOccurrence, ScheduleId, type ScheduleCreateRequest, type ScheduleUpdateRequest } from '@deepseek-ai/dsh-schedule';
+import { ScheduleService, scheduleDomain, isRecurringScheduleRecord, resolveRecurringOccurrence, ScheduleId } from '@deepseek-ai/dsh-schedule';
+import type { ScheduleOutput } from '@nano/product-contracts/runtime-rpc';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { scheduleRealm } from './features/cron.js';
 
@@ -62,35 +63,50 @@ export class CronOwners {
     });
     owner.chain = change.catch(() => {}); return change;
   }
-  async command(agentId: string, sessionId: string | undefined, action: string, args: Record<string, unknown>): Promise<unknown> {
+  private async command<T>(agentId: string, action: string, run: (owner: Owner) => Promise<T>): Promise<T> {
     const owner = await this.owner(agentId);
-    const result = owner.chain.then(async () => {
+    const result = owner.chain.then(() => {
       if (this.stopped || this.disabled.has(agentId) && !['catalog', 'history'].includes(action)) throw new Error('agent_disabled');
       if (this.held(agentId, action)) throw new Error('Capability is reserved by configuration');
-      if ((action === 'catalog' || action === 'history') && !owner.fiber) {
-        const domain = await owner.domain.open(scheduleDomain);
-        try {
-          if (action === 'history') {
-            const task = domain.table('tasks').get(ScheduleId(String(args.id)));
-            if (!task || task.sessionId !== sessionId) throw new Error('Unknown schedule');
-            return { id: args.id, records: [...(task.deliveryHistory?.records ?? (task.lastDelivery ? [task.lastDelivery] : []))].reverse().slice(0, Number(args.limit ?? 20)), earlierRecordsUnavailable: task.deliveryHistory?.earlierRecordsUnavailable ?? true };
-          }
-          return [...domain.table('tasks').entries()].map(([, task]) => ({ ...task.record, sessionId: task.sessionId, status: task.status, ...(task.lastDelivery ? { lastDelivery: task.lastDelivery } : {}) })); }
-        finally { await domain.close(); }
-      }
-      if (!owner.fiber) throw new Error('Schedule service is unavailable');
-      if (action === 'catalog') return owner.schedule!.catalog();
-      if (!sessionId) throw new Error('Schedule command requires a bound Session');
-      const session = SessionId(sessionId);
-      if (action === 'create') return owner.schedule!.create(session, args as unknown as ScheduleCreateRequest);
-      if (action === 'list') return owner.schedule!.list({ sessionId: session });
-      if (action === 'history') return owner.schedule!.history({ sessionId: session, id: ScheduleId(String(args.id)), limit: Number(args.limit ?? 20) });
-      if (action === 'delete') return owner.schedule!.delete({ sessionId: session, id: ScheduleId(String(args.id)) });
-      if (action === 'update') return owner.schedule!.update({ ...args, sessionId: session } as unknown as ScheduleUpdateRequest);
-      throw new Error('Unknown schedule command');
+      return run(owner);
     });
-    owner.chain = result.catch(() => {}); return result;
+    owner.chain = result.catch(() => {});
+    return result;
   }
+
+  catalog(agentId: string) {
+    return this.command(agentId, 'catalog', async owner => {
+      if (owner.fiber) return owner.schedule!.catalog();
+      const domain = await owner.domain.open(scheduleDomain);
+      try {
+        return [...domain.table('tasks').entries()].map(([, task]) => ({
+          ...task.record, sessionId: task.sessionId, status: task.status,
+          ...(task.lastDelivery ? {lastDelivery: task.lastDelivery} : {}),
+        }));
+      } finally { await domain.close(); }
+    });
+  }
+
+  history(agentId: string, sessionId: string, id: string, limit = 20): Promise<ScheduleOutput<'history'>> {
+    return this.command(agentId, 'history', async owner => {
+      if (owner.fiber) return owner.schedule!.history({sessionId: SessionId(sessionId), id: ScheduleId(id), limit});
+      const domain = await owner.domain.open(scheduleDomain);
+      try {
+        const task = domain.table('tasks').get(ScheduleId(id));
+        if (!task || task.sessionId !== sessionId) throw new Error('Unknown schedule');
+        return {id, records: [...(task.deliveryHistory?.records ?? (task.lastDelivery ? [task.lastDelivery] : []))].reverse().slice(0, limit),
+          earlierRecordsUnavailable: task.deliveryHistory?.earlierRecordsUnavailable ?? true};
+      } finally { await domain.close(); }
+    });
+  }
+
+  withSchedule<T>(agentId: string, action: string, run: (schedule: ScheduleService) => Promise<T>): Promise<T> {
+    return this.command(agentId, action, async owner => {
+      if (!owner.fiber) throw new Error('Schedule service is unavailable');
+      return run(owner.schedule!);
+    });
+  }
+
   /** Advance saved independent schedules before mounting timers; never replay missed occurrences. */
   async skipMissed(agentId: string, blockedSchedules: Set<string>, now = Date.now()): Promise<void> {
     const owner = await this.owner(agentId);

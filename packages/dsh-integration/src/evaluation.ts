@@ -1,3 +1,4 @@
+import { typedRuntimeRequest } from '@nano/product-contracts/runtime-rpc';
 import { appendFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { Socket } from 'node:net';
@@ -215,7 +216,7 @@ export class NanoMemoryCandidate implements MemoryCandidate {
         skillSelection: { mode: 'explicit_allowlist', names: ['nano-memory', 'nano-interactive-ui'] },
         toolAllowlist: stage === 'prepare' ? ['read', 'write', 'edit', 'memory_maintenance', ...contextTools] : ['read', 'glob', 'grep', 'skill', 'inbox', 'send_message'],
         knowledge: { ...this.options.knowledge, memoryMode: 'document' } };
-      run.product = this.options.createProduct({ configuration, binding, runtime: client.rpc, directory: dir,
+      run.product = this.options.createProduct({ configuration, binding, runtime: {request: typedRuntimeRequest(client.rpc.request.bind(client.rpc)), onNotification: client.rpc.onNotification.bind(client.rpc)}, directory: dir,
         nodeId, startTime: history?.sessions[0]?.timestamp ?? 0, chatSnapshot: prepared?.chatSnapshot,
         deliver: async text => { deliveries.push(text); await writeFile(join(dir, 'deliveries.json'), JSON.stringify(deliveries)); } });
       await client.rpc.request('initialize', { protocol: 1, agents: [configuration],
