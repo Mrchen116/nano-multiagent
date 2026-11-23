@@ -38,16 +38,28 @@ function configurationContracts(dependencies: ConfigurationDependencies, record:
 }
 void configurationContracts;
 
+function setupContract(request:NodeRequest) {
+  // @ts-expect-error Saving model setup requires both the revision and selected models.
+  request('node','node.setup.request',{action:'save'});
+}
+void setupContract;
+
 function handlerContracts(handlers:NodeHandlers) {
   const {['agent.work.permission']: removed, ...partial} = handlers;
   // @ts-expect-error Omitting a supported command leaves the dispatch table incomplete.
   const missing:NodeHandlers = partial;
   // @ts-expect-error A new Node cannot emit arbitrary execution states.
   const wrongState:NodeHandlers['task.execution.state'] = () => ({state:'made-up'});
+  // @ts-expect-error An online jobs reply must distinguish an empty list from a failed read.
+  const emptyJobs:NodeHandlers['node.cron.jobs.request'] = () => ({});
+  // @ts-expect-error A configuration receipt must identify the durable operation.
+  const emptyReceipt:NodeHandlers['agent.create'] = () => ({});
   const wrongInspection:NodeHandlers['node.prompt.preview.request'] = async (_input,_context,reply) => {
+    // @ts-expect-error A preview reply must contain the preview or its failure.
+    await reply({});
     // @ts-expect-error The bound preview callback cannot reply with a cron result.
     await reply({jobs:[]});
   };
-  return {removed,missing,wrongState,wrongInspection};
+  return {removed,missing,wrongState,emptyJobs,emptyReceipt,wrongInspection};
 }
 void handlerContracts;

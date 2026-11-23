@@ -1,6 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
-import { agentConfigurationFingerprint, canonicalAgentConfiguration, type CanonicalAgentConfiguration, type ConfigurationIntent, type ConfigurationResult } from '@nano/product-contracts';
+import { agentConfigurationFingerprint, canonicalAgentConfiguration, type CanonicalAgentConfiguration, type ConfigurationIntent } from '@nano/product-contracts';
 
+import type { NodeReply } from '@nano/product-contracts/node-rpc';
+type ConfigurationResult = NodeReply<'agent.config.apply'>;
 type Intent = ConfigurationIntent;
 export interface ConfigurationPreparation { ready: boolean; error_code?: string; message?: string; blocks?: unknown[] }
 interface Receipt { kind: string; intent: Intent; candidate: CanonicalAgentConfiguration; status: 'pending' | 'applied' | 'rejected'; error_code?: string; message?: string; blocks?: unknown[] }
@@ -41,7 +43,7 @@ export class ConfigurationOperations {
     return task;
   }
   private async perform(kind: string, intent: Intent): Promise<ConfigurationResult> {
-    const reject = (code: string, message: string) => ({ operation_id: intent.operation_id, candidate_fingerprint: intent.candidate_fingerprint, status: 'rejected', error_code: code, message });
+    const reject = (code: string, message: string) => ({ operation_id: intent.operation_id, candidate_fingerprint: intent.candidate_fingerprint, status: 'rejected' as const, error_code: code, message });
     if (!intent.operation_id || !intent.candidate_fingerprint || !intent.agent) return reject('invalid_agent_config', 'Missing operation identity or candidate');
     if (intent.initial_role !== undefined && (kind !== 'create' || typeof intent.initial_role !== 'string' || intent.initial_role.length > 2000)) return reject('invalid_agent_config', 'initial_role is creation-only text of at most 2000 UTF-16 code units');
     let receipt = this.get(intent.operation_id);

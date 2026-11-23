@@ -130,6 +130,8 @@ export interface RuntimeWorkerChange {
 /** Private runtime Work protocol; a page advances only over the included durable prefix. */
 export interface RuntimeWorkPage {
   durable: true;
+  /** Last inherited offset when a read starts before this session's own events. */
+  inheritedThroughSeq?: number;
   /** Durable Inbox notification deliveries awaiting product projection acknowledgement. */
   inboxDelivered?: string[];
   workerChanges?: RuntimeWorkerChange[];

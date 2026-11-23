@@ -167,7 +167,12 @@ export function decodeRuntimeResult<K extends RuntimeMethod, A extends ScheduleA
     // A root may advance only its worker or Inbox confirmations while the native cursor stays fixed.
     const acknowledgements = method === 'session.work.root' &&
       (page.workerChanges?.length || (stoppedRevision === undefined && page.inboxDelivered?.length));
-    if (page.throughSeq < afterSeq || (page.events[0] && page.events[0].seq <= afterSeq) ||
+    // The first legacy page can omit its inherited prefix. Once a cursor exists,
+    // offsets skipped without an inherited prefix would discard unseen events.
+    const firstOffset = page.events[0] ? page.events[0].seq - 1 : page.throughSeq;
+    if (firstOffset < afterSeq ||
+        (page.inheritedThroughSeq !== undefined ? page.inheritedThroughSeq !== firstOffset || firstOffset <= afterSeq :
+          afterSeq >= 0 && firstOffset !== afterSeq) ||
         (page.more && !page.events.length && !acknowledgements))
       throw new RuntimeRpcValidationError(`Invalid ${method} result at throughSeq`);
   }

@@ -2,6 +2,8 @@
 import {z} from 'zod';
 import {parseAgentConfigurationFields, type AgentConfigurationFields} from './configuration-rpc.js';
 
+// A valid result must carry one of the alternatives checked by its wire decoder.
+type WithField<T, K extends keyof T> = T & {[P in K]-?: Required<Pick<T, P>>}[K];
 const text = z.string();
 const id = text.regex(/\S/);
 const strings = z.array(text);
@@ -21,17 +23,19 @@ const intent = z.object({operation_id:id,candidate_fingerprint:id,expected_previ
   agent:configuration.and(agent),initial_role:text.optional()});
 const receipt = z.object({operation_id:text.optional(),candidate_fingerprint:text.optional(),status:text.optional(),
   agent:configuration.nullish(),blocks:list.optional(),...failure});
+const writtenReceipt = receipt.extend({operation_id:id,status:z.enum(['pending','applied','rejected'])});
 const capabilities = z.object({models:list.optional(),skills:list.optional(),tools:list.optional(),commands:list.optional(),
   features:list.optional(),fixed_tools:strings.optional(),platform_default_model:text.nullish(),
   default_workspace_template:text.nullish(),inherited_approval_rules:z.unknown().optional()});
 export type NodeCapabilities = z.infer<typeof capabilities>;
-const catalog = capabilities.extend({capabilities:capabilities.optional(),...failure}).refine(value =>
+const catalogRead = capabilities.extend({capabilities:capabilities.optional(),...failure}).refine(value =>
   value.capabilities !== undefined || value.error_code !== undefined || Object.keys(capabilities.shape).some(key=>Object.hasOwn(value,key)));
+const catalog = z.union([z.object({capabilities}),z.object({error_code:id,message:text})]);
 const previewInput = z.object({features:z.record(text,z.boolean()),tool_ids:strings,skill_ids:strings,
   skills_selection_mode:z.enum(['default_discovery','explicit_allowlist','explicit_denylist']),scenario:text,work_mode:z.enum(['single_thread','global']).optional(),
   workspace_root:text.nullish(),workspace_mode:text.optional(),agent_id_hint:text.nullish(),heartbeat_enabled:z.boolean().optional(),cron_enabled:z.boolean().optional()});
 const preview = z.object({preview:z.object({prompt:text,section_count:z.number()}).optional(),
-  error:z.object({code:text,detail:text.optional()}).optional(),...failure}).refine(p => !!(p.preview || p.error || p.error_code));
+  error:z.object({code:text,detail:text.optional()}).optional(),...failure}).refine((p): p is WithField<typeof p, 'preview' | 'error' | 'error_code'> => !!(p.preview || p.error || p.error_code));
 const plugin = z.discriminatedUnion('action',[
   target.extend({action:z.literal('list_bundles')}),
   target.extend({action:z.literal('set_bundle'),target:id,enabled:z.boolean()}),
@@ -56,14 +60,15 @@ const capabilityUsage = z.object({checked_at:text,active_schedules:z.int(),busy:
 const publicError = z.object({code:text,message:text,dependencies:z.array(z.object({agent_id:id,display_name:text})).optional()});
 const model = z.object({id:id,display_name:text.optional(),context_window:z.int().positive().optional(),
   max_tokens:z.int().positive().optional(),input:z.array(z.enum(['text','image'])).optional()});
-const setupInput = z.object({action:z.enum(['status','save','remove','login','cancel']),revision:text.optional(),
+const setupFields = z.object({revision:text.optional(),
   provider:text.optional(),source:text.optional(),display_name:text.optional(),protocol:z.enum(['openai-completions','anthropic-messages','openai-responses']).optional(),
-  base_url:text.optional(),model:text.optional(),api_key:text.optional(),models:z.array(model).optional()}).superRefine((input,ctx)=>{
-  if (input.action === 'status' || input.action === 'cancel') return;
-  const required = input.action === 'save' ? ['revision','models'] as const
-    : input.action === 'login' ? ['revision','provider','model'] as const : ['revision','provider'] as const;
-  for (const key of required) if (input[key] === undefined) ctx.addIssue({code:'custom',path:[key],message:'Required'});
-});
+  base_url:text.optional(),model:text.optional(),api_key:text.optional(),models:z.array(model).optional()});
+const setupInput = z.discriminatedUnion('action',[
+  setupFields.extend({action:z.enum(['status','cancel'])}),
+  setupFields.extend({action:z.literal('save'),revision:text,models:z.array(model)}),
+  setupFields.extend({action:z.literal('remove'),revision:text,provider:text}),
+  setupFields.extend({action:z.literal('login'),revision:text,provider:text,model:text}),
+]);
 const setup = z.object({revision:text.optional(),catalog_error:text.optional(),default_model:text.optional(),workspace_base:text.optional(),
   services:z.array(z.object({provider:text,display_name:text.optional(),native:z.boolean().optional(),source:text.optional(),
     protocol:text.optional(),base_url:text.optional(),credential_stored:z.boolean().optional(),models:z.array(model.extend({name:text.optional()}))})).optional(),
@@ -72,7 +77,7 @@ const setup = z.object({revision:text.optional(),catalog_error:text.optional(),d
     contextWindow:z.number().optional(),maxTokens:z.number().optional(),inputModalities:strings.optional()}))})).optional(),
   operation:z.object({id:text,state:z.enum(['waiting','testing','succeeded','failed','cancelled']),code:text.optional(),url:text.optional(),
     message:text.optional(),error:publicError.optional()}).optional(),error:publicError.optional(),...failure
-}).refine(value => value.revision !== undefined || !!value.error_code || !!value.error);
+}).refine((value): value is WithField<typeof value, 'revision' | 'error_code' | 'error'> => value.revision !== undefined || !!value.error_code || !!value.error);
 const fork = z.discriminatedUnion('ok',[
   z.object({ok:z.literal(true),new_session_id:text.optional(),id_map:z.record(text,text),error:z.never().optional()}),
   z.object({ok:z.literal(false),error:text,id_map:z.never().optional()}),
@@ -81,7 +86,7 @@ const permission = z.object({ok:z.boolean(),error:text.optional()});
 const state = z.object({state:z.enum(['running','idle','offline','unknown'])});
 const proof = z.object({valid:z.boolean().optional(),checked_at:text.optional(),owner_agent_id:text.optional(),session_id:text.optional(),
   next_check_at:text.optional(),pending_occurrence_id:text.optional(),reason_code:z.enum(['missing','inactive','expired','owner_or_session_mismatch','unavailable']).optional(),...errorText
-}).refine(p => p.error !== undefined || p.valid !== undefined && p.checked_at !== undefined);
+}).refine((p): p is typeof p & ({error:string} | {valid:boolean;checked_at:string}) => p.error !== undefined || p.valid !== undefined && p.checked_at !== undefined);
 function command<const Name extends string,I extends z.ZodType,O extends z.ZodType>(
   responseType:Name,input:I,result:O,invalid?:z.output<NoInfer<O>>,
 ) { return {responseType,input,result,read:result,invalid,inspection:false as const}; }
@@ -91,29 +96,29 @@ function inspection<const Name extends string,I extends z.ZodType,O extends type
 
 /** The wire names are intentionally explicit, including older irregular spellings. */
 export const nodeCommands = {
-  'agent.create':command('agent.created',intent,receipt),
-  'agent.config.apply':command('agent.config.apply.result',intent,receipt),
-  'agent.config.operation.status':command('agent.config.operation.status.result',z.object({operation_id:id}),receipt),
+  'agent.create':{...command('agent.created',intent,writtenReceipt),read:receipt},
+  'agent.config.apply':{...command('agent.config.apply.result',intent,writtenReceipt),read:receipt},
+  'agent.config.operation.status':{...command('agent.config.operation.status.result',z.object({operation_id:id}),writtenReceipt),read:receipt},
   'agent.config.get':command('agent.config',agent,configuration.and(z.object({agent:configuration.nullish()}))),
-  'agent.capabilities.resolve':inspection('agent.capabilities',target,catalog),
-  'node.capabilities.resolve':inspection('node.capabilities',z.object({workspace_root:text.optional(),agent_id_hint:text.optional()}),catalog),
+  'agent.capabilities.resolve':{...inspection('agent.capabilities',target,catalog),read:catalogRead},
+  'node.capabilities.resolve':{...inspection('node.capabilities',z.object({workspace_root:text.optional(),agent_id_hint:text.optional()}),catalog),read:catalogRead},
   'node.approval.resolve':command('node.approval.resolve.result',z.object({workspace_root:id}),z.object({inherited_approval_rules:z.unknown()})),
   'agent.prompt.preview.request':inspection('agent.prompt.preview',previewInput.extend({agent_id:id}),preview),
   'node.prompt.preview.request':inspection('node.prompt.preview',previewInput,preview),
-  'node.plugins.request':command('node.plugins',plugin,z.object({plugins:plugins.optional(),...errorText}).refine(p=>!!p.plugins || !!p.error),{error:'Invalid plugin command'}),
-  'node.skills.usage.request':command('node.skills.usage',target,z.object({usage:usage.optional(),...errorText}).refine(p=>!!p.usage || !!p.error)),
-  'agent.capability-usage.request':command('agent.capability-usage',agent,z.object({usage:capabilityUsage.optional(),error:publicError.optional()}).refine(p=>!!p.usage || !!p.error),
+  'node.plugins.request':command('node.plugins',plugin,z.object({plugins:plugins.optional(),...errorText}).refine((p): p is WithField<typeof p, 'plugins' | 'error'> =>!!p.plugins || !!p.error),{error:'Invalid plugin command'}),
+  'node.skills.usage.request':command('node.skills.usage',target,z.object({usage:usage.optional(),...errorText}).refine((p): p is WithField<typeof p, 'usage' | 'error'> =>!!p.usage || !!p.error)),
+  'agent.capability-usage.request':command('agent.capability-usage',agent,z.object({usage:capabilityUsage.optional(),error:publicError.optional()}).refine((p): p is WithField<typeof p, 'usage' | 'error'> =>!!p.usage || !!p.error),
     {error:{code:'capability_usage_unavailable',message:'Unable to confirm capability usage'}}),
   'node.heartbeat.md.request':command('node.heartbeat.md',workspaceTarget,z.object({content:text})),
   'node.agent.role.request':command('node.agent.role',agent.extend({update:role.optional()}),z.union([
     z.object({role,error:z.never().optional()}),z.object({error:z.enum(['role_conflict','role_unavailable','role_too_long']),role:z.never().optional()}),
   ]),{error:'role_unavailable'}),
-  'node.cron.jobs.request':command('node.cron.jobs',workspaceTarget,z.object({jobs:z.array(job).optional(),...errorText}).refine(p=>!!p.jobs || !!p.error)),
+  'node.cron.jobs.request':command('node.cron.jobs',workspaceTarget,z.object({jobs:z.array(job).optional(),...errorText}).refine((p): p is WithField<typeof p, 'jobs' | 'error'> =>!!p.jobs || !!p.error)),
   'node.cron.delete.request':command('node.cron.delete',target.extend({job_id:id,actor_user_id:id,operation_id:id}),z.object({deleted:z.boolean()})),
   'node.setup.request':command('node.setup',setupInput,setup,{error_code:'setup_invalid',message:'Model setup is unavailable'}),
   'node.distill.prompt.request':command('node.distill.prompt',z.object({sources:z.array(z.object({conversation_id:id,source_agent_id:id,
     external_source:text.optional(),external_chat_id:text.optional()})).nonempty(),execution_agent_id:id,target_scope:z.enum(['agent','global'])}),
-    z.object({prompt:text.optional(),...failure}).refine(p=>p.prompt !== undefined || !!p.error_code),{error_code:'invalid_request',message:'Invalid distill request'}),
+    z.object({prompt:text.optional(),...failure}).refine((p): p is WithField<typeof p, 'prompt' | 'error_code'> =>p.prompt !== undefined || !!p.error_code),{error_code:'invalid_request',message:'Invalid distill request'}),
   'session.fork.request':command('session.fork.result',z.object({source_conversation_id:id,new_conversation_id:id,agent_id:id,
     fork_point:z.object({message_id:id}),source_external_source:text.optional(),source_external_chat_id:text.optional()}),fork,{ok:false,error:'Invalid fork request'}),
   'agent.work.permission':command('agent.work.permission.result',z.object({root_agent_id:id,lifecycle_revision:z.int().optional(),

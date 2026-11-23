@@ -64,6 +64,12 @@ describe('runtime RPC', () => {
     expect(() => decodeRuntimeResult('session.work.child', {...input, childId: 'c'}, workerOnly)).toThrow('throughSeq');
     expect(() => decodeRuntimeResult('session.work.root', input, {...workerOnly, workerChanges: []})).toThrow('throughSeq');
     expect(() => decodeRuntimeResult('session.work.root', {...input, afterSeq: 7}, page)).toThrow('throughSeq');
+    expect(() => decodeRuntimeResult('session.work.root', input, {...page, events:[], throughSeq:100})).toThrow('throughSeq');
+    expect(() => decodeRuntimeResult('session.work.root', input, {...page, events:[{...event,seq:100}], throughSeq:100})).toThrow('throughSeq');
+    const inherited = {...page, events:[], throughSeq:100, inheritedThroughSeq:100};
+    expect(decodeRuntimeResult('session.work.child', {...input,childId:'child'}, inherited)).toBe(inherited);
+    const invalidInbox = {...page, events:[{...event,type:'agent/inbox/spliced',data:{}}]};
+    expect(() => decodeRuntimeResult('session.work.root', input, invalidInbox)).toThrow('data.inserted');
     expect(() => decodeRuntimeResult('session.work.root', input, {...page, durable: false})).toThrow('durable');
     expect(() => decodeRuntimeResult('session.work.root', input, {...page, throughSeq: 8})).toThrow('throughSeq');
     expect(() => decodeRuntimeResult('session.work.root', input, {...page, events: [{...event, data: {turn: 0}}]})).toThrow('events.0.data.message');

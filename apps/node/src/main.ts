@@ -353,7 +353,7 @@ function workspaceAgent(input:NodeParams<'node.cron.jobs.request'>) {
   return agent;
 }
 function scheduleJobs(agentId:string) {
-  return runtime.request('schedule.command',{agentId,action:'jobs'}) as Promise<{id:string;sessionId:string}[]>;
+  return runtime.product.request('schedule.command',{agentId,action:'jobs'});
 }
 const handlers:NodeHandlers = {
   'agent.create':input=>handleConfiguration('create',input),

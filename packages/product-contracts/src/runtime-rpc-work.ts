@@ -6,10 +6,12 @@ import { bool, count, cursor, dataObject, id, ids, input, rpc, text } from './ru
 
 const terminal = z.object({kind: id});
 const content = z.array(z.object({type: id, text: text.optional()}));
+const userMessage = z.object({id, source:z.object({kind:id, background_returns:z.array(z.unknown()).optional()}), content});
 const consumedEventData: Record<string, z.ZodType> = {
   'turn/start': z.object({turn: count}),
   'turn/end': z.object({turn: count, reason: terminal}),
-  'user/message': z.object({id, source: z.object({kind: id, background_returns: z.array(z.unknown()).optional()}), content}),
+  'user/message': userMessage,
+  'agent/inbox/spliced': z.object({inserted:z.array(userMessage)}),
   'assistant/message': z.object({turn: count, message: z.object({id, content})}),
   'tool/call': z.object({turn: count, callId: id, name: id}),
   'tool/result': z.object({turn: count, message: z.object({toolCallId: id, isError: bool.optional(), content})}),
@@ -46,7 +48,7 @@ const workerChange = z.object({
 });
 const workPage: z.ZodType<RuntimeWorkPage> = z.object({
   durable: z.literal(true), inboxDelivered: ids.optional(), workerChanges: z.array(workerChange).optional(),
-  events: z.array(runtimeEvent), modelRuns: z.array(modelRun), modelVersion: text, throughSeq: cursor, more: bool,
+  events: z.array(runtimeEvent), modelRuns: z.array(modelRun), modelVersion: text, throughSeq: cursor, inheritedThroughSeq: count.optional(), more: bool,
 }).superRefine((page, ctx) => {
   if (page.events.some((event, index) => index > 0 && event.seq !== page.events[index - 1]!.seq + 1) ||
       (page.events.length && page.events.at(-1)!.seq !== page.throughSeq))
