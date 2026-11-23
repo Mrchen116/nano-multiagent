@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { ConversationHistory } from "../src/history.js";
 import { NodeStore } from "../src/store.js";
 import type { AgentConfiguration } from "@nano/product-contracts";
+import { typedRuntimeRequest } from "@nano/product-contracts/runtime-rpc";
 const config: AgentConfiguration = {
   agentId: "a",
   workspace: "/workspace",
@@ -23,22 +24,23 @@ it("binds only a successful native branch, preserves aliases and lets retry reus
   });
   store.aliasConversation("a", "shadow", "external:a:feishu:app:dm:owner");
   const calls: unknown[] = [];
-  let fail = true;
+  let outcome: 'error' | 'malformed' | 'ok' = 'error';
   const history = new ConversationHistory({
     store,
     agents: [config],
     runtime: {
       onNotification: () => () => {},
-      request: async (method, value) => {
+      request: typedRuntimeRequest(async (method, value) => {
         calls.push([method, value]);
-        if (method === "session.ensure") return {};
-        if (fail) throw new Error("No native point");
+        if (method === "session.ensure") return {sessionId:"source", revision:"1"};
+        if (outcome === "error") throw new Error("No native point");
+        if (outcome === "malformed") return {sessionId:"branch", revision:"1", idMap:{point:42}};
         return {
           sessionId: "branch",
           revision: "1",
           idMap: { point: "point" },
         };
-      },
+      }),
     },
   });
   const request = {
@@ -50,7 +52,10 @@ it("binds only a successful native branch, preserves aliases and lets retry reus
   try {
     expect(await history.fork(request)).toMatchObject({ ok: false });
     expect(store.bindingFor("a", "new")).toBeUndefined();
-    fail = false;
+    outcome = "malformed";
+    expect(await history.fork(request)).toMatchObject({ok:false, error:expect.stringContaining('idMap')});
+    expect(store.bindingFor("a", "new")).toBeUndefined();
+    outcome = "ok";
     expect(await history.fork(request)).toMatchObject({
       ok: true,
       new_session_id: "branch",

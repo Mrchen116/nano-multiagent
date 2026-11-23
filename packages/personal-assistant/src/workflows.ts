@@ -4,17 +4,6 @@ import type {
   RuntimePort,
 } from "@nano/product-contracts";
 import type { NodeStore } from "./store.js";
-interface ResultRecord {
-  id: string;
-  parentSessionId: string;
-  inputIds: string[];
-  meta: { name: string; description: string };
-  startedAt: number;
-  endedAt: number;
-  usage?: Record<string, unknown>;
-  logs?: { text: string }[];
-  result: { value: unknown; stopReason: string; error?: string };
-}
 interface Options {
   partitionKey?: string;
   agents: AgentConfiguration[];
@@ -55,10 +44,7 @@ export class WorkflowResults {
   private async reconcile() {
     const { store } = this.options;
     const runtime = this.options.runtime.capture?.() ?? this.options.runtime;
-    for (const record of (await runtime.request(
-      "workflow.pending",
-      {},
-    )) as ResultRecord[]) {
+    for (const record of await runtime.request("workflow.pending", {})) {
       const binding = store.bindingForSession(record.parentSessionId);
       if (!binding || !store.lifecycle.allowed(binding.agentId)) continue;
       const config = this.options.agents.find(
@@ -93,10 +79,10 @@ export class WorkflowResults {
             },
           ];
           if (config.mode === "global") {
-            const prior = (await runtime.request("session.lookup", {
+            const prior = await runtime.request("session.lookup", {
               sessionId: binding.sessionId,
               inputId,
-            })) as { accepted: boolean };
+            });
             if (!prior.accepted)
               await runtime.request("session.submit", {
                 sessionId: binding.sessionId,

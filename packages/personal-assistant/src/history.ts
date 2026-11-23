@@ -75,15 +75,11 @@ export class ConversationHistory {
     try {
       const { conversationId: _, ...binding } = source;
       await this.options.runtime.request("session.ensure", binding);
-      const result = (await this.options.runtime.request("session.fork", {
+      const result = await this.options.runtime.request("session.fork", {
         sessionId: source.sessionId,
         messageId,
         operationId: `fork:${agentId}:${destination}`,
-      })) as {
-        sessionId: string;
-        revision: string;
-        idMap: Record<string, string>;
-      };
+      });
       const actual = this.options.store.bind({
         ...source,
         sessionId: result.sessionId,
@@ -121,10 +117,10 @@ export class ConversationHistory {
     );
     if (!config)
       return error("execution_unavailable", "Execution Agent is unavailable");
-    const capabilities = (await this.options.runtime.request(
+    const capabilities = await this.options.runtime.request(
       "configuration.selection",
       { agentId, cwd: config.workspace },
-    )) as { tools: string[]; skills: { name: string }[] };
+    );
     if (
       !capabilities.skills.some(
         (skill) => skill.name === "conversation-skill-distiller",
@@ -150,9 +146,9 @@ export class ConversationHistory {
           "Native source binding is unavailable; legacy history cannot be distilled",
         );
       try {
-        const exported = (await this.options.runtime.request("session.export", {
+        const exported = await this.options.runtime.request("session.export", {
           sessionId: binding.sessionId,
-        })) as { path: string };
+        });
         paths.push(exported.path);
       } catch {
         return error(
