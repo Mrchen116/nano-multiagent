@@ -1,12 +1,14 @@
-import { SessionLogOffset, type Session, type SessionEvent } from '@deepseek-ai/dsh-session';
+import { SessionLogOffset, type Session, type SessionEvent, type TurnEndReason } from '@deepseek-ai/dsh-session';
 import type { UserMessage } from '@deepseek-ai/dsh-llm';
+
+type InputTerminal = TurnEndReason | {kind: 'cancelled-before-consumption'};
 
 /** Durable input accounting also covers a claim interrupted before user/message. */
 export function inputEvidence(events: readonly SessionEvent[], inputId: string) {
   const queues: Record<string, UserMessage[]> = { 'next-turn': [], 'next-step': [] };
   let acceptedSeq: number | undefined;
   let consumedSeq: number | undefined;
-  let terminal: unknown;
+  let terminal: InputTerminal | undefined;
   let inputTurn: number | undefined;
   let turn: number | undefined;
   for (const event of events) {
@@ -78,7 +80,7 @@ type InputState = {
   pending: number;
   insertion?: number;
   turn?: number;
-  terminal?: unknown;
+  terminal?: InputTerminal;
 };
 
 /** Identity-only index for the append-only log of a single native Session. */

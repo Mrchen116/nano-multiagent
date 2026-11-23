@@ -8,6 +8,10 @@
       "types": "./lib/index.d.ts",
       "default": "./lib/index.js"
     },
+    "./runtime-rpc": {
+      "types": "./lib/runtime-rpc.d.ts",
+      "default": "./lib/runtime-rpc.js"
+    },
     "./worker-runtimes": {
       "types": "./lib/worker-runtimes.d.ts",
       "default": "./lib/worker-runtimes.js"
@@ -39,7 +43,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p type-tests"
   },
   "dependencies": {
     "@openuidev/lang-core": "1.0.1",

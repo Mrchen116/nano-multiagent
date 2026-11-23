@@ -33,13 +33,18 @@ export function decodeWorkEvent(value: unknown): DecodedWorkEvent {
       !['event_id', 'root_agent_id', 'session_id', 'type'].every(key => typeof value[key] === 'string' && !!value[key]) || !workObject(value.payload))
     throw new WorkEventError('invalid_sequence');
   fields(value, ['turn_id', 'observed_at'], nullable(text));
-  const p = value.payload;
+  const known = validateWorkPayload(value.type as string, value.payload);
+  return {event: value as unknown as WorkJournalEvent, fact: known ? value as unknown as ReceivedWorkFact : undefined};
+}
+
+/** Validate the shared Work payload fields for journal events and runtime worker details. */
+export function validateWorkPayload(type: string, p: Record<string, unknown>): boolean {
   fields(p, ['run_id'], nullable(text));
   fields(p, ['source_refs'], nullable(Array.isArray));
-  const known = Object.hasOwn(types, String(value.type));
+  const known = Object.hasOwn(types, type);
   if (known) {
     // Only fields consumed by the matching event are fixed; extra wire metadata is retained.
-    switch (value.type) {
+    switch (type) {
       case 'worker_state':
         if (!['parent_session_id', 'title', 'call_id'].every(key => text(p[key])) ||
             !['dsh', 'codex', 'claude'].includes(String(p.runtime)) ||
@@ -90,8 +95,7 @@ export function decodeWorkEvent(value: unknown): DecodedWorkEvent {
       case 'self_evolution_review': fields(p, ['review_id'], text); fields(p, ['updated_targets'], value => Array.isArray(value) && value.every(text)); break;
     }
   }
-  // The assertions are limited to this decoder after every consumed field is checked.
-  return {event: value as unknown as WorkJournalEvent, fact: known ? value as unknown as ReceivedWorkFact : undefined};
+  return known;
 }
 
 /** Validate a complete batch before any of its events can advance the journal.

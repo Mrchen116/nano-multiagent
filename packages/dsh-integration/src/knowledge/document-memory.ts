@@ -206,7 +206,7 @@ export class DocumentMemory {
   async syncSources(agentId: string, snapshot: SourceEligibility) {
     const config = [...this.options.configs.values()].find(config => config.agentId === agentId);
     if (!config) throw new Error('Unknown memory owner.');
-    if (config.knowledge?.memoryMode === 'legacy') return { mode: 'legacy' };
+    if (config.knowledge?.memoryMode === 'legacy') return { mode: 'legacy' as const };
     return (await this.forConfig(config)).syncSources(snapshot);
   }
   async sourcesPending(agentId: string) {
