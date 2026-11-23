@@ -32,19 +32,19 @@
 
 #### R1-W1　四种临时检查结果名仍有第三处生产定义
 
-设计第 36、40、74、104 行要求一处定义结果名，并把 M1 接线列为 IM 与 Node。实际 Channels 在过期时直接比较四个手写结果名。某个有效名称从允许列表漏掉时，已失去服务端请求身份的回复会被当作普通上行请求，在关联模式下换成新 ID。当前 Channels 回归只用 agent.capabilities 验证过期拒发。将这个判断纳入 M1，保留 Channels 的过期处理，从共享配对取得临时检查结果名，或由已绑定的回复入口告知其身份；用四个现行名称证明过期结果不会写出即可。[Channels 出站分流](../../../packages/channels/src/index.ts#L144) · [现有过期测试](../../../packages/channels/tests/web-relay.test.ts#L190)
+设计第 36、40、74、104 行要求一处定义结果名，并把 M1 接线列为 IM 与 Node。实际 Channels 在过期时直接比较四个手写结果名。某个有效名称从允许列表漏掉时，已失去服务端请求身份的回复会被当作普通上行请求，在关联模式下换成新 ID。当前 Channels 回归只用 agent.capabilities 验证过期拒发。将这个判断纳入 M1，保留 Channels 的过期处理，从共享配对取得临时检查结果名，或由已绑定的回复入口告知其身份；用四个现行名称证明过期结果不会写出即可。[Channels 出站分流](../../../../packages/channels/src/index.ts#L144) · [现有过期测试](../../../../packages/channels/tests/web-relay.test.ts#L190)
 
 #### R1-W2　停用后读 Work 的直连适配缺少设计落点与验收
 
-设计第 13 行提到注入的 read，第 65–67、105 行说明普通、scoped、capture 和评测适配。停用完成后 main.ts 把 supervisor.request.bind(supervisor) 直接交给 recordStopped。它绕过 RuntimePartitions，原始响应直接流进 PA 的 recordEvents、commitWork。只在分区端安装解码会漏掉此入口；改接普通运行端口又会让 session.work.root 或 workers.confirm 遇到停用准入，阻断最后一批历史。应让该已选定 supervisor 的读函数也采用共享方法类型与结果解码，同时保留 stoppedRevision 和原停用路径。把“停用后能回补、畸形页不推进该页游标、整个过程不重新启动执行或发布”列入 M2 的适配验证。当前单测直接注入手写 read，不能证明真实 Node 接线。[Node 停用接线](../../../apps/node/src/main.ts#L682) · [原始 supervisor 端口](../../../packages/dsh-integration/src/client.ts#L143) · [PA 消费](../../../packages/personal-assistant/src/global-agent.ts#L1287) · [已有停用测试](../../../packages/personal-assistant/tests/agent-lifecycle.test.ts#L115)
+设计第 13 行提到注入的 read，第 65–67、105 行说明普通、scoped、capture 和评测适配。停用完成后 main.ts 把 supervisor.request.bind(supervisor) 直接交给 recordStopped。它绕过 RuntimePartitions，原始响应直接流进 PA 的 recordEvents、commitWork。只在分区端安装解码会漏掉此入口；改接普通运行端口又会让 session.work.root 或 workers.confirm 遇到停用准入，阻断最后一批历史。应让该已选定 supervisor 的读函数也采用共享方法类型与结果解码，同时保留 stoppedRevision 和原停用路径。把“停用后能回补、畸形页不推进该页游标、整个过程不重新启动执行或发布”列入 M2 的适配验证。当前单测直接注入手写 read，不能证明真实 Node 接线。[Node 停用接线](../../../../apps/node/src/main.ts#L682) · [原始 supervisor 端口](../../../../packages/dsh-integration/src/client.ts#L143) · [PA 消费](../../../../packages/personal-assistant/src/global-agent.ts#L1287) · [已有停用测试](../../../../packages/personal-assistant/tests/agent-lifecycle.test.ts#L115)
 
 #### R1-W3　历史权限场景混合了 IM 本地拒绝与新节点回包
 
-IM delta 的 GIVEN 只要求留有历史记录且节点支持明确拒绝。该条件也覆盖生命周期已撤销的记录，实际 IM 会在派发前返回 agent_lifecycle_revoked。另有不满足 pending、node epoch、轮次状态的记录，会在 IM 自己返回 request_ended。设计第 49、104 行引用的历史测试在中间停用/启用 Agent，最后只断言 409，沿用它足以在没有发出任何新 RPC 时得到相同状态码。请将新保证限于已通过 IM 准入并到达在线新节点的历史决定，在集成验收中记录发出的这一帧、同一 request_id 的业务拒绝及随后 HTTP 409 的 request_ended；旧代际在 IM 提前拒绝继续作为独立回归。无需改动界面或生成真实活跃 Global 审批。[Work 路由](../../../apps/im-server/src/work.ts#L550) · [生命周期错误码](../../../apps/im-server/src/agent-lifecycle.ts#L41) · [引用的历史测试](../../../apps/im-server/tests/agent-lifecycle.test.ts#L122)
+IM delta 的 GIVEN 只要求留有历史记录且节点支持明确拒绝。该条件也覆盖生命周期已撤销的记录，实际 IM 会在派发前返回 agent_lifecycle_revoked。另有不满足 pending、node epoch、轮次状态的记录，会在 IM 自己返回 request_ended。设计第 49、104 行引用的历史测试在中间停用/启用 Agent，最后只断言 409，沿用它足以在没有发出任何新 RPC 时得到相同状态码。请将新保证限于已通过 IM 准入并到达在线新节点的历史决定，在集成验收中记录发出的这一帧、同一 request_id 的业务拒绝及随后 HTTP 409 的 request_ended；旧代际在 IM 提前拒绝继续作为独立回归。无需改动界面或生成真实活跃 Global 审批。[Work 路由](../../../../apps/im-server/src/work.ts#L550) · [生命周期错误码](../../../../apps/im-server/src/agent-lifecycle.ts#L41) · [引用的历史测试](../../../../apps/im-server/tests/agent-lifecycle.test.ts#L122)
 
 #### R1-W4　无业务字段的成功不总是 wire null
 
-设计第 66 行要求“合法的无业务返回以 wire 的 null 为准”。宿主的 session.inbox-delivered.confirm 与 session.work.workers.confirm 在完成副作用后都显式返回空对象。RpcPeer 使用 result ?? null，两个命令实际发出的都是 {}。如果接收方将这些确认建模为只接受 null，会在宿主已完成确认后向 PA 报错；若两端一起改成 null，又改变了既有 wire 形状。请限定 null 规则为原 handler 返回 null 或 undefined，按方法保留显式空对象，使用真实 stdio 编码后的回执作断言。[确认方法](../../../packages/dsh-integration/src/index.ts#L702) · [stdio 信封](../../../packages/dsh-integration/src/rpc.ts#L153)
+设计第 66 行要求“合法的无业务返回以 wire 的 null 为准”。宿主的 session.inbox-delivered.confirm 与 session.work.workers.confirm 在完成副作用后都显式返回空对象。RpcPeer 使用 result ?? null，两个命令实际发出的都是 {}。如果接收方将这些确认建模为只接受 null，会在宿主已完成确认后向 PA 报错；若两端一起改成 null，又改变了既有 wire 形状。请限定 null 规则为原 handler 返回 null 或 undefined，按方法保留显式空对象，使用真实 stdio 编码后的回执作断言。[确认方法](../../../../packages/dsh-integration/src/index.ts#L702) · [stdio 信封](../../../../packages/dsh-integration/src/rpc.ts#L153)
 
 ### Recommendations
 
@@ -80,10 +80,10 @@ IM delta 的 GIVEN 只要求留有历史记录且节点支持明确拒绝。该�
 
 ### 历史问题闭环
 
-- **R1-W1 — closed。** Author Resolution 将 Channels 纳入 M1。修订后契约标注四个临时检查，IM 和 Channels 都从标记及配对表取得结果名。实际的更换请求 ID 分支仍由 Channels 控制，M1 要求逐个检查四个名字过期时均没有写帧，覆盖首轮发现的命名分歧。[设计](design.md#L36) · [M1 退出标准](design.md#L105) · [Channels 出站判断](../../../packages/channels/src/index.ts#L144)
-- **R1-W2 — closed。** Author Resolution 保留 disableAgent 确认后选中的 supervisor 和原 stoppedRevision，把共享结果解码置于根页、子页及确认的消费前。这个 revision 是宿主 workBinding 判定已停用读取的依据。M2 要从 Node 的实际停用接线验证正常补齐、畸形页不推进该页游标以及不重新执行或发布。[设计](design.md#L67) · [Node 接线](../../../apps/node/src/main.ts#L682) · [宿主准入](../../../packages/dsh-integration/src/index.ts#L636)
-- **R1-W3 — closed。** Author Resolution 将保证限定为通过 IM 对记录、轮次、owner、epoch 和 lifecycle 的检查并送达支持该命令的在线节点。设计要求对同一 request_id 核对出站、节点业务拒绝及 HTTP 错误，旧代际的本地拒绝单独断言没有发帧，能区分两个均可能产生 409 的路径。[IM delta](specs/im/agent-work.md) · [M1 验收](design.md#L49) · [IM 路由](../../../apps/im-server/src/work.ts#L550)
-- **R1-W4 — closed。** Author Resolution 按每个方法实际返回值定义 wire 结果。修订明确保留两种 confirm 的空对象，并要求核对经 stdio 编码的回执。宿主显式返回空对象，RpcPeer 的 nullish 转换保持其形状。[设计](design.md#L66) · [两个确认 handler](../../../packages/dsh-integration/src/index.ts#L702) · [RpcPeer 编码](../../../packages/dsh-integration/src/rpc.ts#L153)
+- **R1-W1 — closed。** Author Resolution 将 Channels 纳入 M1。修订后契约标注四个临时检查，IM 和 Channels 都从标记及配对表取得结果名。实际的更换请求 ID 分支仍由 Channels 控制，M1 要求逐个检查四个名字过期时均没有写帧，覆盖首轮发现的命名分歧。[设计](design.md#L36) · [M1 退出标准](design.md#L105) · [Channels 出站判断](../../../../packages/channels/src/index.ts#L144)
+- **R1-W2 — closed。** Author Resolution 保留 disableAgent 确认后选中的 supervisor 和原 stoppedRevision，把共享结果解码置于根页、子页及确认的消费前。这个 revision 是宿主 workBinding 判定已停用读取的依据。M2 要从 Node 的实际停用接线验证正常补齐、畸形页不推进该页游标以及不重新执行或发布。[设计](design.md#L67) · [Node 接线](../../../../apps/node/src/main.ts#L682) · [宿主准入](../../../../packages/dsh-integration/src/index.ts#L636)
+- **R1-W3 — closed。** Author Resolution 将保证限定为通过 IM 对记录、轮次、owner、epoch 和 lifecycle 的检查并送达支持该命令的在线节点。设计要求对同一 request_id 核对出站、节点业务拒绝及 HTTP 错误，旧代际的本地拒绝单独断言没有发帧，能区分两个均可能产生 409 的路径。[IM delta](specs/im/agent-work.md) · [M1 验收](design.md#L49) · [IM 路由](../../../../apps/im-server/src/work.ts#L550)
+- **R1-W4 — closed。** Author Resolution 按每个方法实际返回值定义 wire 结果。修订明确保留两种 confirm 的空对象，并要求核对经 stdio 编码的回执。宿主显式返回空对象，RpcPeer 的 nullish 转换保持其形状。[设计](design.md#L66) · [两个确认 handler](../../../../packages/dsh-integration/src/index.ts#L702) · [RpcPeer 编码](../../../../packages/dsh-integration/src/rpc.ts#L153)
 
 ### Issues
 

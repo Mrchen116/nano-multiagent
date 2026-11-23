@@ -2,7 +2,7 @@
 
 ## Relations
 
-- Related：[refactor-672](../archive/refactor-672-im-contract-boundaries/motivation.md) 已建立 IM 主动节点 RPC 的调用与回包关联契约。本次把约束延伸到 Node 实现端，并覆盖 PA 使用的运行时 RPC。
+- Related：[refactor-672](../refactor-672-im-contract-boundaries/motivation.md) 已建立 IM 主动节点 RPC 的调用与回包关联契约。本次把约束延伸到 Node 实现端，并覆盖 PA 使用的运行时 RPC。
 
 ## 原始诉求
 
@@ -35,10 +35,10 @@ Agent 解读：本次要提前发现的是两端对同一请求或结果理解�
 
 核对基线为 `56b992e83`（`origin/develop`）。
 
-- IM 已将 23 条中心主动 RPC 的命令名与入参、结果、预期回包名关联，并在连接、请求标识和回包名匹配后解码结果。Node 端处理 `task.execution.state` 时独立拼写结果帧名。若只改错这里，IM 会忽略不匹配的回包，调用方最终看到超时。这是源码可推导的失效方式，本次没有观察到线上事故。[IM 命令表](https://github.com/Mrchen116/nano-multiagent/blob/56b992e83a84b44c63f218ed8b36ec8433eddbe4/apps/im-server/src/node-rpc-contracts.ts) · [IM 关联与超时](../../../apps/im-server/src/node-rpc.ts) · [Node 接收与回包](../../../apps/node/src/main.ts)
-- 会话分支横跨两条边界。Node 接到 IM 的 `session.fork.request` 后交给 PA 的历史服务，后者经 `RuntimePort.request("session.fork", …)` 调用 integration，并在本地断言返回形状。integration 单独注册该名称。修改一端的方法名或字段，另一端的真实调用与处理函数之间缺少静态检查。[历史服务](../../../packages/personal-assistant/src/history.ts) · [运行时端口](../../../packages/product-contracts/src/index.ts) · [integration 处理端](../../../packages/dsh-integration/src/index.ts)
-- 现有 IM 结果类型主要描述调用方消费的字段。例如 `task.execution.state` 的结果允许缺少 `state`，解码器也只检查已出现的值。迁移需核对有效成功、失败及缺省回包，避免将局部投影误作完整线上格式。[结果解码器](../../../apps/im-server/src/node-rpc-values.ts)
-- current spec 与线上帧名存在文字差异。例如 Gateway 文档用 `skills_usage_request` / `skills_usage_response` 描述技能使用统计，当前两端使用 `node.skills.usage.request` / `node.skills.usage`。兼容基线采用现有双方实际交换的名称，用户侧行为依据 current spec。[Relay 契约](../../specs/gateway/relay-protocol.md) · [IM 命令表](https://github.com/Mrchen116/nano-multiagent/blob/56b992e83a84b44c63f218ed8b36ec8433eddbe4/apps/im-server/src/node-rpc-contracts.ts)
+- IM 已将 23 条中心主动 RPC 的命令名与入参、结果、预期回包名关联，并在连接、请求标识和回包名匹配后解码结果。Node 端处理 `task.execution.state` 时独立拼写结果帧名。若只改错这里，IM 会忽略不匹配的回包，调用方最终看到超时。这是源码可推导的失效方式，本次没有观察到线上事故。[IM 命令表](https://github.com/Mrchen116/nano-multiagent/blob/56b992e83a84b44c63f218ed8b36ec8433eddbe4/apps/im-server/src/node-rpc-contracts.ts) · [IM 关联与超时](../../../../apps/im-server/src/node-rpc.ts) · [Node 接收与回包](../../../../apps/node/src/main.ts)
+- 会话分支横跨两条边界。Node 接到 IM 的 `session.fork.request` 后交给 PA 的历史服务，后者经 `RuntimePort.request("session.fork", …)` 调用 integration，并在本地断言返回形状。integration 单独注册该名称。修改一端的方法名或字段，另一端的真实调用与处理函数之间缺少静态检查。[历史服务](../../../../packages/personal-assistant/src/history.ts) · [运行时端口](../../../../packages/product-contracts/src/index.ts) · [integration 处理端](../../../../packages/dsh-integration/src/index.ts)
+- 现有 IM 结果类型主要描述调用方消费的字段。例如 `task.execution.state` 的结果允许缺少 `state`，解码器也只检查已出现的值。迁移需核对有效成功、失败及缺省回包，避免将局部投影误作完整线上格式。[结果解码器](../../../../apps/im-server/src/node-rpc-values.ts)
+- current spec 与线上帧名存在文字差异。例如 Gateway 文档用 `skills_usage_request` / `skills_usage_response` 描述技能使用统计，当前两端使用 `node.skills.usage.request` / `node.skills.usage`。兼容基线采用现有双方实际交换的名称，用户侧行为依据 current spec。[Relay 契约](../../../specs/gateway/relay-protocol.md) · [IM 命令表](https://github.com/Mrchen116/nano-multiagent/blob/56b992e83a84b44c63f218ed8b36ec8433eddbe4/apps/im-server/src/node-rpc-contracts.ts)
 
 ## 目标状态
 
@@ -55,30 +55,30 @@ Agent 解读：本次要提前发现的是两端对同一请求或结果理解�
 #### Scenario: 查询在线节点的当前计划
 
 - **WHEN** 用户在 Agent 配置中查看当前计划，节点在线且读取成功
-- **THEN** 已有有效计划仍可见；成功读到空列表时显示没有待执行计划。[当前计划契约](../../specs/im/agents-nodes.md)
+- **THEN** 已有有效计划仍可见；成功读到空列表时显示没有待执行计划。[当前计划契约](../../../specs/im/agents-nodes.md)
 
 #### Scenario: 查询尚无快照的离线节点
 
 - **WHEN** 用户查看当前计划，节点离线且尚无可展示的历史快照
-- **THEN** 用户能区分本次暂时无法读取和已确认没有计划。已有快照仍按现有规则标示来源。[离线行为](../../specs/im/agents-nodes.md)
+- **THEN** 用户能区分本次暂时无法读取和已确认没有计划。已有快照仍按现有规则标示来源。[离线行为](../../../specs/im/agents-nodes.md)
 
 ### Requirement: 配置变更的确认属于发起该操作的用户请求
 
 #### Scenario: 节点已应用配置，确认前连接中断
 
 - **WHEN** 用户保存配置，节点已应用后断线，随后重新连接
-- **THEN** 用户可获知原操作的确认结果；等待期间保留待确认状态，其他请求的回复不能使这次保存显示成功。[配置恢复基线](../archive/refactor-672-im-contract-boundaries/motivation.md)
+- **THEN** 用户可获知原操作的确认结果；等待期间保留待确认状态，其他请求的回复不能使这次保存显示成功。[配置恢复基线](../refactor-672-im-contract-boundaries/motivation.md)
 
 ### Requirement: 从已完成的回复创建分支后可以继续对话
 
 #### Scenario: 在源单聊的较早回复处分支
 
 - **WHEN** 用户从一条已完成的 Agent 回复创建分支，并在新单聊接着问该回复以前讨论过的事
-- **THEN** 新单聊展示截至所选回复的历史，Agent 能沿用该处的上下文继续回答。源单聊在分支点之后的消息不会出现在分支中，分支里的后续对话也不会回流到源单聊。[IM 分支契约](../../specs/im/conversations-messages.md) · [Gateway 分支契约](../../specs/gateway/relay-protocol.md)
+- **THEN** 新单聊展示截至所选回复的历史，Agent 能沿用该处的上下文继续回答。源单聊在分支点之后的消息不会出现在分支中，分支里的后续对话也不会回流到源单聊。[IM 分支契约](../../../specs/im/conversations-messages.md) · [Gateway 分支契约](../../../specs/gateway/relay-protocol.md)
 
 ## 影响范围
 
-第一部分覆盖 IM 主动向 Node 请求并等待回包的全部命令。第二部分覆盖 `packages/personal-assistant` 通过运行时端口实际使用的产品 RPC，包括调用者、透传该调用的 Node 适配层和 integration 的处理端。单向通知、其他 relay 事件以及 integration 私有方法不计入本次 RPC 的覆盖分母。共享契约沿用 `product-contracts` 的职责，DSH 对象继续由 integration 持有。[跨包职责](../../../SPEC.md)
+第一部分覆盖 IM 主动向 Node 请求并等待回包的全部命令。第二部分覆盖 `packages/personal-assistant` 通过运行时端口实际使用的产品 RPC，包括调用者、透传该调用的 Node 适配层和 integration 的处理端。单向通知、其他 relay 事件以及 integration 私有方法不计入本次 RPC 的覆盖分母。共享契约沿用 `product-contracts` 的职责，DSH 对象继续由 integration 持有。[跨包职责](../../../../SPEC.md)
 
 ## 迁移与回滚策略
 
