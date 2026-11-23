@@ -36,10 +36,10 @@
 | 查已放弃或拆分接手的 change unit | [退役索引](changes/retired/README.md)（含 feat-625 审核重试、feat-665 通用 PA 的接手范围与后续去向） |
 | 配置开发环境、运行测试或开发 Node/前端 | [`development/`](development/README.md) |
 | 在 Air/Mini 切换开发、定位本机模型入口与能力 | [本机开发配置](development/local-development.md#本机开发配置) |
-| 判断前端信息主次、文案删留、阅读路径和状态反馈 | [共同体验标准](../.claude/skills/frontend-experience-review/references/prototype-and-runbook.md) → [真实纠正案例](../.claude/skills/frontend-experience-review/references/ui-decision-gotchas.md) |
+| 判断前端信息主次、文案删留、阅读路径和状态反馈 | [共同体验标准](development/frontend-experience.md) → [真实纠正案例](development/frontend-experience-cases.md) |
 | 设计或审查 Agent 实际消费的 Prompt、Skill、工具、消息、Memory 与历史链路 | [`development/agent-context-engineering.md`](development/agent-context-engineering.md) |
 | 判断测试、CI、截图、runtime 或 LLM 日志能证明什么 | [`development/evidence.md`](development/evidence.md) |
-| 按指定场景或核心能力真实试用，检查用户体验、后台执行并归因 | [`product-tryout`](../.claude/skills/product-tryout/SKILL.md) |
+| 按指定场景或核心能力真实试用，检查用户体验、后台执行并归因 | [Nano 场景与归因参考](development/product-tryout.md) |
 | 设计、移动或退役长期文档 | [`development/documentation-system.md`](development/documentation-system.md) |
 | 启动、调试或恢复服务 | [`operations/`](operations/README.md) |
 | 生产 Tunnel HTTP2/IPv6 出口、健康恢复与部署门禁 | [`operations/prod-fleet.md`](operations/prod-fleet.md#源站与隧道) → [`../scripts/prod_tunnel.py`](../scripts/prod_tunnel.py) |
@@ -72,21 +72,21 @@
 | 产品定位、目标用户和跨版本体验原则是什么 | [`product/`](product/README.md) | vision 维护组织级愿景、长期职责、主动性、并行与记忆；current 能力另查 specs |
 | 顶层包如何分工、允许怎样依赖、如何部署 | [`../SPEC.md`](../SPEC.md) | 跨包架构与不变量 |
 | 单包当前应该表现为什么 | [`specs/<package>/`](specs/README.md) | current 行为契约 |
-| 长青 spec 如何编写、delta-spec 如何归并 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) | 契约层内容规则 |
-| change unit 如何选择、推进，如何选择实施方式，经过哪些角色和门禁 | [`development/change-workflow.md`](development/change-workflow.md) | 当前开发变更生命周期 |
-| 流程如何选择、组合能力并接收判断 | [`development/skill-composition.md`](development/skill-composition.md) | 能力边界、按需加载、统一结果与历史接手 |
-| change unit 如何命名，文件放在哪里、由谁维护和归档 | [`changes/README.md`](changes/README.md) | unit 存储与文件归属 |
+| 长青 spec 如何编写、delta-spec 如何归并 | [`specs/CONTRIBUTING.md`](specs/CONTRIBUTING.md) | Nano 契约目录与检查规则；链接通用写法 |
+| change unit 如何选择、推进，如何选择实施方式，经过哪些角色和门禁 | [`development/change-workflow.md`](development/change-workflow.md) | Nano 分支、CI 与清理规则；链接通用生命周期 |
+| 流程如何选择、组合能力并接收判断 | [`development/skill-composition.md`](development/skill-composition.md) | Nano 项目入口与通用能力组合 |
+| change unit 如何命名，文件放在哪里、由谁维护和归档 | [`changes/README.md`](changes/README.md) | Nano 编号、部署提示词与历史；链接通用文件归属 |
 | 开发流程、环境、测试和联调文档如何进入 | [`development/`](development/README.md) | 开发任务地图 |
 | 本地环境、本机路径/能力、常用命令和提交格式是什么 | [`development/local-development.md`](development/local-development.md) | 开发者本地入口 |
 | worktree 内如何隔离启动真实服务并完成清理 | [`development/worktree-runtime.md`](development/worktree-runtime.md) | 临时端口、config、进程、数据和绑定隔离 |
 | 测试如何分层、什么值得进入长期测试 | [`development/testing.md`](development/testing.md) | 测试规范 |
-| 一次验证如何形成可复查证据、结果保存和归并到哪里 | [`development/evidence.md`](development/evidence.md) | Evidence 能力边界与流转 |
+| 一次验证如何形成可复查证据、结果保存和归并到哪里 | [`development/evidence.md`](development/evidence.md) | Nano 证据入口与保存约束；链接通用证据方法 |
 | 哪些真实用户旅程必须长期守护 | [`development/e2e-critical-paths.md`](development/e2e-critical-paths.md) | 确定性关键路径与 E2E 对账 |
 | 服务如何启动、观察、恢复和排障 | [`operations/`](operations/README.md) | 开发主链路、公网 HTTPS/Tunnel 生产舰队、Gateway 或排障 |
 | 首次升级 PA workspace/global home 目录 | [`operations/pa-workspace-layout-migration.md`](operations/pa-workspace-layout-migration.md) | 两机一次性、无覆盖的人工迁移 prompt |
 | LLM provider、本地代理与交互日志如何联调 | [`development/llm-integration.md`](development/llm-integration.md) | 模型与代理入口 |
 | 仓库代码应遵守哪些编写规范 | [`development/coding-guidelines.md`](development/coding-guidelines.md) | 跨模块通用编码规范；当前包含注释与 docstring |
-| 模型可见 Context 如何设计及验证 | [`development/agent-context-engineering.md`](development/agent-context-engineering.md) | 跨 Surface 的唯一通用设计方法；审查程序在 agent-context-review，观测操作在 llm-integration |
+| 模型可见 Context 如何设计及验证 | [`development/agent-context-engineering.md`](development/agent-context-engineering.md) | Nano 运行时落点与场景；链接通用设计方法、审查 Skill 和本机取证入口 |
 | Agent 开始任务前必须知道什么 | [`../AGENTS.md`](../AGENTS.md) | 仓库级指令、关键入口与运行约束 |
 | Agent-Native 仓库知识体系如何设计和维护 | [`development/documentation-system.md`](development/documentation-system.md) | 已经本仓迁移与真实 Agent 任务验证；证据来源见 research |
 | 长期 Agent 评测资产、物化方法和实验协议放在哪里 | [`../evals/`](../evals/README.md) | 与产品测试和 change unit 分离；候选仓不包含控制资产 |

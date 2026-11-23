@@ -1,4 +1,6 @@
-# Nano 场景与归因参考
+# Nano 产品试用场景与归因
+
+调用 [product-tryout](https://github.com/Mrchen116/dev-workflow-skills/blob/main/skills/product-tryout/SKILL.md) 后，用下文选择 Nano 场景。从 [隔离运行入口](worktree-runtime.md) 启动，观察真实界面、后台执行和模型行为，按 [Nano 证据约定](evidence.md) 留存结果。
 
 设计默认场景或需要理解归因深度时读取。例子来自 [2026-10-14 试用聊天](codex://threads/01a1360b-0c03-7021-911e-685a89c08129)的最初实玩，以及随后针对实际发现的分析；它们不是当前缺陷清单，也不要求复刻所有场景。原本地报告位于 `output/playwright/global-agent-20261014/report.html`，不存在时不依赖它才能执行本 skill。
 

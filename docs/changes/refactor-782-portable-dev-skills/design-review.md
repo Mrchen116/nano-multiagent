@@ -24,3 +24,18 @@
 ### Author Resolutions
 - R1-W1 accepted，设计补充了编号和模板测试的迁移、Nano 归档与文档检查的保留位置。
 - R1-W2 accepted，设计补充外库先发布验证、失败保留/恢复入口以及同源幂等检查。
+
+## Round 2
+
+- Reviewer target: 独立 `design_review`（Sol），`0d45fb2f0`
+- review_mode: closure
+- mode_reason: 修订限于原两项问题，其他范围沿用 Round 1 证据
+- started_at: 2026-11-23T13:24:15+09:00
+- completed_at: 2026-11-23T13:24:24+09:00
+- duration: 9s
+- Verdict: Approved（0 CRITICAL / 0 WARNING）
+
+### 历史问题闭环
+
+- **R1-W1 closed。** Author 将编号和模板测试归入独立库。核对修订，Nano 保留独立归档检查、CI 接线和本地技能链接检查，CI 无需安装或跨库下载测试材料。
+- **R1-W2 closed。** Author 明确外库先可获取并实测，再交付 Nano PR。核对修订，安装失败保留旧入口，合入后可撤销切换提交，两宿主指向同一源时重复注册应成功。
