@@ -182,7 +182,6 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
     }
   }
   function bubble(message: Message) {
-    const mine = message.sender.id === selfUserId || message.sender_user_id === selfUserId;
     const sender = message.sender;
     const name = sender.display_name || sender.id;
     const time = new Date(message.created_at);
@@ -193,7 +192,7 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
         personal={agent && sender.role === "personal"} avatarVariant={sender.avatar_variant} />
       <div className="chat-thread-message-body">
         <div className="chat-thread-byline">
-          <strong>{mine ? t("chat.messagePane.threadMe") : name}</strong>
+          <strong>{name}</strong>
           {message.pa_agent_id && <span>{t("pa.sentOnBehalf")}</span>}
           {message.delegation && <span>{message.delegation.label}</span>}
           <time dateTime={message.created_at}>{time.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</time>

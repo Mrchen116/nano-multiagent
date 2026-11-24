@@ -1172,7 +1172,6 @@
       "thread": "Reply in thread",
       "threadTitle": "Thread",
       "threadReplies": "{{n}} replies",
-      "threadMe": "Me",
       "threadMessage": "View message",
       "threadViewAll": "View all {{n}} replies",
       "threadViewAll_one": "View 1 reply",

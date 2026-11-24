@@ -2239,7 +2239,7 @@ function MessageBubble({
               />
             </div>
           )}
-          {message.thread && <ThreadEntry message={message} selfUserId={selfUserId} participants={participants} expanded={!!threadSelected} onOpen={() => onOpenThread?.(message.id)} />}
+          {message.thread && <ThreadEntry message={message} participants={participants} expanded={!!threadSelected} onOpen={() => onOpenThread?.(message.id)} />}
         </div>
 
         {message.update_wait && <p className={`mb-0 mt-1 text-[11px] leading-4 text-[var(--im-text-muted)] ${isUser?'text-right':''}`} role="status">{t(message.update_wait==='recovery_required'?'nodeUpdate.waitRecovery':'nodeUpdate.waitMessage')}</p>}
@@ -2291,8 +2291,8 @@ function MessageBubble({
   );
 }
 
-function ThreadEntry({message, selfUserId, participants, expanded, onOpen}: {
-  message: Message; selfUserId?: string | null; participants?: Conversation["participants"]; expanded: boolean; onOpen(): void;
+function ThreadEntry({message, participants, expanded, onOpen}: {
+  message: Message; participants?: Conversation["participants"]; expanded: boolean; onOpen(): void;
 }) {
   const {t} = useTranslation();
   const thread = message.thread!;
@@ -2301,7 +2301,7 @@ function ThreadEntry({message, selfUserId, participants, expanded, onOpen}: {
     <button type="button" className="chat-thread-entry"
       aria-expanded={expanded} data-testid={`thread-entry-${message.id}`} onClick={onOpen}>
       {thread.recent_replies?.map(reply => <span className="chat-thread-preview" key={reply.id}>
-        <strong>{reply.sender_user_id === selfUserId ? t("chat.messagePane.threadMe") : reply.display_name}</strong>
+        <strong>{reply.display_name}</strong>
         <span>{mentionPlainText(reply.preview, names) || t("chat.messagePane.threadMessage")}</span>
       </span>)}
       <span className="chat-thread-entry-label">{t("chat.messagePane.threadViewAll", {n: thread.reply_count, count: thread.reply_count})}</span>
