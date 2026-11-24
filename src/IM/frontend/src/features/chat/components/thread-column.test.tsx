@@ -73,3 +73,25 @@ it("holds the reading position above the bottom and follows new replies at the b
   expect(scroller.scrollTop).toBe(800);
   expect(onRead).toHaveBeenCalledWith("third");
 });
+
+it("restores the draft and quote only in their original topic", async () => {
+  const client = new QueryClient();
+  vi.mocked(authFetchJson).mockResolvedValue({root, following: false, items: []});
+  const open = (id: string) => render(<QueryClientProvider client={client}><ThreadColumn
+    conversation={group} selfUserId="draft-owner" isMobile={false} rootId={id}
+    onSent={() => {}} onClose={() => {}} mentionCandidates={[]}
+    renderBody={item => item.content} renderQuote={item => item.content} /></QueryClientProvider>);
+  const original = open(root.id);
+  const input = await screen.findByRole("textbox");
+  expect(input).toHaveFocus();
+  fireEvent.click(screen.getByRole("button", {name: /Reply|回复/}));
+  fireEvent.change(input, {target: {value: "Half a thought"}});
+  original.unmount();
+
+  const other = open("second-topic");
+  expect(await screen.findByRole("textbox")).toHaveValue("");
+  other.unmount();
+  open(root.id);
+  expect(await screen.findByRole("textbox")).toHaveValue("Half a thought");
+  expect(screen.getByRole("button", {name: /Cancel|取消/})).toBeInTheDocument();
+});

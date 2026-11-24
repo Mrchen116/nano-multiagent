@@ -11,7 +11,8 @@ const AVATAR_PALETTE = [
   { background: "#dfd8e8", foreground: "#69567b" },
   { background: "#e7d7dc", foreground: "#79525f" },
   { background: "#cbdedb", foreground: "#2f5954" },
-  { background: "#d5ddea", foreground: "#485c7d" }
+  { background: "#d5ddea", foreground: "#485c7d" },
+  { background: "#ffe4c9", foreground: "#765035" }
 ];
 
 /** Deterministic color from a curated palette, seeded by the full display name. */

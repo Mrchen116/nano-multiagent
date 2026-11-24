@@ -66,9 +66,11 @@ export function composerStoreFor(userId: string | null): Map<string, ComposerSna
 export function writeComposerSnapshot(
   store: Map<string, ComposerSnapshot>,
   conversationId: string,
-  snapshot: ComposerSnapshot
+  snapshot: ComposerSnapshot,
+  membershipId = conversationId
 ): void {
-  if (revokedConversations.get(store)?.has(conversationId)) return;
+  const revoked = revokedConversations.get(store);
+  if (revoked?.has(membershipId) || revoked?.has(conversationId)) return;
   store.set(conversationId, cloneComposerSnapshot(snapshot));
   listeners.get(store)?.forEach((listener) => listener(conversationId));
 }
@@ -114,6 +116,8 @@ export function forgetComposerConversation(store: Map<string, ComposerSnapshot>,
   revoked.add(conversationId);
   revokedConversations.set(store, revoked);
   store.delete(conversationId);
+  const threadPrefix = threadDraftKey(conversationId, "");
+  for (const key of store.keys()) if (key.startsWith(threadPrefix)) store.delete(key);
   listeners.get(store)?.forEach(listener => listener(conversationId));
 }
 
@@ -128,4 +132,9 @@ export function forgetComposerUser(userId: string): void {
   if (!store) return;
   for (const id of store.keys()) forgetComposerConversation(store, id);
   stores.delete(userId);
+}
+
+/** Topic drafts share the account store and membership lifetime with the parent chat. */
+export function threadDraftKey(conversationId: string, rootId: string): string {
+  return `thread/${encodeURIComponent(conversationId)}/${encodeURIComponent(rootId)}`;
 }

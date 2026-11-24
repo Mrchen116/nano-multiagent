@@ -2440,7 +2440,7 @@ describe("MessagePane", () => {
       token_usage: { output: 1234, context_used: 30000, context_window: 200000 },
       permission_requests: []
     };
-    it("matches prototype: user bubbles have no avatar, agent avatar stays outside the bubble", () => {
+    it("keeps both sender avatars outside the message bubbles", () => {
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -2451,7 +2451,9 @@ describe("MessagePane", () => {
         />
       );
       const userBubble = screen.getByTestId(`message-bubble-${TS_USER.id}`);
-      expect(screen.queryByTestId(`message-avatar-${TS_USER.id}`)).toBeNull();
+      const userAvatar = screen.getByTestId(`message-avatar-${TS_USER.id}`);
+      expect(userAvatar).toBeVisible();
+      expect(userBubble.contains(userAvatar)).toBe(false);
       const agentAvatar = screen.getByTestId(`message-avatar-${TS_AGENT_LOW.id}`);
       const agentBubble = screen.getByTestId(`message-bubble-${TS_AGENT_LOW.id}`);
       expect(agentBubble.contains(agentAvatar)).toBe(false);

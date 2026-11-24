@@ -1,4 +1,5 @@
-import { AssistantPortrait } from "./assistant-portrait";
+import { ComposerAttachmentButton, useComposerHeight } from "./composer-controls";
+import { formatHM } from "../message-time";
 import { ThreadColumn } from "./thread-column";
 import { CooperationGuide, type CooperationGuideAgent } from "./cooperation-guide";
 import { AgentActivityPopover, type AgentActivityAnchor } from "./agent-activity-popover";
@@ -720,25 +721,13 @@ export function MessagePane({
     mentionQuery === null && !slashDismissed && !directControlCommand
       ? matchSlashTrigger(draft)
       : null;
-  const minComposerRows = isMobile ? 1 : 2;
   const maxComposerRows = isMobile ? 4 : 5;
   const composerRows = Math.min(
     maxComposerRows,
-    Math.max(minComposerRows, draft.split("\n").length)
+    draft.split("\n").length
   );
 
-  useLayoutEffect(() => {
-    const el = composerRef.current;
-    if (!el) return;
-    const resize = () => {
-      // Wrapped lines need the same growth as explicit newlines; CSS caps the height.
-      el.style.height = "auto";
-      el.style.height = `${el.scrollHeight + 2}px`;
-    };
-    resize();
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, [draft, composerRows, isMobile, conversation.can_write]);
+  useComposerHeight(composerRef, draft, conversation.can_write !== false && !(isMobile && openThreadId));
 
   function changeDraft(next: string) {
     setSlashDismissed(false);
@@ -746,7 +735,7 @@ export function MessagePane({
   }
 
   const placeholder = isGroup
-    ? t("chat.messagePane.placeholderGroup")
+    ? t("chat.messagePane.placeholderGroup", { title: conversation.title })
     : t("chat.messagePane.placeholderDirect", { title: conversation.title });
 
   async function commit(text: string, onlyText = false) {
@@ -1297,13 +1286,16 @@ export function MessagePane({
                     : t("chat.messagePane.historyEnd")}
                 </div>
               )}
-              {renderedTimeline.map((item) => {
+              {renderedTimeline.map((item, index) => {
                 if (item.type === "agent_config_changed") {
                   return anchoredMessageIds.has(item.before_message_id)
                     ? <ConfigurationBoundaryDivider key={item.id} />
                     : null;
                 }
                 const m = item.message;
+                const previous = renderedTimeline[index - 1];
+                const repeatedTime = timeDividers.has(m.id) || (previous?.type === "message"
+                  && formatHM(previous.message.created_at) === formatHM(m.created_at));
                 return (
                   <React.Fragment key={m.id}>
                     {timeDividers.has(m.id) && (
@@ -1316,6 +1308,7 @@ export function MessagePane({
                       availableMessageIds={anchoredMessageIds}
                     key={m.id}
                     message={m}
+                    repeatedTime={repeatedTime}
                     threadSelected={openThreadId === m.id}
                     historyProcess={historyProcess}
                     selfUserId={selfUserId}
@@ -1382,6 +1375,7 @@ export function MessagePane({
               onClick={() => void commit(draft, true)}>{zh ? "仅发送文字" : "Send text only"}</button>
           </div>}
           <div className="chat-pane-composer-row">
+            <ComposerAttachmentButton onAdd={handleAdd} disabled={composerBusy} />
             {isGroup && mentionQuery !== null && (
               <MentionPicker
                 candidates={mentionCandidates}
@@ -1425,6 +1419,7 @@ export function MessagePane({
                   }
                 }}
                 placeholder={placeholder}
+                title={isMobile ? undefined : t(isGroup ? "chat.messagePane.helpDesktopGroup" : "chat.messagePane.helpDesktop")}
                 rows={composerRows}
                 className="chat-pane-composer-input chat-composer-highlight-input"
               />
@@ -1441,11 +1436,6 @@ export function MessagePane({
             </button>
           </div>
           </div>
-          {!isMobile && (
-            <p className="chat-pane-composer-help">
-              {isGroup ? t("chat.messagePane.helpDesktopGroup") : t("chat.messagePane.helpDesktop")}
-            </p>
-          )}
         </AttachmentDropzone>
       </form>}
 
@@ -1557,15 +1547,24 @@ export function MessagePane({
           targetId={openThreadId === initialThreadId ? threadMessageId : null} selfUserId={selfUserId}
           mentionCandidates={mentionCandidates} isMobile={isMobile} onRead={onReadMessage}
           renderQuote={quote => replyPreview(quote, conversation.participants, zh)}
-          renderBody={(message, sendCard, submittedMessageId, locate) => <><MessageContents message={message}
+          renderBody={(message, sendCard, submittedMessageId, locate) => <MessageContents message={message}
             participants={conversation.participants} readOnly={conversation.can_write===false} isGroup={isGroup}
             interactiveReadOnly={conversation.can_write===false || Boolean(message.interactive?.read_only || message.interactive?.superseded_by)}
             submittedMessageId={submittedMessageId} onSend={sendCard} historyProcess={historyProcess}
-            onComposeMessage={onComposeMessage} onNavigateMessage={locate} />
-            {message.sender_user_id===selfUserId && !!message.receipts?.length &&
-              <MessageReceipt receipts={message.receipts} load={historyProcess && (signal => historyProcess.load(message.id,signal))} />}
-          </>}
-          onClose={() => { setOpenThreadId(null); if (initialThreadId) onCloseLocatedThread?.(); }}
+            onComposeMessage={onComposeMessage} onNavigateMessage={locate} />}
+          renderReceipt={message => message.sender_user_id === selfUserId && Boolean(message.receipts?.length) &&
+              <MessageReceipt receipts={message.receipts ?? []} load={historyProcess && (signal => historyProcess.load(message.id,signal))} />}
+          onClose={() => {
+            const origin = document.getElementById(`chat-message-${openThreadId}`);
+            setOpenThreadId(null);
+            if (initialThreadId) onCloseLocatedThread?.();
+            requestAnimationFrame(() => {
+              const target = origin?.querySelector<HTMLElement>(".chat-thread-entry")
+                ?? origin?.querySelector<HTMLElement>(".chat-bubble-card");
+              target?.focus({ preventScroll: true });
+              if (isMobile) target?.scrollIntoView?.({block: "nearest"});
+            });
+          }}
           onSent={message => onRecoveredRef.current?.(message)} />
       )}
     </section>
@@ -1916,7 +1915,7 @@ function MessageReceipt({ receipts: cached, load }: {
 }
 
 function MessageBubble({
-  message, threadSelected,
+  message, threadSelected, repeatedTime,
   historyProcess,
   selfUserId,
   workHref,
@@ -1940,6 +1939,7 @@ function MessageBubble({
 }: {
   message: Message;
   threadSelected?: boolean;
+  repeatedTime?: boolean;
   historyProcess?: MessagePaneProps["historyProcess"];
   onComposeMessage?(target: string, text: string): Promise<void>;
   interactiveReadOnly?: boolean;
@@ -1987,7 +1987,7 @@ function MessageBubble({
   const isHuman = message.sender.type === "user";
   const isUser = isHuman && (message.sender.id === selfUserId || message.sender_user_id === selfUserId);
   const isAgent = message.sender.type === "agent";
-  const initials = (message.sender.display_name ?? message.sender.id).slice(0, 2).toUpperCase();
+  const initials = initialsOf(message.sender.display_name ?? message.sender.id);
   const ts = formatHM(message.created_at);
   const senderColor = colorForAgentSeed(message.sender.display_name ?? message.sender.id);
   const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
@@ -2139,13 +2139,11 @@ function MessageBubble({
         : null
     : null;
 
-  const messageAvatar = message.sender.type === "agent" && !message.pa_agent_id
-    ? <span data-testid={`message-avatar-${message.id}`}><AssistantPortrait personal={message.sender.role === "personal"} seed={message.sender.id} variant={message.sender.avatar_variant} size={30} /></span> : <span
-    data-testid={`message-avatar-${message.id}`}
-    className="inline-flex shrink-0 items-center justify-center w-[30px] h-[30px] rounded-full text-white text-[12px] font-semibold"
-    style={{ backgroundColor: senderColor, color: foregroundForAvatar(senderColor) }}
-    aria-hidden
-  >{initials}</span>;
+  const messageAvatar = <span className="chat-bubble-avatar" data-testid={`message-avatar-${message.id}`}>
+    <Avatar initials={initials} color={senderColor} size={30}
+      agentId={isAgent && !message.pa_agent_id ? message.sender.id : undefined}
+      personal={isAgent && !message.pa_agent_id && message.sender.role === "personal"} avatarVariant={message.sender.avatar_variant} />
+  </span>;
 
   if (isSystem) {
     const noticeText = formatSystemNotice(t, message.system_notice, isDirectChat);
@@ -2164,7 +2162,7 @@ function MessageBubble({
       data-thread-selected={threadSelected || undefined}
       className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}
     >
-      {(!isUser || message.pa_agent_id) && (onActivity ? <button
+      {onActivity ? <button
         type="button"
         className="chat-agent-activity-trigger"
         aria-label={t("chat.agentActivity.trigger", {name: message.sender.display_name ?? message.sender.id})}
@@ -2172,7 +2170,7 @@ function MessageBubble({
         aria-expanded={Boolean(activityExpanded)}
         data-activity-anchor={message.id}
         onClick={event => onActivity({agentId: message.sender.id, name: message.sender.display_name ?? message.sender.id, element: event.currentTarget})}
-      >{messageAvatar}</button> : messageAvatar)}
+      >{messageAvatar}</button> : messageAvatar}
       <div className="chat-bubble-column flex flex-col min-w-0">
         {(!isUser || message.pa_agent_id) && (showSender || message.pa_agent_id || message.delegation) && (
           <div className="chat-bubble-meta" aria-label={message.pa_agent_id ? t('pa.senderLabel', {name:message.sender.display_name ?? message.sender.id}) : undefined}>
@@ -2245,7 +2243,7 @@ function MessageBubble({
         {message.update_wait && <p className={`mb-0 mt-1 text-[11px] leading-4 text-[var(--im-text-muted)] ${isUser?'text-right':''}`} role="status">{t(message.update_wait==='recovery_required'?'nodeUpdate.waitRecovery':'nodeUpdate.waitMessage')}</p>}
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span className="relative inline-flex items-center gap-1">
-            <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
+            <time className={repeatedTime ? "chat-time-repeated" : undefined} dateTime={message.created_at} data-testid={`message-timestamp-${message.id}`}>{ts}</time>
             {isUser && !!message.receipts?.length && <MessageReceipt receipts={message.receipts}
               load={historyProcess && (signal => historyProcess.load(message.id, signal))} />}
           </span>
@@ -2304,7 +2302,7 @@ function ThreadEntry({message, participants, expanded, onOpen}: {
         <strong>{reply.display_name}</strong>
         <span>{mentionPlainText(reply.preview, names) || t("chat.messagePane.threadMessage")}</span>
       </span>)}
-      <span className="chat-thread-entry-label">{t("chat.messagePane.threadViewAll", {n: thread.reply_count, count: thread.reply_count})}</span>
+      <span className="chat-thread-entry-label">{t(expanded ? "chat.messagePane.threadCount" : "chat.messagePane.threadViewAll", {n: thread.reply_count, count: thread.reply_count})}</span>
     </button>
   );
 }
@@ -2490,14 +2488,6 @@ function timelineTimeDividers(items: TimelineItem[], locale: string): Map<string
     previous = date;
   }
   return labels;
-}
-
-function formatHM(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
 }
 
 /** Both reading surfaces preserve card actions, attachments, process history and approvals. */
