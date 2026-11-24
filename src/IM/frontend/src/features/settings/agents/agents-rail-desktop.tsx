@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
-import { AgentLifecycleRow as AgentRow } from "./agent-lifecycle";
+import { AgentLifecycleRow as AgentRow, useDirectoryLifecycleRefresh } from "./agent-lifecycle";
 import { PersonalAgentEntry, configuredPersonalAgent, usePersonalAgentEntry } from "./personal-agent-entry";
 import { publicAgentsFromContacts } from "./public-agents";
 import {listContacts} from '../../chat/contacts-api';
@@ -23,6 +23,7 @@ export function AgentsRailDesktop({ activeId, isCreatePage = false, onSelectAgen
   const query = useQuery({ queryKey: ["contacts", self, "agents"], queryFn: () => listContacts('', 'agent'),
     select: publicAgentsFromContacts,
     refetchInterval: 3000, staleTime: 30_000 });
+  useDirectoryLifecycleRefresh(query.refetch);
   const [search, setSearch] = useState("");
   const agents = query.data ?? [];
   const personal = usePersonalAgentEntry();
