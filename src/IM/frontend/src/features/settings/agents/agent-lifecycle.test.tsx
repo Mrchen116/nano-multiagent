@@ -116,3 +116,19 @@ it('updates the directory immediately after a successful enable without a socket
   await userEvent.click(await screen.findByRole('button',{name:'Enable Agent'}));
   await waitFor(() => expect(client.getQueryData(key)).toEqual([{agent_id:'a',display_name:'Assistant',lifecycle_disabled:false}]));
 });
+
+it('keeps a confirmed directory badge when the same stop request returns its earlier stopping receipt', async () => {
+  let finishStop!: (response:Response) => void;
+  vi.stubGlobal('fetch',vi.fn(async (_url, init) => init?.method === 'PUT'
+    ? new Promise<Response>(resolve => { finishStop=resolve; })
+    : Response.json(snapshot())));
+  const client=mount();
+  const key=['contacts','u','agents'];
+  client.setQueryData(key,[{agent_id:'a',lifecycle_disabled:false}]);
+  await userEvent.click(await screen.findByRole('button',{name:'Disable Agent'}));
+  // The open directory already applied the node's confirmation.
+  client.setQueryData(key,[{agent_id:'a',lifecycle_disabled:true}]);
+  finishStop(Response.json(snapshot('disabled','stopping',2)));
+  await screen.findByText('The computer is offline. Disabling will continue when it reconnects.');
+  expect(client.getQueryData(key)).toEqual([{agent_id:'a',lifecycle_disabled:true}]);
+});

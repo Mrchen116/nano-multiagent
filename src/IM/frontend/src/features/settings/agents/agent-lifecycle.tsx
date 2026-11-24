@@ -43,7 +43,10 @@ export function useAgentLifecycle(agentId: string) {
     onSuccess: async value => {
       await client.cancelQueries({queryKey: key});
       const state = client.setQueryData<AgentLifecycleSnapshot>(key, current => current && current.revision > value.revision ? current : value);
-      if (state) updateDirectoryBadge(client,self,agentId,confirmedDisabled(state));
+      // The node can confirm a stop over WS before the HTTP "stopping" receipt arrives.
+      if (state && (state.desired==='enabled' || confirmedDisabled(state))) {
+        updateDirectoryBadge(client,self,agentId,confirmedDisabled(state));
+      }
     },
     onError: () => { void client.invalidateQueries({queryKey: key}); }
   });
