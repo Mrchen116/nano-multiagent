@@ -778,7 +778,7 @@ export class GlobalAgent {
         if (base !== 'current') return args;
         return { ...args, target: joinThreadTarget(binding.conversationId, root) };
       };
-      if (call.method === 'conversations') return await this.query(binding, resolveSingleCurrent(call.args));
+      if (call.method === 'conversations') return await this.query(binding, { ...resolveSingleCurrent(call.args), include_execution_nodes: call.args.action === 'info' });
       if (call.method === 'read_messages') return await this.query(binding, { ...resolveSingleCurrent(call.args), action: 'read' });
       if (call.method === 'search_messages') return await this.query(binding, { ...resolveSingleCurrent(call.args), action: 'search' });
       if (call.method === 'threads') {
