@@ -30,9 +30,18 @@ it('rejects malformed stable chat fields before message, event or retry identity
   expect(db.prepare('SELECT content,tool_calls_json,permission_request_json,reply_process_json FROM messages WHERE id=?').get(mid))
     .toEqual({content: '', tool_calls_json: null, permission_request_json: null, reply_process_json: null});
   const delta = {node_id: node.node, kind: 'message_delta', message_id: mid, delta_text: '原文😀', idempotency_key: 'same-key'};
+  db.exec(`CREATE TRIGGER fail_delta BEFORE INSERT ON conversation_events WHEN NEW.event_type='message.delta'
+    BEGIN SELECT RAISE(ABORT,'injected event failure'); END`);
+  expect((await node.frames.send('node.streaming_delta', delta)).type).toBe('error');
+  expect(db.prepare('SELECT content FROM messages WHERE id=?').get(mid)?.content).toBe('');
+  db.exec('DROP TRIGGER fail_delta');
   await node.frames.send('node.streaming_delta', delta);
   await node.frames.send('node.streaming_delta', delta);
+  const history = await center.http('GET', `/im/v1/conversations/${cid}/messages`, undefined, center.tokens.alice);
+  expect(history.body.items.find((item: any) => item.message.id === mid)?.message).toMatchObject({content:'原文😀', delivery_status:'running'});
   await node.frames.send('node.streaming_delta', {node_id: node.node, kind: 'message_completed', message_id: mid});
   await node.frames.send('node.streaming_delta', {...delta, delta_text: 'late', idempotency_key: 'late'});
+  expect(db.prepare("SELECT COUNT(*) n FROM conversation_events WHERE message_id=? AND event_type='message.delta'").get(mid)?.n).toBe(1);
+  expect(db.prepare('SELECT COUNT(*) n FROM message_delta_idempotency WHERE message_id=?').get(mid)?.n).toBe(0);
   expect(db.prepare('SELECT content,delivery_status FROM messages WHERE id=?').get(mid)).toEqual({content: '原文😀', delivery_status: 'completed'});
 }, 20000);

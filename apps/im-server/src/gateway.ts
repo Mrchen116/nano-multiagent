@@ -6,7 +6,7 @@ import { catalogReads } from './catalog-reads.js';
 import { isRecord } from './node-rpc-values.js';
 import {reportAgentDeletion, requireDeletionOperation, resumableAgentDeletions} from './agent-deletion.js';
 import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
-import { conversationAccess, qualifiedUser, readableConversationIds } from './conversation-access.js';
+import { conversationAccess, conversationReaderIds, qualifiedUser, readableConversationIds } from './conversation-access.js';
 import { captureTaskContextAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import type { ChatMessage } from '@nano/product-contracts';
 import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
@@ -190,25 +190,31 @@ export class Gateway {
     for (const c of this.nodes.values()) if (c.owner_id === id) this.revokeNode(c.node_id);
     this.closeUser(id);
   }
-  broadcast(ids: string[], frame: Row) {
-    for (const b of this.browsers) {
-      if (!b.ready || !ids.includes(b.userId)) continue;
-      if (frame.event_id && frame.event_id <= b.cursor) continue;
+  broadcast(audience: string[] | 'conversation-readers', frame: Row) {
+    const ready = Array.from(this.browsers).filter(b => b.ready && !(frame.event_id && frame.event_id <= b.cursor));
+    if (!ready.length) return;
+    const chat = audience === 'conversation-readers';
+    const readers = new Set(chat
+      ? conversationReaderIds(this.ctx.db,frame.conversation_id,new Set(ready.map(b => b.userId)))
+      : audience);
+    const recipients = ready.filter(b => readers.has(b.userId));
+    if (!recipients.length) return;
+    // Membership removal/deletion notices can reach former members. Only those
+    // data-only frames need a separate space check beyond conversation access.
+    const space = !chat && !frame.conversation_id && frame.data?.conversation_id
+      ? one(this.ctx.db,"SELECT space_id FROM conversations WHERE id=?",frame.data.conversation_id)?.space_id
+      : undefined;
+    for (const b of recipients) {
       if (!this.browserValid(b)) {
         b.socket.close(1008);
         continue;
       }
-      const conversationId = frame.conversation_id ?? frame.data?.conversation_id;
-      if (conversationId) {
-        const conversation = one(this.ctx.db, "SELECT space_id FROM conversations WHERE id=?", conversationId);
-        // Membership removal/deletion notifications contain no protected content.
-        if (conversation && !canActorAccess(this.ctx.db, b.userId, conversation.space_id)) continue;
-      }
+      if (space !== undefined && !canActorAccess(this.ctx.db,b.userId,space)) continue;
       if (frame.event_type === "agent.work.updated") {
         const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", frame.data?.agent_id);
         if (!profile || !canAccessSpace(this.ctx.identity.user(b.userId), profile.space_id)) continue;
       }
-      if (frame.conversation_id && !conversationAccess(this.ctx.db,frame.conversation_id,b.userId)) continue;
+      if (!chat && frame.conversation_id && !conversationAccess(this.ctx.db,frame.conversation_id,b.userId)) continue;
       this.write(b.socket, frame);
       b.cursor = Math.max(b.cursor, frame.event_id ?? 0);
     }

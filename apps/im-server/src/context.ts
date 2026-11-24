@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
 import type { FastifyRequest } from "fastify";
 import type { Identity } from "./identity.js";
 import type { Gateway } from "./gateway.js";
@@ -39,11 +39,27 @@ export function transaction<T>(db: DatabaseSync, fn: () => T): T {
     throw e;
   }
 }
+// Dynamic filters can produce many SQL strings. Keep the compiled statements
+// bounded per connection; every get/all still reads the current database.
+const statements = new WeakMap<DatabaseSync, Map<string, StatementSync>>();
+function prepared(db: DatabaseSync, sql: string): StatementSync {
+  let cache = statements.get(db);
+  if (!cache) {
+    cache = new Map();
+    statements.set(db, cache);
+  }
+  const existing = cache.get(sql);
+  if (existing) return existing;
+  const stmt = db.prepare(sql);
+  if (cache.size >= 256) cache.delete(cache.keys().next().value!);
+  cache.set(sql, stmt);
+  return stmt;
+}
 export function one(db: DatabaseSync, sql: string, ...args: any[]): Row | undefined {
-  return db.prepare(sql).get(...args) as Row | undefined;
+  return prepared(db, sql).get(...args) as Row | undefined;
 }
 export function all(db: DatabaseSync, sql: string, ...args: any[]): Row[] {
-  return db.prepare(sql).all(...args) as Row[];
+  return prepared(db, sql).all(...args) as Row[];
 }
 
 export const chatId = (prefix: string) =>
