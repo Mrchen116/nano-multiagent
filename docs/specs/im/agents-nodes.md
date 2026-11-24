@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-781
+> 对齐: perf-784
 > 上级: [IM Specification](spec.md)
 
 ## Purpose
@@ -1049,6 +1049,14 @@ Agent 设置通过独立“插件”页签管理当前 workspace 的已安装 DS
 #### Scenario: 非管理者和 Agent 自身
 - **WHEN** 非管理者或 Agent 工具尝试改变开关
 - **THEN** 操作被拒，不能通过普通消息、任务或节点配置上报解除停用；原有可见性仍适用
+
+### Requirement: Agent 目录提供已确认停用状态
+
+已授权 Agent 联系人条目提供 `lifecycle_disabled` 布尔值，表示当前停用意图已由节点在同一代次确认。列表与导航可用此字段显示已有徽标。
+
+#### Scenario: 停用确认及重新启用
+- **WHEN** 停用仍在进行、已确认，随后用户重新启用 Agent
+- **THEN** 目录摘要依次为 false、true、false；仅可查看该联系人的用户能读取该摘要。
 
 ### Requirement: 确认执行停止后才显示已停用
 
