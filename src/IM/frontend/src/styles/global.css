@@ -3,10 +3,10 @@
 /* Crewden: neutral reading surfaces, butter personal space, violet navigation. */
 :root {
   --im-viewport-height: 100vh;
-  --im-bg: #f7f8fa;
+  --im-bg: #fff;
   --im-surface: #ffffff;
-  --im-surface-2: #f6f5f8;
-  --im-topbar: #f7f5fc;
+  --im-surface-2: #f6f6f6;
+  --im-topbar: var(--im-surface);
   --im-topbar-fg: #29352f;
   --im-accent: #6b43d8;
   --im-accent-fg: #ffffff;
@@ -22,7 +22,7 @@
   --im-shadow-strong: 0 18px 48px -16px rgb(48 32 73 / 0.18);
 
   --im-sidebar: #ffffff;
-  --im-hover: #f6f4f9;
+  --im-hover: #f5f5f5;
   --im-surface-hover: var(--im-hover);
   --im-accent-soft: #eee7fc;
   --im-accent-border: #d1bff3;
@@ -1329,7 +1329,7 @@ body {
 }
 
 .chat-sidebar-filter--active {
-  background: #f2edf9;
+  background: var(--im-surface-2);
   color: #59436f;
 }
 
@@ -1392,7 +1392,7 @@ body {
 
 .chat-sidebar-row--active,
 .chat-sidebar-row--active:hover {
-  background: #f2edfc;
+  background: #f1f1f1;
 }
 
 .chat-sidebar-row--selectable {
@@ -4772,7 +4772,7 @@ body {
     color: var(--im-text-muted);
   }
   .chat-sidebar-filter--active {
-    background: var(--im-accent-soft);
+    background: var(--im-surface-2);
     color: var(--im-accent);
   }
   .chat-sidebar-row-title {
@@ -5638,7 +5638,7 @@ body {
 }
 
 /* Reply previews keep the reference secondary to the new message. */
-.chat-composer-reply,.chat-message-quote { display:flex; gap:12px; padding:9px 12px; border:0; border-radius:6px; background:#f4f3f6; font-size:12px; line-height:1.5; min-width:0; }
+.chat-composer-reply,.chat-message-quote { display:flex; gap:12px; padding:9px 12px; border:0; border-radius:6px; background:var(--im-surface-2); font-size:12px; line-height:1.5; min-width:0; }
 .chat-composer-reply { margin-bottom:8px; align-items:center; }
 .chat-composer-reply>div { flex:1; min-width:0; }
 .chat-composer-reply strong,.chat-message-quote strong { display:block; color:var(--im-text); font-weight:600; }
