@@ -123,7 +123,13 @@ export interface ChatMessage {
   work_record_deleted?: true;
   reply_to?: ChatReplyReference;
   thread_root_message_id?: string;
-  thread?: {reply_count:number; latest_preview?:string; latest_at?:string; participants?:{id:string; display_name:string}[]};
+  thread?: {
+    reply_count: number;
+    recent_replies?: {id: string; sender_user_id: string; display_name: string; preview: string}[];
+    latest_preview?: string;
+    latest_at?: string;
+    participants?: {id: string; display_name: string}[];
+  };
   attachments: ChatAttachment[]; tool_calls: ChatToolCall[]; thinking: ChatThinking[]; background_returns: unknown[];
   reply_process: ChatProcessItem[]; permission_requests: ChatPermission[]; token_usage: ChatUsage | null;
   system_notice: unknown; interaction_reply: InteractionSnapshot | null; interactive?: MessageInteractive;

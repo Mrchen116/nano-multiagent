@@ -1526,7 +1526,7 @@ body {
 }
 
 .chat-thread-column {
-  width: min(380px, 42%);
+  width: min(440px, 46%);
   flex: none;
   align-self: stretch;
   display: flex;
@@ -1560,42 +1560,79 @@ body {
 }
 
 .chat-thread-entry {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  margin-top: 6px;
-  padding: 0;
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  max-width: 54ch;
+  margin-top: 8px;
+  padding: 8px 0 0;
   border: 0;
+  border-top: 1px solid var(--im-border);
   background: transparent;
-  color: var(--im-accent);
-  font: inherit;
   cursor: pointer;
-  text-align: left;
+  text-align: start;
 }
 
-.chat-thread-entry--mine { align-self: flex-end; }
-
-.chat-thread-entry-faces {
+.chat-thread-preview {
   display: flex;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.8rem;
+  color: var(--im-text-muted);
+}
+
+.chat-thread-preview > * {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-thread-preview strong {
   flex: none;
-  gap: 2px;
+  max-width: 35%;
+  color: var(--im-text);
 }
 
 .chat-thread-entry-label {
-  flex: none;
-  font-size: 0.78rem;
-  font-weight: 600;
+  width: fit-content;
   color: var(--im-accent);
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 
-.chat-thread-entry-meta {
+.chat-thread-entry:hover .chat-thread-entry-label { text-decoration: underline; }
+.chat-bubble[data-thread-selected] > .chat-bubble-column > .chat-bubble-card {
+  background: color-mix(in srgb, var(--im-accent-soft) 62%, var(--im-surface));
+}
+
+.chat-thread-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 0.75rem;
+}
+
+.chat-thread-message-body { flex: 1; min-width: 0; }
+.chat-thread-byline {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
   color: var(--im-text-muted);
+  font-size: 0.75rem;
+}
+
+.chat-thread-byline strong {
+  color: var(--im-text);
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.chat-thread-message .chat-bubble-card {
+  background: transparent;
+  padding: 3px 0;
+  width: 100%;
 }
 
 .chat-thread-replies {
@@ -1607,7 +1644,6 @@ body {
   font-size: 0.75rem;
 }
 
-.chat-thread-replies::before,
 .chat-thread-replies::after {
   content: "";
   height: 1px;
@@ -2131,6 +2167,7 @@ body {
    their bubble-edge position, but suppress them while the pointer is in a code
    block so the two copy affordances never compete for the same corner.  Do not
    suppress a focused toolbar: it remains reachable with the keyboard. */
+.chat-bubble-card:has(.chat-thread-entry:hover, .chat-thread-entry:focus) .chat-message-toolbar:not(:focus-within),
 .chat-bubble-card:has(.im-code-block:hover) .chat-message-toolbar:not(:focus-within) {
   opacity: 0;
   pointer-events: none;

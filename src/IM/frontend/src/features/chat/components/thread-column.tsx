@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUp, Paperclip, Reply } from "lucide-react";
+import { ArrowLeft, ArrowUp, Paperclip, Reply, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { authFetchJson } from "../../auth/auth-fetch";
 import { createMessage } from "../chat-api";
@@ -12,6 +12,8 @@ import type { ComposerUpload } from "./composer-draft-store";
 import type { InteractionReplyInput } from "../interactive/types";
 import { MentionPicker } from "./mention-picker";
 import { MENTION_RE, reconstructWireContent, type DraftMention } from "./mention-parser";
+
+import { Avatar, colorForAgentSeed, initialsOf } from "./avatar";
 
 interface ThreadPage {
   root: Message;
@@ -181,10 +183,21 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
   }
   function bubble(message: Message) {
     const mine = message.sender.id === selfUserId || message.sender_user_id === selfUserId;
+    const sender = message.sender;
+    const name = sender.display_name || sender.id;
+    const time = new Date(message.created_at);
+    const agent = sender.type === "agent" && !message.pa_agent_id;
     return <div key={message.id} id={`thread-message-${message.id}`} tabIndex={-1}
-      className={`chat-bubble chat-bubble--${mine ? "user" : "agent"}${highlight === message.id ? " im-work-message-target" : ""}`}>
-      <div className="chat-bubble-column">
-        {!mine && <div className="chat-bubble-meta"><span className="chat-bubble-sender">{message.sender.display_name ?? message.sender.id}</span></div>}
+      className={`chat-thread-message${highlight === message.id ? " im-work-message-target" : ""}`}>
+      <Avatar initials={initialsOf(name)} color={colorForAgentSeed(name)} size={30} agentId={agent ? sender.id : undefined}
+        personal={agent && sender.role === "personal"} avatarVariant={sender.avatar_variant} />
+      <div className="chat-thread-message-body">
+        <div className="chat-thread-byline">
+          <strong>{mine ? t("chat.messagePane.threadMe") : name}</strong>
+          {message.pa_agent_id && <span>{t("pa.sentOnBehalf")}</span>}
+          {message.delegation && <span>{message.delegation.label}</span>}
+          <time dateTime={message.created_at}>{time.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}</time>
+        </div>
         <div className="chat-bubble-card">
           {message.reply_to && <button type="button" className="chat-message-quote" onClick={() => locate(message.reply_to!.message_id)}>
             <strong>{message.reply_to.sender.display_name ?? message.reply_to.sender.id}</strong>
@@ -201,12 +214,13 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
   }
   return <aside className="chat-thread-column" aria-label={t("chat.messagePane.threadTitle")}>
     <header className="chat-pane-header">
-      <button type="button" className="chat-pane-back" onClick={onClose} aria-label={t("common.back", "Back")}><ArrowLeft size={20}/></button>
+      {isMobile && <button type="button" className="chat-pane-back" onClick={onClose} aria-label={t("common.back", "Back")}><ArrowLeft size={20}/></button>}
       <h2 className="chat-pane-title chat-pane-header-body">{t("chat.messagePane.threadTitle")}</h2>
       {conversation.type === "group" && canWrite && data && <button type="button" className="chat-pane-config"
         disabled={updatingFollow} aria-pressed={data.following} onClick={() => void toggleFollow()}>
         {t(data.following ? "chat.messagePane.following" : "chat.messagePane.follow")}
       </button>}
+      {!isMobile && <button type="button" className="chat-pane-back" onClick={onClose} aria-label={t("common.close", "Close")}><X size={18}/></button>}
     </header>
     <div ref={scrollerRef} className="chat-pane-messages" onScroll={trackScroll}>
       <div className="chat-pane-message-list">

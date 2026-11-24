@@ -11,7 +11,7 @@ vi.mock("../../auth/auth-fetch", () => ({authFetchJson: vi.fn()}));
 
 const message = (id: string): Message => ({
   id, conversation_id: "group", sender: {type: "user", id: "peer"}, sender_type: "user",
-  sender_user_id: "peer", content: id, created_at: "", attachments: [], permission_requests: [], delivery_status: "completed"
+  sender_user_id: "peer", content: id, created_at: "2026-11-24T09:30:00Z", attachments: [], permission_requests: [], delivery_status: "completed"
 });
 const root = message("proposal");
 const group: Conversation = {id: "group", type: "group", title: "Planning", participants: [],
@@ -29,7 +29,10 @@ it("locates the searched reply, quotes it in the same thread and keeps failed dr
   render(<QueryClientProvider client={client}><ThreadColumn conversation={group} selfUserId="me" isMobile={false}
     rootId={root.id} targetId={first.id} onRead={onRead} onSent={() => {}} onClose={() => {}} mentionCandidates={[]}
     renderBody={item => item.content} renderQuote={item => item.content}/></QueryClientProvider>);
-  const target = (await screen.findByText(first.content)).closest(".chat-bubble")!;
+  await screen.findByText(first.content);
+  const target = document.getElementById(`thread-message-${first.id}`)!;
+  expect(target.querySelector("time")).toHaveAttribute("datetime", first.created_at);
+  expect(target.querySelector(".chat-avatar")).toBeVisible();
   expect(target).toHaveFocus();
   expect(screen.getByText(root.content)).toBeVisible();
   fireEvent.click(target.querySelector("button")!);

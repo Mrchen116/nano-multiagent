@@ -242,11 +242,21 @@ export class MessageRecords {
   private threadSummary(id:string):Pick<ChatMessage,'thread'> {
     const count=this.db.prepare('SELECT count(*) AS count FROM messages WHERE thread_root_id=?').get(id) as {count:number};
     if(!count.count)return {};
-    const latest=this.db.prepare('SELECT content, created_at FROM messages WHERE thread_root_id=? ORDER BY rowid DESC LIMIT 1').get(id) as {content:string; created_at:string};
+    const newest = this.db.prepare(`SELECT m.id, m.sender_user_id, coalesce(nullif(m.sender_display_name,''),u.display_name,m.sender_user_id) AS display_name,
+      m.content, m.created_at, json_extract(m.attachments_json, '$[0].file_name') AS file_name
+      FROM messages m LEFT JOIN users u ON u.id=m.sender_user_id
+      WHERE m.thread_root_id=? ORDER BY m.rowid DESC LIMIT 2`).all(id) as {
+      id:string; sender_user_id:string; display_name:string; content:string; created_at:string; file_name:string|null;
+    }[];
+    const latest = newest[0]!;
+    const recent_replies = newest.reverse().map(row => ({
+      id:row.id, sender_user_id:row.sender_user_id, display_name:row.display_name,
+      preview:(row.content.trim() || row.file_name || '').replace(/\s+/g, ' ').slice(0, 160),
+    }));
     const participants=this.db.prepare(`SELECT m.sender_user_id AS id, COALESCE(m.sender_display_name, u.display_name, m.sender_user_id) AS display_name
       FROM messages m LEFT JOIN users u ON u.id=m.sender_user_id
       WHERE m.thread_root_id=? GROUP BY m.sender_user_id ORDER BY max(m.rowid) DESC LIMIT 3`).all(id) as {id:string; display_name:string}[];
-    return {thread:{reply_count:count.count, latest_preview:latest.content.trim().slice(0,80), latest_at:latest.created_at, participants}};
+    return {thread:{reply_count:count.count, latest_preview:latest.content.trim().slice(0,80), latest_at:latest.created_at, recent_replies, participants}};
   }
   private projectMessage(m:Omit<MessageRecord,'caller_idempotency_key'|'caller_payload_json'>):ChatMessage {
     const {id}=m;

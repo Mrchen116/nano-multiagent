@@ -46,9 +46,15 @@ it('keeps a topic off the main timeline and only unread-counts its followers', a
     expect(inside.statusCode, inside.body).toBe(201);
     expect(inside.json().reply_to.message_id).toBe(root.id);
     expect(inside.json().thread_root_message_id).toBe(root.id);
+    const final = await send('u1', '先验证这个方向', 'topic-final');
+    expect(final.statusCode).toBe(201);
     const refreshed = await app.inject('/im/v1/conversations/chat/messages');
     const rootView = refreshed.json().items.map((item: {message?: {id: string; thread?: {reply_count: number; participants?: {id: string}[]}}}) => item.message).find((message: {id: string} | undefined) => message?.id === root.id);
-    expect(rootView.thread.reply_count).toBeGreaterThan(0);
+    expect(rootView.thread.reply_count).toBe(4);
+    expect(rootView.thread.recent_replies).toEqual([
+      expect.objectContaining({id: inside.json().id, sender_user_id: 'u2', preview: '留在话题里'}),
+      expect.objectContaining({id: final.json().id, sender_user_id: 'u1', preview: '先验证这个方向'}),
+    ]);
     expect(rootView.thread.participants.map((person: {id: string}) => person.id)).toContain('u2');
   } finally { await app.close(); }
 });

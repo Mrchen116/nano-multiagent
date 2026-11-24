@@ -51,7 +51,7 @@ import {
   type TimelineItem
 } from "../chat-types";
 import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName, initialsOf } from "./avatar";
-import { MENTION_RE, reconstructWireContent, type DraftMention, parseMentions, mentionNameMap, mentionDisplayName } from "./mention-parser";
+import { MENTION_RE, reconstructWireContent, type DraftMention, parseMentions, mentionPlainText, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { DirectConversationMenu } from "./direct-conversation-menu";
 import { NodeChip } from "./node-chip";
@@ -1316,6 +1316,7 @@ export function MessagePane({
                       availableMessageIds={anchoredMessageIds}
                     key={m.id}
                     message={m}
+                    threadSelected={openThreadId === m.id}
                     historyProcess={historyProcess}
                     selfUserId={selfUserId}
                     workHref={workHrefFor(m)}
@@ -1915,7 +1916,7 @@ function MessageReceipt({ receipts: cached, load }: {
 }
 
 function MessageBubble({
-  message,
+  message, threadSelected,
   historyProcess,
   selfUserId,
   workHref,
@@ -1938,6 +1939,7 @@ function MessageBubble({
   interactiveReadOnly, interactiveSubmissionId, onInteractionSend, onComposeMessage, isGroup = false, showSender = true,
 }: {
   message: Message;
+  threadSelected?: boolean;
   historyProcess?: MessagePaneProps["historyProcess"];
   onComposeMessage?(target: string, text: string): Promise<void>;
   interactiveReadOnly?: boolean;
@@ -2159,6 +2161,7 @@ function MessageBubble({
     <div
       id={`chat-message-${message.id}`}
       data-message-id={message.id}
+      data-thread-selected={threadSelected || undefined}
       className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}
     >
       {(!isUser || message.pa_agent_id) && (onActivity ? <button
@@ -2236,6 +2239,7 @@ function MessageBubble({
               />
             </div>
           )}
+          {message.thread && <ThreadEntry message={message} selfUserId={selfUserId} participants={participants} expanded={!!threadSelected} onOpen={() => onOpenThread?.(message.id)} />}
         </div>
 
         {message.update_wait && <p className={`mb-0 mt-1 text-[11px] leading-4 text-[var(--im-text-muted)] ${isUser?'text-right':''}`} role="status">{t(message.update_wait==='recovery_required'?'nodeUpdate.waitRecovery':'nodeUpdate.waitMessage')}</p>}
@@ -2282,30 +2286,28 @@ function MessageBubble({
             </button>
           )}
         </div>
-        {message.thread && <ThreadEntry message={message} mine={isUser} onOpen={() => onOpenThread?.(message.id)} />}
       </div>
     </div>
   );
 }
 
-function ThreadEntry({message, mine, onOpen}: {message: Message; mine: boolean; onOpen(): void}) {
+function ThreadEntry({message, selfUserId, participants, expanded, onOpen}: {
+  message: Message; selfUserId?: string | null; participants?: Conversation["participants"]; expanded: boolean; onOpen(): void;
+}) {
   const {t} = useTranslation();
   const thread = message.thread!;
-  const when = thread.latest_at ? formatHM(thread.latest_at) : "";
+  const names = mentionNameMap(participants);
   return (
-    <button type="button" className={`chat-thread-entry${mine ? " chat-thread-entry--mine" : ""}`} data-testid={`thread-entry-${message.id}`} onClick={onOpen}>
-      <span className="chat-thread-entry-faces" aria-hidden="true">
-        {(thread.participants ?? []).slice(0, 3).map(person => {
-          const name = person.display_name || person.id;
-          return <Avatar key={person.id} initials={initialsOf(name)} color={colorForAgentSeed(name)} size={24} />;
-        })}
-      </span>
-      <span className="chat-thread-entry-label">{t("chat.messagePane.threadCount", {n: thread.reply_count})}</span>
-      <span className="chat-thread-entry-meta">{[when, thread.latest_preview].filter(Boolean).join(" · ")}</span>
+    <button type="button" className="chat-thread-entry"
+      aria-expanded={expanded} data-testid={`thread-entry-${message.id}`} onClick={onOpen}>
+      {thread.recent_replies?.map(reply => <span className="chat-thread-preview" key={reply.id}>
+        <strong>{reply.sender_user_id === selfUserId ? t("chat.messagePane.threadMe") : reply.display_name}</strong>
+        <span>{mentionPlainText(reply.preview, names) || t("chat.messagePane.threadMessage")}</span>
+      </span>)}
+      <span className="chat-thread-entry-label">{t("chat.messagePane.threadViewAll", {n: thread.reply_count, count: thread.reply_count})}</span>
     </button>
   );
 }
-
 
 const MarkdownContent = React.memo(function MarkdownContent({
   content,
