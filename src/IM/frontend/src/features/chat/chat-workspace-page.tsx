@@ -1428,7 +1428,7 @@ export function ChatWorkspacePage() {
       {!showFirstUseWelcome && showDetail && (
         activeConversation ? (
           <MessagePane
-            key={activeConversation.id}
+            key={`messages:${activeConversation.id}`}
             readingPositions={readingPositions}
             initialHistoryStatus={!historyReady || historyError ? <>{historyStatus}</> : undefined}
             lifecycleNotice={activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} deleted={actor.is_deleted} />)}
@@ -1556,7 +1556,7 @@ export function ChatWorkspacePage() {
         )
       )}
       {showPersonalAgentSetup && personalAgent.data && <PersonalAgentDialog state={personalAgent.data} nodes={nodesQuery.data??[]} onClose={()=>setShowPersonalAgentSetup(false)} onCreated={id=>{setShowPersonalAgentSetup(false);navigate(`/chat/${id}`);}}/>}
-      {showTasks && activeConversation && isGroupKind && <GroupTaskPanel key={activeConversation.id} conversationId={activeConversation.id} canCreate={activeConversation.can_write} onClose={() => setShowTasks(false)} />}
+      {showTasks && activeConversation && isGroupKind && <GroupTaskPanel key={`tasks:${activeConversation.id}`} conversationId={activeConversation.id} canCreate={activeConversation.can_write} onClose={() => setShowTasks(false)} />}
       {showPublicGroups && <PublicGroupsModal groups={publicGroupsQuery.data} pending={publicGroupsQuery.isPending} error={publicGroupsQuery.isError} onRetry={() => void publicGroupsQuery.refetch()} onClose={closePublicGroups} onSelect={chat => { setShowPublicGroups(false); navigate(`/chat/${chat.id}`); }} />}
       {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onSelect={async contact => {
         const chat = await createConversation({ title: contact.display_name, type: "direct", participants: [contactActor(contact)] });

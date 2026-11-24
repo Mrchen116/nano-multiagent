@@ -2497,6 +2497,21 @@ describe("ChatWorkspacePage — integration", () => {
     expect(screen.queryByText("Hi Planner")).not.toBeInTheDocument();
   });
 
+  it("keeps a single chat and thread when the group task panel closes", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c2?thread=m1");
+    const chat = await screen.findByRole("region", { name: "Research Squad" });
+    const thread = await within(chat).findByRole("complementary", { name: "Thread" });
+
+    await user.click(within(chat).getByRole("button", { name: "Tasks" }));
+    const tasks = await screen.findByRole("complementary", { name: "Tasks" });
+    await user.click(within(tasks).getByRole("button", { name: "Close" }));
+
+    expect(screen.queryByRole("complementary", { name: "Tasks" })).not.toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Research Squad" })).toBe(chat);
+    expect(screen.getByRole("complementary", { name: "Thread" })).toBe(thread);
+  });
+
   it("feat-438: group ⚙ opens Group settings (does not navigate to an agent config)", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat/c2");
