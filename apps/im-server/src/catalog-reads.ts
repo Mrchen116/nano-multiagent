@@ -1,7 +1,7 @@
 import {inspectionTimeouts} from '@nano/product-contracts';
 import {randomUUID} from 'node:crypto';
 import type {ImContext} from './context.js';
-import type {NodeCapabilities} from './node-rpc-contracts.js';
+import type {NodeCapabilities} from '@nano/product-contracts/node-rpc';
 
 /** Scope confirmed candidates to the exact authenticated binding and saved configuration. */
 export interface CatalogScope {

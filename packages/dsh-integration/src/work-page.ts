@@ -27,7 +27,8 @@ export async function workPage(input: {
   const {afterSeq, replayFrom, firstOwn, head, eventAt, present, model, modelVersion} = input;
   const events: RuntimeEvent[] = [];
   const modelRuns = new Map<string, ModelRunProjection>();
-  let throughSeq = Math.max(afterSeq, Math.min(head, firstOwn - 1));
+  const inheritedThrough = Math.min(head, firstOwn - 1);
+  let throughSeq = Math.max(afterSeq, inheritedThrough);
   let bytes = 256 + modelVersion.length;
   const prior = replayFrom !== undefined && replayFrom <= afterSeq ? eventAt(replayFrom) : undefined;
   const carried = prior?.type === 'turn/start' ? model(prior.data.turn) : undefined;
@@ -52,7 +53,8 @@ export async function workPage(input: {
     if (fresh) modelRuns.set(fresh.id, fresh);
     if (bytes >= workPageBytes) break;
   }
-  return {durable:true, events, modelRuns:[...modelRuns.values()], modelVersion, throughSeq, more: throughSeq < head};
+  return {durable:true, events, modelRuns:[...modelRuns.values()], modelVersion, throughSeq, more: throughSeq < head,
+    ...(inheritedThrough > afterSeq ? {inheritedThroughSeq:inheritedThrough} : {})};
 }
 
 interface CatalogScan {

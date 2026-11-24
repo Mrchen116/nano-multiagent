@@ -1,6 +1,10 @@
 import type { AgentConfiguration, RuntimePort, SessionBinding } from '@nano/product-contracts';
+import {decodeRuntimeInput, decodeRuntimeResult, isRuntimeMethod, type RuntimeInput, type RuntimeMethod,
+  type RuntimeOutput, type RuntimeRequestInput, type ScheduleAction} from '@nano/product-contracts/runtime-rpc';
 
-export interface PartitionRuntime extends RuntimePort {
+export interface PartitionRuntime {
+  request(method: string, params: unknown): Promise<unknown>;
+  onNotification: RuntimePort['onNotification'];
   readonly available: boolean;
   handle(method: string, handler: (params: unknown) => unknown | Promise<unknown>): void;
   start(): Promise<void>;
@@ -27,7 +31,11 @@ const object = (value: unknown) => value && typeof value === 'object' ? value as
  *
  * Collection RPCs deliberately require scoped ports: an ACK never searches hosts.
  */
-export class RuntimePartitions implements RuntimePort {
+export class RuntimePartitions {
+  readonly product: RuntimePort = {
+    request: (method, input) => this.route(method, input, raw => decodeRuntimeResult(method, input, raw)),
+    onNotification: listener => this.onNotification(listener),
+  };
   readonly partitions = new Map<string, RuntimePartition>();
   private readonly agents = new Map<string, RuntimePartition>();
   private readonly sessions = new Map<string, RuntimePartition>();
@@ -62,12 +70,12 @@ export class RuntimePartitions implements RuntimePort {
     if (this.options.allowed?.(id) === false) throw new Error('agent_disabled');
     return this.options.execution ? this.options.execution(id, action, revision) : action();
   }
-  private async invoke(partition: RuntimePartition, method: string, params: unknown, readOnly = false): Promise<unknown> {
+  private async invoke(partition: RuntimePartition, method: string, params: unknown, decode: (raw: unknown) => unknown, readOnly = false): Promise<unknown> {
     const value = object(params), generation = partition.generation;
     const call = async () => {
       const result = await partition.runtime.request(method, params);
       if (generation !== partition.generation) throw new Error('Runtime generation_changed');
-      return readOnly ? result : this.execution(value, () => result);
+      return readOnly ? decode(result) : this.execution(value, () => decode(result));
     };
     return readOnly ? call() : this.execution(value, call, typeof value.lifecycle_revision === 'number' ? value.lifecycle_revision : undefined);
   }
@@ -95,30 +103,39 @@ export class RuntimePartitions implements RuntimePort {
     };
     return {
       capture: () => this.scoped(partition, generation ?? partition.generation),
-      request: async (method, params) => {
-        current();
-        const value = object(params);
-        if (['knowledge.facts', 'knowledge.acknowledge', 'workflow.pending', 'workflow.acknowledge'].includes(method)) {
-          const result = await partition.runtime.request(method, params);
-          current();
-          const visible = (record: unknown) => {
-            this.validateOrigin(partition, record);
-            const id = this.agentId(object(record));
-            return !id || this.options.allowed?.(id) !== false;
-          };
-          if (method === 'knowledge.facts') return {...object(result), facts: ((object(result).facts ?? []) as unknown[]).filter(visible)};
-          if (method === 'workflow.pending') return (result as unknown[]).filter(visible);
-          return result;
-        }
-        if (this.resolve(value) !== partition) throw new Error('Cross-partition scoped request');
-        const result = await this.request(method, params);
-        current();
-        return result;
-      },
+      request: (method, input) => this.scopedRequest(partition, current, method, input),
       onNotification: listener => partition.runtime.onNotification((method, value) => {
         try { if(this.validateOrigin(partition, value, true)) this.execution(object(value), () => listener(method, value)); } catch (error) { this.options.onError(error); }
       }),
     };
+  }
+  private scopedRequest<K extends RuntimeMethod, A extends ScheduleAction>(partition: RuntimePartition, current: () => void,
+    method: K, input: RuntimeRequestInput<NoInfer<K>, A>): Promise<RuntimeOutput<K, A>>;
+  private async scopedRequest(partition: RuntimePartition, current: () => void, method: RuntimeMethod, input: RuntimeInput<RuntimeMethod>) {
+    current();
+    const visible = (record: unknown) => {
+      this.validateOrigin(partition, record);
+      const id = this.agentId(object(record));
+      return !id || this.options.allowed?.(id) !== false;
+    };
+    if (method === 'knowledge.facts' || method === 'workflow.pending') {
+      const raw = await partition.runtime.request(method, input);
+      current();
+      if (method === 'knowledge.facts') {
+        const result = decodeRuntimeResult(method, input, raw);
+        return {...result, facts: result.facts.filter(visible)};
+      }
+      return decodeRuntimeResult(method, input, raw).filter(visible);
+    }
+    if (method === 'knowledge.acknowledge' || method === 'workflow.acknowledge') {
+      const raw = await partition.runtime.request(method, input);
+      current();
+      return decodeRuntimeResult<RuntimeMethod>(method, input, raw);
+    }
+    if (this.resolve(object(input)) !== partition) throw new Error('Cross-partition scoped request');
+    const result = await this.product.request<RuntimeMethod>(method, input);
+    current();
+    return result;
   }
   /** Invalidate ephemeral observers on a crash; durable bindings retain their host. */
   unavailable(partition: RuntimePartition): string[] {
@@ -220,7 +237,15 @@ export class RuntimePartitions implements RuntimePort {
   private attachHandler(partition: RuntimePartition, method: string, handler: (params: unknown) => unknown | Promise<unknown>) {
     partition.runtime.handle(method, async params => { this.validateOrigin(partition, params); return this.execution(object(params), () => handler(params)); });
   }
+  /** Node maintenance also uses host-private methods through this internal entry. */
   async request(method: string, params: unknown): Promise<unknown> {
+    if (isRuntimeMethod(method)) return this.product.request(method, decodeRuntimeInput(method, params));
+    return this.route(method, params, raw => raw);
+  }
+  private route<K extends RuntimeMethod, A extends ScheduleAction>(method: K, params: RuntimeRequestInput<K, A>,
+    decode: (raw: unknown) => RuntimeOutput<K, A>): Promise<RuntimeOutput<K, A>>;
+  private route(method: string, params: unknown, decode: (raw: unknown) => unknown): Promise<unknown>;
+  private async route(method: string, params: unknown, decode: (raw: unknown) => unknown): Promise<unknown> {
     const value = object(params);
     const owner=this.agentId(value);
     if (owner && this.options.retired?.(owner)) throw new Error('agent_deletion_requested');
@@ -254,7 +279,7 @@ export class RuntimePartitions implements RuntimePort {
       const partition = this.approvals.get(String(value.requestId));
       if (!partition) throw new Error('Unknown approval request');
       const agentId = this.approvalAgents.get(String(value.requestId));
-      return this.execution({agentId}, () => this.invoke(partition, method, params));
+      return this.execution({agentId}, () => this.invoke(partition, method, params, decode));
     }
     if (method.startsWith('trajectory.') && method !== 'trajectory.prepare') {
       const observer = this.observers.get(String(value.observerId));
@@ -291,7 +316,7 @@ export class RuntimePartitions implements RuntimePort {
       this.observers.set(id, {partition, generation}); return result;
     }
     const readOnly = method.startsWith('configuration.') || ['session.export', 'session.work.check', 'session.work.children', 'session.work.child', 'task.execution.state', 'knowledge.usage'].includes(method);
-    const result = await this.invoke(partition, method, params, readOnly);
+    const result = await this.invoke(partition, method, params, decode, readOnly);
     if (method === 'configuration.apply' && object(result).effective === true) {
       const {operationId: _operationId, fingerprint: _fingerprint, ...applied} = value;
       this.assign(applied as unknown as AgentConfiguration);

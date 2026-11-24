@@ -72,7 +72,7 @@ export interface RuntimeEvent {
   data: Record<string, unknown>;
 }
 export interface RuntimePort {
-  request(method: string, params: unknown): Promise<unknown>;
+  request: import('./runtime-rpc.js').RuntimeRequest;
   onNotification(listener: (method: string, params: unknown) => void): () => void;
   /** Capture the current host generation for one asynchronous reconciliation. */
   capture?(): RuntimePort;
@@ -130,6 +130,8 @@ export interface RuntimeWorkerChange {
 /** Private runtime Work protocol; a page advances only over the included durable prefix. */
 export interface RuntimeWorkPage {
   durable: true;
+  /** Last inherited offset when a read starts before this session's own events. */
+  inheritedThroughSeq?: number;
   /** Durable Inbox notification deliveries awaiting product projection acknowledgement. */
   inboxDelivered?: string[];
   workerChanges?: RuntimeWorkerChange[];

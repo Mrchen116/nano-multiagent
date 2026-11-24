@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { decodeRuntimeResult } from '@nano/product-contracts/runtime-rpc';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import { jsonBytes, workPage, workPageBytes, WorkCatalogPages } from '../src/work-page.js';
 
@@ -21,6 +22,13 @@ it('starts after the durable cursor, removes request snapshots and lets one larg
   expect(large).toMatchObject({throughSeq:51,more:true,events:[events[1]]});
   expect(jsonBytes(large)).toBeGreaterThan(workPageBytes);
   expect(await read(51)).toMatchObject({throughSeq:52,more:false,events:[events[2]]});
+});
+
+it('identifies the inherited prefix when a requested cursor precedes the first owned event',async()=>{
+  const page=await workPage({afterSeq:4,firstOwn:101,head:100,eventAt:()=>undefined,
+    present:async event=>event,model:()=>undefined,modelVersion:''});
+  expect(page).toMatchObject({events:[],throughSeq:100,inheritedThroughSeq:100});
+  expect(decodeRuntimeResult('session.work.child',{sessionId:'root',childId:'child',afterSeq:4},page)).toBe(page);
 });
 
 it('walks a catalog once, replays an acknowledged page, and restarts an interrupted scan without dropping rows', async () => {

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-781
+> 对齐: refactor-783
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -422,3 +422,15 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 - **GIVEN** 目标 Agent 已确认停止，同节点其他 Agent 正在执行
 - **WHEN** 节点清理目标 Agent 的数据
 - **THEN** 清理可与其他 Agent 的执行并行完成，共享运行时持续服务，其他 Agent 的在途执行、接收新工作及读取历史继续按原路径进行
+
+### Requirement: 产品运行时 RPC 在业务操作与结果消费前校验数据
+
+#### Scenario: 参数不符合所调用的方法
+
+- **WHEN** 产品运行时收到已知产品方法的请求，其必需参数缺失或类型错误
+- **THEN** 该调用以参数错误结束，处理端不会执行所请求的业务操作。
+
+#### Scenario: 返回值不符合原请求
+
+- **WHEN** 运行时返回的成功结果缺少该方法必需的数据或字段类型错误
+- **THEN** 产品调用方将该请求判为失败，不用这个结果确认操作、创建产品绑定或推进消费进度；允许的旧结果及合法业务拒绝继续按原语义处理。

@@ -1,3 +1,4 @@
+import type { ControlIntent } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimePort, SessionBinding, TaskExecutionSnapshot, TaskResponsibility, TaskWaitInspection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
@@ -15,7 +16,7 @@ export class TaskExecution {
   private readonly waitingAgents=new Set<string>();
   constructor(private readonly options:Options) {
     const runtime=options.runtime,relay=options.relay;
-    this.options={...options,runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload((params??{}) as Record<string,unknown>))},
+    this.options={...options,runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload(params))},
       relay:{request:(type,payload)=>relay.request(type,options.store.executionPayload(payload))}};
   }
   private binding(identity:{sessionId:string;agentId:string;ownerId:string}):SessionBinding {
@@ -80,7 +81,7 @@ export class TaskExecution {
     if(!config)throw new Error('Unknown task owner');
     const binding=this.options.store.bindingFor(config.agentId,config.mode==='global'?`global:${config.agentId}`:input.conversation_id);
     if(!binding || (config.mode!=='global' && this.options.store.imConversation(binding.agentId,binding.conversationId)!==input.conversation_id))return {valid:false,checked_at:new Date().toISOString(),reason_code:'owner_or_session_mismatch'};
-    return await this.options.runtime.request('schedule.wait.inspect',{agentId:config.agentId,sessionId:binding.sessionId,scheduleId:input.schedule_id}) as TaskWaitInspection;
+    return await this.options.runtime.request('schedule.wait.inspect',{agentId:config.agentId,sessionId:binding.sessionId,scheduleId:input.schedule_id});
   }
   /** Fence, drain, and atomically pause the host-attested human stop scope. */
   async stop(binding:SessionBinding,input:RelayInput):Promise<{wasRunning:boolean;paused:number}> {
@@ -89,13 +90,13 @@ export class TaskExecution {
   }
   private async stopAdmitted(binding:SessionBinding,input:RelayInput):Promise<{wasRunning:boolean;paused:number}> {
     const id=`task-stop:${binding.agentId}:${input.message.id}`;
-    const intent=this.options.store.control(id)??{id,binding,input,action:'task-stop',argument:''};
+    const intent:ControlIntent=this.options.store.control(id)??{id,binding,input,action:'task-stop',argument:''};
     intent.stoppedAt??=new Date().toISOString();
     this.options.store.saveControl(intent);
     if(intent.text)return JSON.parse(intent.text);
     await this.options.runtime.request('task.execution.block',{sessionId:binding.sessionId,blocked:true});
     await this.options.runtime.request('session.ensure',(({conversationId,...value})=>value)(binding));
-    const cancelled=await this.options.runtime.request('session.cancel',{sessionId:binding.sessionId,stoppedAt:intent.stoppedAt}) as {wasRunning:boolean};
+    const cancelled=await this.options.runtime.request('session.cancel',{sessionId:binding.sessionId,stoppedAt:intent.stoppedAt});
     await this.options.drain(binding.sessionId);
     const frame=await this.options.relay.request('task.execution.pause',{node_id:this.options.nodeId,agent_id:binding.agentId,conversation_id:this.scope(binding),request_id:randomUUID(),request_key:id,control_message_id:input.message.id});
     if(!frame.payload.ok)throw new Error('Stop is pending until Task state can be confirmed');

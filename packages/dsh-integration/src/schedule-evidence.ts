@@ -21,6 +21,6 @@ export function scheduleEvidence(events: readonly SessionEvent[]) {
       if (batch) reminders = JSON.parse(batch) as typeof reminders;
     }
     return reminders.map(reminder => ({ messageId: message.id, scheduleId: reminder.schedule_id,
-      scheduledAt: reminder.occurrence_at, trigger: message.source?.triggerKind === 'manual' ? 'manual' : 'timed', ...inputEvidence(events, message.id) }));
+      scheduledAt: reminder.occurrence_at, trigger: message.source?.triggerKind === 'manual' ? 'manual' as const : 'timed' as const, ...inputEvidence(events, message.id) }));
   });
 }

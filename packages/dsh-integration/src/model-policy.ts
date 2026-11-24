@@ -10,12 +10,18 @@ import type NanoCompaction from './compaction.js';
 
 export interface ModelRoute { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }
 interface Selection { revision: string; chain?: string; selected?: ModelRoute; effort?: string; ultracode?: boolean; sticky?: ModelRoute }
-interface Command { sessionId: string; action: string; argument: string; status: 'pending' | 'completed'; text?: string; success?: boolean }
+const commandIdentity = {sessionId: z.string(), action: z.string(), argument: z.string()};
+const commandSchema = z.discriminatedUnion('status', [
+  z.object({...commandIdentity, status: z.literal('pending')}),
+  z.object({...commandIdentity, status: z.literal('completed'), text: z.string(), success: z.boolean().optional()}),
+]);
+type Command = z.infer<typeof commandSchema>;
+type CompletedCommand = Extract<Command, {status: 'completed'}>;
 interface ModelDomain extends DomainSpec { tables: { sessions: DomainTableSpec<string, Selection>; commands: DomainTableSpec<string, Command> } }
 const routeSchema = z.object({ provider: z.string(), model: z.string(), reasoningEffort: z.string().optional(), maxTokens: z.number().optional() });
 export const modelDomain: ModelDomain = defineDomain({ name: 'nano_model', version: 1, layout: 'per-record', tables: {
   sessions: domainTable(z.object({ revision: z.string(), chain: z.string().optional(), selected: routeSchema.optional(), effort: z.string().optional(), ultracode: z.boolean().optional(), sticky: routeSchema.optional() })),
-  commands: domainTable(z.object({ sessionId: z.string(), action: z.string(), argument: z.string(), status: z.enum(['pending', 'completed']), text: z.string().optional(), success: z.boolean().optional() })),
+  commands: domainTable(commandSchema),
 } });
 const chain = (config: AgentConfiguration) => JSON.stringify([config.provider, config.model, config.modelFallbacks ?? []]);
 const key = (value: string) => Buffer.from(value).toString('base64url');
@@ -27,7 +33,7 @@ export class ModelPolicy extends Service {
   readonly fallback: ModelFallback;
   private readonly state: Promise<Domain<ModelDomain>>;
   private readonly selections = new Map<string, Selection>();
-  private readonly commands = new Map<string, { task: Promise<Command>; sessionId: string; abort: AbortController }>();
+  private readonly commands = new Map<string, { task: Promise<CompletedCommand>; sessionId: string; abort: AbortController }>();
   private readonly configs = new Map<string, AgentConfiguration>();
   private readonly host: Context;
   constructor(ctx: Context, options: { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => Promise<{ published: boolean }>; notify: (sessionId: string) => void }) {
@@ -111,19 +117,19 @@ export class ModelPolicy extends Service {
       this.selections.set(id, selection); await (await this.state).table('sessions').put(key(id), selection);
     }
   }
-  command(agent: Agent, request: { id: string; action: string; argument?: string }): Promise<Command> {
+  command(agent: Agent, request: { id: string; action: string; argument?: string }): Promise<CompletedCommand> {
     const active = this.commands.get(request.id); if (active) return active.task;
     const abort = new AbortController();
     const task = this.perform(agent, request, abort.signal).finally(() => this.commands.delete(request.id));
     this.commands.set(request.id, { task, sessionId: agent.id, abort }); return task;
   }
-  private async perform(agent: Agent, request: { id: string; action: string; argument?: string }, signal: AbortSignal): Promise<Command> {
+  private async perform(agent: Agent, request: { id: string; action: string; argument?: string }, signal: AbortSignal): Promise<CompletedCommand> {
     const commands = (await this.state).table('commands'); const id = key(request.id); const argument = request.argument?.trim() ?? '';
     let record = commands.get(id);
     if (record && (record.sessionId !== agent.id || record.action !== request.action || record.argument !== argument)) throw new Error('Command identity is already bound to different input');
     if (record?.status === 'completed') return record;
     record ??= { sessionId: agent.id, action: request.action, argument, status: 'pending' }; await commands.put(id, record);
-    const complete = async (text: string, success: boolean) => { const result: Command = { ...record!, status: 'completed', text, success }; await commands.put(id, result); return result; };
+    const complete = async (text: string, success: boolean) => { const result: CompletedCommand = { ...record!, status: 'completed', text, success }; await commands.put(id, result); return result; };
     try {
       if (request.action === 'compact') {
         const previous = agent.session.snapshotEvents().findLast(event => event.type === 'compaction/end' && event.data.sourceCommandId === request.id);

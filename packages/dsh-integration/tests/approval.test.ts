@@ -319,7 +319,7 @@ export function apply(ctx){
     await client.rpc.request('initialize', { protocol: 1, agents, bindings: [] });
     for (const config of agents) {
       await client.rpc.request('session.ensure', { sessionId: config.agentId, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: home });
-      await client.rpc.request('session.submit', { sessionId: config.agentId, inputId: config.agentId, mode: 'followup', content: [{ type: 'text', text: 'Check Inbox' }], source: { kind: 'system', channel: 'inbox' } });
+      await client.rpc.request('session.submit', { sessionId: config.agentId, inputId: config.agentId, mode: 'followup', content: [{ type: 'text', text: 'Check Inbox' }], source: { kind: 'system', channel: 'inbox', actorId:config.agentId, messageId:config.agentId } });
       await expect.poll(async () => (await client!.rpc.request('session.lookup', { sessionId: config.agentId, inputId: config.agentId }) as { terminal?: unknown }).terminal).toBeTruthy();
     }
     const observedNormal = await client.rpc.request('session.observe', { sessionId: 'normal' });

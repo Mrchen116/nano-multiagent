@@ -7,7 +7,7 @@ import { OwnedSessions, OwnedSessionController } from './owned-sessions.js';
 import type { ProfilePnpmInvocation } from '@deepseek-ai/dsh-app-boot';
 import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
-import { type ScheduleCatalogEntry } from '@deepseek-ai/dsh-schedule';
+import { ScheduleId } from '@deepseek-ai/dsh-schedule';
 import { SessionId, SessionLogOffset, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
@@ -16,16 +16,17 @@ import type {} from '@deepseek-ai/dsh-agent-preset-registry';
 import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt';
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent';
 import type {} from '@deepseek-ai/dsh-session-query';
-import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import type {} from '@deepseek-ai/dsh-jobs';
 import type {} from '@deepseek-ai/dsh-terminal';
 import { ColdLifecycleBarrier, type RuntimeLifecycle } from './runtime-lifecycle.js';
 import { UpdateBarrier } from './update-barrier.js';
+import { dispatchRuntime, runtimeMethods, RuntimeRpcValidationError, type RuntimeHandlerMap, type RuntimeInput, type RuntimeMethod, type RuntimeOutput, type ScheduleHandlerMap } from '@nano/product-contracts/runtime-rpc';
 import { RpcError, RpcPeer } from './rpc.js';
 import { recordToolPresentations } from './tool-presentation.js';
 import { scheduleEvidence } from './schedule-evidence.js';
 import { isHumanSource } from './input-source.js';
 import { CapabilityState, needsSchedules, configurationBlocks } from './capability-state.js';
+import {workObject, type RuntimeEvent} from '@nano/product-contracts';
 import type { RuntimePublicationEvidence, RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
 import { jsonBytes, workPage, workPageBytes, workPageItems, WorkCatalogPages } from './work-page.js';
 import { type CapabilityTarget } from '@nano/product-contracts/capabilities';
@@ -55,7 +56,7 @@ import { attachModelConnectionRetry } from './model-connection-retry.js';
 import { installStandaloneModelRetry } from './standalone-model-retry.js';
 import { TrajectoryRuns } from './trajectory-runs.js';
 import { NativeTrajectory } from './trajectory.js';
-import { TrajectoryAttachments, type AttachmentSource } from './trajectory-attachments.js';
+import { TrajectoryAttachments } from './trajectory-attachments.js';
 import { DescendantReader } from './descendants.js';
 import { SubagentRecovery } from './subagent-recovery.js';
 import {LocalWorkers} from './local-workers/manager.js';
@@ -94,16 +95,7 @@ export interface SessionBinding {
   cwd: string;
   revision: string;
 }
-interface Submit {
-  lifecycle_revision?: number;
-  attachmentSources?: (AttachmentSource | null)[];
-  sessionId: string;
-  inputId: string;
-  mode: 'followup' | 'steer' | 'inject';
-  onlyIfIdle?: boolean;
-  content: PromptContentPart[];
-  source: { kind: 'human' | 'system'; nanoTeamChat?:boolean; directHumanText?:string; humanTaskControl?:Record<string,unknown>; lifecycle_revision?: number; contextEnvelope?: string; conversationId?: string; sender?: Record<string, unknown>; pa_agent_id?: string; actorId: string; roleAccountId?: string; channel: string; messageId: string; senderSessionId?: string; background_returns?: Record<string, unknown>[] };
-}
+type Submit = RuntimeInput<'session.submit'>;
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     schedule: { kind: 'schedule'; lifecycle_revision?: number; scheduleId?: string; triggerKind?: 'manual' };
@@ -125,7 +117,7 @@ export default class NanoRuntime {
   });
   private readonly bindings = new Map<string, SessionBinding>();
   private readonly configurations = new Map<string, AgentConfiguration>();
-  private readonly inputs = new Map<string, Promise<unknown>>();
+  private readonly inputs = new Map<string, ReturnType<NanoRuntime['submit']>>();
   private readonly approvals = new Map<string, (answer: ApprovalOutcome, reason?: string) => void>();
   private readonly unregisterPresets: (() => Promise<void>)[] = [];
   private accepting = false;
@@ -495,21 +487,6 @@ export default class NanoRuntime {
       for (const agent of config.agents) if (!deletion?.retired(agent.agentId)) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
       return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
     });
-    handle('session.ensure', value => this.ensure(value as SessionBinding));
-    handle('session.recovery.probe', value => {
-      const {sessionId, afterSeq, localWork} = value as {sessionId: string; afterSeq: number; localWork: boolean};
-      if (!Number.isSafeInteger(afterSeq) || afterSeq < -1) throw new RpcError(-32602, 'Invalid recovery cursor');
-      return this.owned.recoveryProbe(sessionId, afterSeq, localWork);
-    });
-    handle('session.submit', value => {
-      const input = value as Submit;
-      const key = `${input.sessionId}\0${input.inputId}`;
-      const running = this.inputs.get(key);
-      if (running) return running;
-      const task = this.submit(input).finally(() => { this.inputs.delete(key); });
-      this.inputs.set(key, task);
-      return task;
-    });
     handle('session.capabilities', async value => {
       const agent = await this.agent((value as { sessionId: string }).sessionId);
       return { tools: ctx.tools.schemas(agent).map(tool => tool.name).sort(), skills: await ctx.skills.list({ scope: agent, cwd: agent.session.header.cwd }), prompt: await ctx.systemPrompt.assemble({ scope: agent }) };
@@ -587,50 +564,11 @@ export default class NanoRuntime {
         || await realpath(config.workspace).catch(() => null) !== workspace) return { error: 'role_unavailable' };
       return roleDocument(ctx.fs, workspace, update);
     });
-    handle('configuration.selection', async value => {
-      const { agentId, cwd } = value as { agentId: string; cwd: string };
-      const entry = [...this.configurations].find(([, config]) => config.agentId === agentId);
-      if (!entry) throw new RpcError(-32004, 'Unknown product Agent');
-      await using preset = await ctx.agentPresets.acquireScope(entry[0]);
-      const key = {}; const diagnostic = createScope(ctx, key, { parent: preset.key });
-      try {
-        await diagnostic.ctx.plugin(SelectedSkills, {config: entry[1], isWorkWorker: false}).await();
-        return { tools: (await configuration).selection(entry[1], ctx.tools.schemas(key).map(tool => tool.name)),
-          skills: await ctx.skills.list({ scope: key, cwd }) };
-      } finally { await diagnostic.dispose(); }
-    });
     handle('configuration.preview', value => {
       const { config, cwd } = value as { config: AgentConfiguration; cwd: string };
       return preview(config, cwd);
     });
-    handle('session.fork', async value => {
-      const { sessionId, messageId, operationId } = value as { sessionId: string; messageId: string; operationId: string };
-      const source = await this.agent(sessionId); const binding = this.bindings.get(sessionId)!;
-      const desired = this.configurations.get(source.session.header.agentPreset!)!;
-      const result = await history.fork(source, messageId, operationId, desired, this.owned);
-      this.bindings.set(result.sessionId, { ...binding, sessionId: result.sessionId });
-      return { ...result, revision: binding.revision };
-    });
-    handle('session.export', async value => {
-      const { sessionId } = value as { sessionId: string };
-      if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
-      return { path: await history.path(sessionId) };
-    });
-    handle('knowledge.sources.sync', async value => { const input = value as { agentId: string; snapshot: import('./knowledge/memory-documents.js').SourceEligibility }; return (await knowledge).documents.syncSources(input.agentId, input.snapshot); });
-    handle('knowledge.sources.pending', async value => { await (await knowledge).documents.sourcesPending((value as { agentId: string }).agentId); return { pending: true }; });
     handle('knowledge.usage', async value => (await knowledge).usage((value as { agentId: string }).agentId));
-    handle('knowledge.facts', async () => ({ facts: await (await knowledge).facts(), reviews: await (await knowledge).reviews() }));
-    handle('knowledge.acknowledge', async value => { await (await knowledge).acknowledge((value as { id: string }).id); return { acknowledged: true }; });
-    handle('session.lookup', async value => {
-      const { sessionId, inputId } = value as { sessionId: string; inputId: string };
-      const agent = await this.agent(sessionId);
-      await this.flush(agent);
-      const evidence=(await models).fallback.evidence(agent, inputId);
-      const event=evidence.consumedSeq === undefined ? undefined : agent.session.eventAt(SessionSeq(evidence.consumedSeq));
-      const message=event?.type === 'user/message' ? event.data : [...agent.inbox.nextStep,...agent.inbox.nextTurn].find(m=>m.id===inputId);
-      return message && 'nanoTeamChat' in message.source && message.source.nanoTeamChat ?
-        {...evidence,providerDelivered:await this.chatScope.delivered(sessionId,inputId)} : evidence;
-    });
     type WorkRead = {sessionId:string; afterSeq?:number; replayFrom?:number; modelVersion?:string; stoppedRevision?:number};
     const disabling = new Map<string, Promise<{confirmed: boolean}>>();
     const workBinding = async ({sessionId, stoppedRevision}: WorkRead) => {
@@ -650,85 +588,7 @@ export default class NanoRuntime {
       return workPage({afterSeq, replayFrom, firstOwn, head, eventAt,
         present:event=>toolViews.one(sessionId,event), model:turn=>fallback.workModel(sessionId,turn), modelVersion:fallback.workVersion(sessionId)});
     };
-    handle('session.work.check', async value => {
-      const input = value as WorkRead;
-      await workBinding(input);
-      const id = SessionId(input.sessionId), fallback = (await models).fallback;
-      const rootSettled = await descendantReader.settled(id, {[id]:input.afterSeq ?? -1}, () =>
-        fallback.hasActive(id) || input.modelVersion!==fallback.workVersion(id), false);
-      return {rootSettled:rootSettled && !(await inboxDelivery.pending(input.sessionId)).length &&
-        !await workers.hasPendingWork(input.sessionId) && !await descendantReader.hasInterruptedDescendants(id)};
-    });
     handle('session.status', async value => ({status:(await this.agent((value as WorkRead).sessionId)).status}));
-    // The send path needs durable native facts, not frozen tool cards or Work projection.
-    handle('session.publication', async value => {
-      const {sessionId, afterSeq, callId, readIds, head: upper} = value as {
-        sessionId: string; afterSeq: number; callId?: string; readIds: string[]; head?: number;
-      };
-      await workBinding({sessionId});
-      const {session} = await this.agent(sessionId);
-      const head = Math.min(session.seq - 1, upper ?? Infinity);
-      const first = Math.max(session.inheritedEventCount, afterSeq + 1);
-      const slice = (from: number, to: number) => session.snapshotEvents(SessionLogOffset(from), SessionLogOffset(to));
-      let call: RuntimePublicationEvidence['call'];
-      if (callId !== undefined) for (let end = head + 1; end > first && !call;) {
-        const start = Math.max(first, end - workPageItems);
-        const event = slice(start, end).findLast(event => event.type === 'tool/call' && event.data.callId === callId);
-        if (event?.type === 'tool/call') call = {turn: event.data.turn, seq: event.seq};
-        end = start;
-      }
-      if (!await ctx.sessions.flush(session)) throw new RpcError(-32005, 'Publication has no persistence barrier');
-      lifecycle.assertEnabled(this.bindings.get(sessionId)!.agentId);
-      const reads: RuntimePublicationEvidence['reads'] = [];
-      const pending = new Set(readIds);
-      const fallback = pending.size ? (await models).fallback : undefined;
-      let throughSeq = first - 1, bytes = 128;
-      if (!pending.size) throughSeq = head;
-      scan: for (let start = first; pending.size && start <= head; start += workPageItems) {
-        for (const event of slice(start, Math.min(start + workPageItems, head + 1))) {
-          if (event.type === 'tool/result' && !event.data.message.isError && pending.has(event.data.message.toolCallId)) {
-            const {type, seq, time, data:{turn, message}} = event;
-            const read = {type, seq, time, data:{turn:fallback?.workModel(sessionId,turn)?.turn ?? turn, message}};
-            const size = jsonBytes(read);
-            if (reads.length && (bytes + size > workPageBytes || reads.length >= workPageItems)) break scan;
-            reads.push(read);
-            bytes += size;
-          }
-          throughSeq = event.seq;
-        }
-      }
-      return {durable:true, call, reads, throughSeq, head} satisfies RuntimePublicationEvidence;
-    }, {pull:'publication'});
-    handle('session.inbox-delivered.confirm', async value => {
-      const input = value as WorkRead & {inputIds:string[]};
-      await workBinding(input); await inboxDelivery.confirm(input.sessionId,input.inputIds); return {};
-    });
-    handle('session.work.workers.confirm', async value => {
-      const input = value as WorkRead & {changes:{workerId:string; id:string}[]};
-      await workBinding(input);
-      await workers.confirmWork(input.sessionId,input.changes);
-      return {};
-    });
-    handle('session.work.root', async value => {
-      const input = value as WorkRead;
-      await workBinding(input);
-      const id = SessionId(input.sessionId), policy = await models;
-      const workerPage=await workers.workPage(input.sessionId);
-      const withWorkers=(page:RuntimeWorkPage) => ({...page,workerChanges:workerPage.page,more:page.more || workerPage.more});
-      if (input.stoppedRevision !== undefined) {
-        if (!await ctx.sessionPersistence.stat(id))
-          return withWorkers(await projectPage(input, 0, -1, () => undefined, policy));
-        using cut = await ctx.sessionQuery.observeSession(id, {projectionMode:'none'});
-        return withWorkers(await projectPage(input, cut.inheritedEventCount, cut.cursor, seq => cut.events[seq], policy));
-      }
-      const {session} = await this.agent(id);
-      const head = session.seq - 1;
-      if (!await ctx.sessions.flush(session)) throw new RpcError(-32005, 'Root Session has no persistence barrier');
-      const page = await projectPage(input, session.inheritedEventCount, head,
-        seq => session.snapshotEvents(SessionLogOffset(seq), SessionLogOffset(seq + 1))[0], policy);
-      const inboxDelivered = await inboxDelivery.pending(input.sessionId);
-      return withWorkers({...page,inboxDelivered,more:page.more || inboxDelivered.length === 256});
-    }, {pull:'work-root'});
     type CatalogEntry = Awaited<ReturnType<DescendantReader['targets']>>[number];
     const workChild = (entry: CatalogEntry, policy: ModelPolicy, engine: NanoWorkflowEngine): RuntimeWorkChild => {
       if (entry.kind !== 'child') return {kind:'diagnostic',id:entry.id,parentId:entry.parentId,reason:entry.reason};
@@ -738,91 +598,13 @@ export default class NanoRuntime {
         ...(workflowRunId ? {workflowRunId} : {})};
     };
     const catalogs = new WorkCatalogPages();
-    handle('session.work.children', async value => {
-      const input = value as WorkRead & {afterId?: string};
-      await workBinding(input);
-      const root = SessionId(input.sessionId), policy = await models, engine = await workflow;
-      await engine.ready;
-      return catalogs.read(root,input.afterId,input.stoppedRevision,async function* () {
-        if (!ctx.sessions.get(root) && !await ctx.sessionPersistence.stat(root)) return;
-        for await (const entry of descendantReader.catalog(root)) yield workChild(entry,policy,engine);
-      });
-    }, {pull:'work-descendants'});
-    handle('session.work.targets', async value => {
-      const input = value as WorkRead & {childId:string};
-      await workBinding(input);
-      const policy = await models, engine = await workflow;
-      await engine.ready;
-      const targets = await descendantReader.targets(SessionId(input.sessionId),SessionId(input.childId));
-      return {children:targets.map(target=>workChild(target,policy,engine))} satisfies RuntimeWorkCatalog;
-    }, {pull:'work-descendants'});
-    handle('session.work.child', async value => {
-      const input = value as WorkRead & {childId: string};
-      await workBinding(input);
-      const id = SessionId(input.childId), policy = await models;
-      const modelVersion=policy.fallback.workVersion(id), afterSeq=input.afterSeq ?? -1;
-      const page=await descendantReader.eventPage(SessionId(input.sessionId),id,afterSeq,input.modelVersion!==modelVersion,
-        (session,head)=>projectPage({...input,sessionId:id},session.inheritedEventCount,head,
-          seq=>session.snapshotEvents(SessionLogOffset(seq),SessionLogOffset(seq+1))[0],policy),
-        cut=>projectPage({...input,sessionId:id},cut.inheritedEventCount,cut.cursor,seq=>cut.events[seq],policy));
-      return page ?? {durable:true,events:[],modelRuns:[],modelVersion,throughSeq:afterSeq,more:false} satisfies RuntimeWorkPage;
-    }, {pull:'work-descendants'});
-    handle('session.observe', async value => {
-      const { sessionId, afterSeq = -1 } = value as { sessionId: string; afterSeq?: number };
-      const agent = await this.agent(sessionId);
-      const events = agent.session.snapshotEvents().filter(event => agent.session.isOwnSeq(event.seq) && event.seq > afterSeq);
-      await this.flush(agent);
-      const runs = structuredClone((await models).fallback.list(sessionId));
-      return { status: agent.status, events: await toolViews(sessionId, events), modelRuns: runs, modelVersion: (await models).fallback.workVersion(sessionId), approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
-    });
-    handle('workflow.pending', async () => (await workflow).pending());
-    handle('workflow.acknowledge', async value => { await (await workflow).acknowledge((value as {runId:string}).runId); return {acknowledged:true}; });
     handle('workflow.read', async value => { const {sessionId,runId} = value as {sessionId:string;runId?:string}; return (await workflow).read(await this.agent(sessionId),runId); });
     handle('workflow.control', async value => { const {sessionId,runId,action,ordinal} = value as {sessionId:string;runId:string;action:string;ordinal?:number}; return (await workflow).control(await this.agent(sessionId),runId,action,ordinal); });
     handle('workflow.catalog', async value => (await workflow).catalog(await this.agent((value as {sessionId:string}).sessionId)).list());
-    handle('session.command', async value => {
-      const request = value as { sessionId: string; id: string; action: string; argument?: string };
-      if (request.action === 'config') {
-        const match = /^workflowSizeGuideline\s+(unrestricted|small|medium|large)$/.exec(request.argument ?? '');
-        if (!match) return {text: '用法: /config workflowSizeGuideline <unrestricted|small|medium|large>'};
-        const agent = await this.agent(request.sessionId);
-        const config = (await configuration).forAgent(agent)!;
-        await this.peer.request('configuration.workflow', {agentId: config.agentId, guideline: match[1]});
-        return {text: `Workflow size guideline: ${match[1]}`};
-      }
-      if(request.action === 'workflows') return (await workflow).command(await this.agent(request.sessionId),request.id,request.argument??'');
-      return (await models).command(await this.agent(request.sessionId), request);
-    });
     handle('task.execution.state', value=>{
       const {agentId}=value as {agentId:string};
       if(![...this.configurations.values()].some(config=>config.agentId===agentId))throw new RpcError(-32004,'Unknown product Agent');
       return this.tasks.observe(agentId);
-    });
-    handle('task.execution.changed', value=>{this.tasks.changed((value as {agentId:string}).agentId,(value as {reset?:boolean}).reset!==false);return {ok:true};});
-    handle('task.execution.block', value=>{const {sessionId,blocked}=value as {sessionId:string;blocked:boolean};this.tasks.block(sessionId,blocked);return {ok:true};});
-    handle('session.cancel', async value => {
-      const { sessionId,stoppedAt,settleTaskContext } = value as { sessionId: string;stoppedAt?:string;settleTaskContext?:boolean };
-      this.interruptedWork.stop(sessionId,stoppedAt);
-      await workers.stopRoot(sessionId);
-      this.tasks.interrupt(sessionId,stoppedAt);
-      const agent = await this.agent(sessionId);
-      (await models).cancelCommands(sessionId);
-      (await models).fallback.interrupt(agent);
-      const workflowCount = await (await workflow).stopSession(sessionId);
-      const wasRunning = agent.status === 'running' || workflowCount > 0;
-      agent.cancel({ kind: 'user' }, { keepInbox: true });
-      await agent.whenIdle();
-      await this.flush(agent);
-      if (settleTaskContext) await taskContext.reconcile(agent);
-      return { stopped: true, wasRunning };
-    });
-    handle('approval.answer', value => {
-      const { requestId, decision, reason } = value as { requestId: string; decision: ApprovalOutcome; reason?: string };
-      if (!['allowed-once', 'rejected'].includes(decision)) throw new RpcError(-32602, 'Invalid approval decision');
-      const answer = this.approvals.get(requestId);
-      if (!answer) throw new RpcError(-32004, 'Approval is no longer pending');
-      answer(decision, reason);
-      return { answered: true };
     });
     const personalScopes = async (agentId:string,sessionId:string) => {
       const config = [...this.configurations.values()].find(config => config.agentId === agentId);
@@ -851,30 +633,9 @@ export default class NanoRuntime {
       }));
       return {...evidence[0],rootSessionId:root.id,ancestors:evidence.slice(1)};
     });
-    handle('pa.review', async value => {
-      const {agentId,kind,evidence,sessionId,callId} = value as {agentId:string;kind:string;evidence:Record<string,unknown>;sessionId?:string;callId?:string};
-      const config = [...this.configurations.values()].find(config => config.agentId === agentId);
-      if (!config?.personal) throw new RpcError(-32004, 'Unknown personal Agent');
-      if(kind==='input')return reviewPersonal(ctx,config,'input',evidence);
-      if(kind!=='action'||!sessionId)throw new RpcError(-32602,'Personal disclosure requires a bound session');
-      const {lineage}=await personalScopes(agentId,sessionId);
-      try {
-        return await (await codex).reviewDisclosure({agent:lineage[0]!,config,action:personalReviewAction(evidence),images:await personalReviewImages(ctx,evidence),
-          evidence:async()=>{
-            const scopes=await Promise.all([...lineage].reverse().map(async scope=>{
-              const assembly=await ctx.systemPrompt.assemble({scope});
-              const rows=await (await approval).sources.history(scope,scope.id===sessionId?callId:undefined,false,{toolResults:true,fullAssistant:true,privateContext:true});
-              return [{context:renderPrompt(assembly),origin:{kind:'runtime-system'},session_id:scope.id},
-                {context:renderContextSnapshot(assembly),origin:{kind:'runtime-context'},session_id:scope.id},
-                ...rows.map(row=>({...row,session_id:scope.id}))];
-            }));
-            return scopes.flat();
-          }});
-      } catch(error) {return {decision:'unavailable',reason:`Independent review unavailable: ${String(error)}`};}
-    });
     const usage = async (agentId: string, selectionOnly = false) => {
       if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
-      const schedules = await this.cron.command(agentId, undefined, 'catalog', {}) as ScheduleCatalogEntry[];
+      const schedules = await this.cron.catalog(agentId);
       const busy: CapabilityTarget[] = [...this.capabilities.busy(agentId, selectionOnly), ...(await knowledge).busyKinds(agentId).map(kind => ({kind: 'feature' as const, name: kind === 'memory' ? 'memory_curation' : 'skill_creation'}))];
       for (const binding of this.bindings.values()) {
         if (binding.agentId !== agentId) continue;
@@ -958,19 +719,6 @@ export default class NanoRuntime {
     for (const method of ['configuration.features', 'schedule.enabled']) handle(method, () => {
       throw new RpcError(-32602, 'Use configuration.prepare and configuration.apply with a complete candidate');
     });
-    handle('task.context.passive',async value=>{
-      const {agentId,sessionId,messages,revoked}=value as {agentId:string;sessionId:string;messages:{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:Submit['content']}[];revoked:string[]};
-      if(this.bindings.get(sessionId)?.agentId!==agentId)throw new RpcError(-32602,'Invalid Task context identity');
-      this.lifecycle.assertEnabled(agentId);const agent=await this.agent(sessionId);
-      for(const id of revoked)agent.inbox.remove(MessageId(id));
-      for(const message of messages)await this.submit({sessionId,inputId:message.inputId,content:message.content,mode:'inject',source:{kind:'system',channel:'task-context',actorId:agentId,messageId:message.inputId,conversationId:message.conversationId,...(message.humanControl?{humanTaskControl:message.humanControl}:{})}});
-      await this.ctx.sessions.flush(agent.session);return {durable:true};
-    });
-    handle('task.wait.repair',async value=>{
-      const {agentId,sessionId,inputId}=value as {agentId:string;sessionId:string;inputId:string};
-      if(this.bindings.get(sessionId)?.agentId!==agentId||!inputId.startsWith('task-wait-repair:'))throw new RpcError(-32602,'Invalid Task repair identity');
-      this.lifecycle.assertEnabled(agentId);await this.tasks.repair(await this.agent(sessionId),inputId);return {durable:true};
-    });
     handle('schedule.deleted.notify',async value=>{
       const {agentId,sessionId,inputId,content}=value as {agentId:string;sessionId:string;inputId:string;content:Submit['content']};
       if(!inputId.startsWith('schedule-deleted:'))throw new RpcError(-32602,'Invalid Schedule change identity');
@@ -990,57 +738,340 @@ export default class NanoRuntime {
       }
       await this.flush(agent);return {durable:true};
     });
-    handle('schedule.wait.inspect',async value=>{
-      const {agentId,sessionId,scheduleId}=value as {agentId:string;sessionId:string;scheduleId:string};
-      const config=[...this.configurations.values()].find(config=>config.agentId===agentId);
-      const checked_at=new Date().toISOString();
-      if(!config||this.bindings.get(sessionId)?.agentId!==agentId)return {valid:false,checked_at,reason_code:'owner_or_session_mismatch'};
-      const catalog=await this.cron.command(agentId,undefined,'catalog',{}) as ScheduleCatalogEntry[];
-      const task=catalog.find(t=>t.id===scheduleId);
-      if(task&&task.sessionId!==sessionId)return {valid:false,checked_at,reason_code:'owner_or_session_mismatch'};
-      const agent=await this.agent(sessionId);await this.flush(agent);
-      const pending=scheduleEvidence(agent.session.snapshotEvents()).find(item=>item.scheduleId===scheduleId&&item.trigger==='timed'&&item.pending&&item.consumedSeq===undefined);
-      if(pending)return {valid:true,checked_at,owner_agent_id:agentId,session_id:sessionId,next_check_at:pending.scheduledAt,pending_occurrence_id:pending.messageId};
-      const reason_code=!task?'missing':task.status!=='active'?'inactive':!(Date.parse(task.scheduledAt)>Date.now())?'expired':undefined;
-      return {valid:!reason_code,checked_at,owner_agent_id:agentId,session_id:sessionId,next_check_at:task?.scheduledAt,...(reason_code?{reason_code}:{})};
-    });
-    handle('schedule.evidence', async value => {
-      const agent = await this.agent((value as { sessionId: string }).sessionId); await this.flush(agent);
-      return scheduleEvidence(agent.session.snapshotEvents());
-    });
-    handle('schedule.command', async value => {
-      const { agentId, sessionId, action, args = {} } = value as { agentId: string; sessionId?: string; action: string; args?: Record<string, unknown> };
+    const scheduleOwner = (agentId: string, sessionId?: string) => {
       if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
       if (sessionId && this.ownerOf(sessionId) !== agentId) throw new RpcError(-32004, 'Schedule Session does not belong to this Agent');
-      if (action === 'jobs') {
-        const tasks = await this.cron.command(agentId, undefined, 'catalog', {}) as ScheduleCatalogEntry[];
-        return tasks.map(({ id, title, prompt, sessionId, status, lastDelivery: _delivery, ...schedule }) => ({
-          id, sessionId, name: title, instruction: prompt, schedule,
-          enabled: status === 'active', delete_after_run: false,
+    };
+    const scheduleHandlers = {
+      jobs: async ({agentId, sessionId}) => {
+        scheduleOwner(agentId, sessionId);
+        const tasks = await this.cron.catalog(agentId);
+        return tasks.map(({id, title, prompt, sessionId, status, lastDelivery: _delivery, ...schedule}) => ({
+          id, sessionId, name: title, instruction: prompt, schedule, enabled: status === 'active', delete_after_run: false,
         }));
-      }
-      if (action === 'run') {
+      },
+      run: async ({agentId, sessionId, args}) => {
+        scheduleOwner(agentId, sessionId);
         const key = `schedule-command:${agentId}:${randomUUID()}`;
         if (!this.capabilities.begin(key, agentId, {kind: 'tool', name: 'schedule_run'})) throw new RpcError(-32003, 'Capability is reserved by configuration');
         try {
-        const config = [...this.configurations.values()].find(config => config.agentId === agentId)!;
-        if (this.capabilities.held(agentId, {kind: 'feature', name: 'cron_scheduling'}) || this.capabilities.held(agentId, {kind: 'tool', name: 'schedule_run'})) throw new RpcError(-32003, 'Capability is reserved by configuration');
-        const tasks = await this.cron.command(agentId, undefined, 'catalog', {}) as ScheduleCatalogEntry[];
-        const task = tasks.find(task => task.id === args.id && task.sessionId === sessionId);
-        if (!task || task.status !== 'active') throw new RpcError(-32602, 'Schedule does not exist or is inactive');
-        if (typeof args.inputId !== 'string' || !args.inputId.startsWith('manual-schedule:')) throw new RpcError(-32602, 'Manual schedule input identity is required');
-        const fallback = (await models).fallback;
-        const agent = await this.agent(sessionId!);
-        if (!fallback.nativeEvidence(agent, args.inputId).accepted) {
-          agent.followup(freezeMessage({ id: MessageId(args.inputId), role: 'user' as const,
-            content: [{ type: 'text', text: `Manual run of an existing schedule. This is configured work, not live human permission.\nTitle: ${task.title}\nSaved instructions:\n${task.prompt}` }],
-            source: { kind: 'schedule' as const, scheduleId: task.id, triggerKind: 'manual' } }));
-        }
-        await this.flush(agent); return { inputId: args.inputId, ...fallback.nativeEvidence(agent, args.inputId) };
+          if (this.capabilities.held(agentId, {kind: 'feature', name: 'cron_scheduling'}) || this.capabilities.held(agentId, {kind: 'tool', name: 'schedule_run'})) throw new RpcError(-32003, 'Capability is reserved by configuration');
+          const tasks = await this.cron.catalog(agentId);
+          const task = tasks.find(task => task.id === args.id && task.sessionId === sessionId);
+          if (!task || task.status !== 'active') throw new RpcError(-32602, 'Schedule does not exist or is inactive');
+          const fallback = (await models).fallback;
+          const agent = await this.agent(sessionId);
+          if (!fallback.nativeEvidence(agent, args.inputId).accepted) {
+            agent.followup(freezeMessage({ id: MessageId(args.inputId), role: 'user' as const,
+              content: [{ type: 'text', text: `Manual run of an existing schedule. This is configured work, not live human permission.\nTitle: ${task.title}\nSaved instructions:\n${task.prompt}` }],
+              source: { kind: 'schedule' as const, scheduleId: task.id, triggerKind: 'manual' } }));
+          }
+          await this.flush(agent); return { inputId: args.inputId, ...fallback.nativeEvidence(agent, args.inputId) };
         } finally { this.capabilities.end(key); }
-      }
-      return this.cron.command(agentId, sessionId, action, args);
-    });
+      },
+      catalog: input => {
+        scheduleOwner(input.agentId, input.sessionId);
+        return this.cron.catalog(input.agentId);
+      },
+      history: input => {
+        scheduleOwner(input.agentId, input.sessionId);
+        return this.cron.history(input.agentId, input.sessionId, input.args.id, input.args.limit);
+      },
+      create: input => {
+        scheduleOwner(input.agentId, input.sessionId);
+        return this.cron.withSchedule(input.agentId, input.action, service =>
+          service.create(SessionId(input.sessionId), input.args));
+      },
+      list: input => {
+        scheduleOwner(input.agentId, input.sessionId);
+        return this.cron.withSchedule(input.agentId, input.action, service => service.list({sessionId: SessionId(input.sessionId)}));
+      },
+      update: input => {
+        scheduleOwner(input.agentId, input.sessionId);
+        return this.cron.withSchedule(input.agentId, input.action, service =>
+          service.update({...input.args, id: ScheduleId(input.args.id), sessionId: SessionId(input.sessionId),
+            expected:{...input.args.expected,id:ScheduleId(input.args.expected.id)}}));
+      },
+      delete: input => {
+        scheduleOwner(input.agentId, input.sessionId);
+        return this.cron.withSchedule(input.agentId, input.action, service =>
+          service.delete({sessionId: SessionId(input.sessionId), id: ScheduleId(input.args.id)}));
+      },
+    } satisfies ScheduleHandlerMap;
+    const productHandlers = {
+      'session.ensure': value => this.ensure(value),
+      'session.recovery.probe': value => {
+        const {sessionId, afterSeq, localWork} = value;
+        if (!Number.isSafeInteger(afterSeq) || afterSeq < -1) throw new RpcError(-32602, 'Invalid recovery cursor');
+        return this.owned.recoveryProbe(sessionId, afterSeq, localWork);
+      },
+      'session.submit': input => {
+        const key = `${input.sessionId}\0${input.inputId}`;
+        const running = this.inputs.get(key);
+        if (running) return running;
+        const task = this.submit(input).finally(() => { this.inputs.delete(key); });
+        this.inputs.set(key, task);
+        return task;
+      },
+      'configuration.selection': async value => {
+        const { agentId, cwd } = value;
+        const entry = [...this.configurations].find(([, config]) => config.agentId === agentId);
+        if (!entry) throw new RpcError(-32004, 'Unknown product Agent');
+        await using preset = await ctx.agentPresets.acquireScope(entry[0]);
+        const key = {}; const diagnostic = createScope(ctx, key, { parent: preset.key });
+        try {
+          await diagnostic.ctx.plugin(SelectedSkills, {config: entry[1], isWorkWorker: false}).await();
+          return { tools: (await configuration).selection(entry[1], ctx.tools.schemas(key).map(tool => tool.name)),
+            skills: await ctx.skills.list({ scope: key, cwd }) };
+        } finally { await diagnostic.dispose(); }
+      },
+      'session.fork': async value => {
+        const { sessionId, messageId, operationId } = value;
+        const source = await this.agent(sessionId); const binding = this.bindings.get(sessionId)!;
+        const desired = this.configurations.get(source.session.header.agentPreset!)!;
+        const result = await history.fork(source, messageId, operationId, desired, this.owned);
+        this.bindings.set(result.sessionId, { ...binding, sessionId: result.sessionId });
+        return { ...result, revision: binding.revision };
+      },
+      'session.export': async value => {
+        const { sessionId } = value;
+        if (!this.bindings.has(sessionId)) throw new RpcError(-32004, 'Session has no trusted product binding');
+        return { path: await history.path(sessionId) };
+      },
+      'knowledge.sources.sync': async input => (await knowledge).documents.syncSources(input.agentId, input.snapshot),
+      'knowledge.sources.pending': async value => { await (await knowledge).documents.sourcesPending(value.agentId); return { pending: true }; },
+      'knowledge.facts': async () => ({ facts: await (await knowledge).facts(), reviews: await (await knowledge).reviews() }),
+      'knowledge.acknowledge': async value => { await (await knowledge).acknowledge(value.id); return { acknowledged: true }; },
+      'session.lookup': async value => {
+        const { sessionId, inputId } = value;
+        const agent = await this.agent(sessionId);
+        await this.flush(agent);
+        const evidence=(await models).fallback.evidence(agent, inputId);
+        const event=evidence.consumedSeq === undefined ? undefined : agent.session.eventAt(SessionSeq(evidence.consumedSeq));
+        const message=event?.type === 'user/message' ? event.data : [...agent.inbox.nextStep,...agent.inbox.nextTurn].find(m=>m.id===inputId);
+        return message && 'nanoTeamChat' in message.source && message.source.nanoTeamChat ?
+          {...evidence,providerDelivered:await this.chatScope.delivered(sessionId,inputId)} : evidence;
+      },
+      'session.work.check': async input => {
+        await workBinding(input);
+        const id = SessionId(input.sessionId), fallback = (await models).fallback;
+        const rootSettled = await descendantReader.settled(id, {[id]:input.afterSeq ?? -1}, () =>
+          fallback.hasActive(id) || input.modelVersion!==fallback.workVersion(id), false);
+        return {rootSettled:rootSettled && !(await inboxDelivery.pending(input.sessionId)).length &&
+          !await workers.hasPendingWork(input.sessionId) && !await descendantReader.hasInterruptedDescendants(id)};
+      },
+      'session.publication': async value => {
+        const {sessionId, afterSeq, callId, readIds, head: upper} = value;
+        await workBinding({sessionId});
+        const {session} = await this.agent(sessionId);
+        const head = Math.min(session.seq - 1, upper ?? Infinity);
+        const first = Math.max(session.inheritedEventCount, afterSeq + 1);
+        const slice = (from: number, to: number) => session.snapshotEvents(SessionLogOffset(from), SessionLogOffset(to));
+        let call: RuntimePublicationEvidence['call'];
+        if (callId !== undefined) for (let end = head + 1; end > first && !call;) {
+          const start = Math.max(first, end - workPageItems);
+          const event = slice(start, end).findLast(event => event.type === 'tool/call' && event.data.callId === callId);
+          if (event?.type === 'tool/call') call = {turn: event.data.turn, seq: event.seq};
+          end = start;
+        }
+        if (!await ctx.sessions.flush(session)) throw new RpcError(-32005, 'Publication has no persistence barrier');
+        lifecycle.assertEnabled(this.bindings.get(sessionId)!.agentId);
+        const reads: RuntimePublicationEvidence['reads'] = [];
+        const pending = new Set(readIds);
+        const fallback = pending.size ? (await models).fallback : undefined;
+        let throughSeq = first - 1, bytes = 128;
+        if (!pending.size) throughSeq = head;
+        scan: for (let start = first; pending.size && start <= head; start += workPageItems) {
+          for (const event of slice(start, Math.min(start + workPageItems, head + 1))) {
+            if (event.type === 'tool/result' && !event.data.message.isError && pending.has(event.data.message.toolCallId)) {
+              const {type, seq, time, data:{turn, message}} = event;
+              const read = {type, seq, time, data:{turn:fallback?.workModel(sessionId,turn)?.turn ?? turn, message}};
+              const size = jsonBytes(read);
+              if (reads.length && (bytes + size > workPageBytes || reads.length >= workPageItems)) break scan;
+              reads.push(read);
+              bytes += size;
+            }
+            throughSeq = event.seq;
+          }
+        }
+        return {durable:true, call, reads, throughSeq, head} satisfies RuntimePublicationEvidence;
+      },
+      'session.inbox-delivered.confirm': async input => {
+        await workBinding(input); await inboxDelivery.confirm(input.sessionId,input.inputIds); return {};
+      },
+      'session.work.workers.confirm': async input => {
+        await workBinding(input);
+        await workers.confirmWork(input.sessionId,input.changes);
+        return {};
+      },
+      'session.work.root': async input => {
+        await workBinding(input);
+        const id = SessionId(input.sessionId), policy = await models;
+        const workerPage=await workers.workPage(input.sessionId);
+        const withWorkers=(page:RuntimeWorkPage) => ({...page,workerChanges:workerPage.page,more:page.more || workerPage.more});
+        if (input.stoppedRevision !== undefined) {
+          if (!await ctx.sessionPersistence.stat(id))
+            return withWorkers(await projectPage(input, 0, -1, () => undefined, policy));
+          using cut = await ctx.sessionQuery.observeSession(id, {projectionMode:'none'});
+          return withWorkers(await projectPage(input, cut.inheritedEventCount, cut.cursor, seq => cut.events[seq], policy));
+        }
+        const {session} = await this.agent(id);
+        const head = session.seq - 1;
+        if (!await ctx.sessions.flush(session)) throw new RpcError(-32005, 'Root Session has no persistence barrier');
+        const page = await projectPage(input, session.inheritedEventCount, head,
+          seq => session.snapshotEvents(SessionLogOffset(seq), SessionLogOffset(seq + 1))[0], policy);
+        const inboxDelivered = await inboxDelivery.pending(input.sessionId);
+        return withWorkers({...page,inboxDelivered,more:page.more || inboxDelivered.length === 256});
+      },
+      'session.work.children': async input => {
+        await workBinding(input);
+        const root = SessionId(input.sessionId), policy = await models, engine = await workflow;
+        await engine.ready;
+        return catalogs.read(root,input.afterId,input.stoppedRevision,async function* () {
+          if (!ctx.sessions.get(root) && !await ctx.sessionPersistence.stat(root)) return;
+          for await (const entry of descendantReader.catalog(root)) yield workChild(entry,policy,engine);
+        });
+      },
+      'session.work.targets': async input => {
+        await workBinding(input);
+        const policy = await models, engine = await workflow;
+        await engine.ready;
+        const targets = await descendantReader.targets(SessionId(input.sessionId),SessionId(input.childId));
+        return {children:targets.map(target=>workChild(target,policy,engine))} satisfies RuntimeWorkCatalog;
+      },
+      'session.work.child': async input => {
+        await workBinding(input);
+        const id = SessionId(input.childId), policy = await models;
+        const modelVersion=policy.fallback.workVersion(id), afterSeq=input.afterSeq ?? -1;
+        const page=await descendantReader.eventPage(SessionId(input.sessionId),id,afterSeq,input.modelVersion!==modelVersion,
+          (session,head)=>projectPage({...input,sessionId:id},session.inheritedEventCount,head,
+            seq=>session.snapshotEvents(SessionLogOffset(seq),SessionLogOffset(seq+1))[0],policy),
+          cut=>projectPage({...input,sessionId:id},cut.inheritedEventCount,cut.cursor,seq=>cut.events[seq],policy));
+        return page ?? {durable:true,events:[],modelRuns:[],modelVersion,throughSeq:afterSeq,more:false} satisfies RuntimeWorkPage;
+      },
+      'session.observe': async value => {
+        const { sessionId, afterSeq = -1 } = value;
+        const agent = await this.agent(sessionId);
+        const events = agent.session.snapshotEvents().filter(event => agent.session.isOwnSeq(event.seq) && event.seq > afterSeq);
+        await this.flush(agent);
+        const runs = structuredClone((await models).fallback.list(sessionId));
+        const presented = await toolViews(sessionId, events);
+        // Native event interfaces have named fields. Plugins may contribute additional data.
+        if (!presented.every((event): event is SessionEvent & RuntimeEvent => workObject(event.data)))
+          throw new RpcError(-32000, 'Invalid native event data');
+        return { status: agent.status, events: presented, modelRuns: runs, modelVersion: (await models).fallback.workVersion(sessionId), approvals: await (await approval).entries(sessionId), throughSeq: events.at(-1)?.seq ?? afterSeq, durable: true };
+      },
+      'workflow.pending': async () => (await workflow).pending(),
+      'workflow.acknowledge': async value => { await (await workflow).acknowledge(value.runId); return {acknowledged:true}; },
+      'session.command': async value => {
+        const request = value;
+        if (request.action === 'config') {
+          const match = /^workflowSizeGuideline\s+(unrestricted|small|medium|large)$/.exec(request.argument ?? '');
+          if (!match) return {text: '用法: /config workflowSizeGuideline <unrestricted|small|medium|large>'};
+          const agent = await this.agent(request.sessionId);
+          const config = (await configuration).forAgent(agent)!;
+          await this.peer.request('configuration.workflow', {agentId: config.agentId, guideline: match[1]});
+          return {text: `Workflow size guideline: ${match[1]}`};
+        }
+        if(request.action === 'workflows') return (await workflow).command(await this.agent(request.sessionId),request.id,request.argument??'');
+        return (await models).command(await this.agent(request.sessionId), request);
+      },
+      'task.execution.changed': value=>{this.tasks.changed(value.agentId,value.reset!==false);return {ok:true};},
+      'task.execution.block': value=>{const {sessionId,blocked}=value;this.tasks.block(sessionId,blocked);return {ok:true};},
+      'session.cancel': async value => {
+        const { sessionId,stoppedAt,settleTaskContext } = value;
+        this.interruptedWork.stop(sessionId,stoppedAt);
+        await workers.stopRoot(sessionId);
+        this.tasks.interrupt(sessionId,stoppedAt);
+        const agent = await this.agent(sessionId);
+        (await models).cancelCommands(sessionId);
+        (await models).fallback.interrupt(agent);
+        const workflowCount = await (await workflow).stopSession(sessionId);
+        const wasRunning = agent.status === 'running' || workflowCount > 0;
+        agent.cancel({ kind: 'user' }, { keepInbox: true });
+        await agent.whenIdle();
+        await this.flush(agent);
+        if (settleTaskContext) await taskContext.reconcile(agent);
+        return { stopped: true, wasRunning };
+      },
+      'approval.answer': value => {
+        const { requestId, decision, reason } = value;
+        if (!['allowed-once', 'rejected'].includes(decision)) throw new RpcError(-32602, 'Invalid approval decision');
+        const answer = this.approvals.get(requestId);
+        if (!answer) throw new RpcError(-32004, 'Approval is no longer pending');
+        answer(decision, reason);
+        return { answered: true };
+      },
+      'pa.review': async value => {
+        const {agentId,kind,evidence,sessionId,callId} = value;
+        const config = [...this.configurations.values()].find(config => config.agentId === agentId);
+        if (!config?.personal) throw new RpcError(-32004, 'Unknown personal Agent');
+        if(kind==='input')return reviewPersonal(ctx,config,'input',evidence);
+        if(kind!=='action'||!sessionId)throw new RpcError(-32602,'Personal disclosure requires a bound session');
+        const {lineage}=await personalScopes(agentId,sessionId);
+        try {
+          return await (await codex).reviewDisclosure({agent:lineage[0]!,config,action:personalReviewAction(evidence),images:await personalReviewImages(ctx,evidence),
+            evidence:async()=>{
+              const scopes=await Promise.all([...lineage].reverse().map(async scope=>{
+                const assembly=await ctx.systemPrompt.assemble({scope});
+                const rows=await (await approval).sources.history(scope,scope.id===sessionId?callId:undefined,false,{toolResults:true,fullAssistant:true,privateContext:true});
+                return [{context:renderPrompt(assembly),origin:{kind:'runtime-system'},session_id:scope.id},
+                  {context:renderContextSnapshot(assembly),origin:{kind:'runtime-context'},session_id:scope.id},
+                  ...rows.map(row=>({...row,session_id:scope.id}))];
+              }));
+              return scopes.flat();
+            }});
+        } catch(error) {return {decision:'unavailable',reason:`Independent review unavailable: ${String(error)}`};}
+      },
+      'task.context.passive': async value=>{
+        const {agentId,sessionId,messages,revoked}=value;
+        if(this.bindings.get(sessionId)?.agentId!==agentId)throw new RpcError(-32602,'Invalid Task context identity');
+        this.lifecycle.assertEnabled(agentId);const agent=await this.agent(sessionId);
+        for(const id of revoked)agent.inbox.remove(MessageId(id));
+        for(const message of messages)await this.submit({sessionId,inputId:message.inputId,content:message.content,mode:'inject',source:{kind:'system',channel:'task-context',actorId:agentId,messageId:message.inputId,conversationId:message.conversationId,...(message.humanControl?{humanTaskControl:message.humanControl}:{})}});
+        await this.ctx.sessions.flush(agent.session);return {durable:true};
+      },
+      'task.wait.repair': async value=>{
+        const {agentId,sessionId,inputId}=value;
+        if(this.bindings.get(sessionId)?.agentId!==agentId||!inputId.startsWith('task-wait-repair:'))throw new RpcError(-32602,'Invalid Task repair identity');
+        this.lifecycle.assertEnabled(agentId);await this.tasks.repair(await this.agent(sessionId),inputId);return {durable:true};
+      },
+      'schedule.wait.inspect': async value=>{
+        const {agentId,sessionId,scheduleId}=value;
+        const config=[...this.configurations.values()].find(config=>config.agentId===agentId);
+        const checked_at=new Date().toISOString();
+        if(!config||this.bindings.get(sessionId)?.agentId!==agentId)return {valid:false,checked_at,reason_code:'owner_or_session_mismatch'};
+        const catalog=await this.cron.catalog(agentId);
+        const task=catalog.find(t=>t.id===scheduleId);
+        if(task&&task.sessionId!==sessionId)return {valid:false,checked_at,reason_code:'owner_or_session_mismatch'};
+        const agent=await this.agent(sessionId);await this.flush(agent);
+        const pending=scheduleEvidence(agent.session.snapshotEvents()).find(item=>item.scheduleId===scheduleId&&item.trigger==='timed'&&item.pending&&item.consumedSeq===undefined);
+        if(pending)return {valid:true,checked_at,owner_agent_id:agentId,session_id:sessionId,next_check_at:pending.scheduledAt,pending_occurrence_id:pending.messageId};
+        const reason_code=!task?'missing':task.status!=='active'?'inactive':!(Date.parse(task.scheduledAt)>Date.now())?'expired':undefined;
+        return {valid:!reason_code,checked_at,owner_agent_id:agentId,session_id:sessionId,next_check_at:task?.scheduledAt,...(reason_code?{reason_code}:{})};
+      },
+      'schedule.evidence': async value => {
+        const agent = await this.agent(value.sessionId); await this.flush(agent);
+        return scheduleEvidence(agent.session.snapshotEvents());
+      },
+      'schedule.command': scheduleHandlers,
+    } satisfies RuntimeHandlerMap;
+    const pullLanes: Partial<Record<RuntimeMethod, {pull: string}>> = {
+      'session.publication': {pull:'publication'},
+      'session.work.root': {pull:'work-root'},
+      'session.work.children': {pull:'work-descendants'},
+      'session.work.targets': {pull:'work-descendants'},
+      'session.work.child': {pull:'work-descendants'},
+    };
+    for (const method of runtimeMethods) {
+      handle(method, async raw => {
+        try { return await dispatchRuntime(productHandlers, method, raw); }
+        catch (error) {
+          if (error instanceof RuntimeRpcValidationError) throw new RpcError(-32602, error.message);
+          throw error;
+        }
+      }, pullLanes[method]);
+    }
     const deleting = new Set<string>();
     const removeAgentExecution = async (value: unknown, purge: boolean) => {
       const {agentId, revision, operationId, plan, knownSessionIds = []} = value as {
@@ -1218,11 +1249,11 @@ export default class NanoRuntime {
 
   private async configureSchedules(config: AgentConfiguration) {
     if (this.lifecycle.current(config.agentId).disabled) { await this.cron.setEnabled(config.agentId, false); return; }
-    const tasks = await this.cron.command(config.agentId, undefined, 'catalog', {}) as ScheduleCatalogEntry[];
+    const tasks = await this.cron.catalog(config.agentId);
     await this.cron.setEnabled(config.agentId, needsSchedules(config) || tasks.some(task => task.status === 'active'));
   }
 
-  private async submit(input: Submit) {
+  private async submit(input: Submit): Promise<RuntimeOutput<'session.submit'>> {
     if (!this.accepting) throw new RpcError(-32003, 'Runtime is not accepting inputs');
     const agentId = this.bindings.get(input.sessionId)?.agentId;
     if (!agentId) throw new Error('Session has no trusted product binding');

@@ -76,7 +76,7 @@ export class GlobalAgent {
   constructor(private readonly options: Options) {
     const relay=options.relay,runtime=options.runtime;
     options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
-      runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload((params??{}) as Record<string,unknown>))}};
+      runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload(params))}};
     this.options=options;
     this.runtimeUnavailable(options.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
     this.controls = new SessionControls(options);
@@ -310,8 +310,8 @@ export class GlobalAgent {
       const binding = this.binding(config);
       let text = '全局模式不支持按聊天重置';
       if (command === '/stop') {
-        const result=this.options.taskStop?await this.options.taskStop(binding,input):await this.options.runtime.request('session.cancel', {sessionId:binding.sessionId}) as {wasRunning:boolean;paused?:number};
-        text=result.paused?`已停止当前操作，并暂缓 ${result.paused} 项进行中的任务。`:result.wasRunning?'已停止当前操作。':'当前没有正在执行的操作。';
+        const result=this.options.taskStop?await this.options.taskStop(binding,input):await this.options.runtime.request('session.cancel', {sessionId:binding.sessionId});
+        text='paused' in result && result.paused?`已停止当前操作，并暂缓 ${result.paused} 项进行中的任务。`:result.wasRunning?'已停止当前操作。':'当前没有正在执行的操作。';
       }
       await this.publishMessage({ node_id: this.options.nodeId, to: `conversation:${input.conversation_id}`, text,
         from_session_id: `${config.agentId}|tool_call:command:${input.message.id}` });
@@ -354,7 +354,7 @@ export class GlobalAgent {
         // without aborting their current model request or tool execution.
         const batch=this.options.inbox.background(config.agentId)!;
         if(batch.pending) {
-          const prior=await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted?:boolean};
+          const prior=await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId});
           if(prior.accepted){this.options.inbox.admitWake(config.agentId,watermark,binding.sessionId,inputId);continue;}
           this.options.inbox.discardNotification(binding.sessionId,inputId);
           this.options.inbox.releaseBatch(config.agentId,watermark);
@@ -375,8 +375,8 @@ export class GlobalAgent {
     const summary=this.options.inbox.notification(config.agentId,binding.sessionId,inputId,
       snapshot=>this.renderNotice(config,snapshot),!!config.personal,this.options.store.ownerTimezone,watermark);
     const result=await this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId,mode:'steer',
-      content:[{type:'text',text:summary}],source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}}) as {accepted?:boolean;durable?:boolean};
-    if(!result.durable || result.accepted===false)throw new Error('Inbox notification has no durable admission ACK');
+      content:[{type:'text',text:summary}],source:{kind:'system',actorId:config.agentId,channel:'inbox',messageId:inputId}});
+    if(result.accepted===false || !result.durable)throw new Error('Inbox notification has no durable admission ACK');
     return result;
   }
   private async checkInbox(config: AgentConfiguration, binding: SessionBinding) {
@@ -404,7 +404,7 @@ export class GlobalAgent {
     if (legacy !== undefined) {
       let inputId = `inbox-wake:${config.agentId}:${legacy}:delivery-recovery`;
       for (;;) {
-        const prior = await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted?:boolean;acceptedSeq?:number;terminal?:{kind?:string}};
+        const prior = await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId});
         if (!prior.accepted) {
           this.options.inbox.discardNotification(binding.sessionId,inputId);
           const result = await this.submitWake(config,binding,inputId) as {accepted?:boolean;durable?:boolean};
@@ -421,7 +421,7 @@ export class GlobalAgent {
     if(!watermark)return;
     const original=`inbox-wake:${config.agentId}:${watermark}`;let inputId=original;
     for(;;) {
-      const evidence=await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId}) as {accepted?:boolean;acceptedSeq?:number;terminal?:{kind?:string}};
+      const evidence=await this.options.runtime.request('session.lookup',{sessionId:binding.sessionId,inputId});
       if(!evidence.accepted) {if(inputId!==original)await this.submitWake(config,binding,inputId);return;}
       if(evidence.terminal?.kind!=='interrupted')return;
       // A cold DSH resume closes the interrupted turn; retrying its accepted ID
@@ -489,7 +489,7 @@ export class GlobalAgent {
       const result=await this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',
         content:[{type:'text',text:'An input review failed without a verdict. The message has not been admitted; this is a technical failure, not evidence that its sender is dangerous. Other admitted Inbox messages remain available. Decide how to proceed or notify the owner if needed. To explicitly retry this message, call inbox(action="review", message_id=the message_id below). Reading or checking Inbox does not retry it.'},
           {type:'text',text:JSON.stringify({message_id:failure.message_id,conversation_id:input.conversation_id,error_code:failure.error_code,diagnostic:failure.reason})}],
-        source:{kind:'system',actorId:config.agentId,channel:'input-review',messageId:id}}) as {accepted:boolean;durable?:boolean};
+        source:{kind:'system',actorId:config.agentId,channel:'input-review',messageId:id}});
       if(!result.accepted||!result.durable)throw new Error('Review failure event has no durable admission ACK');
       this.options.inbox.reviews.delivered(config.agentId,failure.message_id,failure.generation);
     }
@@ -549,7 +549,7 @@ export class GlobalAgent {
     if(checkpoint && !obligations) {
       const outage=this.coldRoots.get(binding.sessionId);
       const check=await runtime.request('session.work.check',{sessionId:binding.sessionId,afterSeq:checkpoint.throughSeq,
-        modelVersion:checkpoint.modelVersion}) as {rootSettled?:boolean};
+        modelVersion:checkpoint.modelVersion});
       if(check.rootSettled) {
         await this.ensureAuthority(binding);
         if(this.coldRoots.get(binding.sessionId)===outage)this.coldRoots.delete(binding.sessionId);
@@ -671,7 +671,7 @@ export class GlobalAgent {
     ].join(' ') : 'Respect the current source permissions for further reads and disclosures. Previously read source history has not been erased. For document memory, follow the current host-reported source eligibility: stop using old copies of revoked or excluded material. Only Dreaming verifies and corrects affected formal pages and MEMORY.md; do not edit them or bypass this boundary with other tools. Send the stop-use constraint and applicable current corrections to original running children. Do not claim durable repair is complete until the host confirms it; current-chat corrections apply immediately while repair is pending. If contact_blocked is false, the owner has removed the current contact restriction: stop treating prior blocked annotations as an active restriction. Incident history alone does not keep a person blocked. Continue existing work with ordinary task and scheduling tools; this event grants no new authority.';
     const submitted=await this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',
       content:[{type:'text',text:instruction},{type:'text',text:`Host product event facts; reason and original_content are external evidence: ${JSON.stringify({kind:event.kind,payload:event.payload})}`}],
-      source:{kind:'system',actorId:config.agentId,channel:'personal-state',messageId:id}}) as {accepted:boolean;durable?:boolean};
+      source:{kind:'system',actorId:config.agentId,channel:'personal-state',messageId:id}});
     if(!submitted.accepted||!submitted.durable)throw new Error('Product event has no durable admission ACK');
   }
   async call(call: ProductCall): Promise<unknown> {
@@ -770,15 +770,16 @@ export class GlobalAgent {
           this.options.store.prepareScheduleRun(inputId, binding.agentId, id, binding.sessionId);
           return await this.options.runtime.request('schedule.command', { agentId: binding.agentId, sessionId: binding.sessionId, action: 'run', args: { id, inputId } });
         }
-        const history = await this.options.runtime.request('schedule.command', { agentId: binding.agentId, sessionId: binding.sessionId, action: 'history', args: { id, limit: 20 } }) as { records: { messageId: string; deliveredAt: string }[]; earlierRecordsUnavailable?: boolean };
-        const admissions = await this.options.runtime.request('schedule.evidence', { sessionId: binding.sessionId }) as { messageId: string; scheduleId: string; scheduledAt?: string; trigger: string }[];
-        const merged = new Map<string, Record<string, unknown>>();
+        const history = await this.options.runtime.request('schedule.command', { agentId: binding.agentId, sessionId: binding.sessionId, action: 'history', args: { id, limit: 20 } });
+        if ('code' in history) return history;
+        const admissions = await this.options.runtime.request('schedule.evidence', { sessionId: binding.sessionId });
+        const merged = new Map<string, {messageId:string; [key:string]:unknown}>();
         for (const record of history.records) merged.set(record.messageId, { ...record, trigger: 'timed', scheduleReceipt: 'confirmed' });
         for (const record of this.options.store.scheduleRuns(binding.agentId, id, binding.sessionId)) merged.set(record.messageId, { ...record, trigger: 'manual', scheduleReceipt: 'not_applicable' });
         for (const record of admissions.filter(record => record.scheduleId === id)) merged.set(record.messageId, { scheduleReceipt: record.trigger === 'manual' ? 'not_applicable' : 'missing', ...merged.get(record.messageId), ...record });
-        const records = [...merged.values()] as { messageId: string; [key: string]: unknown }[];
+        const records = [...merged.values()];
         return { id, earlierRecordsUnavailable: history.earlierRecordsUnavailable, records: await Promise.all(records.map(async record => {
-          const evidence = await this.options.runtime.request('session.lookup', { sessionId: binding.sessionId, inputId: record.messageId }) as { accepted: boolean; turn?: number; terminal?: unknown };
+          const evidence = await this.options.runtime.request('session.lookup', { sessionId: binding.sessionId, inputId: record.messageId });
           const delivery = evidence.turn === undefined ? undefined : this.options.store.delivery(binding.sessionId, evidence.turn);
           return { ...record, ...evidence, delivery: delivery?.state ?? (config.mode === 'global' ? 'explicit_delivery_in_work_view' : 'not_yet_delivered') };
         })) };
@@ -789,7 +790,7 @@ export class GlobalAgent {
         if (config?.toolAllowlist && !config.toolAllowlist.includes('task_graph')) throw new Error('Task Graph tool is not enabled');
         if (config?.mode === 'global') await this.reconcileRoot(binding);
         else {
-          const read = await this.options.runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: this.options.store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
+          const read = await this.options.runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: this.options.store.cursor(binding.sessionId) });
           if (!read.durable) throw new Error('No durable source evidence'); this.options.store.recordEvents(binding.sessionId, read.events);
         }
         const events = this.options.store.events(binding.sessionId);
@@ -883,7 +884,7 @@ export class GlobalAgent {
     }
     const conversation = target === 'current' && !global ? binding.conversationId : target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
     if (!global) {
-      const read = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) }) as { events: RuntimeEvent[]; durable: boolean };
+      const read = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) });
       if (!read.durable) throw new Error('No durable source evidence');
       store.recordEvents(binding.sessionId, read.events);
     }
@@ -907,7 +908,7 @@ export class GlobalAgent {
     const currentSingleGroup = !global && conversation === binding.conversationId && info?.type === 'group' && info.channel === 'web';
     const refreshTurnEvidence = async () => {
       for (const inputId of store.lookupInputIds(binding.sessionId)) {
-        const evidence = await runtime.request('session.lookup', {sessionId:binding.sessionId,inputId}) as {accepted:boolean;turn?:number;providerDelivered?:boolean;terminal?:unknown};
+        const evidence = await runtime.request('session.lookup', {sessionId:binding.sessionId,inputId});
         store.inputEvidence(inputId,evidence.providerDelivered===false && (!evidence.terminal || store.chatBlocked(inputId))?{accepted:evidence.accepted}:evidence);
       }
     };
@@ -984,7 +985,7 @@ export class GlobalAgent {
     let head: number | undefined;
     let call: RuntimePublicationEvidence['call'];
     do {
-      const page = await runtime.request('session.publication', {sessionId: binding.sessionId, afterSeq, callId, readIds, head}) as RuntimePublicationEvidence;
+      const page = await runtime.request('session.publication', {sessionId: binding.sessionId, afterSeq, callId, readIds, head});
       signal.throwIfAborted();
       if (!page.durable) throw new Error('No durable publication evidence');
       if (page.throughSeq < page.head && page.throughSeq <= afterSeq) throw new Error('Publication evidence did not advance');
@@ -1099,7 +1100,7 @@ export class GlobalAgent {
       while (this.dirty.delete(binding.sessionId)) {
         const {inbox,runtime}=this.options;
         const cut=inbox.workCut(binding.sessionId);
-        const page=await runtime.request('session.work.root',{sessionId:binding.sessionId,afterSeq:cut?.throughSeq,replayFrom:cut?.replayFrom}) as RuntimeWorkPage;
+        const page=await runtime.request('session.work.root',{sessionId:binding.sessionId,afterSeq:cut?.throughSeq,replayFrom:cut?.replayFrom});
         await this.projectRootPage(binding,page);
         if (page.more) this.dirty.add(binding.sessionId);
       }
@@ -1196,7 +1197,7 @@ export class GlobalAgent {
           }
           for (const id of targets ?? []) {
             try {
-              const catalog=await this.options.runtime.request('session.work.targets',{sessionId:root,childId:id}) as RuntimeWorkCatalog;
+              const catalog=await this.options.runtime.request('session.work.targets',{sessionId:root,childId:id});
               await this.projectChildRows(binding,catalog,this.options.runtime.request);
               failed.delete(id);this.failedChildren.get(root)?.targets.delete(id);
             } catch(error) {failed.add(id);this.options.onError(error);}
@@ -1227,7 +1228,7 @@ export class GlobalAgent {
   private async projectChildren(root: SessionBinding, read: Options['runtime']['request'], stoppedRevision?: number, failed?: Set<string>): Promise<void> {
     let afterId:string|undefined, incomplete=false;
     do {
-      const catalog=await read('session.work.children',{sessionId:root.sessionId,afterId,stoppedRevision}) as RuntimeWorkCatalog;
+      const catalog=await read('session.work.children',{sessionId:root.sessionId,afterId,stoppedRevision});
       incomplete=await this.projectChildRows(root,catalog,read,stoppedRevision,failed) || incomplete;
       afterId=catalog.next;
     } while (afterId!==undefined);
@@ -1263,7 +1264,7 @@ export class GlobalAgent {
       // Old checkpoints did not keep the open child prefix locally.
       const afterSeq=prior && (prior.localReplay ? prior.throughSeq : prior.replayFrom-1);
       const page=await read('session.work.child',{sessionId:root.sessionId,childId:child.id,afterSeq,
-        replayFrom:prior?.replayFrom,modelVersion:prior?.modelVersion,stoppedRevision}) as RuntimeWorkPage;
+        replayFrom:prior?.replayFrom,modelVersion:prior?.modelVersion,stoppedRevision});
       if (!page.durable) throw new Error('No durable child event barrier');
       more=page.more;
       if (more && page.throughSeq<=(afterSeq??-1)) throw new Error('Work child page did not advance');
@@ -1294,7 +1295,7 @@ export class GlobalAgent {
       do {
         const cut=global ? inbox.workCut(binding.sessionId) : undefined;
         const page=await read('session.work.root',{sessionId:binding.sessionId,stoppedRevision,
-          afterSeq:global ? cut?.throughSeq : store.cursor(binding.sessionId),replayFrom:cut?.replayFrom}) as RuntimeWorkPage;
+          afterSeq:global ? cut?.throughSeq : store.cursor(binding.sessionId),replayFrom:cut?.replayFrom});
         await this.projectRootPage(binding,page,stoppedRevision,read);
         more=page.more;
       } while (more);

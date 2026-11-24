@@ -105,7 +105,7 @@ export class Heartbeat {
     if(!this.valid(intent.agentId,intent.generation??0,intent.lifecycle_revision))return;
     this.admitting.add(intent.agentId);
     try {
-    const evidence = await this.options.runtime.request('session.lookup', { sessionId: intent.sessionId, inputId: intent.inputId }) as { accepted: boolean };
+    const evidence = await this.options.runtime.request('session.lookup', { sessionId: intent.sessionId, inputId: intent.inputId });
     if(!this.valid(intent.agentId,intent.generation??0,intent.lifecycle_revision))return;
     if (!evidence.accepted) await this.options.runtime.request('session.submit', intent);
     if(!this.valid(intent.agentId,intent.generation??0,intent.lifecycle_revision))return;
