@@ -8,9 +8,9 @@
 
 ## 现状分析
 
-- Node 的 `Configuration.runtime` 用本地配置组装 `AgentConfiguration`，DSH integration 在产品身份段向 root Agent 提供自身名称与 ID。Node 已有用于注册的设备 ID 与名称，文件工具在当前执行环境的工作区中运行。[Node 配置](../../../apps/node/src/configuration.ts) · [身份段](../../../packages/dsh-integration/src/agent-config.ts)
-- IM 按 Agent profile 的节点归属投递。普通 Agent 的群消息已有成员和 mention 标签。普通与 Global root 都注册 `conversations`，并经已认证的 `Work.query` 查询成员。普通模式沿用当前工具开关，Global root 将该工具作为固定能力。[普通群聊](../../../packages/personal-assistant/src/single-thread.ts) · [工具注册](../../../packages/dsh-integration/src/global-mode.ts) · [查询](../../../apps/im-server/src/work.ts)
-- 设备名已有产品投影，优先使用设备别名。联系人公开投影隐去了个人助手的设备字段。以既有设备可见性为上限。复用既有受保护会话附件、Agent 图片交付和可访问链接。[设备名与可见性](../../../apps/im-server/src/contacts.ts) · [附件访问](../../specs/im/conversations-messages.md#requirement-im-托管聊天附件按当前会话读取资格授权)
+- Node 的 `Configuration.runtime` 用本地配置组装 `AgentConfiguration`，DSH integration 在产品身份段向 root Agent 提供自身名称与 ID。Node 已有用于注册的设备 ID 与名称，文件工具在当前执行环境的工作区中运行。[Node 配置](../../../../apps/node/src/configuration.ts) · [身份段](../../../../packages/dsh-integration/src/agent-config.ts)
+- IM 按 Agent profile 的节点归属投递。普通 Agent 的群消息已有成员和 mention 标签。普通与 Global root 都注册 `conversations`，并经已认证的 `Work.query` 查询成员。普通模式沿用当前工具开关，Global root 将该工具作为固定能力。[普通群聊](../../../../packages/personal-assistant/src/single-thread.ts) · [工具注册](../../../../packages/dsh-integration/src/global-mode.ts) · [查询](../../../../apps/im-server/src/work.ts)
+- 设备名已有产品投影，优先使用设备别名。联系人公开投影隐去了个人助手的设备字段。以既有设备可见性为上限。复用既有受保护会话附件、Agent 图片交付和可访问链接。[设备名与可见性](../../../../apps/im-server/src/contacts.ts) · [附件访问](../../../specs/im/conversations-messages.md#requirement-im-托管聊天附件按当前会话读取资格授权)
 
 ## 关键决策
 
