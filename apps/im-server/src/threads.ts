@@ -1,5 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { all, fail, one } from './context.js';
+import { all, fail, now, one } from './context.js';
+
+const EXCERPT_LIMIT = 1200;
+const EARLIER_REPLY_LIMIT = 10;
 
 /** Only eligible group followers may receive or wake on a topic message. */
 export function threadAddressesAgent(db: DatabaseSync, messageId: string, agentId: string): boolean {
@@ -24,15 +27,23 @@ export function recordThreadDelivery(db: DatabaseSync, messageId: string): void 
     const user=one(db,'SELECT id FROM users WHERE username=?','agent:'+quoted.id);
     if(user)named.add(user.id);
   }
-  // A root author follows by default only once. Their explicit unfollow survives later replies.
-  const add = db.prepare(`INSERT INTO thread_follows(conversation_id,root_message_id,user_id,following)
-    SELECT ?,?,u.id,1 FROM users u LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
+  const at = now();
+  // A root author follows by default only once. Their explicit unfollow survives later replies
+  // unless explicitly re-mentioned or quoted, which reactivates follow and records the trigger message.
+  const add = db.prepare(`INSERT INTO thread_follows(conversation_id,root_message_id,user_id,following,followed_at)
+    SELECT ?,?,u.id,1,? FROM users u LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
     WHERE u.id=? AND coalesce(a.collaboration_scope,'team')='team' AND (
       EXISTS (SELECT 1 FROM conversation_participants p WHERE p.conversation_id=? AND p.user_id=u.id)
       OR EXISTS (SELECT 1 FROM personal_agent_bindings b JOIN conversation_participants p ON p.user_id=b.owner_user_id
         WHERE b.agent_id=a.agent_id AND b.status='active' AND p.conversation_id=?))
-    ON CONFLICT(conversation_id,root_message_id,user_id) DO UPDATE SET following=1 WHERE ?`);
-  for(const id of new Set([m.root_author,...named])) add.run(m.conversation_id,m.thread_root_id,id,m.conversation_id,m.conversation_id,named.has(id)?1:0);
+    ON CONFLICT(conversation_id,root_message_id,user_id) DO UPDATE SET
+      reactivated_by_message_id=CASE WHEN thread_follows.following=0 AND ? THEN ? ELSE thread_follows.reactivated_by_message_id END,
+      followed_at=CASE WHEN thread_follows.following=0 AND ? THEN excluded.followed_at ELSE coalesce(thread_follows.followed_at, excluded.followed_at) END,
+      following=CASE WHEN ? THEN 1 ELSE thread_follows.following END`);
+  for (const id of new Set([m.root_author, ...named])) {
+    const reactivate = named.has(id) ? 1 : 0;
+    add.run(m.conversation_id, m.thread_root_id, at, id, m.conversation_id, m.conversation_id, reactivate, messageId, reactivate, reactivate);
+  }
   const added=all(db,`INSERT OR IGNORE INTO thread_deliveries(message_id,user_id)
     SELECT ?,f.user_id FROM thread_follows f JOIN conversation_participants p
       ON p.conversation_id=f.conversation_id AND p.user_id=f.user_id
@@ -68,25 +79,100 @@ export function markThreadRead(db: DatabaseSync, cid:string, root:string, userId
     AND coalesce((SELECT rowid FROM messages WHERE id=last_read_message_id),0)<?`).run(id,root,userId,rowid);
 }
 
-function excerpt(value: unknown): string {
+function excerpt(value: unknown, limit = EXCERPT_LIMIT): { text: string; truncated: boolean } {
   const text = String(value ?? '').replace(/\s+/g, ' ').trim();
-  return text.length > 1200 ? `${text.slice(0, 1199)}…` : text;
+  return text.length > limit ? { text: `${text.slice(0, limit - 1)}…`, truncated: true } : { text, truncated: false };
 }
 
-/** Root and the previous replies the model should see with this thread message. */
-export function threadRelayMetadata(db: DatabaseSync, messageId: string): Record<string, unknown> {
+/** Root and bounded recent replies for first-sight or reactivated thread delivery. */
+export function threadRelayMetadata(db: DatabaseSync, messageId: string, agentId?: string): Record<string, unknown> {
   const message = one(db, 'SELECT thread_root_id, conversation_id, rowid FROM messages WHERE id=?', messageId);
   if (!message?.thread_root_id) return {};
   const root = one(db, "SELECT coalesce(nullif(m.sender_display_name,''),u.display_name,m.sender_user_id) AS name,m.content FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?", message.thread_root_id);
-  const earlier = all(db, `SELECT m.id,coalesce(nullif(m.sender_display_name,''),u.display_name,m.sender_user_id) AS name,m.content FROM messages m
-    JOIN users u ON u.id=m.sender_user_id WHERE m.conversation_id=? AND m.thread_root_id=? AND m.rowid<? ORDER BY m.rowid DESC LIMIT 20`,
-    message.conversation_id, message.thread_root_id, message.rowid).reverse();
+  const rawEarlier = all(db, `SELECT m.id,coalesce(nullif(m.sender_display_name,''),u.display_name,m.sender_user_id) AS name,m.content FROM messages m
+    JOIN users u ON u.id=m.sender_user_id WHERE m.conversation_id=? AND m.thread_root_id=? AND m.rowid<?
+      AND coalesce(json_extract(m.system_notice_json,'$.kind'),'')!='thread_unfollowed'
+    ORDER BY m.rowid DESC LIMIT ?`,
+    message.conversation_id, message.thread_root_id, message.rowid, EARLIER_REPLY_LIMIT + 1);
+  const hasOlderReplies = rawEarlier.length > EARLIER_REPLY_LIMIT;
+  const earlierRows = (hasOlderReplies ? rawEarlier.slice(0, EARLIER_REPLY_LIMIT) : rawEarlier).reverse();
+  const rootExcerpt = excerpt(root?.content);
+  let truncated = hasOlderReplies || rootExcerpt.truncated;
+  const earlier = earlierRows.map(row => {
+    const item = excerpt(row.content);
+    if (item.truncated) truncated = true;
+    return { id: row.id, sender: row.name, excerpt: item.text };
+  });
+  const reactivated = agentId ? !!one(db, `SELECT 1 FROM thread_follows f JOIN users u ON u.id=f.user_id
+    WHERE f.conversation_id=? AND f.root_message_id=? AND u.username=? AND f.reactivated_by_message_id=?`,
+    message.conversation_id, message.thread_root_id, 'agent:' + agentId, messageId) : false;
   return {
     thread_root_message_id: message.thread_root_id,
     thread_root_sender: root?.name ?? '',
-    thread_root_excerpt: excerpt(root?.content),
-    thread_earlier: earlier.map(row => ({id: row.id, sender: row.name, excerpt: excerpt(row.content)})),
+    thread_root_excerpt: rootExcerpt.text,
+    thread_earlier: earlier,
+    thread_history_truncated: truncated,
+    ...(reactivated ? { thread_follow_reactivated: true } : {}),
   };
+}
+
+/** List threads currently followed by an Agent across accessible conversations. */
+export function listAgentFollowedThreads(db: DatabaseSync, agentUserId: string, conversationIds: readonly string[]) {
+  if (!conversationIds.length) return [];
+  const rows = all(db, `SELECT f.conversation_id, f.root_message_id, f.followed_at,
+      root.content AS root_content, root.created_at AS root_created_at,
+      coalesce(nullif(root.sender_display_name,''), ru.display_name, root.sender_user_id) AS root_sender,
+      (SELECT count(*) FROM messages r WHERE r.thread_root_id=f.root_message_id
+        AND coalesce(json_extract(r.system_notice_json,'$.kind'),'')!='thread_unfollowed') AS reply_count,
+      (SELECT max(r.created_at) FROM messages r WHERE r.thread_root_id=f.root_message_id
+        AND coalesce(json_extract(r.system_notice_json,'$.kind'),'')!='thread_unfollowed') AS latest_reply_at
+    FROM thread_follows f
+    JOIN messages root ON root.id=f.root_message_id AND root.conversation_id=f.conversation_id
+    LEFT JOIN users ru ON ru.id=root.sender_user_id
+    WHERE f.user_id=? AND f.following=1 AND f.conversation_id IN (SELECT value FROM json_each(?))
+    ORDER BY coalesce(latest_reply_at, root.created_at) DESC, f.root_message_id DESC`,
+    agentUserId, JSON.stringify(conversationIds));
+  return rows.map(row => ({
+    target: `${row.conversation_id}:${row.root_message_id}`,
+    parent_target: String(row.conversation_id),
+    root_message_id: String(row.root_message_id),
+    root_sender: String(row.root_sender ?? ''),
+    root_excerpt: excerpt(row.root_content, 200).text,
+    reply_count: Number(row.reply_count ?? 0),
+    latest_at: String(row.latest_reply_at ?? row.root_created_at),
+    followed_at: String(row.followed_at ?? row.root_created_at),
+  }));
+}
+
+/** Update an Agent's follow state for one thread; unfollowing a direct-chat thread is rejected. */
+export function setAgentThreadFollow(
+  db: DatabaseSync,
+  conversationId: string,
+  rootMessageId: string,
+  agentUserId: string,
+  following: boolean,
+): { target: string; following: boolean; changed: boolean } {
+  const rootId = threadRootOrFail(db, conversationId, rootMessageId)!;
+  const chat = one(db, 'SELECT type FROM conversations WHERE id=?', conversationId);
+  if (!chat) fail(404, 'target_not_accessible');
+  if (!following && chat.type === 'direct') fail(422, 'direct_chat_thread_unfollow_not_supported');
+  const target = `${conversationId}:${rootId}`;
+  if (chat.type === 'direct') return { target, following: true, changed: false };
+  const existing = one(db, 'SELECT following FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=?', conversationId, rootId, agentUserId);
+  const wasFollowing = existing?.following === 1;
+  const at = now();
+  if (following) {
+    db.prepare(`INSERT INTO thread_follows(conversation_id,root_message_id,user_id,following,followed_at,reactivated_by_message_id)
+      VALUES(?,?,?,1,?,NULL)
+      ON CONFLICT(conversation_id,root_message_id,user_id) DO UPDATE SET
+        following=1, followed_at=CASE WHEN thread_follows.following=0 THEN excluded.followed_at ELSE coalesce(thread_follows.followed_at, excluded.followed_at) END,
+        reactivated_by_message_id=NULL`).run(conversationId, rootId, agentUserId, at);
+    return { target, following: true, changed: !wasFollowing };
+  }
+  db.prepare(`INSERT INTO thread_follows(conversation_id,root_message_id,user_id,following,followed_at,reactivated_by_message_id)
+    VALUES(?,?,?,0,NULL,NULL)
+    ON CONFLICT(conversation_id,root_message_id,user_id) DO UPDATE SET following=0, reactivated_by_message_id=NULL`).run(conversationId, rootId, agentUserId);
+  return { target, following: false, changed: wasFollowing };
 }
 
 /** A quote inside a topic may name the root or one reply in that same topic. */

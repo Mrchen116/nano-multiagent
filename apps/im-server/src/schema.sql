@@ -173,6 +173,8 @@ CREATE TABLE IF NOT EXISTS thread_follows (
     following INTEGER NOT NULL DEFAULT 1,
     unread_count INTEGER NOT NULL DEFAULT 0,
     last_read_message_id TEXT,
+    followed_at TEXT,
+    reactivated_by_message_id TEXT,
     PRIMARY KEY (conversation_id, root_message_id, user_id),
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (root_message_id) REFERENCES messages(id) ON DELETE CASCADE,
@@ -574,6 +576,7 @@ BEGIN
    AND NOT EXISTS (SELECT 1 FROM provider_message_facts f WHERE f.message_id=NEW.message_id AND json_extract(f.facts_json,'$.scope_skipped')=1)))
  AND EXISTS(SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id=NEW.conversation_id AND cp.user_id=b.owner_user_id)
  AND NOT EXISTS(SELECT 1 FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=NEW.message_id AND u.username='agent:'||b.agent_id)
+ AND NOT EXISTS(SELECT 1 FROM messages sm WHERE sm.id=NEW.message_id AND sm.sender_type='system' AND json_extract(sm.system_notice_json,'$.kind')='thread_unfollowed')
  AND (
    NOT EXISTS (SELECT 1 FROM messages tm WHERE tm.id=NEW.message_id AND tm.thread_root_id IS NOT NULL)
    OR EXISTS (

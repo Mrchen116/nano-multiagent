@@ -10,7 +10,7 @@ import type { WorkItem } from "./agent-work-api";
 
 const text = (v: unknown) => typeof v === "string" ? v : "";
 const record = (v: unknown): Record<string, unknown> => v && typeof v === "object" ? v as Record<string, unknown> : {};
-const icons: Record<string, string> = { inbox: "↓", conversations: "☰", send_message: "↗", agent: "◇", bash: "⌘", read: "▤", edit: "✎", write: "✎" };
+const icons: Record<string, string> = { inbox: "↓", conversations: "☰", read_messages: "▤", search_messages: "⌕", threads: "↳", send_message: "↗", agent: "◇", bash: "⌘", read: "▤", edit: "✎", write: "✎" };
 
 /** Match chat delivery: repeated reasoning snapshots belong to a run/output group. */
 export function withVisibleReasoning(items: WorkItem[]): WorkItem[] {
@@ -57,14 +57,19 @@ export function WorkTool({ call, workerTool, expanded, onExpandedChange, detailF
   const names = navigation?.names ?? {};
   const people = navigation?.people ?? {};
   const input = record(call.input), detail = record(call.detail);
-  const targetId = text(input.target) || text(input.to) || text(detail.target);
-  const target = names[targetId] || people[targetId] || text(detail.target_name) || targetId;
+  const rawTargetId = text(input.target) || text(input.to) || text(detail.target);
+  const targetId = rawTargetId.includes(":") && !rawTargetId.startsWith("external:") ? rawTargetId.slice(0, rawTargetId.indexOf(":")) : rawTargetId;
+  const baseTargetName = names[targetId] || people[targetId] || text(detail.target_name) || targetId;
+  const target = rawTargetId !== targetId && baseTargetName !== targetId ? `${baseTargetName} · ${tr("话题")}` : baseTargetName;
   const output = text(call.output);
   const internalMessage = call.name === "send_message" && Boolean(input.agent_id);
   const structuredOutput = /^\s*(?:\{\s*["}]|\[\s*(?:["{\[\]\d-]|true\b|false\b|null\b))/.test(output);
   let summary = timeline && structuredOutput ? "" : output;
   if (call.name === "inbox" && input.action) summary = input.action === "check" ? tr("查看待读来源") : `${tr("读取新消息")} ${target}`;
-  if (call.name === "conversations" && input.action) summary = input.action === "list" ? `${tr("查找聊天")} · ${text(input.query)}` : `${tr("回查历史")} ${target}`;
+  if (call.name === "conversations" && input.action) summary = input.action === "list" ? `${tr("查找聊天")} · ${text(input.query)}` : `${tr("查看聊天")} ${target}`;
+  if (call.name === "read_messages") summary = `${tr("读取消息")} ${target || text(input.message_id)}`;
+  if (call.name === "search_messages") summary = `${tr("搜索消息")} ${text(input.query) || target}`;
+  if (call.name === "threads" && input.action) summary = `${tr(input.action === "list" ? "查看话题" : input.action === "follow" ? "关注话题" : "取消关注")} ${target}`;
   if (call.name === "send_message" && !internalMessage && target) summary = `${tr("发送到")} ${target}`;
   if (timeline && internalMessage) {
     const recipient = text(detail.target_name) || people[text(input.agent_id)];

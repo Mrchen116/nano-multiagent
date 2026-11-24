@@ -812,7 +812,7 @@ export class Gateway {
         this.relayMessage(m, a, `agent-reply:${m.id}:${a.agent_id}`, {
           source_agent_id: m.sender.id,
           sender_display_name: m.sender.display_name,
-          ...threadRelayMetadata(this.ctx.db, m.id),
+          ...threadRelayMetadata(this.ctx.db, m.id, a.agent_id),
           ...(m.thread_root_message_id ? {addressed_to_agent:true} : {}),
         }, options);
     }

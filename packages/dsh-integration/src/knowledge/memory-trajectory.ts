@@ -88,7 +88,7 @@ export function nativeMaterial(event: SessionEvent, history?: HistoryLocator, co
 /** Bound ordinary tool output in batch material while keeping the original History item. */
 export function batchToolResult(event: Extract<SessionEvent, {type:'tool/result'}>, toolName: string | undefined, history?: HistoryLocator): RecordValue {
   const record = nativeMaterial(event, history)!;
-  if (history?.item_id === undefined || !toolName || ['inbox', 'conversations', 'send_message'].includes(toolName)) return record;
+  if (history?.item_id === undefined || !toolName || ['inbox', 'conversations', 'read_messages', 'search_messages', 'send_message'].includes(toolName)) return record;
 
   // Codex Memory V2 budgets about 2,000 tokens at four UTF-8 bytes per token.
   const limit = 8_000;

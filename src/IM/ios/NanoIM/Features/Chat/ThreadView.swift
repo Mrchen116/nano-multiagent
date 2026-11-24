@@ -50,7 +50,8 @@ struct ThreadView: View {
                         row(root, proxy: proxy)
                         HStack {
                             line
-                            Text(L("\(items.count) 条回复", "\(items.count) replies")).font(.caption)
+                            let replyCount = items.filter { $0.system_notice == nil }.count
+                            Text(L("\(replyCount) 条回复", "\(replyCount) replies")).font(.caption)
                                 .foregroundStyle(NanoTheme.muted).fixedSize()
                             line
                         }
@@ -111,7 +112,7 @@ struct ThreadView: View {
                         }, refreshed: { store.threadRevision += 1 })
             .id(message.id)
             .contextMenu {
-                if writable && ["sent", "completed", "pending"].contains(message.delivery_status) {
+                if writable && message.system_notice == nil && ["sent", "completed", "pending"].contains(message.delivery_status) {
                     Button(L("回复", "Reply"), systemImage: "arrowshape.turn.up.left") { quote = message }
                 }
             }

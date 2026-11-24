@@ -74,11 +74,11 @@ it('keeps compact Feishu targets and frozen Inbox pages valid after restart, wit
     const photo = message('first'); photo.message.attachments.push({ url: 'private-photo', content_type: 'image/png' });
     inbox.receive(photo, true); inbox.receive(message('second'), true);
     const target = (await call(product, 'inbox', { action: 'check' })).sources[0].target;
-    expect(target).toMatch(/^c_f_[a-f0-9]{8}$/);
+    expect(target).toMatch(/^f_[a-f0-9]{6}$/);
     const first = await call(product, 'inbox', { action: 'read', target, limit: 1 }, 'first');
     expect(first).toMatchObject({ target, messages: [{ id: 'first' }] });
     expect(first.messages[0]).not.toHaveProperty('target');
-    expect(first.next_cursor).toMatch(/^p_[a-f0-9]{8}$/);
+    expect(first.next_cursor).toMatch(/^p_[a-f0-9]{6}$/);
     expect(inbox.commitRead('main', 'first', [{ type: 'text', text: 'truncated' }], false)).toBe(false);
     expect(inbox.commitRead('main', 'first', [{ type: 'text', text: JSON.stringify(first) }], false, 1)).toBe(true);
     await close(); open();
@@ -127,7 +127,7 @@ it('keeps compact Feishu targets and frozen Inbox pages valid after restart, wit
   } finally { await close(); rmSync(dir, { recursive: true }); }
 });
 
-it.each(['conversations', 'task_graph'])('round-trips %s pagination without exposing its opaque state or changing native schedule IDs', async method => {
+it.each(['conversations', 'read_messages', 'search_messages', 'threads', 'task_graph'])('round-trips %s pagination without exposing its opaque state or changing native schedule IDs', async method => {
   const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
   store.bind({ agentId: 'alice', sessionId: 'main', ownerId: 'owner', conversationId: 'global:alice', cwd: '/tmp', revision: '1' });
   const legacy = Buffer.from(JSON.stringify({ snapshot: '00000000-0000-4000-8000-000000000000', offset: 20 })).toString('base64url');
@@ -140,16 +140,18 @@ it.each(['conversations', 'task_graph'])('round-trips %s pagination without expo
     } }, image: async () => '', onError: error => { throw error; },
   });
   try {
+    const baseArgs = method === 'read_messages' || method === 'search_messages' ? { query: 'hello' } : { action: 'list', query: 'hello' };
     const unwrap = (result: any) => method === 'task_graph' ? result.result : result;
-    const first = unwrap(await call(product, method, { action: 'list', query: 'hello' }));
-    expect(first.next_cursor).toMatch(/^p_[a-f0-9]{8}$/);
+    const first = unwrap(await call(product, method, baseArgs));
+    expect(first.next_cursor).toMatch(/^p_[a-f0-9]{6}$/);
     expect(first.items[0].content).toEqual({ target: external, next_cursor: legacy });
-    expect(unwrap(await call(product, method, { action: 'list', query: 'hello', cursor: first.next_cursor })).next_cursor).toBe(first.next_cursor);
+    expect(unwrap(await call(product, method, { ...baseArgs, cursor: first.next_cursor })).next_cursor).toBe(first.next_cursor);
     expect(observed.at(-1)).toMatchObject({ cursor: legacy, query: 'hello' });
-    await call(product, method, { action: 'list', query: 'hello', cursor: legacy });
+    await call(product, method, { ...baseArgs, cursor: legacy });
     expect(observed.at(-1)).toMatchObject({ cursor: legacy });
-    await expect(call(product, method === 'conversations' ? 'task_graph' : 'conversations', { action: 'list', cursor: first.next_cursor })).rejects.toThrow('scope');
-    await expect(call(product, method, { action: 'list', cursor: 'p_unknown' })).rejects.toThrow('reference');
+    const otherMethod = method === 'conversations' ? 'task_graph' : 'conversations';
+    await expect(call(product, otherMethod, { action: 'list', cursor: first.next_cursor })).rejects.toThrow('scope');
+    await expect(call(product, method, { ...baseArgs, cursor: 'p_unknown' })).rejects.toThrow('reference');
     const native = { id: 'schedule-00000000-0000-4000-8000-000000000000' };
     expect(store.toolReferences.arguments('alice', 'schedule.run', native)).toEqual(native);
     expect(store.toolReferences.result('alice', 'schedule.history', native)).toEqual(native);

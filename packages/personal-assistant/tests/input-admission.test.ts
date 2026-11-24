@@ -79,7 +79,11 @@ it('does not retry a failed input during Inbox reads or recovery and explicitly 
   expect(reviews).toBe(2);expect(inbox.check('pa',true).review_failures).toEqual([]);
   available=false;
   await product.receive({...input('last-failure'),conversation_id:'failed-chat'});
-  expect(await call('check')).toMatchObject({sources:[{target:'chat'}],review_failures:[{message_id:'last-failure'}]});
+  const afterFailure = await call('check') as {sources: {target: string}[]; review_failures: {message_id: string}[]};
+  expect(afterFailure).toMatchObject({sources:[{target:'chat'}]});
+  expect(afterFailure.review_failures).toHaveLength(1);
+  expect(afterFailure.review_failures[0]!.message_id.length).toBeLessThanOrEqual(8);
+  expect(store.toolReferences.resolveMessageId('pa', afterFailure.review_failures[0]!.message_id)).toBe('last-failure');
   excluded=true;
   expect(await call('check')).toMatchObject({sources:[{target:'chat'}],review_failures:[]});
   expect(inbox.input('pa','last-failure')).toBeUndefined();

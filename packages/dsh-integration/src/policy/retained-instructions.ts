@@ -81,7 +81,7 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
     const origin = record(row.origin);
     if(origin?.kind==='compact-checkpoint'&&!units.length)incomplete=true;
     if (origin?.kind === 'human' && (!ownerId || origin.actorId === ownerId || eligible(record(origin.sender)))) units.push({id: origin.messageId ?? row.id, original_message: row, inherited: true});
-    for (const name of ['inbox_result','conversations_result']) { const page = record(row[name]); if (page) addPage(page, 'restored'); }
+    for (const name of ['inbox_result','conversations_result','read_messages_result','search_messages_result']) { const page = record(row[name]); if (page) addPage(page, 'restored'); }
   }
   for (const event of events) {
     if(event.type==='compaction/start'&&!units.length)incomplete=true;
@@ -100,9 +100,9 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
       previous = undefined;
     } else if (event.type === 'tool/result' && !event.data.message.isError) {
       const message = event.data.message;
-      if (!['inbox','conversations'].includes(calls.get(message.toolCallId) ?? '')) continue;
+      if (!['inbox','conversations','read_messages','search_messages'].includes(calls.get(message.toolCallId) ?? '')) continue;
       try { const page = record(JSON.parse(body(message.content))); if (page) addPage(page, 'restored'); } catch { /* Non-structured results cannot attest human origin. */ }
-    } else if (event.type === 'tool/ptc-dispatch' && !event.data.isError && ['inbox','conversations'].includes(event.data.name)) {
+    } else if (event.type === 'tool/ptc-dispatch' && !event.data.isError && ['inbox','conversations','read_messages','search_messages'].includes(event.data.name)) {
       try { const page = record(JSON.parse(body(event.data.content))); if (page) addPage(page, 'restored'); } catch { /* Same provenance rule for PTC. */ }
     }
   }

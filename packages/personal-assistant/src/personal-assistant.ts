@@ -7,6 +7,7 @@ import type { ProductCall } from './global-agent.js';
 import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader } from './screenshot-delivery.js';
 import type { NodeStore } from './store.js';
 import type { InboxStore } from './inbox.js';
+import { joinThreadTarget, splitThreadTarget } from './tool-references.js';
 
 type Data = Record<string, unknown>;
 export interface AdmissionResult {kind:'admitted'|'rejected'|'source_unavailable'|'failed'|'in_progress';message_id:string;reason?:string;incident_id?:string;error_code?:string}
@@ -52,7 +53,7 @@ export class PersonalAssistant {
     for (const key of ['owner_direct', 'addressed_to_owner', 'addressed_to_agent'] as const) {
       if (typeof source[key] === 'boolean') input.metadata[key] = source[key];
     }
-    for (const key of ['thread_root_message_id','thread_root_sender','thread_root_excerpt','thread_earlier']) {
+    for (const key of ['thread_root_message_id','thread_root_sender','thread_root_excerpt','thread_earlier','thread_history_truncated','thread_follow_reactivated']) {
       if (key in source) input.metadata[key] = source[key];
     }
     if('provider_source_time' in source)input.metadata.provider_source_time=source.provider_source_time;
@@ -156,34 +157,34 @@ export class PersonalAssistant {
 
   /** Read the receipt from the authority that committed this screenshot message. */
   async screenshotReceipt(config: AgentConfiguration, target: string, operationId: string): Promise<Data> {
-    const conversation = await this.resolve(config, target);
+    const conversation = await this.resolve(config, this.options.store.toolReferences.splitResolvedTarget(config.agentId, target).base);
     if (conversation === config.personal!.conversationId)
       return (await this.options.relay.request('agent.message.status', {node_id:this.options.nodeId,agent_id:config.agentId,operation_id:operationId})).payload;
     return this.request(config, 'pa.action.status', {request_key:operationId,conversation_id:conversation});
   }
 
   /** Freeze, independently review, and commit one exact message with a durable receipt. */
-  async send(config: AgentConfiguration, binding: SessionBinding, call: ProductCall, signal = new AbortController().signal, defaultThread?: (target:string) => Promise<string|undefined>): Promise<unknown> {
+  async send(config: AgentConfiguration, binding: SessionBinding, call: ProductCall, signal = new AbortController().signal): Promise<unknown> {
     const {inbox} = this.options;
     const target = String(call.args.target ?? '');
+    const { base: targetBase, root: inThread } = this.options.store.toolReferences.splitResolvedTarget(config.agentId, target);
     const text = String(call.args.text ?? '');
     if(call.args.reply_draft!==undefined)throw new Error('reply_draft is retired; use an interactive ComposeMessage action');
     const interactive = interactiveResponse(call.args.interactive);
     if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const paths = call.args.local_images as string[] | undefined;
     const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
-    let inThread=typeof call.args.in_thread_of==='string'?call.args.in_thread_of:undefined;
     const incident=typeof call.args.incident_ref==='string'?call.args.incident_ref:undefined;
     if(incident&&(call.sessionId!==binding.sessionId||call.method!=='send_message'||interactive||(call.args.attachments as unknown[]|undefined)?.length))throw new Error('Incident communication belongs to the main PA and must be plain self-authored text');
     const representation=call.method==='send_user_message'?'owner':'self';
     if (paths && (incident || representation !== 'self')) throw new Error('Local screenshots require a regular self-authored message');
     if(representation==='owner' && (call.sessionId!==binding.sessionId || !config.personal))throw new Error('Only the bound main PA may represent its owner');
-    const deliveryTarget=this.options.store.canonicalConversation(config.agentId,target.replace(/^conversation:/,''));
+    const deliveryTarget=this.options.store.canonicalConversation(config.agentId,targetBase.replace(/^conversation:/,''));
     if (paths && deliveryTarget.startsWith('external:')) throw new Error('Local screenshots require a writable Nano IM conversation');
     if(deliveryTarget.startsWith('external:')&&representation==='owner')throw new Error('Owner representation requires a native IM conversation');
     if((replyTo || inThread) && deliveryTarget.startsWith('external:'))throw new Error('Quotes and topics require a Nano IM destination');
-    const conversation = deliveryTarget.startsWith('external:')?target.replace(/^conversation:/,''):await this.resolve(config,target);
-    if (!inThread && !incident && !deliveryTarget.startsWith('external:') && inbox.hasTopic(config.agentId,conversation)) inThread = await defaultThread?.(conversation);
+    const conversation = deliveryTarget.startsWith('external:')?targetBase.replace(/^conversation:/,''):await this.resolve(config,targetBase);
+    const reviewTarget = joinThreadTarget(conversation, inThread);
     if(incident) {
       const event=await this.request(config,'pa.incident.read',{incident_ref:incident,conversation_id:conversation});
       const receipt=conversation===config.personal!.conversationId?event.owner_notice_message_id:event.peer_notice_message_id;
@@ -237,7 +238,7 @@ export class PersonalAssistant {
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
       return {status:'sent',target,message_id:response.payload.message_id};
     }
-    if (inbox.blocking(config.agentId,conversation)) return {status:'held_for_revalidation',target,
+    if (inbox.blocking(config.agentId,reviewTarget)) return {status:'held_for_revalidation',target,
       message:'Read new messages in this conversation and reconsider this draft before sending.'};
     inbox.preparePublication(operationId,target,publicationBody,binding.agentId);
     let attachments = call.args.attachments ?? [];
@@ -249,7 +250,7 @@ export class PersonalAssistant {
         lifecycleRevision:this.options.store.lifecycle.assert(config.agentId), signal,
       }, paths, call.args.attachments);
       signal.throwIfAborted();
-      if (inbox.blocking(config.agentId,conversation)) {
+      if (inbox.blocking(config.agentId,reviewTarget)) {
         const result = {status:'held_for_revalidation',target,message:'Read the new messages before sending this draft.'};
         inbox.settlePublication(operationId, 'held', result);
         return result;

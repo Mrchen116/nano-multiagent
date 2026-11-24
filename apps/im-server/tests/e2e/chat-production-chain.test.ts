@@ -51,7 +51,7 @@ it('preserves real SingleThread facts through relay and persistent chat history'
   await product.receive(quotedInput.payload);
   const delivered = submitted.at(-1)!.content;
   expect(delivered).toEqual(expect.arrayContaining([
-    { type: 'text', text: expect.stringContaining(`IM message ID ${reply.id}:\n> 已经核对。`) },
+    { type: 'text', text: expect.stringContaining(`IM message ID ${reply.id.slice(0, 8)}:\n> 已经核对。`) },
     { type: 'text', text: '展开这个' },
   ]));
   expect(JSON.stringify(delivered)).not.toContain('is_stale');
@@ -86,7 +86,7 @@ it('preserves real SingleThread facts through relay and persistent chat history'
       {type:'text',text:'这张卡片里的代号是什么？'},
     ]));
     if (quotedSource !== source) {
-      expect(JSON.stringify(submitted.at(-1)!.content)).toContain(`message_id=${messageId}`);
+      expect(JSON.stringify(submitted.at(-1)!.content)).toContain(`read_messages(message_id=\\"${messageId.slice(0, 8)}\\")`);
       const history = await node.frames.send('conversation.query', {
         node_id:node.node,agent_id:'assistant',session_id:'history',request_id:key,action:'read',target:cid,message_id:messageId,
       });

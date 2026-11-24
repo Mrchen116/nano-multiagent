@@ -282,4 +282,19 @@ extension CrewdenParityUITests {
         app.navigationBars.buttons.element(boundBy: 0).tap()
         XCTAssertTrue(sessionLink.waitForExistence(timeout: 10))
     }
+
+    func testInspectThreadNoticeAndReplyCount() throws {
+        try launch()
+        let title = try required("NANO_UI_CHAT_TITLE")
+        let chat = app.staticTexts[title].firstMatch
+        XCTAssertTrue(chat.waitForExistence(timeout: 20))
+        chat.tap()
+        let entry = app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "条回复")).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        capture("crewden-chat-topic-entry")
+        entry.tap()
+        let notice = app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "已取消关注此话题")).firstMatch
+        XCTAssertTrue(notice.waitForExistence(timeout: 15))
+        capture("crewden-thread-unfollowed")
+    }
 }

@@ -60,12 +60,13 @@ export function sourceConversations(events:readonly SessionEvent[]):string[]{
   for (const event of events) {
     if (event.type === 'user/message' && 'conversationId' in event.data.source) conversations.add(String(event.data.source.conversationId));
     if (event.type === 'tool/call') calls.set(event.data.callId,event.data.name);
-    if (event.type !== 'tool/result' || !['inbox','conversations'].includes(calls.get(event.data.message.toolCallId) ?? '')) continue;
+    if (event.type !== 'tool/result' || !['inbox','conversations','read_messages','search_messages'].includes(calls.get(event.data.message.toolCallId) ?? '')) continue;
     try {
       const body=JSON.parse(event.data.message.content.filter(block=>block.type==='text').map(block=>block.text).join('\n'));
       if (Array.isArray(body.messages)) for (const message of body.messages) {
-        const conversation=String(message.conversation_id??message.target??body.conversation_id??body.target??body.source??'');
-        if (conversation) conversations.add(conversation);
+        const raw = String(message.source?.conversation_id ?? body.parent_target ?? message.conversation_id ?? message.target ?? body.conversation_id ?? body.target ?? body.source ?? '');
+        const base = raw && !raw.startsWith('external:') && raw.includes(':') ? raw.slice(0, raw.indexOf(':')) : raw;
+        if (base) conversations.add(base);
       }
     } catch { /* The original result remains in the trajectory even without an IM index. */ }
   }

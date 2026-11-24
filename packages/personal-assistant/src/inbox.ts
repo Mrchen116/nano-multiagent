@@ -7,11 +7,18 @@ import { createHash, randomUUID } from 'node:crypto';
 import { CHAT_BACKGROUND_DELAY_MS, decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
 import type { WorkReadyCut, WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
 import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
+import { joinThreadTarget, splitThreadTarget } from './tool-references.js';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
-interface Source { target: string; name: string; unread: number; mentions: number; conversation_type: string;
+interface Source { target: string; parent_target?: string; name: string; unread: number; mentions: number; conversation_type: string;
   latest_message_at: string | null; requires_attention?: boolean; delivery?: string; addressed_to?: 'owner'|'agent'|'both' }
 export interface InboxRestriction {sessionId:string; inputId?:string; toolCallId?:string; content?:{type:'text';text:string}[]; retainImageIndices?:number[]}
+
+function inputTarget(input: RelayInput): string {
+  const root = typeof input.metadata.thread_root_message_id === 'string' && input.metadata.thread_root_message_id
+    ? input.metadata.thread_root_message_id : undefined;
+  return joinThreadTarget(input.conversation_id, root);
+}
 
 interface Fragment { seq: number; part: number }
 interface Snapshot { agent: string; target: string; fragments: Fragment[] }
@@ -59,6 +66,7 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS relay_receipts(id TEXT PRIMARY KEY,agent_id TEXT,message_id TEXT,input TEXT,status TEXT,confirmed INTEGER DEFAULT 0);
       CREATE TABLE IF NOT EXISTS relay_controls(agent_id TEXT,message_id TEXT,input TEXT,done INTEGER DEFAULT 0,PRIMARY KEY(agent_id,message_id));
       CREATE TABLE IF NOT EXISTS publications(id TEXT PRIMARY KEY,target TEXT,body TEXT,state TEXT,result TEXT);
+      CREATE TABLE IF NOT EXISTS inbox_seen_threads(session_id TEXT NOT NULL,target TEXT NOT NULL,PRIMARY KEY(session_id,target));
     `);
     if (!(this.db.prepare('PRAGMA table_info(relay_receipts)').all() as {name:string}[]).some(c=>c.name==='read_pending'))
       this.db.exec('ALTER TABLE relay_receipts ADD COLUMN read_pending INTEGER NOT NULL DEFAULT 0');
@@ -259,7 +267,7 @@ export class InboxStore {
       }
       for (const sessionId of sessionIds) {
         this.db.prepare('INSERT OR IGNORE INTO inbox_deleted_sessions VALUES(?)').run(sessionId);
-        for (const table of ['reads', 'read_content', 'ingestions', 'work_waiting_facts']) this.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
+        for (const table of ['reads', 'read_content', 'ingestions', 'work_waiting_facts', 'inbox_seen_threads']) this.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
         this.db.prepare('DELETE FROM work_open_events WHERE session_id IN (SELECT session_id FROM work_checkpoints WHERE session_id=? OR root_session_id=?)').run(sessionId, sessionId);
         this.db.prepare('DELETE FROM work_checkpoints WHERE session_id=? OR root_session_id=?').run(sessionId, sessionId);
         this.db.prepare('DELETE FROM work_recovery WHERE root_session_id=?').run(sessionId);
@@ -292,7 +300,7 @@ export class InboxStore {
         coalesce((SELECT max(seq) FROM inbox),0),coalesce((SELECT max(watermark) FROM wakes),0),
         coalesce((SELECT max(ord) FROM inbox_schedule),0),coalesce((SELECT max(watermark) FROM inbox_batch),0),
         coalesce((SELECT CAST(value AS INTEGER) FROM metadata WHERE key='inbox_sequence'),0))+1),?,?,?,?,?)`)
-        .run(input.agent_id, input.conversation_id, input.message.id, JSON.stringify(input), Number(attention));
+        .run(input.agent_id, inputTarget(input), input.message.id, JSON.stringify(input), Number(attention));
       this.reviews.initialize(input);
       this.schedule(input, high, now);
       this.db.exec('COMMIT');
@@ -318,7 +326,7 @@ export class InboxStore {
           coalesce((SELECT max(seq) FROM inbox),0),coalesce((SELECT max(watermark) FROM wakes),0),
           coalesce((SELECT max(ord) FROM inbox_schedule),0),coalesce((SELECT max(watermark) FROM inbox_batch),0),
           coalesce((SELECT CAST(value AS INTEGER) FROM metadata WHERE key='inbox_sequence'),0))+1),?,?,?,?,?,?)`)
-          .run(input.agent_id,input.conversation_id,input.message.id,JSON.stringify(input),Number(attention),Number(control));
+          .run(input.agent_id,inputTarget(input),input.message.id,JSON.stringify(input),Number(attention),Number(control));
 
       }
       this.reviews.initialize(input);
@@ -468,25 +476,35 @@ export class InboxStore {
   /** Reconcile every unread source, including messages still pending or failed in review. */
   revokeUnavailableSources(agent: string, allowed: ReadonlySet<string>): void {
     const targets = this.db.prepare('SELECT DISTINCT target FROM inbox WHERE agent_id=? AND consumed=0').all(agent);
-    for (const {target} of targets) if (!allowed.has(String(target))) this.revokeSource(agent,String(target));
+    const revoked = new Set<string>();
+    for (const {target} of targets) {
+      const base = splitThreadTarget(String(target)).base;
+      if (!allowed.has(base) && !revoked.has(base)) { revoked.add(base); this.revokeSource(agent, base); }
+    }
   }
-  /** Remove a revoked source from future reads and frozen page caches. */
+  /** Remove a revoked source (main timeline and all its threads) from future reads and frozen page caches. */
   revokeSource(agent: string, target: string): void {
+    const base = splitThreadTarget(target).base;
+    const prefix = `${base}:%`;
     // Saved model projections changed shape; fragment ownership is stable across versions.
     this.db.prepare(`DELETE FROM reads WHERE EXISTS (
       SELECT 1 FROM json_each(reads.fragments) part JOIN inbox i ON i.seq=json_extract(part.value,'$.seq')
-      WHERE i.agent_id=? AND i.target=?)`).run(agent,target);
-    const rows = this.db.prepare('SELECT seq FROM inbox WHERE agent_id=? AND target=?').all(agent,target) as {seq:number}[];
+      WHERE i.agent_id=? AND (i.target=? OR i.target LIKE ?))`).run(agent,base,prefix);
+    const rows = this.db.prepare('SELECT seq FROM inbox WHERE agent_id=? AND (target=? OR target LIKE ?)').all(agent,base,prefix) as {seq:number}[];
     for(const {seq} of rows) {
       this.db.prepare('DELETE FROM imported_parts WHERE seq=?').run(seq);
       this.db.prepare('DELETE FROM fragments WHERE seq=?').run(seq);
     }
-    this.db.prepare(`INSERT INTO metadata(key,value) SELECT 'inbox_sequence',max(seq) FROM inbox WHERE agent_id=? AND target=? HAVING count(*)>0
-      ON CONFLICT(key) DO UPDATE SET value=max(CAST(metadata.value AS INTEGER),CAST(excluded.value AS INTEGER))`).run(agent,target);
-    this.db.prepare('DELETE FROM inbox_schedule WHERE seq IN (SELECT seq FROM inbox WHERE agent_id=? AND target=?)').run(agent,target);
-    this.db.prepare('DELETE FROM inbox WHERE agent_id=? AND target=?').run(agent,target);
-    this.db.prepare("DELETE FROM snapshots WHERE json_extract(data,'$.agent')=? AND json_extract(data,'$.target')=?").run(agent,target);
-    this.db.prepare('DELETE FROM targets WHERE agent_id=? AND target=?').run(agent,target);
+    this.db.prepare(`INSERT INTO metadata(key,value) SELECT 'inbox_sequence',max(seq) FROM inbox WHERE agent_id=? AND (target=? OR target LIKE ?) HAVING count(*)>0
+      ON CONFLICT(key) DO UPDATE SET value=max(CAST(metadata.value AS INTEGER),CAST(excluded.value AS INTEGER))`).run(agent,base,prefix);
+    this.db.prepare('DELETE FROM inbox_schedule WHERE seq IN (SELECT seq FROM inbox WHERE agent_id=? AND (target=? OR target LIKE ?))').run(agent,base,prefix);
+    this.db.prepare('DELETE FROM inbox WHERE agent_id=? AND (target=? OR target LIKE ?)').run(agent,base,prefix);
+    this.db.prepare("DELETE FROM snapshots WHERE json_extract(data,'$.agent')=? AND (json_extract(data,'$.target')=? OR json_extract(data,'$.target') LIKE ?)").run(agent,base,prefix);
+    this.db.prepare('DELETE FROM targets WHERE agent_id=? AND (target=? OR target LIKE ?)').run(agent,base,prefix);
+  }
+  /** Reset per-session thread context memory (e.g., after compaction) so the next read re-attaches thread_context. */
+  clearSeenThreads(sessionId: string): void {
+    this.db.prepare('DELETE FROM inbox_seen_threads WHERE session_id=?').run(sessionId);
   }
   private entries(agent: string, target?: string): Entry[] {
     return this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND (? IS NULL OR target=?) ORDER BY seq").all(agent, target ?? null, target ?? null) as unknown as Entry[];
@@ -541,7 +559,8 @@ export class InboxStore {
     for (const row of entries) {
       const input = JSON.parse(row.payload) as RelayInput;
       const meta=input.metadata;
-      const source:Source = sources.get(row.target) ?? { target: row.target, name: this.targetName(agent,row.target,input), unread: 0, mentions: 0,
+      const { base, root } = splitThreadTarget(row.target);
+      const source:Source = sources.get(row.target) ?? { target: row.target, ...(root ? { parent_target: base } : {}), name: this.targetName(agent,row.target,input), unread: 0, mentions: 0,
         latest_message_at:null, conversation_type:String(meta.conversation_type),
         ...(personal ? {delivery:String(meta.personal_delivery)} : {requires_attention:false}) };
       source.unread++;
@@ -564,7 +583,8 @@ export class InboxStore {
     return { sources: sorted, ...(personal?{review_failures:this.reviews.failures(agent).map(({event_id,event_delivered,...failure})=>failure)}:{}) };
   }
   private targetName(agent: string, target: string, input: RelayInput): string {
-    return (this.db.prepare('SELECT name FROM targets WHERE agent_id=? AND target=?').get(agent,target) as {name:string}|undefined)?.name ?? String(input.metadata.conversation_title ?? target);
+    const base = splitThreadTarget(target).base;
+    return (this.db.prepare('SELECT name FROM targets WHERE agent_id=? AND target=?').get(agent,base) as {name:string}|undefined)?.name ?? String(input.metadata.conversation_title ?? base);
   }
   blocking(agent: string, target: string): boolean {
     return !!this.db.prepare(`SELECT 1 FROM inbox WHERE agent_id=? AND target=? AND consumed=0 AND attention=1
@@ -635,6 +655,25 @@ export class InboxStore {
       const boundary = selected.findIndex(fragment => context(sourceInput(fragment.seq)) !== context(first!));
       if (boundary !== -1) selected = selected.slice(0,boundary);
     }
+    const { base: baseTarget, root: threadRoot } = splitThreadTarget(args.target);
+    const alreadySeen = threadRoot
+      ? !!this.db.prepare('SELECT 1 FROM inbox_seen_threads WHERE session_id=? AND target=?').get(session, args.target)
+      : false;
+    const selectedInputs = selected.map(fragment => sourceInput(fragment.seq));
+    const reactivatedInput = threadRoot ? selectedInputs.find(input => input.metadata.thread_follow_reactivated === true) : undefined;
+    const reactivated = Boolean(reactivatedInput);
+    const contextInput = reactivatedInput ?? first;
+    const includeThreadContext = !!threadRoot && selected.length > 0 && ((!alreadySeen && !args.cursor) || reactivated)
+      && typeof contextInput?.metadata.thread_root_excerpt === 'string';
+    const truncated = contextInput?.metadata.thread_history_truncated === true;
+    const threadContext = includeThreadContext ? {
+      root_message_id: threadRoot,
+      root_sender: contextInput!.metadata.thread_root_sender ?? '',
+      root_excerpt: contextInput!.metadata.thread_root_excerpt,
+      earlier_replies: Array.isArray(contextInput!.metadata.thread_earlier) ? contextInput!.metadata.thread_earlier : [],
+      truncated,
+      ...(truncated ? { hint: 'Call read_messages with this target for full thread history.' } : {}),
+    } : undefined;
     const messages = selected.map(fragment => {
       const row = this.db.prepare('SELECT * FROM inbox WHERE seq=?').get(fragment.seq) as unknown as Entry;
       const input = JSON.parse(row.payload) as RelayInput;
@@ -647,16 +686,15 @@ export class InboxStore {
         ...(!personal && input.metadata.channel ? {channel:input.metadata.channel} : {}),
         ...(input.metadata.personal_actor_risk ? {actor_risk:personal ? this.actorRisk(input) : input.metadata.personal_actor_risk} : {}),
         ...(input.message.reply_to ? { reply_to: projectChatReplyContext(input.message.reply_to) } : {}),
-        ...(typeof input.metadata.thread_root_message_id === 'string' ? {thread:{
-          root_message_id:input.metadata.thread_root_message_id,
-          ...(fragment.part === 0 ? {root_sender:input.metadata.thread_root_sender,root_excerpt:input.metadata.thread_root_excerpt,
-            earlier_replies:input.metadata.thread_earlier} : {}),
-        }} : {}),
         content: parts[fragment.part], ...(parts.length > 1 ? { partial: true, part: fragment.part + 1, parts: parts.length } : {}) };
     });
     const next = selected.length ? snapshot.fragments.indexOf(selected.at(-1)!)+1 : snapshot.fragments.length;
     const body = present({ target: args.target,
-      ...(personal ? {name:this.targetName(agent,args.target,first!),conversation_type:first!.metadata.conversation_type,delivery:first!.metadata.personal_delivery,channel:first!.metadata.channel} : {}), messages, ...(snapshot.fragments.slice(next).some(unread) ? { next_cursor: Buffer.from(JSON.stringify({ id: snapshotId, offset: next })).toString('base64url') } : {}) });
+      ...(threadRoot ? { parent_target: baseTarget } : {}),
+      ...(personal ? {name:this.targetName(agent,args.target,first!),conversation_type:first!.metadata.conversation_type,delivery:first!.metadata.personal_delivery,channel:first!.metadata.channel} : {}),
+      ...(threadContext ? { thread_context: threadContext } : {}),
+      ...(reactivated ? { follow_reactivated: true, follow_reactivated_notice: 'You had unfollowed this thread; a mention or quote reactivated your follow.' } : {}),
+      messages, ...(snapshot.fragments.slice(next).some(unread) ? { next_cursor: Buffer.from(JSON.stringify({ id: snapshotId, offset: next })).toString('base64url') } : {}) });
     const text = JSON.stringify(body);
     this.db.prepare('INSERT INTO reads VALUES(?,?,?,?,?)').run(session, call, JSON.stringify(selected), text, hash(text));
     return body;
@@ -709,19 +747,6 @@ export class InboxStore {
     return (this.db.prepare('SELECT DISTINCT i.target FROM inbox i JOIN ingestions g ON g.seq=i.seq WHERE g.session_id=? AND g.turn=? AND i.consumed=1').all(session, turn) as { target: string }[]).map(row => row.target);
   }
 
-  /** Return the unique topic of messages consumed from this chat in this model turn. */
-  threadForTurn(session: string, turn: number, target: string): string | undefined {
-    const roots = this.db.prepare(`SELECT DISTINCT json_extract(i.payload,'$.metadata.thread_root_message_id') AS root
-      FROM ingestions g JOIN inbox i ON i.seq=g.seq WHERE g.session_id=? AND g.turn=? AND i.target=? AND i.consumed=1 LIMIT 2`)
-      .all(session, turn, target) as {root:string|null}[];
-    return roots.length === 1 ? roots[0]!.root ?? undefined : undefined;
-  }
-
-  /** Scope the optional PA publication-evidence read to chats that contain topics. */
-  hasTopic(agent: string, target: string): boolean {
-    return !!this.db.prepare("SELECT 1 FROM inbox WHERE agent_id=? AND target=? AND json_extract(payload,'$.metadata.thread_root_message_id') IS NOT NULL LIMIT 1").get(agent,target);
-  }
-
   /** Find saved reads that could still consume an unread fragment in the destination. */
   pendingReadCalls(session: string, targets: string[]): string[] {
     return (this.db.prepare(`SELECT call_id FROM reads r WHERE session_id=? AND EXISTS (
@@ -748,9 +773,12 @@ export class InboxStore {
     try {
       for (const fragment of fragments) {
         this.db.prepare('INSERT OR IGNORE INTO fragments VALUES(?,?)').run(fragment.seq, fragment.part);
-        const row = this.db.prepare('SELECT seq,payload FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; payload: string } | undefined;
+        const row = this.db.prepare('SELECT seq,target,payload FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; target: string; payload: string } | undefined;
         // Older revocations can leave saved reads behind; reject their entire consumption.
         if (!row) { this.db.exec('ROLLBACK'); return false; }
+        if (splitThreadTarget(row.target).root) {
+          this.db.prepare('INSERT OR IGNORE INTO inbox_seen_threads VALUES(?,?)').run(session, row.target);
+        }
         const count = (this.db.prepare('SELECT count(*) AS n FROM fragments WHERE seq=?').get(fragment.seq) as { n: number }).n;
         if (count === this.parts(JSON.parse(row.payload) as RelayInput, row.seq).length) {
           this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(fragment.seq);

@@ -11,6 +11,7 @@ import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText, chatDelivery } from './attention.js';
 import { NodeStore } from './store.js';
 import { InboxStore } from './inbox.js';
+import { joinThreadTarget, splitThreadTarget } from './tool-references.js';
 import { argumentsObject, logicalEvents } from './presentation.js';
 import { projectWorkEvent, workSuffix, workCheckpoint } from './work-projection.js';
 interface Options {
@@ -143,7 +144,7 @@ export class GlobalAgent {
     this.options.store.lifecycle.assert(config.agentId);
     const { runtime } = this.options; const binding = this.binding(config);
     const { conversationId: _, ...runtimeBinding } = binding;
-    await runtime.request('session.ensure', runtimeBinding);
+    await runtime.request('session.ensure', { ...runtimeBinding, ownerRef: this.options.store.toolReferences.userRef(binding.agentId, binding.ownerId) });
     this.append(binding, 'registered', {type: 'session_registered', payload: { scope: 'global_main', title: config.agentId }});
     await this.ensureAuthority(binding);
     return binding;
@@ -384,9 +385,10 @@ export class GlobalAgent {
     const sources = this.options.inbox.check(config.agentId).sources;
     // Offline nodes can still process their persisted Inbox using the last known names.
     if (sources.length && this.options.relay.ready !== false) {
+      const uniqueBases = [...new Set(sources.map(source => splitThreadTarget(source.target).base))];
       // External sources are described locally; IM cannot resolve their routing IDs.
       for (const external of [false, true]) {
-        const targets = sources.filter(source => source.target.startsWith('external:') === external).map(source => source.target);
+        const targets = uniqueBases.filter(target => target.startsWith('external:') === external);
         if (!targets.length) continue;
         const descriptions = await this.query(binding, { action: 'describe', targets });
         for (const source of descriptions.conversations as { target: string; name: string }[]) this.options.inbox.updateTarget(config.agentId, source.target, source.name);
@@ -487,9 +489,10 @@ export class GlobalAgent {
     for(const failure of this.options.inbox.reviews.failures(config.agentId,true)) {
       const binding=await this.main(config),input=this.options.inbox.input(config.agentId,failure.message_id)!;
       const id=failure.event_id!;
+      const refs=this.options.store.toolReferences;
       const result=await this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',
         content:[{type:'text',text:'An input review failed without a verdict. The message has not been admitted; this is a technical failure, not evidence that its sender is dangerous. Other admitted Inbox messages remain available. Decide how to proceed or notify the owner if needed. To explicitly retry this message, call inbox(action="review", message_id=the message_id below). Reading or checking Inbox does not retry it.'},
-          {type:'text',text:JSON.stringify({message_id:failure.message_id,conversation_id:input.conversation_id,error_code:failure.error_code,diagnostic:failure.reason})}],
+          {type:'text',text:JSON.stringify({message_id:refs.messageRef(config.agentId,failure.message_id),conversation_id:refs.conversationRef(config.agentId,input.conversation_id),error_code:failure.error_code,diagnostic:failure.reason})}],
         source:{kind:'system',actorId:config.agentId,channel:'input-review',messageId:id}});
       if(!result.accepted||!result.durable)throw new Error('Review failure event has no durable admission ACK');
       this.options.inbox.reviews.delivered(config.agentId,failure.message_id,failure.generation);
@@ -626,7 +629,7 @@ export class GlobalAgent {
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
                 metadata:{pa_observation:true,owner_direct:event.owner_direct,addressed_to_owner:event.addressed_to_owner,addressed_to_agent:event.addressed_to_agent,
-                  ...(typeof message.thread_root_message_id==='string'?{thread_root_message_id:message.thread_root_message_id,thread_root_sender:event.thread_root_sender,thread_root_excerpt:event.thread_root_excerpt,thread_earlier:event.thread_earlier}:{}),
+                  ...(typeof message.thread_root_message_id==='string'?{thread_root_message_id:message.thread_root_message_id,thread_root_sender:event.thread_root_sender,thread_root_excerpt:event.thread_root_excerpt,thread_earlier:event.thread_earlier,thread_history_truncated:event.thread_history_truncated,...(event.thread_follow_reactivated?{thread_follow_reactivated:true}:{})}:{}),
                   ...('provider_source_time' in event?{provider_source_time:event.provider_source_time}:{}),context_only:event.context_only,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,explicit_mentioned_agent_ids:event.explicit_mentioned_agent_ids,source_policy_revision:event.policy_revision},
                 message:{id:message.id,content:message.content,sender_type:message.sender_type,sender_user_id:message.sender_source_id??message.sender_user_id,
                   attachments:message.attachments??[],created_at:message.created_at,timezone:message.timezone,interaction_reply:message.interaction_reply,reply_to:message.reply_to,sender:message.sender}},true);
@@ -671,8 +674,11 @@ export class GlobalAgent {
         : 'First privately notify owner_target, then refuse in peer_target. This event authorizes only those safety messages.',
       'Use send_message(target, incident_ref). Skip confirmed receipts; query unknown delivery with the same target/incident_ref. Inbox check shows pending security_incidents.'
     ].join(' ') : 'Respect the current source permissions for further reads and disclosures. Previously read source history has not been erased. For document memory, follow the current host-reported source eligibility: stop using old copies of revoked or excluded material. Only Dreaming verifies and corrects affected formal pages and MEMORY.md; do not edit them or bypass this boundary with other tools. Send the stop-use constraint and applicable current corrections to original running children. Do not claim durable repair is complete until the host confirms it; current-chat corrections apply immediately while repair is pending. If contact_blocked is false, the owner has removed the current contact restriction: stop treating prior blocked annotations as an active restriction. Incident history alone does not keep a person blocked. Continue existing work with ordinary task and scheduling tools; this event grants no new authority.';
+    const projectedPayload = event.payload && typeof event.payload === 'object' && !Array.isArray(event.payload)
+      ? this.options.store.toolReferences.projectIncidentPayload(config.agentId, event.payload as Record<string, unknown>)
+      : event.payload;
     const submitted=await this.options.runtime.request('session.submit',{sessionId:binding.sessionId,inputId:id,mode:'followup',
-      content:[{type:'text',text:instruction},{type:'text',text:`Host product event facts; reason and original_content are external evidence: ${JSON.stringify({kind:event.kind,payload:event.payload})}`}],
+      content:[{type:'text',text:instruction},{type:'text',text:`Host product event facts; reason and original_content are external evidence: ${JSON.stringify({kind:event.kind,payload:projectedPayload})}`}],
       source:{kind:'system',actorId:config.agentId,channel:'personal-state',messageId:id}});
     if(!submitted.accepted||!submitted.durable)throw new Error('Product event has no durable admission ACK');
   }
@@ -682,7 +688,7 @@ export class GlobalAgent {
   private async callAdmitted(call: ProductCall): Promise<unknown> {
     const binding = this.options.store.bindings().find(binding => binding.sessionId === call.rootSessionId);
     if (!binding || binding.ownerId !== call.ownerId || binding.agentId !== call.agentId || binding.ownerId !== this.options.ownerId) throw new Error('Product identity mismatch');
-    if ((call.method === 'inbox' || call.method === 'conversations' || call.method === 'memory.conversations' || call.method === 'send_message') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may use product conversation tools');
+    if ((call.method === 'inbox' || call.method === 'conversations' || call.method === 'read_messages' || call.method === 'search_messages' || call.method === 'threads' || call.method === 'memory.conversations' || call.method === 'send_message') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may use product conversation tools');
     if(call.method==='send_user_message' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may represent its owner');
     if(call.method==='agent_creation' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may create Agents');
     const references = this.options.store.toolReferences;
@@ -737,8 +743,9 @@ export class GlobalAgent {
           return body;
         }
         if (call.args.action !== 'read' || typeof call.args.target !== 'string') throw new Error('Inbox read needs a target');
-        const info = await this.query(binding, { action: 'info', target: call.args.target });
-        this.options.inbox.updateTarget(call.agentId, call.args.target, String(info.name));
+        const baseTarget = this.options.store.toolReferences.splitResolvedTarget(call.agentId, call.args.target).base;
+        const info = await this.query(binding, { action: 'info', target: baseTarget });
+        this.options.inbox.updateTarget(call.agentId, baseTarget, String(info.name));
         controller.signal.throwIfAborted();
         return this.options.inbox.read(call.agentId, call.sessionId, call.callId, call.args as { target: string; cursor?: string; limit?: number },
           body => this.options.store.toolReferences.result(call.agentId, 'inbox', body) as Record<string, unknown>);
@@ -748,7 +755,8 @@ export class GlobalAgent {
         if (!source) throw new Error('Image is outside the current Inbox read');
         const data = await this.options.image(String(call.args.url), call.agentId);
         controller.signal.throwIfAborted(); return { data, source: { ...source,
-          conversationId: this.options.store.toolReferences.resolveTarget(call.agentId, source.conversationId),
+          conversationId: splitThreadTarget(this.options.store.toolReferences.resolveTarget(call.agentId, source.conversationId)).base,
+          messageId: this.options.store.toolReferences.resolveMessageId(call.agentId, source.messageId),
         } };
       }
       if (call.method === 'inbox.prepare') {
@@ -759,9 +767,25 @@ export class GlobalAgent {
         if (!['info', 'read', 'search'].includes(String(action)) || typeof target !== 'string' || !target ||
             typeof cutoff !== 'number' || !Number.isFinite(cutoff) || typeof afterTime !== 'number' || !Number.isFinite(afterTime) || afterTime > cutoff)
           throw new Error('Memory history requires a read-only action and a trusted bounded source');
-        return await this.query(binding, { ...call.args, memory_cutoff: cutoff, memory_after: afterTime });
+        const resolved = this.options.store.toolReferences.resolveTarget(call.agentId, target);
+        const resolvedBase = this.options.store.toolReferences.splitResolvedTarget(call.agentId, resolved).base;
+        return await this.query(binding, { ...call.args, target: resolvedBase, memory_cutoff: cutoff, memory_after: afterTime });
       }
-      if (call.method === 'conversations') return await this.query(binding, call.args);
+      const resolveSingleCurrent = (args: Record<string, unknown>): Record<string, unknown> => {
+        const cfg = this.options.agents.find(agent => agent.agentId === binding.agentId);
+        if (cfg?.mode === 'global' || typeof args.target !== 'string') return args;
+        const { base, root } = this.options.store.toolReferences.splitResolvedTarget(binding.agentId, args.target);
+        if (base !== 'current') return args;
+        return { ...args, target: joinThreadTarget(binding.conversationId, root) };
+      };
+      if (call.method === 'conversations') return await this.query(binding, resolveSingleCurrent(call.args));
+      if (call.method === 'read_messages') return await this.query(binding, { ...resolveSingleCurrent(call.args), action: 'read' });
+      if (call.method === 'search_messages') return await this.query(binding, { ...resolveSingleCurrent(call.args), action: 'search' });
+      if (call.method === 'threads') {
+        const action = String(call.args.action ?? '');
+        if (!['list', 'follow', 'unfollow'].includes(action)) throw new Error('Invalid threads action');
+        return await this.query(binding, { ...resolveSingleCurrent(call.args), action: `thread_${action}` });
+      }
       if (call.method === 'schedule.run' || call.method === 'schedule.history') {
         if (call.sessionId !== call.rootSessionId) throw new Error('Schedules belong to a main Session');
         const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
@@ -830,9 +854,10 @@ export class GlobalAgent {
   }
   private async messageContext(binding: SessionBinding, args: Record<string, unknown>): Promise<MessageApprovalContext> {
     const target = String(args.target ?? '');
+    const { base: targetBase } = splitThreadTarget(target);
     const context: MessageApprovalContext = { target, sender: { type: 'agent', agent_id: binding.agentId }, recipient: { kind: 'unknown' } };
-    if (target === binding.ownerId || target === `user:${binding.ownerId}`) return { ...context, channel: 'web', recipient: { kind: 'owner' } };
-    const conversation = target === 'current' ? binding.conversationId : target.replace(/^conversation:/, '');
+    if (targetBase === binding.ownerId || targetBase === `user:${binding.ownerId}`) return { ...context, channel: 'web', recipient: { kind: 'owner' } };
+    const conversation = targetBase === 'current' ? binding.conversationId : targetBase.replace(/^conversation:/, '');
     let info: Record<string, unknown>;
     try { info = await this.query(binding, { action: 'info', target: conversation }); }
     catch { return context; } // An unavailable identity lookup never grants the owner exemption.
@@ -861,15 +886,12 @@ export class GlobalAgent {
     const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
     const global = config?.mode === 'global';
     if (typeof call.args.receipt_of === 'string') return this.screenshotReceipt(binding, call, config);
-    if(config?.personal) return this.personal.send(config,binding,call,signal,async target => {
-      const saved = callPosition(store.toolCall(call.sessionId,call.callId));
-      const position = await this.publicationEvidence(binding,[target],signal,saved ? undefined : call.callId) ?? saved;
-      return position?.turn === undefined ? undefined : inbox.threadForTurn(binding.sessionId,position.turn,target);
-    });
+    if(config?.personal) return this.personal.send(config,binding,call,signal);
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
+    const { base: targetBase, root: targetThreadRoot } = this.options.store.toolReferences.splitResolvedTarget(binding.agentId, target);
     const interactive = interactiveResponse(call.args.interactive);
     const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
-    let inThread=typeof call.args.in_thread_of==='string'?call.args.in_thread_of:undefined;
+    const inThread = targetThreadRoot;
     const paths = call.args.local_images as string[] | undefined;
     const publicationBody = () => {
       const quote = {...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})};
@@ -881,7 +903,6 @@ export class GlobalAgent {
     const confirm = (payload:Record<string,unknown>, position: PublicationPosition | undefined) => this.confirmPublication(binding,call,target,text,payload,position);
     const previous = inbox.publication(call.operationId);
     if (previous) {
-      if (!inThread && previous.source) inThread = (JSON.parse(previous.source) as PublicationPosition).threadRoot;
       if (previous.target !== target || previous.body !== publicationBody()) throw new Error('Publication identity conflict');
       if(previous.state==='cancelled_by_disable')throw new Error('stale_lifecycle');
       if (previous.result) return JSON.parse(previous.result) as unknown;
@@ -892,24 +913,24 @@ export class GlobalAgent {
         }
       }
     }
-    const conversation = target === 'current' && !global ? binding.conversationId : target.startsWith('conversation:') ? target.slice(13) : (target.startsWith('c_') || target.startsWith('external:')) ? target : undefined;
+    const conversation = targetBase === 'current' && !global ? binding.conversationId : targetBase.startsWith('conversation:') ? targetBase.slice(13) : (targetBase.startsWith('c_') || targetBase.startsWith('external:')) ? targetBase : undefined;
     if (!global) {
       const read = await runtime.request('session.observe', { sessionId: binding.sessionId, afterSeq: store.cursor(binding.sessionId) });
       if (!read.durable) throw new Error('No durable source evidence');
       store.recordEvents(binding.sessionId, read.events);
     }
     let reviewConversation = conversation;
-    if (!reviewConversation && (global || target.startsWith('user:') || target.startsWith('agent:'))) {
-      const resolved = await this.query(binding, { action: 'resolve_target', target });
+    if (!reviewConversation && (global || targetBase.startsWith('user:') || targetBase.startsWith('agent:'))) {
+      const resolved = await this.query(binding, { action: 'resolve_target', target: targetBase });
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
     if((replyTo || inThread) && info?.channel && info.channel!=='web')throw new Error('Quoted replies and topics require a Nano IM destination');
     if (paths && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local screenshots require a writable Nano IM conversation');
     if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
-    const targets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
+    const baseTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
     const reviewTargets = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web'
-      ? [...new Set(targets)].filter((id): id is string => typeof id === 'string') : [];
+      ? [...new Set(baseTargets)].filter((id): id is string => typeof id === 'string').map(id => joinThreadTarget(id, inThread)) : [];
     const saved = savedCall();
     const position = global
       ? await this.publicationEvidence(binding, reviewTargets, signal, saved ? undefined : call.callId) ?? saved
@@ -925,7 +946,9 @@ export class GlobalAgent {
     const revalidate = () => {
       signal.throwIfAborted();
       const inputs = currentSingleGroup ? store.inputs(binding.sessionId) : [];
-      const correction = inputs.slice(inputs.findLastIndex(input => input.turn === turn) + 1).some(input => !input.input.metadata.context_only && !input.terminal?.includes('cancelled_by_scope'));
+      const correction = inputs.slice(inputs.findLastIndex(input => input.turn === turn) + 1).some(input =>
+        !input.input.metadata.context_only && !input.terminal?.includes('cancelled_by_scope')
+        && (typeof input.input.metadata.thread_root_message_id === 'string' ? input.input.metadata.thread_root_message_id : undefined) === inThread);
       const unread = global ? reviewTargets.filter(id => inbox.blocking(binding.agentId, id)) : [];
       if (!reviewTargets.length || !(global ? unread.length : correction)) return undefined;
       const result = {status:'held_for_revalidation', target, ...(global ? {inbox_targets:unread} : {}), message:global
@@ -938,15 +961,7 @@ export class GlobalAgent {
       } else inbox.settlePublication(call.operationId, 'held', result);
       return result;
     };
-    const sameChat = reviewConversation === binding.conversationId || info?.target === binding.conversationId;
-    if (currentSingleGroup || !global && sameChat && !inThread) await refreshTurnEvidence();
-    if (!previous && !inThread && turn !== undefined && reviewConversation && info?.channel === 'web') {
-      if (global) inThread = inbox.threadForTurn(binding.sessionId,turn,reviewConversation);
-      else if (sameChat) {
-        const source = store.inputs(binding.sessionId,turn).findLast(row => !row.input.metadata.context_only && !row.terminal?.includes('cancelled_by_scope'));
-        if (typeof source?.input.metadata.thread_root_message_id === 'string') inThread = source.input.metadata.thread_root_message_id;
-      }
-    }
+    if (currentSingleGroup) await refreshTurnEvidence();
     signal.throwIfAborted();
     const source = {...position, ...(inThread ? {threadRoot:inThread} : {}), text};
     inbox.preparePublication(call.operationId, target, publicationBody(), binding.agentId, global || inThread ? source : undefined);
@@ -969,7 +984,7 @@ export class GlobalAgent {
         ...(replyTo?{reply_to_message_id:replyTo}:{}),
         ...(inThread?{in_thread_of:inThread}:{}),
         ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
-        to: conversation ? `conversation:${conversation}` : target, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
+        to: conversation ? `conversation:${conversation}` : targetBase, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload,source);
     } catch (error) {
       if (paths && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
@@ -1046,7 +1061,7 @@ export class GlobalAgent {
   private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'>,target:string,text:string,payload:Record<string,unknown>,position?:PublicationPosition) {
     const {inbox, store} = this.options;
     const publishedRoot = position?.threadRoot;
-    const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id,...(publishedRoot ? {in_thread_of:publishedRoot} : {})};
+    const result={status:'sent',target,message_id:payload.message_id,conversation_id:payload.conversation_id};
     const global=this.options.agents.find(agent=>agent.agentId===binding.agentId)?.mode==='global';
     const turn = position?.turn;
     if (global) {
@@ -1166,6 +1181,7 @@ export class GlobalAgent {
     const positioned: {seq: number; event: WorkDraft}[] = [];
     for (const event of events) {
       const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
+      if (!stopped && event.type === 'compaction/end') inbox.clearSeenThreads(binding.sessionId);
       if (!stopped && event.type === 'tool/result') this.commitInboxRead(binding, event);
       const run = result.modelRuns?.find(run => run.attempts.some(attempt => attempt.turn === turn));
       if (!stopped && event.type === 'turn/end' && (!run || run.state === 'completed')) for (const entry of inbox.completedInputs(binding.sessionId, run?.turn ?? turn!)) {
@@ -1194,7 +1210,11 @@ export class GlobalAgent {
     const body = JSON.parse(message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')) as {target: string; messages: {id: string; target?: string; partial?: boolean}[]};
     const fact = this.workEvent(binding, `inbox-read:${message.toolCallId}`, {type: 'inbox_read_committed', payload: {
       call_id: message.toolCallId,
-      source_refs: body.messages.map(item => ({conversation_id: store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target), message_id: item.id, complete_message: !item.partial})),
+      source_refs: body.messages.map(item => ({
+        conversation_id: splitThreadTarget(store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target)).base,
+        message_id: store.toolReferences.resolveMessageId(binding.agentId, item.id),
+        complete_message: !item.partial,
+      })),
     }}, turn, event.time);
     inbox.appendAfterWork(fact, event.seq);
     this.receiptReadCalls.push({sessionId: binding.sessionId, callId: message.toolCallId});

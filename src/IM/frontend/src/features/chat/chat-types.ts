@@ -185,6 +185,9 @@ export interface TokenUsage {
 
 export interface SystemNotice {
   kind: string;
+  agent_id?: string;
+  agent_display_name?: string;
+  reason?: string;
   source_agent_id?: string;
   source_agent_display_name?: string;
   updated_targets?: string[];
@@ -211,10 +214,18 @@ export interface PersonalDelegation {
 
 export interface ReplyReference {message_id:string;sender:Actor;content:string;attachments:Attachment[]}
 
+export interface MessageThreadSummary {
+  reply_count: number;
+  recent_replies?: { id: string; sender_user_id: string; display_name: string; preview: string }[];
+  latest_preview?: string;
+  latest_at?: string;
+  participants?: { id: string; display_name: string }[];
+}
+
 export interface Message {
   reply_to?: ReplyReference;
   thread_root_message_id?: string;
-  thread?: import("@nano/product-contracts").ChatMessage["thread"];
+  thread?: MessageThreadSummary;
   interactive?: MessageInteractive;
   interaction_reply?: InteractionSnapshot;
   id: string;

@@ -22,7 +22,7 @@ import { normalizeMessageArguments } from '../message-arguments.js';
 import { isHumanSource } from '../input-source.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
-const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'delegate_worker', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'memory']);
+const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'delegate_worker', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'read_messages', 'search_messages', 'threads', 'memory']);
 
 const privateScreenshotApproval = 'Screenshot delivery needs approval with private evidence. Nothing was uploaded. Ask the owner to send the attachment directly or use an authorized approval mode.';
 

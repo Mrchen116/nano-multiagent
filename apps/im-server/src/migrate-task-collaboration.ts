@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { validateDocument } from './task-graphs.js';
-import { all, one, transaction, type Row } from './context.js';
+import { all, clearPrepared, one, transaction, type Row } from './context.js';
 import { canAccessSpace, ownerAccount } from './identity.js';
 
 function fingerprint(db:DatabaseSync): string {
@@ -80,6 +80,7 @@ export async function applyMigration(db:DatabaseSync,mapping:Row,backupPath:stri
   return transaction(db,()=>{
     const rows=plan(db,mapping);
     db.exec("ALTER TABLE conversations ADD COLUMN visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('public','private')); ALTER TABLE conversations ADD COLUMN dissolved_at TEXT; ALTER TABLE task_graphs ADD COLUMN conversation_id TEXT NOT NULL DEFAULT ''; ALTER TABLE task_graph_mutation_receipts ADD COLUMN conversation_id TEXT NOT NULL DEFAULT '';");
+    clearPrepared(db);
     for(const r of rows) db.prepare('UPDATE task_graphs SET conversation_id=?,document_json=? WHERE graph_id=?').run(r.conversation_id,r.document_json,r.graph_id);
     for(const r of all(db,'SELECT * FROM task_graph_mutation_receipts')) db.prepare('UPDATE task_graph_mutation_receipts SET conversation_id=? WHERE actor_key=? AND request_key=?').run(receiptConversation(db,r,mapping),r.actor_key,r.request_key);
     return {state:'migrated',graphs:rows.length,nodes:rows.reduce((n,r)=>n+JSON.parse(r.document_json).nodes.length,0),backup:backupPath};

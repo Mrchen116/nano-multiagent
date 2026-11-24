@@ -76,8 +76,8 @@ export function apply(ctx){
       const target=targets.get(o.sessionId),first=result('fixture-2'),second=result('fixture-3');
       const text=[...(first?.messages||[]),...(second?.messages||[])].map(m=>m.content[0].text).join('\\n');
       call=[['inbox',{action:'check'}],['inbox',{action:'read',target}],
-        ['conversations',{action:'search',target,query:'CASE_MARKER',limit:1}],
-        ['conversations',{action:'search',target,query:'CASE_MARKER',limit:1,cursor:first?.next_cursor}],
+        ['search_messages',{target,query:'CASE_MARKER',limit:1}],
+        ['search_messages',{target,query:'CASE_MARKER',limit:1,cursor:first?.next_cursor}],
         ['send_message',{target,text}]][n];
     }else if(process.env.EVALUATION_DELEGATE_ROOT&&o.sessionId!==process.env.EVALUATION_DELEGATE_ROOT){
       if(n===0){
@@ -98,7 +98,7 @@ export function apply(ctx){
         ['notes',{action:'write',path:'reply.md',text:'ANSWER_RECOVERY: '+city+' Reply in '+target}],
         ['new_context',{}],['notes',{action:'read',path:'reply.md'}],
         ['history',{action:'list_windows'}],['history',{action:'search',query:'UNRELATED_HISTORY_ONLY'}],
-        ['inbox',{action:'check'}],['conversations',{action:'read',target}],
+        ['inbox',{action:'check'}],['read_messages',{target}],
         process.env.EVALUATION_DELEGATE_ROOT?['delegate_worker',{action:'start',label:'Confirm the city',message:'Confirm this detail from the original conversation and report back: '+city}]:['send_message',{target,text:city}],
         undefined,['send_message',{target,text:city}]
       ][n];

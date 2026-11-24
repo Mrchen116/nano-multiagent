@@ -63,7 +63,7 @@ ctx.on('llm/stream',async function*(o){
   const mainInput=await readFile(join(home,'main-input.jsonl'),'utf8');
   expect(mainInput).toContain('Only Dreaming');
   expect(mainInput).toContain('You do not need to be added to an eligible owner conversation to read it');
-  expect(mainInput).toContain('use conversations list/search to check available sources');
+  expect(mainInput).toContain('use conversations(action=\\"list\\") or search_messages to check available sources');
   expect(mainInput.includes('Immediately correct affected current pages')).toBe(false);
   expect(mainInput.includes('checkpoint the current generation')).toBe(false);
   const prompt=await readFile(join(home,'review-input.jsonl'),'utf8');expect(prompt).toContain('CURRENT_OWNER_CHOICE');expect(prompt).not.toContain('DATABASE_HISTORY_NOT_IN_EFFECTIVE_CONTEXT');expect(prompt).not.toContain('nano_personal_authorization');
@@ -82,12 +82,12 @@ it('keeps the ordinary Global capability catalog and executes owner extensions a
       await writeFile(join(root,'extension.mjs'),`export const name='owner-extension';export const inject=['tools'];export function apply(ctx){ctx.tools.register({name:'owner_tool',description:'Owner installed tool',parameters:{type:'object',properties:{}},output:{schema:{type:'object'},render:(_args,result)=>[{type:'text',text:JSON.stringify(result)}]},execute:()=>({value:'OWNER_EXTENSION_EXECUTED'})});}`);
       await writeFile(join(root,'plugins.json'),JSON.stringify([{module:'./extension.mjs'}]));
       await writeFile(join(root,'fixture.mjs'),`import{writeFile}from'node:fs/promises';
-export const name='capability-fixture';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];const tools=[['skill',{name:'nano-ongoing-work'}],['owner_tool',{}],['bash',{command:'printf SHELL_EXECUTED',description:'Verify ordinary shell access'}],['memory',{action:'add',target:'memory',content:'Private note survives source changes'}],...(${personal}?[['personal_sources',{action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1}],['conversations',{action:'search',target:'source',keyword:'meeting',participant_id:'owner',before:'2026-10-20',after:'2026-10-01'}],['send_message',{target:'owner',interactive:{source:'root = TextContent("Draft")'}}]]:[])];for(const[name,args]of tools)results.push({name,result:await ctx.tools.execute({name,callId:'call-'+results.length,arguments:args,agent,signal:new AbortController().signal})});await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
+export const name='capability-fixture';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{const results=[];const tools=[['skill',{name:'nano-ongoing-work'}],['owner_tool',{}],['bash',{command:'printf SHELL_EXECUTED',description:'Verify ordinary shell access'}],['memory',{action:'add',target:'memory',content:'Private note survives source changes'}],...(${personal}?[['personal_sources',{action:'exclude',conversation_id:'source',source_message_id:'owner-request',expected_revision:1}],['search_messages',{target:'source',query:'meeting',participant_id:'owner',before:'2026-10-20',after:'2026-10-01'}],['send_message',{target:'owner',interactive:{source:'root = TextContent("Draft")'}}]]:[])];for(const[name,args]of tools)results.push({name,result:await ctx.tools.execute({name,callId:'call-'+results.length,arguments:args,agent,signal:new AbortController().signal})});await writeFile(process.env.DSH_HOME+'/results.json',JSON.stringify(results));},0);});}`);
       await prepareProfile(root,[{insert:[{id:'capability-fixture',name:join(root,'fixture.mjs')}]}]);
       let logs='';const client=new RuntimeClient({home:root,cwd:root,onLog:text=>{logs+=text;}});
       registerNoopTaskHosts(client);
       const calls:any[]=[];
-      client.rpc.handle('product.call',value=>{const call=value as any;calls.push(call);if(call.method==='personal_sources')return {revision:2,excluded_conversation_ids:['source']};if(call.method==='conversations')return {messages:[]};if(call.method==='send_message')return {status:'sent',message_id:'draft-message'};throw new Error('Unexpected product call '+call.method);});
+      client.rpc.handle('product.call',value=>{const call=value as any;calls.push(call);if(call.method==='personal_sources')return {revision:2,excluded_conversation_ids:['source']};if(call.method==='search_messages')return {messages:[]};if(call.method==='send_message')return {status:'sent',message_id:'draft-message'};throw new Error('Unexpected product call '+call.method);});
       const config={agentId:'agent',knowledge:{memoryMode:'legacy'},revision:'1',workspace:root,mode:'global',provider:'deepseek-official',model:'deepseek-flash',
         extensions:{workspace:join(root,'plugins.json')},skillRoots:[{path:skills,source:'owner'}],features:{intelligent_ui:false,task_graph:false,skill_creation:true,memory_curation:true},
         ...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{}),approval:{...approvalDefaults,dangerouslySkipPermissions:true,globalRoot:root}};
@@ -137,7 +137,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
           expect(calls.find(call=>call.method==='send_message').args.interactive).toEqual({format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Draft")'});
           expect(names).toContain('send_user_message');
           const send = catalog.tools.find((tool:any)=>tool.name==='send_user_message');
-          expect(Object.keys(send.parameters.properties)).toEqual(['target','reply_to_message_id','in_thread_of','text','incident_ref','attachments','interactive']);
+          expect(Object.keys(send.parameters.properties)).toEqual(['target','reply_to_message_id','text','incident_ref','attachments','interactive']);
           expect(Object.keys(send.parameters.properties.interactive.properties)).toEqual(['source','supersedes_message_id','source_mode']);
           expect(await readFile(join(root,'.nanoassistant','memory-legacy','MEMORY.md'),'utf8')).toContain('Private note survives source changes');
           expect(await client.rpc.request('pa.evidence',{agentId:'agent',sessionId:'root'})).toHaveProperty('contexts');

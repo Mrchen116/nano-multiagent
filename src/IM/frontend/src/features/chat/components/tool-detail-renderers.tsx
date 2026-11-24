@@ -641,7 +641,7 @@ function isResultPending(call: ToolCall, detail: ToolDetail): boolean {
 export function ToolDetailBody({ call, renderResult }: { call: ToolCall; renderResult?(result: ToolDetail): ReactNode }) {
   const detail = call.detail;
   const input = call.input && typeof call.input === "object" ? call.input as ToolDetail : {};
-  if (call.name === "inbox" || call.name === "conversations") return <ConversationToolCard call={call} />;
+  if (call.name === "inbox" || call.name === "conversations" || call.name === "read_messages" || call.name === "search_messages" || call.name === "threads") return <ConversationToolCard call={call} />;
   if (call.name === "subagent") {
     return <AgentCard detail={{...detail, prompt: detail?.prompt ?? input.prompt, status: detail?.status ?? call.status}} isResultPending={call.status === "running"} />;
   }

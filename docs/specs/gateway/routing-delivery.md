@@ -682,7 +682,7 @@ PA 的普通与全局 Agent 获得执行环境与用户端可能不同的说明�
 
 ### Requirement: 自动正文和 send_message 能写进话题
 
-`send_message` 可带 `in_thread_of`，指向目标聊天里一条主时间线消息。外部通道和内部子执行不能使用它。当前轮由某条话题叫醒且目标就是该聊天时，省略该字段也写回该话题。
+`send_message` 的 `target` 支持 `<chat_id>:<8位短消息id>`（single_thread 亦支持 `current:<8位短消息id>`）直接写入对应话题；传主时间线 `target` 则写入主时间线，不做静默改写。外部通道和内部子执行不能使用话题 target。SingleThread 由话题唤醒时自动正文写回该话题；由主时间线唤醒且本轮已显式向请求话题发过言时，随后的自动正文也写回该话题而不双写主时间线。
 
 #### Scenario: 一句回答留在主时间线
 - **GIVEN** single_thread 由一条主时间线消息叫醒，这一轮没有向它的话题发送过
@@ -690,11 +690,11 @@ PA 的普通与全局 Agent 获得执行环境与用户端可能不同的说明�
 - **THEN** 这条正文出现在主时间线，不创建话题
 
 #### Scenario: 多步发言只出现在请求的话题
-- **GIVEN** 同一轮已经用 `in_thread_of` 把话写入用户那条请求的话题
+- **GIVEN** 同一轮已经用 `send_message` 向用户那条请求的话题 `target` 写入确认
 - **WHEN** 运行结束时还有自动正文
 - **THEN** 自动正文也进入该话题
 - **AND** 主时间线不再增加这一轮的气泡
 
 #### Scenario: 从话题叫醒就回到话题
-- **WHEN** Agent 由一条话题回复叫醒，并发送没有另外指定话题的当前聊天回复
-- **THEN** 回复进入该话题
+- **WHEN** single_thread Agent 由一条话题回复叫醒并输出自动正文
+- **THEN** 自动正文进入该话题；显式 `send_message` 传该话题 `target` 亦进入该话题，传主时间线 `target` 则发往主时间线

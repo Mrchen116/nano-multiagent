@@ -95,3 +95,23 @@ it("restores the draft and quote only in their original topic", async () => {
   expect(await screen.findByRole("textbox")).toHaveValue("Half a thought");
   expect(screen.getByRole("button", {name: /Cancel|取消/})).toBeInTheDocument();
 });
+
+it("renders thread_unfollowed system notices with system styling and excludes them from reply count", async () => {
+  const reply = message("visible reply");
+  const notice: Message = {
+    ...message("unfollow-notice"),
+    sender: { type: "system", id: "system", display_name: "System" },
+    sender_type: "system",
+    sender_user_id: "system",
+    content: "@E 已取消关注此话题（任务已完成），后续不再自动接收回复；需要时可 @ 提及再次唤醒。",
+    system_notice: { kind: "thread_unfollowed", agent_id: "e", reason: "任务已完成" },
+  };
+  vi.mocked(authFetchJson).mockResolvedValue({ root, following: true, items: [{ message: reply }, { message: notice }] });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><ThreadColumn conversation={group} selfUserId="me" isMobile={false}
+    rootId={root.id} onSent={() => {}} onClose={() => {}} mentionCandidates={[]}
+    renderBody={item => item.content} renderQuote={item => item.content} /></QueryClientProvider>);
+  const noticeEl = await screen.findByText(notice.content);
+  expect(noticeEl).toHaveClass("chat-bubble-system");
+  expect(screen.getByRole("separator")).toHaveTextContent(/1\s*(reply|条回复)/);
+});

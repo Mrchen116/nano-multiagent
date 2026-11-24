@@ -135,12 +135,18 @@ it.each(['unknown','not-sent'] as const)('publishes screenshot attachments and p
   const call: ProductCall = {method:'send_message', args:{target:'current', text:'Before', local_images:['/tmp/before.png'], interactive},
     operationId:'main:send', callId:'send', sessionId:'main', rootSessionId:'main', agentId:'a', ownerId:'owner'};
   try {
-    await expect(product.call(call)).resolves.toMatchObject(delivery === 'unknown'
-      ? {status:'unknown', operation_id:'main:send'} : {status:'not_sent'});
+    const firstResult = await product.call(call) as {status: string; operation_id?: string};
+    if (delivery === 'unknown') {
+      expect(firstResult).toMatchObject({status:'unknown'});
+      expect(firstResult.operation_id).toMatch(/^r_[a-f0-9]{6}$/);
+      expect(firstResult.operation_id!.length).toBeLessThanOrEqual(8);
+    } else {
+      expect(firstResult).toMatchObject({status:'not_sent'});
+    }
     expect(sent).toEqual([expect.objectContaining({attachments:[image], interactive})]);
     receiptAvailable = true;
     await expect(product.call({...call, operationId:'main:check', callId:'check',
-      args:{target:'current', receipt_of:'main:send'}})).resolves.toMatchObject(delivery === 'unknown'
+      args:{target:'current', receipt_of:firstResult.operation_id ?? 'main:send'}})).resolves.toMatchObject(delivery === 'unknown'
         ? {status:'sent', message_id:'m'} : {status:'not_sent'});
     expect(sent).toHaveLength(1);
     expect(uploads).toBe(1);

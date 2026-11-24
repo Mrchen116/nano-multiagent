@@ -273,7 +273,7 @@ export function selectChildMaterial(material: Pick<ChildMaterial,'sessionId'|'ro
   const entries = [...material.inheritedEvents.map(event => ({event,sessionId:material.rootSessionId,inherited:true})), ...material.events.map(event => ({event,sessionId:material.sessionId,inherited:false}))]
     .filter(({event})=>event.type==='user/message'||event.type==='tool/call'||event.type==='tool/result'||event.type==='assistant/message'&&event.data.message.content.some(block=>block.type==='text'))
     .map(entry=>entry.event.type==='assistant/message'?{...entry,event:{...entry.event,data:{...entry.event.data,message:{...entry.event.data.message,content:entry.event.data.message.content.filter(block=>block.type==='text')}}}}:entry);
-  const messageCalls = new Set(entries.flatMap(({event}) => event.type === 'tool/call' && ['inbox','conversations'].includes(event.data.name) ? [event.data.callId] : []));
+  const messageCalls = new Set(entries.flatMap(({event}) => event.type === 'tool/call' && ['inbox','conversations','read_messages','search_messages'].includes(event.data.name) ? [event.data.callId] : []));
   const priority = (event: SessionEvent) => event.type === 'user/message' || event.type === 'tool/result' && messageCalls.has(event.data.message.toolCallId) ? 0 : event.type === 'assistant/message' ? 1 : 2;
   const groupKey = (entry: typeof entries[number]) => {
     const event = entry.event;

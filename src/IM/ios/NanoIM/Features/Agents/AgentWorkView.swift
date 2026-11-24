@@ -471,12 +471,20 @@ struct AgentWorkItemView: View {
         let detail = p["detail"]?.agentObject ?? [:]
         let messages = detail["messages"]?.agentArray
         let sources = (detail["sources"] ?? detail["conversations"])?.agentArray
-        let inboxResult = toolName == "inbox" && (messages != nil || sources != nil)
+        let threads = detail["threads"]?.agentArray
+        let inboxResult = ["inbox", "conversations", "read_messages", "search_messages", "threads"].contains(toolName)
+            && (messages != nil || sources != nil || threads != nil)
             && text("status") == "completed" && detail["error"]?.stringValue == nil
         if inboxResult {
-            if (messages ?? []).isEmpty && (sources ?? []).isEmpty { Text(L("没有匹配记录", "No matching records")) }
+            if (messages ?? []).isEmpty && (sources ?? []).isEmpty && (threads ?? []).isEmpty { Text(L("没有匹配记录", "No matching records")) }
             ForEach(Array((sources ?? []).enumerated()), id: \.offset) { _, source in
                 Text((source["name"].stringValue ?? source["target"].stringValue) ?? "")
+            }
+            ForEach(Array((threads ?? []).enumerated()), id: \.offset) { _, thread in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(thread["parent_name"].stringValue ?? thread["target"].stringValue ?? "").font(.caption).foregroundStyle(.secondary)
+                    if let excerpt = thread["root_excerpt"].stringValue, !excerpt.isEmpty { Text(excerpt).lineLimit(2) }
+                }
             }
             ForEach(Array((messages ?? []).enumerated()), id: \.offset) { _, message in
                 if let sender = message["sender"]["name"].stringValue ?? message["sender"]["display_name"].stringValue ?? message["sender"].stringValue {
@@ -488,9 +496,10 @@ struct AgentWorkItemView: View {
                         else { JSONDetailView(value: part) }
                     }
                 } else { JSONDetailView(value: message["content"]) }
-                if let target = message["source"]["conversation_id"].stringValue ?? message["target"].stringValue ?? detail["target"]?.stringValue ?? input["target"]?.stringValue,
-                   !target.isEmpty, !target.hasPrefix("external:"), !target.hasPrefix("local:"),
+                if let rawTarget = message["source"]["conversation_id"].stringValue ?? message["target"].stringValue ?? detail["target"]?.stringValue ?? input["target"]?.stringValue,
+                   !rawTarget.isEmpty, !rawTarget.hasPrefix("external:"), !rawTarget.hasPrefix("local:"),
                    let id = message["message_id"].stringValue ?? message["id"].stringValue, !id.isEmpty {
+                    let target = rawTarget.split(separator: ":", maxSplits: 1).first.map(String.init) ?? rawTarget
                     chatLink(target, message: id)
                 }
             }
@@ -639,6 +648,14 @@ struct AgentWorkItemView: View {
         case "skill": return L("使用技能", "Use skill")
         case "send_message": return L("发送消息", "Send message")
         case "conversations" where action == "list": return L("查找聊天", "Find conversations")
+        case "conversations" where action == "info": return L("查看聊天信息", "Inspect conversation")
+        case "conversations" where action == "create": return L("创建群聊", "Create group")
+        case "conversations" where action == "join": return L("加入群聊", "Join group")
+        case "read_messages": return L("读取历史消息", "Read messages")
+        case "search_messages": return L("搜索历史消息", "Search messages")
+        case "threads" where action == "list": return L("查看关注的话题", "List followed threads")
+        case "threads" where action == "follow": return L("关注话题", "Follow thread")
+        case "threads" where action == "unfollow": return L("取消关注话题", "Unfollow thread")
         default: return toolName.isEmpty ? L("工具调用", "Tool call") : toolName
         }
     }
@@ -658,7 +675,8 @@ struct AgentWorkItemView: View {
                 let path = (input["file_path"] ?? input["path"])?.stringValue, !path.isEmpty {
             notes.append((path as NSString).lastPathComponent)
         }
-        else if toolName == "inbox", let count = result["messages"]?.agentArray.count { notes.append(L("共 " + String(count) + " 条消息", String(count) + " messages")) }
+        else if ["inbox", "read_messages", "search_messages"].contains(toolName), let count = result["messages"]?.agentArray.count { notes.append(L("共 " + String(count) + " 条消息", String(count) + " messages")) }
+        else if toolName == "threads", let count = result["threads"]?.agentArray.count { notes.append(L("共 " + String(count) + " 个话题", String(count) + " threads")) }
         else if let summary = (p["summary"] ?? p["output"])?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
                 !summary.isEmpty, !summary.hasPrefix("{"), !summary.hasPrefix("["), summary != toolName {
             notes.append(summary)

@@ -25,6 +25,7 @@ interface MessageUser {id:string; username:string; display_name:string; is_stale
 export interface MessageMetadata {
   reply_to?:ChatMessage['reply_to'];
   thread_root_id?:string;
+  skipThreadDelivery?: boolean;
   trackReceipts?: boolean;
   pendingRelayAgents?: string[];
   provider_facts?: ProviderFacts;
@@ -240,12 +241,12 @@ export class MessageRecords {
     return {...message,process_summary:summary};
   }
   private threadSummary(id:string):Pick<ChatMessage,'thread'> {
-    const count=this.db.prepare('SELECT count(*) AS count FROM messages WHERE thread_root_id=?').get(id) as {count:number};
+    const count=this.db.prepare("SELECT count(*) AS count FROM messages WHERE thread_root_id=? AND coalesce(json_extract(system_notice_json,'$.kind'),'')!='thread_unfollowed'").get(id) as {count:number};
     if(!count.count)return {};
     const newest = this.db.prepare(`SELECT m.id, m.sender_user_id, coalesce(nullif(m.sender_display_name,''),u.display_name,m.sender_user_id) AS display_name,
       m.content, m.created_at, json_extract(m.attachments_json, '$[0].file_name') AS file_name
       FROM messages m LEFT JOIN users u ON u.id=m.sender_user_id
-      WHERE m.thread_root_id=? ORDER BY m.rowid DESC LIMIT 2`).all(id) as {
+      WHERE m.thread_root_id=? AND coalesce(json_extract(m.system_notice_json,'$.kind'),'')!='thread_unfollowed' ORDER BY m.rowid DESC LIMIT 2`).all(id) as {
       id:string; sender_user_id:string; display_name:string; content:string; created_at:string; file_name:string|null;
     }[];
     const latest = newest[0]!;
@@ -255,7 +256,7 @@ export class MessageRecords {
     }));
     const participants=this.db.prepare(`SELECT m.sender_user_id AS id, COALESCE(m.sender_display_name, u.display_name, m.sender_user_id) AS display_name
       FROM messages m LEFT JOIN users u ON u.id=m.sender_user_id
-      WHERE m.thread_root_id=? GROUP BY m.sender_user_id ORDER BY max(m.rowid) DESC LIMIT 3`).all(id) as {id:string; display_name:string}[];
+      WHERE m.thread_root_id=? AND coalesce(json_extract(m.system_notice_json,'$.kind'),'')!='thread_unfollowed' GROUP BY m.sender_user_id ORDER BY max(m.rowid) DESC LIMIT 3`).all(id) as {id:string; display_name:string}[];
     return {thread:{reply_count:count.count, latest_preview:latest.content.trim().slice(0,80), latest_at:latest.created_at, recent_replies, participants}};
   }
   private projectMessage(m:Omit<MessageRecord,'caller_idempotency_key'|'caller_payload_json'>):ChatMessage {
@@ -342,7 +343,7 @@ export class MessageRecords {
         .prepare("UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?")
         .run(content.trim().slice(0, 120) || attachments[0]?.file_name || "", at, cId);
     }
-    if (!groupedThread) {
+    if (!groupedThread && !extra.skipThreadDelivery) {
       this.db
         .prepare(
           "UPDATE conversation_participants SET unread_count=unread_count+1 WHERE conversation_id=? AND user_id!=?",
@@ -364,7 +365,7 @@ export class MessageRecords {
     if (extra.reply_to) this.db.prepare('UPDATE messages SET reply_to_json=? WHERE id=?').run(JSON.stringify(extra.reply_to),id);
     if (extra.thread_root_id) {
       this.db.prepare('UPDATE messages SET thread_root_id=? WHERE id=?').run(extra.thread_root_id,id);
-      if (groupedThread) recordThreadDelivery(this.db,id);
+      if (groupedThread && !extra.skipThreadDelivery) recordThreadDelivery(this.db,id);
     }
     if (extra.provider_facts) this.db.prepare('INSERT INTO provider_message_facts VALUES(?,?)').run(id,JSON.stringify(extra.provider_facts));
     if (status==='pending' && extra.pendingRelayAgents && !extra.pendingRelayAgents.some(agentId=>chatAllowed(this.db,agentId,id) && (!groupedThread || threadAddressesAgent(this.db,id,agentId)))) {

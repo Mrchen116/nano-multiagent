@@ -55,7 +55,7 @@ const approval = z.object({
 });
 
 const methods = {
-  'session.ensure': rpc(input({...session, ...agent, ownerId: id, cwd: id, revision: id}), z.object({...session, revision: id})),
+  'session.ensure': rpc(input({...session, ...agent, ownerId: id, ownerRef: id.optional(), cwd: id, revision: id}), z.object({...session, revision: id})),
   'session.lookup': rpc(input({...session, inputId: id}), evidence),
   'session.submit': rpc(input({...session, inputId: id, mode: z.enum(['followup','steer','inject']), content, source,
     attachmentSources: attachments.optional(), onlyIfIdle: bool.optional()}), z.union([

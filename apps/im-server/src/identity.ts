@@ -240,7 +240,7 @@ export class Identity {
     const hash = await this.passwordWork<string>("hash", password);
     const id =
       "u_" +
-      Array.from({ length: 8 }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[randomInt(36)]).join(
+      Array.from({ length: 6 }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[randomInt(36)]).join(
         "",
       );
     try {

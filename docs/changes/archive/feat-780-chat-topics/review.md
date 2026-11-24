@@ -60,3 +60,22 @@
 独立代码与 Agent Context 审查覆盖到 `9241d9865`。审查者直接读取四份模型请求正文、两份会话原件与两份 IM 结果，核对 Global 的 Inbox/发送工具和单线程 Agent 的普通最终答复；两条实际路径通过。PA 披露审查的 `in_thread_of` 与冻结发送目标一致，专项用例通过，另有 5 项话题测试通过。审查者合跑另两个 runtime 用例（普通 Codex 审批与 Global 能力目录）分别超时，未取得该两项本地通过结论。IM/Web 和 Agent 两侧的最终 delta 均已独立核对，无待修发现。iOS 交互验收继续暂缓。
 
 隔离 daily 的 IM、Gateway、Vite 与临时模型中继均已停止；隔离凭据、聊天数据库与临时工作目录已清理。开发 worktree 保留至 PR 合入。
+
+## Agent IM 6 工具拆分、8 字符短 ID 与双端同步复验
+
+本轮在 `codex/feat-780`（基于 `a3a29e18a`）完成 Agent 侧 6 工具拆分（`inbox` / `conversations(list|info|create|join)` / `read_messages` / `search_messages` / `threads(list|follow|unfollow)` / `send_message`）、统一话题 target（`<chat_id>` / `<chat_id>:<root_id>`）、`<= 8` 字符原子 ID 硬契约、按需零重复 `thread_context`、群话题退订系统提示，以及 Web + iOS 双端同步。
+
+### 审查与实测结果
+
+| 范围 | 能力、执行者与模式 | 结论 | 关键证据与限制 |
+|---|---|---|---|
+| 代码 diff 与架构边界 | 独立 `change-code-review`（`5e82b199`，full，未提交树） | 初审 fail（1 blocking / 4 major / 2 minor）→ 已全部修复并复测 | 修复 `threads(unfollow)` 非成员/PA 观察群写权限绕过、外部会话话题 target 切分、Web `.chat-bubble-system` 样式、SingleThread `seenThreads` 提交前写入、4 处超 8 字符 ID 泄露、`inbox` 复关注上下文边界及 `conversation:` 前缀截断；修复后复验待独立 closure。 |
+| 模型可见上下文与真实轨迹 | 独立 `agent-context-review`（`a535af93`，实施模式，直读真实 DSH 轨迹） | 真实 Global 3 轮核心链路 pass；另检出 3 high / 4 medium / 2 low → 已全部修复并复测 | 直读隔离 daily 栈 `daily-engineering` 完整 3 轮轨迹（115 行 `session.v4.jsonl.zstd`）：首轮 6 工具一次命中、Turn 2 退订后 `@` 复关注注入 `thread_context` + `follow_reactivated: true`、Turn 3 零重复；已修复 `nano-role-agreement` 管理员 ID 压缩对齐（`ownerRef`）、`codex-context.ts` 支持 `read_messages_result`/`search_messages_result`、Dreaming `memory.conversations` 短 target 解析、`nano-proactive-care` Skill 文案、SingleThread `current`/`current:<root>` 查询解析、批量头短 ID、PA 通知/事件短 ID、移除 `source.reply_target` 重复字段与未截断时去掉 `thread_context.hint`。 |
+| Web 真实页面与旅程 | 隔离 `e2e-up.sh --profile daily` + Playwright Chromium（1280×900 & 390×844） | pass（实测抓出 2 个视觉/文案问题并已修复重截确认） | 真实 `codexOAuth:gpt-6.1-sol` 完成开话题 → `read_messages` → `threads(list)` → `threads(unfollow)` → 静默不唤醒 → `@` 复关注 → 持续关注；实看截图发现并修复 `.chat-bubble-system` 样式与英文 Work 面板混语/目标名解析，重截确认居中灰字、`6 replies` 计数准确且 Work 卡片显示 `研发日常 · Thread`。 |
+| iOS 回归与模拟器真机实测 | `./src/IM/ios/scripts/build.sh test` + `NanoIMJourney`（iPhone 17 Pro 模拟器连隔离 IM） | pass | 官方脚本跑通全量 295 项 `NanoIMTests`（含 6 项 WebKit `InteractiveRuntimeTests` 与 40 项 Swift Testing 契约套件）；`CrewdenParityUITests/testDailyNavigation` 与 `testInspectThreadNoticeAndReplyCount` 实机通过并核验截图（主时间线 `6 条回复` 入口、话题内 `6 条回复` 分隔线 + 居中灰字退订提示、E 工作记录）。 |
+| 本地 CI 与契约门禁 | `pytest` + `pnpm build/typecheck` + `check:ios-runtime` + `docs-check` + Vitest | pass | 顺带修复本分支既有 `chat-types.ts` 违规 import `@nano/product-contracts`（`test_runtime_dependency_contract.py` 13/13 通过）与 `context.ts`/`migrate-task-collaboration.ts` DDL 语句缓存失效（`task-migration.test.ts` 通过）；新增 `packages/personal-assistant/tests/id-length-contract.test.ts` 覆盖全工具 8 字符 ID 契约。 |
+
+### 测试资源回收与保留状态
+
+- 本轮隔离 daily 栈（`/tmp/nano-e2e-feat780`）已执行 `scripts/e2e-down.sh` 停止并删除目录，端口 `61460` 无残留监听；临时 iOS 构建目录（`/tmp/nano-ios-feat780-build`）已删除，iPhone 17 Pro 模拟器已 shutdown。
+- 本轮验证截图保留在会话本地 scratch 证据目录，未提交仓库。开发 worktree `/Users/czj/.codex/worktrees/feat-780-chat-topics/nano-multiagent` 按规则保留至 PR 合入。

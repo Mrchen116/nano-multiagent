@@ -25,6 +25,10 @@ struct ChatMessageView: View {
                 NanoTimestamp(value: message.created_at)
                 Text(taskNoticeText).font(.caption).multilineTextAlignment(.center).tint(NanoTheme.accent)
             }.font(.caption).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity).padding(.vertical, 6).textSelection(.enabled)
+        } else if message.system_notice?["kind"].stringValue == "thread_unfollowed" {
+            Text(ChatText.display(message.content, participants: participants))
+                .font(.caption).foregroundStyle(NanoTheme.muted).multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity).padding(.vertical, 4).textSelection(.enabled)
         } else if intelligentUI {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {

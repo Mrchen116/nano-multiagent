@@ -714,7 +714,7 @@ export class Messaging {
           conversation_type:c.type,mentioned_agent_ids:mentioned,participant_agent_ids:agents.map(a=>a.agent_id),
           ...(agentReceipt ? {agent_receipt:true} : {}),
           ...this.deliveryFacts(a.agent_id,m),
-          ...threadRelayMetadata(this.db, m.id),
+          ...threadRelayMetadata(this.db, m.id, a.agent_id),
           ...(m.thread_root_message_id && c.type==='group' ? {addressed_to_agent:true} : {}),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(background.length ? {interaction_contexts:background} : {}),

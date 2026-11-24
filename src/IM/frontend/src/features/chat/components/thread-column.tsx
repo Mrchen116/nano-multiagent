@@ -200,6 +200,12 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
     }
   }
   function bubble(message: Message) {
+    if (message.system_notice) {
+      return <div key={message.id} id={`thread-message-${message.id}`} tabIndex={-1}
+        className={`chat-bubble-system${highlight === message.id ? " im-work-message-target" : ""}`}>
+        {message.content}
+      </div>;
+    }
     const sender = message.sender;
     const name = sender.display_name || sender.id;
 
@@ -251,7 +257,7 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
     <div ref={scrollerRef} className="chat-pane-messages" onScroll={trackScroll}>
       <div className="chat-pane-message-list">
         {data && <>{bubble(data.root)}
-          <div className="chat-thread-replies" role="separator">{t("chat.messagePane.threadCount", {n: data.items.length, count: data.items.length})}</div>
+          {(() => { const replyCount = data.items.filter(item => !item.message.system_notice).length; return <div className="chat-thread-replies" role="separator">{t("chat.messagePane.threadCount", {n: replyCount, count: replyCount})}</div>; })()}
           {data.items.map(item => bubble(item.message))}
         </>}
         {!data && !isError && <p role="status">{t("common.loading")}</p>}

@@ -83,7 +83,7 @@ export class DocumentMemory {
       if (main) {
         const role = await this.readRole(config, true);
         if (role) {
-          const owner = config.personal?.ownerId ?? binding.ownerId;
+          const owner = (binding as { ownerRef?: string }).ownerRef ?? config.personal?.ownerId ?? binding.ownerId;
           const confirmer = config.personal ? 'owner' : 'bound administrator';
           const privateContact = `Contact your ${confirmer} privately in this turn. Use send_message to ${JSON.stringify(`user:${owner}`)} if available, or reply in a verified private conversation with them. If neither is possible, bring it up the next time you can speak privately.`;
           const agreementPath = rolePath(documents.workspace);

@@ -7,6 +7,7 @@ import type { FastifyInstance } from "fastify";
 import {
   all,
   one,
+  now,
   fail,
   body,
   params,
@@ -15,6 +16,7 @@ import {
   type ImContext,
 } from "./context.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
+import { listAgentFollowedThreads, setAgentThreadFollow, threadRootOrFail } from "./threads.js";
 import { decodeWorkBatch, WorkEventError, type WorkReadyCut, type WorkAppendAck, type WorkSessionFields, formatLocalTime, projectChatReplyContext } from "@nano/product-contracts";
 import type { Connection } from './gateway.js';
 import { WorkRecords } from './work-records.js';
@@ -39,6 +41,16 @@ function syncState(report: WorkProgress, through: number, root: string): SyncSta
   if (typeof cut === 'number' && through >= cut) return 'current';
   if (typeof cut === 'object' && through >= cut.main) return 'main_only';
   return report.pending || through < report.produced ? 'catching_up' : 'current';
+}
+
+function splitTarget(db: ImContext['db'], raw: unknown): { conversationId?: string; threadRootId?: string } {
+  if (typeof raw !== 'string' || !raw) return {};
+  if (one(db, 'SELECT id FROM conversations WHERE id=?', raw)) return { conversationId: raw };
+  const index = raw.lastIndexOf(':');
+  if (index <= 0) return { conversationId: raw };
+  const conversationId = raw.slice(0, index);
+  const threadRootId = raw.slice(index + 1);
+  return { conversationId, threadRootId: threadRootId || undefined };
 }
 
 export class Work {
@@ -187,7 +199,7 @@ export class Work {
       !Number.isInteger(limit) ||
       limit < 1 ||
       limit > 50 ||
-      !["list", "read", "search", "info", "describe", "resolve_target", "create", "join"].includes(p.action)
+      !["list", "read", "search", "info", "describe", "resolve_target", "create", "join", "thread_list", "thread_follow", "thread_unfollow"].includes(p.action)
     )
       fail(400, "invalid_arguments");
     const personal = one(this.db,"SELECT * FROM personal_agent_bindings WHERE agent_id=?",p.agent_id);
@@ -222,6 +234,35 @@ export class Work {
       const joined = s.joinConversation(s.agentUser(p.agent_id).id,p.target);
       return {target:joined.id,name:joined.title,conversation:joined};
     }
+    if (p.action === "thread_follow" || p.action === "thread_unfollow") {
+      const { conversationId, threadRootId } = splitTarget(this.db, p.target);
+      if (!conversationId || !threadRootId) fail(400, "invalid_arguments");
+      if (!sourceAllowed(conversationId) || !conversationAccess(this.db, conversationId, viewerFor(conversationId)))
+        fail(404, "target_not_accessible");
+      const conv = s.conversation(conversationId, viewerFor(conversationId), readerId);
+      const writableMember = Boolean(conv.is_member && conv.can_write);
+      if (!writableMember && !personal) fail(403, "not_a_writable_member");
+      const reason = typeof p.reason === "string" && p.reason.trim() ? p.reason.trim().slice(0, 200) : undefined;
+      const result = setAgentThreadFollow(this.db, conversationId, threadRootId, readerId, p.action === "thread_follow");
+      if (p.action === "thread_unfollow" && result.changed && writableMember) {
+        let system = one(this.db, "SELECT * FROM users WHERE username='system'");
+        if (!system) {
+          const systemId = randomUUID();
+          this.db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES(?,?,?,?,?)").run(systemId, "system", "System", systemId, now());
+          system = one(this.db, "SELECT * FROM users WHERE id=?", systemId);
+        }
+        const displayName = String(agent.display_name || agent.agent_id);
+        // PA threads(unfollow) bypasses outbound disclosure review, so omit free-text reason in public notices.
+        const publicReason = personal ? undefined : reason;
+        const noticeText = `@${displayName} 已取消关注此话题${publicReason ? `（${publicReason}）` : ""}，后续不再自动接收回复；需要时可 @ 提及再次唤醒。`;
+        s.insertMessage(conversationId, system!.id, "system", noticeText, [], null, "completed", {
+          thread_root_id: threadRootId,
+          skipThreadDelivery: true,
+          system_notice: { kind: "thread_unfollowed", agent_id: p.agent_id, agent_display_name: displayName, ...(publicReason ? { reason: publicReason } : {}) },
+        });
+      }
+      return { target: result.target, following: result.following, ...(p.action === "thread_unfollow" && reason ? { reason } : {}) };
+    }
     const members = (id: string) =>
       s.members(id).map((u) => ({
         id: u.id,
@@ -240,21 +281,23 @@ export class Work {
             participants: members(r.id),
           })),
       };
-    const target = p.target && sourceAllowed(p.target) && conversationAccess(this.db,p.target,viewerFor(p.target)) ? s.conversation(p.target,viewerFor(p.target),readerId) : undefined;
+    const { conversationId: baseTarget, threadRootId: targetThreadRoot } = splitTarget(this.db, p.target);
+    const effectiveThreadRoot = targetThreadRoot ?? (typeof p.thread_root_message_id === "string" ? p.thread_root_message_id : undefined);
+    const target = baseTarget && sourceAllowed(baseTarget) && conversationAccess(this.db,baseTarget,viewerFor(baseTarget)) ? s.conversation(baseTarget,viewerFor(baseTarget),readerId) : undefined;
     if (p.sort !== undefined && !['relevance', 'recent'].includes(p.sort)) fail(400, 'invalid_arguments');
-    if (p.sender_source_id && (!p.target || !target?.external_source || p.participant_id)) fail(400, 'invalid_arguments');
-    if (p.around_message_id && (p.action !== 'read' || !p.target || p.message_id || p.query || p.keywords || p.before || p.after || p.participant_id || p.sender_source_id)) fail(400, 'invalid_arguments');
-    if (p.thread_root_message_id && (p.action !== 'read' || !p.target || p.message_id || p.around_message_id)) fail(400, 'invalid_arguments');
+    if (p.sender_source_id && (!baseTarget || !target?.external_source || p.participant_id)) fail(400, 'invalid_arguments');
+    if (p.around_message_id && (p.action !== 'read' || !baseTarget || p.message_id || p.query || p.keywords || p.before || p.after || p.participant_id || p.sender_source_id)) fail(400, 'invalid_arguments');
+    if (p.thread_root_message_id && (p.action !== 'read' || !baseTarget || p.message_id || p.around_message_id)) fail(400, 'invalid_arguments');
     if (p.action === "info") {
       if (!target) fail(404, "target_not_accessible");
       return {
-        target: p.target,
+        target: baseTarget,
         ...(memory ? { metadata_scope: 'current', history_cutoff: p.memory_cutoff } : {}),
         name: target.title,
         type: target.type,
         channel: target.external_source ?? "web",
         visibility:target.visibility,is_member:target.is_member,can_write:target.can_write,dissolved_at:target.dissolved_at,
-        members: members(p.target).map((m) => ({
+        members: members(baseTarget!).map((m) => ({
           user_id: m.id,
           name: m.name,
           type: m.kind,
@@ -276,7 +319,7 @@ export class Work {
     };
     const newIdentity: Row = { ...identity, keywords: keywords ?? null, sort: p.action === 'search' ? p.sort ?? 'relevance' : null,
       sender_source_id: p.sender_source_id ?? null, around_message_id: p.around_message_id ?? null,
-      thread_root_message_id: p.thread_root_message_id ?? null };
+      thread_root_message_id: effectiveThreadRoot ?? null };
     let cursor: Row | undefined, snapshot: Row | undefined;
     if (p.cursor) {
       try {
@@ -310,6 +353,33 @@ export class Work {
           .run(id, JSON.stringify({ ...newIdentity, version: 2, ids }));
       return Buffer.from(JSON.stringify({ snapshot: id, offset, part })).toString("base64url");
     };
+    if (p.action === "thread_list") {
+      if (targetThreadRoot) fail(400, "invalid_arguments");
+      if (baseTarget && !target) fail(404, "target_not_accessible");
+      const scopedIds = target ? [target.id] : conversations().map((r) => r.id);
+      const followed = listAgentFollowedThreads(this.db, readerId, scopedIds);
+      const byTarget = new Map(followed.map((item) => [item.target, item]));
+      const ids: string[] = snapshot?.ids ?? followed.map((item) => item.target);
+      let offset = cursor?.offset ?? 0;
+      const page = [];
+      const titleCache = new Map<string, string>();
+      const titleOf = (cid: string) => {
+        const cached = titleCache.get(cid);
+        if (cached !== undefined) return cached;
+        const found = target?.id === cid ? target.title : conversations().find((r) => r.id === cid)?.title ?? s.conversation(cid, viewerFor(cid), readerId).title;
+        titleCache.set(cid, found);
+        return found;
+      };
+      while (offset < ids.length && page.length < limit) {
+        const item = byTarget.get(ids[offset++]!);
+        if (item) page.push({ ...item, parent_name: titleOf(item.parent_target) });
+      }
+      return {
+        threads: page,
+        has_more: offset < ids.length,
+        next_cursor: offset < ids.length ? next(ids, offset) : null,
+      };
+    }
     if (p.action === "list") {
       const filtered = conversations().filter(
         (r) =>
@@ -341,13 +411,14 @@ export class Work {
         next_cursor: offset < ids.length ? next(ids, offset) : null,
       };
     }
-    if (!target && (p.action !== "search" || p.target)) fail(404, "target_not_accessible");
+    if (!target && (p.action !== "search" || baseTarget)) fail(404, "target_not_accessible");
+    if (effectiveThreadRoot && target) threadRootOrFail(this.db, target.id, effectiveThreadRoot);
     if (p.before_message_id && cursor) fail(400, "invalid_arguments");
-    const targets = p.action === 'search' ? (target ? [target.id] : conversations().map(r=>r.id)) : [p.target];
+    const targets = p.action === 'search' ? (target ? [target.id] : conversations().map(r=>r.id)) : [baseTarget!];
     const terms = keywords ?? (typeof p.query === 'string' && p.query.trim() ? [p.query] : []);
     const matches = searchMessages(this.db, { targets, terms, action:p.action, sort:p.sort, around:p.around_message_id,
       messageId:p.message_id, before:p.before, after:p.after, participantId:p.participant_id, senderSourceId:p.sender_source_id,
-      threadRoot: typeof p.thread_root_message_id === 'string' ? p.thread_root_message_id : undefined,
+      threadRoot: effectiveThreadRoot,
       ...(memory ? {memoryRange:{after:new Date(p.memory_after).toISOString(),cutoff:new Date(p.memory_cutoff).toISOString()}} : {}) });
     const matchesById = new Map(matches.map(row => [row.id, row]));
     let currentIds: string[] = matches.map(row=>row.id);
@@ -363,6 +434,51 @@ export class Work {
     }
     const ids: string[] = snapshot?.ids ?? currentIds,
       available = new Set(currentIds);
+    const projectItem = (m: ReturnType<typeof s.message>, content: Row | undefined, partIndex: number, partCount: number) => {
+      const messageConversation = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
+      const personalFacts=personal?this.ctx.personal!.sourceFacts(personal,m):undefined;
+      const externalHuman = !!messageConversation.external_source && m.sender_type === 'user' && !!m.sender_source_id;
+      const messageTarget = m.thread_root_message_id ? `${m.conversation_id}:${m.thread_root_message_id}` : m.conversation_id;
+      return {
+        message_id: m.id,
+        ...(memory ? { created_at: m.created_at, content_hash: createHash('sha256').update(m.content).digest('hex'),
+          delivery: personalFacts?.delivery ?? 'participant', version_scope: 'verified_at_cutoff' } : {}),
+        ...(m.pa_agent_id?{pa_agent_id:m.pa_agent_id}:{}),
+        sender: {
+          ...(!externalHuman ? { id: m.sender_user_id } : {}),
+          name: externalHuman ? matchesById.get(m.id)?.sender_display_name || m.sender_source_id : m.sender.display_name,
+          ...(personalFacts ? {is_owner:personalFacts.is_owner} : {}),
+          kind: externalHuman ? "external" : m.sender_type,
+          ...(externalHuman
+            ? {
+                channel: messageConversation.external_source,
+                source_id: m.sender_source_id,
+              }
+            : {}),
+        },
+        source_time: formatLocalTime(m.created_at, m.timezone ?? undefined),
+        source: {
+          channel: messageConversation.external_source ?? "web",
+          conversation_id: m.conversation_id,
+          target: messageTarget,
+          name: target?.title ?? conversations().find((chat: Row) => chat.id === m.conversation_id)?.title ?? s.conversation(m.conversation_id, viewerFor(m.conversation_id),readerId).title,
+          ...(personalFacts?{conversation_type:personalFacts.conversation_type,delivery:personalFacts.delivery}:{}),
+          ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
+          url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
+        },
+        ...(m.interactive ? {interactive:Object.fromEntries(Object.entries(m.interactive).filter(([key])=>key!=='format'&&key!=='catalog_version'))} : {}),
+        ...(m.reply_to ? {reply_to:projectChatReplyContext(m.reply_to)} : {}),
+        ...(!m.thread_root_message_id && m.thread && m.thread.reply_count > 0
+          ? { thread: { target: `${m.conversation_id}:${m.id}`, reply_count: m.thread.reply_count, latest_at: m.thread.latest_at } }
+          : {}),
+        ...(memory && m.thread_root_message_id ? {thread_root_message_id:m.thread_root_message_id} : {}),
+        ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
+        part_key: String(partIndex),
+        total_parts: partCount,
+        content: content ? [content] : [],
+        complete_message: partCount === 1,
+      };
+    };
     let offset = cursor?.offset ?? 0,
       part = cursor?.part ?? 0,
       budget = 24000,
@@ -377,9 +493,6 @@ export class Work {
       }
       const m = s.message(id);
       if (!m.content && !m.attachments.length && !m.interactive) { offset++; part=0; continue; }
-      const messageConversation = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
-      const personalFacts=personal?this.ctx.personal!.sourceFacts(personal,m):undefined;
-      const externalHuman = !!messageConversation.external_source && m.sender_type === 'user' && !!m.sender_source_id;
       const parts: Row[] = [];
       for (let i = 0; i < m.content.length; i += 24000)
         parts.push({ type: "text", text: m.content.slice(i, i + 24000) });
@@ -398,54 +511,28 @@ export class Work {
         budget -= cost;
         if (content?.type === "image") images++;
         if(personal && !memory) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(personal.binding_id,m.id,m.conversation_id,this.ctx.personal!.policy(personal.binding_id).revision);
-        page.push({
-          message_id: m.id,
-          ...(memory ? { created_at: m.created_at, content_hash: createHash('sha256').update(m.content).digest('hex'),
-            delivery: personalFacts?.delivery ?? 'participant', version_scope: 'verified_at_cutoff' } : {}),
-          ...(m.pa_agent_id?{pa_agent_id:m.pa_agent_id}:{}),
-          sender: {
-            ...(!externalHuman ? { id: m.sender_user_id } : {}),
-            name: externalHuman ? matchesById.get(m.id)?.sender_display_name || m.sender_source_id : m.sender.display_name,
-            ...(personalFacts ? {is_owner:personalFacts.is_owner} : {}),
-            kind: externalHuman ? "external" : m.sender_type,
-            ...(externalHuman
-              ? {
-                  channel: messageConversation.external_source,
-                  source_id: m.sender_source_id,
-                }
-              : {}),
-          },
-          source_time: formatLocalTime(m.created_at, m.timezone ?? undefined),
-          source: {
-            channel: messageConversation.external_source ?? "web",
-            conversation_id: m.conversation_id,
-            reply_target: m.conversation_id,
-            target: m.conversation_id,
-            name: target?.title ?? conversations().find((chat: Row) => chat.id === m.conversation_id)?.title ?? s.conversation(m.conversation_id, viewerFor(m.conversation_id),readerId).title,
-            ...(personalFacts?{conversation_type:personalFacts.conversation_type,delivery:personalFacts.delivery}:{}),
-            ...(personal ? {owner_can_read: !!conversationAccess(this.db, m.conversation_id, personal.owner_user_id)} : {}),
-            url: `${this.ctx.publicUrl.replace(/\/$/, '')}/chat/${encodeURIComponent(m.conversation_id)}?message_id=${encodeURIComponent(m.id)}`,
-          },
-          ...(m.interactive ? {interactive:Object.fromEntries(Object.entries(m.interactive).filter(([key])=>key!=='format'&&key!=='catalog_version'))} : {}),
-          ...(m.reply_to ? {reply_to:projectChatReplyContext(m.reply_to)} : {}),
-          ...(m.thread_root_message_id ? {thread_root_message_id:m.thread_root_message_id} : {}),
-          ...(m.interaction_reply ? {interaction_reply:m.interaction_reply} : {}),
-          part_key: String(part),
-          total_parts: partCount,
-          content: content ? [content] : [],
-          complete_message: partCount === 1,
-        });
+        page.push(projectItem(m, content, part, partCount));
         part++;
       }
       if (part < partCount) break;
       offset++;
       part = 0;
     }
+    let threadRootProjection: Row | undefined;
+    if (p.action === "read" && effectiveThreadRoot && !p.cursor && !p.before_message_id && !p.around_message_id && !p.message_id) {
+      const rootMsg = s.message(effectiveThreadRoot);
+      const rootParts: Row[] = [];
+      if (rootMsg.content) rootParts.push({ type: "text", text: rootMsg.content.slice(0, 24000) });
+      rootParts.push(...rootMsg.attachments.map((a: Row) => ({ type: a.content_type?.startsWith("image/") ? "image" : "attachment", ...a })));
+      const { part_key: _pk, total_parts: _tp, complete_message: _cm, ...rootProjected } = projectItem(rootMsg, rootParts[0], 0, 1);
+      threadRootProjection = { ...rootProjected, content: rootParts };
+    }
     return {
-      target: p.target,
+      target: effectiveThreadRoot && baseTarget ? `${baseTarget}:${effectiveThreadRoot}` : baseTarget,
       name: target?.title,
       kind: target?.type,
       channel: target?.external_source ?? "web",
+      ...(threadRootProjection ? { thread_root: threadRootProjection } : {}),
       messages: page,
       history_scope: "im_history",
       ...(memory ? { history_cutoff: p.memory_cutoff, history_after: p.memory_after,

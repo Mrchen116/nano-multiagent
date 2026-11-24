@@ -6,6 +6,7 @@ import { fixture } from './control-fixture.js';
 import { Messaging, registerMessagingRoutes } from '../src/messaging.js';
 import { searchMessages } from '../src/message-search.js';
 import { listUnread } from '../src/threads.js';
+import { Work } from '../src/work.js';
 
 it('keeps a topic off the main timeline and only unread-counts its followers', async () => {
   const {ctx, db} = fixture();
@@ -163,4 +164,107 @@ it('keeps unaddressed streamed group replies out of PA observations and Agent re
   gateway.groupReply(next,{deferDelivery:true});
   const relay=db.prepare('SELECT payload_json FROM relay_tasks WHERE message_id=?').get(next);
   expect(JSON.parse(String(relay?.payload_json))).toMatchObject({metadata:{addressed_to_agent:true,thread_root_message_id:root.id}});
+});
+
+it('supports unified thread targets, thread_root, unfollow notice, reactivation, and >10 reply truncation in Work queries', async () => {
+  const {ctx, db} = fixture();
+  ctx.gateway.broadcast = () => {};
+  ctx.messaging = new Messaging(ctx);
+  const app = Fastify();
+  registerMessagingRoutes(app, ctx);
+  db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at,membership_status) VALUES('b1','agent:b','Bee','o1',datetime('now'),'active')").run();
+  db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,tool_allowlist_json,workspace_root,work_mode,collaboration_scope,created_at,updated_at) VALUES('b','o1','n','Bee','[]','/bee','global','team',datetime('now'),datetime('now'))").run();
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat','b1')").run();
+  db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat','u2')").run();
+  const root = ctx.messaging.insertMessage('chat', 'u1', 'user', '上线排查主贴');
+  const send = (user: string, content: string, key: string) => app.inject({
+    method: 'POST', url: '/im/v1/conversations/chat/messages', headers: {'idempotency-key': key, 'x-user': user},
+    payload: {sender: {type: 'user', id: user}, content, thread_root_message_id: root.id},
+  });
+  const work = new Work(ctx);
+  work.register('b', 's1', 'n', { scope: 'global_main', title: 'Main' } as any);
+  const queryWork = (p: Record<string, unknown>) => work.query({ node_id: 'n' }, { agent_id: 'b', session_id: 's1', ...p }) as any;
+  try {
+    const target = `chat:${root.id}`;
+    // Follow explicitly via work.query
+    const followed = queryWork({ action: 'thread_follow', target });
+    expect(followed).toMatchObject({ target, following: true });
+
+    // Send 12 replies so earlier history exceeds 10 and triggers thread_history_truncated
+    const replies: string[] = [];
+    for (let i = 1; i <= 12; i++) {
+      const res = await send('u2', `第${i}条排查细节`, `r-${i}`);
+      expect(res.statusCode, res.body).toBe(201);
+      replies.push(res.json().id);
+    }
+
+    const lastRelay = JSON.parse((db.prepare("SELECT payload_json FROM relay_tasks WHERE message_id=? AND json_extract(payload_json,'$.agent_id')='b'").get(replies.at(-1)!) as { payload_json: string }).payload_json);
+    expect(lastRelay.metadata.thread_earlier).toHaveLength(10);
+    expect(lastRelay.metadata.thread_history_truncated).toBe(true);
+
+    // Main timeline read includes thread summary on root and omits thread replies
+    const mainRead = queryWork({ action: 'read', target: 'chat' });
+    const rootItem = mainRead.messages.find((m: any) => m.message_id === root.id);
+    expect(rootItem.thread).toEqual(expect.objectContaining({ target, reply_count: 12 }));
+    expect(mainRead.messages.map((m: any) => m.message_id)).not.toContain(replies[0]);
+
+    // Thread read includes thread_root on page 1 and reports unified target in source
+    const threadRead = queryWork({ action: 'read', target });
+    expect(threadRead.target).toBe(target);
+    expect(threadRead.thread_root?.message_id).toBe(root.id);
+    expect(threadRead.messages[0].source.target).toBe(target);
+    expect(threadRead.messages[0].source).not.toHaveProperty('reply_target');
+
+    // Read single message by message_id without target
+    const singleRead = queryWork({ action: 'read', message_id: replies[0] });
+    expect(singleRead.messages).toHaveLength(1);
+    expect(singleRead.messages[0].message_id).toBe(replies[0]);
+    expect(singleRead.messages[0].source.target).toBe(target);
+
+    // Search hits inside thread report unified thread target
+    const searched = queryWork({ action: 'search', query: '第12条排查细节' });
+    expect(searched.messages[0].message_id).toBe(replies[11]);
+    expect(searched.messages[0].source.target).toBe(target);
+    expect(searched.messages[0].source).not.toHaveProperty('reply_target');
+
+    // List followed threads
+    const listed = queryWork({ action: 'thread_list' });
+    expect(listed.threads).toEqual([expect.objectContaining({ target, parent_target: 'chat', reply_count: 12 })]);
+
+    // Unfollow group thread posts human-visible system notice without bumping unread or creating relays or inflating reply_count
+    const unreadBefore = (db.prepare("SELECT unread_count FROM conversation_participants WHERE conversation_id='chat' AND user_id='u1'").get() as { unread_count: number }).unread_count;
+    const relaysBefore = (db.prepare('SELECT COUNT(*) AS count FROM relay_tasks').get() as { count: number }).count;
+    const unfollowed = queryWork({ action: 'thread_unfollow', target, reason: 'done' });
+    expect(unfollowed).toEqual({ target, following: false, reason: 'done' });
+    const unreadAfter = (db.prepare("SELECT unread_count FROM conversation_participants WHERE conversation_id='chat' AND user_id='u1'").get() as { unread_count: number }).unread_count;
+    const relaysAfter = (db.prepare('SELECT COUNT(*) AS count FROM relay_tasks').get() as { count: number }).count;
+    expect(unreadAfter).toBe(unreadBefore);
+    expect(relaysAfter).toBe(relaysBefore);
+    const notices = db.prepare("SELECT id, content FROM messages WHERE thread_root_id=? AND sender_type='system'").all(root.id) as { id: string; content: string }[];
+    expect(notices).toHaveLength(1);
+    expect(notices[0].content).toContain('@Bee');
+    expect(ctx.messaging.message(notices[0].id).system_notice).toMatchObject({ kind: 'thread_unfollowed', agent_id: 'b', reason: 'done' });
+    const rootAfterNotice = ctx.messaging.message(root.id);
+    expect(rootAfterNotice.thread?.reply_count).toBe(12);
+
+    // While unfollowed, ordinary replies do not relay to Bee
+    const silent = await send('u2', 'Bee 不需要看这条', 'silent-after-unfollow');
+    expect(db.prepare("SELECT 1 FROM relay_tasks WHERE message_id=? AND json_extract(payload_json,'$.agent_id')='b'").get(silent.json().id)).toBeUndefined();
+
+    // Mention reactivates follow and marks thread_follow_reactivated
+    const wake = await send('u2', '<mention type="user" target_id="b1"/> 再来看一下', 'wake-after-unfollow');
+    expect(wake.statusCode, wake.body).toBe(201);
+    const wakeRelay = JSON.parse((db.prepare("SELECT payload_json FROM relay_tasks WHERE message_id=? AND json_extract(payload_json,'$.agent_id')='b'").get(wake.json().id) as { payload_json: string }).payload_json);
+    expect(wakeRelay.metadata.thread_follow_reactivated).toBe(true);
+
+    // Non-member public group unfollow is rejected with 403 (prevents injecting public notices into read-only chats)
+    db.prepare("UPDATE conversations SET visibility='public' WHERE id='chat'").run();
+    db.prepare("DELETE FROM conversation_participants WHERE conversation_id='chat' AND user_id='b1'").run();
+    expect(() => queryWork({ action: 'thread_unfollow', target, reason: 'leaked' })).toThrow(/not_a_writable_member/);
+    db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('chat','b1')").run();
+
+    // Direct chat thread unfollow is rejected with 422
+    db.prepare("UPDATE conversations SET type='direct' WHERE id='chat'").run();
+    expect(() => queryWork({ action: 'thread_unfollow', target })).toThrow(/direct_chat_thread_unfollow_not_supported/);
+  } finally { await app.close(); }
 });

@@ -25,17 +25,28 @@ interface Options {
   taskStop?:(binding:SessionBinding,input:RelayInput)=>Promise<{wasRunning:boolean;paused:number}>;
 }
 
-function threadEnvelope(input: RelayInput, root: string, current: string): string {
-  const earlier = Array.isArray(input.metadata.thread_earlier) ? input.metadata.thread_earlier as {id?: string; sender?: string; excerpt?: string}[] : [];
+function threadEnvelope(
+  input: RelayInput,
+  threadTarget: string,
+  shortMessageId: string,
+  current: string,
+  earlier: { id: string; sender: string; excerpt: string }[],
+  truncated: boolean,
+  reactivated: boolean,
+): string {
   const sender = input.metadata.sender_display_name ?? input.message.sender_user_id;
-  return [
-    `Thread on message ${JSON.stringify(root)} by ${input.metadata.thread_root_sender ?? 'unknown'} in this conversation. Reply with in_thread_of ${JSON.stringify(root)} if the answer belongs in the thread. Do not also post it on the main timeline.`,
+  const lines = [
+    `Thread ${JSON.stringify(threadTarget)} started by ${input.metadata.thread_root_sender ?? 'unknown'}. Reply inside this thread with send_message(target=${JSON.stringify(threadTarget)}) (or let your final reply go to this thread). Do not also post it on the main timeline.`,
+    ...(reactivated ? ['Note: You had unfollowed this thread; a mention or quote reactivated your follow.'] : []),
     `Root: ${input.metadata.thread_root_excerpt}`,
-    'Earlier in thread:',
-    ...earlier.map(item => `- ${item.id ?? ''} ${item.sender ?? ''}: ${item.excerpt ?? ''}`),
-    'Current message:',
-    `- ${input.message.id} ${sender}: ${current}`,
-  ].join('\n');
+  ];
+  if (earlier.length) {
+    lines.push('Earlier in thread:');
+    lines.push(...earlier.map(item => `- ${item.id} ${item.sender}: ${item.excerpt}`));
+  }
+  if (truncated) lines.push(`Earlier history was truncated; call read_messages(target=${JSON.stringify(threadTarget)}) for full thread history.`);
+  lines.push('Current message:', `- ${shortMessageId} ${sender}: ${current}`);
+  return lines.join('\n');
 }
 
 /** Single-thread product routing; DSH remains the only model/turn scheduler. */
@@ -52,6 +63,7 @@ export class SingleThread {
   private readonly scopeChanges = new Map<string, number>();
   private readonly chatTails = new Map<string, Promise<void>>();
   private readonly timers = new Map<string, {agentId:string; dueAt:number; timer:ReturnType<typeof setTimeout>}>();
+  private readonly seenThreads = new Map<string, Set<string>>();
   private stopping = false;
 
   constructor(private readonly options: Options) {
@@ -83,6 +95,7 @@ export class SingleThread {
       this.streams.delete(id);
     }
     for(const sessionId of this.dirty)if(this.binding(sessionId).agentId===agentId)this.dirty.delete(sessionId);
+    for(const sessionId of [...this.seenThreads.keys()])if(this.options.store.bindingForSession(sessionId)?.agentId===agentId)this.seenThreads.delete(sessionId);
   }
   /** Stop pending team delivery and return native carriers for provider-boundary arbitration. */
   restrictToOwner(agentId: string) {
@@ -204,9 +217,10 @@ export class SingleThread {
       if (!text) {
         let result:{wasRunning:boolean;paused?:number};
         if(controlText(input)==='/stop'&&this.options.taskStop)result=await this.options.taskStop(binding,input);
-        else {await runtime.request('session.ensure', runtimeBinding(binding));result=await runtime.request('session.cancel', {sessionId:binding.sessionId,settleTaskContext:controlText(input)==='/new'});}
+        else {await runtime.request('session.ensure', runtimeBinding(binding, store.toolReferences.userRef(binding.agentId, binding.ownerId)));result=await runtime.request('session.cancel', {sessionId:binding.sessionId,settleTaskContext:controlText(input)==='/new'});}
         await this.reconcile(binding.sessionId);
         if (controlText(input) === '/new') {
+          this.seenThreads.delete(binding.sessionId);
           store.reset(binding, { ...binding, sessionId: randomUUID(), revision: config.revision }, commandId);
           text = store.command(commandId)!;
         } else {
@@ -271,17 +285,20 @@ export class SingleThread {
       const content: SubmitInput['content'] = [];
       const attachmentSources: ({kind:'chat';conversationId:string;messageId:string;url:string}|null)[] = [];
       let contextEnvelope: string | undefined;
+      const newlyRenderedThreads: string[] = [];
       for (const member of members.length ? members : [input]) {
         const carrier = member.message.id === input.message.id;
         if (deadline || members.length > 1) {
           const label = !deadline && carrier ? 'Current message' : 'Background message';
           const sender = member.message.sender?.display_name ?? member.metadata.sender_display_name ?? member.message.sender_user_id;
-          content.push({type:'text', text:`\n\n${label} (sender: ${JSON.stringify(sender)}, type: ${member.message.sender_type}, message ID: ${JSON.stringify(member.message.id)})\n`});
+          const shortMemberId = store.toolReferences.messageRef(binding.agentId, member.message.id);
+          content.push({type:'text', text:`\n\n${label} (sender: ${JSON.stringify(sender)}, type: ${member.message.sender_type}, message ID: ${JSON.stringify(shortMemberId)})\n`});
           attachmentSources.push(null);
         }
         const rendered = await this.messageContent(binding, member, carrier, !deadline && members.length <= 1);
         content.push(...rendered.content);
         attachmentSources.push(...rendered.attachmentSources);
+        if (rendered.renderedThreadRoot) newlyRenderedThreads.push(rendered.renderedThreadRoot);
         if (carrier) contextEnvelope = rendered.contextEnvelope;
       }
       if (current?.() === false || store.chatBlocked(inputId)) return;
@@ -299,6 +316,11 @@ export class SingleThread {
       await runtime.request('session.submit', {sessionId:binding.sessionId, inputId,
         mode:chatBatch ? 'steer' : input.metadata.context_only ? 'inject' : 'followup', content,
         attachmentSources, source:{...source,...(teamChat ? {nanoTeamChat:true} : {})}});
+      if (newlyRenderedThreads.length) {
+        let seen = this.seenThreads.get(binding.sessionId);
+        if (!seen) { seen = new Set(); this.seenThreads.set(binding.sessionId, seen); }
+        for (const root of newlyRenderedThreads) seen.add(root);
+      }
     }
     if (store.chatBlocked(inputId)) return;
     store.accepted(inputId);
@@ -310,10 +332,33 @@ export class SingleThread {
   }
 
   private async messageContent(binding:SessionBinding, input:RelayInput, includeRoster:boolean, labelSource:boolean) {
+    const refs = this.options.store.toolReferences;
+    const shortChat = refs.conversationRef(binding.agentId, input.conversation_id);
+    const shortMsgId = refs.messageRef(binding.agentId, input.message.id);
     const humanText = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
     const threadRoot = typeof input.metadata.thread_root_message_id === 'string' ? input.metadata.thread_root_message_id : undefined;
-    const threadText = threadRoot && typeof input.metadata.thread_root_excerpt === 'string'
-      ? threadEnvelope(input, threadRoot, humanText) : undefined;
+    let threadText: string | undefined;
+    let renderedThreadRoot: string | undefined;
+    if (threadRoot) {
+      const shortRoot = refs.messageRef(binding.agentId, threadRoot);
+      const threadTarget = `${shortChat}:${shortRoot}`;
+      const seen = this.seenThreads.get(binding.sessionId);
+      const reactivated = input.metadata.thread_follow_reactivated === true;
+      const firstSight = !seen?.has(threadRoot) || reactivated;
+      if (firstSight && typeof input.metadata.thread_root_excerpt === 'string') {
+        const earlierRaw = Array.isArray(input.metadata.thread_earlier) ? input.metadata.thread_earlier as {id?: string; sender?: string; excerpt?: string}[] : [];
+        const earlier = earlierRaw.map(item => ({
+          id: item.id ? refs.messageRef(binding.agentId, item.id) : '',
+          sender: item.sender ?? '',
+          excerpt: item.excerpt ?? '',
+        }));
+        threadText = threadEnvelope(input, threadTarget, shortMsgId, humanText, earlier, input.metadata.thread_history_truncated === true, reactivated);
+        renderedThreadRoot = threadRoot;
+      } else {
+        const sender = input.metadata.sender_display_name ?? input.message.sender_user_id;
+        threadText = `[Thread ${threadTarget}] [${sender} (${shortMsgId})] ${humanText}`;
+      }
+    }
     const text = threadText ?? (input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText);
     const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
     const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
@@ -325,25 +370,26 @@ export class SingleThread {
       const time = formatLocalTime(sourceTime, input.message.timezone);
       contextEnvelope = `Message time: ${time}${input.message.timezone ? ` (${input.message.timezone})` : ''}; source: ${input.metadata.channel === 'feishu' ? 'Feishu' : 'Web IM'}.`;
       if (labelSource && !threadRoot && !input.metadata.origin && !binding.conversationId.startsWith('external:') && input.metadata.channel !== 'feishu') {
-        contextEnvelope += ` IM message ID: ${input.message.id}.`;
+        contextEnvelope += ` IM message ID: ${shortMsgId}.`;
       }
       content.push({ type: 'text', text: contextEnvelope });
     }
     if (includeRoster && input.metadata.conversation_type === 'group' && input.participants?.length) {
-      content.push({type: 'text', text: `Current group roster (application metadata). You are Agent ${binding.agentId}. To address a member use their exact mention tag:\n${input.participants.map(member => JSON.stringify({type: member.type, id: member.id, name: member.display_name, mention: `<mention type="user" target_id="${member.user_id}"/>`})).join('\n')}`});
+      content.push({type: 'text', text: `Current group roster (application metadata). You are Agent ${binding.agentId}. To address a member use their exact mention tag:\n${input.participants.map(member => { const shortUser = refs.userRef(binding.agentId, member.user_id); return JSON.stringify({type: member.type, id: member.type === 'user' ? shortUser : member.id, name: member.display_name, mention: `<mention type="user" target_id="${shortUser}"/>`}); }).join('\n')}`});
     }
     if (input.message.reply_to) {
       const original = input.message.reply_to;
       const quote = projectChatReplyContext(original);
+      const shortQuoteId = refs.messageRef(binding.agentId, quote.message_id);
       const name = quote.sender.name.replace(/[\r\n]+/g, ' ');
-      const lines = [`Quoted earlier message from ${name} (${quote.sender.type}), IM message ID ${quote.message_id}:`];
+      const lines = [`Quoted earlier message from ${name} (${quote.sender.type}), IM message ID ${shortQuoteId}:`];
       if (quote.text) lines.push(...quote.text.split(/\r\n?|\n/).map(line => `> ${line}`));
       if (quote.interactive) lines.push('[Interactive UI content from the quoted message]', JSON.stringify(quote.interactive));
       if (quote.attachment_names) lines.push(`> Attachments: ${quote.attachment_names.join(', ').replace(/[\r\n]+/g, ' ')}`);
       const textOmitted = (quote.text ?? '') !== original.content;
       const uiOmitted = quote.interactive?.source !== original.interactive?.source;
       if (textOmitted || uiOmitted || quote.attachment_names || (!quote.text && !quote.interactive)) {
-        lines.push(`Read the original with conversations, action=read, target=${input.conversation_id} and message_id=${quote.message_id}.`);
+        lines.push(`Read the original with read_messages(message_id=${JSON.stringify(shortQuoteId)}).`);
       }
       // Some model adapters concatenate adjacent text parts without separators.
       content.push({ type: 'text', text: `${content.length ? '\n\n' : ''}${lines.join('\n')}\n\nCurrent message:\n` });
@@ -357,7 +403,7 @@ export class SingleThread {
       imageSources.set(content.length, { kind: 'chat', conversationId: input.conversation_id, messageId: input.message.id, url: attachment.url });
       content.push({ type: 'image', mediaType: attachment.content_type, name: attachment.file_name, data: await this.options.image(attachment.url, binding.agentId) });
     }
-    return {content, contextEnvelope, attachmentSources:content.map((_,index) => imageSources.get(index) ?? null)};
+    return {content, contextEnvelope, attachmentSources:content.map((_,index) => imageSources.get(index) ?? null), renderedThreadRoot};
   }
 
   /** A first proactive turn reserves the future owner chat without creating a visible bubble. */
@@ -375,7 +421,7 @@ export class SingleThread {
     const key = `${binding.sessionId}:${this.options.store.lifecycle.assert(binding.agentId)}`;
     const existing = this.ensuring.get(key);
     if (existing) return existing;
-    const task = this.options.runtime.request('session.ensure', runtimeBinding(binding)).finally(() => {
+    const task = this.options.runtime.request('session.ensure', runtimeBinding(binding, this.options.store.toolReferences.userRef(binding.agentId, binding.ownerId))).finally(() => {
       this.ensuring.delete(key);
     });
     this.ensuring.set(key, task);
@@ -487,6 +533,7 @@ export class SingleThread {
     if (!binding) return;
     const read = await runtime.request('session.observe', { sessionId, afterSeq: store.cursor(sessionId) });
     if (!read.durable) throw new Error('Runtime observation lacks a durable barrier');
+    if (read.events.some(event => event.type === 'compaction/end')) this.seenThreads.delete(sessionId);
     store.recordEvents(sessionId, read.events);
     const runs = read.modelRuns ?? [];
     this.modelRuns.set(sessionId, runs);
@@ -625,7 +672,8 @@ export class SingleThread {
       if (group && !binding.conversationId.startsWith('external:')) {
         const sessionInputs = store.inputs(sessionId);
         const position = sessionInputs.findLastIndex(item => item.turn === turn);
-        correction = sessionInputs.slice(position + 1).some(item => !item.input.metadata.context_only && !item.terminal?.includes('cancelled_by_scope'));
+        correction = sessionInputs.slice(position + 1).some(item => !item.input.metadata.context_only && !item.terminal?.includes('cancelled_by_scope')
+          && (typeof item.input.metadata.thread_root_message_id === 'string' ? item.input.metadata.thread_root_message_id : undefined) === threadRoot);
       }
       if (completed && correction && text && delivery.state !== 'completing') {
         const identity = `revalidation:${delivery.operationId}`;
@@ -823,7 +871,7 @@ interface BufferedStream {
 }
 interface Approval { lifecycle_revision?:number; toolInput?:{arguments?:unknown}; requestId: string; sessionId: string; toolName: string; callId?: string; reason?: string }
 interface Stream { sessionId: string; frame: { type: string; attemptId: string; turn?: number; index?: number; chunk?: { type: string; text?: string } } }
-function runtimeBinding(binding: SessionBinding) {
+function runtimeBinding(binding: SessionBinding, ownerRef?: string) {
   const { conversationId: _conversation, ...runtime } = binding;
-  return runtime;
+  return ownerRef ? { ...runtime, ownerRef } : runtime;
 }
