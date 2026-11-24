@@ -57,6 +57,9 @@ it.each(['single_thread', 'global'])('projects current execution nodes only for 
   ]));
   expect(query({ ...info, target: `chat:${message.id}`, include_execution_nodes: true }).members).toEqual(members);
   expect(members.find((member: any) => member.user_id === 'private-peer')).not.toHaveProperty('execution_node');
+  db.prepare("UPDATE agent_profiles SET node_id='unknown-node' WHERE agent_id='near'").run();
+  expect(query({ ...info, include_execution_nodes: true }).members.find((member: any) => member.user_id === 'near'))
+    .not.toHaveProperty('execution_node');
   db.prepare("DELETE FROM conversation_participants WHERE conversation_id='chat' AND user_id='a1'").run();
   expect(query({ ...info, include_execution_nodes: true }).members.every((member: any) => !member.execution_node)).toBe(true);
 });
