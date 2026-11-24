@@ -22,3 +22,27 @@
 ### Author Resolutions
 
 接受 R1。随后由目录组件实测发现逐行生命周期读取，补充 M2，交原 reviewer 审查增量。
+
+## Round 2
+
+- Reviewer 为独立 reviewer `design_review`，target 为 `fdd66285990b6dbed7c8393f958800195e9bf523`。
+- review_mode 为 full。新增用户可观察的目录状态要求、联系人响应字段和并行 milestone；重新核对两个目标、共享生命周期数据以及各自的范围和验收。
+- started_at 为 2026-11-24T11:47:31+09:00，completed_at 为 2026-11-24T11:49:03+09:00，duration 为 92 秒。
+- **Approved**，0 CRITICAL / 0 WARNING。
+
+### Coverage 与证据
+
+1. **现状与收益。** 实际列表和详情/创建侧栏都将每个联系人渲染为 `AgentLifecycleRow`，本人 PA 条目也经过这个组件。`useAgentLifecycle` 为每个不同 Agent 注册独立缓存键、3 秒轮询和用户流回调。故挂载 50 个不同联系人会产生 50 个独立 lifecycle 读取，目录自身另做分页读取。动机中的 50+1 来自模拟 HTTP 的真实组件首屏计数，周期性开销由现有定时设置支持。本轮没有测公网耗时或候选性能。
+2. **后端及公开契约。** `messaging.ts` 两个 contacts 路由都先认证，再调用 `contacts.ts` 的分页/详情；共用 candidates 和 visible。联系人资格先收窄到合法账号、空间及可公开 PA，真人和 PA 有各自显式投影。只在允许返回的 Agent 行提供布尔值，保留原筛选、分页、普通用户字段及 PA 脱敏。`agent_lifecycle.agent_id` 是主键，关联不会复制行。SQLite 采样条件与 `agent-lifecycle.tsx` 的 confirmedDisabled 相同：desired 和 observed 都为 disabled，且 applied_revision 与 revision 相等。agents-nodes 的现行场景描述紧凑徽标及节点确认，ADDED 新增可独立消费的响应字段，未替换现行场景。例如实现者也可按一页 Agent 批量查一次生命周期再投影，仍符合该公开 delta，无 SQL 策略被写入契约。
+3. **客户端与体验边界。** `listContacts` 跟随 cursor，`publicAgentsFromContacts` 负责把 Contact 映射为行；`AgentsListPage` 使用 public-agents 键，`AgentsRailDesktop` 使用 contacts/self/agents 键，恢复/变化刷新各自的实际键即可。`PersonalAgentEntry` 支持目录已有 PA 及仅有绑定两种输入，缺字段时继续现有独立查询，已有明确 false 时应直接显示正常行。详情 HTML 预读和 `AgentLifecycleAction`、聊天提示继续读取完整状态，其中管理操作使用当前 revision，请求数目标只针对目录行。M2 沿用已有徽标的文案、位置与操作，节点在线标记和停用状态独立，无新视觉取舍需要原型。这里核实的是设计和代码路径，候选界面尚未验收。
+4. **双轨及部署。** 流式 M1 的组装路径、权限/事务不变量、SQL/耗时目标与隔离恢复约定复核结果与 Round 1 一致，部署提示词相对该轮无 diff。目录 M2 只读取已存在的生命周期投影，不新增数据迁移，不改变 M1 的代次权限，两个 milestone 无写入文件依赖。M1 的同负载文件库复测与 WS/HTTP 回归、M2 的真实联系人端点与 50 行客户端计数可分别证明各自收益。M2 验收覆盖 ordinary/PA 的徽标转换、事件与恢复、旧中心降级、详情/聊天沿用完整状态。前后使用相同目录规模与查询节奏计数，详情为当前 Agent 的独立 GET 应单列，以免误算进逐行请求。
+
+### 历史问题、Issues 与 Recommendations
+
+Round 1 无问题待关闭。Author Resolution 引入的目录需求及两项 milestone 已在上文核实。无 CRITICAL 或 WARNING。
+
+- **R2-R1（可选）** 复用本地 50 行测量时，注意当前 `mockAgentsAndNodes` 按字段重组 contacts 响应，会丢弃样本传入的 `lifecycle_disabled`。候选同条件复测需由模拟 HTTP 响应实际返回字段；另留缺字段样本检查旧中心降级。记录首屏和下一个 3 秒刷新周期各自的 GET 数量，可以同时复核常驻收益。
+
+### Author Resolutions
+
+接受 R2。在候选目录测量中按新版联系人字段构造响应，单独验证旧中心兼容。
