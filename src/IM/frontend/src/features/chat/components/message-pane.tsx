@@ -2296,8 +2296,8 @@ function ThreadEntry({message, mine, onOpen}: {message: Message; mine: boolean; 
     <button type="button" className={`chat-thread-entry${mine ? " chat-thread-entry--mine" : ""}`} data-testid={`thread-entry-${message.id}`} onClick={onOpen}>
       <span className="chat-thread-entry-faces" aria-hidden="true">
         {(thread.participants ?? []).slice(0, 3).map(person => {
-          const color = colorForAgentSeed(person.display_name || person.id);
-          return <span key={person.id} className="inline-flex items-center justify-center rounded-full border border-[var(--im-surface)] text-[9px] font-semibold" style={{width: 18, height: 18, background: color, color: foregroundForAvatar(color)}}>{initialsOf(person.display_name || person.id)}</span>;
+          const name = person.display_name || person.id;
+          return <Avatar key={person.id} initials={initialsOf(name)} color={colorForAgentSeed(name)} size={24} />;
         })}
       </span>
       <span className="chat-thread-entry-label">{t("chat.messagePane.threadCount", {n: thread.reply_count})}</span>

@@ -1579,9 +1579,8 @@ body {
 .chat-thread-entry-faces {
   display: flex;
   flex: none;
+  gap: 2px;
 }
-
-.chat-thread-entry-faces > * + * { margin-left: -6px; }
 
 .chat-thread-entry-label {
   flex: none;
