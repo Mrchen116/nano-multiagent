@@ -1,5 +1,5 @@
 import type { AgentLifecycleSnapshot } from '@nano/product-contracts/agent-lifecycle';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useTranslation } from '../../../i18n';
 import { subscribeUserStream } from '../../../realtime/user-stream';
@@ -42,7 +42,8 @@ export function useAgentLifecycle(agentId: string) {
     },
     onSuccess: async value => {
       await client.cancelQueries({queryKey: key});
-      client.setQueryData<AgentLifecycleSnapshot>(key, current => current && current.revision > value.revision ? current : value);
+      const state = client.setQueryData<AgentLifecycleSnapshot>(key, current => current && current.revision > value.revision ? current : value);
+      if (state) updateDirectoryBadge(client,self,agentId,confirmedDisabled(state));
     },
     onError: () => { void client.invalidateQueries({queryKey: key}); }
   });
@@ -61,8 +62,8 @@ function useLabels() {
   const { i18n } = useTranslation();
   return (zh: string, en: string) => i18n.language.startsWith('zh') ? zh : en;
 }
-function confirmedDisabled(state: AgentLifecycleSnapshot) {
-  return state.desired === 'disabled' && state.observed === 'disabled' && state.applied_revision === state.revision;
+function confirmedDisabled(state: {desired?:unknown; observed?:unknown; revision?:unknown; applied_revision?:unknown}) {
+  return state.desired === 'disabled' && state.observed === 'disabled' && typeof state.revision === 'number' && state.applied_revision === state.revision;
 }
 export function AgentLifecycleAction({lifecycle, canManage, online, name}: {lifecycle:Lifecycle; canManage:boolean; online:boolean; name?:string}) {
   const l = useLabels();
@@ -107,12 +108,30 @@ export function AgentLifecycleStatus({lifecycle, online, compact = false}: {life
     {lifecycle.query.isError && <button type="button" className="im-settings-action" onClick={() => void lifecycle.query.refetch()}>{l('刷新状态','Refresh state')}</button>}
   </div>;
 }
-/** Refresh the mounted directory on lifecycle changes and stream recovery. */
+type DirectoryBadge = {agent_id?:string; lifecycle_disabled?:boolean};
+
+function updateDirectoryBadge(client:QueryClient,self:string | undefined,agentId:string,disabled:boolean) {
+  for (const key of [['contacts',self,'agents'], ['public-agents',self]]) {
+    const rows=client.getQueryData<DirectoryBadge[]>(key);
+    const row=rows?.find(agent=>agent.agent_id===agentId);
+    if (!rows || row?.lifecycle_disabled===undefined || row.lifecycle_disabled===disabled) continue;
+    // A pending page read may predate this event. Keep its response from restoring the old badge.
+    void client.cancelQueries({queryKey:key,exact:true});
+    client.setQueryData(key,rows.map(agent=>agent===row ? {...agent,lifecycle_disabled:disabled} : agent));
+  }
+}
+
+/** Apply live state to known rows; recovery reloads the full authorized directory. */
 export function useDirectoryLifecycleRefresh(refetch: () => Promise<unknown>) {
+  const client=useQueryClient();
+  const self=useAuthStore(s=>s.user?.id);
   useEffect(() => subscribeUserStream({
-    onEvent: event => { if (event.eventType === 'agent.lifecycle.changed') void refetch(); },
+    onEvent: ({eventType,payload}) => {
+      if (eventType==='agent.lifecycle.changed' && typeof payload.agent_id==='string' && typeof payload.revision==='number')
+        updateDirectoryBadge(client,self,payload.agent_id,confirmedDisabled(payload));
+    },
     onRecovery: async () => { await refetch(); }
-  }), [refetch]);
+  }), [client,self,refetch]);
 }
 
 function LegacyLifecycleBadge({agentId}: {agentId:string}) {
