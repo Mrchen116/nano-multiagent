@@ -77,6 +77,14 @@ export function AgentLifecycleAction({lifecycle, canManage, online, name}: {life
       : state ? disabling : l('读取状态…','Loading state…');
   return <button type="button" className={`im-settings-action im-agent-lifecycle-action ${action === 'retry' ? 'danger' : ''}`} disabled={!action || lifecycle.mutation.isPending || lifecycle.query.isError} aria-label={name ? `${label} ${name}` : label} onClick={() => action && lifecycle.mutation.mutate(action)}>{label}</button>;
 }
+function ConfirmedDisabledStatus({compact = false}: {compact?: boolean}) {
+  const l = useLabels();
+  const label = l('已停用','Disabled');
+  const detail = l('重新启用后可以接收新工作，旧任务继续暂停。','Re-enabling allows new work. Previous tasks stay paused.');
+  return compact ? <span className="im-agent-lifecycle-badge" aria-live="polite" title={detail}>{label}</span>
+    : <><strong>{label}</strong><span>{detail}</span></>;
+}
+
 export function AgentLifecycleStatus({lifecycle, online, compact = false}: {lifecycle:Lifecycle; online:boolean; compact?:boolean}) {
   const l = useLabels();
   const state = lifecycle.query.data;
@@ -84,16 +92,14 @@ export function AgentLifecycleStatus({lifecycle, online, compact = false}: {life
   const disabled = state && confirmedDisabled(state);
   const stopping = state?.desired === 'disabled' && !disabled;
   const error = lifecycle.mutation.error ?? lifecycle.query.error;
-  const disabledLabel = l('已停用','Disabled');
-  const disabledDetail = l('重新启用后可以接收新工作，旧任务继续暂停。','Re-enabling allows new work. Previous tasks stay paused.');
-  if (compact) return disabled && !error ? <span className="im-agent-lifecycle-badge" aria-live="polite" title={disabledDetail}>{disabledLabel}</span> : null;
+  if (compact) return disabled && !error ? <ConfirmedDisabledStatus compact /> : null;
   const detail = !stopping ? '' : !online
     ? l('电脑离线，联网后会继续停用。','The computer is offline. Disabling will continue when it reconnects.')
     : state.error_code === 'node_upgrade_required' ? l('请更新电脑上的 Nano 后再停用。','Update Nano on the computer to finish disabling.')
       : failed && !lifecycle.mutation.isPending ? l('停用还没完成。','Disabling did not finish.') : '';
   if (!disabled && !detail && !error) return null;
   return <div className={`im-agent-lifecycle-status ${stopping ? 'im-agent-lifecycle-feedback warning' : ''}`} aria-live="polite">
-    {disabled && !error && <><strong>{disabledLabel}</strong><span>{disabledDetail}</span></>}
+    {disabled && !error && <ConfirmedDisabledStatus />}
     {detail && <span>{detail}</span>}
     {error && <span role="alert">{lifecycle.query.isError
       ? l('无法读取 Agent 状态，请刷新后重试。','Could not read the Agent status. Refresh and try again.')
@@ -101,8 +107,23 @@ export function AgentLifecycleStatus({lifecycle, online, compact = false}: {life
     {lifecycle.query.isError && <button type="button" className="im-settings-action" onClick={() => void lifecycle.query.refetch()}>{l('刷新状态','Refresh state')}</button>}
   </div>;
 }
-/** Keep navigation rows quiet; lifecycle controls live in the Agent detail. */
+/** Refresh the mounted directory on lifecycle changes and stream recovery. */
+export function useDirectoryLifecycleRefresh(refetch: () => Promise<unknown>) {
+  useEffect(() => subscribeUserStream({
+    onEvent: event => { if (event.eventType === 'agent.lifecycle.changed') void refetch(); },
+    onRecovery: async () => { await refetch(); }
+  }), [refetch]);
+}
+
+function LegacyLifecycleBadge({agentId}: {agentId:string}) {
+  const {query} = useAgentLifecycle(agentId);
+  return query.data && !query.error && confirmedDisabled(query.data) ? <ConfirmedDisabledStatus compact /> : null;
+}
+
+/** Older centers and a bound PA still missing from contacts use their individual status. */
 export function AgentLifecycleRow(props: AgentRowProps) {
-  const lifecycle = useAgentLifecycle(props.agent.agent_id);
-  return <div className="im-agent-lifecycle-row"><AgentRow {...props} statusBadge={<AgentLifecycleStatus lifecycle={lifecycle} online={props.agent.node_status === 'online'} compact />} /></div>;
+  const disabled = props.agent.lifecycle_disabled;
+  const badge = disabled === undefined ? <LegacyLifecycleBadge agentId={props.agent.agent_id} />
+    : disabled && <ConfirmedDisabledStatus compact />;
+  return <div className="im-agent-lifecycle-row"><AgentRow {...props} statusBadge={badge} /></div>;
 }

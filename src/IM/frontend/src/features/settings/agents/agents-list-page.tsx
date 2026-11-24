@@ -5,7 +5,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
-import { AgentLifecycleRow as AgentRow } from "./agent-lifecycle";
+import { AgentLifecycleRow as AgentRow, useDirectoryLifecycleRefresh } from "./agent-lifecycle";
 import { PersonalAgentEntry, configuredPersonalAgent, usePersonalAgentEntry } from "./personal-agent-entry";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { listPublicAgents } from "./public-agents";
@@ -20,6 +20,7 @@ export function AgentsListPage() {
   const agentsQuery = useQuery({ queryKey: ["public-agents", self], queryFn: listPublicAgents, refetchInterval: 3000 });
 
   const { agentId: activeAgentId } = useParams<{ agentId?: string }>();
+  useDirectoryLifecycleRefresh(agentsQuery.refetch);
   const [search, setSearch] = useState("");
   const agents = agentsQuery.data ?? [];
   const personal = usePersonalAgentEntry();

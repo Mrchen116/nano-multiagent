@@ -152,6 +152,27 @@ describe("agents list page", () => {
     expect(apiMocks.navigate).toHaveBeenCalledWith("/settings/agents/my-pa");
   });
 
+  it("renders the contact badge and reads individual status only for a legacy contact", async () => {
+    fetchMock.mockImplementation(async input => {
+      const url = String(input);
+      if (url.includes("/im/v1/contacts?")) return jsonResponse({items:[
+        {user_id:"u1",kind:"agent",agent_id:"current",display_name:"Current",lifecycle_disabled:true},
+        {user_id:"u2",kind:"agent",agent_id:"enabled",display_name:"Enabled",lifecycle_disabled:false},
+        {user_id:"u3",kind:"agent",agent_id:"legacy",display_name:"Legacy"}
+      ],next_cursor:null});
+      if (url.endsWith("/legacy/lifecycle")) return jsonResponse({desired:"disabled",observed:"disabled",revision:2,applied_revision:2});
+      return new Response(null,{status:404});
+    });
+    renderRouter({routes:appRoutes,initialEntries:["/settings/agents"]});
+    for (const name of ["Current", "Legacy"]) {
+      const row = await screen.findByRole("button",{name});
+      expect(await within(row).findByText("Disabled")).toBeVisible();
+    }
+    expect(within(screen.getByRole("button",{name:"Enabled"})).queryByText("Disabled")).toBeNull();
+    const lifecycleReads = fetchMock.mock.calls.map(([url]) => String(url)).filter(url => url.endsWith("/lifecycle"));
+    expect(lifecycleReads).toEqual(["/im/v1/agents/legacy/lifecycle"]);
+  });
+
   it("keeps public agents usable when the personal assistant lookup fails", async () => {
     mockAgentsAndNodes();
     renderRouter({routes:appRoutes,initialEntries:["/settings/agents"]});
