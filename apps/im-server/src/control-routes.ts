@@ -13,7 +13,7 @@ import {configurationOperations} from './configuration-assembly.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
 import {parseConfigurationInput, controlRouteId, configurationSource, parseSkillsMigration, type ConfigurationCandidate} from './configuration-input.js';
 import {gatewayRequest} from './node-rpc-request.js';
-import type {NodeCommand, NodeInput, NodeCapabilities} from './node-rpc-contracts.js';
+import type {NodeCommand, NodeInput, NodeCapabilities} from '@nano/product-contracts/node-rpc';
 import {isRecord} from './node-rpc-values.js';
 import {catalogReads, type CatalogRead, type CatalogScope} from './catalog-reads.js';
 function requireProfile(ctx: ImContext, agent: string, owner: string): AgentProfileRecord {
@@ -438,7 +438,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       ...previewInput(b),
       agent_id: p.agent_id,
       workspace_root: requiredWorkspace(p),
-      work_mode: p.work_mode,
+      work_mode: p.work_mode === 'global' ? 'global' : 'single_thread',
       heartbeat_enabled: b.heartbeat_enabled ?? !!features.heartbeat,
       cron_enabled: b.cron_enabled ?? !!features.cron_scheduling,
     });

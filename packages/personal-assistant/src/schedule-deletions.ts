@@ -28,7 +28,7 @@ export class ScheduleDeletions {
    let intent=this.options.store.scheduleDeletion(input.operationId);
    if(intent&&(intent.agentId!==input.agentId||intent.scheduleId!==input.scheduleId||intent.actor.kind!==input.actor.kind||intent.actor.id!==input.actor.id||input.sessionId!==undefined&&input.sessionId!==intent.sessionId))throw new Error('Schedule deletion identity conflict');
    if(!intent){
-    const catalog=await this.options.runtime.request('schedule.command',{agentId:input.agentId,action:'jobs'}) as {id:string;sessionId:string;name:string}[];
+    const catalog=await this.options.runtime.request('schedule.command',{agentId:input.agentId,action:'jobs'});
     const schedule=catalog.find(item=>item.id===input.scheduleId&&(input.sessionId===undefined||item.sessionId===input.sessionId));
     if(!schedule)return {id:input.scheduleId,deleted:false,code:'schedule_not_found'};
     intent={operationId:input.operationId,agentId:input.agentId,sessionId:schedule.sessionId,scheduleId:schedule.id,title:schedule.name,actor:input.actor,phase:'pending',changeInputId:'schedule-deleted:'+input.operationId,repairInputId:'task-wait-repair:'+input.operationId,changeNotified:input.actor.kind!=='user',repairNotified:false};
@@ -40,11 +40,11 @@ export class ScheduleDeletions {
  }
  private async execute(intent:ScheduleDeletionIntent):Promise<void>{
   if(intent.phase==='pending'){
-   const catalog=await this.options.runtime.request('schedule.command',{agentId:intent.agentId,action:'jobs'}) as {id:string;sessionId:string}[];
+   const catalog=await this.options.runtime.request('schedule.command',{agentId:intent.agentId,action:'jobs'});
    if(catalog.some(item=>item.id===intent.scheduleId&&item.sessionId===intent.sessionId)){
-    const result=await this.options.runtime.request('schedule.command',{agentId:intent.agentId,sessionId:intent.sessionId,action:'delete',args:{id:intent.scheduleId}}) as {deleted?:boolean};
+    const result=await this.options.runtime.request('schedule.command',{agentId:intent.agentId,sessionId:intent.sessionId,action:'delete',args:{id:intent.scheduleId}});
     if(!result.deleted){
-     const current=await this.options.runtime.request('schedule.command',{agentId:intent.agentId,action:'jobs'}) as {id:string}[];
+     const current=await this.options.runtime.request('schedule.command',{agentId:intent.agentId,action:'jobs'});
      if(current.some(item=>item.id===intent.scheduleId))throw new Error('Native Schedule deletion is unconfirmed');
     }
    }

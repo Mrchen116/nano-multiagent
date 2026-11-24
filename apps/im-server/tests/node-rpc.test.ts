@@ -5,7 +5,7 @@ afterEach(() => vi.useRealTimers());
 function fixture() {
   const connection = {};
   const sent: {type:string; payload:object}[] = [];
-  const transport = {current: () => connection, updating: () => false, send: (_node:string, frame:{type:string;payload:object}) => {sent.push(frame); return true;}};
+  const transport = {windows: () => false, current: () => connection, updating: () => false, send: (_node:string, frame:{type:string;payload:object}) => {sent.push(frame); return true;}};
   const rpc = new NodeRpc(transport);
   return {connection, sent, transport, rpc};
 }
@@ -88,4 +88,16 @@ it('maps inspection error codes and cancels active inspections on disconnect and
   const stopped=expect(rpc.request('node','node.capabilities.resolve',{request_id:'closed'})).rejects.toThrow('server stopped');
   rpc.close();await stopped;
   expect(sent.at(-1)).toEqual({type:'node.request.cancel',payload:{target_request_id:'closed'}});
+});
+
+it('waits for a cold Windows catalog beyond the ordinary nine-second deadline',async()=>{
+  vi.useFakeTimers();
+  const {rpc,transport,connection,sent}=fixture();
+  transport.windows=()=>true;
+  const result=rpc.request('node','node.capabilities.resolve',{request_id:'windows-catalog'});
+  expect(sent[0]).toMatchObject({payload:{deadline_at:Date.now()+35_000}});
+  await vi.advanceTimersByTimeAsync(12_000);
+  expect(sent).toHaveLength(1);
+  expect(rpc.accept(connection,'node.capabilities',{request_id:'windows-catalog',capabilities:{tools:[]}})).toBe(true);
+  expect(await result).toMatchObject({capabilities:{tools:[]}});
 });

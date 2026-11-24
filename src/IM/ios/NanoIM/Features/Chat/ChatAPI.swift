@@ -15,12 +15,14 @@ extension IMClient {
         struct Body: Encodable, Sendable {
             let sender: ActorRef; let content: String; let attachments: [ChatAttachment]; let timezone: String
             let interaction_reply: InteractionReplyInput?
+            let reply_to_message_id: String?
         }
         var frozen = draft
         if frozen.requestBody == nil {
             frozen.requestBody = try JSONEncoder().encode(Body(sender: ActorRef(type: "user", id: userID),
                 content: ChatText.wire(draft.content, participants: participants), attachments: draft.attachments,
-                timezone: TimeZone.autoupdatingCurrent.identifier, interaction_reply: interaction))
+                timezone: TimeZone.autoupdatingCurrent.identifier, interaction_reply: interaction,
+                reply_to_message_id: interaction == nil ? draft.reply?.message_id : nil))
         }
         return frozen
     }

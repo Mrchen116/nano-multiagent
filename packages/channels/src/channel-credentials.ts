@@ -19,7 +19,11 @@ export class ChannelKey {
       await mkdir(dirname(path), { recursive: true }); const temporary = `${path}.${randomBytes(8).toString('hex')}.tmp`;
       const file = await open(temporary, 'wx', 0o600);
       try { await file.writeFile(pem); await file.sync(); } finally { await file.close(); }
-      await rename(temporary, path); const directory = await open(dirname(path), 'r'); try { await directory.sync(); } finally { await directory.close(); }
+      await rename(temporary, path);
+      if (process.platform !== 'win32') {
+        const directory = await open(dirname(path), 'r');
+        try { await directory.sync(); } finally { await directory.close(); }
+      }
     }
     await chmod(path, 0o600); const key = createPrivateKey(pem);
     if (key.asymmetricKeyType !== 'x25519') throw new Error('Channel credential key must be X25519');

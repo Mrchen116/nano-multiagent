@@ -39,6 +39,7 @@ extension ChatRepositoryTests {
         var chat = conversation("a")
         chat.last_message_sender_name = "Casey"
         chat.last_message_card = ChatCardPreview(title: "Review choices")
+        chat.participants.append(ActorRef(type: "agent", id: "assistant", role: "personal", avatar_variant: 17))
         chat.participants[0].is_deleted = true
         chat.execution_cleanup_revision = 2
         let context = try await repo.writeContext()
@@ -49,6 +50,8 @@ extension ChatRepositoryTests {
         XCTAssertEqual(restored?.last_message_sender_name, "Casey")
         XCTAssertEqual(restored?.last_message_card?.title, "Review choices")
         XCTAssertEqual(restored?.participants.first?.is_deleted, true)
+        XCTAssertEqual(restored?.participants.last?.role, "personal")
+        XCTAssertEqual(restored?.participants.last?.avatar_variant, 17)
         XCTAssertEqual(restored?.execution_cleanup_revision, 2)
         let fresh = try await reopened.writeContext()
         _ = try await reopened.applyPage("a", items: [item(try message(1))], executionCleanupRevision: 2, write: fresh)
@@ -56,6 +59,32 @@ extension ChatRepositoryTests {
         XCTAssertNil(corrected?.last_message_card, "a plain latest message must not retain the previous card title")
         XCTAssertEqual(corrected?.last_message_sender_name, "U1")
         XCTAssertEqual(corrected?.last_message_preview, "message 1")
+        try await reopened.close()
+    }
+
+    func testTaskPreviewUsesNoticeIdentityAndClearsItForOrdinaryMessages() async throws {
+        let raw = #"Test User \(u\_internal\)：[发布清单](/tasks/graph?scope=root&node=child)，已创建"#
+        var payload = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(conversation("a"))) as? [String: Any])
+        payload["last_message_system_notice"] = ["kind": "task_graph", "graph_id": "graph", "change_kinds": ["created", "status"]] as [String: Any]
+        payload["last_message_preview"] = raw
+        let chat = try JSONDecoder().decode(Conversation.self, from: JSONSerialization.data(withJSONObject: payload))
+        let repo = try open()
+        let context = try await repo.writeContext()
+        _ = try await repo.applyConversation(chat, members: [], write: context)
+        try await repo.close()
+
+        let reopened = try open()
+        let cached = try await reopened.conversation("a")
+        let notice = try XCTUnwrap(cached?.last_message_system_notice)
+        XCTAssertEqual(notice.summary(content: cached?.last_message_preview), L("新建任务", "Task created") + " · 发布清单")
+        XCTAssertEqual(notice.summary(content: "Test User (u_internal)：[发"), L("新建任务", "Task created"))
+
+        let plain = try message(2, extra: ["content": raw])
+        let fresh = try await reopened.writeContext()
+        _ = try await reopened.applyPage("a", items: [item(plain)], write: fresh)
+        let updated = try await reopened.conversation("a")
+        XCTAssertNil(updated?.last_message_system_notice)
+        XCTAssertEqual(updated?.last_message_preview, raw)
         try await reopened.close()
     }
 
@@ -201,6 +230,36 @@ extension ChatRepositoryTests {
     private func discardEvent(_ messageID: String) throws -> UserEvent {
         let body: [String: Any] = ["op": "event", "event_type": "message.discarded", "data": ["conversation_id": "a", "message_id": messageID]]
         return try JSONDecoder().decode(UserEvent.self, from: JSONSerialization.data(withJSONObject: body))
+    }
+
+    func testReplyMigrationPreservesPlainDraftAndFrozenPendingBody() async throws {
+        let repo = try open()
+        let context = try await repo.writeContext()
+        _ = try await repo.applyConversation(conversation("a"), members: [], write: context)
+        try await repo.setDraft("a", body: "older draft")
+        let old = attempt("a", "already-sent")
+        try await repo.upsertPending(old, write: context)
+        let databaseURL = repo.location.databaseURL
+        try await repo.close()
+
+        let queue = try DatabaseQueue(path: databaseURL.path)
+        try await queue.write { db in
+            try db.execute(sql: """
+                ALTER TABLE drafts DROP COLUMN reply_json;
+                ALTER TABLE pending_sends DROP COLUMN reply_json;
+                DELETE FROM grdb_migrations WHERE identifier='v4_message_replies';
+                """)
+        }
+        try queue.close()
+        let upgraded = try open()
+        let seed = try await upgraded.bootstrapSeed()
+        let pending = try await upgraded.pendingAttempts()
+        XCTAssertEqual(seed.drafts["a"], "older draft")
+        XCTAssertNil(seed.replies["a"])
+        XCTAssertEqual(pending.first?.draft.requestBody, old.draft.requestBody)
+        XCTAssertEqual(pending.first?.draft.key, old.draft.key)
+        XCTAssertNil(pending.first?.draft.reply)
+        try await upgraded.close()
     }
 
     func testPreviewMigrationPreservesExistingV2DraftPendingAndMessages() async throws {

@@ -23,7 +23,7 @@ struct SettingsBindingView: View {
                 LabeledContent(L("接收账号", "Receiving account"), value: user.display_name)
                 Text("@" + user.username).foregroundStyle(.secondary)
             } footer: {
-                Text(L("确认账号无误后再接受。若要切换账号，请返回“我的”退出登录。", "Check the receiving account before accepting. To use another account, return to Me and sign out."))
+                Text(L("请核对接收账号。如需切换，可在「我的」的设置中退出登录。", "Check the receiving account before accepting. To use another account, sign out in Me → Settings."))
             }
             if binding == nil && !cancelled {
                 Section {
@@ -32,7 +32,7 @@ struct SettingsBindingView: View {
                         .privacySensitive()
                     Button(busy ? L("检查中…", "Checking…") : L("检查设备", "Inspect device")) { Task { await inspectLink() } }
                         .disabled(busy || link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                } footer: { Text(L("在设备上发起绑定后，主动粘贴它提供的链接。链接只在本次页面内存中使用，不要发到聊天。", "Start binding on the device, then paste its link here. The link stays only in this page’s memory; do not send it in chat.")) }
+                } footer: { Text(L("粘贴电脑上生成的绑定链接。请勿把链接发到聊天中。", "Paste the link from your computer. Keep it out of chats.")) }
             }
             SettingsFeedback(error: error)
             if let binding {

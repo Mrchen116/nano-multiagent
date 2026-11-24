@@ -33,6 +33,7 @@ func settingsStatus(_ status: String) -> String {
     case "online": return L("在线", "Online")
     case "offline": return L("离线", "Offline")
     case "degraded": return L("受限", "Degraded")
+    case "none": return L("个人空间", "Personal space")
     case "pending": return L("待批准", "Pending")
     case "active": return L("有效成员", "Active")
     case "suspended": return L("已停用", "Suspended")

@@ -1,4 +1,6 @@
+import {inspectionReplies} from '@nano/product-contracts/node-rpc';
 import WebSocket from 'ws';
+import {inspectionTimeouts} from '@nano/product-contracts';
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
@@ -142,7 +144,7 @@ export class WebRelayConnection {
     }
     const preserve = typeof payload.request_id === 'string' && this.serverRequests.has(payload.request_id);
     if (preserve) this.releaseServerRequest(payload.request_id as string);
-    if (!preserve && typeof payload.request_id === 'string' && ['agent.capabilities','node.capabilities','agent.prompt.preview','node.prompt.preview'].includes(type))
+    if (!preserve && typeof payload.request_id === 'string' && inspectionReplies.has(type))
       return Promise.reject(new RelayDeliveryError('Server inspection request expired', 'not-sent'));
     return this.enqueue({ type, payload: this.correlated && !preserve ? {...payload,request_id:randomUUID()} : payload },options.priority);
   }
@@ -300,8 +302,11 @@ export class WebRelayConnection {
     const serverId = typeof frame.payload.request_id==='string' && frame.type!=='ack' && frame.type!=='error' && !frame.type.endsWith('.result') ? frame.payload.request_id : undefined;
     if (serverId) {
       this.releaseServerRequest(serverId);
-      const deadline = typeof frame.payload.deadline_at === 'number' ? frame.payload.deadline_at : Date.now()+10000;
-      this.serverRequests.set(serverId,setTimeout(()=>this.releaseServerRequest(serverId),Math.max(0,Math.min(10000,deadline-Date.now()))));
+      // A slow catalog reply still belongs to the IM request until its advertised deadline.
+      const ttl = typeof frame.payload.deadline_at === 'number'
+        ? Math.min(inspectionTimeouts(true).rpcMs, frame.payload.deadline_at - Date.now())
+        : 10_000;
+      this.serverRequests.set(serverId,setTimeout(()=>this.releaseServerRequest(serverId),Math.max(0,ttl)));
     }
     void Promise.resolve().then(() => this.options.onFrame(frame))
       .catch(error => this.report(error instanceof Error ? error : new Error('IM inbound callback failed')))

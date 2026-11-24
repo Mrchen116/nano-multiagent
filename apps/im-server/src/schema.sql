@@ -214,6 +214,11 @@ CREATE TABLE IF NOT EXISTS message_delta_idempotency (
     PRIMARY KEY (message_id, idempotency_key),
     FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 );
+CREATE TRIGGER IF NOT EXISTS release_terminal_delta_keys AFTER UPDATE OF delivery_status ON messages
+WHEN OLD.delivery_status='running' AND NEW.delivery_status IN ('completed','failed')
+BEGIN
+  DELETE FROM message_delta_idempotency WHERE message_id=NEW.id;
+END;
 CREATE TABLE IF NOT EXISTS agent_config_boundaries (
     boundary_id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,

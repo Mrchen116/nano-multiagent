@@ -11,6 +11,8 @@ struct TasksView: View {
     @State private var cursor: String?
     @State private var total = 0
     @State private var query = ""
+    @State private var searching = false
+    @FocusState private var searchFocused: Bool
     @State private var error: String?
     @State private var loading = false
     @State private var loaded = false
@@ -27,11 +29,27 @@ struct TasksView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    NanoSearchField(text: $query, prompt: L("搜索任务", "Search tasks"))
-                    Picker(L("任务范围", "Task scope"), selection: $ownerMode) {
-                        Text(L("根任务总览", "Root overview")).tag(false)
-                        Text(L("按负责人 · 所有层级", "By assignee · all levels")).tag(true)
-                    }.pickerStyle(.segmented)
+                    HStack {
+                        Menu {
+                            Picker(L("任务范围", "Task scope"), selection: $ownerMode) {
+                                Text(L("任务总览", "Overview")).tag(false)
+                                Text(L("按负责人", "By assignee")).tag(true)
+                            }
+                        } label: {
+                            Label(ownerMode ? L("按负责人", "By assignee") : L("任务总览", "Overview"), systemImage: "line.3.horizontal.decrease")
+                                .font(.subheadline.weight(.medium))
+                        }
+                        Spacer()
+                        Button {
+                            searching.toggle()
+                            if !searching { query = "" }
+                        } label: { Image(systemName: searching ? "xmark" : "magnifyingglass").frame(width: 44, height: 44) }
+                            .accessibilityLabel(searching ? L("收起搜索", "Hide search") : L("搜索任务", "Search tasks"))
+                    }
+                    if searching {
+                        NanoSearchField(text: $query, prompt: L("搜索任务", "Search tasks"))
+                            .focused($searchFocused).onAppear { searchFocused = true }
+                    }
                     if ownerMode {
                         Button { choosingOwner = true } label: {
                             TaskPropertyRow(title: L("负责人", "Assignee")) {
@@ -43,23 +61,31 @@ struct TasksView: View {
                     if let error { ErrorNotice(message: error); Button(L("重试", "Retry")) { Task { await load() } } }
                     if !loaded && error == nil { ProgressView() }
                     if !ownerMode || !ownerKey.isEmpty {
-                        if loaded {
+                        if let featuredTask { featuredTaskView(featuredTask).id("featured-task") }
+                        if loaded && !items.isEmpty {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text(L("已加载 \(items.count) / 共 \(total) 个任务", "Loaded \(items.count) / \(total) tasks") + (partialCounts ? L(" · 以下计数仅含已加载", " · Counts below cover loaded tasks") : ""))
-                                    .font(.caption).foregroundStyle(NanoTheme.muted)
-                                TaskStatusSummary(counts: statusCounts, partial: partialCounts) { group in
-                                    withAnimation { proxy.scrollTo(group, anchor: .top) }
+                                if partialCounts {
+                                    Text(L("已显示 \(items.count) / \(total) 个任务，按当前列表统计", "Showing \(items.count) of \(total) tasks. Counts reflect this list."))
+                                        .font(.caption).foregroundStyle(NanoTheme.muted)
+                                }
+                                if partialCounts || items.count > 5 {
+                                    TaskStatusSummary(counts: statusCounts, partial: partialCounts) { group in
+                                        withAnimation {
+                                            let hasRemaining = items.contains { $0.id != featuredTask?.id && taskGroupContains(group, status: $0.status) }
+                                            proxy.scrollTo(hasRemaining ? group : "featured-task", anchor: .top)
+                                        }
+                                    }
                                 }
                             }
                         }
-                        ForEach(taskGroups, id: \.self) { group in
-                            let rows = items.filter { taskGroupContains(group, status: $0.status) }
+                        ForEach(["in_review", "doing", "todo", "done", "closed"], id: \.self) { group in
+                            let rows = items.filter { $0.id != featuredTask?.id && taskGroupContains(group, status: $0.status) }
                             if !rows.isEmpty {
                                 TaskStatusGroup(status: group, count: rows.count, partial: partialCounts, includesPaused: rows.contains { $0.status == "paused" }) {
                                     ForEach(rows) { item in
                                         TaskCompactCard(title: item.title, status: item.status, assignee: item.assignee, source: item.conversation.title,
                                                         parentPath: ownerMode ? item.parent_path?.map(\.title).joined(separator: " › ") : nil,
-                                                        wait: item.wait, waitHealth: item.wait_health,
+                                                        wait: item.wait, waitHealth: item.wait_health, showsStatus: item.status != group || group == "doing",
                                                         open: { selected = item }) {
                                             HStack(spacing: 12) {
                                                 NavigationLink {
@@ -77,7 +103,13 @@ struct TasksView: View {
                             }
                         }
                         if loaded && items.isEmpty && error == nil {
-                            Text(L("暂无任务", "No tasks")).font(.subheadline).foregroundStyle(NanoTheme.muted).padding(.vertical, 24)
+                            VStack(spacing: 12) {
+                                Image(systemName: "checklist").font(.largeTitle).foregroundStyle(NanoTheme.accent)
+                                Text(query.isEmpty ? L("还没有任务", "No tasks yet") : L("没有找到匹配的任务", "No matching tasks")).font(.headline)
+                                if !ownerMode && query.isEmpty {
+                                    Button(L("创建任务", "Create task")) { creating = true }.buttonStyle(.bordered)
+                                }
+                            }.frame(maxWidth: .infinity).padding(.vertical, 36)
                         }
                     }
                     if cursor != nil { Button(L("加载更多", "Load more")) { Task { await load(more: true) } }.disabled(loading) }
@@ -97,6 +129,58 @@ struct TasksView: View {
             }
             .sheet(isPresented: $choosingOwner) { TaskActorPicker(actors: ownerActors, selectedKey: ownerKey, allowUnassigned: false, context: L("筛选所有层级的任务", "Filter tasks at every level")) { ownerKey = $0?.taskKey ?? "" } }
             .sheet(isPresented: $creating) { NavigationStack { TaskEditorView(client: client, graph: nil, node: nil, parentID: nil) { creating = false; Task { await load() } } } }
+    }
+    // Prefer the next review or active task within the currently loaded/filter-matched results.
+    private var featuredTask: TaskSummary? {
+        for status in ["in_review", "doing", "waiting", "todo", "paused", "done", "closed"] {
+            if let item = items.first(where: { $0.status == status }) { return item }
+        }
+        return nil
+    }
+    private func featuredTaskView(_ item: TaskSummary) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Label(taskStatus(item.status), systemImage: taskStatusIcon(item.status))
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                if partialCounts { Text(L("当前已加载任务", "Loaded tasks")).font(.caption) }
+            }.foregroundStyle(NanoTheme.accent).padding(.horizontal, 20).padding(.vertical, 12)
+                .background(NanoTheme.accent.opacity(0.09))
+            VStack(alignment: .leading, spacing: 16) {
+                Button { selected = item } label: {
+                    Text(item.title).font(.title2.bold()).foregroundStyle(NanoTheme.ink)
+                        .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
+                }.buttonStyle(.plain).accessibilityLabel(item.title + ", " + taskStatus(item.status))
+                VStack(alignment: .leading, spacing: 8) {
+                    TaskActorLabel(actor: item.assignee)
+                    Label(item.conversation.title, systemImage: "bubble.left").font(.caption).foregroundStyle(NanoTheme.muted)
+                    if ownerMode, let path = item.parent_path, !path.isEmpty {
+                        Text(path.map(\.title).joined(separator: " › ")).font(.caption).foregroundStyle(NanoTheme.muted)
+                    }
+                }
+                if item.status == "waiting" { TaskWaitView(wait: item.wait, health: item.wait_health, compact: true) }
+                Divider()
+                ViewThatFits(in: .horizontal) {
+                    HStack { featuredActions(item) }
+                    VStack(alignment: .leading, spacing: 12) { featuredActions(item) }
+                }
+            }.padding(20)
+        }.background(NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+    @ViewBuilder private func featuredActions(_ item: TaskSummary) -> some View {
+        Button { selected = item } label: {
+            Label(item.status == "in_review" ? L("查看交付", "Review outcome") : L("查看任务", "Open task"), systemImage: "arrow.up.right")
+                .font(.subheadline.weight(.semibold))
+        }.buttonStyle(.plain).foregroundStyle(NanoTheme.accent).padding(.vertical, 8)
+        NavigationLink {
+            TaskGraphView(client: client, graphID: item.graph_id, scopeID: item.node_id ?? item.root_node_id, onReference: onReference)
+        } label: { TaskSubtaskLabel(counts: item.direct_counts) }.padding(.leading, 8)
+        if ownerMode {
+            NavigationLink(L("返回所在层", "Open parent scope")) {
+                TaskGraphView(client: client, graphID: item.graph_id, scopeID: item.scope_id, initialNodeID: item.node_id, onReference: onReference)
+            }.font(.caption)
+        }
     }
     private var partialCounts: Bool { cursor != nil || items.count < total }
     private var statusCounts: [String: Int] { Dictionary(grouping: items, by: \.status).mapValues { $0.count } }
@@ -146,12 +230,12 @@ struct TaskStatusGroup<Content: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Image(systemName: taskStatusIcon(status)).foregroundStyle(NanoTheme.accent)
-                Text(status == "todo" && includesPaused ? L("待办 · 含暂缓", "To do · includes paused") : taskGroupTitle(status)).font(.subheadline.weight(.semibold))
+                Text(status == "todo" && includesPaused ? L("待办 · 含暂缓", "To do · includes paused") : taskGroupTitle(status)).font(.headline)
                 Spacer()
                 Text(partial ? L("已加载 \(count)", "\(count) loaded") : "\(count)").font(.caption).foregroundStyle(NanoTheme.muted)
             }.padding(.horizontal, 4).padding(.vertical, 2)
-            content()
-        }.frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: 0) { content() }
+        }.padding(.top, 12).frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -210,7 +294,10 @@ struct TaskGraphView: View {
                     }.padding(.horizontal)
                     Picker(L("视图", "View"), selection: $listMode) { Text(L("完成情况", "Progress")).tag(true); Text(L("结构图", "Structure")).tag(false) }.pickerStyle(.segmented).padding(.horizontal)
                     HStack {
-                        Text(graph.conversation.title + " · " + (graph.conversation.visibility == "public" ? L("公开", "Public") : L("私密", "Private"))).font(.caption).foregroundStyle(NanoTheme.muted)
+                        Button { onReference(graph.conversation.id, "") } label: {
+                            Label(graph.conversation.title + " · " + (graph.conversation.visibility == "public" ? L("公开", "Public") : L("私密", "Private")), systemImage: "bubble.left")
+                                .font(.caption).foregroundStyle(NanoTheme.muted)
+                        }.buttonStyle(.plain).accessibilityHint(L("回到所属聊天", "Return to the source conversation"))
                         Spacer()
                         if graph.conversation.can_write { Button(L("添加子任务", "Add subtask")) { creating = true }.font(.caption) }
                     }.padding(.horizontal)
@@ -258,12 +345,27 @@ struct TaskGraphView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text(L("直属子任务 \(layout.nodes.count) · 点状态定位", "\(layout.nodes.count) direct subtasks · Tap a status to locate"))
-                        .font(.caption).foregroundStyle(NanoTheme.muted)
-                    TaskStatusSummary(counts: Dictionary(grouping: layout.nodes, by: \.status).mapValues { $0.count }) { group in
+                    VStack(alignment: .leading, spacing: 12) {
+                        Button { selected = scope } label: {
+                            HStack(alignment: .top) {
+                                Text(scope.title).font(.title2.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                                Image(systemName: "chevron.right").font(.caption).padding(.top, 8)
+                            }.foregroundStyle(NanoTheme.ink)
+                        }.buttonStyle(.plain).accessibilityHint(L("查看父任务详情", "Open parent task details"))
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 16) { TaskActorLabel(actor: scope.assignee); TaskStatusBadge(status: scope.status) }
+                            VStack(alignment: .leading, spacing: 8) { TaskActorLabel(actor: scope.assignee); TaskStatusBadge(status: scope.status) }
+                        }
+                        if let counts = scope.direct_counts, counts.total > 0 {
+                            ProgressView(value: Double(counts.done), total: Double(counts.total))
+                            Text(counts.summary).font(.caption).foregroundStyle(NanoTheme.muted)
+                        }
+                    }.padding(.vertical, 8)
+                    if layout.nodes.count > 5 { TaskStatusSummary(counts: Dictionary(grouping: layout.nodes, by: \.status).mapValues { $0.count }) { group in
                         withAnimation { proxy.scrollTo(group, anchor: .top) }
                     }
-                    ForEach(taskGroups, id: \.self) { group in
+                    }
+                    ForEach(["in_review", "doing", "todo", "done", "closed"], id: \.self) { group in
                         let nodes = layout.nodes.filter { taskGroupContains(group, status: $0.status) }
                         if !nodes.isEmpty {
                             TaskStatusGroup(status: group, count: nodes.count, includesPaused: nodes.contains { $0.status == "paused" }) {
@@ -384,9 +486,11 @@ struct TaskNodeView: View {
                     if let error { ErrorNotice(message: error); Button(L("读取最新内容", "Read latest content")) { Task { await refresh() } } }
                     VStack(alignment: .leading, spacing: 16) {
                         Button { onReference(graph.conversation.id, "") } label: {
-                            Label(graph.conversation.title, systemImage: "bubble.left.and.bubble.right")
-                                .font(.subheadline).foregroundStyle(NanoTheme.muted)
-                        }.buttonStyle(.plain)
+                            HStack {
+                                Label(graph.conversation.title, systemImage: "bubble.left.and.bubble.right")
+                                Image(systemName: "arrow.up.right").font(.caption)
+                            }.font(.subheadline).foregroundStyle(NanoTheme.accent)
+                        }.buttonStyle(.plain).accessibilityHint(L("回到所属聊天", "Return to the source conversation"))
                         if let parent = graph.nodes.first(where: { $0.id == node.container_id }) {
                             Text(parent.title).font(.subheadline).foregroundStyle(NanoTheme.muted)
                         }
@@ -402,17 +506,26 @@ struct TaskNodeView: View {
                     }
                     if node.assignee?.type == "agent", let agentID = node.assignee?.id { TaskAgentRuntimeView(client: client, agentID: agentID, graphID: graph.graph_id, nodeID: node.id) }
                     if node.status == "waiting" { TaskWaitView(wait: node.wait, health: node.wait_health) }
-                    if !node.description.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            taskSectionLabel(L("任务说明", "Description"))
-                            MarkdownView(text: node.description, client: client)
-                        }
+                    if node.can_edit == true && ["waiting", "paused"].contains(node.status) {
+                        ViewThatFits(in: .horizontal) {
+                            HStack { waitActions(node) }
+                            VStack(alignment: .leading) { waitActions(node) }
+                        }.buttonStyle(.bordered).disabled(busy)
+                    }
+                    if node.can_claim == true {
+                        Button(L("领取任务", "Claim task")) { if node.status == "done" { claiming = true } else { Task { await claim() } } }.buttonStyle(.bordered).disabled(busy)
                     }
                     if !node.result.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             taskSectionLabel(L("当前结果", "Result"))
                             MarkdownView(text: node.result, client: client).padding(.leading, 14)
                                 .overlay(alignment: .leading) { RoundedRectangle(cornerRadius: 2).fill(NanoTheme.accent.opacity(0.45)).frame(width: 3) }
+                        }
+                    }
+                    if !node.description.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            taskSectionLabel(L("任务说明", "Description"))
+                            MarkdownView(text: node.description, client: client)
                         }
                     }
                     if node.mode != "none" || node.can_edit == true || (node.direct_counts?.total ?? 0) > 0 {
@@ -454,15 +567,6 @@ struct TaskNodeView: View {
                         }.font(.subheadline).padding(.top, 12)
                     } label: { Text(L("创建与修改信息", "Creation and changes")).font(.subheadline).foregroundStyle(NanoTheme.muted) }
                     if let chat = node.last_chat_id { Button { onReference(chat, referenceText(node, graph: graph, base: client.baseURL)) } label: { Label(L("回到聊天并引用", "Reference in chat"), systemImage: "arrowshape.turn.up.left") }.font(.subheadline) }
-                    if node.can_edit == true && ["waiting", "paused"].contains(node.status) {
-                        ViewThatFits(in: .horizontal) {
-                            HStack { waitActions(node) }
-                            VStack(alignment: .leading) { waitActions(node) }
-                        }.buttonStyle(.bordered).disabled(busy)
-                    }
-                    if node.can_claim == true {
-                        Button(L("领取任务", "Claim task")) { if node.status == "done" { claiming = true } else { Task { await claim() } } }.buttonStyle(.bordered).disabled(busy)
-                    }
                 }.padding(24)
             }.background(NanoTheme.surface)
             .safeAreaInset(edge: .bottom) {

@@ -100,14 +100,13 @@ export class MessageRecords {
     if(!row)fail(404,'message not found');
     return {...row,sender:{id:row.username.startsWith('agent:')?row.username.slice(6):row.sender_user_id}};
   }
-  /** Consume a delta identity once and append only while running.
+  /** Append to a running message inside the caller's delta event transaction.
    * Returns:
-   *   False for a duplicate or terminal message; no event should be published.
+   *   False if this key already contributed to the projection.
    */
-  appendDelta(m:StreamMessageIdentity,text:string,key?:string):boolean {
-    if(key&&!this.db.prepare('INSERT OR IGNORE INTO message_delta_idempotency VALUES(?,?)').run(m.id,key).changes)return false;
-    if(m.delivery_status!=='running')return false;
-    this.db.prepare('UPDATE messages SET content=content||? WHERE id=?').run(text,m.id);return true;
+  appendDelta(messageId:string,text:string,key?:string):boolean {
+    if(key&&!this.db.prepare('INSERT OR IGNORE INTO message_delta_idempotency VALUES(?,?)').run(messageId,key).changes)return false;
+    this.db.prepare('UPDATE messages SET content=content||? WHERE id=?').run(text,messageId);return true;
   }
   /** Store the producer's final text/statistics and release its permission wait. */
   complete(m:ChatMessage,p:Extract<ChatStreamFact,{kind:'message_completed'}>):void {

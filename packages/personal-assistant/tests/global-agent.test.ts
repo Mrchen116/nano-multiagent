@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { NodeStore } from '../src/store.js';
 import { InboxStore } from '../src/inbox.js';
 import { GlobalAgent, type ProductCall } from '../src/global-agent.js';
+import { typedRuntimeRequest } from '@nano/product-contracts/runtime-rpc';
 import type { RelayInput } from '@nano/product-contracts';
 
 const quotedPublication = JSON.stringify({reply_to_message_id:'original',text:'收到'});
@@ -615,4 +616,28 @@ it('refreshes the PA reader-relative name in its wake, Inbox check and Inbox rea
     expect(await product.call(call)).toMatchObject({sources:[{name:'Alicia'}]});
     expect(await product.call({...call,callId:'read',operationId:'main:read',args:{action:'read',target:'c_owner'}})).toMatchObject({name:'Alicia',messages:[{sender:{name:'Alice',is_owner:true}}]});
   } finally {await product.stop();inbox.close();store.close();}
+});
+
+
+it('returns the native schedule history rejection without querying admission or delivery evidence', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  const binding = store.bind({agentId:'a', ownerId:'owner', sessionId:'root', conversationId:'global:a', cwd:'/tmp', revision:'1'});
+  const methods: string[] = [];
+  const product = new GlobalAgent({nodeId:'node', ownerId:'owner', store, inbox,
+    agents:[{agentId:'a', workspace:'/tmp', mode:'global', provider:'p', model:'m', revision:'1'}],
+    runtime:{onNotification:()=>()=>{}, request:typedRuntimeRequest(async (method, args) => {
+      methods.push(method);
+      expect(args).toMatchObject({agentId:'a', sessionId:'root', action:'history', args:{id:'missing'}});
+      return {id:'missing', code:'schedule_not_found'};
+    })},
+    relay:{request:async()=>{throw Error('Unexpected relay request');}}, image:async()=>'', onError:error=>{throw error;},
+  });
+  try {
+    const result = await product.call({method:'schedule.history', args:{id:'missing'}, agentId:'a', ownerId:'owner',
+      sessionId:binding.sessionId, rootSessionId:binding.sessionId, operationId:'history', callId:'read'});
+    expect(result).toEqual({id:'missing', code:'schedule_not_found'});
+    expect(methods).toEqual(['schedule.command']);
+  } finally {
+    await product.stop(); inbox.close(); store.close();
+  }
 });

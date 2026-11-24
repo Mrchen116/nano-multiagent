@@ -97,7 +97,7 @@ Coding Agent 工作在整个代码仓提供的 **Repository Harness** 中，而�
 
 ## 上下文交付
 
-本节负责仓库知识的组织与交付；产品中模型可见 Prompt、Skill、工具、消息及记忆/历史的通用设计方法由 [Agent Context Engineering](agent-context-engineering.md) 维护。
+本节负责仓库知识的组织与交付；产品中模型可见 Prompt、Skill、工具、消息及记忆/历史的设计方法和本仓取证入口见 [Agent Context Engineering](agent-context-engineering.md)。
 
 Agent context 是知识系统的 delivery path，不是新的 source of truth。下面描述的是逐步披露关系，不是要求 Agent 按固定顺序读取文件：
 
@@ -499,7 +499,7 @@ flowchart LR
 | 入口 | 保护的边界 |
 |---|---|
 | [`../../scripts/docs-check`](../../scripts/docs-check) | Markdown 链接与图片、根入口可达性、retired 路径引用、research metadata、active unit 恢复字段与 ID、`AGENTS.md` 预算、`CLAUDE.md` 适配器 |
-| [`../../tests/contract/test_change_workflow_documentation_contract.py`](../../tests/contract/test_change_workflow_documentation_contract.py) | spec review 仍为可选、selected validation gates 的现行矩阵、简化流程支持 Full 与 Bugfix lite |
+| [独立库的流程契约测试](https://github.com/Mrchen116/dev-workflow-skills/blob/main/tests/test_workflow_contract.py) | 通用流程中的首文档独立评审保持可选 |
 | [`../../tests/contract/`](../../tests/contract/) | 包边界和其他能够确定性判断的仓库不变量 |
 | [CI workflow](../../.github/workflows/ci.yml) | 在 PR 与 main push 上执行文档、格式、测试和前端门禁 |
 
@@ -507,7 +507,7 @@ flowchart LR
 
 ```bash
 ./scripts/docs-check
-pytest -q tests/contract/test_change_workflow_documentation_contract.py
+pytest -q tests/contract/test_change_skill_archive_contract.py
 ```
 
 本仓把 `AGENTS.md` 的 120 行 / 12 KiB 设为 CI 审计闸。超限时应重新判断哪些内容值得常驻、哪些应通过链接按需加载；不能通过机械删字让语义缺失。

@@ -171,6 +171,40 @@ final class ChatStateTests: XCTestCase {
         return ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
     }
 
+    func testMessageLocatorChecksAccessAndBridgesHistory() async throws {
+        let detail = Data(#"{"id":"chat","title":"Chat","participants":[],"participant_ids":["user"],"type":"group","owner_id":"user","creator_id":"user","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"now"}"#.utf8)
+        let latest = try JSONEncoder().encode(MessagePage(items: [message(3)], next_before_message_id: "m3"))
+        let older = try JSONEncoder().encode(MessagePage(items: [message(1), message(2)]))
+        let pair = try JSONEncoder().encode(TokenPair(access_token: "test", refresh_token: "test", user: user))
+        let transport = HistoryTransport(pair: pair, latest: latest, bridge: older, detail: detail)
+        let session = Session(baseURL: URL(string: "https://im.example.test")!, transport: transport,
+                              credentials: ChatTestCredentials(), sendAttempts: attemptStore)
+        _ = try await session.login(username: "user", password: "test")
+        let store = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
+        let target = ChatMessageLocation(conversationID: "chat", messageID: "m1")
+        store.messageLocation = target
+        try await store.locate(target)
+        let cursors = await transport.cursors
+        XCTAssertEqual(cursors, [nil, "m3"])
+        XCTAssertEqual(store.timelines["chat"]?.map(\.id), ["m1", "m2", "m3"])
+
+        store.timelines["chat"] = nil
+        let pageStarted = expectation(description: "older page in flight")
+        await transport.holdOlderPage { pageStarted.fulfill() }
+        let locating = Task { try await store.locate(target) }
+        await fulfillment(of: [pageStarted], timeout: 5)
+        store.messageLocation = nil
+        await transport.releaseOlderPage()
+        do { try await locating.value; XCTFail("A retired location must not scroll") }
+        catch is CancellationError { }
+        await transport.revokeDetail()
+        store.messageLocation = target
+        do { try await store.locate(target); XCTFail("A cached quote must not bypass revoked access") }
+        catch let error as APIError { XCTAssertEqual(error.status, 403) }
+        XCTAssertNil(store.timelines["chat"])
+        store.resetProjection()
+    }
+
     func testReconnectFillsMoreThanOnePageGapBeforeKeepingOlderCursor() async throws {
         let latest = try (62...121).map { try message($0) }
         let bridge = try (2...61).map { try message($0) }
@@ -409,6 +443,10 @@ private actor HistoryTransport: HTTPTransport {
     var receiptBatches: [[String]] = []
     var detail: Data?
     var detailStatus = 200
+    private var onOlderPage: (@Sendable () -> Void)?
+    private var heldPage: CheckedContinuation<Void, Never>?
+    func holdOlderPage(_ started: @escaping @Sendable () -> Void) { onOlderPage = started }
+    func releaseOlderPage() { heldPage?.resume(); heldPage = nil }
     func revokeDetail() { detailStatus = 404 }
     init(pair: Data, latest: Data, bridge: Data, list: Data = Data(#"{"items":[]}"#.utf8), detail: Data? = nil,
          detailStatus: Int = 200) {
@@ -431,6 +469,10 @@ private actor HistoryTransport: HTTPTransport {
         }
         else {
             let cursor = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "before_message_id" }?.value
+            if cursor != nil, let started = onOlderPage {
+                onOlderPage = nil
+                await withCheckedContinuation { heldPage = $0; started() }
+            }
             cursors.append(cursor); body = cursor == nil ? latest : bridge
         }
         return (body, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [:])!)

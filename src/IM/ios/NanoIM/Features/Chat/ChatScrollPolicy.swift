@@ -17,6 +17,15 @@ struct ChatScrollPolicy {
     private(set) var nativeTop = false
     var pausesCorrection: Bool { phase != .idle || nativeTop }
 
+    mutating func locate(_ id: String) {
+        revision += 1
+        intent = .history
+        anchor = Anchor(id: id, viewportY: 0)
+        nativeTop = false
+        gestureOrigin = nil
+        gestureMoved = false
+    }
+
     mutating func beginNativeTop() {
         revision += 1
         intent = .history

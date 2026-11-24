@@ -4,6 +4,30 @@ struct ChatCardPreview: Codable, Sendable, Hashable {
     var title: String?
 }
 
+/// Only task notices have the server-generated actor prefix and task link.
+struct ChatPreviewNotice: Codable, Sendable, Hashable {
+    let kind: String?
+    let graph_id: String?
+    let change_kinds: [String]?
+
+    func summary(content: String?) -> String? {
+        guard kind == "task_graph" else { return nil }
+        let changes = change_kinds ?? []
+        let action: String
+        if changes.contains("created") { action = L("新建任务", "Task created") }
+        else if changes.contains("deleted") { action = L("任务已删除", "Task deleted") }
+        else if changes.contains("assignment") { action = L("任务分配更新", "Task assignment updated") }
+        else if changes.contains("status") { action = L("任务状态更新", "Task status updated") }
+        else { action = L("任务更新", "Task updated") }
+        // The server caps previews at 120 characters. Require a link to this graph
+        // before using its label, as the truncated content alone is ambiguous.
+        guard let graph_id, !graph_id.isEmpty, let content, let start = content.range(of: "：["),
+              let end = content.range(of: "](/tasks/" + graph_id, range: start.upperBound..<content.endIndex) else { return action }
+        let title = MarkdownContent.copy(String(content[start.upperBound..<end.lowerBound]))
+        return title.isEmpty ? action : action + " · " + title
+    }
+}
+
 struct Conversation: Codable, Identifiable, Sendable, Hashable {
     var id: String
     var title: String
@@ -19,6 +43,7 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
     var last_message_preview: String?
     var last_message_sender_name: String?
     var last_message_card: ChatCardPreview?
+    var last_message_system_notice: ChatPreviewNotice?
     var last_message_at: String?
     var created_at: String
     var run_state: String?
@@ -37,6 +62,7 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
         if type == "direct" { if direct_kind == "agent-agent" { return "network" }; return ["user-user", "user"].contains(direct_kind ?? "") ? "people" : "agent" }
         return !participants.isEmpty && participants.allSatisfy { $0.type == "agent" } ? "network" : "group"
     }
+    var peerAgent: ActorRef? { type == "direct" ? participants.first { $0.type == "agent" } : nil }
     func avatarName(selfID: String) -> String {
         guard type != "group" else { return title }
         let peer = participants.first { category == "agent" ? $0.type == "agent" : $0.type == "user" && ($0.user_id ?? $0.id) != selfID }
@@ -96,6 +122,22 @@ struct MessageReceipt: Codable, Sendable, Identifiable {
     var id: String { recipient_id }
 }
 
+struct ChatReply: Codable, Sendable, Equatable {
+    let message_id: String
+    let sender: ActorRef
+    let content: String
+    let attachments: [ChatAttachment]
+
+    func preview(participants: [ActorRef]) -> String {
+        let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !text.isEmpty { return ChatText.display(String(text.prefix(180)), participants: participants) }
+        let names = attachments.map { file in
+            file.file_name ?? (file.content_type?.hasPrefix("image/") == true ? L("图片", "Image") : L("文件", "File"))
+        }
+        return names.isEmpty ? L("消息", "Message") : names.joined(separator: " · ")
+    }
+}
+
 struct ChatMessage: Codable, Sendable, Identifiable {
     var id: String
     var conversation_id: String
@@ -110,6 +152,12 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var thinking: [ChatThinking]?
     var background_returns: [JSONValue]?
     var reply_process: [JSONValue]?
+    var reply_to: ChatReply?
+    var work_record_deleted: Bool?
+    var availableReply: ChatReply? {
+        guard ["agent", "user"].contains(sender_type), ["completed", "sent", "pending"].contains(delivery_status) else { return nil }
+        return ChatReply(message_id: id, sender: sender, content: String(content.trimmingCharacters(in: .whitespacesAndNewlines).prefix(180)), attachments: attachments)
+    }
     var permission_requests: [ChatPermission]?
     var token_usage: JSONValue?
     var elapsed_ms: Double?
@@ -123,14 +171,12 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var delegation: JSONValue?
     var thread_root_message_id: String?
     var thread: ThreadSummary?
-    var reply_to: ChatReplyRef?
     var canStartThread: Bool {
         thread_root_message_id == nil && ["agent", "user"].contains(sender_type) && ["completed", "sent", "pending"].contains(delivery_status)
     }
 }
 struct ThreadParticipant: Codable, Sendable { var id: String; var display_name: String }
 struct ThreadSummary: Codable, Sendable { var reply_count: Int; var latest_preview: String?; var latest_at: String?; var participants: [ThreadParticipant]? }
-struct ChatReplyRef: Codable, Sendable { var message_id: String; var sender: ActorRef; var content: String }
 struct TimelineItem: Codable, Sendable, Identifiable {
     var type: String
     var message: ChatMessage?
@@ -165,6 +211,7 @@ struct PendingSend: Codable, Sendable {
     let content: String
     let attachments: [ChatAttachment]
     var requestBody: Data?
+    var reply: ChatReply?
 }
 
 enum ChatTimelinePresentation {

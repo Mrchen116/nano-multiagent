@@ -3,13 +3,16 @@ import type { ProtocolFrame } from '@nano/channels';
 import { NodeStore } from './store.js';
 import { needsAttention, controlText } from './attention.js';
 
-export interface ControlIntent { id: string; binding: SessionBinding; input: RelayInput; action: string; argument: string; stoppedAt?:string; text?: string; delivered?: boolean }
+type SessionAction = import('@nano/product-contracts/runtime-rpc').RuntimeInput<'session.command'>['action'];
+const sessionActions: readonly SessionAction[] = ['compact','effort','workflows','config'];
+export interface ControlIntent { id: string; binding: SessionBinding; input: RelayInput; action: SessionAction | 'task-stop'; argument: string; stoppedAt?:string; text?: string; delivered?: boolean }
 interface Options { nodeId: string; runtime: RuntimePort; store: NodeStore; relay: { request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> } }
-export function sessionControl(input: RelayInput, config: AgentConfiguration): { action: string; argument: string } | undefined {
+export function sessionControl(input: RelayInput, config: AgentConfiguration): { action: SessionAction; argument: string } | undefined {
   if (input.message.sender_type !== 'user') return;
-  const match = /^\/(compact|effort|workflows|config)(?:\s+([\s\S]*))?$/.exec(controlText(input));
-  if (!match || !needsAttention(input, config)) return;
-  return { action: match[1]!, argument: match[2]?.trim() ?? '' };
+  const match = /^\/(\S+)(?:\s+([\s\S]*))?$/.exec(controlText(input));
+  const action = sessionActions.find(action => action === match?.[1]);
+  if (!action || !needsAttention(input, config)) return;
+  return { action, argument: match?.[2]?.trim() ?? '' };
 }
 
 /** Reserves a durable command position before later ordinary product input is submitted. */
@@ -19,7 +22,7 @@ export class SessionControls {
   constructor(private readonly options: Options) {}
   /** Unfinished controls remain busy even after a failed delivery or reconnect. */
   get busy(): boolean { return this.active.size > 0 || this.options.store.pendingControls().length > 0; }
-  run(binding: SessionBinding, input: RelayInput, action: string, argument: string): Promise<void> {
+  run(binding: SessionBinding, input: RelayInput, action: SessionAction, argument: string): Promise<void> {
     input=this.options.store.admitInput(input);
     const id = `${input.agent_id}:${input.message.id}`;
     const existing = this.active.get(id); if (existing) return existing;
@@ -37,7 +40,7 @@ export class SessionControls {
   private async perform(intent: ControlIntent) {
     const { store, runtime, relay, nodeId } = this.options; const { binding, input } = intent;
     const cancelled = () => store.control(intent.id)?.delivered === true;
-    if (cancelled()) return;
+    if (intent.action === 'task-stop' || cancelled()) return;
     if (!intent.text) {
       const current = store.bindingFor(binding.agentId, binding.conversationId);
       if (current?.sessionId !== binding.sessionId) intent.text = '本次控制操作未执行：原会话已被重置。';
@@ -45,7 +48,7 @@ export class SessionControls {
         const { conversationId: _, ...runtimeBinding } = binding;
         await runtime.request('session.ensure', runtimeBinding);
         if (cancelled()) return;
-        const result = await runtime.request('session.command', { sessionId: binding.sessionId, id: intent.id, action: intent.action, argument: intent.argument }) as { text: string };
+        const result = await runtime.request('session.command', { sessionId: binding.sessionId, id: intent.id, action: intent.action, argument: intent.argument });
         intent.text = result.text;
       }
       if (cancelled()) return;

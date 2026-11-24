@@ -1649,7 +1649,7 @@
     "bindDescription": "This computer will connect to your personal space and run the assistants you create.",
     "bindAccept": "Connect this computer",
     "bindAccount": "Signed in as",
-    "bindComplete": "Your computer is connected.",
+    "bindComplete": "Account and computer confirmed.",
     "bindWorkspace": "Your computer.\nYour assistant’s workspace.",
     "bindSceneDetail": "A place to turn ideas into work, and keep things moving.",
     "bindSceneFoot": "This computer joins your account only after you confirm.",
@@ -1657,10 +1657,10 @@
     "bindLoading": "Loading computer details…",
     "bindConfirmLabel": "Confirm connection",
     "bindConnectingLabel": "Connecting",
-    "bindConnectedLabel": "Connected",
+    "bindConnectedLabel": "Binding complete",
     "bindConnectingTitle": "Preparing your assistant’s workspace",
-    "bindConnectedTitle": "Your computer is ready",
-    "bindConnectedNote": "Next, connect a model and give your personal assistant a name.",
+    "bindConnectedTitle": "This computer is linked to your account",
+    "bindConnectedNote": "Return to setup to check the connection. Once the computer is online, you can connect a model.",
     "bindWaitingNote": "Your account is confirmed. Keep the installer open on your computer until the connection is complete.",
     "bindProgress": "Connection progress",
     "bindAccountCheck": "Confirm the account",
@@ -1668,7 +1668,7 @@
     "bindAccountDone": "Confirmed by you",
     "bindComputerCheck": "Connect the computer",
     "bindComputerHint": "This page updates when your computer finishes connecting",
-    "bindComputerDone": "Your computer has finished connecting"
+    "bindComputerDone": "Confirmed by the computer"
   },
   "nodeUpdate": {
     "available": {
@@ -1767,6 +1767,27 @@
     "waitRecovery": "Will continue when the computer recovers. No need to resend."
   },
   "computers": {
+    "operatingSystem": "Computer operating system",
+    "reconnectAction": "Reconnect this computer",
+    "recoveryBody": "Open Crewden on this computer to reconnect. Your chats and files are kept.",
+    "windows": {
+      "unavailable": "Windows installer unavailable",
+      "unavailableHelp": "Windows installation is currently unavailable on this service. You can return and continue later.",
+      "checkAgain": "Check again",
+      "download": "Download Windows installer",
+      "redownload": "Download again",
+      "alreadyInstalled": "Already installed? Connect this computer",
+      "reopen": "Reopen Crewden",
+      "open": "Open Crewden to connect",
+      "initialTitle": "Install Crewden for Windows",
+      "initialHelp": "Double-click the downloaded installer, then return here to connect.",
+      "downloadedTitle": "Connect this computer",
+      "downloadedHelp": "Finish installing on this computer, then open Crewden to connect your account.",
+      "waitingTitle": "Confirm your account and computer",
+      "waitingHelp": "Check the service address in Crewden, then confirm your account in the browser. If nothing opened, try again.",
+      "waiting": "Waiting for your computer to come online",
+      "online": "You can now connect a model on this computer."
+    },
     "account": "My account",
     "summary": "{{total}} computers · {{online}} online",
     "subtitle": "Your computers and assistants",

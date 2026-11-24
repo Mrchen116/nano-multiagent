@@ -1,5 +1,5 @@
 import type { AgentLifecycleSnapshot } from '@nano/product-contracts/agent-lifecycle';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { type QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { useTranslation } from '../../../i18n';
 import { subscribeUserStream } from '../../../realtime/user-stream';
@@ -42,7 +42,11 @@ export function useAgentLifecycle(agentId: string) {
     },
     onSuccess: async value => {
       await client.cancelQueries({queryKey: key});
-      client.setQueryData<AgentLifecycleSnapshot>(key, current => current && current.revision > value.revision ? current : value);
+      const state = client.setQueryData<AgentLifecycleSnapshot>(key, current => current && current.revision > value.revision ? current : value);
+      // The node can confirm a stop over WS before the HTTP "stopping" receipt arrives.
+      if (state && (state.desired==='enabled' || confirmedDisabled(state))) {
+        updateDirectoryBadge(client,self,agentId,confirmedDisabled(state));
+      }
     },
     onError: () => { void client.invalidateQueries({queryKey: key}); }
   });
@@ -61,8 +65,8 @@ function useLabels() {
   const { i18n } = useTranslation();
   return (zh: string, en: string) => i18n.language.startsWith('zh') ? zh : en;
 }
-function confirmedDisabled(state: AgentLifecycleSnapshot) {
-  return state.desired === 'disabled' && state.observed === 'disabled' && state.applied_revision === state.revision;
+function confirmedDisabled(state: {desired?:unknown; observed?:unknown; revision?:unknown; applied_revision?:unknown}) {
+  return state.desired === 'disabled' && state.observed === 'disabled' && typeof state.revision === 'number' && state.applied_revision === state.revision;
 }
 export function AgentLifecycleAction({lifecycle, canManage, online, name}: {lifecycle:Lifecycle; canManage:boolean; online:boolean; name?:string}) {
   const l = useLabels();
@@ -77,6 +81,14 @@ export function AgentLifecycleAction({lifecycle, canManage, online, name}: {life
       : state ? disabling : l('读取状态…','Loading state…');
   return <button type="button" className={`im-settings-action im-agent-lifecycle-action ${action === 'retry' ? 'danger' : ''}`} disabled={!action || lifecycle.mutation.isPending || lifecycle.query.isError} aria-label={name ? `${label} ${name}` : label} onClick={() => action && lifecycle.mutation.mutate(action)}>{label}</button>;
 }
+function ConfirmedDisabledStatus({compact = false}: {compact?: boolean}) {
+  const l = useLabels();
+  const label = l('已停用','Disabled');
+  const detail = l('重新启用后可以接收新工作，旧任务继续暂停。','Re-enabling allows new work. Previous tasks stay paused.');
+  return compact ? <span className="im-agent-lifecycle-badge" aria-live="polite" title={detail}>{label}</span>
+    : <><strong>{label}</strong><span>{detail}</span></>;
+}
+
 export function AgentLifecycleStatus({lifecycle, online, compact = false}: {lifecycle:Lifecycle; online:boolean; compact?:boolean}) {
   const l = useLabels();
   const state = lifecycle.query.data;
@@ -84,16 +96,14 @@ export function AgentLifecycleStatus({lifecycle, online, compact = false}: {life
   const disabled = state && confirmedDisabled(state);
   const stopping = state?.desired === 'disabled' && !disabled;
   const error = lifecycle.mutation.error ?? lifecycle.query.error;
-  const disabledLabel = l('已停用','Disabled');
-  const disabledDetail = l('重新启用后可以接收新工作，旧任务继续暂停。','Re-enabling allows new work. Previous tasks stay paused.');
-  if (compact) return disabled && !error ? <span className="im-agent-lifecycle-badge" aria-live="polite" title={disabledDetail}>{disabledLabel}</span> : null;
+  if (compact) return disabled && !error ? <ConfirmedDisabledStatus compact /> : null;
   const detail = !stopping ? '' : !online
     ? l('电脑离线，联网后会继续停用。','The computer is offline. Disabling will continue when it reconnects.')
     : state.error_code === 'node_upgrade_required' ? l('请更新电脑上的 Nano 后再停用。','Update Nano on the computer to finish disabling.')
       : failed && !lifecycle.mutation.isPending ? l('停用还没完成。','Disabling did not finish.') : '';
   if (!disabled && !detail && !error) return null;
   return <div className={`im-agent-lifecycle-status ${stopping ? 'im-agent-lifecycle-feedback warning' : ''}`} aria-live="polite">
-    {disabled && !error && <><strong>{disabledLabel}</strong><span>{disabledDetail}</span></>}
+    {disabled && !error && <ConfirmedDisabledStatus />}
     {detail && <span>{detail}</span>}
     {error && <span role="alert">{lifecycle.query.isError
       ? l('无法读取 Agent 状态，请刷新后重试。','Could not read the Agent status. Refresh and try again.')
@@ -101,8 +111,41 @@ export function AgentLifecycleStatus({lifecycle, online, compact = false}: {life
     {lifecycle.query.isError && <button type="button" className="im-settings-action" onClick={() => void lifecycle.query.refetch()}>{l('刷新状态','Refresh state')}</button>}
   </div>;
 }
-/** Keep navigation rows quiet; lifecycle controls live in the Agent detail. */
+type DirectoryBadge = {agent_id?:string; lifecycle_disabled?:boolean};
+
+function updateDirectoryBadge(client:QueryClient,self:string | undefined,agentId:string,disabled:boolean) {
+  for (const key of [['contacts',self,'agents'], ['public-agents',self]]) {
+    const rows=client.getQueryData<DirectoryBadge[]>(key);
+    const row=rows?.find(agent=>agent.agent_id===agentId);
+    if (!rows || row?.lifecycle_disabled===undefined || row.lifecycle_disabled===disabled) continue;
+    // A pending page read may predate this event. Keep its response from restoring the old badge.
+    void client.cancelQueries({queryKey:key,exact:true});
+    client.setQueryData(key,rows.map(agent=>agent===row ? {...agent,lifecycle_disabled:disabled} : agent));
+  }
+}
+
+/** Apply live state to known rows; recovery reloads the full authorized directory. */
+export function useDirectoryLifecycleRefresh(refetch: () => Promise<unknown>) {
+  const client=useQueryClient();
+  const self=useAuthStore(s=>s.user?.id);
+  useEffect(() => subscribeUserStream({
+    onEvent: ({eventType,payload}) => {
+      if (eventType==='agent.lifecycle.changed' && typeof payload.agent_id==='string' && typeof payload.revision==='number')
+        updateDirectoryBadge(client,self,payload.agent_id,confirmedDisabled(payload));
+    },
+    onRecovery: async () => { await refetch(); }
+  }), [client,self,refetch]);
+}
+
+function LegacyLifecycleBadge({agentId}: {agentId:string}) {
+  const {query} = useAgentLifecycle(agentId);
+  return query.data && !query.error && confirmedDisabled(query.data) ? <ConfirmedDisabledStatus compact /> : null;
+}
+
+/** Older centers and a bound PA still missing from contacts use their individual status. */
 export function AgentLifecycleRow(props: AgentRowProps) {
-  const lifecycle = useAgentLifecycle(props.agent.agent_id);
-  return <div className="im-agent-lifecycle-row"><AgentRow {...props} statusBadge={<AgentLifecycleStatus lifecycle={lifecycle} online={props.agent.node_status === 'online'} compact />} /></div>;
+  const disabled = props.agent.lifecycle_disabled;
+  const badge = disabled === undefined ? <LegacyLifecycleBadge agentId={props.agent.agent_id} />
+    : disabled && <ConfirmedDisabledStatus compact />;
+  return <div className="im-agent-lifecycle-row"><AgentRow {...props} statusBadge={badge} /></div>;
 }

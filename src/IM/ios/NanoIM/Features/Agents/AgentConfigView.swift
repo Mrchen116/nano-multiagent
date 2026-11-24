@@ -1,7 +1,16 @@
 import SwiftUI
 
+private struct AgentConfigSnapshot: Decodable, Sendable {
+    let config: AgentConfig
+    let display: AgentSettingsRead<JSONValue>
+    let live_capabilities: AgentCapabilities?
+    let pending_operation: JSONValue?
+    let ready: Bool
+}
+
 struct AgentConfigView: View {
     let client: IMClient; let agentID: String
+    var personal = false
     var onDeleted: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var capabilityToast: CapabilityToastMessage?
@@ -9,6 +18,8 @@ struct AgentConfigView: View {
     @State private var config: AgentConfig?
     @State private var draft = AgentDraft()
     @State private var capabilities: AgentCapabilities?
+    @State private var settingsRead: AgentSettingsRead<JSONValue>?
+    @State private var ready = false
     @State private var error: String?
     @State private var capabilityError: String?
     @State private var busy = false
@@ -42,12 +53,15 @@ struct AgentConfigView: View {
                                        })
             }
             if let config {
-                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapability,
-                                  configurationDisabled: pending || busy || conflicted || deleting,
+                if let settingsRead, settingsRead.source != "current" {
+                    offlineDetails(settingsRead)
+                }
+                AgentEditorFields(draft: $draft, capabilities: capabilities, onCapabilityChange: changeCapabilities, personal: personal,
+                                  configurationDisabled: !ready || pending || busy || conflicted || deleting,
                                   roleEditor: AgentRoleEditor(client: client, agentID: agentID,
                                                               online: lifecycleContact?.status == "online" && !deleting,
                                                               hasUnsavedChanges: $roleHasUnsavedChanges))
-                AgentHeartbeatFields(draft: $draft, client: client, agentID: agentID).disabled(pending || busy || conflicted || deleting)
+                AgentHeartbeatFields(draft: $draft, client: client, agentID: agentID).disabled(!ready || pending || busy || conflicted || deleting)
                 Section {
                     DisclosureGroup(L("配置归属", "Configuration")) {
                         LabeledContent("Agent ID", value: agentID)
@@ -57,9 +71,10 @@ struct AgentConfigView: View {
                         Text(L("工作模式和目录在创建后固定。", "Work mode and directory are fixed after creation.")).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                Section { NavigationLink(L("插件", "Plugins")) { AgentPluginsView(client: client, agentID: agentID) } }
                 Section { NavigationLink(L("现有定时任务", "Existing scheduled jobs")) { AgentCronView(client: client, agentID: agentID) } }
                 if let capabilityError {
-                    Section { ErrorNotice(message: capabilityError); Text(L("能力目录不可用，保留已有配置。重新连接设备后再更改能力。", "Capabilities are unavailable. Existing selections are preserved; reconnect the device to change them.")); Button(L("重读能力", "Reload capabilities")) { Task { await loadCapabilities() } } }
+                    Section { ErrorNotice(message: capabilityError); Text(L("能力目录不可用，保留已有配置。重新连接设备后再更改能力。", "Capabilities are unavailable. Existing selections are preserved; reconnect the device to change them.")); Button(L("重读能力", "Reload capabilities")) { Task { await load() } } }
                 }
                 Section {
                     if let error { ErrorNotice(message: error) }
@@ -77,9 +92,10 @@ struct AgentConfigView: View {
                                 Text(L("模型", "Model") + ": " + (currentConfig.default_model ?? "—"))
                                 Text(L("备用模型", "Fallbacks") + ": " + currentConfig.model_fallbacks.joined(separator: ", "))
                                 Text(L("工具", "Tools") + ": " + currentConfig.tool_allowlist.filter { $0 != "memory" }.joined(separator: ", "))
-                                Text((currentConfig.skills_selection_mode == "explicit_denylist" ? L("已禁用 Skills: ", "Disabled skills: ") : "Skills: ") + currentConfig.skills.joined(separator: ", "))
+                                Text((currentConfig.skills_selection_mode == "explicit_denylist" ? L("已禁用 Skills: ", "Disabled skills: ") : "Skills: ") + (currentConfig.skills ?? []).joined(separator: ", "))
                                 Text(L("Skills 选择模式", "Skill selection mode") + ": " + (currentConfig.skills_selection_mode ?? "default_discovery"))
                                 Text(L("推理强度", "Reasoning effort") + ": " + (currentConfig.reasoning_effort ?? L("默认", "Default")))
+                                LabeledContent(L("审批模式", "Approval mode"), value: currentConfig.approval_mode ?? L("继承", "Inherited"))
                                 Text(L("协作范围", "Collaboration scope") + ": " + (currentConfig.collaboration_scope == "owner_only" ? L("仅限本人", "Owner only") : L("团队协作", "Team")))
                                 ForEach(currentConfig.features.keys.filter { !["memory_curation", "skill_creation"].contains($0) }.sorted(), id: \.self) { key in
                                     LabeledContent(agentFeatureName(key), value: currentConfig.features[key] == true ? L("启用", "Enabled") : L("关闭", "Disabled"))
@@ -107,20 +123,49 @@ struct AgentConfigView: View {
         .navigationTitle(L("Agent 配置", "Agent configuration")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .confirmationAction) {
             Button(busy ? L("保存中", "Saving") : L("保存", "Save")) { Task { await save() } }
-                .fontWeight(.semibold).disabled(config == nil || busy || pending || conflicted || deleting || !dirty || draft.display_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .fontWeight(.semibold).disabled(!ready || busy || pending || conflicted || deleting || !dirty || draft.display_name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         } }
         .navigationBarBackButtonHidden(dirty || pending || roleHasUnsavedChanges)
         .toolbar { if dirty || pending || roleHasUnsavedChanges { ToolbarItem(placement: .navigation) { Button(L("返回", "Back")) { confirmLeave = true } } } }
         .confirmationDialog(L("离开并放弃未保存草稿？", "Leave and discard unsaved draft?"), isPresented: $confirmLeave, titleVisibility: .visible) { Button(L("离开", "Leave"), role: .destructive) { dismiss() } }
         .sheet(item: $preview) { value in AgentTextSheet(title: L("提示词预览", "Prompt preview"), text: value.prompt, preview: true) }
-        .task { lifecycleUserID = await client.session.currentUser()?.id; await load() }
+        .task { lifecycleUserID = await client.session.currentUser()?.owner_id; await load() }
+        .onChange(of: lifecycleContact?.status) { old, new in
+            if new != "online" { ready = false }
+            if old != nil && old != new { Task { await load() } }
+        }
+        .refreshable { await load() }
         .task { repeat { lifecycleContact = try? await client.contacts(kind: "agent").first { $0.agent_id == agentID }; try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled }
     }
-    private func changeCapability(_ action: CapabilityAction) {
+    private func offlineDetails(_ settingsRead: AgentSettingsRead<JSONValue>) -> some View {
+        Section {
+            AgentSettingsNotice(read: settingsRead)
+            if let data = settingsRead.data {
+                let labels = data["models"].agentArray.map { $0["display_name"].stringValue ?? $0["name"].agentString }.joined(separator: " · ")
+                if !labels.isEmpty { LabeledContent(L("已知模型", "Reported models"), value: labels) }
+                if let inherited = data["inherited_approval_rules"].stringValue {
+                    LabeledContent(L("继承的审批规则", "Inherited approval"), value: ["nano": "CC", "codex": "Codex", "dsh": "DSH"][inherited] ?? inherited)
+                }
+                DisclosureGroup(L("已报告的能力", "Reported capabilities")) {
+                    ForEach(["tools", "skills", "features"], id: \.self) { field in
+                        ForEach(data[field].agentArray.indices, id: \.self) { index in
+                            let option = data[field].agentArray[index]
+                            let label = option["name"].stringValue ?? agentFeatureName(option["key"].agentString)
+                            let enabled = option["enabled"].boolValue
+                            LabeledContent(label, value: enabled.map { $0 ? L("开启", "On") : L("关闭", "Off") } ?? (field == "tools" ? L("允许", "Allowed") : "—"))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func changeCapabilities(_ actions: [CapabilityAction]) {
+        guard let action = actions.first else { return }
         capabilityToast = nil
         guard let capabilities, !checkingCapability else { return }
         var candidate = draft
-        let blocks = candidate.changeCapability(action, capabilities: capabilities)
+        let blocks = candidate.changeCapabilities(actions, capabilities: capabilities)
         if let block = blocks.first { capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name); return }
         let removed = candidate.removingCapabilities(from: draft, capabilities: capabilities)
         if removed.isEmpty { draft = candidate; return }
@@ -131,23 +176,33 @@ struct AgentConfigView: View {
                 let usage: CapabilityUsage = try await client.get(agentPath(agentID) + "/capability-usage")
                 if let block = usage.blocks(removing: removed).first { capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name); return }
                 // Apply against the current draft so unrelated edits survive the request.
-                let blocks = draft.changeCapability(action, capabilities: capabilities)
+                let blocks = draft.changeCapabilities(actions, capabilities: capabilities)
                 if let block = blocks.first { capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name) }
             } catch { capabilityToast = .init(text: CapabilityBlock(code: "capability_unavailable", target: action.target).message, anchor: action.kind + ":" + action.name) }
         }
     }
     private func load() async {
-        do { let value: AgentConfig = try await client.get(agentPath(agentID) + "/config", query: [URLQueryItem(name: "source", value: "mirror")]); config = value; draft = value.draft; error = nil; await loadCapabilities() }
-        catch { self.error = agentError(error) }
-    }
-    private func loadCapabilities() async {
-        do { capabilities = try await client.get(agentPath(agentID) + "/capabilities"); draft.fixed_tools = capabilities?.fixed_tools ?? []; capabilityError = nil
-            let _: CapabilityUsage? = try? await client.get(agentPath(agentID) + "/capability-usage")
+        do {
+            let value: AgentConfigSnapshot = try await client.get(agentPath(agentID) + "/settings")
+            try Task.checkCancellation()
+            if !dirty { config = value.config; draft = value.config.draft }
+            else if config?.profile_version != value.config.profile_version { currentConfig = value.config; conflicted = true }
+            capabilities = value.live_capabilities
+            draft.fixed_tools = capabilities?.fixed_tools ?? []
+            settingsRead = value.display; ready = value.ready
+            if value.pending_operation != nil { pending = true }
+            capabilityError = value.ready || value.pending_operation != nil ? nil : L("等待电脑确认配置", "Waiting for configuration from the computer")
+            error = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            ready = false; self.error = agentError(error)
+            if let api = error as? APIError, [401, 403, 404].contains(api.status) {
+                config = nil; capabilities = nil; currentConfig = nil; settingsRead = nil; draft = AgentDraft()
+            }
         }
-        catch { capabilityError = agentError(error); capabilities = nil }
     }
     private func save() async {
-        guard let config, !deleting else { return }
+        guard let config, ready, !deleting else { return }
         busy = true; saved = false; error = nil; defer { busy = false }
         do { let value: AgentConfig = try await client.send(agentPath(agentID) + "/config", method: "PATCH", body: draft.payload(version: config.profile_version)); self.config = value; draft = value.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; saved = true }
         catch {
@@ -160,9 +215,21 @@ struct AgentConfigView: View {
     private func reconcile() async {
         busy = true; defer { busy = false }
         do {
-            let value: AgentConfig = try await client.get(agentPath(agentID) + "/config")
-            if value.profile_version > (config?.profile_version ?? 0) { config = value; draft = value.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; pending = false; saved = true; error = nil }
-            else { pending = false; error = L("服务器版本未改变；草稿已恢复，可核对后重试保存。", "The server version is unchanged. The draft is restored; review it before retrying.") }
+            let snapshot: AgentConfigSnapshot = try await client.get(agentPath(agentID) + "/settings")
+            capabilities = snapshot.live_capabilities; settingsRead = snapshot.display; ready = snapshot.ready
+            guard snapshot.pending_operation == nil else { return }
+            pending = false
+            let value = snapshot.config
+            var current = value.draft
+            current.fixed_tools = draft.fixed_tools
+            if !dirty || current.payload() == draft.payload() {
+                config = value; draft = current; saved = true; error = nil
+            } else if value.profile_version != config?.profile_version {
+                currentConfig = value; conflicted = true; saved = false
+                error = L("电脑已确认其他配置，请核对当前版本及草稿。", "The computer confirmed different settings. Review the current version against your draft.")
+            } else {
+                error = L("服务器版本未改变；草稿已保留，可核对后重试。", "The server version is unchanged. Review the preserved draft before retrying.")
+            }
         } catch { self.error = agentError(error) }
     }
     private func readConflict() async {
@@ -178,7 +245,10 @@ struct AgentConfigView: View {
 struct AgentEditorFields: View {
     @Binding var draft: AgentDraft
     let capabilities: AgentCapabilities?
-    var onCapabilityChange: ((CapabilityAction) -> Void)? = nil
+    var onCapabilityChange: (([CapabilityAction]) -> Void)? = nil
+    var personal = false
+    var approvalRules: String? = nil
+    var customApprovalWorkspace = false
     var showProfile = true
     var showModels = true
     var showCapabilities = true
@@ -193,7 +263,7 @@ struct AgentEditorFields: View {
         if showProfile { Section(L("基本资料", "Profile")) {
             VStack(alignment: .leading, spacing: 7) {
                 Text(L("名称", "Name")).font(.caption).foregroundStyle(NanoTheme.muted)
-                TextField(L("名称", "Name"), text: $draft.display_name)
+                TextField(L("名称", "Name"), text: $draft.display_name).disabled(personal)
             }.padding(.vertical, 4)
             VStack(alignment: .leading, spacing: 7) {
                 Text(L("描述", "Description")).font(.caption).foregroundStyle(NanoTheme.muted)
@@ -207,6 +277,16 @@ struct AgentEditorFields: View {
                  ? L("仅接收你与 Agent 的私聊。尚未递送的团队消息会跳过，切回后也不会补发。", "Only your private messages arrive. Pending team messages are skipped, including after switching back.")
                  : L("团队成员的私聊、群里 @ 或回复 Agent 的消息会及时提醒，普通群消息合并提醒。", "Team members can message this Agent privately. Direct messages, mentions and replies arrive promptly. Other group messages arrive in batches."))
                 .font(.caption).foregroundStyle(NanoTheme.muted)
+        } }
+        if showModels { Section(L("审批模式", "Approval mode")) {
+            let rules = customApprovalWorkspace ? approvalRules : capabilities?.inherited_approval_rules
+            let inherited = ["nano": "CC", "codex": "Codex", "dsh": "DSH"][rules ?? ""] ?? L("待电脑确认", "Awaiting computer")
+            Picker(L("审查方式", "Review strategy"), selection: $draft.approval_mode) {
+                Text(L("沿用电脑", "Use computer setting") + " · " + inherited).tag("")
+                Text("CC").tag("cc")
+                Text("Codex").tag("codex")
+            }
+            Text(L("下轮任务生效，自动审批沿用电脑设置。", "Takes effect on the next task. Automatic approval follows the computer’s setting.")).font(.caption).foregroundStyle(.secondary)
         } }
         if showModels { Section(L("模型与推理", "Model and reasoning")) {
             Menu {
@@ -273,10 +353,15 @@ struct AgentEditorFields: View {
             DisclosureGroup("Skills") {
                 Text(L("新技能默认启用；取消勾选的技能保持禁用。", "New skills are enabled by default; unchecked skills stay disabled.")).font(.caption).foregroundStyle(.secondary)
                 if let capabilities {
-                    ForEach(["workspace", "global", "compatibility", "unknown"], id: \.self) { group in
-                        let options = capabilities.skills.filter { $0.name != "skill-creator" && ($0.source_group ?? "unknown") == group }
+                    ForEach(["workspace", "global", "compatibility"], id: \.self) { group in
+                        let options = capabilities.skills.filter { $0.name != "skill-creator" && $0.skillGroup(workspaceRoot: draft.workspace_root) == group }
                         if !options.isEmpty {
                             DisclosureGroup(agentSkillGroupName(group)) {
+                                let enabled = Set(draft.enabledSkills(candidates: capabilities.skills.map(\.name)))
+                                let enable = !options.allSatisfy { enabled.contains($0.name) }
+                                Button(enable ? L("启用本组全部", "Enable group") : L("禁用本组全部", "Disable group")) {
+                                    onCapabilityChange?(options.filter { enabled.contains($0.name) != enable }.map { CapabilityAction(kind: "skill", name: $0.name, enabled: enable) })
+                                }
                                 ForEach(options) { option in
                                     Toggle(isOn: Binding(get: { draft.enabledSkills(candidates: capabilities.skills.map(\.name)).contains(option.name) }, set: { change(.init(kind: "skill", name: option.name, enabled: $0)) })) {
                                         VStack(alignment: .leading) { Text(option.name); if let location = option.location { Text(location).font(.caption).foregroundStyle(.secondary) }; if let description = option.description { Text(description).font(.caption) } }
@@ -310,7 +395,7 @@ struct AgentEditorFields: View {
     }
     private func modelLabel(_ name: String) -> String { models.first { $0.name == name }?.displayLabel ?? name }
     private func change(_ action: CapabilityAction) {
-        onCapabilityChange?(action)
+        onCapabilityChange?([action])
     }
 
 }

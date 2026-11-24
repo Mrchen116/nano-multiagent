@@ -28,6 +28,27 @@ it('distinguishes source installs and refuses mismatched managed package identit
   } finally { await rm(root, {recursive: true, force: true}); }
 });
 
+it('registers the Windows descriptor identity and resolves private pnpm within its runtime', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nano-windows-release-'));
+  const release = manifest();
+  const base = release.download_url.slice(0, release.download_url.lastIndexOf('/') + 1);
+  const windows: ReleaseManifest = {
+    ...release, platform: 'win32-x64', package: 'windows-x64.json', size: 1200,
+    download_url: base + 'windows-x64.json',
+    installer: {size: 2000, sha256: 'c'.repeat(64), download_url: base + 'Crewden-Setup-x64.exe'},
+  };
+  try {
+    await writeFile(join(root, '.release-manifest.json'), JSON.stringify(windows));
+    await writeFile(join(root, '.nano-release.json'), JSON.stringify({
+      source_commit: release.source_commit, updater_protocol: 1, data_epoch: 1,
+    }));
+    const actual = await loadNodeRelease(root);
+    expect(actual).toMatchObject({kind: 'managed', platform: 'win32-x64', sha256: windows.sha256});
+    expect(installedPackageManager(actual, root)?.args).toEqual([join(root, 'runtime/tooling/node_modules/pnpm/bin/pnpm.cjs')]);
+    await expect(installRelease(windows, root, async () => {})).rejects.toThrow('Incompatible');
+  } finally { await rm(root, {recursive: true, force: true}); }
+});
+
 it('verifies fixed HTTPS download and build metadata before dependency installation', async () => {
   const root = await mkdtemp(join(tmpdir(), 'nano-download-'));
   const previousPath = process.env.PATH;

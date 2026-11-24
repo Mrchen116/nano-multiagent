@@ -1643,7 +1643,7 @@
     "bindDescription": "确认后，这台电脑会连接到你的个人空间，用于运行你创建的助手。",
     "bindAccept": "确认连接这台电脑",
     "bindAccount": "当前登录账号",
-    "bindComplete": "电脑已连接，可以继续设置助手。",
+    "bindComplete": "账号和电脑均已确认。",
     "bindWorkspace": "你的电脑，\n助手的工作台。",
     "bindSceneDetail": "让想法有地方落地，让工作持续推进。",
     "bindSceneFoot": "只有经你确认，电脑才会加入当前账号。",
@@ -1651,10 +1651,10 @@
     "bindLoading": "正在读取电脑信息…",
     "bindConfirmLabel": "确认连接",
     "bindConnectingLabel": "连接进行中",
-    "bindConnectedLabel": "连接完成",
+    "bindConnectedLabel": "绑定完成",
     "bindConnectingTitle": "正在为助手准备工作台",
-    "bindConnectedTitle": "电脑就绪，可以继续了",
-    "bindConnectedNote": "接下来连接模型，再给你的个人助手起个名字。",
+    "bindConnectedTitle": "这台电脑已绑定到你的账号",
+    "bindConnectedNote": "回到设置页查看连接状态。电脑上线后，就可以为助手连接模型。",
     "bindWaitingNote": "账号已确认。保持电脑上的安装窗口打开，连接完成后即可继续。",
     "bindProgress": "连接进度",
     "bindAccountCheck": "确认接收账号",
@@ -1662,7 +1662,7 @@
     "bindAccountDone": "已获得你的确认",
     "bindComputerCheck": "等待电脑连接",
     "bindComputerHint": "电脑端完成连接后，这里会自动更新",
-    "bindComputerDone": "电脑端已完成连接"
+    "bindComputerDone": "电脑端已确认"
   },
   "nodeUpdate": {
     "available": {
@@ -1761,6 +1761,27 @@
     "waitRecovery": "电脑恢复后继续处理，无需重发"
   },
   "computers": {
+    "operatingSystem": "电脑系统",
+    "reconnectAction": "重新连接这台电脑",
+    "recoveryBody": "电脑尚未恢复。请在这台电脑上重新打开 Crewden，聊天和文件会保留。",
+    "windows": {
+      "unavailable": "Windows 安装包暂不可用",
+      "unavailableHelp": "当前服务尚未提供可用的 Windows 安装入口。你可以稍后回来继续。",
+      "checkAgain": "重新检查",
+      "download": "下载 Windows 安装包",
+      "redownload": "重新下载",
+      "alreadyInstalled": "已安装，连接这台电脑",
+      "reopen": "重新打开 Crewden",
+      "open": "打开 Crewden 连接",
+      "initialTitle": "安装 Windows 电脑端",
+      "initialHelp": "双击下载的安装包，完成后回到此页连接。",
+      "downloadedTitle": "连接这台电脑",
+      "downloadedHelp": "在这台电脑上完成安装后，打开 Crewden 连接当前账号。",
+      "waitingTitle": "确认你的账号和电脑",
+      "waitingHelp": "请在打开的窗口核对连接地址，再到浏览器确认账号。如果没有打开，可以重试。",
+      "waiting": "等待电脑上线",
+      "online": "现在可以为这台电脑连接模型。"
+    },
     "account": "我的账号",
     "summary": "{{total}} 台电脑 · {{online}} 台在线",
     "subtitle": "你的电脑与助手",

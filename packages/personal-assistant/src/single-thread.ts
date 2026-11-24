@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { RuntimeInput } from '@nano/product-contracts/runtime-rpc';
 import type { ChatStreamFact, ChatStreamReceipt, ChatTurnStart, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
@@ -9,7 +10,7 @@ import { CHAT_BACKGROUND_DELAY_MS, formatLocalTime, projectChatReplyContext, wit
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { readonly ready?:boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
-interface InputEvidence { accepted: boolean; providerDelivered?:boolean; pending?: boolean; consumedSeq?: number; turn?: number; terminal?: unknown }
+type SubmitInput = RuntimeInput<'session.submit'>;
 interface Options {
   nodeId: string;
   ownerId: string;
@@ -56,7 +57,7 @@ export class SingleThread {
   constructor(private readonly options: Options) {
     const relay=options.relay,runtime=options.runtime;
     options={...options,relay:{get ready(){return 'ready' in relay ? relay.ready as boolean : true;},request:(type,payload)=>relay.request(type,type==='node.delivery_receipt'?payload:options.store.executionPayload(payload))},
-      runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload((params??{}) as Record<string,unknown>))}};
+      runtime:{onNotification:runtime.onNotification.bind(runtime),request:(method,params)=>runtime.request(method,options.store.executionPayload(params))}};
     this.options=options;
     this.controls = new SessionControls(options);
     this.unsubscribe = options.runtime.onNotification((method, value) => {
@@ -203,7 +204,7 @@ export class SingleThread {
       if (!text) {
         let result:{wasRunning:boolean;paused?:number};
         if(controlText(input)==='/stop'&&this.options.taskStop)result=await this.options.taskStop(binding,input);
-        else {await runtime.request('session.ensure', runtimeBinding(binding));result=await runtime.request('session.cancel', {sessionId:binding.sessionId,settleTaskContext:controlText(input)==='/new'}) as {wasRunning:boolean};}
+        else {await runtime.request('session.ensure', runtimeBinding(binding));result=await runtime.request('session.cancel', {sessionId:binding.sessionId,settleTaskContext:controlText(input)==='/new'});}
         await this.reconcile(binding.sessionId);
         if (controlText(input) === '/new') {
           store.reset(binding, { ...binding, sessionId: randomUUID(), revision: config.revision }, commandId);
@@ -262,12 +263,12 @@ export class SingleThread {
   private async submitAdmitted(binding: SessionBinding, input: RelayInput, current?: () => boolean) {
     const { store, runtime } = this.options;
     const inputId = `${input.agent_id}:${input.message.id}`;
-    const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId }) as InputEvidence;
+    const evidence = await runtime.request('session.lookup', { sessionId: binding.sessionId, inputId });
     if (!evidence.accepted) {
       const members = store.batchInputs(binding.sessionId,inputId);
       const chatBatch = members.length > 0 && input.metadata.chat_batch;
       const deadline = chatBatch === 'deadline';
-      const content: Record<string,unknown>[] = [];
+      const content: SubmitInput['content'] = [];
       const attachmentSources: ({kind:'chat';conversationId:string;messageId:string;url:string}|null)[] = [];
       let contextEnvelope: string | undefined;
       for (const member of members.length ? members : [input]) {
@@ -288,11 +289,11 @@ export class SingleThread {
       const chat = !!chatBatch || !input.metadata.origin && !input.metadata.runtime_input_id &&
         ['direct','group'].includes(String(input.metadata.conversation_type));
       const teamChat = chat && chatDelivery(input,{...config,collaborationScope:'owner_only'},this.options.ownerId) === 'skip';
-      const source = deadline
+      const source: SubmitInput['source'] = deadline
         ? {kind:'system', channel:'chat-background', actorId:binding.agentId, messageId:inputId}
         : {kind:input.message.sender_type === 'user' ? 'human' : 'system', actorId:input.message.sender_user_id,
           ...(input.metadata.channel === 'feishu' && input.metadata.owner_user_id === binding.ownerId ? {roleAccountId:binding.ownerId} : {}),
-          channel:input.metadata.channel ?? 'web_relay', messageId:input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender},
+          channel:typeof input.metadata.channel === 'string' ? input.metadata.channel : 'web_relay', messageId:input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender},
           ...(input.message.pa_agent_id ? {pa_agent_id:input.message.pa_agent_id} : {}), contextEnvelope,
           ...(input.message.sender_type === 'user' && (chatBatch || input.metadata.thread_root_message_id) ? {directHumanText:input.message.content} : {})};
       await runtime.request('session.submit', {sessionId:binding.sessionId, inputId,
@@ -316,7 +317,7 @@ export class SingleThread {
     const text = threadText ?? (input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText);
     const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
     const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
-    const content: Record<string, unknown>[] = [];
+    const content: SubmitInput['content'] = [];
     const imageSources = new Map<number, { kind: 'chat'; conversationId: string; messageId: string; url: string }>();
     let contextEnvelope: string | undefined;
     const sourceTime = 'provider_source_time' in input.metadata ? input.metadata.provider_source_time : input.message.created_at;
@@ -351,7 +352,8 @@ export class SingleThread {
     for (const part of parts) {
       if (part.type === 'text') { content.push({ type: 'text', text: part.text ?? '' }); continue; }
       const attachment = input.message.attachments.find(attachment => attachment.url === part.url);
-      if (!attachment?.content_type.startsWith('image/')) throw new Error('This input attachment is not an image');
+      if (!attachment || attachment.content_type !== 'image/png' && attachment.content_type !== 'image/jpeg' &&
+          attachment.content_type !== 'image/webp' && attachment.content_type !== 'image/gif') throw new Error('Unsupported image media type');
       imageSources.set(content.length, { kind: 'chat', conversationId: input.conversation_id, messageId: input.message.id, url: attachment.url });
       content.push({ type: 'image', mediaType: attachment.content_type, name: attachment.file_name, data: await this.options.image(attachment.url, binding.agentId) });
     }
@@ -430,7 +432,7 @@ export class SingleThread {
     const task = store.lifecycle.run(agentId, revision, async () => {
       try {
         const localWork = store.hasRecoveryWork(sessionId);
-        const probe = await runtime.request('session.recovery.probe', {sessionId, afterSeq: store.cursor(sessionId), localWork}) as {live: boolean; unseen: boolean};
+        const probe = await runtime.request('session.recovery.probe', {sessionId, afterSeq: store.cursor(sessionId), localWork});
         if (!current()) return;
         if (probe.unseen || store.hasRecoveryWork(sessionId)) await this.restore(binding, probe.live, current);
         else if (!probe.live && generation !== boot) store.confirmColdSession(sessionId, generation);
@@ -483,13 +485,13 @@ export class SingleThread {
     const { store, runtime } = this.options;
     const binding = store.bindingForSession(sessionId);
     if (!binding) return;
-    const read = await runtime.request('session.observe', { sessionId, afterSeq: store.cursor(sessionId) }) as { events: RuntimeEvent[]; durable: boolean; modelRuns?: ModelRunProjection[] };
+    const read = await runtime.request('session.observe', { sessionId, afterSeq: store.cursor(sessionId) });
     if (!read.durable) throw new Error('Runtime observation lacks a durable barrier');
     store.recordEvents(sessionId, read.events);
     const runs = read.modelRuns ?? [];
     this.modelRuns.set(sessionId, runs);
     for (const inputId of store.lookupInputIds(sessionId)) {
-      const evidence = await runtime.request('session.lookup', { sessionId, inputId }) as InputEvidence;
+      const evidence = await runtime.request('session.lookup', { sessionId, inputId });
       const run = read.modelRuns?.find(run => run.turn === evidence.turn || run.attempts.some(attempt => attempt.turn === evidence.turn));
       // Only fresh logical evidence can settle an input. Receipt recovery below
       // remains independent, and an older running observation delays finality.

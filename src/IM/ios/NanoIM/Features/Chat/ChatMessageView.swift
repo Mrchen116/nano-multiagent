@@ -11,11 +11,13 @@ struct ChatMessageView: View {
     var presentations: InteractiveCardPresentations?
     var scroll: ChatScrollCoordinator?
     var locateQuote: ((String) -> Void)?
+    var openActivity: (() -> Void)?
     let refreshed: () -> Void
     @State private var showProcess = false
     private var mine: Bool { message.sender.id == selfID }
     private var receipts: [MessageReceipt] { mine && message.sender_type == "user" ? message.receipts ?? [] : [] }
     private var intelligentUI: Bool { message.interactive?.catalog_version == "nano-iui-1" }
+    private var participantSender: ActorRef? { participants.first { $0.id == message.sender.id } }
     private var senderName: String { message.sender.display_name ?? participants.first { ($0.user_id ?? $0.id) == message.sender.id }?.display_name ?? message.sender.id }
     var body: some View {
         if message.system_notice?["kind"].stringValue == "task_graph" {
@@ -26,7 +28,7 @@ struct ChatMessageView: View {
         } else if intelligentUI {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32)
+                    senderAvatar
                     senderIdentity
                 }
                 messageContent
@@ -34,15 +36,36 @@ struct ChatMessageView: View {
             }.frame(maxWidth: .infinity, alignment: .leading)
         } else { bubble }
     }
+    @ViewBuilder private var senderAvatar: some View {
+        let avatar = AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32, agentID: message.sender.id, role: message.sender.role ?? participantSender?.role, variant: message.sender.avatar_variant ?? participantSender?.avatar_variant)
+        if let openActivity {
+            Button(action: openActivity) { avatar }.buttonStyle(.plain)
+                .accessibilityLabel(L("查看\(senderName)的活动", "View activity for \(senderName)"))
+        } else { avatar }
+    }
+
     private var taskNoticeText: AttributedString {
         let text = ChatText.display(message.content, participants: participants)
-        return (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace), baseURL: client.baseURL)) ?? AttributedString(text)
+        var notice = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace), baseURL: client.baseURL)) ?? AttributedString(text)
+        if let actorID = message.system_notice?["actor"]["id"].stringValue,
+           let colon = notice.characters.firstIndex(of: "：") {
+            let actor = String(notice.characters[..<colon])
+            let suffix = " (" + actorID + ")"
+            if actor.hasSuffix(suffix) {
+                let name = String(actor.dropLast(suffix.count))
+                if !name.isEmpty, participants.filter({ $0.display_name == name }).count <= 1 {
+                    let start = notice.characters.index(colon, offsetBy: -suffix.count)
+                    notice.removeSubrange(start..<colon)
+                }
+            }
+        }
+        return notice
     }
     private var bubble: some View {
         HStack(alignment: .top, spacing: 8) {
             if mine { Spacer(minLength: 28) }
-            else if message.system_notice == nil { AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32) }
-            VStack(alignment: .leading, spacing: 6) {
+            else if message.system_notice == nil { senderAvatar }
+            VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
                 if message.system_notice == nil && ((showSenderName && !mine) || message.pa_agent_id != nil || message.delegation != nil) {
                     senderIdentity
                 }
@@ -50,7 +73,6 @@ struct ChatMessageView: View {
                 if hasMetadata { metadata }
             }
             if !mine { Spacer(minLength: 14) }
-            else if message.system_notice == nil { AvatarView(name: senderName, size: 32) }
         }
     }
     private var senderIdentity: some View {
@@ -64,23 +86,22 @@ struct ChatMessageView: View {
     }
     private var messageContent: some View {
         VStack(alignment: .leading, spacing: 10) {
+            if let reply = message.reply_to {
+                Button {
+                    if let locateQuote { locateQuote(reply.message_id) }
+                    else { chat.messageLocation = ChatMessageLocation(conversationID: message.conversation_id, messageID: reply.message_id) }
+                } label: {
+                    ChatReplyLabel(reply: reply, participants: participants)
+                }.buttonStyle(.plain).accessibilityHint(L("查看原文", "Show original message"))
+            }
             if let notice = message.system_notice {
                 Label(notice["kind"].stringValue ?? L("系统通知", "System notice"), systemImage: "info.circle").font(.callout)
                 if let name = notice["source_agent_display_name"].stringValue { Text(name).font(.caption).foregroundStyle(.secondary) }
                 if let targets = notice["updated_targets"].arrayValue { Text(targets.compactMap(\.stringValue).joined(separator: ", ")).font(.caption) }
             }
-            if let reply = message.reply_to {
-                let preview = VStack(alignment: .leading, spacing: 2) {
-                    Text(reply.sender.display_name ?? reply.sender.id).font(.caption.weight(.semibold))
-                    Text(ChatText.display(reply.content, participants: participants)).font(.caption2).foregroundStyle(NanoTheme.muted).lineLimit(2)
-                }.padding(8).frame(maxWidth: .infinity, alignment: .leading).background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 8))
-                if let locateQuote {
-                    Button { locateQuote(reply.message_id) } label: { preview }.buttonStyle(.plain)
-                } else { preview }
-            }
             if !message.content.isEmpty {
                 // Scroll and receipt updates can leave the rendered message body identical.
-                MarkdownView(text: ChatText.display(message.content, participants: participants), client: client)
+                MarkdownView(text: ChatText.display(message.content, participants: participants), client: client, fillsWidth: intelligentUI)
                     .equatable()
             }
             if message.interactive != nil {
@@ -114,10 +135,9 @@ struct ChatMessageView: View {
             ForEach(message.permission_requests ?? []) { permission in
                 ChatPermissionCard(client: client, conversationID: message.conversation_id, messageID: message.id, permission: permission, readOnly: readOnly, refreshed: refreshed)
             }
-            }.padding(intelligentUI ? 0 : 14)
+            }.padding(intelligentUI ? 0 : 10)
                 .padding(.trailing, receipts.isEmpty ? 0 : 24)
-                .background(intelligentUI ? Color.clear : mine ? NanoTheme.softAccent : NanoTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(mine || intelligentUI ? Color.clear : NanoTheme.border, lineWidth: 1))
+                .background(intelligentUI ? Color.clear : mine ? Color("OutgoingBubble") : NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 12))
                 .foregroundStyle(NanoTheme.ink).textSelection(.enabled)
                 .overlay(alignment: .bottomTrailing) {
                     if !receipts.isEmpty {

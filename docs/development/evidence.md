@@ -1,6 +1,6 @@
-# Evidence
+# Nano Evidence
 
-一次验证只有在“要证明的声明、验证方法、运行结果、保存位置和能力边界”能够连起来时，才可供下一位 Agent 复查。不同证据回答不同问题，交付结论通常需要把其中几类串成证据链。
+可复查记录的字段、通用证据限制与如何转化为长期保护见 [Evidence](https://github.com/Mrchen116/dev-workflow-skills/blob/main/docs/development/evidence.md)。面向 Nano 的运行入口、实际 CI 和保存约束见下文。
 
 ## 证据类型与能力边界
 
@@ -16,8 +16,6 @@
 | LLM 交互日志 | 实际发给 provider 的请求和返回链路 | 应用已正确消费、消息已送达用户 | [`llm-integration.md`](llm-integration.md) | `LLM_PROXY/logs/session/*_<session_id>/`，仓内只记录 locator |
 | GitHub CI | PR head 在 CI 环境通过仓库定义的 jobs | 未进入 CI 的 E2E、外部凭据和人工体验 | `.github/workflows/ci.yml`、`gh pr checks` | GitHub check/run URL 与 PR Validation Summary |
 
-测试选择、持久化位置和产品门禁各有自己的 owner；本页负责解释它们如何组成证据链，不复制完整流程和命令。
-
 ## 反馈层与交付门禁
 
 一次改动通常会经过多层反馈，但各层解决的问题不同：
@@ -32,38 +30,12 @@
 
 本地 CI 的命令不在多份文档里复制维护；工作流文件是当前 job 的执行权威。当前远端 CI 也不自动代表前端 build、真实进程 E2E、真实 LLM 或人工用户旅程已经通过，这些验证按改动风险和 selected gates 另行执行并记录。
 
-## 一条可复查记录需要什么
-
-在实施记录、DONE 回报、验收报告、`review.md` 或 PR Validation Summary 引用证据时，至少写清：
-
-1. **Claim**：这次要证明的具体行为或退出标准。
-2. **Baseline**：branch、commit SHA，以及会影响结果的配置/环境。
-3. **Method**：可重复命令，或真实用户路径、viewport、账号角色等操作条件。
-4. **Result**：pass/fail/inconclusive 与关键观察；不能只写“已验证”。
-5. **Locator**：测试名、CI URL、unit evidence 相对路径、日志 session id 或本机 runtime 路径。
-6. **Limit**：本证据没有覆盖的环境、状态或行为。
-
-截图、JSON 和日志只有与 Claim、Baseline、Method 建立链接后才有解释力。证据目录中的文件名使用场景和状态命名，避免只写 `final.png`、`result2.json`。
-
 ## 保存与引用
 
-- 截图、录屏保存在 gitignored 或仓外目录，不提交 Git；对应 `<unit>/M*/evidence/` 只保留文字结论、场景/尺寸、可复现定位、小型脱敏请求摘要和对照表。需要图片时记录本地目录与文件名。
-- 所选能力的 unit 级结论统一归集到 `review.md`，保留执行者、问题、版本、证据和限制；历史报告保留并引用，PR 只写摘要，不重复维护缺陷。
-- PID、完整服务日志、数据库、临时 config、浏览器缓存和原始 LLM 对话只在 gitignored/仓外按需暂存；unit 记录必要的时间、session id 和脱敏摘要。取证结束按 [测试资源回收](worktree-runtime.md#测试资源回收) 删除不再需要的原始数据；路径被回收后记录该状态，不把失效路径当作可复查原件。
-- evidence 含 token、cookie、个人数据、完整 prompt 或第三方内容时，不提交原件；保存可复现定位信息和脱敏结论。
-- `/tmp` 或浏览器临时会话只适合当场调查。交付依赖图片或录屏时，转存到稳定的 gitignored/仓外目录；必要文字结果写入 unit evidence，或转化为可重复测试。
+- 截图、录屏保存在 gitignored 或仓外目录。`<unit>/M*/evidence/` 保存文字结论、场景/尺寸、可复现定位、小型脱敏请求摘要和对照表。
+- PID、完整服务日志、数据库、临时 config、浏览器缓存及原始 LLM 对话只在 gitignored 或仓外按需暂存。unit 记录时间、session ID 和脱敏摘要，取证结束按 [测试资源回收](worktree-runtime.md#测试资源回收) 处理。路径被回收后记录该状态。
+- 涉及凭据、个人数据、完整 prompt 或第三方内容时，仅提交脱敏结论和合适的定位信息。
 
 ## 从一次证据进入长期保护
 
-change 收尾时逐项判断：
-
-| 证据揭示的长期事实 | 归并位置 |
-|---|---|
-| 每次修改都应自动守住的回归 | `tests/`、CI 或稳定脚本 |
-| 用户或外部消费者当前应观察到的行为 | `docs/specs/` |
-| 跨包职责、依赖方向和架构不变量 | `SPEC.md`，高后果边界再加 contract test |
-| 可重复的开发、测试和隔离运行方法 | `docs/development/` |
-| 启动、观察、恢复和排障方法 | `docs/operations/` |
-| 只解释本次选择或只对当时环境成立 | 保留在归档 change unit |
-
-归并完成后，长期 owner 承担 future truth；原始 evidence 继续留在 change history，说明结论从哪里来。
+可重复回归归测试或 CI。单包行为归 [当前契约](../specs/README.md)，跨包约束归 [SPEC.md](../../SPEC.md)。可复用开发和操作方法分别归 [开发文档](README.md) 与 [操作手册](../operations/README.md)。只解释本次工作或当时环境的证据随 unit 归档。

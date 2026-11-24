@@ -21,6 +21,9 @@ final class ChatStore {
     /// Conversations with a known incomplete local window: older history needs the network.
     var olderNeedsNetwork: Set<String> = []
     var drafts: [String: String] = [:]
+    private(set) var replies: [String: ChatReply] = [:]
+    var messageLocation: ChatMessageLocation?
+
     var attachments: [String: [ChatAttachment]] = [:]
     var uploadDrafts: [String: [AttachmentUpload]] = [:]
     var pending: [String: PendingSend] = [:] { didSet { pendingRevision = UUID() } }
@@ -347,7 +350,10 @@ final class ChatStore {
     private func applySeed(_ seed: ChatBootstrapSeed) {
         conversations = normalizingDeletedActors(seed.conversations)
         for chat in seed.conversations { observeExecutionCleanup(chat.id, revision: chat.execution_cleanup_revision ?? 0) }
-        for (id, body) in seed.drafts where !dirtyDraftIDs.contains(id) && (drafts[id] == nil || drafts[id]?.isEmpty == true) { drafts[id] = body }
+        for (id, body) in seed.drafts where !dirtyDraftIDs.contains(id) && (drafts[id] == nil || drafts[id]?.isEmpty == true) {
+            drafts[id] = body
+            replies[id] = seed.replies[id]
+        }
         pendingCount = seed.pendingCount
         lastFullAt = seed.connection.lastFullAt
         if cursor == nil, seed.connection.maxEventID > 0 { cursor = seed.connection.maxEventID }
@@ -399,6 +405,7 @@ final class ChatStore {
             pending[attempt.conversationID] = attempt.draft
             if repository == nil, drafts[attempt.conversationID] == nil {
                 drafts[attempt.conversationID] = attempt.draft.content
+                replies[attempt.conversationID] = attempt.draft.reply
             }
             if attachments[attempt.conversationID] == nil { attachments[attempt.conversationID] = attempt.draft.attachments }
         }
@@ -442,6 +449,12 @@ final class ChatStore {
     }
 
     /// Composer edits land in memory only; the flush points below persist the newest text.
+    func setReply(_ id: String, _ reply: ChatReply?) {
+        guard !revokedChats.contains(id), !checkingAccess.contains(id), pending[id] == nil else { return }
+        replies[id] = reply
+        setDraft(id, drafts[id] ?? "")
+    }
+
     func setDraft(_ id: String, _ text: String) {
         drafts[id] = text
         // One serial writer keeps "last text wins": a fire-and-forget task per keystroke could
@@ -459,13 +472,13 @@ final class ChatStore {
 
     /// Flush points share one waiting chain: a newer snapshot cannot commit before an older
     /// flush finishes. The writer seam controls interleavings without replacing real storage.
-    func flushDrafts(write: @escaping @Sendable (ChatRepository, String, String) async throws -> Void = {
-        try await $0.setDraft($1, body: $2)
+    func flushDrafts(write: @escaping @Sendable (ChatRepository, String, String, ChatReply?) async throws -> Void = {
+        try await $0.setDraft($1, body: $2, reply: $3)
     }) async {
         draftFlush?.cancel(); draftFlush = nil
         guard !queuedDrafts.isEmpty else { await draftWriteTail?.value; return }
         guard let repository else { return } // Keep edits queued while storage is unavailable.
-        let writes = queuedDrafts
+        let writes = queuedDrafts, frozenReplies = replies
         queuedDrafts = [:]
         let previous = draftWriteTail
         // Network stop/backgrounding must not invalidate a draft flush. Only losing the
@@ -483,7 +496,7 @@ final class ChatStore {
                 guard self.queuedDrafts[id] == nil else { continue }
                 do {
                     guard self.repository === repository else { throw ChatRepositoryError.databaseUnavailable("storage changed before draft flush") }
-                    try await write(repository, id, body)
+                    try await write(repository, id, body, frozenReplies[id])
                     if self.drafts[id] == body, self.queuedDrafts[id] == nil { self.dirtyDraftIDs.remove(id) }
                 } catch {
                     guard owner == self.sendEpoch else { return }
@@ -528,7 +541,7 @@ final class ChatStore {
         queuedDrafts = [:]; dirtyDraftIDs = []
         stop()
         pendingDelivery.removeAll()
-        timelines = [:]; drafts = [:]; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
+        timelines = [:]; drafts = [:]; replies = [:]; messageLocation = nil; attachments = [:]; uploadDrafts = [:]; pending = [:]; conversations = []
         inspectedConversation = nil; before = [:]; olderNeedsNetwork = []; receivedTimelineResults = []
         interactionPending = [:]; interactionConversations = [:]; interactionSending = []; sending = []
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; interactionDrafts.clear(); composeRequest = nil; banner = nil
@@ -825,17 +838,20 @@ final class ChatStore {
         return true
     }
 
-    func inspectConversation(_ id: String) async {
-        guard let request = try? await readRequest() else { return }
+    func inspectConversation(_ id: String) async { _ = await confirmConversation(id) }
+
+    private func confirmConversation(_ id: String) async -> Bool {
+        guard let request = try? await readRequest() else { return false }
         do {
             let loaded: Conversation = try await client.get("/im/v1/conversations/\(id.pathComponent)")
-            guard await isCurrent(request) else { return }
+            guard await isCurrent(request) else { return false }
             let value = try await persistConversation(loaded, request: request)
-            guard await isCurrent(request) else { return }
+            guard await isCurrent(request) else { return false }
             inspectedConversation = value; revokedChats.remove(id); checkingAccess.remove(id)
             readSucceeded(.detail(id), request: request); readSucceeded(.access(id), request: request)
+            return true
         } catch {
-            guard await isCurrent(request), !(error is CancellationError), (error as? ChatRepositoryError) != .staleWrite else { return }
+            guard await isCurrent(request), !(error is CancellationError), (error as? ChatRepositoryError) != .staleWrite else { return false }
             if [403, 404].contains((error as? APIError)?.status ?? 0) {
                 await revokeConversation(id, reason: .detailForbidden)
                 revokedChats.insert(id)
@@ -843,6 +859,7 @@ final class ChatStore {
             } else {
                 recordReadFailure(.detail(id), error: error, request: request)
             }
+            return false
         }
     }
 
@@ -899,6 +916,39 @@ final class ChatStore {
         async let detail: Void = inspectConversation(id)
         async let messages: Void = loadChat(id)
         _ = await (detail, messages)
+    }
+
+    func locate(_ location: ChatMessageLocation) async throws {
+        let id = location.conversationID
+        let owner = sendEpoch
+        func checkLocation() throws {
+            guard !Task.isCancelled, owner == sendEpoch, messageLocation == location else { throw CancellationError() }
+            if revokedChats.contains(id) || checkingAccess.contains(id) {
+                throw APIError(status: 403, detail: L("无法访问原文。", "The original message is unavailable."))
+            }
+        }
+        guard !Task.isCancelled, messageLocation == location else { throw CancellationError() }
+        guard await confirmConversation(id) else {
+            try checkLocation()
+            throw APIError(status: 0, detail: readFailureBody(.detail(id)))
+        }
+        try checkLocation()
+        await loadLocalTimeline(id)
+        try checkLocation()
+        func found() -> Bool { timelines[id]?.contains { $0.message?.id == location.messageID } == true }
+        if found() { return }
+        if before[id] == nil {
+            await loadChat(id)
+            try checkLocation()
+            if continuity.readFailures[.timeline(id)] != nil { throw APIError(status: 0, detail: readFailureBody(.timeline(id))) }
+        }
+        while !found(), let cursor = before[id] {
+            await loadChat(id, older: true)
+            try checkLocation()
+            if continuity.readFailures[.earlier(id)] != nil { throw APIError(status: 0, detail: readFailureBody(.earlier(id))) }
+            if before[id] == cursor { break }
+        }
+        guard found() else { throw APIError(status: 404, detail: L("找不到这条原文。", "The original message could not be found.")) }
     }
 
     func loadChat(_ id: String, older: Bool = false) async {
@@ -1007,6 +1057,10 @@ final class ChatStore {
                      try await $0.applyEvent($1, write: $2)
                  }) async {
         let data = event.data ?? .null
+        if ["agent.work.updated", "agent.status_changed"].contains(event.event_type),
+           let id = data["agent_id"].stringValue {
+            NotificationCenter.default.post(name: .crewdenWorkUpdated, object: client, userInfo: ["agent_id": id])
+        }
         let chat = data["conversation_id"].stringValue
         if event.event_type == "conversation.execution_cleanup" {
             if let eventID = event.event_id { cursor = max(cursor ?? 0, eventID) }
@@ -1301,6 +1355,7 @@ final class ChatStore {
         defer { if token == sendEpoch { sending.remove(id) } }
         // This click owns this text/files, not edits made while the draft PUT is awaited.
         let clickedContent = drafts[id] ?? "", clickedFiles = textOnly ? [] : attachments[id] ?? []
+        let clickedReply = replies[id]
         if !retry {
             let saved = await flushDrafts(id)
             guard token == sendEpoch, !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
@@ -1316,7 +1371,7 @@ final class ChatStore {
                 let revision = try await sessionRevision()
                 guard token == sendEpoch else { return }
                 guard !revokedChats.contains(id), !checkingAccess.contains(id) else { return }
-                let draft = try client.prepareMessage(PendingSend(content: content, attachments: files), userID: user.id,
+                let draft = try client.prepareMessage(PendingSend(content: content, attachments: files, reply: clickedReply), userID: user.id,
                     participants: chat?.participants ?? [])
                 let attempt = SendAttempt(conversationID: id, sourceMessageID: nil, draft: draft)
                 try await persistAttempt(attempt, revision: revision)
@@ -1458,7 +1513,8 @@ final class ChatStore {
             if let source = attempt.sourceMessageID { interactionPending[source] = nil; interactionConversations[source] = nil }
             else {
                 pending[id] = nil
-                if drafts[id] == attempt.draft.content {
+                if drafts[id] == attempt.draft.content, replies[id] == attempt.draft.reply {
+                    replies[id] = nil
                     setDraft(id, "")
                 } else if drafts[id] == nil {
                     drafts[id] = ""
@@ -1473,7 +1529,7 @@ final class ChatStore {
             try await client.session.assertOwner(user.id, revision: revision)
             if let api = error as? APIError, (400..<500).contains(api.status), ![408, 429].contains(api.status) {
                 // A rejected background leaves the original text available for a new send.
-                let restoreDraft = api.code == "interaction_background_too_large" && attempt.sourceMessageID == nil
+                let restoreDraft = (api.code == "interaction_background_too_large" || attempt.draft.reply != nil) && attempt.sourceMessageID == nil
                     && drafts[id] == nil
                 try await removeAttempt(attempt, revision: revision, restoreDraft: restoreDraft)
                 guard isCurrent(attempt, token: token) else { throw CancellationError() }
@@ -1481,10 +1537,14 @@ final class ChatStore {
                 else {
                     pending[id] = nil
                     if restoreDraft, drafts[id] == nil {
+                        replies[id] = attempt.draft.reply
                         drafts[id] = attempt.draft.content
                     }
                 }
-                if [403, 404].contains(api.status) { await revokeConversation(id, reason: .detailForbidden) }
+                if api.status == 404, attempt.draft.reply != nil {
+                    // A deleted quote can be missing while its conversation remains writable.
+                    await inspectConversation(id)
+                } else if [403, 404].contains(api.status) { await revokeConversation(id, reason: .detailForbidden) }
                 errors[id] = api.detail
                 throw api
             }
@@ -1521,7 +1581,9 @@ final class ChatStore {
                 try await currentRepository.upsertPending(attempt, write: context)
                 guard token == self.sendEpoch, projection == self.projectionRevision else { throw CancellationError() }
                 try self.requireWritable(attempt.conversationID)
-                if attempt.sourceMessageID == nil, self.drafts[attempt.conversationID] == attempt.draft.content {
+                if attempt.sourceMessageID == nil, self.drafts[attempt.conversationID] == attempt.draft.content,
+                   self.replies[attempt.conversationID] == attempt.draft.reply {
+                    self.replies[attempt.conversationID] = nil
                     // Absence means this attempt owns the text. An explicitly cleared
                     // newer composer draft is the empty string and stays independent.
                     self.drafts[attempt.conversationID] = nil; self.queuedDrafts[attempt.conversationID] = nil
@@ -1658,7 +1720,7 @@ final class ChatStore {
         queuedDrafts[id] = nil; dirtyDraftIDs.remove(id)
         readSucceeded(.detail(id)); readSucceeded(.timeline(id)); readSucceeded(.earlier(id)); readSucceeded(.access(id))
         recordReadingPosition(nil, in: id)
-        timelines[id] = nil; before[id] = nil; drafts[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil
+        timelines[id] = nil; before[id] = nil; drafts[id] = nil; replies[id] = nil; attachments[id] = nil; uploadDrafts[id] = nil
         olderNeedsNetwork.remove(id); receivedTimelineResults.remove(id); pending[id] = nil
         for source in interactionConversations.filter({ $0.value == id }).map(\.key) {
             interactionPending[source] = nil; interactionConversations[source] = nil; interactionSending.remove(source)

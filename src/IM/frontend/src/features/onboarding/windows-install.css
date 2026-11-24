@@ -1,0 +1,9 @@
+label.computer-platform-picker, .onboarding-card label.computer-platform-picker { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--im-text-muted); font-size: 12px; margin: 0 0 16px; }
+.computer-platform-picker select, .onboarding-card .computer-platform-picker select { width: auto; max-width: 100%; font: inherit; background: white; color: var(--im-text); border: 1px solid var(--im-border); border-radius: 8px; padding: 6px 8px; }
+.computer-windows-install { border-block: 1px solid var(--im-border); padding: 18px 0; }
+.computer-windows-install p { margin: 7px 0 16px; color: var(--im-text-muted); font-size: 14px; line-height: 1.6; }
+.computer-windows-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.computer-install-action { display: inline-flex; align-items: center; min-height: 44px; padding: 10px 16px; text-decoration: none; font: inherit; font-size: 14px; font-weight: 600; color: var(--im-text); border-radius: 10px; background: white; border: 1px solid var(--im-border-strong); }
+.computer-install-action[data-primary="true"] { color: white; background: var(--im-accent); border-color: var(--im-accent); }
+.computer-install-action:hover { background: var(--im-hover); }
+.computer-install-action[data-primary="true"]:hover { background: var(--im-accent-2); }

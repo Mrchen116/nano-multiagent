@@ -1,7 +1,7 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { randomUUID } from 'node:crypto';
-import { interactiveResponse, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding } from '@nano/product-contracts';
+import { interactiveResponse, workObject, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import type { ProductCall } from './global-agent.js';
 import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader } from './screenshot-delivery.js';
@@ -10,7 +10,7 @@ import type { InboxStore } from './inbox.js';
 
 type Data = Record<string, unknown>;
 export interface AdmissionResult {kind:'admitted'|'rejected'|'source_unavailable'|'failed'|'in_progress';message_id:string;reason?:string;incident_id?:string;error_code?:string}
-interface Verdict { decision: 'allow' | 'deny' | 'needs_owner' | 'unavailable'; reason: string; incident?: {reason:string} }
+type Verdict = import('@nano/product-contracts/runtime-rpc').RuntimeOutput<'pa.review'>;
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore; runtime: RuntimePort;
   relay: {request(type: string, payload: Data): Promise<ProtocolFrame>}; onError(error: unknown): void;
@@ -32,9 +32,10 @@ export class PersonalAssistant {
 
   private async review(config: AgentConfiguration, kind: 'input'|'action', evidence: unknown, sessionId?:string, callId?:string): Promise<Verdict> {
     try {
-      const result = await this.options.runtime.request('pa.review', {agentId:config.agentId,kind,evidence,sessionId,callId}) as Verdict;
-      if (!result || !['allow','deny','needs_owner','unavailable'].includes(result.decision) || typeof result.reason !== 'string') throw new Error('Invalid independent verdict');
-      return result;
+      if (!workObject(evidence)) throw new Error('Independent review evidence is unavailable');
+      if (kind === 'input') return await this.options.runtime.request('pa.review', {agentId:config.agentId,kind,evidence});
+      if (!sessionId) throw new Error('Action review requires a session');
+      return await this.options.runtime.request('pa.review', {agentId:config.agentId,kind,evidence,sessionId,callId});
     } catch (error) { this.options.onError(error); return {decision:'unavailable',reason:'Independent review is temporarily unavailable'}; }
   }
 

@@ -34,7 +34,7 @@ it('requires a frozen independent verdict, prevents stale audiences while allowi
  const verdict=service.actions.review(principal,{...args,proposal_ref:first.proposal_ref,payload_digest:first.payload_digest,evidence_digest:first.evidence_digest,verdict:{decision:'allow'}});
  const sent=service.actions.commit(principal,{...args,proposal_ref:first.proposal_ref,verdict_ref:verdict.verdict_ref});
  expect(ctx.messaging.message(sent.message_id)).toMatchObject({sender_user_id:'u1',pa_agent_id:'a'});
- expect(ctx.gateway.broadcast).toHaveBeenCalledWith(expect.any(Array),expect.objectContaining({event_type:'message.created',data:expect.objectContaining({message_id:sent.message_id,pa_agent_id:'a'})}));
+ expect(ctx.gateway.broadcast).toHaveBeenCalledWith('conversation-readers',expect.objectContaining({event_type:'message.created',data:expect.objectContaining({message_id:sent.message_id,pa_agent_id:'a'})}));
  expect(ctx.messaging.members('peer').map(x=>x.id)).toEqual(['u1','u2']);
  expect(service.actions.commit(principal,{...args,proposal_ref:first.proposal_ref,verdict_ref:verdict.verdict_ref})).toEqual(sent);
  const parallelVerdict=service.actions.review(principal,{...args,proposal_ref:parallel.proposal_ref,payload_digest:parallel.payload_digest,evidence_digest:parallel.evidence_digest,verdict:{decision:'allow'}});

@@ -1,12 +1,13 @@
+import type {PartitionRuntime} from './runtime-partitions.js';
 import WebSocket from 'ws';
 import http from 'node:http';
 import https from 'node:https';
-import { TRAJECTORY_MAX_BYTES, encodeTrajectoryValue, type RuntimePort, type TrajectoryRequest, type TrajectoryScope } from '@nano/product-contracts';
+import { TRAJECTORY_MAX_BYTES, encodeTrajectoryValue, type TrajectoryRequest, type TrajectoryScope } from '@nano/product-contracts';
 
 /** Owns outbound readers independently of the device's business ACK queue. */
 export class NodeTrajectory {
   private readonly sockets = new Map<string, WebSocket>();
-  constructor(private readonly options: { imUrl: string; runtime: RuntimePort; valid: (scope: TrajectoryScope) => boolean }) {}
+  constructor(private readonly options: { imUrl: string; runtime: Pick<PartitionRuntime, 'request'>; valid: (scope: TrajectoryScope) => boolean }) {}
 
   /** Pair a short-lived observer with the configured IM, never a supplied destination. */
   prepare(scope: TrajectoryScope, ticket: string): void {

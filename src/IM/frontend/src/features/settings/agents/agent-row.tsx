@@ -4,7 +4,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { useTranslation } from "../../../i18n";
 import type { AgentSummary, NodeSummary } from "./im-agent-config-api";
 
-type AgentListItem = Pick<AgentSummary, "avatar_variant" | "agent_id" | "display_name" | "description" | "node_id" | "node_name" | "node_status"> & { owner_id?: string; role?: string };
+type AgentListItem = Pick<AgentSummary, "avatar_variant" | "agent_id" | "display_name" | "description" | "node_id" | "node_name" | "node_status"> & { owner_id?: string; role?: string; lifecycle_disabled?: boolean };
 
 /** Online when the agent's owning node reports online, via the agent's own
  *  node_status first and the nodes table as fallback. */

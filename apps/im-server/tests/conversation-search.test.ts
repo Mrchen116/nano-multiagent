@@ -2,7 +2,7 @@ import { expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, StatementSync } from 'node:sqlite';
 import { openDatabase } from '../src/db.js';
 import { searchMessages } from '../src/message-search.js';
 import Fastify from 'fastify';
@@ -227,14 +227,16 @@ it('does no extra search queries for unrelated private groups and hydrates no ch
   const app = Fastify();
   registerMessagingRoutes(app, ctx);
   const detail = vi.spyOn(ctx.messaging, 'conversation');
-  const statements = vi.spyOn(db, 'prepare');
+  const gets = vi.spyOn(StatementSync.prototype, 'get');
+  const lists = vi.spyOn(StatementSync.prototype, 'all');
   async function miss() {
-    statements.mockClear();
+    gets.mockClear();
+    lists.mockClear();
     detail.mockClear();
     const response = await app.inject('/im/v1/messages/search?q=absent&limit=1');
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ messages: [] });
-    return { sql: statements.mock.calls.length, details: detail.mock.calls.length };
+    return { sql: gets.mock.calls.length + lists.mock.calls.length, details: detail.mock.calls.length };
   }
   try {
     const before = await miss();
@@ -243,6 +245,8 @@ it('does no extra search queries for unrelated private groups and hydrates no ch
     expect(after.sql).toBe(before.sql);
     expect([before.details, after.details]).toEqual([0, 0]);
   } finally {
+    gets.mockRestore();
+    lists.mockRestore();
     await app.close();
   }
 });

@@ -7,17 +7,17 @@ import { pathToFileURL } from 'node:url';
 import lockfile from 'proper-lockfile';
 import { parseReleaseManifest, nodeUpdateTerminal, type NodeRelease, type NodeUpdateReport, type ReleaseManifest } from '@nano/product-contracts';
 import { NodeConfiguration } from './configuration.js';
-import { atomicPrivate, gatewayState, processBirth, type GatewayState } from './lifecycle.js';
+import { applyGatewayEnvironment, atomicPrivate, defaultGatewayStartupSeconds, gatewayState, processBirth, type GatewayState } from './lifecycle.js';
 import { readUpdateFile, reportUpdate, updatePath, validLease, type UpdateLease, type UpdateHandoff } from './node-updater.js';
-import { verifyReleaseMetadata } from './release.js';
+import { loadNodeRelease, verifyReleaseMetadata } from './release.js';
 const exec = promisify(execFile);
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const matches = (actual: NodeRelease | undefined | null, expected: NodeRelease | ReleaseManifest) =>
-  !!actual && actual.version === expected.version && actual.sha256 === expected.sha256 && actual.source_commit === (expected.source_commit ?? expected.version);
+  !!actual && actual.platform === expected.platform && actual.version === expected.version && actual.sha256 === expected.sha256 && actual.source_commit === (expected.source_commit ?? expected.version);
 
 /** Download and install a validated immutable package without touching the running installation. */
 export async function installRelease(target: ReleaseManifest, root: string, onInstalling: () => Promise<void>, signal?: AbortSignal): Promise<string> {
-  if (!parseReleaseManifest(target) || target.updater_protocol !== 1 || target.data_epoch !== 1) throw new Error('Incompatible release');
+  if (target.package !== 'nano-node.tgz' || !parseReleaseManifest(target) || target.updater_protocol !== 1 || target.data_epoch !== 1) throw new Error('Incompatible release');
   await mkdir(join(root, 'releases'), {recursive: true});
   const release = join(root, 'releases', target.sha256);
   try { await access(join(release, '.installed')); await verifyReleaseMetadata(release, target); await onInstalling(); return release; }
@@ -45,9 +45,24 @@ export async function installRelease(target: ReleaseManifest, root: string, onIn
   } finally { await rm(stage, {recursive: true, force: true}); }
 }
 
+/** Prepare the operation's pinned version with the current Windows bootstrap. */
+async function prepareWindowsUpdate(target: ReleaseManifest, oldEntry: string, origin: string, signal: AbortSignal) {
+  const oldRoot = resolve(dirname(oldEntry), '../../..');
+  const versionRoot = resolve(oldRoot, '..', target.sha256);
+  await exec(join(oldRoot, 'Crewden.exe'), ['prepare', new URL(origin).origin, target.sha256], {
+    signal, timeout: 600000, windowsHide: true,
+  });
+  const installed = await loadNodeRelease(versionRoot);
+  if (installed.platform !== 'win32-x64' || !matches(installed, target))
+    throw new Error('The prepared Windows installation does not match the selected target');
+  return versionRoot;
+}
+
 /** Execute an authorized update under one config-scoped lock, independently of the Node it replaces. */
 export async function runUpdate(configPath: string, operationId: string): Promise<void> {
   const config = await NodeConfiguration.read(resolve(configPath));
+  // Task Scheduler starts the Windows worker outside the Gateway's environment.
+  if (process.platform === 'win32') applyGatewayEnvironment(config.value);
   const unlock = await lockfile.lock(config.path, {realpath: false, lockfilePath: updatePath(config.path, '.node-update.lock'), stale: 15000, update: 1000});
   let heartbeat: NodeJS.Timeout | undefined;
   let poller: NodeJS.Timeout | undefined;
@@ -83,11 +98,13 @@ export async function runUpdate(configPath: string, operationId: string): Promis
   const terminal = async (state: UpdateLease['state'], error_code?: string, resumed?: boolean) => {
     await send('terminal', {state, error_code, resumed}); lease.state = state; delete lease.command; await write();
   };
+  const startupSeconds = config.value.gateway?.startup_timeout_seconds ?? defaultGatewayStartupSeconds;
   const cli = async (state: Pick<GatewayState, 'entry' | 'node_exec'>, action: string) => {
-    await exec(state.node_exec!, [state.entry!, action, '--config', config.path], {timeout: 120000, maxBuffer: 1024 * 1024});
+    const timeout = process.platform === 'win32' && action === 'start' ? Math.max(120, startupSeconds + 30) * 1000 : 120000;
+    await exec(state.node_exec!, [state.entry!, action, '--config', config.path], {timeout, maxBuffer: 1024 * 1024});
   };
   const verify = async (expected: NodeRelease | ReleaseManifest, previousPid: number) => {
-    const deadline = Date.now() + (config.value.gateway?.startup_timeout_seconds ?? 60) * 1000;
+    const deadline = Date.now() + startupSeconds * 1000;
     while (Date.now() < deadline) {
       const state = await gatewayState(config.path);
       if (state && state.pid !== previousPid && state.config_path === config.path && state.ready && state.connected && state.runtime_pid
@@ -108,7 +125,8 @@ export async function runUpdate(configPath: string, operationId: string): Promis
     if (!old?.entry || !old.node_exec || old.release?.kind !== 'managed' || old.release.updater_protocol !== 1
         || await processBirth(old.pid) !== old.process_start) throw new Error('Running Node does not support safe updates');
     const target = parseReleaseManifest(report.operation.target);
-    if (!target || target.data_epoch !== old.release.data_epoch || target.updater_protocol !== 1) throw new Error('Incompatible target');
+    if (!target || target.platform !== old.release.platform || (target.platform === 'win32-x64') !== (process.platform === 'win32')
+        || target.data_epoch !== old.release.data_epoch || target.updater_protocol !== 1) throw new Error('Incompatible target');
     await write();
     heartbeat = setInterval(() => { void write().catch(() => abort.abort()); }, 1000);
     let polling = false;
@@ -118,8 +136,11 @@ export async function runUpdate(configPath: string, operationId: string): Promis
     }, 3000);
     if (report.operation.cancel_requested) { await terminal('cancelled', undefined, true); return; }
     await phase('downloading');
-    const installRoot = resolve(dirname(old.entry), '../../../../..');
-    const targetRoot = await installRelease(target, installRoot, () => phase('installing'), abort.signal);
+    const windows = target.platform === 'win32-x64';
+    const targetRoot = windows
+      ? await prepareWindowsUpdate(target, old.entry, config.value.im_service.url, abort.signal)
+      : await installRelease(target, resolve(dirname(old.entry), '../../../../..'), () => phase('installing'), abort.signal);
+    if (windows) await phase('installing');
     await phase('waiting');
     for (;;) {
       const r = await send('poll');
@@ -144,13 +165,24 @@ export async function runUpdate(configPath: string, operationId: string): Promis
       lease.state = 'switching'; await write();
       if (!await validHandoff()) throw new Error('Update barrier expired before stop');
       delete lease.command; await write();
+      const switchPath = updatePath(config.path, '.windows-switch.json');
+      const activePath = updatePath(config.path, '.windows-active.json');
+      if (windows) await atomicPrivate(switchPath, {
+        operation_id: operationId, worker_pid: process.pid, worker_birth: birth,
+        previous_sha256: old.release.sha256, target_sha256: target.sha256,
+      });
       switched = true;
-      const targetProcess = {entry: join(targetRoot, 'apps/node/lib/cli.js'), node_exec: process.execPath};
+      const targetProcess = {entry: join(targetRoot, 'apps/node/lib/cli.js'),
+        node_exec: windows ? join(targetRoot, 'runtime', 'node.exe') : process.execPath};
       try {
         await cli(old, 'stop');
         await cli(targetProcess, 'start');
         await phase('verifying');
         await verify(target, old.pid);
+        if (windows) {
+          await atomicPrivate(activePath, {sha256: target.sha256});
+          await rm(switchPath, {force: true});
+        }
         // A lost completion ACK must not undo a verified switch that IM may already have accepted.
         await terminal('succeeded').catch(async () => {
           await terminal('succeeded').catch(error => console.error(error));
@@ -161,8 +193,10 @@ export async function runUpdate(configPath: string, operationId: string): Promis
         try {
           const failed = await gatewayState(config.path);
           await cli(targetProcess, 'stop');
+          if (windows) await atomicPrivate(activePath, {sha256: old.release.sha256});
           await cli(old, 'start');
           await verify(old.release!, failed?.pid ?? old.pid);
+          if (windows) await rm(switchPath, {force: true});
           await terminal('rolled_back', 'start_failed');
         } catch (rollbackError) { console.error(rollbackError); await terminal('recovery_required', 'rollback_failed'); }
       }

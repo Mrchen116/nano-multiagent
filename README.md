@@ -60,3 +60,4 @@ macOS 默认使用当前用户的 LaunchAgent；临时环境可在配置中设�
 - [Gateway 与飞书](docs/operations/gateway.md)、[Auto 权限](docs/operations/auto-permissions.md)、[故障排查](docs/operations/troubleshooting.md)。
 - [旧环境切换](docs/operations/dsh-migration.md)：保留非聊天资产，从新会话开始。生产部署需独立授权。
 - [架构](SPEC.md)、[文档地图](docs/README.md)、[开发环境](docs/development/local-development.md)、[隔离验收](docs/development/worktree-runtime.md)。
+- [开发流程与项目约束](docs/development/change-workflow.md)；在开发环境安装 [dev-workflow-skills](https://github.com/Mrchen116/dev-workflow-skills) 后，以 skill 名称启动通用工作流。

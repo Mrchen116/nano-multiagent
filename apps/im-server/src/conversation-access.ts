@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, one, type Row } from './context.js';
-import { accountEnabled, agentAvailable, canAccessSpace, canActorAccess } from './identity.js';
+import { accountEnabled, agentAvailable, canAccessSpace, canActorAccess, currentActorCanAccess } from './identity.js';
 
 /** Resolve account eligibility without treating personal access as company approval. */
 export function qualifiedUser(db: DatabaseSync, userId: string): Row | undefined {
@@ -80,11 +80,15 @@ export function readableConversationIds(db: DatabaseSync, user: Row): Set<string
 
 /** Project read and write rights from the fixed conversation and current actor. */
 export function conversationAccess(db: DatabaseSync, id: string, userId: string): Row | undefined {
-  const user = qualifiedUser(db, userId);
-  if (!user) return;
-  const c = one(db, 'SELECT * FROM conversations WHERE id=?', id);
-  if (!c || !canActorAccess(db,userId,c.space_id)) return;
-  const member = !!one(db, 'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?', id, userId);
+  const conversation = one(db, 'SELECT * FROM conversations WHERE id=?', id);
+  return conversation && conversationRowAccess(db,conversation,userId);
+}
+
+/** Evaluate access using the conversation row read for this operation. */
+export function conversationRowAccess(db: DatabaseSync, c: Row, userId: string): Row | undefined {
+  const user = one(db, 'SELECT * FROM users WHERE id=?', userId);
+  if (!user || !currentActorCanAccess(db,user,c.space_id)) return;
+  const member = !!one(db, 'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?', c.id, userId);
   const observer = !member && !user.username.startsWith('agent:') && directAgentOwners(db,c).includes(userId);
   if (!member && !observer && !(c.type === 'group' && c.visibility === 'public')) return;
   return {
@@ -102,13 +106,25 @@ export function conversationAccess(db: DatabaseSync, id: string, userId: string)
  * Args:
  *   db: IM database containing the current ownership and membership records.
  *   id: Conversation whose persisted events are being delivered.
+ *   candidates: Ready browser identities for this event, when known.
  *
  * Returns:
  *   Unique eligible member and owner user IDs; public-group visitors keep polling.
  */
-export function conversationReaderIds(db: DatabaseSync, id: string): string[] {
+export function conversationReaderIds(db: DatabaseSync, id: string, candidates?: ReadonlySet<string>): string[] {
   const c = one(db,'SELECT * FROM conversations WHERE id=?',id);
   if (!c) return [];
-  const members = all(db,'SELECT user_id FROM conversation_participants WHERE conversation_id=?',id).map(p => p.user_id);
-  return [...new Set([...members,...directAgentOwners(db,c)])].filter(userId => conversationAccess(db,id,userId));
+  const members = all(db, `SELECT u.id,u.username,u.owner_id,u.membership_status,u.personal_space_enabled
+    FROM conversation_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=?`, id);
+  const readers = new Set<string>();
+  for (const member of members) {
+    if (candidates && !candidates.has(member.id)) continue;
+    if (currentActorCanAccess(db,member,c.space_id)) readers.add(member.id);
+  }
+  for (const id of directAgentOwners(db,c)) {
+    if (readers.has(id) || (candidates && !candidates.has(id))) continue;
+    const owner = one(db,'SELECT username,owner_id,membership_status,personal_space_enabled FROM users WHERE id=?',id);
+    if (owner && !owner.username.startsWith('agent:') && canAccessSpace(owner,c.space_id)) readers.add(id);
+  }
+  return [...readers];
 }

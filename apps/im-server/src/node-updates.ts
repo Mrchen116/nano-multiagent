@@ -4,7 +4,7 @@ import { nodeUpdateCancellable, nodeUpdateTerminal, type NodeRelease, type NodeU
   type NodeUpdateReport, type NodeUpdateState, type NodeUpdateView } from '@nano/product-contracts';
 import { all, body, fail, now, one, params, transaction, type ImContext, type Row } from './context.js';
 import { bearer } from './identity.js';
-import { installMaterials, releaseManifest } from './install.js';
+import { releaseManifest, unixInstallCommand } from './install.js';
 
 type Identity = {node_id: string; owner_id: string; node_epoch: number};
 const active = "('requested','downloading','installing','waiting','switching','verifying','rolling_back')";
@@ -12,7 +12,7 @@ const projection = (r: Row): NodeUpdateOperation => ({ id: r.id, request_id: r.r
   owner_id: r.owner_id, node_epoch: r.node_epoch, target: JSON.parse(r.target_json), state: r.state,
   cancel_requested: !!r.cancel_requested, relay_gated: !!r.relay_gated, updated_at: r.updated_at,
   ...(r.error_code ? { error_code: r.error_code } : {}) });
-const sameRelease = (a: NodeRelease | null, b: Row) => a?.kind === 'managed' && a.sha256 === b.sha256
+const sameRelease = (a: NodeRelease | null, b: Row) => a?.kind === 'managed' && a.platform === b.platform && a.sha256 === b.sha256
   && a.source_commit === (b.source_commit ?? b.version) && a.version === b.version;
 
 /** Owns authorization and relay handoff facts; the user's computer owns installation. */
@@ -45,7 +45,7 @@ export class NodeUpdates {
     const current = id ? this.installation(id) : null;
     const latest = id ? this.latest(id) : undefined;
     const operation = latest ? projection(latest) : null;
-    const target = releaseManifest(this.directory);
+    const target = releaseManifest(this.directory, current?.platform);
     const installation = current?.kind === 'source' ? 'source' : current?.updater_protocol === 1 ? 'managed' : 'legacy';
     let reason: NodeUpdateView['reason'];
     if (operation && !nodeUpdateTerminal(operation.state)) reason = 'active';
@@ -57,7 +57,7 @@ export class NodeUpdates {
     else if (target.updater_protocol !== 1 || target.data_epoch !== current?.data_epoch) reason = 'incompatible';
     else reason = 'available';
     return { installation, current, target, operation, reason, available: reason === 'available',
-      install_command: installMaterials(this.ctx.publicUrl, this.directory).command };
+      install_command: current?.platform === undefined ? unixInstallCommand(this.ctx.publicUrl) : '' };
   }
   begin(nodeId: string, ownerId: string, input: Row): NodeUpdateOperation {
     const id = this.identity(nodeId, ownerId);

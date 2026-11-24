@@ -7,7 +7,7 @@ import {effectiveFeatures, featureDependencies, validateCapabilities} from '@nan
 import {fail, now, transaction} from './context.js';
 import {defaultSpace, accountEnabled, canAccessSpace, ownerAccount} from './identity.js';
 import {activeTaskCount, withdrawsTask} from './task-graphs.js';
-import type {ConfigurationRequest} from './node-rpc-contracts.js';
+import type {ConfigurationRequest} from '@nano/product-contracts/node-rpc';
 import {decodeNodeResult} from './node-rpc-values.js';
 import {requestConfiguration} from './node-rpc-request.js';
 import {readAgentProfile, activeConfigOperation, readConfigOperation, configurationPersonalBinding,

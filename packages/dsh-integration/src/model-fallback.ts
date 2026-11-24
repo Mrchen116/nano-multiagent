@@ -32,6 +32,8 @@ interface Attempt {
   inputIds?: string[];
   error?: { message: string; code: string; status?: number };
 }
+const terminalSchema = z.looseObject({kind: z.string()});
+type Terminal = z.infer<typeof terminalSchema>;
 export interface ModelRun {
   id: string;
   sessionId: string;
@@ -40,7 +42,7 @@ export interface ModelRun {
   inputs: string[];
   attempts: Attempt[];
   state: 'running' | 'switching' | 'completed';
-  terminal?: unknown;
+  terminal?: Terminal;
   pending?: { route: ModelRoute; messages: UserMessage[] };
   switched?: string;
   withdrawn?: string[];
@@ -75,7 +77,7 @@ export const modelRunsDomain: RunDomain = defineDomain({
           }),
         ),
         state: z.enum(['running', 'switching', 'completed']),
-        terminal: z.unknown().optional(),
+        terminal: terminalSchema.optional(),
         pending: z.object({ route, messages: z.array(z.custom<UserMessage>()) }).optional(),
         switched: z.string().optional(),
         withdrawn: z.array(z.string()).optional(),
@@ -174,7 +176,7 @@ export class ModelFallback {
           const terminal = history.findLast((event) => event.type === 'turn/end' && event.data.turn === consumed.turn);
           if (terminal) this.observe(agent, config, terminal);
         } else if (
-          evidence.some((item) => (item.terminal as { kind?: string })?.kind === 'cancelled-before-consumption')
+          evidence.some((item) => item.terminal?.kind === 'cancelled-before-consumption')
         )
           this.finish(active, { kind: 'cancelled' });
         else {
@@ -279,7 +281,7 @@ export class ModelFallback {
     this.updateWorkModel(run);
     return this.writes.put(run.id, structuredClone(run));
   }
-  private finish(run: ModelRun, terminal: unknown) {
+  private finish(run: ModelRun, terminal: ModelRun['terminal']) {
     run.state = 'completed';
     run.terminal = terminal;
     delete run.pending;
@@ -384,7 +386,7 @@ export class ModelFallback {
         ),
     );
   }
-  private scheduleSuccess(agent: Agent, run: ModelRun, route: ModelRoute, reason: unknown) {
+  private scheduleSuccess(agent: Agent, run: ModelRun, route: ModelRoute, reason: Terminal) {
     const task = (async () => {
       await this.host.sticky(agent, route);
       run.switched = route.model;

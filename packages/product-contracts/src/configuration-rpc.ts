@@ -79,3 +79,10 @@ export function parseAgentConfigurationFields(value: unknown): AgentConfiguratio
   // node metadata remains on the original object for durable receipt fidelity.
   return p as AgentConfigurationFields;
 }
+
+/** Let cold Windows inspection workers initialize while keeping cancellation bounded. */
+export function inspectionTimeouts(windows: boolean) {
+  return windows
+    ? {workerMs: 30_000, nodeMs: 32_000, rpcMs: 35_000}
+    : {workerMs: 7_000, nodeMs: 8_000, rpcMs: 9_000};
+}

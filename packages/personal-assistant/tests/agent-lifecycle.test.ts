@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { expect, it } from 'vitest';
+import { typedRuntimeRequest } from '@nano/product-contracts/runtime-rpc';
 import type { AgentLifecycleSnapshot } from '@nano/product-contracts';
 import { AgentLifecycleAuthority } from '../src/agent-lifecycle.js';
 
@@ -120,13 +121,20 @@ it('commits final stopped Work history and checkpoints without opening execution
   const product=new GlobalAgent({nodeId:'n',ownerId:'owner',store,inbox,agents:[{agentId:'a',revision:'1',mode:'global',provider:'p',model:'m',workspace:'/tmp'}],
     runtime:{onNotification:()=>()=>{},request:async()=>{calls++;throw new Error('Must not restore execution');}},
     relay:{request:async()=>{calls++;throw new Error('Must not publish');}},onError:()=>{}});
-  const events=[{seq:1,time:1,type:'turn/start',data:{turn:1}},{seq:2,time:2,type:'user/message',data:{source:{kind:'human'},content:[{type:'text',text:'Old task'}]}},{seq:3,time:3,type:'turn/end',data:{turn:1,reason:{kind:'cancelled'}}}];
+  const events=[{seq:0,time:0,type:'session/header',data:{}},{seq:1,time:1,type:'turn/start',data:{turn:1}},{seq:2,time:2,type:'user/message',data:{id:'input',source:{kind:'human'},content:[{type:'text',text:'Old task'}]}},{seq:3,time:3,type:'turn/end',data:{turn:1,reason:{kind:'cancelled'}}}];
   try {
-    const read=async (method:string, args:Record<string,unknown>)=>{
-      expect(args.stoppedRevision).toBe(2);
+    let malformed=true;
+    const read=typedRuntimeRequest(async (method,args)=>{
+      const request=args as {stoppedRevision:number;afterSeq?:number};
+      expect(request.stoppedRevision).toBe(2);
+      if(malformed)return {events:[],throughSeq:42};
       if(method==='session.work.children')return {children:[{kind:'child',id:'child',parentId:'a',throughSeq:3,modelVersion:'stopped'}]};
-      return {durable:true,events:events.filter(e=>e.seq>Number(args.afterSeq??-1)),modelRuns:[],modelVersion:'stopped',throughSeq:3,more:false};
-    };
+      return {durable:true,events:events.filter(e=>e.seq>Number(request.afterSeq??-1)),modelRuns:[],modelVersion:'stopped',throughSeq:3,more:false};
+    });
+    const cursor=store.cursor('a');
+    await expect(product.recordStopped('a',2,read)).rejects.toThrow('session.work.root result');
+    expect(store.cursor('a')).toBe(cursor);expect(inbox.journal(0)).toHaveLength(0);expect(calls).toBe(0);
+    malformed=false;
     await product.recordStopped('a',2,read);
     await product.recordStopped('a',2,read);
     expect(calls).toBe(0);expect(inbox.workCheckpoints('a').child?.throughSeq).toBe(3);

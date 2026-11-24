@@ -27,7 +27,7 @@ import {
   type Row,
   type ImContext,
 } from "./context.js";
-import { conversationAccess, conversationReaderIds, qualifiedUser, readableConversationIds } from "./conversation-access.js";
+import { conversationAccess, conversationRowAccess, qualifiedUser, readableConversationIds } from "./conversation-access.js";
 import { searchMessages } from './message-search.js';
 import { assertThreadQuote, listUnread, markThreadRead, threadAddressesAgent, threadRelayMetadata, threadRootOrFail } from './threads.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
@@ -51,7 +51,9 @@ export class Messaging {
       messageWait:id=>this.ctx.updates?.messageWait(id),publish:(frame,enabled)=>this.publishEvent(frame,enabled)});
   }
   private publishEvent(frame:MessageEventFrame,publish:boolean):void {
-    if(publish)this.ctx.gateway.broadcast(conversationReaderIds(this.db,frame.conversation_id),frame);
+    if(publish)this.publishCommitted(frame);
+    // The PA source-event trigger does not observe streaming text.
+    if(frame.event_type==='message.delta')return;
     for(const binding of all(this.db,"SELECT DISTINCT b.* FROM personal_agent_bindings b JOIN pa_source_events e ON e.binding_id=b.binding_id JOIN pa_policies p ON p.binding_id=b.binding_id WHERE e.source_event_id=?",frame.event_id))this.ctx.personal?.wake(binding);
   }
   /** Broadcast a frame whose durable event already committed, without repeating the wake policy.
@@ -59,7 +61,7 @@ export class Messaging {
    *   Transaction owners that must not announce a rolled-back write call this after commit.
    */
   publishCommitted(frame:MessageEventFrame):void {
-    this.ctx.gateway.broadcast(conversationReaderIds(this.db,frame.conversation_id),frame);
+    this.ctx.gateway.broadcast('conversation-readers',frame);
   }
   get db() {
     return this.ctx.db;
@@ -125,7 +127,7 @@ export class Messaging {
       uid = this.agentUser(agentId!).id;
     }
     if (principal.kind !== "gateway") this.ctx.identity.requireSpace(principal, c.space_id);
-    const access = conversationAccess(this.db,id,uid);
+    const access = conversationRowAccess(this.db,c,uid);
     if (!access || (mode === "write" && !access.is_member)) fail(404,"conversation_id not found");
     if (mode === "write" && access.dissolved_at) fail(409,{code:"conversation_dissolved",message:"This conversation is read-only after dissolution"});
     return access;
@@ -142,7 +144,7 @@ export class Messaging {
    */
   conversation(id: string, userId: string, readerId = userId): Row {
     const c = one(this.db, "SELECT * FROM conversations WHERE id=?", id)!;
-    const access = conversationAccess(this.db,id,userId);
+    const access = c && conversationRowAccess(this.db,c,userId);
     if (!access) fail(404,"conversation_id not found");
     const members = this.members(id);
     const lastMessage = c.last_message_at ? one(this.db,
@@ -767,7 +769,7 @@ export class Messaging {
     for (const m of messages) {
       const e = this.records.createdEvent(m.id);
       const data = JSON.parse(e.payload_json);
-      this.ctx.gateway.broadcast(conversationReaderIds(this.db,m.conversation_id),{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,...this.message(m.id),message_id:m.id,event_id:e.event_id}});
+      this.ctx.gateway.broadcast('conversation-readers',{op:"event",event_id:e.event_id,conversation_id:m.conversation_id,message_id:m.id,event_type:e.event_type,delivery_status:e.delivery_status,created_at:e.created_at,data:{...data,...this.message(m.id),message_id:m.id,event_id:e.event_id}});
       if (!options.deferDelivery) delivered = this.deliverRelays(this.records.queuedRelays(m.id)) || delivered;
     }
     return delivered;
