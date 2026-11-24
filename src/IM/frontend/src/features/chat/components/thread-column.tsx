@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ArrowUp, Bell, BellRing, Reply, X } from "lucide-react";
+import { ArrowLeft, ArrowUp, Bell, BellRing, PanelRight, Reply, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { authFetchJson } from "../../auth/auth-fetch";
 import { createMessage } from "../chat-api";
@@ -238,7 +238,7 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
   }} aria-label={t("chat.messagePane.threadTitle")}>
     <header className="chat-pane-header">
       {isMobile && <button type="button" className="chat-pane-back" onClick={onClose} aria-label={t("common.back", "Back")}><ArrowLeft size={20}/></button>}
-      <div className="chat-pane-header-body"><h2 className="chat-pane-title">{t("chat.messagePane.threadTitle")}</h2>
+      <div className="chat-pane-header-body"><h2 className="chat-pane-title"><PanelRight size={14} aria-hidden="true" />{t("chat.messagePane.threadTitle")}</h2>
         {isMobile && <span className="chat-thread-source">{conversation.title}</span>}
       </div>
       {conversation.type === "group" && canWrite && data && <button type="button" className="chat-thread-follow"

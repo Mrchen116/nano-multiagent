@@ -30,7 +30,7 @@ export function PublicGroupsModal({ groups = [], pending, error, onRetry, onClos
         {!pending && !error && filtered.length === 0 && <p>{t("tasks.noGroups")}</p>}
         <ul className="chat-modal-agents">{filtered.map(group => <li key={group.id}>
           <button className="chat-modal-agent" onClick={() => onSelect(group)}>
-            <GroupAvatar size={34} label={t("chat.list.filters.group")} />
+            <GroupAvatar groupId={group.id} size={34} label={t("chat.list.filters.group")} />
             <span className="chat-modal-agent-body"><strong className="chat-modal-agent-name">{group.title}</strong><span className="chat-modal-agent-meta">{[group.is_member ? t("tasks.joined") : "", t("chat.groupSettings.memberCount", { count: group.participants.length })].filter(Boolean).join(" · ")}</span></span>
             <span aria-hidden="true">›</span>
           </button>

@@ -4,7 +4,7 @@ import { ThreadColumn } from "./thread-column";
 import { CooperationGuide, type CooperationGuideAgent } from "./cooperation-guide";
 import { AgentActivityPopover, type AgentActivityAnchor } from "./agent-activity-popover";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Check, CheckCheck, Copy, GitFork, ListTodo, ListTree, MessagesSquare, Reply } from "lucide-react";
+import { Check, CheckCheck, Copy, GitFork, ListTodo, ListTree, PanelRight, MessagesSquare, Reply } from "lucide-react";
 import React, {
   useCallback,
   useEffect,
@@ -51,7 +51,7 @@ import {
   type ReplyReference,
   type TimelineItem
 } from "../chat-types";
-import { Avatar, GroupAvatar, colorForAgentSeed, foregroundForAvatar, directPersonAvatarName, initialsOf } from "./avatar";
+import { Avatar, GroupAvatar, colorForAgentSeed, directPersonAvatarName, initialsOf } from "./avatar";
 import { MENTION_RE, reconstructWireContent, type DraftMention, parseMentions, mentionPlainText, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { DirectConversationMenu } from "./direct-conversation-menu";
@@ -1220,7 +1220,7 @@ export function MessagePane({
             </svg>
           </button>
         )}
-        {conversation.type === "group" ? <GroupAvatar size={34} label={t("chat.list.filters.group")} />
+        {conversation.type === "group" ? <GroupAvatar groupId={conversation.id} size={34} label={t("chat.list.filters.group")} />
           : directAgent ? <button
             type="button"
             className="chat-agent-activity-trigger"
@@ -2174,7 +2174,7 @@ function MessageBubble({
       <div className="chat-bubble-column flex flex-col min-w-0">
         {(!isUser || message.pa_agent_id) && (showSender || message.pa_agent_id || message.delegation) && (
           <div className="chat-bubble-meta" aria-label={message.pa_agent_id ? t('pa.senderLabel', {name:message.sender.display_name ?? message.sender.id}) : undefined}>
-            <span className="chat-bubble-sender" style={{ color: foregroundForAvatar(senderColor) }}>
+            <span className="chat-bubble-sender">
               {message.sender.display_name ?? message.sender.id}
             </span>
             {message.pa_agent_id ? <span className="pa-delegation pa-delegation--represented">{t('pa.sentOnBehalf')}</span> : message.delegation ? <span className="pa-delegation">{message.delegation.label}</span> : null}
@@ -2302,7 +2302,7 @@ function ThreadEntry({message, participants, expanded, onOpen}: {
         <strong>{reply.display_name}</strong>
         <span>{mentionPlainText(reply.preview, names) || t("chat.messagePane.threadMessage")}</span>
       </span>)}
-      <span className="chat-thread-entry-label">{t(expanded ? "chat.messagePane.threadCount" : "chat.messagePane.threadViewAll", {n: thread.reply_count, count: thread.reply_count})}</span>
+      <span className="chat-thread-entry-label">{expanded && <PanelRight size={13} aria-hidden="true" />}{t(expanded ? "chat.messagePane.threadCount" : "chat.messagePane.threadViewAll", {n: thread.reply_count, count: thread.reply_count})}</span>
     </button>
   );
 }

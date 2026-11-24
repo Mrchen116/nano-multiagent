@@ -61,8 +61,7 @@ describe("person avatar consistency", () => {
         expect(background(face)).toBe(directColor);
       }
       rerender(view(true));
-      expect(getComputedStyle(container.querySelector(".chat-bubble-sender")!).color)
-        .toBe(getComputedStyle(mentionFace).color);
+      expect(container.querySelector(".chat-bubble-sender")).toHaveTextContent(peer.display_name!);
       expect(background(screen.getByTestId("message-avatar-reply").querySelector(".chat-avatar-face")!)).toBe(directColor);
       expect(container.querySelector(".chat-pane-header .chat-avatar-face")).toBeNull();
     },
