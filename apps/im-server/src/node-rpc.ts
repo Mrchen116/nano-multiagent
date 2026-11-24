@@ -1,13 +1,13 @@
+import {inspectionTimeouts} from '@nano/product-contracts';
 import {randomUUID} from 'node:crypto';
-import {nodeResponseTypes, type NodeCommand, type NodeInput, type NodeOutput, type NodeRequest} from './node-rpc-contracts.js';
+import {nodeCommands, inspectionReplies, type NodeCommand, type NodeInput, type NodeOutput, type NodeRequest} from '@nano/product-contracts/node-rpc';
 import {decodeNodeResult, isRecord} from './node-rpc-values.js';
 
-const inspections = new Set<NodeCommand>(['agent.capabilities.resolve','node.capabilities.resolve','agent.prompt.preview.request','node.prompt.preview.request']);
-const inspectionReplies = new Set<string>([...inspections].map(command => nodeResponseTypes[command]));
 interface Transport<Connection> {
   current(nodeId: string): Connection | undefined;
   send(nodeId: string, frame: {type: NodeCommand | 'node.request.cancel'; payload: object}): boolean;
   updating(nodeId: string): boolean;
+  windows(nodeId: string): boolean;
 }
 interface Pending<Connection> {
   connection: Connection | undefined;
@@ -24,7 +24,8 @@ export class NodeRpc<Connection> {
   /** Bound temporary inspections; durable timeouts still leave recovery to the caller. */
   readonly request: NodeRequest = <K extends NodeCommand>(nodeId: string, command: K, payload: NodeInput<NoInfer<K>>, signal?: AbortSignal): Promise<NodeOutput<K>> => {
     if (this.transport.updating(nodeId)) return Promise.reject(Object.assign(new Error('Computer is updating; try again when it reconnects'), {statusCode:409}));
-    const inspection = inspections.has(command), requestId = payload.request_id ?? randomUUID();
+    const inspection = nodeCommands[command].inspection, requestId = payload.request_id ?? randomUUID();
+    const timeoutMs = inspection ? inspectionTimeouts(this.transport.windows(nodeId)).rpcMs : 10000;
     if (inspection && signal?.aborted) return Promise.reject(Object.assign(new Error('Catalog request cancelled'), {statusCode:503}));
     return new Promise((resolve, reject) => {
       const connection = this.transport.current(nodeId);
@@ -36,22 +37,23 @@ export class NodeRpc<Connection> {
         reject(error);
       };
       const abort = () => stop(Object.assign(new Error('Catalog request cancelled'), {statusCode:503}));
-      const timer = setTimeout(() => stop(Object.assign(new Error('node response timeout'), {statusCode:504})),inspection ? 9000 : 10000);
+      const timer = setTimeout(() => stop(Object.assign(new Error('node response timeout'), {statusCode:504})),timeoutMs);
       this.pending.set(requestId, {
         connection,
-        responseType: nodeResponseTypes[command],
+        responseType: nodeCommands[command].responseType,
         complete: value => {
           cleanup();
           try {
-            if (inspection && isRecord(value) && typeof value.error_code === 'string')
-              throw Object.assign(new Error('Catalog inspection unavailable'), {statusCode:value.error_code === 'catalog_timeout' ? 504 : 503});
-            resolve(decodeNodeResult(command, value));
+            const result = decodeNodeResult(command,value);
+            if (inspection && 'error_code' in result && typeof result.error_code === 'string')
+              throw Object.assign(new Error('Catalog inspection unavailable'), {statusCode:result.error_code === 'catalog_timeout' ? 504 : 503});
+            resolve(result);
           } catch (error) { reject(error); }
         },
         stop,
       });
       if (inspection) signal?.addEventListener('abort',abort,{once:true});
-      if (!this.transport.send(nodeId, {type:command, payload:{...payload,request_id:requestId,...(inspection ? {deadline_at:Date.now()+9000} : {})}})) {
+      if (!this.transport.send(nodeId, {type:command, payload:{...payload,request_id:requestId,...(inspection ? {deadline_at:Date.now()+timeoutMs} : {})}})) {
         cleanup();
         reject(Object.assign(new Error('node offline'), {statusCode:503}));
       }

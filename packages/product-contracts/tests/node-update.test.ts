@@ -25,3 +25,15 @@ it('retains legacy SHA install support without inventing updater capability', ()
   expect(parsed).not.toHaveProperty('updater_protocol');
   expect(parsed).not.toHaveProperty('data_epoch');
 });
+
+it('binds the Windows bootstrap and descriptor to the same versioned release', () => {
+  const base = release.download_url.slice(0, release.download_url.lastIndexOf('/') + 1);
+  const windows = {...release, platform: 'win32-x64', package: 'windows-x64.json', size: 420,
+    download_url: base + 'windows-x64.json', installer: {
+      download_url: base + 'Crewden-Setup-x64.exe', sha256: 'd'.repeat(64), size: 2048,
+    }};
+  expect(parseReleaseManifest(windows)).toEqual(windows);
+  expect(parseReleaseManifest({...windows, installer: {...windows.installer, download_url: release.download_url}})).toBeNull();
+  expect(parseReleaseManifest({...windows, platform: undefined})).toBeNull();
+  expect(parseReleaseManifest({...release, platform: 'win32-x64'})).toBeNull();
+});

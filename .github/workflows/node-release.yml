@@ -28,16 +28,40 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  source:
     runs-on: ubuntu-latest
+    outputs:
+      windows: ${{ steps.platform.outputs.windows }}
     steps:
-      - name: Validate explicit version and fixed source revision
+      - name: Require explicit immutable source and version
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_COMMIT: ${{ inputs.commit }}
         run: |
           [[ "$RELEASE_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
           [[ "$RELEASE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+      - id: platform
+        run: |
+          if test -f scripts/build-windows-installer.ps1; then
+            echo "windows=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "windows=false" >> "$GITHUB_OUTPUT"
+          fi
+  windows:
+    needs: source
+    if: needs.source.outputs.windows == 'true'
+    uses: ./.github/workflows/windows-candidate.yml
+    with:
+      commit: ${{ inputs.commit }}
+      version: ${{ inputs.version }}
+  publish:
+    needs: [source, windows]
+    if: always() && needs.source.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
       # Keep publishing policy from this workflow revision, even for older source commits.
       - uses: actions/checkout@v4
       - name: Preserve the versioned publisher
@@ -56,7 +80,12 @@ jobs:
         run: pnpm build
       - name: Verify runtime and installer
         run: pnpm typecheck && pnpm test
-      - name: Publish and anonymously verify the same package
+      - uses: actions/download-artifact@v4
+        if: needs.windows.result == 'success'
+        with:
+          name: windows-x64-${{ inputs.commit }}
+          path: dist/node-release/windows
+      - name: Publish and anonymously verify the same packages
         env:
           RELEASE_VERSION: ${{ inputs.version }}
           RELEASE_CHANGES: ${{ inputs.changes }}
@@ -67,5 +96,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: node-manifest-${{ inputs.version }}
-          path: dist/node-release/manifest.json
+          path: |
+            dist/node-release/manifest.json
+            dist/node-release/manifest.win32-x64.json
           if-no-files-found: error

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
@@ -8,6 +8,7 @@ import { useAuthStore } from '../auth/auth-store';
 import { TEST_AUTH_USER } from '../../test/render-router';
 import { setLanguage } from '../../i18n';
 import { getOnboarding, setupNode } from './onboarding-api';
+import { bindingTargetKey } from './binding-target';
 import { createPersonalAgent, getPersonalAgent } from '../personal-agent/personal-agent-api';
 import { createConversation, listConversations } from '../chat/chat-api';
 vi.mock('./onboarding-api');
@@ -17,8 +18,8 @@ const pa={binding:{binding_id:'b',agent_id:'a',owner_id:'o',owner_user_id:'u',no
 const computer = { node_id: 'device', node_name: 'My computer', alias: null, status: 'online' };
 const install = { available: true, origin: 'https://nano.example', command: 'install Nano', script_url: 'https://nano.example/install.sh' };
 const modelStatus = { revision: 'r1', services: [], models: [], catalog: [{provider: 'deepseek', display_name: 'DeepSeek', models: [{id: 'deepseek-chat'}]}], default_model: '', workspace_base: '/my-workspaces' };
-function mount(cache = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
- const router = createMemoryRouter([{ path: '/onboarding', element: <OnboardingPage /> }, { path: '/chat/:id', element: <p>Chat opened</p> }], { initialEntries: ['/onboarding'] });
+function mount(cache = new QueryClient({ defaultOptions: { queries: { retry: false } } }), path = '/onboarding') {
+ const router = createMemoryRouter([{ path: '/onboarding', element: <OnboardingPage /> }, { path: '/chat/:id', element: <p>Chat opened</p> }], { initialEntries: [path] });
  render(<QueryClientProvider client={cache}><RouterProvider router={router} /></QueryClientProvider>);
  return router;
 }
@@ -192,6 +193,73 @@ it('resumes installation on a phone with handoff first and opt-in computer instr
  expect(screen.queryByRole('button',{name:'Copy install command'})).not.toBeInTheDocument();
  await userEvent.click(screen.getByRole('button',{name:/View computer installation steps/}));
  expect(screen.getByRole('button',{name:'Copy install command'})).toBeInTheDocument();
+});
+
+it('offers a Windows download or handoff and waits for the specifically bound computer to come online', async () => {
+ const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Windows NT 10.0; Win64; x64');
+ try {
+   Object.defineProperty(window,'innerWidth',{configurable:true,writable:true,value:390});
+   localStorage.setItem(`nano-onboarding:${TEST_AUTH_USER.id}`, JSON.stringify({started:true}));
+   const materials = {...install, available:false, windows_x64:{
+     download_url:'https://example.test/Crewden-Setup-x64.exe', connect_url:'crewden://connect?origin=https%3A%2F%2Fnano.example',
+   }};
+   const state = {nodes:[],agents:[],install:materials};
+   vi.mocked(getOnboarding).mockResolvedValue(state);
+   const cache = new QueryClient({defaultOptions:{queries:{retry:false}}});
+   mount(cache);
+   const download = await screen.findByRole('link', {name:'Download Windows installer'});
+   expect(download).toHaveAttribute('href',materials.windows_x64.download_url);
+   download.addEventListener('click', event => event.preventDefault(), {once:true});
+   await userEvent.click(download);
+   const open = screen.getByRole('link', {name:'Open Crewden to connect'});
+   expect(open).toHaveAttribute('href',materials.windows_x64.connect_url);
+   open.addEventListener('click', event => event.preventDefault(), {once:true});
+   await userEvent.click(open);
+   expect(screen.getByRole('link', {name:'Reopen Crewden'})).toBeInTheDocument();
+   const queryKey = ['onboarding', TEST_AUTH_USER.id];
+   await act(async () => { cache.setQueryData(queryKey, {...state, nodes:[computer]}); });
+   expect(screen.queryByRole('button',{name:'Continue'})).toBeNull();
+   expect(setupNode).not.toHaveBeenCalled();
+   const key = bindingTargetKey(TEST_AUTH_USER.id);
+   await act(async () => {
+     localStorage.setItem(key, 'windows-computer');
+     window.dispatchEvent(new StorageEvent('storage',{key,newValue:'windows-computer'}));
+   });
+   const selected = {...computer,node_id:'windows-computer',node_name:'My Windows PC'};
+   await act(async () => { cache.setQueryData(queryKey,{...state,nodes:[computer,{...selected,status:'offline'}]}); });
+   expect(await screen.findByText('My Windows PC · Offline')).toBeInTheDocument();
+   expect(screen.queryByRole('button',{name:'Continue'})).toBeNull();
+   await act(async () => { cache.setQueryData(queryKey,{...state,nodes:[computer,selected]}); });
+   expect(await screen.findByText('My Windows PC · Connected')).toBeInTheDocument();
+   await userEvent.click(screen.getByRole('button',{name:'Continue'}));
+   await screen.findByRole('heading',{name:'Connect a model'});
+   expect(setupNode).toHaveBeenCalledWith('windows-computer',{action:'status'});
+ } finally { ua.mockRestore(); }
+});
+
+it('lets the original browser choose its confirmed computer when the default browser holds the binding receipt', async () => {
+ const targetKey = bindingTargetKey(TEST_AUTH_USER.id);
+ localStorage.setItem(targetKey, '');
+ localStorage.setItem(`nano-onboarding:${TEST_AUTH_USER.id}`, JSON.stringify({started:true}));
+ vi.mocked(getOnboarding).mockResolvedValue({nodes:[computer],agents:[],install});
+ mount();
+ const choose = await screen.findByRole('combobox', {name:'Choose the computer you just confirmed'});
+ expect(choose).toHaveValue('');
+ expect(screen.queryByText('My computer · Connected')).toBeNull();
+ await userEvent.selectOptions(choose, computer.node_id);
+ expect(await screen.findByRole('heading', {name:'Connect a model'})).toBeInTheDocument();
+ expect(setupNode).toHaveBeenCalledWith(computer.node_id, {action:'status'});
+ expect(localStorage.getItem(targetKey)).toBe(computer.node_id);
+});
+
+it('selects the authenticated reconnect target before resuming setup', async () => {
+ const key = bindingTargetKey(TEST_AUTH_USER.id);
+ const selected = {...computer,node_id:'windows-computer',node_name:'My Windows PC',status:'offline'};
+ vi.mocked(getOnboarding).mockResolvedValue({nodes:[computer,selected],agents:[],install});
+ mount(undefined, '/onboarding?node=windows-computer');
+ await screen.findByText('My Windows PC · Offline');
+ expect(localStorage.getItem(key)).toBe('windows-computer');
+ expect(setupNode).not.toHaveBeenCalled();
 });
 
 it.each([true,false])('resumes a pending assistant after refresh without mixing another draft (%s)', async (sameDraft) => {

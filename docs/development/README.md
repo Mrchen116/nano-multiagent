@@ -16,14 +16,14 @@
 | 切换 Air/Mini、检查本机模型入口、路径与飞书能力 | [本机开发配置](local-development.md#本机开发配置) |
 | 决定测什么、测试放在哪一层 | [`testing.md`](testing.md) |
 | 判断某类证据能证明什么、结果保存在哪里 | [`evidence.md`](evidence.md) |
-| 设计或审查前端的具体取舍 | [共同体验标准](../../.claude/skills/frontend-experience-review/references/prototype-and-runbook.md) → [真实纠正案例](../../.claude/skills/frontend-experience-review/references/ui-decision-gotchas.md) |
-| 探索性试用产品，发现体验和后台运行问题并核实归因 | [`product-tryout`](../../.claude/skills/product-tryout/SKILL.md) |
+| 设计或审查前端的具体取舍 | [共同体验标准](frontend-experience.md) → [真实纠正案例](frontend-experience-cases.md) |
+| 探索性试用产品，发现体验和后台运行问题并核实归因 | [Nano 场景与归因参考](product-tryout.md) |
 | 设计、移动、退役或治理仓库知识 | [`documentation-system.md`](documentation-system.md) |
 | 在 worktree 内启动隔离 IM、Gateway 或 Vite | [`worktree-runtime.md`](worktree-runtime.md) |
 | 用固定日常团队和真实 PA 验收每个需求 | [固定日常验收模板](worktree-runtime.md#固定日常验收模板) |
 | 查看必须长期守护的真实用户旅程 | [`e2e-critical-paths.md`](e2e-critical-paths.md) |
 | 编写代码、docstring、注释或 TODO/FIXME | [`coding-guidelines.md`](coding-guidelines.md) |
-| 设计或审查模型可见内容、选择/加载/注入与恢复链路 | [`agent-context-engineering.md`](agent-context-engineering.md) → [审查 Skill](../../.claude/skills/agent-context-review/SKILL.md) |
+| 设计或审查模型可见内容、选择/加载/注入与恢复链路 | [`agent-context-engineering.md`](agent-context-engineering.md) → [审查 Skill](https://github.com/Mrchen116/dev-workflow-skills/blob/main/skills/agent-context-review/SKILL.md) |
 | 联调 LLM provider、本地代理或查看交互日志 | [`llm-integration.md`](llm-integration.md) |
 | 创建 workspace 插件、查当前公开 API 与验证模板 | [随包插件开发 Skill](../../packages/personal-assistant/assets/skills/nano-plugin-development/SKILL.md) |
 | 编写 current spec 或归并 delta-spec | [`../specs/CONTRIBUTING.md`](../specs/CONTRIBUTING.md) |
@@ -33,17 +33,17 @@
 
 | 文档 | 负责的事实 |
 |---|---|
-| [`change-workflow.md`](change-workflow.md) | 何时建 unit、生命周期、实施方式、角色和门禁 |
-| [`skill-composition.md`](skill-composition.md) | 流程、能力与项目规范分工；问题驱动选择、组合、结果与历史接手 |
+| [`change-workflow.md`](change-workflow.md) | Nano 分支、CI、验证现场与清理规则；链接通用生命周期 |
+| [`skill-composition.md`](skill-composition.md) | Nano 项目入口与通用能力组合 |
 | [`issues.md`](issues.md) | GitHub 提报入口、标签使用与同步维护 |
 | [`local-development.md`](local-development.md) | Node/前端与 Python 辅助工具环境、本机路径/能力配置、常用命令、测试身份和提交格式 |
 | [`testing.md`](testing.md) | 测试选择、分层、命名、长期回归与临时证据边界 |
-| [`evidence.md`](evidence.md) | 测试、CI、真栈、报告、runtime 与 LLM 日志的能力边界和归并规则 |
+| [`evidence.md`](evidence.md) | Nano 测试、CI、真栈、运行状态、LLM 日志入口和保存约束 |
 | [`documentation-system.md`](documentation-system.md) | Agent-Native 仓库知识体系方法论与维护检查表；已通过本仓迁移和真实 Agent 任务验证 |
 | [`worktree-runtime.md`](worktree-runtime.md) | 临时服务的端口、config、数据、进程和清理契约 |
 | [`e2e-critical-paths.md`](e2e-critical-paths.md) | 用户旅程与确定性 E2E 守护测试的对账 |
 | [`coding-guidelines.md`](coding-guidelines.md) | 跨模块通用代码编写规范；当前包含 public API docstring、意图注释和 TODO/FIXME |
-| [`agent-context-engineering.md`](agent-context-engineering.md) | Agent Context 全生命周期与组合设计的唯一通用规范 |
+| [`agent-context-engineering.md`](agent-context-engineering.md) | Nano 运行时落点与场景；链接通用设计方法和取证入口 |
 | [`llm-integration.md`](llm-integration.md) | 本地 LLM 代理配置、协议、日志和验证方法 |
 
 ## 开发反馈顺序

@@ -20,6 +20,9 @@ it('clears cold durable inbox once per disable revision and preserves fresh post
   const start=async(lifecycle?:unknown)=>{client=new RuntimeClient({home,cwd:home});registerNoopTaskHosts(client);await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[binding(home)],lifecycle:lifecycle?{a:lifecycle}:undefined});await client.rpc.request('session.ensure',binding(home));};
   try {
     await prepareProfile(home); await start();
+    await expect(client!.rpc.request('session.cancel', {sessionId: false})).rejects.toMatchObject({code: -32602});
+    await expect(client!.rpc.request('session.work.workers.confirm', {sessionId:'root',changes:[]})).resolves.toEqual({});
+    await expect(client!.rpc.request('session.inbox-delivered.confirm', {sessionId:'root',inputIds:[]})).resolves.toEqual({});
     const {sessionId, ...rest}=binding(home);
     await expect(client!.rpc.request('session.ensure',{...rest,sessionId})).resolves.toMatchObject({sessionId:'root'});
     await expect(client!.rpc.request('session.ensure',{...rest,sessionId,ownerId:'other'})).rejects.toThrow('binding conflict');

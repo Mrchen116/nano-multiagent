@@ -4,7 +4,7 @@ import type { AgentDeletionIntent, AgentDeletionView, AgentWorkspaceWitness } fr
 import { all, body, fail, one, params, transaction, type ImContext, type Row } from './context.js';
 import { lifecycle } from './agent-lifecycle.js';
 import { canAccessSpace } from './identity.js';
-import { conversationAccess, conversationReaderIds } from './conversation-access.js';
+import { conversationAccess } from './conversation-access.js';
 
 export function deletionIntent(row: Row): AgentDeletionIntent {
   return {agent_id:row.agent_id, operation_id:row.operation_id, revision:row.revision,
@@ -105,7 +105,7 @@ export function reportAgentDeletion(ctx: ImContext, operation: Row, input: Row):
       {conversation_id:id,execution_cleanup_revision:executionCleanupRevision(ctx,id)},'completed',false));
   });
   for (const frame of frames) {
-    ctx.gateway.broadcast(conversationReaderIds(ctx.db,frame.conversation_id),frame);
+    ctx.messaging.publishCommitted(frame);
   }
 }
 

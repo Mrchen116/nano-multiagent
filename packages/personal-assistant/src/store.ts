@@ -235,7 +235,7 @@ export class NodeStore {
     return {...input,lifecycle_revision:revision};
   }
   /** Stamp outgoing requests at their actual dispatch boundary using the admitted epoch. */
-  executionPayload(payload: Record<string,unknown>): Record<string,unknown> {
+  executionPayload<T extends Record<string,unknown>>(payload: T): T {
     const context=this.lifecycle.current();
     if(!context)return payload;
     const revision=this.lifecycle.assert(context.agentId,typeof payload.lifecycle_revision==='number'?payload.lifecycle_revision:context.revision);

@@ -1,12 +1,19 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
-import { AgentLifecycleAction, AgentLifecycleChatNotice, AgentLifecycleStatus, useAgentLifecycle } from './agent-lifecycle';
+import { AgentLifecycleAction, AgentLifecycleChatNotice, AgentLifecycleStatus, useAgentLifecycle, useDirectoryLifecycleRefresh } from './agent-lifecycle';
 import { setLanguage } from '../../../i18n';
 import { useAuthStore } from '../../auth/auth-store';
 
-vi.mock('../../../realtime/user-stream', () => ({ subscribeUserStream: () => () => {} }));
+import type { UserStreamSubscriber } from '../../../realtime/user-stream';
+const subscribers = vi.hoisted(() => new Set<UserStreamSubscriber>());
+vi.mock('../../../realtime/user-stream', () => ({
+  subscribeUserStream: (subscriber: UserStreamSubscriber) => {
+    subscribers.add(subscriber);
+    return () => subscribers.delete(subscriber);
+  }
+}));
 const snapshot = (desired = 'enabled', observed = desired, revision = 1) => ({ agent_id: 'a', desired, observed, revision, applied_revision: observed === desired ? revision : 0, error_detail: observed === 'stop_unconfirmed' ? 'Cleanup timed out' : null });
 function Surface({ owner = true, online = false }) {
   const lifecycle = useAgentLifecycle('a');
@@ -73,4 +80,55 @@ it('refreshes an enable conflict without resubmitting and shows nonowners only s
   await screen.findByRole('alert'); expect(writes).toBe(1);
   cleanup(); mount(false);
   await screen.findByText('Disabled'); expect(screen.queryByRole('button')).toBeNull();
+});
+
+
+it('updates the mounted directory through a burst of reports and reads it once on recovery', async () => {
+  useAuthStore.setState({user:{id:'u'} as never});
+  const client = new QueryClient();
+  const list = [{agent_id:'a',lifecycle_disabled:false}];
+  const read = vi.fn(async () => list);
+  function Directory() {
+    const query = useQuery({queryKey:['contacts','u','agents'],queryFn:read,initialData:list,staleTime:Infinity});
+    useDirectoryLifecycleRefresh(query.refetch);
+    return <output>{query.data[0].lifecycle_disabled ? 'Disabled' : 'Enabled'}</output>;
+  }
+  render(<QueryClientProvider client={client}><Directory /></QueryClientProvider>);
+  act(() => {
+    for (const subscriber of subscribers) {
+      for (let i=0; i<50; i++) subscriber.onEvent({eventType:'agent.lifecycle.changed',payload:snapshot('disabled','disabled',2)});
+    }
+  });
+  await screen.findByText('Disabled');
+  expect(read).not.toHaveBeenCalled();
+  await act(async () => {
+    for (const subscriber of subscribers) await subscriber.onRecovery?.();
+  });
+  await screen.findByText('Enabled');
+  expect(read).toHaveBeenCalledTimes(1);
+});
+
+it('updates the directory immediately after a successful enable without a socket event', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (_url, init) => Response.json(init?.method === 'PUT' ? snapshot('enabled','enabling',3) : snapshot('disabled','disabled',2))));
+  const client = mount();
+  const key = ['contacts','u','agents'];
+  client.setQueryData(key,[{agent_id:'a',display_name:'Assistant',lifecycle_disabled:true}]);
+  await userEvent.click(await screen.findByRole('button',{name:'Enable Agent'}));
+  await waitFor(() => expect(client.getQueryData(key)).toEqual([{agent_id:'a',display_name:'Assistant',lifecycle_disabled:false}]));
+});
+
+it('keeps a confirmed directory badge when the same stop request returns its earlier stopping receipt', async () => {
+  let finishStop!: (response:Response) => void;
+  vi.stubGlobal('fetch',vi.fn(async (_url, init) => init?.method === 'PUT'
+    ? new Promise<Response>(resolve => { finishStop=resolve; })
+    : Response.json(snapshot())));
+  const client=mount();
+  const key=['contacts','u','agents'];
+  client.setQueryData(key,[{agent_id:'a',lifecycle_disabled:false}]);
+  await userEvent.click(await screen.findByRole('button',{name:'Disable Agent'}));
+  // The open directory already applied the node's confirmation.
+  client.setQueryData(key,[{agent_id:'a',lifecycle_disabled:true}]);
+  finishStop(Response.json(snapshot('disabled','stopping',2)));
+  await screen.findByText('The computer is offline. Disabling will continue when it reconnects.');
+  expect(client.getQueryData(key)).toEqual([{agent_id:'a',lifecycle_disabled:true}]);
 });

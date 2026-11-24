@@ -27,19 +27,23 @@ export function lifecycle(db:DatabaseSync,agentId:string):AgentLifecycleSnapshot
  *   remain compatible only before an Agent has ever been disabled.
  */
 export function lifecycleAllows(db:DatabaseSync,agentId:string,revision:unknown):boolean {
-  const state=lifecycle(db,agentId);
+  return generationAllowed(lifecycle(db,agentId),revision);
+}
+
+function generationAllowed(state:AgentLifecycleSnapshot,revision:unknown):boolean {
   return state.desired==='enabled' && (revision===state.revision || revision==null&&state.revision===1);
 }
 /** Enforce a producer's generation at the actual product write boundary.
  * Args:
  *   db: Center business database.
  *   agentId: Authenticated producer identity.
- *   revision: Original admission generation.
+ *   revisions: Generations on the incoming fact and, when applicable, the stored message.
  * Raises:
  *   Error: HTTP 409 when this generation no longer has execution authority.
  */
-export function requireLifecycle(db:DatabaseSync,agentId:string,revision:unknown):void {
-  if(!lifecycleAllows(db,agentId,revision))fail(409,'agent_lifecycle_revoked');
+export function requireLifecycle(db:DatabaseSync,agentId:string,...revisions:[unknown,...unknown[]]):void {
+  const state=lifecycle(db,agentId);
+  if(!revisions.every(revision=>generationAllowed(state,revision)))fail(409,'agent_lifecycle_revoked');
 }
 export class AgentLifecycles {
   constructor(readonly ctx:ImContext) {}

@@ -1,13 +1,8 @@
-import type { AgentConfiguration, DreamingWorkMetrics, DreamingWorkStage, RuntimePort } from '@nano/product-contracts';
+import type { AgentConfiguration, RuntimePort } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import type { NodeStore } from './store.js';
 import type { InboxStore } from './inbox.js';
 
-interface Fact {
-  id: string; agentId: string; rootSessionId: string; sessionId: string; turn: number;
-  kind: 'memory' | 'skills'; action: string; name?: string; scope?: string; skill_root?: string; reviewId?: string;
-}
-interface Review { id: string; status: string; agentId: string; rootSessionId: string; childSessionId?: string; kind: 'memory' | 'skills' | 'combined' | 'dreaming'; title?: string; at: number; endedAt?: number; summary?: string; stage?: DreamingWorkStage; workMetrics?: DreamingWorkMetrics }
 interface Options {
   partitionKey?: string;
   nodeId: string; agents: AgentConfiguration[]; runtime: RuntimePort; store: NodeStore; inbox: InboxStore;
@@ -41,7 +36,7 @@ export class KnowledgeUpdates {
   }
   private async reconcile() {
     const runtime = this.options.runtime.capture?.() ?? this.options.runtime;
-    const { facts, reviews } = await runtime.request('knowledge.facts', {}) as { facts: Fact[]; reviews: Review[] };
+    const { facts, reviews } = await runtime.request('knowledge.facts', {});
     const before = this.options.inbox.journalSeq;
     for (const review of reviews) {
       if (!review.childSessionId) continue;
@@ -74,7 +69,7 @@ export class KnowledgeUpdates {
       }
     }
     if (this.options.inbox.journalSeq > before) this.options.onWork?.();
-    const groups = new Map<string, Fact[]>();
+    const groups = new Map<string, typeof facts>();
     for (const fact of facts) {
       const binding = this.options.store.bindingForSession(fact.rootSessionId);
       if (!binding || binding.agentId !== fact.agentId || !this.options.agents.some(agent => agent.agentId === fact.agentId) || !this.options.store.lifecycle.allowed(fact.agentId)) continue;

@@ -9,11 +9,13 @@ function candidates(db: DatabaseSync, where: string, args: string[]): Row[] {
       CASE WHEN ap.agent_id IS NULL THEN 'human' ELSE 'agent' END AS kind,
       COALESCE(ap.display_name,u.display_name) AS display_name,ap.avatar_variant,ap.agent_id,ap.owner_id,ap.space_id,
       owner.display_name AS owner_display_name,COALESCE(NULLIF(n.alias,''),n.node_name) AS node_name,
-      COALESCE(n.status,'offline') AS status,ap.work_mode,pb.binding_id,pb.status AS personal_status
+      COALESCE(n.status,'offline') AS status,ap.work_mode,pb.binding_id,pb.status AS personal_status,
+      l.desired='disabled' AND l.observed='disabled' AND l.applied_revision=l.revision AS lifecycle_disabled
     FROM users u
     LEFT JOIN agent_profiles ap ON ap.agent_id=CASE WHEN substr(u.username,1,6)='agent:' THEN substr(u.username,7) END
     LEFT JOIN users owner ON owner.id=ap.owner_id
     LEFT JOIN nodes n ON n.node_id=ap.node_id
+    LEFT JOIN agent_lifecycle l ON l.agent_id=ap.agent_id
     LEFT JOIN personal_agent_bindings pb ON pb.agent_id=ap.agent_id
     WHERE ((u.password_hash IS NOT NULL AND u.password_hash!='' AND ap.agent_id IS NULL)
       OR (ap.agent_id IS NOT NULL AND ap.is_stale=0)) AND ${where}
@@ -40,8 +42,8 @@ function visible(db: DatabaseSync, viewer: Row, rows: Row[]): Row[] {
     const {membership_status: _membership, binding_id, personal_status: _personal, ...contact} = row;
     if (row.kind === 'human') return {user_id:row.user_id,kind:row.kind,display_name:row.display_name};
     if (binding_id) return {user_id:row.user_id,kind:row.kind,display_name:row.display_name,agent_id:row.agent_id,
-      owner_id:row.owner_id,owner_display_name:row.owner_display_name,avatar_variant:row.avatar_variant,role:'personal',status:row.status,work_mode:row.work_mode};
-    return contact;
+      owner_id:row.owner_id,owner_display_name:row.owner_display_name,avatar_variant:row.avatar_variant,role:'personal',status:row.status,work_mode:row.work_mode,lifecycle_disabled:!!row.lifecycle_disabled};
+    return {...contact,lifecycle_disabled:!!row.lifecycle_disabled};
   });
 }
 

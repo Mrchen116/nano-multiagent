@@ -371,10 +371,17 @@ it('lets both real Agent owners observe existing direct history and events witho
     app.im.gateway.browsers.add(browser);
     return {frames, browser};
   });
+  // A second login for the same observer has an independent delivery session.
+  const secondLogin = await app.im.identity.login('observer-bob', 'password-123');
+  const secondSocket = {readyState:1, bufferedAmount:0, send:vi.fn(), close:vi.fn()};
+  const secondSession = app.im.identity.accessSession(secondLogin.access_token).sid;
+  app.im.gateway.browsers.add({socket:secondSocket as any, userId:bob.user.id, sessionId:secondSession, ready:true, cursor:0});
   const first = messaging.event(cross, null, 'message.created', {content:'live collaboration'});
   expect(streams.map(s => s.frames.some(f => f.event_id === first.event_id))).toEqual([true,true,false]);
   for (const s of streams) { s.frames.length = 0; app.im.gateway.replay(s.browser, 0); }
   expect(streams.map(s => s.frames.some(f => f.event_id === first.event_id))).toEqual([true,true,false]);
+  expect(secondSocket.send).toHaveBeenCalledTimes(1);
+  db.prepare('UPDATE auth_sessions SET revoked=1 WHERE session_id=?').run(secondSession);
   // Runtime availability is not ownership: preserve offline/stale known history.
   db.prepare("UPDATE agent_profiles SET is_stale=1 WHERE agent_id='right'").run();
   expect((await request(alice.access_token, 'GET', `/im/v1/conversations/${cross}`)).statusCode).toBe(200);
@@ -382,6 +389,8 @@ it('lets both real Agent owners observe existing direct history and events witho
   const next = messaging.event(cross, null, 'message.created', {content:'after ownership change'});
   expect(streams[0].frames.some(f => f.event_id === next.event_id)).toBe(false);
   expect(streams[1].frames.some(f => f.event_id === next.event_id)).toBe(true);
+  expect(secondSocket.send).toHaveBeenCalledTimes(1);
+  expect(secondSocket.close).toHaveBeenCalledWith(1008);
   streams[0].frames.length = 0; app.im.gateway.replay(streams[0].browser, 0);
   expect(streams[0].frames.some(f => f.conversation_id === cross)).toBe(false);
   expect((await request(alice.access_token, 'GET', media)).statusCode).toBe(404);

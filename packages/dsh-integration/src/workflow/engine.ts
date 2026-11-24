@@ -771,10 +771,11 @@ export class NanoWorkflowEngine extends WorkflowEngine {
   }
   async pending() {
     await this.ready;
-    return [...(await this.storage).table("runs").entries()]
-      .map(([, record]) => record)
-      .filter((record) => record.result && !record.delivered && !record.cancelledByDisable)
-      .map((record) => this.project(record));
+    return [...(await this.storage).table("runs").entries()].flatMap(([, record]) => {
+      if (!record.result || record.delivered || record.cancelledByDisable) return [];
+      if (record.endedAt === undefined) throw new Error("Settled Workflow is missing its end time");
+      return [{...this.project(record), result: record.result, endedAt: record.endedAt}];
+    });
   }
   async acknowledge(id: string) {
     const table = (await this.storage).table("runs");

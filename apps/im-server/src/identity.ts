@@ -75,6 +75,11 @@ export function canContactPersonalAgent(db: DatabaseSync, viewer: Row, profile: 
 /** Check a conversation actor against both its fixed space and current eligibility. */
 export function canActorAccess(db: DatabaseSync, userId: string, space: string): boolean {
   const user = db.prepare("SELECT * FROM users WHERE id=?").get(userId) as Row | undefined;
+  return currentActorCanAccess(db,user,space);
+}
+
+/** Check a user row just read from this database against the target space. */
+export function currentActorCanAccess(db: DatabaseSync, user: Row | undefined, space: string): boolean {
   if (!user) return false;
   if (user.username.startsWith("agent:")) {
     const profile = db.prepare("SELECT * FROM agent_profiles WHERE agent_id=?").get(user.username.slice(6)) as Row | undefined;

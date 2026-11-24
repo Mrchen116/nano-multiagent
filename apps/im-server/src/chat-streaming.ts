@@ -1,6 +1,6 @@
 import { decodeChatStream, type ChatEvent, type ChatStreamFact, type ChatStreamReceipt } from '@nano/product-contracts';
 import type { DatabaseSync } from 'node:sqlite';
-import { MessageRecords, withHumanApproval, type MessageEventFrame } from './message-records.js';
+import { MessageRecords, withHumanApproval, type MessageEventFrame, type StreamMessageIdentity } from './message-records.js';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { fail, transaction } from './context.js';
 
@@ -46,19 +46,23 @@ export class ChatStreaming<C extends ChatConnection> {
       return {kind:p.kind,run_id:p.run_id,message_id:message.id,conversation_id:cid};
     }
     if(p.kind==='run_terminal_reconcile')return {kind:p.kind,run_id:p.run_id};
-    // Deltas never load tool/permission/history JSON. Other facts reuse their one public projection.
-    const view=p.kind==='message_delta'?undefined:records.message(p.message_id);
-    const identity=view??records.streamIdentity(p.message_id);
-    if(identity.sender_type!=='agent')fail(403,'streaming message must belong to an Agent');
-    ports.requireAgent(c,identity.sender.id);
-    requireLifecycle(this.db,identity.sender.id,p.lifecycle_revision);requireLifecycle(this.db,identity.sender.id,identity.lifecycle_revision);
-    ports.requirePersonalConversation(identity.sender.id,identity.conversation_id);ports.access(c,identity.conversation_id,identity.sender.id);
     if(p.kind==='message_delta') {
-      if(!records.appendDelta(identity,p.delta_text??'',p.idempotency_key))return {message_id:identity.id};
-      records.chatEvent(identity.conversation_id,identity.id,{type:'message.delta',data:{delta:p.delta_text??'',delta_text:p.delta_text??'',idempotency_key:p.idempotency_key}},p.delivery_status??identity.delivery_status);
-      return {kind:p.kind,run_id:p.run_id,message_id:identity.id};
+      const frame=transaction(this.db,()=>{
+        // Authorize against the same snapshot that receives the retry key and text.
+        const identity=records.streamIdentity(p.message_id);
+        this.requireStreamWriter(c,identity,p.lifecycle_revision);
+        const text=p.delta_text??'';
+        if(identity.delivery_status!=='running' || !records.appendDelta(identity.id,text,p.idempotency_key))return;
+        return records.chatEvent(identity.conversation_id,identity.id,{
+          type:'message.delta',data:{delta:text,delta_text:text,idempotency_key:p.idempotency_key},
+        },p.delivery_status??identity.delivery_status,false);
+      });
+      if(!frame)return {message_id:p.message_id};
+      ports.publishCommitted(frame);
+      return {kind:p.kind,run_id:p.run_id,message_id:p.message_id};
     }
-    const m=view!;
+    const m=records.message(p.message_id);
+    this.requireStreamWriter(c,m,p.lifecycle_revision);
     let event:ChatEvent;
     switch(p.kind) {
       case 'message_completed':
@@ -109,5 +113,14 @@ export class ChatStreaming<C extends ChatConnection> {
     records.chatEvent(m.conversation_id,m.id,event,p.delivery_status??(p.kind==='message_completed'?'completed':m.delivery_status));
     if(p.kind==='message_completed')ports.groupReply(m.id);
     return {kind:p.kind,run_id:p.run_id,message_id:m.id};
+  }
+
+  private requireStreamWriter(c:C,message:StreamMessageIdentity,revision:unknown):void {
+    if(message.sender_type!=='agent')fail(403,'streaming message must belong to an Agent');
+    const agentId=message.sender.id;
+    this.ports.requireAgent(c,agentId);
+    requireLifecycle(this.db,agentId,revision,message.lifecycle_revision);
+    this.ports.requirePersonalConversation(agentId,message.conversation_id);
+    this.ports.access(c,message.conversation_id,agentId);
   }
 }

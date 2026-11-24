@@ -1,9 +1,10 @@
+import type {NodeParams} from '@nano/product-contracts/node-rpc';
 import { randomUUID } from 'node:crypto';
 import { dirname } from 'node:path';
 import type { NodeConfiguration } from './configuration.js';
 import { providerProfiles } from './providers.js';
 import { probeModels } from './model-probe.js';
-import { ModelSetupError, type ModelDefinition, type ModelProvider, type ModelProtocol, type ModelConfiguration } from './model-types.js';
+import { ModelSetupError, type ModelDefinition, type ModelProvider, type ModelConfiguration } from './model-types.js';
 
 interface Runtime {
   request(method: string, params: unknown): Promise<unknown>;
@@ -12,11 +13,7 @@ interface Runtime {
 interface PublicError {code: string; message: string; dependencies?: {agent_id: string; display_name: string}[]}
 interface Operation { id: string; state: 'waiting' | 'testing' | 'succeeded' | 'failed' | 'cancelled'; code?: string; url?: string; message?: string; error?: PublicError }
 interface CatalogEntry { provider: string; display_name?: string; models: {id: string; name?: string; contextWindow?: number; maxTokens?: number; inputModalities?: string[]; reasoning?: ModelDefinition['reasoning']}[] }
-export interface SetupRequest {
-  action: 'status' | 'save' | 'remove' | 'login' | 'cancel'; revision?: string; provider?: string; source?: string; display_name?: string;
-  protocol?: ModelProtocol; base_url?: string; model?: string; api_key?: string;
-  models?: {id: string; display_name?: string; context_window?: number; max_tokens?: number; input?: ('text' | 'image')[]}[];
-}
+export type SetupRequest = NodeParams<'node.setup.request'>;
 interface Credential {record?: {kind: string; key?: string} | null; preserve?: boolean}
 interface Rollback extends Credential {provider: string; providers: Record<string, unknown>}
 const publicError = (error: unknown): PublicError => error instanceof ModelSetupError

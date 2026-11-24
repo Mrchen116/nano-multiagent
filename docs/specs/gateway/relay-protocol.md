@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Relay Protocol Specification
 
-> 对齐: feat-630
+> 对齐: refactor-783
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -65,15 +65,15 @@ Gateway 把内核工具调用事件中继给 IM 时,工具开始执行的中继�
 
 ### Requirement: Skills 使用统计 WS RPC
 
-IM 查询某 agent 的 skill 使用统计时,Gateway 经 WS RPC 读取该 agent workspace 的运行态统计文件并回包; 缺文件或缺 workspace 视为空列表。
-
 #### Scenario: IM 前端通过 gateway 读取 skill 使用统计
-- **WHEN** Gateway 收到 WS RPC `skills_usage_request`(含 agentId)
-- **THEN** 读取该 agent workspace 的 skill 使用统计,聚合后返回 `skills_usage_response`
 
-#### Scenario: workspace 不存在或 usage 缺失
-- **WHEN** agent workspace 不存在或使用统计文件缺失
-- **THEN** Gateway 返回空 skill 列表,不报错
+- **WHEN** IM 用 `node.skills.usage.request` 请求指定 Agent 的技能使用统计
+- **THEN** Gateway 从该 Agent 可用的技能目录（含共享目录）聚合属于该 Agent 的统计，使用 `node.skills.usage` 返回与请求关联的聚合结果。
+
+#### Scenario: 各技能目录均无该 Agent 的统计
+
+- **WHEN** 所有可用技能目录都没有该 Agent 的使用记录
+- **THEN** 返回空的技能列表。
 
 ### Requirement: 通道中继去重并把多媒体附件透传给内核
 
@@ -422,3 +422,15 @@ Gateway 消费某 Agent 的 `self_evolution_review` session event 时，继续�
 #### Scenario: 维护者追溯连接故障
 - **WHEN** 节点发生连接失败、心跳超时或远端关闭
 - **THEN** 持久日志可以关联断线、重试与注册恢复；未知原因明确为未知/脱敏，不捏造网络根因。
+
+### Requirement: 节点在执行中心主动 RPC 前校验请求
+
+#### Scenario: 已关联的请求缺少操作所需字段
+
+- **WHEN** 已认证 IM 发来的已知命令缺少必需的业务身份或携带错误类型的参数
+- **THEN** 节点拒绝执行该业务操作，不产生成功回执。原命令若支持明确失败回包，仍使用其已有的关联身份和结果类型。
+
+#### Scenario: 独立升级期间读取合法旧报文
+
+- **WHEN** 对端发送受支持版本的合法请求或回执，带有已允许的缺省字段或提供方扩展
+- **THEN** 收端按该命令原有语义处理；回执只确认与其匹配的请求，未确认的持久操作保留恢复身份。

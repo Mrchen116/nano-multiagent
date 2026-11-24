@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-774
+> 对齐: refactor-783
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -10,6 +10,26 @@
 同源首次安装、空节点设置、后台服务管理、IM 长连接、断线恢复和节点绑定的 Gateway 契约。
 
 ## Requirements
+
+### Requirement: Windows 受管电脑按当前用户的登录自启设置运行
+
+#### Scenario: 默认登录和异常退出恢复
+- **GIVEN** 用户已绑定 Windows 10 或 11 x64 电脑，使用默认自启设置。
+- **WHEN** 用户重新登录原 Windows 账号，或登录期间后台程序意外退出且故障消失。
+- **THEN** 原电脑在网络可用时恢复在线，原助手可以继续回复；关闭安装窗口不影响后台运行。
+
+#### Scenario: 停止和关闭登录自启
+- **WHEN** 用户主动停止后台程序。
+- **THEN** 程序保持停止至用户再次启动，或在仍启用自启时重新登录。
+- **WHEN** 用户关闭并应用登录自启设置，重启并登录。
+- **THEN** 原电脑保持离线，用户可以手动启动，继续使用原绑定和工作区。设置应用失败时能看到实际状态及恢复操作。
+
+### Requirement: Windows 受管电脑复用已经下载的运行环境
+
+#### Scenario: 仅应用变更的更新
+- **GIVEN** 已安装的运行环境完整可用，IM 选择的新 Windows 版本继续使用相同内容。
+- **WHEN** 用户更新电脑端。
+- **THEN** 新应用使用既有运行环境，用户只需下载有变化的应用内容及版本说明、校验所需的小型文件。
 
 ### Requirement: macOS Gateway 的登录自启意图和稳定运行环境由本地配置拥有
 
@@ -95,8 +115,8 @@ Gateway 的默认本机 config、持久状态和全局 extensions 归入 `~/.nan
 
 ### Requirement: 运维者用启停命令把 Gateway 当后台服务管理
 
-默认启动让 Gateway 在后台运行并尽快返回；macOS 根据 `gateway.autostart` 选择当前用户
-登录服务或普通后台进程，其他平台保持普通后台进程。`stop` / `restart` 按配置定位并
+默认启动让 Gateway 在后台运行并尽快返回；macOS 与受管 Windows x64 电脑根据 `gateway.autostart` 选择当前用户
+登录服务或普通后台进程，其余平台保持普通后台进程。`stop` / `restart` 按配置定位并
 管理该进程；显式 `--foreground` 仅作 debug/高级模式。单实例状态防止对同一 config
 重复启动。`stop`/`restart` 必须先停止新入站、heartbeat、cron 和 dispatch 生产者，
 再收拢内核运行，最后关闭 IM/channel 资源；进行中的操作进入明确终态，终态事件有机会
@@ -105,7 +125,7 @@ Gateway 的默认本机 config、持久状态和全局 extensions 归入 `~/.nan
 #### Scenario: 默认启动后台运行并尽快返回
 - **WHEN** 运维者执行 `pnpm pa`（无子命令）
 - **THEN** Gateway 根据当前平台和已应用配置在登录服务或普通后台进程中启动，命令确认 Node 与 DSH 完成初始化和持久恢复后打印 pid、IM service 状态和日志路径并返回
-- **AND** macOS 额外明确显示登录自启的应用状态，其他平台保持既有普通后台启动反馈
+- **AND** macOS 与受管 Windows x64 电脑额外明确显示登录自启的应用状态，其他平台保持既有普通后台启动反馈
 - **AND** 运行时 readiness 由 `status` 和状态文件呈现，通道连接由 `gateway.log` 或 IM 节点状态呈现
 
 #### Scenario: 重复启动被单实例锁拦下
@@ -116,7 +136,7 @@ Gateway 的默认本机 config、持久状态和全局 extensions 归入 `~/.nan
 
 #### Scenario: stop 终止 Gateway 并清理当前运行状态
 - **WHEN** 运维者执行 `pnpm pa stop`
-- **THEN** 对应 Gateway 被优雅终止（超时则升级 SIGKILL），运行状态文件被清理并报告 `STOPPED`；没有所属活动实例时也完成停止，`status` 返回 `NOT RUNNING`
+- **THEN** 对应 Gateway 先优雅停止。超时后 Unix 升级 SIGKILL，Windows 强制收拢已核实归属的进程树并确认其全部退出，随后清理运行状态文件并报告 `STOPPED`；没有所属活动实例时也完成停止，`status` 返回 `NOT RUNNING`
 - **AND** 对登录服务管理的 Gateway，当前登录会话中的自动重拉同时停止
 
 #### Scenario: stop 无法停止登录服务时不越过失败
@@ -402,3 +422,15 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 - **GIVEN** 目标 Agent 已确认停止，同节点其他 Agent 正在执行
 - **WHEN** 节点清理目标 Agent 的数据
 - **THEN** 清理可与其他 Agent 的执行并行完成，共享运行时持续服务，其他 Agent 的在途执行、接收新工作及读取历史继续按原路径进行
+
+### Requirement: 产品运行时 RPC 在业务操作与结果消费前校验数据
+
+#### Scenario: 参数不符合所调用的方法
+
+- **WHEN** 产品运行时收到已知产品方法的请求，其必需参数缺失或类型错误
+- **THEN** 该调用以参数错误结束，处理端不会执行所请求的业务操作。
+
+#### Scenario: 返回值不符合原请求
+
+- **WHEN** 运行时返回的成功结果缺少该方法必需的数据或字段类型错误
+- **THEN** 产品调用方将该请求判为失败，不用这个结果确认操作、创建产品绑定或推进消费进度；允许的旧结果及合法业务拒绝继续按原语义处理。

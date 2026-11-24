@@ -45,7 +45,8 @@ it('shares live owner and personal-agent eligibility between list and detail', a
   agent('pa','personal:o2'); agent('stale'); agent('own','personal:o1','o1');
   db.prepare("UPDATE agent_profiles SET is_stale=1 WHERE agent_id='stale'").run();
   db.prepare("INSERT INTO personal_agent_bindings(binding_id,owner_id,owner_user_id,agent_id,node_id,node_epoch,conversation_id,display_name,request_key,status,created_at) VALUES('pa','o2','u2','pa','n',1,'pa-chat','PA','pa','active','2026-01-01')").run();
-  expect((await get('/im/v1/contacts/pa')).json()).toMatchObject({user_id:'pa',role:'personal'});
+  db.prepare("UPDATE agent_lifecycle SET desired='disabled',observed='disabled',applied_revision=revision WHERE agent_id='pa'").run();
+  expect((await get('/im/v1/contacts/pa')).json()).toMatchObject({user_id:'pa',role:'personal',lifecycle_disabled:true});
   expect((await get('/im/v1/contacts/pa')).json()).not.toHaveProperty('space_id');
   expect((await get('/im/v1/contacts/stale')).statusCode).toBe(404);
   db.prepare("UPDATE users SET membership_status='suspended' WHERE id='u2'").run();
@@ -65,4 +66,18 @@ it('preserves personal-agent work mode in list and detail for chat work entry po
   expect(detail).toMatchObject({agent_id:'pa',role:'personal',work_mode:'global'});
   expect((await get('/im/v1/contacts?kind=agent')).json().items.find((row:any) => row.agent_id === 'pa')).toEqual(detail);
   expect(detail).not.toHaveProperty('space_id');
+});
+
+it('publishes the directory badge only for a confirmed stop in the current generation', async () => {
+  const {db,get} = setup();
+  const badge = async () => (await get('/im/v1/contacts?kind=agent')).json().items[0].lifecycle_disabled;
+  const update = db.prepare('UPDATE agent_lifecycle SET desired=?,observed=?,revision=2,applied_revision=? WHERE agent_id=?');
+  update.run('disabled','stopping',1,'a');
+  expect(await badge()).toBe(false);
+  update.run('disabled','disabled',1,'a');
+  expect(await badge()).toBe(false);
+  update.run('disabled','disabled',2,'a');
+  expect(await badge()).toBe(true);
+  update.run('enabled','disabled',2,'a');
+  expect(await badge()).toBe(false);
 });

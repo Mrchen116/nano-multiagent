@@ -28,23 +28,23 @@ current-owner: .claude/skills and src/personal_assistant/builtin_skills
 
 | Skill | KiB 前 → 后 | 行数前 → 后 |
 |---|---:|---:|
-| [change-code-review](../../../../.claude/skills/change-code-review/SKILL.md) | 6.88 → 1.71 | 121 → 22 |
-| [change-design-author](../../../../.claude/skills/change-design-author/SKILL.md) | 43.80 → 2.65 | 653 → 29 |
-| [change-design-reviewer](../../../../.claude/skills/change-design-reviewer/SKILL.md) | 20.50 → 1.79 | 244 → 25 |
-| [change-fast-close](../../../../.claude/skills/change-fast-close/SKILL.md) | 5.85 → 1.82 | 118 → 21 |
-| [change-impl-worker](../../../../.claude/skills/change-impl-worker/SKILL.md) | 2.91 → 2.92 | 37 → 37 |
-| [change-orchestrator](../../../../.claude/skills/change-orchestrator/SKILL.md) | 19.43 → 3.13 | 340 → 37 |
-| [change-orchestrator-simple](../../../../.claude/skills/change-orchestrator-simple/SKILL.md) | 10.68 → 2.68 | 165 → 29 |
-| [change-retro](../../../../.claude/skills/change-retro/SKILL.md) | 12.79 → 1.71 | 167 → 22 |
+| [change-code-review](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-code-review/SKILL.md) | 6.88 → 1.71 | 121 → 22 |
+| [change-design-author](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-design-author/SKILL.md) | 43.80 → 2.65 | 653 → 29 |
+| [change-design-reviewer](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-design-reviewer/SKILL.md) | 20.50 → 1.79 | 244 → 25 |
+| [change-fast-close](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-fast-close/SKILL.md) | 5.85 → 1.82 | 118 → 21 |
+| [change-impl-worker](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-impl-worker/SKILL.md) | 2.91 → 2.92 | 37 → 37 |
+| [change-orchestrator](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-orchestrator/SKILL.md) | 19.43 → 3.13 | 340 → 37 |
+| [change-orchestrator-simple](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-orchestrator-simple/SKILL.md) | 10.68 → 2.68 | 165 → 29 |
+| [change-retro](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-retro/SKILL.md) | 12.79 → 1.71 | 167 → 22 |
 | [change-reviewer](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-reviewer/SKILL.md) | 30.17 → 2.27 | 463 → 24 |
-| [change-spec-author](../../../../.claude/skills/change-spec-author/SKILL.md) | 21.96 → 2.24 | 330 → 26 |
-| [change-spec-reviewer](../../../../.claude/skills/change-spec-reviewer/SKILL.md) | 11.46 → 1.49 | 150 → 22 |
+| [change-spec-author](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-spec-author/SKILL.md) | 21.96 → 2.24 | 330 → 26 |
+| [change-spec-reviewer](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-spec-reviewer/SKILL.md) | 11.46 → 1.49 | 150 → 22 |
 | [change-verifier](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/change-verifier/SKILL.md) | 17.69 → 2.03 | 311 → 27 |
-| [codebase-design](../../../../.claude/skills/codebase-design/SKILL.md) | 6.71 → 1.67 | 114 → 19 |
-| [improve-codebase-architecture](../../../../.claude/skills/improve-codebase-architecture/SKILL.md) | 6.91 → 1.77 | 85 → 19 |
+| [codebase-design](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/codebase-design/SKILL.md) | 6.71 → 1.67 | 114 → 19 |
+| [improve-codebase-architecture](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/improve-codebase-architecture/SKILL.md) | 6.91 → 1.77 | 85 → 19 |
 | [prod-fleet-deploy](../../../../.claude/skills/prod-fleet-deploy/SKILL.md) | 18.65 → 1.82 | 273 → 19 |
-| [reverse-engineer-claude-code](../../../../.claude/skills/reverse-engineer-claude-code/SKILL.md) | 9.50 → 2.04 | 155 → 23 |
-| [systematic-debugging](../../../../.claude/skills/systematic-debugging/SKILL.md) | 7.42 → 1.67 | 152 → 20 |
+| [reverse-engineer-claude-code](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/reverse-engineer-claude-code/SKILL.md) | 9.50 → 2.04 | 155 → 23 |
+| [systematic-debugging](https://github.com/Mrchen116/nano-multiagent/blob/55f42c0b4462dca38ed9db47d54a71d9c059e5c1/.claude/skills/systematic-debugging/SKILL.md) | 7.42 → 1.67 | 152 → 20 |
 
 ### PA 内置 Skills
 

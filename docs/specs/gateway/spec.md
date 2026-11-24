@@ -20,11 +20,11 @@
 |---|---|---|
 | [Routing and Delivery](routing-delivery.md) | 入站路由、逐消息时间与实际入口、会话控制与图文投递、后台 Agent / Workflow 原始返回、self-evolution 维护隔离与重放去重、按需原始历史导出 | 22 |
 | [Global Agent](global-agent.md) | 跨聊天主上下文、Inbox 消费、聊天搜索与回查、成员查询、完整事项单一执行者、日常直接处理、主会话协调交付、显式发送、目标群及私聊复核与控制命令、任务过程沟通与内部收尾、主 Agent 专属产品聊天工具 | 22 |
-| [Service Lifecycle](service-lifecycle.md) | 同源安装与空节点设置、主动更新和回退、节点启停、独立 Agent 停用、永久删除与只读管理、macOS 登录自启与异常恢复、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 15 |
+| [Service Lifecycle](service-lifecycle.md) | 同源安装与空节点设置、主动更新和回退、节点启停、独立 Agent 停用、永久删除与只读管理、macOS 登录自启与异常恢复、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 18 |
 | [Agent Capabilities](agent-capabilities.md) | 模型与运行配置、Feature 与工具选择、Skill 和插件、委派、上下文与记忆、Dreaming 及模型调用恢复 | 64 |
 | [Tool Approval](tool-approval.md) | 自动审批策略、审核模型、授权上下文、只读调查与原始指令完整性 | 10 |
 | [Heartbeat and Cron](heartbeat-cron.md) | 心跳启停、定时工具与有效安排、错过触发后的恢复及主会话归属 | 5 |
-| [Relay Protocol](relay-protocol.md) | active/idle 后台返回经既有消息协议精确绑定与透传、只读原生轨迹观察、断连重连持久诊断 | 22 |
+| [Relay Protocol](relay-protocol.md) | active/idle 后台返回经既有消息协议精确绑定与透传、只读原生轨迹观察、断连重连持久诊断 | 23 |
 | [Workflows](workflows.md) | Web/外部 IM 的 Workflow 来源、能力开关、运行时查询控制、权限路由与投递 | 9 |
 | [External Channels](external-channels.md) | Feishu channel、富文本与多模态消息、IM 托管配置、多 Bot、listener lifecycle、trigger source、reply mirror、运行信息页脚、控制文本、群聊上下文、原生权限、shadow sync、offline autonomy、隔离、限定附件来源 | 17 |
 | [Task Graphs](task-graphs.md) | 会话内任务协作、真实 Agent 授权、本人全层持续责任、有效等待、停止恢复、停用冻结与真人指定恢复、原子修改与未知回执、拒绝后自主续跑与显式暂停 | 24 |
