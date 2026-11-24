@@ -1,6 +1,6 @@
 import SwiftUI
 
-private struct AgentRoleDocument: Decodable, Sendable {
+struct AgentRoleDocument: Decodable, Sendable {
     let content: String
     let version: String?
 }

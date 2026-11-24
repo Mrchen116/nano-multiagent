@@ -64,6 +64,7 @@ struct AgentLifecycleControls: View {
     let online: Bool
     var configuration = false
     var compact = false
+    var groupDisableAction = false
     var deletionName: String? = nil
     var deletionInProgress: Binding<Bool> = .constant(false)
     var onDeleted: (() -> Void)? = nil
@@ -94,6 +95,11 @@ struct AgentLifecycleControls: View {
                 Toggle(L("启用 Agent", "Enable Agent"), isOn: Binding(get: { state?.desired == "enabled" }, set: { enabled in Task { await change(enabled ? .enable : .disable) } }))
                     .disabled(readFailed)
                     .frame(minHeight: 44)
+            } else if groupDisableAction && action == .disable && !busy {
+                Menu {
+                    Button(actionLabel, role: .destructive) { Task { await change(.disable) } }
+                } label: { Label(L("管理助手", "Manage assistant"), systemImage: "ellipsis.circle") }
+                    .disabled(readFailed)
             } else { actionButton }
         }
         VStack(alignment: .leading, spacing: 4) {

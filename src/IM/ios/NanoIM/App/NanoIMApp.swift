@@ -34,6 +34,7 @@ final class AppModel {
     var ready = false
     var error: String?
     var busy = false
+    private(set) var needsLocalRecovery = false
     var retryUntil: Date?
     /// The only owner of the local chat partition. Replaced together with `client`, because a
     /// partition identity is `(origin, userID)` and a new origin must never reuse the old one.
@@ -130,6 +131,7 @@ final class AppModel {
     /// contains its cached seed, rather than scheduling another read from a View initializer.
     func bootstrapLocal() async {
         guard !ready else { return }
+        needsLocalRecovery = false
         observe()
         let current = client
         let revision = await current.session.revision()
@@ -150,6 +152,7 @@ final class AppModel {
             guard current === client, revision == (await current.session.revision()) else { return }
             user = stored
         } catch {
+            needsLocalRecovery = true
             self.error = error.localizedDescription
         }
     }
@@ -164,9 +167,9 @@ final class AppModel {
             // transport failure says nothing about whether these credentials are valid.
         }
     }
-    func retryRestore() async { ready = false; await start() }
+    func retryRestore() async { ready = false; error = nil; await start() }
     func authenticate(server: String, username: String, password: String, displayName: String?) async {
-        guard !busy else { return }; busy = true; error = nil
+        guard !busy else { return }; busy = true; error = nil; needsLocalRecovery = false
         defer { busy = false }
         do {
             #if DEBUG
@@ -211,6 +214,8 @@ final class AppModel {
         catch { self.error = error.localizedDescription }
     }
     func signOut() async {
+        needsLocalRecovery = false
+        error = nil
         let current = client
         user = nil
         clearChat()
@@ -229,7 +234,11 @@ private struct RootTabs: View {
     let accountUpdated: () -> Void
     let signOut: () -> Void
     @State private var selectedTab = 0
-    @State private var chatPath: [String] = []
+    private struct ChatRoute: Hashable {
+        let conversationID: String
+        let requestID: UUID?
+    }
+    @State private var chatPath: [ChatRoute] = []
     @State private var taskLink: NativeTaskLink?
     @State private var taskNavigationID = UUID()
     @State private var agentLink: Contact?
@@ -242,16 +251,19 @@ private struct RootTabs: View {
         TabView(selection: $selectedTab) {
             NavigationStack(path: $chatPath) {
                 ChatListView(store: chat, open: openChat)
-                    .navigationDestination(for: String.self) { id in ConversationView(store: chat, conversationID: id, openChat: openChat) }
-            }.tabItem { Label(L("聊天", "Chats"), systemImage: "bubble.left.and.bubble.right") }.tag(0)
+                    .navigationDestination(for: ChatRoute.self) { route in
+                        ConversationView(store: chat, conversationID: route.conversationID, openChat: openChat, openInbox: { chatPath = [] })
+                    }
+            }.tabItem { Label(L("聊天", "Chats"), image: selectedTab == 0 ? "TabChatsSelected" : "TabChats") }.tag(0)
                 .badge(chat.conversations.reduce(0) { $0 + $1.unread_count })
             NavigationStack { TasksView(client: client, onReference: reference) }.id(taskNavigationID)
-                .tabItem { Label(L("任务", "Tasks"), systemImage: "point.3.connected.trianglepath.dotted") }.tag(1)
+                .tabItem { Label(L("任务", "Tasks"), image: selectedTab == 1 ? "TabTasksSelected" : "TabTasks") }.tag(1)
             NavigationStack { AgentsView(client: client, user: user, onOpenChat: openChat) }
-                .tabItem { Label("Agent", systemImage: "person.crop.square") }.tag(2)
-            NavigationStack { MeView(client: client, user: user, onAccountUpdated: accountUpdated, onSignOut: signOut) }
-                .tabItem { Label(L("我的", "Me"), systemImage: "person.crop.circle") }.tag(3)
+                .tabItem { Label(L("助手", "Assistants"), image: selectedTab == 2 ? "TabAssistantsSelected" : "TabAssistants") }.tag(2)
+            NavigationStack { MeView(client: client, user: user, onAccountUpdated: accountUpdated, openChat: openChat, onSignOut: signOut) }
+                .tabItem { Label(L("我的", "Me"), image: selectedTab == 3 ? "TabMeSelected" : "TabMe") }.tag(3)
         }
+        .onChange(of: chatPath) { _, path in if path.isEmpty { chat.messageLocation = nil } }
         .onChange(of: chat.composeRequest?.id) { _, _ in
             if let request = chat.composeRequest { openChat(request.target) }
         }
@@ -261,7 +273,11 @@ private struct RootTabs: View {
                 return ["http", "https", "mailto", "tel"].contains(url.scheme ?? "") ? .systemAction : .discarded
             }
             let parts = url.path.split(separator: "/").map(String.init)
-            if parts.count == 2, parts[0] == "chat" { openChat(parts[1]); return .handled }
+            if parts.count == 2, parts[0] == "chat" {
+                chat.messageLocation = ChatMessageLocation.from(url, origin: client.baseURL)
+                openChat(parts[1])
+                return .handled
+            }
             if parts.count == 2, parts[0] == "tasks" {
                 let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
                 taskLink = NativeTaskLink(id: parts[1], scope: query.first { $0.name == "scope" }?.value, node: query.first { $0.name == "node" }?.value)
@@ -293,7 +309,7 @@ private struct RootTabs: View {
                 Button { chat.banner = nil; openChat(banner.conversationID) } label: {
                     HStack(spacing: 10) {
                         if let conversation = chat.conversations.first(where: { $0.id == banner.conversationID }) {
-                            AvatarView(name: conversation.avatarName(selfID: user.id), kind: conversation.type == "group" ? "group" : conversation.category == "agent" ? "agent" : "person", size: 32)
+                            AvatarView(name: conversation.avatarName(selfID: user.id), kind: conversation.type == "group" ? "group" : conversation.category == "agent" ? "agent" : "person", size: 32, agentID: conversation.peerAgent?.id, role: conversation.peerAgent?.role, variant: conversation.peerAgent?.avatar_variant)
                             Text(conversation.title).font(.callout.weight(.semibold)).lineLimit(1)
                         }
                         Text(L("新消息", "New message")).font(.caption).foregroundStyle(NanoTheme.muted)
@@ -314,12 +330,23 @@ private struct RootTabs: View {
         .onOpenURL { url in
             guard ServerOrigin.same(client.baseURL, url) else { return }
             let parts = url.path.split(separator: "/")
-            if parts.count == 2, parts[0] == "chat" { openChat(String(parts[1])) }
+            if parts.count == 2, parts[0] == "chat" {
+                chat.messageLocation = ChatMessageLocation.from(url, origin: client.baseURL)
+                openChat(String(parts[1]))
+            }
         }
     }
-    private func openChat(_ id: String) { selectedTab = 0; chatPath = [id] }
+    private func openChat(_ id: String) {
+        taskLink = nil
+        agentLink = nil
+        selectedTab = 0
+        let requestID = chat.messageLocation.flatMap { $0.conversationID == id ? $0.id : nil }
+        chatPath = [ChatRoute(conversationID: id, requestID: requestID)]
+    }
     private func reference(_ id: String, _ text: String) {
-        chat.setDraft(id, [chat.drafts[id] ?? "", text].filter { !$0.isEmpty }.joined(separator: "\n\n"))
+        if !text.isEmpty {
+            chat.setDraft(id, [chat.drafts[id] ?? "", text].filter { !$0.isEmpty }.joined(separator: "\n\n"))
+        }
         openChat(id)
     }
 }

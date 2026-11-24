@@ -6,8 +6,9 @@ struct MarkdownView: View, Equatable {
     let text: String
     let client: IMClient
     var baseFont: Font = .body
+    var fillsWidth = true
     nonisolated static func == (lhs: MarkdownView, rhs: MarkdownView) -> Bool {
-        lhs.text == rhs.text && lhs.client === rhs.client && lhs.baseFont == rhs.baseFont
+        lhs.text == rhs.text && lhs.client === rhs.client && lhs.baseFont == rhs.baseFont && lhs.fillsWidth == rhs.fillsWidth
     }
 
     var body: some View {
@@ -16,7 +17,7 @@ struct MarkdownView: View, Equatable {
             ForEach(Array(document.children.enumerated()), id: \.offset) { _, child in
                 MarkdownBlockView(node: child, client: client, baseFont: baseFont)
             }
-        }.frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+        }.frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading).textSelection(.enabled)
     }
 }
 

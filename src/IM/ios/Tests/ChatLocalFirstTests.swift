@@ -402,9 +402,9 @@ final class ChatLocalFirstTests: XCTestCase {
         store.setDraft("b", "b0")
         let gate = PendingReadGate()
         let older = Task {
-            await store.flushDrafts { repository, id, body in
+            await store.flushDrafts { repository, id, body, reply in
                 if id == "a" { await gate.enter() }
-                try await repository.setDraft(id, body: body)
+                try await repository.setDraft(id, body: body, reply: reply)
             }
         }
         await gate.waitUntilEntered()
@@ -429,9 +429,9 @@ final class ChatLocalFirstTests: XCTestCase {
         store.setDraft("a", "a0"); store.setDraft("b", "b0")
         let gate = PendingReadGate()
         let flushing = Task {
-            await store.flushDrafts { repository, id, body in
+            await store.flushDrafts { repository, id, body, reply in
                 if id == "a" { await gate.enter() }
-                try await repository.setDraft(id, body: body)
+                try await repository.setDraft(id, body: body, reply: reply)
             }
         }
         await gate.waitUntilEntered()
