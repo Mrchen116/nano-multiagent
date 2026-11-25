@@ -18,21 +18,33 @@ export async function acknowledged<T>(promise: Promise<T>, action: string, timeo
   }
 }
 
-/** The two CLIs use independent protocols over newline-delimited JSON. */
+export interface CliProcessOptions {
+  env?: Record<string, string | undefined>;
+  onStdoutLine?: (line: string) => Error | undefined;
+  onCleanup?: () => Promise<void>;
+}
+
+/** Local CLIs use independent protocols over newline-delimited JSON. */
 export class CliProcess {
   private readonly child;
   private readonly pending = new Map<string | number, PromiseWithResolvers<unknown>>();
   private readonly closed = Promise.withResolvers<void>();
+  private cleanupPromise?: Promise<void>;
   private stderr = '';
   private failure?: Error;
   private closing = false;
   onMessage: (value: any) => void = () => {};
   onExit: (error: Error) => void = () => {};
 
-  constructor(runtime: string, args: string[], cwd: string) {
+  constructor(runtime: string, args: string[], cwd: string, private readonly options?: CliProcessOptions) {
+    const env = nativeCliEnvironment();
+    for (const [key, value] of Object.entries(options?.env ?? {})) {
+      if (value === undefined) delete env[key];
+      else env[key] = value;
+    }
     this.child = spawn(runtime, args, {
       cwd,
-      env: nativeCliEnvironment(),
+      env,
       stdio: 'pipe',
       detached: process.platform !== 'win32',
     });
@@ -41,6 +53,12 @@ export class CliProcess {
     });
     const lines = createInterface({ input: this.child.stdout, crlfDelay: Infinity });
     lines.on('line', (line) => {
+      const lineError = options?.onStdoutLine?.(line);
+      if (lineError) {
+        this.fail(lineError);
+        void this.close().catch(console.error);
+        return;
+      }
       try {
         this.onMessage(JSON.parse(line));
       } catch (error) {
@@ -48,7 +66,11 @@ export class CliProcess {
         void this.close().catch(console.error);
       }
     });
-    this.child.once('error', (error) => this.fail(error));
+    this.child.once('error', (error) => {
+      this.fail(error);
+      this.closed.resolve();
+      void this.runCleanup();
+    });
     this.child.stdin.on('error', () => {}); // Write callbacks and close carry the concrete failure to pending callers.
     this.child.once('close', (code, signal) => {
       this.fail(
@@ -57,11 +79,19 @@ export class CliProcess {
         ),
       );
       this.closed.resolve();
+      void this.runCleanup();
     });
   }
 
   get ended() {
     return this.closing || !!this.failure;
+  }
+
+  private runCleanup() {
+    this.cleanupPromise ??= Promise.resolve()
+      .then(() => this.options?.onCleanup?.())
+      .catch(() => {});
+    return this.cleanupPromise;
   }
 
   private fail(error: Error) {
@@ -90,10 +120,36 @@ export class CliProcess {
     }
   }
 
-  resolve(id: string | number, result: unknown, error?: string) {
+  /** Send a JSON-RPC request whose completion is bounded by the turn lifecycle rather than handshake ack. */
+  async sendRequest<T>(id: string | number, frame: unknown): Promise<{ sent: void; response: Promise<T> }> {
+    const response = Promise.withResolvers<unknown>();
+    this.pending.set(id, response);
+    const cleaned = response.promise.finally(() => {
+      this.pending.delete(id);
+    }) as Promise<T>;
+    // Prevent unhandled rejection if the caller attaches its handler after write settles.
+    void cleaned.catch(() => {});
+    try {
+      const sent = await this.write(frame);
+      return { sent, response: cleaned };
+    } catch (error) {
+      this.pending.delete(id);
+      throw error;
+    }
+  }
+
+  resolve(id: string | number, result: unknown, error?: string | { code?: number; message?: string }) {
     const pending = this.pending.get(id);
-    if (error !== undefined) pending?.reject(new Error(error));
-    else pending?.resolve(result);
+    if (error !== undefined) {
+      const err =
+        typeof error === 'string'
+          ? new Error(error)
+          : Object.assign(
+              new Error(error.message ?? 'RPC error'),
+              error.code !== undefined ? { code: error.code } : {},
+            );
+      pending?.reject(err);
+    } else pending?.resolve(result);
   }
 
   async close() {
@@ -104,5 +160,6 @@ export class CliProcess {
         await terminateRuntimeTree(pid);
     }
     await this.closed.promise;
+    await this.runCleanup();
   }
 }

@@ -10,7 +10,7 @@ import { homedir } from 'node:os';
 import { load, dump } from 'js-yaml';
 import { defaultReasoning } from './providers.js';
 import { readApproval } from './approval.js';
-import { normalizeKnowledge, canonicalAgentConfiguration, agentConfigurationFingerprint, type AgentConfiguration, type CanonicalAgentConfiguration, type AgentWorkspaceWitness } from '@nano/product-contracts';
+import { normalizeKnowledge, canonicalAgentConfiguration, agentConfigurationFingerprint, workerRuntimes, type AgentConfiguration, type CanonicalAgentConfiguration, type AgentWorkspaceWitness } from '@nano/product-contracts';
 
 export interface LocalAgent extends Record<string, unknown> {
   agent_id: string; workspace_root: string; work_mode?: 'single_thread' | 'global';
@@ -45,8 +45,8 @@ export class NodeConfiguration {
   static async read(path: string, deletions: ReadonlyMap<string,boolean> = new Map()) {
     const value=load(await readFile(path,'utf8')) as NodeConfigurationFile;const config=new NodeConfiguration(path,value);
     const runtime=value.gateway?.worker_runtime;
-    if (runtime!==undefined && !['dsh','codex','claude'].includes(runtime))
-      throw new Error('gateway.worker_runtime must be dsh, codex, or claude');
+    if (runtime!==undefined && !(workerRuntimes as readonly string[]).includes(runtime))
+      throw new Error('gateway.worker_runtime must be dsh, codex, claude, or antigravity');
     value.agents=value.agents.filter(agent=>deletions.get(agent.agent_id)!==true);
     for (const agent of value.agents) {
       agent.workspace_root=resolve(agent.workspace_root??config.defaultWorkspace(agent.agent_id));

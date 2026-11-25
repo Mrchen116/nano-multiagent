@@ -1,4 +1,4 @@
-import { cliWorkerRuntimes } from '@nano/product-contracts/worker-runtimes';
+import { cliWorkerRuntimes } from '@nano/product-contracts';
 import { expect, it } from 'vitest';
 import type { CliWorkerOptions } from '../src/local-workers/drivers.js';
 import { details, fakeCli, onEnd, onReport, turnTotals } from './helpers/local-worker-cli.js';
@@ -37,6 +37,41 @@ const protocolPeers = {
         emit({type:'user',message:{content:[{type:'tool_result',tool_use_id:'read',content:'fixture-directory'}]}});
         emit({type:'result',session_id:'saved',uuid:'answer',subtype:'success',result:'inspection complete',usage:{input_tokens:6,output_tokens:2}});
       }
+    }
+  `,
+  antigravity: `
+    const answer = (id, result) => emit({jsonrpc:'2.0', id, result});
+    const update = upd => emit({jsonrpc:'2.0', method:'session/update', params:{sessionId:'saved', update:upd}});
+    if(m.method==='initialize') answer(m.id, {
+      protocolVersion:1,
+      agentCapabilities:{sessionCapabilities:{resume:{}}, _meta:{antigravity:{systemPrompt:{append:true}}}},
+    });
+    if(m.method==='session/resume' && m.params.sessionId==='saved') answer(m.id, {
+      sessionId:'saved',
+      modes:{currentModeId:'default', availableModes:[{id:'default'},{id:'auto'}]},
+      configOptions:[{id:'model',category:'model',currentValue:'gemini-4-neon'}],
+    });
+    if(m.method==='session/set_mode' && m.params.modeId==='auto') answer(m.id, {});
+    if(m.method==='session/prompt' && m.params.sessionId==='saved') {
+      const text=m.params.prompt[0].text;
+      if(text==='inspect') {
+        emit({jsonrpc:'2.0',id:901,method:'session/request_permission',params:{
+          sessionId:'saved',
+          toolCall:{toolCallId:'other',title:'Run run_command',kind:'execute',rawInput:{CommandLine:'restricted-command'}},
+          options:[{optionId:'allow',kind:'allow_once',name:'Allow'},{optionId:'deny',kind:'reject_once',name:'Deny'}],
+        }});
+        update({sessionUpdate:'tool_call',toolCallId:'read',title:'Run run_command',kind:'execute',rawInput:{command:'pwd'}});
+        update({sessionUpdate:'tool_call_update',toolCallId:'read',status:'completed',content:[{type:'content',content:{type:'text',text:'fixture-directory'}}]});
+        update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'inspection '}});
+        update({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'complete'}});
+        update({sessionUpdate:'usage_update',used:120,size:1000});
+        answer(m.id, {stopReason:'end_turn', usage:{inputTokens:6, outputTokens:2}});
+      } else {
+        globalThis.pendingPromptId = m.id;
+      }
+    }
+    if(m.method==='session/cancel' && m.params.sessionId==='saved' && globalThis.pendingPromptId) {
+      answer(globalThis.pendingPromptId, {stopReason:'cancelled'});
     }
   `,
 } satisfies Record<CliWorkerOptions['runtime'], string>;

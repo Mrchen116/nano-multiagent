@@ -1,4 +1,4 @@
-import { cliWorkerRuntimes } from '@nano/product-contracts/worker-runtimes';
+import { cliWorkerRuntimes } from '@nano/product-contracts';
 import { once } from 'node:events';
 import { DatabaseSync } from 'node:sqlite';
 import { expect, it } from 'vitest';
@@ -220,8 +220,12 @@ it.each(cliWorkerRuntimes)('%s Work preserves exact focus, live activity, tool r
   expect((await read(cliTurns)).body.turns).toMatchObject([{turn_id:'cli-turn',status:'interrupted',finished_at:recent}]);
   expect((await read('/delegation')).body.nodes.find((row:{session_id:string})=>row.session_id==='worker')).toMatchObject({
     has_work_records:true,status:'interrupted',usage:{total_tokens:null,reported_turns:0,missing_turns:1}});
-  await append([['worker','turn_end',{status:'failed',error:'进程失败',usage:{total_tokens:25}},'cli-turn']]);
-  expect((await read(cliTurns)).body.turns).toMatchObject([{status:'failed',error:'进程失败'}]);
+  await append([['worker','turn_end',{status:'failed',error:'进程失败',usage:{context_used:4200,context_window:100000,output:5,cache_read_tokens:10,cache_total_input_tokens:20,total_tokens:25}},'cli-turn']]);
+  expect((await read(cliTurns)).body.turns).toMatchObject([{
+    status:'failed',
+    error:'进程失败',
+    usage:{context_used:4200,context_window:100000,output:5,cache_read_tokens:10,cache_total_input_tokens:20,total_tokens:25},
+  }]);
   expect((await read('/delegation')).body.nodes.find((row:{session_id:string})=>row.session_id==='worker').usage)
     .toEqual({total_tokens:25,reported_turns:1,missing_turns:0});
   expect((await read('?catalog=separate&view=summary')).body.worker_records_revision).toBe(firstDetailRevision);

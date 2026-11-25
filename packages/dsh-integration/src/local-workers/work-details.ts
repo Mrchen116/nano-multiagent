@@ -1,7 +1,30 @@
-import type { RuntimeWorkerDetail } from '@nano/product-contracts';
+import type { RuntimeWorkerDetail, WorkUsage } from '@nano/product-contracts';
 
 type Fact = RuntimeWorkerDetail['fact'];
 type Emit = (id: string, detail: RuntimeWorkerDetail) => void;
+
+function extractToolSummary(args: unknown): string | undefined {
+  const fields = args as {
+    description?: string;
+    toolSummary?: string;
+    command?: string;
+    CommandLine?: string;
+    file_path?: string;
+    Path?: string;
+    path?: string;
+    questions?: { question?: string }[];
+  } | null;
+  const raw =
+    fields?.description ??
+    fields?.toolSummary ??
+    fields?.command ??
+    fields?.CommandLine ??
+    fields?.file_path ??
+    fields?.Path ??
+    fields?.path ??
+    fields?.questions?.[0]?.question;
+  return typeof raw === 'string' && raw ? raw.split('\n', 1)[0]!.slice(0, 80) : undefined;
+}
 
 /** Collect only the current native turn's product facts and match tool results by call id. */
 export class WorkerTurnDetails {
@@ -46,16 +69,14 @@ export class WorkerTurnDetails {
 
   toolStart(id: string, name: string, args: unknown) {
     this.openTools.set(id, name);
-    const fields = args as { description?: string; command?: string; file_path?: string } | null;
-    const summary = fields?.description ?? fields?.command ?? fields?.file_path;
+    const summary = extractToolSummary(args);
     this.fact(id, {
       type: 'tool_start',
       payload: {
         call_id: id,
         tool_name: name,
         arguments: args,
-        presentation:
-          typeof summary === 'string' ? { summary: summary.split('\n', 1)[0]!.slice(0, 80) } : undefined,
+        presentation: summary ? { summary } : undefined,
       },
     });
   }
@@ -70,6 +91,7 @@ export class WorkerTurnDetails {
     name = this.openTools.get(id) ?? name;
     if (!name) return;
     this.openTools.delete(id);
+    const summary = extractToolSummary(options.args);
     this.fact(id, {
       type: 'tool_end',
       payload: {
@@ -79,14 +101,23 @@ export class WorkerTurnDetails {
         reason_code: options.reason,
         duration_ms: options.duration,
         arguments: options.args,
-        presentation: { detail: { content: output } },
+        presentation: { ...(summary && { summary }), detail: { content: output } },
       },
     });
   }
 
-  end(state: string, total: number | null, error?: string) {
+  end(state: string, total: number | WorkUsage | null, error?: string) {
     if (state !== 'completed') {
       for (const [id, name] of this.openTools) this.toolEnd(id, name, error, true, { reason: state });
+    }
+    let usage: WorkUsage | undefined;
+    if (typeof total === 'number') {
+      usage = { total_tokens: total };
+    } else if (total && typeof total === 'object') {
+      const entries = Object.entries(total).filter(
+        ([, value]) => typeof value === 'number' && Number.isFinite(value) && value >= 0,
+      );
+      if (entries.length > 0) usage = Object.fromEntries(entries);
     }
     this.fact('', {
       type: 'turn_end',
@@ -95,7 +126,7 @@ export class WorkerTurnDetails {
         stop_reason: state,
         model: this.model,
         error: state === 'failed' && error ? {message:error} : undefined,
-        usage: total === null ? undefined : { total_tokens: total },
+        usage,
       },
     });
     this.turnId = undefined;
