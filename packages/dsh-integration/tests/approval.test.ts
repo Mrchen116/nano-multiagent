@@ -237,8 +237,13 @@ export function apply(ctx) {
     });
     for (const config of agents) {
       const calls = config.agentId === 'screenshot-manual'
-        ? [{name:'send_message',args:{target:'group',text:'Demo',local_images:['/tmp/screenshot.png']}}]
-        : config.agentId === 'writes' ? reviewed : queries;
+        ? [
+            {name:'send_message',args:{target:'group',text:'Demo',local_images:['/tmp/screenshot.png']}},
+            {name:'send_message',args:{target:'group',text:'Report',local_files:['/tmp/report.csv']}},
+          ]
+        : config.agentId === 'queries'
+          ? [...queries, { name: 'download_attachment', args: { attachment_id: 'a_123456' } }]
+          : config.agentId === 'writes' ? reviewed : queries;
       const prior = (await reviewLog()).length;
       await client.rpc.request('session.ensure', { sessionId: config.agentId, agentId: config.agentId, revision: '1', ownerId: 'owner', cwd: home });
       await client.rpc.request('session.submit', { sessionId: config.agentId, inputId: config.agentId, mode: 'followup', content: [{ type: 'text', text: JSON.stringify(calls) }],
@@ -261,7 +266,7 @@ export function apply(ctx) {
           expect(results.every(event => event.data.message.isError)).toBe(true);
           if (config.agentId === 'manual') expect(JSON.stringify(results)).toContain('manual_required');
           if (config.agentId === 'screenshot-manual') {
-            expect(JSON.stringify(results)).toContain('Screenshot delivery needs approval with private evidence');
+            expect(JSON.stringify(results)).toContain('Local attachment delivery needs approval with private evidence');
             expect(observed.events.some(event=>event.type==='approval/request')).toBe(false);
           }
           if (config.agentId === 'blocked') {
@@ -271,7 +276,7 @@ export function apply(ctx) {
         }
       }
     }
-    expect(effects.map(call => call.method)).toEqual(['task_graph', 'task_graph', 'schedule.history']);
+    expect(effects.map(call => call.method)).toEqual(['task_graph', 'task_graph', 'schedule.history', 'download_attachment']);
     await client.shutdown(); client = undefined;
   } catch (error) { throw new Error(`${error}\n${logs}`, { cause: error }); }
   finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }

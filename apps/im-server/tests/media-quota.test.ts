@@ -55,8 +55,12 @@ it.each(['owner', 'service'])('counts concurrent %s reservations and releases a 
 it('rebuilds quota after restart cleanup and releases only accepted bytes on oversize', async () => {
   const f = await fixture([{ owner: 'owner', bytes: ownerLimit - 10 }, { owner: 'owner', bytes: 100, state: 'reserved' }]);
   expect(f.reserved()).toBe(0);
-  const body = Readable.from((async function* () { yield Buffer.alloc(6); yield Buffer.alloc(10 * 1024 * 1024); })());
+  const body = Readable.from((async function* () { yield Buffer.alloc(6); yield Buffer.alloc(25 * 1024 * 1024); })());
   await expect(f.upload(body)).rejects.toMatchObject({ statusCode: 413 });
+  expect(f.used()).toBe(ownerLimit - 10);
+  const pngHeader = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const oversizedImage = Readable.from((async function* () { yield pngHeader; yield Buffer.alloc(10 * 1024 * 1024); })());
+  await expect(f.upload(oversizedImage, 'owner', 'too-big-png')).rejects.toMatchObject({ statusCode: 413 });
   expect(f.used()).toBe(ownerLimit - 10);
   await f.upload(Readable.from([Buffer.alloc(10)]));
   await expect(f.upload(Readable.from([Buffer.alloc(1)]))).rejects.toMatchObject({ statusCode: 507 });

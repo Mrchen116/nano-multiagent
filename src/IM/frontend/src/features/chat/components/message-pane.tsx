@@ -38,7 +38,7 @@ import {
 import { AttachmentLink } from "../attachments/attachment-link";
 import { protectedResourceUrl } from "./message-image";
 import { ComposerAttachmentCard, useUploadRetryClock } from "../attachments/composer-attachment-card";
-import { AttachmentChip } from "../attachments/attachment-chip";
+import { AttachmentChip, isRasterImageMime } from "../attachments/attachment-chip";
 import { AttachmentDropzone } from "../attachments/attachment-dropzone";
 import { AttachmentUploadError, pastedImages, uploadOneAttachment } from "../attachments/use-attachment-upload";
 import {
@@ -1578,7 +1578,7 @@ function canReply(message:Message):boolean {
 function replyPreview(reply:ReplyReference,participants:Actor[]|undefined,zh:boolean):React.ReactNode {
   const text=reply.content.trim();
   return text ? renderInlineContent(text.slice(0,180),participants)
-    : reply.attachments.map(attachment=>attachment.file_name || (attachment.content_type?.startsWith('image/') ? (zh?'[图片]':'[Image]') : (zh?'[文件]':'[File]'))).join(' · ') || (zh?'[消息]':'[Message]');
+    : reply.attachments.map(attachment=>attachment.file_name || (isRasterImageMime(attachment.content_type) ? (zh?'[图片]':'[Image]') : (zh?'[文件]':'[File]'))).join(' · ') || (zh?'[消息]':'[Message]');
 }
 
 function ConfigurationBoundaryDivider() {

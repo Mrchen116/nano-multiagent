@@ -8,12 +8,16 @@
  * Returns:
  *   The decoded successful IM response.
  */
-export async function requestIm(baseUrl: string, token: string, path: string, options?: RequestInit): Promise<unknown> {
+export type ImRequestOptions = RequestInit & { timeoutMs?: number };
+
+export async function requestIm(baseUrl: string, token: string, path: string, options?: ImRequestOptions): Promise<unknown> {
   const url = new URL(path, baseUrl);
   url.protocol = url.protocol === 'wss:' ? 'https:' : url.protocol === 'ws:' ? 'http:' : url.protocol;
   const headers = new Headers(options?.headers);
   headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(url, { ...options, signal: AbortSignal.any([AbortSignal.timeout(10000), ...(options?.signal ? [options.signal] : [])]), headers });
+  const timeoutMs = options?.timeoutMs ?? 10000;
+  const { timeoutMs: _timeoutMs, ...init } = options ?? {};
+  const response = await fetch(url, { ...init, signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(init.signal ? [init.signal] : [])]), headers });
   if (!response.ok) {
     const error = await response.json().catch(() => undefined) as {detail?:unknown; message?:unknown} | undefined;
     const detail = error?.detail ?? error?.message;

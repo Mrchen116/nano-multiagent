@@ -71,7 +71,8 @@ export async function createServer(options: ServerOptions = {}) {
   const app = Fastify({
     logger: false,
     bodyLimit: 2 * 1024 * 1024,
-    requestTimeout: 15000,
+    // Media routes stream up to 25 MiB with a 60s body timeout; keep Fastify above that window.
+    requestTimeout: 65000,
     // A received request may wait through multiple bounded node RPCs. Destroying
     // its socket early turns a recoverable configuration receipt into a proxy 502.
     connectionTimeout: 0,
@@ -139,7 +140,7 @@ export async function createServer(options: ServerOptions = {}) {
     const path = req.url.split("?")[0]!;
     if (viewerAsset) reply.header('Access-Control-Allow-Origin', '*').removeHeader('Access-Control-Allow-Credentials');
     if (path.startsWith("/im/v1/auth/")) reply.header("Cache-Control", "no-store");
-    if (String(reply.getHeader("content-type")).startsWith("text/html"))
+    if (String(reply.getHeader("content-type")).startsWith("text/html") && !reply.getHeader("content-security-policy"))
       reply.header(
         "Content-Security-Policy",
         `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' ${parsed.protocol === "https:" ? "wss" : "ws"}://${parsed.host}; object-src 'none'; base-uri 'self'; frame-ancestors ${viewerAsset ? "'self'" : "'none'"}; form-action 'self'`,

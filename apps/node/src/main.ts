@@ -8,8 +8,9 @@ import { createInterface } from 'node:readline';
 import { execFileSync } from 'node:child_process';
 import { AgentDeletionLedger, NodeAgentDeletions } from './agent-deletion.js';
 import { NodeAgentLifecycle } from './agent-lifecycle.js';
-import { requestIm } from './im-http.js';
+import { requestIm, type ImRequestOptions } from './im-http.js';
 import { uploadScreenshot } from './screenshot-upload.js';
+import { uploadAttachment, downloadAttachment } from './file-transfer.js';
 import { randomUUID } from 'node:crypto';
 import { readFile, mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -445,7 +446,7 @@ async function downloadImage(url: string, agentId: string) {
     return Buffer.from(await response.arrayBuffer()).toString('base64');
 }
 
-async function im(path: string, options?: RequestInit): Promise<unknown> {
+async function im(path: string, options?: ImRequestOptions): Promise<unknown> {
     return requestIm(config.im_service.url, relay.registration?.gateway_access_token ?? config.im_service.token, path, options);
 }
 
@@ -507,7 +508,7 @@ const workSync=new WorkSync({nodeId:config.node.node_id,inbox,url:config.im_serv
   readyAgents: () => inbox.readyWorkAgents(agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId),
     session => store.bindingForSession(session)?.agentId),
 });
-globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime: runtime.product, relay: external, image: downloadImage, uploadScreenshot: input => uploadScreenshot(im, input), onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
+globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime: runtime.product, relay: external, image: downloadImage, uploadScreenshot: input => uploadScreenshot(im, input), uploadAttachment: input => uploadAttachment(im, input), downloadAttachment: input => downloadAttachment({ baseUrl: config.im_service.url, token: () => relay.registration?.gateway_access_token ?? config.im_service.token, nodeHome: home }, input), onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
 runtime.handle('configuration.workflow', async value => {
   const {agentId, guideline} = value as {agentId: string; guideline: string};
   const next = await configuration.setWorkflowGuideline(agentId, guideline);

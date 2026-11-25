@@ -6,7 +6,7 @@ import { RelayDeliveryError } from '@nano/channels';
 import { chatDelivery, controlText, needsAttention } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
-import { CHAT_BACKGROUND_DELAY_MS, formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
+import { CHAT_BACKGROUND_DELAY_MS, formatLocalTime, isRasterImageMime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 import { argumentsObject, modelAt, tokenUsage, toolPresentation, logicalEvents } from './presentation.js';
 
 interface RelayPort { readonly ready?:boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> }
@@ -361,7 +361,7 @@ export class SingleThread {
     }
     const text = threadText ?? (input.metadata.conversation_type === 'group' ? `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ${humanText}` : humanText);
     const ordered = input.metadata.content_parts as { type: string; text?: string; url?: string }[] | undefined;
-    const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: 'image', url: attachment.url }))];
+    const parts: { type: string; text?: string; url?: string }[] = ordered ?? [{ type: 'text', text }, ...input.message.attachments.map(attachment => ({ type: isRasterImageMime(attachment.content_type) ? 'image' : 'attachment', url: attachment.url }))];
     const content: SubmitInput['content'] = [];
     const imageSources = new Map<number, { kind: 'chat'; conversationId: string; messageId: string; url: string }>();
     let contextEnvelope: string | undefined;
@@ -398,10 +398,24 @@ export class SingleThread {
     for (const part of parts) {
       if (part.type === 'text') { content.push({ type: 'text', text: part.text ?? '' }); continue; }
       const attachment = input.message.attachments.find(attachment => attachment.url === part.url);
-      if (!attachment || attachment.content_type !== 'image/png' && attachment.content_type !== 'image/jpeg' &&
-          attachment.content_type !== 'image/webp' && attachment.content_type !== 'image/gif') throw new Error('Unsupported image media type');
+      if (!attachment) throw new Error('Unsupported image media type');
+      if (!isRasterImageMime(attachment.content_type)) {
+        const ref = this.options.store.toolReferences.attachmentRef(binding.agentId, attachment.url);
+        const label = attachment.file_name || 'file';
+        const mime = attachment.content_type || 'application/octet-stream';
+        const allowlist = this.options.agents.find(agent => agent.agentId === binding.agentId)?.toolAllowlist;
+        const canDownload = allowlist === undefined || allowlist.includes('download_attachment');
+        const suffix = ref ? (canDownload ? `, attachment_id=${ref} — call download_attachment to save locally` : `, attachment_id=${ref}`) : '';
+        content.push({ type: 'text', text: `${content.length ? '\n' : ''}[Attachment: ${label} (${mime})${suffix}]` });
+        continue;
+      }
+      const ref = this.options.store.toolReferences.attachmentRef(binding.agentId, attachment.url);
+      if (ref) {
+        const label = attachment.file_name || 'image';
+        content.push({ type: 'text', text: `${content.length ? '\n' : ''}[Image attachment_id=${ref} (${label})]` });
+      }
       imageSources.set(content.length, { kind: 'chat', conversationId: input.conversation_id, messageId: input.message.id, url: attachment.url });
-      content.push({ type: 'image', mediaType: attachment.content_type, name: attachment.file_name, data: await this.options.image(attachment.url, binding.agentId) });
+      content.push({ type: 'image', mediaType: attachment.content_type as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif', name: attachment.file_name, data: await this.options.image(attachment.url, binding.agentId) });
     }
     return {content, contextEnvelope, attachmentSources:content.map((_,index) => imageSources.get(index) ?? null), renderedThreadRoot};
   }

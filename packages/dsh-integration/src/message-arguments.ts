@@ -6,7 +6,7 @@ export const publicMessageProperties = {
   reply_to_message_id: {type:'string' as const,minLength:1,description:'Optional single-layer quote reply to one original message in the destination Nano IM conversation. Obtain its message_id/id from inbox, read_messages, or search_messages; do not guess IDs or paste a quote body. Can be combined with a thread target to quote a message inside that thread. Not supported for external-channel delivery or native internal child messages.'},
   text: {type:'string' as const,description:'Message text. Optional with interactive UI. Required for plain-text delivery. To address a specific Agent in a group, include <mention type="user" target_id="IM_USER_ID"/> using its actual user_id from conversations(action="info"); a plain name or Agent ID does not notify mention-only Agents.'},
   incident_ref: {type:'string' as const,description:'Bound main PA only: incident reference for the owner notice or subsequent refusal in its original conversation.'},
-  attachments: {type:'array' as const,maxItems:5,items:{type:'object' as const,properties:{url:{type:'string' as const}},required:['url'],additionalProperties:false}},
+  attachments: {type:'array' as const,maxItems:5,description:'Existing Nano IM attachment URLs (use local_images or local_files to upload local files from disk).',items:{type:'object' as const,properties:{url:{type:'string' as const}},required:['url'],additionalProperties:false}},
   interactive: {type:'object' as const,properties:{source:{type:'string' as const,maxLength:65536},supersedes_message_id:{type:'string' as const},source_mode:{type:'string' as const,enum:['patch']}},required:['source'],additionalProperties:false},
 };
 
@@ -16,8 +16,10 @@ export const publicMessageParameters = {type:'object' as const,properties:public
 export const screenshotMessageProperties = {
   ...publicMessageProperties,
   local_images: {type:'array' as const, minItems:1, maxItems:5, items:{type:'string' as const},
-    description:'Absolute paths of PNG, JPEG or WebP images to attach to this Nano IM message. Existing attachments come first. Combined limit: five attachments.'},
-  receipt_of: {type:'string' as const, description:'With target and no other fields, check the original operation_id from an unknown screenshot send. This does not send again.'},
+    description:'Absolute paths of PNG, JPEG or WebP images (<= 10 MiB each) to attach to this Nano IM message. Existing attachments come first, followed by local_images, then local_files. Combined limit: five attachments.'},
+  local_files: {type:'array' as const, minItems:1, maxItems:5, items:{type:'string' as const},
+    description:'Absolute paths of local files (<= 25 MiB each, or <= 10 MiB for images) to upload and attach to this Nano IM message. Appended after existing attachments and local_images. Combined limit: five attachments.'},
+  receipt_of: {type:'string' as const, description:'With target and no other fields, check the original operation_id from an unknown local_images or local_files send. This does not send again.'},
 };
 export const screenshotMessageParameters = {
   ...publicMessageParameters, properties:screenshotMessageProperties,
@@ -42,9 +44,14 @@ export function normalizeMessageArguments(args: unknown, screenshots = false): R
     return supplied;
   }
   const localImages = supplied.local_images as string[] | undefined;
-  if (localImages && (localImages.length + ((supplied.attachments as unknown[] | undefined)?.length ?? 0) > 5
-      || localImages.some(path => !path.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(path)) || supplied.incident_ref))
-    throw new Error('Provide absolute screenshot paths and at most five attachments for a regular message');
+  const localFiles = supplied.local_files as string[] | undefined;
+  const localCount = (localImages?.length ?? 0) + (localFiles?.length ?? 0);
+  const isAbs = (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
+  if (localCount > 0 && (localCount + ((supplied.attachments as unknown[] | undefined)?.length ?? 0) > 5
+      || (localImages?.some(path => !isAbs(path)) ?? false)
+      || (localFiles?.some(path => !isAbs(path)) ?? false)
+      || supplied.incident_ref))
+    throw new Error('Provide absolute local paths and at most five attachments for a regular message');
   const input: Record<string, unknown> = {text:'', ...supplied};
   if (!(input.text as string).trim() && input.interactive === undefined) throw new Error('A message requires text or interactive content');
   return input.interactive ? {...input,interactive:{...(input.interactive as Record<string,unknown>),format:'openui',catalog_version:'nano-iui-1'}} : input;

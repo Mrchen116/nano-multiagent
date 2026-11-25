@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
 import type { ComposerUpload } from "../components/composer-draft-store";
+import { isRasterImageMime } from "./attachment-chip";
 import { AttachmentLink } from "./attachment-link";
 
 /** Re-enable a retained upload when its server cooldown expires. */
@@ -38,7 +39,7 @@ export function ComposerAttachmentCard({ item, busy, retryClock, onRemove, onRet
 }) {
   const { t, i18n } = useTranslation();
   const zh = i18n.language.startsWith("zh");
-  const image = item.file.type.startsWith("image/");
+  const image = isRasterImageMime(item.file.type);
   const [preview, setPreview] = useState<string>();
   useEffect(() => {
     if (!image) return;

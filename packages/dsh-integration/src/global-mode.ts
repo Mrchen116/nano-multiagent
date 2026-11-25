@@ -4,7 +4,7 @@ import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools';
 import type {} from './product-bridge.js';
 import type {} from './local-workers/manager.js';
-import type {WorkerRuntime} from '@nano/product-contracts';
+import { isRasterImageMime, type WorkerRuntime } from '@nano/product-contracts';
 import type {} from './policy/approval.js';
 import { delegatedSourceInstructions, inboxSourceInstructions } from './policy/sources.js';
 import { normalizeMessageArguments, screenshotMessageProperties, screenshotMessageParameters, publicMessageParameters } from './message-arguments.js';
@@ -42,7 +42,7 @@ Handle everyday conversation and small direct actions yourself. Delegate each co
 
 Ordinary subagents work in your workspace by default and receive its repository instructions. They do not inherit your conversations or memory and cannot query product chats, read your Inbox, or send public product messages. For user requests and follow-ups, quote the relevant original words verbatim and include the context and usable materials the executor needs. Identify the speaker in plain language when it matters. Keep IM conversation, user and message IDs in your own routing records. Omit the default workspace, repository instructions and tool restrictions from the handoff. State the goal, task-specific constraints and expected deliverable.
 
-For work you initiate, state the standing responsibility and authority it relies on. For a chat image, pass the actual readable path provided by the runtime or an existing workspace copy the executor can open. Say which material is missing if you cannot pass it.
+For work you initiate, state the standing responsibility and authority it relies on. For a chat image or file, pass the actual readable path provided by the runtime, a downloaded local_path from download_attachment, or an existing workspace copy the executor can open. Say which material is missing if you cannot pass it.
 
 Delegation does not authorize rewriting the request. Do not add requirements, implementation plans, acceptance criteria or repeated policy checklists. Executors derive requirements from the original source and standing rules. They own investigation, technical choices, execution and verification.
 
@@ -76,7 +76,7 @@ Persistence and blocked actions
 Continue work you undertake within your responsibilities and authority until its intended outcome is delivered or a concrete blocker has been communicated. A failed tool call or denied action is not completion. Inspect execution failures, correct recoverable errors and take a useful permitted next step.
 
 Respect denials; do not repeat the rejected action through another tool, channel or identity. If human input is required, report the blocked action and reason in the originating conversation. A denied message does not prohibit a separate clarification or blocker report under the usual delivery checks; exclude the denied content.` });
-  else ctx.systemPrompt.section({ name: 'nano-communication', order: 800, text: ({agent}) => isOrdinaryChild(agent) ? '' : `Your final prose is delivered to the current conversation (or the current thread when woken in a thread). Use send_message with an explicit target and message content for public delivery: target="current" means this conversation's main timeline, and target="current:<root_message_id>" (or "<chat_id>:<root_message_id>") replies inside a thread. Use read_messages and search_messages to inspect chat or thread history, conversations to discover/inspect chats, and threads to manage group thread subscriptions. Use agent_id/message only for native internal child or parent communication. After confirmed card or image delivery, end with the exact non-empty final text NO_REPLY so the host suppresses a duplicate final reply.` });
+  else ctx.systemPrompt.section({ name: 'nano-communication', order: 800, text: ({agent}) => isOrdinaryChild(agent) ? '' : `Your final prose is delivered to the current conversation (or the current thread when woken in a thread). Use send_message with an explicit target and message content for public delivery: target="current" means this conversation's main timeline, and target="current:<root_message_id>" (or "<chat_id>:<root_message_id>") replies inside a thread. Use read_messages and search_messages to inspect chat or thread history, conversations to discover/inspect chats, and threads to manage group thread subscriptions. Use agent_id/message only for native internal child or parent communication. After confirmed card, image, or file delivery via send_message, end with the exact non-empty final text NO_REPLY so the host suppresses a duplicate final reply.` });
   const groupTarget = config.mode === 'global' ? 'Use the source target from Inbox.' : 'Use target="current" for this group.';
   const nodeLookup = ` To look up a peer's execution node, use action="info" for a Nano IM group you belong to. ${groupTarget} Compare the latest execution_node.id with your own node ID. Device names can repeat. A missing ID or failed lookup means the peer's node is unknown. Confirm the origin of a path from earlier work separately.`;
   const tools: Pick<ToolDefinition, 'name' | 'description' | 'parameters'>[] = [
@@ -95,8 +95,11 @@ Respect denials; do not repeat the rejected action through another tool, channel
     { name: 'threads', description: 'List threads you currently follow, follow a thread, or unfollow a group thread you no longer need to track. Root main Agent only. Unfollowing a group thread posts a brief notice in that thread without creating unread; later @-mentions or quotes reactivate your follow automatically. Direct-chat threads cannot be unfollowed.', parameters: {
       type: 'object', properties: { action: { type: 'string', enum: ['list', 'follow', 'unfollow'] }, target: { type: 'string', description: 'For list: optional chat target (<chat_id>) filter. For follow/unfollow: required thread target (<chat_id>:<root_id>).' }, reason: { type: 'string', description: 'Optional short reason when unfollowing a group thread.' }, cursor: { type: 'string', description: 'Continue list with next_cursor and the same parameters.' }, limit: { type: 'integer', minimum: 1, maximum: 50 } }, required: ['action'], additionalProperties: false,
     } },
-    { name: 'send_message', description: 'Send a public message as yourself to a writable chat (<chat_id>), thread (<chat_id>:<root_id>), user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. To send local images to Nano IM, pass local_images. If the result is unknown, check receipt_of using the returned operation_id. When the Intelligent UI Feature is enabled and an interactive explanation, exploration, comparison or editor helps the task, first load nano-interactive-ui, then include interactive with the supported OpenUI source. Use the native agent_id/message fields to continue a direct internal child or report to your direct parent; that returns native input acceptance, not public delivery.', parameters: {
-      type: 'object', properties: { ...screenshotMessageProperties, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target'], anyOf: screenshotMessageParameters.anyOf }, { required: ['agent_id', 'message'], not: { anyOf: [{required:['interactive']}, {required:['reply_to_message_id']}, {required:['local_images']}, {required:['receipt_of']}] } }], additionalProperties: false,
+    { name: 'download_attachment', description: 'Download an authorized Nano IM file or image attachment by its short attachment_id (<= 8 chars, e.g. a_xxxxxx) from inbox, read_messages, search_messages, or an inbound message into your managed local download directory; returns local_path, file_name, content_type, and byte_size. Root main Agent only.', parameters: {
+      type: 'object', properties: { attachment_id: { type: 'string', minLength: 1, description: 'Short attachment_id (e.g. a_xxxxxx) from inbox, read_messages, search_messages, or an inbound message.' } }, required: ['attachment_id'], additionalProperties: false,
+    } },
+    { name: 'send_message', description: 'Send a public message as yourself to a writable chat (<chat_id>), thread (<chat_id>:<root_id>), user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. To send local images to Nano IM, pass local_images; to send general local files (<= 25 MiB), pass local_files. If the result is unknown, check receipt_of using the returned operation_id. When the Intelligent UI Feature is enabled and an interactive explanation, exploration, comparison or editor helps the task, first load nano-interactive-ui, then include interactive with the supported OpenUI source. Use the native agent_id/message fields to continue a direct internal child or report to your direct parent; that returns native input acceptance, not public delivery.', parameters: {
+      type: 'object', properties: { ...screenshotMessageProperties, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target'], anyOf: screenshotMessageParameters.anyOf }, { required: ['agent_id', 'message'], not: { anyOf: [{required:['interactive']}, {required:['reply_to_message_id']}, {required:['local_images']}, {required:['local_files']}, {required:['receipt_of']}] } }], additionalProperties: false,
     } },
   ];
   for (const tool of tools.filter(tool => config.mode === 'global' || tool.name !== 'inbox')) ctx.tools.register({ ...tool,
@@ -104,7 +107,7 @@ Respect denials; do not repeat the rejected action through another tool, channel
       ? (value as unknown as { content: ContentBlock[] }).content : [{ type: 'text', text: JSON.stringify(value) }] },
     execute: async (args, exec) => {
       if (tool.name === 'send_message' && typeof (args as { agent_id?: unknown }).agent_id === 'string') {
-        if ((args as { interactive?: unknown }).interactive !== undefined || (args as {reply_to_message_id?:unknown}).reply_to_message_id !== undefined) throw new Error('Interactive and quoted replies require a public target');
+        if ((args as { interactive?: unknown }).interactive !== undefined || (args as {reply_to_message_id?:unknown}).reply_to_message_id !== undefined || (args as {local_images?:unknown}).local_images !== undefined || (args as {local_files?:unknown}).local_files !== undefined || (args as {receipt_of?:unknown}).receipt_of !== undefined) throw new Error('Interactive, quoted replies, and local attachments require a public target');
         const {agent_id,message}=args as {agent_id:string;message:string};
         if(config.mode==='global' && exec.agent && await ctx.nanoWorkers.isWorker(agent_id))
           return ctx.nanoWorkers.control(exec.agent,agent_id,'send',message,exec.signal);
@@ -118,10 +121,9 @@ Respect denials; do not repeat the rejected action through another tool, channel
       if ((args as { action: string }).action === 'read') {
         const body = result as { messages: { id: string; content: { type: string; content_type?: string; url?: string; file_name?: string }[] }[] };
         for (const message of body.messages) for (const part of message.content) {
-          if (!part.content_type?.startsWith('image/')) continue;
-          if (part.content_type !== 'image/jpeg' && part.content_type !== 'image/png' && part.content_type !== 'image/gif' && part.content_type !== 'image/webp') throw new Error('Unsupported image media type');
+          if (!isRasterImageMime(part.content_type)) continue;
           const image = await ctx.nanoProduct.call('inbox.image', { url: part.url, message_id: message.id }, exec) as { data: string; source: AttachmentSource };
-          content.push({ type: 'image', mediaType: part.content_type, name: part.file_name, data: image.data });
+          content.push({ type: 'image', mediaType: part.content_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', name: part.file_name, data: image.data });
           sources.push(image.source);
         }
       }
@@ -168,7 +170,7 @@ Distinguish quoted user instructions, applicable standing constraints, and decis
 
 Your parent handles product conversations and user delivery. Ask it for necessary conversation facts or decisions; return the outcome, artifacts, evidence and remaining gaps through the native return mode. Keep routine progress internal. Do not contact the user through other tools. Existing source and approval rules still apply.`
     :
-    `You are an internal execution agent. Your parent coordinates this work; the main Agent owns product conversations and public delivery. You do not have inbox, conversations, read_messages, search_messages, threads or public target/text sending. Ask your parent for needed conversation facts or source checks.
+    `You are an internal execution agent. Your parent coordinates this work; the main Agent owns product conversations and public delivery. You do not have inbox, conversations, read_messages, search_messages, threads, download_attachment or public target/text sending. Ask your parent for needed conversation facts or source checks.
 
 Follow the native return mode. A continuable child sends one self-contained result to its parent with send_message before finishing, then writes a brief closing note. A one-shot fork returns its result through completion without an extra send and is not a continuable conversation. Include findings, drafts, evidence and actual execution results; internal input acceptance is not public delivery.
 

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Global Agent Specification
 
-> 对齐: feat-780
+> 对齐: feat-786
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 
 ## Purpose
@@ -333,7 +333,7 @@
 - **GIVEN** 普通 Global Agent 或 PA 使用内部一级或二级执行者
 - **WHEN** 执行者需要产品聊天资料、公开汇报或交付成果
 - **THEN** 通过原生内部通信向父级请求或回传，由主 Agent 使用现有权限查询并决定发送。
-- **AND** 子 Agent 的工具列表没有 inbox、conversations、send_user_message 或 send_message 的 target/text 公开分支；保留 agent_id/message 的原生内部通信，直接调用受限产品入口也不能越过主 Agent 身份限制。
+- **AND** 子 Agent 的工具列表没有 inbox、conversations、download_attachment、send_user_message 或 send_message 的 target/text 公开分支；保留 agent_id/message 的原生内部通信，直接调用受限产品入口（含 `download_attachment`）也不能越过主 Agent 身份限制。Global/PA 根主 Agent 将 `download_attachment` 纳入固定产品工具面，并免审批直接执行受控下载（下载产物不视作人类授权来源）。
 
 #### Scenario: 新建、fork 和恢复角色一致
 - **WHEN** Global 子 Agent 被创建、fork 或恢复到原会话
@@ -435,7 +435,7 @@
 
 ### Requirement: Global 的话题按一等 target 独立收发，未关注的话题不进 Inbox
 
-Global/PA 不按话题新建主 session，但 Agent 工具侧将话题作为一等 `target`（`<chat_id>:<8位短消息id>`），Inbox 按 `target` 拆行且不带正文 preview；原聊天发现、只读查/搜与话题关注分别由 `conversations`、`read_messages`、`search_messages`、`threads` 承担，所有需由 Agent 填写的原子编号长度不超过 8 位。
+Global/PA 不按话题新建主 session，但 Agent 工具侧将话题作为一等 `target`（`<chat_id>:<8位短消息id>`），Inbox 按 `target` 拆行且不带正文 preview；原聊天发现、只读查/搜、话题关注与受保护附件下载分别由 `conversations`、`read_messages`、`search_messages`、`threads`、`download_attachment` 承担，所有需由 Agent 填写的原子编号长度不超过 8 位（其中原生附件在保留原 `url` 以兼容内联图片、PA 转发与前端展示的同时，附加 `<= 8` 字符 `attachment_id` 如 `a_xxxxxx`）。
 
 #### Scenario: 未关注的群话题没有 Inbox 行
 - **GIVEN** Global Agent 没有关注该群话题，消息也没有 @ 或引用它

@@ -29,6 +29,20 @@ describe("AttachmentChip", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
+  test("renders SVG attachment as document download chip rather than inline img", () => {
+    render(
+      <AttachmentChip
+        attachment={{
+          url: "http://im.local/im/v1/conversations/c1/attachments/diagram",
+          content_type: "image/svg+xml",
+          file_name: "diagram.svg"
+        }}
+      />
+    );
+    expect(screen.getByText("diagram.svg")).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
   test("calls onRemove when remove button clicked", async () => {
     const onRemove = vi.fn();
     render(

@@ -79,7 +79,7 @@ export class ToolSelection {
     if (state.config.mode === 'global' && (agent.session.header.origin !== 'subagent' ||
       agent.session.header.delegationDepth === 1 && !isOrdinaryChild(agent))) disabled.push('subagent');
     if (globalWorkRole(agent, state.config)) disabled.push(...userEntryTools);
-    if (isOrdinaryChild(agent) || globalWorkRole(agent, state.config)) disabled.push('conversations', 'read_messages', 'search_messages', 'threads', 'personal_sources', 'agent_creation', 'schedule_run', 'schedule_history');
+    if (isOrdinaryChild(agent) || globalWorkRole(agent, state.config)) disabled.push('conversations', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'personal_sources', 'agent_creation', 'schedule_run', 'schedule_history');
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
     // The native PTC transport lives outside restriction layers. An empty
     // product selection must also withdraw this executable transport.
@@ -88,7 +88,7 @@ export class ToolSelection {
     // Global root communication is part of the work mode, not an optional selection.
     const fixed = fixedTools(state.config.mode, isOrdinaryChild(agent) || globalWorkRole(agent, state.config) ? 'subagent' : state.config.personal ? 'personal' : 'root');
     // Root product tools are scope-local; DSH excludes local-only names from inherited masks.
-    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known], agent), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && name !== 'send_user_message' && !(state.config.mode === 'global' && ['inbox', 'conversations', 'read_messages', 'search_messages', 'threads', 'delegate_worker'].includes(name)) && !disabled.includes(name)) });
+    state.dispose = agent.ctx.tools.restrict({ allow: [...new Set([...this.selection(state.config, [...known], agent), ...fixed])].filter(name => known.has(name) && name !== 'run_code' && name !== 'send_user_message' && !(state.config.mode === 'global' && ['inbox', 'conversations', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'delegate_worker'].includes(name)) && !disabled.includes(name)) });
   }
 }
 

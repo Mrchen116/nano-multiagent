@@ -4,6 +4,7 @@ import type { ToolCall } from "../chat-types";
 import { LongOutput } from "./tool-long-output";
 import { useContext } from "react";
 import { WorkNavigationContext, WorkThreadLink } from "./work-thread-link";
+import { isRasterImageMime } from "../attachments/attachment-chip";
 
 type Value = Record<string, unknown>;
 const object = (value: unknown): Value => value && typeof value === "object" && !Array.isArray(value) ? value as Value : {};
@@ -60,7 +61,7 @@ export function ConversationToolCard({ call, compact = false }: { call: ToolCall
         const senderName = text(sender.name) || text(sender.display_name) || people[text(sender.id)] || (compact ? "" : text(sender.id));
         return <div className="im-work-read-message" key={`${(text(item.message_id) || text(item.id))}:${text(item.part_key) || index}`}>
           <small>{senderName && <>{senderName} · </>}{(text(item.source_time) || text(item.time) || text(item.created_at)) && <>{new Date((text(item.source_time) || text(item.time) || text(item.created_at))).toLocaleString()} · </>}<WorkThreadLink conversationId={baseTarget(text(source.conversation_id) || text(item.target) || target)} messageId={(text(item.message_id) || text(item.id))}>{tr("原消息")}</WorkThreadLink></small>
-          {messageParts(item).map((content, i) => content.type === "text" ? <LongOutput key={i} text={text(content.text)} truncatedAtSource={detail.truncated === true} render={shown => <p className="whitespace-pre-wrap">{parseMentions(shown).map((segment, index) => segment.kind === "mention" ? <span key={index} className="chat-mention-chip" data-target-id={segment.target_id}>@{mentionDisplayName(segment.target_id, mentionNames)}</span> : segment.text)}</p>} /> : (content.type === "image" || (content.type === "attachment" && text(content.content_type).startsWith("image/"))) && text(content.url) ? <a href={text(content.url)} key={i} target="_blank" rel="noreferrer"><img className="max-h-48 max-w-full" alt={text(content.file_name) || tr("消息图片")} src={text(content.url)} /></a> : <a href={text(content.url)} key={i} target="_blank" rel="noreferrer">{text(content.file_name) || tr("附件")}</a>)}
+          {messageParts(item).map((content, i) => content.type === "text" ? <LongOutput key={i} text={text(content.text)} truncatedAtSource={detail.truncated === true} render={shown => <p className="whitespace-pre-wrap">{parseMentions(shown).map((segment, index) => segment.kind === "mention" ? <span key={index} className="chat-mention-chip" data-target-id={segment.target_id}>@{mentionDisplayName(segment.target_id, mentionNames)}</span> : segment.text)}</p>} /> : (content.type === "image" || (content.type === "attachment" && isRasterImageMime(text(content.content_type)))) && text(content.url) ? <a href={text(content.url)} key={i} target="_blank" rel="noreferrer"><img className="max-h-48 max-w-full" alt={text(content.file_name) || tr("消息图片")} src={text(content.url)} /></a> : <a href={text(content.url)} key={i} target="_blank" rel="noreferrer">{text(content.file_name) || tr("附件")}</a>)}
           {(item.complete_message === false || item.partial === true) && <small>{tr("此条消息的一部分")}</small>}
         </div>;
       })}

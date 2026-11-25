@@ -1,7 +1,7 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
-import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader } from './screenshot-delivery.js';
+import { prepareLocalAttachments, unknownScreenshotReceipt, type AttachmentDownloader, type AttachmentUploader, type ScreenshotUploader } from './screenshot-delivery.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
 import { setImmediate as yieldToIO } from 'node:timers/promises';
@@ -19,6 +19,8 @@ interface Options {
   runtime: RuntimePort; relay: { readonly ready?: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   image(url: string, agentId: string): Promise<string>;
   uploadScreenshot?: ScreenshotUploader;
+  uploadAttachment?: AttachmentUploader;
+  downloadAttachment?: AttachmentDownloader;
   onError(error: unknown): void;
   onWork?(): void;
   authorityEpoch?(): number | undefined;
@@ -688,7 +690,7 @@ export class GlobalAgent {
   private async callAdmitted(call: ProductCall): Promise<unknown> {
     const binding = this.options.store.bindings().find(binding => binding.sessionId === call.rootSessionId);
     if (!binding || binding.ownerId !== call.ownerId || binding.agentId !== call.agentId || binding.ownerId !== this.options.ownerId) throw new Error('Product identity mismatch');
-    if ((call.method === 'inbox' || call.method === 'conversations' || call.method === 'read_messages' || call.method === 'search_messages' || call.method === 'threads' || call.method === 'memory.conversations' || call.method === 'send_message') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may use product conversation tools');
+    if ((call.method === 'inbox' || call.method === 'conversations' || call.method === 'read_messages' || call.method === 'search_messages' || call.method === 'threads' || call.method === 'download_attachment' || call.method === 'memory.conversations' || call.method === 'send_message') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may use product conversation tools');
     if(call.method==='send_user_message' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may represent its owner');
     if(call.method==='agent_creation' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may create Agents');
     const references = this.options.store.toolReferences;
@@ -791,6 +793,20 @@ export class GlobalAgent {
         const action = String(call.args.action ?? '');
         if (!['list', 'follow', 'unfollow'].includes(action)) throw new Error('Invalid threads action');
         return await this.query(binding, { ...resolveSingleCurrent(call.args), action: `thread_${action}` });
+      }
+      if (call.method === 'download_attachment') {
+        if (!this.options.downloadAttachment) throw new Error('Attachment download is unavailable on this node');
+        const attachmentId = typeof call.args.attachment_id === 'string' ? call.args.attachment_id.trim() : '';
+        const url = typeof call.args.attachment_url === 'string' ? call.args.attachment_url : '';
+        if (!attachmentId || !url) throw new Error('download_attachment requires a valid attachment_id');
+        const config = this.options.agents.find(agent => agent.agentId === binding.agentId);
+        return await this.options.downloadAttachment({
+          agentId: binding.agentId,
+          attachmentId,
+          url,
+          workspace: config?.workspace,
+          signal: controller.signal,
+        });
       }
       if (call.method === 'schedule.run' || call.method === 'schedule.history') {
         if (call.sessionId !== call.rootSessionId) throw new Error('Schedules belong to a main Session');
@@ -899,9 +915,11 @@ export class GlobalAgent {
     const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
     const inThread = targetThreadRoot;
     const paths = call.args.local_images as string[] | undefined;
+    const filePaths = call.args.local_files as string[] | undefined;
+    const hasLocalMedia = !!(paths?.length || filePaths?.length);
     const publicationBody = () => {
       const quote = {...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})};
-      if (paths || call.args.attachments) return sortedJsonAscii({text, interactive, local_images:paths, attachments:call.args.attachments ?? [], ...quote});
+      if (hasLocalMedia || call.args.attachments) return sortedJsonAscii({text, interactive, ...(paths ? {local_images:paths} : {}), ...(filePaths ? {local_files:filePaths} : {}), attachments:call.args.attachments ?? [], ...quote});
       return interactive || replyTo || inThread ? sortedJsonAscii({text, interactive, ...quote}) : text;
     };
     if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
@@ -932,7 +950,7 @@ export class GlobalAgent {
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
     if((replyTo || inThread) && info?.channel && info.channel!=='web')throw new Error('Quoted replies and topics require a Nano IM destination');
-    if (paths && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local screenshots require a writable Nano IM conversation');
+    if (hasLocalMedia && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local attachments require a writable Nano IM conversation');
     if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const baseTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
     const reviewTargets = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web'
@@ -974,11 +992,11 @@ export class GlobalAgent {
     const held = revalidate();
     if (held) return held;
 
-    const attachments = paths ? await prepareScreenshots(this.options.uploadScreenshot, {
+    const attachments = hasLocalMedia ? await prepareLocalAttachments(this.options.uploadScreenshot, this.options.uploadAttachment, {
       agentId:binding.agentId, conversationId:reviewConversation!, operationId:call.operationId,
       lifecycleRevision:store.lifecycle.assert(binding.agentId), signal,
-    }, paths, call.args.attachments) : call.args.attachments === undefined ? undefined : chatAttachments(call.args.attachments);
-    if (paths) {
+    }, paths, filePaths, call.args.attachments) : call.args.attachments === undefined ? undefined : chatAttachments(call.args.attachments);
+    if (hasLocalMedia) {
       if (global) await this.publicationEvidence(binding, reviewTargets, signal);
       if (currentSingleGroup) await refreshTurnEvidence();
       const changed = revalidate();
@@ -993,12 +1011,12 @@ export class GlobalAgent {
         to: conversation ? `conversation:${conversation}` : targetBase, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload,source);
     } catch (error) {
-      if (paths && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
+      if (hasLocalMedia && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
         const result = {status:'not_sent',target,reason:error.message};
         inbox.settlePublication(call.operationId, 'rejected', result);
         return result;
       }
-      if ((interactive || paths) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
+      if ((interactive || hasLocalMedia) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
         inbox.settlePublication(call.operationId, 'rejected');
         throw new Error(error.detail ? JSON.stringify(error.detail) : `Message rejected: ${error.code ?? error.message}`);
       }
@@ -1011,7 +1029,7 @@ export class GlobalAgent {
           }
         } catch { /* Retain the unknown publication when reconciliation is unavailable. */ }
       }
-      if (paths && !(error instanceof RelayDeliveryError && error.delivery === 'rejected'))
+      if (hasLocalMedia && !(error instanceof RelayDeliveryError && error.delivery === 'rejected'))
         return unknownScreenshotReceipt(target, call.operationId);
       throw error;
     }
@@ -1043,10 +1061,10 @@ export class GlobalAgent {
     const id = String(call.args.receipt_of), target = String(call.args.target);
     const original = this.options.inbox.publication(id);
     if (!id.startsWith(`${binding.sessionId}:`) || !original || original.target !== target)
-      throw new Error('No screenshot operation for this Agent and target');
-    let body: {text?:string; local_images?:unknown} | undefined;
+      throw new Error('No local attachment operation for this Agent and target');
+    let body: {text?:string; local_images?:unknown; local_files?:unknown} | undefined;
     try { body = JSON.parse(original.body); } catch { /* Legacy text publications have no envelope. */ }
-    if (!Array.isArray(body?.local_images)) throw new Error('No screenshot operation for this Agent and target');
+    if (!Array.isArray(body?.local_images) && !Array.isArray(body?.local_files)) throw new Error('No local attachment operation for this Agent and target');
     if (original.result) return JSON.parse(original.result);
     if (!['sending','unknown'].includes(original.state)) return {status:'not_sent', target};
     const result = config?.personal ? await this.personal.screenshotReceipt(config, target, id)
@@ -1098,7 +1116,7 @@ export class GlobalAgent {
       const args = argumentsObject(call?.data.arguments);
       // Tool arguments distinguish a plain JSON message from a stored publication envelope.
       const body = argumentsObject(publication.body);
-      const savedText = typeof body?.text === 'string' && (body.interactive || body.attachments || body.reply_to_message_id)
+      const savedText = typeof body?.text === 'string' && (body.interactive || body.attachments || body.local_images || body.local_files || body.reply_to_message_id)
         ? body.text : publication.body;
       const text = typeof args?.text === 'string' ? args.text : savedText;
       this.confirmPublication(binding,{operationId:publication.id,callId},publication.target,text,status.payload,callPosition(call));

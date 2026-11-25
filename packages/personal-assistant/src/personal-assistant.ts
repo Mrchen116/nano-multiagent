@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { interactiveResponse, workObject, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import type { ProductCall } from './global-agent.js';
-import { prepareScreenshots, unknownScreenshotReceipt, type ScreenshotUploader } from './screenshot-delivery.js';
+import { prepareLocalAttachments, unknownScreenshotReceipt, type AttachmentUploader, type ScreenshotUploader } from './screenshot-delivery.js';
 import type { NodeStore } from './store.js';
 import type { InboxStore } from './inbox.js';
 import { joinThreadTarget, splitThreadTarget } from './tool-references.js';
@@ -16,6 +16,7 @@ interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore; runtime: RuntimePort;
   relay: {request(type: string, payload: Data): Promise<ProtocolFrame>}; onError(error: unknown): void;
   uploadScreenshot?: ScreenshotUploader;
+  uploadAttachment?: AttachmentUploader;
 }
 
 /** Coordinates personal product facts; DSH remains the sole execution loop. */
@@ -173,14 +174,16 @@ export class PersonalAssistant {
     const interactive = interactiveResponse(call.args.interactive);
     if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
     const paths = call.args.local_images as string[] | undefined;
+    const filePaths = call.args.local_files as string[] | undefined;
+    const hasLocalMedia = !!(paths?.length || filePaths?.length);
     const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
     const incident=typeof call.args.incident_ref==='string'?call.args.incident_ref:undefined;
     if(incident&&(call.sessionId!==binding.sessionId||call.method!=='send_message'||interactive||(call.args.attachments as unknown[]|undefined)?.length))throw new Error('Incident communication belongs to the main PA and must be plain self-authored text');
     const representation=call.method==='send_user_message'?'owner':'self';
-    if (paths && (incident || representation !== 'self')) throw new Error('Local screenshots require a regular self-authored message');
+    if (hasLocalMedia && (incident || representation !== 'self')) throw new Error('Local attachments require a regular self-authored message');
     if(representation==='owner' && (call.sessionId!==binding.sessionId || !config.personal))throw new Error('Only the bound main PA may represent its owner');
     const deliveryTarget=this.options.store.canonicalConversation(config.agentId,targetBase.replace(/^conversation:/,''));
-    if (paths && deliveryTarget.startsWith('external:')) throw new Error('Local screenshots require a writable Nano IM conversation');
+    if (hasLocalMedia && deliveryTarget.startsWith('external:')) throw new Error('Local attachments require a writable Nano IM conversation');
     if(deliveryTarget.startsWith('external:')&&representation==='owner')throw new Error('Owner representation requires a native IM conversation');
     if((replyTo || inThread) && deliveryTarget.startsWith('external:'))throw new Error('Quotes and topics require a Nano IM destination');
     const conversation = deliveryTarget.startsWith('external:')?targetBase.replace(/^conversation:/,''):await this.resolve(config,targetBase);
@@ -192,7 +195,7 @@ export class PersonalAssistant {
     }
     const incidentKey=incident?`pa-incident:${incident}:${conversation===config.personal!.conversationId?'owner':'peer'}`:undefined;
     let operationId=incidentKey??call.operationId;
-    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation, ...(paths ? {local_images:paths} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})});
+    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation, ...(paths ? {local_images:paths} : {}), ...(filePaths ? {local_files:filePaths} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})});
     const incidentPrevious=incidentKey?inbox.incidentPublication(incidentKey):undefined;
     let previous = incidentPrevious??inbox.publication(operationId);
     if(incidentKey&&incidentPrevious&&previous) {
@@ -223,7 +226,7 @@ export class PersonalAssistant {
       if(incident&&conversation===config.personal!.conversationId&&result.message_id)await this.request(config,'pa.incident.receipt',{incident_ref:incident,message_id:result.message_id});
       return result;
     }
-    if (paths && previous && ['sending','unknown'].includes(previous.state)) {
+    if (hasLocalMedia && previous && ['sending','unknown'].includes(previous.state)) {
       const receipt = await this.screenshotReceipt(config, target, operationId).catch(() => undefined);
       if (receipt?.found !== true) return unknownScreenshotReceipt(target, operationId);
       const result = {status:'sent', target, message_id:receipt.message_id, conversation_id:receipt.conversation_id};
@@ -242,13 +245,13 @@ export class PersonalAssistant {
       message:'Read new messages in this conversation and reconsider this draft before sending.'};
     inbox.preparePublication(operationId,target,publicationBody,binding.agentId);
     let attachments = call.args.attachments ?? [];
-    if (paths) {
+    if (hasLocalMedia) {
       if (conversation !== config.personal!.conversationId)
-        await this.request(config, 'pa.action.status', {request_key:operationId,conversation_id:conversation,prepare_screenshot:true});
-      attachments = await prepareScreenshots(this.options.uploadScreenshot, {
+        await this.request(config, 'pa.action.status', {request_key:operationId,conversation_id:conversation,prepare_screenshot:!!paths?.length,prepare_attachment:true});
+      attachments = await prepareLocalAttachments(this.options.uploadScreenshot, this.options.uploadAttachment, {
         agentId:config.agentId, conversationId:config.personal!.conversationId, operationId,
         lifecycleRevision:this.options.store.lifecycle.assert(config.agentId), signal,
-      }, paths, call.args.attachments);
+      }, paths, filePaths, call.args.attachments);
       signal.throwIfAborted();
       if (inbox.blocking(config.agentId,reviewTarget)) {
         const result = {status:'held_for_revalidation',target,message:'Read the new messages before sending this draft.'};
@@ -270,17 +273,17 @@ export class PersonalAssistant {
         if(incident)await this.request(config,'pa.incident.receipt',{incident_ref:incident,message_id:response.payload.message_id});
         return result;
       } catch(error) {
-        if (paths && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
+        if (hasLocalMedia && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
           const result = {status:'not_sent',target,reason:error.message};
           inbox.settlePublication(operationId,'rejected',result);
           return result;
         }
-        if ((interactive || paths) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
+        if ((interactive || hasLocalMedia) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
           inbox.settlePublication(operationId,'rejected');
           throw new Error(error.detail ? JSON.stringify(error.detail) : error.code ?? error.message);
         }
         if(inbox.publication(operationId)?.state!=='confirmed')inbox.settlePublication(operationId,'unknown');
-        if (paths) return unknownScreenshotReceipt(target, operationId);
+        if (hasLocalMedia) return unknownScreenshotReceipt(target, operationId);
         throw error;
       }
     }
@@ -311,14 +314,14 @@ export class PersonalAssistant {
       return result;
     } catch(error) {
       const rejected=interactive && (error as {detail?:{code?:string}}).detail?.code==='invalid_interactive_source';
-      if (paths && !rejected && error instanceof Error
+      if (hasLocalMedia && !rejected && error instanceof Error
         && (error instanceof RelayDeliveryError ? error.delivery !== 'unknown' : 'detail' in error)) {
         const result = {status:'not_sent',target,reason:error.message};
         inbox.settlePublication(operationId,'rejected',result);
         return result;
       }
       inbox.settlePublication(operationId,rejected?'rejected':'unknown');
-      if (paths && !rejected) return unknownScreenshotReceipt(target, operationId);
+      if (hasLocalMedia && !rejected) return unknownScreenshotReceipt(target, operationId);
       throw error;
     }
   }

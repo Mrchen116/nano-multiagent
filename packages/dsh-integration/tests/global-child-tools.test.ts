@@ -14,7 +14,7 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
   const calls: { method: string; sessionId: string }[] = [];
   const config = { agentId: 'a', revision: '1', mode, workspace: home,
     provider: 'deepseek-official', model: 'deepseek-flash',
-    toolAllowlist: ['subagent', 'subagent_fork', 'send_message', 'inbox', 'conversations', 'read_messages', 'search_messages', 'threads', 'task_graph', ...(personal ? ['agent_creation'] : [])],
+    toolAllowlist: ['subagent', 'subagent_fork', 'send_message', 'inbox', 'conversations', 'download_attachment', 'read_messages', 'search_messages', 'threads', 'task_graph', ...(personal ? ['agent_creation'] : [])],
     features: { task_graph: true, intelligent_ui: true, memory_curation: false, skill_creation: false },
     approval: { dangerouslySkipPermissions: true },
     ...(personal ? { personal: { bindingId: 'binding', ownerId: 'owner', conversationId: 'dm', epoch: 1 } } : {}),
@@ -58,7 +58,7 @@ ctx.on('llm/stream',async function*(o){
     const children = [...new Set(before.filter(row => row.id !== 'root').map(row => row.id))];
     expect(children).toHaveLength(3);
     const root = before.find(row => row.id === 'root');
-    expect(root.schemas.map((tool: any) => tool.name)).toEqual(expect.arrayContaining([...(mode==='global'?['inbox']:[]), 'conversations', 'read_messages', 'search_messages', 'threads', 'send_message', ...(personal ? ['send_user_message'] : [])]));
+    expect(root.schemas.map((tool: any) => tool.name)).toEqual(expect.arrayContaining([...(mode==='global'?['inbox']:[]), 'conversations', 'download_attachment', 'read_messages', 'search_messages', 'threads', 'send_message', ...(personal ? ['send_user_message'] : [])]));
     const conversations = root.schemas.find((tool: any) => tool.name === 'conversations');
     expect(conversations.parameters.properties.action.enum).toEqual(['list', 'info', 'create', 'join']);
     expect(conversations.parameters.properties).not.toHaveProperty('type');
@@ -86,7 +86,7 @@ ctx.on('llm/stream',async function*(o){
       if (mode === 'single_thread') expect(JSON.stringify(row.system)).toContain('You are an internal execution agent');
       expect(JSON.stringify(row.system)).not.toContain('Your final prose is delivered to the current conversation.');
       expect(JSON.stringify(row.system)).not.toContain('In Global mode this requires send_message; private prose is not delivery.');
-      expect(names).not.toContain('inbox'); expect(names).not.toContain('conversations'); expect(names).not.toContain('read_messages'); expect(names).not.toContain('search_messages'); expect(names).not.toContain('threads'); expect(names).not.toContain('send_user_message');expect(names).not.toContain('agent_creation');
+      expect(names).not.toContain('inbox'); expect(names).not.toContain('conversations'); expect(names).not.toContain('download_attachment'); expect(names).not.toContain('read_messages'); expect(names).not.toContain('search_messages'); expect(names).not.toContain('threads'); expect(names).not.toContain('send_user_message');expect(names).not.toContain('agent_creation');
       const send = row.schemas.find((tool: any) => tool.name === 'send_message');
       expect(send.parameters.properties).toHaveProperty('agent_id'); expect(send.parameters.properties).not.toHaveProperty('target');
       expect(JSON.stringify(row.tools)).not.toContain('"name":"inbox"');

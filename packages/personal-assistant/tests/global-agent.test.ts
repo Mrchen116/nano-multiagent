@@ -753,3 +753,95 @@ it('allows send_message without held_for_revalidation after durable read_message
     await product.stop(); inbox.close(); store.close();
   }
 });
+
+it('uploads local_files in deterministic order, recovers via receipt_of, and enforces root-only download_attachment', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  const binding = store.bind({ agentId: 'a', ownerId: 'owner', sessionId: 'root', conversationId: 'global:a', cwd: '/tmp/ws', revision: '1' });
+  const sentPayloads: Record<string, unknown>[] = [];
+  const downloads: Record<string, unknown>[] = [];
+  const uploadedImg = { url: '/im/v1/conversations/c_grp/images/img1', content_type: 'image/png', file_name: 'shot.png' };
+  const uploadedFile = { url: '/im/v1/conversations/c_grp/attachments/file1', content_type: 'text/csv', file_name: 'report.csv' };
+  let loseNextSend = false;
+  let receiptAvailable = false;
+  let fileUploads = 0;
+  const { RelayDeliveryError } = await import('@nano/channels');
+  const product = new GlobalAgent({
+    nodeId: 'node', ownerId: 'owner', store, inbox,
+    agents: [{ agentId: 'a', workspace: '/tmp/ws', mode: 'global', provider: 'p', model: 'm', revision: '1' }],
+    runtime: { onNotification: () => () => {}, request: async () => ({ events: [], durable: true, status: 'idle' }) },
+    relay: {
+      ready: true,
+      request: async (type, payload: any) => {
+        if (type === 'conversation.query') return { type: 'result', payload: { ok: true, result: { target: 'c_grp', type: 'group', channel: 'web' } } };
+        if (type === 'agent.message') {
+          sentPayloads.push(payload);
+          if (loseNextSend) {
+            loseNextSend = false;
+            throw new RelayDeliveryError('No receipt', 'unknown');
+          }
+          return { type: 'ack', payload: { message_id: 'msg-1', conversation_id: 'c_grp' } };
+        }
+        if (type === 'agent.message.status') {
+          return { type: 'ack', payload: { found: receiptAvailable, message_id: 'msg-recovered', conversation_id: 'c_grp' } };
+        }
+        return { type: 'result', payload: { ok: true, result: {} } };
+      },
+    },
+    image: async () => '',
+    uploadScreenshot: async () => uploadedImg,
+    uploadAttachment: async req => { fileUploads++; expect(req.path).toBe('/tmp/ws/report.csv'); return uploadedFile; },
+    downloadAttachment: async req => {
+      downloads.push(req as unknown as Record<string, unknown>);
+      return { local_path: '/tmp/ws/.nano-downloads/a_111111-report.csv', file_name: 'report.csv', content_type: 'text/csv', byte_size: 42 };
+    },
+    onError: error => { throw error; },
+  });
+  const baseCall = { agentId: 'a', ownerId: 'owner', sessionId: binding.sessionId, rootSessionId: binding.sessionId };
+  try {
+    const existing = { url: '/im/v1/conversations/c_grp/attachments/existing', content_type: 'text/plain', file_name: 'note.txt' };
+    const sent = await product.call({
+      ...baseCall, method: 'send_message', operationId: 'op-files', callId: 'call-files',
+      args: { target: 'c_grp', text: 'Here are the files', attachments: [existing], local_images: ['/tmp/ws/shot.png'], local_files: ['/tmp/ws/report.csv'] },
+    });
+    expect(sent).toMatchObject({ status: 'sent', message_id: 'msg-1' });
+    expect(sentPayloads[0]?.attachments).toEqual([existing, uploadedImg, uploadedFile]);
+
+    // Verify local_files-only unknown delivery recovers cleanly via receipt_of without re-uploading.
+    loseNextSend = true;
+    receiptAvailable = false;
+    const uploadsBefore = fileUploads;
+    const unknownRes = await product.call({
+      ...baseCall, method: 'send_message', operationId: `${binding.sessionId}:call-file-only`, callId: 'call-file-only',
+      args: { target: 'c_grp', text: 'CSV only', local_files: ['/tmp/ws/report.csv'] },
+    }) as { status: string; operation_id?: string };
+    expect(unknownRes.status).toBe('unknown');
+    expect(unknownRes.operation_id).toMatch(/^r_[a-f0-9]{6}$/);
+    expect(fileUploads).toBe(uploadsBefore + 1);
+    receiptAvailable = true;
+    const recovered = await product.call({
+      ...baseCall, method: 'send_message', operationId: `${binding.sessionId}:call-receipt`, callId: 'call-receipt',
+      args: { target: 'c_grp', receipt_of: unknownRes.operation_id },
+    }) as { status: string; message_id: string };
+    expect(recovered.status).toBe('sent');
+    expect(recovered.message_id).toBe(store.toolReferences.messageRef('a', 'msg-recovered'));
+    expect(fileUploads).toBe(uploadsBefore + 1);
+    expect(sentPayloads).toHaveLength(2);
+
+    // Download via short attachment_id projected by ToolReferences
+    const attId = store.toolReferences.attachmentRef('a', uploadedFile.url);
+    const downloaded = await product.call({
+      ...baseCall, method: 'download_attachment', operationId: 'op-dl', callId: 'call-dl',
+      args: { attachment_id: attId },
+    });
+    expect(downloaded).toMatchObject({ local_path: '/tmp/ws/.nano-downloads/a_111111-report.csv', file_name: 'report.csv', byte_size: 42 });
+    expect(downloads).toEqual([expect.objectContaining({ agentId: 'a', workspace: '/tmp/ws', attachmentId: attId, url: uploadedFile.url })]);
+
+    // Rejects unknown attachment_id and subagent callers
+    await expect(product.call({ ...baseCall, method: 'download_attachment', operationId: 'op-bad', callId: 'call-bad', args: { attachment_id: 'a_ffffff' } }))
+      .rejects.toThrow('Unknown tool reference');
+    await expect(product.call({ ...baseCall, sessionId: 'child-1', method: 'download_attachment', operationId: 'op-child', callId: 'call-child', args: { attachment_id: attId } }))
+      .rejects.toThrow('main Agent');
+  } finally {
+    await product.stop(); inbox.close(); store.close();
+  }
+});

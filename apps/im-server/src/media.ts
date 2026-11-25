@@ -11,24 +11,84 @@ import {
 } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { decodePersonalImages } from "./personal-images.js";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { once } from "node:events";
 import type { Readable } from "node:stream";
 import type { FastifyInstance, FastifyRequest, FastifyReply } from "fastify";
+import { isRasterImageMime, RASTER_IMAGE_MIME_TYPES } from "@nano/product-contracts";
 import { all, one, fail, params, query, body, type Row, type ImContext } from "./context.js";
-const MAX_BYTES = 10 * 1024 * 1024,
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024,
+  MAX_FILE_BYTES = 25 * 1024 * 1024,
   OWNER_LIMIT = 1024 ** 3,
   SERVICE_LIMIT = 10 * 1024 ** 3;
-const IMAGES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-const ALLOWED = new Set([
-  ...IMAGES,
-  "application/pdf",
-  "text/plain",
-  "text/markdown",
-  "application/json",
-]);
+const IMAGES = RASTER_IMAGE_MIME_TYPES;
+const MIME_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/i;
+const EXTENSION_MIME_MAP: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".pdf": "application/pdf",
+  ".txt": "text/plain",
+  ".log": "text/plain",
+  ".md": "text/markdown",
+  ".markdown": "text/markdown",
+  ".json": "application/json",
+  ".csv": "text/csv",
+  ".tsv": "text/tab-separated-values",
+  ".yaml": "text/yaml",
+  ".yml": "text/yaml",
+  ".xml": "application/xml",
+  ".html": "text/html",
+  ".htm": "text/html",
+  ".zip": "application/zip",
+  ".gz": "application/gzip",
+  ".tgz": "application/gzip",
+  ".tar": "application/x-tar",
+  ".patch": "text/plain",
+  ".diff": "text/plain",
+  ".py": "text/plain",
+  ".ts": "text/plain",
+  ".tsx": "text/plain",
+  ".js": "text/javascript",
+  ".mjs": "text/javascript",
+  ".sh": "text/plain",
+  ".sql": "text/plain",
+  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".mp4": "video/mp4",
+  ".webm": "video/webm",
+};
 function screenshotKey(agent: string, key: string): string {
   return `screenshot:${agent}:${key}`;
+}
+function fileKey(agent: string, key: string): string {
+  return `file:${agent}:${key}`;
+}
+function normalizeUploadedMime(fileName: string, rawHeader: string | undefined): string {
+  const declared = (rawHeader ?? "").split(";")[0]!.trim().toLowerCase();
+  const validDeclared = declared && MIME_TYPE_RE.test(declared) ? declared : "";
+  if (validDeclared && validDeclared !== "application/octet-stream") return validDeclared;
+  return EXTENSION_MIME_MAP[extname(fileName).toLowerCase()] ?? "application/octet-stream";
+}
+function asciiFallbackFilename(fileName: string): string {
+  const safe = fileName
+    .replace(/[\r\n]/g, " ")
+    .replace(/["\\]/g, "_")
+    .replace(/[^\x20-\x7E]/g, "_")
+    .trim();
+  return safe || "download";
+}
+function buildContentDisposition(fileName: string, disposition: "inline" | "attachment"): string {
+  const safeName = fileName.replace(/[\r\n]+/g, " ").trim() || "download";
+  const encoded = encodeURIComponent(safeName).replace(/['()*]/g, ch => `%${ch.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${disposition}; filename="${asciiFallbackFilename(safeName)}"; filename*=UTF-8''${encoded}`;
 }
 function imageType(bytes: Buffer) {
   if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
@@ -73,12 +133,17 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
     );
     if (!resource || !existsSync(join(directory, resource.storage_name)))
       fail(404, "attachment not found");
-    reply.header("Cache-Control", "private, no-store").type(resource.content_type);
-    if (!IMAGES.has(resource.content_type))
-      reply.header(
-        "Content-Disposition",
-        `attachment; filename*=UTF-8''${encodeURIComponent(resource.file_name)}`,
-      );
+    reply
+      .header("Cache-Control", "private, no-store")
+      .header("X-Content-Type-Options", "nosniff")
+      .type(resource.content_type);
+    if (isRasterImageMime(resource.content_type)) {
+      reply.header("Content-Disposition", buildContentDisposition(resource.file_name, "inline"));
+    } else {
+      reply
+        .header("Content-Disposition", buildContentDisposition(resource.file_name, "attachment"))
+        .header("Content-Security-Policy", "default-src 'none'; sandbox");
+    }
     return reply.send(createReadStream(join(directory, resource.storage_name)));
   };
   app.get("/im/v1/conversations/:conversation_id/images/:image_id", read);
@@ -147,6 +212,19 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
       file_name: resource.file_name, content_type: resource.content_type,
     } : null};
   });
+  app.get("/im/v1/conversations/:conversation_id/attachments", (req) => {
+    const principal = ctx.messaging.principal(req), q = query(req), id = params(req).conversation_id;
+    if (principal.kind !== "gateway") fail(401, "gateway credential required");
+    ctx.messaging.access(principal, id, q.agent_id, "write");
+    requireLifecycle(db, q.agent_id, Number(q.lifecycle_revision));
+    if (typeof q.upload_key !== "string" || !q.upload_key) fail(400, "upload_key required");
+    const resource = one(db, "SELECT * FROM message_images WHERE conversation_id=? AND source_key=?",
+      id, fileKey(q.agent_id, q.upload_key));
+    return {attachment: resource ? {
+      url: `/im/v1/conversations/${id}/attachments/${resource.image_id}`,
+      file_name: resource.file_name, content_type: resource.content_type,
+    } : null};
+  });
   await app.register(async (uploads) => {
     uploads.removeAllContentTypeParsers();
     uploads.addContentTypeParser("*", (req, payload, done) => done(null, payload));
@@ -154,23 +232,29 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
       const p = ctx.messaging.principal(req),
         q = query(req),
         cId = params(req)?.conversation_id ?? q.conversation_id,
-        isImage = req.url.split("?")[0]!.endsWith("/images");
+        routePath = req.url.split("?")[0]!,
+        isImage = routePath.endsWith("/images"),
+        isFileRoute = routePath.endsWith("/attachments");
       if(q.external_incoming==='1')ctx.messaging.incomingExternalSource(p,cId,q.agent_id);
       else {ctx.messaging.access(p, cId, q.agent_id, "write");if(p.kind==='gateway')requireLifecycle(db,q.agent_id,q.lifecycle_revision==null?undefined:Number(q.lifecycle_revision));}
       let fileName = basename(String(q.file_name ?? "").trim());
       const screenshot = q.screenshot === "1";
+      const gatewayFile = q.file === "1";
       if (screenshot && (p.kind !== "gateway" || !isImage || q.external_incoming === "1")) fail(403, "invalid screenshot upload");
-      const suppliedKey = isImage
+      if (isFileRoute && (p.kind !== "gateway" || !gatewayFile || q.external_incoming === "1")) fail(403, "invalid file upload");
+      if (gatewayFile && (p.kind !== "gateway" || !isFileRoute || q.external_incoming === "1")) fail(403, "invalid file upload");
+      const suppliedKey = isImage || isFileRoute
           ? String(req.headers["idempotency-key"] ?? "").trim()
           : `upload:${randomUUID()}`;
       if (!fileName || !suppliedKey) fail(400, "file_name and Idempotency-Key required");
       if (!screenshot && suppliedKey.startsWith("screenshot:")) fail(400, "reserved upload key");
-      const key = screenshot ? screenshotKey(q.agent_id, suppliedKey) : suppliedKey;
-      let mime = (req.headers["content-type"] ?? "application/octet-stream")
-        .split(";")[0]!
-        .trim()
-        .toLowerCase();
-      if (!(isImage ? IMAGES : ALLOWED).has(mime)) fail(415, "unsupported content_type");
+      if (!gatewayFile && suppliedKey.startsWith("file:")) fail(400, "reserved upload key");
+      const key = screenshot ? screenshotKey(q.agent_id, suppliedKey) : gatewayFile ? fileKey(q.agent_id, suppliedKey) : suppliedKey;
+      let mime = isImage
+        ? (req.headers["content-type"] ?? "application/octet-stream").split(";")[0]!.trim().toLowerCase()
+        : normalizeUploadedMime(fileName, req.headers["content-type"]);
+      if (isImage && !IMAGES.has(mime)) fail(415, "unsupported content_type");
+      const maxBytes = isImage || IMAGES.has(mime) ? MAX_IMAGE_BYTES : MAX_FILE_BYTES;
       const owner = p.kind === "gateway" ? p.owner_id : p.id;
       ctx.identity.rateLimit(`upload:${owner}`, 30, 60);
       if ((slots.get(owner) ?? 0) >= 2) fail(429, "too many concurrent uploads");
@@ -196,7 +280,7 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
           for await (const chunk of req.body as Readable) {
             const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
             size += bytes.length;
-            if (size > MAX_BYTES) fail(413, "attachment too large");
+            if (size > maxBytes) fail(413, "attachment too large");
             if (usedBytes! + bytes.length > SERVICE_LIMIT || (ownerBytes.get(owner) ?? 0) + bytes.length > OWNER_LIMIT)
               fail(507, "attachment storage unavailable");
             db.prepare("UPDATE attachment_storage SET byte_size=? WHERE storage_name=?").run(
@@ -287,5 +371,6 @@ export async function registerMediaRoutes(app: FastifyInstance, ctx: ImContext) 
     };
     uploads.post("/im/v1/uploads", upload);
     uploads.post("/im/v1/conversations/:conversation_id/images", upload);
+    uploads.post("/im/v1/conversations/:conversation_id/attachments", upload);
   });
 }

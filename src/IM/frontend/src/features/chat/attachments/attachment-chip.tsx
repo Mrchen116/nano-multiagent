@@ -10,13 +10,17 @@ export interface AttachmentChipProps {
   removeDisabled?: boolean;
 }
 
-function isImage(contentType: string | null | undefined): boolean {
-  return !!contentType && contentType.startsWith("image/");
+const RASTER_IMAGE_MIME_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** Check whether an attachment MIME type is a safe inline raster image (excludes SVG/HTML). */
+export function isRasterImageMime(contentType: string | null | undefined): boolean {
+  if (!contentType) return false;
+  return RASTER_IMAGE_MIME_TYPES.has(contentType.split(";")[0]?.trim().toLowerCase() ?? "");
 }
 
 export function AttachmentChip({ attachment, onRemove, removeDisabled = false }: AttachmentChipProps) {
   const name = attachment.file_name ?? attachment.url.split("/").pop() ?? "file";
-  if (isImage(attachment.content_type)) {
+  if (isRasterImageMime(attachment.content_type)) {
     return (
       <div className="chat-attachment-chip chat-attachment-chip--image">
         <MessageImage src={attachment.url} alt={name} />
