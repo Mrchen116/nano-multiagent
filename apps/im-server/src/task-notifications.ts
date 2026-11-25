@@ -31,7 +31,7 @@ export function taskNotices(doc: Row, before: Row | null, actorName: string,
       if(old && old.description !== n.description)note('requirements','正文要求已更新，请读取最新正文');
       if(old && old.result !== n.result)note('result','结果已更新');
       if(old?.status !== n.status) {
-        const status:Row = {todo:'待办',doing:'进行中',waiting:'等待',in_review:'提交待确认',done:'完成',paused:'暂缓',closed:'关闭'};
+        const status:Row = {proposed:'待拍板',todo:'待办',doing:'推进中',waiting:'等待中',in_review:'提交待确认',done:'已完成',paused:'已暂缓',backlog:'先存着',closed:'已关闭'};
         note('status',status[n.status]);
         if(['done','in_review'].includes(n.status)){add(n.created_by);add(doc.nodes.find((p:Row) => p.id === n.container_id)?.assignee);}
         if(['paused','closed'].includes(n.status))for(const child of doc.nodes.filter((p:Row) => p.container_id===n.id&&p.assignee?.type==='agent'))add(child.assignee);

@@ -8,7 +8,7 @@ import {readAgentProfile, type AgentProfileRecord} from './configuration-records
 import {isRecord} from './node-rpc-values.js';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline } from './agent-settings.js';
-import { changeCapability, featureDependencies } from '@nano/product-contracts/capabilities';
+import { changeCapability, definitionsForRole } from '@nano/product-contracts/capabilities';
 import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { all, one, now, chatId, fail, body, params, transaction, type Row, type ImContext } from './context.js';
@@ -530,8 +530,9 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const catalog=resolved?.capabilities;
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
         const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.default_on||tool.name==='send_message').map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'personal_sources','agent_creation'])];
-        let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:'team' as const,default_model:null,model_fallbacks:[],workspace_root:null};
-        for(const feature of featureDependencies) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
+        const paFeatures=definitionsForRole(true);
+        let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(paFeatures.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:'team' as const,default_model:null,model_fallbacks:[],workspace_root:null};
+        for(const feature of paFeatures) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
         await ops.create(candidate,u.owner_id,b.node_id);
       }
       transaction(ctx.db,()=>{

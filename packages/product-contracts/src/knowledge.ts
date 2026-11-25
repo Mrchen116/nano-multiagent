@@ -5,12 +5,12 @@ export interface KnowledgeConfiguration {
   memoryMode?: 'document' | 'legacy';
   legacyMemory?: {enabled?: boolean; interval?: number};
   /** maxInputTokens optionally caps materials inside the model-derived full input budget. */
-  dreaming?: {intervalMs?: number; quietMs?: number; maxInputTokens?: number};
+  dreaming?: {nightlyHour?: number; intervalMs?: number; quietMs?: number; maxInputTokens?: number};
   skillInterval?: number;
 }
 
-/** Default automatic maintenance timing, shared by the runtime and explicit run plans. */
-export const DEFAULT_DREAMING_SCHEDULE = { intervalMs: 86400000, quietMs: 600000 } as const;
+/** Default automatic maintenance timing, anchored at 03:00 local time after 30 minutes of quiet. */
+export const DEFAULT_DREAMING_SCHEDULE = { nightlyHour: 3, intervalMs: 86400000, quietMs: 1800000 } as const;
 
 /** Normalize retired configuration keys at the file boundary, without granting tools.
  * Args:
@@ -32,7 +32,8 @@ export function normalizeKnowledge(value: unknown, features: Record<string, bool
   if (!Number.isFinite(interval) || interval < 0) throw new Error('Invalid knowledge.legacyMemory.interval');
   const dreaming = knowledge.dreaming === undefined ? undefined : Object.fromEntries(Object.entries(knowledge.dreaming).filter(([key]) => key !== 'maxSteps' && key !== 'maxRunMs'));
   for (const [key, number] of Object.entries(dreaming ?? {})) {
-    if (typeof number !== 'number' || !Number.isFinite(number) || number < 0 || (key !== 'quietMs' && number === 0)) throw new Error(`Invalid knowledge.dreaming.${key}`);
+    if (typeof number !== 'number' || !Number.isFinite(number) || number < 0 || (key !== 'quietMs' && key !== 'nightlyHour' && number === 0)
+      || (key === 'nightlyHour' && (!Number.isInteger(number) || number > 23))) throw new Error(`Invalid knowledge.dreaming.${key}`);
   }
   return {
     ...(knowledge.globalSkillRoot === undefined ? {} : {globalSkillRoot:knowledge.globalSkillRoot}),

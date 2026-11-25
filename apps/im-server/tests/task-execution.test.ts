@@ -56,24 +56,38 @@ describe('durable Task execution responsibility',()=>{
       expect(times().n1).toBe(revised.n1);
     } finally {vi.useRealTimers();}
   });
-  it('caps both new and renewed waits at one hour without changing the graph on rejection',async()=>{
+  it('supports cross-day scheduled waits up to 180 days and timerless silent waits without marking wait_health invalid',async()=>{
     const {tasks,inspect,waiting,graph}=setup();
     const now=Date.now();
     const clock=vi.spyOn(Date,'now').mockReturnValue(now);
     const proof=(delay:number)=>({valid:true,owner_agent_id:'a',session_id:'session-a',next_check_at:new Date(now+delay).toISOString(),checked_at:new Date(now).toISOString()});
     try {
-      inspect.mockResolvedValue(proof(3_600_001));
+      const over180d = 180 * 86_400_000 + 1_000;
+      inspect.mockResolvedValue(proof(over180d));
       await expect(tasks.executeChecked(actor,'apply',waiting)).rejects.toMatchObject({code:'task_wait_schedule_too_late'});
       expect(tasks.execute(actor,'get',{graph_id:graph.graph_id,view:'all'}).revision).toBe(1);
-      inspect.mockResolvedValue(proof(3_600_000));
+
+      const sevenDays = 7 * 86_400_000;
+      inspect.mockResolvedValue(proof(sevenDays));
       await tasks.executeChecked(actor,'apply',waiting);
-      const renewal={...waiting,base_revision:2,request_key:'renew',operations:[{op:'update_task',node_id:'n1',patch:{status:'waiting',wait:{reason:'Still waiting after checking alternatives',schedule_id:'schedule-b'}}}]};
-      inspect.mockResolvedValue(proof(3_600_001));
-      await expect(tasks.executeChecked(actor,'apply',renewal)).rejects.toMatchObject({code:'task_wait_schedule_too_late'});
       expect(tasks.execute(actor,'get',{graph_id:graph.graph_id,view:'all'}).nodes[0].wait.schedule_id).toBe('schedule-a');
-      inspect.mockResolvedValue(proof(30_000));
-      await tasks.executeChecked(actor,'apply',renewal);
-      expect(tasks.execute(actor,'get',{graph_id:graph.graph_id,view:'all'}).nodes[0].wait.schedule_id).toBe('schedule-b');
+
+      // Timerless silent wait (omitting schedule_id) works for both Agent and human assignees without calling inspect.
+      inspect.mockClear();
+      await tasks.executeChecked(actor,'apply',{
+        graph_id:graph.graph_id,base_revision:2,request_key:'silent-wait',change_note:'Need owner choice',
+        operations:[{op:'update_task',node_id:'n1',patch:{status:'waiting',wait:{reason:'Waiting for owner choice',question:'Pick Option A or B?',asked_user_id:'u1'}}}],
+      });
+      expect(inspect).not.toHaveBeenCalled();
+      const loaded = await tasks.executeChecked(human,'get',{graph_id:graph.graph_id,view:'all'});
+      expect(loaded.nodes[0]).toMatchObject({status:'waiting',wait:{reason:'Waiting for owner choice',question:'Pick Option A or B?',asked_user_id:'u1'}});
+      expect(loaded.nodes[0].wait_health).toBeUndefined();
+
+      // Rejects asked_user_id outside the conversation's human members.
+      await expect(tasks.executeChecked(actor,'apply',{
+        graph_id:graph.graph_id,base_revision:3,request_key:'bad-asked',change_note:'',
+        operations:[{op:'update_task',node_id:'n1',patch:{status:'waiting',wait:{reason:'Waiting',asked_user_id:'u2'}}}],
+      })).rejects.toMatchObject({code:'invalid_arguments'});
     } finally {clock.mockRestore();}
   });
   it('returns committed child feedback with the fixed conversation and replays that receipt after later changes',async()=>{

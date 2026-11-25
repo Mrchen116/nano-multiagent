@@ -2,7 +2,7 @@ import { assertThreadQuote, threadRootOrFail } from './threads.js';
 import type { ChatMessage } from '@nano/product-contracts';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { mergeStatements } from '@openuidev/lang-core';
-import { interactiveResponse, isRasterImageMime } from '@nano/product-contracts';
+import { chatTaskCards, interactiveResponse, isRasterImageMime, type TaskCardRef } from '@nano/product-contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -107,6 +107,10 @@ export class PersonalActions {
       const graph=one(this.db,'SELECT revision,conversation_id FROM task_graphs WHERE graph_id=?',frozen.task.arguments.graph_id);
       if(!graph||graph.revision!==evidence.task_revision||graph.conversation_id!==op.conversation_id)fail(409,'task_revision_changed');
     }
+    for(const card of (frozen.task_cards ?? []) as TaskCardRef[]) {
+      const graph=one(this.db,'SELECT conversation_id FROM task_graphs WHERE graph_id=?',card.graph_id);
+      if(!graph||!this.pa.sourceAllowed(b,graph.conversation_id,'read'))fail(409,'source_revoked');
+    }
     if(this.pa.authorizationGuard(b)!==evidence.owner_guard)fail(409,'owner_authorization_changed');
     if(frozen.incident_ref)this.securityNotice(b,frozen.incident_ref,op.conversation_id,frozen.content);
     if(frozen.transport && JSON.stringify(this.transport(b,op.conversation_id,frozen.transport))!==JSON.stringify(frozen.transport))fail(409,'external_destination_changed');
@@ -138,9 +142,19 @@ export class PersonalActions {
       if(destination===b.conversation_id)return {owner_private:true,conversation_id:destination};
       args={...args,conversation_id:destination,content:'Shared task change',task:{action:command.action,arguments:command.arguments,...(command.source_message_id?{source_message_id:command.source_message_id}:{})}};
     }
-    if(typeof args.request_key!=='string'||!args.request_key||typeof args.content!=='string'||!args.content.trim()&&args.interactive===undefined)fail(422,'concrete_proposal_required');
+    let taskCards: TaskCardRef[] | undefined;
+    if (args.task_cards != null) {
+      try { taskCards = chatTaskCards(args.task_cards); } catch (error) { fail(422, (error as Error).message); }
+      for (const ref of taskCards!) {
+        const graph = one(this.db, 'SELECT conversation_id, document_json FROM task_graphs WHERE graph_id=?', ref.graph_id);
+        if (!graph || !this.pa.sourceAllowed(b, graph.conversation_id, 'read')) fail(403, 'task_card_source_not_accessible');
+        const doc = JSON.parse(graph.document_json);
+        if (!Array.isArray(doc.nodes) || !doc.nodes.some((n: Row) => n.id === ref.node_id)) fail(404, 'task_card_node_not_found');
+      }
+    }
+    if(typeof args.request_key!=='string'||!args.request_key||typeof args.content!=='string'||!args.content.trim()&&args.interactive===undefined&&!taskCards?.length)fail(422,'concrete_proposal_required');
     if(!this.pa.sourceAllowed(b,args.conversation_id,'write'))fail(403,'destination_not_accessible');
-    if(args.transport&&!args.content.trim())fail(422,'external_text_required');
+    if(args.transport&&!args.content.trim()&&!taskCards?.length)fail(422,'external_text_required');
     if(args.transport&&args.attachments?.length)fail(409,'external_attachment_adapter_unavailable');
     let interactive;try{interactive=interactiveResponse(args.interactive);}catch(error){fail(422,(error as Error).message);}
     if(interactive?.source_mode==='patch') {
@@ -149,7 +163,7 @@ export class PersonalActions {
       const {source_mode,...publication}=interactive;
       interactive={...publication,source:mergeStatements(original.source,interactive.source)};
     }
-    if(args.incident_ref&&(interactive||args.attachments?.length||args.task))fail(403,'invalid_security_notice');
+    if(args.incident_ref&&(interactive||args.attachments?.length||args.task||taskCards?.length))fail(403,'invalid_security_notice');
     const attachments=this.attachments(b,args.conversation_id,args.attachments??[],args.content+(interactive?.source??''),images);
     const securityNotice=args.incident_ref?this.securityNotice(b,args.incident_ref,args.conversation_id,args.content):undefined;
     if(args.transport && args.in_thread_of!==undefined)fail(422,'external_thread_unavailable');
@@ -161,7 +175,12 @@ export class PersonalActions {
     const replyTo=previous ? oldPayload.reply_to : this.pa.ctx.messaging.replyReference(args.conversation_id,args.reply_to_message_id);
     const threadRoot=previous ? oldPayload.in_thread_of : threadRootOrFail(this.db,args.conversation_id,args.in_thread_of);
     assertThreadQuote(this.db,args.conversation_id,threadRoot,replyTo?.message_id);
-    const payload={...(threadRoot?{in_thread_of:threadRoot}:{}),...(replyTo?{reply_to:replyTo}:{}),representation:args.representation??'self',content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
+    const taskCardSummaries = taskCards?.map(ref => {
+      const row = one(this.db, 'SELECT conversation_id, document_json FROM task_graphs WHERE graph_id=?', ref.graph_id)!;
+      const node = JSON.parse(row.document_json).nodes.find((n: Row) => n.id === ref.node_id)!;
+      return { ...ref, conversation_id: row.conversation_id, title: node.title, status: node.status };
+    });
+    const payload={...(threadRoot?{in_thread_of:threadRoot}:{}),...(replyTo?{reply_to:replyTo}:{}),representation:args.representation??'self',content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(taskCards?.length?{task_cards:taskCards,task_card_summaries:taskCardSummaries}:{}),...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
     if(payload.transport && this.pa.ownerConversation(b,args.conversation_id))return {owner_private:true,conversation_id:args.conversation_id};
     this.destination(b,args.conversation_id,payload);
     if(previous) {
@@ -278,7 +297,7 @@ export class PersonalActions {
       const rewrite=(value:string)=>value.replace(/\/im\/v1\/conversations\/([^/\s]+)\/(images|attachments)\/([\w-]+)/g,(url:string)=>copies.get(url)??url);
       const owner=payload.representation==='owner';
       const interactive=payload.interactive?{...payload.interactive,source:rewrite(payload.interactive.source)}:undefined;
-      const message=s.insertMessage(op.conversation_id,owner?b.owner_user_id:s.agentUser(b.agent_id).id,owner?'user':'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive,thread_root_id:threadRootOrFail(this.db,op.conversation_id,payload.in_thread_of),...(payload.reply_to?{reply_to:payload.reply_to}:{}),
+      const message=s.insertMessage(op.conversation_id,owner?b.owner_user_id:s.agentUser(b.agent_id).id,owner?'user':'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive,...(payload.task_cards?{task_cards:payload.task_cards}:{}),thread_root_id:threadRootOrFail(this.db,op.conversation_id,payload.in_thread_of),...(payload.reply_to?{reply_to:payload.reply_to}:{}),
         ...(op.conversation_id!==b.conversation_id?{personal_source:{binding_id:b.binding_id,agent_id:b.agent_id,owner_user_id:b.owner_user_id,display_name:b.display_name,operation_id:owner?op.operation_id:null}}:{})});
       if(owner)s.queueRepresentedRelays(message,b.agent_id);
       else {s.queueDirectAgentRelays(message);this.pa.ctx.gateway.groupReply(message.id,{deferDelivery:true});}

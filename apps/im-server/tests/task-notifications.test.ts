@@ -28,3 +28,21 @@ it('identifies both directed dependency endpoints without copying full requireme
   }
   expect(notice(graph(nodes),graph(nodes))).toEqual([]);
 });
+
+it('renders nine-status Chinese labels including proposed and backlog without undefined text',()=>{
+  for (const [status,label] of [
+    ['proposed','待拍板'],
+    ['todo','待办'],
+    ['doing','推进中'],
+    ['waiting','等待中'],
+    ['in_review','提交待确认'],
+    ['done','已完成'],
+    ['paused','已暂缓'],
+    ['backlog','先存着'],
+    ['closed','已关闭'],
+  ] as const) {
+    const [message]=notice(graph([{...node('a','owner'),status}]),graph([{...node('a','owner'),status:status==='todo'?'doing':'todo'}]));
+    expect(message!.content).toContain(label);
+    expect(message!.content).not.toContain('undefined');
+  }
+});

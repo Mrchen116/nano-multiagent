@@ -1,6 +1,7 @@
 /** Browser-safe declarations shared by configuration clients and owners. */
 export interface FeatureDependency {
   key: string;
+  roles?: ('root' | 'personal')[];
   default_on: boolean;
   requires: {features: string[]; tools: string[]; skills: string[]};
 }
@@ -28,18 +29,42 @@ export interface CapabilityCatalog {
 export const featureDependencies: FeatureDependency[] = [
   {key: 'intelligent_ui', default_on: true, requires: {features: [], tools: ['send_message', 'skill'], skills: ['nano-interactive-ui']}},
   {key: 'task_graph', default_on: true, requires: {features: ['cron_scheduling'], tools: ['task_graph'], skills: []}},
+  {key: 'proactive_planning', roles: ['personal'], default_on: true, requires: {features: ['task_graph'], tools: ['task_graph'], skills: []}},
   {key: 'dreaming', default_on: true, requires: {features: [], tools: [], skills: []}},
   {key: 'cron_scheduling', default_on: false, requires: {features: [], tools: ['schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history'], skills: []}},
   {key: 'heartbeat', default_on: false, requires: {features: [], tools: ['read'], skills: []}},
 ];
 
+/** Select Feature declarations applicable to an Agent's runtime role. */
+export function definitionsForRole(isPersonal = false, definitions = featureDependencies): FeatureDependency[] {
+  const role = isPersonal ? 'personal' : 'root';
+  return definitions.filter(feature => !feature.roles || feature.roles.includes(role));
+}
+
 /** Resolve declared defaults without repairing the submitted dependency graph. */
-export function effectiveFeatures(features: Record<string, boolean> = {}, definitions = featureDependencies): Record<string, boolean> {
-  return {...Object.fromEntries(definitions.map(feature => [feature.key, feature.default_on])), ...Object.fromEntries(Object.entries(features).filter(([key]) => definitions.some(feature => feature.key === key) || !['memory_curation', 'skill_creation'].includes(key)))};
+export function effectiveFeatures(
+  features: Record<string, boolean> = {},
+  definitions = definitionsForRole(false),
+  draft?: Pick<CapabilityDraft, 'tool_allowlist'>,
+): Record<string, boolean> {
+  const resolved: Record<string, boolean> = {
+    ...Object.fromEntries(definitions.map(feature => [feature.key, feature.default_on])),
+    ...Object.fromEntries(Object.entries(features).filter(([key]) => definitions.some(feature => feature.key === key) || !['memory_curation', 'skill_creation'].includes(key))),
+  };
+  // Legacy Personal Agents saved before proactive_planning existed may have explicitly
+  // disabled task_graph; keep proactive_planning implicitly off rather than breaking startup.
+  if (
+    definitions.some(feature => feature.key === 'proactive_planning') &&
+    features.proactive_planning === undefined &&
+    (resolved.task_graph === false || (draft?.tool_allowlist !== undefined && !draft.tool_allowlist.includes('task_graph')))
+  ) {
+    resolved.proactive_planning = false;
+  }
+  return resolved;
 }
 
 /** Expand only Feature dependencies for a newly generated default selection. */
-export function featureClosure(features: Record<string, boolean> = {}, definitions = featureDependencies): Record<string, boolean> {
+export function featureClosure(features: Record<string, boolean> = {}, definitions = definitionsForRole(false)): Record<string, boolean> {
   const result = effectiveFeatures(features, definitions);
   const enable = (key: string) => {
     result[key] = true;
@@ -68,8 +93,11 @@ function owners(features: Record<string, boolean>, target: CapabilityTarget, def
 function skillMode(draft: CapabilityDraft): string {
   return draft.skills_selection_mode ?? (draft.skills?.length ? 'explicit_allowlist' : 'default_discovery');
 }
+function catalogFeatures(draft: CapabilityDraft, catalog: CapabilityCatalog): FeatureDependency[] {
+  return definitionsForRole(Boolean(draft.personal_agent), catalog.features ?? featureDependencies);
+}
 function selected(draft: CapabilityDraft, target: CapabilityTarget, catalog: CapabilityCatalog): boolean {
-  if (target.kind === 'feature') return !!effectiveFeatures(draft.features, catalog.features)[target.name];
+  if (target.kind === 'feature') return !!effectiveFeatures(draft.features, catalogFeatures(draft, catalog), draft)[target.name];
   if (target.kind === 'tool') return draft.tool_allowlist === undefined || draft.tool_allowlist.includes(target.name)
     || (catalog.fixed_tools ?? fixedTools(draft.work_mode, draft.personal_agent ? 'personal' : 'root')).includes(target.name);
   const mode = skillMode(draft);
@@ -86,8 +114,8 @@ function setSkill(draft: CapabilityDraft, name: string, enabled: boolean): void 
 
 /** Validate a final snapshot; API validation never infers omitted click actions. */
 export function validateCapabilities(draft: CapabilityDraft, catalog: CapabilityCatalog = {}): CapabilityBlock[] {
-  const definitions = catalog.features ?? featureDependencies;
-  const features = effectiveFeatures(draft.features, definitions);
+  const definitions = catalogFeatures(draft, catalog);
+  const features = effectiveFeatures(draft.features, definitions, draft);
   const blocks: CapabilityBlock[] = [];
   const add = (code: CapabilityBlock['code'], target: CapabilityTarget, owner: string) => {
     const existing = blocks.find(block => block.code === code && block.target.kind === target.kind && block.target.name === target.name);
@@ -110,8 +138,8 @@ export function validateCapabilities(draft: CapabilityDraft, catalog: Capability
 
 /** Apply one UI action atomically, retaining fixed and shared dependencies. */
 export function changeCapability<T extends CapabilityDraft>(draft: T, action: CapabilityAction, catalog: CapabilityCatalog): {draft: T; blocks: CapabilityBlock[]} {
-  const definitions = catalog.features ?? featureDependencies;
-  const features = effectiveFeatures(draft.features, definitions);
+  const definitions = catalogFeatures(draft, catalog);
+  const features = effectiveFeatures(draft.features, definitions, draft);
   const fixed = catalog.fixed_tools ?? fixedTools(draft.work_mode, draft.personal_agent ? 'personal' : 'root');
   if (!action.enabled) {
     const required = owners(features, action, definitions);

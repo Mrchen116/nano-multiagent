@@ -10,7 +10,8 @@ const baseline = [
   'session.recovery.probe', 'session.export', 'session.fork', 'session.publication', 'session.inbox-delivered.confirm',
   'session.work.check', 'session.work.root', 'session.work.children', 'session.work.child', 'session.work.targets',
   'session.work.workers.confirm', 'schedule.command', 'schedule.evidence', 'schedule.wait.inspect',
-  'task.context.passive', 'task.execution.block', 'task.execution.changed', 'task.wait.repair',
+  'task.context.passive', 'task.execution.block', 'task.execution.changed',
+  'runtime.timezone', 'runtime.clock.advance',
   'knowledge.facts', 'knowledge.acknowledge', 'knowledge.sources.pending', 'knowledge.sources.sync',
   'workflow.pending', 'workflow.acknowledge', 'approval.answer', 'configuration.selection', 'pa.review',
 ];

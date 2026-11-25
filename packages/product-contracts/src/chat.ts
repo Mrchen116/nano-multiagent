@@ -1,4 +1,5 @@
 import type { InteractionSnapshot, MessageInteractive } from './interactive-types.js';
+import type { TaskCardRef } from './task-graphs.js';
 
 /** Stable chat presentation fields; provider/tool-specific contents remain opaque. */
 export interface ChatAttachment {url?: string; content_type?: string; file_name?: string; attachment_id?: string; [field: string]: unknown}
@@ -83,6 +84,7 @@ export interface AgentPublication {
   to: string;
   text: string;
   attachments?: ChatAttachment[];
+  task_cards?: TaskCardRef[];
   background_returns?: unknown[];
   interactive?: unknown;
   pa_incident_ref?: unknown;
@@ -146,7 +148,7 @@ export interface ChatMessage {
     latest_at?: string;
     participants?: {id: string; display_name: string}[];
   };
-  attachments: ChatAttachment[]; tool_calls: ChatToolCall[]; thinking: ChatThinking[]; background_returns: unknown[];
+  attachments: ChatAttachment[]; task_cards?: TaskCardRef[]; tool_calls: ChatToolCall[]; thinking: ChatThinking[]; background_returns: unknown[];
   reply_process: ChatProcessItem[]; permission_requests: ChatPermission[]; token_usage: ChatUsage | null;
   system_notice: unknown; interaction_reply: InteractionSnapshot | null; interactive?: MessageInteractive;
   update_wait?: 'updating' | 'recovery_required' | null;
