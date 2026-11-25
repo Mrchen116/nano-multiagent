@@ -338,8 +338,14 @@
 .chat-bubble-system { overflow-wrap:anywhere; }
 
 @media(max-width:767px) {
+  .tasks-header--compact { padding:8px 14px; gap:6px; }
+  .tasks-header--compact .tasks-breadcrumbs { flex:1 1 100%; min-width:0; }
   .tasks-focus-topbar { padding:10px 14px; gap:8px; }
   .tasks-focus-body { padding:11px 14px 22px; gap:13px; }
+  .tasks-popover-menu { max-width:calc(100vw - 28px); }
+  .tasks-popover-menu--right { left:0; right:auto; }
+  .tasks-quick-create { padding:9px 10px; gap:7px; }
+  .tasks-quick-create input { flex:1 1 100%; order:-1; min-width:0; padding:3px 2px 7px; border-bottom:1px solid #eef1ec; }
   .tasks-focus-card { flex-direction:column; gap:8px; padding:10px 12px; }
   .tasks-card-actions { width:100%; justify-content:flex-start; }
   .tasks-drawer-sheet { top:auto; left:0; right:0; bottom:0; width:100%; max-height:85dvh; border-left:0; border-radius:22px 22px 0 0; }
