@@ -5,6 +5,7 @@ import { lifecycle } from './agent-lifecycle.js';
 import { fail, now, transaction } from './context.js';
 
 import { chatAllowed, type ProviderFacts } from './collaboration.js';
+import { discardThreadUnread, listUnread, recordThreadDelivery, threadAddressesAgent } from './threads.js';
 
 /** Fixed SQLite columns are distinct from the public JSON projection. */
 export interface MessageRecord {
@@ -13,7 +14,7 @@ export interface MessageRecord {
   caller_payload_json:string|null; sender_display_name:string|null; sender_source_id:string|null; timezone:string|null;
   tool_calls_json:string|null; thinking_json:string|null; background_returns_json:string|null; reply_process_json:string|null;
   permission_request_json:string|null; token_usage_json:string|null; system_notice_json:string|null; interaction_reply_json:string|null;
-  reply_to_json:string|null;
+  reply_to_json:string|null; thread_root_id:string|null;
   elapsed_ms:number|null; kernel_message_id:string|null; awaiting_permission_at:string|null;
 }
 interface MessageDelegation {agent_id:string;authorized_by:string;display_name:string;representation_operation_id:string|null}
@@ -23,6 +24,8 @@ export interface PublicationRecord {dispatch_request_key:string;source_agent_id:
 interface MessageUser {id:string; username:string; display_name:string; is_stale?:number}
 export interface MessageMetadata {
   reply_to?:ChatMessage['reply_to'];
+  thread_root_id?:string;
+  skipThreadDelivery?: boolean;
   trackReceipts?: boolean;
   pendingRelayAgents?: string[];
   provider_facts?: ProviderFacts;
@@ -69,7 +72,11 @@ export class MessageRecords {
    *   publish: False suppresses immediate broadcast; the durable event remains replayable.
    */
   event(id:string,messageId:string|null,type:string,data:object,status='completed',publish=true):MessageEventFrame {
-    const at=now(),payload={created_at:at,delivery_status:status,conversation_id:id,...(messageId?{message_id:messageId}:{}),...data};
+    const topic = (data as {thread_root_message_id?:string}).thread_root_message_id
+      ?? (messageId && type.startsWith('permission.') ? this.find(messageId)?.thread_root_id : undefined);
+    const notify = topic && messageId && this.db.prepare("SELECT 1 FROM conversations WHERE id=? AND type='group'").get(id)
+      ? this.db.prepare('SELECT user_id FROM thread_deliveries WHERE message_id=?').all(messageId).map(row=>row.user_id) : undefined;
+    const at=now(),payload={...(topic ? {thread_root_message_id:topic} : {}),...(notify ? {thread_notify_user_ids:notify} : {}),created_at:at,delivery_status:status,conversation_id:id,...(messageId?{message_id:messageId}:{}),...data};
     const result=this.db.prepare('INSERT INTO conversation_events(conversation_id,message_id,event_type,delivery_status,payload_json,created_at) VALUES(?,?,?,?,?,?)').run(id,messageId,type,status,JSON.stringify(payload),at);
     const frame:MessageEventFrame={op:'event',event_id:Number(result.lastInsertRowid),conversation_id:id,message_id:messageId,event_type:type,delivery_status:status,created_at:at,data:{...payload,event_id:Number(result.lastInsertRowid)}};
     this.ports.publish(frame,publish);return frame;
@@ -105,6 +112,7 @@ export class MessageRecords {
   /** Store the producer's final text/statistics and release its permission wait. */
   complete(m:ChatMessage,p:Extract<ChatStreamFact,{kind:'message_completed'}>):void {
     this.db.prepare('UPDATE messages SET content=?,delivery_status=?,token_usage_json=?,elapsed_ms=?,kernel_message_id=?,awaiting_permission_at=NULL WHERE id=?').run(p.final_content??m.content,p.delivery_status??'completed',p.token_usage?JSON.stringify(p.token_usage):null,p.elapsed_ms??null,p.kernel_message_id??null,m.id);
+    if(m.thread_root_message_id) recordThreadDelivery(this.db,m.id);
   }
   /** Apply the existing provisional-message deletion semantics and roll back the projection it wrote on insert.
    * Notes:
@@ -112,12 +120,17 @@ export class MessageRecords {
    *   row was already discarded together with its rollback, so a replay never rolls back twice.
    */
   discard(id:string):void {
-    const row=this.db.prepare('SELECT rowid AS row_id,conversation_id,sender_user_id FROM messages WHERE id=?').get(id) as unknown as {row_id:number;conversation_id:string;sender_user_id:string}|undefined;
+    const row=this.db.prepare('SELECT m.rowid AS row_id,m.conversation_id,m.sender_user_id,m.thread_root_id,c.type FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.id=?').get(id) as unknown as {row_id:number;conversation_id:string;sender_user_id:string;thread_root_id:string|null;type:string}|undefined;
     if(!row)return;
+    if(row.thread_root_id && row.type==='group'){
+      discardThreadUnread(this.db,row.conversation_id,row.thread_root_id,id);
+      this.db.prepare('DELETE FROM messages WHERE id=?').run(id);
+      return;
+    }
     this.db.prepare('DELETE FROM messages WHERE id=?').run(id);
     // insert() writes the projection from the row it just stored, and ingress can backdate
     // created_at, so insertion order (rowid) is what "the message before this one" means.
-    const latest=this.db.prepare('SELECT content,attachments_json,created_at FROM messages WHERE conversation_id=? ORDER BY rowid DESC LIMIT 1').get(row.conversation_id) as unknown as {content:string;attachments_json:string;created_at:string}|undefined;
+    const latest=this.db.prepare('SELECT content,attachments_json,created_at FROM messages WHERE conversation_id=? AND thread_root_id IS NULL ORDER BY rowid DESC LIMIT 1').get(row.conversation_id) as unknown as {content:string;attachments_json:string;created_at:string}|undefined;
     // Mirror insert() so the stored preview keeps the same shape as a normal last message.
     const preview=latest?latest.content.trim().slice(0,120)||(JSON.parse(latest.attachments_json) as ChatAttachment[])[0]?.file_name||'':null;
     this.db.prepare('UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?').run(preview,latest?.created_at??null,row.conversation_id);
@@ -130,7 +143,7 @@ export class MessageRecords {
       const watermark=p.last_read_message_id===null?null:p.last_read_message_id===id?Number(row.row_id):p.read_row_id;
       const unread=watermark===null
         ?Math.max(p.unread_count-1,0)
-        :(this.db.prepare('SELECT COUNT(*) AS count FROM messages WHERE conversation_id=? AND rowid>? AND sender_user_id!=?').get(row.conversation_id,watermark,p.user_id) as unknown as {count:number}).count;
+        :listUnread(this.db,row.conversation_id,p.user_id,watermark);
       if(unread!==p.unread_count)this.db.prepare('UPDATE conversation_participants SET unread_count=? WHERE conversation_id=? AND user_id=?').run(unread,row.conversation_id,p.user_id);
     }
   }
@@ -179,7 +192,7 @@ export class MessageRecords {
       )
       SELECT id,conversation_id,sender_user_id,sender_type,lifecycle_revision,content,attachments_json,
         delivery_status,created_at,sender_display_name,sender_source_id,timezone,
-        token_usage_json,system_notice_json,interaction_reply_json,reply_to_json,elapsed_ms,kernel_message_id,
+        token_usage_json,system_notice_json,interaction_reply_json,reply_to_json,thread_root_id,elapsed_ms,kernel_message_id,
         awaiting_permission_at,
         CASE WHEN summarized THEN (
           SELECT json_group_array(json(CASE WHEN permission.value->>'status'='resolved' THEN
@@ -227,6 +240,25 @@ export class MessageRecords {
     };
     return {...message,process_summary:summary};
   }
+  private threadSummary(id:string):Pick<ChatMessage,'thread'> {
+    const count=this.db.prepare("SELECT count(*) AS count FROM messages WHERE thread_root_id=? AND coalesce(json_extract(system_notice_json,'$.kind'),'')!='thread_unfollowed'").get(id) as {count:number};
+    if(!count.count)return {};
+    const newest = this.db.prepare(`SELECT m.id, m.sender_user_id, coalesce(nullif(m.sender_display_name,''),u.display_name,m.sender_user_id) AS display_name,
+      m.content, m.created_at, json_extract(m.attachments_json, '$[0].file_name') AS file_name
+      FROM messages m LEFT JOIN users u ON u.id=m.sender_user_id
+      WHERE m.thread_root_id=? AND coalesce(json_extract(m.system_notice_json,'$.kind'),'')!='thread_unfollowed' ORDER BY m.rowid DESC LIMIT 2`).all(id) as {
+      id:string; sender_user_id:string; display_name:string; content:string; created_at:string; file_name:string|null;
+    }[];
+    const latest = newest[0]!;
+    const recent_replies = newest.reverse().map(row => ({
+      id:row.id, sender_user_id:row.sender_user_id, display_name:row.display_name,
+      preview:(row.content.trim() || row.file_name || '').replace(/\s+/g, ' ').slice(0, 160),
+    }));
+    const participants=this.db.prepare(`SELECT m.sender_user_id AS id, COALESCE(m.sender_display_name, u.display_name, m.sender_user_id) AS display_name
+      FROM messages m LEFT JOIN users u ON u.id=m.sender_user_id
+      WHERE m.thread_root_id=? AND coalesce(json_extract(m.system_notice_json,'$.kind'),'')!='thread_unfollowed' GROUP BY m.sender_user_id ORDER BY max(m.rowid) DESC LIMIT 3`).all(id) as {id:string; display_name:string}[];
+    return {thread:{reply_count:count.count, latest_preview:latest.content.trim().slice(0,80), latest_at:latest.created_at, recent_replies, participants}};
+  }
   private projectMessage(m:Omit<MessageRecord,'caller_idempotency_key'|'caller_payload_json'>):ChatMessage {
     const {id}=m;
     const u=this.db.prepare('SELECT * FROM users WHERE id=?').get(m.sender_user_id) as unknown as MessageUser;
@@ -245,6 +277,8 @@ export class MessageRecords {
       ...(updateWait!==undefined?{update_wait:updateWait}:{}),
       ...(delegation?.representation_operation_id?{pa_agent_id:delegation.agent_id}:delegation?{delegation:{agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${(this.db.prepare('SELECT display_name FROM users WHERE id=?').get(delegation.authorized_by) as MessageAuthorName|undefined)?.display_name??delegation.display_name}的 PA`}}:{}),
       ...(m.reply_to_json?{reply_to:JSON.parse(m.reply_to_json)}:{}),
+      ...(m.thread_root_id?{thread_root_message_id:m.thread_root_id}:{}),
+      ...(!m.thread_root_id ? this.threadSummary(m.id) : {}),
       attachments:JSON.parse(m.attachments_json??'[]'),
       tool_calls:(JSON.parse(m.tool_calls_json??'[]') as ChatToolCall[]).map(call=>withHumanApproval(call,permissions)),
       thinking:JSON.parse(m.thinking_json??'[]'),background_returns:JSON.parse(m.background_returns_json??'[]'),
@@ -275,7 +309,7 @@ export class MessageRecords {
     status = "completed",
     extra: MessageMetadata = {},
   ): ChatMessage {
-    if ((extra.interactive || extra.personal_source) && !this.db.isTransaction)
+    if ((extra.interactive || extra.personal_source || extra.thread_root_id) && !this.db.isTransaction)
       return transaction(this.db, () => this.insert(cId, sender, type, content, attachments, key, status, extra));
     const old=key?this.attempt(cId,key):undefined;
     if (old) return this.message(old.id);
@@ -301,14 +335,21 @@ export class MessageRecords {
         extra.timezone ?? null,
         sourceAgent?lifecycle(this.db,sourceAgent.agent_id).revision:null,
       );
-    this.db
-      .prepare("UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?")
-      .run(content.trim().slice(0, 120) || attachments[0]?.file_name || "", at, cId);
-    this.db
-      .prepare(
-        "UPDATE conversation_participants SET unread_count=unread_count+1 WHERE conversation_id=? AND user_id!=?",
-      )
-      .run(cId, sender);
+    const groupedThread = extra.thread_root_id
+      ? (this.db.prepare('SELECT type FROM conversations WHERE id=?').get(cId) as {type?: string} | undefined)?.type === 'group'
+      : false;
+    if (!extra.thread_root_id) {
+      this.db
+        .prepare("UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?")
+        .run(content.trim().slice(0, 120) || attachments[0]?.file_name || "", at, cId);
+    }
+    if (!groupedThread && !extra.skipThreadDelivery) {
+      this.db
+        .prepare(
+          "UPDATE conversation_participants SET unread_count=unread_count+1 WHERE conversation_id=? AND user_id!=?",
+        )
+        .run(cId, sender);
+    }
     if (extra.system_notice) this.db.prepare("UPDATE messages SET system_notice_json=? WHERE id=?").run(JSON.stringify(extra.system_notice),id);
     // Controlled provenance must exist before card validation and message.created.
     if (extra.personal_source) {
@@ -322,8 +363,12 @@ export class MessageRecords {
     }
     if (extra.interaction_reply) this.db.prepare('UPDATE messages SET interaction_reply_json=? WHERE id=?').run(JSON.stringify(extra.interaction_reply), id);
     if (extra.reply_to) this.db.prepare('UPDATE messages SET reply_to_json=? WHERE id=?').run(JSON.stringify(extra.reply_to),id);
+    if (extra.thread_root_id) {
+      this.db.prepare('UPDATE messages SET thread_root_id=? WHERE id=?').run(extra.thread_root_id,id);
+      if (groupedThread && !extra.skipThreadDelivery) recordThreadDelivery(this.db,id);
+    }
     if (extra.provider_facts) this.db.prepare('INSERT INTO provider_message_facts VALUES(?,?)').run(id,JSON.stringify(extra.provider_facts));
-    if (status==='pending' && extra.pendingRelayAgents && !extra.pendingRelayAgents.some(agentId=>chatAllowed(this.db,agentId,id))) {
+    if (status==='pending' && extra.pendingRelayAgents && !extra.pendingRelayAgents.some(agentId=>chatAllowed(this.db,agentId,id) && (!groupedThread || threadAddressesAgent(this.db,id,agentId)))) {
       status='completed';
       this.db.prepare("UPDATE messages SET delivery_status='completed' WHERE id=?").run(id);
     }
@@ -336,9 +381,11 @@ export class MessageRecords {
       WHERE c.id=? AND p.user_id<>? AND c.external_source IS NULL
         AND (a.agent_id IS NULL OR a.collaboration_scope='team' OR EXISTS (
           SELECT 1 FROM owner_direct_agent_messages d WHERE d.message_id=? AND d.agent_id=a.agent_id))
+        AND (? IS NULL OR c.type<>'group' OR EXISTS (
+          SELECT 1 FROM thread_follows f WHERE f.conversation_id=c.id AND f.root_message_id=? AND f.user_id=p.user_id AND f.following=1))
         AND
         (c.type='group' OR (c.type='direct' AND (a.agent_id IS NULL OR a.work_mode='global')))
-    `).run(id,cId,sender,id);
+    `).run(id,cId,sender,id,extra.thread_root_id ?? null,extra.thread_root_id ?? null);
     const m = this.message(id);
     // Shadow messages store under the local owner even when the provider has no display name.
     const data = {...m,message_id:id,...(extra.sender_source_id

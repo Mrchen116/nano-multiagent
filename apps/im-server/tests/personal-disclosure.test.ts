@@ -405,3 +405,80 @@ it('reuses the frozen quoted card when the original is superseded between retrie
  expect(retry.evidence.payload.reply_to).toEqual(proposal.evidence.payload.reply_to);
  expect(()=>service.actions.prepare(principal,{...request,reply_to_message_id:replacement.id})).toThrow('operation_key_content_conflict');
 });
+
+it('allows reviewed strict UTF-8 text attachments to non-owner chats and fails closed on binary, invalid UTF-8, NUL, oversized text, and SVG', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { createHash } = await import('node:crypto');
+  const { ctx, db, service, principal, args } = personalFixture();
+  ctx.gateway.groupReply = vi.fn();
+  db.prepare("INSERT OR IGNORE INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')").run();
+  const folder = mkdtempSync(join(tmpdir(), 'pa-generic-files-'));
+  ctx.dbPath = join(folder, 'im.db');
+  mkdirSync(join(folder, 'message-images'));
+  try {
+    const install = (id: string, mime: string, name: string, bytes: Buffer) => {
+      writeFileSync(join(folder, 'message-images', id), bytes);
+      db.prepare('INSERT OR REPLACE INTO message_images VALUES(?,?,?,?,?,?,?,?)')
+        .run(id, 'chat', 'upload', createHash('sha256').update(bytes).digest('hex'), mime, name, bytes.length, id);
+      return `/im/v1/conversations/chat/attachments/${id}`;
+    };
+
+    // Valid UTF-8 CSV (<= 256 KiB) passes review and copies to peer conversation without image flag.
+    const csvBytes = Buffer.from('metric,value\nlatency_ms,42\n', 'utf8');
+    const csvUrl = install('good-csv', 'text/csv', 'metrics.csv', csvBytes);
+    const csvProposal = await service.actions.prepareChecked(principal, {
+      ...args, request_key: 'csv-send', representation: 'owner', conversation_id: 'peer',
+      content: 'Sharing public metrics', attachments: [{ url: csvUrl }],
+    });
+    expect(csvProposal.evidence.payload.attachment_snapshots[0]).toMatchObject({
+      file_name: 'metrics.csv', content_type: 'text/csv', text: 'metric,value\nlatency_ms,42\n',
+    });
+    expect(csvProposal.evidence.payload.attachment_snapshots[0]).not.toHaveProperty('base64');
+    const verdict = service.actions.review(principal, {
+      ...args, proposal_ref: csvProposal.proposal_ref,
+      payload_digest: csvProposal.payload_digest, evidence_digest: csvProposal.evidence_digest,
+      verdict: { decision: 'allow' },
+    });
+    const sent = await service.actions.commitChecked(principal, {
+      ...args, proposal_ref: csvProposal.proposal_ref, verdict_ref: verdict.verdict_ref,
+    });
+    expect(sent.state).toBe('confirmed');
+    const storedMsg = ctx.messaging.message(sent.message_id);
+    expect(storedMsg.attachments[0]?.url).toMatch(/^\/im\/v1\/conversations\/peer\/attachments\//);
+
+    // Non-reviewable attachments fail closed (409) for non-owner groups.
+    const blockedCases = [
+      ['bad-utf8', 'text/csv', 'bad.csv', Buffer.from([0x61, 0xff, 0xfe, 0x0a])],
+      ['nul-csv', 'text/csv', 'nul.csv', Buffer.from('a,b\x00c\n', 'utf8')],
+      ['big-yaml', 'text/yaml', 'big.yaml', Buffer.alloc(256 * 1024 + 1, 0x61)],
+      ['zip-bin', 'application/zip', 'archive.zip', Buffer.from([0x50, 0x4b, 0x03, 0x04])],
+      ['svg-xml', 'image/svg+xml', 'icon.svg', Buffer.from('<svg></svg>', 'utf8')],
+    ] as const;
+    for (const [id, mime, name, bytes] of blockedCases) {
+      const url = install(id, mime, name, bytes);
+      await expect(service.actions.prepareChecked(principal, {
+        ...args, request_key: `blocked-${id}`, representation: 'owner', conversation_id: 'peer',
+        content: 'Attempt', attachments: [{ url }],
+      })).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('attachment_content_review_unavailable') });
+    }
+
+    // Owner DM allows binary files without 409 and marks them as { file: true } (not image: true).
+    const zipUrl = install('owner-zip', 'application/zip', 'backup.zip', Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    const ownerProposal = await service.actions.prepareChecked(principal, {
+      ...args, request_key: 'owner-zip-send', conversation_id: 'chat', content: 'Your backup',
+      attachments: [{ url: zipUrl }],
+    });
+    expect(ownerProposal).toMatchObject({ state: 'prepared' });
+    expect(ownerProposal.evidence.payload.attachment_snapshots[0]).toMatchObject({ file: true, file_name: 'backup.zip' });
+    expect(ownerProposal.evidence.payload.attachment_snapshots[0]).not.toHaveProperty('image');
+
+    // prepare_attachment preflight gate works symmetrically with prepare_screenshot.
+    expect(await service.handle(principal, 'pa.action.status', {
+      ...args, conversation_id: 'peer', request_key: 'file-preflight', prepare_attachment: true,
+    })).toEqual({ found: false });
+  } finally {
+    rmSync(folder, { recursive: true, force: true });
+  }
+});

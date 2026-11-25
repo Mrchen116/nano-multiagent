@@ -30,12 +30,25 @@ function screenshotProcess(call: RuntimeEvent, state: 'running' | 'completed' | 
   if (call.data.name !== 'send_message') return undefined;
   const args = argumentsObject(call.data.arguments);
   // Invalid model arguments are written before schema validation and must also stay private.
-  if (args && typeof args === 'object' && !Array.isArray(args) && !Object.hasOwn(args,'raw') && !Object.hasOwn(args,'local_images'))
+  if (args && typeof args === 'object' && !Array.isArray(args)
+      && !Object.hasOwn(args, 'raw') && !Object.hasOwn(args, 'local_images') && !Object.hasOwn(args, 'local_files'))
     return undefined;
-  const count = Array.isArray(args?.local_images) ? args.local_images.length : undefined;
+  const imageCount = Array.isArray(args?.local_images) ? args.local_images.length : undefined;
+  const fileCount = Array.isArray(args?.local_files) ? args.local_files.length : undefined;
+  const input: Record<string, number> = {
+    ...(imageCount !== undefined ? { image_count: imageCount } : {}),
+    ...(fileCount !== undefined ? { file_count: fileCount } : {}),
+  };
+  const summary = imageCount !== undefined && fileCount !== undefined
+    ? `Attachment delivery (${imageCount + fileCount})`
+    : imageCount !== undefined
+      ? `Screenshot delivery (${imageCount})`
+      : fileCount !== undefined
+        ? `File delivery (${fileCount})`
+        : 'Message delivery';
   return {id:typeof call.data.callId === 'string' ? call.data.callId : undefined,
-    name:'send_message',status:state,input:count === undefined ? {} : {image_count:count},detail:undefined,
-    output:state === 'failed' ? 'Message delivery failed' : count === undefined ? 'Message delivery' : `Screenshot delivery (${count})`,
+    name:'send_message',status:state,input,detail:undefined,
+    output:state === 'failed' ? 'Message delivery failed' : summary,
     ...(result ? {duration_ms:result.time-call.time} : {})};
 }
 

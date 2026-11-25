@@ -4,6 +4,15 @@
 
 ## Changelog
 
+- **Agent 工具侧重构（对齐 Raft 收发模型）**：
+  - 统一 `target`：Agent 侧主时间线用 `<= 8` 位聊天短 ID（`c_xxxxxx` / `f_xxxxxx`），话题用一等组合地址 `c_xxxxxx:yyyyyyyy`（聊天短 ID + 8 位短根消息 ID），取消 `in_thread_of` 与 `thread_root_message_id` 附加参数；`reply_to_message_id` 继续保持正交（单层引用卡片）。
+  - 6 工具拆分：将 IM 产品工具拆为 `inbox`、`send_message`、`read_messages`、`search_messages`、`conversations`（`list`/`info`/`create`/`join`）、`threads`（`list`/`follow`/`unfollow`）。
+  - Inbox 按 thread `target` 拆行，不带正文 preview；`held_for_revalidation` 按单个 `target`（话题级）隔离；显式 `send_message` 不做静默目标改写（暂不做错位 Guard）。
+  - 话题上下文按需附带：正常跟进只给新消息本身；仅首次进入陌生话题（或压缩后首次回来）附带一次根消息 + 最近回复 + 显式 `truncated` 标记 + 补读提示。
+  - `read_messages` 读主时间线时，有回复的根消息带 `thread: { target, reply_count, latest_at }`；读话题时同时返回 `thread_root`；支持仅传 `message_id` 直查单条；`search_messages` 命中话题回复直接返回话题 `target`。
+  - Agent `threads(unfollow)` 在话题内留一行人类可见提示（不触发未读/中继）；后续再次被 `@` 或引用自动恢复关注并在消息中附带重关注提醒。
+  - 8 位短编号契约：所有需要 Agent 填写的工具原子编号长度均 `<= 8`，并配自动化契约测试守住后续变更。
+
 ## 现状分析
 
 ### 涉及范围
@@ -77,19 +86,19 @@ flowchart LR
 
 **引用和话题是两个独立字段。** `reply_to_json` 继续只表示「卡片上引用哪一条」。`thread_root_id` 表示「这条消息出现在哪」。主时间线上的「回复」只写引用、不写话题根。话题里的普通发送只写话题根。话题里再引用某一条时两个都写，被引用的消息必须是该根或该话题里的消息。拒绝嵌套话题。
 
-**群里谁收到话题，由 `thread_follows` 决定。** 一行是聊天、话题根、用户。第一条话题回复出现时，根消息的发送者和回复者成为关注者。之后在话题里发送、被 @、或被引用，都会重新关注。人可以取消关注。取消后，直到再次发送、被 @ 或被引用，不再计未读。Agent 不提供取消关注，避免做完就听不见纠正。仅限本人的 Agent 不会因群话题被写入关注，也不会收到群话题中继。私聊不使用这张表做过滤：对方仍按一条普通私聊新消息收到未读和中继。
+**群里谁收到话题，由 `thread_follows` 决定。** 一行是聊天、话题根、用户。第一条话题回复出现时，根消息的发送者和回复者成为关注者。之后在话题里发送、被 @、或被引用，都会重新关注。人和 Agent 都可以主动关注或取消关注。人取消后不再计未读；Agent 通过 `threads(action="unfollow", target, reason?)` 取消后，话题内留一行人类可见系统提示（不产生未读或中继），普通回复不再唤醒它，直到它再次发言、被 @、被引用或主动 `follow`（因 `@` 或引用重新恢复关注时，向 Agent 附带重关注提示）。仅限本人的 Agent 不会因群话题被写入关注，也不会收到群话题中继。私聊不使用这张表做过滤：对方仍按一条普通私聊新消息收到未读和中继。
 
 **未关注的群话题不进入任何十分钟批。** 人发出的话题回复仍可能走到 `enqueueRelays`，Agent 发出的话题回复还会走到 `gateway.ts` 的 `groupReply`（`chat-streaming.ts` 在 `message_completed` 时，以及 `publishAgent`）。两条都先用同一谓词：仅当该 Agent 正在关注、被 @ 或被引用时才中继，并且这次中继的 `addressed_to_agent` 为真，因此是 `high`，不是 `background`。不满足谓词的不调用 `relayMessage`，进不了 `bufferGroup`，也进不了参与者 Inbox。
 
-PA 观察不经过 `enqueueRelays`。`schema.sql` 的 `personal_observation_event` 在 `conversation_events` 插入后写 `pa_source_events`。话题回复只有在该 PA 正在关注、被 @ 或被引用时才插入；其余话题回复不写观察事件。`recoverPersonalObservations` 摄入这些已插入的事件时标成 high，不得再落成 background。消息本身仍在 IM，有读权限时可以按话题根读取。
+PA 观察不经过 `enqueueRelays`。`schema.sql` 的 `personal_observation_event` 在 `conversation_events` 插入后写 `pa_source_events`。话题回复只有在该 PA 正在关注、被 @ 或被引用时才插入；其余话题回复不写观察事件。`recoverPersonalObservations` 摄入这些已插入的事件时标成 high，不得再落成 background。消息本身仍在 IM，有读权限时可以按话题 target 读取。
 
 私聊话题保持现在的 direct/high，不使用关注表过滤。仅限本人在群里仍由 `classifyChatDelivery` 因缺少 `ownerDirect` 而 `skip`，即使谓词误放行也不会进十分钟批；创建者的私聊话题仍是 high。
 
-**不按话题拆 session，也不按话题拆 Inbox target。** single_thread 继续用 `chatBinding` 的一个聊天 session。Global 与 PA 继续用主 session，Inbox target 仍是 `conversation_id`。叫醒时的模型和自动回帖地址改到话题上。同一聊天里的话题和主时间线会留在同一段记忆里；这是现有聊天绑定的结果，不是把话题内容刷回主时间线。
+**不按话题拆 session，但 Agent 工具侧把话题作为一等 `target` 与独立 Inbox 行。** single_thread 继续用 `chatBinding` 的一个聊天 session；Global 与 PA 继续用唯一主 session。在 Agent 工具面（`inbox`、`send_message`、`read_messages`、`search_messages`、`threads`）中，主时间线 target 为 `c_xxxxxx`，话题 target 为 `c_xxxxxx:yyyyyyyy`（均遵守原子编号 `<= 8` 位）。Global/PA 的 Inbox 按 `target` 拆行且不带正文预览，发送前复核（`held_for_revalidation`）按单个 `target` 隔离，主时间线与兄弟话题互不误拦。
 
-**自动回帖的地址跟这一轮的话题走。** 从话题叫醒时，single_thread 的 `turn_start` 带上这个话题根，最终气泡写进话题，不写主时间线。从主时间线叫醒、且这一轮没有向该请求消息的话题发过言时，最终气泡仍在主时间线，用来保住「一句能答完」。这一轮只要已经用 `in_thread_of` 把话写进该请求的话题，随后的自动正文也进入同一话题，并且不在主时间线上再放一条。Global 没有自动气泡；它用 `send_message`。当前轮由某条话题叫醒、且目标就是这个聊天时，省略 `in_thread_of` 也写回该话题，避免默认落到主时间线。
+**显式 `send_message` 严格按传入 `target` 落点，不做静默改道；SingleThread 自动正文跟本轮话题走。** 显式调用 `send_message(target=...)` 时，传 `c_xxxxxx` 发主时间线，传 `c_xxxxxx:yyyyyyyy` 发对应话题，宿主不静默改写目标。SingleThread 从话题叫醒时，自动正文写进该话题；从主时间线叫醒且本轮已经用 `send_message(target="c_xxxxxx:<request_short_id>")`（或 `current:<request_short_id>`）发进请求话题时，随后的自动正文也进入同一话题，不在主时间线双写。
 
-**多步任务由模型选择 `in_thread_of`，宿主保证不双写。** 工具说明要求：需要先确认再交付时，第一条给人看的话就用 `in_thread_of` 指向用户那条请求；不要同时在主时间线再说话。宿主不另做「算不算多步」的分类器。脚本化运行可以证明地址；真实模型是否记得调用，由实现阶段的代表性任务核对，不能靠服务端猜一句还是多句。
+**6 工具职责分离。** 原 20 参数的 `conversations` 拆分为 `conversations`（`list`/`info`/`create`/`join`）、`read_messages`（历史/单条/前后文/话题）、`search_messages`（检索）、`threads`（`list`/`follow`/`unfollow`），配合既有 `inbox` 与 `send_message`，并在 Global 与 SingleThread System Prompt 中补齐精简 Threads 规范。
 
 **桌面话题在时间线旁边打开，窄屏和 iPhone 推入一层。** 依据是 Web IM「桌面可并排、手机单栏」的原则。主时间线只增加根消息上的话题入口，不把回复插进时间线。iPhone 不加「回复」按钮。
 
@@ -126,28 +135,25 @@ fork 在 `conversation-actions.ts` 复制 `SELECT * FROM messages WHERE conversa
 
 ### 模型可见信息
 
-消费者是 single_thread 的该聊天 session、Global/PA 的主 session。生命周期只覆盖被中继的那一条：未关注的群话题没有 Inbox 行、没有 group buffer、没有模型输入。被叫醒时，这一轮在现有消息前增加一段来源明确的话题说明，而不是把话题回复伪装成主时间线新消息。
+消费者是 single_thread 的该聊天 session、Global/PA 的主 session。生命周期只覆盖被中继的那一条：未关注的群话题没有 Inbox 行、没有 group buffer、没有模型输入。
 
-叫醒前，群里未点名的消息是「Background message」或 Inbox 背景。叫醒后，这一轮用下面这一段替换该条消息的默认 `messageContent`，不在前面再贴一份相同正文。根和更早回复是这段里的额外上下文。
-
-```text
-Thread on message "m-root" by 小李 in this conversation. Reply with in_thread_of "m-root" if the answer belongs in the thread. Do not also post it on the main timeline.
-Root: 下周三要补哪三页？
-Earlier in thread:
-- m-2 小李: 先看第二页
-Current message:
-- m-3 小王: @Agent 第二页不用了
-```
-
-引用卡片仍用 feat-730 的投影，并标明它是引用、不是新的指令。摘录超过现有 1200 字时沿用省略，完整内容用消息 id 再读。话题说明默认带根和最近 20 条；更早的通过 `conversations` 读取，增加可选 `thread_root_message_id`。不带该参数时，读取和搜索的默认页仍是主时间线，避免把话题历史混进「这个聊天最近说了什么」。搜索命中话题回复时必须带根 id。
-
-`send_message` 增加可选 `in_thread_of`。它是目标聊天里一条主时间线消息的 id，不能猜，不能和外部通道或内部子执行一起用。省略时：这一轮若由话题叫醒且 target 就是该聊天，宿主补上该根；否则写主时间线。`reply_to_message_id` 仍只做引用卡片。两者可同时存在。
-
-Before：用户在主时间线说「用一句话回答」，single_thread 的最终正文回到主时间线。After：同一轮没有 `in_thread_of` 时仍是这样。Before：多句确认和结果会顺着自动正文堆在主时间线。After：模型把确认发到 `in_thread_of` 那条请求，宿主把本轮后续自动正文一并写入该话题。Before：无关群话题会在约十分钟后进入背景。After：没有中继，背景里没有这些消息。
+1. **8 位短编号契约**：Agent 可见且需要回填到任何工具参数中的每个原子编号（会话 ID `c_xxxxxx` / `f_xxxxxx`、消息短 ID `3f4b1fd4`、游标 `p_xxxxxx`、用户短 ID `u_xxxxxx` 等）长度均 `<= 8`；话题 target 为组合地址 `c_xxxxxx:3f4b1fd4`。外部通道与内部子执行拒绝话题 target。
+2. **Inbox 按话题拆行且无预览**：Global/PA 的 `inbox(check)` 与唤醒通知为主时间线 `c_xxxxxx` 和每个有未读的话题 `c_xxxxxx:3f4b1fd4` 分别生成独立行（话题行含 `parent_target`、群名、未读与 `@` 计数、最新时间，不含正文 preview）。
+3. **话题上下文按需附带（零重复 + 显式截断）**：
+   - 正常跟进已见过的话题时，`inbox(read)` 和 SingleThread 唤醒只交付新消息本身，不再重复贴根消息或最近回复。
+   - 仅当当前 session 首次看到该话题（或压缩后首次回来）时，在页头/消息前附带一次 `thread_context`（根消息摘录 + 最近有限条回复 + 显式 `truncated: boolean` + 提示可用 `read_messages(target="c_xxxxxx:3f4b1fd4")` 读全量）。
+   - 若本条回复因 `@` 或引用重新恢复了曾取消关注的话题，附带一次简短重关注提示与 `threads(action="unfollow", target=...)` 出口。
+4. **历史与搜索可见性**：
+   - `read_messages(target="c_xxxxxx")` 读主时间线（不含话题回复），有回复的根消息附带 `thread: { target: "c_xxxxxx:3f4b1fd4", reply_count, latest_at }`；无回复不带。
+   - `read_messages(target="c_xxxxxx:3f4b1fd4")` 读话题回复，并在首页附带 `thread_root`（根消息本身）。
+   - `read_messages(message_id="3f4b1fd4")` 允许省略 `target` 直接按短 ID 查单条完整消息及其归属 `target`。
+   - `search_messages` 命中话题回复时，`source.target` 直接是 `c_xxxxxx:3f4b1fd4`。
+5. **发送与复核**：
+   - `send_message(target=...)` 严格按传入 `target` 落点（不再静默改写目标，不再使用 `in_thread_of`）；`reply_to_message_id` 仍只做单层引用卡片，可与话题 target 组合。
+   - `held_for_revalidation` 按单个 `target` 隔离：向 `c_xxxxxx:3f4b1fd4` 发送时，只因该话题本身有未读高优消息才暂缓。
+6. **System Prompt 引导**：Global 与 SingleThread System Prompt 均包含简短 Threads 规范（复用原 `target`、一句留主时间线 vs 多步用 `c_xxxxxx:<短id>` 进话题、派 worker 保留原话题 `target`、完结或无关闲聊可主动 `threads(action="unfollow")`）。
 
 交互约束：话题正文不能提高权限；引用和话题摘录都是聊天数据。仅限本人不会因为群里被 @ 就收到中继。PA 观察身份不变，未关注话题不构成新交办。`/new` 仍只重开该聊天的 session，不删除已有话题消息。
-
-验证：用脚本化运行固定「一句」和「先 `in_thread_of` 再自动正文」两条路径，断言主时间线和话题里分别有什么。再取一条真实模型任务，核对实际请求里能看到根 id、`in_thread_of` 的工具说明，以及回帖落点。只看源码字段不算模型已消费。
 
 ### 主路径
 

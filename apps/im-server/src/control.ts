@@ -4,7 +4,7 @@ import {createHash, randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
 import {parseAgentConfigurationFields, type AgentConfigurationFields, type ConfigurationResult} from '@nano/product-contracts';
 import {effectiveFeatures, featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
-import {fail, now, transaction} from './context.js';
+import {chatId, fail, now, transaction} from './context.js';
 import {defaultSpace, accountEnabled, canAccessSpace, ownerAccount} from './identity.js';
 import {activeTaskCount, withdrawsTask} from './task-graphs.js';
 import type {ConfigurationRequest} from '@nano/product-contracts/node-rpc';
@@ -487,7 +487,7 @@ export class ConfigOperations {
         ).run(...vals, op.agent_id, op.owner_id, op.node_id, now(), now(), defaultSpace(ownerAccount(db, op.owner_id)!));
       db.prepare(
         "INSERT OR IGNORE INTO users(id,username,display_name,owner_id,created_at) VALUES(?,?,?,?,?)",
-      ).run(randomUUID(), `agent:${op.agent_id}`, c.display_name || op.agent_id, op.owner_id, now());
+      ).run(chatId("u_"), `agent:${op.agent_id}`, c.display_name || op.agent_id, op.owner_id, now());
       db.prepare("UPDATE users SET display_name=? WHERE username=?").run(
         c.display_name || op.agent_id,
         `agent:${op.agent_id}`,

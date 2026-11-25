@@ -445,7 +445,7 @@ PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `ski
 #### Scenario: 固定基础工具与可配置工具区分
 - **GIVEN** 用户创建或编辑全局 Agent
 - **WHEN** 查看和调整工具配置
-- **THEN** `inbox`、`conversations`、`send_message`、`delegate_worker` 作为固定基础工具，不可关闭
+- **THEN** `inbox`、`conversations`、`read_messages`、`search_messages`、`threads`、`send_message`、`delegate_worker` 作为固定基础工具，不可关闭
 - **AND** Personal Global 另外固定 personal_sources；其他工具继续按默认选择及依赖规则配置，single_thread 和子 Agent 不继承 Global 根会话固定项
 
 ### Requirement: 恢复历史后台创建的 Skill 时保留既有会话提示词

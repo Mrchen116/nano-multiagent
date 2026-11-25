@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
 import { useAuthStore } from "../../features/auth/auth-store";
 import { listNodes } from "../../features/settings/im-settings-api";
+import { Avatar, colorForAgentSeed, initialsOf } from "../../features/chat/components/avatar";
 import { UserMenuIcon } from "./user-menu-icons";
 
 /** Keep account and workspace preferences in one place beside desktop navigation. */
@@ -39,18 +40,18 @@ export function UserMenu() {
 
   if (!user) return null;
   const name = user.display_name || user.username;
-  const initials = name.slice(0, 2).toUpperCase();
+  const avatar = <Avatar initials={initialsOf(name)} color={colorForAgentSeed(name)} size={36} />;
   const handleLanguage = (next: Locale) => { setLanguage(next); setOpen(false); triggerRef.current?.focus(); };
   const close = () => setOpen(false);
 
   return <div ref={containerRef} className="im-user-menu">
     <button ref={triggerRef} type="button" aria-label={name} title={name} aria-haspopup="menu" aria-expanded={open}
       onClick={() => { setLanguageOpen(false); setOpen(previous => !previous); }} className="im-user-menu-trigger">
-      <span aria-hidden className="im-user-menu-avatar">{initials}</span>
+      {avatar}
     </button>
     {open && <div role="menu" aria-label={name} className="im-user-menu-popover">
       <div className="im-user-menu-identity" role="none">
-        <span aria-hidden className="im-user-menu-avatar">{initials}</span>
+        {avatar}
         <div><strong>{name}</strong><span>@{user.username}</span></div>
       </div>
       <Link role="menuitem" to="/settings/account" onClick={close} className="im-user-menu-item">

@@ -21,4 +21,12 @@ it('admits local screenshots only in self-authored sends and keeps receipt check
   expect(()=>normalizeMessageArguments({...local,local_images:Array(5).fill('/tmp/before.png'),attachments:[{url:'/attached'}]},true)).toThrow();
   expect(normalizeMessageArguments({target:'current',receipt_of:'original'},true)).toEqual({target:'current',receipt_of:'original'});
   expect(()=>normalizeMessageArguments({...local,receipt_of:'original'},true)).toThrow();
+
+  const fileLocal = {target:'current', text:'Report', local_files:['/tmp/report.csv']};
+  expect(normalizeMessageArguments(fileLocal,true)).toEqual(fileLocal);
+  expect(()=>normalizeMessageArguments(fileLocal)).toThrow();
+  expect(()=>normalizeMessageArguments({...fileLocal,local_files:['relative.csv']},true)).toThrow();
+  expect(()=>normalizeMessageArguments({...fileLocal,local_images:['/tmp/a.png','/tmp/b.png'],local_files:['/tmp/1','/tmp/2','/tmp/3'],attachments:[{url:'/attached'}]},true)).toThrow();
+  expect(()=>normalizeMessageArguments({...fileLocal,incident_ref:'inc_1'},true)).toThrow();
+  expect(()=>normalizeMessageArguments({...fileLocal,receipt_of:'original'},true)).toThrow();
 });

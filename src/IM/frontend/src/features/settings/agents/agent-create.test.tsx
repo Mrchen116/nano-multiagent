@@ -264,7 +264,7 @@ describe("agent create page", () => {
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "runtime-created helper" } });
     fireEvent.change(screen.getByLabelText(/^Initial role agreement/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /plan/i }));
-    await user.click(screen.getByRole("button", { name: /read/i }));
+    await user.click(screen.getByRole("button", { name: /^read$/i }));
     await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
     await user.selectOptions(screen.getByLabelText("Approval strategy"), "cc");
     const scope = screen.getByLabelText("Collaboration scope");
@@ -274,7 +274,7 @@ describe("agent create page", () => {
 
     if (workMode === "global") {
       await user.click(screen.getByRole("radio", { name: /Global mode/ }));
-      for (const tool of ["inbox", "conversations", "send_message", "delegate_worker"]) expect(screen.getByRole("button", { name: tool })).toHaveAttribute("aria-pressed", "true");
+      for (const tool of ["inbox", "conversations", "read_messages", "search_messages", "threads", "send_message", "delegate_worker"]) expect(screen.getByRole("button", { name: tool })).toHaveAttribute("aria-pressed", "true");
       await user.click(screen.getByRole("button", { name: "delegate_worker" }));
       expect(screen.getByRole("button", { name: "delegate_worker" })).toHaveAttribute("aria-pressed", "true");
       expect(screen.getByRole("status")).toBeInTheDocument();

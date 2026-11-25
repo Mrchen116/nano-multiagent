@@ -74,7 +74,7 @@ struct AgentDraft: Equatable, Sendable {
         return skills_selection_mode == "default_discovery" ? candidates : skills
     }
     var effectiveTools: [String] {
-        Array(Set(tool_allowlist + fixed_tools + (work_mode == "global" ? ["inbox", "conversations", "send_message", "delegate_worker"] : []))).sorted()
+        Array(Set(tool_allowlist + fixed_tools + (work_mode == "global" ? ["inbox", "conversations", "read_messages", "search_messages", "threads", "send_message", "delegate_worker"] : []))).sorted()
     }
     func payload(version: Int? = nil, creating: Bool = false, customWorkspace: Bool = false, confirmed: Bool = false) -> [String: JSONValue] {
         var body: [String: JSONValue] = [

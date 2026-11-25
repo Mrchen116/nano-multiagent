@@ -149,9 +149,13 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     expect(JSON.stringify(answerRequests)).toContain('You live in Paris');
     const results = answerRequests.flatMap(request => request.messages).filter(message => message.role === 'tool');
     const result = (call: number) => results.find(message => message.toolCallId === `fixture-${call}`);
-    expect(JSON.parse(result(0).content[0].text)).toMatchObject({ sources: [{ target: identity.conversationId, unread: 1, conversation_type: 'direct', delivery: 'participant' }] });
-    expect(JSON.parse(result(1).content[0].text)).toMatchObject({ target: identity.conversationId, conversation_type: 'direct', delivery: 'participant', channel: 'web',
-      messages: [{ sender: { id: identity.ownerId, is_owner: true }, time: question.date, content: [{ text: question.text }] }] });
+    const checked = JSON.parse(result(0).content[0].text);
+    expect(checked).toMatchObject({ sources: [{ target: expect.stringMatching(/^c_[a-f0-9]{6}$/), unread: 1, conversation_type: 'direct', delivery: 'participant' }] });
+    const shortTarget = checked.sources[0].target;
+    const readResult = JSON.parse(result(1).content[0].text);
+    expect(readResult).toMatchObject({ target: shortTarget, conversation_type: 'direct', delivery: 'participant', channel: 'web',
+      messages: [{ sender: { id: expect.stringMatching(/^u_[a-f0-9]{6}$/), is_owner: true }, time: question.date, content: [{ text: question.text }] }] });
+    const shortOwnerId = readResult.messages[0].sender.id;
     for (const call of [5, 6, 7, 9, 10, 11, 12, 13, 14]) expect(result(call), `tool result ${call}`).toMatchObject({ isError: false });
     expect(JSON.parse(result(10).content[0].text).items).toEqual([expect.objectContaining({ window_id: `${identity.rootSessionId}:initial` })]);
     expect(result(9).content[0].text).toContain('ANSWER_RECOVERY');
@@ -161,10 +165,10 @@ it('replays only arrived history and freezes naturally formed memory for isolate
     const stored = JSON.parse(result(13).content[0].text).messages;
     expect(stored.some((message: { content:Array<{text:string}> }) => message.content[0]?.text.includes('UNTRIGGERED_LAST_UPDATE'))).toBe(true);
     const mapping = JSON.parse(await readFile(audit.requests.replace('requests.jsonl', 'source-map.json'), 'utf8'));
-    const original = stored.find((message: {message_id:string}) => message.message_id === mapping[0].messageId);
-    expect(original).toMatchObject({ sender: { id: identity.ownerId, is_owner: true }, source_time: '2024-01-01T00:00:00+00:00',
+    const original = stored.find((message: {message_id:string}) => message.message_id === mapping[0].messageId.slice(0, 8));
+    expect(original).toMatchObject({ sender: { id: shortOwnerId, is_owner: true }, source_time: '2024-01-01T00:00:00+00:00',
       content: [{ text: history.sessions[0]!.turns[0]!.content }] });
-    expect(JSON.parse(result(14).content[0].text)).toMatchObject({ status: 'sent', target: identity.conversationId });
+    expect(JSON.parse(result(14).content[0].text)).toMatchObject({ status: 'sent', target: shortTarget });
     expect(JSON.stringify(answerRequests)).not.toContain('evaluation-answer-');
     expect(JSON.stringify(answerRequests)).not.toContain('evaluation-question');
     options.environment!.EVALUATION_DELEGATE_ROOT = identity.rootSessionId;

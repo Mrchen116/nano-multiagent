@@ -68,7 +68,7 @@ it('coalesces Inbox notices during a model request and notifies again after cons
     expect(notices(1)).toBe(notices(0) + 1);
     expect(JSON.stringify(requests[1]!.messages)).toContain('OTHER_NOTICE');
     expect(summary(1).sources).toEqual([
-      { target: expect.stringMatching(/^c_f_/), name: 'Team', unread: 2, mentions: 1, conversation_type: 'group', latest_message_at:'2026-11-18T11:05:00.000Z' },
+      { target: expect.stringMatching(/^f_[a-f0-9]{6}$/), name: 'Team', unread: 2, mentions: 1, conversation_type: 'group', latest_message_at:'2026-11-18T11:05:00.000Z' },
       { target: 'c_dm', name: 'Owner', unread: 2, mentions: 0, conversation_type: 'direct', latest_message_at:'2026-11-18T11:03:00.000Z' },
     ]);
     const notice = requests[1]!.messages.findLast(message => message.source?.channel === 'inbox');
@@ -330,7 +330,7 @@ export const name='background-model';export const inject=['llm'];export function
     expect(steps).toHaveLength(2);
     const backgroundNotice=steps[1].findLast((message:any)=>message.source?.channel==='inbox');
     const summary=JSON.parse(backgroundNotice.content[0].text.split('\n').at(-1));
-    expect(summary.sources).toContainEqual({target:'background',name:'Background chat',unread:1,mentions:0,conversation_type:'direct',delivery:'observer',latest_message_at:null});
+    expect(summary.sources).toContainEqual({target:expect.stringMatching(/^c_[a-f0-9]{6}$/),name:'Background chat',unread:1,mentions:0,conversation_type:'direct',delivery:'observer',latest_message_at:null});
     expect(summary.sources).toContainEqual({target:'own',name:'Owner',unread:1,mentions:0,conversation_type:'direct',delivery:'participant',addressed_to:'agent',latest_message_at:null});
     expect(inbox.check('pa',true).sources.find(s=>s.target==='background')?.unread).toBe(1);
     expect(errors).toEqual([]);

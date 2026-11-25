@@ -6,15 +6,25 @@ import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { CHAT_BACKGROUND_DELAY_MS, decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
 import type { WorkReadyCut, WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
-import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
+import { formatLocalTime, isRasterImageMime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
+import { joinThreadTarget, splitThreadTarget } from './tool-references.js';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
-interface Source { target: string; name: string; unread: number; mentions: number; conversation_type: string;
+interface Source { target: string; parent_target?: string; name: string; unread: number; mentions: number; conversation_type: string;
   latest_message_at: string | null; requires_attention?: boolean; delivery?: string; addressed_to?: 'owner'|'agent'|'both' }
 export interface InboxRestriction {sessionId:string; inputId?:string; toolCallId?:string; content?:{type:'text';text:string}[]; retainImageIndices?:number[]}
 
+function inputTarget(input: RelayInput): string {
+  const root = typeof input.metadata.thread_root_message_id === 'string' && input.metadata.thread_root_message_id
+    ? input.metadata.thread_root_message_id : undefined;
+  return joinThreadTarget(input.conversation_id, root);
+}
+
 interface Fragment { seq: number; part: number }
 interface Snapshot { agent: string; target: string; fragments: Fragment[] }
+export const MAX_INBOX_READ_ENTRIES = 20;
+export const MAX_INBOX_READ_CHARS = 8_000;
+export const MAX_INBOX_READ_IMAGES = 4;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 /** Durable cross-chat inbox; a read does not itself advance consumption. */
@@ -28,11 +38,13 @@ export class InboxStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS inbox(seq INTEGER PRIMARY KEY,agent_id TEXT,target TEXT,message_id TEXT,payload TEXT,attention INTEGER,consumed INTEGER DEFAULT 0,UNIQUE(agent_id,message_id));
+      CREATE INDEX IF NOT EXISTS inbox_topics ON inbox(agent_id,target) WHERE json_extract(payload,'$.metadata.thread_root_message_id') IS NOT NULL;
       CREATE INDEX IF NOT EXISTS inbox_blocking_target ON inbox(agent_id,target) WHERE consumed=0 AND attention=1;
       CREATE TABLE IF NOT EXISTS imported_parts(seq INTEGER,part INTEGER,body TEXT,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS fragments(seq INTEGER,part INTEGER,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY,data TEXT);
       CREATE TABLE IF NOT EXISTS reads(session_id TEXT,call_id TEXT,fragments TEXT,body TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
+      CREATE TABLE IF NOT EXISTS query_reads(session_id TEXT,call_id TEXT,fragments TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
       CREATE TABLE IF NOT EXISTS wakes(agent_id TEXT PRIMARY KEY,watermark INTEGER);
       CREATE TABLE IF NOT EXISTS inbox_notifications(session_id TEXT,input_id TEXT,agent_id TEXT,seqs TEXT,summary TEXT,delivered INTEGER DEFAULT 0,PRIMARY KEY(session_id,input_id));
       CREATE TABLE IF NOT EXISTS inbox_schedule(ord INTEGER PRIMARY KEY,seq INTEGER UNIQUE NOT NULL,agent_id TEXT NOT NULL,due_at INTEGER NOT NULL,notified INTEGER NOT NULL DEFAULT 0);
@@ -58,6 +70,7 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS relay_receipts(id TEXT PRIMARY KEY,agent_id TEXT,message_id TEXT,input TEXT,status TEXT,confirmed INTEGER DEFAULT 0);
       CREATE TABLE IF NOT EXISTS relay_controls(agent_id TEXT,message_id TEXT,input TEXT,done INTEGER DEFAULT 0,PRIMARY KEY(agent_id,message_id));
       CREATE TABLE IF NOT EXISTS publications(id TEXT PRIMARY KEY,target TEXT,body TEXT,state TEXT,result TEXT);
+      CREATE TABLE IF NOT EXISTS inbox_seen_threads(session_id TEXT NOT NULL,target TEXT NOT NULL,PRIMARY KEY(session_id,target));
     `);
     if (!(this.db.prepare('PRAGMA table_info(relay_receipts)').all() as {name:string}[]).some(c=>c.name==='read_pending'))
       this.db.exec('ALTER TABLE relay_receipts ADD COLUMN read_pending INTEGER NOT NULL DEFAULT 0');
@@ -147,7 +160,7 @@ export class InboxStore {
         let imageIndex=0;
         const retainImageIndices:number[]=[];
         for(const [index,message] of body.messages.entries())for(const part of message.content) {
-          if(!part.content_type?.startsWith('image/'))continue;
+          if(!isRasterImageMime(part.content_type))continue;
           if(keep.has(original[index]!.seq))retainImageIndices.push(imageIndex);
           imageIndex++;
         }
@@ -156,6 +169,10 @@ export class InboxStore {
         save('tool:'+page.call_id,{sessionId:page.session_id,toolCallId:page.call_id,...(fragments.length?{content:[{type:'text',text}]}:{}),
           ...(retainImageIndices.length?{retainImageIndices}:{})},fragments);
       }
+      this.db.prepare(`DELETE FROM query_reads WHERE EXISTS(SELECT 1 FROM json_each(query_reads.fragments) part
+        JOIN inbox i ON i.seq=json_extract(part.value,'$.seq')
+        JOIN scope_cancelled c ON c.agent_id=i.agent_id AND c.message_id=i.message_id
+        WHERE i.agent_id=?)`).run(agent);
       this.db.exec('COMMIT');
     } catch(error){this.db.exec('ROLLBACK');throw error;}
     return this.db.prepare('SELECT edit FROM scope_revisions WHERE agent_id=?').all(agent).map(row=>JSON.parse(String(row.edit)) as InboxRestriction);
@@ -247,8 +264,10 @@ export class InboxStore {
         coalesce((SELECT max(ord) FROM inbox_schedule),0),coalesce((SELECT max(watermark) FROM inbox_batch),0)))
         ON CONFLICT(key) DO UPDATE SET value=max(CAST(metadata.value AS INTEGER),CAST(excluded.value AS INTEGER))`).run();
       const ownedRead = `EXISTS(SELECT 1 FROM json_each(reads.fragments) part JOIN inbox i ON i.seq=json_extract(part.value,'$.seq') WHERE i.agent_id=?)`;
+      const ownedQueryRead = `EXISTS(SELECT 1 FROM json_each(query_reads.fragments) part JOIN inbox i ON i.seq=json_extract(part.value,'$.seq') WHERE i.agent_id=?)`;
       this.db.prepare(`DELETE FROM read_content WHERE (session_id,call_id) IN (SELECT session_id,call_id FROM reads WHERE ${ownedRead})`).run(agentId);
       this.db.prepare(`DELETE FROM reads WHERE ${ownedRead}`).run(agentId);
+      this.db.prepare(`DELETE FROM query_reads WHERE ${ownedQueryRead}`).run(agentId);
       for (const table of ['imported_parts', 'fragments', 'ingestions', 'receipts']) {
         this.db.prepare(`DELETE FROM ${table} WHERE seq IN (SELECT seq FROM inbox WHERE agent_id=?)`).run(agentId);
       }
@@ -258,7 +277,7 @@ export class InboxStore {
       }
       for (const sessionId of sessionIds) {
         this.db.prepare('INSERT OR IGNORE INTO inbox_deleted_sessions VALUES(?)').run(sessionId);
-        for (const table of ['reads', 'read_content', 'ingestions', 'work_waiting_facts']) this.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
+        for (const table of ['reads', 'query_reads', 'read_content', 'ingestions', 'work_waiting_facts', 'inbox_seen_threads']) this.db.prepare(`DELETE FROM ${table} WHERE session_id=?`).run(sessionId);
         this.db.prepare('DELETE FROM work_open_events WHERE session_id IN (SELECT session_id FROM work_checkpoints WHERE session_id=? OR root_session_id=?)').run(sessionId, sessionId);
         this.db.prepare('DELETE FROM work_checkpoints WHERE session_id=? OR root_session_id=?').run(sessionId, sessionId);
         this.db.prepare('DELETE FROM work_recovery WHERE root_session_id=?').run(sessionId);
@@ -291,7 +310,7 @@ export class InboxStore {
         coalesce((SELECT max(seq) FROM inbox),0),coalesce((SELECT max(watermark) FROM wakes),0),
         coalesce((SELECT max(ord) FROM inbox_schedule),0),coalesce((SELECT max(watermark) FROM inbox_batch),0),
         coalesce((SELECT CAST(value AS INTEGER) FROM metadata WHERE key='inbox_sequence'),0))+1),?,?,?,?,?)`)
-        .run(input.agent_id, input.conversation_id, input.message.id, JSON.stringify(input), Number(attention));
+        .run(input.agent_id, inputTarget(input), input.message.id, JSON.stringify(input), Number(attention));
       this.reviews.initialize(input);
       this.schedule(input, high, now);
       this.db.exec('COMMIT');
@@ -317,7 +336,7 @@ export class InboxStore {
           coalesce((SELECT max(seq) FROM inbox),0),coalesce((SELECT max(watermark) FROM wakes),0),
           coalesce((SELECT max(ord) FROM inbox_schedule),0),coalesce((SELECT max(watermark) FROM inbox_batch),0),
           coalesce((SELECT CAST(value AS INTEGER) FROM metadata WHERE key='inbox_sequence'),0))+1),?,?,?,?,?,?)`)
-          .run(input.agent_id,input.conversation_id,input.message.id,JSON.stringify(input),Number(attention),Number(control));
+          .run(input.agent_id,inputTarget(input),input.message.id,JSON.stringify(input),Number(attention),Number(control));
 
       }
       this.reviews.initialize(input);
@@ -350,7 +369,8 @@ export class InboxStore {
   projectReadReceipts(calls?: { sessionId: string; callId: string }[]): void {
     const scope = calls ? `
       FROM json_each(?) call
-      JOIN reads r ON r.session_id=json_extract(call.value,'$.sessionId') AND r.call_id=json_extract(call.value,'$.callId')
+      JOIN (SELECT session_id, call_id, fragments FROM reads UNION ALL SELECT session_id, call_id, fragments FROM query_reads) r
+        ON r.session_id=json_extract(call.value,'$.sessionId') AND r.call_id=json_extract(call.value,'$.callId')
       JOIN json_each(r.fragments) part
       JOIN ingestions g ON g.seq=json_extract(part.value,'$.seq')
     ` : 'FROM ingestions g';
@@ -467,25 +487,38 @@ export class InboxStore {
   /** Reconcile every unread source, including messages still pending or failed in review. */
   revokeUnavailableSources(agent: string, allowed: ReadonlySet<string>): void {
     const targets = this.db.prepare('SELECT DISTINCT target FROM inbox WHERE agent_id=? AND consumed=0').all(agent);
-    for (const {target} of targets) if (!allowed.has(String(target))) this.revokeSource(agent,String(target));
+    const revoked = new Set<string>();
+    for (const {target} of targets) {
+      const base = splitThreadTarget(String(target)).base;
+      if (!allowed.has(base) && !revoked.has(base)) { revoked.add(base); this.revokeSource(agent, base); }
+    }
   }
-  /** Remove a revoked source from future reads and frozen page caches. */
+  /** Remove a revoked source (main timeline and all its threads) from future reads and frozen page caches. */
   revokeSource(agent: string, target: string): void {
+    const base = splitThreadTarget(target).base;
+    const prefix = `${base}:%`;
     // Saved model projections changed shape; fragment ownership is stable across versions.
     this.db.prepare(`DELETE FROM reads WHERE EXISTS (
       SELECT 1 FROM json_each(reads.fragments) part JOIN inbox i ON i.seq=json_extract(part.value,'$.seq')
-      WHERE i.agent_id=? AND i.target=?)`).run(agent,target);
-    const rows = this.db.prepare('SELECT seq FROM inbox WHERE agent_id=? AND target=?').all(agent,target) as {seq:number}[];
+      WHERE i.agent_id=? AND (i.target=? OR i.target LIKE ?))`).run(agent,base,prefix);
+    this.db.prepare(`DELETE FROM query_reads WHERE EXISTS (
+      SELECT 1 FROM json_each(query_reads.fragments) part JOIN inbox i ON i.seq=json_extract(part.value,'$.seq')
+      WHERE i.agent_id=? AND (i.target=? OR i.target LIKE ?))`).run(agent,base,prefix);
+    const rows = this.db.prepare('SELECT seq FROM inbox WHERE agent_id=? AND (target=? OR target LIKE ?)').all(agent,base,prefix) as {seq:number}[];
     for(const {seq} of rows) {
       this.db.prepare('DELETE FROM imported_parts WHERE seq=?').run(seq);
       this.db.prepare('DELETE FROM fragments WHERE seq=?').run(seq);
     }
-    this.db.prepare(`INSERT INTO metadata(key,value) SELECT 'inbox_sequence',max(seq) FROM inbox WHERE agent_id=? AND target=? HAVING count(*)>0
-      ON CONFLICT(key) DO UPDATE SET value=max(CAST(metadata.value AS INTEGER),CAST(excluded.value AS INTEGER))`).run(agent,target);
-    this.db.prepare('DELETE FROM inbox_schedule WHERE seq IN (SELECT seq FROM inbox WHERE agent_id=? AND target=?)').run(agent,target);
-    this.db.prepare('DELETE FROM inbox WHERE agent_id=? AND target=?').run(agent,target);
-    this.db.prepare("DELETE FROM snapshots WHERE json_extract(data,'$.agent')=? AND json_extract(data,'$.target')=?").run(agent,target);
-    this.db.prepare('DELETE FROM targets WHERE agent_id=? AND target=?').run(agent,target);
+    this.db.prepare(`INSERT INTO metadata(key,value) SELECT 'inbox_sequence',max(seq) FROM inbox WHERE agent_id=? AND (target=? OR target LIKE ?) HAVING count(*)>0
+      ON CONFLICT(key) DO UPDATE SET value=max(CAST(metadata.value AS INTEGER),CAST(excluded.value AS INTEGER))`).run(agent,base,prefix);
+    this.db.prepare('DELETE FROM inbox_schedule WHERE seq IN (SELECT seq FROM inbox WHERE agent_id=? AND (target=? OR target LIKE ?))').run(agent,base,prefix);
+    this.db.prepare('DELETE FROM inbox WHERE agent_id=? AND (target=? OR target LIKE ?)').run(agent,base,prefix);
+    this.db.prepare("DELETE FROM snapshots WHERE json_extract(data,'$.agent')=? AND (json_extract(data,'$.target')=? OR json_extract(data,'$.target') LIKE ?)").run(agent,base,prefix);
+    this.db.prepare('DELETE FROM targets WHERE agent_id=? AND (target=? OR target LIKE ?)').run(agent,base,prefix);
+  }
+  /** Reset per-session thread context memory (e.g., after compaction) so the next read re-attaches thread_context. */
+  clearSeenThreads(sessionId: string): void {
+    this.db.prepare('DELETE FROM inbox_seen_threads WHERE session_id=?').run(sessionId);
   }
   private entries(agent: string, target?: string): Entry[] {
     return this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND (? IS NULL OR target=?) ORDER BY seq").all(agent, target ?? null, target ?? null) as unknown as Entry[];
@@ -523,6 +556,7 @@ export class InboxStore {
     try {
       this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(row.seq);
       this.db.prepare(`DELETE FROM reads WHERE EXISTS(SELECT 1 FROM json_each(reads.fragments) part WHERE json_extract(part.value,'$.seq')=?)`).run(row.seq);
+      this.db.prepare(`DELETE FROM query_reads WHERE EXISTS(SELECT 1 FROM json_each(query_reads.fragments) part WHERE json_extract(part.value,'$.seq')=?)`).run(row.seq);
       this.db.prepare('INSERT OR IGNORE INTO ingestions VALUES(?,?,?)').run(row.seq,sessionId,turn);
       this.db.exec('COMMIT');
       return true;
@@ -531,6 +565,7 @@ export class InboxStore {
   /** Retire unread context while preserving its raw journal/history and consumed history. */
   revokeSystemContext(agentId:string,messageId:string):void {
     this.db.prepare(`DELETE FROM reads WHERE EXISTS(SELECT 1 FROM json_each(reads.fragments) part JOIN inbox i ON i.seq=json_extract(part.value,'$.seq') WHERE i.agent_id=? AND i.message_id=?)`).run(agentId,messageId);
+    this.db.prepare(`DELETE FROM query_reads WHERE EXISTS(SELECT 1 FROM json_each(query_reads.fragments) part JOIN inbox i ON i.seq=json_extract(part.value,'$.seq') WHERE i.agent_id=? AND i.message_id=?)`).run(agentId,messageId);
     this.db.prepare('UPDATE inbox SET consumed=1 WHERE agent_id=? AND message_id=?').run(agentId,messageId);
   }
   /** List unread sources; personal projection omits host scheduling state. */
@@ -540,7 +575,8 @@ export class InboxStore {
     for (const row of entries) {
       const input = JSON.parse(row.payload) as RelayInput;
       const meta=input.metadata;
-      const source:Source = sources.get(row.target) ?? { target: row.target, name: this.targetName(agent,row.target,input), unread: 0, mentions: 0,
+      const { base, root } = splitThreadTarget(row.target);
+      const source:Source = sources.get(row.target) ?? { target: row.target, ...(root ? { parent_target: base } : {}), name: this.targetName(agent,row.target,input), unread: 0, mentions: 0,
         latest_message_at:null, conversation_type:String(meta.conversation_type),
         ...(personal ? {delivery:String(meta.personal_delivery)} : {requires_attention:false}) };
       source.unread++;
@@ -563,7 +599,8 @@ export class InboxStore {
     return { sources: sorted, ...(personal?{review_failures:this.reviews.failures(agent).map(({event_id,event_delivered,...failure})=>failure)}:{}) };
   }
   private targetName(agent: string, target: string, input: RelayInput): string {
-    return (this.db.prepare('SELECT name FROM targets WHERE agent_id=? AND target=?').get(agent,target) as {name:string}|undefined)?.name ?? String(input.metadata.conversation_title ?? target);
+    const base = splitThreadTarget(target).base;
+    return (this.db.prepare('SELECT name FROM targets WHERE agent_id=? AND target=?').get(agent,base) as {name:string}|undefined)?.name ?? String(input.metadata.conversation_title ?? base);
   }
   blocking(agent: string, target: string): boolean {
     return !!this.db.prepare(`SELECT 1 FROM inbox WHERE agent_id=? AND target=? AND consumed=0 AND attention=1
@@ -624,16 +661,62 @@ export class InboxStore {
     // Keep cursor offsets fixed, but revalidate eligibility at every unread page.
     // A saved cut is not permission to replay withdrawn or directly consumed content.
     const unread = (fragment: Snapshot['fragments'][number]) => !!this.db.prepare('SELECT 1 FROM inbox WHERE seq=? AND consumed=0 AND NOT EXISTS(SELECT 1 FROM fragments WHERE seq=? AND part=?)').get(fragment.seq,fragment.seq,fragment.part);
-    let selected = snapshot.fragments.slice(offset).filter(unread).slice(0, Math.min(4, Math.max(1, args.limit ?? 4)));
-    const sourceInput = (seq: number) => JSON.parse((this.db.prepare('SELECT payload FROM inbox WHERE seq=?').get(seq) as {payload:string}).payload) as RelayInput;
-    const first = selected.length ? sourceInput(selected[0]!.seq) : undefined;
+    const maxEntries = Math.min(MAX_INBOX_READ_ENTRIES, Math.max(1, args.limit ?? MAX_INBOX_READ_ENTRIES));
+    const candidates = snapshot.fragments.slice(offset).filter(unread).slice(0, maxEntries);
+    const inputCache = new Map<number, RelayInput>();
+    const sourceInput = (seq: number) => {
+      let cached = inputCache.get(seq);
+      if (!cached) {
+        cached = JSON.parse((this.db.prepare('SELECT payload FROM inbox WHERE seq=?').get(seq) as {payload:string}).payload) as RelayInput;
+        inputCache.set(seq, cached);
+      }
+      return cached;
+    };
+    const first = candidates.length ? sourceInput(candidates[0]!.seq) : undefined;
     const personal = first?.metadata.personal_delivery !== undefined;
-    if (personal) {
-      // A page shares source context; stop at a historical relationship boundary.
-      const context = (input: RelayInput) => JSON.stringify([input.metadata.personal_delivery,input.metadata.conversation_type,input.metadata.channel]);
-      const boundary = selected.findIndex(fragment => context(sourceInput(fragment.seq)) !== context(first!));
-      if (boundary !== -1) selected = selected.slice(0,boundary);
+    const firstContext = personal ? JSON.stringify([first!.metadata.personal_delivery, first!.metadata.conversation_type, first!.metadata.channel]) : undefined;
+    const selected: Fragment[] = [];
+    let totalChars = 0;
+    let totalImages = 0;
+    for (const fragment of candidates) {
+      const input = sourceInput(fragment.seq);
+      if (personal && JSON.stringify([input.metadata.personal_delivery, input.metadata.conversation_type, input.metadata.channel]) !== firstContext) {
+        // A page shares source context; stop at a historical relationship boundary.
+        break;
+      }
+      const partBlocks = this.parts(input, fragment.seq)[fragment.part] ?? [];
+      let chars = 0;
+      let images = 0;
+      for (const block of partBlocks) {
+        if (typeof block.text === 'string') chars += block.text.length;
+        if (typeof block.content_type === 'string' && isRasterImageMime(block.content_type)) images++;
+      }
+      if (selected.length > 0 && (totalChars + chars > MAX_INBOX_READ_CHARS || totalImages + images > MAX_INBOX_READ_IMAGES)) {
+        break;
+      }
+      selected.push(fragment);
+      totalChars += chars;
+      totalImages += images;
     }
+    const { base: baseTarget, root: threadRoot } = splitThreadTarget(args.target);
+    const alreadySeen = threadRoot
+      ? !!this.db.prepare('SELECT 1 FROM inbox_seen_threads WHERE session_id=? AND target=?').get(session, args.target)
+      : false;
+    const selectedInputs = selected.map(fragment => sourceInput(fragment.seq));
+    const reactivatedInput = threadRoot ? selectedInputs.find(input => input.metadata.thread_follow_reactivated === true) : undefined;
+    const reactivated = Boolean(reactivatedInput);
+    const contextInput = reactivatedInput ?? first;
+    const includeThreadContext = !!threadRoot && selected.length > 0 && ((!alreadySeen && !args.cursor) || reactivated)
+      && typeof contextInput?.metadata.thread_root_excerpt === 'string';
+    const truncated = contextInput?.metadata.thread_history_truncated === true;
+    const threadContext = includeThreadContext ? {
+      root_message_id: threadRoot,
+      root_sender: contextInput!.metadata.thread_root_sender ?? '',
+      root_excerpt: contextInput!.metadata.thread_root_excerpt,
+      earlier_replies: Array.isArray(contextInput!.metadata.thread_earlier) ? contextInput!.metadata.thread_earlier : [],
+      truncated,
+      ...(truncated ? { hint: 'Call read_messages with this target for full thread history.' } : {}),
+    } : undefined;
     const messages = selected.map(fragment => {
       const row = this.db.prepare('SELECT * FROM inbox WHERE seq=?').get(fragment.seq) as unknown as Entry;
       const input = JSON.parse(row.payload) as RelayInput;
@@ -650,7 +733,11 @@ export class InboxStore {
     });
     const next = selected.length ? snapshot.fragments.indexOf(selected.at(-1)!)+1 : snapshot.fragments.length;
     const body = present({ target: args.target,
-      ...(personal ? {name:this.targetName(agent,args.target,first!),conversation_type:first!.metadata.conversation_type,delivery:first!.metadata.personal_delivery,channel:first!.metadata.channel} : {}), messages, ...(snapshot.fragments.slice(next).some(unread) ? { next_cursor: Buffer.from(JSON.stringify({ id: snapshotId, offset: next })).toString('base64url') } : {}) });
+      ...(threadRoot ? { parent_target: baseTarget } : {}),
+      ...(personal ? {name:this.targetName(agent,args.target,first!),conversation_type:first!.metadata.conversation_type,delivery:first!.metadata.personal_delivery,channel:first!.metadata.channel} : {}),
+      ...(threadContext ? { thread_context: threadContext } : {}),
+      ...(reactivated ? { follow_reactivated: true, follow_reactivated_notice: 'You had unfollowed this thread; a mention or quote reactivated your follow.' } : {}),
+      messages, ...(snapshot.fragments.slice(next).some(unread) ? { next_cursor: Buffer.from(JSON.stringify({ id: snapshotId, offset: next })).toString('base64url') } : {}) });
     const text = JSON.stringify(body);
     this.db.prepare('INSERT INTO reads VALUES(?,?,?,?,?)').run(session, call, JSON.stringify(selected), text, hash(text));
     return body;
@@ -688,7 +775,7 @@ export class InboxStore {
     const row = this.db.prepare('SELECT body FROM reads WHERE session_id=? AND call_id=?').get(session, call) as { body: string } | undefined;
     if (!row) throw new Error('No matching inbox read');
     const body = JSON.parse(this.restrictedRead(session,call)??row.body) as { target: string; messages: { id: string; target?: string; content: { type: string; content_type?: string; url?: string }[] }[] };
-    return body.messages.flatMap(message => message.content.filter(part => part.content_type?.startsWith('image/')).map(part => ({
+    return body.messages.flatMap(message => message.content.filter(part => isRasterImageMime(part.content_type)).map(part => ({
       kind: 'chat' as const, conversationId: message.target ?? body.target, messageId: message.id, url: part.url!,
     })));
   }
@@ -703,9 +790,66 @@ export class InboxStore {
     return (this.db.prepare('SELECT DISTINCT i.target FROM inbox i JOIN ingestions g ON g.seq=i.seq WHERE g.session_id=? AND g.turn=? AND i.consumed=1').all(session, turn) as { target: string }[]).map(row => row.target);
   }
 
-  /** Find saved reads that could still consume an unread fragment in the destination. */
+  /** Record eligible plain-text unread inbox rows shown in a read_messages result for durable commit.
+   *
+   * Args:
+   *   agent: Trusted product Agent identity.
+   *   session: Execution session receiving the read_messages result.
+   *   call: Durable tool call identity.
+   *   rawResult: Unprojected query result containing canonical message_ids and completeness flags.
+   *   projectedResult: Exact model-visible JSON object whose serialized text DSH commits.
+   */
+  recordQueryRead(agent: string, session: string, call: string, rawResult: unknown, projectedResult: unknown): void {
+    if (!rawResult || typeof rawResult !== 'object' || Array.isArray(rawResult)) return;
+    const rawMessages = (rawResult as { messages?: unknown }).messages;
+    if (!Array.isArray(rawMessages) || !rawMessages.length) return;
+    const seenSeq = new Set<number>();
+    const selected: Fragment[] = [];
+    for (const item of rawMessages) {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
+      const msg = item as { message_id?: unknown; complete_message?: unknown };
+      if (typeof msg.message_id !== 'string' || !msg.message_id || msg.complete_message === false) continue;
+      const row = this.db.prepare(`SELECT seq, target, payload FROM inbox
+        WHERE agent_id=? AND message_id=? AND consumed=0 AND review_state='admitted'
+          AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0`).get(agent, msg.message_id) as { seq: number; target: string; payload: string } | undefined;
+      if (!row || seenSeq.has(row.seq)) continue;
+      const input = JSON.parse(row.payload) as RelayInput;
+      // High-risk, private-interaction, multi-part, or attachment/image items must still be read via inbox(read).
+      if (input.metadata.personal_actor_risk) continue;
+      if (Array.isArray(input.metadata.interaction_contexts) && input.metadata.interaction_contexts.length > 0) continue;
+      const parts = this.parts(input, row.seq);
+      if (parts.length !== 1) continue;
+      if (parts[0]!.some(block => typeof block.content_type === 'string' && isRasterImageMime(block.content_type))) continue;
+      if (this.db.prepare('SELECT 1 FROM fragments WHERE seq=? AND part=0').get(row.seq)) continue;
+      seenSeq.add(row.seq);
+      selected.push({ seq: row.seq, part: 0 });
+    }
+    if (!selected.length) return;
+    const digest = hash(JSON.stringify(projectedResult));
+    this.db.prepare('INSERT OR REPLACE INTO query_reads VALUES(?,?,?,?)').run(session, call, JSON.stringify(selected), digest);
+  }
+
+  /** Return canonical source refs committed by a read_messages call, if any. */
+  committedQuerySources(session: string, call: string): { conversation_id: string; message_id: string; complete_message: boolean }[] | undefined {
+    const row = this.db.prepare('SELECT fragments FROM query_reads WHERE session_id=? AND call_id=?').get(session, call) as { fragments: string } | undefined;
+    if (!row) return undefined;
+    const fragments = JSON.parse(row.fragments) as Fragment[];
+    const refs: { conversation_id: string; message_id: string; complete_message: boolean }[] = [];
+    for (const fragment of fragments) {
+      const entry = this.db.prepare('SELECT target, message_id FROM inbox WHERE seq=?').get(fragment.seq) as { target: string; message_id: string } | undefined;
+      if (!entry) continue;
+      refs.push({ conversation_id: splitThreadTarget(entry.target).base, message_id: entry.message_id, complete_message: true });
+    }
+    return refs;
+  }
+
+  /** Find saved reads (inbox or read_messages) that could still consume an unread fragment in the destination. */
   pendingReadCalls(session: string, targets: string[]): string[] {
-    return (this.db.prepare(`SELECT call_id FROM reads r WHERE session_id=? AND EXISTS (
+    return (this.db.prepare(`SELECT call_id FROM (
+      SELECT session_id, call_id, fragments FROM reads
+      UNION ALL
+      SELECT session_id, call_id, fragments FROM query_reads
+    ) r WHERE session_id=? AND EXISTS (
       SELECT 1 FROM json_each(r.fragments) fragment JOIN inbox i ON i.seq=json_extract(fragment.value,'$.seq')
       LEFT JOIN fragments f ON f.seq=i.seq AND f.part=json_extract(fragment.value,'$.part')
       WHERE i.attention=1 AND i.consumed=0 AND f.seq IS NULL AND i.target IN (SELECT value FROM json_each(?))
@@ -716,31 +860,47 @@ export class InboxStore {
   }
   confirmReceipt(seq: number, status: string): void { this.db.prepare('INSERT OR REPLACE INTO receipts VALUES(?,?)').run(seq, status); }
   /** Match the exact committed tool body, never a summary, truncation, or failed call. */
-  commitRead(session: string, call: string, content: { type: string; text?: string }[], isError: boolean, turn?: number): boolean {
+  commitRead(session: string, call: string, content: { type: string; text?: string; contextItemId?: string }[], isError: boolean, turn?: number): boolean {
+    if (isError) return false;
     const read = this.db.prepare('SELECT fragments,digest FROM reads WHERE session_id=? AND call_id=?').get(session, call) as { fragments: string; digest: string } | undefined;
-    if (!read || isError) return false;
-    const prepared = this.db.prepare('SELECT digest FROM read_content WHERE session_id=? AND call_id=?').get(session, call) as { digest: string } | undefined;
-    if(prepared){
-      const digest=prepared.digest.startsWith('[')?JSON.stringify(content.map(block=>hash(JSON.stringify(block)))):hash(JSON.stringify(content));
-      if(prepared.digest!==digest)return false;
-    } else if(this.imageReferences(session,call).length || read.digest!==hash(content.filter(block=>block.type==='text').map(block=>block.text??'').join('')))return false;
-    const fragments = JSON.parse(read.fragments) as Fragment[];
+    if (read) {
+      const prepared = this.db.prepare('SELECT digest FROM read_content WHERE session_id=? AND call_id=?').get(session, call) as { digest: string } | undefined;
+      if(prepared){
+        const digest=prepared.digest.startsWith('[')?JSON.stringify(content.map(block=>hash(JSON.stringify(block)))):hash(JSON.stringify(content));
+        if(prepared.digest!==digest)return false;
+      } else if(this.imageReferences(session,call).length || read.digest!==hash(content.filter(block=>block.type==='text').map(block=>block.text??'').join('')))return false;
+      return this.commitFragments(session, JSON.parse(read.fragments) as Fragment[], turn);
+    }
+    const queryRead = this.db.prepare('SELECT fragments,digest FROM query_reads WHERE session_id=? AND call_id=?').get(session, call) as { fragments: string; digest: string } | undefined;
+    if (!queryRead) return false;
+    const allText = content.filter(block => block.type === 'text').map(block => block.text ?? '').join('');
+    const coreText = content.filter(block => block.type === 'text' && !block.contextItemId).map(block => block.text ?? '').join('');
+    if (queryRead.digest !== hash(allText) && queryRead.digest !== hash(coreText)) return false;
+    return this.commitFragments(session, JSON.parse(queryRead.fragments) as Fragment[], turn, true);
+  }
+  private commitFragments(session: string, fragments: Fragment[], turn?: number, requireAdmitted = false): boolean {
     this.db.exec('BEGIN IMMEDIATE');
     try {
+      let committedAny = false;
       for (const fragment of fragments) {
-        this.db.prepare('INSERT OR IGNORE INTO fragments VALUES(?,?)').run(fragment.seq, fragment.part);
-        const row = this.db.prepare('SELECT seq,payload FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; payload: string } | undefined;
+        const row = this.db.prepare('SELECT seq,target,payload,review_state,consumed FROM inbox WHERE seq=?').get(fragment.seq) as { seq: number; target: string; payload: string; review_state: string; consumed: number } | undefined;
         // Older revocations can leave saved reads behind; reject their entire consumption.
         if (!row) { this.db.exec('ROLLBACK'); return false; }
+        if (requireAdmitted && row.review_state !== 'admitted') continue;
+        this.db.prepare('INSERT OR IGNORE INTO fragments VALUES(?,?)').run(fragment.seq, fragment.part);
+        if (splitThreadTarget(row.target).root) {
+          this.db.prepare('INSERT OR IGNORE INTO inbox_seen_threads VALUES(?,?)').run(session, row.target);
+        }
         const count = (this.db.prepare('SELECT count(*) AS n FROM fragments WHERE seq=?').get(fragment.seq) as { n: number }).n;
         if (count === this.parts(JSON.parse(row.payload) as RelayInput, row.seq).length) {
+          if (row.consumed === 0) committedAny = true;
           this.db.prepare('UPDATE inbox SET consumed=1 WHERE seq=?').run(fragment.seq);
           if (turn !== undefined) this.db.prepare('INSERT OR IGNORE INTO ingestions VALUES(?,?,?)').run(fragment.seq, session, turn);
         }
       }
       this.db.exec('COMMIT');
+      return requireAdmitted ? committedAny : true;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
-    return true;
   }
   /** Read durable product processing positions for one root and its children. */
   workCheckpoints(rootSessionId:string):Record<string,WorkCheckpoint> {
@@ -850,7 +1010,7 @@ export class InboxStore {
     return this.db.prepare('SELECT id,target,body,state,result,source FROM publications WHERE id=? OR substr(id,1,?)=? ORDER BY rowid DESC LIMIT 1').get(prefix,prefix.length+1,prefix+':') as ReturnType<InboxStore['incidentPublication']>;
   }
   pendingPublications(session: string): {id:string;target:string;body:string;source:string|null}[] { return this.db.prepare("SELECT id,target,body,source FROM publications WHERE state IN ('sending','unknown') AND substr(id,1,?)=?").all(session.length+1,`${session}:`) as {id:string;target:string;body:string;source:string|null}[]; }
-  preparePublication(id: string, target: string, body: string, agentId?: string, source?: {turn?: number; seq?: number; text: string}): void {
+  preparePublication(id: string, target: string, body: string, agentId?: string, source?: {turn?: number; seq?: number; threadRoot?:string; text: string}): void {
     this.db.prepare(`INSERT INTO publications(id,target,body,state,result,agent_id,source) VALUES(?,?,?,'prepared',NULL,?,?)
       ON CONFLICT(id) DO UPDATE SET source=excluded.source WHERE publications.source IS NULL AND excluded.source IS NOT NULL`)
       .run(id, target, body, agentId ?? null, source ? JSON.stringify(source) : null);

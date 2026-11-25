@@ -1,7 +1,23 @@
 import type { InteractionSnapshot, MessageInteractive } from './interactive-types.js';
 
 /** Stable chat presentation fields; provider/tool-specific contents remain opaque. */
-export interface ChatAttachment {url?: string; content_type?: string; file_name?: string; [field: string]: unknown}
+export interface ChatAttachment {url?: string; content_type?: string; file_name?: string; attachment_id?: string; [field: string]: unknown}
+
+/** Safe raster image MIME types eligible for inline preview and vision decoding. */
+export const RASTER_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+/** Check whether a declared MIME type is a safe raster image (excludes SVG and other active/non-raster formats).
+ *
+ * Args:
+ *   contentType: Raw or parameterized MIME string.
+ * Returns:
+ *   True only for PNG, JPEG, GIF, or WebP.
+ */
+export function isRasterImageMime(contentType: string | null | undefined): boolean {
+  if (typeof contentType !== 'string') return false;
+  const normalized = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+  return RASTER_IMAGE_MIME_TYPES.has(normalized);
+}
 export interface ChatToolCall {
   id: string;
   name?: string;
@@ -40,7 +56,7 @@ interface StreamCommon {
 interface MessageStream extends StreamCommon {message_id: string; delivery_status?: string}
 export interface ChatTurnStart extends StreamCommon {
   kind: 'turn_start'; agent_id: string; agent_user_id?: string;
-  conversation_id?: string; to_user_id?: string;
+  conversation_id?: string; to_user_id?: string; thread_root_message_id?: string;
   shadow_message_id?: string; idempotency_key?: string;
   background_returns?: unknown[];
   external_reply?: string;
@@ -60,6 +76,7 @@ export type ChatStreamFact = ChatTurnStart
 export interface ChatStreamReceipt {kind?: ChatStreamFact['kind']; run_id?: string; message_id?: string; conversation_id?: string}
 export interface AgentPublication {
   reply_to_message_id?: string;
+  in_thread_of?: string;
   node_id?: string;
   lifecycle_revision?: number | null;
   from_session_id: string;
@@ -98,7 +115,7 @@ function quoteExcerpt(text: string): string {
 export function projectChatReplyContext(reply: ChatReplyReference) {
   const text = quoteExcerpt(reply.content);
   const attachmentNames = reply.attachments.map(attachment =>
-    attachment.file_name || (attachment.content_type?.startsWith('image/') ? 'Image' : 'File'));
+    attachment.file_name || (isRasterImageMime(attachment.content_type) ? 'Image' : 'File'));
   return {
     message_id: reply.message_id,
     sender: { name: reply.sender.display_name, type: reply.sender.type },
@@ -121,6 +138,14 @@ export interface ChatMessage {
   sender: ChatActor;
   work_record_deleted?: true;
   reply_to?: ChatReplyReference;
+  thread_root_message_id?: string;
+  thread?: {
+    reply_count: number;
+    recent_replies?: {id: string; sender_user_id: string; display_name: string; preview: string}[];
+    latest_preview?: string;
+    latest_at?: string;
+    participants?: {id: string; display_name: string}[];
+  };
   attachments: ChatAttachment[]; tool_calls: ChatToolCall[]; thinking: ChatThinking[]; background_returns: unknown[];
   reply_process: ChatProcessItem[]; permission_requests: ChatPermission[]; token_usage: ChatUsage | null;
   system_notice: unknown; interaction_reply: InteractionSnapshot | null; interactive?: MessageInteractive;

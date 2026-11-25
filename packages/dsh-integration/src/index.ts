@@ -69,6 +69,7 @@ export interface AgentConfiguration {
   personal?: {bindingId:string;ownerId:string;conversationId:string;epoch:number};
   agentId: string;
   displayName?: string;
+  executionNode?: import('@nano/product-contracts').AgentConfiguration['executionNode'];
   workspace?: string;
   revision: string;
   provider: string;
@@ -354,6 +355,8 @@ export default class NanoRuntime {
         // Historical execution choices survive resume, but approval follows the current owner configuration.
         config.approval = desired.approval;
       }
+      // A history branch preserves execution choices, while node identity comes from the running host.
+      config.executionNode = desired.executionNode;
       if (desired.personal) { config.personal = desired.personal; assertPersonalConfiguration(config); }
       await scopes.attachAgent(agent, config, (await knowledge).isWorkWorker(agent, config));
       await (await approval).attach(agent, config);

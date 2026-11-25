@@ -6,12 +6,13 @@ import type { Conversation } from "../chat-types";
  * an IM user UUID rather than agent_id, so names keep colors aligned across views.
  */
 const AVATAR_PALETTE = [
-  { background: "#e4dbcf", foreground: "#6b5945" },
-  { background: "#d9dfd1", foreground: "#506345" },
-  { background: "#dfd8e8", foreground: "#69567b" },
-  { background: "#e7d7dc", foreground: "#79525f" },
-  { background: "#cbdedb", foreground: "#2f5954" },
-  { background: "#d5ddea", foreground: "#485c7d" }
+  { background: "#ffccac", foreground: "#733b27" },
+  { background: "#bfe8d9", foreground: "#275b49" },
+  { background: "#e2d8ff", foreground: "#57408c" },
+  { background: "#ffd0e3", foreground: "#783955" },
+  { background: "#acdfef", foreground: "#214d63" },
+  { background: "#ffdb80", foreground: "#634621" },
+  { background: "#cadbff", foreground: "#364c83" }
 ];
 
 /** Deterministic color from a curated palette, seeded by the full display name. */
@@ -107,12 +108,13 @@ export function Avatar({ initials, color, size = 32, status, personal = false, a
 }
 
 /** Group mark shared by the sidebar and chat header. */
-export function GroupAvatar({ size = 36, label }: { size?: number; label: string }) {
+export function GroupAvatar({ size = 36, label, groupId }: { size?: number; label: string; groupId: string }) {
+  const color = colorForAgentSeed(groupId);
   return (
     <span role="img" aria-label={label} style={{
       width: size, height: size, flexShrink: 0, display: "inline-flex",
       alignItems: "center", justifyContent: "center",
-      borderRadius: size * 0.275, background: "var(--im-group-avatar)", color: "var(--im-group-avatar-text)"
+      borderRadius: size * 0.275, background: color, color: foregroundForAvatar(color)
     }}>
       <svg width={size * 0.525} height={size * 0.525} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M18 21a8 8 0 0 0-16 0" />

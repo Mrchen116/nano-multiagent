@@ -5,6 +5,8 @@ import type { MessageMetadata } from './message-records.js';
 export type SendPrincipal = {kind?:'user';id:string;username:string} | {kind:'gateway';node_id:string;owner_id:string;node_epoch:number};
 export interface MessageInput {
   reply_to_message_id?:string;
+  thread_root_message_id?:string;
+  in_thread_of?:string;
   content?:string;
   attachments?:ChatAttachment[]|null;
   sender?:{id?:string;type?:string};
@@ -24,7 +26,7 @@ function object(value:unknown):Record<string,unknown> {
 /** Parse the HTTP shape once; interaction schemas remain with Interactions. */
 export function messageInput(value:unknown):MessageInput {
   const row=object(value??{});
-  for(const key of ['reply_to_message_id','content','sender_user_id','sender_type','created_at','sender_display_name','sender_source_id'])if(row[key]!==undefined&&typeof row[key]!=='string')fail(422,`invalid ${key}`);
+  for(const key of ['reply_to_message_id','thread_root_message_id','in_thread_of','content','sender_user_id','sender_type','created_at','sender_display_name','sender_source_id'])if(row[key]!==undefined&&typeof row[key]!=='string')fail(422,`invalid ${key}`);
   if(row.timezone!=null&&typeof row.timezone!=='string')fail(422,'invalid timezone');
   if(row.lifecycle_revision!=null&&(typeof row.lifecycle_revision!=='number'||!Number.isFinite(row.lifecycle_revision)))fail(422,'invalid lifecycle_revision');
   if(row.suppress_relay!==undefined&&typeof row.suppress_relay!=='boolean')fail(422,'invalid suppress_relay');

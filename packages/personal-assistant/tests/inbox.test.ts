@@ -461,3 +461,90 @@ it('retains the exact owner image from a mixed read and verifies its projected i
     expect(store.imageReferences('s','pictures')).toEqual(['/im/media/owner']);
   }finally{store.close();}
 });
+
+it('budgets inbox(read) pages by 20 entries, 8000 text chars, and 4 images while always returning at least 1 fragment', () => {
+  const store = new InboxStore(':memory:');
+  try {
+    // 1. Entry cap (25 short messages -> 20 + 5)
+    for (let i = 1; i <= 25; i++) store.receive(input(`m-${i}`, `log #${i}`, 'group-a'), i === 25);
+    const p1 = store.read('alice', 'main', 'c-1', { target: 'group-a' }) as { messages: { id: string }[]; next_cursor?: string };
+    expect(p1.messages).toHaveLength(20);
+    expect(p1.next_cursor).toBeTruthy();
+    const p2 = store.read('alice', 'main', 'c-2', { target: 'group-a', cursor: p1.next_cursor }) as { messages: { id: string }[]; next_cursor?: string };
+    expect(p2.messages).toHaveLength(5);
+    expect(p2.next_cursor).toBeUndefined();
+
+    // 2. Character cap (3 x 3500 chars -> 2 on page 1, 1 on page 2)
+    for (let i = 1; i <= 3; i++) store.receive(input(`big-${i}`, 'x'.repeat(3500), 'group-b'), true);
+    const b1 = store.read('alice', 'main', 'b-1', { target: 'group-b' }) as { messages: { id: string }[]; next_cursor?: string };
+    expect(b1.messages.map(m => m.id)).toEqual(['big-1', 'big-2']);
+    expect(b1.next_cursor).toBeTruthy();
+    const b2 = store.read('alice', 'main', 'b-2', { target: 'group-b', cursor: b1.next_cursor }) as { messages: { id: string }[]; next_cursor?: string };
+    expect(b2.messages.map(m => m.id)).toEqual(['big-3']);
+    expect(b2.next_cursor).toBeUndefined();
+
+    // 3. Image cap (6 image messages -> 4 images max per page)
+    for (let i = 1; i <= 6; i++) {
+      const img = input(`img-${i}`, `pic ${i}`, 'group-c');
+      img.message.attachments.push({ url: `/im/media/p${i}`, content_type: 'image/png' });
+      store.receive(img, true);
+    }
+    const i1 = store.read('alice', 'main', 'i-1', { target: 'group-c' }) as { messages: { content: { content_type?: string }[] }[]; next_cursor?: string };
+    const imageCount = i1.messages.flatMap(m => m.content).filter(b => b.content_type?.startsWith('image/')).length;
+    expect(imageCount).toBe(4);
+    expect(i1.next_cursor).toBeTruthy();
+  } finally { store.close(); }
+});
+
+it('syncs eligible plain-text read_messages results to inbox consumption while keeping images, risks, and partial reads gated', () => {
+  const store = new InboxStore(':memory:');
+  try {
+    const plain = input('plain-1', 'hello', 'group-a');
+    plain.metadata.agent_receipt = true;
+    const mention = input('mention-2', '@alice ping', 'group-a');
+    const partial = input('partial-3', 'partial text', 'group-a');
+    const withImage = input('img-4', 'see pic', 'group-a');
+    withImage.message.attachments.push({ url: '/im/media/pic', content_type: 'image/png' });
+    const risky = input('risk-5', 'suspicious', 'group-a');
+    risky.metadata.personal_actor_risk = { status: 'warning', reason: 'untrusted' };
+
+    store.acceptRelay(plain, false);
+    store.confirmRelay(plain.relay_task_id, 'accepted');
+    store.acceptRelay(mention, true);
+    store.acceptRelay(partial, true);
+    store.acceptRelay(withImage, true);
+    store.acceptRelay(risky, true);
+
+    const raw = {
+      target: 'group-a',
+      messages: [
+        { message_id: 'plain-1', complete_message: true },
+        { message_id: 'mention-2', complete_message: true },
+        { message_id: 'partial-3', complete_message: false },
+        { message_id: 'img-4', complete_message: true },
+        { message_id: 'risk-5', complete_message: true },
+      ],
+    };
+    const projected = { ...raw, target: 'c_grp1' };
+    store.recordQueryRead('alice', 'main', 'rm-call-1', raw, projected);
+    expect(store.pendingReadCalls('main', ['group-a'])).toEqual(['rm-call-1']);
+    // Reject tampered or error commits
+    expect(store.commitRead('main', 'rm-call-1', [{ type: 'text', text: '{"tampered":true}' }], false, 2)).toBe(false);
+    expect(store.commitRead('main', 'rm-call-1', [{ type: 'text', text: JSON.stringify(projected) }], true, 2)).toBe(false);
+    // Accept exact commit even when DSH appends a contextItemId metadata block
+    expect(store.commitRead('main', 'rm-call-1', [
+      { type: 'text', text: JSON.stringify(projected) },
+      { type: 'text', text: '\n[id: 9]', contextItemId: '9' },
+    ], false, 2)).toBe(true);
+
+    // plain-1 and mention-2 were consumed; partial-3, img-4, and risk-5 remain unread in inbox!
+    const remaining = store.read('alice', 'main', 'inbox-after', { target: 'group-a' }) as { messages: { id: string }[] };
+    expect(new Set(remaining.messages.map(m => m.id))).toEqual(new Set(['partial-3', 'img-4', 'risk-5']));
+    expect(store.committedQuerySources('main', 'rm-call-1')).toEqual([
+      { conversation_id: 'group-a', message_id: 'plain-1', complete_message: true },
+      { conversation_id: 'group-a', message_id: 'mention-2', complete_message: true },
+    ]);
+    store.projectReadReceipts([{ sessionId: 'main', callId: 'rm-call-1' }]);
+    expect(store.pendingRelays().find(r => r.input.message.id === 'plain-1')?.status).toBe('read');
+  } finally { store.close(); }
+});

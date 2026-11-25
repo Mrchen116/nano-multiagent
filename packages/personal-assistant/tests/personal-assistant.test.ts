@@ -319,3 +319,42 @@ it('keeps a PA screenshot private until reviewed and reconciles a lost shared co
     expect(uploads).toBe(1);
   } finally {f.inbox.close();f.store.close();}
 });
+
+it('stages PA local_files privately in owner DM before review and reconciles unknown commits without re-uploading', async () => {
+  const fileAttachment = { url: '/im/v1/conversations/c_owner/attachments/csv1', content_type: 'text/csv', file_name: 'metrics.csv' };
+  let uploads = 0;
+  let preflightSeen = false;
+  const f = fixture('allow');
+  const pa = new PersonalAssistant({
+    nodeId: 'node', ownerId: 'owner', agents: [f.config], store: f.store, inbox: f.inbox, runtime: f.runtime, relay: f.relay,
+    uploadAttachment: async request => {
+      expect(request).toMatchObject({ agentId: 'pa', conversationId: 'c_owner', path: '/tmp/metrics.csv' });
+      uploads++;
+      return fileAttachment;
+    },
+    onError: () => {},
+  });
+  const original = f.relay.request;
+  let committed = false;
+  f.relay.request = async (type, payload) => {
+    if (type === 'pa.action.commit') {
+      committed = true;
+      throw new RelayDeliveryError('Response lost', 'unknown');
+    }
+    if (type === 'pa.action.status') {
+      if (payload.prepare_attachment === true) preflightSeen = true;
+      return { type: 'pa.action.status.result', payload: { ok: true, result: { found: committed, message_id: 'm-csv', conversation_id: 'c_peer' } } };
+    }
+    return original(type, payload);
+  };
+  const call = { ...f.call, args: { ...f.call.args, local_files: ['/tmp/metrics.csv'] } };
+  try {
+    await expect(pa.send(f.config, f.binding, call)).resolves.toMatchObject({ status: 'unknown', operation_id: 'op' });
+    expect(preflightSeen).toBe(true);
+    expect(f.calls.find(c => c.type === 'pa.action.prepare')?.payload).toMatchObject({ attachments: [fileAttachment] });
+    expect(f.calls.some(c => c.type === 'agent.message')).toBe(false);
+    expect(f.reviews).toHaveLength(1);
+    await expect(pa.send(f.config, f.binding, call)).resolves.toMatchObject({ status: 'sent', message_id: 'm-csv' });
+    expect(uploads).toBe(1);
+  } finally { f.inbox.close(); f.store.close(); }
+});

@@ -166,8 +166,10 @@ it('drops revoked sources at the deadline before steering the busy root',async()
     await f.product.receive(f.input('retained','background-keep'));
     f.busy();f.excluded.add('background');await vi.advanceTimersByTimeAsync(600000);
     expect(f.submitted).toHaveLength(1);
-    expect(f.submitted[0].content[0].text).not.toContain('"target":"background"');
-    expect(f.submitted[0].content[0].text).toContain('"target":"background-keep"');
+    const summary = JSON.parse(f.submitted[0].content[0].text.split('\n').at(-1));
+    expect(summary.sources).toHaveLength(1);
+    expect(summary.sources[0].target).toMatch(/^c_[a-f0-9]{6}$/);
+    expect(f.inbox.check('pa', true).sources.map(source => source.target)).toEqual(['background-keep']);
   }finally{await f.close();vi.useRealTimers();}
 });
 

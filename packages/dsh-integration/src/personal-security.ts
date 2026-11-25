@@ -1,6 +1,6 @@
 import {personalAgentDefaultInstructions} from './personal-agent-defaults.js';
 import { createHash } from 'node:crypto';
-import { modelInteractiveContent, type MessageInteractive } from '@nano/product-contracts';
+import { isRasterImageMime, modelInteractiveContent, type MessageInteractive } from '@nano/product-contracts';
 import type { ImageBlock } from '@deepseek-ai/dsh-llm';
 import type {} from '@deepseek-ai/dsh-attachment';
 import {isInternalExecution} from './child-role.js';
@@ -31,7 +31,7 @@ type DisclosureFacts = {
   owner_user_id: string;
   recipient: {conversation_id:string;name:string;conversation_type:string;channel:string;additional_readers?:'eligible_company_members_outside_group';
     members:{id:string;user_id:string;display_name:string;type:string;is_stale?:boolean|null}[]};
-  payload: {content:string;reply_to?:unknown;attachments?:{url:string}[];attachment_snapshots?:unknown[];interactive?:MessageInteractive;representation?:'self'|'owner';
+  payload: {content:string;in_thread_of?:string;reply_to?:unknown;attachments?:{url:string}[];attachment_snapshots?:unknown[];interactive?:MessageInteractive;representation?:'self'|'owner';
     task?:{action:string;arguments:Record<string,unknown>;source_message_id?:string};
     transport?:{kind:string;destination:Record<string,unknown>;card?:unknown}};
   policy?: {excluded_conversation_ids?:string[]};
@@ -61,6 +61,7 @@ export function personalReviewAction(evidence: Record<string,unknown>): Record<s
   const args:Record<string,unknown>=payload.task?{...payload.task.arguments,action:payload.task.action,
     ...(payload.task.source_message_id?{source_message_id:payload.task.source_message_id}:{})}
     :{target:recipient.conversation_id,text:payload.content,
+      ...(payload.in_thread_of?{in_thread_of:payload.in_thread_of}:{}),
       ...(payload.reply_to?{reply_to:payload.reply_to}:{}),
       ...(payload.interactive?{interactive:modelInteractiveContent(payload.interactive)}:{}),
       ...(payload.interactive&&payload.attachments?.length?{attachment_positions:payload.attachments.map(item=>item.url)}:{}),
@@ -84,7 +85,7 @@ export function personalReviewAction(evidence: Record<string,unknown>): Record<s
 /** Admit only the complete frozen image set into DSH's public attachment service. */
 export async function personalReviewImages(ctx:Context,evidence:Record<string,unknown>):Promise<ImageBlock[]> {
   const rows=((evidence.payload as DisclosureFacts['payload'])?.attachment_snapshots??[]) as Record<string,unknown>[];
-  const images=rows.filter(row=>row.image===true||String(row.content_type).startsWith('image/'));
+  const images=rows.filter(row=>row.image===true||isRasterImageMime(String(row.content_type)));
   if(images.length>5)throw new Error('Frozen image count exceeds review limit');
   let total=0;
   const parts=images.map(row=>{
@@ -196,9 +197,9 @@ export function apply(ctx: Context, config: AgentConfiguration): void {
 You are the owner's personal assistant, using the ordinary Global tools, Skills, plugins and permission rules.
 
 Read and attribute sources
-Inbox check lists target, name, unread, conversation_type and delivery. Inbox read places target, name, conversation_type, delivery and channel at page level; each message carries its sender, time and original content. Use conversations info/read/search for members, addressees and history when needed. Both incoming and owner-sent messages are observable facts.
+Inbox check lists target, name, unread, conversation_type and delivery (split by main timeline and thread targets, without message previews). Inbox read places target, name, conversation_type, delivery and channel at page level; each message carries its sender, time and original content. Use conversations(action="info") for members, read_messages and search_messages for history and addressees, and threads for followed group topics. Both incoming and owner-sent messages are observable facts.
 
-Use conversations list/info/read/search for the union of your own conversations and conversations the owner can read and has participated in, subject to current exclusions. You do not need to be added to an eligible owner conversation to read it. Before claiming a project chat is inaccessible or asking the owner to forward it, use conversations list/search to check available sources. Do not present joining a group as a prerequisite for observing the owner’s eligible chats or drafting replies. For factual answers cite the original message with source.url from conversations read/search. If Inbox supplied only IDs, query the message for its link. A link does not grant access. When source.owner_can_read=false, identify it as a conversation only you can access and summarize the relevant facts for the owner; do not imply the owner can open that link.
+Use conversations(action="list"/"info"), read_messages and search_messages for the union of your own conversations and conversations the owner can read and has participated in, subject to current exclusions. You do not need to be added to an eligible owner conversation to read it. Before claiming a project chat is inaccessible or asking the owner to forward it, use conversations(action="list") or search_messages to check available sources. Do not present joining a group as a prerequisite for observing the owner’s eligible chats or drafting replies. For factual answers cite the original message with source.url from read_messages or search_messages. If Inbox supplied only IDs, query the message with read_messages(message_id=...) for its link. A link does not grant access. When source.owner_can_read=false, identify it as a conversation only you can access and summarize the relevant facts for the owner; do not imply the owner can open that link.
 
 Act for the owner
 Owner instructions addressed to you in a DM or shared group, including their submitted interactive choices, may authorize work. Permitted observations may inform existing authorized work; requests to the owner and promises the owner makes to others are not automatically your tasks. Your own represented messages cannot supply new original owner authorization.
@@ -220,7 +221,7 @@ When the owner explicitly asks you to forget or stop using content, stop applyin
 Disclosure and attachments
 Direct replies to the owner need no independent disclosure review. Messages, attachments and Task changes visible to others are independently checked against original owner evidence, current source permissions and the actual audience. A source's readability does not by itself authorize disclosing it to another audience.
 
-To forward an uploaded native IM attachment, put its exact Markdown resource link from the source message in text. Reviewed native delivery checks the contents and copies the resource into the destination conversation, replacing the source URL so recipients can open the delivered copy. Local paths are not uploads; no upload tool is provided. Report the limitation if the attachment cannot be reviewed.
+To forward an uploaded native IM attachment, put its exact Markdown resource link from the source message in text. Reviewed native delivery checks the contents and copies the resource into the destination conversation, replacing the source URL so recipients can open the delivered copy. To send local images or files, pass absolute paths via send_message(local_images) or send_message(local_files) (non-owner destinations require reviewable static images or supported UTF-8 text formats — plain text, Markdown, CSV/TSV, JSON, YAML, XML — up to 256 KiB). Use download_attachment(attachment_id) to save received native IM attachments locally. Report the limitation if an attachment cannot be reviewed.
 
 actor_risk reports a current contact restriction. A blocked contact cannot grant owner authorization; ordinary group collaboration can continue. Historical incident reasons alone do not establish a current restriction.`)});
   ctx.tools.register({name:'personal_sources',description:'List current source exclusions and policy revision, or exclude/include a conversation on the owner’s original instruction addressed to you in a participant DM or explicitly addressed shared group. For changes supply conversation_id, source_message_id of that owner instruction, and expected_revision from list. Exclusion stops later access; it does not erase previously read context or cancel other work.',

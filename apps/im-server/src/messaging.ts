@@ -29,6 +29,7 @@ import {
 } from "./context.js";
 import { conversationAccess, conversationRowAccess, qualifiedUser, readableConversationIds } from "./conversation-access.js";
 import { searchMessages } from './message-search.js';
+import { assertThreadQuote, listUnread, markThreadRead, threadAddressesAgent, threadRelayMetadata, threadRootOrFail } from './threads.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
 import { InteractionBackground } from './interaction-background.js';
@@ -152,7 +153,7 @@ export class Messaging {
               CASE WHEN i.message_id IS NOT NULL THEN json_extract(m.attachments_json, '$[0].file_name') END AS card_attachment_name
        FROM messages m LEFT JOIN message_interactive i ON i.message_id=m.id
        LEFT JOIN users u ON u.id=m.sender_user_id
-       WHERE m.conversation_id=? AND m.created_at=? ORDER BY m.rowid DESC LIMIT 1`,
+       WHERE m.conversation_id=? AND m.thread_root_id IS NULL AND m.created_at=? ORDER BY m.rowid DESC LIMIT 1`,
       id, c.last_message_at,
     ) : undefined;
     // Stored previews can end inside a mention tag. Resolve from the full message
@@ -483,7 +484,7 @@ export class Messaging {
       this.access(principal, previous.conversation_id, agentId);
       const saved = this.message(previous.message_id);
       const savedInteractive = this.interactions.publication(previous.message_id);
-      if (saved.reply_to?.message_id !== p.reply_to_message_id || saved.content !== p.text.trim() || sortedJsonAscii(saved.attachments.map(item => item.url)) !== sortedJsonAscii((p.attachments ?? []).map(item => item.url))
+      if (saved.reply_to?.message_id !== p.reply_to_message_id || saved.thread_root_message_id !== p.in_thread_of || saved.content !== p.text.trim() || sortedJsonAscii(saved.attachments.map(item => item.url)) !== sortedJsonAscii((p.attachments ?? []).map(item => item.url))
         || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
         || this.resolveTarget(agentId, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
       return {
@@ -499,7 +500,9 @@ export class Messaging {
     if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
     this.access(principal, id, agentId, "write");
     const attachments = this.publicationAttachments(id, p.attachments);
+    const threadRoot=threadRootOrFail(db,id,p.in_thread_of);
     const replyTo=this.replyReference(id,p.reply_to_message_id);
+    assertThreadQuote(db,id,threadRoot,replyTo?.message_id);
     const rawTarget = p.to.replace(/^(?:conversation|agent|user):/, "");
     const targetUser = one(
       db,
@@ -523,7 +526,7 @@ export class Messaging {
       attachments,
       key,
       'completed',
-      { interactive, reply_to:replyTo, publish: false },
+      { interactive, reply_to:replyTo, thread_root_id:threadRoot, publish: false },
     );
     if (p.background_returns)
       this.records.background(created.id,p.background_returns);
@@ -585,7 +588,9 @@ export class Messaging {
     for (const a of attachments) a.url = this.validateReferences(p, id, a.url!, agentId);
     const old=key?this.records.attempt(id,key):undefined;
     if (old) {assertMessageAttempt(old,sender,type,messageAttemptPayload(b));return this.message(old.id);}
+    const threadRoot=threadRootOrFail(this.db,id,b.thread_root_message_id ?? b.in_thread_of);
     const replyTo=this.replyReference(id,b.reply_to_message_id);
+    assertThreadQuote(this.db,id,threadRoot,replyTo?.message_id);
     // Must stay after the attempt hit: a retry returns the original message, so a carried
     // background can never reappear as a second injection or vanish from a retried send.
     // Client-supplied `interaction_contexts` are accepted but ignored; the centre decides.
@@ -600,7 +605,7 @@ export class Messaging {
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, thread_root_id:threadRoot, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
@@ -616,13 +621,20 @@ export class Messaging {
     if (b.attachments?.length) fail(422, 'Send attachments in a separate message');
     const key = rawKey ? `interaction:${p.id}:${String(rawKey)}` : null;
     const prepared = this.interactions.prepare(p, id, b, key);
-    if (prepared.existing) return this.message(prepared.existing);
+    const source=this.records.find(prepared.snapshot.source_message_id!)!;
+    const root=threadRootOrFail(this.db,id,b.thread_root_message_id ?? b.in_thread_of ?? source.thread_root_id ?? undefined);
+    assertThreadQuote(this.db,id,root,source.id);
+    if (prepared.existing) {
+      const existing=this.message(prepared.existing);
+      if(existing.thread_root_message_id!==root) fail(409,'interaction destination changed');
+      return existing;
+    }
     // Preserve handwritten text exactly, including reference syntax and whitespace.
     const content = this.validateReferences(p, id, prepared.content);
     const timezone = b.timezone === undefined ? one(this.db, 'SELECT timezone FROM users WHERE id=?', p.id)?.timezone ?? null : this.updateUserTimezone(p.id, b.timezone);
     const message = transaction(this.db, () => {
       const agents=this.relayAgents(id);
-      const m = this.insertMessage(id, p.id, 'user', content, [], key, 'pending', { pendingRelayAgents:agents.map(a=>a.agent_id), timezone, interaction_reply: prepared.snapshot, publish: false, trackReceipts: true });
+      const m = this.insertMessage(id, p.id, 'user', content, [], key, 'pending', { pendingRelayAgents:agents.map(a=>a.agent_id), timezone, thread_root_id:root, interaction_reply: prepared.snapshot, publish: false, trackReceipts: true });
       this.interactions.submit(p.id, m.id, prepared);
       this.enqueueRelays(m, key,agents);
       return m;
@@ -689,7 +701,7 @@ export class Messaging {
     const c = one(this.db,"SELECT * FROM conversations WHERE id=?",m.conversation_id)!;
     const relays: Pick<MessageRelayRecord,'relay_task_id'|'target_node_id'|'payload_json'|'conversation_id'>[] = [];
     for (const a of agents) {
-      if ((m.sender.type==='agent' && m.sender.id===a.agent_id) || !chatAllowed(this.db,a.agent_id,m.id)) continue;
+      if ((m.sender.type==='agent' && m.sender.id===a.agent_id) || !chatAllowed(this.db,a.agent_id,m.id) || !threadAddressesAgent(this.db,m.id,a.agent_id)) continue;
       const background = contexts.filter(context => context.agent_id === a.agent_id);
       const id = randomUUID().replaceAll("-",""), relayKey = `${key ?? m.id}:${a.agent_id}`;
       const mentioned = [...new Set([...this.mentionedAgents(c.id,m.content), ...(m.interaction_reply ? [m.interaction_reply.agent_id] : []), ...(m.reply_to?.sender.type==='agent' ? [m.reply_to.sender.id] : [])])];
@@ -702,6 +714,8 @@ export class Messaging {
           conversation_type:c.type,mentioned_agent_ids:mentioned,participant_agent_ids:agents.map(a=>a.agent_id),
           ...(agentReceipt ? {agent_receipt:true} : {}),
           ...this.deliveryFacts(a.agent_id,m),
+          ...threadRelayMetadata(this.db, m.id, a.agent_id),
+          ...(m.thread_root_message_id && c.type==='group' ? {addressed_to_agent:true} : {}),
           config_profile_version:a.profile_version,node_epoch:one(this.db,"SELECT node_epoch FROM node_binding_state WHERE node_id=?",a.node_id)?.node_epoch ?? 0,
           ...(background.length ? {interaction_contexts:background} : {}),
           ...(a.agent_id===contextOnlyAgentId ? {context_only:true} : {}),
@@ -887,6 +901,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       const position = Math.max(0, content.toLowerCase().indexOf(needle));
       const start = Math.max(0, position - 40), end = Math.min(content.length, position + term.length + 80);
       return {message_id:message.id, conversation_id:message.conversation_id, conversation_name:chat.title,
+        ...(message.thread_root_message_id ? {thread_root_message_id:message.thread_root_message_id} : {}),
         sender_name:row.sender_source_id ? row.sender_display_name || row.sender_source_id : message.sender.display_name, created_at:message.created_at,
         snippet:`${start ? '…' : ''}${content.slice(start,end)}${end < content.length ? '…' : ''}`};
     });
@@ -1018,18 +1033,23 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     s.access(p, id);
     const m = one(
       db,
-      "SELECT rowid FROM messages WHERE id=? AND conversation_id=?",
-      body(req).last_read_message_id,
-      id,
+      "SELECT rowid,thread_root_id FROM messages WHERE id=? AND conversation_id=?",
+      body(req).last_read_message_id, id,
     );
     if (!m) fail(400, "message not found");
-    db.prepare(
-      "UPDATE conversation_participants SET last_read_message_id=?,unread_count=(SELECT COUNT(*) FROM messages WHERE conversation_id=? AND rowid>? AND sender_user_id!=?) WHERE conversation_id=? AND user_id=?",
-    ).run(body(req).last_read_message_id, id, m.rowid, p.id, id, p.id);
-    if (db.prepare(`
-      UPDATE message_receipts SET status=2 WHERE recipient_id=? AND status<2 AND message_id IN
-        (SELECT id FROM messages WHERE conversation_id=? AND rowid<=?)
-    `).run(p.id,id,m.rowid).changes) s.event(id,null,'message.receipts_changed',{});
+    const grouped = one(db,'SELECT type FROM conversations WHERE id=?',id)?.type==='group';
+    const topic = grouped ? m.thread_root_id : null;
+    const lastRead = body(req).last_read_message_id;
+    const changed = transaction(db, () => {
+      if(topic) markThreadRead(db,id,topic,p.id,lastRead,m.rowid);
+      else db.prepare(`UPDATE conversation_participants SET last_read_message_id=?,unread_count=?
+        WHERE conversation_id=? AND user_id=? AND coalesce((SELECT rowid FROM messages WHERE id=last_read_message_id),0)<=?`)
+        .run(lastRead,listUnread(db,id,p.id,m.rowid),id,p.id,m.rowid);
+      return db.prepare(`UPDATE message_receipts SET status=2 WHERE recipient_id=? AND status<2 AND message_id IN
+        (SELECT id FROM messages WHERE conversation_id=? AND rowid<=?${grouped ? ' AND thread_root_id IS ?' : ''})`)
+        .run(p.id,id,m.rowid,...(grouped ? [topic] : [])).changes;
+    });
+    if(changed) s.event(id,null,'message.receipts_changed',{});
     return s.conversation(id, p.id);
   });
   app.post('/im/v1/message-receipts', req => {
@@ -1071,11 +1091,32 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     s.access(principal,conversation_id,query(req).agent_id);
     return {message:s.records.senderView(s.records.conversationMessage(conversation_id,message_id),principal.id),execution_cleanup_revision:executionCleanupRevision(ctx,conversation_id)};
   });
+  app.get('/im/v1/conversations/:conversation_id/threads/:root_id', (req) => {
+    const p = s.principal(req), id = params(req).conversation_id, root = params(req).root_id;
+    s.access(p, id, query(req).agent_id);
+    threadRootOrFail(db, id, root);
+    const reader = p.kind==='gateway' ? s.agentUser(query(req).agent_id).id : p.id;
+    const rows = all(db, 'SELECT id FROM messages WHERE conversation_id=? AND thread_root_id=? ORDER BY rowid', id, root);
+    const follow = one(db, 'SELECT following FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=?', id, root, reader);
+    return {root:s.records.senderView(s.message(root),reader), following:follow?.following===1, items: rows.map(row => ({type:'message', message:s.records.senderView(s.message(row.id),reader)}))};
+  });
+  app.post('/im/v1/conversations/:conversation_id/threads/:root_id/follow', (req) => {
+    const p = s.principal(req), id = params(req).conversation_id, root = params(req).root_id;
+    if (p.kind==='gateway') fail(403, 'Human viewer required');
+    s.access(p, id, undefined, 'write');
+    threadRootOrFail(db, id, root);
+    const follow = body(req).following !== false;
+    db.prepare(`INSERT INTO thread_follows(conversation_id,root_message_id,user_id,following,unread_count) VALUES(?,?,?,?,0)
+      ON CONFLICT(conversation_id,root_message_id,user_id) DO UPDATE SET following=excluded.following`).run(id, root, p.id, follow ? 1 : 0);
+    return {following: follow};
+  });
   app.get("/im/v1/conversations/:conversation_id/messages", (req) => {
     const p = s.principal(req),
       id = params(req).conversation_id,
       q = query(req);
     s.access(p, id, q.agent_id);
+    const directReadThrough = !q.before_message_id && one(db,
+      "SELECT m.id FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE c.id=? AND c.type='direct' ORDER BY m.rowid DESC LIMIT 1",id)?.id;
     const limit = Math.min(100, Math.max(1, Number(q.limit ?? 50)));
     const before = q.before_message_id
       ? one(
@@ -1087,7 +1128,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       : undefined;
     const rows = all(
       db,
-      "SELECT id,rowid FROM messages WHERE conversation_id=? AND rowid<? ORDER BY rowid DESC LIMIT ?",
+      "SELECT id,rowid FROM messages WHERE conversation_id=? AND thread_root_id IS NULL AND rowid<? ORDER BY rowid DESC LIMIT ?",
       id,
       before ?? Number.MAX_SAFE_INTEGER,
       limit + 1,
@@ -1113,6 +1154,6 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       const message = q.view === "summary" ? s.records.historySummary(id,row.id) : s.message(row.id);
       items.push({ type: "message", message: s.records.senderView(message,p.id) });
     }
-    return { items, next_before_message_id: more ? page[0]!.id : null, execution_cleanup_revision:executionCleanupRevision(ctx,id) };
+    return { items, ...(directReadThrough ? {direct_read_through_message_id:directReadThrough} : {}), next_before_message_id: more ? page[0]!.id : null, execution_cleanup_revision:executionCleanupRevision(ctx,id) };
   });
 }

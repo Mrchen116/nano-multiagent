@@ -21,7 +21,7 @@ it('supplies local message time to the model without rewriting the human body', 
   try {
     await product.receive(input);
     expect(submitted[0].content).toEqual([
-      { type: 'text', text: 'Message time: 2026-10-14T09:00:00+08:00 (Asia/Shanghai); source: Web IM.' },
+      { type: 'text', text: 'Message time: 2026-10-14T09:00:00+08:00 (Asia/Shanghai); source: Web IM. IM message ID: morning.' },
       { type: 'text', text: input.message.content },
     ]);
     expect(store.inputs(store.bindingFor('a', 'c')!.sessionId)[0]!.input.message.content).toBe(input.message.content);
@@ -234,4 +234,59 @@ it.each([
   await product.recover();
   expect(frames.some(p=>p.kind==='message_completed'&&p.final_content===closing)).toBe(visible);
  }finally{await product.stop();store.close();}
+});
+
+it('renders non-raster attachments as text with short attachment_id and tags raster images without throwing', async () => {
+  const store = new NodeStore(':memory:', 'owner');
+  const submitted: any[] = [];
+  const fetchedImages: string[] = [];
+  const product = new SingleThread({
+    nodeId: 'node', ownerId: 'owner', store,
+    agents: [{ agentId: 'a', revision: '1', mode: 'single_thread', provider: 'test', model: 'test', workspace: '/tmp' }],
+    runtime: {
+      onNotification: () => () => {},
+      async request(method, value) {
+        if (method === 'session.submit') submitted.push(value);
+        if (method === 'session.lookup') return { accepted: submitted.some(input => input.inputId === (value as any).inputId) };
+        return { events: [], durable: true };
+      },
+    },
+    relay: { async request() { return { type: 'ack', payload: {} }; } },
+    image: async url => { fetchedImages.push(url); return 'iVBORw0KGgo='; },
+    onError: error => { throw error; },
+  });
+  const csvUrl = '/im/v1/conversations/c/attachments/csv-1';
+  const svgUrl = '/im/v1/conversations/c/attachments/svg-1';
+  const pngUrl = '/im/v1/conversations/c/images/png-1';
+  const input: RelayInput = {
+    agent_id: 'a', conversation_id: 'c', relay_task_id: 'att-1', idempotency_key: 'att-1',
+    metadata: { conversation_type: 'direct', channel: 'web_relay' },
+    message: {
+      id: 'att-1', content: 'Please inspect these files',
+      sender_type: 'user', sender_user_id: 'owner',
+      attachments: [
+        { url: csvUrl, content_type: 'text/csv', file_name: 'report.csv' },
+        { url: svgUrl, content_type: 'image/svg+xml', file_name: 'diagram.svg' },
+        { url: pngUrl, content_type: 'image/png', file_name: 'shot.png' },
+      ],
+    },
+  };
+  try {
+    await product.receive(input);
+    expect(fetchedImages).toEqual([pngUrl]);
+    const csvRef = store.toolReferences.attachmentRef('a', csvUrl);
+    const svgRef = store.toolReferences.attachmentRef('a', svgUrl);
+    const pngRef = store.toolReferences.attachmentRef('a', pngUrl);
+    expect(csvRef).toMatch(/^a_[a-f0-9]{6}$/);
+    const content = submitted[0].content as { type: string; text?: string; mediaType?: string }[];
+    expect(content).toEqual(expect.arrayContaining([
+      { type: 'text', text: `\n[Attachment: report.csv (text/csv), attachment_id=${csvRef} — call download_attachment to save locally]` },
+      { type: 'text', text: `\n[Attachment: diagram.svg (image/svg+xml), attachment_id=${svgRef} — call download_attachment to save locally]` },
+      { type: 'text', text: `\n[Image attachment_id=${pngRef} (shot.png)]` },
+      { type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=', name: 'shot.png' },
+    ]));
+  } finally {
+    await product.stop();
+    store.close();
+  }
 });

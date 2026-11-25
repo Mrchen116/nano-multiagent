@@ -21,6 +21,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     provider: "fixture",
     model: "test",
     displayName: "ORIGINAL_IDENTITY",
+    executionNode: { id: "original-host" },
     features: { intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false },
     toolAllowlist: ["read"],
   };
@@ -201,6 +202,7 @@ it("forks a native message with its configuration and compacted prefix, independ
     await writeFile(legacy, "legacy copy must stay untouched");
     await client!.shutdown();
     client = undefined;
+    config = { ...config, executionNode: { id: "current-host" } };
     await start();
     expect(await capabilities(fork.sessionId)).toMatchObject({
       tools: ["get_context_remaining", "history", "new_context", "notes", "read"],
@@ -210,6 +212,11 @@ it("forks a native message with its configuration and compacted prefix, independ
     );
     expect(await readFile(legacy, "utf8")).toBe("legacy copy must stay untouched");
     await submit(fork.sessionId, "cold-fork");
+    const coldRequest = JSON.parse((await readFile(join(home, "requests.jsonl"), "utf8")).trim().split("\n").at(-1)!);
+    expect(coldRequest.model).toBe("test");
+    const system = JSON.stringify(coldRequest.messages.filter((message: { role: string }) => message.role === "system"));
+    expect(system).toContain("current-host");
+    expect(system).not.toContain("original-host");
     await submit(binding.sessionId, "cold-source");
     expect(await readFile(legacy, "utf8")).toBe("legacy copy must stay untouched");
     await expect(readFile(join(copyDirectory, `${fork.sessionId}.jsonl`))).rejects.toMatchObject({ code: "ENOENT" });

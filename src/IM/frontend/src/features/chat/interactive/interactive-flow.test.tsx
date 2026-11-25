@@ -67,7 +67,7 @@ describe('interactive choices and handwritten requests',()=>{
   const send=vi.fn().mockResolvedValue(undefined);
   render(<MessagePane conversation={{...conversation,type:'group'}} messages={[card]} selfUserId="u1" mentionCandidates={[]} onSend={send}/>);
   fireEvent.change(await screen.findByPlaceholderText('编辑草稿'),{target:{value:'群内私人草稿'}});
-  const composer=screen.getByPlaceholderText(/type @ to mention|输入 @ 召唤/);
+  const composer=screen.getByPlaceholderText(/Planner/);
   fireEvent.change(composer,{target:{value:'解释一下'}});fireEvent.submit(composer.closest('form')!);
   await waitFor(()=>expect(send).toHaveBeenCalledWith('解释一下',[],undefined,expect.any(String)));
   expect(send.mock.calls[0]).toHaveLength(4);

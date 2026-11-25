@@ -16,9 +16,11 @@ export function chatDelivery(input: RelayInput, config: AgentConfiguration, owne
   const ownerDirect = typeof meta.owner_direct === 'boolean' ? meta.owner_direct
     : direct && input.message.sender_type === 'user' && !input.message.pa_agent_id
       && (meta.channel==='feishu' ? meta.owner_user_id===ownerId : input.message.sender_user_id===ownerId);
+  // A followed topic can wake an observer without turning observed text into an instruction.
+  const addressedTopic = typeof meta.thread_root_message_id === 'string' && meta.addressed_to_agent === true;
   return classifyChatDelivery(config.collaborationScope, {
-    ownerDirect, directToAgent: direct, addressedToAgent: needsAttention(input, config),
-    addressedToOwner: !!config.personal && meta.addressed_to_owner === true, contextOnly: !!meta.context_only,
+    ownerDirect, directToAgent: direct, addressedToAgent: addressedTopic || needsAttention(input, config),
+    addressedToOwner: !!config.personal && meta.addressed_to_owner === true, contextOnly: !!meta.context_only && !addressedTopic,
   });
 }
 

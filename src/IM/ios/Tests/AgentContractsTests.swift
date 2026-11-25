@@ -60,7 +60,7 @@ struct AgentContractsTests {
         #expect(create["workspace_root"] == .string("/repo"))
         #expect(create["work_mode"] == .string("global"))
         #expect(create["skills_selection_mode"] == .string("default_discovery"))
-        #expect(create["tool_allowlist"] == .array(["conversations", "delegate_worker", "inbox", "send_message"].map(JSONValue.string)))
+        #expect(create["tool_allowlist"] == .array(["conversations", "delegate_worker", "inbox", "read_messages", "search_messages", "send_message", "threads"].map(JSONValue.string)))
         let preview = draft.previewPayload(capabilities: caps, creating: true, customWorkspace: true)
         #expect(preview["initial_role"] == nil)
         #expect(preview["custom_prompt"] == nil)

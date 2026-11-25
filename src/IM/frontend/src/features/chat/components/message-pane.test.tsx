@@ -130,7 +130,22 @@ describe("MessagePane", () => {
     fireEvent(bubble, rightClick);
     const action = screen.getByRole("menuitem", {name: /^(Execution record|执行记录)$/i});
     expect(action).toHaveAttribute("href", "/settings/agents/a-planner?view=work&message_id=m2");
+    expect(screen.queryByTestId("message-thread-m2")).toBeNull();
     expect(action).toHaveFocus();
+  });
+
+  it("reads a private topic delivery through the DM watermark without rendering it in the timeline", () => {
+    const onReadMessage = vi.fn();
+    const props = {conversation: DIRECT_CONV, messages: SAMPLE_MESSAGES, mentionCandidates: [], onSend: vi.fn(), onReadMessage};
+    const {rerender} = render(<MessagePane {...props} directReadThroughId="last-topic-reply" />);
+    expect(onReadMessage).toHaveBeenLastCalledWith("last-topic-reply");
+    const reply = {...SAMPLE_MESSAGES[0], id: "next-topic-reply", content: "inside the topic", thread_root_message_id: "m1"};
+    rerender(<MessagePane {...props} messages={[...SAMPLE_MESSAGES, reply]} directReadThroughId={reply.id}/>);
+    expect(screen.queryByText("inside the topic")).not.toBeInTheDocument();
+    expect(onReadMessage).toHaveBeenLastCalledWith(reply.id);
+    onReadMessage.mockClear();
+    rerender(<MessagePane {...props} directReadThroughId="historical-topic" focusMessageId="m1" />);
+    expect(onReadMessage).not.toHaveBeenCalled();
   });
 
   it("renders the conversation title and each message content", () => {
@@ -1303,6 +1318,7 @@ describe("MessagePane", () => {
       );
       fireEvent.keyDown(menu, { key: "ArrowDown" });
       fireEvent.keyDown(menu, { key: "ArrowDown" });
+      fireEvent.keyDown(menu, { key: "ArrowDown" });
       const branch = screen.getByRole("menuitem", { name: /Branch from here/i });
       expect(branch).toHaveFocus();
       expect(branch).toHaveAttribute("aria-disabled", "true");
@@ -2133,7 +2149,8 @@ describe("MessagePane", () => {
       "src",
       "http://im.local/im/uploads/x.png"
     );
-    expect(screen.getByText("y.pdf").closest("a")).toHaveAttribute(
+    expect(screen.getByText("y.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /y\.pdf/i })).toHaveAttribute(
       "href",
       "http://im.local/im/uploads/y.pdf"
     );
@@ -2424,7 +2441,7 @@ describe("MessagePane", () => {
       token_usage: { output: 1234, context_used: 30000, context_window: 200000 },
       permission_requests: []
     };
-    it("matches prototype: user bubbles have no avatar, agent avatar stays outside the bubble", () => {
+    it("keeps both sender avatars outside the message bubbles", () => {
       render(
         <MessagePane
           conversation={DIRECT_CONV}
@@ -2435,7 +2452,9 @@ describe("MessagePane", () => {
         />
       );
       const userBubble = screen.getByTestId(`message-bubble-${TS_USER.id}`);
-      expect(screen.queryByTestId(`message-avatar-${TS_USER.id}`)).toBeNull();
+      const userAvatar = screen.getByTestId(`message-avatar-${TS_USER.id}`);
+      expect(userAvatar).toBeVisible();
+      expect(userBubble.contains(userAvatar)).toBe(false);
       const agentAvatar = screen.getByTestId(`message-avatar-${TS_AGENT_LOW.id}`);
       const agentBubble = screen.getByTestId(`message-bubble-${TS_AGENT_LOW.id}`);
       expect(agentBubble.contains(agentAvatar)).toBe(false);

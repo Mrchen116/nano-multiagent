@@ -61,7 +61,11 @@ export function one(db: DatabaseSync, sql: string, ...args: any[]): Row | undefi
 export function all(db: DatabaseSync, sql: string, ...args: any[]): Row[] {
   return prepared(db, sql).all(...args) as Row[];
 }
+/** Clear cached prepared statements for a connection after schema DDL changes. */
+export function clearPrepared(db: DatabaseSync): void {
+  statements.delete(db);
+}
 
 export const chatId = (prefix: string) =>
   prefix +
-  Array.from({ length: 8 }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[randomInt(36)]).join("");
+  Array.from({ length: Math.max(1, 8 - prefix.length) }, () => "abcdefghijklmnopqrstuvwxyz0123456789"[randomInt(36)]).join("");

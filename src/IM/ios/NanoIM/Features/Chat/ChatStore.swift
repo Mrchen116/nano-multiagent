@@ -13,6 +13,8 @@ final class ChatStore {
     let user: AuthUser
     var conversations: [Conversation] = []
     var inspectedConversation: Conversation?
+    var openThreadRoot: String?
+    var threadRevision = 0
     var timelines: [String: [TimelineItem]] = [:]
     private var receivedTimelineResults: Set<String> = []
     var before: [String: String] = [:]
@@ -668,6 +670,7 @@ final class ChatStore {
                 }
                 guard token == epoch, !Task.isCancelled, self.selectedID == selectedID else { return }
                 await loadChat(selectedID)
+                if openThreadRoot != nil { threadRevision += 1 }
             }
         }
     }
@@ -1108,14 +1111,19 @@ final class ChatStore {
         // Human writes emit message.sent; their optional creation event must not remind twice.
         let newMessage = (event.event_type == "message.sent" && data["sender_type"].stringValue == "user")
             || (event.event_type == "message.created" && (data["sender_type"].stringValue != "user" || data["pa_agent_id"].stringValue != nil))
-        if newMessage, eventID > notificationFloor,
+        if let root = data["thread_root_message_id"].stringValue, root == openThreadRoot {
+            threadRevision += 1
+        }
+        let notifyUsers = data["thread_notify_user_ids"].arrayValue
+        let shouldNotify = notifyUsers?.contains { $0.stringValue == user.id } ?? true
+        if newMessage, shouldNotify, eventID > notificationFloor,
            let chat, chat != selectedID, conversations.contains(where: { $0.id == chat && !$0.is_muted }),
            data["sender_user_id"].stringValue != user.id,
            UserDefaults.standard.object(forKey: "nano.foregroundReminders") as? Bool ?? true {
             banner = ChatBanner(conversationID: chat)
         }
         await persistEvent(event)
-        if event.event_type == "message.created", data["receipts_requested"].boolValue == true,
+        if shouldNotify, event.event_type == "message.created", data["receipts_requested"].boolValue == true,
            data["sender_user_id"].stringValue != user.id, let id = data["message_id"].stringValue {
             confirmMessageDelivery([id])
         }

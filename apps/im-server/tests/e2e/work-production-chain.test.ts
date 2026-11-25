@@ -213,7 +213,8 @@ it('writes one plain-text Global message and attributes the actual relay receipt
   expect(await product.call(call)).toEqual(receipt);
   const messages=await center.http('GET',`/im/v1/conversations/${chat.body.id}/messages`,undefined,center.tokens.alice);
   expect(messages.status,messages.body).toBe(200);
-  expect(messages.body.items).toMatchObject([{type:'message',message:{id:(receipt as {message_id:string}).message_id,content:text}}]);
+  expect((receipt as {message_id:string}).message_id.length).toBeLessThanOrEqual(8);
+  expect(messages.body.items).toMatchObject([{type:'message',message:{id:store.toolReferences.resolveMessageId('global', (receipt as {message_id:string}).message_id),content:text}}]);
   expect(inbox.journal(0)).toEqual([]);
 
   await product.stop(); inbox.close();

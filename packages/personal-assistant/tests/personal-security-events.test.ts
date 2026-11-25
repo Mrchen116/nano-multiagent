@@ -25,7 +25,7 @@ it.each([true,false])('delivers automatic-block facts with owner-only instructio
   expect(submitted[0].content[0].text).toContain('Only notify the owner');
   expect(submitted[0].content[0].text).toContain('currently_blocked');
   expect(submitted[0].content[0].text).not.toContain('then refuse');
-  expect(JSON.parse(submitted[0].content[1].text.split('external evidence: ')[1])).toEqual({kind:'security.incident',payload});
+  expect(JSON.parse(submitted[0].content[1].text.split('external evidence: ')[1])).toEqual({kind:'security.incident',payload:{...payload,owner_target:'c_owner'}});
  }finally{await product.stop();inbox.close();store.close();}
 });
 

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Routing and Delivery Specification
 
-> 对齐: feat-774
+> 对齐: feat-786
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -11,9 +11,9 @@
 
 ## Requirements
 
-### Requirement: 当前会话的 Agent 图片回复具有统一交付语义
+### Requirement: 当前会话的 Agent 图片与文件回复具有统一交付语义
 
-Gateway MUST 将普通 assistant 回复中的可交付图片与文字按原顺序交付到当前聊天；Agent 向已有原生 IM 聊天以自身身份显式调用 `send_message` 时，可在 `local_images` 中传入绝对路径，把本地图片作为受保护附件随一条消息发送。卡片可依附件顺序引用同条消息的图片。支持本地 PNG/JPEG/WebP 产物和既有可获取网络图片。Agent 可直接引用获准读取并向目标发送的本地文件，不要求位于固定交付目录；图片引用本身不授予额外权限。显式发送沿用工具权限判断，普通图片回复执行同等发送权限判断。普通回复每气泡最多五个不同来源，显式发送中的已有附件与本地图片合计最多五个有序位置，重复位置也计入上限。单图最多 10 MiB，同来源重复引用不重复准备资源。显式发送的本地图须为静态图片，宽高各不超过 4096 像素。
+Gateway MUST 将普通 assistant 回复中的可交付图片与文字按原顺序交付到当前聊天；Agent 向已有原生 IM 聊天以自身身份显式调用 `send_message` 时，可在 `local_images` 中传入绝对路径发送本地光栅图片（单图最多 10 MiB，静态图片且宽高各不超过 4096 像素），或在 `local_files` 中传入绝对路径发送通用本地文件（单文件最多 25 MiB、光栅图片最多 10 MiB，拒绝 0 字节文件），作为受保护附件随一条消息发送。卡片可依附件顺序引用同条消息的图片。支持本地 PNG/JPEG/WebP 产物和既有可获取网络图片。Agent 可直接引用获准读取并向目标发送的本地文件，不要求位于固定交付目录；附件引用本身不授予额外权限。显式发送沿用工具权限判断（含私有证据人工审批保护与公开过程卡片本机路径脱敏），普通图片回复执行同等发送权限判断。普通回复每气泡最多五个不同来源，显式发送中的已有附件、`local_images` 与 `local_files` 按 `attachments → local_images → local_files` 顺序合计最多五个位置，重复位置也计入上限，同组内重复路径不重复上传，均支持 `receipt_of` 回执查询恢复。
 
 #### Scenario: 本地产物跨机器查看
 - **WHEN** 用户请求 Agent 展示其通过工具准备的本地图片
@@ -582,6 +582,29 @@ Gateway 只把含非空真实更新对象的 self-evolution structured result �
 - **WHEN** 复核期间又接收更新，或用户执行 /stop、/new
 - **THEN** 新更新继续遵守发言前复核；停止和新会话保持原有语义，不复活未发旧稿，不引入冲突次数后的暂停或强发
 
+### Requirement: 群聊 Agent 理解本地文件所在的执行环境
+
+产品 root Agent 获得自身执行节点身份与多机文件访问规则：向可能运行在不同节点的同伴分享本地产物时，图片优先经 `send_message(local_images)`、通用文件优先经 `send_message(local_files)` 作为受保护附件发送而非只发本地路径；收到原生会话附件时通过 `download_attachment(attachment_id)` 拉取到本地后再处理或交给子 Agent；普通与 Global 模式通过已启用的聊天详情查询获取原生群聊可见同伴的当前节点身份。
+
+#### Scenario: 复核另一 Agent 的本地文件
+
+- **WHEN** 用户要求在原生群聊中复核另一 Agent 给出的本地路径
+- **THEN** Agent 根据当前可见的节点身份和文件来源判断能否使用该路径。本机路径按实际权限和读取结果处理。不同节点、文件来源未知或读取失败时，请求有权读取的会话附件或可访问链接。
+- **AND** 获得有权读取的副本后，基于其实际内容复核。
+
+### Requirement: Agent 可通过短标识下载受保护会话附件
+
+产品根主 Agent 可使用 `download_attachment(attachment_id)`（`attachment_id` 为 `<= 8` 字符的 `a_xxxxxx` 引用，来自 `inbox`、`read_messages`、`search_messages` 或 SingleThread 入站消息）将当前仍有权读取的原生 Nano IM 文件或光栅图片下载到受控本地目录（`<workspace>/.nano-downloads/<attachment_id>-<sanitized_name>`，无 workspace 时落 `<nodeHome>/downloads/<agentId>/`），返回 `{ attachment_id, local_path, file_name, content_type, byte_size }`。
+
+#### Scenario: 跨节点文件下载、文件名保留与幂等覆写
+- **WHEN** 节点 B 的根主 Agent 调用 `download_attachment(attachment_id)` 下载同一会话中节点 A 发送的通用文件或光栅图片
+- **THEN** 宿主持当前 Gateway 凭据向 IM Server 发起实时鉴权流式下载（上限 25 MiB、超时 60 秒），保留清理后的原始文件名与扩展名（无扩展名时按 MIME 兜底），经临时文件原子重命名落盘并逐字节还原原文件；重复下载同一 `attachment_id` 幂等覆盖同一路径，不留半截临时文件。
+- **AND** 对非原生外部 URL（如 `external:` 或任意外链）或已失权会话附件拒绝下载并清理临时文件；下载路径始终受限于受控目录，防止路径穿越。
+
+#### Scenario: SingleThread 接收非图与图片附件不崩溃
+- **WHEN** SingleThread Agent 收到含通用非图附件（如 `.csv`、`.zip`、`.svg`）或光栅图片的入站消息
+- **THEN** 非光栅附件渲染为带文件名、MIME 与短 `attachment_id` 的文本条目（当 `download_attachment` 在当前工具集可用时附带调用提示），不再因非图片 MIME 抛错中断；原生光栅图片保留内联多模态图片块并在前附带 `[Image attachment_id=<a_xxxxxx> (<name>)]` 标签。
+
 ### Requirement: Agent 获得执行环境与用户界面的背景
 
 PA 的普通与全局 Agent 获得执行环境与用户端可能不同的说明，以及 Web IM 用户访问入口；可选的执行环境访问地址仅在配置时提供。系统提示不固定当前消息渠道或动态时间，逐消息来源保持权威。
@@ -660,3 +683,41 @@ PA 的普通与全局 Agent 获得执行环境与用户端可能不同的说明�
 #### Scenario: 重启不维护旧可读副本
 - **WHEN** 节点启动并恢复已有会话，随后继续聊天或 fork
 - **THEN** 原生历史仍可恢复；缺少的 workspace 可读副本不创建，已有副本不重写也不删除
+
+### Requirement: 话题回复只把关注者及时叫醒
+
+团队协作的群里，未关注、未被 @、也未被引用的话题回复不中继。它不进入该 Agent 的群背景，也不在十分钟后并入下一次运行。私聊话题仍按私聊新消息及时到达。仅限本人的 Agent 不接收群话题，包括群里 @ 它；创建者与它的私聊话题仍及时到达。
+
+#### Scenario: 未关注的群话题
+- **GIVEN** 团队协作的 Agent 没有关注这条群话题
+- **WHEN** 话题里出现没有 @ 它、也没有引用它的回复，无论发送者是人还是 Agent
+- **THEN** 不创建运行，群背景和十分钟积压里也没有这条消息
+
+#### Scenario: 已关注或被点名
+- **WHEN** 话题回复来自它已关注的话题，或 @ 了它，或引用了它
+- **THEN** 按现在的高优路径及时叫醒，并把话题根和这条回复交给该聊天现有的 session
+- **AND** 它随后要人看见的话写回这个话题，不另写一条主时间线消息
+
+#### Scenario: 仅限本人
+- **WHEN** 群话题里 @ 了一个仅限本人的 Agent，同时创建者在和它的私聊话题里说话
+- **THEN** 群话题不叫醒它
+- **AND** 私聊话题会到达
+
+### Requirement: 自动正文和 send_message 能写进话题
+
+`send_message` 的 `target` 支持 `<chat_id>:<8位短消息id>`（single_thread 亦支持 `current:<8位短消息id>`）直接写入对应话题；传主时间线 `target` 则写入主时间线，不做静默改写。外部通道和内部子执行不能使用话题 target。SingleThread 由话题唤醒时自动正文写回该话题；由主时间线唤醒且本轮已显式向请求话题发过言时，随后的自动正文也写回该话题而不双写主时间线。
+
+#### Scenario: 一句回答留在主时间线
+- **GIVEN** single_thread 由一条主时间线消息叫醒，这一轮没有向它的话题发送过
+- **WHEN** 运行只产生一条最终正文
+- **THEN** 这条正文出现在主时间线，不创建话题
+
+#### Scenario: 多步发言只出现在请求的话题
+- **GIVEN** 同一轮已经用 `send_message` 向用户那条请求的话题 `target` 写入确认
+- **WHEN** 运行结束时还有自动正文
+- **THEN** 自动正文也进入该话题
+- **AND** 主时间线不再增加这一轮的气泡
+
+#### Scenario: 从话题叫醒就回到话题
+- **WHEN** single_thread Agent 由一条话题回复叫醒并输出自动正文
+- **THEN** 自动正文进入该话题；显式 `send_message` 传该话题 `target` 亦进入该话题，传主时间线 `target` 则发往主时间线

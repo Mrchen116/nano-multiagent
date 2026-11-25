@@ -18,7 +18,7 @@ export function PendingConversationPane({ conversation, personal, selfUserId, ch
     <section className="chat-pane" aria-label={conversation?.title}>
       <header className="chat-pane-header chat-pane-pending-header">
         {conversation && (conversation.type === "group"
-          ? <GroupAvatar size={34} label={t("chat.list.filters.group")} />
+          ? <GroupAvatar groupId={conversation.id} size={34} label={t("chat.list.filters.group")} />
           : <Avatar size={34} personal={personal || agent?.role === "personal"} agentId={agent?.id}
               avatarVariant={agent?.avatar_variant} initials={name} color={colorForAgentSeed(name)} />)}
         <div className="chat-pane-header-body">

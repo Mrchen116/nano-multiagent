@@ -61,7 +61,7 @@ export function apply(ctx: Context, config: Configuration) {
     ctx.tools.guard(execution => {
       let reason: string | undefined;
       const args = execution.arguments as Record<string, unknown>;
-      if (contextTools.has(execution.name) || ['inbox', 'conversations', 'send_message', 'send_user_message', 'personal_sources', 'skill', 'delegate_worker', 'subagent'].includes(execution.name)) return;
+      if (contextTools.has(execution.name) || ['inbox', 'conversations', 'read_messages', 'search_messages', 'threads', 'send_message', 'send_user_message', 'personal_sources', 'skill', 'delegate_worker', 'subagent'].includes(execution.name)) return;
       if (!['read', 'glob', 'grep'].includes(execution.name)) reason = 'Evaluation answer allows only memory reads and local communication';
       else {
         const requested = args.file_path ?? args.path ?? root;

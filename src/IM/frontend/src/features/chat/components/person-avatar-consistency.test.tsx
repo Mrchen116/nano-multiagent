@@ -44,7 +44,7 @@ describe("person avatar consistency", () => {
       const mentionFace = container.querySelector(".chat-mention-picker .chat-avatar-face")!;
       const sidebarFace = screen.getByTestId("conv-avatar-dm").querySelector(".chat-avatar-face")!;
       const headerFace = container.querySelector(".chat-pane-header .chat-avatar-face")!;
-      const messageFace = screen.getByTestId("message-avatar-reply");
+      const messageFace = screen.getByTestId("message-avatar-reply").querySelector(".chat-avatar-face")!;
 
       for (const face of [sidebarFace, headerFace, messageFace]) {
         expect(face).toHaveTextContent(peer.display_name!);
@@ -61,9 +61,8 @@ describe("person avatar consistency", () => {
         expect(background(face)).toBe(directColor);
       }
       rerender(view(true));
-      expect(getComputedStyle(container.querySelector(".chat-bubble-sender")!).color)
-        .toBe(getComputedStyle(mentionFace).color);
-      expect(background(screen.getByTestId("message-avatar-reply"))).toBe(directColor);
+      expect(container.querySelector(".chat-bubble-sender")).toHaveTextContent(peer.display_name!);
+      expect(background(screen.getByTestId("message-avatar-reply").querySelector(".chat-avatar-face")!)).toBe(directColor);
       expect(container.querySelector(".chat-pane-header .chat-avatar-face")).toBeNull();
     },
   );

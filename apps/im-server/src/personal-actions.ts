@@ -1,7 +1,8 @@
+import { assertThreadQuote, threadRootOrFail } from './threads.js';
 import type { ChatMessage } from '@nano/product-contracts';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { mergeStatements } from '@openuidev/lang-core';
-import { interactiveResponse } from '@nano/product-contracts';
+import { interactiveResponse, isRasterImageMime } from '@nano/product-contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -42,11 +43,17 @@ export class PersonalActions {
       if(!resource||!this.pa.ctx.dbPath)fail(409,'attachment_snapshot_unavailable');
       let bytes:Buffer;try{bytes=readFileSync(join(dirname(this.pa.ctx.dbPath),'message-images',resource.storage_name));}catch{fail(409,'attachment_snapshot_unavailable');}
       if(createHash('sha256').update(bytes!).digest('hex')!==resource.sha256)fail(409,'attachment_snapshot_changed');
-      const textual=['text/plain','text/markdown','application/json'].includes(resource.content_type);
+      const reviewableTextMimes = new Set(['text/plain','text/markdown','text/csv','text/tab-separated-values','application/json','text/yaml','application/yaml','text/xml','application/xml']);
+      let textContent: string | undefined;
+      if (reviewableTextMimes.has(resource.content_type) && bytes!.length <= 256 * 1024 && !bytes!.includes(0)) {
+        try { textContent = new TextDecoder('utf-8', { fatal: true }).decode(bytes!); } catch { /* Invalid UTF-8 falls through as non-reviewable. */ }
+      }
+      const textual = textContent !== undefined;
+      const raster = isRasterImageMime(resource.content_type);
       const image=images.find(row=>row.resource_id===resource.image_id);
       if(image&&image.sha256!==resource.sha256)fail(409,'attachment_snapshot_changed');
       if(conversationId!==b.conversation_id&&!textual&&!image)fail(409,'attachment_content_review_unavailable');
-      snapshots.push({url,conversation_id:resource.conversation_id,resource_id:resource.image_id,sha256:resource.sha256,content_type:resource.content_type,file_name:resource.file_name,byte_size:bytes!.length,...(textual?{text:bytes!.toString('utf8')}:{image:true,...(image?{width:image.width,height:image.height}:{})})});
+      snapshots.push({url,conversation_id:resource.conversation_id,resource_id:resource.image_id,sha256:resource.sha256,content_type:resource.content_type,file_name:resource.file_name,byte_size:bytes!.length,...(textual?{text:textContent}:raster||image?{image:true,...(image?{width:image.width,height:image.height}:{})}:{file:true})});
     }
     return {items:items.map(item=>{const snapshot=snapshots.find(s=>s.url===item.url)!;return {url:snapshot.url,content_type:snapshot.content_type,file_name:snapshot.file_name};}),snapshots};
   }
@@ -75,7 +82,7 @@ export class PersonalActions {
   status(b:Row,args:Row) {
     const id = args.conversation_id;
     if (!this.pa.sourceAllowed(b,id)) fail(403,'destination_not_accessible');
-    if (args.prepare_screenshot) {
+    if (args.prepare_screenshot || args.prepare_attachment) {
       this.destination(b,id,{representation:'self'});
       if (one(this.db,'SELECT external_source FROM conversations WHERE id=?',id)?.external_source)
         fail(422,'native_screenshot_destination_required');
@@ -145,13 +152,16 @@ export class PersonalActions {
     if(args.incident_ref&&(interactive||args.attachments?.length||args.task))fail(403,'invalid_security_notice');
     const attachments=this.attachments(b,args.conversation_id,args.attachments??[],args.content+(interactive?.source??''),images);
     const securityNotice=args.incident_ref?this.securityNotice(b,args.incident_ref,args.conversation_id,args.content):undefined;
+    if(args.transport && args.in_thread_of!==undefined)fail(422,'external_thread_unavailable');
     if(args.transport&&args.reply_to_message_id!==undefined)fail(422,'external_quoted_reply_unavailable');
     const previous=one(this.db,'SELECT * FROM pa_operations WHERE binding_id=? AND request_key=?',b.binding_id,args.request_key);
     const oldPayload=previous ? JSON.parse(previous.payload_json) : undefined;
-    if(previous && (previous.conversation_id!==args.conversation_id || oldPayload.reply_to?.message_id!==args.reply_to_message_id))
+    if(previous && (previous.conversation_id!==args.conversation_id || oldPayload.in_thread_of!==args.in_thread_of || oldPayload.reply_to?.message_id!==args.reply_to_message_id))
       fail(409,'operation_key_content_conflict');
     const replyTo=previous ? oldPayload.reply_to : this.pa.ctx.messaging.replyReference(args.conversation_id,args.reply_to_message_id);
-    const payload={...(replyTo?{reply_to:replyTo}:{}),representation:args.representation??'self',content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
+    const threadRoot=previous ? oldPayload.in_thread_of : threadRootOrFail(this.db,args.conversation_id,args.in_thread_of);
+    assertThreadQuote(this.db,args.conversation_id,threadRoot,replyTo?.message_id);
+    const payload={...(threadRoot?{in_thread_of:threadRoot}:{}),...(replyTo?{reply_to:replyTo}:{}),representation:args.representation??'self',content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
     if(payload.transport && this.pa.ownerConversation(b,args.conversation_id))return {owner_private:true,conversation_id:args.conversation_id};
     this.destination(b,args.conversation_id,payload);
     if(previous) {
@@ -268,7 +278,7 @@ export class PersonalActions {
       const rewrite=(value:string)=>value.replace(/\/im\/v1\/conversations\/([^/\s]+)\/(images|attachments)\/([\w-]+)/g,(url:string)=>copies.get(url)??url);
       const owner=payload.representation==='owner';
       const interactive=payload.interactive?{...payload.interactive,source:rewrite(payload.interactive.source)}:undefined;
-      const message=s.insertMessage(op.conversation_id,owner?b.owner_user_id:s.agentUser(b.agent_id).id,owner?'user':'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive,...(payload.reply_to?{reply_to:payload.reply_to}:{}),
+      const message=s.insertMessage(op.conversation_id,owner?b.owner_user_id:s.agentUser(b.agent_id).id,owner?'user':'agent',rewrite(payload.content),payload.attachments.map((a:Row)=>({...a,url:rewrite(a.url)})),`pa:${op.operation_id}`,'completed',{publish:false,interactive,thread_root_id:threadRootOrFail(this.db,op.conversation_id,payload.in_thread_of),...(payload.reply_to?{reply_to:payload.reply_to}:{}),
         ...(op.conversation_id!==b.conversation_id?{personal_source:{binding_id:b.binding_id,agent_id:b.agent_id,owner_user_id:b.owner_user_id,display_name:b.display_name,operation_id:owner?op.operation_id:null}}:{})});
       if(owner)s.queueRepresentedRelays(message,b.agent_id);
       else {s.queueDirectAgentRelays(message);this.pa.ctx.gateway.groupReply(message.id,{deferDelivery:true});}

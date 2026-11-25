@@ -10,6 +10,7 @@ struct ChatMessageView: View {
     var readOnly = false
     var presentations: InteractiveCardPresentations?
     var scroll: ChatScrollCoordinator?
+    var locateQuote: ((String) -> Void)?
     var openActivity: (() -> Void)?
     let refreshed: () -> Void
     @State private var showProcess = false
@@ -24,6 +25,10 @@ struct ChatMessageView: View {
                 NanoTimestamp(value: message.created_at)
                 Text(taskNoticeText).font(.caption).multilineTextAlignment(.center).tint(NanoTheme.accent)
             }.font(.caption).foregroundStyle(NanoTheme.muted).frame(maxWidth: .infinity).padding(.vertical, 6).textSelection(.enabled)
+        } else if message.system_notice?["kind"].stringValue == "thread_unfollowed" {
+            Text(ChatText.display(message.content, participants: participants))
+                .font(.caption).foregroundStyle(NanoTheme.muted).multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity).padding(.vertical, 4).textSelection(.enabled)
         } else if intelligentUI {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
@@ -86,7 +91,10 @@ struct ChatMessageView: View {
     private var messageContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let reply = message.reply_to {
-                Button { chat.messageLocation = ChatMessageLocation(conversationID: message.conversation_id, messageID: reply.message_id) } label: {
+                Button {
+                    if let locateQuote { locateQuote(reply.message_id) }
+                    else { chat.messageLocation = ChatMessageLocation(conversationID: message.conversation_id, messageID: reply.message_id) }
+                } label: {
                     ChatReplyLabel(reply: reply, participants: participants)
                 }.buttonStyle(.plain).accessibilityHint(L("查看原文", "Show original message"))
             }
@@ -325,6 +333,7 @@ struct ChatPermissionCard: View {
     let messageID: String
     let permission: ChatPermission
     var readOnly = false
+    var locateQuote: ((String) -> Void)?
     let refreshed: () -> Void
     @State private var decision: ChatPermissionOption?
     @State private var reason = ""

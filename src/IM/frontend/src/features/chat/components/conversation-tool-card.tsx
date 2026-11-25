@@ -4,6 +4,7 @@ import type { ToolCall } from "../chat-types";
 import { LongOutput } from "./tool-long-output";
 import { useContext } from "react";
 import { WorkNavigationContext, WorkThreadLink } from "./work-thread-link";
+import { isRasterImageMime } from "../attachments/attachment-chip";
 
 type Value = Record<string, unknown>;
 const object = (value: unknown): Value => value && typeof value === "object" && !Array.isArray(value) ? value as Value : {};
@@ -13,6 +14,11 @@ const messageParts = (item: Value): Value[] => Array.isArray(item.content) ? ent
   ...entries(item.attachments).map(attachment => ({type:"attachment", ...attachment})),
 ];
 const text = (value: unknown): string => typeof value === "string" ? value : "";
+
+const baseTarget = (value: string): string => {
+  const clean = value.replace(/^conversation:/, "");
+  return clean.startsWith("external:") ? clean : clean.split(":", 1)[0] || clean;
+};
 
 /** Inbox and history use Presenter data; opening a card never reads or consumes Inbox. */
 export function ConversationToolCard({ call, compact = false }: { call: ToolCall; compact?: boolean }) {
@@ -27,31 +33,39 @@ export function ConversationToolCard({ call, compact = false }: { call: ToolCall
   const pending = call.status === "running";
   const failed = call.status === "failed" || Boolean(detail.error);
   const conversations = entries(detail.sources ?? detail.conversations);
+  const threads = entries(detail.threads);
   const hasMore = typeof detail.has_more === "boolean" ? detail.has_more : typeof detail.next_cursor === "string" ? Boolean(detail.next_cursor) : undefined;
   const messages = entries(detail.messages);
+  const subtitle = call.name === "threads" ? "话题关注管理"
+    : call.name === "conversations" || call.name === "read_messages" || call.name === "search_messages" ? "聊天历史查询 · 不推进收件箱"
+    : action === "check" ? "待读摘要 · 不读取正文" : "收件箱消息页";
   return <div className="im-conversation-tool-card">
-    {!compact && <p className="text-xs text-slate-500">{tr(call.name === "conversations" ? "聊天历史查询 · 不推进收件箱" : action === "check" ? "待读摘要 · 不读取正文" : "收件箱消息页")}</p>}
-    {!compact && target && <p>{tr("目标：")}<WorkThreadLink conversationId={target}>{text(args.name) || target}</WorkThreadLink></p>}
+    {!compact && <p className="text-xs text-slate-500">{tr(subtitle)}</p>}
+    {!compact && target && <p>{tr("目标：")}<WorkThreadLink conversationId={baseTarget(target)}>{text(args.name) || target}</WorkThreadLink></p>}
     {text(args.query) && <p>{tr("查找")}：{text(args.query)}</p>}
     {args.limit != null && <p className="text-xs text-slate-500">{tr("条数上限")}：{String(args.limit)}</p>}
     {failed ? <pre className="chat-tool-call-pre">{typeof detail.error === "string" ? detail.error : JSON.stringify(detail.error ?? call.output, null, 2)}</pre> : !pending && <>
       {action === "info" && <div><p>{text(detail.name)} · {text(detail.type)} · {text(detail.channel)}</p>{entries(detail.members).map((member,index) => <p key={text(member.user_id) || index}>{text(member.name) || text(member.user_id)} · {text(member.type)}</p>)}</div>}
       {conversations.map((item, index) => <div className="im-work-source-row" key={text(item.target) || index}>
-        <WorkThreadLink conversationId={text(item.target) || text(item.conversation_id)}>{text(item.name) || text(item.target) || text(item.conversation_id)}</WorkThreadLink>
+        <WorkThreadLink conversationId={baseTarget(text(item.target) || text(item.conversation_id))}>{text(item.name) || text(item.target) || text(item.conversation_id)}</WorkThreadLink>
         {typeof (item.unread ?? item.pending_count) === "number" && <span>{String(item.unread ?? item.pending_count)} {tr("条待读")}</span>}
         {entries(item.participants).length > 0 && <small>{entries(item.participants).map(person => text(person.name) || text(person.id)).join(" · ")}</small>}
         {Array.isArray(item.attention_reasons) && <small>{item.attention_reasons.join(" · ")}</small>}
+      </div>)}
+      {threads.map((item, index) => <div className="im-work-source-row" key={text(item.target) || index}>
+        <WorkThreadLink conversationId={baseTarget(text(item.parent_target) || text(item.target))} messageId={text(item.root_message_id)}>{text(item.parent_name) || text(item.target)}</WorkThreadLink>
+        {text(item.root_excerpt) && <small>{text(item.root_excerpt)}</small>}
       </div>)}
       {messages.map((item, index) => {
         const source = object(item.source); const sender = object(item.sender);
         const senderName = text(sender.name) || text(sender.display_name) || people[text(sender.id)] || (compact ? "" : text(sender.id));
         return <div className="im-work-read-message" key={`${(text(item.message_id) || text(item.id))}:${text(item.part_key) || index}`}>
-          <small>{senderName && <>{senderName} · </>}{(text(item.source_time) || text(item.time) || text(item.created_at)) && <>{new Date((text(item.source_time) || text(item.time) || text(item.created_at))).toLocaleString()} · </>}<WorkThreadLink conversationId={text(source.conversation_id) || text(item.target) || target} messageId={(text(item.message_id) || text(item.id))}>{tr("原消息")}</WorkThreadLink></small>
-          {messageParts(item).map((content, i) => content.type === "text" ? <LongOutput key={i} text={text(content.text)} truncatedAtSource={detail.truncated === true} render={shown => <p className="whitespace-pre-wrap">{parseMentions(shown).map((segment, index) => segment.kind === "mention" ? <span key={index} className="chat-mention-chip" data-target-id={segment.target_id}>@{mentionDisplayName(segment.target_id, mentionNames)}</span> : segment.text)}</p>} /> : (content.type === "image" || (content.type === "attachment" && text(content.content_type).startsWith("image/"))) && text(content.url) ? <a href={text(content.url)} key={i} target="_blank" rel="noreferrer"><img className="max-h-48 max-w-full" alt={text(content.file_name) || tr("消息图片")} src={text(content.url)} /></a> : <a href={text(content.url)} key={i} target="_blank" rel="noreferrer">{text(content.file_name) || tr("附件")}</a>)}
+          <small>{senderName && <>{senderName} · </>}{(text(item.source_time) || text(item.time) || text(item.created_at)) && <>{new Date((text(item.source_time) || text(item.time) || text(item.created_at))).toLocaleString()} · </>}<WorkThreadLink conversationId={baseTarget(text(source.conversation_id) || text(item.target) || target)} messageId={(text(item.message_id) || text(item.id))}>{tr("原消息")}</WorkThreadLink></small>
+          {messageParts(item).map((content, i) => content.type === "text" ? <LongOutput key={i} text={text(content.text)} truncatedAtSource={detail.truncated === true} render={shown => <p className="whitespace-pre-wrap">{parseMentions(shown).map((segment, index) => segment.kind === "mention" ? <span key={index} className="chat-mention-chip" data-target-id={segment.target_id}>@{mentionDisplayName(segment.target_id, mentionNames)}</span> : segment.text)}</p>} /> : (content.type === "image" || (content.type === "attachment" && isRasterImageMime(text(content.content_type)))) && text(content.url) ? <a href={text(content.url)} key={i} target="_blank" rel="noreferrer"><img className="max-h-48 max-w-full" alt={text(content.file_name) || tr("消息图片")} src={text(content.url)} /></a> : <a href={text(content.url)} key={i} target="_blank" rel="noreferrer">{text(content.file_name) || tr("附件")}</a>)}
           {(item.complete_message === false || item.partial === true) && <small>{tr("此条消息的一部分")}</small>}
         </div>;
       })}
-      {(Array.isArray(detail.messages) || Array.isArray(detail.sources) || Array.isArray(detail.conversations)) && messages.length === 0 && conversations.length === 0 && <p>{tr("没有匹配记录")}</p>}
+      {(Array.isArray(detail.messages) || Array.isArray(detail.sources) || Array.isArray(detail.conversations) || Array.isArray(detail.threads)) && messages.length === 0 && conversations.length === 0 && threads.length === 0 && <p>{tr("没有匹配记录")}</p>}
       {typeof hasMore === "boolean" && (!compact || hasMore) && <small>{tr(hasMore ? "还有后续页面" : "当前页面已返回")}</small>}
       {detail.truncated === true && <p>{tr("展示已截断")}</p>}
     </>}

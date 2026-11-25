@@ -135,12 +135,18 @@ it.each(['unknown','not-sent'] as const)('publishes screenshot attachments and p
   const call: ProductCall = {method:'send_message', args:{target:'current', text:'Before', local_images:['/tmp/before.png'], interactive},
     operationId:'main:send', callId:'send', sessionId:'main', rootSessionId:'main', agentId:'a', ownerId:'owner'};
   try {
-    await expect(product.call(call)).resolves.toMatchObject(delivery === 'unknown'
-      ? {status:'unknown', operation_id:'main:send'} : {status:'not_sent'});
+    const firstResult = await product.call(call) as {status: string; operation_id?: string};
+    if (delivery === 'unknown') {
+      expect(firstResult).toMatchObject({status:'unknown'});
+      expect(firstResult.operation_id).toMatch(/^r_[a-f0-9]{6}$/);
+      expect(firstResult.operation_id!.length).toBeLessThanOrEqual(8);
+    } else {
+      expect(firstResult).toMatchObject({status:'not_sent'});
+    }
     expect(sent).toEqual([expect.objectContaining({attachments:[image], interactive})]);
     receiptAvailable = true;
     await expect(product.call({...call, operationId:'main:check', callId:'check',
-      args:{target:'current', receipt_of:'main:send'}})).resolves.toMatchObject(delivery === 'unknown'
+      args:{target:'current', receipt_of:firstResult.operation_id ?? 'main:send'}})).resolves.toMatchObject(delivery === 'unknown'
         ? {status:'sent', message_id:'m'} : {status:'not_sent'});
     expect(sent).toHaveLength(1);
     expect(uploads).toBe(1);
@@ -158,5 +164,16 @@ it('keeps screenshot paths out of public tool process in both call and failure p
   for (const args of [call.data.arguments, JSON.stringify({target:'current',local_images:path}), `{"local_images":["${path}"`]) {
     const attempt = {...call,data:{...call.data,arguments:args}};
     expect(JSON.stringify([toolPresentation(attempt,[attempt]),toolPresentation(failure,[attempt,failure])])).not.toContain(path);
+  }
+  const filePath = '/private/work/secret-report.csv';
+  const fileCall: RuntimeEvent = {seq:3,time:3,type:'tool/call',data:{callId:'send-file',name:'send_message',
+    arguments:JSON.stringify({target:'current',text:'Report',local_files:[filePath]})}};
+  const fileFailure: RuntimeEvent = {seq:4,time:4,type:'tool/result',data:{message:{toolCallId:'send-file',isError:true,
+    content:[{type:'text',text:`Could not read ${filePath}`}]}}};
+  expect(toolPresentation(fileCall,[fileCall])).toMatchObject({input:{file_count:1}});
+  expect(toolPresentation(fileFailure,[fileCall,fileFailure])).toMatchObject({status:'failed'});
+  for (const args of [fileCall.data.arguments, JSON.stringify({target:'current',local_files:filePath}), `{"local_files":["${filePath}"`]) {
+    const attempt = {...fileCall,data:{...fileCall.data,arguments:args}};
+    expect(JSON.stringify([toolPresentation(attempt,[attempt]),toolPresentation(fileFailure,[attempt,fileFailure])])).not.toContain(filePath);
   }
 });
