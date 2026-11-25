@@ -100,7 +100,9 @@ def _foreground(body: dict) -> bytes:
         (
             index
             for index in range(len(texts) - 1, -1, -1)
-            if re.search(r"FOREGROUND_|CHILD_SUCCESS|CHILD_FAILURE|AFTER_FAILURE", texts[index])
+            if re.search(
+                r"FOREGROUND_|CHILD_SUCCESS|CHILD_FAILURE|AFTER_FAILURE", texts[index]
+            )
         ),
         0,
     )
@@ -128,9 +130,7 @@ def _foreground(body: dict) -> bytes:
             },
         )
     settled = (
-        "failed before it finished." in recent
-        if failure
-        else "CHILD-OUTPUT" in recent
+        "failed before it finished." in recent if failure else "CHILD-OUTPUT" in recent
     )
     if not settled and wait_call not in results:
         return _tool(wait_call, "wait_agent", {})

@@ -4,10 +4,10 @@
 
 - 开发工作树：`/Users/czj/.t3/worktrees/nano-multiagent/unit-feat-787-dsh-022-u-5c64eade305a14d8`（分支 `unit/feat-787-dsh-022-upgrade`）
 - 配套扩展发布：`Mrchen116/dsh-agent-context@0.3.0-rc.12`（commit `fb23f61`，对齐 `@deepseek-ai/*@0.2.2-rc.5`）
-- 隔离真实栈（按 `worktree-runtime.md` 启动，验收与独立审查完成后回收）：
-  - 运行目录：`/tmp/nano-e2e-787.iPNxw8`（`--profile daily`，临时端口 `56168`，节点 `wt-nano-e2e-787.iPNxw8-20181`）
+- 隔离真实栈（按 `worktree-runtime.md` 启动，验收与独立审查完成后已通过 `./scripts/e2e-down.sh` 停止并完整删除目录、端口与 `tmux`/`wire-tee` 进程）：
+  - 运行目录：`/tmp/nano-e2e-787.iPNxw8`（`--profile daily`，临时端口 `56168`，节点 `wt-nano-e2e-787.iPNxw8-20181`，已回收）
   - 真实模型：`codexOAuth:gpt-6.2-sol`（主执行）与 `codexOAuth:gpt-6-luna`（工具审批分类器）
-  - 出站请求透明抓包：本机回环转发至 `LLM_PROXY`（初轮 `/tmp/nano-e2e-787.iPNxw8/wire-tee-pre-rebase.jsonl` 19 条 + 变基并合入审查修复后 `/tmp/nano-e2e-787.iPNxw8/wire-tee.jsonl` 10 条真实 `/v1/messages` 请求，脱敏剥离鉴权头；回收后销毁）
+  - 出站请求透明抓包：本机回环转发至 `LLM_PROXY`（初轮 `/tmp/nano-e2e-787.iPNxw8/wire-tee-pre-rebase.jsonl` 19 条 + 变基并合入审查修复后 `/tmp/nano-e2e-787.iPNxw8/wire-tee.jsonl` 13 条真实 `/v1/messages` 请求，脱敏剥离鉴权头；回收后已销毁）
 
 ## 2. 四层验收漏斗结果摘要
 
@@ -27,7 +27,7 @@
 | `SYNTH-787-T3` | `daily-engineering`（开启 `subagent_fork`） | 调用 `subagent_fork`，子会话读取两份文件并在后台结算后触发第 4 轮回传 `FORK-SUBCALL-787-OK` | 成功完成 |
 | `SYNTH-787-Q1` / `Q2` | `daily-quality`（私聊 `c_k8yqq0pt`，连续两轮，`plugin_manager` 开启） | `wire-tee` 捕获连续 9 次同根会话 `/v1/messages` 请求（`[01]..[05]` 与 `[08]..[12]`，`msgs` 从 5 递增至 21）：`tools` 含 `apply_patch`、`cordis_inspect_list`、`cordis_inspect_query`、`wait_agent`、`interrupt_agent`，不含 `working_directory`、`subagent_oar`、`team_task_*`；去 `cache_control` 后历史 `messages` 与 `system` 严格前缀保持 | 成功完成（`LIVE-RAW-787-OK`、`WIRE-PREFIX-787-OK`） |
 | `SYNTH-787-PA1` / `PA2` & `POSTFIX-PA` | `pa_a19e8ee354e6`（个人助手私聊 `c_42fd2ec0cdae`，`plugin_manager` 开启） | 修复 `allowsCordisInspect` 后重采 `wire-tee.jsonl`（`[01],[03],[04],[06]`）：`tools=46` 完整包含 `apply_patch`、`cordis_inspect_list`、`cordis_inspect_query` 以及合流自 `origin/develop` 的 `read_messages`/`search_messages`/`threads`/`download_attachment`，PA 真实调用 `cordis_inspect_list` 并回复 `POSTFIX-PA-INSPECT-OK` | 成功完成 |
-| `SYNTH-787-POSTFIX-ENG` | `daily-engineering`（私聊 `c_eat9ucs1`，`plugin_manager` 关闭、`subagent_fork` 开启） | 重采 `wire-tee.jsonl`（`[00],[02],[05],[07]..[09]`）：主会话与 `subagent_fork` 子会话均为 `tools=41`（`plugin_manager=false`、`cordis_inspect_*=false`、`memory_maintenance=true` 前缀完全一致），且软链目录 `/tmp/...` 下全 10 条请求 `working directory changed` 虚假消息为 0 | 成功完成（`POSTFIX-ENG-OK`） |
+| `SYNTH-787-POSTFIX-ENG` | `daily-engineering`（私聊 `c_eat9ucs1`，`plugin_manager` 关闭、`subagent_fork` 开启） | 重采 `wire-tee.jsonl`（含主会话与 `subagent_fork` 子会话请求 `[08]`）：主会话与 `subagent_fork` 子会话均为 `tools=41`（`plugin_manager=false`、`cordis_inspect_*=false`、`memory_maintenance=true`，`system`/`tools`/`messages[0..70]` 前缀完全一致），且软链目录 `/tmp/...` 下全 13 条请求 `working directory changed` 虚假消息为 0 | 成功完成（`POSTFIX-ENG-OK`） |
 
 ## 4. 浏览器原生轨迹与多视口交互核验
 
