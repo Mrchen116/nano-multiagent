@@ -200,7 +200,7 @@ export function AttachmentPreviewModal({
           return;
         }
         if (!result.truncated) {
-          cachedBlobRef.current = new Blob([result.bytes], {
+          cachedBlobRef.current = new Blob([new Uint8Array(result.bytes)], {
             type: contentType || "text/plain;charset=utf-8",
           });
         }
@@ -413,7 +413,7 @@ export function AttachmentPreviewModal({
                 title={fileName}
                 className="chat-file-preview-pdf"
               />
-            ) : kind === "markdown" && viewMode === "rich" ? (
+            ) : state.status === "text" && kind === "markdown" && viewMode === "rich" ? (
               <div className="chat-file-preview-prose-scroll">
                 <article className="im-md chat-file-preview-prose">
                   <ReactMarkdown

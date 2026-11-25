@@ -2149,7 +2149,8 @@ describe("MessagePane", () => {
       "src",
       "http://im.local/im/uploads/x.png"
     );
-    expect(screen.getByText("y.pdf").closest("a")).toHaveAttribute(
+    expect(screen.getByText("y.pdf")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /y\.pdf/i })).toHaveAttribute(
       "href",
       "http://im.local/im/uploads/y.pdf"
     );
