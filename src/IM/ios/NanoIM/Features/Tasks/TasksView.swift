@@ -173,15 +173,24 @@ struct TasksView: View {
         }
         .onChange(of: scope) { _, _ in
             completedItems = []; completedCursor = nil
-            Task { await load() }
+            Task {
+                await load()
+                if completedExpanded { await loadCompleted(more: false) }
+            }
         }
         .onChange(of: ownerKey) { _, _ in
             completedItems = []; completedCursor = nil
-            Task { await load() }
+            Task {
+                await load()
+                if completedExpanded { await loadCompleted(more: false) }
+            }
         }
         .onChange(of: filterConversationID) { _, _ in
             completedItems = []; completedCursor = nil
-            Task { await load() }
+            Task {
+                await load()
+                if completedExpanded { await loadCompleted(more: false) }
+            }
         }
         .onChange(of: query) { _, value in
             if value.isEmpty { Task { await load() } }

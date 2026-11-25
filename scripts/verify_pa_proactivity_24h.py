@@ -586,7 +586,7 @@ class ProactivityVerifier:
             f"Expected <proactive-nightly-wake> in trace ({trace_source}) for session {pa_session_id}"
         )
         nightly_locator, nightly_payload_text = nightly_hits[-1]
-        has_updated_memory_block = "<updated-formal-memory>" in nightly_payload_text
+        has_updated_memory_block = "</updated-formal-memory>" in nightly_payload_text
 
         report["checkpoints"]["checkpoint_2_dreaming_and_nightly"] = {
             "passed": True,
