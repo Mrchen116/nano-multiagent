@@ -66,7 +66,11 @@ try {
 
     dism.exe /Apply-Image "/ImageFile:$image" /Index:1 /ApplyDir:W:\ /Quiet
     if ($LASTEXITCODE) { throw "DISM apply failed ($LASTEXITCODE)" }
-    & "$env:SystemRoot\System32\bcdboot.exe" W:\Windows /s S: /f UEFI /v | Out-Null
+    if ($isWin11) {
+        & "$env:SystemRoot\System32\bcdboot.exe" W:\Windows /s S: /f UEFI /v | Out-Null
+    } else {
+        & 'W:\Windows\System32\bcdboot.exe' W:\Windows /s S: /f UEFI | Out-Null
+    }
     if ($LASTEXITCODE) { throw "bcdboot failed ($LASTEXITCODE)" }
 
     New-Item -Force -Type Directory W:\Windows\Panther | Out-Null
@@ -130,7 +134,11 @@ try {
         }
         Start-Sleep -Milliseconds 500
     }
-    if (!(Test-Path $readyFile)) { throw 'Timed out waiting for host-stack.mjs' }
+    if (!(Test-Path $readyFile)) {
+        $outTxt = if (Test-Path $hostStackLog) { Get-Content -Raw $hostStackLog } else { '' }
+        $errTxt = if (Test-Path $hostStackErr) { Get-Content -Raw $hostStackErr } else { '' }
+        throw "Timed out waiting for host-stack.mjs: stdout=$outTxt stderr=$errTxt"
+    }
 
     $ramBytes = if ($isWin11) { 8GB } else { 6GB }
     $vm = New-VM -Name $name -Generation 2 -MemoryStartupBytes $ramBytes -VHDPath $vhd -SwitchName $name -Path $root

@@ -88,8 +88,10 @@ export async function registerWorkRedactions(
 export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): void {
   const db = ctx.db, directory = `${ctx.dbPath}.work-sync`;
   mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const parent = openSync(dirname(directory), 'r');
-  try { fsyncSync(parent); } finally { closeSync(parent); }
+  if (process.platform !== 'win32') {
+    const parent = openSync(dirname(directory), 'r');
+    try { fsyncSync(parent); } finally { closeSync(parent); }
+  }
   db.exec(`CREATE TABLE IF NOT EXISTS work_sync_uploads (
     id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, node_id TEXT NOT NULL, node_epoch INTEGER NOT NULL,
     journal_id TEXT NOT NULL, seq INTEGER NOT NULL, event_id TEXT NOT NULL, sha256 TEXT NOT NULL,
@@ -289,12 +291,16 @@ export function registerWorkSyncRoutes(app: FastifyInstance, ctx: ImContext): vo
       if (old && old.sha256 !== payload.part_sha256) fail(409, 'part_identity_conflict');
       if (!old) {
         const folder = join(directory, id); mkdirSync(folder, { recursive: true, mode: 0o700 });
-        const directoryHandle = await open(directory, 'r');
-        try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
+        if (process.platform !== 'win32') {
+          const directoryHandle = await open(directory, 'r');
+          try { await directoryHandle.sync(); } finally { await directoryHandle.close(); }
+        }
         const file = await open(join(folder, String(part)), 'w', 0o600);
         try { await file.writeFile(bytes); await file.sync(); } finally { await file.close(); }
-        const folderHandle = await open(folder, 'r');
-        try { await folderHandle.sync(); } finally { await folderHandle.close(); }
+        if (process.platform !== 'win32') {
+          const folderHandle = await open(folder, 'r');
+          try { await folderHandle.sync(); } finally { await folderHandle.close(); }
+        }
         const removed = redacted();
         if (removed) return removed;
         // A disk-full error above never creates a durable part receipt.
