@@ -5,6 +5,68 @@ export type ScreenshotUploader = (input: {
   path: string; lifecycleRevision: number; signal: AbortSignal;
 }) => Promise<ChatAttachment>;
 
+export type AttachmentUploader = ScreenshotUploader;
+
+export type AttachmentDownloader = (input: {
+  agentId: string; attachmentId: string; url: string; fileName?: string;
+  workspace?: string; signal: AbortSignal;
+}) => Promise<{
+  attachment_id: string;
+  local_path: string;
+  file_name: string;
+  content_type: string;
+  byte_size: number;
+}>;
+
+/** Prepare ordered local images and files while uploading each distinct path once.
+ *
+ * Order is fixed as `[...existing, ...localImages, ...localFiles]` so 1-based
+ * `AttachmentImage` indices remain stable when non-image files are also attached.
+ */
+export async function prepareLocalAttachments(
+  uploadImage: ScreenshotUploader | undefined,
+  uploadFile: AttachmentUploader | undefined,
+  request: Omit<Parameters<ScreenshotUploader>[0], 'index' | 'path'>,
+  imagePaths: string[] | undefined,
+  filePaths: string[] | undefined,
+  existing: unknown,
+): Promise<ChatAttachment[]> {
+  const images = imagePaths ?? [];
+  const files = filePaths ?? [];
+  const attachments = existing === undefined ? [] : chatAttachments(existing);
+  if (images.length && !uploadImage) throw new Error('Local screenshot delivery is unavailable on this node');
+  if (files.length && !uploadFile) throw new Error('Local file delivery is unavailable on this node');
+  if ((!images.length && !files.length) || images.length + files.length + attachments.length > 5
+      || images.some(path => typeof path !== 'string' || !path)
+      || files.some(path => typeof path !== 'string' || !path)) {
+    throw new Error('Use at most five attachments with absolute local paths');
+  }
+  const prepared = [...attachments];
+  const uploadedImages = new Map<string, ChatAttachment>();
+  for (const [index, path] of images.entries()) {
+    request.signal.throwIfAborted();
+    let image = uploadedImages.get(path);
+    if (!image) {
+      try { image = await uploadImage!({ ...request, path, index }); }
+      catch (error) { throw new Error(`Screenshot ${index + 1} (${path}) was not uploaded: ${(error as Error).message}`); }
+      uploadedImages.set(path, image);
+    }
+    prepared.push(image);
+  }
+  const uploadedFiles = new Map<string, ChatAttachment>();
+  for (const [index, path] of files.entries()) {
+    request.signal.throwIfAborted();
+    let file = uploadedFiles.get(path);
+    if (!file) {
+      try { file = await uploadFile!({ ...request, path, index }); }
+      catch (error) { throw new Error(`File ${index + 1} (${path}) was not uploaded: ${(error as Error).message}`); }
+      uploadedFiles.set(path, file);
+    }
+    prepared.push(file);
+  }
+  return prepared;
+}
+
 /** Prepare ordered attachments while uploading each distinct local path once. */
 export async function prepareScreenshots(
   upload: ScreenshotUploader | undefined,
@@ -12,26 +74,10 @@ export async function prepareScreenshots(
   paths: string[],
   existing: unknown,
 ): Promise<ChatAttachment[]> {
-  if (!upload) throw new Error('Local screenshot delivery is unavailable on this node');
-  const attachments = existing === undefined ? [] : chatAttachments(existing);
-  if (!paths.length || paths.length + attachments.length > 5 || paths.some(path => typeof path !== 'string' || !path))
-    throw new Error('Use at most five attachments with absolute screenshot paths');
-  const uploaded = new Map<string, ChatAttachment>();
-  const prepared = [...attachments];
-  for (const [index, path] of paths.entries()) {
-    request.signal.throwIfAborted();
-    let image = uploaded.get(path);
-    if (!image) {
-      try { image = await upload({...request, path, index}); }
-      catch (error) { throw new Error(`Screenshot ${index + 1} (${path}) was not uploaded: ${(error as Error).message}`); }
-      uploaded.set(path, image);
-    }
-    prepared.push(image);
-  }
-  return prepared;
+  return prepareLocalAttachments(upload, undefined, request, paths, undefined, existing);
 }
 
-/** Expose only a query of the original operation when a screenshot receipt is uncertain. */
+/** Expose only a query of the original operation when a local attachment receipt is uncertain. */
 export function unknownScreenshotReceipt(target: string, operationId: string) {
   return {status:'unknown', target, operation_id:operationId,
     message:'Check this send with send_message using the same target and receipt_of set to operation_id.'};

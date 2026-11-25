@@ -9,8 +9,9 @@ export const MAX_AGENT_ID_LENGTH = 8;
 const SUPPORTED_METHODS = new Set([
   'inbox', 'conversations', 'read_messages', 'search_messages', 'threads',
   'send_message', 'send_user_message', 'send_message.context', 'send_user_message.context',
-  'task_graph', 'personal_sources',
+  'download_attachment', 'task_graph', 'personal_sources',
 ]);
+const NATIVE_ATTACHMENT_URL_RE = /^\/im\/v1\/conversations\/([^/]+)\/(images|attachments)\/([\w-]+)$/;
 
 /** Split a unified conversation or thread target (`<chat>` or `<chat>:<root>`) without breaking prefixed targets. */
 export function splitThreadTarget(raw: string): { base: string; root?: string } {
@@ -105,6 +106,24 @@ export class ToolReferences {
   incidentRef(agent: string, value: string): string {
     if (!value || value.length <= MAX_AGENT_ID_LENGTH) return value;
     return this.reference(agent, 'incident', value, 'i_');
+  }
+
+  /** Compact a native IM attachment URL to an 8-char `a_xxxxxx` reference.
+   *
+   * Args:
+   *   agent: Trusted product Agent identity.
+   *   url: Canonical native IM media URL (`/im/v1/conversations/:id/(images|attachments)/:rid`).
+   * Returns:
+   *   Stable `<= 8`-char reference for native URLs, or undefined for non-native URLs.
+   */
+  attachmentRef(agent: string, url: string): string | undefined {
+    if (!NATIVE_ATTACHMENT_URL_RE.test(url)) return undefined;
+    return this.reference(agent, 'attachment', url, 'a_');
+  }
+
+  /** Resolve a short `a_xxxxxx` attachment reference back to its canonical native IM URL. */
+  resolveAttachmentUrl(agent: string, ref: string): string {
+    return this.resolve(agent, 'attachment', ref);
   }
 
   /** Split a canonical target that may be an external conversation ID joined with a thread root ID. */
@@ -233,6 +252,9 @@ export class ToolReferences {
     if (typeof args.incident_ref === 'string' && args.incident_ref.startsWith('i_')) {
       next.incident_ref = this.resolve(agent, 'incident', args.incident_ref);
     }
+    if (method === 'download_attachment' && typeof args.attachment_id === 'string') {
+      next.attachment_url = this.resolveAttachmentUrl(agent, args.attachment_id);
+    }
     if ((method === 'send_message' || method === 'send_user_message') && typeof args.text === 'string') {
       next.text = this.resolveMentions(agent, args.text);
     }
@@ -268,12 +290,29 @@ export class ToolReferences {
     if (out.sender) out.sender = this.projectSender(agent, out.sender);
     if (out.reply_to) out.reply_to = this.projectReplyTo(agent, out.reply_to);
     if (Array.isArray(out.content)) {
-      out.content = out.content.map(part =>
-        part && typeof part === 'object' && !Array.isArray(part) && typeof (part as ObjectValue).text === 'string'
-          ? { ...part as ObjectValue, text: this.projectMentions(agent, (part as ObjectValue).text as string) }
-          : part);
+      out.content = out.content.map(part => {
+        if (!part || typeof part !== 'object' || Array.isArray(part)) return part;
+        const entry = { ...part as ObjectValue };
+        if (typeof entry.text === 'string') entry.text = this.projectMentions(agent, entry.text);
+        if (typeof entry.url === 'string') {
+          const ref = this.attachmentRef(agent, entry.url);
+          if (ref) entry.attachment_id = ref;
+        }
+        return entry;
+      });
     } else if (typeof out.content === 'string') {
       out.content = this.projectMentions(agent, out.content);
+    }
+    if (Array.isArray(out.attachments)) {
+      out.attachments = out.attachments.map(item => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+        const entry = { ...item as ObjectValue };
+        if (typeof entry.url === 'string') {
+          const ref = this.attachmentRef(agent, entry.url);
+          if (ref) entry.attachment_id = ref;
+        }
+        return entry;
+      });
     }
     if (out.source && typeof out.source === 'object' && !Array.isArray(out.source)) {
       const src = { ...out.source as ObjectValue };

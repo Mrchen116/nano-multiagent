@@ -3,8 +3,10 @@ import { open } from 'node:fs/promises';
 import { basename, isAbsolute } from 'node:path';
 import { chatAttachments, type ChatAttachment } from '@nano/product-contracts';
 
+import type { ImRequestOptions } from './im-http.js';
+
 const MAX_BYTES = 10 * 1024 * 1024;
-type ImRequest = (path: string, options?: RequestInit) => Promise<unknown>;
+type ImRequest = (path: string, options?: ImRequestOptions) => Promise<unknown>;
 
 /** Recover an existing screenshot receipt before reading or uploading its original file.
  *
@@ -47,7 +49,7 @@ export async function uploadScreenshot(im: ImRequest, input: {
   query.set('file_name', name);
   query.set('screenshot', '1');
   try {
-    const result = await im(`${endpoint}?${query}`, {method:'POST', signal:input.signal, body:bytes,
+    const result = await im(`${endpoint}?${query}`, {method:'POST', signal:input.signal, timeoutMs:60000, body:bytes,
       headers:{'Content-Type':mime, 'Idempotency-Key':key}});
     return chatAttachments([result])[0]!;
   } catch (error) {

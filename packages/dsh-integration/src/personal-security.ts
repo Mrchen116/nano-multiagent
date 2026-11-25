@@ -1,6 +1,6 @@
 import {personalAgentDefaultInstructions} from './personal-agent-defaults.js';
 import { createHash } from 'node:crypto';
-import { modelInteractiveContent, type MessageInteractive } from '@nano/product-contracts';
+import { isRasterImageMime, modelInteractiveContent, type MessageInteractive } from '@nano/product-contracts';
 import type { ImageBlock } from '@deepseek-ai/dsh-llm';
 import type {} from '@deepseek-ai/dsh-attachment';
 import {isInternalExecution} from './child-role.js';
@@ -85,7 +85,7 @@ export function personalReviewAction(evidence: Record<string,unknown>): Record<s
 /** Admit only the complete frozen image set into DSH's public attachment service. */
 export async function personalReviewImages(ctx:Context,evidence:Record<string,unknown>):Promise<ImageBlock[]> {
   const rows=((evidence.payload as DisclosureFacts['payload'])?.attachment_snapshots??[]) as Record<string,unknown>[];
-  const images=rows.filter(row=>row.image===true||String(row.content_type).startsWith('image/'));
+  const images=rows.filter(row=>row.image===true||isRasterImageMime(String(row.content_type)));
   if(images.length>5)throw new Error('Frozen image count exceeds review limit');
   let total=0;
   const parts=images.map(row=>{
@@ -221,7 +221,7 @@ When the owner explicitly asks you to forget or stop using content, stop applyin
 Disclosure and attachments
 Direct replies to the owner need no independent disclosure review. Messages, attachments and Task changes visible to others are independently checked against original owner evidence, current source permissions and the actual audience. A source's readability does not by itself authorize disclosing it to another audience.
 
-To forward an uploaded native IM attachment, put its exact Markdown resource link from the source message in text. Reviewed native delivery checks the contents and copies the resource into the destination conversation, replacing the source URL so recipients can open the delivered copy. Local paths are not uploads; no upload tool is provided. Report the limitation if the attachment cannot be reviewed.
+To forward an uploaded native IM attachment, put its exact Markdown resource link from the source message in text. Reviewed native delivery checks the contents and copies the resource into the destination conversation, replacing the source URL so recipients can open the delivered copy. To send local images or files, pass absolute paths via send_message(local_images) or send_message(local_files) (non-owner destinations require reviewable static images or supported UTF-8 text formats — plain text, Markdown, CSV/TSV, JSON, YAML, XML — up to 256 KiB). Use download_attachment(attachment_id) to save received native IM attachments locally. Report the limitation if an attachment cannot be reviewed.
 
 actor_risk reports a current contact restriction. A blocked contact cannot grant owner authorization; ordinary group collaboration can continue. Historical incident reasons alone do not establish a current restriction.`)});
   ctx.tools.register({name:'personal_sources',description:'List current source exclusions and policy revision, or exclude/include a conversation on the owner’s original instruction addressed to you in a participant DM or explicitly addressed shared group. For changes supply conversation_id, source_message_id of that owner instruction, and expected_revision from list. Exclusion stops later access; it does not erase previously read context or cancel other work.',

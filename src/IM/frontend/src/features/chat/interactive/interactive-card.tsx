@@ -6,6 +6,7 @@ import '@openuidev/react-ui/components.css';
 import { interactiveLibrary } from './catalog';
 import { runLibraryAction } from './open-intelligent-ui/actions';
 import { CardAttachmentImage } from './open-intelligent-ui/attachment-images';
+import { isRasterImageMime } from '../attachments/attachment-chip';
 import { MessageImage, protectedResourceUrl } from '../components/message-image';
 import { listMessages, readInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
@@ -186,7 +187,7 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
   }
   const renderAttachment = (index: number, alt: string) => {
     const attachment = message.attachments?.[index - 1];
-    if (!attachment?.content_type?.startsWith('image/') || !protectedResourceUrl(attachment.url, message.conversation_id)) {
+    if (!isRasterImageMime(attachment?.content_type) || !protectedResourceUrl(attachment?.url, message.conversation_id)) {
       return <MessageImage alt={alt} />;
     }
     return <CardMessageImage url={attachment.url} alt={alt} report={onAttachmentVisibility} />;

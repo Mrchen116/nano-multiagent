@@ -1,4 +1,5 @@
 import {rejectDeletedExecution} from './agent-deletion.js';
+import { isRasterImageMime } from '@nano/product-contracts';
 import { requireLifecycle } from './agent-lifecycle.js';
 import { canAccessSpace, agentAvailable, ownerAccount } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -526,7 +527,7 @@ export class Work {
         parts.push({ type: "text", text: m.content.slice(i, i + 24000) });
       parts.push(
         ...m.attachments.map((a: Row) => ({
-          type: a.content_type?.startsWith("image/") ? "image" : "attachment",
+          type: isRasterImageMime(a.content_type) ? "image" : "attachment",
           ...a,
         })),
       );
@@ -551,7 +552,7 @@ export class Work {
       const rootMsg = s.message(effectiveThreadRoot);
       const rootParts: Row[] = [];
       if (rootMsg.content) rootParts.push({ type: "text", text: rootMsg.content.slice(0, 24000) });
-      rootParts.push(...rootMsg.attachments.map((a: Row) => ({ type: a.content_type?.startsWith("image/") ? "image" : "attachment", ...a })));
+      rootParts.push(...rootMsg.attachments.map((a: Row) => ({ type: isRasterImageMime(a.content_type) ? "image" : "attachment", ...a })));
       const { part_key: _pk, total_parts: _tp, complete_message: _cm, ...rootProjected } = projectItem(rootMsg, rootParts[0], 0, 1);
       threadRootProjection = { ...rootProjected, content: rootParts };
     }

@@ -5,7 +5,23 @@ import { useTranslation } from "../../../i18n";
 import { protectedResourceUrl } from "../components/message-image";
 
 /** Download member-protected bytes through authFetch, never via a tokenized URL. */
-export function AttachmentLink({ href, children, fileName }: { href: string; children: ReactNode; fileName?: string }) {
+export function AttachmentLink({
+  href,
+  children,
+  fileName,
+  className = "chat-attachment-name",
+  wrapperClassName = "chat-attachment-link-wrap",
+  title,
+  ariaLabel,
+}: {
+  href: string;
+  children: ReactNode;
+  fileName?: string;
+  className?: string;
+  wrapperClassName?: string;
+  title?: string;
+  ariaLabel?: string;
+}) {
   const { t } = useTranslation();
   const self = useAuthStore(s => s.accessToken ? s.user?.id : undefined);
   const [failed, setFailed] = useState(false);
@@ -17,7 +33,7 @@ export function AttachmentLink({ href, children, fileName }: { href: string; chi
     window.addEventListener("im:conversation-invalidated", cancel);
     return () => { cancel(); window.removeEventListener("im:conversation-invalidated", cancel); };
   }, [self, href]);
-  if (!url) return <a className="chat-attachment-name" href={href} target="_blank" rel="noreferrer">{children}</a>;
+  if (!url) return <a className={className} href={href} target="_blank" rel="noreferrer" title={title} aria-label={ariaLabel}>{children}</a>;
   async function download() {
     if (!self || !url || busy) return;
     const controller = new AbortController(); request.current = controller;
@@ -35,5 +51,12 @@ export function AttachmentLink({ href, children, fileName }: { href: string; chi
     } catch { if (!controller.signal.aborted) setFailed(true); }
     finally { setBusy(false); }
   }
-  return <span><button type="button" className="chat-attachment-name" disabled={!self || busy} onClick={() => void download()}>{children}</button>{failed && <span role="alert">{t("chat.messagePane.attachmentNetwork")}</span>}</span>;
+  return (
+    <span className={wrapperClassName} data-busy={busy ? "true" : undefined}>
+      <button type="button" className={className} disabled={!self || busy} title={title} aria-label={ariaLabel} onClick={() => void download()}>
+        {children}
+      </button>
+      {failed && <span className="chat-attachment-link-error" role="alert">{t("chat.messagePane.attachmentNetwork")}</span>}
+    </span>
+  );
 }

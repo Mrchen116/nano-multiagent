@@ -6,7 +6,7 @@ import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { CHAT_BACKGROUND_DELAY_MS, decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
 import type { WorkReadyCut, WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
-import { formatLocalTime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
+import { formatLocalTime, isRasterImageMime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 import { joinThreadTarget, splitThreadTarget } from './tool-references.js';
 
 interface Entry { seq: number; agent_id: string; target: string; payload: string; attention: number; consumed: number }
@@ -160,7 +160,7 @@ export class InboxStore {
         let imageIndex=0;
         const retainImageIndices:number[]=[];
         for(const [index,message] of body.messages.entries())for(const part of message.content) {
-          if(!part.content_type?.startsWith('image/'))continue;
+          if(!isRasterImageMime(part.content_type))continue;
           if(keep.has(original[index]!.seq))retainImageIndices.push(imageIndex);
           imageIndex++;
         }
@@ -689,7 +689,7 @@ export class InboxStore {
       let images = 0;
       for (const block of partBlocks) {
         if (typeof block.text === 'string') chars += block.text.length;
-        if (typeof block.content_type === 'string' && block.content_type.startsWith('image/')) images++;
+        if (typeof block.content_type === 'string' && isRasterImageMime(block.content_type)) images++;
       }
       if (selected.length > 0 && (totalChars + chars > MAX_INBOX_READ_CHARS || totalImages + images > MAX_INBOX_READ_IMAGES)) {
         break;
@@ -775,7 +775,7 @@ export class InboxStore {
     const row = this.db.prepare('SELECT body FROM reads WHERE session_id=? AND call_id=?').get(session, call) as { body: string } | undefined;
     if (!row) throw new Error('No matching inbox read');
     const body = JSON.parse(this.restrictedRead(session,call)??row.body) as { target: string; messages: { id: string; target?: string; content: { type: string; content_type?: string; url?: string }[] }[] };
-    return body.messages.flatMap(message => message.content.filter(part => part.content_type?.startsWith('image/')).map(part => ({
+    return body.messages.flatMap(message => message.content.filter(part => isRasterImageMime(part.content_type)).map(part => ({
       kind: 'chat' as const, conversationId: message.target ?? body.target, messageId: message.id, url: part.url!,
     })));
   }
@@ -819,7 +819,7 @@ export class InboxStore {
       if (Array.isArray(input.metadata.interaction_contexts) && input.metadata.interaction_contexts.length > 0) continue;
       const parts = this.parts(input, row.seq);
       if (parts.length !== 1) continue;
-      if (parts[0]!.some(block => typeof block.content_type === 'string' && block.content_type.startsWith('image/'))) continue;
+      if (parts[0]!.some(block => typeof block.content_type === 'string' && isRasterImageMime(block.content_type))) continue;
       if (this.db.prepare('SELECT 1 FROM fragments WHERE seq=? AND part=0').get(row.seq)) continue;
       seenSeq.add(row.seq);
       selected.push({ seq: row.seq, part: 0 });

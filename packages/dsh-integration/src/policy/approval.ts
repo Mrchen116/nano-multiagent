@@ -22,9 +22,9 @@ import { normalizeMessageArguments } from '../message-arguments.js';
 import { isHumanSource } from '../input-source.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
-const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'delegate_worker', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'read_messages', 'search_messages', 'threads', 'memory']);
+const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'delegate_worker', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'memory']);
 
-const privateScreenshotApproval = 'Screenshot delivery needs approval with private evidence. Nothing was uploaded. Ask the owner to send the attachment directly or use an authorized approval mode.';
+const privateScreenshotApproval = 'Local attachment delivery needs approval with private evidence. Nothing was uploaded. Ask the owner to send the attachment directly or use an authorized approval mode.';
 
 /** One automatic reviewer; native dispatch, approval audit and cancellation stay native. */
 export class NanoApproval extends Service {
@@ -108,7 +108,8 @@ export class NanoApproval extends Service {
   private async escalate(exec: ToolExecution, config: AgentConfiguration, reason: string, source: string): Promise<PreToolDecision> {
     const route = this.route(exec.agent!, config);
     if (route === 'interactive') {
-      if (exec.name === 'send_message' && Array.isArray((exec.arguments as {local_images?:unknown}).local_images))
+      const msgArgs = exec.arguments as {local_images?:unknown; local_files?:unknown};
+      if (exec.name === 'send_message' && (Array.isArray(msgArgs.local_images) || Array.isArray(msgArgs.local_files)))
         return {kind:'deny', reason:privateScreenshotApproval};
       return { kind: 'ask', reason };
     }
@@ -120,8 +121,8 @@ export class NanoApproval extends Service {
     if (exec.name === 'send_user_message' || exec.name === 'send_message' && typeof (exec.arguments as {agent_id?:unknown})?.agent_id !== 'string') exec = {...exec, arguments:normalizeMessageArguments(exec.arguments, exec.name === 'send_message')};
     const agent = exec.agent; const config = agent && this.config(agent); const policy = config?.approval;
     const downstream = await next();
-    const message = exec.name === 'send_message' ? exec.arguments as {local_images?: unknown; receipt_of?:unknown} : undefined;
-    if (downstream.kind === 'ask' && Array.isArray(message?.local_images))
+    const message = exec.name === 'send_message' ? exec.arguments as {local_images?: unknown; local_files?: unknown; receipt_of?:unknown} : undefined;
+    if (downstream.kind === 'ask' && (Array.isArray(message?.local_images) || Array.isArray(message?.local_files)))
       return {kind:'deny', reason:privateScreenshotApproval};
     if (downstream.kind !== 'allow' || !agent || !config || !policy || exec.name === 'run_code' && !exec.parent) return downstream;
     if (typeof message?.receipt_of === 'string') return downstream;

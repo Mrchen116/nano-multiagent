@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
 import type { ComposerUpload } from "../components/composer-draft-store";
+import { FileTypeBadge, fileAttachmentMeta, isRasterImageMime } from "./attachment-chip";
 import { AttachmentLink } from "./attachment-link";
 
 /** Re-enable a retained upload when its server cooldown expires. */
@@ -38,7 +39,7 @@ export function ComposerAttachmentCard({ item, busy, retryClock, onRemove, onRet
 }) {
   const { t, i18n } = useTranslation();
   const zh = i18n.language.startsWith("zh");
-  const image = item.file.type.startsWith("image/");
+  const image = isRasterImageMime(item.file.type);
   const [preview, setPreview] = useState<string>();
   useEffect(() => {
     if (!image) return;
@@ -85,13 +86,16 @@ export function ComposerAttachmentCard({ item, busy, retryClock, onRemove, onRet
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root> : <div className="chat-composer-attachment-document" title={item.file.name}>
-        <svg className="chat-composer-attachment-file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-          <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5M8 13h8M8 17h6" />
-        </svg>
-        <span className="chat-composer-attachment-filename">
-          {item.attachment ? <AttachmentLink href={item.attachment.url} fileName={item.attachment.file_name ?? item.file.name}>
-            {item.file.name}
-          </AttachmentLink> : item.file.name}
+        <FileTypeBadge fileName={item.file.name} contentType={item.attachment?.content_type ?? item.file.type} />
+        <span className="chat-attachment-file-meta">
+          <span className="chat-composer-attachment-filename">
+            {item.attachment ? <AttachmentLink href={item.attachment.url} fileName={item.attachment.file_name ?? item.file.name} title={item.file.name}>
+              {item.file.name}
+            </AttachmentLink> : item.file.name}
+          </span>
+          <span className="chat-attachment-file-ext">
+            {fileAttachmentMeta(item.file.name, item.attachment?.content_type ?? item.file.type).ext}
+          </span>
         </span>
       </div>}
       {loading && <div className="chat-composer-attachment-loading" role="status" aria-label={`${loadingLabel}: ${item.file.name}`}>

@@ -1,9 +1,10 @@
 import sharp from 'sharp';
+import { isRasterImageMime } from '@nano/product-contracts';
 import { fail, type Row } from './context.js';
 
 /** Decode bounded static images before freezing their dimensions and media type. */
 export async function decodePersonalImages(snapshots:Row[]):Promise<Row[]> {
-  const images=snapshots.filter(row=>row.content_type.startsWith('image/'));
+  const images=snapshots.filter(row=>isRasterImageMime(row.content_type));
   if(images.length>5||images.reduce((total,row)=>total+row.byte_size,0)>20*1024*1024)fail(422,'attachment_image_limit');
   return Promise.all(images.map(async row=>{
     if(row.byte_size>10*1024*1024)fail(422,'attachment_image_limit');

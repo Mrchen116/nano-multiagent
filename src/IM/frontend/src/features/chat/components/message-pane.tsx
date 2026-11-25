@@ -38,7 +38,7 @@ import {
 import { AttachmentLink } from "../attachments/attachment-link";
 import { protectedResourceUrl } from "./message-image";
 import { ComposerAttachmentCard, useUploadRetryClock } from "../attachments/composer-attachment-card";
-import { AttachmentChip } from "../attachments/attachment-chip";
+import { AttachmentChip, isRasterImageMime } from "../attachments/attachment-chip";
 import { AttachmentDropzone } from "../attachments/attachment-dropzone";
 import { AttachmentUploadError, pastedImages, uploadOneAttachment } from "../attachments/use-attachment-upload";
 import {
@@ -1578,7 +1578,7 @@ function canReply(message:Message):boolean {
 function replyPreview(reply:ReplyReference,participants:Actor[]|undefined,zh:boolean):React.ReactNode {
   const text=reply.content.trim();
   return text ? renderInlineContent(text.slice(0,180),participants)
-    : reply.attachments.map(attachment=>attachment.file_name || (attachment.content_type?.startsWith('image/') ? (zh?'[图片]':'[Image]') : (zh?'[文件]':'[File]'))).join(' · ') || (zh?'[消息]':'[Message]');
+    : reply.attachments.map(attachment=>attachment.file_name || (isRasterImageMime(attachment.content_type) ? (zh?'[图片]':'[Image]') : (zh?'[文件]':'[File]'))).join(' · ') || (zh?'[消息]':'[Message]');
 }
 
 function ConfigurationBoundaryDivider() {
@@ -2542,13 +2542,28 @@ function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, 
         <dt>{field.label}</dt><dd>{field.display_value ?? (typeof field.value === 'string' ? field.value : JSON.stringify(field.value))}</dd>
       </React.Fragment>)}</dl>
     </details>}
-    {!!fallbackAttachments?.length && (
-      <div className="chat-bubble-attachments">
-        {fallbackAttachments.map(({attachment, index}) => (
-          <AttachmentChip key={`${attachment.url}:${index}`} attachment={attachment} />
-        ))}
-      </div>
-    )}
+    {!!fallbackAttachments?.length && (() => {
+      const imageItems = fallbackAttachments.filter(({ attachment }) => isRasterImageMime(attachment.content_type));
+      const fileItems = fallbackAttachments.filter(({ attachment }) => !isRasterImageMime(attachment.content_type));
+      return (
+        <div className="chat-bubble-attachments">
+          {imageItems.length > 0 && (
+            <div className="chat-bubble-attachment-images">
+              {imageItems.map(({ attachment, index }) => (
+                <AttachmentChip key={`${attachment.url}:${index}`} attachment={attachment} />
+              ))}
+            </div>
+          )}
+          {fileItems.length > 0 && (
+            <div className={`chat-bubble-attachment-files${fileItems.length === 1 ? " chat-bubble-attachment-files--single" : ""}`}>
+              {fileItems.map(({ attachment, index }) => (
+                <AttachmentChip key={`${attachment.url}:${index}`} attachment={attachment} />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    })()}
     {isAgent &&
       (message.process_summary ||
         (message.tool_calls && message.tool_calls.length > 0) ||

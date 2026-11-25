@@ -1,7 +1,23 @@
 import type { InteractionSnapshot, MessageInteractive } from './interactive-types.js';
 
 /** Stable chat presentation fields; provider/tool-specific contents remain opaque. */
-export interface ChatAttachment {url?: string; content_type?: string; file_name?: string; [field: string]: unknown}
+export interface ChatAttachment {url?: string; content_type?: string; file_name?: string; attachment_id?: string; [field: string]: unknown}
+
+/** Safe raster image MIME types eligible for inline preview and vision decoding. */
+export const RASTER_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+
+/** Check whether a declared MIME type is a safe raster image (excludes SVG and other active/non-raster formats).
+ *
+ * Args:
+ *   contentType: Raw or parameterized MIME string.
+ * Returns:
+ *   True only for PNG, JPEG, GIF, or WebP.
+ */
+export function isRasterImageMime(contentType: string | null | undefined): boolean {
+  if (typeof contentType !== 'string') return false;
+  const normalized = contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+  return RASTER_IMAGE_MIME_TYPES.has(normalized);
+}
 export interface ChatToolCall {
   id: string;
   name?: string;
@@ -99,7 +115,7 @@ function quoteExcerpt(text: string): string {
 export function projectChatReplyContext(reply: ChatReplyReference) {
   const text = quoteExcerpt(reply.content);
   const attachmentNames = reply.attachments.map(attachment =>
-    attachment.file_name || (attachment.content_type?.startsWith('image/') ? 'Image' : 'File'));
+    attachment.file_name || (isRasterImageMime(attachment.content_type) ? 'Image' : 'File'));
   return {
     message_id: reply.message_id,
     sender: { name: reply.sender.display_name, type: reply.sender.type },

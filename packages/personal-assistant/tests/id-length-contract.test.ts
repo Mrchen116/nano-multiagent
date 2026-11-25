@@ -344,6 +344,45 @@ it('enforces <= 8-char atomic IDs across all 6 IM tool output shapes and round-t
       incident_ref: LONG_INCIDENT,
       text: 'Replying as owner',
     });
+
+    // 9. Attachment short IDs (<= 8 chars) retain url and round-trip via download_attachment
+    const longAttachmentUrl = `/im/v1/conversations/${LONG_CONV_INTERNAL}/attachments/${LONG_ROOT_MSG}`;
+    const inboxWithAttachment = refs.result(agent, 'inbox', {
+      target: LONG_CONV_INTERNAL,
+      messages: [
+        {
+          id: LONG_REPLY_MSG,
+          sender: { id: LONG_USER, name: 'Alice' },
+          content: [
+            { type: 'text', text: 'Attached CSV' },
+            { type: 'attachment', url: longAttachmentUrl, content_type: 'text/csv', file_name: 'metrics.csv' },
+          ],
+        },
+      ],
+    }) as any;
+    const projectedPart = inboxWithAttachment.messages[0].content[1];
+    assertAtomicMax8('inbox.attachment_id', projectedPart.attachment_id);
+    expect(projectedPart.attachment_id).toMatch(/^a_[a-f0-9]{6}$/);
+    expect(projectedPart.url).toBe(longAttachmentUrl);
+
+    const readWithAttachment = refs.result(agent, 'read_messages', {
+      target: LONG_CONV_INTERNAL,
+      messages: [
+        {
+          message_id: LONG_REPLY_MSG,
+          sender: { id: LONG_USER, name: 'Alice' },
+          source: { conversation_id: LONG_CONV_INTERNAL, target: LONG_CONV_INTERNAL, reply_target: LONG_CONV_INTERNAL },
+          attachments: [{ url: longAttachmentUrl, content_type: 'text/csv', file_name: 'metrics.csv' }],
+          content: [{ type: 'attachment', url: longAttachmentUrl, content_type: 'text/csv', file_name: 'metrics.csv' }],
+        },
+      ],
+    }) as any;
+    expect(readWithAttachment.messages[0].attachments[0].attachment_id).toBe(projectedPart.attachment_id);
+    expect(readWithAttachment.messages[0].attachments[0].url).toBe(longAttachmentUrl);
+    expect(refs.arguments(agent, 'download_attachment', { attachment_id: projectedPart.attachment_id })).toEqual({
+      attachment_id: projectedPart.attachment_id,
+      attachment_url: longAttachmentUrl,
+    });
   } finally {
     db.close();
   }

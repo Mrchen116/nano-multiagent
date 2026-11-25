@@ -2,7 +2,7 @@ import { assertThreadQuote, threadRootOrFail } from './threads.js';
 import type { ChatMessage } from '@nano/product-contracts';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { mergeStatements } from '@openuidev/lang-core';
-import { interactiveResponse } from '@nano/product-contracts';
+import { interactiveResponse, isRasterImageMime } from '@nano/product-contracts';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -43,11 +43,17 @@ export class PersonalActions {
       if(!resource||!this.pa.ctx.dbPath)fail(409,'attachment_snapshot_unavailable');
       let bytes:Buffer;try{bytes=readFileSync(join(dirname(this.pa.ctx.dbPath),'message-images',resource.storage_name));}catch{fail(409,'attachment_snapshot_unavailable');}
       if(createHash('sha256').update(bytes!).digest('hex')!==resource.sha256)fail(409,'attachment_snapshot_changed');
-      const textual=['text/plain','text/markdown','application/json'].includes(resource.content_type);
+      const reviewableTextMimes = new Set(['text/plain','text/markdown','text/csv','text/tab-separated-values','application/json','text/yaml','application/yaml','text/xml','application/xml']);
+      let textContent: string | undefined;
+      if (reviewableTextMimes.has(resource.content_type) && bytes!.length <= 256 * 1024 && !bytes!.includes(0)) {
+        try { textContent = new TextDecoder('utf-8', { fatal: true }).decode(bytes!); } catch { /* Invalid UTF-8 falls through as non-reviewable. */ }
+      }
+      const textual = textContent !== undefined;
+      const raster = isRasterImageMime(resource.content_type);
       const image=images.find(row=>row.resource_id===resource.image_id);
       if(image&&image.sha256!==resource.sha256)fail(409,'attachment_snapshot_changed');
       if(conversationId!==b.conversation_id&&!textual&&!image)fail(409,'attachment_content_review_unavailable');
-      snapshots.push({url,conversation_id:resource.conversation_id,resource_id:resource.image_id,sha256:resource.sha256,content_type:resource.content_type,file_name:resource.file_name,byte_size:bytes!.length,...(textual?{text:bytes!.toString('utf8')}:{image:true,...(image?{width:image.width,height:image.height}:{})})});
+      snapshots.push({url,conversation_id:resource.conversation_id,resource_id:resource.image_id,sha256:resource.sha256,content_type:resource.content_type,file_name:resource.file_name,byte_size:bytes!.length,...(textual?{text:textContent}:raster||image?{image:true,...(image?{width:image.width,height:image.height}:{})}:{file:true})});
     }
     return {items:items.map(item=>{const snapshot=snapshots.find(s=>s.url===item.url)!;return {url:snapshot.url,content_type:snapshot.content_type,file_name:snapshot.file_name};}),snapshots};
   }
@@ -76,7 +82,7 @@ export class PersonalActions {
   status(b:Row,args:Row) {
     const id = args.conversation_id;
     if (!this.pa.sourceAllowed(b,id)) fail(403,'destination_not_accessible');
-    if (args.prepare_screenshot) {
+    if (args.prepare_screenshot || args.prepare_attachment) {
       this.destination(b,id,{representation:'self'});
       if (one(this.db,'SELECT external_source FROM conversations WHERE id=?',id)?.external_source)
         fail(422,'native_screenshot_destination_required');
