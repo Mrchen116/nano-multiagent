@@ -2542,13 +2542,28 @@ function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, 
         <dt>{field.label}</dt><dd>{field.display_value ?? (typeof field.value === 'string' ? field.value : JSON.stringify(field.value))}</dd>
       </React.Fragment>)}</dl>
     </details>}
-    {!!fallbackAttachments?.length && (
-      <div className="chat-bubble-attachments">
-        {fallbackAttachments.map(({attachment, index}) => (
-          <AttachmentChip key={`${attachment.url}:${index}`} attachment={attachment} />
-        ))}
-      </div>
-    )}
+    {!!fallbackAttachments?.length && (() => {
+      const imageItems = fallbackAttachments.filter(({ attachment }) => isRasterImageMime(attachment.content_type));
+      const fileItems = fallbackAttachments.filter(({ attachment }) => !isRasterImageMime(attachment.content_type));
+      return (
+        <div className="chat-bubble-attachments">
+          {imageItems.length > 0 && (
+            <div className="chat-bubble-attachment-images">
+              {imageItems.map(({ attachment, index }) => (
+                <AttachmentChip key={`${attachment.url}:${index}`} attachment={attachment} />
+              ))}
+            </div>
+          )}
+          {fileItems.length > 0 && (
+            <div className={`chat-bubble-attachment-files${fileItems.length === 1 ? " chat-bubble-attachment-files--single" : ""}`}>
+              {fileItems.map(({ attachment, index }) => (
+                <AttachmentChip key={`${attachment.url}:${index}`} attachment={attachment} />
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    })()}
     {isAgent &&
       (message.process_summary ||
         (message.tool_calls && message.tool_calls.length > 0) ||
