@@ -695,7 +695,13 @@ export class GlobalAgent {
     const result = await this.execute({ ...call, args: call.method === 'memory.conversations' ? call.args : references.arguments(call.agentId, call.method, call.args) }, binding);
     if (call.method === 'memory.conversations') return result;
     // Inbox reads persist the exact model-visible body before image admission and consumption.
-    return call.method === 'inbox' && call.args.action === 'read' ? result : references.result(call.agentId, call.method, result, String(call.args.action ?? ''));
+    const projected = call.method === 'inbox' && call.args.action === 'read'
+      ? result
+      : references.result(call.agentId, call.method, result, String(call.args.action ?? ''));
+    if (call.method === 'read_messages' && this.options.agents.find(agent => agent.agentId === binding.agentId)?.mode === 'global') {
+      this.options.inbox.recordQueryRead(binding.agentId, call.sessionId, call.callId, result, projected);
+    }
+    return projected;
   }
   private async execute(call: ProductCall, binding: SessionBinding): Promise<unknown> {
     const controller = new AbortController(); this.calls.set(call.operationId, controller);this.callAgents.set(call.operationId,call.agentId);
@@ -1205,16 +1211,20 @@ export class GlobalAgent {
   private commitInboxRead(binding: SessionBinding, event: RuntimeEvent): void {
     const {inbox, store} = this.options;
     const turn = typeof event.data.turn === 'number' ? event.data.turn : undefined;
-    const message = event.data.message as { toolCallId: string; content: { type: string; text?: string }[]; isError: boolean };
+    const message = event.data.message as { toolCallId: string; content: { type: string; text?: string; contextItemId?: string }[]; isError: boolean };
     if (!inbox.commitRead(binding.sessionId, message.toolCallId, message.content, message.isError, turn)) return;
-    const body = JSON.parse(message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')) as {target: string; messages: {id: string; target?: string; partial?: boolean}[]};
-    const fact = this.workEvent(binding, `inbox-read:${message.toolCallId}`, {type: 'inbox_read_committed', payload: {
-      call_id: message.toolCallId,
-      source_refs: body.messages.map(item => ({
+    const querySources = inbox.committedQuerySources(binding.sessionId, message.toolCallId);
+    const sourceRefs = querySources ?? (() => {
+      const body = JSON.parse(message.content.filter(part => part.type === 'text' && !part.contextItemId).map(part => part.text ?? '').join('')) as {target: string; messages: {id: string; target?: string; partial?: boolean}[]};
+      return body.messages.map(item => ({
         conversation_id: splitThreadTarget(store.toolReferences.resolveTarget(binding.agentId, item.target ?? body.target)).base,
         message_id: store.toolReferences.resolveMessageId(binding.agentId, item.id),
         complete_message: !item.partial,
-      })),
+      }));
+    })();
+    const fact = this.workEvent(binding, `inbox-read:${message.toolCallId}`, {type: 'inbox_read_committed', payload: {
+      call_id: message.toolCallId,
+      source_refs: sourceRefs,
     }}, turn, event.time);
     inbox.appendAfterWork(fact, event.seq);
     this.receiptReadCalls.push({sessionId: binding.sessionId, callId: message.toolCallId});

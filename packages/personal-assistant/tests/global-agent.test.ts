@@ -641,3 +641,94 @@ it('returns the native schedule history rejection without querying admission or 
     await product.stop(); inbox.close(); store.close();
   }
 });
+
+it('allows send_message without held_for_revalidation after durable read_messages covers unread plain-text messages, and still holds on newer mentions', async () => {
+  const store = new NodeStore(':memory:', 'owner'), inbox = new InboxStore(':memory:');
+  const binding = store.bind({ agentId: 'a', ownerId: 'owner', sessionId: 'root', conversationId: 'global:a', cwd: '/tmp', revision: '1' });
+  const committedReads: any[] = [];
+  let sentCount = 0;
+  const makeRelay = (id: string, text: string, mention: boolean) => ({
+    relay_task_id: `r-${id}`,
+    agent_id: 'a',
+    conversation_id: 'c_grp1',
+    message: { id, conversation_id: 'c_grp1', sender_user_id: 'u_owner', sender_type: 'user', content: text, attachments: [], created_at: '2026-11-25T00:00:00Z' },
+    metadata: { conversation_type: 'group', channel: 'web', conversation_title: 'Eng', mentioned_agent_ids: mention ? ['a'] : [] },
+  });
+  for (let i = 1; i <= 24; i++) inbox.receive(makeRelay(`log-${i}`, `log #${i}`, false), false);
+  inbox.receive(makeRelay('ping-25', '@a list topics', true), true);
+
+  const product = new GlobalAgent({
+    nodeId: 'node',
+    ownerId: 'owner',
+    store,
+    inbox,
+    agents: [{ agentId: 'a', workspace: '/tmp', mode: 'global', provider: 'p', model: 'm', revision: '1' }],
+    runtime: {
+      onNotification: () => () => {},
+      request: typedRuntimeRequest(async (method, args: any) => {
+        if (method === 'session.publication') {
+          const matching = committedReads.filter(ev => args.readIds?.includes(ev.data.message.toolCallId));
+          return { durable: true, throughSeq: 10, head: 10, call: { turn: 1, seq: 9 }, reads: matching };
+        }
+        return { events: [], durable: true, status: 'idle' };
+      }),
+    },
+    relay: {
+      ready: true,
+      request: async (type, payload: any) => {
+        if (type === 'conversation.query' && payload.action === 'read') {
+          const messages = [
+            ...Array.from({ length: 24 }, (_, idx) => ({
+              message_id: `log-${idx + 1}`,
+              complete_message: true,
+              source: { channel: 'web', conversation_id: 'c_grp1', target: 'c_grp1' },
+              content: [{ type: 'text', text: `log #${idx + 1}` }],
+            })),
+            {
+              message_id: 'ping-25',
+              complete_message: true,
+              source: { channel: 'web', conversation_id: 'c_grp1', target: 'c_grp1' },
+              content: [{ type: 'text', text: '@a list topics' }],
+            },
+          ];
+          return { type: 'result', payload: { ok: true, result: { target: 'c_grp1', name: 'Eng', kind: 'group', channel: 'web', messages } } };
+        }
+        if (type === 'conversation.query' && payload.action === 'info') {
+          return { type: 'result', payload: { ok: true, result: { target: 'c_grp1', name: 'Eng', type: 'group', channel: 'web' } } };
+        }
+        if (type === 'agent.message') {
+          sentCount++;
+          return { type: 'ack', payload: { message_id: `out-${sentCount}` } };
+        }
+        return { type: 'result', payload: { ok: true, result: {} } };
+      },
+    },
+    image: async () => '',
+    onError: error => { throw error; },
+  });
+  const baseCall = { agentId: 'a', ownerId: 'owner', sessionId: binding.sessionId, rootSessionId: binding.sessionId };
+  try {
+    // 1. Agent reads history via read_messages (covering all 25 unread messages)
+    const readRes = await product.call({ ...baseCall, method: 'read_messages', args: { target: 'c_grp1', limit: 50 }, operationId: 'op-rm', callId: 'call-rm' });
+    committedReads.push({
+      type: 'tool/result',
+      seq: 5,
+      time: Date.now(),
+      data: { turn: 1, message: { toolCallId: 'call-rm', isError: false, content: [{ type: 'text', text: JSON.stringify(readRes) }] } },
+    });
+
+    // 2. Agent immediately sends reply -> publicationEvidence commits call-rm and lets send_message through!
+    const sent = await product.call({ ...baseCall, method: 'send_message', args: { target: 'c_grp1', text: 'Here are the 2 topics.' }, operationId: 'op-send-1', callId: 'call-send-1' });
+    expect(sent).toMatchObject({ status: 'sent', target: 'c_grp1' });
+    expect(sentCount).toBe(1);
+    expect(inbox.blocking('a', 'c_grp1')).toBe(false);
+
+    // 3. A brand-new mention arrives AFTER read_messages -> next send_message MUST still be held!
+    inbox.receive(makeRelay('ping-26', '@a wait stop', true), true);
+    const held = await product.call({ ...baseCall, method: 'send_message', args: { target: 'c_grp1', text: 'Follow up' }, operationId: 'op-send-2', callId: 'call-send-2' });
+    expect(held).toMatchObject({ status: 'held_for_revalidation', target: 'c_grp1', inbox_targets: ['c_grp1'] });
+    expect(sentCount).toBe(1);
+  } finally {
+    await product.stop(); inbox.close(); store.close();
+  }
+});
