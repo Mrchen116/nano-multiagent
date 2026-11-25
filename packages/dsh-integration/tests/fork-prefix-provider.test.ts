@@ -79,7 +79,8 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
     await start();
     const first=await submit('empty');
     expect(system(first.parent).some((block: {text?:string}) =>
-      block.text?.includes('Execution node: id="node-air", name="Air"'))).toBe(true);
+      block.text?.includes('Execution node: id="node-air", name="Air"')
+      && block.text?.includes('send_message(local_images)'))).toBe(true);
     expect(JSON.stringify(first.child.messages)).not.toContain('PREFIX_COMMAND_empty');
     const completedParent=requests.filter(r=>r.session==='root').at(-1)!.body;
     const seeded=await submit('seeded');

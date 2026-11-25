@@ -584,7 +584,7 @@ Gateway 只把含非空真实更新对象的 self-evolution structured result �
 
 ### Requirement: 群聊 Agent 理解本地文件所在的执行环境
 
-产品 root Agent 获得自身执行节点身份与多机文件访问规则。普通与 Global 模式通过已启用的聊天详情查询获取原生群聊可见同伴的当前节点身份。
+产品 root Agent 获得自身执行节点身份与多机文件访问规则：向可能运行在不同节点的同伴分享本地图片时，优先经 `send_message(local_images)` 作为受保护附件发送而非只发本地路径；普通与 Global 模式通过已启用的聊天详情查询获取原生群聊可见同伴的当前节点身份。
 
 #### Scenario: 复核另一 Agent 的本地文件
 
