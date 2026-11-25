@@ -15,7 +15,7 @@ import type { ChatStreamReceipt } from '@nano/product-contracts';
 import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type WebSocket from "ws";
-import { all, one, now, fail, transaction, type Row, type ImContext } from "./context.js";
+import { all, chatId, one, now, fail, transaction, type Row, type ImContext } from "./context.js";
 import { threadAddressesAgent, threadRelayMetadata } from "./threads.js";
 import { TaskGraphService, TaskGraphError } from "./task-graphs.js";
 import { Work } from "./work.js";
@@ -669,7 +669,7 @@ export class Gateway {
       }
       let system = one(db, "SELECT * FROM users WHERE username='system'");
       if (!system) {
-        const uid = randomUUID();
+        const uid = chatId("u_");
         db.prepare(
           "INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES(?,?,?,?,?)",
         ).run(uid, "system", "System", uid, now());

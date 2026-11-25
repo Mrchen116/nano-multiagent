@@ -57,8 +57,8 @@ it('enforces <= 8-char atomic IDs across all 6 IM tool output shapes and round-t
       thread_context: {
         target: `${LONG_CONV_EXTERNAL}:${LONG_ROOT_MSG}`,
         root_message_id: LONG_ROOT_MSG,
-        root_excerpt: 'Root topic',
-        earlier_replies: [{ id: LONG_QUOTE_MSG, sender: 'Alice', excerpt: 'Earlier' }],
+        root_excerpt: `Root topic <mention type="user" target_id="${LONG_USER}"/>`,
+        earlier_replies: [{ id: LONG_QUOTE_MSG, sender: 'Alice', excerpt: `Earlier <mention type="user" target_id="${LONG_USER}"/>` }],
         truncated: false,
       },
       messages: [
@@ -66,7 +66,7 @@ it('enforces <= 8-char atomic IDs across all 6 IM tool output shapes and round-t
           id: LONG_REPLY_MSG,
           sender: { id: LONG_USER, kind: 'external', source_id: LONG_EXTERNAL_SENDER, name: 'Bob' },
           reply_to: { message_id: LONG_QUOTE_MSG, sender: { id: LONG_USER, name: 'Alice' } },
-          content: [{ type: 'text', text: 'Reply text' }],
+          content: [{ type: 'text', text: `Reply mentioning <mention type="user" target_id="${LONG_USER}"/>` }],
         },
       ],
       incident_ref: LONG_INCIDENT,
@@ -75,11 +75,14 @@ it('enforces <= 8-char atomic IDs across all 6 IM tool output shapes and round-t
     assertTargetMax8('inbox.read.target', inboxRead.target);
     assertTargetMax8('inbox.read.thread_context.target', inboxRead.thread_context.target);
     assertAtomicMax8('inbox.read.thread_context.root_message_id', inboxRead.thread_context.root_message_id);
+    assertMentionIdsMax8('inbox.read.thread_context.root_excerpt', inboxRead.thread_context.root_excerpt);
     assertAtomicMax8('inbox.read.thread_context.earlier_replies[0].id', inboxRead.thread_context.earlier_replies[0].id);
+    assertMentionIdsMax8('inbox.read.thread_context.earlier_replies[0].excerpt', inboxRead.thread_context.earlier_replies[0].excerpt);
     assertAtomicMax8('inbox.read.messages[0].id', inboxRead.messages[0].id);
     assertAtomicMax8('inbox.read.messages[0].sender.id', inboxRead.messages[0].sender.id);
     assertAtomicMax8('inbox.read.messages[0].sender.source_id', inboxRead.messages[0].sender.source_id);
     assertAtomicMax8('inbox.read.messages[0].reply_to.message_id', inboxRead.messages[0].reply_to.message_id);
+    assertMentionIdsMax8('inbox.read.messages[0].content', inboxRead.messages[0].content[0].text);
     assertAtomicMax8('inbox.read.incident_ref', inboxRead.incident_ref);
     assertAtomicMax8('inbox.read.next_cursor', inboxRead.next_cursor);
 

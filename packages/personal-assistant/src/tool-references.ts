@@ -156,6 +156,12 @@ export class ToolReferences {
     return this.resolveOptional(agent, 'user', value) ?? value;
   }
 
+  /** Compact any `> 8`-char `<mention type="user" target_id="..."/>` IDs in incoming message text. */
+  projectMentions(agent: string, text: string): string {
+    return text.replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
+      (_full, targetId: string) => `<mention type="user" target_id="${this.userRef(agent, targetId)}"/>`);
+  }
+
   /** Resolve short `<mention type="user" target_id="..."/>` references in outgoing message text. */
   resolveMentions(agent: string, text: string): string {
     return text.replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
@@ -261,6 +267,14 @@ export class ToolReferences {
     if (typeof out.id === 'string') out.id = this.messageRef(agent, out.id);
     if (out.sender) out.sender = this.projectSender(agent, out.sender);
     if (out.reply_to) out.reply_to = this.projectReplyTo(agent, out.reply_to);
+    if (Array.isArray(out.content)) {
+      out.content = out.content.map(part =>
+        part && typeof part === 'object' && !Array.isArray(part) && typeof (part as ObjectValue).text === 'string'
+          ? { ...part as ObjectValue, text: this.projectMentions(agent, (part as ObjectValue).text as string) }
+          : part);
+    } else if (typeof out.content === 'string') {
+      out.content = this.projectMentions(agent, out.content);
+    }
     if (out.source && typeof out.source === 'object' && !Array.isArray(out.source)) {
       const src = { ...out.source as ObjectValue };
       const rawConvId = typeof src.conversation_id === 'string' ? src.conversation_id : undefined;
@@ -309,9 +323,15 @@ export class ToolReferences {
     const rawRoot = typeof ctx.root_message_id === 'string' ? ctx.root_message_id : undefined;
     if ('target' in ctx) ctx.target = this.targetRef(agent, ctx.target, { root: rawRoot });
     if (rawRoot !== undefined) ctx.root_message_id = this.messageRef(agent, rawRoot);
+    if (typeof ctx.root_excerpt === 'string') ctx.root_excerpt = this.projectMentions(agent, ctx.root_excerpt);
     if (Array.isArray(ctx.earlier_replies)) {
-      ctx.earlier_replies = ctx.earlier_replies.map(item =>
-        item && typeof item === 'object' ? { ...item as ObjectValue, ...(typeof (item as ObjectValue).id === 'string' ? { id: this.messageRef(agent, (item as ObjectValue).id as string) } : {}) } : item);
+      ctx.earlier_replies = ctx.earlier_replies.map(item => {
+        if (!item || typeof item !== 'object') return item;
+        const entry = { ...item as ObjectValue };
+        if (typeof entry.id === 'string') entry.id = this.messageRef(agent, entry.id);
+        if (typeof entry.excerpt === 'string') entry.excerpt = this.projectMentions(agent, entry.excerpt);
+        return entry;
+      });
     }
     return ctx;
   }

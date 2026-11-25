@@ -6,6 +6,7 @@ import { searchMessages } from "./message-search.js";
 import type { FastifyInstance } from "fastify";
 import {
   all,
+  chatId,
   one,
   now,
   fail,
@@ -247,7 +248,7 @@ export class Work {
       if (p.action === "thread_unfollow" && result.changed && writableMember) {
         let system = one(this.db, "SELECT * FROM users WHERE username='system'");
         if (!system) {
-          const systemId = randomUUID();
+          const systemId = chatId("u_");
           this.db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES(?,?,?,?,?)").run(systemId, "system", "System", systemId, now());
           system = one(this.db, "SELECT * FROM users WHERE id=?", systemId);
         }

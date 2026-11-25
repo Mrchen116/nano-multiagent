@@ -301,9 +301,9 @@ describe("recoverable config operations and HTTP boundary", () => {
     expect(created.profile_version).toBe(1);
     expect(created.workspace_root).toBe("/canonical/new-agent");
     expect(created.workspace_is_default).toBe(true);
-    expect(
-      one(db, "SELECT display_name FROM users WHERE username='agent:new-agent'")?.display_name,
-    ).toBe("New");
+    const createdUser = one(db, "SELECT id, display_name FROM users WHERE username='agent:new-agent'");
+    expect(createdUser?.display_name).toBe("New");
+    expect(createdUser?.id).toMatch(/^u_[a-z0-9]{6}$/);
     await expect(ops.create({ agent_id: "new-agent" }, "o1", "n")).rejects.toMatchObject({
       statusCode: 409,
     });
