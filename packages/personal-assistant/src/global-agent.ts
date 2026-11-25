@@ -290,6 +290,12 @@ export class GlobalAgent {
     const high = !unaddressedControl && !taskContext && chatDelivery(input, config, this.options.ownerId) === 'high';
     return { attention, high };
   }
+  private resolveReviewConversation(agentId: string, rawTarget: string | undefined): string | undefined {
+    if (!rawTarget) return undefined;
+    const base = this.options.store.toolReferences.splitResolvedTarget(agentId, rawTarget).base.replace(/^conversation:/, '');
+    if (!base || base.startsWith('user:') || base.startsWith('agent:')) return undefined;
+    return this.options.store.imConversation(agentId, base);
+  }
   private async flushPendingReviews(config: AgentConfiguration, binding: SessionBinding, conversationId?: string): Promise<void> {
     if (this.stopped || !this.options.store.lifecycle.allowed(config.agentId)) return;
     const summary = await this.personal.flushReviews(config, binding, conversationId, item => this.classifyInputFlags(item, config));
@@ -308,6 +314,8 @@ export class GlobalAgent {
     if(this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
     const stopping=input.message.sender_type==='user'&&controlText(input)==='/stop'&&!!this.options.taskStop;
     let binding=stopping?this.binding(config):await this.main(config);
+    let stored: RelayInput | undefined;
+    let wasObservation = false;
     if (config.personal) {
       if (!this.options.inbox.input(config.agentId, input.message.id)) {
         const saved = structuredClone(input);
@@ -315,7 +323,7 @@ export class GlobalAgent {
         this.options.inbox.receive(saved, false);
       }
       const existingReview = this.options.inbox.reviews.get(config.agentId, input.message.id)!;
-      const stored = this.options.inbox.input(config.agentId, input.message.id)!;
+      stored = this.options.inbox.input(config.agentId, input.message.id)!;
       if (existingReview.state === 'pending' && stored.metadata.personal_unclassified === true) {
         if (!await this.personal.source(config, input)) {
           this.personal.settleSourceUnavailable(config, input);
@@ -329,7 +337,7 @@ export class GlobalAgent {
           binding = await this.main(config);
         }
       } else {
-        const wasObservation = input.metadata.pa_observation === true;
+        wasObservation = input.metadata.pa_observation === true;
         Object.assign(input.metadata, stored.metadata);
         if (!stored.metadata.pa_observation) delete input.metadata.pa_observation;
         if (stopping && (input.metadata.personal_is_owner !== true || input.metadata.personal_delivery !== 'participant')) {
@@ -366,7 +374,7 @@ export class GlobalAgent {
     const ownerControl = !config.personal || input.metadata.personal_is_owner === true && input.metadata.personal_delivery === 'participant'
       && needsAttention(input,config);
     const command = controlText(input);
-    if (config.personal && this.options.inbox.reviews.get(config.agentId, input.message.id)?.state === 'admitted'
+    if (config.personal && stored?.metadata.personal_control_handled === true
       && ownerControl && input.message.sender_type === 'user' && (command === '/new' || command === '/stop' || sessionControl(input, config) !== undefined)) {
       this.options.inbox.finishControl(input);
       this.options.inbox.settleMessageRelays(config.agentId, input.message.id, 'completed');
@@ -377,7 +385,10 @@ export class GlobalAgent {
       this.options.inbox.demoteControl(input);deferWake=true;
     }
     if (ownerControl && input.message.sender_type === 'user' && (command === '/new' || command === '/stop')) {
-      if (config.personal) this.personal.admitTrusted(config, binding, input);
+      if (config.personal) {
+        this.personal.admitTrusted(config, binding, input);
+        this.options.inbox.markControlHandled(input);
+      }
       const rootBinding = this.binding(config);
       let text = '全局模式不支持按聊天重置';
       if (command === '/stop') {
@@ -391,7 +402,10 @@ export class GlobalAgent {
     }
     const control = ownerControl ? sessionControl(input, config) : undefined;
     if (control) {
-      if (config.personal) this.personal.admitTrusted(config, binding, input);
+      if (config.personal) {
+        this.personal.admitTrusted(config, binding, input);
+        this.options.inbox.markControlHandled(input);
+      }
       const pending = this.controls.run(this.binding(config), input, control.action, control.argument); await this.main(config); await pending; return;
     }
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command);
@@ -745,6 +759,7 @@ export class GlobalAgent {
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
                 metadata:{pa_observation:true,owner_direct:event.owner_direct,addressed_to_owner:event.addressed_to_owner,addressed_to_agent:event.addressed_to_agent,
+                  ...(typeof event.agent_user_id==='string'?{agent_user_id:event.agent_user_id}:{}),
                   ...(typeof message.thread_root_message_id==='string'?{thread_root_message_id:message.thread_root_message_id,thread_root_sender:event.thread_root_sender,thread_root_excerpt:event.thread_root_excerpt,thread_earlier:event.thread_earlier,thread_history_truncated:event.thread_history_truncated,...(event.thread_follow_reactivated?{thread_follow_reactivated:true}:{})}:{}),
                   ...('provider_source_time' in event?{provider_source_time:event.provider_source_time}:{}),context_only:event.context_only,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,explicit_mentioned_agent_ids:event.explicit_mentioned_agent_ids,source_policy_revision:event.policy_revision},
                 message:{id:message.id,content:message.content,sender_type:message.sender_type,sender_user_id:message.sender_source_id??message.sender_user_id,
@@ -867,7 +882,7 @@ export class GlobalAgent {
         }
         if (call.args.action !== 'read' || typeof call.args.target !== 'string') throw new Error('Inbox read needs a target');
         const baseTarget = this.options.store.toolReferences.splitResolvedTarget(call.agentId, call.args.target).base;
-        if (personalConfig) await this.flushPendingReviews(personalConfig, binding, baseTarget.replace(/^conversation:/, ''));
+        if (personalConfig) await this.flushPendingReviews(personalConfig, binding, this.resolveReviewConversation(call.agentId, call.args.target));
         const info = await this.query(binding, { action: 'info', target: baseTarget });
         this.options.inbox.updateTarget(call.agentId, baseTarget, String(info.name));
         controller.signal.throwIfAborted();
@@ -908,8 +923,7 @@ export class GlobalAgent {
         if (personalConfig) {
           await this.refreshPersonalSources(personalConfig);
           const rawTarget = typeof resolvedArgs.target === 'string' && resolvedArgs.target ? resolvedArgs.target : undefined;
-          const targetConv = rawTarget ? this.options.store.toolReferences.splitResolvedTarget(call.agentId, rawTarget).base.replace(/^conversation:/, '') : undefined;
-          await this.flushPendingReviews(personalConfig, binding, targetConv);
+          await this.flushPendingReviews(personalConfig, binding, this.resolveReviewConversation(call.agentId, rawTarget));
         }
         return await this.query(binding, { ...resolvedArgs, action: 'read' });
       }
@@ -918,8 +932,7 @@ export class GlobalAgent {
         if (personalConfig) {
           await this.refreshPersonalSources(personalConfig);
           const rawTarget = typeof resolvedArgs.target === 'string' && resolvedArgs.target ? resolvedArgs.target : undefined;
-          const targetConv = rawTarget ? this.options.store.toolReferences.splitResolvedTarget(call.agentId, rawTarget).base.replace(/^conversation:/, '') : undefined;
-          await this.flushPendingReviews(personalConfig, binding, targetConv);
+          await this.flushPendingReviews(personalConfig, binding, this.resolveReviewConversation(call.agentId, rawTarget));
         }
         return await this.query(binding, { ...resolvedArgs, action: 'search' });
       }

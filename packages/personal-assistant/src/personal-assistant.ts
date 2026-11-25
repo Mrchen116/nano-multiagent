@@ -24,7 +24,7 @@ interface Options {
   relay: {request(type: string, payload: Data): Promise<ProtocolFrame>}; onError(error: unknown): void;
   uploadScreenshot?: ScreenshotUploader;
   uploadAttachment?: AttachmentUploader;
-  flushConversation?: (config: AgentConfiguration, binding: SessionBinding, conversationId: string) => Promise<void>;
+  flushConversation?: (config: AgentConfiguration, binding: SessionBinding, conversationId?: string) => Promise<void>;
 }
 
 const MAX_REVIEW_BATCH = 20;
@@ -73,6 +73,7 @@ export class PersonalAssistant {
       if (key in source) input.metadata[key] = source[key];
     }
     if('provider_source_time' in source)input.metadata.provider_source_time=source.provider_source_time;
+    if(typeof source.agent_user_id==='string'&&source.agent_user_id)input.metadata.agent_user_id=source.agent_user_id;
     if(Array.isArray(source.explicit_mentioned_agent_ids))input.metadata.explicit_mentioned_agent_ids=source.explicit_mentioned_agent_ids;
     if(typeof source.context_only==='boolean')input.metadata.context_only=source.context_only;
     // Only the authenticated server admission can set or clear this annotation.
@@ -172,9 +173,13 @@ export class PersonalAssistant {
     conversationId: string | undefined,
     classifyFlags: (input: RelayInput) => { attention: boolean; high: boolean },
   ): Promise<BatchReviewSummary> {
+    const prefix = `${config.agentId}:`;
+    const inFlight = [...this.reviewBatches.keys()]
+      .filter(key => key.startsWith(prefix))
+      .map(key => key.slice(prefix.length));
     const conversations = conversationId
       ? [conversationId]
-      : this.options.inbox.reviews.pendingConversations(config.agentId);
+      : [...new Set([...this.options.inbox.reviews.pendingConversations(config.agentId), ...inFlight])];
     if (!conversations.length) {
       return { admitted: 0, rejected: [], failed: [], unavailable: [], sourceRevoked: [] };
     }
@@ -474,6 +479,11 @@ export class PersonalAssistant {
     if(previous&&['sending','unknown'].includes(previous.state))return {status:'unknown',operation_id:operationId,message:incident?'Call send_message with the same incident_ref and target to check its receipt; this will not resend while unknown.':'Check the existing publication receipt; do not resend with another key.'};
     if(deliveryTarget.startsWith('external:')) {
       if(representation==='owner')throw new Error('Owner representation requires a native IM conversation');
+      const shadowId = this.options.store.imConversation(config.agentId, deliveryTarget);
+      await this.options.flushConversation?.(config, binding, shadowId);
+      if (shadowId && inbox.blocking(config.agentId, joinThreadTarget(shadowId, inThread))) {
+        return {status:'held_for_revalidation',target,message:'Read new messages in this conversation and reconsider this draft before sending.'};
+      }
       const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
         ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
@@ -569,6 +579,7 @@ export class PersonalAssistant {
   /** Freeze and consume a provider permit immediately before the real channel send. */
   async external(config:AgentConfiguration,binding:SessionBinding,delivery:ExternalDelivery):Promise<string> {
     if(!delivery.shadowId)throw new Error('External source has not yet synchronized');
+    await this.options.flushConversation?.(config, binding, delivery.shadowId);
     const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,incident_ref:delivery.incidentRef,
       conversation_id:delivery.shadowId,content:delivery.text,transport:{kind:'feishu',destination:{app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId},card:delivery.card}});
     if(proposal.owner_private===true)return delivery.dispatch(delivery.text,delivery.card);

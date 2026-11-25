@@ -22,6 +22,8 @@ export class InboxReviews {
   const columns=new Set(db.prepare('PRAGMA table_info(inbox)').all().map(row=>row.name));
   for(const [name,type] of Object.entries({review_state:'TEXT',review_generation:'INTEGER NOT NULL DEFAULT 0',review_reason:'TEXT',review_error_code:'TEXT',review_incident_id:'TEXT',review_event_id:'TEXT',review_event_delivered:'INTEGER NOT NULL DEFAULT 0',review_due_at:'INTEGER'}))
    if(!columns.has(name))db.exec(`ALTER TABLE inbox ADD COLUMN ${name} ${type}`);
+  db.exec(`CREATE INDEX IF NOT EXISTS inbox_pending_reviews ON inbox(agent_id,review_due_at)
+    WHERE consumed=0 AND review_state IN ('pending','reviewing')`);
   // This store is opened once per Node process. An interrupted request has no verdict to replay.
   db.prepare(`UPDATE inbox SET review_state='failed',review_error_code='interrupted',review_reason='Input review was interrupted before a verdict',
     review_event_id='input-review:'||agent_id||':'||message_id||':'||review_generation,review_event_delivered=0 WHERE review_state='reviewing'`).run();
@@ -74,7 +76,7 @@ export class InboxReviews {
  }
  pendingConversations(agent:string):string[] {
   return (this.db.prepare(`SELECT DISTINCT json_extract(payload,'$.conversation_id') cid FROM inbox
-    WHERE agent_id=? AND consumed=0 AND review_state='pending'
+    WHERE agent_id=? AND consumed=0 AND review_state IN ('pending','reviewing')
       AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0`).all(agent) as {cid:string|null}[])
    .flatMap(row=>typeof row.cid==='string'&&row.cid?[row.cid]:[]);
  }

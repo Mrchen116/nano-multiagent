@@ -263,7 +263,7 @@ export class PersonalAgents {
     if(!chatAllowed(this.db,b.agent_id,m.id) || one(this.db,"SELECT 1 FROM pa_source_events WHERE binding_id=? AND message_id=? AND state='scope_skipped'",b.binding_id,m.id))
       return {allowed:false,scope_skipped:true};
     this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,this.policy(b.binding_id).revision);
-    return {allowed:true,...this.sourceFacts(b,m),...threadRelayMetadata(this.db,m.id,b.agent_id),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
+    return {allowed:true,...this.sourceFacts(b,m),...(m.sender_source_id?{}:{agent_user_id:this.ctx.messaging.agentUser(b.agent_id).id}),...threadRelayMetadata(this.db,m.id,b.agent_id),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
   }
   updatePolicy(owner: string, input: Row) {
     const b = this.binding(owner); if (!b) fail(404, 'personal_agent_not_found');
@@ -325,7 +325,7 @@ export class PersonalAgents {
         const conversation=e.conversation_id?one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',e.conversation_id):undefined;
         const message=e.message_id?this.ctx.messaging.message(e.message_id):null;
         return {...e,lifecycle_revision:JSON.parse(e.payload_json).lifecycle_revision??1,conversation_type:conversation?.type,channel:conversation?.external_source??'web',
-          ...(message?{mentioned_agent_ids:this.addressedAgents(message),...this.sourceFacts(b,message),...threadRelayMetadata(this.db,message.id,b.agent_id)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
+          ...(message?{mentioned_agent_ids:this.addressedAgents(message),...(conversation?.external_source?{}:{agent_user_id:this.ctx.messaging.agentUser(b.agent_id).id}),...this.sourceFacts(b,message),...threadRelayMetadata(this.db,message.id,b.agent_id)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
           message:message?{...message,sender_source_id:message.sender_source_id}:null};
       });
     for(const event of items) if(event.message_id) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(b.binding_id,event.message_id,event.conversation_id,policy.revision);

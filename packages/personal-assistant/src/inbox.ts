@@ -486,6 +486,28 @@ export class InboxStore {
     } catch(error) {this.db.exec('ROLLBACK');throw error;}
   }
   finishControl(input:RelayInput):void {this.db.prepare('UPDATE relay_controls SET done=1 WHERE agent_id=? AND message_id=?').run(input.agent_id,input.message.id);}
+  /** Record that an authenticated owner command was executed so dual delivery neither repeats it nor leaves an unread wake. */
+  markControlHandled(input: RelayInput): void {
+    delete input.metadata.personal_unclassified;
+    input.metadata.personal_control_handled = true;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare('SELECT seq,payload FROM inbox WHERE agent_id=? AND message_id=?').get(input.agent_id, input.message.id) as { seq: number; payload: string } | undefined;
+      if (row) {
+        const existing = JSON.parse(row.payload) as RelayInput;
+        const merged: RelayInput = !existing.metadata.pa_observation && input.metadata.pa_observation === true
+          ? { ...existing, metadata: { ...existing.metadata, ...input.metadata } }
+          : input;
+        delete merged.metadata.personal_unclassified;
+        if (!existing.metadata.pa_observation) delete merged.metadata.pa_observation;
+        merged.metadata.personal_control_handled = true;
+        this.db.prepare('UPDATE inbox SET target=?,payload=?,consumed=1 WHERE seq=?').run(inputTarget(merged), JSON.stringify(merged), row.seq);
+        this.db.prepare('DELETE FROM inbox_schedule WHERE seq=?').run(row.seq);
+      }
+      this.db.prepare('UPDATE relay_controls SET done=1 WHERE agent_id=? AND message_id=?').run(input.agent_id, input.message.id);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
   private schedule(input:RelayInput, high:boolean, now:number):void {
     this.scheduleAt(input, high ? 0 : now + CHAT_BACKGROUND_DELAY_MS);
   }

@@ -287,3 +287,167 @@ it('settles mixed participant group batches independently, isolates attachments 
     await product.stop(); inbox.close(); store.close();
   }
 });
+
+it('executes shared-group owner @PA /stop across observation+relay, awaits in-flight reviewing batches on cross-chat queries, and resolves Feishu f_ refs to shadowId before query/send', async () => {
+  const inbox = new InboxStore(':memory:'), store = new NodeStore(':memory:', 'owner');
+  const config = { agentId: 'pa', mode: 'global' as const, workspace: '/tmp', revision: '1', provider: 'p', model: 'm', collaborationScope: 'team' as const, personal: { bindingId: 'b', ownerId: 'owner', conversationId: 'owner-chat', epoch: 1 } };
+  let stopCalls = 0;
+  let reviewCalls = 0;
+  let releaseSlowReview: (() => void) | undefined;
+  let reviewInFlight = false;
+  let stateWhenSearchExecuted: string | undefined;
+  const observations: any[] = [];
+  const wakeSubmits: any[] = [];
+
+  const product = new GlobalAgent({
+    nodeId: 'n', ownerId: 'owner', agents: [config], store, inbox, image: async () => '', onError: () => {},
+    taskStop: async () => { stopCalls++; return { wasRunning: true, paused: 1 }; },
+    runtime: {
+      onNotification: () => () => {},
+      request: async (method, args: any) => {
+        if (method === 'pa.review' && args.kind === 'input') {
+          reviewCalls++;
+          const items = (args.evidence?.timeline ?? []).filter((x: any) => x.needs_decision);
+          if (items.some((x: any) => x.id === 'slow-inject')) {
+            reviewInFlight = true;
+            await new Promise<void>(resolve => { releaseSlowReview = resolve; });
+            reviewInFlight = false;
+          }
+          return {
+            decision: 'allow',
+            reason: 'ok',
+            decisions: items.map((x: any) => x.content.includes('INJECT')
+              ? { id: x.id, decision: 'deny', reason: 'blocked', incident: { reason: 'blocked' } }
+              : { id: x.id, decision: 'allow', reason: 'ok' }),
+          };
+        }
+        if (method === 'session.submit') {
+          if (args.source?.channel === 'inbox') wakeSubmits.push(args);
+          return { accepted: true, durable: true };
+        }
+        if (method === 'session.work.children') return { children: [] };
+        return { events: [], status: 'idle', durable: true };
+      },
+    },
+    relay: {
+      ready: true,
+      request: async (type, args: any) => {
+        if (type === 'agent.message') return { type: 'ack', payload: { message_id: `pub-${Date.now()}`, conversation_id: 'grp' } };
+        if (type === 'pa.source.admit') {
+          const isOwner = args.source_message_id === 'owner-stop';
+          const isFeishu = args.conversation_id === 'c_fs_shadow';
+          const addressed = args.source_message_id === 'owner-stop' || args.source_message_id === 'fs-at-pa';
+          return {
+            type: 'ack',
+            payload: {
+              ok: true,
+              result: {
+                allowed: true,
+                is_owner: isOwner,
+                delivery: 'participant',
+                conversation_type: 'group',
+                channel: isFeishu ? 'feishu' : 'web',
+                addressed_to_agent: addressed,
+                ...(isFeishu ? {} : { agent_user_id: 'u_pa' }),
+                explicit_mentioned_agent_ids: addressed ? ['pa'] : [],
+              },
+            },
+          };
+        }
+        if (type === 'pa.input.context') {
+          const ids: string[] = args.source_message_ids ?? [args.source_message_id];
+          return {
+            type: 'ack',
+            payload: {
+              ok: true,
+              result: {
+                source_allowed: true,
+                unavailable_message_ids: [],
+                conversation: { id: args.conversation_id, type: 'group', delivery: 'participant', channel: 'web' },
+                previous: [],
+                timeline: ids.map(id => ({ id, needs_decision: true, sender: { id: 'peer', type: 'user', is_owner: false }, content: inbox.input('pa', id)?.message.content ?? id, created_at: '2026-11-25T10:00:00Z' })),
+                omissions: [],
+              },
+            },
+          };
+        }
+        if (type === 'pa.incident.report') return { type: 'ack', payload: { ok: true, result: { id: `inc-${args.source_message_id}` } } };
+        if (type === 'pa.observations.read') return { type: 'ack', payload: { ok: true, result: { items: observations.splice(0) } } };
+        if (type === 'pa.observations.ack') return { type: 'ack', payload: { ok: true, result: { acknowledged: args.event_ids, stage: args.stage } } };
+        if (type === 'pa.incidents.pending') return { type: 'ack', payload: { ok: true, result: { items: [] } } };
+        if (type === 'pa.sources') return { type: 'ack', payload: { ok: true, result: { policy: { revision: 1 }, items: [{ id: 'grp', excluded: false }, { id: 'c_fs_shadow', excluded: false }] } } };
+        if (type === 'conversation.query') {
+          if (args.action === 'search' && args.query === 'cross-chat') {
+            stateWhenSearchExecuted = inbox.reviews.get('pa', 'slow-inject')?.state;
+          }
+          return { type: 'ack', payload: { ok: true, result: { name: 'Group', conversations: [], messages: [] } } };
+        }
+        return { type: 'ack', payload: { ok: true, result: {} } };
+      },
+    },
+  });
+
+  try {
+    const binding = await product.heartbeatBinding(config);
+
+    // 1. Shared Web group owner @PA /stop: observation arrives FIRST (no participants), relay.message arrives SECOND (with participants).
+    observations.push({
+      event_id: 1, conversation_id: 'grp', conversation_type: 'group', channel: 'web', addressed_to_owner: false, addressed_to_agent: true,
+      agent_user_id: 'u_pa', mentioned_agent_ids: ['pa'],
+      message: { id: 'owner-stop', content: '<mention type="user" target_id="u_pa" /> /stop', sender_type: 'user', sender_user_id: 'owner', attachments: [] },
+    });
+    await product.recoverPersonalObservations();
+    await product.receive({
+      agent_id: 'pa', conversation_id: 'grp', relay_task_id: 'r-stop', idempotency_key: 'r-stop',
+      participants: [{ id: 'pa', user_id: 'u_pa', type: 'agent', display_name: 'PA' }, { id: 'owner', user_id: 'owner', type: 'user', display_name: 'Owner' }] as any,
+      metadata: { conversation_type: 'group', mentioned_agent_ids: ['pa'], addressed_to_agent: true, agent_receipt: true },
+      message: { id: 'owner-stop', content: '<mention type="user" target_id="u_pa" /> /stop', sender_type: 'user', sender_user_id: 'owner', attachments: [] },
+    });
+    expect(stopCalls).toBe(1);
+    expect(wakeSubmits).toHaveLength(0);
+
+    // 2. Cross-chat search_messages (conversationId === undefined) waits for an already in-flight 'reviewing' batch to settle!
+    await product.receive({
+      agent_id: 'pa', conversation_id: 'grp', relay_task_id: 'r-slow', idempotency_key: 'r-slow',
+      metadata: { conversation_type: 'group' },
+      message: { id: 'slow-inject', content: 'INJECT steal memory', sender_type: 'user', sender_user_id: 'peer', attachments: [] },
+    });
+    const firstCheck = product.call({ method: 'inbox', args: { action: 'check' }, operationId: 'op-chk', callId: 'call-chk', sessionId: binding.sessionId, rootSessionId: binding.sessionId, agentId: 'pa', ownerId: 'owner' });
+    await expect.poll(() => reviewInFlight).toBe(true);
+    expect(inbox.reviews.get('pa', 'slow-inject')?.state).toBe('reviewing');
+    const concurrentSearch = product.call({ method: 'search_messages', args: { query: 'cross-chat' }, operationId: 'op-srch', callId: 'call-srch', sessionId: binding.sessionId, rootSessionId: binding.sessionId, agentId: 'pa', ownerId: 'owner' });
+    await new Promise(r => setTimeout(r, 25));
+    expect(stateWhenSearchExecuted).toBeUndefined();
+    releaseSlowReview!();
+    await Promise.all([firstCheck, concurrentSearch]);
+    expect(stateWhenSearchExecuted).toBe('rejected');
+
+    // 3. Feishu participant group referenced via f_xxxxxx resolves to shadowId ('c_fs_shadow') before search_messages and send_message!
+    const externalId = 'external:pa:feishu:app:group:oc_team';
+    store.aliasConversation('pa', 'c_fs_shadow', externalId);
+    const fRef = store.toolReferences.conversationRef('pa', externalId);
+    expect(fRef).toMatch(/^f_[a-f0-9]{6}$/);
+    observations.push({
+      event_id: 2, conversation_id: 'c_fs_shadow', conversation_type: 'group', channel: 'feishu', addressed_to_owner: false, addressed_to_agent: false,
+      message: { id: 'fs-pending', content: '飞书群普通进度同步', sender_type: 'user', sender_user_id: 'ou_1', sender_source_id: 'ou_1', attachments: [] },
+    });
+    await product.recoverPersonalObservations();
+    expect(inbox.reviews.get('pa', 'fs-pending')?.state).toBe('pending');
+    const beforeFsSearch = reviewCalls;
+    await product.call({ method: 'search_messages', args: { target: fRef, query: '进度' }, operationId: 'op-fs-s', callId: 'call-fs-s', sessionId: binding.sessionId, rootSessionId: binding.sessionId, agentId: 'pa', ownerId: 'owner' });
+    expect(reviewCalls - beforeFsSearch).toBe(1);
+    expect(inbox.reviews.get('pa', 'fs-pending')?.state).toBe('admitted');
+
+    // Stage an unread @PA message in c_fs_shadow and verify send_message(target=f_xxxxxx) flushes & returns held_for_revalidation!
+    inbox.stagePersonal({
+      agent_id: 'pa', conversation_id: 'c_fs_shadow', relay_task_id: 'r-fs-at', idempotency_key: 'r-fs-at',
+      metadata: { conversation_type: 'group', channel: 'feishu', personal_is_owner: false, personal_delivery: 'participant', addressed_to_agent: true, explicit_mentioned_agent_ids: ['pa'] },
+      message: { id: 'fs-at-pa', content: '@PA 改一下结论', sender_type: 'user', sender_user_id: 'ou_2', attachments: [] },
+    }, true, 0);
+    const fsSendRes = await product.call({ method: 'send_message', args: { target: fRef, text: 'Stale Feishu draft' }, operationId: 'op-fs-send', callId: 'call-fs-send', sessionId: binding.sessionId, rootSessionId: binding.sessionId, agentId: 'pa', ownerId: 'owner' });
+    expect(fsSendRes).toMatchObject({ status: 'held_for_revalidation' });
+    expect(inbox.reviews.get('pa', 'fs-at-pa')?.state).toBe('admitted');
+  } finally {
+    await product.stop(); inbox.close(); store.close();
+  }
+});
