@@ -82,10 +82,24 @@ it('matches desktop platforms and marks shell_protocol mismatches as incompatibl
     download_url: base + 'desktop-darwin-arm64.json',
     installer: { download_url: base + 'Crewden-Desktop-arm64.dmg', size: 8192, sha256: '9'.repeat(64) },
   };
+  const winDesktop = {
+    ...target,
+    platform: 'desktop-win32-x64',
+    package: 'desktop-win32-x64.json',
+    size: 512,
+    shell_protocol: 1,
+    sha256: '6'.repeat(64),
+    download_url: base + 'desktop-win32-x64.json',
+    installer: { download_url: base + 'Crewden-Desktop-Setup-x64.exe', size: 8192, sha256: '5'.repeat(64) },
+  };
   writeFileSync(join(f.dir, 'manifest.desktop-darwin-arm64.json'), JSON.stringify(macDesktop));
+  writeFileSync(join(f.dir, 'manifest.desktop-win32-x64.json'), JSON.stringify(winDesktop));
 
   f.updates.register(id, { ...old, platform: 'desktop-darwin-arm64', shell_protocol: 1 });
   expect(view()).toMatchObject({ available: true, reason: 'available', target: macDesktop });
+
+  f.updates.register(id, { ...old, platform: 'desktop-win32-x64', shell_protocol: 1 });
+  expect(view()).toMatchObject({ available: true, reason: 'available', target: winDesktop });
 
   f.updates.register(id, { ...old, platform: 'desktop-darwin-arm64', shell_protocol: 2 });
   expect(view()).toMatchObject({ available: false, reason: 'incompatible' });

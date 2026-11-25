@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import plistlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -22,7 +23,7 @@ def sha256_file(path: Path) -> str:
 
 
 def build_info_plist(version: str) -> bytes:
-    short_ver = version if version[0:1].isdigit() else "0.1.0"
+    short_ver = version if re.match(r"^\d+\.\d+\.\d+$", version) else "0.1.0"
     payload = {
         "CFBundleDevelopmentRegion": "zh_CN",
         "CFBundleDisplayName": "Crewden",
@@ -59,7 +60,7 @@ def main() -> None:
     parser.add_argument(
         "--app-out", type=Path, default=ROOT / "dist/desktop/Crewden.app"
     )
-    parser.add_argument("--version", default=os.environ.get("RELEASE_VERSION", "0.1.0"))
+    parser.add_argument("--version", default=os.environ.get("RELEASE_VERSION") or "")
     parser.add_argument("--source-commit", default="")
     parser.add_argument("--base-url", default="")
     parser.add_argument("--extra-app-note", default="")

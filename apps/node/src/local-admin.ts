@@ -1,11 +1,8 @@
-import { access, constants, lstat, readFile, realpath, writeFile } from 'node:fs/promises';
+import { access, constants, lstat, readFile, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir, hostname } from 'node:os';
 import { delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { dump } from 'js-yaml';
 import {
   extractDesktopProxySettings,
   isBlockedDesktopOpenPath,
@@ -19,9 +16,8 @@ import { NodeConfiguration, type NodeConfigurationFile } from './configuration.j
 import { bindDevice } from './device-binding.js';
 import { applyGatewayEnvironment, atomicPrivate, gatewayState, manageGateway, processBirth } from './lifecycle.js';
 import { localNodeBridgeEndpoint } from './local-bridge.js';
+import { windowsHost } from './windows-platform.js';
 import net from 'node:net';
-
-const exec = promisify(execFile);
 
 export class LocalAdminHttpError extends Error {
   constructor(
@@ -81,7 +77,11 @@ export async function probeDesktopWorkers(candidatePath?: string): Promise<Deskt
     return null;
   };
 
-  const [codexPath, claudePath] = await Promise.all([findBinary('codex'), findBinary('claude')]);
+  const [codexPath, claudePath, agyPath] = await Promise.all([
+    findBinary('codex'),
+    findBinary('claude'),
+    findBinary('agy'),
+  ]);
   return [
     {
       runtime: 'dsh',
@@ -100,6 +100,12 @@ export async function probeDesktopWorkers(candidatePath?: string): Promise<Deskt
       available: claudePath !== null,
       resolved_path: claudePath,
       detail: claudePath ? `已检测到 · ${claudePath}` : '未在当前 PATH 中找到 claude',
+    },
+    {
+      runtime: 'antigravity',
+      available: agyPath !== null,
+      resolved_path: agyPath,
+      detail: agyPath ? `已检测到 · ${agyPath}` : '未在当前 PATH 中找到 agy',
     },
   ];
 }
@@ -157,15 +163,9 @@ async function readLogTail(configPath: string, query?: string, maxLines = 200): 
 async function disableStandaloneWindowsTaskIfPresent(configPath: string): Promise<void> {
   if (process.platform !== 'win32' || process.env.NANO_TEST_AUTOSTART_DIR) return;
   try {
-    // Align with packaging/windows-host/GatewayHost.cs L112: Crewden-Gateway-<24 hex prefix>
-    const sid = (await exec('powershell.exe', ['-NoProfile', '-Command', '[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value'], { windowsHide: true })).stdout.trim();
-    if (!sid) return;
-    const real = await realpath(configPath).catch(() => resolve(configPath));
-    const hash = createHash('sha256').update(`${sid}|${real.toUpperCase()}`, 'utf8').digest('hex').slice(0, 24);
-    const taskName = `\\Crewden-Gateway-${hash}`;
-    await exec('schtasks.exe', ['/Delete', '/TN', taskName, '/F'], { windowsHide: true }).catch(() => {});
+    await windowsHost('retire-standalone', configPath, '0', '');
   } catch {
-    // Best-effort cleanup when taking over a stopped feat-781 lightweight node.
+    // Best-effort cleanup when taking over a feat-781 lightweight node.
   }
 }
 
@@ -251,7 +251,7 @@ export async function connectLocalNode(input: {
   confirmTransfer?: boolean;
   configPath?: string;
   activeMetadata?: { sha256?: string; version?: string; version_root?: string; ui_root?: string };
-}): Promise<{ ok: true; node_id: string; node_name: string; ready: boolean; pid?: number }> {
+}): Promise<{ ok: true; node_id: string; node_name: string; ready: boolean; autostart: boolean; pid?: number }> {
   if (!input.ownerId || !input.accessToken) {
     throw new LocalAdminHttpError(401, 'unauthorized', 'Sign in before connecting this computer');
   }
@@ -312,6 +312,7 @@ export async function connectLocalNode(input: {
     node_id: refreshed.value.node.node_id,
     node_name: refreshed.value.node.node_name ?? refreshed.value.node.node_id,
     ready: Boolean(started.state?.ready),
+    autostart: refreshed.value.gateway?.autostart !== false,
     ...(started.state?.pid ? { pid: started.state.pid } : {}),
   };
 }
@@ -457,6 +458,12 @@ export async function updateLocalNodeConfig(input: {
   }
 }
 
+function isWithinWorkspace(target: string, root: string): boolean {
+  const normTarget = process.platform === 'win32' ? target.toLowerCase() : target;
+  const normRoot = process.platform === 'win32' ? root.toLowerCase() : root;
+  return normTarget === normRoot || normTarget.startsWith(normRoot + sep);
+}
+
 /** Validate and canonicalize a local Agent workspace file/directory target for Finder/Explorer reveal or open. */
 export async function resolveLocalWorkspaceTarget(input: {
   origin: string;
@@ -486,14 +493,14 @@ export async function resolveLocalWorkspaceTarget(input: {
     throw new LocalAdminHttpError(404, 'workspace_missing', 'Local workspace directory does not exist');
   }
   const candidate = isAbsolute(rawTarget) ? resolve(rawTarget) : resolve(workspaceRoot, rawTarget);
-  if (candidate !== workspaceRoot && !candidate.startsWith(workspaceRoot + sep)) {
+  if (!isWithinWorkspace(candidate, workspaceRoot)) {
     throw new LocalAdminHttpError(403, 'outside_workspace', 'Target path is outside the Agent workspace');
   }
   const resolvedTarget = await realpath(candidate).catch(() => null);
   if (!resolvedTarget) {
     throw new LocalAdminHttpError(404, 'path_not_found', 'Target file no longer exists on this computer');
   }
-  if (resolvedTarget !== workspaceRoot && !resolvedTarget.startsWith(workspaceRoot + sep)) {
+  if (!isWithinWorkspace(resolvedTarget, workspaceRoot)) {
     throw new LocalAdminHttpError(403, 'outside_workspace', 'Target path is outside the Agent workspace');
   }
   const stat = await lstat(resolvedTarget);

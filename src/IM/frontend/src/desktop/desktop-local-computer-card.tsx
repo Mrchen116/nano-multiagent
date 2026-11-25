@@ -22,6 +22,7 @@ const WORKER_LABELS: Record<WorkerRuntime, { zh: string; en: string }> = {
   dsh: { zh: "内置 DSH 运行时（默认）", en: "Bundled DSH runtime (Default)" },
   codex: { zh: "Codex CLI", en: "Codex CLI" },
   claude: { zh: "Claude Code", en: "Claude Code" },
+  antigravity: { zh: "Antigravity CLI", en: "Antigravity CLI" },
 };
 
 /** Top-pinned "这台电脑" progressive-disclosure card on `/settings/nodes` inside Crewden Desktop. */

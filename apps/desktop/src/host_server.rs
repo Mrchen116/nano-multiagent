@@ -1196,9 +1196,17 @@ async fn connect_local_bridge_ipc(endpoint: &str) -> Result<(BoxedIpcRead, Boxed
     }
     #[cfg(windows)]
     {
-        let client = tokio::net::windows::named_pipe::ClientOptions::new()
-            .open(endpoint)
-            .map_err(|e| e.to_string())?;
+        let mut attempts = 0;
+        let client = loop {
+            match tokio::net::windows::named_pipe::ClientOptions::new().open(endpoint) {
+                Ok(c) => break c,
+                Err(e) if e.raw_os_error() == Some(231) && attempts < 20 => {
+                    attempts += 1;
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        };
         let (r, w) = tokio::io::split(client);
         return Ok((Box::pin(r), Box::pin(w)));
     }

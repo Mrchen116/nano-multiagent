@@ -13,6 +13,12 @@ import { readUpdateFile, reportUpdate, updatePath, validLease, type UpdateLease,
 import { loadNodeRelease, verifyReleaseMetadata } from './release.js';
 
 const exec = promisify(execFile);
+const CURL_BIN = process.platform === 'win32' && existsSync('C:\\Windows\\System32\\curl.exe')
+  ? 'C:\\Windows\\System32\\curl.exe'
+  : 'curl';
+const TAR_BIN = process.platform === 'win32' && existsSync('C:\\Windows\\System32\\tar.exe')
+  ? 'C:\\Windows\\System32\\tar.exe'
+  : 'tar';
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const matches = (actual: NodeRelease | undefined | null, expected: NodeRelease | ReleaseManifest) =>
   !!actual && actual.platform === expected.platform && actual.version === expected.version
@@ -56,9 +62,9 @@ async function downloadVerifiedAsset(rawUrl: string, dest: string, expectedSha25
   const tmp = `${dest}.part-${process.pid}-${Date.now()}`;
   try {
     await exec(
-      'curl',
+      CURL_BIN,
       ['--disable', '--fail', '--location', '--silent', '--show-error', '--retry', '2', ...curlProtoArgs(url), url, '-o', tmp],
-      { signal, timeout: 300000 },
+      { signal, timeout: 300000, windowsHide: true },
     );
     const actualDigest = createHash('sha256').update(await readFile(tmp)).digest('hex');
     if (actualDigest !== expectedSha256) {
@@ -183,13 +189,13 @@ export async function prepareDesktopUpdate(
     runtimeReused = await downloadVerifiedAsset(desc.runtime.download_url, runtimeArchive, desc.runtime.sha256, signal);
     const runtimeStage = await mkdtemp(join(runtimesDir, '.runtime-stage-'));
     try {
-      await exec('tar', ['-xzf', runtimeArchive, '-C', runtimeStage], { signal });
+      await exec(TAR_BIN, ['-xzf', runtimeArchive, '-C', runtimeStage], { signal, windowsHide: true });
       const nodeBin = join(runtimeStage, process.platform === 'win32' ? 'node.exe' : 'bin/node');
       if (process.platform !== 'win32' && existsSync(nodeBin)) {
         await chmod(nodeBin, 0o755);
       }
       if (existsSync(join(runtimeStage, 'layout.mjs'))) {
-        await exec(existsSync(nodeBin) ? nodeBin : process.execPath, [join(runtimeStage, 'layout.mjs'), 'runtime', runtimeStage, finalRuntimeRoot], { signal });
+        await exec(existsSync(nodeBin) ? nodeBin : process.execPath, [join(runtimeStage, 'layout.mjs'), 'runtime', runtimeStage, finalRuntimeRoot], { signal, windowsHide: true });
       }
       await atomicPrivate(join(runtimeStage, '.ready'), '');
       try {
@@ -209,12 +215,12 @@ export async function prepareDesktopUpdate(
   const versionStage = await mkdtemp(join(versionsDir, '.version-stage-'));
   const appExtract = await mkdtemp(join(versionsDir, '.app-extract-'));
   try {
-    await exec('tar', ['-xzf', appArchive, '-C', appExtract], { signal });
+    await exec(TAR_BIN, ['-xzf', appArchive, '-C', appExtract], { signal, windowsHide: true });
     const nodeBin = join(finalRuntimeRoot, process.platform === 'win32' ? 'node.exe' : 'bin/node');
     const execNode = existsSync(nodeBin) ? nodeBin : process.execPath;
     const layoutScript = join(finalRuntimeRoot, 'layout.mjs');
     if (existsSync(layoutScript)) {
-      await exec(execNode, [layoutScript, 'version', versionStage, finalVersionRoot, finalRuntimeRoot, appExtract], { signal });
+      await exec(execNode, [layoutScript, 'version', versionStage, finalVersionRoot, finalRuntimeRoot, appExtract], { signal, windowsHide: true });
     } else {
       await rename(appExtract, versionStage);
     }
@@ -227,7 +233,7 @@ export async function prepareDesktopUpdate(
       if (!['ENOTEMPTY', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
     }
     if (existsSync(layoutScript) && existsSync(join(finalVersionRoot, 'workspaces.json'))) {
-      await exec(execNode, [layoutScript, 'verify', finalVersionRoot], { signal, timeout: 60000 });
+      await exec(execNode, [layoutScript, 'verify', finalVersionRoot], { signal, timeout: 60000, windowsHide: true });
     }
     return { versionRoot: finalVersionRoot, runtimeReused };
   } finally {
@@ -293,7 +299,7 @@ export async function runUpdate(configPath: string, operationId: string): Promis
   const startupSeconds = config.value.gateway?.startup_timeout_seconds ?? defaultGatewayStartupSeconds;
   const cli = async (state: Pick<GatewayState, 'entry' | 'node_exec'>, action: string) => {
     const timeout = process.platform === 'win32' && action === 'start' ? Math.max(120, startupSeconds + 30) * 1000 : 120000;
-    await exec(state.node_exec!, [state.entry!, action, '--config', config.path], {timeout, maxBuffer: 1024 * 1024});
+    await exec(state.node_exec!, [state.entry!, action, '--config', config.path], {timeout, maxBuffer: 1024 * 1024, windowsHide: true});
   };
   const verify = async (expected: NodeRelease | ReleaseManifest, previousPid: number) => {
     const deadline = Date.now() + startupSeconds * 1000;

@@ -418,7 +418,7 @@ export async function manageGateway(
       const enabled = await windowsHost("start", path, String(Math.ceil(grace * 1000)), String(config.gateway?.autostart !== false), ...args);
       state = await waitReady();
       const active = join(dirname(path), ".windows-active.json");
-      if (state.release?.kind === "managed" && !existsSync(active) && !existsSync(join(dirname(path), ".windows-switch.json")))
+      if (state.release?.kind === "managed" && !isDesktopManagedConfig(path) && !existsSync(active) && !existsSync(join(dirname(path), ".windows-switch.json")))
         await atomicPrivate(active, {sha256: state.release.sha256});
       autostart = enabled === "enabled" ? "enabled (Windows login and crash recovery)" : "disabled";
     } else if (process.platform === "darwin" && config.gateway?.autostart !== false && !isDesktopManagedConfig(path)) {

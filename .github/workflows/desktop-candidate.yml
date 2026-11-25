@@ -1,0 +1,140 @@
+name: Desktop client candidates
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/desktop-candidate.yml'
+      - '.github/workflows/node-release.yml'
+      - 'apps/desktop/**'
+      - 'packaging/desktop/**'
+      - 'scripts/build-desktop-*'
+      - 'scripts/package-macos-desktop.py'
+      - 'scripts/publish-node-release.mjs'
+      - 'apps/node/**'
+      - 'packages/channels/**'
+      - 'packages/dsh-integration/**'
+      - 'packages/dsh-trajectory-viewer/**'
+      - 'packages/personal-assistant/**'
+      - 'packages/product-contracts/**'
+      - 'src/IM/frontend/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      commit:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  macos-arm64:
+    runs-on: macos-14
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - name: Build workspace, frontend, and Tauri host
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+          npm --prefix src/IM/frontend ci
+          npm --prefix src/IM/frontend run build
+          cargo test --manifest-path apps/desktop/Cargo.toml
+          cargo build --manifest-path apps/desktop/Cargo.toml --release
+      - name: Package Crewden-Desktop-arm64.dmg and split archives
+        run: python3 scripts/package-macos-desktop.py --out-dir dist/desktop-macos-release
+      - name: Smoke-test packaged Crewden.app seed extraction and bundled Node 24.22.1
+        run: |
+          ISO_ROOT="$(mktemp -d "${RUNNER_TEMP:-/tmp}/crewden-mac-smoke.XXXXXX")"
+          trap 'rm -rf "$ISO_ROOT"' EXIT
+          PATH="/usr/bin:/bin:/usr/sbin:/sbin" dist/desktop/Crewden.app/Contents/MacOS/crewden-desktop --isolated-root "$ISO_ROOT" --headless-host &
+          HOST_PID=$!
+          for _ in $(seq 1 60); do
+            if [ -f "$ISO_ROOT/desktop/host-state.json" ]; then break; fi
+            sleep 0.5
+          done
+          test -f "$ISO_ROOT/desktop/host-state.json"
+          SHA="$(python3 -c 'import json; print(json.load(open("dist/desktop-macos-release/manifest.desktop-darwin-arm64.json"))["sha256"])')"
+          NODE_BIN="$ISO_ROOT/desktop/versions/$SHA/runtime/bin/node"
+          test "$("$NODE_BIN" -v)" = "v24.22.1"
+          "$NODE_BIN" "$ISO_ROOT/desktop/versions/$SHA/apps/node/lib/cli.js" --help >/dev/null
+          dist/desktop/Crewden.app/Contents/MacOS/crewden-desktop --isolated-root "$ISO_ROOT" --stop
+          wait "$HOST_PID" || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-darwin-arm64-${{ inputs.commit || github.sha }}
+          path: dist/desktop-macos-release/
+          if-no-files-found: error
+          compression-level: 0
+
+  windows-x64:
+    runs-on: windows-2022
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+          path: src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.7.0
+          package_json_file: src/package.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/apps/desktop
+      - name: Install and build workspace and frontend
+        working-directory: src
+        shell: pwsh
+        run: |
+          pnpm install --frozen-lockfile
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          pnpm build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm.cmd --prefix src/IM/frontend ci
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm.cmd --prefix src/IM/frontend run build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build Crewden-Desktop-Setup-x64.exe and locked archives
+        working-directory: src
+        shell: pwsh
+        run: ./scripts/build-desktop-windows.ps1
+      - name: Exercise silent per-user install, seed extraction, and DSH readiness
+        working-directory: src
+        shell: pwsh
+        run: ./packaging/desktop/windows/smoke.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-win32-x64-${{ inputs.commit || github.sha }}
+          path: src/dist/desktop-windows-release/
+          if-no-files-found: error
+          compression-level: 0
