@@ -83,7 +83,10 @@ export class GlobalAgent {
     this.options=options;
     this.runtimeUnavailable(options.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
     this.controls = new SessionControls(options);
-    this.personal = new PersonalAssistant(options);
+    this.personal = new PersonalAssistant({
+      ...options,
+      flushConversation: (config, binding, conversationId) => this.flushPendingReviews(config, binding, conversationId),
+    });
     this.unsubscribe = options.runtime.onNotification((method, params) => {
       if (method === 'product.cancel') { this.calls.get((params as { operationId: string }).operationId)?.abort(); return; }
       if (method !== 'session.event' && method !== 'model.changed' && method !== 'session.status' && method !== 'session.work.changed') return;
@@ -132,8 +135,8 @@ export class GlobalAgent {
   }
   /** Pending Inbox wakes and local reconciliation/delivery block a safe update. */
   get busy(): boolean {
-    return !!this.observations || !!this.backgroundDrain || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.childDrains.size > 0 || this.childrenDirty.size > 0 || this.childCatchup.size > 0 || this.calls.size > 0 ||
-      this.options.agents.some(agent => agent.mode === 'global' && this.options.inbox.wakePending(agent.agentId) !== undefined);
+    return !!this.observations || !!this.backgroundDrain || this.personal.busy || this.controls.busy || this.waking.size > 0 || this.drains.size > 0 || this.dirty.size > 0 || this.childDrains.size > 0 || this.childrenDirty.size > 0 || this.childCatchup.size > 0 || this.calls.size > 0 ||
+      this.options.agents.some(agent => agent.mode === 'global' && (this.options.inbox.wakePending(agent.agentId) !== undefined || (!!agent.personal && this.options.inbox.reviews.duePending(agent.agentId))));
   }
   private binding(config: AgentConfiguration): SessionBinding {
     const { store } = this.options;
@@ -278,42 +281,107 @@ export class GlobalAgent {
     if(input.message.sender_type==='system' && input.message.system_notice?.kind==='task_graph')return false;
     return this.options.inbox.skipped(input) || input.metadata.scope_skipped===true || chatDelivery(input,config,this.options.ownerId)==='skip';
   }
+  private classifyInputFlags(input: RelayInput, config: AgentConfiguration): { attention: boolean; high: boolean } {
+    const command = controlText(input);
+    const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command);
+    const notice = input.message.system_notice as { kind?: string; attention_actor_ids?: string[] } | undefined;
+    const taskContext = notice?.kind === 'task_graph' && notice.attention_actor_ids?.includes(config.agentId) === true;
+    const attention = !unaddressedControl && !taskContext && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
+    const high = !unaddressedControl && !taskContext && chatDelivery(input, config, this.options.ownerId) === 'high';
+    return { attention, high };
+  }
+  private async flushPendingReviews(config: AgentConfiguration, binding: SessionBinding, conversationId?: string): Promise<void> {
+    if (this.stopped || !this.options.store.lifecycle.allowed(config.agentId)) return;
+    const summary = await this.personal.flushReviews(config, binding, conversationId, item => this.classifyInputFlags(item, config));
+    for (const cid of summary.sourceRevoked) this.options.inbox.revokeSource(config.agentId, cid);
+    for (const item of [...summary.rejected, ...summary.failed, ...summary.unavailable]) {
+      this.options.inbox.settleMessageRelays(config.agentId, item.message.id, 'completed');
+      await this.receipt(item, 'completed');
+    }
+    if (summary.failed.length) await this.deliverReviewFailures(config);
+    if (summary.rejected.length) void this.recoverPersonalObservations();
+    if (summary.admitted > 0) this.armBackground();
+  }
   private async ingestAdmitted(input: RelayInput, deferWake = false): Promise<void> {
     const config = this.options.agents.find(agent => agent.agentId === input.agent_id && agent.mode === 'global');
     if (!config) throw new Error('No global Agent for input');
     if(this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
     const stopping=input.message.sender_type==='user'&&controlText(input)==='/stop'&&!!this.options.taskStop;
-    const binding=stopping?this.binding(config):await this.main(config);
-    if(stopping&&config.personal) {
-      if(!await this.personal.source(config,input)){
-        if(input.metadata.scope_skipped){this.options.inbox.skip(input);this.scheduleReceipts();}
-        else await this.receipt(input,'completed');
-        return;
-      }
-      if(input.metadata.personal_is_owner!==true||input.metadata.personal_delivery!=='participant')await this.main(config);
-    }
+    let binding=stopping?this.binding(config):await this.main(config);
     if (config.personal) {
-      const result=await this.personal.admit(config,binding,input);
-      if(result.kind!=='admitted') {
-        if(input.metadata.scope_skipped){this.options.inbox.skip(input);this.scheduleReceipts();return;}
-        if(result.kind==='source_unavailable')this.options.inbox.revokeSource(config.agentId,input.conversation_id);
-        if(result.kind!=='in_progress')await this.receipt(input,'completed');
-        if(result.kind==='failed')await this.deliverReviewFailures(config);
-        if(result.kind==='rejected')void this.recoverPersonalObservations();
-        return;
+      if (!this.options.inbox.input(config.agentId, input.message.id)) {
+        const saved = structuredClone(input);
+        saved.metadata.personal_unclassified = true;
+        this.options.inbox.receive(saved, false);
+      }
+      const existingReview = this.options.inbox.reviews.get(config.agentId, input.message.id)!;
+      const stored = this.options.inbox.input(config.agentId, input.message.id)!;
+      if (existingReview.state === 'pending' && stored.metadata.personal_unclassified === true) {
+        if (!await this.personal.source(config, input)) {
+          this.personal.settleSourceUnavailable(config, input);
+          if (input.metadata.scope_skipped) { this.options.inbox.skip(input); this.scheduleReceipts(); return; }
+          this.options.inbox.revokeSource(config.agentId, input.conversation_id);
+          this.options.inbox.settleMessageRelays(config.agentId, input.message.id, 'completed');
+          await this.receipt(input, 'completed');
+          return;
+        }
+        if (stopping && (input.metadata.personal_is_owner !== true || input.metadata.personal_delivery !== 'participant')) {
+          binding = await this.main(config);
+        }
+      } else {
+        const wasObservation = input.metadata.pa_observation === true;
+        Object.assign(input.metadata, stored.metadata);
+        if (!stored.metadata.pa_observation) delete input.metadata.pa_observation;
+        if (stopping && (input.metadata.personal_is_owner !== true || input.metadata.personal_delivery !== 'participant')) {
+          binding = await this.main(config);
+        }
+        if (existingReview.state === 'rejected' || existingReview.state === 'failed') {
+          if (existingReview.error_code === 'source_unavailable') this.options.inbox.revokeSource(config.agentId, input.conversation_id);
+          this.options.inbox.settleMessageRelays(config.agentId, input.message.id, 'completed');
+          await this.receipt(input, 'completed');
+          return;
+        }
+        if (existingReview.state === 'reviewing') {
+          if (!wasObservation) void this.receipt(input, 'accepted');
+          return;
+        }
+        if (existingReview.state === 'pending') {
+          if (wasObservation) return;
+          if (this.options.inbox.pendingControls().some(item => item.agent_id === input.agent_id && item.message.id === input.message.id)) {
+            this.options.inbox.demoteControl(input);
+            deferWake = true;
+          }
+          void this.receipt(input, 'accepted');
+          const { high: alreadyHigh } = this.classifyInputFlags(input, config);
+          if (alreadyHigh && !deferWake) {
+            await this.flushPendingReviews(config, binding, input.conversation_id);
+            await this.recoverPersonalObservations();
+            await this.wake(config, binding);
+          }
+          return;
+        }
+        if (existingReview.state === 'admitted' && wasObservation) return;
       }
     }
     const ownerControl = !config.personal || input.metadata.personal_is_owner === true && input.metadata.personal_delivery === 'participant'
       && needsAttention(input,config);
     const command = controlText(input);
+    if (config.personal && this.options.inbox.reviews.get(config.agentId, input.message.id)?.state === 'admitted'
+      && ownerControl && input.message.sender_type === 'user' && (command === '/new' || command === '/stop' || sessionControl(input, config) !== undefined)) {
+      this.options.inbox.finishControl(input);
+      this.options.inbox.settleMessageRelays(config.agentId, input.message.id, 'completed');
+      await this.receipt(input, 'completed');
+      return;
+    }
     if(!ownerControl && this.options.inbox.pendingControls().some(item=>item.agent_id===input.agent_id && item.message.id===input.message.id)) {
       this.options.inbox.demoteControl(input);deferWake=true;
     }
     if (ownerControl && input.message.sender_type === 'user' && (command === '/new' || command === '/stop')) {
-      const binding = this.binding(config);
+      if (config.personal) this.personal.admitTrusted(config, binding, input);
+      const rootBinding = this.binding(config);
       let text = '全局模式不支持按聊天重置';
       if (command === '/stop') {
-        const result=this.options.taskStop?await this.options.taskStop(binding,input):await this.options.runtime.request('session.cancel', {sessionId:binding.sessionId});
+        const result=this.options.taskStop?await this.options.taskStop(rootBinding,input):await this.options.runtime.request('session.cancel', {sessionId:rootBinding.sessionId});
         text='paused' in result && result.paused?`已停止当前操作，并暂缓 ${result.paused} 项进行中的任务。`:result.wasRunning?'已停止当前操作。':'当前没有正在执行的操作。';
       }
       await this.publishMessage({ node_id: this.options.nodeId, to: `conversation:${input.conversation_id}`, text,
@@ -322,7 +390,10 @@ export class GlobalAgent {
       await this.receipt(input, 'completed'); return;
     }
     const control = ownerControl ? sessionControl(input, config) : undefined;
-    if (control) { const pending = this.controls.run(this.binding(config), input, control.action, control.argument); await this.main(config); await pending; return; }
+    if (control) {
+      if (config.personal) this.personal.admitTrusted(config, binding, input);
+      const pending = this.controls.run(this.binding(config), input, control.action, control.argument); await this.main(config); await pending; return;
+    }
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command);
     const attention = !unaddressedControl && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
     const notice=input.message.system_notice as {kind?:string;attention_actor_ids?:string[]}|undefined;
@@ -330,6 +401,33 @@ export class GlobalAgent {
     if(taskContext)input={...input,metadata:{...input.metadata,task_context:true}};
     if(this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
     const high=!unaddressedControl && !taskContext && chatDelivery(input,config,this.options.ownerId)==='high';
+    if (config.personal && input.metadata.personal_is_owner !== true && input.metadata.personal_delivery === 'participant') {
+      const currentState = this.options.inbox.reviews.get(config.agentId, input.message.id)?.state;
+      if (currentState !== 'admitted') {
+        const dueAt = input.metadata.context_only || taskContext ? null : (high ? 0 : Date.now() + 600_000);
+        input = this.options.inbox.stagePersonal(input, attention && !taskContext, dueAt);
+        if (input.message.attachments.length > 0) {
+          this.personal.failAttachmentInput(config, input);
+          this.options.inbox.settleMessageRelays(config.agentId, input.message.id, 'completed');
+          await this.receipt(input, 'completed');
+          await this.deliverReviewFailures(config);
+          return;
+        }
+        void this.receipt(input, 'accepted');
+        if (high || this.options.inbox.reviews.pendingCount(config.agentId, input.conversation_id) >= 20) {
+          await this.flushPendingReviews(config, binding, input.conversation_id);
+          if (high && !deferWake) {
+            await this.recoverPersonalObservations();
+            await this.wake(config, binding);
+          }
+        } else {
+          this.armBackground();
+        }
+        return;
+      }
+    } else if (config.personal) {
+      if (!this.personal.admitTrusted(config, binding, input)) return;
+    }
     this.options.inbox.receive(input, attention&&!taskContext,Date.now(),high);
     if (config.personal) this.options.inbox.classify(input,attention&&!taskContext,high);
     void this.receipt(input, 'accepted');
@@ -350,6 +448,9 @@ export class GlobalAgent {
       await this.controls.wait(binding.sessionId);
       while (this.coldRoots.has(binding.sessionId)) await this.recoverRoot(binding);
       await this.recoverInterruptedWake(config,binding);
+      if (config.personal && (this.options.inbox.wakePending(config.agentId) !== undefined || this.options.inbox.reviews.duePending(config.agentId))) {
+        await this.flushPendingReviews(config, binding);
+      }
       let watermark: number | undefined;
       // Drain inputs received while submit is in flight; they must not wait for idle.
       while ((watermark = this.options.inbox.wakePending(config.agentId)) !== undefined) {
@@ -366,8 +467,9 @@ export class GlobalAgent {
           continue;
         }
         const submitted=await this.submitWake(config,binding,inputId,watermark);
-        if(submitted.accepted===false)continue;
+        if(submitted.accepted===false){if(config.personal)await this.flushPendingReviews(config,binding);continue;}
         this.options.inbox.admitWake(config.agentId,watermark,binding.sessionId,inputId);
+        if (config.personal && this.options.inbox.reviews.duePending(config.agentId)) await this.flushPendingReviews(config, binding);
       }
     })().catch(error=>{this.scheduleAgentRecovery(config.agentId);throw error;})
       .finally(() => { this.waking.delete(config.agentId); this.armBackground(); });
@@ -440,15 +542,26 @@ export class GlobalAgent {
     if (this.stopped || this.backgroundDrain) return;
     const eligible=this.options.agents.filter(agent=>agent.mode==='global' && this.options.store.lifecycle.allowed(agent.agentId)
       && !this.agentRetry.has(agent.agentId) && !this.waking.has(agent.agentId) && (!agent.personal || this.options.relay.ready!==false));
-    const deadlines=eligible.flatMap(agent=>{const batch=this.options.inbox.background(agent.agentId);return batch?[batch.dueAt]:[];});
+    const deadlines=eligible.flatMap(agent=>{
+      const batch=this.options.inbox.background(agent.agentId);
+      const reviewDue=agent.personal?this.options.inbox.reviews.nextDueAt(agent.agentId):undefined;
+      const candidates=[...(batch?[batch.dueAt]:[]),...(reviewDue!==undefined?[reviewDue]:[])];
+      return candidates.length?[Math.min(...candidates)]:[];
+    });
     if(!deadlines.length)return;
     this.backgroundTimer=setTimeout(()=>{
       this.backgroundTimer=undefined;
       this.backgroundDrain=(async()=>{
         for(const config of eligible) {
-          if(this.options.inbox.wakePending(config.agentId)===undefined)continue;
+          const hasDueReview=!!config.personal && this.options.inbox.reviews.duePending(config.agentId);
+          if(this.options.inbox.wakePending(config.agentId)===undefined && !hasDueReview)continue;
           try {
-            if(config.personal)await this.refreshPersonalSources(config);
+            if(config.personal) {
+              await this.refreshPersonalSources(config);
+              if (this.options.inbox.reviews.duePending(config.agentId)) {
+                await this.flushPendingReviews(config, await this.main(config));
+              }
+            }
             if(this.options.inbox.wakePending(config.agentId)!==undefined)await this.wake(config,await this.main(config));
           } catch(error){this.scheduleAgentRecovery(config.agentId);this.options.onError(error);}
         }
@@ -482,8 +595,8 @@ export class GlobalAgent {
     await this.refreshPersonalSources(config);
     for(const input of this.options.inbox.reviews.securityPending(config.agentId))
       await this.personal.reportInputIncident(config,input).catch(this.options.onError);
-    // Only a never-started input may continue automatically after recovery.
-    for(const input of this.options.inbox.reviews.pending(config.agentId))await this.ingest(input,true);
+    // Re-authenticate only inputs that never completed source admission; staged group inputs keep their review_due_at.
+    for(const input of this.options.inbox.reviews.unclassified(config.agentId))await this.ingest(input,true);
     await this.deliverReviewFailures(config);
   }
   private async deliverReviewFailures(config:AgentConfiguration):Promise<void> {
@@ -550,6 +663,7 @@ export class GlobalAgent {
     const checkpoint=inbox.workCut(binding.sessionId);
     const background=inbox.background(config.agentId);
     const obligations=inbox.legacyReceiptWake(config.agentId)!==undefined || inbox.wakePending(config.agentId)!==undefined || inbox.unreadAttention(config.agentId)!==undefined ||
+      (!!config.personal && inbox.reviews.duePending(config.agentId)) ||
       !!background && (background.pending || background.dueAt<=Date.now()) ||
       store.pendingControls(config.agentId).length>0 || store.lookupInputIds(binding.sessionId).length>0;
     if(checkpoint && !obligations) {
@@ -744,6 +858,7 @@ export class GlobalAgent {
         }
         if (call.args.action === 'check') {
           const config = this.options.agents.find(agent => agent.agentId === call.agentId)!;
+          if (personalConfig) await this.flushPendingReviews(personalConfig, binding);
           const extras=personalConfig?{security_incidents:(await this.personal.request(personalConfig,'pa.incidents.pending')).items}:{};
           await this.checkInbox(config,binding);
           const body={...this.options.inbox.check(config.agentId,!!personalConfig,this.options.store.ownerTimezone),...extras};
@@ -752,6 +867,7 @@ export class GlobalAgent {
         }
         if (call.args.action !== 'read' || typeof call.args.target !== 'string') throw new Error('Inbox read needs a target');
         const baseTarget = this.options.store.toolReferences.splitResolvedTarget(call.agentId, call.args.target).base;
+        if (personalConfig) await this.flushPendingReviews(personalConfig, binding, baseTarget.replace(/^conversation:/, ''));
         const info = await this.query(binding, { action: 'info', target: baseTarget });
         this.options.inbox.updateTarget(call.agentId, baseTarget, String(info.name));
         controller.signal.throwIfAborted();
@@ -787,8 +903,26 @@ export class GlobalAgent {
         return { ...args, target: joinThreadTarget(binding.conversationId, root) };
       };
       if (call.method === 'conversations') return await this.query(binding, { ...resolveSingleCurrent(call.args), include_execution_nodes: call.args.action === 'info' });
-      if (call.method === 'read_messages') return await this.query(binding, { ...resolveSingleCurrent(call.args), action: 'read' });
-      if (call.method === 'search_messages') return await this.query(binding, { ...resolveSingleCurrent(call.args), action: 'search' });
+      if (call.method === 'read_messages') {
+        const resolvedArgs = resolveSingleCurrent(call.args);
+        if (personalConfig) {
+          await this.refreshPersonalSources(personalConfig);
+          const rawTarget = typeof resolvedArgs.target === 'string' && resolvedArgs.target ? resolvedArgs.target : undefined;
+          const targetConv = rawTarget ? this.options.store.toolReferences.splitResolvedTarget(call.agentId, rawTarget).base.replace(/^conversation:/, '') : undefined;
+          await this.flushPendingReviews(personalConfig, binding, targetConv);
+        }
+        return await this.query(binding, { ...resolvedArgs, action: 'read' });
+      }
+      if (call.method === 'search_messages') {
+        const resolvedArgs = resolveSingleCurrent(call.args);
+        if (personalConfig) {
+          await this.refreshPersonalSources(personalConfig);
+          const rawTarget = typeof resolvedArgs.target === 'string' && resolvedArgs.target ? resolvedArgs.target : undefined;
+          const targetConv = rawTarget ? this.options.store.toolReferences.splitResolvedTarget(call.agentId, rawTarget).base.replace(/^conversation:/, '') : undefined;
+          await this.flushPendingReviews(personalConfig, binding, targetConv);
+        }
+        return await this.query(binding, { ...resolvedArgs, action: 'search' });
+      }
       if (call.method === 'threads') {
         const action = String(call.args.action ?? '');
         if (!['list', 'follow', 'unfollow'].includes(action)) throw new Error('Invalid threads action');

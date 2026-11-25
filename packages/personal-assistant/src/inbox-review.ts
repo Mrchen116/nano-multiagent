@@ -6,7 +6,12 @@ export interface InputReview {
   message_id: string; state: InputReviewState; generation: number; reason?: string; error_code?: string;
   incident_id?: string; event_id?: string; event_delivered: boolean;
 }
-interface Row {message_id:string;review_state:InputReviewState;review_generation:number;review_reason:string|null;review_error_code:string|null;review_incident_id:string|null;review_event_id:string|null;review_event_delivered:number}
+export interface ClaimedInputReview {
+  input: RelayInput;
+  generation: number;
+  due_at: number | null;
+}
+interface Row {message_id:string;review_state:InputReviewState;review_generation:number;review_reason:string|null;review_error_code:string|null;review_incident_id:string|null;review_event_id:string|null;review_event_delivered:number;review_due_at?:number|null}
 const project=(r:Row):InputReview=>({message_id:r.message_id,state:r.review_state,generation:r.review_generation,
  ...(r.review_reason?{reason:r.review_reason}:{}),...(r.review_error_code?{error_code:r.review_error_code}:{}),
  ...(r.review_incident_id?{incident_id:r.review_incident_id}:{}),...(r.review_event_id?{event_id:r.review_event_id}:{}),event_delivered:!!r.review_event_delivered});
@@ -15,7 +20,7 @@ const project=(r:Row):InputReview=>({message_id:r.message_id,state:r.review_stat
 export class InboxReviews {
  constructor(private readonly db:DatabaseSync) {
   const columns=new Set(db.prepare('PRAGMA table_info(inbox)').all().map(row=>row.name));
-  for(const [name,type] of Object.entries({review_state:'TEXT',review_generation:'INTEGER NOT NULL DEFAULT 0',review_reason:'TEXT',review_error_code:'TEXT',review_incident_id:'TEXT',review_event_id:'TEXT',review_event_delivered:'INTEGER NOT NULL DEFAULT 0'}))
+  for(const [name,type] of Object.entries({review_state:'TEXT',review_generation:'INTEGER NOT NULL DEFAULT 0',review_reason:'TEXT',review_error_code:'TEXT',review_incident_id:'TEXT',review_event_id:'TEXT',review_event_delivered:'INTEGER NOT NULL DEFAULT 0',review_due_at:'INTEGER'}))
    if(!columns.has(name))db.exec(`ALTER TABLE inbox ADD COLUMN ${name} ${type}`);
   // This store is opened once per Node process. An interrupted request has no verdict to replay.
   db.prepare(`UPDATE inbox SET review_state='failed',review_error_code='interrupted',review_reason='Input review was interrupted before a verdict',
@@ -36,6 +41,26 @@ export class InboxReviews {
     WHERE agent_id=? AND message_id=? AND (review_state='pending' OR (? AND review_state='failed' AND coalesce(review_error_code,'')!='legacy_settled')) RETURNING review_generation`).get(agent,message,Number(explicit)) as {review_generation:number}|undefined;
   return row?.review_generation;
  }
+ /** Atomically claim up to limit staged pending inputs in one conversation in arrival order. */
+ beginBatch(agent:string,conversationId:string,limit=20):ClaimedInputReview[] {
+  this.db.exec('BEGIN IMMEDIATE');
+  try {
+   const candidates=this.db.prepare(`SELECT seq,message_id,payload,review_due_at FROM inbox
+     WHERE agent_id=? AND consumed=0 AND review_state='pending'
+       AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0
+       AND json_extract(payload,'$.conversation_id')=?
+     ORDER BY seq ASC LIMIT ?`).all(agent,conversationId,limit) as {seq:number;message_id:string;payload:string;review_due_at:number|null}[];
+   const claimed:ClaimedInputReview[]=[];
+   const claimStmt=this.db.prepare(`UPDATE inbox SET review_state='reviewing',review_generation=review_generation+1,review_reason=NULL,review_error_code=NULL,review_event_id=NULL,review_event_delivered=0
+     WHERE seq=? AND review_state='pending' RETURNING review_generation,review_due_at`);
+   for(const row of candidates) {
+    const updated=claimStmt.get(row.seq) as {review_generation:number;review_due_at:number|null}|undefined;
+    if(updated)claimed.push({input:JSON.parse(row.payload) as RelayInput,generation:updated.review_generation,due_at:updated.review_due_at??null});
+   }
+   this.db.exec('COMMIT');
+   return claimed;
+  }catch(error){this.db.exec('ROLLBACK');throw error;}
+ }
  settle(agent:string,message:string,generation:number,result:{state:'admitted'|'rejected'|'failed';reason?:string;error_code?:string;incident_id?:string}):boolean {
   return Number(this.db.prepare(`UPDATE inbox SET review_state=?,review_reason=?,review_error_code=?,review_incident_id=?,review_event_id=?,review_event_delivered=0
     WHERE agent_id=? AND message_id=? AND review_state='reviewing' AND review_generation=?`)
@@ -43,6 +68,32 @@ export class InboxReviews {
  }
  pending(agent:string):RelayInput[] {
   return (this.db.prepare("SELECT payload FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='pending' ORDER BY seq").all(agent) as {payload:string}[]).map(row=>JSON.parse(row.payload));
+ }
+ unclassified(agent:string):RelayInput[] {
+  return (this.db.prepare("SELECT payload FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='pending' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=1 ORDER BY seq").all(agent) as {payload:string}[]).map(row=>JSON.parse(row.payload));
+ }
+ pendingConversations(agent:string):string[] {
+  return (this.db.prepare(`SELECT DISTINCT json_extract(payload,'$.conversation_id') cid FROM inbox
+    WHERE agent_id=? AND consumed=0 AND review_state='pending'
+      AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0`).all(agent) as {cid:string|null}[])
+   .flatMap(row=>typeof row.cid==='string'&&row.cid?[row.cid]:[]);
+ }
+ pendingCount(agent:string,conversationId:string):number {
+  return Number((this.db.prepare(`SELECT count(*) n FROM inbox
+    WHERE agent_id=? AND consumed=0 AND review_state='pending'
+      AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0
+      AND json_extract(payload,'$.conversation_id')=?`).get(agent,conversationId) as {n:number}).n);
+ }
+ nextDueAt(agent:string):number|undefined {
+  const row=this.db.prepare(`SELECT min(review_due_at) dueAt FROM inbox
+    WHERE agent_id=? AND consumed=0 AND review_state='pending'
+      AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0
+      AND review_due_at IS NOT NULL`).get(agent) as {dueAt:number|null};
+  return row.dueAt===null?undefined:Number(row.dueAt);
+ }
+ duePending(agent:string,now=Date.now()):boolean {
+  const due=this.nextDueAt(agent);
+  return due!==undefined && due<=now;
  }
  failures(agent:string,undelivered=false):InputReview[] {
   return (this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND review_state='failed' AND NOT EXISTS(SELECT 1 FROM scope_cancelled c WHERE c.agent_id=inbox.agent_id AND c.message_id=inbox.message_id) AND NOT (consumed=1 AND coalesce(review_error_code,'')='legacy_settled') AND (?=0 OR review_event_delivered=0) ORDER BY seq").all(agent,Number(undelivered)) as unknown as Row[]).map(project);

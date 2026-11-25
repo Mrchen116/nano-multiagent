@@ -95,7 +95,18 @@ const methods = {
   'pa.review': rpc(z.discriminatedUnion('kind', [
     input({...agent, kind: z.literal('input'), evidence: dataObject, sessionId: id.optional(), callId: id.optional()}),
     input({...agent, kind: z.literal('action'), evidence: dataObject, ...session, callId: id.optional()}),
-  ]), z.object({decision: z.enum(['allow','deny','needs_owner','unavailable']), reason: text, incident: z.object({reason: text}).optional()})),
+  ]), z.object({
+    decision: z.enum(['allow','deny','needs_owner','unavailable']),
+    reason: text,
+    error_code: z.enum(['context_overflow']).optional(),
+    incident: z.object({reason: text}).optional(),
+    decisions: z.array(z.object({
+      id,
+      decision: z.enum(['allow','deny','needs_owner','unavailable']),
+      reason: text,
+      incident: z.object({reason: text}).optional(),
+    })).optional(),
+  })),
 };
 
 type OrdinaryMethod = keyof typeof methods;

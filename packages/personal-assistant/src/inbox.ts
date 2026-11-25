@@ -325,10 +325,32 @@ export class InboxStore {
   acceptRelay(input: RelayInput, attention: boolean, control = false, high = attention): void {
     if (this.deletedAgent(input.agent_id) || this.skipped(input)) return;
     const identity = (value: RelayInput) => sortedJsonAscii({agent:value.agent_id,target:value.conversation_id,message:value.message});
+    const coreIdentity = (value: RelayInput) => sortedJsonAscii({
+      agent: value.agent_id, target: value.conversation_id, id: value.message.id,
+      sender_type: value.message.sender_type, content: value.message.content,
+    });
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const previous = this.db.prepare('SELECT payload FROM inbox WHERE agent_id=? AND message_id=?').get(input.agent_id,input.message.id) as {payload:string}|undefined;
-      if (previous && identity(JSON.parse(previous.payload)) !== identity(input)) throw new Error('Relay input identity conflict');
+      if (previous) {
+        const prevInput = JSON.parse(previous.payload) as RelayInput;
+        if (prevInput.metadata.pa_observation === true && !input.metadata.pa_observation) {
+          if (coreIdentity(prevInput) !== coreIdentity(input)) throw new Error('Relay input identity conflict');
+          const mergedMetadata = prevInput.metadata.personal_unclassified === true
+            ? { ...prevInput.metadata, ...input.metadata }
+            : { ...input.metadata, ...prevInput.metadata };
+          const merged: RelayInput = { ...input, metadata: mergedMetadata };
+          delete merged.metadata.pa_observation;
+          if (prevInput.metadata.personal_unclassified !== true) delete merged.metadata.personal_unclassified;
+          const keepConsumed = prevInput.metadata.personal_unclassified !== true && prevInput.metadata.personal_is_owner !== true;
+          this.db.prepare('UPDATE inbox SET target=?,payload=?,consumed=CASE WHEN ? THEN 1 ELSE consumed END WHERE agent_id=? AND message_id=?')
+            .run(inputTarget(merged), JSON.stringify(merged), Number(control && !keepConsumed), input.agent_id, input.message.id);
+        } else if (!prevInput.metadata.pa_observation && input.metadata.pa_observation === true) {
+          if (coreIdentity(prevInput) !== coreIdentity(input)) throw new Error('Relay input identity conflict');
+        } else if (identity(prevInput) !== identity(input)) {
+          throw new Error('Relay input identity conflict');
+        }
+      }
       const receipt = this.db.prepare('SELECT input FROM relay_receipts WHERE id=?').get(input.relay_task_id) as {input:string}|undefined;
       if (receipt && identity(JSON.parse(receipt.input)) !== identity(input)) throw new Error('Relay receipt identity conflict');
       if (!previous) {
@@ -442,6 +464,12 @@ export class InboxStore {
     this.db.prepare("UPDATE relay_receipts SET status=?,confirmed=0 WHERE agent_id=? AND message_id=? AND status NOT IN ('completed','failed','skipped') AND (? != 'accepted' OR status='accepted')")
       .run(status,input.agent_id,input.message.id,status);
   }
+  /** Settle any recorded Web relay receipts for a message settled asynchronously in batch review. */
+  settleMessageRelays(agentId: string, messageId: string, status: string): void {
+    if (this.deletedAgent(agentId)) return;
+    this.db.prepare("UPDATE relay_receipts SET status=?,confirmed=0 WHERE agent_id=? AND message_id=? AND status NOT IN ('completed','failed','skipped')")
+      .run(status, agentId, messageId);
+  }
   /** Close a revoked obligation without recording a remote acceptance. */
   rejectRelay(id:string):void {this.db.prepare('UPDATE relay_receipts SET confirmed=-1 WHERE id=?').run(id);}
   confirmRelay(id: string, status: string): void {
@@ -459,20 +487,61 @@ export class InboxStore {
   }
   finishControl(input:RelayInput):void {this.db.prepare('UPDATE relay_controls SET done=1 WHERE agent_id=? AND message_id=?').run(input.agent_id,input.message.id);}
   private schedule(input:RelayInput, high:boolean, now:number):void {
+    this.scheduleAt(input, high ? 0 : now + CHAT_BACKGROUND_DELAY_MS);
+  }
+  private scheduleAt(input:RelayInput, dueAt:number):void {
     if(input.metadata.personal_unclassified || input.metadata.task_context || input.message.system_notice?.kind==='task_graph' || input.metadata.context_only)return;
     // Admission can finish out of arrival order (particularly after a review retry).
     this.db.prepare(`INSERT OR IGNORE INTO inbox_schedule(ord,seq,agent_id,due_at)
       SELECT max(seq,coalesce((SELECT max(ord) FROM inbox_schedule),0)+1,coalesce((SELECT max(watermark) FROM wakes),0)+1),seq,agent_id,?
       FROM inbox WHERE agent_id=? AND message_id=? AND consumed=0 AND review_state='admitted'`)
-      .run(high?0:now+CHAT_BACKGROUND_DELAY_MS,input.agent_id,input.message.id);
+      .run(dueAt,input.agent_id,input.message.id);
   }
-  /** Save authoritative PA provenance and arm its deadline after the review admits the input. */
-  classify(input: RelayInput, attention: boolean, high=attention): void {
+  /** Persist authenticated PA facts on a pending input while preserving any non-observation relay envelope. */
+  stagePersonal(input: RelayInput, attention: boolean, dueAt: number | null): RelayInput {
     delete input.metadata.personal_unclassified;
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      this.db.prepare('UPDATE inbox SET payload=?,attention=? WHERE agent_id=? AND message_id=?').run(JSON.stringify(input),Number(attention),input.agent_id,input.message.id);
-      this.schedule(input,high,Date.now());
+      const existingRow = this.db.prepare('SELECT payload FROM inbox WHERE agent_id=? AND message_id=?').get(input.agent_id, input.message.id) as {payload:string}|undefined;
+      let merged = input;
+      if (existingRow) {
+        const existing = JSON.parse(existingRow.payload) as RelayInput;
+        if (!existing.metadata.pa_observation && input.metadata.pa_observation === true) {
+          merged = { ...existing, metadata: { ...existing.metadata, ...input.metadata } };
+          delete merged.metadata.pa_observation;
+          delete merged.metadata.personal_unclassified;
+        }
+      } else {
+        this.db.prepare(`INSERT INTO inbox(seq,agent_id,target,message_id,payload,attention) VALUES((SELECT max(
+          coalesce((SELECT max(seq) FROM inbox),0),coalesce((SELECT max(watermark) FROM wakes),0),
+          coalesce((SELECT max(ord) FROM inbox_schedule),0),coalesce((SELECT max(watermark) FROM inbox_batch),0),
+          coalesce((SELECT CAST(value AS INTEGER) FROM metadata WHERE key='inbox_sequence'),0))+1),?,?,?,?,?)`)
+          .run(input.agent_id, inputTarget(input), input.message.id, JSON.stringify(input), Number(attention));
+        this.reviews.initialize({ ...input, metadata: { ...input.metadata, personal_unclassified: true } });
+      }
+      this.db.prepare('UPDATE inbox SET target=?,payload=?,attention=?,review_due_at=coalesce(review_due_at,?) WHERE agent_id=? AND message_id=?')
+        .run(inputTarget(merged), JSON.stringify(merged), Number(attention), dueAt, merged.agent_id, merged.message.id);
+      this.db.exec('COMMIT');
+      return merged;
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  /** Save authoritative PA provenance and arm its deadline after the review admits the input. */
+  classify(input: RelayInput, attention: boolean, high=attention, dueAt?: number | null): void {
+    delete input.metadata.personal_unclassified;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const existingRow = this.db.prepare('SELECT payload FROM inbox WHERE agent_id=? AND message_id=?').get(input.agent_id, input.message.id) as {payload:string}|undefined;
+      let merged = input;
+      if (existingRow) {
+        const existing = JSON.parse(existingRow.payload) as RelayInput;
+        if (!existing.metadata.pa_observation && input.metadata.pa_observation === true) {
+          merged = { ...existing, metadata: { ...existing.metadata, ...input.metadata } };
+          delete merged.metadata.pa_observation;
+          delete merged.metadata.personal_unclassified;
+        }
+      }
+      this.db.prepare('UPDATE inbox SET target=?,payload=?,attention=? WHERE agent_id=? AND message_id=?').run(inputTarget(merged),JSON.stringify(merged),Number(attention),merged.agent_id,merged.message.id);
+      this.scheduleAt(merged, high ? 0 : (dueAt ?? Date.now() + CHAT_BACKGROUND_DELAY_MS));
       this.db.exec('COMMIT');
     } catch(error) { this.db.exec('ROLLBACK'); throw error; }
   }
@@ -604,7 +673,7 @@ export class InboxStore {
   }
   blocking(agent: string, target: string): boolean {
     return !!this.db.prepare(`SELECT 1 FROM inbox WHERE agent_id=? AND target=? AND consumed=0 AND attention=1
-      AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 LIMIT 1`).get(agent, target);
+      AND review_state IN ('pending','reviewing','admitted') AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 LIMIT 1`).get(agent, target);
   }
   watermark(agent:string):number {
     return Number(this.db.prepare('SELECT coalesce(max(ord),0) value FROM inbox_schedule WHERE agent_id=?').get(agent)!.value);
