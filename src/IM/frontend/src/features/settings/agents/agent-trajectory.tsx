@@ -1,6 +1,7 @@
 import { readHttpError } from "../../auth/http-error";
 import { AgentExecutionDeletedError } from "./agent-work-api";
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isDesktopClient } from '../../../desktop/desktop-context';
 import { authFetch } from '../../auth/auth-fetch';
 import { takePageRead } from '../../auth/page-bootstrap';
 import { withBase } from '../../auth/auth-api';
@@ -57,15 +58,17 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
   useEffect(() => {
     if (!sessionId || !userId) return;
     let disposed = false, socket: WebSocket | undefined, port: MessagePort | undefined;
-    let iframeReady = false, version: string | undefined, initialized = false;
+    let iframeReady = false, version: string | undefined, initialized = false, localDirect = false;
     let initialCatalog: unknown;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const positionKey = `${userId}:${revision}:${sessionId}:${target.runId ?? "session"}`;
     const requests = new Set<string>();
     setState('loading'); setMessage('正在连接节点并读取原生轨迹…');
+    const readyStatusMessage = () => localDirect ? '本机直读 · 实时更新 · 只读' : '已连接 · 实时更新 · 只读';
     const initialize = () => {
       if (disposed || initialized || !iframeReady || !version || socket?.readyState !== WebSocket.OPEN || !frame.current?.contentWindow) return;
       initialized = true;
+      if (localDirect) { setState('ready'); setMessage(readyStatusMessage()); }
       const channel = new MessageChannel(); port = channel.port1;
       port.onmessage = event => {
         const request = event.data;
@@ -90,28 +93,55 @@ function TrajectoryFrame({ agentId, target, active, positions, onBack, onNavigat
       }
       if (event.data?.type === 'viewer-status' && socket?.readyState === WebSocket.OPEN) {
         setState(event.data.state);
-        setMessage(event.data.state === 'ready' ? '已连接 · 实时更新 · 只读' : event.data.message || '更新已中断，当前为已加载记录');
+        setMessage(event.data.state === 'ready' ? readyStatusMessage() : event.data.message || '更新已中断，当前为已加载记录');
       }
     };
     window.addEventListener('message', receive);
     void (async () => {
-      const path = `/im/v1/agents/${encodeURIComponent(agentId)}/trajectory/prepare`;
-      const cached = takePageRead(`${path}?session_id=${encodeURIComponent(sessionId)}`, useAuthStore.getState().accessToken);
-      let prepared = cached ? await cached.json() as { ticket: string; expires_at: number } : undefined;
-      if (!prepared || !(prepared.expires_at > Date.now())) {
-        const response = await authFetch(path, { method: 'POST', body: JSON.stringify({ session_id: sessionId }) });
-        if (response.status === 410) {
-          const error = await readHttpError(response);
+      let url: URL | undefined;
+      if (isDesktopClient()) {
+        const localRes = await authFetch('/desktop/v1/trajectory/prepare', {
+          method: 'POST',
+          body: JSON.stringify({ agent_id: agentId, session_id: sessionId }),
+        });
+        if (localRes.status === 410) {
+          const error = await readHttpError(localRes);
           if (error.code === "agent_execution_deleted" || error.detail === "agent_execution_deleted") throw new AgentExecutionDeletedError();
         }
-        if (!response.ok) throw new Error(`无法建立轨迹连接 (${response.status})`);
-        prepared = await response.json() as { ticket: string; expires_at: number };
+        if (localRes.status === 403) {
+          const error = await readHttpError(localRes);
+          throw new Error(error.detail || '无权访问该执行轨迹');
+        }
+        if (localRes.ok) {
+          const desktopPrepared = await localRes.json() as { mode: 'local'; ticket: string } | { mode: 'remote' };
+          if (desktopPrepared.mode === 'local') {
+            localDirect = true;
+            url = new URL('/desktop/ws/trajectory', location.href);
+            url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+            url.search = new URLSearchParams({ ticket: desktopPrepared.ticket, agent_id: agentId, session_id: sessionId }).toString();
+          }
+        }
       }
-      const { ticket } = prepared;
+      if (!url) {
+        const path = `/im/v1/agents/${encodeURIComponent(agentId)}/trajectory/prepare`;
+        const cached = takePageRead(`${path}?session_id=${encodeURIComponent(sessionId)}`, useAuthStore.getState().accessToken);
+        let prepared = cached ? await cached.json() as { ticket: string; expires_at: number } : undefined;
+        if (!prepared || !(prepared.expires_at > Date.now())) {
+          const response = await authFetch(path, { method: 'POST', body: JSON.stringify({ session_id: sessionId }) });
+          if (response.status === 410) {
+            const error = await readHttpError(response);
+            if (error.code === "agent_execution_deleted" || error.detail === "agent_execution_deleted") throw new AgentExecutionDeletedError();
+          }
+          if (!response.ok) throw new Error(`无法建立轨迹连接 (${response.status})`);
+          prepared = await response.json() as { ticket: string; expires_at: number };
+        }
+        const { ticket } = prepared;
+        if (disposed) return;
+        url = new URL(withBase('/im/ws/agent-trajectory'), location.href);
+        url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+        url.search = new URLSearchParams({ ticket, agent_id: agentId, session_id: sessionId }).toString();
+      }
       if (disposed) return;
-      const url = new URL(withBase('/im/ws/agent-trajectory'), location.href);
-      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
-      url.search = new URLSearchParams({ ticket, agent_id: agentId, session_id: sessionId }).toString();
       socket = new WebSocket(url);
       socket.onmessage = event => {
         if (disposed) return;

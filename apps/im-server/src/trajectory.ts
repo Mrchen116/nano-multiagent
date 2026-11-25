@@ -191,10 +191,56 @@ export class TrajectoryObservers {
   }
 
   private attachmentAllowed(observer: Observer, source: Row): boolean {
+    return this.sourceAllowedForUser(observer.userId, source);
+  }
+
+  /** Authorize a Desktop local-IPC trajectory read at the Agent/space/PA level without requiring center WorkSync rows. */
+  authorizeLocal(auth: { user_id: string; session_id: string }, agentId: string, sessionId: string) {
+    const user = this.ctx.identity.user(auth.user_id);
+    rejectDeletedExecution(this.ctx, user ?? {}, agentId, 'session', sessionId);
+    const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'", agentId);
+    if (!profile || one(this.ctx.db, 'SELECT 1 FROM agent_deletions WHERE agent_id=?', agentId) || !agentAvailable(this.ctx.db, profile) || !canAccessSpace(user, profile.space_id)) {
+      fail(404, '该执行不可访问');
+    }
+    const personal = one(this.ctx.db, 'SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?', agentId);
+    if (personal && personal.owner_user_id !== auth.user_id) {
+      fail(404, '该执行不可访问');
+    }
+    const binding = one(
+      this.ctx.db,
+      'SELECT b.node_id, b.owner_id, b.node_epoch FROM node_binding_state b JOIN nodes n ON n.node_id=b.node_id AND n.owner_id=b.owner_id WHERE b.node_id=? AND b.owner_id=?',
+      profile.node_id,
+      profile.owner_id,
+    );
+    if (!binding) fail(404, '该执行不可访问');
+    return {
+      authorized: true as const,
+      node_id: String(binding.node_id),
+      owner_id: String(binding.owner_id),
+      node_epoch: Number(binding.node_epoch),
+      auth_session_id: auth.session_id,
+    };
+  }
+
+  /** Verify whether a viewer can read trajectory attachment sources originating from workspace or chat messages. */
+  authorizeAttachmentSources(userId: string, agentId: string, sources: unknown): { allowed: boolean } {
+    if (!Array.isArray(sources) || sources.length === 0) return { allowed: false };
+    const user = this.ctx.identity.user(userId);
+    const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'", agentId);
+    if (!profile || one(this.ctx.db, 'SELECT 1 FROM agent_deletions WHERE agent_id=?', agentId) || !agentAvailable(this.ctx.db, profile) || !canAccessSpace(user, profile.space_id)) {
+      return { allowed: false };
+    }
+    const personal = one(this.ctx.db, 'SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?', agentId);
+    if (personal && personal.owner_user_id !== userId) return { allowed: false };
+    const allowed = sources.some(source => Boolean(source && typeof source === 'object' && this.sourceAllowedForUser(userId, source as Row)));
+    return { allowed };
+  }
+
+  private sourceAllowedForUser(userId: string, source: Row): boolean {
     if (source.kind === 'workspace') return true;
     if (source.kind !== 'chat' || typeof source.url !== 'string') return false;
     try {
-      this.ctx.messaging.access({ id: observer.userId }, source.conversationId);
+      this.ctx.messaging.access({ id: userId }, source.conversationId);
       const url = new URL(source.url, this.ctx.publicUrl);
       if (url.origin !== new URL(this.ctx.publicUrl).origin) return false;
       const match = /^\/im\/v1\/conversations\/([^/]+)\/(?:images|attachments)\/([^/]+)$/.exec(url.pathname);
@@ -227,6 +273,17 @@ export function registerTrajectorySockets(app: FastifyInstance, ctx: ImContext):
     ctx.identity.rateLimit('ws-ticket:' + session.sid, 10, 60);
     try { return ctx.gateway.trajectory.prepare({ user_id: user.id, session_id: session.sid }, params(request).agent_id, sessionId); }
     catch { fail(404, '该执行不可访问或节点离线'); }
+  });
+  app.post('/im/v1/agents/:agent_id/trajectory/authorize', (request) => {
+    const user = ctx.identity.authenticateRequest(request);
+    const session = ctx.identity.accessSession(bearer(request));
+    const sessionId = body(request).session_id;
+    if (typeof sessionId !== 'string' || !sessionId) fail(422, 'session_id required');
+    return ctx.gateway.trajectory.authorizeLocal({ user_id: user.id, session_id: session.sid }, params(request).agent_id, sessionId);
+  });
+  app.post('/im/v1/agents/:agent_id/trajectory/authorize-attachment', (request) => {
+    const user = ctx.identity.authenticateRequest(request);
+    return ctx.gateway.trajectory.authorizeAttachmentSources(user.id, params(request).agent_id, body(request).sources);
   });
   app.get('/im/ws/agent-trajectory', { websocket: true }, (socket, request) => {
     const allowed = [new URL(ctx.publicUrl).origin, ...(process.env.IM_BROWSER_ORIGINS ?? '').split(',').map(value => value.trim())];

@@ -1,3 +1,4 @@
+import { desktopScopedKey } from "../../desktop/desktop-context";
 import { confirmMessageDelivery } from "./delivery-receipts";
 import { authFetch, authFetchJson } from "../../features/auth/auth-fetch";
 import { ensureFreshSession } from "../../features/auth/auth-session";
@@ -41,12 +42,12 @@ const runtime = createUserStreamRuntime({
   ensureSession: ensureFreshSession,
   createSocket: (url) => new WebSocket(url) as UserStreamSocket,
   readCursor: (userId) => {
-    const raw = window.sessionStorage.getItem(`${CURSOR_PREFIX}${userId}`);
+    const raw = window.sessionStorage.getItem(desktopScopedKey(`${CURSOR_PREFIX}${userId}`));
     if (raw === null) return 0;
     const parsed = Number.parseInt(raw, 10);
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
   },
-  writeCursor: (userId, cursor) => window.sessionStorage.setItem(`${CURSOR_PREFIX}${userId}`, String(cursor)),
+  writeCursor: (userId, cursor) => window.sessionStorage.setItem(desktopScopedKey(`${CURSOR_PREFIX}${userId}`), String(cursor)),
   sync: async () => {
     const result = await authFetchJson<{ max_event_id: number; execution_cleanup_revisions?: Record<string, number> }>("/im/v1/sync?view=cursor");
     if (!Number.isFinite(result.max_event_id) || result.max_event_id < 0) {

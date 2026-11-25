@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useEffect, useRef, useState } from "react";
 import { defaultUrlTransform, type UrlTransform } from "react-markdown";
 
+import { isDesktopClient } from "../../../desktop/desktop-context";
 import { useTranslation } from "../../../i18n";
 import { authFetch } from "../../auth/auth-fetch";
 import { useAuthStore } from "../../auth/auth-store";
@@ -10,9 +11,14 @@ import { AttachmentPreviewTrigger } from "../interactive/open-intelligent-ui/att
 const PENDING_IMAGE = /^nano-image-pending:\d+$/;
 const PRIVATE_IMAGE_PATH = /^\/im\/v1\/conversations\/[a-zA-Z0-9_-]+\/(?:images|attachments)\/[a-zA-Z0-9_-]+$/;
 
-/** Allow the display-only pending protocol on images without changing link sanitization. */
-export const messageImageUrlTransform: UrlTransform = (url, key, node) =>
-  node.tagName === "img" && key === "src" && PENDING_IMAGE.test(url) ? url : defaultUrlTransform(url);
+/** Allow the display-only pending protocol on images without changing Web link sanitization. */
+export const messageImageUrlTransform: UrlTransform = (url, key, node) => {
+  if (node.tagName === "img" && key === "src" && PENDING_IMAGE.test(url)) return url;
+  if (isDesktopClient() && node.tagName === "a" && key === "href" && /^file:\/\//i.test(url.trim())) {
+    return url.trim();
+  }
+  return defaultUrlTransform(url);
+};
 
 export function protectedResourceUrl(src: string, conversationId?: string): string | null {
   try {

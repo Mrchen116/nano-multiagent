@@ -23,6 +23,7 @@ import { providerProfiles } from './providers.js';
 import { ModelSetup } from './model-setup.js';
 import {CapabilityRequests} from './capability-requests.js';
 import { NodeTrajectory } from './trajectory.js';
+import { LocalNodeBridge } from './local-bridge.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
 import { WorkSync, NodeStore, TaskExecution, TaskContext, ScheduleDeletions, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, AgentDeletionIntent, AgentLifecycleSnapshot, RelayInput } from '@nano/product-contracts';
@@ -708,6 +709,18 @@ agentLifecycle = new NodeAgentLifecycle({
   resetHeartbeat: agentId => heartbeat.resetAgent(agentId),
   report: async report => { await relay.request('agent.lifecycle.report', {...report}, {priority:'control'}); },
 });
+const localBridge = new LocalNodeBridge({
+  configPath,
+  nodeId: config.node.node_id,
+  ownerId: () => config.node.user_id,
+  nodeEpoch: () => relay.registration?.node_epoch,
+  ready: () => !stopping,
+  connected: () => relay.ready,
+  bindings: () => store.bindings(),
+  runtime,
+  activeTasks: () => productCalls.size,
+});
+await localBridge.start();
 await updater.start();
 await managed.start();
 workSync.start();
@@ -727,6 +740,7 @@ async function stop() {
   for(const recovery of readyRecovery.values())clearTimeout(recovery.timer);
   clearInterval(taskWatch);
   trajectory.closeAll();
+  await localBridge.close().catch(reportError);
   try { capabilityRequests.cancelAll(); await deletions.close(); await inspector.close(); await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await relay.stop(); await product.stop(); await globalProduct.stop(); await Promise.allSettled(readyRecoveryTasks); await operations.close(); await external.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}

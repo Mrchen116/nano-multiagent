@@ -125,15 +125,28 @@ export function gatewayLabel(config: string) {
   );
 }
 export function gatewayPlist(config: string) {
+  if (process.env.NANO_TEST_AUTOSTART_DIR) {
+    return join(
+      resolve(process.env.NANO_TEST_AUTOSTART_DIR),
+      gatewayLabel(config) + ".plist",
+    );
+  }
   return join(
     homedir(),
     "Library/LaunchAgents",
     gatewayLabel(config) + ".plist",
   );
 }
+export function isDesktopManagedConfig(config: string): boolean {
+  return (
+    existsSync(join(dirname(config), ".desktop-active.json")) ||
+    process.env.CREWDEN_DESKTOP_MANAGED === "1"
+  );
+}
 const target = (config: string) =>
   `gui/${process.getuid!()}/${gatewayLabel(config)}`;
 async function loaded(config: string) {
+  if (process.env.NANO_TEST_AUTOSTART_DIR) return false;
   try {
     await exec("/bin/launchctl", ["print", target(config)]);
     return true;
@@ -142,7 +155,7 @@ async function loaded(config: string) {
   }
 }
 async function unload(config: string) {
-  if (process.platform !== "darwin" || !(await loaded(config))) return;
+  if (process.platform !== "darwin" || process.env.NANO_TEST_AUTOSTART_DIR || !(await loaded(config))) return;
   await exec("/bin/launchctl", ["bootout", target(config)]);
   for (let i = 0; i < 50; i++) {
     if (!(await loaded(config))) return;
@@ -184,6 +197,7 @@ export async function claimGateway(config: string) {
     lockfilePath: join(dirname(config), ".gateway-runtime.lock"),
     stale: 10000,
     update: 1000,
+    retries: { retries: 24, factor: 1, minTimeout: 500, maxTimeout: 500 },
   });
   const process_start = await processBirth(process.pid);
   if (!process_start) {
@@ -284,9 +298,38 @@ export async function manageGateway(
   });
   try {
     if (action === "autostart-on" || action === "autostart-off" || action === "autostart-status") {
-      if (process.platform !== "win32") throw new Error("Windows login task required");
-      const text = await windowsHost(action, path, String(Math.ceil(grace * 1000)), String(config.gateway?.autostart !== false));
-      return { text, success: true };
+      if (process.platform === "win32") {
+        if (process.env.NANO_TEST_AUTOSTART_DIR) {
+          const marker = join(resolve(process.env.NANO_TEST_AUTOSTART_DIR), gatewayLabel(path) + ".win-autostart");
+          if (action === "autostart-on") await atomicPrivate(marker, "enabled");
+          else if (action === "autostart-off") await rm(marker, { force: true });
+          return { text: existsSync(marker) ? "enabled" : "disabled", success: true };
+        }
+        const text = await windowsHost(action, path, String(Math.ceil(grace * 1000)), String(config.gateway?.autostart !== false));
+        return { text, success: true };
+      }
+      if (process.platform === "darwin" || process.env.NANO_TEST_AUTOSTART_DIR) {
+        const desktopManaged = isDesktopManagedConfig(path);
+        const plist = gatewayPlist(path);
+        if (action === "autostart-status") {
+          const enabled = desktopManaged ? config.gateway?.autostart !== false : existsSync(plist);
+          return { text: enabled ? "enabled" : "disabled", success: true };
+        }
+        if (action === "autostart-on") {
+          if (desktopManaged) {
+            await rm(plist, { force: true });
+          } else {
+            await atomicPrivate(plist, launchDefinition(path, grace));
+          }
+          return { text: "enabled", success: true };
+        }
+        if (!desktopManaged && !(await ownedState(path))) {
+          await unload(path);
+        }
+        await rm(plist, { force: true });
+        return { text: "disabled", success: true };
+      }
+      throw new Error("Login autostart requires macOS or Windows");
     }
     if (action === "status") {
       const state = await ownedState(path);
@@ -378,25 +421,29 @@ export async function manageGateway(
       if (state.release?.kind === "managed" && !existsSync(active) && !existsSync(join(dirname(path), ".windows-switch.json")))
         await atomicPrivate(active, {sha256: state.release.sha256});
       autostart = enabled === "enabled" ? "enabled (Windows login and crash recovery)" : "disabled";
-    } else if (process.platform === "darwin" && config.gateway?.autostart !== false) {
+    } else if (process.platform === "darwin" && config.gateway?.autostart !== false && !isDesktopManagedConfig(path)) {
       try {
         await unload(path);
         await atomicPrivate(gatewayPlist(path), launchDefinition(path, grace));
-        const temporary = join(
-          dirname(path),
-          ".gateway-launch-" + randomUUID() + ".plist",
-        );
-        try {
-          await atomicPrivate(temporary, launchDefinition(path, grace, args));
-          await exec("/bin/launchctl", [
-            "bootstrap",
-            `gui/${process.getuid!()}`,
-            temporary,
-          ]);
-        } finally {
-          await rm(temporary, { force: true });
+        if (process.env.NANO_TEST_AUTOSTART_DIR) {
+          state = await background();
+        } else {
+          const temporary = join(
+            dirname(path),
+            ".gateway-launch-" + randomUUID() + ".plist",
+          );
+          try {
+            await atomicPrivate(temporary, launchDefinition(path, grace, args));
+            await exec("/bin/launchctl", [
+              "bootstrap",
+              `gui/${process.getuid!()}`,
+              temporary,
+            ]);
+          } finally {
+            await rm(temporary, { force: true });
+          }
+          state = await waitReady();
         }
-        state = await waitReady();
         autostart = "enabled (macOS login and crash recovery)";
       } catch (error) {
         failure = String(error);
@@ -410,6 +457,9 @@ export async function manageGateway(
         await rm(gatewayPlist(path), { force: true });
       }
       state = await background();
+      if (isDesktopManagedConfig(path) && config.gateway?.autostart !== false) {
+        autostart = "enabled (Crewden Desktop login item)";
+      }
     }
     return {
       text: `Gateway started (pid=${state.pid})\nAutostart: ${autostart}\nIM service: ${config.im_service.url}\nLog: ${log}${failure ? "\n" + failure : ""}`,

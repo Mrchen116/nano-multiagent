@@ -56,6 +56,33 @@ export class NodeConfiguration {
     }
     return config;
   }
+  /** Validate node-scoped runtime and approval settings even when the node has zero Agents. */
+  validateNodeSettings(candidate: NodeConfigurationFile = this.value): void {
+    const runtime = candidate.gateway?.worker_runtime;
+    if (runtime !== undefined && !['dsh', 'codex', 'claude'].includes(runtime)) {
+      throw new Error('gateway.worker_runtime must be dsh, codex, or claude');
+    }
+    if (candidate.llm.tool_approval_model) {
+      const reviewer = candidate.llm.providers.find(provider =>
+        provider.models.some(model => model.name === candidate.llm.tool_approval_model),
+      );
+      if (!reviewer) {
+        throw new Error(`llm.tool_approval_model is not registered: ${candidate.llm.tool_approval_model}`);
+      }
+    }
+  }
+
+  /** Persist validated node-level gateway and approval configuration atomically. */
+  persistNodeSettings(next: NodeConfigurationFile): Promise<void> {
+    return this.serialize(async () => {
+      this.validateNodeSettings(next);
+      const preview = new NodeConfiguration(this.path, next);
+      for (const agent of next.agents) preview.runtime(agent);
+      await this.writeFile(next);
+      Object.assign(this.value, next);
+    });
+  }
+
   /** Resolve both the advertised template and new Agent workspaces on this node. */
   defaultWorkspace(agentId: string): string {
     return resolve(this.value.node.workspace_base ?? join(this.ownerRoot, 'workspaces'), agentId);

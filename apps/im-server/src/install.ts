@@ -9,6 +9,17 @@ import { parseReleaseManifest } from '@nano/product-contracts';
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 export const defaultReleaseDirectory = fileURLToPath(new URL('../../../dist/node-release/', import.meta.url));
 
+const MANIFEST_FILES: Record<string, string> = {
+  'win32-x64': 'manifest.win32-x64.json',
+  'desktop-darwin-arm64': 'manifest.desktop-darwin-arm64.json',
+  'desktop-win32-x64': 'manifest.desktop-win32-x64.json',
+};
+
+function allowsDesktopConnectOrigin(originUrl: URL): boolean {
+  if (originUrl.protocol === 'https:') return true;
+  return originUrl.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(originUrl.hostname);
+}
+
 /** Read the selected platform's verified metadata.
  *
  * Args:
@@ -18,8 +29,8 @@ export const defaultReleaseDirectory = fileURLToPath(new URL('../../../dist/node
  *   Manifest matching the requested platform, or null when unavailable.
  */
 export function releaseManifest(directory: string, platform?: string) {
-  if (platform !== undefined && platform !== 'win32-x64') return null;
-  const filename = platform === 'win32-x64' ? 'manifest.win32-x64.json' : 'manifest.json';
+  if (platform !== undefined && !(platform in MANIFEST_FILES)) return null;
+  const filename = platform === undefined ? 'manifest.json' : MANIFEST_FILES[platform]!;
   try {
     const manifest = parseReleaseManifest(JSON.parse(readFileSync(join(directory, filename), 'utf8')));
     return manifest?.platform === platform ? manifest : null;
@@ -37,16 +48,35 @@ export function unixInstallCommand(origin: string) {
  *   origin: Configured public IM URL; request Host must not influence commands.
  *   directory: Deployment directory containing the verified manifest.
  * Returns:
- *   Installation availability and a shell-quoted command for this IM.
+ *   Installation availability and platform-specific download/connect materials for this IM.
  */
 export function installMaterials(origin: string, directory: string) {
-  const base = new URL(origin).origin;
+  const originUrl = new URL(origin);
+  const base = originUrl.origin;
   const available = releaseManifest(directory) !== null;
   const windows = releaseManifest(directory, 'win32-x64');
-  const windows_x64 = windows?.platform === 'win32-x64' && new URL(base).protocol === 'https:'
+  const windows_x64 = windows?.platform === 'win32-x64' && originUrl.protocol === 'https:'
     ? { download_url: windows.installer.download_url, connect_url: `crewden://connect?origin=${encodeURIComponent(base)}` }
     : null;
-  return { available, origin: base, command: unixInstallCommand(base), script_url: base + '/install.sh', windows_x64 };
+  const macDesktop = releaseManifest(directory, 'desktop-darwin-arm64');
+  const winDesktop = releaseManifest(directory, 'desktop-win32-x64');
+  const desktopAllowed = allowsDesktopConnectOrigin(originUrl);
+  const desktopConnectUrl = `crewden-desktop://connect?origin=${encodeURIComponent(base)}`;
+  const desktop_darwin_arm64 = macDesktop?.platform === 'desktop-darwin-arm64' && desktopAllowed
+    ? { download_url: macDesktop.installer.download_url, connect_url: desktopConnectUrl, version: macDesktop.version }
+    : null;
+  const desktop_win32_x64 = winDesktop?.platform === 'desktop-win32-x64' && desktopAllowed
+    ? { download_url: winDesktop.installer.download_url, connect_url: desktopConnectUrl, version: winDesktop.version }
+    : null;
+  return {
+    available,
+    origin: base,
+    command: unixInstallCommand(base),
+    script_url: base + '/install.sh',
+    windows_x64,
+    desktop_darwin_arm64,
+    desktop_win32_x64,
+  };
 }
 
 /** Register metadata and script routes without serving package bytes.
@@ -71,6 +101,16 @@ export function registerInstallRoutes(app: FastifyInstance, ctx: ImContext, dire
   app.get('/install/manifest.win32-x64.json', (_req, reply) => {
     const manifest = releaseManifest(directory, 'win32-x64');
     if (!manifest) fail(503, 'Windows installer is not published yet');
+    return reply.header('Cache-Control', 'no-store').send(manifest);
+  });
+  app.get('/install/manifest.desktop-darwin-arm64.json', (_req, reply) => {
+    const manifest = releaseManifest(directory, 'desktop-darwin-arm64');
+    if (!manifest) fail(503, 'macOS Desktop installer is not published yet');
+    return reply.header('Cache-Control', 'no-store').send(manifest);
+  });
+  app.get('/install/manifest.desktop-win32-x64.json', (_req, reply) => {
+    const manifest = releaseManifest(directory, 'desktop-win32-x64');
+    if (!manifest) fail(503, 'Windows Desktop installer is not published yet');
     return reply.header('Cache-Control', 'no-store').send(manifest);
   });
   // Old scripts still request the IM path; redirect without reading the archive.

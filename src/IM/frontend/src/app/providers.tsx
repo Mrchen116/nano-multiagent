@@ -1,5 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PropsWithChildren, useEffect, useState } from "react";
+import { openDesktopExternal } from "../desktop/desktop-api";
+import { desktopScopedKey, isDesktopClient } from "../desktop/desktop-context";
 import { useMobileViewport } from "../hooks/use-mobile-viewport";
 import { accountEnabled, useAuthStore } from "../features/auth/auth-store";
 
@@ -29,12 +31,34 @@ export function AppProviders({ children }: PropsWithChildren) {
         queryClient.clear();
         forgetComposerUser(previousUserId);
         void forgetInteractionBackground(previousUserId).catch(() => {});
-        window.sessionStorage.removeItem(`im:user_stream_cursor:${previousUserId}`);
+        window.sessionStorage.removeItem(desktopScopedKey(`im:user_stream_cursor:${previousUserId}`));
       }
       previousUserId = nextUserId;
       previousMembership = state.user?.membership_status;
     });
   }, [queryClient]);
+
+  useEffect(() => {
+    if (!isDesktopClient()) return;
+    const onDocClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const rawHref = anchor.getAttribute("href") ?? "";
+      if (!/^https?:\/\//i.test(rawHref)) return;
+      try {
+        const parsed = new URL(rawHref, window.location.href);
+        if (parsed.origin !== window.location.origin) {
+          event.preventDefault();
+          void openDesktopExternal(parsed.href).catch(() => {});
+        }
+      } catch {
+        // Ignore malformed URLs.
+      }
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, []);
 
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }

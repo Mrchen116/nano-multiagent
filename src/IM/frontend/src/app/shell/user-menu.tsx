@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
+import { isDesktopClient } from "../../desktop/desktop-context";
 import { useAuthStore } from "../../features/auth/auth-store";
 import { listNodes } from "../../features/settings/im-settings-api";
 import { Avatar, colorForAgentSeed, initialsOf } from "../../features/chat/components/avatar";
@@ -87,7 +88,7 @@ export function UserMenu() {
       <button role="menuitem" type="button" onClick={() => {
         // Let dirty forms confirm navigation before LoginPage clears the session.
         navigate('/login', { replace: true, state: { signOut: true } });
-      }} className="im-user-menu-item im-user-menu-signout"><UserMenuIcon kind="logout" /><span>{t('shell.userMenu.signOut')}</span></button>
+      }} className="im-user-menu-item im-user-menu-signout"><UserMenuIcon kind="logout" /><span>{isDesktopClient() ? (lang === 'zh' ? '退出登录 / 切换服务' : 'Sign out / Switch server') : t('shell.userMenu.signOut')}</span></button>
     </div>}
   </div>;
 }

@@ -67,6 +67,29 @@ it('selects and snapshots the authenticated computer platform even when Windows 
   f.updates.register(id, old);
   expect(view().target).toEqual(target);
 });
+
+it('matches desktop platforms and marks shell_protocol mismatches as incompatible', () => {
+  const f = setup();
+  const view = () => f.updates.view(id);
+  const base = target.download_url.slice(0, target.download_url.lastIndexOf('/') + 1);
+  const macDesktop = {
+    ...target,
+    platform: 'desktop-darwin-arm64',
+    package: 'desktop-darwin-arm64.json',
+    size: 512,
+    shell_protocol: 1,
+    sha256: '7'.repeat(64),
+    download_url: base + 'desktop-darwin-arm64.json',
+    installer: { download_url: base + 'Crewden-Desktop-arm64.dmg', size: 8192, sha256: '9'.repeat(64) },
+  };
+  writeFileSync(join(f.dir, 'manifest.desktop-darwin-arm64.json'), JSON.stringify(macDesktop));
+
+  f.updates.register(id, { ...old, platform: 'desktop-darwin-arm64', shell_protocol: 1 });
+  expect(view()).toMatchObject({ available: true, reason: 'available', target: macDesktop });
+
+  f.updates.register(id, { ...old, platform: 'desktop-darwin-arm64', shell_protocol: 2 });
+  expect(view()).toMatchObject({ available: false, reason: 'incompatible' });
+});
 it('arbitrates cancel and switch and rejects success until the exact release reconnects', () => {
   const f=setup();const a=f.prepare();f.updates.cancel('n','o1',a.id);
   expect(()=>f.progress(a.id,'claim_switch')).toThrow('no longer authorized');

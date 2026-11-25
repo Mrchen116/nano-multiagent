@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { TaskGraphLink } from "../../tasks/task-graph-link";
 
+import { WorkspaceAgentContext } from "../../../desktop/use-desktop-local-agents";
 import { subscribeUserStream } from "../../../realtime/user-stream";
 import type { BackgroundReturn, PermissionRequest, TokenUsage, ToolCall } from "../../chat/chat-types";
 import { formatDuration } from "../../chat/components/tool-calls-panel";
@@ -465,7 +466,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
       activity={active} workerRecordsRevision={view?.worker_records_revision} preview={continuous ? loadPreview : undefined} visible={!nativeMode && !graphMode} headUpdate={nativeMode || graphMode ? 0 : main ? viewQuery.dataUpdatedAt : childQuery.dataUpdatedAt}
       focusToken={!nativeMode && focus?.session_id === turn.session_id && focus?.turn_id === turn.turn_id ? replyFocusToken : undefined} />;
   };
-  return <WorkNavigationContext.Provider value={{ returnUrl: `${location.pathname}?view=work`, beforeLeave: save, names, people }}>
+  return <WorkspaceAgentContext.Provider value={agentId}><WorkNavigationContext.Provider value={{ returnUrl: `${location.pathname}?view=work`, beforeLeave: save, names, people }}>
     <div ref={root} className={`im-work${continuous ? " im-work-continuous" : ""}`} data-testid="agent-work-panel">
       {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError && !view && !viewQuery.isFetchNextPageError ? <div role="alert" className="im-work-state">{viewQuery.error.message}{!(viewQuery.error instanceof AgentExecutionDeletedError) && <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button>}</div> : view && <>
         {viewQuery.isRefetchError && <p className="im-work-callout" role="status">{viewQuery.error.message} <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button></p>}
@@ -530,7 +531,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
         </div>
       </>}
     </div>
-  </WorkNavigationContext.Provider>;
+  </WorkNavigationContext.Provider></WorkspaceAgentContext.Provider>;
 }
 
 function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refresh, focusToken, separate, activity, headUpdate, workerRecordsRevision = 0, preview, visible, onNative}: {

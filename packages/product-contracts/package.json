@@ -39,6 +39,10 @@
     "./node-rpc": {
       "types": "./lib/node-rpc.d.ts",
       "default": "./lib/node-rpc.js"
+    },
+    "./desktop-local": {
+      "types": "./lib/desktop-local.d.ts",
+      "default": "./lib/desktop-local.js"
     }
   },
   "scripts": {

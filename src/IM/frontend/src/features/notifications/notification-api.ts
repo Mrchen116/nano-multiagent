@@ -6,6 +6,8 @@
 //   调用方无需处处判 `typeof Notification`;
 // - 权限请求和"已 denied 不再追问"的 UX 决策集中在一个地方,避免风险点散落。
 
+import { isDesktopClient } from "../../desktop/desktop-context";
+
 type GlobalWithNotification = typeof globalThis & {
   Notification?: {
     new (title: string, options?: NotificationOptions): Notification;
@@ -15,6 +17,9 @@ type GlobalWithNotification = typeof globalThis & {
 };
 
 function getCtor() {
+  // Desktop notifications are owned by the resident Rust host daemon so closed/hidden windows
+  // and --background login starts work reliably without duplicate WebView popups.
+  if (isDesktopClient()) return undefined;
   return (globalThis as GlobalWithNotification).Notification;
 }
 
