@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type { WorkerRuntime, RuntimeWorkerDetail } from '@nano/product-contracts';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { WorkerRuntime, RuntimeWorkerDetail, WorkUsage } from '@nano/product-contracts';
 import { WorkerTurnDetails, codexItem, type CodexItem } from './work-details.js';
 import { CliProcess, acknowledged } from './cli-process.js';
 
@@ -36,7 +39,7 @@ class TurnEvents {
     this.deliver(() => this.options.onReport(id, text));
   }
 
-  end(id: string, state: CliEndState, text: string, tokens: number | null = null) {
+  end(id: string, state: CliEndState, text: string, tokens: number | WorkUsage | null = null) {
     if (!this.active) return;
     this.details.end(state, tokens, text);
     this.active = undefined;
@@ -89,14 +92,21 @@ function actionTarget(input: Record<string, unknown> = {}) {
   const keys = [
     'type',
     'command',
+    'CommandLine',
+    'command_line',
+    'commandLine',
     'program',
     'argv',
     'processId',
     'cwd',
+    'Cwd',
+    'WorkingDirectory',
     'files',
     'file_path',
     'path',
+    'Path',
     'paths',
+    'Paths',
     'directory',
     'pattern',
     'url',
@@ -106,7 +116,10 @@ function actionTarget(input: Record<string, unknown> = {}) {
     'permissions',
     'reason',
     'server',
+    'ServerName',
     'toolName',
+    'ToolName',
+    'toolSummary',
     'resource',
     'target',
   ];
@@ -512,7 +525,552 @@ async function claude(options: CliWorkerOptions) {
   };
 }
 
-const cliDrivers = { codex, claude };
+const ANTIGRAVITY_MAX_INPUT_BYTES = 185_000;
+const ANTIGRAVITY_MAX_TOOL_TEXT = 16_000;
+const ANTIGRAVITY_DIRECT_PARENT_MCP = /^Run mcp_nano-parent_send_message\??$/;
+const ANTIGRAVITY_PROXIED_PARENT_MCP = /^MCP Tool send_message\??$/;
+
+function normalizeAcpToolName(title?: string, kind?: string) {
+  const trimmed = title?.trim();
+  if (trimmed) {
+    return trimmed
+      .replace(/^Run(?:ning)?\s+/i, '')
+      .replace(/\?$/, '')
+      .trim() || trimmed;
+  }
+  return typeof kind === 'string' && kind.trim() ? kind.trim() : undefined;
+}
+
+function sanitizeAcpToolOutput(value: unknown): unknown {
+  if (typeof value === 'string') {
+    if (/^data:image\//i.test(value)) return '[image omitted]';
+    return value.length > ANTIGRAVITY_MAX_TOOL_TEXT
+      ? `${value.slice(0, ANTIGRAVITY_MAX_TOOL_TEXT)}…`
+      : value;
+  }
+  if (Array.isArray(value)) return value.map(sanitizeAcpToolOutput);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (record.type === 'content' && record.content !== undefined) {
+      return sanitizeAcpToolOutput(record.content);
+    }
+    if (record.type === 'image') return { type: 'image', omitted: true };
+    return Object.fromEntries(
+      Object.entries(record).map(([key, item]) => [
+        key,
+        key === 'data' && typeof record.mimeType === 'string' && record.mimeType.startsWith('image/')
+          ? '[image omitted]'
+          : sanitizeAcpToolOutput(item),
+      ]),
+    );
+  }
+  return value;
+}
+
+function normalizeAntigravityAuthError(error: unknown): Error {
+  const code = (error as { code?: unknown } | null)?.code;
+  const message = error instanceof Error ? error.message : String(error);
+  if (code === -32000 || /No browser is available here|not logged in|not signed in|sign in/i.test(message)) {
+    return new Error(`Antigravity CLI is not signed in on this machine: ${message}`);
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
+interface AcpPromptResult {
+  stopReason?: string;
+  usage?: {
+    inputTokens?: unknown;
+    outputTokens?: unknown;
+    cachedReadTokens?: unknown;
+  };
+}
+
+interface TrackedAcpTool {
+  name: string;
+  title?: string;
+  kind?: string;
+  rawInput?: Record<string, unknown>;
+  locations?: { path?: string }[];
+}
+
+async function antigravity(options: CliWorkerOptions) {
+  const runtimeTmp = await mkdtemp(join(tmpdir(), 'nano-agy-tmp-'));
+  const proc = new CliProcess('agy', ['acp', '--process-per-session'], options.cwd, {
+    env: {
+      SSH_CLIENT: undefined,
+      SSH_CONNECTION: undefined,
+      SSH_TTY: undefined,
+      BROWSER: undefined,
+      AGY_CLI_DISABLE_AUTO_UPDATE: 'true',
+      NO_COLOR: '1',
+      PYTHONUNBUFFERED: '1',
+      ...(process.platform === 'win32' ? { TEMP: runtimeTmp, TMP: runtimeTmp } : { TMPDIR: runtimeTmp }),
+    },
+    onStdoutLine: (line) =>
+      line.startsWith('Open the following link to authenticate')
+        ? new Error('Antigravity CLI is not signed in on this machine. Run agy login first.')
+        : undefined,
+    onCleanup: () => rm(runtimeTmp, { recursive: true, force: true }),
+  });
+  const events = new TurnEvents(options);
+  let sessionId = options.sessionId ?? '';
+  let nextId = 0;
+  let msgSeq = 0;
+  let model: string | undefined;
+  let supportsAppend = false;
+  let sentInitialInstructions = Boolean(options.sessionId);
+  let stopping = false;
+  let inFlightPrompts = 0;
+  let assistantDraft = '';
+  let lastAssistantText = '';
+  const trackedTools = new Map<string, TrackedAcpTool>();
+  const settledToolIds = new Set<string>();
+
+  const freshStats = () => ({
+    contextUsed: undefined as number | undefined,
+    contextWindow: undefined as number | undefined,
+    totalInput: 0,
+    totalOutput: 0,
+    totalCacheRead: 0,
+    settledPrompts: 0,
+    allPromptsReportedTokens: true,
+    allPromptsReportedCache: true,
+    highestSettledId: 0,
+    outcome: undefined as { state: CliEndState; stopReason?: string; error?: string } | undefined,
+  });
+  let stats = freshStats();
+
+  const flushAssistant = () => {
+    if (!assistantDraft) return;
+    lastAssistantText = assistantDraft;
+    events.details.message(`assistant:${++msgSeq}`, 'assistant', assistantDraft);
+    assistantDraft = '';
+  };
+
+  const settleOpenTools = (state: CliEndState) => {
+    for (const [callId, entry] of trackedTools) {
+      settledToolIds.add(callId);
+      if (state === 'completed') {
+        events.details.toolEnd(callId, entry.name, lastAssistantText || 'Awaiting parent response', false, {
+          args: entry.rawInput,
+        });
+      }
+    }
+    trackedTools.clear();
+  };
+
+  const buildTurnUsage = (): WorkUsage | null => {
+    const out: WorkUsage = {};
+    if (stats.contextUsed !== undefined) out.context_used = stats.contextUsed;
+    if (stats.contextWindow !== undefined) out.context_window = stats.contextWindow;
+    if (inFlightPrompts === 0 && stats.settledPrompts > 0 && stats.allPromptsReportedTokens) {
+      out.output = stats.totalOutput;
+      out.total_tokens = stats.totalInput + stats.totalOutput;
+      if (stats.allPromptsReportedCache) {
+        out.cache_read_tokens = stats.totalCacheRead;
+        out.cache_total_input_tokens = stats.totalInput;
+      }
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  };
+
+  const finishIfDrained = (turnId: string) => {
+    if (inFlightPrompts > 0 || events.active !== turnId) return;
+    flushAssistant();
+    const outcome = stats.outcome;
+    const state: CliEndState = stopping ? 'interrupted' : (outcome?.state ?? 'completed');
+    const replyText =
+      state === 'interrupted'
+        ? 'Antigravity turn interrupted'
+        : outcome?.error
+          ? outcome.error
+          : lastAssistantText || `Antigravity turn ${outcome?.stopReason ?? state}`;
+    settleOpenTools(state);
+    events.end(turnId, state, replyText, buildTurnUsage());
+  };
+
+  const request = async <T>(method: string, params: unknown) => {
+    const id = ++nextId;
+    try {
+      return await proc.request<T>(id, { jsonrpc: '2.0', id, method, params }, `Antigravity ${method}`);
+    } catch (error) {
+      throw normalizeAntigravityAuthError(error);
+    }
+  };
+
+  proc.onExit = (error) => {
+    flushAssistant();
+    if (events.active) {
+      if (inFlightPrompts > 0) {
+        stats.allPromptsReportedTokens = false;
+        stats.allPromptsReportedCache = false;
+      }
+      inFlightPrompts = 0;
+      const endState: CliEndState = stopping ? 'interrupted' : 'failed';
+      settleOpenTools(endState);
+      events.end(
+        events.active,
+        endState,
+        normalizeAntigravityAuthError(error).message,
+        buildTurnUsage(),
+      );
+    }
+  };
+
+  proc.onMessage = ({ id, method, params, result, error }) => {
+    if (!method) {
+      proc.resolve(id, result, error);
+      return;
+    }
+    if (id !== undefined) {
+      if (method === 'session/request_permission') {
+        const rawCall = (params?.toolCall ?? {}) as {
+          toolCallId?: string;
+          name?: string;
+          toolName?: string;
+          title?: string;
+          kind?: string;
+          rawInput?: unknown;
+          locations?: { path?: string }[];
+        };
+        const cached = rawCall.toolCallId ? trackedTools.get(rawCall.toolCallId) : undefined;
+        const explicitName =
+          (typeof rawCall.name === 'string' && rawCall.name.trim() ? rawCall.name.trim() : undefined) ??
+          (typeof rawCall.toolName === 'string' && rawCall.toolName.trim() ? rawCall.toolName.trim() : undefined) ??
+          cached?.name;
+        const title = (rawCall.title ?? cached?.title ?? '').trim();
+        const kind = rawCall.kind ?? cached?.kind;
+        const rawInput = (
+          rawCall.rawInput && typeof rawCall.rawInput === 'object' && !Array.isArray(rawCall.rawInput)
+            ? rawCall.rawInput
+            : cached?.rawInput
+        ) as Record<string, unknown> | undefined;
+        const locations = rawCall.locations ?? cached?.locations;
+        const opts = (Array.isArray(params?.options) ? params.options : []) as {
+          optionId?: string;
+          kind?: string;
+          name?: string;
+        }[];
+        const hasCommandField = ['CommandLine', 'command_line', 'commandLine', 'command'].some(
+          (key) => rawInput !== undefined && key in rawInput,
+        );
+        const isParentSend =
+          kind !== 'execute' &&
+          !hasCommandField &&
+          (ANTIGRAVITY_DIRECT_PARENT_MCP.test(title) ||
+            (explicitName === 'mcp_nano-parent_send_message' &&
+              (!title || ANTIGRAVITY_DIRECT_PARENT_MCP.test(title))) ||
+            ((explicitName === 'invoke_mcp_tool' || ANTIGRAVITY_PROXIED_PARENT_MCP.test(title)) &&
+              rawInput?.ServerName === 'nano-parent' &&
+              rawInput?.ToolName === 'send_message'));
+
+        let outcome: unknown;
+        if (isParentSend) {
+          const allow = opts.find((o) => o.kind === 'allow_once') ?? opts.find((o) => o.kind === 'allow_always');
+          outcome = allow?.optionId ? { outcome: 'selected', optionId: allow.optionId } : { outcome: 'cancelled' };
+        } else if (typeof rawCall.toolCallId === 'string' && rawCall.toolCallId.startsWith('interaction_')) {
+          outcome = { outcome: 'cancelled' };
+          events.report(
+            `question:${rawCall.toolCallId}:${id}`,
+            details('Antigravity requested user input.', {
+              question: title || 'Choose an option',
+              options: opts.map((o) => o.name || o.optionId).filter(Boolean),
+            }),
+          );
+        } else {
+          const reject = opts.find((o) => o.kind === 'reject_once');
+          outcome = reject?.optionId ? { outcome: 'selected', optionId: reject.optionId } : { outcome: 'cancelled' };
+          const declinedName = explicitName ?? normalizeAcpToolName(title, kind) ?? 'action';
+          const target = actionTarget(rawInput);
+          const locationPaths = Array.isArray(locations)
+            ? locations.map((loc) => loc?.path).filter((p): p is string => typeof p === 'string' && p.length > 0)
+            : [];
+          const primaryPath =
+            target && typeof target === 'object' && !Array.isArray(target)
+              ? ((target as Record<string, unknown>).Path ??
+                (target as Record<string, unknown>).path ??
+                (target as Record<string, unknown>).file_path)
+              : undefined;
+          const distinctLocations =
+            locationPaths.length === 1 && locationPaths[0] === primaryPath
+              ? undefined
+              : locationPaths.length > 0
+                ? locationPaths
+                : undefined;
+          events.report(
+            `request:${rawCall.toolCallId ?? id}:${id}`,
+            details(`Antigravity declined ${declinedName}.`, {
+              kind: typeof kind === 'string' && kind ? kind : undefined,
+              input: target,
+              locations: distinctLocations,
+            }),
+          );
+        }
+        void proc.write({ jsonrpc: '2.0', id, result: { outcome } }).catch(console.error);
+        return;
+      }
+      void proc
+        .write({ jsonrpc: '2.0', id, error: { code: -32601, message: 'Unsupported worker host request' } })
+        .catch(console.error);
+      return;
+    }
+    if (method !== 'session/update' || !sessionId || params?.sessionId !== sessionId) return;
+    const upd = params?.update;
+    if (!upd || typeof upd !== 'object') return;
+    if (upd.sessionUpdate === 'config_option_update') {
+      const updatedModel =
+        upd.id === 'model' && typeof upd.currentValue === 'string'
+          ? upd.currentValue
+          : Array.isArray(upd.configOptions)
+            ? upd.configOptions.find((entry: { id?: string; currentValue?: unknown }) => entry?.id === 'model')
+                ?.currentValue
+            : undefined;
+      if (typeof updatedModel === 'string' && updatedModel) {
+        model = updatedModel;
+        events.details.model = model;
+      }
+    }
+    if (!events.active) return;
+    switch (upd.sessionUpdate) {
+      case 'agent_message_chunk': {
+        const chunk = upd.content?.text;
+        if (typeof chunk === 'string' && chunk.length > 0) assistantDraft += chunk;
+        break;
+      }
+      case 'tool_call':
+      case 'tool_call_update': {
+        const callId = typeof upd.toolCallId === 'string' ? upd.toolCallId : undefined;
+        if (!callId || settledToolIds.has(callId)) break;
+        flushAssistant();
+        const prev = trackedTools.get(callId);
+        const name =
+          prev?.name ??
+          (typeof upd.name === 'string' && upd.name ? upd.name : undefined) ??
+          (typeof upd.toolName === 'string' && upd.toolName ? upd.toolName : undefined) ??
+          normalizeAcpToolName(upd.title, upd.kind) ??
+          'tool';
+        const rawInput =
+          upd.rawInput !== undefined && typeof upd.rawInput === 'object' && upd.rawInput !== null
+            ? (upd.rawInput as Record<string, unknown>)
+            : prev?.rawInput;
+        const entry: TrackedAcpTool = {
+          name,
+          title: typeof upd.title === 'string' ? upd.title : prev?.title,
+          kind: typeof upd.kind === 'string' ? upd.kind : prev?.kind,
+          rawInput,
+          locations: Array.isArray(upd.locations) ? upd.locations : prev?.locations,
+        };
+        trackedTools.set(callId, entry);
+        if (!prev) events.details.toolStart(callId, name, rawInput);
+        if (upd.status === 'completed' || upd.status === 'failed' || upd.status === 'cancelled') {
+          const rawOut = upd.content !== undefined ? upd.content : upd.rawOutput;
+          events.details.toolEnd(callId, name, sanitizeAcpToolOutput(rawOut), upd.status !== 'completed', {
+            reason: upd.status === 'cancelled' ? 'interrupted' : undefined,
+            args: rawInput,
+          });
+          trackedTools.delete(callId);
+          settledToolIds.add(callId);
+        }
+        break;
+      }
+      case 'usage_update': {
+        if (tokenCount(upd.used)) stats.contextUsed = upd.used;
+        if (tokenCount(upd.size) && upd.size > 0) stats.contextWindow = upd.size;
+        break;
+      }
+    }
+  };
+
+  try {
+    const initialized = await request<{
+      agentCapabilities?: {
+        sessionCapabilities?: { resume?: unknown };
+        _meta?: { antigravity?: { systemPrompt?: { append?: boolean } } };
+      };
+    }>('initialize', {
+      protocolVersion: 1,
+      clientInfo: { name: 'nano_worker', title: 'Nano worker', version: '1' },
+      clientCapabilities: {
+        fs: { readTextFile: false, writeTextFile: false },
+        terminal: false,
+      },
+    });
+    supportsAppend = initialized?.agentCapabilities?._meta?.antigravity?.systemPrompt?.append === true;
+    const mcpServers = [
+      {
+        name: 'nano-parent',
+        command: options.mcp.command,
+        args: options.mcp.args,
+        env: Object.entries(options.mcp.env).map(([name, value]) => ({ name, value })),
+      },
+    ];
+    const meta = supportsAppend
+      ? { _meta: { antigravity: { systemPrompt: { append: options.instructions } } } }
+      : {};
+    type SessionSetup = {
+      sessionId?: string;
+      modes?: { currentModeId?: string; availableModes?: { id?: string }[] };
+      configOptions?: { id?: string; currentValue?: unknown }[];
+    };
+    let setup: SessionSetup;
+    if (options.sessionId) {
+      if (!initialized?.agentCapabilities?.sessionCapabilities?.resume) {
+        throw new Error('Antigravity CLI does not support session/resume');
+      }
+      setup = await request<SessionSetup>('session/resume', {
+        sessionId: options.sessionId,
+        cwd: options.cwd,
+        mcpServers,
+        ...meta,
+      });
+      if (setup?.sessionId !== options.sessionId) {
+        throw new Error('Antigravity returned a different or empty session id');
+      }
+    } else {
+      setup = await request<SessionSetup>('session/new', {
+        cwd: options.cwd,
+        mcpServers,
+        ...meta,
+      });
+      if (!setup?.sessionId) throw new Error('Antigravity returned an empty session id');
+    }
+    sessionId = setup.sessionId;
+    if (!setup.modes?.availableModes?.some((entry) => entry?.id === 'auto')) {
+      throw new Error('Antigravity CLI does not offer auto permission mode');
+    }
+    await request('session/set_mode', { sessionId, modeId: 'auto' });
+    const selectedModel = setup.configOptions?.find((entry) => entry?.id === 'model')?.currentValue;
+    if (typeof selectedModel === 'string' && selectedModel) {
+      model = selectedModel;
+      events.details.model = model;
+    }
+  } catch (error) {
+    await proc.close();
+    throw error;
+  }
+
+  return {
+    sessionId,
+    async send(text: string) {
+      if (Buffer.byteLength(text, 'utf8') > ANTIGRAVITY_MAX_INPUT_BYTES) {
+        throw new Error(`Antigravity input exceeds ${ANTIGRAVITY_MAX_INPUT_BYTES}-byte limit`);
+      }
+      if (proc.ended) throw new Error('Worker process is closing');
+      const messageId = randomUUID();
+      const wireText =
+        !supportsAppend && !sentInitialInstructions
+          ? ((sentInitialInstructions = true), `${options.instructions}\n\n---\n\n${text}`)
+          : text;
+      if (!events.active) {
+        stats = freshStats();
+        inFlightPrompts = 0;
+        assistantDraft = '';
+        lastAssistantText = '';
+        trackedTools.clear();
+        events.begin(messageId, model);
+      }
+      const turnId = events.active!;
+      events.details.message(messageId, 'user', text);
+      const rpcId = ++nextId;
+      inFlightPrompts++;
+      try {
+        const { response } = await proc.sendRequest<AcpPromptResult>(rpcId, {
+          jsonrpc: '2.0',
+          id: rpcId,
+          method: 'session/prompt',
+          params: { sessionId, prompt: [{ type: 'text', text: wireText }] },
+        });
+        void response.then(
+          (res) => {
+            inFlightPrompts = Math.max(0, inFlightPrompts - 1);
+            if (events.active !== turnId) return;
+            stats.settledPrompts++;
+            const u = res?.usage;
+            if (u && tokenCount(u.inputTokens) && tokenCount(u.outputTokens)) {
+              const cacheRead = tokenCount(u.cachedReadTokens) ? u.cachedReadTokens : undefined;
+              stats.totalInput += u.inputTokens + (cacheRead ?? 0);
+              stats.totalOutput += u.outputTokens;
+              if (cacheRead !== undefined) stats.totalCacheRead += cacheRead;
+              else stats.allPromptsReportedCache = false;
+            } else {
+              stats.allPromptsReportedTokens = false;
+              stats.allPromptsReportedCache = false;
+            }
+            if (rpcId >= stats.highestSettledId) {
+              stats.highestSettledId = rpcId;
+              const stopReason = res?.stopReason;
+              const state: CliEndState =
+                stopping || stopReason === 'cancelled'
+                  ? 'interrupted'
+                  : stopReason === 'refusal' || stopReason === 'error'
+                    ? 'failed'
+                    : 'completed';
+              stats.outcome = { state, stopReason };
+            }
+            finishIfDrained(turnId);
+          },
+          (error) => {
+            inFlightPrompts = Math.max(0, inFlightPrompts - 1);
+            if (events.active !== turnId) return;
+            stats.settledPrompts++;
+            stats.allPromptsReportedTokens = false;
+            stats.allPromptsReportedCache = false;
+            if (rpcId >= stats.highestSettledId) {
+              stats.highestSettledId = rpcId;
+              stats.outcome = {
+                state: stopping ? 'interrupted' : 'failed',
+                error: stopping ? undefined : normalizeAntigravityAuthError(error).message,
+              };
+            }
+            finishIfDrained(turnId);
+          },
+        );
+      } catch (error) {
+        inFlightPrompts = Math.max(0, inFlightPrompts - 1);
+        if (events.active === turnId) {
+          stats.settledPrompts++;
+          stats.allPromptsReportedTokens = false;
+          stats.allPromptsReportedCache = false;
+          if (rpcId >= stats.highestSettledId) {
+            stats.highestSettledId = rpcId;
+            stats.outcome = { state: 'failed', error: normalizeAntigravityAuthError(error).message };
+          }
+          finishIfDrained(turnId);
+        }
+        throw error;
+      }
+    },
+    async stop() {
+      if (!events.active) {
+        await events.finished;
+        return;
+      }
+      const finished = events.finished;
+      stopping = true;
+      try {
+        await proc.write({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } });
+        await acknowledged(finished, 'Antigravity turn to stop');
+      } finally {
+        stopping = false;
+      }
+    },
+    async close() {
+      await proc.close();
+      if (events.active) {
+        if (inFlightPrompts > 0) {
+          stats.allPromptsReportedTokens = false;
+          stats.allPromptsReportedCache = false;
+        }
+        inFlightPrompts = 0;
+        settleOpenTools('interrupted');
+        events.end(events.active, 'interrupted', 'Worker session closed', buildTurnUsage());
+      }
+      await events.finished;
+    },
+  };
+}
+
+const cliDrivers = { codex, claude, antigravity };
 
 /** Open the native CLI session in the assigned workspace and use its installed model and identity. */
 export async function openCliWorker(options: CliWorkerOptions) {

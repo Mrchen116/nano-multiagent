@@ -85,3 +85,15 @@ it("renders send status from the structured result and leaves redundant serializ
   expect(screen.getAllByText("只显示这份正文")).toHaveLength(1);
   expect(screen.queryByText(/"status":"sent"/)).not.toBeInTheDocument();
 });
+
+it("summarizes Antigravity PascalCase worker tool inputs cleanly", () => {
+  setLanguage("zh");
+  const result = render(<ul><WorkTool workerTool call={{
+    id: "cmd", name: "run_command", status: "running", input: {CommandLine: "git status", toolSummary: "Git status check"},
+  }} /></ul>);
+  expect(screen.getByRole("button", {name: /run_command.*git status.*调用中/})).toBeVisible();
+  result.rerender(<ul><WorkTool workerTool call={{
+    id: "read", name: "read_file", status: "completed", input: {Path: "/workspace/SPEC.md"},
+  }} /></ul>);
+  expect(screen.getByRole("button", {name: /read_file.*\/workspace\/SPEC\.md.*调用完成/})).toBeVisible();
+});

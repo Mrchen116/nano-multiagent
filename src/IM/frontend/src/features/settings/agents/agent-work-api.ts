@@ -1,4 +1,5 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
+import { cliWorkerRuntimes, type WorkerRuntime } from "@nano/product-contracts/worker-runtimes";
 import { tr } from "./agent-work-text";
 import { authFetch } from "../../auth/auth-fetch";
 import { readHttpError } from "../../auth/http-error";
@@ -8,11 +9,20 @@ export interface WorkItem { item_id: string; seq: number; revision?: number; has
 export interface WorkTurn { seq: number; description?: string; session_id: string; turn_id: string; scope?: string; job_id?: string; run_id?: string; status: string; origin?: string | Record<string, unknown>; trigger?: Record<string, unknown>; model_id?: string; started_at?: string; finished_at?: string; elapsed_ms?: number; error?: {code?: string; message?: string}; usage: (Partial<TokenUsage> & {total_tokens?: number}) | null; items: WorkItem[]; next_items_cursor: string | null; items_deferred?: boolean; tool_count?: number; maintenance_stage?: string; maintenance_title?: string; model_request_state?: string; has_background_returns?: boolean; background_task_type?: string | null }
 interface WorkerSessionFields {
   scope?: string;
-  runtime?: "codex" | "claude" | "dsh";
+  runtime?: WorkerRuntime;
   has_work_records?: boolean;
 }
 
-export const workerRuntimeNames = {codex: "Codex", claude: "Claude Code", dsh: "DSH"};
+export const workerRuntimeNames: Record<WorkerRuntime, string> = {
+  codex: "Codex",
+  claude: "Claude Code",
+  antigravity: "Antigravity",
+  dsh: "DSH",
+};
+
+export function isExternalCliWorker(runtime?: string): boolean {
+  return (cliWorkerRuntimes as readonly string[]).includes(runtime ?? "");
+}
 
 export function hasSessionRecords(session: WorkerSessionFields) {
   return session.scope !== "worker" || session.has_work_records === true;

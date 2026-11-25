@@ -1,4 +1,5 @@
 import type {DecodedWorkEvent, ReceivedWorkFact, WorkAppendBatch, WorkJournalEvent, WorkEventType} from './work-events.js';
+import {workerRuntimes} from './worker-runtimes.js';
 
 /** A domain error mapped by each HTTP/WS adapter, without coupling contracts to HTTP. */
 export class WorkEventError extends Error {}
@@ -47,7 +48,7 @@ export function validateWorkPayload(type: string, p: Record<string, unknown>): b
     switch (type) {
       case 'worker_state':
         if (!['parent_session_id', 'title', 'call_id'].every(key => text(p[key])) ||
-            !['dsh', 'codex', 'claude'].includes(String(p.runtime)) ||
+            !(workerRuntimes as readonly string[]).includes(String(p.runtime)) ||
             !['starting', 'running', 'completed', 'interrupted', 'failed'].includes(String(p.status)))
           throw new WorkEventError('invalid_event');
         fields(p, ['turn_usage'], usage => workObject(usage) &&

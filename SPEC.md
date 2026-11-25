@@ -21,7 +21,7 @@ flowchart TD
   Node <-->|stdio JSON RPC| DSH[普通 Agent 共享 DSH host；PA 按 binding/epoch 隔离]
   DSH --> LLM[配置的模型服务]
   DSH --> Workspace[Agent workspace / tools / skills]
-  DSH --> CLI[可选本机 Codex CLI 或 Claude Code 一级 worker]
+  DSH --> CLI[可选本机 Codex CLI、Claude Code 或 Antigravity CLI 一级 worker]
 ```
 
 节点主动连接中心，不开放 Agent 业务监听端口。中心不执行 Agent、不读节点 workspace、不直接连接外部渠道。中心离线时，已绑定且具备本地密文凭据的外部渠道仍可自治，待连接恢复后补交付已有持久结果。
@@ -42,7 +42,7 @@ flowchart TD
 | `src/IM/ios` | 既有 Swift 原生 iPhone 客户端 |
 | `scripts`、`tests` | 运维和验收工具；Python 仅保留辅助脚本与黑盒回归 |
 
-Global 和 PA 的一级委派由 integration 选择本机配置的 DSH、Codex CLI 或 Claude Code，使用各自原生的执行循环、账号和会话；外部 worker 只向所属根会话汇报，并将执行步骤投影到 IM 的工作记录。
+Global 和 PA 的一级委派由 integration 选择本机配置的 DSH、Codex CLI、Claude Code 或 Antigravity CLI，使用各自原生的执行循环、账号和会话；外部 worker 只向所属根会话汇报，并将执行步骤投影到 IM 的工作记录。
 
 Node 仅通过 `@nano/dsh-integration/client` 管理 stdio 进程客户端；产品层依赖 `RuntimePort`，不持有 DSH 对象。运行时接线集中在 integration，跨进程传递的是产品身份、输入来源、操作 ID、持久序号及真实事件。
 

@@ -4,7 +4,7 @@ import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { DatabaseSync } from 'node:sqlite';
 import type { WorkCheckpoint } from './work-projection.js';
 import { createHash, randomUUID } from 'node:crypto';
-import { CHAT_BACKGROUND_DELAY_MS, decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
+import { CHAT_BACKGROUND_DELAY_MS, cliWorkerRuntimes, decodeWorkEvent, workRedactedType } from '@nano/product-contracts';
 import type { WorkReadyCut, WorkDraft, WorkJournalEvent, RelayInput, WorkRedactionManifest, RuntimeEvent } from '@nano/product-contracts';
 import { formatLocalTime, isRasterImageMime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
 import { joinThreadTarget, splitThreadTarget } from './tool-references.js';
@@ -238,14 +238,15 @@ export class InboxStore {
 
   /** Return native Work identities observed before the target journal is redacted. */
   deletionSessionIds(agentId: string): string[] {
+    const placeholders = cliWorkerRuntimes.map(() => '?').join(',');
     const rows = this.db.prepare(`SELECT json_extract(event,'$.session_id') id FROM journal
       WHERE json_extract(event,'$.root_agent_id')=? AND json_extract(event,'$.type')!=?
       UNION SELECT json_extract(event,'$.payload.child_session_id') id FROM journal
       WHERE json_extract(event,'$.root_agent_id')=? AND json_extract(event,'$.type')='session_linked'
       EXCEPT SELECT json_extract(event,'$.session_id') id FROM journal
       WHERE json_extract(event,'$.root_agent_id')=? AND json_extract(event,'$.type')='worker_state'
-        AND json_extract(event,'$.payload.runtime') IN ('codex','claude')`)
-      .all(agentId, workRedactedType, agentId, agentId);
+        AND json_extract(event,'$.payload.runtime') IN (${placeholders})`)
+      .all(agentId, workRedactedType, agentId, agentId, ...cliWorkerRuntimes);
     return rows.flatMap(({ id }) => typeof id === 'string' && id ? [id] : []);
   }
 

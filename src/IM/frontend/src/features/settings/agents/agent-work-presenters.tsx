@@ -92,7 +92,7 @@ export function WorkTool({ call, workerTool, expanded, onExpandedChange, detailF
   const deliveryFields = Object.fromEntries(Object.entries(detail).filter(([key]) =>
     !["status", "target", "messageId", "message_id", "text", "error"].includes(key)
   ));
-  if (workerTool) summary = text(input.command) || text(input.file_path) || output;
+  if (workerTool) summary = text(input.command) || text(input.CommandLine) || text(input.file_path) || text(input.Path) || text(input.path) || text(input.toolSummary) || text((Array.isArray(input.questions) ? record(input.questions[0]).question : undefined)) || output;
   if (call.name === "delegate_worker") {
     if (input.action === "start") summary = text(input.label) || tr("委派");
     if (input.action === "send") summary = tr("追加要求");

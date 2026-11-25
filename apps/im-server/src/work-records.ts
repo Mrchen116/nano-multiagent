@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields, type WorkWorkerFields } from '@nano/product-contracts';
+import { cliWorkerRuntimes, decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields, type WorkWorkerFields } from '@nano/product-contracts';
 import { all, one, now, fail, transaction } from './context.js';
 import { agentAvailable } from './identity.js';
 import { updateWorkLifetimeUsage } from './work-lifetime-usage.js';
@@ -282,7 +282,7 @@ export class WorkRecords {
         else if (available || e.type === "session_linked") {
           const session = this.registeredSession(e.root_agent_id, e.session_id);
           if (session.scope === 'worker') {
-            if (session.node_id !== node || !['codex','claude'].includes(session.runtime ?? '') || !workerDetailEvents.has(e.type) || !e.turn_id)
+            if (session.node_id !== node || !(cliWorkerRuntimes as readonly string[]).includes(session.runtime ?? '') || !workerDetailEvents.has(e.type) || !e.turn_id)
               fail(403, 'scope_not_allowed');
             firstWorkerRecord = !session.has_work_records;
           }
