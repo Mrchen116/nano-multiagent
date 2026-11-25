@@ -12,6 +12,7 @@ export function AttachmentLink({
   className = "chat-attachment-name",
   wrapperClassName = "chat-attachment-link-wrap",
   title,
+  ariaLabel,
 }: {
   href: string;
   children: ReactNode;
@@ -19,6 +20,7 @@ export function AttachmentLink({
   className?: string;
   wrapperClassName?: string;
   title?: string;
+  ariaLabel?: string;
 }) {
   const { t } = useTranslation();
   const self = useAuthStore(s => s.accessToken ? s.user?.id : undefined);
@@ -31,7 +33,7 @@ export function AttachmentLink({
     window.addEventListener("im:conversation-invalidated", cancel);
     return () => { cancel(); window.removeEventListener("im:conversation-invalidated", cancel); };
   }, [self, href]);
-  if (!url) return <a className={className} href={href} target="_blank" rel="noreferrer" title={title}>{children}</a>;
+  if (!url) return <a className={className} href={href} target="_blank" rel="noreferrer" title={title} aria-label={ariaLabel}>{children}</a>;
   async function download() {
     if (!self || !url || busy) return;
     const controller = new AbortController(); request.current = controller;
@@ -51,7 +53,7 @@ export function AttachmentLink({
   }
   return (
     <span className={wrapperClassName} data-busy={busy ? "true" : undefined}>
-      <button type="button" className={className} disabled={!self || busy} title={title} onClick={() => void download()}>
+      <button type="button" className={className} disabled={!self || busy} title={title} aria-label={ariaLabel} onClick={() => void download()}>
         {children}
       </button>
       {failed && <span className="chat-attachment-link-error" role="alert">{t("chat.messagePane.attachmentNetwork")}</span>}

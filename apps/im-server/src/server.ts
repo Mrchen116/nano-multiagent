@@ -143,7 +143,7 @@ export async function createServer(options: ServerOptions = {}) {
     if (String(reply.getHeader("content-type")).startsWith("text/html") && !reply.getHeader("content-security-policy"))
       reply.header(
         "Content-Security-Policy",
-        `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' ${parsed.protocol === "https:" ? "wss" : "ws"}://${parsed.host}; object-src 'none'; base-uri 'self'; frame-ancestors ${viewerAsset ? "'self'" : "'none'"}; form-action 'self'`,
+        `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; frame-src 'self' blob:; connect-src 'self' ${parsed.protocol === "https:" ? "wss" : "ws"}://${parsed.host}; object-src 'none'; base-uri 'self'; frame-ancestors ${viewerAsset ? "'self'" : "'none'"}; form-action 'self'`,
       );
     if (
       reply.statusCode < 400 &&

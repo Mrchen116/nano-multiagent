@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
@@ -37,7 +37,8 @@ it('uses supported image signatures over clipboard declarations and rejects non-
 
 it('uploads and downloads general files with safe headers, MIME normalization, 0-byte rejection, and idempotent gateway routes', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'im-media-generic-'));
-  const app = await createServer({ dbPath: join(directory, 'im.db'), publicUrl: 'http://localhost', jwtSecret: 'isolated-media-test-secret' });
+  writeFileSync(join(directory, 'index.html'), '<!doctype html><html><body><div id="root"></div></body></html>');
+  const app = await createServer({ dbPath: join(directory, 'im.db'), publicUrl: 'http://localhost', jwtSecret: 'isolated-media-test-secret', frontendDistDir: directory });
   try {
     const owner = await app.im.identity.register('owner', 'password-123', 'Owner');
     const outsider = await app.im.identity.register('outsider', 'password-123', 'Outsider');
@@ -125,6 +126,11 @@ it('uploads and downloads general files with safe headers, MIME normalization, 0
     app.im.db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('private-other',?)").run(outsider.user.id);
     const nonMemberUpload = await app.inject({ method: 'POST', url: '/im/v1/conversations/private-other/attachments?agent_id=agent-a&lifecycle_revision=1&file=1&file_name=data.csv', payload: Buffer.from('k,v\n'), headers: { ...gwAuth, 'content-type': 'text/csv', 'idempotency-key': 'op-outsider:0' } });
     expect([403, 404]).toContain(nonMemberUpload.statusCode);
+
+    // SPA HTML shell permits blob: frames for in-page PDF preview while HTML attachments keep sandbox CSP.
+    const spaShell = await app.inject({ method: 'GET', url: '/' });
+    expect(spaShell.statusCode).toBe(200);
+    expect(String(spaShell.headers['content-security-policy'])).toContain("frame-src 'self' blob:");
   } finally {
     await app.close();
     rmSync(directory, { recursive: true, force: true });

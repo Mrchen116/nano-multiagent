@@ -8,8 +8,12 @@ import {
   FileText,
   FileVideo,
 } from "lucide-react";
+import { useState } from "react";
+import { useTranslation } from "../../../i18n";
 import { MessageImage } from "../components/message-image";
 import { AttachmentLink } from "./attachment-link";
+import { attachmentPreviewKind } from "./attachment-preview";
+import { AttachmentPreviewModal } from "./attachment-preview-modal";
 import type { Attachment } from "../chat-types";
 
 export interface AttachmentChipProps {
@@ -93,6 +97,9 @@ export function FileTypeBadge({ fileName, contentType }: { fileName: string; con
 }
 
 export function AttachmentChip({ attachment, onRemove, removeDisabled = false }: AttachmentChipProps) {
+  const { i18n } = useTranslation();
+  const zh = i18n.language.startsWith("zh");
+  const [previewOpen, setPreviewOpen] = useState(false);
   const name = attachment.file_name ?? attachment.url.split("/").pop() ?? "file";
   if (isRasterImageMime(attachment.content_type)) {
     return (
@@ -113,6 +120,49 @@ export function AttachmentChip({ attachment, onRemove, removeDisabled = false }:
     );
   }
   const { ext } = fileAttachmentMeta(name, attachment.content_type);
+  const previewKind = !onRemove ? attachmentPreviewKind(name, attachment.content_type) : null;
+
+  if (previewKind) {
+    return (
+      <div className="chat-attachment-chip chat-attachment-chip--doc chat-attachment-chip--previewable">
+        <button
+          type="button"
+          className="chat-attachment-card-action chat-attachment-card-action--preview"
+          title={name}
+          onClick={() => setPreviewOpen(true)}
+        >
+          <FileTypeBadge fileName={name} contentType={attachment.content_type} />
+          <span className="chat-attachment-file-meta">
+            <span className="chat-attachment-file-title">{name}</span>
+            <span className="chat-attachment-file-sub">
+              <span className="chat-attachment-file-ext">{ext}</span>
+              <span className="chat-attachment-file-dot" aria-hidden="true">·</span>
+              <span className="chat-attachment-file-preview-hint">{zh ? "预览" : "Preview"}</span>
+            </span>
+          </span>
+        </button>
+        <AttachmentLink
+          href={attachment.url}
+          fileName={name}
+          title={zh ? `下载 ${name}` : `Download ${name}`}
+          ariaLabel={zh ? `下载 ${name}` : `Download ${name}`}
+          className="chat-attachment-card-dl-btn"
+          wrapperClassName="chat-attachment-card-dl-wrap"
+        >
+          <Download size={14} strokeWidth={1.85} aria-hidden="true" />
+        </AttachmentLink>
+        <AttachmentPreviewModal
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          href={attachment.url}
+          fileName={name}
+          contentType={attachment.content_type}
+          kind={previewKind}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="chat-attachment-chip chat-attachment-chip--doc">
       <AttachmentLink
