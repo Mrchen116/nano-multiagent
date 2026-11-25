@@ -193,7 +193,10 @@ export class ReviewSession {
       agentOptions:{...plan.reviewer,...(effort?{reasoningEffort:effort}:{}),maxTokens:outputReserve},
       setup:(scope,agent)=>{
         setApprovalPolicy(agent.session,'never');
-        scope.tools.presentAs('native');scope.tools.restrict({allow:[]});
+        const desired={...plan.reviewer,...(effort?{reasoningEffort:effort}:{})};
+        const current=agent.model.current();
+        if(!current||current.provider!==desired.provider||current.model!==desired.model||current.reasoningEffort!==desired.reasoningEffort)agent.model.select(desired);
+        scope.tools.restrict({allow:[]});
         const tools=inspectionTools(this.ctx);
         for(const tool of tools)scope.tools.register(tool);
         const names=new Set(tools.map(tool=>tool.name));
@@ -203,15 +206,17 @@ export class ReviewSession {
           return decision.kind==='reject'?decision:{...decision,messages:decision.messages.filter(message=>message.id===reviewer.inputId)};
         },{prepend:true});
         scope.systemPrompt.section({name:'nano-guardian',order:0,text:system,complete:true,interpolate:false});
-        scope.on('system-prompt/assemble',async(_assembly,_context,next)=>({...await next(),contexts:[],tools:scope.tools.schemas(agent)}),{prepend:true});
+        scope.systemPrompt.suppressRuntimeContext();
+        scope.systemPrompt.context({name:'working-directory:current',order:100,text:'',interpolate:false});
+        scope.systemPrompt.context({name:'subagent:identity',order:120,text:'',interpolate:false});
+        scope.on('system-prompt/assemble',async(_assembly,_context,next)=>({...await next(),contexts:[]}),{prepend:true});
         scope.on('agent/request',async(_payload,next)=>{
           const run=reviewer.run!;run.signal.throwIfAborted();
           const history=agent.session.deriveMessages();
           const cost=tokenCost(JSON.stringify(history))+(reviewer.first&&!history.some(message=>message.id===reviewer.inputId)?tokenCost(reviewer.input):0)+overhead;
           if(agent.session.snapshotEvents().slice(reviewer.start).some(event=>event.type==='compaction/start')||cost>limit){run.cause='context_rebuild';throw new ContextRebuild('Reviewer request requires evidence rebuild');}
           reviewer.first=false;
-          const {reasoningEffort:_previous,...call}=await next();
-          return{...call,...plan.reviewer,...(effort?{reasoningEffort:effort}:{}),maxTokens:outputReserve};
+          return{...await next(),maxTokens:outputReserve};
         },{prepend:true});
         // This hook only constrains this logical review. DSH owns backoff and request attempts.
         scope.on('agent/request-error',async({failure},next)=>{

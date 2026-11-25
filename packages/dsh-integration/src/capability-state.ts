@@ -1,4 +1,5 @@
 import { effectiveFeatures, fixedTools, featureDependencies, validateCapabilities, type CapabilityBlock, type CapabilityCatalog, type CapabilityTarget } from '@nano/product-contracts/capabilities';
+import { cordisInspectTools } from './capabilities.js';
 import type { AgentConfiguration } from './index.js';
 
 /** Convert the runtime projection without inventing a second dependency graph. */
@@ -28,7 +29,8 @@ export class CapabilityState {
   /** Track every call, exempting independent worker tools only from root selection holds. */
   begin(key: string, agentId: string, target: CapabilityTarget, independentTool = false): boolean {
     const selectionHeld = !(independentTool && target.kind === 'tool') && this.held(agentId, target);
-    if (selectionHeld || target.kind === 'tool' && ['schedule_create', 'schedule_update', 'schedule_run'].includes(target.name) && this.held(agentId, {kind: 'feature', name: 'cron_scheduling'})) return false;
+    const pluginManagerHeld = !independentTool && target.kind === 'tool' && (cordisInspectTools as readonly string[]).includes(target.name) && this.held(agentId, {kind: 'tool', name: 'plugin_manager'});
+    if (selectionHeld || pluginManagerHeld || target.kind === 'tool' && ['schedule_create', 'schedule_update', 'schedule_run'].includes(target.name) && this.held(agentId, {kind: 'feature', name: 'cron_scheduling'})) return false;
     this.calls.set(key, {agentId, target, independentTool}); return true;
   }
   end(key: string): void { this.calls.delete(key); }
@@ -59,8 +61,9 @@ export class CapabilityState {
       const before = effectiveFeatures(previous.features), after = effectiveFeatures(config.features);
       for (const name of Object.keys(before)) if (before[name] && !after[name]) targets.push({kind: 'feature', name});
       const fixed = fixedTools(config.mode, config.personal ? 'personal' : 'root');
-      const beforeTools = new Set([...this.selection(previous, catalog.tools ?? []), ...fixed]);
-      const afterTools = new Set([...this.selection(config, catalog.tools ?? []), ...fixed]);
+      const inspectableTools = [...new Set([...(catalog.tools ?? []), ...cordisInspectTools])];
+      const beforeTools = new Set([...this.selection(previous, inspectableTools), ...fixed]);
+      const afterTools = new Set([...this.selection(config, inspectableTools), ...fixed]);
       for (const name of beforeTools) if (!afterTools.has(name)) targets.push({kind: 'tool', name});
       const skill = (value: AgentConfiguration, name: string) => value.skillSelection?.mode === 'explicit_allowlist' ? value.skillSelection.names.includes(name) : value.skillSelection?.mode !== 'explicit_denylist' || !value.skillSelection.names.includes(name);
       for (const name of catalog.skills ?? []) if (skill(previous, name) && !skill(config, name)) targets.push({kind: 'skill', name});

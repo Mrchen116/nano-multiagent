@@ -40,7 +40,7 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
     emit('content_block_start',{index:0,content_block:fork
       ? {type:'tool_use',id:'fork-'+requests.length,name:'subagent_fork',input:{}}
       : {type:'text',text:'PREFIX_ANSWER_'+requests.length}});
-    if(fork)emit('content_block_delta',{index:0,delta:{type:'input_json_delta',partial_json:JSON.stringify({prompt:'FORK_PREFIX_TASK: independently verify this conversation and return internally.',description:'Verify prefix',run_in_background:false})}});
+    if(fork)emit('content_block_delta',{index:0,delta:{type:'input_json_delta',partial_json:JSON.stringify({prompt:'FORK_PREFIX_TASK: independently verify this conversation and return internally.',description:'Verify prefix'})}});
     emit('content_block_stop',{index:0});
     emit('message_delta',{delta:{stop_reason:fork?'tool_use':'end_turn',stop_sequence:null},usage:{output_tokens:4}});
     emit('message_stop',{});res.end();
@@ -48,8 +48,8 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
   const binding={sessionId:'root',agentId:'a',ownerId:'owner',cwd:home,revision:'1'};
   const config={agentId:'a',displayName:'Prefix Agent',revision:'1',workspace:home,mode,provider:'wire',model:'fixture',
     executionNode:{id:'node-air',name:'Air'},
-    toolAllowlist:['subagent_fork','send_message','inbox','conversations','task_graph','personal_sources','schedule_run','schedule_history'],
-    features:{task_graph:true,intelligent_ui:true,dreaming:false,cron_scheduling:true},approval:{dangerouslySkipPermissions:true},
+    toolAllowlist:['subagent_fork','plugin_manager','memory_maintenance','send_message','inbox','conversations','task_graph','personal_sources','schedule_run','schedule_history'],
+    features:{task_graph:true,intelligent_ui:true,dreaming:true,cron_scheduling:true},approval:{dangerouslySkipPermissions:true},
     ...(personal?{personal:{bindingId:'binding',ownerId:'owner',conversationId:'dm',epoch:1}}:{}),
   };
   const start=async()=>{
@@ -63,18 +63,25 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
     const offset=requests.length;
     await client!.rpc.request('session.submit',{sessionId:'root',inputId:id,mode:'followup',content:[{type:'text',text:'PREFIX_COMMAND_'+id}],source:{kind:'human',actorId:'owner',channel:'test',messageId:id}});
     await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:id}) as any).terminal,{timeout:15000}).toBeTruthy();
+    await expect.poll(async()=>{
+      const round=requests.slice(offset);
+      const observed=await client!.rpc.request('session.observe',{sessionId:'root'}) as any;
+      return observed.status==='idle'&&round.some(r=>r.session!=='root')&&round.filter(r=>r.session==='root').length>=3;
+    },{timeout:15000}).toBe(true);
     const round=requests.slice(offset),root=round.filter(r=>r.session==='root'),child=round.find(r=>r.session!=='root');
     expect(root.length, `root requests after fork tool call for ${id}`).toBeGreaterThanOrEqual(2);
     const parent=root[0]!;
     expect(child,JSON.stringify({round,session:await client!.rpc.request('session.observe',{sessionId:'root'})})+logs).toBeDefined();
     expect(tools(child!.body)).toEqual(tools(parent.body));
+    expect(tools(child!.body).map((t:any)=>t.name)).toEqual(expect.arrayContaining(['cordis_inspect_list','cordis_inspect_query','memory_maintenance']));
     expect(system(child!.body)).toEqual(system(parent.body));
+    expect(JSON.stringify(child!.body.messages)).not.toContain('working directory changed');
     expect(JSON.stringify(child!.body)).toContain('FORK_PREFIX_TASK');
     return {parent:parent.body,child:child!.body};
   };
   try{
     await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
-    await writeFile(join(home,'fixture.mjs'),"export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.presentAs('native');});}");
+    await writeFile(join(home,'fixture.mjs'),"export function apply(){}");
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{wire:{api:'anthropic-messages',baseURL:`http://127.0.0.1:${(server.address() as any).port}`,apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture',contextWindow:200000}]}}}},{insert:[{id:'prefix-fixture',name:join(home,'fixture.mjs')}]}]);
     await start();
     const first=await submit('empty');

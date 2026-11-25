@@ -1,3 +1,4 @@
+import type {} from '@deepseek-ai/dsh-tool-executor-ptc/types';
 import { stripContextItemId } from 'dsh-agent-context';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ContentBlock } from '@deepseek-ai/dsh-llm';
@@ -45,6 +46,13 @@ const hostResults = ['inbox', 'conversations', 'read_messages', 'search_messages
 type HumanInput = {id:string;text:string;sender?:Record<string,unknown>;pa_agent_id?:string};
 const text = (blocks: readonly ContentBlock[]) => stripContextItemId(blocks).filter(block => block.type === 'text').map(block => block.text).join('\n');
 const safeJson = (value: unknown) => JSON.stringify(value).replace(/[<>\u2028\u2029\u0085]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+function nanoRuntimeRpcId(source: unknown): string | undefined {
+  if (!source || typeof source !== 'object') return undefined;
+  const candidate = source as { kind?: unknown; rpcId?: unknown };
+  return candidate.kind === 'user' && typeof candidate.rpcId === 'string' && candidate.rpcId.startsWith('nano-runtime-')
+    ? candidate.rpcId
+    : undefined;
+}
 
 /**
  * Project host message results once, at the same per-message granularity as user input.
@@ -151,7 +159,7 @@ export class ApprovalSources {
       });
     };
     const created = events.find(event => agent.session.isOwnSeq(event.seq) && event.type === 'subagent/descriptor');
-    const initial = created && events.find(event => event.seq > created.seq && event.type === 'user/message' && event.data.source.kind === 'user');
+    const initial = created && events.find(event => event.seq > created.seq && event.type === 'user/message' && event.data.source.kind === 'user' && !nanoRuntimeRpcId(event.data.source));
     const initialId = initial?.type === 'user/message' ? initial.data.id : undefined;
     const ptc = new Map<string, (typeof events)[number][]>();
     const messageSteps = new Map<string, string>();
@@ -199,17 +207,22 @@ export class ApprovalSources {
           continue;
         }
         if(source.kind==='nano-system'&&source.humanTaskControl)lines.push({user:safeJson(source.humanTaskControl),origin:{kind:'human-task-control'}});
-        const parent = agent.session.header.origin === 'subagent' && (message.id === initialId
+        const runtimeRpcId = nanoRuntimeRpcId(source);
+        const parent = !runtimeRpcId && agent.session.header.origin === 'subagent' && (message.id === initialId
           || source.kind === 'agent-message' && source.senderSessionId === agent.session.header.parentSession);
-        const human = !parent && isHumanSource(source);
+        const human = !parent && !runtimeRpcId && isHumanSource(source);
         const constraint = source.kind === 'user-approval';
         if (human && proposal) lines.push({ assistant: proposal });
         proposal = '';
-        const file = source.kind === 'schedule' ? 'scheduled_source' : source.kind === 'nano-system' ? 'system_source'
+        const file = source.kind === 'schedule' ? 'scheduled_source'
+          : (source.kind === 'nano-system' || source.kind === 'working-directory' || runtimeRpcId) ? 'system_source'
           : source.kind === 'agent-message' || ('form' in source && source.form === 'relay') ? 'agent_source'
           : source.kind === 'compact-checkpoint' || ('form' in source && source.form === 'recall') ? 'summary_source' : 'unclassified_source';
         const guidance = human || parent || constraint ? '' : await policyAsset(`cc-2.1.267-nano-v1/${file}.txt`);
-        lines.push({ user: `${guidance}${human ? source.directHumanText ?? text(message.content) : text(message.content)}`, origin: { kind: human ? 'human' : parent ? 'direct-parent' : source.kind,
+        const runtimeChannel = runtimeRpcId?.startsWith('nano-runtime-recovery:') ? 'runtime-recovery'
+          : runtimeRpcId?.startsWith('nano-runtime-schedule-change:') ? 'schedule-change' : 'runtime';
+        lines.push({ user: `${guidance}${human ? source.directHumanText ?? text(message.content) : text(message.content)}`, origin: { kind: human ? 'human' : parent ? 'direct-parent' : runtimeRpcId ? 'nano-system' : source.kind,
+          ...(runtimeRpcId ? { channel: runtimeChannel, messageId: runtimeRpcId } : {}),
           ...(human ? { actorId: source.actorId, channel: source.channel, messageId: source.messageId, ...(source.sender?{sender:source.sender}:{}), ...(source.pa_agent_id?{pa_agent_id:source.pa_agent_id}:{}) } : {}),
           ...(source.kind === 'agent-message' ? { senderSessionId: source.senderSessionId } : {}) } });
       }

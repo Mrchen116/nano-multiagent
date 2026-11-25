@@ -88,16 +88,24 @@ def _json_result(results: dict, call: str) -> dict:
     return json.loads(re.sub(r"\n\[id: \d+\]\s*$", "", _text(result["content"])))
 
 
+def _is_guardian(body: dict) -> bool:
+    return _text(body.get("system", [])).startswith(
+        "You are judging one planned coding-agent action."
+    ) or any(tool["name"].startswith("guardian_") for tool in body.get("tools", []))
+
+
 def _foreground(body: dict) -> bytes:
     texts = _user_texts(body)
-    current = next(
+    current_index = next(
         (
-            text
-            for text in reversed(texts)
-            if re.search(r"FOREGROUND_|CHILD_SUCCESS|CHILD_FAILURE|AFTER_FAILURE", text)
+            index
+            for index in range(len(texts) - 1, -1, -1)
+            if re.search(r"FOREGROUND_|CHILD_SUCCESS|CHILD_FAILURE|AFTER_FAILURE", texts[index])
         ),
-        "",
+        0,
     )
+    current = texts[current_index]
+    recent = "\n".join(texts[current_index:])
     if "CHILD_SUCCESS" in current:
         return _sse_text("CHILD-OUTPUT")
     if "CHILD_FAILURE" in current:
@@ -107,6 +115,7 @@ def _foreground(body: dict) -> bytes:
     results = _results(body)
     failure = "FOREGROUND_FAILURE" in current
     call = "spawn-failure" if failure else "spawn-success"
+    wait_call = "wait-failure" if failure else "wait-success"
     if call not in results:
         return _tool(
             call,
@@ -116,9 +125,15 @@ def _foreground(body: dict) -> bytes:
                 "description": "Controlled child failure"
                 if failure
                 else "Child output",
-                "run_in_background": False,
             },
         )
+    settled = (
+        "failed before it finished." in recent
+        if failure
+        else "CHILD-OUTPUT" in recent
+    )
+    if not settled and wait_call not in results:
+        return _tool(wait_call, "wait_agent", {})
     return _sse_text("FAILURE-OBSERVED" if failure else "CHILD-OUTPUT-RECEIVED")
 
 
@@ -139,7 +154,7 @@ def _global(body: dict) -> bytes:
             "child-report",
             "send_message",
             {
-                "agent_id": parent[1],
+                "agent": parent[1],
                 "message": "CHILD-REVISED " + revision[1],
             },
         )
@@ -154,11 +169,11 @@ def _global(body: dict) -> bytes:
     if "spawn-global" not in results:
         return _tool(
             "spawn-global",
-            "subagent",
+            "delegate_worker",
             {
-                "prompt": "J2_CHILD_INITIAL",
-                "description": "Await same-child revision",
-                "run_in_background": True,
+                "action": "start",
+                "message": "J2_CHILD_INITIAL",
+                "label": "Await same-child revision",
             },
         )
     if joined.count("New messages are waiting in your Inbox.") < 2:
@@ -173,16 +188,14 @@ def _global(body: dict) -> bytes:
     if not revision:
         raise ValueError("main request lost amended Inbox body")
     if "follow-child" not in results:
-        child = re.search(
-            r"started subagent ([^\s]+)", _text(results["spawn-global"]["content"])
-        )
-        if not child:
-            raise ValueError("subagent result did not expose its real child ID")
+        child_id = _json_result(results, "spawn-global").get("worker_id")
+        if not child_id:
+            raise ValueError("delegate_worker result did not expose its worker_id")
         return _tool(
             "follow-child",
             "send_message",
             {
-                "agent_id": child[1],
+                "agent_id": child_id,
                 "message": "J2_CHILD_REVISION " + revision[0],
             },
         )
@@ -217,7 +230,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             with open(self.record_path, "a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
         try:
-            if not body.get("tools"):
+            if _is_guardian(body):
+                response = _sse_text('{"outcome":"allow"}')
+            elif not body.get("tools"):
                 response = _sse_text("<block>no</block>")
             else:
                 response = _global(body) if self.mode == "global" else _foreground(body)

@@ -5,9 +5,10 @@ import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import { SessionId, SessionSeq, snapshotSessionEvent } from '@deepseek-ai/dsh-session';
-import { snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent';
+import { SUBAGENT_DESCRIPTOR_VERSION, type OneShotSubagentDescriptorData } from '@deepseek-ai/dsh-subagent';
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm';
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
+import { assembleAgentPrompt } from '../prompt-assembly.js';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import type { DocumentMemory } from './document-memory.js';
 import { MemorySources, commitSourceRange, selectChildMaterial, renderSessionMaterials, type ChildMaterial, type CycleTarget, type FrozenBatch } from './memory-sources.js';
@@ -218,7 +219,7 @@ export class Dreaming {
         await this.saveRun(run);
         const current=run;
         const currentConfig=this.options.configOf(parent)??config;
-        const parentPrompt=await parent.ctx.systemPrompt.assemble({scope:parent,signal:work.controller.signal});
+        const parentPrompt=await assembleAgentPrompt(this.ctx,parent,work.controller.signal);
         const systemRole=renderPrompt({...parentPrompt,sections:parentPrompt.sections.filter(section=>
           ['nano-product-identity','nano-global-mode','nano-communication','nano-personal-agent'].includes(section.name))});
         const role=await this.readRole?.(currentConfig);
@@ -483,7 +484,7 @@ export class Dreaming {
     if (!events.some(event => event.type === 'subagent/descriptor')) {
       // Append model-hidden metadata at today's time; retain every original event and sequence.
       const descriptor = snapshotSessionEvent({ type: 'subagent/descriptor', seq: SessionSeq(events.length), time: this.now(),
-        data: snapshotSubagentDescriptor({ mode: 'one-shot', provider: 'native', label: dreamingStageTitles[run.stage] ?? 'Dreaming · 自动整理记忆' }) });
+        data: { version: SUBAGENT_DESCRIPTOR_VERSION, mode: 'one-shot', provider: 'native', label: dreamingStageTitles[run.stage] ?? 'Dreaming · 自动整理记忆' } satisfies OneShotSubagentDescriptorData });
       await handle.append([descriptor]); await handle.flush();
     }
     run.identityRecorded = true; await this.saveRun(run);

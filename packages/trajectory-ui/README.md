@@ -1,7 +1,7 @@
 # Nano trajectory UI
 
 `@nano/trajectory-ui` is the Nano-maintained source fork of
-`@deepseek-ai/dsh-client-ui-trajectory@0.2.1-alpha.1`. It preserves the upstream
+`@deepseek-ai/dsh-client-ui-trajectory@0.2.2-rc.5`. It preserves the upstream
 trajectory table, timeline, inspector, styles and event projection code.
 
 The initial import copies all 39 source files without modification from upstream

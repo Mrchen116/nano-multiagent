@@ -41,7 +41,7 @@ export function apply(ctx){
       if(id==='launch-child'&&!o.messages.some(m=>m.role==='tool'&&m.toolCallId==='delegate'))call=['delegate_worker',{action:'start',message:${JSON.stringify(delegated)},label:'Compare refundable hotel options'},'delegate'];
       if(id==='maintain'&&!o.messages.some(m=>m.role==='tool'&&m.toolCallId==='maintain'))call=['memory_maintenance',{action:'run',request_ref:'maintain'},'maintain'];
     }else if(n===0)call=['read',{file_path:process.env.DSH_HOME+'/hotel-options.md'},'read-options'];
-    else if(n===1)call=['send_message',{agent_id:'root',message:'Option A fits the relayed budget and refund requirement; Option B does not. No booking was made.'},'report-options'];
+    else if(n===1)call=['send_message',{agent:'lead',message:'Option A fits the relayed budget and refund requirement; Option B does not. No booking was made.'},'report-options'];
     else {await writeFile(process.env.DSH_HOME+'/child-reported','done'); output='Option A fits the relayed budget and refund requirement; Option B does not. No booking was made.';}
     if(call){yield{type:'block-end',index:0,block:{type:'tool-call',id:call[2],name:call[0],arguments:JSON.stringify(call[1])}};yield{type:'finish',reason:{kind:'tool-calls'}};}
     else{yield{type:'block-end',index:0,block:{type:'text',text:output}};yield{type:'finish',reason:{kind:'stop'}};}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
-  AssistantBlock, AssistantMessageNode, ConvViewProps, MessageImageLoader, RenderMessageImages,
+  AssistantBlock, AssistantMessageNode, ConvViewProps, MessageImageLoader,
   ToolCallBlock,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { InjectFace, PropsLocale, PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
@@ -13,6 +13,7 @@ import {
   type TrajectoryRequestNumber,
   type TrajectoryUsage,
 } from './TrajectoryTable.tsx'
+import type { WatchToolResult } from './watch-tool-result.ts'
 import { TrajectoryToolbar } from './TrajectoryToolbar.tsx'
 import { TrajectoryTimeline } from './TrajectoryTimeline.tsx'
 import {
@@ -86,6 +87,7 @@ export interface TrajectoryViewInjected {
   loadOlder: () => Promise<boolean>
   loadImage: MessageImageLoader
   setActualDuration: (actualDuration: boolean) => void
+  watchToolResult?: WatchToolResult
 }
 
 interface UsageLike {
@@ -133,19 +135,16 @@ function addUsage(
 }
 
 export function TrajectoryView({
-  useSession, useTrajectory, useDuration, loadOlder, loadImage, setActualDuration,
+  useSession, useTrajectory, useDuration, watchToolResult, loadOlder, loadImage, setActualDuration,
   viewRequest, completeViewRequest, renderSlot, t, jsonStringWrapping, navigation, sessionId,
 }: ConvViewProps
-  & PropsRenderSlots<'conversation.trajectory.images'>
+  & Pick<PropsRenderSlots<'conversation.trajectory.images'>, 'renderSlot'>
   & InjectFace<TrajectoryViewInjected>
   & PropsLocale<'trajectory'>) {
   const [collapsedTurns, setCollapsedTurns] = useState<ReadonlySet<number>>(EMPTY_TURN_IDS)
-  const renderImages = useCallback<RenderMessageImages>(
-    owner => renderSlot('conversation.trajectory.images', { ...owner, loadImage }),
-    [loadImage, renderSlot],
-  )
   const [collapsedAssistants, setCollapsedAssistants] =
     useState<ReadonlySet<string>>(EMPTY_RECORD_IDS)
+  const [collapsedTools, setCollapsedTools] = useState<ReadonlySet<string>>(EMPTY_RECORD_IDS)
   const [timelineSelection, setTimelineSelection] = useState<TrajectoryTimeRange | null>(null)
   const actualDuration = useDuration(value => value)
   const [actualTime, setActualTime] = useState(false)
@@ -198,7 +197,7 @@ export function TrajectoryView({
   const olderHistoryLoading = useSession(snapshot => snapshot.loadingOlder)
   const sessionHasOlderHistory = useSession(snapshot => snapshot.hasMore)
   const hasResidentOlderHistory = historyStartIndex > 0
-  const hasOlderHistory = (hasResidentOlderHistory || sessionHasOlderHistory)
+  const hasOlderHistory = hasResidentOlderHistory || sessionHasOlderHistory
 
   const nodes = inspection.eventNodes
   const eventLocations = inspection.eventLocations
@@ -264,18 +263,21 @@ export function TrajectoryView({
         const provider = request?.providerMetadata?.provider ?? node?.providerMetadata?.provider
         const model = request?.providerMetadata?.model ?? node?.providerMetadata?.model
         const requestConfig = request?.requestConfig ?? node?.requestConfig
+        const startedAt = request?.startedAt
+        const completedAt = request === undefined ? node?.time : request.completedAt
+        const resultSeq = request?.resultSeq ?? node?.seq
         numbered.push({
           seq: entry.seq,
           turn,
           step,
           group: t('group.step', { step }),
           number: index + 1,
-          ...(request?.status === undefined ? {} : { status: request.status }),
-          ...(request?.startedAt === undefined ? {} : { startedAt: request.startedAt }),
-          ...(request?.completedAt === undefined ? {} : { completedAt: request.completedAt }),
+          status: request?.status ?? (node?.interrupted === true ? 'error' : 'complete'),
+          ...(startedAt === undefined ? {} : { startedAt }),
+          ...(completedAt === undefined ? {} : { completedAt }),
           ...(request?.error === undefined ? {} : { error: request.error }),
           ...(request?.errorCode === undefined ? {} : { errorCode: request.errorCode }),
-          ...(request?.resultSeq === undefined ? {} : { resultSeq: request.resultSeq }),
+          ...(resultSeq === undefined ? {} : { resultSeq }),
           ...(request?.retry === undefined ? {} : { retry: request.retry }),
           ...(request?.maxRetries === undefined ? {} : { maxRetries: request.maxRetries }),
           ...(request?.retryDelayMs === undefined
@@ -302,7 +304,7 @@ export function TrajectoryView({
         completedAt: request.completedAt,
         ...(request.error === undefined ? {} : { error: request.error }),
         ...(request.errorCode === undefined ? {} : { errorCode: request.errorCode }),
-        resultSeq: request.startSeq,
+        ...(request.status === 'running' ? {} : { resultSeq: request.startSeq }),
         ...(request.providerMetadata?.provider === undefined
           ? {}
           : { provider: request.providerMetadata.provider }),
@@ -340,14 +342,17 @@ export function TrajectoryView({
     runningCalls, requests, inspection, callSchemas, t, runs, sessionId,
   ])
   const timelinePartialSignature = partialStructureSignature(partial)
+  const partialStartTime = partial?.timing?.stepStartTime
+  const partialFirstTokenTime = partial?.timing?.firstTokenTime
   const timelinePartial = useMemo<TrajectorySnapshot['partial']>(() => partial === null
     ? null
     : {
       turn: partial.turn,
       step: partial.step,
       blocks: partial.blocks.map(block => timelineBlock(block)),
+      ...(partial.timing === undefined ? {} : { timing: partial.timing }),
     },
-  [partialStep, partialTurn, timelinePartialSignature])
+  [partialStep, partialTurn, timelinePartialSignature, partialStartTime, partialFirstTokenTime])
   const timelineTurns = useMemo(
     () => coordinateLayout(appendTrajectoryPartialLayout(finalized.turns, timelinePartial, finalized.lastIndex, t), inspection),
     [finalized, timelinePartial, t, inspection],
@@ -471,6 +476,14 @@ export function TrajectoryView({
   }, [timelineTurns])
   const allAssistantsCollapsed = collapsibleAssistantIds.length > 0
     && collapsibleAssistantIds.every(index => collapsedAssistants.has(index))
+  const collapsibleToolIds = useMemo(() => timelineTurns.flatMap(turn =>
+    turn.groups.flatMap(group => group.cells.flatMap((cell, index) =>
+      cell.kind === 'tool' && group.cells[index + 1]?.kind === 'subtool'
+        ? [trajectoryRecordId(cell)]
+        : []))),
+  [timelineTurns])
+  const allSubCallsCollapsed = collapsibleToolIds.length > 0
+    && collapsibleToolIds.every(id => collapsedTools.has(id))
 
   const toggleTurn = (turn: number) => {
     setCollapsedTurns((current) => {
@@ -514,6 +527,27 @@ export function TrajectoryView({
     })
   }
 
+  const toggleTool = (id: string) => {
+    setCollapsedTools((current) => {
+      const collapsed = new Set(current)
+      if (collapsed.has(id)) collapsed.delete(id)
+      else collapsed.add(id)
+      return collapsed
+    })
+  }
+
+  const toggleAllSubCalls = () => {
+    setCollapsedTools((current) => {
+      const collapsed = new Set(current)
+      if (allSubCallsCollapsed) {
+        for (const id of collapsibleToolIds) collapsed.delete(id)
+      } else {
+        for (const id of collapsibleToolIds) collapsed.add(id)
+      }
+      return collapsed
+    })
+  }
+
   const loadEarlierHistory = useCallback(async () => {
     if (!hasResidentOlderHistory && !await loadOlder()) return false
     setHistoryNodeLimit(limit => limit + HISTORY_PAGE_NODES)
@@ -524,8 +558,13 @@ export function TrajectoryView({
     const indexes = [...(execution.indexes ?? [])]
     const index = end ? indexes.at(-1) : indexes[0]
     if (index === undefined) return
-    setSearchQuery(''); setCollapsedTurns(EMPTY_TURN_IDS); setCollapsedAssistants(EMPTY_RECORD_IDS)
-    setAutoFocus(true); setTimelineRecordSelection({index}); setSelectedTimelineIndex(index)
+    setSearchQuery('')
+    setCollapsedTurns(EMPTY_TURN_IDS)
+    setCollapsedAssistants(EMPTY_RECORD_IDS)
+    setCollapsedTools(EMPTY_RECORD_IDS)
+    setAutoFocus(true)
+    setTimelineRecordSelection({ index })
+    setSelectedTimelineIndex(index)
   }
   return (
     <div className={css.root} data-conversation-composer-overlay="">
@@ -535,7 +574,7 @@ export function TrajectoryView({
           {run && <><div className={css.scopeActions}><span>本次范围　#{run.startSeq ?? '未知'} → {run.endSeq === undefined ? '终点未知' : `#${run.endSeq}`}</span>
             <button disabled={navigationState.blocked || !execution.indexes?.size} onClick={() => locate(false)}>定位起点</button>
             <button disabled={navigationState.blocked || run.endSeq === undefined || !execution.indexes?.size} onClick={() => locate(true)}>定位终点</button>
-            {!autoFocus && <button onClick={() => {setAutoFocus(true);setTimelineSelection(null)}}>聚焦本次范围</button>}
+            {!autoFocus && <button onClick={() => { setAutoFocus(true); setTimelineSelection(null) }}>聚焦本次范围</button>}
           </div>{run.endSeq === undefined && <small>{run.state === 'running' ? '仍在运行；' : '结束边界未知；'}开放尾端仅表示最后已知记录 #{navigation.lastSeq() ?? '未知'}。</small>}</>}
           {navigation.initialRunId && !navigationState.metadataReady && <span role="status">正在核对本次执行关系…</span>}
         </div>}
@@ -545,78 +584,84 @@ export function TrajectoryView({
         {navigationState.blocked && <div className={css.notice} role="status">正在读取完整会话轨迹…</div>}
       </>}
       {!navigationState.blocked && <>
-      <TrajectoryToolbar
-        actualDuration={actualDuration}
-        onActualDurationChange={(nextActualDuration) => {
-          setActualDuration(nextActualDuration)
-          setTimelineSelection(null)
-        }}
-        actualTime={actualTime}
-        onActualTimeChange={(nextActualTime) => {
-          setActualTime(nextActualTime)
-          setTimelineSelection(null)
-        }}
-        allTurnsCollapsed={allTurnsCollapsed}
-        onToggleAllTurns={toggleAllTurns}
-        allAssistantsCollapsed={allAssistantsCollapsed}
-        onToggleAllAssistants={toggleAllAssistants}
-        searchQuery={searchQuery}
-        onSearchQueryChange={setSearchQuery}
-        t={t}
-      />
-      <TrajectoryTimeline
-        t={t}
-        turns={timelineTurns}
-        mode={timelineMode}
-        range={timelineRange}
-        focusIndexes={autoFocus ? execution.indexes : null}
-        openEnd={autoFocus && Boolean(run && run.endSeq === undefined)}
-        hasEarlierRecords={hasOlderHistory}
-        onLoadEarlier={loadEarlierHistory}
-        selectedIndex={selectedTimelineIndex}
-        searchMatchIndexes={searchMatchIndexes}
-        onRangeChange={handleTimelineRangeChange}
-        onRecordSelect={handleTimelineRecordSelect}
-        onRecordFocus={handleTimelineRecordFocus}
-      />
-      <div className={css.ledger}>
-        <TrajectoryTable
-          t={t}
-          stringWrapping={jsonStringWrapping === undefined ? undefined : {
-            ...jsonStringWrapping,
-            label: t('record.wrapLines'),
+        <TrajectoryToolbar
+          actualDuration={actualDuration}
+          onActualDurationChange={(nextActualDuration) => {
+            setActualDuration(nextActualDuration)
+            setTimelineSelection(null)
           }}
-          renderImages={renderImages}
-          requestNumbers={requestNumbers}
-          renderRecordActions={navigation ? cell => {
-            const launches = cell.launchRuns ?? runs.filter(item => item.parentSessionId === sessionId && item.callId && item.callId === cell.callId)
-            return launches.map(item => <div key={item.runId} className={css.launch} onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
-              <span>{!cell.recordId?.startsWith('run:') && <><strong>{runTitle(item)}</strong> · </>}{item.provider === 'fork' ? 'fork' : '普通'} · {item.kind === 'memory' || item.kind === 'skills' ? '后台维护' : item.delegation === 'background' ? '后台执行' : item.delegation === 'foreground' ? '前台执行' : '运行方式未知'} · {navigationState.error ? '上次：' : ''}{stateText[item.state]}{item.launchSeq === undefined ? ' · 发起位置未知' : ''}</span>
-              <button onClick={() => navigation.navigate(item)}>查看本次执行 ↗</button>
-            </div>)
-          } : undefined}
-          turns={timelineTurns}
-          streamingCells={streamingCells}
-          timelineFocusIndexes={timelineFocusIndexes}
-          searchMatchIndexes={searchMatchIndexes}
-          onSelectedIndexChange={setSelectedTimelineIndex}
-          onRecordSelect={handleRecordSelect}
-          recordSelection={timelineRecordSelection}
-          recordFocus={timelineRecordFocus}
-          historyLoading={historyLoading}
-          olderHistoryLoading={olderHistoryLoading}
-          historyStartSeq={historyBaseSeq}
-          hasOlderRecords={hasOlderHistory}
-          onLoadOlder={loadEarlierHistory}
-          onClearSelection={() => { setAutoFocus(false); setTimelineSelection(null) }}
-          collapsedTurns={collapsedTurns}
-          onToggleTurn={toggleTurn}
-          collapsedAssistants={collapsedAssistants}
-          onToggleAssistant={toggleAssistant}
-          inspectCallId={inspectCallId}
-          onInspectApplied={completeViewRequest}
+          actualTime={actualTime}
+          onActualTimeChange={(nextActualTime) => {
+            setActualTime(nextActualTime)
+            setTimelineSelection(null)
+          }}
+          allTurnsCollapsed={allTurnsCollapsed}
+          onToggleAllTurns={toggleAllTurns}
+          allAssistantsCollapsed={allAssistantsCollapsed}
+          onToggleAllAssistants={toggleAllAssistants}
+          allSubCallsCollapsed={allSubCallsCollapsed}
+          onToggleAllSubCalls={toggleAllSubCalls}
+          searchQuery={searchQuery}
+          onSearchQueryChange={setSearchQuery}
+          t={t}
         />
-      </div>
+        <TrajectoryTimeline
+          t={t}
+          turns={timelineTurns}
+          mode={timelineMode}
+          range={timelineRange}
+          focusIndexes={autoFocus ? execution.indexes : null}
+          openEnd={autoFocus && Boolean(run && run.endSeq === undefined)}
+          hasEarlierRecords={hasOlderHistory}
+          onLoadEarlier={loadEarlierHistory}
+          selectedIndex={selectedTimelineIndex}
+          searchMatchIndexes={searchMatchIndexes}
+          onRangeChange={handleTimelineRangeChange}
+          onRecordSelect={handleTimelineRecordSelect}
+          onRecordFocus={handleTimelineRecordFocus}
+        />
+        <div className={css.ledger}>
+          <TrajectoryTable
+            t={t}
+            watchToolResult={watchToolResult}
+            stringWrapping={jsonStringWrapping === undefined ? undefined : {
+              ...jsonStringWrapping,
+              label: t('record.wrapLines'),
+            }}
+            renderSlot={renderSlot}
+            loadImage={loadImage}
+            requestNumbers={requestNumbers}
+            renderRecordActions={navigation ? cell => {
+              const launches = cell.launchRuns ?? runs.filter(item => item.parentSessionId === sessionId && item.callId && item.callId === cell.callId)
+              return launches.map(item => <div key={item.runId} className={css.launch} onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}>
+                <span>{!cell.recordId?.startsWith('run:') && <><strong>{runTitle(item)}</strong> · </>}{item.provider === 'fork' ? 'fork' : '普通'} · {item.kind === 'memory' || item.kind === 'skills' ? '后台维护' : item.delegation === 'background' ? '后台执行' : item.delegation === 'foreground' ? '前台执行' : '运行方式未知'} · {navigationState.error ? '上次：' : ''}{stateText[item.state]}{item.launchSeq === undefined ? ' · 发起位置未知' : ''}</span>
+                <button onClick={() => navigation.navigate(item)}>查看本次执行 ↗</button>
+              </div>)
+            } : undefined}
+            turns={timelineTurns}
+            streamingCells={streamingCells}
+            timelineFocusIndexes={timelineFocusIndexes}
+            searchMatchIndexes={searchMatchIndexes}
+            onSelectedIndexChange={setSelectedTimelineIndex}
+            onRecordSelect={handleRecordSelect}
+            recordSelection={timelineRecordSelection}
+            recordFocus={timelineRecordFocus}
+            historyLoading={historyLoading}
+            olderHistoryLoading={olderHistoryLoading}
+            historyStartSeq={historyBaseSeq}
+            hasOlderRecords={hasOlderHistory}
+            onLoadOlder={loadEarlierHistory}
+            onClearSelection={() => { setAutoFocus(false); setTimelineSelection(null) }}
+            collapsedTurns={collapsedTurns}
+            onToggleTurn={toggleTurn}
+            collapsedAssistants={collapsedAssistants}
+            onToggleAssistant={toggleAssistant}
+            collapsedTools={collapsedTools}
+            onToggleTool={toggleTool}
+            inspectCallId={inspectCallId}
+            onInspectApplied={completeViewRequest}
+          />
+        </div>
       </>}
     </div>
   )

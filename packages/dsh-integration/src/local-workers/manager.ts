@@ -276,16 +276,15 @@ export class LocalWorkers {
       await this.change(row, {});
       try {
         if (runtime === 'dsh') {
-          await this.ctx.subagents.startContinuable({
+          await this.ctx.subagents.startActivation({
             provider: 'spawn',
             childId: SessionId(workerId),
             label,
+            delivery: 'parent',
             signal: exec.signal,
-            request: {
-              parent: root,
-              prompt: [{ type: 'text', text }],
-              maxDepth: this.ctx.subagents.resolveMaxDepth(),
-            },
+            parent: root,
+            prompt: [{ type: 'text', text }],
+            maxDepth: this.ctx.subagents.resolveMaxDepth(),
           });
         } else {
           const cli = await this.activate(root, row);
@@ -394,7 +393,7 @@ export class LocalWorkers {
         }
         if (!['running', 'starting'].includes(row.state)) return { workerId: id, state: row.state };
         this.ctx.subagents.interrupt(SessionId(id), { kind: 'ancestor', agent: root });
-        await this.ctx.subagents.drainContinuableChildren(root, [SessionId(id)]);
+        await this.ctx.agents.get(SessionId(id))?.whenIdle();
         return { workerId: id, state: (await this.change(row, { state: 'interrupted' })).state };
       }
       if (action === 'stop') {

@@ -24,7 +24,7 @@ it.each([{mode:'global',personal:false},{mode:'global',personal:true},{mode:'sin
   try {
     await writeFile(join(home, 'fixture.mjs'), `import {appendFile} from 'node:fs/promises';
 export const name='global-child-tools-fixture';export const inject=['llm','agents','tools'];
-export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.presentAs('native');});const seen=new Set();
+export function apply(ctx){const seen=new Set();
 ctx.on('llm/stream',async function*(o){
  const agent=ctx.agents.get(o.sessionId);if(!agent)throw Error('Expected actual Agent model request');
  await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({id:agent.id,parent:agent.session.header.parentSession,fork:agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data.provider==='fork',tools:o.tools,schemas:ctx.tools.schemas(agent),system:o.messages.filter(m=>m.role==='system'||m.role==='developer')})+'\\n');
@@ -32,10 +32,11 @@ ctx.on('llm/stream',async function*(o){
  const key=agent.id+':'+(user?.id??'child');const fresh=!seen.has(key);seen.add(key);
  const text=user?.content.find(b=>b.type==='text')?.text??'';
  let calls=[];
- if(fresh&&agent.id==='root')calls=text.startsWith('resume:')?[['send_message',{agent_id:text.slice(7),message:'Resume original work'}]]:[${JSON.stringify(mode==='global'
+ if(fresh&&agent.id==='root')calls=text.startsWith('resume:')?[['send_message',{agent:text.slice(7),message:'Resume original work'}]]:[${JSON.stringify(mode==='global'
    ? ['delegate_worker',{action:'start',label:'Continuable work',message:'Prepare findings'}]
-   : ['subagent',{prompt:'Prepare findings',description:'Continuable work',run_in_background:true}])},['subagent_fork',{prompt:'Check findings independently',description:'Fork work',run_in_background:false}]];
- if(fresh&&agent.id!=='root'&&agent.session.snapshotEvents().find(e=>e.type==='subagent/descriptor')?.data.mode==='continuable'){calls=[['send_message',{agent_id:agent.session.header.parentSession,message:'Findings ready for the parent to deliver'}]];if(agent.session.header.parentSession==='root')calls.push(['subagent',{prompt:'Verify one independent fact',description:'Second level',run_in_background:true}]);}
+   : ['subagent',{prompt:'Prepare findings',description:'Continuable work'}])},['subagent_fork',{prompt:'Check findings independently',description:'Fork work'}]];
+ const desc=agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data;
+ if(fresh&&agent.id!=='root'&&desc?.mode==='continuable'&&desc?.provider!=='fork'){calls=[['send_message',{agent:agent.session.header.parentSession,message:'Findings ready for the parent to deliver'}]];if(agent.session.header.parentSession==='root')calls.push(['subagent',{prompt:'Verify one independent fact',description:'Second level'}]);}
  if(calls.length){for(const[index,[name,args]]of calls.entries())yield{type:'block-end',index,block:{type:'tool-call',id:key+'-'+index,name,arguments:JSON.stringify(args)}};yield{type:'usage',usage:{inputTokens:5,outputTokens:2,totalTokens:7}};yield{type:'finish',reason:{kind:'tool-calls'}};return;}
  yield{type:'block-end',index:0,block:{type:'text',text:'Finished internal work'}};yield{type:'usage',usage:{inputTokens:8,outputTokens:3,totalTokens:11}};yield{type:'finish',reason:{kind:'stop'}};
 });}`);
@@ -88,7 +89,7 @@ ctx.on('llm/stream',async function*(o){
       expect(JSON.stringify(row.system)).not.toContain('In Global mode this requires send_message; private prose is not delivery.');
       expect(names).not.toContain('inbox'); expect(names).not.toContain('conversations'); expect(names).not.toContain('download_attachment'); expect(names).not.toContain('read_messages'); expect(names).not.toContain('search_messages'); expect(names).not.toContain('threads'); expect(names).not.toContain('send_user_message');expect(names).not.toContain('agent_creation');
       const send = row.schemas.find((tool: any) => tool.name === 'send_message');
-      expect(send.parameters.properties).toHaveProperty('agent_id'); expect(send.parameters.properties).not.toHaveProperty('target');
+      expect(send.parameters.properties).toHaveProperty('agent'); expect(send.parameters.properties).not.toHaveProperty('target');
       expect(JSON.stringify(row.tools)).not.toContain('"name":"inbox"');
       expect(JSON.stringify(row.tools)).not.toContain('"name":"conversations"');
       expect(JSON.stringify(row.tools)).not.toContain('"name":"read_messages"');
@@ -145,13 +146,13 @@ it.each([false,true])('gives Global workers native work tools and native nested 
     let calls:any[]=[];
     const resume=body.messages.map((m:any)=>JSON.stringify(m)).findLast((m:string)=>m.includes('resume:'))?.match(/resume:([a-z0-9-]+):([a-z-]+)/);
     const continuation=body.messages.map((m:any)=>JSON.stringify(m)).findLast((m:string)=>m.includes('continue-worker:'))?.match(/continue-worker:([a-z-]+)/);
-    if(id==='root'&&resume&&!resumed.has(resume[2]!)){resumed.add(resume[2]!);calls=[['send_message',{agent_id:resume[1],message:'continue-worker:'+resume[2]}]];}
+    if(id==='root'&&resume&&!resumed.has(resume[2]!)){resumed.add(resume[2]!);calls=[['send_message',{agent:resume[1],message:'continue-worker:'+resume[2]}]];}
     else if(fresh&&meta.depth===0)calls=[['delegate_worker',{action:'start',message:'WHOLE_ASSIGNMENT_SENTINEL: prepare a complete finding',label:'whole task'}]];
-    if(fresh&&meta.depth===1)calls=[['read',{file_path:join(home,'AGENTS.md')}],['subagent',{prompt:'CHILD_ASSIGNMENT_SENTINEL: check one fact',description:'one fact',run_in_background:true}],['subagent_fork',{prompt:'Check this delegated fact',description:'fork fact',run_in_background:false}]];
+    if(fresh&&meta.depth===1)calls=[['read',{file_path:join(home,'AGENTS.md')}],['subagent',{prompt:'CHILD_ASSIGNMENT_SENTINEL: check one fact',description:'one fact'}],['subagent_fork',{prompt:'Check this delegated fact',description:'fork fact'}]];
     // The second-level continuation is steered only by its original direct parent.
     if(meta.depth===1&&continuation&&!resumed.has('worker-'+continuation[1])){resumed.add('worker-'+continuation[1]);
       const nested=(await metadata()).find(row=>row.depth===2&&!row.fork);
-      calls=[['send_message',{agent_id:nested.id,message:'Recheck the same delegated fact'}]];
+      calls=[['send_message',{agent:nested.id,message:'Recheck the same delegated fact'}]];
     }
     const blocks=calls.length?calls.map(([name,input],index)=>({type:'tool_use',id:id+'-'+wire.length+'-'+index,name,input})):[{type:'text',text:'Done'}];
     res.writeHead(200,{'content-type':'text/event-stream'});
@@ -180,7 +181,7 @@ it.each([false,true])('gives Global workers native work tools and native nested 
     }
     await writeFile(join(home,'fixture.mjs'),`import {appendFile} from 'node:fs/promises';
 export const name='work-defaults';export const inject=['tools','agents','llm'];
-export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.presentAs('native');});ctx.on('llm/stream',async function*(o,next){const agent=ctx.agents.get(o.sessionId);await appendFile(process.env.DSH_HOME+'/agents.jsonl',JSON.stringify({id:agent.id,depth:agent.session.header.delegationDepth??0,fork:agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data.provider==='fork'})+'\\n');yield*next();});}`);
+export function apply(ctx){ctx.on('llm/stream',async function*(o,next){const agent=ctx.agents.get(o.sessionId);await appendFile(process.env.DSH_HOME+'/agents.jsonl',JSON.stringify({id:agent.id,depth:agent.session.header.delegationDepth??0,fork:agent.session.snapshotEvents().findLast(e=>agent.session.isOwnSeq(e.seq)&&e.type==='subagent/descriptor')?.data.provider==='fork'})+'\\n');yield*next();});}`);
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'anthropic-messages',baseURL:`http://127.0.0.1:${(server.address() as any).port}`,apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture',contextWindow:200000},{id:'replacement',contextWindow:200000}],retryPolicy:{mode:'normal',maxRetries:0}}}}},{insert:[childProbe,{id:'work-defaults',name:join(home,'fixture.mjs')}]}]);
     const start=async()=>{
       client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
@@ -224,7 +225,7 @@ export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.pr
     const second=wire.find(row=>row.depth===2&&!row.fork)!;
     const secondContext=JSON.stringify([second.system,second.messages]);
     for(const forbidden of ['ROOT_IDENTITY_SENTINEL','You are an internal execution agent','You execute an internal task for','pursue goals across work and everyday life','main Agent owns public delivery','Heartbeat is a system wake','Role: personal assistant','Role: independent expert'])expect(secondContext).not.toContain(forbidden);
-    expect(secondContext).toContain('WORKSPACE_INSTRUCTIONS_SENTINEL');expect(secondContext).toContain('Your parent agent id is');
+    expect(secondContext).toContain('WORKSPACE_INSTRUCTIONS_SENTINEL');expect(secondContext).toContain('You are a subagent delegated by agent');
     for(const row of [first,second]){
       const names=row.tools.map(tool=>tool.name);expect(names).not.toContain('inbox');expect(names).not.toContain('conversations');
       expect(names).not.toContain('send_user_message');expect(names).not.toContain('personal_sources');expect(names).not.toContain('agent_creation');

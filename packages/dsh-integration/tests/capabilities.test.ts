@@ -71,9 +71,11 @@ it('keeps empty business tools and Skills empty while retaining context manageme
 it('shadows owner tools in one workspace, constrains actual dispatch, and rebuilds after restart', async () => {
   const home = await mkdtemp(join(tmpdir(), 'nano-extension-')); let client: RuntimeClient | undefined; let logs = '';
   const global = join(home, 'global.json'); const workspace = join(home, 'workspace.json');
-  await writeFile(join(home, 'plugin.mjs'), `export const name = 'fixture-tools'; export const inject = ['tools'];
+  const ptcHref = JSON.stringify(new URL('../node_modules/@deepseek-ai/dsh-tool-executor-ptc/lib/index.js', import.meta.url).href);
+  await writeFile(join(home, 'plugin.mjs'), `import * as PtcExecutor from ${ptcHref};
+export const name = 'fixture-tools'; export const inject = ['tools', 'systemPrompt', 'ptcRuntime'];
 export function apply(ctx, config) {
-  if (config.mode) ctx.tools.presentAs(config.mode);
+  if (config.mode) ctx.plugin(PtcExecutor);
   ctx.tools.register({ name: 'fixture_echo', description: config.value, parameters: { type: 'object', properties: {} },
     output: { schema: {}, render: (_args, value) => value },
     async execute() { return [{ type: 'text', text: config.value }]; } });
@@ -84,7 +86,14 @@ export function apply(ctx, config) {
 export const name = 'fixture-probe'; export const inject = ['tools', 'llm'];
 export function apply(ctx) {
   ctx.on('agent/created', ({agent}) => { setTimeout(async () => {
-    const result = await ctx.tools.execute({ name: 'fixture_echo', callId: 'fixture-call', arguments: {}, agent, signal: new AbortController().signal });
+    const signal = new AbortController().signal;
+    const modelSelection = agent.model.current() ?? { provider: agent.options.provider ?? 'deepseek-official', model: agent.options.model ?? 'deepseek-flash' };
+    const toolSet = await ctx.tools.resolve({ scope: agent, agent, modelSelection, signal });
+    const usesPtc = ctx.tools.selectExecutor(agent).describe([]).schemas.some(tool => tool.name === 'run_code');
+    const result = usesPtc
+      ? (await ctx.tools.executable('fixture_echo', agent, toolSet)?.execute({}, { agent, callId: 'fixture-call', signal }) ?? 'UNKNOWN_TOOL')
+      : (await ctx.tools.execute({ calls: [{ type: 'tool-call', id: 'fixture-call', name: 'fixture_echo', arguments: '{}' }], agent, toolSet, signal })).results[0].result;
+    toolSet.dispose();
     await writeFile(process.env.DSH_HOME + '/' + agent.id + '.json', JSON.stringify(result));
   }, 0); });
   const seen = new Set();
@@ -124,7 +133,8 @@ export function apply(ctx) {
       expect(JSON.stringify(a)).toContain('workspace');
       expect(JSON.stringify(a)).toContain('undefined');
       const c = JSON.parse(await readFile(join(home, 'extension-c.ptc.json'), 'utf8'));
-      expect(JSON.stringify(c)).toContain('UNKNOWN_TOOL');
+      expect(c.isError).toBe(true);
+      expect(JSON.stringify(c)).toContain('tools.fixture_echo is not a function');
       for (const id of ['a', 'c']) await rm(join(home, `extension-${id}.ptc.json`));
       await client.shutdown(); client = undefined;
       for (const binding of bindings) await rm(join(home, binding.sessionId + '.json'));

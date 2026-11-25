@@ -1,14 +1,27 @@
 import { Service, type Context } from '@deepseek-ai/cordis';
-import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import { CommandId } from '@deepseek-ai/dsh-commands/brand';
 import { defineDomain, domainTable, type Domain, type DomainSpec, type DomainTableSpec } from '@deepseek-ai/dsh-storage-domain';
 import { z } from 'zod';
-import type { Agent } from '@deepseek-ai/dsh-agent';
+import { installModelSelection, type Agent, type ModelSelection } from '@deepseek-ai/dsh-agent';
 import type { AgentConfiguration } from './index.js';
 import { ModelFallback } from './model-fallback.js';
 import type NanoCompaction from './compaction.js';
 
 export interface ModelRoute { provider: string; model: string; reasoningEffort?: string; maxTokens?: number }
+function toSelection(route: ModelRoute): ModelSelection {
+  return {
+    provider: route.provider,
+    model: route.model,
+    ...(route.reasoningEffort ? { reasoningEffort: ReasoningEffortId(route.reasoningEffort) } : {}),
+  };
+}
+function sameSelection(left: Readonly<ModelSelection> | undefined, right: Readonly<ModelSelection>): boolean {
+  return left !== undefined &&
+    left.provider === right.provider &&
+    left.model === right.model &&
+    (left.reasoningEffort ?? undefined) === (right.reasoningEffort ?? undefined);
+}
 interface Selection { revision: string; chain?: string; selected?: ModelRoute; effort?: string; ultracode?: boolean; sticky?: ModelRoute }
 const commandIdentity = {sessionId: z.string(), action: z.string(), argument: z.string()};
 const commandSchema = z.discriminatedUnion('status', [
@@ -38,11 +51,54 @@ export class ModelPolicy extends Service {
   private readonly host: Context;
   constructor(ctx: Context, options: { check: (agent: Agent, run: import('./model-fallback.js').ModelRun) => Promise<{ published: boolean }>; notify: (sessionId: string) => void }) {
     super(ctx, 'nanoModels'); this.host = ctx; this.state = ctx.storageDomain.open(modelDomain);
-    this.fallback = new ModelFallback(ctx, { route: agent => this.route(agent), select: (agent, route) => { this.selections.get(agent.id)!.selected = route; }, sticky: async (agent, route) => { const selection = this.selections.get(agent.id)!; selection.sticky = route; delete selection.effort; delete selection.selected; await (await this.state).table('sessions').put(key(agent.id), selection); }, ...options });
+    this.fallback = new ModelFallback(ctx, {
+      route: agent => this.route(agent),
+      select: (agent, route) => { this.selections.get(agent.id)!.selected = route; this.syncTree(agent.id); },
+      sticky: async (agent, route) => {
+        const selection = this.selections.get(agent.id)!;
+        selection.sticky = route; delete selection.effort; delete selection.selected;
+        await (await this.state).table('sessions').put(key(agent.id), selection);
+        this.syncTree(agent.id);
+      },
+      ...options,
+    });
     ctx.effect(() => async () => { await this.stop(); await (await this.state).close(); });
   }
   /** Pending between-turn commands and fallback work block a safe update. */
   get busy(): boolean { return this.commands.size > 0 || this.fallback.busy; }
+  private syncAgentRoute(agent: Agent): void {
+    if (!this.configs.has(agent.id)) return;
+    const desired = toSelection(this.route(agent));
+    if (sameSelection(agent.model.current(), desired)) return;
+    try {
+      agent.model.select(desired);
+    } catch {
+      queueMicrotask(() => {
+        if (this.host.agents.get(agent.id) === agent) this.syncAgentRoute(agent);
+      });
+    }
+  }
+  private belongsToAncestor(agent: Agent, ancestorId: string): boolean {
+    const seen = new Set<string>();
+    let current = agent.session.header.origin === 'subagent' ? agent.session.header.parentSession : undefined;
+    while (current && !seen.has(current)) {
+      if (current === ancestorId) return true;
+      seen.add(current);
+      const parent = this.host.sessions.get(current);
+      current = parent?.header.origin === 'subagent' ? parent.header.parentSession : undefined;
+    }
+    return false;
+  }
+  private syncTree(rootOrParentId: string): void {
+    const root = this.host.agents.get(rootOrParentId as Agent['id']);
+    if (root) this.syncAgentRoute(root);
+    for (const candidate of this.host.agents.list()) {
+      const childConfig = this.configs.get(candidate.id);
+      if (!childConfig || childConfig.modelRouteFrozen || !this.belongsToAncestor(candidate, rootOrParentId)) continue;
+      if (candidate.status === 'idle') this.syncAgentRoute(candidate);
+      else void candidate.whenIdle().then(() => { if (this.host.agents.get(candidate.id) === candidate) this.syncAgentRoute(candidate); });
+    }
+  }
   async attach(agent: Agent, config: AgentConfiguration) {
     this.configs.set(agent.id, config);
     const saved = (await this.state).table('sessions').get(key(agent.id));
@@ -52,31 +108,32 @@ export class ModelPolicy extends Service {
     if (selection.revision !== config.revision) selection = await this.revised(selection, config);
     this.selections.set(agent.id, selection);
     await this.fallback.attach(agent, config);
-    let assembled: ModelRoute | undefined;
-    agent.ctx.on('system-prompt/assemble', async (_assembly, _context, next) => {
-      const route = this.route(agent); const assembly = await next(); assembled = route;
+    this.syncAgentRoute(agent);
+    agent.ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+      const route = context.modelSelection ?? toSelection(this.route(agent));
+      const assembly = await next();
       return { ...assembly, variables: { ...assembly.variables, provider: route.provider, model: route.model } };
     }, { prepend: true });
     agent.ctx.on('agent/request', async (_payload, next) => {
-      const route = assembled ?? this.route(agent);
-      const { reasoningEffort: _, maxTokens: priorCap, ...request } = await next();
-      return { ...request, provider: route.provider, model: route.model,
-        ...(route.reasoningEffort ? { reasoningEffort: ReasoningEffortId(route.reasoningEffort) } : {}),
-        ...(agent.session.header.origin === 'subagent' && priorCap !== undefined ? { maxTokens: priorCap } : route.maxTokens === undefined ? {} : { maxTokens: route.maxTokens }),
-      };
+      const route = this.route(agent);
+      const request = await next();
+      if (agent.session.header.origin === 'subagent' && request.maxTokens !== undefined) return request;
+      if (route.maxTokens === undefined) {
+        const { maxTokens: _removed, ...rest } = request;
+        return rest;
+      }
+      return { ...request, maxTokens: route.maxTokens };
     }, { prepend: true });
+    // Register withdrawal filtering before installModelSelection so prepend order
+    // keeps ModelPolicy inner and rejects withdrawn fallback turns before any switch notice.
     agent.ctx.on('agent/pre-step', async (_payload, next) => {
       const decision = await next(); if (decision.kind === 'reject') return decision;
       await this.fallback.checkpoint();
-      const route = assembled ?? this.route(agent); const previous = agent.session.requestHeader()?.config;
       const messages = this.fallback.allowed(agent, decision.messages).filter(message => message.source.kind !== 'model-selection');
       if (decision.messages.length && !messages.length) return { kind: 'reject' };
-      if (previous && (previous.provider !== route.provider || previous.model !== route.model)) messages.push(createUserMessage({
-        content: [{ type: 'text', text: `Earlier assistant turns used ${previous.provider}/${previous.model}; this request uses ${route.provider}/${route.model}.` }],
-        source: { kind: 'model-selection', form: 'notice', summary: `${previous.model} → ${route.model}` },
-      }));
       return { ...decision, messages };
     }, { prepend: true });
+    installModelSelection(agent.ctx);
     agent.ctx.effect(() => () => { this.configs.delete(agent.id); this.selections.delete(agent.id); });
   }
   ultracode(agent: Agent) { return !!this.selections.get(agent.id)?.ultracode && !!this.host.tools.get('workflow',agent); }
@@ -113,8 +170,17 @@ export class ModelPolicy extends Service {
   async changed(config: AgentConfiguration) {
     for (const [id, previous] of this.configs) if (previous.agentId === config.agentId) {
       const agent = this.host.agents.get(id as Agent['id']); if (agent) this.fallback.interrupt(agent);
+      if (!previous.modelRouteFrozen) {
+        previous.revision = config.revision;
+        previous.provider = config.provider;
+        previous.model = config.model;
+        if (config.reasoningEffort === undefined) delete previous.reasoningEffort; else previous.reasoningEffort = config.reasoningEffort;
+        if (config.maxTokens === undefined) delete previous.maxTokens; else previous.maxTokens = config.maxTokens;
+        if (config.modelFallbacks === undefined) delete previous.modelFallbacks; else previous.modelFallbacks = config.modelFallbacks;
+      }
       const selection = await this.revised(this.selections.get(id)!, config);
       this.selections.set(id, selection); await (await this.state).table('sessions').put(key(id), selection);
+      if (agent) this.syncTree(agent.id);
     }
   }
   command(agent: Agent, request: { id: string; action: string; argument?: string }): Promise<CompletedCommand> {
@@ -151,6 +217,7 @@ export class ModelPolicy extends Service {
           selection.effort = effort; selection.ultracode = ultracode;
         } else throw new Error('Unknown session command');
         await (await this.state).table('sessions').put(key(agent.id), selection);
+        this.syncTree(agent.id);
         return complete(selection.ultracode ? 'Ultracode 已开启。' : `当前会话推理强度已设为 ${selection.effort}。`, true);
       });
     } catch (error) { return complete(signal.aborted ? '本次控制操作未执行：已取消。' : `控制操作失败：${String(error)}`, false); }

@@ -37,7 +37,7 @@ def test_background_job_completion_sends_distinct_followup(
     conversation = client.create_direct_conversation(agent)
     args = {
         "description": "Run a short isolated background command",
-        "command": "sleep 2; printf EVENTS-JOB-RESULT",
+        "command": "sleep 2; printf 'EVENTS-JOB-RESULT %02100d' 0",
         "timeoutMs": 100 if promote else 10000,
         "run_in_background": not promote,
     }

@@ -29,6 +29,7 @@ def test_foreground_child_output_and_failure_are_isolated(
             tool_allowlist=[
                 *client.get_agent_config(agent)["tool_allowlist"],
                 "subagent",
+                "wait_agent",
             ],
         )
         chat = client.create_direct_conversation(agent)
@@ -48,9 +49,17 @@ def test_foreground_child_output_and_failure_are_isolated(
             for block in message["content"]
             if block.get("type") == "tool_result"
         }
-        assert "CHILD-OUTPUT" in json.dumps(results["spawn-success"])
         assert not results["spawn-success"].get("is_error")
-        assert results["spawn-failure"].get("is_error") is True
+        assert not results["spawn-failure"].get("is_error")
+        parent_messages = [
+            json.dumps(row["request"]["messages"])
+            for row in records
+            if row["session"] == row["root"]
+        ]
+        assert any("CHILD-OUTPUT" in payload for payload in parent_messages)
+        assert any(
+            "failed before it finished." in payload for payload in parent_messages
+        )
         # A separate child request must actually reach the provider; the parent
         # reply alone could be fabricated without executing a subagent at all.
         child_sessions = {

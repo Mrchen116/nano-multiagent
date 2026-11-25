@@ -7,16 +7,19 @@ import * as Store from '@deepseek-ai/dsh-client-store';
 import * as Slots from '@deepseek-ai/dsh-client-ui-slots';
 import * as Primitives from '@deepseek-ai/dsh-client-ui-primitives';
 import * as Dockkit from '@deepseek-ai/dsh-client-ui-dockkit';
+import * as Zod from 'zod';
 import sessionRemote from '@deepseek-ai/dsh-api-session-controller/remote';
+import trajectoryRemote from '@deepseek-ai/dsh-client-ui-trajectory/remote';
 import commandsRemote from '@deepseek-ai/dsh-commands/remote';
 import subagentRemote from '@deepseek-ai/dsh-subagent/remote';
+import { createReadonlyConfigForms } from './config-forms';
 import { createReadonlyTransport } from './transport';
 
 const staticModules = {
   'react': React, 'react/jsx-runtime': Jsx, 'react-dom': Dom, 'react-dom/client': DomClient,
   '@deepseek-ai/cordis': Cordis, '@deepseek-ai/dsh-client-store': Store,
   '@deepseek-ai/dsh-client-ui-slots': Slots, '@deepseek-ai/dsh-client-ui-primitives': Primitives,
-  '@deepseek-ai/dsh-client-ui-dockkit': Dockkit,
+  '@deepseek-ai/dsh-client-ui-dockkit': Dockkit, 'zod': Zod,
 };
 const readonly = () => { throw new Error('Read-only trajectory viewer'); };
 // Native conversation stores UI preferences through localStorage. An opaque
@@ -78,7 +81,7 @@ void nativeModules.catch(() => {}); // Initialization reports component failures
 
 async function start(init, port) {
   performance.mark('nano-trajectory:initialized');
-  if (init.version !== '0.2.1-alpha.1') throw new Error('轨迹组件版本不一致');
+  if (init.version !== '0.2.2-rc.5') throw new Error('轨迹组件版本不一致');
   const { manifest, exports } = await nativeModules;
   if (manifest.rev !== init.version) throw new Error('轨迹组件资源版本不一致');
   const [renderer, conversation, session, trajectory, attachment, locale, theme, api, connection, gateway, typert] = exports;
@@ -90,37 +93,38 @@ async function start(init, port) {
   });
   let reference;
   let unmount = () => {};
+  let disposed = false;
   dispose = () => {
+    if (disposed) return;
+    disposed = true;
     unmount();
-    reference?.release();
-    void ctx.fiber.dispose().finally(() => transport.dispose());
+    void ctx.fiber.dispose().finally(() => {
+      reference?.release();
+      transport.dispose();
+    });
   };
   renderer.apply(ctx);
-  ctx.provide('configForms', {
-    get: namespace => Store.createSnapshotStore({ value: {
-      preference: namespace.includes('locale') ? 'zh' : 'light', fontSize: 14,
-    } }),
-    set: readonly, patch: readonly,
-    developerTools: { enabled: Store.createSnapshotStore(true) },
-  });
+  ctx.provide('configForms', createReadonlyConfigForms({ language: init.language, theme: init.theme }));
   await locale.apply(ctx);
   theme.apply(ctx);
   connection.installConnection(ctx, { transport: { rpc: transport.rpc }, location: { hostname: 'readonly-viewer.invalid' } });
   typert.apply(ctx);
   gateway.apply(ctx);
-  for (const contribution of [sessionRemote, commandsRemote, subagentRemote]) await ctx.remote.$mount(contribution);
+  for (const contribution of [sessionRemote, commandsRemote, subagentRemote, trajectoryRemote]) await ctx.remote.$mount(contribution);
   ctx.provide('fileUpload', { upload: readonly });
   api.apply(ctx);
   await ctx.sessions.refresh();
   performance.mark('nano-trajectory:catalog-ready');
   reference = ctx.sessions.retain(init.sessionId, { source: 'mainView' });
   await reference.ready;
+  const { session: retainedSession, eventSource: retainedEvents } = reference.binding;
   performance.mark('nano-trajectory:first-window-ready');
   // Render the latest window while a previous reading position is restored.
   const historyRestore = (Number.isInteger(init.position?.firstSeq)
-    ? reference.binding.session.loadThrough(init.position.firstSeq) : Promise.resolve()).then(() => null, error => error);
-  ctx.effect(() => reference.binding.session.subscribe(() => {
-    const snapshot = reference.binding.session.getSnapshot();
+    ? retainedSession.loadThrough(init.position.firstSeq) : Promise.resolve()).then(() => null, error => error);
+  ctx.effect(() => retainedSession.subscribe(() => {
+    if (disposed) return;
+    const snapshot = retainedSession.getSnapshot();
     if (snapshot.openState === 'open') status('ready');
     else if (snapshot.openState === 'error') status('interrupted', snapshot.openError?.message ?? '轨迹读取中断');
   }), 'nano-trajectory.status');
@@ -139,10 +143,10 @@ async function start(init, port) {
       if (!result.ok) throw new Error(result.error?.message || '运行信息读取失败');
       return result.value;
     },
-    firstSeq: () => reference.binding.eventSource.getSnapshot().entries[0]?.event.seq,
-    lastSeq: () => reference.binding.eventSource.getSnapshot().entries.at(-1)?.event.seq,
-    hasMore: () => reference.binding.session.getSnapshot().hasMore,
-    loadThrough: seq => reference.binding.session.loadThrough(seq),
+    firstSeq: () => retainedEvents.getSnapshot().entries[0]?.event.seq,
+    lastSeq: () => retainedEvents.getSnapshot().entries.at(-1)?.event.seq,
+    hasMore: () => retainedSession.getSnapshot().hasMore,
+    loadThrough: seq => retainedSession.loadThrough(seq),
     navigate: run => parent.postMessage({ type: 'viewer-navigate', run: { ...run,
       label: run.kind === 'combined' ? '记忆与技能复盘' : run.kind === 'memory' ? '记忆整理' : run.kind === 'skills' ? '技能复盘' : run.label || '子 Agent 执行' } }, '*'),
   };
@@ -165,9 +169,9 @@ async function start(init, port) {
     const pane = document.querySelector('[data-trajectory-scroll]');
     if (!pane || pane.closest('[hidden]')) return;
     parent.postMessage({ type: 'viewer-position', top: pane.scrollTop,
-      rowKey: pane.querySelector('[data-selected]')?.getAttribute('data-trajectory-row-key'),
+      rowKey: pane.querySelector('[data-selected="true"]')?.getAttribute('data-trajectory-row-key'),
       detailTab: document.querySelector('[role=tab][aria-selected=true]')?.id,
-      firstSeq: reference.binding.eventSource.getSnapshot().entries[0]?.event.seq }, '*');
+      firstSeq: retainedEvents.getSnapshot().entries[0]?.event.seq }, '*');
   };
   document.addEventListener('scroll', publishPosition, true);
   const afterSelection = () => requestAnimationFrame(publishPosition);
