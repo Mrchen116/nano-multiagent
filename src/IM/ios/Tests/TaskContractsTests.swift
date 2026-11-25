@@ -109,6 +109,155 @@ struct TaskContractsTests {
         #expect(!final.needsReworkReason(after: newer))
     }
 
+    @Test func nineCanonicalStatusesAndUnknownStatusFallbackDecodeSafely() throws {
+        let expectedPairs: [(String, String, String)] = [
+            ("proposed", "待拍板", "Proposed"),
+            ("todo", "待办", "To do"),
+            ("doing", "推进中", "Advancing"),
+            ("waiting", "等待中", "Waiting"),
+            ("in_review", "待确认", "In review"),
+            ("done", "已完成", "Done"),
+            ("paused", "已暂缓", "Paused"),
+            ("backlog", "先存着", "Backlog"),
+            ("closed", "已关闭", "Closed")
+        ]
+        #expect(taskStatuses == expectedPairs.map(\.0))
+        for (raw, zh, en) in expectedPairs {
+            #expect(isKnownTaskStatus(raw))
+            let badge = taskStatus(raw)
+            #expect(badge == zh || badge == en)
+        }
+        #expect(!isKnownTaskStatus("future_stage_state"))
+        #expect(taskStatus("future_stage_state") == "future_stage_state")
+        #expect(!taskStatus("   ").isEmpty)
+        #expect(taskEditableStatuses("future_stage_state").contains("future_stage_state"))
+
+        let unknownNodeJSON = #"{"id":"n_future","container_id":null,"title":"Future card","description":"","mode":"none","status":"future_stage_state","result":"","selection_reason":"","links":[],"order":0,"created_at":"now","updated_at":"now","updated_by":"PA"}"#
+        let unknownNode = try JSONDecoder().decode(TaskNode.self, from: Data(unknownNodeJSON.utf8))
+        #expect(unknownNode.status == "future_stage_state")
+
+        let unknownSummaryJSON = #"{"graph_id":"tg_f","root_node_id":"n_future","node_id":"n_future","revision":1,"updated_at":"now","updated_by":"PA","relative_url":"/tasks/tg_f","title":"Future summary","mode":"none","status":"future_stage_state","conversation":{"id":"c1","title":"PA","visibility":"private","is_member":true,"can_write":true}}"#
+        let unknownSummary = try JSONDecoder().decode(TaskSummary.self, from: Data(unknownSummaryJSON.utf8))
+        #expect(unknownSummary.status == "future_stage_state")
+    }
+
+    @Test func silentWaitWithoutScheduleAndNineStateCountsDecodeCleanly() throws {
+        let waitJSON = #"{"reason":"Waiting on Sam to confirm travel dates","question":"Is Nov 18 confirmed?","asked_user_id":"u_sam"}"#
+        let silentWait = try JSONDecoder().decode(TaskWait.self, from: Data(waitJSON.utf8))
+        #expect(silentWait.reason == "Waiting on Sam to confirm travel dates")
+        #expect(silentWait.schedule_id == nil)
+        #expect(silentWait.owner_agent_id == nil)
+        #expect(silentWait.session_id == nil)
+        #expect(silentWait.next_check_at == nil)
+        #expect(silentWait.question == "Is Nov 18 confirmed?")
+        #expect(silentWait.asked_user_id == "u_sam")
+
+        let countsJSON = #"{"proposed":2,"todo":1,"doing":1,"waiting":1,"in_review":0,"done":3,"paused":0,"backlog":4,"closed":1,"total":13}"#
+        let counts = try JSONDecoder().decode(TaskCounts.self, from: Data(countsJSON.utf8))
+        #expect(counts.proposedCount == 2)
+        #expect(counts.backlogCount == 4)
+
+        let legacyGraph = try fixture()
+        #expect(legacyGraph.nodes.first?.direct_counts?.proposedCount == 0)
+        #expect(legacyGraph.nodes.first?.direct_counts?.backlogCount == 0)
+    }
+
+    @Test func focusResponseBatchNodeSummaryAndApproveOperationMatchContracts() throws {
+        let focusJSON = """
+        {
+          "needs_you": [{
+            "graph_id": "tg_trip",
+            "root_node_id": "root",
+            "node_id": "stage_3",
+            "revision": 4,
+            "updated_at": "2026-11-26T01:00:00Z",
+            "updated_by": "PA",
+            "title": "Compare Shinkansen vs flight",
+            "mode": "none",
+            "status": "proposed",
+            "root_title": "Kyoto Trip",
+            "root_goal_summary": "5-day Kyoto itinerary under budget",
+            "blocked_by_dag": true,
+            "proposal": {
+              "rationale": "Stage 2 hotel shortlist is nearly ready",
+              "on_approve": "Draft a fare & transfer table",
+              "proposed_for_user_id": "u_owner"
+            },
+            "conversation": {"id": "c_pa", "title": "PA", "visibility": "private", "is_member": true, "can_write": true}
+          }],
+          "stashed": [{
+            "graph_id": "tg_idea",
+            "root_node_id": "idea_1",
+            "revision": 1,
+            "updated_at": "2026-11-26T00:00:00Z",
+            "updated_by": "PA",
+            "title": "Try local ceramics workshop",
+            "mode": "none",
+            "status": "backlog",
+            "conversation": {"id": "c_pa", "title": "PA", "visibility": "private", "is_member": true, "can_write": true}
+          }],
+          "active": [],
+          "goals": [{
+            "graph_id": "tg_trip",
+            "root_node_id": "root",
+            "revision": 4,
+            "updated_at": "2026-11-26T01:00:00Z",
+            "updated_by": "PA",
+            "title": "Kyoto Trip",
+            "mode": "dag",
+            "status": "doing",
+            "root_goal_summary": "5-day Kyoto itinerary under budget",
+            "progress": {"done": 1, "total": 3},
+            "stage_nodes": [
+              {"id": "stage_1", "title": "Fix dates", "status": "done", "mode": "none"},
+              {"id": "stage_2", "title": "Pick hotel", "status": "doing", "mode": "explore", "child_count": 2},
+              {"id": "stage_3", "title": "Compare Shinkansen vs flight", "status": "proposed", "mode": "none"}
+            ],
+            "conversation": {"id": "c_pa", "title": "PA", "visibility": "private", "is_member": true, "can_write": true}
+          }],
+          "completed_count": 5,
+          "counts": {"needs_you": 1, "stashed": 1, "active": 0, "goals": 1, "completed": 5},
+          "next_cursors": {"needs_you": null, "stashed": null, "active": null, "goals": null}
+        }
+        """
+        let focus = try JSONDecoder().decode(TaskFocusResponse.self, from: Data(focusJSON.utf8))
+        #expect(focus.needs_you.count == 1)
+        #expect(focus.needs_you.first?.isPrereqBlocked == true)
+        #expect(focus.needs_you.first?.proposal?.rationale == "Stage 2 hotel shortlist is nearly ready")
+        #expect(focus.needs_you.first?.proposal?.on_approve == "Draft a fare & transfer table")
+        #expect(focus.needs_you.first?.root_goal_summary == "5-day Kyoto itinerary under budget")
+        #expect(focus.stashed.first?.status == "backlog")
+        #expect(focus.goals.first?.progress?.done == 1)
+        #expect(focus.goals.first?.stage_nodes?.count == 3)
+        #expect(focus.completed_count == 5)
+
+        let nodesJSON = """
+        {
+          "graph_id": "tg_trip",
+          "node_id": "stage_3",
+          "root_node_id": "root",
+          "revision": 4,
+          "title": "Compare Shinkansen vs flight",
+          "mode": "none",
+          "status": "proposed",
+          "prereq_blocked": false,
+          "proposal": {"rationale": "Ready now", "on_approve": "Compare fares"},
+          "root_title": "Kyoto Trip"
+        }
+        """
+        let summary = try JSONDecoder().decode(TaskCardNodeSummary.self, from: Data(nodesJSON.utf8))
+        #expect(summary.cardKey == "tg_trip:stage_3")
+        #expect(summary.isPrereqBlocked == false)
+        #expect(summary.proposal?.on_approve == "Compare fares")
+
+        let approvePlain = TaskOperations.approve(nodeID: "stage_3")
+        #expect(approvePlain == .object(["op": .string("approve_task"), "node_id": .string("stage_3")]))
+        let approveAssigned = TaskOperations.approve(nodeID: "stage_3", assignee: ActorRef(type: "agent", id: "pa-main"))
+        #expect(approveAssigned["op"] == .string("approve_task"))
+        #expect(approveAssigned["node_id"] == .string("stage_3"))
+        #expect(approveAssigned["assignee"] == .object(["type": .string("agent"), "id": .string("pa-main")]))
+    }
+
     private func fixture() throws -> TaskGraph {
         let json = #"{"schema_version":2,"graph_id":"tg_one","root_node_id":"n1","revision":3,"created_at":"now","updated_at":"now","updated_by":"User","relative_url":"/tasks/tg_one","dependencies":[],"conversation":{"id":"chat","title":"Group","visibility":"public","is_member":false,"can_write":false},"nodes":[{"id":"n1","container_id":null,"title":"Root","description":"","mode":"dag","status":"waiting","wait":{"reason":"Await approval, then resume purchase","schedule_id":"schedule","owner_agent_id":"worker","session_id":"session","next_check_at":"2026-10-22T12:00:00Z"},"wait_health":{"state":"unknown","checked_at":"2026-10-22T11:00:00Z","reason_code":"node_unavailable"},"result":"","selection_reason":"","links":[],"order":0,"created_at":"now","updated_at":"now","updated_by":"User","created_by":{"type":"user","id":"creator"},"assignee":{"type":"agent","id":"worker","display_name":"Worker","user_id":"agent-user"},"can_edit":false,"can_claim":false,"can_delete":false,"direct_counts":{"todo":0,"doing":0,"waiting":0,"in_review":0,"done":1,"paused":1,"closed":1,"total":3}}]}"#
         return try JSONDecoder().decode(TaskGraph.self, from: Data(json.utf8))

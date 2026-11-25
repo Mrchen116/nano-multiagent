@@ -100,11 +100,19 @@ function validateDraft(draft: AgentConfigFormState) {
 // Draft features take precedence; fall back to capability default_on when key absent.
 function resolveEffectiveFeatures(
   draftFeatures: Record<string, boolean> | undefined,
-  capabilityFeatures: AgentFeature[]
+  capabilityFeatures: AgentFeature[],
+  toolAllowlist?: string[],
 ): Record<string, boolean> {
   const result: Record<string, boolean> = {};
   for (const feat of capabilityFeatures) {
     result[feat.key] = draftFeatures?.[feat.key] ?? feat.default_on;
+  }
+  if (
+    result.proactive_planning &&
+    draftFeatures?.proactive_planning === undefined &&
+    (result.task_graph === false || (toolAllowlist !== undefined && !toolAllowlist.includes("task_graph")))
+  ) {
+    result.proactive_planning = false;
   }
   return result;
 }
@@ -174,8 +182,8 @@ function BehaviorCard({
   useEffect(() => { if (readOnly) { previewAbort.current?.abort(); setPreviewLoading(false); setPreviewStale(true); } return () => previewAbort.current?.abort(); }, [readOnly]);
 
   const effectiveFeatures = useMemo(
-    () => resolveEffectiveFeatures(draft.features, capabilityFeatures),
-    [draft.features, capabilityFeatures]
+    () => resolveEffectiveFeatures(draft.features, capabilityFeatures, draft.tool_allowlist),
+    [draft.features, capabilityFeatures, draft.tool_allowlist]
   );
 
   // Fetch preview when opened or when draft changes while open.
@@ -1349,7 +1357,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   }, [detailQuery.data?.config]);
 
   const capabilities = detailQuery.data?.capabilities;
-  const capabilityEditor = useCapabilityEditor(draft, setDraft, capabilities, agentId);
+  const capabilityEditor = useCapabilityEditor(draft, setDraft, capabilities, agentId, personal);
   const owningNode = detailQuery.data?.owningNode ?? null;
   const modelOptions = capabilities?.model_options ?? [];
   const platformDefaultModel = capabilities?.platform_default_model ?? null;
@@ -1368,7 +1376,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
     effectiveReasoningModel(draft?.default_model ?? null, platformDefaultModel),
     draft?.reasoning_effort ?? null,
   );
-  const fixedTools = capabilityCatalog(capabilities, draft?.work_mode).fixed_tools;
+  const fixedTools = capabilityCatalog(capabilities, draft?.work_mode, personal).fixed_tools;
   const absent = (names: string[], options: {name: string}[]) => names.filter(name => !options.some(option => option.name === name));
   const missingModels = absent([draft?.default_model, ...(draft?.model_fallbacks ?? [])].filter((name): name is string => !!name), modelOptions);
   const missingTools = absent((draft?.tool_allowlist ?? []).filter(name => name !== 'memory'), [...(capabilities?.tools ?? []), ...fixedTools.map(name => ({name}))]);
@@ -1890,7 +1898,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
           draft={draft}
           roleEditor={canManageRole && <AgentRoleEditor editor={roleEditor} />}
           inheritedRules={capabilities.inherited_approval_rules}
-          capabilityFeatures={capabilities.features ?? []}
+          capabilityFeatures={(capabilities.features ?? []).filter(feat => personal || feat.key !== "proactive_planning")}
           capabilitiesKnown={detailQuery.data?.liveCapabilities === true}
           readOnly={readOnly}
           unknownFeatures={detailQuery.data?.display.data?.features.filter(feature => feature.enabled === null).map(feature => feature.key)}

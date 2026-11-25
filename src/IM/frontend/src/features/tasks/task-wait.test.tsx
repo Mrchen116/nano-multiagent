@@ -49,3 +49,22 @@ it("reads the assignee through the Task route for Single Thread and Global Agent
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(String(fetch.mock.calls[0][0])).toContain("/task-graphs/g/runtime?node_id=n");
 });
+
+it("renders schedule-less silent waiting with user question cleanly without schedule errors", () => {
+  render(
+    <TaskWaitInfo
+      wait={{
+        reason: "Waiting for owner reply on restaurant preference",
+        question: "Indoor booth or terrace table?",
+        asked_user_id: "user-1",
+        next_check_at: null,
+        schedule_id: null,
+      }}
+    />,
+  );
+  expect(screen.getByText("Waiting for owner reply on restaurant preference")).toBeVisible();
+  expect(screen.getByText(/Indoor booth or terrace table\?/)).toBeVisible();
+  expect(screen.queryByText(/could not be verified/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/not an execution receipt/)).not.toBeInTheDocument();
+});

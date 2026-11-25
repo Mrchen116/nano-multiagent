@@ -119,6 +119,10 @@ struct ChatMessageView: View {
                     AttachmentView(client: client, attachment: message.attachments[index])
                 }
             }
+            if let taskCards = message.task_cards, !taskCards.isEmpty {
+                TaskEmbeddedCardsView(client: client, chat: chat, refs: taskCards, readOnly: readOnly)
+                    .textSelection(.disabled)
+            }
             if hasProcess {
                 DisclosureGroup(isExpanded: $showProcess) {
                     VStack(alignment: .leading, spacing: 12) {

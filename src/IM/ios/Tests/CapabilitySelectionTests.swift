@@ -66,4 +66,44 @@ struct CapabilitySelectionTests {
             #expect(blocks == item.expected.blocks, Comment(rawValue: item.name))
         }
     }
+
+    @Test func proactivePlanningEnforcesTaskGraphDependencyAndLegacyFallback() {
+        let cron = AgentFeature(key: "cron_scheduling", label_i18n: "feature.cron_scheduling.label", help_i18n: "feature.cron_scheduling.help", default_on: true, available: true, requires: .init(features: [], tools: ["cron"], skills: []))
+        let taskGraph = AgentFeature(key: "task_graph", label_i18n: "feature.task_graph.label", help_i18n: "feature.task_graph.help", default_on: true, available: true, requires: .init(features: ["cron_scheduling"], tools: ["task_graph"], skills: []))
+        let proactive = AgentFeature(key: "proactive_planning", label_i18n: "feature.proactive_planning.label", help_i18n: "feature.proactive_planning.help", default_on: true, available: true, requires: .init(features: ["task_graph"], tools: [], skills: []))
+        let caps = AgentCapabilities(
+            fixed_tools: ["notes", "history"],
+            node_id: "node-1",
+            models: [],
+            skills: [],
+            tools: [AgentOption(name: "cron"), AgentOption(name: "task_graph")],
+            features: [cron, taskGraph, proactive]
+        )
+
+        // Legacy PA config without explicit proactive_planning key where task_graph is disabled resolves to false.
+        var legacyDraft = AgentDraft()
+        legacyDraft.features = ["task_graph": false, "cron_scheduling": false]
+        #expect(!legacyDraft.isFeatureEnabled(proactive))
+
+        // Enabling proactive_planning automatically turns on task_graph and transitive cron_scheduling + tools.
+        let enableBlocks = legacyDraft.changeCapability(.init(kind: "feature", name: "proactive_planning", enabled: true), capabilities: caps)
+        #expect(enableBlocks.isEmpty)
+        #expect(legacyDraft.features["proactive_planning"] == true)
+        #expect(legacyDraft.features["task_graph"] == true)
+        #expect(legacyDraft.features["cron_scheduling"] == true)
+        #expect(Set(legacyDraft.tool_allowlist) == ["task_graph", "cron"])
+
+        // Disabling task_graph while proactive_planning is on is blocked with localized proactive_planning owner text.
+        let disableTaskBlocks = legacyDraft.changeCapability(.init(kind: "feature", name: "task_graph", enabled: false), capabilities: caps)
+        #expect(disableTaskBlocks == [.init(code: "required_by_feature", target: .init(kind: "feature", name: "task_graph"), required_by: ["proactive_planning"])])
+        #expect(legacyDraft.features["task_graph"] == true)
+        #expect(disableTaskBlocks.first?.message.contains(agentFeatureName("proactive_planning")) == true)
+
+        // Turning off proactive_planning succeeds while keeping task_graph active.
+        let disableProactiveBlocks = legacyDraft.changeCapability(.init(kind: "feature", name: "proactive_planning", enabled: false), capabilities: caps)
+        #expect(disableProactiveBlocks.isEmpty)
+        #expect(legacyDraft.features["proactive_planning"] == false)
+        #expect(legacyDraft.features["task_graph"] == true)
+        #expect(legacyDraft.tool_allowlist.contains("task_graph"))
+    }
 }

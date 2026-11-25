@@ -44,6 +44,11 @@ export interface Attachment {
   file_name?: string | null;
 }
 
+export interface TaskCardRef {
+  graph_id: string;
+  node_id: string;
+}
+
 // bugfix-410-M2 (#97): sidecar badge classification of a non-success terminal,
 // kept separate from `status`. denied→已拒绝 / tool_timeout→执行超时 / stalled→已中断.
 // bugfix-417-M3 R4: tool_timeout = 工具自身 deadline; stalled = watchdog liveness 收尸.
@@ -236,6 +241,7 @@ export interface Message {
   sender_type: string;
   content: string;
   attachments: Attachment[];
+  task_cards?: TaskCardRef[];
   delivery_status: DeliveryStatus;
   update_wait?: 'updating' | 'recovery_required' | null;
   receipts_requested?: true;
@@ -344,10 +350,10 @@ export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_
 
 export type WsEvent =
   | { type: "agent.config.changed"; seq?: number; id: string; conversation_id: string; agent_id: string; before_message_id: string; applied_at: string }
-  | { type: "message.created"; reply_to?: ReplyReference; thread_root_message_id?: string; interactive?: MessageInteractive; interaction_reply?: InteractionSnapshot; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string; system_notice?: SystemNotice | null; pa_agent_id?: string; delegation?: PersonalDelegation | null }
-  | { type: "message.reconciled"; thread_root_message_id?: string; reply_to?: ReplyReference; interactive?: MessageInteractive; interaction_reply?: InteractionSnapshot; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments: Attachment[]; tool_calls: ToolCall[]; thinking: ThinkingSegment[]; background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[]; token_usage: TokenUsage | null; delivery_status: Extract<DeliveryStatus, "completed" | "failed">; created_at: string; elapsed_ms: number | null; kernel_message_id: string | null; permission_requests?: PermissionRequest[]; system_notice?: SystemNotice | null; pa_agent_id?: string; delegation?: PersonalDelegation | null }
+  | { type: "message.created"; reply_to?: ReplyReference; thread_root_message_id?: string; interactive?: MessageInteractive; interaction_reply?: InteractionSnapshot; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments?: Attachment[]; task_cards?: TaskCardRef[]; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string; system_notice?: SystemNotice | null; pa_agent_id?: string; delegation?: PersonalDelegation | null }
+  | { type: "message.reconciled"; thread_root_message_id?: string; reply_to?: ReplyReference; interactive?: MessageInteractive; interaction_reply?: InteractionSnapshot; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; sender?: Actor | null; sender_display_name?: string | null; content: string; attachments: Attachment[]; task_cards?: TaskCardRef[]; tool_calls: ToolCall[]; thinking: ThinkingSegment[]; background_returns?: BackgroundReturn[]; reply_process?: ReplyProcessItem[]; token_usage: TokenUsage | null; delivery_status: Extract<DeliveryStatus, "completed" | "failed">; created_at: string; elapsed_ms: number | null; kernel_message_id: string | null; permission_requests?: PermissionRequest[]; system_notice?: SystemNotice | null; pa_agent_id?: string; delegation?: PersonalDelegation | null }
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
-  | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null; delivery_status?: Extract<DeliveryStatus, "completed" | "failed">; elapsed_ms?: number | null; kernel_message_id?: string | null }
+  | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; task_cards?: TaskCardRef[]; token_usage: TokenUsage | null; delivery_status?: Extract<DeliveryStatus, "completed" | "failed">; elapsed_ms?: number | null; kernel_message_id?: string | null }
   | { type: "message.discarded"; seq?: number; conversation_id: string; message_id: string; reason: string }
   | { type: "tool_call.upserted"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
   | { type: "tool_call.completed"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }

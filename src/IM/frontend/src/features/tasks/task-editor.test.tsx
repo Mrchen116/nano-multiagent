@@ -104,3 +104,16 @@ it("does not offer waiting for a new task", async () => {
   renderEditor({graph,parent:root});
   expect(within(screen.getByLabelText("Status")).queryByRole("option",{name:"Waiting"})).not.toBeInTheDocument();
 });
+it("supports creating a single-card root with mode 'none' and exposes all 8 non-waiting statuses", async () => {
+  renderEditor({ defaultMode: "none", initialTitle: "Quick errand" });
+  expect(screen.getByLabelText("Title")).toHaveValue("Quick errand");
+  const statusSelect = screen.getByLabelText("Status");
+  for (const label of ["Proposed", "To do", "Advancing", "In review", "Stashed", "Paused", "Done", "Closed"]) {
+    expect(within(statusSelect).getByRole("option", { name: label })).toBeInTheDocument();
+  }
+  await screen.findByRole("option", { name: "Team" });
+  await userEvent.selectOptions(screen.getByLabelText("Owning conversation"), "group");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(writes).toHaveLength(1));
+  expect(writes[0]).toMatchObject({ conversation_id: "group", title: "Quick errand", mode: "none", status: "todo" });
+});

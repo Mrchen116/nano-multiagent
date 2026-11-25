@@ -58,7 +58,7 @@ extension AgentDraft {
     }
 
     func removingCapabilities(from previous: AgentDraft, capabilities: AgentCapabilities) -> [CapabilityTarget] {
-        capabilities.features.filter { (previous.features[$0.key] ?? $0.default_on) && features[$0.key] != true }.map { .init(kind: "feature", name: $0.key) }
+        capabilities.features.filter { previous.isFeatureEnabled($0) && features[$0.key] != true }.map { .init(kind: "feature", name: $0.key) }
         + previous.tool_allowlist.filter { !tool_allowlist.contains($0) }.map { .init(kind: "tool", name: $0) }
         + previous.enabledSkills(candidates: capabilities.skills.map(\.name)).filter { !enabledSkills(candidates: [$0]).contains($0) }.map { .init(kind: "skill", name: $0) }
     }
@@ -66,7 +66,7 @@ extension AgentDraft {
     mutating func changeCapability(_ action: CapabilityAction, capabilities: AgentCapabilities) -> [CapabilityBlock] {
         var next = self
         let definitions = capabilities.features
-        for feature in definitions where next.features[feature.key] == nil { next.features[feature.key] = feature.default_on }
+        for feature in definitions where next.features[feature.key] == nil { next.features[feature.key] = next.isFeatureEnabled(feature) }
         func owners(_ target: CapabilityTarget, _ draft: AgentDraft) -> [String] {
             definitions.filter { feature in
                 draft.features[feature.key] == true && feature.requires.values(for: target.kind).contains(target.name)

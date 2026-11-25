@@ -263,6 +263,15 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     if ((event.eventType === "conversation.membership_changed" || event.eventType === "conversation.deleted") && typeof event.payload.conversation_id === "string") {
       window.dispatchEvent(new CustomEvent("im:conversation-invalidated", { detail: event.payload.conversation_id }));
     }
+    if (
+      event.eventType === "task_graph.changed"
+      || (event.eventType === "message.created"
+        && typeof event.payload.system_notice === "object"
+        && event.payload.system_notice !== null
+        && (event.payload.system_notice as { kind?: unknown }).kind === "task_graph")
+    ) {
+      window.dispatchEvent(new CustomEvent("im:task-graph-changed", { detail: event.payload }));
+    }
     if (event.eventType === "message.created") dependencies.onMessageReceived?.(event.payload);
     if (event.eventId !== undefined) {
       const current = readCursor(userId);

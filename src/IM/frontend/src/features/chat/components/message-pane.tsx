@@ -25,6 +25,7 @@ import remarkGfm from "remark-gfm";
 import { useTranslation } from "../../../i18n";
 import { awaitPendingDiscard, beginSend } from "../interaction-background";
 import { TaskGraphLink } from "../../tasks/task-graph-link";
+import { MessageTaskCards } from "./message-task-cards";
 import {
   classifyChatLink,
   extractCodeText,
@@ -2533,6 +2534,13 @@ function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, 
           ? renderInlineContent(message.content, participants)
           : <MarkdownContent content={message.content} participants={participants} onCopyCode={onCopyCode} />}
       </div>
+    )}
+    {!!message.task_cards?.length && (
+      <MessageTaskCards
+        refs={message.task_cards}
+        conversationId={message.conversation_id}
+        canWrite={!readOnly}
+      />
     )}
     {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} isGroup={isGroup} submittedMessageId={submittedMessageId}
       onSend={onSend} onComposeMessage={onComposeMessage} onAttachmentVisibility={onAttachmentVisibility} /></React.Suspense>}

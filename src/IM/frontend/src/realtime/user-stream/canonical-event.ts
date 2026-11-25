@@ -60,6 +60,10 @@ function isOptionalText(value: unknown): boolean {
   return value === undefined || value === null || typeof value === "string";
 }
 
+function isTaskCardRef(value: unknown): boolean {
+  return isRecord(value) && isText(value.graph_id) && isText(value.node_id);
+}
+
 function isOptionalNonNegativeNumber(value: unknown): boolean {
   return value === undefined
     || value === null
@@ -96,6 +100,12 @@ export function validateCanonicalUserStreamEvent(
   eventType: string,
   payload: Record<string, unknown>
 ): void {
+  if (eventType === "task_graph.changed") {
+    if (!isOptionalText(payload.graph_id) || !isOptionalText(payload.conversation_id)) {
+      malformed(eventType);
+    }
+    return;
+  }
   if (!isCanonicalChatStreamEventType(eventType)) return;
   if (!isText(payload.conversation_id)) malformed(eventType);
   if (eventType === "agent.config.changed") {
@@ -121,6 +131,8 @@ export function validateCanonicalUserStreamEvent(
         || !isText(payload.delivery_status)
         || !isText(payload.created_at)
         || (payload.attachments !== undefined && !Array.isArray(payload.attachments))
+        || (payload.task_cards !== undefined
+          && (!Array.isArray(payload.task_cards) || !payload.task_cards.every(isTaskCardRef)))
         || (payload.thinking !== undefined
           && (!Array.isArray(payload.thinking) || !payload.thinking.every(isThinkingSegment)))
         || (payload.background_returns !== undefined

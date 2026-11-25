@@ -5,12 +5,31 @@ import { changeCapability, fixedTools, type CapabilityAction, type CapabilityBlo
 import { useTranslation } from "../../../i18n";
 import { getAgentCapabilityUsage, type CapabilitySnapshot } from "./im-agent-config-api";
 
-export function capabilityCatalog(caps: CapabilitySnapshot | undefined, mode?: string) {
-  return { features: caps?.features ?? [], tools: caps?.tools.map(x => x.name) ?? [], skills: caps?.skills.map(x => x.name) ?? [], fixed_tools: [...new Set([...(caps?.fixed_tools ?? []), ...fixedTools(mode, "root", false)])] };
+export function capabilityCatalog(caps: CapabilitySnapshot | undefined, mode?: string, personal = false) {
+  const features = (caps?.features ?? []).filter(feature => personal || feature.key !== "proactive_planning");
+  return {
+    features,
+    tools: caps?.tools.map(x => x.name) ?? [],
+    skills: caps?.skills.map(x => x.name) ?? [],
+    fixed_tools: [...new Set([...(caps?.fixed_tools ?? []), ...fixedTools(mode, personal ? "personal" : "root", false)])],
+  };
 }
 
-export function restoreBlockedCapabilities<T extends CapabilityDraft>(draft: T, blocks: CapabilityBlock[], caps: CapabilitySnapshot | undefined): T {
-  let next = { ...draft, features: { ...draft.features }, tool_allowlist: [...(draft.tool_allowlist ?? [])], skills: draft.skills ? [...draft.skills] : draft.skills } as T;
+export function restoreBlockedCapabilities<T extends CapabilityDraft>(
+  draft: T,
+  blocks: CapabilityBlock[],
+  caps: CapabilitySnapshot | undefined,
+  personal = false,
+): T {
+  const hadPersonalFlag = Object.prototype.hasOwnProperty.call(draft, "personal_agent");
+  const effectivePersonal = personal || Boolean(draft.personal_agent);
+  let next = {
+    ...draft,
+    ...(effectivePersonal ? { personal_agent: draft.personal_agent ?? true } : {}),
+    features: { ...draft.features },
+    tool_allowlist: [...(draft.tool_allowlist ?? [])],
+    skills: draft.skills ? [...draft.skills] : draft.skills,
+  } as T;
   for (const block of blocks) {
     if (block.code === "capability_unavailable") continue;
     const { kind, name } = block.target;
@@ -22,8 +41,13 @@ export function restoreBlockedCapabilities<T extends CapabilityDraft>(draft: T, 
       if (mode === "explicit_denylist") next.skills = (next.skills ?? []).filter(item => item !== name);
     }
   }
-  const enabled = caps?.features?.find(feature => next.features?.[feature.key] ?? feature.default_on);
-  if (enabled) next = changeCapability(next, { kind: "feature", name: enabled.key, enabled: true }, capabilityCatalog(caps, next.work_mode)).draft;
+  const catalog = capabilityCatalog(caps, next.work_mode, effectivePersonal);
+  const enabled = catalog.features.find(feature => next.features?.[feature.key] ?? feature.default_on);
+  if (enabled) next = changeCapability(next, { kind: "feature", name: enabled.key, enabled: true }, catalog).draft;
+  if (!hadPersonalFlag && "personal_agent" in next) {
+    const { personal_agent: _personalAgent, ...clean } = next as T & { personal_agent?: boolean };
+    return clean as T;
+  }
   return next;
 }
 
@@ -53,7 +77,13 @@ function CapabilityToast({ message, anchor, stamp }: { message: string; anchor: 
   return createPortal(<div ref={ref} className="im-capability-toast" role="status" aria-live="polite" aria-atomic="true" aria-hidden={!visible} style={{ position: "fixed", zIndex: 100000, ...position, width: "max-content", maxWidth: "min(320px, calc(100vw - 32px))", padding: "8px 12px", borderRadius: 7, fontSize: 13, lineHeight: 1.5, color: "white", background: "#303638", boxShadow: "0 4px 16px #0002", pointerEvents: "none", opacity: visible ? 1 : 0, transition: "opacity 150ms ease" }}>{message}</div>, document.body);
 }
 
-export function useCapabilityEditor<T extends CapabilityDraft | null>(draft: T, setDraft: (value: T | ((current: T) => T)) => void, caps: CapabilitySnapshot | undefined, agentId?: string) {
+export function useCapabilityEditor<T extends CapabilityDraft | null>(
+  draft: T,
+  setDraft: (value: T | ((current: T) => T)) => void,
+  caps: CapabilitySnapshot | undefined,
+  agentId?: string,
+  personal = false,
+) {
   const { t } = useTranslation();
   const latest = useRef(draft); latest.current = draft;
   const [toast, setToast] = useState<{ message: string; anchor: HTMLElement | null; stamp: number } | null>(null);
@@ -88,16 +118,20 @@ export function useCapabilityEditor<T extends CapabilityDraft | null>(draft: T, 
     if (!latest.current || pending.current) return;
     setToast(null);
     const anchor = interactionAnchor.current ?? document.activeElement as HTMLElement | null;
-    let next = latest.current;
+    const effectivePersonal = personal || Boolean(latest.current.personal_agent);
+    let next: CapabilityDraft = effectivePersonal
+      ? { ...latest.current, personal_agent: latest.current.personal_agent ?? true }
+      : latest.current;
+    const catalog = capabilityCatalog(caps, next.work_mode, effectivePersonal);
     const blocks: CapabilityBlock[] = [];
     for (const action of actions) {
-      const result = changeCapability(next, action, capabilityCatalog(caps, next.work_mode));
+      const result = changeCapability(next, action, catalog);
       blocks.push(...result.blocks); next = result.draft;
     }
     const previous = latest.current;
     const skillEnabled = (value: CapabilityDraft, name: string) => value.skills_selection_mode === "explicit_allowlist"
       ? !!value.skills?.includes(name) : value.skills_selection_mode !== "explicit_denylist" || !value.skills?.includes(name);
-    const previousFeatures = { ...Object.fromEntries((caps?.features ?? []).map(feature => [feature.key, feature.default_on])), ...previous.features };
+    const previousFeatures = { ...Object.fromEntries(catalog.features.map(feature => [feature.key, feature.default_on])), ...previous.features };
     const removed = [
       ...Object.keys(previousFeatures).filter(k => previousFeatures[k] && !next.features?.[k]).map(name => ({ kind: "feature" as const, name })),
       ...(previous.tool_allowlist ?? []).filter(k => !next.tool_allowlist?.includes(k)).map(name => ({ kind: "tool" as const, name })),
@@ -123,7 +157,8 @@ export function useCapabilityEditor<T extends CapabilityDraft | null>(draft: T, 
   }
   function tools(names: string[]) {
     if (!latest.current) return;
-    const selected = [...new Set([...(latest.current.tool_allowlist ?? []), ...capabilityCatalog(caps, latest.current.work_mode).fixed_tools])];
+    const effectivePersonal = personal || Boolean(latest.current.personal_agent);
+    const selected = [...new Set([...(latest.current.tool_allowlist ?? []), ...capabilityCatalog(caps, latest.current.work_mode, effectivePersonal).fixed_tools])];
     void apply([...new Set([...selected, ...names])].filter(n => selected.includes(n) !== names.includes(n)).map(name => ({ kind: "tool", name, enabled: names.includes(name) })));
   }
   function skills(disabled: string[]) {
@@ -136,7 +171,7 @@ export function useCapabilityEditor<T extends CapabilityDraft | null>(draft: T, 
   function reject(error: unknown) {
     const blocks = (error as { blocks?: CapabilityBlock[] })?.blocks;
     if (!blocks?.length) return false;
-    setDraft(current => current ? restoreBlockedCapabilities(current, blocks, caps) : current);
+    setDraft(current => current ? restoreBlockedCapabilities(current, blocks, caps, personal) : current);
     show(blocks); return true;
   }
   return { apply, tools, skills, reject, toast: toast ? <CapabilityToast {...toast} /> : null };

@@ -947,6 +947,15 @@ export function ChatWorkspacePage() {
           return;
         }
         if (event.eventType === "agent.config.changed") void queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
+        if (
+          event.eventType === "task_graph.changed"
+          || (event.eventType === "message.created"
+            && typeof event.payload.system_notice === "object"
+            && event.payload.system_notice !== null
+            && (event.payload.system_notice as { kind?: unknown }).kind === "task_graph")
+        ) {
+          void queryClient.invalidateQueries({ queryKey: ["task-graphs"] });
+        }
         if (event.eventType === 'node.update_changed') void queryClient.invalidateQueries({queryKey:['chat','nodes']});
         if ((['node.update_wait_changed', 'relay.delivery_receipt', 'message.receipts_changed'].includes(event.eventType)) && event.payload.conversation_id === conversationIdRef.current) {
           void queryClient.invalidateQueries({queryKey:['chat','messages',conversationIdRef.current]});

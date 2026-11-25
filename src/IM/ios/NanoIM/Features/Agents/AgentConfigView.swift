@@ -376,10 +376,15 @@ struct AgentEditorFields: View {
         }
         Section {
             DisclosureGroup(L("运行特性", "Runtime features")) {
-                ForEach((capabilities?.features ?? []).filter { !["memory_curation", "skill_creation"].contains($0.key) }) { feature in
-                    if feature.key == "dreaming" { Text(L("定期更新长期记忆。关闭后仍可读取已有记忆，也可请求手动整理。", "Periodically update long-term memory. When off, existing memories remain readable and you can request manual organization.")).font(.caption).foregroundStyle(.secondary) }
-                    Toggle(agentFeatureName(feature.key), isOn: Binding(get: { draft.features[feature.key] ?? feature.default_on }, set: { change(.init(kind: "feature", name: feature.key, enabled: $0)) }))
-                        .capabilityAnchor("feature:" + feature.key)
+                ForEach((capabilities?.features ?? []).filter { !["memory_curation", "skill_creation"].contains($0.key) && (personal || $0.key != "proactive_planning") }) { feature in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Toggle(agentFeatureName(feature.key), isOn: Binding(get: { draft.isFeatureEnabled(feature) }, set: { change(.init(kind: "feature", name: feature.key, enabled: $0)) }))
+                            .capabilityAnchor("feature:" + feature.key)
+                        if let subtitle = agentFeatureSubtitle(feature.key, personal: personal) {
+                            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
                 }
             }
         }
@@ -404,10 +409,27 @@ func agentFeatureName(_ key: String) -> String {
     switch key {
     case "intelligent_ui": return L("交互式回复", "Intelligent UI")
     case "task_graph": return L("任务图", "Task graphs")
+    case "proactive_planning": return L("主动筹划", "Proactive planning")
     case "dreaming": return L("Dreaming · 自动整理记忆", "Dreaming · Automatic memory organization")
     case "cron_scheduling": return L("定时任务", "Scheduled jobs")
     case "heartbeat": return L("心跳", "Heartbeat")
     default: return key
+    }
+}
+
+func agentFeatureSubtitle(_ key: String, personal: Bool = false) -> String? {
+    switch key {
+    case "proactive_planning":
+        return L("在对话安静后静默复盘目标进展、建立「待拍板」提议卡，并在合适时机按需提供准备要点。关闭后停止自动复盘与提议立卡；你明确交办的任务与自行设定的定时提醒照常运行。",
+                 "Silently reviews goal progress after quiet periods, proposes candidate cards, and prepares notes when helpful. Turning this off stops automatic quiet reviews and proposals; tasks and reminders you explicitly set continue to run.")
+    case "task_graph" where personal:
+        return L("承载单卡事项与长线目标脉络（主动筹划开启时需保持启用）。",
+                 "Powers single-card tasks and multi-stage goal graphs (required while Proactive planning is on).")
+    case "dreaming":
+        return L("定期更新长期记忆。关闭后仍可读取已有记忆，也可请求手动整理。",
+                 "Periodically update long-term memory. When off, existing memories remain readable and you can request manual organization.")
+    default:
+        return nil
     }
 }
 
