@@ -207,7 +207,7 @@ async function runStep1() {
       headers: { 'x-crewden-reload-token': hs.reload_token },
     }).catch(() => null);
     return r?.ok ? hs : null;
-  }, 60_000, 400);
+  }, 240_000, 500);
   const capCookie = await obtainCapCookie(hostState);
 
   // Server switch round-trip (:18080 -> :18083 -> :18080)

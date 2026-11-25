@@ -41,19 +41,24 @@ $savedPath = $env:PATH
 $hostProc = $null
 try {
     $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot;$env:SystemRoot\System32\Wbem;$env:SystemRoot\System32\WindowsPowerShell\v1.0"
-    $hostProc = Start-Process -FilePath $installedExe -ArgumentList '--isolated-root', $isoRoot, '--headless-host' -PassThru
+    $errLog = Join-Path $isoRoot 'host-stderr.log'
+    $hostProc = Start-Process -FilePath $installedExe -ArgumentList '--isolated-root', $isoRoot, '--headless-host' -RedirectStandardError $errLog -PassThru
     $stateFile = Join-Path $isoRoot 'desktop\host-state.json'
     $state = $null
-    for ($i = 0; $i -lt 120; $i++) {
+    for ($i = 0; $i -lt 300; $i++) {
+        if ($hostProc.HasExited) {
+            $errText = if (Test-Path $errLog) { Get-Content -Raw $errLog } else { '' }
+            throw "CrewdenDesktop headless host exited prematurely ($($hostProc.ExitCode)): $errText"
+        }
         if (Test-Path $stateFile) {
             try {
                 $candidate = Get-Content -Raw $stateFile | ConvertFrom-Json
                 if ($candidate.ready -and $candidate.port) { $state = $candidate; break }
             } catch {}
         }
-        Start-Sleep -Milliseconds 500
+        Start-Sleep -Seconds 1
     }
-    if (!$state) { throw 'CrewdenDesktop headless host did not become ready from seed archives' }
+    if (!$state) { throw 'CrewdenDesktop headless host did not become ready from seed archives within 300s' }
 
     $status = Invoke-RestMethod -Headers @{ 'x-crewden-reload-token' = $state.reload_token } -Uri "http://127.0.0.1:$($state.port)/desktop/internal/status"
     if (!$status.ready) { throw 'Desktop internal status not ready' }

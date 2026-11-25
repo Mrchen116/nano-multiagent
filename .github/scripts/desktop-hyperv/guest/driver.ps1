@@ -142,15 +142,20 @@ try {
 
         $bootProc = Start-Process -FilePath $desktopExe -ArgumentList '--im-origin', 'http://127.0.0.1:18080' -PassThru
         $hostStatePath = Join-Path $env:LOCALAPPDATA 'CrewdenDesktop\host-state.json'
-        for ($i = 0; $i -lt 120; $i++) {
+        $hostReady = $false
+        for ($i = 0; $i -lt 360; $i++) {
+            if ($bootProc.HasExited) {
+                throw "CrewdenDesktop.exe exited prematurely during first-boot seed unpack ($($bootProc.ExitCode))"
+            }
             if (Test-Path $hostStatePath) {
                 try {
                     $hs = Get-Content -Raw $hostStatePath | ConvertFrom-Json
-                    if ($hs.ready) { break }
+                    if ($hs.ready) { $hostReady = $true; break }
                 } catch {}
             }
-            Start-Sleep -Milliseconds 500
+            Start-Sleep -Seconds 1
         }
+        if (!$hostReady) { throw 'CrewdenDesktop.exe did not finish first-boot seed unpack within 360s' }
         Start-Sleep -Seconds 4
         Capture-Screen "$edition-01-login-gui.png"
         & $desktopExe '--stop'
