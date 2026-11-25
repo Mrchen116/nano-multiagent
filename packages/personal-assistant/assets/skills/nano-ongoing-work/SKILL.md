@@ -39,7 +39,7 @@ Confirm the intended outcome, active constraints, and already-completed evidence
 | Background worker | Keep the worker ID; its completion/report automatically wakes the parent—never poll in a loop. |
 | Human reply or decision | Deliver clear findings/options first, then set `status="waiting"` with `wait: { reason, question, asked_user_id }` and **no** `schedule_id`. Incoming messages wake you naturally—do not set nagging timers. |
 | External event with no fixed clock | Record `status="waiting"` with `wait: { reason }` (no `schedule_id`) or rely on an already-enabled `Heartbeat` check in `.nanoassistant/HEARTBEAT.md` when periodic scanning was authorized. |
-| Specific future date/time or cross-day follow-up | Create a native `schedule` (`schedule_create`, up to 180 days out) for the actual milestone or follow-up time, then record `status="waiting"` with `wait: { reason, schedule_id }`. Never invent 1-hour busy-wait loops for multi-day deadlines. |
+| Specific future date/time or cross-day follow-up | Ensure the task is assigned to you (`assignee.type="agent"`), create a native `schedule` (`schedule_create`, up to 180 days out) for the actual milestone or follow-up time, then record `status="waiting"` with `wait: { reason, schedule_id }`. Never invent 1-hour busy-wait loops for multi-day deadlines. |
 
 - When a scheduled check or message wakes you, read the latest Inbox / conversation messages and task state first; if the item was already resolved or superseded, update or close the task quietly without sending redundant follow-ups.
 

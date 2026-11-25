@@ -396,6 +396,7 @@ struct TaskFocusCursors: Codable, Sendable, Hashable {
     var stashed: String? = nil
     var active: String? = nil
     var goals: String? = nil
+    var completed: String? = nil
 }
 
 /// Aggregated response for `GET /im/v1/task-graphs/focus`.
@@ -404,12 +405,13 @@ struct TaskFocusResponse: Codable, Sendable {
     var stashed: [TaskSummary]
     var active: [TaskSummary]
     var goals: [TaskSummary]
+    var completed: [TaskSummary]
     var completed_count: Int
     var counts: TaskFocusCounts
     var next_cursors: TaskFocusCursors
 
     private enum CodingKeys: String, CodingKey {
-        case needs_you, stashed, active, goals, completed_count, counts, next_cursors
+        case needs_you, stashed, active, goals, completed, completed_count, counts, next_cursors
     }
 
     init(from decoder: Decoder) throws {
@@ -418,11 +420,13 @@ struct TaskFocusResponse: Codable, Sendable {
         let stash = try c.decodeIfPresent([TaskSummary].self, forKey: .stashed) ?? []
         let act = try c.decodeIfPresent([TaskSummary].self, forKey: .active) ?? []
         let gls = try c.decodeIfPresent([TaskSummary].self, forKey: .goals) ?? []
-        let comp = try c.decodeIfPresent(Int.self, forKey: .completed_count) ?? 0
+        let compItems = try c.decodeIfPresent([TaskSummary].self, forKey: .completed) ?? []
+        let comp = try c.decodeIfPresent(Int.self, forKey: .completed_count) ?? compItems.count
         needs_you = needs
         stashed = stash
         active = act
         goals = gls
+        completed = compItems
         completed_count = comp
         counts = try c.decodeIfPresent(TaskFocusCounts.self, forKey: .counts)
             ?? TaskFocusCounts(needs_you: needs.count, stashed: stash.count, active: act.count, goals: gls.count, completed: comp)

@@ -47,10 +47,23 @@ export function cloneComposerSnapshot(live: ComposerSnapshot): ComposerSnapshot 
 }
 
 const stores = new Map<string, Map<string, ComposerSnapshot>>();
+const readingStores = new Map<string, Map<string, { anchorId: string; offset: number; latestId: string; latestAt: number }>>();
 const sendingIds = new Set<string>();
 const revokedConversations = new WeakMap<Map<string, ComposerSnapshot>, Set<string>>();
 const listeners = new WeakMap<Map<string, ComposerSnapshot>, Set<(conversationId: string) => void>>();
 const owners = new WeakMap<Map<string, ComposerSnapshot>, string>();
+
+export function readingPositionStoreFor(
+  userId: string | null,
+): Map<string, { anchorId: string; offset: number; latestId: string; latestAt: number }> {
+  const key = userId ?? "anon";
+  let store = readingStores.get(key);
+  if (!store) {
+    store = new Map();
+    readingStores.set(key, store);
+  }
+  return store;
+}
 
 export function composerStoreFor(userId: string | null): Map<string, ComposerSnapshot> {
   const key = userId ?? "anon";
@@ -105,13 +118,17 @@ export function isComposerSending(conversationId: string): boolean {
 /** 测试之间清掉会话草稿，避免固定 conversation id 把上一例的输入框带过来。 */
 export function resetComposerStores(): void {
   stores.clear();
+  readingStores.clear();
   sendingIds.clear();
 }
 
 /** Reject late upload/unmount writes after this person loses the conversation. */
 export function forgetComposerConversation(store: Map<string, ComposerSnapshot>, conversationId: string): void {
   const owner = owners.get(store);
-  if (owner) void forgetSendAttempts(owner,conversationId).catch(() => {});
+  if (owner) {
+    readingStores.get(owner)?.delete(conversationId);
+    void forgetSendAttempts(owner,conversationId).catch(() => {});
+  }
   const revoked = revokedConversations.get(store) ?? new Set<string>();
   revoked.add(conversationId);
   revokedConversations.set(store, revoked);
@@ -128,6 +145,7 @@ export function restoreComposerMembership(store: Map<string, ComposerSnapshot>, 
 /** Remove server-backed and local drafts on sign-out without allowing late writes to resurrect them. */
 export function forgetComposerUser(userId: string): void {
   void forgetSendAttempts(userId).catch(() => {});
+  readingStores.delete(userId);
   const store = stores.get(userId);
   if (!store) return;
   for (const id of store.keys()) forgetComposerConversation(store, id);

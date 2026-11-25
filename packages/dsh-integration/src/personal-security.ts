@@ -50,7 +50,7 @@ type DisclosureFacts = {
   owner_user_id: string;
   recipient: {conversation_id:string;name:string;conversation_type:string;channel:string;additional_readers?:'eligible_company_members_outside_group';
     members:{id:string;user_id:string;display_name:string;type:string;is_stale?:boolean|null}[]};
-  payload: {content:string;in_thread_of?:string;reply_to?:unknown;attachments?:{url:string}[];attachment_snapshots?:unknown[];interactive?:MessageInteractive;task_cards?:{graph_id:string;node_id:string}[];representation?:'self'|'owner';
+  payload: {content:string;in_thread_of?:string;reply_to?:unknown;attachments?:{url:string}[];attachment_snapshots?:unknown[];interactive?:MessageInteractive;task_cards?:{graph_id:string;node_id:string}[];task_card_summaries?:Record<string,unknown>[];representation?:'self'|'owner';
     task?:{action:string;arguments:Record<string,unknown>;source_message_id?:string};
     transport?:{kind:string;destination:Record<string,unknown>;card?:unknown}};
   policy?: {excluded_conversation_ids?:string[]};
@@ -83,11 +83,13 @@ export function personalReviewAction(evidence: Record<string,unknown>): Record<s
       ...(payload.in_thread_of?{in_thread_of:payload.in_thread_of}:{}),
       ...(payload.reply_to?{reply_to:payload.reply_to}:{}),
       ...(payload.task_cards?.length?{task_cards:payload.task_cards}:{}),
+      ...(payload.task_card_summaries?.length?{task_card_summaries:payload.task_card_summaries}:{}),
       ...(payload.interactive?{interactive:modelInteractiveContent(payload.interactive)}:{}),
       ...(payload.interactive&&payload.attachments?.length?{attachment_positions:payload.attachments.map(item=>item.url)}:{}),
       ...(payload.attachment_snapshots?.length?{attachments:payload.attachment_snapshots.map(row=>{const {base64,...manifest}=row as Record<string,unknown>;return manifest;})}:{}),
       ...(transport?.card?{card:transport.card}:{})};
   if(payload.attachments?.length&&!payload.attachment_snapshots?.length)throw new Error('Missing frozen attachment contents');
+  if(payload.task_cards?.length&&!payload.task_card_summaries?.length)throw new Error('Missing frozen task card contents');
   const restrictions:Record<string,unknown>={};
   if(!Array.isArray(policy?.excluded_conversation_ids))restrictions.source_exclusions='unknown';
   else if(policy.excluded_conversation_ids.length)restrictions.excluded_conversation_ids=policy.excluded_conversation_ids;

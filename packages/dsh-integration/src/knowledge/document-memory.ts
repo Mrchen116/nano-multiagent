@@ -213,8 +213,8 @@ export class DocumentMemory {
     const config = [...this.options.configs.values()].find(config => config.agentId === agentId);
     if (config && config.knowledge?.memoryMode !== 'legacy') (await this.forConfig(config)).markSourcesPending();
   }
-  /** Return the current MEMORY.md body when Dreaming updated it after this context window's initial snapshot. */
-  async updatedEntrySinceWindowStart(agent: Agent): Promise<string | undefined> {
+  /** Return the current MEMORY.md body and completeness flag when Dreaming updated it after this context window's initial snapshot. */
+  async updatedEntrySinceWindowStart(agent: Agent): Promise<{ body: string; complete: boolean } | undefined> {
     const config = this.options.configOf(agent);
     if (!config || config.knowledge?.memoryMode === 'legacy') return undefined;
     const documents = await this.forConfig(config);
@@ -223,7 +223,7 @@ export class DocumentMemory {
     if (windowEntry !== undefined && currentRendered === windowEntry) return undefined;
     const view = await documents.context({ includePreview: true });
     const body = (view.entry ?? view.entryPreview ?? '').trim();
-    return body ? body : undefined;
+    return body ? { body, complete: view.entry !== undefined } : undefined;
   }
   async stop() { await Promise.allSettled(this.pending); for (const library of this.libraries.values()) await (await library.value).close(); this.libraries.clear(); }
 }

@@ -107,9 +107,16 @@ export class PersonalActions {
       const graph=one(this.db,'SELECT revision,conversation_id FROM task_graphs WHERE graph_id=?',frozen.task.arguments.graph_id);
       if(!graph||graph.revision!==evidence.task_revision||graph.conversation_id!==op.conversation_id)fail(409,'task_revision_changed');
     }
+    const frozenCardSummaries = new Map<string, Row>(
+      ((frozen.task_card_summaries ?? []) as Row[]).map(s => [`${s.graph_id}:${s.node_id}`, s]),
+    );
     for(const card of (frozen.task_cards ?? []) as TaskCardRef[]) {
-      const graph=one(this.db,'SELECT conversation_id FROM task_graphs WHERE graph_id=?',card.graph_id);
+      const graph=one(this.db,'SELECT conversation_id, revision, document_json FROM task_graphs WHERE graph_id=?',card.graph_id);
       if(!graph||!this.pa.sourceAllowed(b,graph.conversation_id,'read'))fail(409,'source_revoked');
+      const summary = frozenCardSummaries.get(`${card.graph_id}:${card.node_id}`);
+      if(summary?.graph_revision !== undefined && graph.revision !== summary.graph_revision)fail(409,'task_revision_changed');
+      const doc = JSON.parse(graph.document_json);
+      if(!Array.isArray(doc.nodes) || !doc.nodes.some((n: Row) => n.id === card.node_id))fail(409,'task_revision_changed');
     }
     if(this.pa.authorizationGuard(b)!==evidence.owner_guard)fail(409,'owner_authorization_changed');
     if(frozen.incident_ref)this.securityNotice(b,frozen.incident_ref,op.conversation_id,frozen.content);
@@ -176,9 +183,20 @@ export class PersonalActions {
     const threadRoot=previous ? oldPayload.in_thread_of : threadRootOrFail(this.db,args.conversation_id,args.in_thread_of);
     assertThreadQuote(this.db,args.conversation_id,threadRoot,replyTo?.message_id);
     const taskCardSummaries = taskCards?.map(ref => {
-      const row = one(this.db, 'SELECT conversation_id, document_json FROM task_graphs WHERE graph_id=?', ref.graph_id)!;
-      const node = JSON.parse(row.document_json).nodes.find((n: Row) => n.id === ref.node_id)!;
-      return { ...ref, conversation_id: row.conversation_id, title: node.title, status: node.status };
+      const row = one(this.db, 'SELECT conversation_id, revision, document_json FROM task_graphs WHERE graph_id=?', ref.graph_id)!;
+      const doc = JSON.parse(row.document_json);
+      const node = doc.nodes.find((n: Row) => n.id === ref.node_id)!;
+      return {
+        ...ref,
+        conversation_id: row.conversation_id,
+        graph_revision: row.revision,
+        title: node.title,
+        status: node.status,
+        ...(node.description ? { description: node.description } : {}),
+        ...(node.result ? { result: node.result } : {}),
+        ...(node.proposal ? { proposal: node.proposal } : {}),
+        ...(node.wait ? { wait: node.wait } : {}),
+      };
     });
     const payload={...(threadRoot?{in_thread_of:threadRoot}:{}),...(replyTo?{reply_to:replyTo}:{}),representation:args.representation??'self',content:args.content,attachments:attachments.items,attachment_snapshots:attachments.snapshots,...(taskCards?.length?{task_cards:taskCards,task_card_summaries:taskCardSummaries}:{}),...(args.task?{task:args.task}:{}),...(interactive?{interactive}:{}),...(securityNotice?{incident_ref:securityNotice.id}:{}),...(args.transport?{transport:this.transport(b,args.conversation_id,args.transport)}:{})}, hash=digest(payload);
     if(payload.transport && this.pa.ownerConversation(b,args.conversation_id))return {owner_private:true,conversation_id:args.conversation_id};
@@ -193,8 +211,11 @@ export class PersonalActions {
     }
     const policy=one(this.db,'SELECT * FROM pa_policies WHERE binding_id=?',b.binding_id)!;
     // The runtime supplies actual read bodies. IM contributes only current access facts.
-    const sources=all(this.db,'SELECT DISTINCT conversation_id FROM pa_source_reads WHERE binding_id=? ORDER BY conversation_id',b.binding_id)
-      .map(source=>({...source,allowed:this.pa.sourceAllowed(b,source.conversation_id)}));
+    const sourceIds = new Set<string>([
+      ...all(this.db,'SELECT DISTINCT conversation_id FROM pa_source_reads WHERE binding_id=? ORDER BY conversation_id',b.binding_id).map(r => String(r.conversation_id)),
+      ...(taskCardSummaries?.map(s => String(s.conversation_id)) ?? []),
+    ]);
+    const sources = [...sourceIds].sort().map(conversation_id => ({ conversation_id, allowed: this.pa.sourceAllowed(b, conversation_id) }));
     const chat=one(this.db,'SELECT id,title,type,external_source,space_id,visibility FROM conversations WHERE id=?',args.conversation_id)!;
     const evidence={lifecycle_revision:lifecycle(this.db,b.agent_id).revision,agent_profile_version:one(this.db,'SELECT profile_version FROM agent_profiles WHERE agent_id=?',b.agent_id)!.profile_version,
       owner_guard:this.pa.authorizationGuard(b),policy:this.pa.policy(b.binding_id),

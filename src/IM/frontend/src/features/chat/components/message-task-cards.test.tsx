@@ -165,7 +165,7 @@ describe("embedded live task_cards in MessagePane and stream sync", () => {
     // Clicking the card navigates to panorama with node & return_chat
     await userEvent.click(card);
     expect(router.state.location.pathname).toBe("/tasks/tg-1");
-    expect(router.state.location.search).toBe("?scope=root&node=n-prop&return_chat=conv-pa");
+    expect(router.state.location.search).toBe("?scope=root&node=n-prop&return_chat=conv-pa&return_message=m-1");
   });
 
   it("refreshes embedded task_cards immediately when task_graph.changed arrives and preserves task_cards in reducer", async () => {

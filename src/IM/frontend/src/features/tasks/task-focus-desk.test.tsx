@@ -160,7 +160,7 @@ beforeEach(() => {
     ],
     completed_count: 1,
     counts: { needs_you: 2, stashed: 1, active: 1, goals: 1, completed: 1 },
-    next_cursors: { needs_you: null, stashed: null, active: null, goals: null },
+    next_cursors: { needs_you: null, stashed: null, active: null, goals: null, completed: null },
   };
 
   panoramaGraph = {
@@ -226,6 +226,12 @@ beforeEach(() => {
         });
       }
       if (url.includes("/task-graphs/focus")) {
+        if (url.includes("section=completed")) {
+          return Response.json({
+            ...focusPayload,
+            completed: [makeSummary({ graph_id: "tg-done", title: "开通燃气账户", status: "done" })],
+          });
+        }
         return Response.json(focusPayload);
       }
       if (url.includes("/task-graphs/tg-goal-1")) {

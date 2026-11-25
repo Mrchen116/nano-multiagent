@@ -159,7 +159,7 @@ export type TaskFocusGoalItem = TaskGraphSummary & {
   stage_nodes?: TaskGoalStageSummary[];
 };
 
-export type TaskFocusSection = "needs_you" | "stashed" | "active" | "goals";
+export type TaskFocusSection = "needs_you" | "stashed" | "active" | "goals" | "completed";
 export type TaskFocusScope = "mine" | "assignee" | "all";
 
 export type TaskFocusResponse = {
@@ -167,6 +167,7 @@ export type TaskFocusResponse = {
   stashed: TaskGraphSummary[];
   active: TaskGraphSummary[];
   goals: TaskFocusGoalItem[];
+  completed?: TaskGraphSummary[];
   completed_count: number;
   counts: {
     needs_you: number;
@@ -287,12 +288,14 @@ export async function getTaskFocus(options: TaskFocusOptions, signal?: AbortSign
   const stashed = (raw.stashed ?? []).map(normalizeCard);
   const active = (raw.active ?? []).map(normalizeCard);
   const goals = (raw.goals ?? []).map(normalizeCard);
+  const completed = (raw.completed ?? []).map(normalizeCard);
   const completedCount = raw.completed_count ?? raw.counts?.completed ?? 0;
   return {
     needs_you: needsYou,
     stashed,
     active,
     goals,
+    completed,
     completed_count: completedCount,
     counts: {
       needs_you: raw.counts?.needs_you ?? needsYou.length,
@@ -306,6 +309,7 @@ export async function getTaskFocus(options: TaskFocusOptions, signal?: AbortSign
       stashed: raw.next_cursors?.stashed ?? null,
       active: raw.next_cursors?.active ?? null,
       goals: raw.next_cursors?.goals ?? null,
+      completed: raw.next_cursors?.completed ?? null,
     },
   };
 }
@@ -345,12 +349,12 @@ function useTaskGraphStreamInvalidation() {
   }, [client]);
 }
 
-export function useTaskFocus(options: TaskFocusOptions) {
+export function useTaskFocus(options: TaskFocusOptions, extraEnabled = true) {
   const userId = useAuthStore(state => state.user?.id);
   const client = useQueryClient();
   useTaskGraphStreamInvalidation();
   const scope = options.scope ?? "mine";
-  const enabled = scope !== "assignee" || Boolean(options.assignee_type && options.assignee_id);
+  const enabled = extraEnabled && (scope !== "assignee" || Boolean(options.assignee_type && options.assignee_id));
   return useQuery({
     queryKey: ["task-graphs", userId, "focus", options],
     enabled,
@@ -433,11 +437,18 @@ export function useTaskGraph(graphId: string | undefined) {
   });
 }
 
-export function taskGraphUrl(graphId: string, scope?: string | null, node?: string | null, returnChat?: string | null) {
+export function taskGraphUrl(
+  graphId: string,
+  scope?: string | null,
+  node?: string | null,
+  returnChat?: string | null,
+  returnMessage?: string | null,
+) {
   const params = new URLSearchParams();
   if (scope) params.set("scope", scope);
   if (node) params.set("node", node);
   if (returnChat) params.set("return_chat", returnChat);
+  if (returnMessage) params.set("return_message", returnMessage);
   return `/tasks/${encodeURIComponent(graphId)}${params.size ? `?${params}` : ""}`;
 }
 

@@ -24,7 +24,7 @@ it.each(['resume','stopped','background'])('recovers FS progress and new Inbox i
   return{type:'ack',payload:{ok:true,result:{target:p.target,name:'Owner',type:'direct',channel:'web',members:[{type:'user',user_id:'owner'}]}}};
  }}});
  supervisor.handle('product.call',value=>product.call(value as ProductCall));supervisor.handle('model.check',()=>({published:false}));
- supervisor.handle('product.task_context.prepare',()=>({messages:[],revoked:[]}));supervisor.handle('product.task_context.commit',()=>null);supervisor.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[],repair_task_ids:[]}));
+ supervisor.handle('product.task_context.prepare',()=>({messages:[],revoked:[]}));supervisor.handle('product.task_context.commit',()=>null);supervisor.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[]}));
  const input=(id:string):RelayInput=>({agent_id:'a',conversation_id:'dm',relay_task_id:id,idempotency_key:id,metadata:{conversation_type:'direct'},message:{id,content:'BODY_'+id,sender_type:'user',sender_user_id:'owner',attachments:[]}});
  const respond=(index:number,read=false)=>requests[index]!.response.end(JSON.stringify(read?[{type:'block-end',index:0,block:{type:'tool-call',id:'read-'+index,name:'inbox',arguments:JSON.stringify({action:'read',target:'dm'})}},{type:'finish',reason:{kind:'tool-calls'}}]:[{type:'block-end',index:0,block:{type:'text',text:'Completed original task.'}},{type:'finish',reason:{kind:'stop'}}]));
  try {

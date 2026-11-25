@@ -416,7 +416,7 @@ export class GlobalAgent {
     const taskContext=isTaskNotice&&notice.attention_actor_ids?.includes(config.agentId)===true;
     const attention = !unaddressedControl && !isTaskNotice && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
     if(taskContext)input={...input,metadata:{...input.metadata,task_context:true}};
-    if(this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
+    if((isTaskNotice && !taskContext) || this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
     const high=!unaddressedControl && !isTaskNotice && chatDelivery(input,config,this.options.ownerId)==='high';
     const nowMs = this.options.clockNow?.() ?? Date.now();
     if (config.personal && input.metadata.personal_is_owner !== true && input.metadata.personal_delivery === 'participant') {

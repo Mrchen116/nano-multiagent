@@ -1292,9 +1292,10 @@ export class TaskGraphService {
       stashed: [],
       active: [],
       goals: [],
+      completed: [],
       completed_count: 0,
       counts: { needs_you: 0, stashed: 0, active: 0, goals: 0, completed: 0 },
-      next_cursors: { needs_you: null, stashed: null, active: null, goals: null },
+      next_cursors: { needs_you: null, stashed: null, active: null, goals: null, completed: null },
     };
     if (!spaces.length) return empty;
     const query = text(args.query ?? "", "query", 240, true).trim().toLowerCase();
@@ -1310,8 +1311,8 @@ export class TaskGraphService {
       args.conversation_id === undefined ? null : text(args.conversation_id, "conversation_id");
     const sectionFilter =
       args.section === undefined ? null : text(args.section, "section", 32);
-    if (sectionFilter && !["needs_you", "stashed", "active", "goals"].includes(sectionFilter))
-      fail("invalid_arguments", "section must be needs_you, stashed, active or goals");
+    if (sectionFilter && !["needs_you", "stashed", "active", "goals", "completed"].includes(sectionFilter))
+      fail("invalid_arguments", "section must be needs_you, stashed, active, goals or completed");
     let cursorAfter: Obj | undefined;
     const cursorIdentity = { user, query, scope, targetAssignee, conversationId, section: sectionFilter };
     if (args.cursor != null) {
@@ -1344,7 +1345,7 @@ export class TaskGraphService {
     const stashed: Obj[] = [];
     const active: Obj[] = [];
     const goals: Obj[] = [];
-    let completedCount = 0;
+    const completed: Obj[] = [];
     const matchesQuery = (d: Obj, n: Obj, root: Obj) =>
       !query ||
       String(n.title ?? "").toLowerCase().includes(query) ||
@@ -1402,7 +1403,9 @@ export class TaskGraphService {
               : scope === "assignee"
                 ? sameActor(n.assignee, targetAssignee)
                 : isPersonalChat || sameActor(n.assignee, userActor) || sameActor(n.created_by, userActor);
-          if (completedInScope && matchesQuery(d, n, root)) completedCount++;
+          if (completedInScope && matchesQuery(d, n, root)) {
+            completed.push(this.projectNodeCard(d, n, user, actor, conversation));
+          }
           continue;
         }
         if (!matchesQuery(d, n, root)) continue;
@@ -1455,7 +1458,7 @@ export class TaskGraphService {
               ? true
               : scope === "assignee"
                 ? sameActor(n.assignee, targetAssignee)
-                : isPersonalChat || sameActor(n.assignee, userActor);
+                : isPersonalChat || sameActor(n.assignee, userActor) || (!n.assignee && sameActor(n.created_by, userActor));
           if (activeInScope) active.push(this.projectNodeCard(d, n, user, actor, conversation));
         }
       }
@@ -1472,6 +1475,8 @@ export class TaskGraphService {
     sortCards(stashed);
     sortCards(active);
     sortCards(goals);
+    sortCards(completed);
+    const completedCount = completed.length;
 
     const paginate = (sectionName: string, arr: Obj[]) => {
       const filteredArr =
@@ -1502,12 +1507,14 @@ export class TaskGraphService {
     const pStashed = paginate("stashed", stashed);
     const pActive = paginate("active", active);
     const pGoals = paginate("goals", goals);
+    const pCompleted = sectionFilter === "completed" ? paginate("completed", completed) : { page: [], next: null };
 
     return {
       needs_you: pNeeds.page,
       stashed: pStashed.page,
       active: pActive.page,
       goals: pGoals.page,
+      completed: pCompleted.page,
       completed_count: completedCount,
       counts: {
         needs_you: needsYou.length,
@@ -1521,6 +1528,7 @@ export class TaskGraphService {
         stashed: pStashed.next,
         active: pActive.next,
         goals: pGoals.next,
+        completed: pCompleted.next,
       },
     };
   }

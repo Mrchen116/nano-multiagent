@@ -266,7 +266,7 @@ export function apply(ctx) {
     const rawCalls = (await readFile(join(home, 'llm-calls.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     const paCalls = rawCalls.filter(call => call.sessionId === 'pa-root');
     const nightlyCall = paCalls.find(call => JSON.stringify(call.messages).includes('<proactive-nightly-wake local_time='));
-    expect(JSON.stringify(nightlyCall.messages)).toContain('<updated-formal-memory>');
+    expect(JSON.stringify(nightlyCall.messages)).toContain('<updated-formal-memory complete=\\"true\\">');
     expect(JSON.stringify(nightlyCall.messages)).toContain('keep marathon training background-only');
 
     const morningCall = paCalls.at(-1);

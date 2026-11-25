@@ -12,7 +12,7 @@ interface Evidence {inputId:string;content:unknown[];turn:number;consumedSeq:num
 interface NativeMessage {id:string;role:string;content:ContentBlock[];source?:{kind:string;channel?:string;messageId?:string;conversationId?:string}}
 interface ProviderCall {sessionId:string;messages:NativeMessage[]}
 interface Observation {status:string;events:{type:string;seq:number;data:any}[]}
-const empty:TaskExecutionSnapshot={kind:'quiescent',tasks:[],repair_task_ids:[]};
+const empty:TaskExecutionSnapshot={kind:'quiescent',tasks:[]};
 
 function original(inputId:string,content:string,humanControl?:{action:string;actor_id:string;at:string}) : Original {
   const event={message_id:inputId,conversation_id:'fixed-task-chat',event_time:'2026-10-30T12:00:00Z',
@@ -24,9 +24,12 @@ function original(inputId:string,content:string,humanControl?:{action:string;act
 }
 
 function doing(resume?:{actor_id:string;at:string;revision:number}):TaskExecutionSnapshot {
-  return {kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Current Task',status:'doing',revision:resume?.revision??1,
-    updated_at:resume?.at??'2026-10-30T12:00:00Z',conversation:{id:'fixed-task-chat'},relative_url:'/tasks/g',
-    ...(resume?{resume_request:resume}:{})}],repair_task_ids:[]};
+  const rev=resume?.revision??1;
+  const at=resume?.at??'2026-10-30T12:00:00Z';
+  return {kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Current Task',status:'doing',revision:rev,
+    updated_at:at,unwoken_doing:true,doing_wake:{revision:rev,at,actor:{type:'user',id:resume?.actor_id??'o'},assignee_id:'a'},
+    conversation:{id:'fixed-task-chat'},relative_url:'/tasks/g',
+    ...(resume?{resume_request:resume}:{})}]} ;
 }
 
 // Intercept only the provider transport; admission, original messages, history and restart remain native.
@@ -48,6 +51,7 @@ export function apply(ctx){const attempted=new Set();ctx.on('llm/stream',async f
   const client=()=>{
     const current=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});
     current.rpc.handle('product.call',()=>{state.productCalls++;return {ok:true,result:{}};});
+    current.rpc.handle('product.task_execution.ack',()=>null);
     current.rpc.handle('product.task_execution.snapshot',async()=>{state.snapshotReads++;return state.completeAfter!==undefined&&(await calls()).length>=state.completeAfter?empty:state.snapshot;});
     current.rpc.handle('product.task_context.prepare',async value=>{
       state.prepareReads++;expect(value).toMatchObject({agentId:'a',sessionId:'s',ownerId:'o'});
@@ -85,7 +89,7 @@ function noSyntheticContext(calls:ProviderCall[]) {
 it.each([{outage:'source',taskGraph:true},{outage:'snapshot',taskGraph:true},{outage:'source',taskGraph:false},{outage:'snapshot',taskGraph:false}] as const)('hard-denies actual native Task tools during $outage outage (task_graph=$taskGraph), reopening only after revalidation',async({outage,taskGraph})=>{
   const f=await fixture(taskGraph,true),client=f.client();
   if(outage==='source')f.state.unavailable=true;
-  else f.state.snapshot={kind:'unavailable',reason:'task_authority_unavailable',tasks:[],repair_task_ids:[]};
+  else f.state.snapshot={kind:'unavailable',reason:'task_authority_unavailable',tasks:[]};
   try{
     await f.start(client);await f.submit(client,'force-task-tool');
     await expect.poll(async()=>(await f.calls()).length).toBe(2);await f.idle(client);

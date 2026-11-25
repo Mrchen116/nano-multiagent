@@ -37,7 +37,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
     proposal: proposalSchema,
     wait: {
       type: ['object', 'null'],
-      description: 'Optional wait metadata when creating or updating a waiting Task: {reason, schedule_id?, question?, asked_user_id?}. Supply schedule_id when linking a native Schedule (up to 180 days out); omit schedule_id when silently waiting on a human reply or external event.',
+      description: 'Optional wait metadata when creating or updating a waiting Task: {reason, schedule_id?, question?, asked_user_id?}. Supply schedule_id when linking a native Schedule (up to 180 days out; requires an Agent assignee with assignee.type="agent"); omit schedule_id when silently waiting on a human reply or external event.',
     },
     status: {
       type: 'string',
@@ -129,7 +129,7 @@ export const taskGraphParameters: ToolDefinition['parameters'] = {
           },
           patch: {
             type: 'object',
-            description: 'Only title/description/mode/status/proposal/wait/result/links/order. Upgrade a leaf card to a goal container in place via mode="dag"|"explore". For status="waiting", pass wait={reason,schedule_id?,question?,asked_user_id?}: include schedule_id when linking a native Schedule (up to 180 days out), or omit schedule_id when silently waiting on a human reply or external event.',
+            description: 'Only title/description/mode/status/proposal/wait/result/links/order. Upgrade a leaf card to a goal container in place via mode="dag"|"explore". For status="waiting", pass wait={reason,schedule_id?,question?,asked_user_id?}: include schedule_id when linking a native Schedule (up to 180 days out; requires an Agent assignee with assignee.type="agent"), or omit schedule_id when silently waiting on a human reply or external event.',
           },
         },
         required: ['op'],

@@ -27,7 +27,6 @@ export function apply(ctx){
     await prepareProfile(home,[{insert:[{id:'task-limit-probe',name:join(home,'probe.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
     const acks:unknown[]=[];
-    client.rpc.handle('product.task_execution.ack',value=>{acks.push(value);return null;});
     const totals=new Map<string,{automatic:number;schedule:number;turns:number;steps:number}>();
     const count=(id:string)=>{let value=totals.get(id);if(!value){value={automatic:0,schedule:0,turns:0,steps:0};totals.set(id,value);}return value;};
     client.rpc.onNotification((method,payload)=>{

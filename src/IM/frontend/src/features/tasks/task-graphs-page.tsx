@@ -473,18 +473,30 @@ export function TaskGraphsPage() {
               ))}
             </nav>
             <div className="tasks-panorama-header-actions">
-              {conversation && (
-                <Link className="tasks-context" to={`/chat/${encodeURIComponent(conversation.id)}`}>
-                  {t(
-                    conversation.dissolved_at
-                      ? "tasks.history"
-                      : conversation.visibility === "public"
-                        ? "tasks.public"
-                        : "tasks.private",
-                  )}{" "}
-                  · {conversation.title}
-                </Link>
-              )}
+              {conversation &&
+                (params.get("return_chat") === conversation.id ? (
+                  <span className="tasks-context">
+                    {t(
+                      conversation.dissolved_at
+                        ? "tasks.history"
+                        : conversation.visibility === "public"
+                          ? "tasks.public"
+                          : "tasks.private",
+                    )}{" "}
+                    · {conversation.title}
+                  </span>
+                ) : (
+                  <Link className="tasks-context" to={`/chat/${encodeURIComponent(conversation.id)}`}>
+                    {t(
+                      conversation.dissolved_at
+                        ? "tasks.history"
+                        : conversation.visibility === "public"
+                          ? "tasks.public"
+                          : "tasks.private",
+                    )}{" "}
+                    · {conversation.title}
+                  </Link>
+                ))}
               <button
                 type="button"
                 className="tasks-help-btn"
@@ -508,6 +520,11 @@ export function TaskGraphsPage() {
                 <Link
                   className="tasks-button"
                   to={`/chat/${encodeURIComponent(params.get("return_chat")!)}`}
+                  state={
+                    params.get("return_message")
+                      ? { returnAnchorMessageId: params.get("return_message") }
+                      : undefined
+                  }
                 >
                   {t("tasks.goChat")}
                 </Link>

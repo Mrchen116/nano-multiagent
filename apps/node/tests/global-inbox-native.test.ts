@@ -152,7 +152,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(options){
       } });
     client.rpc.handle('product.task_context.prepare', value => taskContext.prepare(value as Parameters<TaskContext['prepare']>[0]));
     client.rpc.handle('product.task_context.commit', value => taskContext.commit(value as Parameters<TaskContext['commit']>[0]));
-    client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [], repair_task_ids: [] }));
+    client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [] }));
     await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [binding] });
     await client.rpc.request('session.ensure', binding);
     const submit = async (inputId: string) => {

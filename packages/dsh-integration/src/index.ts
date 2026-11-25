@@ -1430,9 +1430,10 @@ export default class NanoRuntime {
         if (updatedMemory && content.length > 0 && content[0]?.type === 'text') {
           const firstText = content[0].text;
           const newlineIdx = firstText.indexOf('\n');
+          const memTag = `<updated-formal-memory complete="${updatedMemory.complete ? 'true' : 'preview'}">\n${updatedMemory.body}\n</updated-formal-memory>`;
           const injected = newlineIdx >= 0
-            ? `${firstText.slice(0, newlineIdx + 1)}<updated-formal-memory>\n${updatedMemory}\n</updated-formal-memory>\n${firstText.slice(newlineIdx + 1)}`
-            : `${firstText}\n<updated-formal-memory>\n${updatedMemory}\n</updated-formal-memory>`;
+            ? `${firstText.slice(0, newlineIdx + 1)}${memTag}\n${firstText.slice(newlineIdx + 1)}`
+            : `${firstText}\n${memTag}`;
           content = [{ type: 'text', text: injected }, ...content.slice(1)];
         }
       }

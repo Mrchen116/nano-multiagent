@@ -18,10 +18,12 @@ import "../../tasks/task-graphs.css";
 export function MessageTaskCards({
   refs,
   conversationId,
+  messageId,
   canWrite,
 }: {
   refs: TaskCardRef[];
   conversationId: string;
+  messageId?: string;
   canWrite: boolean;
 }) {
   const { t } = useTranslation();
@@ -93,7 +95,13 @@ export function MessageTaskCards({
         const isChild = Boolean(card.node_id && card.node_id !== card.root_node_id && card.root_title);
         const prereqBlocked = isTaskPrereqBlocked(card);
         const editable = canWrite && card.can_edit !== false && (card.conversation?.can_write ?? true);
-        const targetUrl = taskGraphUrl(card.graph_id, card.scope_id ?? card.root_node_id, nodeId, conversationId);
+        const targetUrl = taskGraphUrl(
+          card.graph_id,
+          card.scope_id ?? card.root_node_id,
+          nodeId,
+          conversationId,
+          messageId,
+        );
         const snippet =
           card.status === "proposed"
             ? [
@@ -132,7 +140,7 @@ export function MessageTaskCards({
             }}
           >
             <div className="chat-embed-task-top">
-              <span className="tasks-card-crumb">
+              <span className={`tasks-card-crumb${isChild ? "" : " tasks-card-crumb--single"}`}>
                 {isChild
                   ? t("tasks.focus.crumbGoal", { title: card.root_title })
                   : card.conversation?.title

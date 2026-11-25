@@ -26,7 +26,7 @@ export function apply(ctx){
     let active=false,online=false,reads=0;
     client.rpc.handle('product.task_execution.snapshot',async()=>{
       reads++;
-      if(!active)return {kind:'quiescent',tasks:[],repair_task_ids:[]};
+      if(!active)return {kind:'quiescent',tasks:[]};
       if(fault==='source'&&!online)throw new Error('Injected task source failure');
       const completed=await readFile(join(home,'completed'),'utf8').catch(()=>'');
       return completed?{kind:'quiescent',tasks:[]}:{kind:'continue',tasks:[{graph_id:'g',node_id:'n',title:'Still doing',status:'doing',revision:1,updated_at:'2026-10-23T15:00:00Z',unwoken_doing:true,doing_wake:{revision:1,at:'2026-10-23T15:00:00Z',actor:{type:'user',id:'o'},assignee_id:'a'},conversation:{id:'c'},relative_url:'/tasks/g'}]};

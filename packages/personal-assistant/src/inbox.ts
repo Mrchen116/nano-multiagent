@@ -615,9 +615,9 @@ export class InboxStore {
   private entries(agent: string, target?: string): Entry[] {
     return this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND (? IS NULL OR target=?) ORDER BY seq").all(agent, target ?? null, target ?? null) as unknown as Entry[];
   }
-  /** Count unread admitted Inbox entries (including attention=0 observer messages) for sync deltas. */
+  /** Count unread admitted conversational Inbox entries (excluding passive task_graph system notices) for sync deltas. */
   unreadEntryCount(agent: string): number {
-    return Number((this.db.prepare("SELECT count(*) AS n FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0").get(agent) as { n: number } | undefined)?.n ?? 0);
+    return Number((this.db.prepare("SELECT count(*) AS n FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND coalesce(json_extract(payload,'$.message.system_notice.kind'),'')!='task_graph'").get(agent) as { n: number } | undefined)?.n ?? 0);
   }
   /** Select full original Task notices for direct native context, not a duplicate private snapshot. */
   prepareSystemContext(agentId:string,sessionId:string):{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[] {
@@ -670,6 +670,7 @@ export class InboxStore {
     const instants = new Map<string,number>();
     for (const row of entries) {
       const input = JSON.parse(row.payload) as RelayInput;
+      if ((input.message.system_notice as { kind?: string } | undefined)?.kind === 'task_graph') continue;
       const meta=input.metadata;
       const { base, root } = splitThreadTarget(row.target);
       const source:Source = sources.get(row.target) ?? { target: row.target, ...(root ? { parent_target: base } : {}), name: this.targetName(agent,row.target,input), unread: 0, mentions: 0,

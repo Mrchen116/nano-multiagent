@@ -29,3 +29,14 @@
 #### Scenario: 关闭与手动整理
 - **WHEN** 用户关闭 Dreaming 或明确请求手动整理
 - **THEN** 关闭阻止自动运行，保留已有记忆读取和当前对话响应，长期记忆暂停自动更新；手动整理仍由唯一 Dreaming 写者执行，可不等夜间自动周期随时触发，仍遵守主体停用、权限、输入容量与并发限制
+
+### Requirement: 用户删除 Schedule 后 SHALL 通知所属 Agent
+
+#### Scenario: 用户删除独立或 Task 关联的 Schedule
+- **WHEN** 用户通过设置页成功删除一个 Schedule
+- **THEN** 所属 Agent 获得明确的 Schedule 删除 reminder，包含可识别标题、唯一 ID 及删除事实；即使没有关联 Task 也要通知
+- **AND** 若该 Schedule 曾被某个 `waiting` Task 选填绑定，任务详情查询如实反映该关联定时器已失效，系统不再为此另行派发自动修复催促唤醒
+
+#### Scenario: 重试、恢复和停止边界
+- **WHEN** 删除结果或通知投递在重试／重启后恢复，或 Agent 当前处于停止／禁用边界
+- **THEN** 仅确认成功后表述删除，尚未消费的通知可恢复，同一删除不重复呈现已消费提醒；通知不解除停止、恢复 `paused` 或增加行动权限

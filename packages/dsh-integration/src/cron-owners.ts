@@ -278,6 +278,7 @@ export class CronOwners {
         if (this.stopped || this.disabled.has(agentId)) return;
         const wasMounted = Boolean(owner.fiber);
         await this.unmountService(owner);
+        const pendingDeliveries: { sessionId: string; message: UserMessage }[] = [];
         const domain = await owner.domain.open(scheduleDomain);
         try {
           const tasks = domain.table('tasks');
@@ -295,8 +296,6 @@ export class CronOwners {
                 content: [{ type: 'text', text: renderReminderFraming(task.record) }],
                 source: { kind: 'schedule' },
               });
-              await deliver(agentId, task.sessionId, message);
-              deliveredCount++;
               await tasks.put(ScheduleId(task.record.id), {
                 ...task,
                 status: 'inactive',
@@ -306,6 +305,7 @@ export class CronOwners {
                   messageId: message.id,
                 }),
               });
+              pendingDeliveries.push({ sessionId: task.sessionId, message });
             } else {
               const group = due.filter(
                 (candidate): candidate is ScheduleTask & { record: Extract<ScheduleTask['record'], { kind: 'every' | 'daily' | 'weekly' | 'cron' }> } =>
@@ -326,8 +326,6 @@ export class CronOwners {
                 }],
                 source: { kind: 'schedule' },
               });
-              await deliver(agentId, task.sessionId, message);
-              deliveredCount++;
               for (const { task: member, occurrence } of occurrences) {
                 await tasks.put(ScheduleId(member.record.id), {
                   ...member,
@@ -343,11 +341,16 @@ export class CronOwners {
                   }),
                 });
               }
+              pendingDeliveries.push({ sessionId: task.sessionId, message });
             }
           }
         } finally {
           await domain.close();
           if (wasMounted && !this.stopped && !this.disabled.has(agentId)) await this.mountService(owner);
+        }
+        for (const item of pendingDeliveries) {
+          await deliver(agentId, item.sessionId, item.message);
+          deliveredCount++;
         }
       });
       owner.chain = step.catch(() => {});

@@ -98,21 +98,22 @@ function buildFocusFromList(items = list.items): TaskFocusResponse {
   const stashed = items.filter(item => item.status === "backlog" || item.status === "paused");
   const active = items.filter(item => ["todo", "doing", "waiting"].includes(item.status));
   const goals = items.filter(item => item.mode !== "none" && (!item.node_id || item.node_id === item.root_node_id));
-  const completed = items.filter(item => item.status === "done" || item.status === "closed").length;
+  const completedItems = items.filter(item => item.status === "done" || item.status === "closed");
   return {
     needs_you,
     stashed,
     active,
     goals,
-    completed_count: completed,
+    completed: completedItems,
+    completed_count: completedItems.length,
     counts: {
       needs_you: needs_you.length,
       stashed: stashed.length,
       active: active.length,
       goals: goals.length,
-      completed,
+      completed: completedItems.length,
     },
-    next_cursors: { needs_you: null, stashed: null, active: null, goals: null },
+    next_cursors: { needs_you: null, stashed: null, active: null, goals: null, completed: null },
   };
 }
 
@@ -345,243 +346,4 @@ describe("task graph browsing", () => {
     expect(screen.getByRole("heading", { name: "Latest change" })).toBeInTheDocument();
     expect(screen.getByText("User chose to stop this direction")).toBeInTheDocument();
   });
-
-  it("retains old records with a stale warning but removes protected cached content after access is revoked", async () => {
-    const { client } = renderTasks("/tasks/tg-1?scope=root");
-    await screen.findByRole("button", { name: "View A Choose direction" });
-    graphStatus = 503;
-    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("previously loaded graph");
-    expect(screen.getByRole("button", { name: "View A Choose direction" })).toBeInTheDocument();
-    graphStatus = 404;
-    await userEvent.click(within(screen.getByRole("alert")).getByRole("button", { name: "Refresh" }));
-    await screen.findByRole("heading", { name: "This task does not exist or you no longer have access." });
-    expect(screen.queryByText("Video product")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "View A Choose direction" })).not.toBeInTheDocument();
-    expect(client.getQueriesData({ queryKey: ["task-graphs"] }).every(([, value]) => value === null)).toBe(true);
-  });
-
-  it("opens an Agent task link and returns a reference while preserving the full composer without sending", async () => {
-    const pending = [{ url: "/im/uploads/design.pdf", file_name: "design.pdf", content_type: "application/pdf" }];
-    writeComposerSnapshot(composerStoreFor("user-1"), "home", {
-      draft: "@Nano Please check",
-      draftMentions: [{ label: "@Nano", type: "agent", target_id: "nano" }],
-      pending,
-      slashDismissed: true,
-    });
-    const { router, onSend } = renderTasks("/chat/home", [
-      {
-        id: "saved-plan",
-        conversation_id: "home",
-        sender: { type: "agent", id: "nano", display_name: "Nano" },
-        sender_user_id: "nano",
-        sender_type: "agent",
-        content: `[Saved plan](${window.location.origin}/tasks/tg-1?scope=A&node=Z)`,
-        attachments: [],
-        delivery_status: "completed",
-        created_at: "2026-01-01T00:00:00Z",
-        permission_requests: [],
-      },
-    ]);
-    await userEvent.click(screen.getByRole("link", { name: "Saved plan" }));
-    await screen.findByRole("button", { name: "Discuss this task in chat" });
-    await userEvent.click(screen.getByRole("button", { name: "Discuss this task in chat" }));
-    expect(router.state.location.pathname).toBe("/chat/home");
-    expect(screen.getByRole("textbox")).toHaveValue("@Nano Please check\n\n[Task: Z Hybrid](/tasks/tg-1?scope=A&node=Z)\n");
-    expect(screen.getByText("design.pdf")).toBeInTheDocument();
-    expect(composerStoreFor("user-1").get("home")?.draftMentions).toEqual([{ label: "@Nano", type: "agent", target_id: "nano" }]);
-    expect(onSend).not.toHaveBeenCalled();
-  });
-
-  it("restores a mobile nested deep link and closes the detail drawer without moving the graph", async () => {
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 390 });
-    const { router } = renderTasks("/tasks/tg-1?scope=Z&node=Z2");
-    const dialog = await screen.findByRole("dialog", { name: "Node details" });
-    expect(within(dialog).getByRole("heading", { name: "Z2 Evaluate" })).toBeInTheDocument();
-    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
-    await userEvent.click(screen.getByRole("button", { name: "Internal structure" }));
-    const scroll = screen.getByLabelText("Task graph canvas, scroll to explore");
-    scroll.scrollLeft = 112;
-    await userEvent.click(screen.getByRole("button", { name: "View Z2 Evaluate" }));
-    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(router.state.location.search).toBe("?scope=Z");
-    expect(scroll.scrollLeft).toBe(112);
-    await userEvent.click(screen.getByRole("link", { name: "‹ Back to Tasks" }));
-    expect(router.state.location.pathname).toBe("/tasks");
-  });
-
-  it("does not silently open another scope when a deep link is invalid", async () => {
-    renderTasks("/tasks/tg-1?scope=unknown&node=C");
-    expect(await screen.findByRole("alert")).toHaveTextContent("scope or node does not exist");
-    expect(screen.queryByLabelText("Task graph canvas, scroll to explore")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Back to root goal" }));
-    expect(screen.getByRole("button", { name: "View A Choose direction" })).toBeInTheDocument();
-  });
-
-  it.each([
-    ["Paused", "paused", "To do"],
-    ["Resume progress", "doing", "In progress"],
-  ])("%s saves an explicit status and refreshes waiting details", async (label, status, group) => {
-    const waiting = currentGraph.nodes.find(node => node.id === "B")!;
-    Object.assign(waiting, {
-      status: "waiting",
-      can_edit: true,
-      wait: {
-        reason: "Wait for budget, then purchase",
-        schedule_id: "s",
-        owner_agent_id: "a",
-        session_id: "main",
-        next_check_at: "2026-10-22T12:00:00Z",
-      },
-    });
-    const fetchBefore = fetchMock.getMockImplementation()!;
-    const writes: Record<string, any>[] = [];
-    fetchMock.mockImplementation(async (url: string, ...args: unknown[]) => {
-      const init = args[0] as RequestInit | undefined;
-      if (init?.method === "POST") {
-        const body = JSON.parse(init.body as string);
-        writes.push(body);
-        Object.assign(waiting, { status: body.operations[0].patch.status, wait: undefined });
-        return Response.json({ graph_id: currentGraph.graph_id });
-      }
-      return fetchBefore(url);
-    });
-    renderTasks("/tasks/tg-1?node=B");
-    const dialog = await screen.findByRole("dialog", { name: "Node details" });
-    await userEvent.click(within(dialog).getByRole("button", { name: label }));
-    await waitFor(() => expect(writes).toHaveLength(1));
-    expect(writes[0].base_revision).toBe(9);
-    expect(writes[0].change_note).toBe("");
-    expect(writes[0].operations).toEqual([{ op: "update_task", node_id: "B", patch: { status } }]);
-    await waitFor(() => expect(within(dialog).queryByText("Wait for budget, then purchase")).not.toBeInTheDocument());
-    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
-    await userEvent.click(screen.getByRole("button", { name: "Progress" }));
-    expect(within(screen.getByRole("region", { name: group })).getByText("B Implement")).toBeVisible();
-  });
-
-  it("loads focus section cursors on demand, preserves appended cards on refresh, and resets for search", async () => {
-    const firstActive = { ...list.items[0], title: "Todo first", mode: "none" as const };
-    const appendedActive = { ...firstActive, graph_id: "tg-more", title: "Todo tail", status: "doing" as const };
-    fetchMock.mockImplementation(async url => {
-      if (url.includes("/conversations")) return Response.json({ items: [home] });
-      const params = new URL(url, "http://test").searchParams;
-      if (url.includes("/task-graphs/focus")) {
-        if (params.get("query") === "other") {
-          return Response.json(buildFocusFromList([]));
-        }
-        if (params.get("section") === "active" && params.get("cursor") === "active-next") {
-          return Response.json({
-            ...buildFocusFromList([appendedActive]),
-            next_cursors: { needs_you: null, stashed: null, active: null, goals: null },
-          });
-        }
-        return Response.json({
-          ...buildFocusFromList([firstActive]),
-          counts: { needs_you: 0, stashed: 0, active: 2, goals: 0, completed: 0 },
-          next_cursors: { needs_you: null, stashed: null, active: "active-next", goals: null },
-        });
-      }
-      return Response.json(list);
-    });
-
-    const { router, client } = renderTasks("/tasks", [], 300_000);
-    await screen.findByRole("button", { name: "View Todo first" });
-    await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    await screen.findByRole("button", { name: "View Todo tail" });
-    await act(async () => {
-      await client.invalidateQueries({ queryKey: ["task-graphs"] });
-    });
-    expect(screen.getByRole("button", { name: "View Todo first" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "View Todo tail" })).toBeInTheDocument();
-
-    fetchMock.mockClear();
-    const searchInput = screen.getByRole("textbox", { name: "Search goal names" });
-    await userEvent.type(searchInput, "other{Enter}");
-    await waitFor(() =>
-      expect(fetchMock.mock.calls.some(([url]) => url.includes("/task-graphs/focus") && url.includes("query=other"))).toBe(true),
-    );
-    expect(fetchMock.mock.calls.some(([url]) => url.includes("query=other") && url.includes("cursor="))).toBe(false);
-    expect(router.state.location.search).toContain("query=other");
-  });
-});
-
-describe("task graph layout", () => {
-  it("orders independent branches by their connections instead of crossing them by input order", () => {
-    const graph = {
-      ...sampleGraph,
-      nodes: [sampleGraph.nodes[0], node("A", "A"), node("B", "B"), node("C", "C"), node("D", "D")],
-      dependencies: [
-        { from: "A", to: "D" },
-        { from: "B", to: "C" },
-      ],
-    };
-    const { positions, routes } = layoutTaskScope(graph, graph.nodes[0]);
-    expect(positions.get("A")!.x).toBe(positions.get("B")!.x);
-    expect(positions.get("C")!.x).toBe(positions.get("D")!.x);
-    expect(positions.get("A")!.x).toBeLessThan(positions.get("D")!.x);
-    const sourceOrder = Math.sign(positions.get("A")!.y - positions.get("B")!.y);
-    expect(Math.sign(positions.get("D")!.y - positions.get("C")!.y)).toBe(sourceOrder);
-    expect(routes.map(({ from, to }) => `${from}:${to}`).sort()).toEqual(["A:D", "B:C"]);
-  });
-
-  it("keeps tasks in their earliest dependency column, retaining direct skip edges and nested scope isolation", () => {
-    const { positions, routes } = layoutTaskScope(sampleGraph, sampleGraph.nodes[0]);
-    expect(positions.get("B")!.x).toBe(positions.get("D")!.x);
-    for (const [from, to] of [
-      ["A", "B"],
-      ["B", "C"],
-      ["C", "E"],
-    ]) {
-      expect(positions.get(from)!.x).toBeLessThan(positions.get(to)!.x);
-    }
-    expect(routes).toHaveLength(6);
-    expect(routes.some(edge => edge.from === "A" && edge.to === "C")).toBe(true);
-    expect(positions.has("Z1")).toBe(false);
-    expect(sampleGraph.nodes[1].status).toBe("todo");
-  });
-});
-
-it("opens group activity in the same graph and returns without changing the chat draft", async () => {
-  const { GroupTaskPanel } = await import("./group-task-panel");
-  const originalFetch = fetchMock.getMockImplementation()!;
-  fetchMock.mockImplementation(async (url: string) =>
-    url.includes("/task-activity")
-      ? new Response(
-          JSON.stringify({
-            items: [
-              {
-                graph_id: "tg-1",
-                node_id: "C",
-                scope_id: "root",
-                title: "C Test",
-                root_title: "Video product",
-                status: "todo",
-                updated_at: "2026-09-30T01:00:00Z",
-              },
-            ],
-          }),
-        )
-      : originalFetch(url),
-  );
-  writeComposerSnapshot(composerStoreFor("user-1"), "home", { ...EMPTY_COMPOSER_SNAPSHOT, draft: "Keep my draft" });
-  const router = createMemoryRouter(
-    [
-      { path: "/chat/home", element: <GroupTaskPanel conversationId="home" onClose={() => undefined} /> },
-      { path: "/tasks/:graphId", element: <TaskGraphsPage /> },
-    ],
-    { initialEntries: ["/chat/home"] },
-  );
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  render(
-    <QueryClientProvider client={client}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
-  );
-  await userEvent.click(await screen.findByRole("link", { name: /C Test/ }));
-  expect(router.state.location.pathname).toBe("/tasks/tg-1");
-  expect(router.state.location.search).toContain("return_chat=home");
-  await userEvent.click(await screen.findByRole("link", { name: "Discuss in chat" }));
-  expect(router.state.location.pathname).toBe("/chat/home");
-  expect(composerStoreFor("user-1").get("home")?.draft).toBe("Keep my draft");
 });

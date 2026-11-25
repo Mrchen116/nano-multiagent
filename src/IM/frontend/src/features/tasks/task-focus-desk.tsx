@@ -12,7 +12,6 @@ import {
   isTaskPrereqBlocked,
   taskGraphUrl,
   useTaskFocus,
-  useTaskGraphColumn,
   writeTaskGraph,
   type TaskFocusGoalItem,
   type TaskFocusScope,
@@ -142,16 +141,9 @@ export function TaskFocusDesk({
   const focusQuery = useTaskFocus(focusOptions);
   const focus = focusQuery.data;
 
-  const completedQuery = useTaskGraphColumn(
-    {
-      statuses: ["done", "closed"],
-      ...(queryText ? { query: queryText } : {}),
-      ...(conversationFilter ? { conversation_id: conversationFilter } : {}),
-      ...(scope === "assignee" && assigneeType && assigneeId
-        ? { assignee_type: assigneeType, assignee_id: assigneeId }
-        : {}),
-    },
-    completedOpen && (scope !== "assignee" || Boolean(assigneeType && assigneeId)),
+  const completedQuery = useTaskFocus(
+    useMemo(() => ({ ...focusOptions, section: "completed" as const }), [focusOptions]),
+    completedOpen,
   );
 
   function updateParams(mutator: (next: URLSearchParams) => void) {
@@ -174,22 +166,19 @@ export function TaskFocusDesk({
   const stashed = mergeItems(focus?.stashed ?? [], "stashed");
   const active = mergeItems(focus?.active ?? [], "active");
   const goals = mergeItems(focus?.goals ?? [], "goals");
+  const completedItems = mergeItems(completedQuery.data?.completed ?? [], "completed");
 
   const counts = focus?.counts ?? { needs_you: 0, stashed: 0, active: 0, goals: 0, completed: 0 };
   const actionCount = counts.needs_you + counts.active;
-  const completedItems = useMemo(() => {
-    const pages = completedQuery.data?.pages ?? [];
-    return [
-      ...new Map(
-        pages
-          .flatMap(page => page?.items ?? [])
-          .map(item => [`${item.graph_id}:${item.node_id ?? item.root_node_id}`, item]),
-      ).values(),
-    ];
-  }, [completedQuery.data?.pages]);
+  const completedNextCursor =
+    sectionCursors.completed !== undefined
+      ? sectionCursors.completed
+      : completedQuery.data?.next_cursors.completed ?? null;
 
   async function loadMoreSection(section: TaskFocusSection) {
-    const cursor = sectionCursors[section] !== undefined ? sectionCursors[section] : focus?.next_cursors[section];
+    const baseCursor =
+      section === "completed" ? completedQuery.data?.next_cursors.completed : focus?.next_cursors[section];
+    const cursor = sectionCursors[section] !== undefined ? sectionCursors[section] : baseCursor;
     if (!cursor) return;
     const more = await getTaskFocus({ ...focusOptions, section, cursor });
     if (!more) return;
@@ -1108,14 +1097,13 @@ export function TaskFocusDesk({
                 ) : (
                   <div className="tasks-stack-list">{completedItems.map(renderActionCard)}</div>
                 )}
-                {completedQuery.hasNextPage && (
+                {completedNextCursor && (
                   <button
                     type="button"
                     className="tasks-pill-btn"
-                    disabled={completedQuery.isFetchingNextPage}
-                    onClick={() => void completedQuery.fetchNextPage()}
+                    onClick={() => void loadMoreSection("completed")}
                   >
-                    {t(completedQuery.isFetchingNextPage ? "tasks.loadingMore" : "tasks.next")}
+                    {t("tasks.next")}
                   </button>
                 )}
               </section>

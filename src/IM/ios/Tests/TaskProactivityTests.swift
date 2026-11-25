@@ -81,5 +81,36 @@ extension ChatRepositoryTests {
         let label = agentFeatureName("proactive_planning")
         XCTAssertTrue(label == "主动筹划" || label == "Proactive planning")
         XCTAssertNotNil(agentFeatureSubtitle("proactive_planning", personal: true))
+
+        let proactiveFeature = AgentFeature(
+            key: "proactive_planning",
+            label_i18n: "agent.features.proactive_planning.label",
+            help_i18n: "agent.features.proactive_planning.help",
+            default_on: true,
+            available: true,
+            requires: .init(features: ["task_graph"], tools: ["task_graph"], skills: [])
+        )
+        var legacyDraft = AgentDraft()
+        legacyDraft.tool_allowlist = ["read", "bash"]
+        XCTAssertFalse(legacyDraft.isFeatureEnabled(proactiveFeature))
+        legacyDraft.tool_allowlist = ["read", "task_graph"]
+        XCTAssertTrue(legacyDraft.isFeatureEnabled(proactiveFeature))
+
+        let focusJSON = Data(#"""
+        {
+          "needs_you": [],
+          "stashed": [],
+          "active": [],
+          "goals": [],
+          "completed": [{"graph_id":"tg_done","root_node_id":"n1","node_id":"n2","revision":4,"title":"Completed Substage","mode":"none","status":"done","conversation":{"id":"c1","title":"PA","visibility":"private","is_member":true,"can_write":true}}],
+          "completed_count": 1,
+          "counts": {"needs_you":0,"stashed":0,"active":0,"goals":0,"completed":1},
+          "next_cursors": {"completed":"cursor-next"}
+        }
+        """#.utf8)
+        let decodedFocus = try JSONDecoder().decode(TaskFocusResponse.self, from: focusJSON)
+        XCTAssertEqual(decodedFocus.completed.count, 1)
+        XCTAssertEqual(decodedFocus.completed.first?.node_id, "n2")
+        XCTAssertEqual(decodedFocus.next_cursors.completed, "cursor-next")
     }
 }

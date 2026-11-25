@@ -2539,6 +2539,7 @@ function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, 
       <MessageTaskCards
         refs={message.task_cards}
         conversationId={message.conversation_id}
+        messageId={message.id}
         canWrite={!readOnly}
       />
     )}

@@ -103,7 +103,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
         if(!personal)expect(names).not.toContain('agent_creation');
         for(const name of ['bash','read','write','web_search','web_fetch','skill_manage','plugin_manager','owner_tool','task_graph'])expect(names).toContain(name);
         expect(catalog.skills.map((skill:any)=>skill.name)).toEqual(expect.arrayContaining(['owner-skill','nano-ongoing-work']));
-        expect(JSON.stringify(results.find((entry:any)=>entry.name==='skill'))).toContain('Ongoing Work & Progressive Goal Graphs');
+        expect(JSON.stringify(results.find((entry:any)=>entry.name==='skill'))).toContain('Follow Through on Ongoing Work');
         const before=await client.rpc.request('session.capabilities',{sessionId:'root'}) as any;
         expect(JSON.stringify(before.prompt).includes('pursue goals across work and everyday life')).toBe(personal);
         const preview=await client.rpc.request('configuration.preview',{config,cwd:root}) as any;
@@ -137,7 +137,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
           expect(calls.find(call=>call.method==='send_message').args.interactive).toEqual({format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Draft")'});
           expect(names).toContain('send_user_message');
           const send = catalog.tools.find((tool:any)=>tool.name==='send_user_message');
-          expect(Object.keys(send.parameters.properties)).toEqual(['target','reply_to_message_id','text','incident_ref','attachments','interactive','task_cards']);
+          expect(Object.keys(send.parameters.properties)).toEqual(['target','reply_to_message_id','text','incident_ref','attachments','task_cards','interactive']);
           expect(Object.keys(send.parameters.properties.interactive.properties)).toEqual(['source','supersedes_message_id','source_mode']);
           expect(await readFile(join(root,'.nanoassistant','memory-legacy','MEMORY.md'),'utf8')).toContain('Private note survives source changes');
           expect(await client.rpc.request('pa.evidence',{agentId:'agent',sessionId:'root'})).toHaveProperty('contexts');
@@ -188,6 +188,11 @@ it('projects the exact frozen disclosure and complete audience without backend g
  });
  frozen.payload={content:'Shared task change',task:{action:'apply',arguments:{graph_id:'graph',base_revision:7,operations:[{op:'update_task',patch:{result:'Full shared task result'}}]},source_message_id:'source'}};
  expect(personalReviewAction(frozen)).toMatchObject({tool:'task_graph',arguments:{...frozen.payload.task.arguments,action:'apply',source_message_id:'source'}});
+ const cardSummary={graph_id:'tg_priv',node_id:'n2',conversation_id:'priv-chat',graph_revision:3,title:'Confidential Q4 roadmap',status:'proposed',description:'Internal margin numbers',proposal:{rationale:'Private note',on_approve:'Draft memo'}};
+ frozen.payload={content:'Here are the cards',attachments:[],attachment_snapshots:[],task_cards:[{graph_id:'tg_priv',node_id:'n2'}],task_card_summaries:[cardSummary]};
+ expect(personalReviewAction(frozen)).toMatchObject({tool:'send_message',arguments:{target:'group',text:'Here are the cards',task_cards:[{graph_id:'tg_priv',node_id:'n2'}],task_card_summaries:[cardSummary]}});
+ frozen.payload={content:'Missing summary',attachments:[],attachment_snapshots:[],task_cards:[{graph_id:'tg_priv',node_id:'n2'}]};
+ expect(()=>personalReviewAction(frozen)).toThrow('Missing frozen task card contents');
 });
 
 it('keeps current restrictions, external visibility and fixed-notice authority explicit, including unknown access facts',()=>{

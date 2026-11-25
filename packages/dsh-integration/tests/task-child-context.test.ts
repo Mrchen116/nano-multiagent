@@ -77,7 +77,7 @@ it('retains inherited Task context and the parent system on fork wire and cold r
   const start = async () => {
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture-only' }, onLog: value => { logs += value; } });
     registerNoopTaskContext(client);
-    client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [], repair_task_ids: [] }));
+    client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [] }));
     await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [binding] });
     await client.rpc.request('session.ensure', binding);
   };

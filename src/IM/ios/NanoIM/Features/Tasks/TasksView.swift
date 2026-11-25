@@ -1141,30 +1141,23 @@ struct TasksView: View {
         loadingCompleted = true
         defer { loadingCompleted = false }
         do {
-            var params: [URLQueryItem] = [
-                .init(name: "limit", value: "25"),
-                .init(name: "statuses", value: "done,closed"),
-                .init(name: "query", value: query)
-            ]
-            if !filterConversationID.isEmpty {
-                params.append(.init(name: "conversation_id", value: filterConversationID))
-            }
-            if scope == "assignee", let actor = selectedOwnerActor {
-                params.append(.init(name: "assignee_type", value: actor.type))
-                params.append(.init(name: "assignee_id", value: actor.id))
-            }
-            if more, let completedCursor {
-                params.append(.init(name: "cursor", value: completedCursor))
-            }
-            let page: TaskGraphPage = try await client.get("/im/v1/task-graphs", query: params)
+            let response = try await client.taskFocus(
+                scope: scope,
+                query: query,
+                assignee: selectedOwnerActor,
+                conversationID: filterConversationID.isEmpty ? nil : filterConversationID,
+                section: "completed",
+                cursor: more ? completedCursor : nil,
+                limit: 25
+            )
             if more {
-                for item in page.items where !completedItems.contains(where: { $0.id == item.id }) {
+                for item in response.completed where !completedItems.contains(where: { $0.id == item.id }) {
                     completedItems.append(item)
                 }
             } else {
-                completedItems = page.items
+                completedItems = response.completed
             }
-            completedCursor = page.next_cursor
+            completedCursor = response.next_cursors.completed
         } catch {
             self.error = error.localizedDescription
         }
