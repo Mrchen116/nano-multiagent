@@ -60,12 +60,8 @@ def test_daily_template_creates_real_pa_and_resets_same_root(tmp_path: Path) -> 
             for agent in handoff["agents"]:
                 assert agent["approval_mode"] == "codex"
                 assert agent["work_mode"] == "global"
-                expected = (
-                    ("codexOAuth:gpt-6-astra", "medium")
-                    if agent["agent_id"] == handoff["personal"]["agent_id"]
-                    else ("codexOAuth:gpt-6.1-sol", "high")
-                )
-                assert (agent["default_model"], agent["reasoning_effort"]) == expected
+                assert agent["default_model"] == "codexOAuth:gpt-6.2-sol"
+                assert agent["reasoning_effort"] == "high"
             client = IMClient(handoff["im_url"])
             try:
                 client.register_or_login("nano", "nano1234")
