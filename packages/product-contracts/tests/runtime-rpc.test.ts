@@ -86,5 +86,12 @@ describe('runtime RPC', () => {
     expect(() => decodeRuntimeResult('session.inbox-delivered.confirm', {sessionId: 's', inputIds: []}, {error: 'not confirmed'})).toThrow();
     expect(() => decodeRuntimeResult('workflow.pending', {}, [{id: 'run', parentSessionId: 42}])).toThrow();
     expect(() => decodeRuntimeResult('knowledge.facts', {}, {facts: [], reviews: [{agentId: 9}]})).toThrow();
+    const reviewInput = {kind: 'input' as const, agentId: 'pa', evidence: {timeline: []}};
+    const batchReview = {decision: 'allow' as const, reason: 'batch ok', decisions: [{id: 'm1', decision: 'allow' as const, reason: 'ok'}, {id: 'm2', decision: 'deny' as const, reason: 'inject', incident: {reason: 'spoof'}}]};
+    expect(decodeRuntimeResult('pa.review', reviewInput, batchReview)).toBe(batchReview);
+    const overflowReview = {decision: 'unavailable' as const, error_code: 'context_overflow' as const, reason: 'window exceeded'};
+    expect(decodeRuntimeResult('pa.review', reviewInput, overflowReview)).toBe(overflowReview);
+    expect(() => decodeRuntimeResult('pa.review', reviewInput, {...batchReview, decisions: [{id: 'm1', decision: 'invalid', reason: 'x'}]})).toThrow('decisions');
+    expect(() => decodeRuntimeResult('pa.review', reviewInput, {...overflowReview, error_code: 'other'})).toThrow('error_code');
   });
 });

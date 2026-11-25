@@ -11,17 +11,32 @@ import { joinThreadTarget, splitThreadTarget } from './tool-references.js';
 
 type Data = Record<string, unknown>;
 export interface AdmissionResult {kind:'admitted'|'rejected'|'source_unavailable'|'failed'|'in_progress';message_id:string;reason?:string;incident_id?:string;error_code?:string}
+export interface BatchReviewSummary {
+  admitted: number;
+  rejected: RelayInput[];
+  failed: RelayInput[];
+  unavailable: RelayInput[];
+  sourceRevoked: string[];
+}
 type Verdict = import('@nano/product-contracts/runtime-rpc').RuntimeOutput<'pa.review'>;
 interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore; runtime: RuntimePort;
   relay: {request(type: string, payload: Data): Promise<ProtocolFrame>}; onError(error: unknown): void;
   uploadScreenshot?: ScreenshotUploader;
   uploadAttachment?: AttachmentUploader;
+  flushConversation?: (config: AgentConfiguration, binding: SessionBinding, conversationId?: string) => Promise<void>;
 }
+
+const MAX_REVIEW_BATCH = 20;
 
 /** Coordinates personal product facts; DSH remains the sole execution loop. */
 export class PersonalAssistant {
+  private readonly reviewBatches = new Map<string, Promise<BatchReviewSummary>>();
   constructor(private readonly options: Options) {}
+
+  get busy(): boolean {
+    return this.reviewBatches.size > 0;
+  }
 
   async request(config: AgentConfiguration, method: string, args: Data = {}): Promise<Data> {
     const identity = config.personal;
@@ -58,6 +73,7 @@ export class PersonalAssistant {
       if (key in source) input.metadata[key] = source[key];
     }
     if('provider_source_time' in source)input.metadata.provider_source_time=source.provider_source_time;
+    if(typeof source.agent_user_id==='string'&&source.agent_user_id)input.metadata.agent_user_id=source.agent_user_id;
     if(Array.isArray(source.explicit_mentioned_agent_ids))input.metadata.explicit_mentioned_agent_ids=source.explicit_mentioned_agent_ids;
     if(typeof source.context_only==='boolean')input.metadata.context_only=source.context_only;
     // Only the authenticated server admission can set or clear this annotation.
@@ -116,6 +132,233 @@ export class PersonalAssistant {
     const incident=await this.request(config,'pa.incident.report',{source_message_id:input.message.id,conversation_id:input.conversation_id,category:'prompt_injection',reason:review.reason});
     if(typeof incident.id!=='string')throw new Error('Security incident has no durable identity');
     this.options.inbox.reviews.incident(config.agentId,input.message.id,incident.id);
+  }
+
+  /** Settle an owner or observer input without calling the independent input reviewer. */
+  admitTrusted(config: AgentConfiguration, binding: SessionBinding, input: RelayInput): boolean {
+    const { inbox } = this.options;
+    const existing = inbox.reviews.get(config.agentId, input.message.id);
+    if (existing?.state === 'admitted') return true;
+    const generation = inbox.reviews.begin(config.agentId, input.message.id);
+    if (generation === undefined) return inbox.reviews.get(config.agentId, input.message.id)?.state === 'admitted';
+    if (!inbox.reviews.settle(config.agentId, input.message.id, generation, { state: 'admitted' })) return false;
+    this.options.store.receive(binding.sessionId, input);
+    return true;
+  }
+
+  /** Fail closed for an unprojectable non-owner attachment without poisoning sibling text inputs. */
+  failAttachmentInput(config: AgentConfiguration, input: RelayInput): boolean {
+    const { inbox } = this.options;
+    const generation = inbox.reviews.begin(config.agentId, input.message.id);
+    if (generation === undefined) return false;
+    const reason = 'Independent review unavailable: Error: Input review attachment projection is unavailable';
+    return inbox.reviews.settle(config.agentId, input.message.id, generation, { state: 'failed', reason, error_code: 'review_unavailable' });
+  }
+
+  /** Settle unavailable source admission on a pending unreviewed input. */
+  settleSourceUnavailable(config: AgentConfiguration, input: RelayInput): void {
+    const { inbox } = this.options;
+    const generation = inbox.reviews.begin(config.agentId, input.message.id);
+    if (generation !== undefined) {
+      inbox.reviews.settle(config.agentId, input.message.id, generation, {
+        state: 'rejected', reason: 'Source is no longer accessible', error_code: 'source_unavailable',
+      });
+    }
+  }
+
+  /** Flush staged pending participant reviews across one or all conversations. */
+  async flushReviews(
+    config: AgentConfiguration,
+    binding: SessionBinding,
+    conversationId: string | undefined,
+    classifyFlags: (input: RelayInput) => { attention: boolean; high: boolean },
+  ): Promise<BatchReviewSummary> {
+    const prefix = `${config.agentId}:`;
+    const inFlight = [...this.reviewBatches.keys()]
+      .filter(key => key.startsWith(prefix))
+      .map(key => key.slice(prefix.length));
+    const conversations = conversationId
+      ? [conversationId]
+      : [...new Set([...this.options.inbox.reviews.pendingConversations(config.agentId), ...inFlight])];
+    if (!conversations.length) {
+      return { admitted: 0, rejected: [], failed: [], unavailable: [], sourceRevoked: [] };
+    }
+    const parts = await Promise.all(conversations.map(cid => this.flushConversationReviews(config, binding, cid, classifyFlags)));
+    return {
+      admitted: parts.reduce((sum, item) => sum + item.admitted, 0),
+      rejected: parts.flatMap(item => item.rejected),
+      failed: parts.flatMap(item => item.failed),
+      unavailable: parts.flatMap(item => item.unavailable),
+      sourceRevoked: [...new Set(parts.flatMap(item => item.sourceRevoked))],
+    };
+  }
+
+  private flushConversationReviews(
+    config: AgentConfiguration,
+    binding: SessionBinding,
+    conversationId: string,
+    classifyFlags: (input: RelayInput) => { attention: boolean; high: boolean },
+  ): Promise<BatchReviewSummary> {
+    const key = `${config.agentId}:${conversationId}`;
+    const active = this.reviewBatches.get(key);
+    if (active) return active;
+    const task = this.drainConversationReviews(config, binding, conversationId, classifyFlags)
+      .finally(() => { if (this.reviewBatches.get(key) === task) this.reviewBatches.delete(key); });
+    this.reviewBatches.set(key, task);
+    return task;
+  }
+
+  private async drainConversationReviews(
+    config: AgentConfiguration,
+    binding: SessionBinding,
+    conversationId: string,
+    classifyFlags: (input: RelayInput) => { attention: boolean; high: boolean },
+  ): Promise<BatchReviewSummary> {
+    const { inbox } = this.options;
+    const summary: BatchReviewSummary = { admitted: 0, rejected: [], failed: [], unavailable: [], sourceRevoked: [] };
+    for (;;) {
+      const claimed = inbox.reviews.beginBatch(config.agentId, conversationId, MAX_REVIEW_BATCH);
+      if (!claimed.length) break;
+      const textBatch: typeof claimed = [];
+      for (const entry of claimed) {
+        if (entry.input.message.attachments.length > 0) {
+          const reason = 'Independent review unavailable: Error: Input review attachment projection is unavailable';
+          if (inbox.reviews.settle(config.agentId, entry.input.message.id, entry.generation, { state: 'failed', reason, error_code: 'review_unavailable' })) {
+            summary.failed.push(entry.input);
+          }
+        } else {
+          textBatch.push(entry);
+        }
+      }
+      if (textBatch.length) {
+        await this.reviewBatchSlice(config, binding, conversationId, textBatch, classifyFlags, summary);
+      }
+      if (summary.sourceRevoked.includes(conversationId)) break;
+    }
+    return summary;
+  }
+
+  private async reviewBatchSlice(
+    config: AgentConfiguration,
+    binding: SessionBinding,
+    conversationId: string,
+    slice: { input: RelayInput; generation: number; due_at: number | null }[],
+    classifyFlags: (input: RelayInput) => { attention: boolean; high: boolean },
+    summary: BatchReviewSummary,
+  ): Promise<void> {
+    const { inbox } = this.options;
+    let context: Data;
+    try {
+      context = await this.request(config, 'pa.input.context', {
+        conversation_id: conversationId,
+        source_message_ids: slice.map(entry => entry.input.message.id),
+      });
+    } catch (error) {
+      this.options.onError(error);
+      const reason = error instanceof Error ? error.message : String(error);
+      for (const entry of slice) {
+        if (inbox.reviews.settle(config.agentId, entry.input.message.id, entry.generation, { state: 'failed', reason, error_code: 'review_unavailable' })) {
+          summary.failed.push(entry.input);
+        }
+      }
+      return;
+    }
+
+    if (context.source_allowed === false) {
+      for (const entry of slice) {
+        inbox.reviews.settle(config.agentId, entry.input.message.id, entry.generation, {
+          state: 'rejected', reason: 'Source is no longer accessible', error_code: 'source_unavailable',
+        });
+        summary.unavailable.push(entry.input);
+      }
+      summary.sourceRevoked.push(conversationId);
+      return;
+    }
+
+    const unavailableSet = new Set(Array.isArray(context.unavailable_message_ids) ? context.unavailable_message_ids as string[] : []);
+    const active = slice.filter(entry => {
+      if (!unavailableSet.has(entry.input.message.id)) return true;
+      if (inbox.reviews.settle(config.agentId, entry.input.message.id, entry.generation, {
+        state: 'rejected', reason: 'Source message is no longer accessible', error_code: 'source_unavailable',
+      })) {
+        summary.unavailable.push(entry.input);
+      }
+      return false;
+    });
+    if (!active.length) return;
+
+    const evidence = Array.isArray(context.timeline)
+      ? context
+      : {
+          conversation: { id: conversationId, type: active[0]!.input.metadata.conversation_type ?? 'group', delivery: 'participant', channel: active[0]!.input.metadata.channel ?? 'web' },
+          previous: Array.isArray(context.previous) ? context.previous : [],
+          timeline: active.map(entry => ({
+            id: entry.input.message.id,
+            needs_decision: true,
+            sender: { id: entry.input.message.sender_user_id, type: entry.input.message.sender_type, is_owner: false },
+            ...(entry.input.metadata.personal_actor_risk ? { actor_risk: entry.input.metadata.personal_actor_risk } : {}),
+            content: entry.input.message.content,
+            created_at: entry.input.message.created_at ?? null,
+          })),
+          omissions: Array.isArray(context.omissions) ? context.omissions : [],
+        };
+
+    const verdict = await this.review(config, 'input', evidence);
+    if (verdict.decision === 'unavailable') {
+      if (verdict.error_code === 'context_overflow' && active.length > 1) {
+        const mid = Math.ceil(active.length / 2);
+        await this.reviewBatchSlice(config, binding, conversationId, active.slice(0, mid), classifyFlags, summary);
+        await this.reviewBatchSlice(config, binding, conversationId, active.slice(mid), classifyFlags, summary);
+        return;
+      }
+      for (const entry of active) {
+        if (inbox.reviews.settle(config.agentId, entry.input.message.id, entry.generation, {
+          state: 'failed', reason: verdict.reason, error_code: 'review_unavailable',
+        })) {
+          summary.failed.push(entry.input);
+        }
+      }
+      return;
+    }
+
+    const decisionMap = new Map<string, { decision: string; reason: string; incident?: { reason: string } }>();
+    if (Array.isArray(verdict.decisions)) {
+      for (const item of verdict.decisions) decisionMap.set(item.id, item);
+    } else {
+      for (const entry of active) {
+        decisionMap.set(entry.input.message.id, { decision: verdict.decision, reason: verdict.reason, incident: verdict.incident });
+      }
+    }
+
+    for (const entry of active) {
+      const itemVerdict = decisionMap.get(entry.input.message.id);
+      if (!itemVerdict || itemVerdict.decision === 'unavailable') {
+        const reason = itemVerdict?.reason ?? 'Independent review omitted decision for message';
+        if (inbox.reviews.settle(config.agentId, entry.input.message.id, entry.generation, { state: 'failed', reason, error_code: 'review_unavailable' })) {
+          summary.failed.push(entry.input);
+        }
+        continue;
+      }
+      if (itemVerdict.incident || itemVerdict.decision !== 'allow') {
+        const reason = itemVerdict.incident?.reason ?? itemVerdict.reason;
+        const settled = inbox.reviews.settle(config.agentId, entry.input.message.id, entry.generation, {
+          state: 'rejected',
+          reason,
+          ...(!itemVerdict.incident && itemVerdict.decision === 'needs_owner' ? { error_code: 'needs_owner' } : {}),
+        });
+        if (settled) {
+          await this.reportInputIncident(config, entry.input).catch(this.options.onError);
+          summary.rejected.push(entry.input);
+        }
+        continue;
+      }
+      if (!inbox.reviews.settle(config.agentId, entry.input.message.id, entry.generation, { state: 'admitted' })) continue;
+      const latest = inbox.input(config.agentId, entry.input.message.id) ?? entry.input;
+      const { attention, high } = classifyFlags(latest);
+      this.options.store.receive(binding.sessionId, latest);
+      inbox.classify(latest, attention, high, entry.due_at);
+      summary.admitted++;
+    }
   }
 
   /** Apply source preferences directly; the server authenticates the owner's original instruction. */
@@ -236,11 +479,17 @@ export class PersonalAssistant {
     if(previous&&['sending','unknown'].includes(previous.state))return {status:'unknown',operation_id:operationId,message:incident?'Call send_message with the same incident_ref and target to check its receipt; this will not resend while unknown.':'Check the existing publication receipt; do not resend with another key.'};
     if(deliveryTarget.startsWith('external:')) {
       if(representation==='owner')throw new Error('Owner representation requires a native IM conversation');
+      const shadowId = this.options.store.imConversation(config.agentId, deliveryTarget);
+      await this.options.flushConversation?.(config, binding, shadowId);
+      if (shadowId && inbox.blocking(config.agentId, joinThreadTarget(shadowId, inThread))) {
+        return {status:'held_for_revalidation',target,message:'Read new messages in this conversation and reconsider this draft before sending.'};
+      }
       const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
         ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
       return {status:'sent',target,message_id:response.payload.message_id};
     }
+    if (conversation !== config.personal!.conversationId) await this.options.flushConversation?.(config, binding, conversation);
     if (inbox.blocking(config.agentId,reviewTarget)) return {status:'held_for_revalidation',target,
       message:'Read new messages in this conversation and reconsider this draft before sending.'};
     inbox.preparePublication(operationId,target,publicationBody,binding.agentId);
@@ -253,6 +502,7 @@ export class PersonalAssistant {
         lifecycleRevision:this.options.store.lifecycle.assert(config.agentId), signal,
       }, paths, filePaths, call.args.attachments);
       signal.throwIfAborted();
+      if (conversation !== config.personal!.conversationId) await this.options.flushConversation?.(config, binding, conversation);
       if (inbox.blocking(config.agentId,reviewTarget)) {
         const result = {status:'held_for_revalidation',target,message:'Read the new messages before sending this draft.'};
         inbox.settlePublication(operationId, 'held', result);
@@ -329,6 +579,7 @@ export class PersonalAssistant {
   /** Freeze and consume a provider permit immediately before the real channel send. */
   async external(config:AgentConfiguration,binding:SessionBinding,delivery:ExternalDelivery):Promise<string> {
     if(!delivery.shadowId)throw new Error('External source has not yet synchronized');
+    await this.options.flushConversation?.(config, binding, delivery.shadowId);
     const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,incident_ref:delivery.incidentRef,
       conversation_id:delivery.shadowId,content:delivery.text,transport:{kind:'feishu',destination:{app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId},card:delivery.card}});
     if(proposal.owner_private===true)return delivery.dispatch(delivery.text,delivery.card);

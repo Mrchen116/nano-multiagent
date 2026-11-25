@@ -29,9 +29,22 @@ export function controlText(input:RelayInput):string {
   // A represented message is conversation input, never a fresh human control command.
   if(input.message.pa_agent_id)return '';
   const text=input.message.content.trim();
-  const self=input.participants?.find(member=>member.type==='agent'&&member.id===input.agent_id);
+  const selfUserId=input.participants?.find(member=>member.type==='agent'&&member.id===input.agent_id)?.user_id
+    ?? (typeof input.metadata.agent_user_id==='string'&&input.metadata.agent_user_id ? input.metadata.agent_user_id : undefined);
   const mention=/^<mention type="user" target_id="([^"<>]+)"\s*\/>\s*/.exec(text);
-  return self&&mention?.[1]===self.user_id?text.slice(mention[0].length).trim():text;
+  if (!mention) return text;
+  if (selfUserId) return mention[1]===selfUserId ? text.slice(mention[0].length).trim() : text;
+  const mentionedAgents = Array.isArray(input.metadata.explicit_mentioned_agent_ids)
+    ? input.metadata.explicit_mentioned_agent_ids
+    : Array.isArray(input.metadata.mentioned_agent_ids) ? input.metadata.mentioned_agent_ids : undefined;
+  const soleAddressedMention = !input.participants && !/<mention\b/.test(text.slice(mention[0].length)) && (
+    (mentionedAgents?.length === 1 && mentionedAgents[0] === input.agent_id)
+    || (!mentionedAgents && input.metadata.addressed_to_agent === true && !input.message.reply_to && !input.message.interaction_reply)
+  );
+  if (soleAddressedMention) {
+    return text.slice(mention[0].length).trim();
+  }
+  return text;
 }
 
 /** Return the original send instant when it is known for this channel. */

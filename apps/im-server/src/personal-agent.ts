@@ -14,7 +14,7 @@ import type { FastifyInstance } from 'fastify';
 import { all, one, now, chatId, fail, body, params, transaction, type Row, type ImContext } from './context.js';
 import { conversationAccess } from './conversation-access.js';
 import { profileResponse } from './control.js';
-import { personalInputContext } from './personal-input-context.js';
+import { personalInputBatchContext, personalInputContext } from './personal-input-context.js';
 import { PersonalActions } from './personal-actions.js';
 import {PersonalAgentCreation} from './personal-agent-creation.js';
 
@@ -192,6 +192,35 @@ export class PersonalAgents {
       ...(original.interaction_reply?{interaction_reply:original.interaction_reply}:{}),
       ...(original.interactive?{interactive:original.interactive}:{})};
   }
+  /** Project per-message facts without repeating shared conversation boilerplate in batch reviews. */
+  compactMessageEvidence(b: Row, message: Row, needsDecision?: boolean): Row {
+    const original = this.ctx.messaging.message(message.id), facts = this.sourceFacts(b, message);
+    const risk = needsDecision ? this.actorRisk(b, this.sourceActor(message)) : undefined;
+    return {
+      id: message.id,
+      ...(needsDecision !== undefined ? { needs_decision: needsDecision } : {}),
+      sender: { id: message.sender_user_id, name: original.sender.display_name, type: message.sender_type, is_owner: facts.is_owner,
+        ...(message.sender_source_id ? { source_id: message.sender_source_id } : {}) },
+      ...(original.pa_agent_id ? { pa_agent_id: original.pa_agent_id } : {}),
+      addressed_to_agent: facts.addressed_to_agent,
+      ...(facts.addressed_to_owner ? { addressed_to_owner: true } : {}),
+      ...(facts.explicit_mentioned_agent_ids.length ? { explicit_mentioned_agent_ids: facts.explicit_mentioned_agent_ids } : {}),
+      ...(risk ? { actor_risk: risk } : {}),
+      content: message.content,
+      created_at: message.created_at,
+      ...(original.attachments.length ? { attachments: original.attachments.map((a: Row) => ({ content_type: a.content_type, file_name: a.file_name })) } : {}),
+      ...(original.reply_to ? { reply_to: { message_id: original.reply_to.message_id } } : {}),
+      ...(original.interaction_reply ? { interaction_reply: original.interaction_reply } : {}),
+      ...(original.interactive ? { interactive: original.interactive } : {}),
+    };
+  }
+  private batchConversationMeta(b: Row, chat: Row): Row {
+    const channel = this.feishuChannel(b, chat);
+    const participant = chat.external_source
+      ? !!channel && channel.agent_id === b.agent_id && channel.node_id === b.node_id
+      : !!one(this.db, 'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?', chat.id, this.ctx.messaging.agentUser(b.agent_id).id);
+    return { id: chat.id, type: chat.type, delivery: participant ? 'participant' : 'observer', channel: chat.external_source ?? 'web' };
+  }
   /** List current restrictions and evidence the owner can actually open. */
   blockedContacts(owner: string) {
     const b=this.binding(owner); if(!b)return {items:[]};
@@ -234,7 +263,7 @@ export class PersonalAgents {
     if(!chatAllowed(this.db,b.agent_id,m.id) || one(this.db,"SELECT 1 FROM pa_source_events WHERE binding_id=? AND message_id=? AND state='scope_skipped'",b.binding_id,m.id))
       return {allowed:false,scope_skipped:true};
     this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,this.policy(b.binding_id).revision);
-    return {allowed:true,...this.sourceFacts(b,m),...threadRelayMetadata(this.db,m.id,b.agent_id),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
+    return {allowed:true,...this.sourceFacts(b,m),...(m.sender_source_id?{}:{agent_user_id:this.ctx.messaging.agentUser(b.agent_id).id}),...threadRelayMetadata(this.db,m.id,b.agent_id),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
   }
   updatePolicy(owner: string, input: Row) {
     const b = this.binding(owner); if (!b) fail(404, 'personal_agent_not_found');
@@ -296,7 +325,7 @@ export class PersonalAgents {
         const conversation=e.conversation_id?one(this.db,'SELECT type,external_source FROM conversations WHERE id=?',e.conversation_id):undefined;
         const message=e.message_id?this.ctx.messaging.message(e.message_id):null;
         return {...e,lifecycle_revision:JSON.parse(e.payload_json).lifecycle_revision??1,conversation_type:conversation?.type,channel:conversation?.external_source??'web',
-          ...(message?{mentioned_agent_ids:this.addressedAgents(message),...this.sourceFacts(b,message),...threadRelayMetadata(this.db,message.id,b.agent_id)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
+          ...(message?{mentioned_agent_ids:this.addressedAgents(message),...(conversation?.external_source?{}:{agent_user_id:this.ctx.messaging.agentUser(b.agent_id).id}),...this.sourceFacts(b,message),...threadRelayMetadata(this.db,message.id,b.agent_id)}:{}),payload:e.kind==='security.incident'?this.incidentEvent(b,one(this.db,'SELECT * FROM pa_incidents WHERE id=?',JSON.parse(e.payload_json).incident_ref)!):JSON.parse(e.payload_json),
           message:message?{...message,sender_source_id:message.sender_source_id}:null};
       });
     for(const event of items) if(event.message_id) this.db.prepare("INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)").run(b.binding_id,event.message_id,event.conversation_id,policy.revision);
@@ -448,7 +477,10 @@ export class PersonalAgents {
       case 'pa.runtime.status':
         if(typeof args.available!=='boolean')fail(422,'runtime_availability_required');
         this.db.prepare('INSERT OR REPLACE INTO pa_runtime_status VALUES(?,?,?)').run(b.binding_id,b.node_epoch,Number(args.available));return {recorded:true};
-      case 'pa.input.context': return personalInputContext(this.db,args.source_message_id,m=>this.messageAllowed(b,m),m=>this.messageEvidence(b,m));
+      case 'pa.input.context':
+        return Array.isArray(args.source_message_ids)
+          ? personalInputBatchContext(this.db, args.conversation_id, args.source_message_ids, cid => this.sourceAllowed(b, cid), m => this.messageAllowed(b, m), chat => this.batchConversationMeta(b, chat), (m, needsDecision) => this.compactMessageEvidence(b, m, needsDecision))
+          : personalInputContext(this.db,args.source_message_id,m=>this.messageAllowed(b,m),m=>this.messageEvidence(b,m));
       case 'pa.incidents.pending': return this.pendingIncidents(principal,args);
       case 'pa.incident.read': return this.incidentRead(principal,args);
       case 'pa.source.admit': return this.admitSource(principal,args);
