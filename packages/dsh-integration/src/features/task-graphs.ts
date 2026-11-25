@@ -11,33 +11,31 @@ export const inject = ['tools', 'nanoProduct', 'systemPrompt'];
 /** Feature guidance is independent of the callable Task tool. */
 export function apply(ctx: Context, config: {mode?: string}) {
   ctx.systemPrompt.section({ name: 'nano-task-graphs', order: 810, text: ({agent}) => isInternalExecution(agent) ? 'You execute an internal delegated task. Read Task facts when needed and report findings, actual changes, blockers and evidence to your parent. The main Agent owns public delivery, waiting arrangements and ongoing Task responsibility. Inherited Task state is context, not a fresh assignment; respect corrections and stops. Do not fabricate human consent or claim completion from a draft or internal handoff.' : [
-    `Task ownership and changes
-Task graphs are durable plans and progress records in one fixed conversation within this Agent's fixed personal or company resource space. Joining a company never publishes personal-conversation Tasks. Eligible company members can read public-group Tasks; writing requires membership in the conversation.
+    `Task ownership, progressive goal graphs, and changes
+Task graphs are durable plans, candidate proposals, and progress records in one fixed conversation within this Agent's fixed personal or company resource space. Joining a company never publishes personal-conversation Tasks. Eligible company members can read public-group Tasks; writing requires membership in the conversation.
 
-Each node records its actual creator and optional human or Agent assignee. Do not impersonate the requesting human as creator. The product Agent owns its assigned responsibility; its main Agent coordinates internal execution. Keep containment, dependencies and alternatives distinct. Dependencies do not start work, and completing a child does not complete its parent.
+Start small and expand progressively: create standalone commitments or candidate proposals with mode="none" (the default single-card root), and upgrade a leaf card in place to mode="dag" or mode="explore" via apply (or pass initial operations on create) only when ordered stages or parallel alternatives are genuinely needed. Deep subtasks carry their root North Star goal (root_title and root_goal_summary); keep every child action aligned with that root objective.
 
-Create a Task only when a human explicitly asks to save a plan. Use the current revision and a stable request_key for each mutation. If the result is uncertain, resolve it with the exact same operation and key. Delete only within the human-authorized scope, using conversation context and ordinary approval rules. Ask only when scope or authority is unclear, without requiring repeated titles, IDs or a fixed confirmation phrase. General cleanup, chat removal and Task system messages are not human consent to delete Tasks.
+Each node records its actual creator and optional human or Agent assignee. Do not impersonate a human as creator. Use the current revision and a unique request_key for each mutation; on uncertain results, retry with the exact same operation and request_key. Delete only within human-authorized scope.
 
-States and waiting
-Use todo, doing, waiting, in_review, done, paused and closed. Assignment alone does not start work; claim_task takes responsibility and sets doing. waiting remains responsibility, alongside doing. Read Task details and discussion when needed, and apply newer business messages before further action on affected Tasks.
-
-Before waiting, inspect current facts, verify that the blocker is necessary, and try authorized alternatives or independent parts. Confirm that any request to another person or Agent was actually delivered; a failed or unknown send is not waiting for its recipient. When no permitted next step is executable, create a real future native Schedule, then use update_task to record waiting with wait {reason, schedule_id}. Choose the interval for the actual Task, without a fixed default; initial checks and renewals must be within one hour.
-
-The server validates Schedule owner, current session, active status and next execution time. Do not fabricate evidence. If Schedule creation succeeded but the Task mutation failed, inspect the result and reuse the arrangement while repairing the mutation rather than creating duplicates. Resolve unknown mutations with the same request_key.
-
-Continue other doing Tasks while waiting. At a recheck, read current Task and external facts, including recovery that occurred without a message. Reconsider whether the blocker is still necessary and whether a permitted alternative or independent part can progress. Resume executable work, or renew a valid check within one hour. Relevant replies can resume work earlier. Leaving waiting clears its association. If the linked Schedule is missing, inactive, expired or belongs to another owner/session, inspect the current Task and repair its arrangement or resume work.
+Lifecycle states and event-driven execution
+Use proposed, todo, doing, waiting, in_review, done, paused, backlog, and closed:
+- proposed: candidate idea or frontier next step awaiting human approval (requires proposal={rationale, on_approve}; never auto-execute speculative work before approval). When approved (approve_task or owner confirmation), an unblocked Agent-assigned node enters doing; blocked or human-assigned nodes enter todo.
+- backlog: stashed for later without reminders or nudges; promote to todo when ready.
+- doing: active execution. Entering, resuming, or being reassigned into doing triggers a single event wake; make concrete progress during that turn, after which the session naturally settles to idle without idle polling loops.
+- waiting: active responsibility blocked on a future time or external reply. Always record a clear wait.reason. When a timed recheck or cross-day follow-up is needed, first create a native Schedule (up to 180 days out) for the current root session and pass wait={reason, schedule_id}. When waiting on a human reply or unscheduled external event, omit schedule_id (and optionally set question and asked_user_id) instead of creating nagging 1-hour timers.
 
 Control and completion
-Schedule reminders recheck facts; they cannot reopen paused, closed, done or in_review Tasks. /stop pauses owned doing and waiting within the product scope. Automatic continuation does not grant authority or permit bypassing a denied action. Correct ordinary argument/revision errors and investigate execution failures rather than treating them as completion.
+Schedule reminders recheck facts; read current Task state and Inbox messages first, and do not reopen paused, backlog, closed, done, or in_review Tasks from a timer alone. /stop pauses owned doing and waiting within the product scope.
 
-Verify the whole objective and record evidence before completion. Prefer in_review for feedback followed by done after confirmation; direct done is allowed. Do not repeat confirmed feedback or unchanged routine progress. A failed or unknown feedback send does not undo saved waiting or its valid Schedule; resolve delivery truthfully and continue other executable responsibility.`,
-    `Deliver results and meaningful waiting explanations to the Task's fixed conversation, even if another Agent assigned it or your latest conversation is elsewhere. For waiting, explain actual progress, the blocker, alternatives tried, what is needed from whom and the next check. For in_review/done, deliver the verified result. A state-change system message does not replace this communication.`,
+Verify the whole objective and record evidence before completion. Prefer in_review when human confirmation is expected, or done when directly verified. When presenting actionable cards in Nano IM, you may attach live task_cards=[{graph_id, node_id}] on send_message so users can act on them inline.`,
+    `Deliver results and meaningful waiting questions to the Task's fixed conversation. Skip already-confirmed feedback and unchanged routine progress. A state-change system message is passive context—it does not wake Inbox or replace substantive result delivery.`,
   ].join('\n\n') });
 }
 
 /** Register the tool while gating automatic feedback on current Feature selection. */
 export function registerTool(ctx: Context, configuration: (agent: Agent) => AgentConfiguration | undefined) {
-  ctx.tools.register({ name: 'task_graph', description: "Query or maintain durable task graphs in IM; Use list/get to read, create to make only a root goal, apply to atomically change nodes and relationships, and delete to remove a graph or subtree. To save a multi-step plan, first create without operations, then apply using the returned graph_id, root_node_id and revision. Supply only the fields documented for the chosen action.", parameters: taskGraphParameters,
+  ctx.tools.register({ name: 'task_graph', description: "Query or maintain progressive task graphs and single-card tasks in IM. Use list/get to read, create to make a single-card root (default mode='none') or a multi-step goal graph (mode='dag'|'explore' with optional initial operations), apply to atomically update/expand/approve nodes and dependencies, and delete to remove an authorized graph or subtree. Supply only the fields documented for the chosen action.", parameters: taskGraphParameters,
     output: { schema: { type: 'object', additionalProperties: true }, render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }] },
     execute: async (args, exec) => {
       const value=await ctx.nanoProduct.call('task_graph',args,exec);

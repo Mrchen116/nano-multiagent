@@ -615,6 +615,10 @@ export class InboxStore {
   private entries(agent: string, target?: string): Entry[] {
     return this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND (? IS NULL OR target=?) ORDER BY seq").all(agent, target ?? null, target ?? null) as unknown as Entry[];
   }
+  /** Count unread admitted Inbox entries (including attention=0 observer messages) for sync deltas. */
+  unreadEntryCount(agent: string): number {
+    return Number((this.db.prepare("SELECT count(*) AS n FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0").get(agent) as { n: number } | undefined)?.n ?? 0);
+  }
   /** Select full original Task notices for direct native context, not a duplicate private snapshot. */
   prepareSystemContext(agentId:string,sessionId:string):{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[] {
     return this.entries(agentId).flatMap(row=>this.systemContextEntry(agentId,row));

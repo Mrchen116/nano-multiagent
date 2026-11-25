@@ -22,5 +22,19 @@ export { ExternalStore } from './external-store.js';
 export { WorkSync } from './work-sync.js';
 
 export {TaskExecution} from './task-execution.js';
+export {
+  ProactiveCoordinator,
+  DEFAULT_PROACTIVE_REVIEW_QUIET_MS,
+  DEFAULT_PROACTIVE_NIGHTLY_QUIET_MS,
+  PROACTIVE_NIGHT_START_HOUR,
+  PROACTIVE_NIGHT_END_HOUR,
+  resolveEffectiveTimeZone,
+  formatZonedIso,
+  nightlyCycleSlotKey,
+  renderProactiveReviewWake,
+  renderProactiveNightlyWake,
+  isProactivePlanningEnabled,
+  type ProactiveCoordinatorOptions,
+} from './proactive-coordinator.js';
 
 export type { ConfigurationPreparation } from './configuration.js';

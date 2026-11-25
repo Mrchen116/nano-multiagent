@@ -25,11 +25,55 @@ interface Options {
   childConfiguration(sessionId: string): Promise<AgentConfiguration | undefined>;
   configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>;
   held?(agentId: string): boolean; notify(): void;
+  timeZone?(): string;
+  resolveSession?(sessionId: string): Promise<Agent>;
 }
 interface Active { automatic: boolean; controller: AbortController; promise: Promise<unknown>; handle?: AgentHandle }
 const key = (id: string) => Buffer.from(id).toString('base64url');
 const retryDelays = [300000, 1800000, 7200000];
 const summaryKey = (agentId: string, sessionId: string) => key(`${agentId}:${sessionId}`);
+
+function canonicalTimeZone(raw?: string): string {
+  for (const candidate of [raw, Intl.DateTimeFormat().resolvedOptions().timeZone, 'UTC']) {
+    if (!candidate) continue;
+    try { return new Intl.DateTimeFormat('en-US', { timeZone: candidate }).resolvedOptions().timeZone; }
+    catch { /* Ignore malformed zone strings and fall back to host timezone. */ }
+  }
+  return 'UTC';
+}
+
+function localCalendarParts(ms: number, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(ms));
+  const get = (type: string) => Number(parts.find(part => part.type === type)?.value ?? '0');
+  const hour = get('hour');
+  return { year: get('year'), month: get('month'), day: get('day'), hour: hour === 24 ? 0 : hour, minute: get('minute'), second: get('second') };
+}
+
+function zonedOffsetMs(ms: number, timeZone: string): number {
+  const p = localCalendarParts(ms, timeZone);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ms / 1000) * 1000;
+}
+
+function zonedLocalToUtcMs(dateKey: string, hour: number, timeZone: string): number {
+  const [year, month, day] = dateKey.split('-').map(Number) as [number, number, number];
+  const naive = Date.UTC(year, month - 1, day, hour, 0, 0);
+  const first = naive - zonedOffsetMs(naive, timeZone);
+  return naive - zonedOffsetMs(first, timeZone);
+}
+
+function shiftDateKey(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+function cycleSlotKey(ms: number, timeZone: string, anchorHour: number): string {
+  const p = localCalendarParts(ms, timeZone);
+  const dayShift = p.hour < anchorHour ? -1 : 0;
+  return new Date(Date.UTC(p.year, p.month - 1, p.day + dayShift)).toISOString().slice(0, 10);
+}
 
 /** Runs low-priority memory maintenance in a native empty-context execution. */
 export class Dreaming {
@@ -102,18 +146,62 @@ export class Dreaming {
   async nextAutomaticAt(agentId: string): Promise<number | undefined> {
     const config = this.configuration(agentId);
     if (this.stopped || !config || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false || this.options.held?.(agentId)) return;
-    const timing = this.automaticTiming(config, await this.owner(config));
+    const timing = this.automaticTiming(config, await this.owner(config), this.now());
     return Math.max(timing.dueAt, timing.quietAt);
   }
 
   /** Wait only for work already admitted; never start an additional maintenance cycle. */
   async whenIdle(agentId: string): Promise<unknown> { return this.active.get(agentId)?.promise; }
 
-  private automaticTiming(config: AgentConfiguration, owner: DreamingOwner) {
-    const settings = config.knowledge?.dreaming;
+  /** Report whether the current 03:00 nightly slot has completed, plus retry bounds for proactive_nightly gating. */
+  async nightlyStatus(agentId: string, now = this.now()): Promise<{ completed: boolean; failures: number; retryAt?: number; nightWindowEndAt: number }> {
+    const tz = this.effectiveTimeZone();
+    const config = this.configuration(agentId);
+    const anchorHour = config?.knowledge?.dreaming?.nightlyHour ?? DEFAULT_DREAMING_SCHEDULE.nightlyHour;
+    const currentSlot = cycleSlotKey(now, tz, anchorHour);
+    const nightWindowEndAt = zonedLocalToUtcMs(currentSlot, 6, tz);
+    if (!config || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false) {
+      return { completed: true, failures: 0, nightWindowEndAt };
+    }
+    const owner = await this.owner(config);
     return {
-      dueAt: Math.max(owner.retryAt ?? 0, (owner.lastSuccessAutomatic ?? owner.activationAt) + (settings?.intervalMs ?? DEFAULT_DREAMING_SCHEDULE.intervalMs)),
-      quietAt: (this.lastActivity.get(config.agentId) ?? owner.activationAt) + (settings?.quietMs ?? DEFAULT_DREAMING_SCHEDULE.quietMs),
+      completed: !this.active.has(agentId) && owner.lastCompletedCycle === currentSlot,
+      failures: owner.failures,
+      retryAt: owner.retryAt,
+      nightWindowEndAt,
+    };
+  }
+
+  private effectiveTimeZone(): string {
+    return canonicalTimeZone(this.options.timeZone?.());
+  }
+
+  private automaticTiming(config: AgentConfiguration, owner: DreamingOwner, now = this.now()) {
+    const settings = config.knowledge?.dreaming;
+    const quietAt = (this.lastActivity.get(config.agentId) ?? owner.activationAt) + (settings?.quietMs ?? DEFAULT_DREAMING_SCHEDULE.quietMs);
+    if (settings?.intervalMs !== undefined) {
+      return {
+        dueAt: Math.max(owner.retryAt ?? 0, (owner.lastSuccessAutomatic ?? owner.activationAt) + settings.intervalMs),
+        quietAt,
+        explicitInterval: true,
+      };
+    }
+    const tz = this.effectiveTimeZone();
+    const anchorHour = settings?.nightlyHour ?? DEFAULT_DREAMING_SCHEDULE.nightlyHour;
+    const currentSlot = cycleSlotKey(now, tz, anchorHour);
+    const completedSlot = owner.lastCompletedCycle ?? cycleSlotKey(owner.lastSuccessAutomatic ?? owner.activationAt, tz, anchorHour);
+    let targetSlot: string;
+    if (completedSlot >= currentSlot) {
+      targetSlot = shiftDateKey(completedSlot, 1);
+    } else {
+      const nextUnfinished = shiftDateKey(completedSlot, 1);
+      // In evaluation step-wise progression now sits inside completedSlot; on real wake-from-sleep now is already in currentSlot.
+      targetSlot = now >= zonedLocalToUtcMs(currentSlot, anchorHour, tz) ? currentSlot : nextUnfinished;
+    }
+    return {
+      dueAt: Math.max(owner.retryAt ?? 0, zonedLocalToUtcMs(targetSlot, anchorHour, tz)),
+      quietAt,
+      explicitInterval: false,
     };
   }
 
@@ -122,15 +210,32 @@ export class Dreaming {
   private async owner(config: AgentConfiguration): Promise<DreamingOwner> {
     const existing = this.owners.get(config.agentId); if (existing) return existing;
     const promise = (async () => {
+      const tz = this.effectiveTimeZone();
+      const anchorHour = config.knowledge?.dreaming?.nightlyHour ?? DEFAULT_DREAMING_SCHEDULE.nightlyHour;
       const table = (await this.domain).table('owners'); const saved = table.get(key(config.agentId)); if (saved) {
         if (saved.protocol !== 2) throw new Error('Dreaming state needs the offline protocol-2 migration before maintenance can run.');
+        if (saved.lastCompletedCycle === undefined) {
+          saved.lastCompletedCycle = cycleSlotKey(saved.lastSuccessAutomatic ?? saved.activationAt, tz, anchorHour);
+          await table.put(key(config.agentId), saved);
+        }
         return saved;
       }
       const library = await this.documents.forConfig(config);
       let imported: Partial<DreamingOwner> | undefined;
       try { imported = JSON.parse(await readFile(join(library.workspace, '.nanoassistant/maintenance/dreaming-state.json'), 'utf8')) as DreamingOwner; }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-      const owner: DreamingOwner = { protocol: 2, integrated: {}, activationAt: imported?.activationAt ?? this.now(), streams: imported?.streams ?? await this.sources.baseline(config.agentId), rotation: 0, failures: 0 };
+      const activationAt = imported?.activationAt ?? this.now();
+      const lastCompletedCycle = imported?.lastCompletedCycle ?? cycleSlotKey(imported?.lastSuccessAutomatic ?? activationAt, tz, anchorHour);
+      const owner: DreamingOwner = {
+        protocol: 2,
+        integrated: {},
+        activationAt,
+        ...(imported?.lastSuccessAutomatic !== undefined ? { lastSuccessAutomatic: imported.lastSuccessAutomatic } : {}),
+        lastCompletedCycle,
+        streams: imported?.streams ?? await this.sources.baseline(config.agentId),
+        rotation: 0,
+        failures: 0,
+      };
       await table.put(key(config.agentId), owner); return owner;
     })();
     this.owners.set(config.agentId, promise);
@@ -147,13 +252,22 @@ export class Dreaming {
       return;
     }
     if (this.stopped || !config || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false || this.options.held?.(agentId)) return;
-    const parent = [...this.options.bindings.values()].filter(binding => binding.agentId === agentId).map(binding => this.ctx.agents.get(SessionId(binding.sessionId))).find(Boolean);
-    if (!parent) return;
-    const timing = this.automaticTiming(config, await this.owner(config));
+    const timing = this.automaticTiming(config, await this.owner(config), now);
     if (now < timing.dueAt) return;
     const quiet = now >= timing.quietAt;
-    // A completed-step callback can admit work during a continuous turn, but only with spare provider capacity.
-    if (this.foregroundRequests > 0 || !quiet && parent.status === 'idle') return;
+    if (this.foregroundRequests > 0) return;
+    if (!timing.explicitInterval && !quiet) return;
+    const agentBindings = [...this.options.bindings.values()].filter(binding => binding.agentId === agentId);
+    let parent = agentBindings.map(binding => this.ctx.agents.get(SessionId(binding.sessionId))).find(Boolean);
+    if (!parent && this.options.resolveSession) {
+      for (const binding of agentBindings) {
+        if (!await this.ctx.sessionPersistence.stat(SessionId(binding.sessionId))) continue;
+        parent = await this.options.resolveSession(binding.sessionId);
+        break;
+      }
+    }
+    if (!parent) return;
+    if (timing.explicitInterval && !quiet && parent.status === 'idle') return;
     return this.start(parent, true);
   }
   private async refreshSources(parent: Agent, config: AgentConfiguration, signal: AbortSignal) {
@@ -208,7 +322,14 @@ export class Dreaming {
           const rootPending=Object.entries(target.roots).some(([id,cut])=>owner.streams[id]!.cursor<cut.through||owner.streams[id]!.continuation);
           if(target.blocked.length||batch.blocked.length&&(!hasProgress||rootPending))throw new Error(`Source ranges remain blocked: ${JSON.stringify([...target.blocked,...batch.blocked])}`);
           if(rootPending)throw new Error('No safe progress towards the frozen source boundary.');
-          owner.failures=0;delete owner.retryAt;if(work.automatic)owner.lastSuccessAutomatic=this.now();
+          owner.failures=0;delete owner.retryAt;
+          if(work.automatic){
+            const finishedAt=this.now();
+            owner.lastSuccessAutomatic=finishedAt;
+            if(config.knowledge?.dreaming?.intervalMs===undefined){
+              owner.lastCompletedCycle=cycleSlotKey(finishedAt,this.effectiveTimeZone(),config.knowledge?.dreaming?.nightlyHour??DEFAULT_DREAMING_SCHEDULE.nightlyHour);
+            }
+          }
           await this.saveOwner(config.agentId,owner);
           return completed.length ? {accepted:true,state:'completed',runIds:completed} : {accepted:false,completed:false,reason:'no_eligible_increment'};
         }

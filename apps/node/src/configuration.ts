@@ -1,4 +1,4 @@
-import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
+import {definitionsForRole, validateCapabilities} from '@nano/product-contracts/capabilities';
 import {builtinSkillsRoot, personalSkillsRoot} from '@nano/personal-assistant';
 import { readFileSync } from 'node:fs';
 import { readFile, rename, mkdir, realpath, lstat, rm } from 'node:fs/promises';
@@ -142,7 +142,7 @@ export class NodeConfiguration {
     const workspace = candidate.workspace_root || previous?.workspace_root || this.defaultWorkspace(candidate.agent_id);
     if (previous?.work_mode === 'global' && resolve(workspace) !== resolve(previous.workspace_root!)) throw new Error('Global Agent workspace is immutable');
     const legacy = this.runtime({...candidate, workspace_root:workspace}).knowledge?.memoryMode === 'legacy';
-    const invalid = validateCapabilities(candidate, {features: featureDependencies.filter(feature => feature.key !== 'dreaming' || !legacy)});
+    const invalid = validateCapabilities(candidate, {features: definitionsForRole(Boolean(candidate.personal_agent)).filter(feature => feature.key !== 'dreaming' || !legacy)});
     if (invalid.length) throw Object.assign(new Error('Invalid capability dependencies'), {error_code: 'invalid_capability_dependencies', blocks: invalid});
     const resolved = { ...candidate, workspace_root: resolve(workspace) };
     this.runtime(resolved);

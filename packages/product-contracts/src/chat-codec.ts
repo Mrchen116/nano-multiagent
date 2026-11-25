@@ -22,7 +22,10 @@ export function chatAttachments(value: unknown): ChatAttachment[] {
   return value as ChatAttachment[];
 }
 /** Validate top-level task_cards references at transport entry. */
-export function chatTaskCards(value: unknown): TaskCardRef[] {
+export function chatTaskCards(value: TaskCardRef[]): TaskCardRef[];
+export function chatTaskCards(value: unknown): TaskCardRef[] | undefined;
+export function chatTaskCards(value: unknown): TaskCardRef[] | undefined {
+  if (value === undefined) return undefined;
   return validateTaskCards(value);
 }
 function tool(value: unknown): ChatToolCall {

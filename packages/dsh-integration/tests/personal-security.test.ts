@@ -103,7 +103,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
         if(!personal)expect(names).not.toContain('agent_creation');
         for(const name of ['bash','read','write','web_search','web_fetch','skill_manage','plugin_manager','owner_tool','task_graph'])expect(names).toContain(name);
         expect(catalog.skills.map((skill:any)=>skill.name)).toEqual(expect.arrayContaining(['owner-skill','nano-ongoing-work']));
-        expect(JSON.stringify(results.find((entry:any)=>entry.name==='skill'))).toContain('持续推进已交办的工作');
+        expect(JSON.stringify(results.find((entry:any)=>entry.name==='skill'))).toContain('Ongoing Work & Progressive Goal Graphs');
         const before=await client.rpc.request('session.capabilities',{sessionId:'root'}) as any;
         expect(JSON.stringify(before.prompt).includes('pursue goals across work and everyday life')).toBe(personal);
         const preview=await client.rpc.request('configuration.preview',{config,cwd:root}) as any;
@@ -137,7 +137,7 @@ export const name='capability-fixture';export const inject=['tools'];export func
           expect(calls.find(call=>call.method==='send_message').args.interactive).toEqual({format:'openui',catalog_version:'nano-iui-1',source:'root = TextContent("Draft")'});
           expect(names).toContain('send_user_message');
           const send = catalog.tools.find((tool:any)=>tool.name==='send_user_message');
-          expect(Object.keys(send.parameters.properties)).toEqual(['target','reply_to_message_id','text','incident_ref','attachments','interactive']);
+          expect(Object.keys(send.parameters.properties)).toEqual(['target','reply_to_message_id','text','incident_ref','attachments','interactive','task_cards']);
           expect(Object.keys(send.parameters.properties.interactive.properties)).toEqual(['source','supersedes_message_id','source_mode']);
           expect(await readFile(join(root,'.nanoassistant','memory-legacy','MEMORY.md'),'utf8')).toContain('Private note survives source changes');
           expect(await client.rpc.request('pa.evidence',{agentId:'agent',sessionId:'root'})).toHaveProperty('contexts');

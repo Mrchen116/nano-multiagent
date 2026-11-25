@@ -79,7 +79,7 @@ export class NanoApproval extends Service {
     if (agent.session.header.origin === 'subagent') return 'return_to_agent';
     const events = agent.session.snapshotEvents(); const start = events.findLast(event => event.type === 'turn/start')?.seq ?? -1;
     const inputs = events.filter(event => event.seq > start && event.type === 'user/message').map(event => event.data as UserMessage);
-    if (inputs.some(input => input.source?.kind === 'schedule' || input.source?.kind === 'nano-system' && input.source.channel === 'heartbeat')) return 'unattended';
+    if (inputs.some(input => input.source?.kind === 'schedule' || input.source?.kind === 'nano-system' && ['heartbeat', 'proactive_review', 'proactive_nightly'].includes(String(input.source.channel)))) return 'unattended';
     if (config.mode === 'global') return 'return_to_agent';
     return inputs.some(input => isHumanSource(input.source) || input.source?.kind==='nano-system' && ['task-execution','task-change'].includes(String(input.source.channel))) ? 'interactive' : 'unattended';
   }

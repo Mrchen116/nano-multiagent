@@ -1,4 +1,4 @@
-import { effectiveFeatures, fixedTools, featureDependencies, validateCapabilities, type CapabilityBlock, type CapabilityCatalog, type CapabilityTarget } from '@nano/product-contracts/capabilities';
+import { definitionsForRole, effectiveFeatures, fixedTools, validateCapabilities, type CapabilityBlock, type CapabilityCatalog, type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import type { AgentConfiguration } from './index.js';
 
 /** Convert the runtime projection without inventing a second dependency graph. */
@@ -8,8 +8,9 @@ export function capabilityDraft(config: AgentConfiguration) {
 }
 /** Validate capabilities in the active memory mode. */
 export function configurationBlocks(config: AgentConfiguration, catalog: CapabilityCatalog) {
+  const roleFeatures = definitionsForRole(Boolean(config.personal));
   return validateCapabilities(capabilityDraft(config), { ...catalog,
-    features: (catalog.features ?? featureDependencies).filter(feature => feature.key !== 'dreaming' || config.knowledge?.memoryMode !== 'legacy') });
+    features: (catalog.features ?? roleFeatures).filter(feature => feature.key !== 'dreaming' || config.knowledge?.memoryMode !== 'legacy') });
 }
 export function needsSchedules(config: AgentConfiguration): boolean {
   return config.features?.cron_scheduling === true || config.toolAllowlist === undefined || config.toolAllowlist.some(name => name.startsWith('schedule_'));
@@ -56,7 +57,8 @@ export class CapabilityState {
     if (previous) {
       if (previous.knowledge?.memoryMode === 'legacy' && previous.knowledge.legacyMemory?.enabled !== false
         && (config.knowledge?.memoryMode !== 'legacy' || config.knowledge.legacyMemory?.enabled === false)) targets.push({kind:'feature',name:'memory_curation'});
-      const before = effectiveFeatures(previous.features), after = effectiveFeatures(config.features);
+      const before = effectiveFeatures(previous.features, definitionsForRole(Boolean(previous.personal)), capabilityDraft(previous));
+      const after = effectiveFeatures(config.features, definitionsForRole(Boolean(config.personal)), capabilityDraft(config));
       for (const name of Object.keys(before)) if (before[name] && !after[name]) targets.push({kind: 'feature', name});
       const fixed = fixedTools(config.mode, config.personal ? 'personal' : 'root');
       const beforeTools = new Set([...this.selection(previous, catalog.tools ?? []), ...fixed]);

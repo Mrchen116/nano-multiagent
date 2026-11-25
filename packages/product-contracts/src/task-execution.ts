@@ -26,6 +26,7 @@ export interface TaskResponsibility {
   root_goal_summary?: string;
   parent_path?: { id: string; title: string; mode?: TaskMode }[];
   doing_wake?: TaskDoingWake | null;
+  unwoken_doing?: boolean;
   wait?: TaskWait;
   resume_request?: { actor_id: string; at: string; revision: number };
 }

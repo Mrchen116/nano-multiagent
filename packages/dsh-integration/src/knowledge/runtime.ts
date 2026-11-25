@@ -34,6 +34,8 @@ interface Options {
   roleWorkspace?(agentId: string): Promise<string | null>;
   notify(): void;
   held?(agentId: string, kind: KnowledgeKind): boolean;
+  timeZone?(): string;
+  resolveSession?(sessionId: string): Promise<Agent>;
 }
 const storageKey = (value: string) => Buffer.from(value).toString('base64url');
 interface Batch { root: string; name: string }

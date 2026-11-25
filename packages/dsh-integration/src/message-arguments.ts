@@ -7,11 +7,12 @@ export const publicMessageProperties = {
   text: {type:'string' as const,description:'Message text. Optional with interactive UI. Required for plain-text delivery. To address a specific Agent in a group, include <mention type="user" target_id="IM_USER_ID"/> using its actual user_id from conversations(action="info"); a plain name or Agent ID does not notify mention-only Agents.'},
   incident_ref: {type:'string' as const,description:'Bound main PA only: incident reference for the owner notice or subsequent refusal in its original conversation.'},
   attachments: {type:'array' as const,maxItems:5,description:'Existing Nano IM attachment URLs (use local_images or local_files to upload local files from disk).',items:{type:'object' as const,properties:{url:{type:'string' as const}},required:['url'],additionalProperties:false}},
+  task_cards: {type:'array' as const,minItems:1,maxItems:5,description:'Optional live Nano IM task card references ({graph_id, node_id}) rendered inline inside this message bubble and synchronized with the Tasks board; degrades to a plain-text summary on external channels.',items:{type:'object' as const,properties:{graph_id:{type:'string' as const,minLength:1},node_id:{type:'string' as const,minLength:1}},required:['graph_id','node_id'],additionalProperties:false}},
   interactive: {type:'object' as const,properties:{source:{type:'string' as const,maxLength:65536},supersedes_message_id:{type:'string' as const},source_mode:{type:'string' as const,enum:['patch']}},required:['source'],additionalProperties:false},
 };
 
 export const publicMessageParameters = {type:'object' as const,properties:publicMessageProperties,required:['target'],
-  anyOf:[{required:['text']},{required:['interactive']}],additionalProperties:false};
+  anyOf:[{required:['text']},{required:['interactive']},{required:['task_cards']}],additionalProperties:false};
 
 export const screenshotMessageProperties = {
   ...publicMessageProperties,
@@ -53,6 +54,7 @@ export function normalizeMessageArguments(args: unknown, screenshots = false): R
       || supplied.incident_ref))
     throw new Error('Provide absolute local paths and at most five attachments for a regular message');
   const input: Record<string, unknown> = {text:'', ...supplied};
-  if (!(input.text as string).trim() && input.interactive === undefined) throw new Error('A message requires text or interactive content');
+  const hasTaskCards = Array.isArray(input.task_cards) && input.task_cards.length > 0;
+  if (!(input.text as string).trim() && input.interactive === undefined && !hasTaskCards) throw new Error('A message requires text, interactive content, or task_cards');
   return input.interactive ? {...input,interactive:{...(input.interactive as Record<string,unknown>),format:'openui',catalog_version:'nano-iui-1'}} : input;
 }

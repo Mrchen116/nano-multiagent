@@ -50,7 +50,7 @@ type DisclosureFacts = {
   owner_user_id: string;
   recipient: {conversation_id:string;name:string;conversation_type:string;channel:string;additional_readers?:'eligible_company_members_outside_group';
     members:{id:string;user_id:string;display_name:string;type:string;is_stale?:boolean|null}[]};
-  payload: {content:string;in_thread_of?:string;reply_to?:unknown;attachments?:{url:string}[];attachment_snapshots?:unknown[];interactive?:MessageInteractive;representation?:'self'|'owner';
+  payload: {content:string;in_thread_of?:string;reply_to?:unknown;attachments?:{url:string}[];attachment_snapshots?:unknown[];interactive?:MessageInteractive;task_cards?:{graph_id:string;node_id:string}[];representation?:'self'|'owner';
     task?:{action:string;arguments:Record<string,unknown>;source_message_id?:string};
     transport?:{kind:string;destination:Record<string,unknown>;card?:unknown}};
   policy?: {excluded_conversation_ids?:string[]};
@@ -82,6 +82,7 @@ export function personalReviewAction(evidence: Record<string,unknown>): Record<s
     :{target:recipient.conversation_id,text:payload.content,
       ...(payload.in_thread_of?{in_thread_of:payload.in_thread_of}:{}),
       ...(payload.reply_to?{reply_to:payload.reply_to}:{}),
+      ...(payload.task_cards?.length?{task_cards:payload.task_cards}:{}),
       ...(payload.interactive?{interactive:modelInteractiveContent(payload.interactive)}:{}),
       ...(payload.interactive&&payload.attachments?.length?{attachment_positions:payload.attachments.map(item=>item.url)}:{}),
       ...(payload.attachment_snapshots?.length?{attachments:payload.attachment_snapshots.map(row=>{const {base64,...manifest}=row as Record<string,unknown>;return manifest;})}:{}),

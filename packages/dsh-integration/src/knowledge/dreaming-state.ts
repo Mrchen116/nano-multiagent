@@ -8,7 +8,7 @@ export interface DreamingOwner {
   protocol: 2;
   activationAt: number; streams: Record<string, StreamProgress>; rotation: number;
   integrated: Record<string, string>;
-  lastAttempt?: number; lastSuccessAutomatic?: number; retryAt?: number; failures: number;
+  lastAttempt?: number; lastSuccessAutomatic?: number; lastCompletedCycle?: string; retryAt?: number; failures: number;
 }
 export interface DreamingRun {
   id: string; agentId: string; rootSessionId: string; childSessionId?: string;

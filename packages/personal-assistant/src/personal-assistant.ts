@@ -1,7 +1,7 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { randomUUID } from 'node:crypto';
-import { interactiveResponse, workObject, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding } from '@nano/product-contracts';
+import { chatTaskCards, interactiveResponse, TASK_STATUS_BADGE_LABELS, workObject, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding, type TaskCardRef, type TaskStatus } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import type { ProductCall } from './global-agent.js';
 import { prepareLocalAttachments, unknownScreenshotReceipt, type AttachmentUploader, type ScreenshotUploader } from './screenshot-delivery.js';
@@ -415,13 +415,14 @@ export class PersonalAssistant {
     const text = String(call.args.text ?? '');
     if(call.args.reply_draft!==undefined)throw new Error('reply_draft is retired; use an interactive ComposeMessage action');
     const interactive = interactiveResponse(call.args.interactive);
-    if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
+    const taskCards = chatTaskCards(call.args.task_cards);
+    if (!target || !text.trim() && !interactive && !taskCards?.length) throw new Error('Sending requires a target and text, interactive content, or task_cards');
     const paths = call.args.local_images as string[] | undefined;
     const filePaths = call.args.local_files as string[] | undefined;
     const hasLocalMedia = !!(paths?.length || filePaths?.length);
     const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
     const incident=typeof call.args.incident_ref==='string'?call.args.incident_ref:undefined;
-    if(incident&&(call.sessionId!==binding.sessionId||call.method!=='send_message'||interactive||(call.args.attachments as unknown[]|undefined)?.length))throw new Error('Incident communication belongs to the main PA and must be plain self-authored text');
+    if(incident&&(call.sessionId!==binding.sessionId||call.method!=='send_message'||interactive||(call.args.attachments as unknown[]|undefined)?.length||taskCards?.length))throw new Error('Incident communication belongs to the main PA and must be plain self-authored text');
     const representation=call.method==='send_user_message'?'owner':'self';
     if (hasLocalMedia && (incident || representation !== 'self')) throw new Error('Local attachments require a regular self-authored message');
     if(representation==='owner' && (call.sessionId!==binding.sessionId || !config.personal))throw new Error('Only the bound main PA may represent its owner');
@@ -438,7 +439,7 @@ export class PersonalAssistant {
     }
     const incidentKey=incident?`pa-incident:${incident}:${conversation===config.personal!.conversationId?'owner':'peer'}`:undefined;
     let operationId=incidentKey??call.operationId;
-    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation, ...(paths ? {local_images:paths} : {}), ...(filePaths ? {local_files:filePaths} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})});
+    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation, ...(paths ? {local_images:paths} : {}), ...(filePaths ? {local_files:filePaths} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {}), ...(taskCards?.length ? {task_cards:taskCards} : {})});
     const incidentPrevious=incidentKey?inbox.incidentPublication(incidentKey):undefined;
     let previous = incidentPrevious??inbox.publication(operationId);
     if(incidentKey&&incidentPrevious&&previous) {
@@ -484,7 +485,8 @@ export class PersonalAssistant {
       if (shadowId && inbox.blocking(config.agentId, joinThreadTarget(shadowId, inThread))) {
         return {status:'held_for_revalidation',target,message:'Read new messages in this conversation and reconsider this draft before sending.'};
       }
-      const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
+      const externalText = taskCards?.length ? await this.formatExternalTaskCardsText(config.agentId, text, taskCards) : text;
+      const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text:externalText,
         ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
       return {status:'sent',target,message_id:response.payload.message_id};
@@ -515,7 +517,7 @@ export class PersonalAssistant {
       inbox.settlePublication(operationId,'sending');
       try {
         const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${conversation}`,text,
-          attachments,...(interactive ? {interactive} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {}),
+          attachments,...(interactive ? {interactive} : {}), ...(taskCards?.length ? {task_cards:taskCards} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {}),
           ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
         if(typeof response.payload.message_id !== 'string') throw new Error('Missing actual delivery receipt');
         const result={status:'sent',target,message_id:response.payload.message_id,conversation_id:response.payload.conversation_id};
@@ -528,7 +530,7 @@ export class PersonalAssistant {
           inbox.settlePublication(operationId,'rejected',result);
           return result;
         }
-        if ((interactive || hasLocalMedia) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
+        if ((interactive || hasLocalMedia || taskCards?.length) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
           inbox.settlePublication(operationId,'rejected');
           throw new Error(error.detail ? JSON.stringify(error.detail) : error.code ?? error.message);
         }
@@ -538,7 +540,7 @@ export class PersonalAssistant {
       }
     }
     const proposal = await this.request(config,'pa.action.prepare',{request_key:operationId,representation,conversation_id:conversation,
-      ...(incident?{incident_ref:incident}:{}),content:text,attachments,...(interactive ? {interactive} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})});
+      ...(incident?{incident_ref:incident}:{}),content:text,attachments,...(interactive ? {interactive} : {}), ...(taskCards?.length ? {task_cards:taskCards} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})});
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string') {
       const result={status:'sent',target,message_id:proposal.message_id,conversation_id:proposal.conversation_id};
       inbox.settlePublication(operationId,'confirmed',result); return result;
@@ -610,6 +612,27 @@ export class PersonalAssistant {
     const resolved=(result.payload.result as Data).target;
     if(typeof resolved!=='string')throw new Error('Recipient is not a resolved conversation');
     return resolved.replace(/^conversation:/,'');
+  }
+  private async formatExternalTaskCardsText(agentId: string, baseText: string, taskCards: TaskCardRef[]): Promise<string> {
+    const refs = taskCards.map(card => `${card.graph_id}:${card.node_id}`).join(',');
+    let lines: string[];
+    try {
+      const res = await this.options.relay.request('task_graph.command', {
+        node_id: this.options.nodeId, agent_id: agentId, request_id: randomUUID(), action: 'nodes', source_message_id: null, args: { refs },
+      });
+      const items = res.payload.ok ? ((res.payload.result as { items?: { graph_id: string; node_id: string; title: string; status: string }[] })?.items ?? []) : [];
+      const byKey = new Map(items.map(item => [`${item.graph_id}:${item.node_id}`, item]));
+      lines = taskCards.map(card => {
+        const hit = byKey.get(`${card.graph_id}:${card.node_id}`);
+        if (!hit) return `- ${card.graph_id}/${card.node_id}`;
+        const label = TASK_STATUS_BADGE_LABELS[hit.status as TaskStatus] ?? hit.status;
+        return `- [${label}] ${hit.title}`;
+      });
+    } catch {
+      lines = taskCards.map(card => `- ${card.graph_id}/${card.node_id}`);
+    }
+    const summary = `关联事项：\n${lines.join('\n')}`;
+    return baseText.trim() ? `${baseText.trimEnd()}\n\n${summary}` : summary;
   }
 
 }

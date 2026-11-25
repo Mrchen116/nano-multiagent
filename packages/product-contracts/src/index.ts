@@ -180,6 +180,7 @@ export * from './chat.js';
 export * from './chat-codec.js';
 
 export { intelligentUICatalog, interactiveTools } from './intelligent-ui-catalog.js';
+export { definitionsForRole, effectiveFeatures } from './capabilities.js';
 export {normalizeKnowledge, DEFAULT_DREAMING_SCHEDULE, type KnowledgeConfiguration} from './knowledge.js';
 
 export type * from './memory-evaluation.js';
