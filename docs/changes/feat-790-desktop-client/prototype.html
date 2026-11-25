@@ -1,0 +1,1253 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>feat-790 · Crewden Desktop 交互原型</title>
+  <style>
+    :root {
+      --im-bg: #f7f8fa;
+      --im-lavender: #f8f6fc;
+      --im-butter: #fff7df;
+      --im-surface: #ffffff;
+      --im-surface-2: #f2f4f0;
+      --im-hover: #edf2ec;
+      --im-accent: #6b43d8;
+      --im-accent-2: #5732bf;
+      --im-accent-soft: #eee7fc;
+      --im-accent-border: #d1bff3;
+      --im-text: #30313d;
+      --im-text-muted: #68736b;
+      --im-plum-muted: #82718f;
+      --im-border: #e0e5de;
+      --im-border-strong: #bec9bf;
+      --im-online: #21927d;
+      --im-online-ink: #286744;
+      --im-online-soft: #e7f5ec;
+      --im-warn: #95601a;
+      --im-warn-soft: #fff7e9;
+      --im-warn-border: #edd8b5;
+      --im-danger: #9c422a;
+      --im-danger-soft: #fdf0ed;
+      --im-font: "Helvetica Neue", "PingFang SC", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --im-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #e9ece8;
+      color: var(--im-text);
+      font-family: var(--im-font);
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    /* 外层演示控制栏（独立于产品界面之外） */
+    .proto-harness {
+      background: #231b30;
+      color: #f4effc;
+      padding: 10px 18px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid #3c2f52;
+      font-size: 12px;
+    }
+    .proto-harness-left { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .proto-badge {
+      background: #463268; color: #e9dcff; padding: 2px 8px;
+      border-radius: 999px; font-weight: 650; font-size: 11px; white-space: nowrap;
+    }
+    .proto-legend { color: #c5b6dc; }
+    .proto-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+    .proto-tabs button, .proto-controls select {
+      font: inherit; font-size: 12px; border-radius: 7px; padding: 5px 10px;
+      border: 1px solid #4c3d63; background: #2f2440; color: #eae2f8; cursor: pointer;
+    }
+    .proto-tabs button[aria-selected="true"] {
+      background: var(--im-accent); border-color: #8f6df0; color: #fff; font-weight: 650;
+    }
+    .proto-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .proto-controls label { display: inline-flex; align-items: center; gap: 5px; color: #d6cae8; }
+
+    /* 浮动轻提示（脱离文档流，不挤动布局坐标） */
+    .proto-toast {
+      position: fixed; right: 20px; bottom: 20px; z-index: 120;
+      background: #262335; color: #fff; padding: 10px 14px; border-radius: 10px;
+      font-size: 13px; box-shadow: 0 12px 32px rgb(28 20 43 / 0.24);
+      pointer-events: none; opacity: 0; transform: translateY(6px);
+      transition: opacity 0.16s ease, transform 0.16s ease;
+      max-width: min(360px, calc(100vw - 32px));
+    }
+    .proto-toast.visible { opacity: 1; transform: translateY(0); }
+
+    .btn {
+      min-height: 38px; padding: 8px 14px; border-radius: 9px;
+      border: 1px solid var(--im-border-strong); background: #fff; color: var(--im-text);
+      font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      text-decoration: none; white-space: nowrap; flex-shrink: 0;
+    }
+    .btn.compact { min-height: 32px; padding: 5px 10px; font-size: 12px; }
+    .btn:hover:not(:disabled) { background: var(--im-hover); }
+    .btn.primary { background: var(--im-accent); border-color: var(--im-accent); color: #fff; }
+    .btn.primary:hover:not(:disabled) { background: var(--im-accent-2); }
+    .btn.subtle { background: transparent; border-color: transparent; color: var(--im-accent); padding-inline: 8px; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
+      outline: 3px solid var(--im-accent); outline-offset: 2px;
+    }
+
+    .chip {
+      display: inline-flex; align-items: center; gap: 5px; border-radius: 6px;
+      padding: 2px 8px; font-size: 11px; font-weight: 650;
+      background: var(--im-accent-soft); color: var(--im-accent);
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .chip.online { background: var(--im-online-soft); color: var(--im-online-ink); }
+    .chip.warn { background: var(--im-warn-soft); color: var(--im-warn); }
+    .chip.muted { background: var(--im-surface-2); color: var(--im-text-muted); }
+
+    .status-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #a8b3ae;
+      display: inline-block; flex-shrink: 0;
+    }
+    .status-dot.online { background: var(--im-online); }
+
+    .text-input, .select-input {
+      width: 100%; min-height: 38px; padding: 7px 11px; border-radius: 8px;
+      border: 1px solid var(--im-border-strong); font: inherit;
+      background: #fff; color: var(--im-text); min-width: 0;
+    }
+
+    /* ========== 视图 1：Web 连接电脑（双入口并存 + Intel Mac 分流提示） ========== */
+    .web-surface { background: var(--im-lavender); min-height: calc(100vh - 52px); padding-bottom: 36px; }
+    .web-header {
+      background: #fff; border-bottom: 1px solid #e8e1ec; padding: 13px 24px;
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .brand {
+      display: inline-flex; align-items: center; gap: 9px; font-weight: 750;
+      font-size: 18px; letter-spacing: -0.02em; color: #291f38; white-space: nowrap;
+    }
+    .brand-mark {
+      width: 26px; height: 26px; border-radius: 8px; background: var(--im-accent);
+      color: #fff; display: grid; place-items: center; font-size: 13px; flex-shrink: 0;
+    }
+    .onboarding-shell {
+      width: min(1040px, calc(100% - 32px)); margin: 32px auto 0;
+      display: grid; grid-template-columns: 290px minmax(0, 1fr);
+      background: #fff; border: 1px solid #e5deee; border-radius: 22px; overflow: hidden;
+      box-shadow: 0 20px 60px -42px rgb(68 48 91 / 0.35);
+    }
+    .onboarding-aside { background: var(--im-butter); padding: 32px 26px; }
+    .onboarding-aside .eyebrow { color: var(--im-accent); font-size: 12px; font-weight: 700; }
+    .onboarding-aside h1 { font-size: 27px; line-height: 1.35; margin: 10px 0; letter-spacing: -0.03em; }
+    .onboarding-aside p { color: var(--im-plum-muted); font-size: 13px; margin: 0 0 18px; }
+    .step-list { list-style: none; padding: 0; margin: 12px 0 0; }
+    .step-list li { display: flex; align-items: center; gap: 10px; padding: 9px 0; color: var(--im-text-muted); }
+    .step-list li.active { color: var(--im-accent); font-weight: 700; }
+    .step-num {
+      width: 26px; height: 26px; border-radius: 50%; border: 1px solid var(--im-border);
+      background: #fff; display: grid; place-items: center; font-size: 12px; flex-shrink: 0;
+    }
+    .step-list li.active .step-num { background: var(--im-accent); border-color: var(--im-accent); color: #fff; }
+    .onboarding-body { padding: 34px 36px; min-width: 0; }
+    .onboarding-body h2 { margin: 4px 0 6px; font-size: 23px; letter-spacing: -0.02em; }
+    .onboarding-sub { margin: 0 0 20px; color: var(--im-text-muted); }
+
+    .os-segmented {
+      display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px;
+      background: var(--im-surface-2); border: 1px solid var(--im-border);
+      border-radius: 10px; margin-bottom: 18px;
+    }
+    .os-segmented button {
+      border: 0; background: transparent; padding: 7px 13px; border-radius: 7px;
+      font: inherit; font-size: 12.5px; font-weight: 600; color: var(--im-text-muted); cursor: pointer;
+    }
+    .os-segmented button[aria-pressed="true"] {
+      background: #fff; color: var(--im-accent); box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+    }
+
+    .entry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; }
+    .entry-card {
+      text-align: left; padding: 16px 18px; border-radius: 13px;
+      border: 1px solid var(--im-border-strong); background: #fff; cursor: pointer;
+      font: inherit; color: inherit; display: flex; flex-direction: column; gap: 6px;
+    }
+    .entry-card[aria-pressed="true"] {
+      border-color: var(--im-accent); background: #faf8ff; box-shadow: 0 0 0 1px var(--im-accent);
+    }
+    .entry-card strong { font-size: 15px; }
+    .entry-card span.desc { font-size: 12.5px; color: var(--im-text-muted); line-height: 1.5; }
+
+    .action-box { border: 1px solid var(--im-border); border-radius: 14px; padding: 20px; background: #fcfbfd; }
+    .action-box h3 { margin: 0 0 6px; font-size: 15px; }
+    .action-box p { margin: 0 0 14px; color: var(--im-text-muted); font-size: 13px; }
+    .action-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .code-shell {
+      background: #302049; color: #eee4ff; padding: 14px 16px; border-radius: 11px;
+      font: 12px/1.65 var(--im-mono); overflow-wrap: anywhere; margin: 12px 0 14px;
+    }
+    .live-line { margin-top: 18px; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--im-text-muted); }
+    .live-line.ok { color: var(--im-online-ink); font-weight: 600; }
+
+    /* ========== 桌面端外框、真实 AppShell 顶栏与 UserMenu ========== */
+    .desktop-stage { padding: 18px 14px 40px; max-width: 1160px; margin: 0 auto; }
+    .menubar-strip {
+      background: rgb(255 255 255 / 0.88); backdrop-filter: blur(10px);
+      border: 1px solid var(--im-border); border-radius: 10px; padding: 7px 12px;
+      margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center;
+      justify-content: space-between; gap: 8px; font-size: 12px; position: relative;
+    }
+    .tray-trigger {
+      border: 1px solid var(--im-border-strong); background: #fff; border-radius: 7px;
+      padding: 5px 10px; font: inherit; font-size: 12px; font-weight: 600;
+      display: inline-flex; align-items: center; gap: 7px; cursor: pointer; white-space: nowrap;
+    }
+    .tray-popover {
+      position: absolute; right: 12px; top: calc(100% + 6px);
+      width: min(280px, calc(100vw - 40px)); background: #fff; border: 1px solid var(--im-border);
+      border-radius: 12px; box-shadow: 0 18px 44px -12px rgb(35 27 48 / 0.22);
+      padding: 12px; z-index: 60;
+    }
+    .tray-popover h4 { margin: 0 0 4px; font-size: 13px; }
+    .tray-meta { font-size: 12px; color: var(--im-text-muted); margin-bottom: 10px; }
+    .tray-menu { display: flex; flex-direction: column; gap: 4px; border-top: 1px solid var(--im-surface-2); padding-top: 8px; }
+    .tray-menu button {
+      text-align: left; background: transparent; border: 0; border-radius: 7px; padding: 7px 9px;
+      font: inherit; font-size: 12.5px; cursor: pointer; display: flex;
+      justify-content: space-between; align-items: center; color: var(--im-text);
+    }
+    .tray-menu button:hover { background: var(--im-hover); }
+
+    .desktop-window {
+      background: var(--im-bg); border: 1px solid #cfd6ce; border-radius: 14px;
+      overflow: hidden; box-shadow: 0 24px 64px -24px rgb(30 24 40 / 0.28);
+    }
+    .window-titlebar {
+      min-height: 38px; background: #f1f2ef; border-bottom: 1px solid var(--im-border);
+      padding: 6px 14px; display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; font-size: 12px; color: var(--im-text-muted);
+    }
+    .window-titlebar-center { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+    .traffic-lights { display: inline-flex; gap: 7px; align-items: center; flex-shrink: 0; }
+    .traffic-lights i { width: 11px; height: 11px; border-radius: 50%; display: inline-block; background: #d4d8d2; }
+    .traffic-lights i:nth-child(1) { background: #ff5f57; cursor: pointer; }
+    .traffic-lights i:nth-child(2) { background: #febc2e; }
+    .traffic-lights i:nth-child(3) { background: #28c840; }
+
+    /* 对齐真实 AppShell (app-shell.css)：桌面端左侧 84px 竖向导航轨 + 左下角 UserMenu；窄屏底部 4 栏导航 */
+    .im-shell { display: flex; min-height: 600px; background: var(--im-bg); }
+    .im-shell-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .im-shell-rail {
+      width: 84px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center;
+      gap: 28px; padding: 20px 8px 16px; background: #f6f7f5; border-right: 1px solid var(--im-border);
+      position: relative;
+    }
+    .im-shell-brand-box {
+      width: 44px; height: 44px; border-radius: 15px 15px 15px 5px; background: var(--im-butter);
+      color: var(--im-accent); display: grid; place-items: center; font-weight: 800; font-size: 18px;
+    }
+    .im-nav { display: flex; flex-direction: column; gap: 10px; width: 100%; flex: 1; }
+    .im-nav button {
+      border: 0; background: transparent; min-height: 56px; padding: 8px 4px; border-radius: 13px;
+      font: inherit; font-size: 12px; font-weight: 600; color: #59685e; cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    }
+    .im-nav button.active { background: #fff; color: var(--im-accent); box-shadow: 0 2px 4px rgb(41 53 47 / 0.05); }
+    .user-avatar-btn {
+      width: 38px; height: 38px; border-radius: 50%; border: 0;
+      background: #fde9c4; color: #5c4318; font-weight: 650;
+      font-size: 11.5px; cursor: pointer; flex-shrink: 0;
+    }
+    .user-menu-popover {
+      position: absolute; left: calc(100% + 12px); bottom: 12px; width: 240px;
+      background: #fff; border: 1px solid var(--im-border); border-radius: 16px;
+      box-shadow: 0 12px 44px rgb(41 53 47 / 0.16); padding: 8px; z-index: 55;
+    }
+    .user-menu-popover button {
+      width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 10px;
+      border-radius: 8px; font: inherit; font-size: 13px; cursor: pointer;
+      display: flex; justify-content: space-between; align-items: center; color: var(--im-text);
+    }
+    .user-menu-popover button:hover { background: var(--im-hover); }
+    .im-shell-bottombar {
+      display: none; justify-content: space-around; align-items: center; height: 58px;
+      border-top: 1px solid var(--im-border); background: #fff;
+    }
+    .im-shell-bottombar button {
+      border: 0; background: transparent; padding: 6px 12px; border-radius: 10px;
+      font: inherit; font-size: 11.5px; font-weight: 600; color: var(--im-text-muted); cursor: pointer;
+    }
+    .im-shell-bottombar button.active { background: var(--im-butter); color: var(--im-text); }
+
+    /* ========== 视图 2：Desktop 登录服务切换 & 应用内绑机/接管/跨账号转移确认 ========== */
+    .auth-card-wrap { padding: 36px 18px 44px; background: var(--im-lavender); }
+    .auth-card {
+      max-width: 440px; margin: 0 auto; background: #fff; border: 1px solid #e5deee;
+      border-radius: 20px; padding: 28px; box-shadow: 0 20px 50px -36px rgb(68 48 91 / 0.35);
+    }
+    .server-bar {
+      background: var(--im-surface-2); border: 1px solid var(--im-border); border-radius: 10px;
+      padding: 9px 12px; margin-bottom: 18px; display: flex; align-items: center;
+      justify-content: space-between; gap: 8px; font-size: 12.5px;
+    }
+    .server-bar code { font-family: var(--im-mono); font-size: 12px; color: var(--im-text); overflow-wrap: anywhere; }
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; }
+    .takeover-callout {
+      border: 1px solid var(--im-accent-border); background: #faf7ff;
+      border-radius: 12px; padding: 14px 15px; margin: 14px 0 18px; font-size: 13px;
+    }
+    .takeover-callout.warn { border-color: var(--im-warn-border); background: var(--im-warn-soft); }
+    .takeover-callout strong { display: block; margin-bottom: 4px; color: #392463; }
+    .takeover-callout.warn strong { color: var(--im-warn); }
+
+    /* ========== 视图 3：/settings/nodes 与「这台电脑」渐进披露管理 ========== */
+    .computers-wrap { max-width: 960px; margin: 0 auto; padding: 26px 24px 42px; }
+    .back-link {
+      display: inline-flex; align-items: center; gap: 4px; font-size: 13px;
+      color: var(--im-text-muted); margin-bottom: 16px; background: none; border: 0; padding: 0; cursor: pointer;
+    }
+    .page-head {
+      display: flex; flex-wrap: wrap; align-items: flex-start;
+      justify-content: space-between; gap: 14px; margin-bottom: 20px;
+    }
+    .page-head-copy { flex: 1 1 240px; min-width: 0; }
+    .page-head h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
+    .page-head p { margin: 5px 0 0; color: var(--im-text-muted); font-size: 13.5px; }
+
+    .local-computer-card, .remote-computer-card {
+      background: #fff; border: 1px solid var(--im-border); border-radius: 16px;
+      margin-bottom: 16px; overflow: hidden;
+    }
+    .local-computer-card {
+      border-color: var(--im-accent-border);
+      box-shadow: 0 6px 24px -18px rgb(87 50 191 / 0.35);
+    }
+    .computer-summary {
+      padding: 20px 22px; display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    }
+    .computer-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .computer-title-row h2 { margin: 0; font-size: 17px; }
+    .computer-meta {
+      margin-top: 6px; display: flex; flex-wrap: wrap; gap: 8px;
+      align-items: center; font-size: 12.5px; color: var(--im-text-muted);
+    }
+    .computer-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* 延续既有 NodeUpdatePanel 更新横幅 */
+    .node-update-band {
+      margin: 0 22px 16px; padding: 14px 16px; border-radius: 11px;
+      background: var(--im-accent-soft); display: flex; align-items: center;
+      justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    }
+    .node-update-band h3 { margin: 0; font-size: 13.5px; font-weight: 650; color: #302049; }
+    .node-update-band p { margin: 3px 0 0; font-size: 12px; color: var(--im-text-muted); }
+
+    /* 高频常驻行：登录自启开关 + 按需展开低频运行配置与日志 */
+    .local-quick-strip {
+      padding: 12px 22px; background: #fbfcfa; border-top: 1px solid var(--im-surface-2);
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .section-disclosure {
+      border-top: 1px solid var(--im-surface-2);
+    }
+    .section-disclosure > summary {
+      list-style: none; cursor: pointer; padding: 14px 22px; font-weight: 650;
+      font-size: 13.5px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      background: #fff;
+    }
+    .section-disclosure > summary::-webkit-details-marker { display: none; }
+    .section-disclosure > summary:hover { background: #fafbfa; }
+
+    .local-sections {
+      padding: 4px 22px 20px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    }
+    .panel-box {
+      border: 1px solid var(--im-border); border-radius: 12px;
+      padding: 15px; background: #fcfdfb; min-width: 0;
+    }
+    .panel-box.full { grid-column: 1 / -1; }
+    .panel-box h3 {
+      margin: 0 0 4px; font-size: 14px; display: flex; flex-wrap: wrap;
+      align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .panel-box p.hint { margin: 0 0 12px; font-size: 12px; color: var(--im-text-muted); }
+
+    .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0; }
+    .switch {
+      position: relative; width: 42px; height: 24px; border-radius: 999px;
+      border: 0; background: #c5cec8; cursor: pointer; padding: 2px; flex-shrink: 0;
+    }
+    .switch[aria-checked="true"] { background: var(--im-accent); }
+    .switch i {
+      display: block; width: 20px; height: 20px; border-radius: 50%;
+      background: #fff; transition: transform 0.15s ease;
+    }
+    .switch[aria-checked="true"] i { transform: translateX(18px); }
+
+    .worker-options { display: flex; flex-direction: column; gap: 8px; }
+    .worker-option {
+      border: 1px solid var(--im-border); border-radius: 10px; padding: 10px 12px;
+      background: #fff; display: flex; align-items: center; justify-content: space-between;
+      gap: 10px; cursor: pointer; text-align: left; font: inherit; min-width: 0;
+    }
+    .worker-option > div { min-width: 0; flex: 1; }
+    .worker-option[aria-checked="true"] { border-color: var(--im-accent); background: #faf8ff; }
+    .worker-option small {
+      display: block; color: var(--im-text-muted); font-size: 11.5px;
+      font-family: var(--im-mono); overflow-wrap: anywhere; margin-top: 2px;
+    }
+
+    /* 环境变量行独立卡片容器，窄屏绝不与相邻行混淆 */
+    .env-list { display: flex; flex-direction: column; gap: 10px; }
+    .env-item-card {
+      border: 1px solid var(--im-border); border-radius: 10px; padding: 10px;
+      background: #fff; display: grid; grid-template-columns: 170px minmax(0, 1fr) auto;
+      gap: 8px; align-items: center;
+    }
+
+    .save-bar {
+      grid-column: 1 / -1; border: 1px solid var(--im-border); background: #fff;
+      border-radius: 12px; padding: 13px 16px; display: flex; align-items: center;
+      justify-content: space-between; flex-wrap: wrap; gap: 12px;
+    }
+    .save-bar.warn { background: var(--im-warn-soft); border-color: var(--im-warn-border); }
+    .save-bar.error { background: var(--im-danger-soft); border-color: #eabfb5; color: var(--im-danger); }
+
+    .log-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+    .log-viewer {
+      background: #1e1c26; color: #e6e1f2; border-radius: 10px; padding: 12px 14px;
+      font: 12px/1.65 var(--im-mono); max-height: 170px; overflow-y: auto;
+      white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+
+    /* ========== 视图 4：对齐真实 AgentsRailDesktop + 工作记录(工具卡路径打开) / 原生轨迹(本机直读) ========== */
+    .agents-overview {
+      display: grid; grid-template-columns: 230px minmax(0, 1fr); min-height: 560px; background: #fff;
+    }
+    .agents-rail {
+      border-right: 1px solid var(--im-border); background: #fbfcfa; padding: 16px 12px;
+    }
+    .agents-rail-title { font-size: 12px; font-weight: 700; color: var(--im-text-muted); padding: 0 8px 10px; }
+    .agent-rail-item {
+      width: 100%; border: 0; background: transparent; border-radius: 10px; padding: 9px 10px;
+      text-align: left; font: inherit; cursor: pointer; display: flex; align-items: center;
+      justify-content: space-between; gap: 8px; margin-bottom: 4px; color: var(--im-text);
+    }
+    .agent-rail-item.active { background: var(--im-accent-soft); color: var(--im-accent); font-weight: 650; }
+    .agent-work-main { display: flex; flex-direction: column; min-width: 0; }
+    .agent-work-header {
+      padding: 14px 20px; border-bottom: 1px solid var(--im-border);
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .work-view-tabs {
+      display: inline-flex; gap: 4px; padding: 3px; background: var(--im-surface-2);
+      border: 1px solid var(--im-border); border-radius: 9px;
+    }
+    .work-view-tabs button {
+      border: 0; background: transparent; padding: 5px 12px; border-radius: 6px;
+      font: inherit; font-size: 12.5px; font-weight: 600; color: var(--im-text-muted); cursor: pointer;
+    }
+    .work-view-tabs button[aria-selected="true"] {
+      background: #fff; color: var(--im-accent); box-shadow: 0 1px 3px rgb(0 0 0 / 0.08);
+    }
+
+    .tool-card {
+      border: 1px solid var(--im-border); border-radius: 12px; margin: 14px 20px 0; overflow: hidden; background: #fff;
+    }
+    .tool-card-head {
+      padding: 10px 14px; background: #f9faf8; border-bottom: 1px solid var(--im-surface-2);
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+      font-size: 12.5px;
+    }
+    .tool-card-path { font-family: var(--im-mono); font-size: 12px; color: var(--im-text); overflow-wrap: anywhere; }
+    .tool-card-body {
+      padding: 11px 14px; font: 12px/1.6 var(--im-mono); background: #fcfdfb; color: #36403a;
+      white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+    .trajectory-bar {
+      padding: 10px 20px; border-bottom: 1px solid var(--im-border); background: #f9faf8;
+      display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12.5px;
+    }
+    .trajectory-mock-table { padding: 16px 20px; }
+    .traj-row {
+      border: 1px solid var(--im-border); border-radius: 10px; padding: 11px 13px; margin-bottom: 9px; background: #fff;
+    }
+    .traj-row-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 600; }
+    .traj-payload {
+      margin-top: 8px; padding: 9px 11px; border-radius: 8px; background: var(--im-surface-2);
+      font: 11.5px/1.55 var(--im-mono); color: #36403a; white-space: pre-wrap; overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 760px) {
+      .im-shell { flex-direction: column; min-height: 0; }
+      .im-shell-rail { display: none; }
+      .im-shell-bottombar { display: flex; }
+      .onboarding-shell { grid-template-columns: 1fr; margin-top: 14px; }
+      .onboarding-aside { padding: 16px 20px; }
+      .onboarding-aside h1, .onboarding-aside p, .step-list { display: none; }
+      .onboarding-body { padding: 22px 18px; }
+      .entry-grid, .local-sections, .agents-overview { grid-template-columns: 1fr; }
+      .agents-rail { border-right: 0; border-bottom: 1px solid var(--im-border); }
+      .env-item-card { grid-template-columns: 1fr; background: #f9faf8; }
+      .computers-wrap { padding: 18px 14px 32px; }
+      .computer-summary, .local-quick-strip, .section-disclosure > summary { padding-inline: 16px; }
+      .node-update-band { margin-inline: 16px; }
+      .local-sections { padding-inline: 16px; }
+      .window-titlebar > span:last-child { display: none; }
+      .btn.mobile-full { width: 100%; white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <div class="proto-harness" role="region" aria-label="原型演示控制栏">
+    <div class="proto-harness-left">
+      <span class="proto-badge">交互原型 · 仅演示</span>
+      <span class="proto-legend">顶栏仅供切换评审状态；下方严格对齐真实 AppShell、NodesPage 与 Agent Work 页面结构</span>
+    </div>
+    <div class="proto-tabs" role="tablist" aria-label="原型评审流程">
+      <button role="tab" id="tab-web" aria-selected="true" onclick="switchScene('web')">1. Web 双入口连接电脑</button>
+      <button role="tab" id="tab-bind" aria-selected="false" onclick="switchScene('bind')">2. Desktop 登录与绑机/接管</button>
+      <button role="tab" id="tab-local" aria-selected="false" onclick="switchScene('local')">3. 「这台电脑」管理与受管更新</button>
+      <button role="tab" id="tab-work" aria-selected="false" onclick="switchScene('work')">4. 工具路径打开与原生轨迹直读</button>
+    </div>
+    <div class="proto-controls" id="scene-controls"></div>
+  </div>
+
+  <div id="stage"></div>
+  <div id="toast" class="proto-toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const state = {
+      scene: 'web',
+      webOs: 'macos',
+      webEntry: 'desktop',
+      webDesktopState: 'initial',
+      bindStep: 'login',
+      serverUrl: 'https://im.crewden.work',
+      trayOpen: false,
+      userMenuOpen: false,
+      computerAlias: 'Air-Studio',
+      renaming: false,
+      renameDraft: 'Air-Studio',
+      updateAvailable: true,
+      nodeRunning: true,
+      activeTasks: 1,
+      autostart: true,
+      configExpanded: false,
+      logsExpanded: false,
+      logQuery: '',
+      workerRuntime: 'codex',
+      claudeInstalled: false,
+      approvalModel: 'inherit',
+      proxyEnabled: true,
+      proxyUrl: 'http://127.0.0.1:7890',
+      noProxy: 'localhost,127.0.0.1,::1',
+      envVars: [
+        { key: 'SEARXNG_URL', value: 'http://127.0.0.1:8888' },
+        { key: 'PATH', value: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin' }
+      ],
+      dirtyRestart: false,
+      saveError: '',
+      windowHidden: false,
+      targetNode: 'local', // 'local' | 'remote'
+      workSubTab: 'records' // 'records' | 'trajectory'
+    };
+
+    const LOG_LINES = [
+      '[19:38:02] INFO  gateway ready pid=48210 runtime_pid=48219 platform=desktop-darwin-arm64',
+      '[19:38:03] INFO  im relay connected origin=https://im.crewden.work node_id=computer-8f31a2c0',
+      '[19:38:14] INFO  worker probe: dsh=ready codex=/opt/homebrew/bin/codex claude=missing',
+      '[19:41:09] WARN  upstream proxy retry 1/3 on model probe'
+    ];
+
+    let toastTimer = null;
+    function showToast(text) {
+      const el = document.getElementById('toast');
+      el.textContent = text;
+      el.classList.add('visible');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('visible'), 2200);
+    }
+
+    function switchScene(scene) {
+      state.scene = scene;
+      state.userMenuOpen = false;
+      for (const key of ['web', 'bind', 'local', 'work']) {
+        document.getElementById('tab-' + key).setAttribute('aria-selected', String(key === scene));
+      }
+      render();
+    }
+
+    function renderControls() {
+      const box = document.getElementById('scene-controls');
+      if (state.scene === 'web') {
+        box.innerHTML = `
+          <label>模拟状态
+            <select onchange="state.webDesktopState=this.value;render()">
+              <option value="initial" ${state.webDesktopState === 'initial' ? 'selected' : ''}>默认初始态</option>
+              <option value="launched" ${state.webDesktopState === 'launched' ? 'selected' : ''}>已点击打开桌面端</option>
+              <option value="unpublished" ${state.webDesktopState === 'unpublished' ? 'selected' : ''}>该平台 Desktop 未发布</option>
+              <option value="online" ${state.webDesktopState === 'online' ? 'selected' : ''}>电脑已连接上线</option>
+            </select>
+          </label>`;
+      } else if (state.scene === 'bind') {
+        box.innerHTML = `
+          <label>桌面首次流程
+            <select onchange="state.bindStep=this.value;render()">
+              <option value="login" ${state.bindStep === 'login' ? 'selected' : ''}>登录与服务地址栏</option>
+              <option value="editingServer" ${state.bindStep === 'editingServer' ? 'selected' : ''}>切换 IM 服务地址</option>
+              <option value="bindFresh" ${state.bindStep === 'bindFresh' ? 'selected' : ''}>登录后 · 全新电脑一键绑定</option>
+              <option value="bindTakeover" ${state.bindStep === 'bindTakeover' ? 'selected' : ''}>登录后 · 同账号已有节点接管</option>
+              <option value="bindForeign" ${state.bindStep === 'bindForeign' ? 'selected' : ''}>登录后 · 本机已归属其他账号（需确认转移）</option>
+              <option value="bindError" ${state.bindStep === 'bindError' ? 'selected' : ''}>连接失败可重试</option>
+            </select>
+          </label>`;
+      } else if (state.scene === 'local') {
+        box.innerHTML = `
+          <label>运行情境
+            <select onchange="applyLocalPreset(this.value)">
+              <option value="summary" ${state.nodeRunning && !state.configExpanded && !state.saveError ? 'selected' : ''}>默认紧凑态（含受管更新横幅）</option>
+              <option value="expanded" ${state.nodeRunning && state.configExpanded && !state.saveError ? 'selected' : ''}>展开本机运行配置与日志</option>
+              <option value="stopped" ${!state.nodeRunning ? 'selected' : ''}>本机节点已停止（仍可改配置看日志）</option>
+              <option value="error" ${state.saveError ? 'selected' : ''}>配置重启回退报错（保留输入草稿）</option>
+            </select>
+          </label>`;
+      } else {
+        box.innerHTML = `
+          <label>目标与子页签
+            <select onchange="const [n,t]=this.value.split(':');state.targetNode=n;state.workSubTab=t;render()">
+              <option value="local:records" ${state.targetNode === 'local' && state.workSubTab === 'records' ? 'selected' : ''}>本机 Agent · 工作记录（真实工具卡路径打开）</option>
+              <option value="local:trajectory" ${state.targetNode === 'local' && state.workSubTab === 'trajectory' ? 'selected' : ''}>本机 Agent · 原生轨迹（本机直读）</option>
+              <option value="remote:records" ${state.targetNode === 'remote' ? 'selected' : ''}>远端 Agent · 工作记录（不暴露无效本机打开）</option>
+            </select>
+          </label>`;
+      }
+    }
+
+    function applyLocalPreset(preset) {
+      if (preset === 'summary') {
+        state.nodeRunning = true; state.activeTasks = 1; state.configExpanded = false; state.logsExpanded = false;
+        state.proxyUrl = 'http://127.0.0.1:7890'; state.dirtyRestart = false; state.saveError = '';
+      } else if (preset === 'expanded') {
+        state.nodeRunning = true; state.activeTasks = 1; state.configExpanded = true; state.logsExpanded = true;
+        state.proxyUrl = 'http://127.0.0.1:7890'; state.dirtyRestart = false; state.saveError = '';
+      } else if (preset === 'stopped') {
+        state.nodeRunning = false; state.activeTasks = 0; state.configExpanded = true; state.logsExpanded = true; state.saveError = '';
+      } else if (preset === 'error') {
+        state.nodeRunning = true; state.activeTasks = 0; state.configExpanded = true; state.logsExpanded = true;
+        state.proxyUrl = 'http://127.0.0.1:9999'; state.dirtyRestart = true;
+        state.saveError = '重启未就绪：代理地址 http://127.0.0.1:9999 无法建立连接，已自动回滚并恢复原可用配置。';
+      }
+      render();
+    }
+
+    function renderAppShell(activeNav, contentHtml) {
+      return `
+        <div class="im-shell">
+          <header class="im-shell-rail" role="banner">
+            <div class="im-shell-brand-box" aria-label="Crewden">C</div>
+            <nav class="im-nav" aria-label="主导航">
+              <button class="${activeNav === 'chat' ? 'active' : ''}" onclick="showToast('进入聊天')"><span>💬</span><span>聊天</span></button>
+              <button class="${activeNav === 'tasks' ? 'active' : ''}" onclick="showToast('进入任务')"><span>⎇</span><span>任务</span></button>
+              <button class="${activeNav === 'agents' ? 'active' : ''}" onclick="switchScene('work')"><span>❖</span><span>助手</span></button>
+            </nav>
+            <button class="user-avatar-btn" aria-label="用户菜单" aria-expanded="${state.userMenuOpen}" onclick="state.userMenuOpen=!state.userMenuOpen;render()">小林</button>
+            ${state.userMenuOpen ? `
+              <div class="user-menu-popover" role="menu" aria-label="用户菜单">
+                <div style="padding:10px 12px;background:var(--im-butter);border-radius:10px;margin-bottom:6px">
+                  <strong style="display:block;font-size:13.5px">小林</strong>
+                  <span style="font-size:11.5px;color:var(--im-text-muted)">@xiaolin</span>
+                </div>
+                <button role="menuitem" onclick="state.userMenuOpen=false;switchScene('local')"><span>电脑</span><small style="color:var(--im-online-ink)">2 在线 ›</small></button>
+                <button role="menuitem" onclick="state.userMenuOpen=false;showToast('打开模型服务')"><span>模型服务</span><span>›</span></button>
+                <button role="menuitem" onclick="state.userMenuOpen=false;showToast('打开账号设置')"><span>账号设置</span><span>›</span></button>
+                <button role="menuitem" onclick="state.userMenuOpen=false;switchScene('bind')"><span>退出登录 / 切换服务</span></button>
+              </div>` : ''}
+          </header>
+          <div class="im-shell-main">${contentHtml}</div>
+          <nav class="im-shell-bottombar" aria-label="移动端主导航">
+            <button class="${activeNav === 'chat' ? 'active' : ''}" onclick="showToast('进入聊天')">聊天</button>
+            <button class="${activeNav === 'tasks' ? 'active' : ''}" onclick="showToast('进入任务')">任务</button>
+            <button class="${activeNav === 'agents' ? 'active' : ''}" onclick="switchScene('work')">助手</button>
+            <button class="${activeNav === 'nodes' ? 'active' : ''}" onclick="switchScene('local')">我</button>
+          </nav>
+        </div>`;
+    }
+
+    function renderWebScene() {
+      const os = state.webOs;
+      const supportsDesktop = os !== 'linux';
+      const activeEntry = supportsDesktop ? state.webEntry : 'headless';
+      const dlLabel = os === 'macos' ? '下载 Crewden Desktop (Apple Silicon)' : '下载 Crewden Desktop (Windows x64)';
+
+      let actionHtml = '';
+      if (state.webDesktopState === 'online') {
+        actionHtml = `
+          <div class="action-box">
+            <span class="chip online">✓ 已上线</span>
+            <h3 style="margin-top:8px">Air-Studio 已连接</h3>
+            <p>本机助手运行环境已就绪，继续连接模型即可开始首次对话。</p>
+            <div class="action-row"><button class="btn primary" onclick="showToast('进入第二步：连接模型')">继续连接模型</button></div>
+          </div>`;
+      } else if (activeEntry === 'desktop') {
+        if (state.webDesktopState === 'unpublished') {
+          actionHtml = `
+            <div class="action-box" role="status">
+              <h3>当前服务暂未发布该系统的 Desktop 安装包</h3>
+              <p>可切换到「仅装轻量后台节点」接入这台电脑，或稍后重新检查。</p>
+              <div class="action-row">
+                <button class="btn" onclick="state.webEntry='headless';render()">改用轻量后台节点</button>
+                <button class="btn subtle" onclick="state.webDesktopState='initial';render()">重新检查</button>
+              </div>
+            </div>`;
+        } else if (state.webDesktopState === 'launched') {
+          actionHtml = `
+            <div class="action-box">
+              <h3>已在 Crewden Desktop 中发起连接</h3>
+              <p>请在打开的桌面客户端窗口中登录并确认绑定这台电脑；完成后可直接在桌面端继续对话。</p>
+              <div class="action-row">
+                <button class="btn primary" onclick="state.webDesktopState='online';render()">模拟桌面端已完成绑定</button>
+                <button class="btn" onclick="showToast('已重新唤起桌面端连接')">重新打开 Desktop</button>
+                <button class="btn subtle" onclick="state.webDesktopState='initial';render()">重新下载安装包</button>
+              </div>
+            </div>`;
+        } else {
+          actionHtml = `
+            <div class="action-box">
+              <h3>安装并打开 Crewden Desktop</h3>
+              <p>${os === 'macos' ? '适用于 Apple Silicon (M 系列) Mac；旧款 Intel Mac 请选择右侧「仅装轻量后台节点」。' : '适用于 Windows 10 / 11 (x64) 电脑。'}无需安装 Node.js 或打开终端，打开后自动准备运行环境并开启登录自启。</p>
+              <div class="action-row">
+                <button class="btn primary mobile-full" onclick="state.webDesktopState='launched';showToast('已开始下载安装包');render()">${dlLabel}</button>
+                <button class="btn mobile-full" onclick="state.webDesktopState='launched';render()">已安装，在桌面端打开</button>
+              </div>
+            </div>`;
+        }
+      } else {
+        actionHtml = os === 'windows' ? `
+          <div class="action-box">
+            <h3>Windows 轻量后台节点（无桌面聊天窗口）</h3>
+            <p>双击轻量安装器准备后台服务，安装后回到当前浏览器确认电脑绑定并在网页端聊天。</p>
+            <div class="action-row">
+              <button class="btn primary mobile-full" onclick="showToast('下载 Crewden-Setup-x64.exe')">下载轻量后台安装器</button>
+              <button class="btn mobile-full" onclick="showToast('唤起轻量后台节点连接')">已安装，连接这台电脑</button>
+            </div>
+          </div>` : `
+          <div class="action-box">
+            <h3>命令行 / 本地 Agent 后台节点安装</h3>
+            <p>适合 Linux 服务器、Intel Mac 或仅需后台常驻节点的电脑，安装后回到当前网页确认绑定。</p>
+            <div class="code-shell">curl -fsSL 'https://im.crewden.work/install.sh' -o /tmp/nano-install.sh && bash /tmp/nano-install.sh</div>
+            <div class="action-row">
+              <button class="btn primary mobile-full" onclick="showToast('已复制终端安装命令')">复制安装命令</button>
+              <button class="btn mobile-full" onclick="showToast('已复制给本地 Agent 的安装说明')">复制给本地 Agent 的说明</button>
+            </div>
+          </div>`;
+      }
+
+      return `
+        <div class="web-surface">
+          <header class="web-header">
+            <span class="brand"><span class="brand-mark">C</span>crewden</span>
+            <span style="font-size:13px;color:var(--im-text-muted);white-space:nowrap">简体中文 · 小林</span>
+          </header>
+          <div class="onboarding-shell">
+            <aside class="onboarding-aside">
+              <div class="eyebrow">首次设置</div>
+              <h1>一起把助手<br/>准备好。</h1>
+              <p>完成这三步，开始和你的长期个人助手对话。</p>
+              <ol class="step-list">
+                <li class="active"><span class="step-num">1</span><div><strong>连接电脑</strong><div style="font-size:12px;font-weight:400">助手工作的地方</div></div></li>
+                <li><span class="step-num">2</span><div><strong>连接模型</strong><div style="font-size:12px">接入已有的模型服务</div></div></li>
+                <li><span class="step-num">3</span><div><strong>创建个人助手</strong><div style="font-size:12px">起个名字，开始合作</div></div></li>
+              </ol>
+            </aside>
+            <section class="onboarding-body">
+              <div style="color:var(--im-accent);font-size:11.5px;font-weight:700;margin-bottom:6px">第一步 · 工作环境</div>
+              <h2>连接你的工作电脑</h2>
+              <p class="onboarding-sub">选择当前电脑系统与使用方式。日常在本机协作推荐使用 Desktop 客户端。</p>
+
+              <div class="os-segmented" role="group" aria-label="选择电脑系统">
+                <button aria-pressed="${os === 'macos'}" onclick="state.webOs='macos';render()">macOS</button>
+                <button aria-pressed="${os === 'windows'}" onclick="state.webOs='windows';render()">Windows 10 / 11 · x64</button>
+                <button aria-pressed="${os === 'linux'}" onclick="state.webOs='linux';render()">Linux / WSL</button>
+              </div>
+
+              ${supportsDesktop ? `
+              <div class="entry-grid" role="group" aria-label="选择安装形态">
+                <button class="entry-card" aria-pressed="${activeEntry === 'desktop'}" onclick="state.webEntry='desktop';render()">
+                  <div><span class="chip">推荐 · 主力桌面工作台</span></div>
+                  <strong>下载完整 Desktop 客户端</strong>
+                  <span class="desc">自带聊天工作台与本机节点，点开即用并默认开机自启；本机轨迹与工作区文件直读秒开，内置图形化节点配置。</span>
+                </button>
+                <button class="entry-card" aria-pressed="${activeEntry === 'headless'}" onclick="state.webEntry='headless';render()">
+                  <div><span class="chip muted">仅后台运行</span></div>
+                  <strong>仅装轻量后台节点</strong>
+                  <span class="desc">不在桌面打开独立客户端，仅保持本机节点在后台常驻（支持 Apple Silicon / Intel Mac 与 Windows），继续用网页或手机对话。</span>
+                </button>
+              </div>` : ''}
+
+              ${actionHtml}
+
+              <div class="live-line ${state.webDesktopState === 'online' ? 'ok' : ''}">
+                <span class="status-dot ${state.webDesktopState === 'online' ? 'online' : ''}"></span>
+                ${state.webDesktopState === 'online' ? 'Air-Studio · 已连接' : '等待电脑连接，连接成功后会自动更新'}
+              </div>
+            </section>
+          </div>
+        </div>`;
+    }
+
+    function renderBindScene() {
+      let inner = '';
+      if (state.bindStep === 'login' || state.bindStep === 'editingServer') {
+        inner = `
+          <div class="auth-card">
+            <div style="margin-bottom:16px">
+              <span class="brand"><span class="brand-mark">C</span>Crewden Desktop</span>
+              <h2 style="margin:12px 0 4px;font-size:22px">登录你的工作空间</h2>
+              <p style="margin:0;color:var(--im-text-muted);font-size:13px">登录后可直接在桌面端绑定或接管当前电脑，无需打开终端。</p>
+            </div>
+            ${state.bindStep === 'editingServer' ? `
+              <div class="takeover-callout">
+                <strong>连接到的 IM 服务地址</strong>
+                <div class="field" style="margin:8px 0">
+                  <input id="server-input" class="text-input" value="${state.serverUrl}" aria-label="IM 服务地址" placeholder="https://im.example.com" />
+                </div>
+                <div class="action-row">
+                  <button class="btn primary" onclick="const v=document.getElementById('server-input').value.trim();if(v){state.serverUrl=v;state.bindStep='login';showToast('已切换目标服务，本地缓存按服务独立分区');render();}">保存服务地址</button>
+                  <button class="btn" onclick="state.bindStep='login';render()">取消</button>
+                </div>
+              </div>` : `
+              <div class="server-bar">
+                <div><span style="color:var(--im-text-muted)">当前服务：</span><code>${state.serverUrl}</code></div>
+                <button class="btn subtle" onclick="state.bindStep='editingServer';render()">切换服务</button>
+              </div>`}
+            <div class="field"><label for="login-user">账号</label><input id="login-user" class="text-input" value="xiaolin" /></div>
+            <div class="field"><label for="login-pass">密码</label><input id="login-pass" class="text-input" type="password" value="••••••••••" /></div>
+            <button class="btn primary" style="width:100%;margin-top:6px" onclick="state.bindStep='bindTakeover';render()">登录</button>
+          </div>`;
+      } else if (state.bindStep === 'bindFresh') {
+        inner = `
+          <div class="auth-card">
+            <span class="chip">零命令行接入</span>
+            <h2 style="margin:10px 0 6px;font-size:21px">将这台电脑连接到当前账号</h2>
+            <p style="margin:0 0 14px;color:var(--im-text-muted);font-size:13px">连接后，个人助手和本机数字员工将在这台电脑后台运行，并随系统登录自动启动。</p>
+            <div class="panel-box" style="margin-bottom:16px">
+              <div style="font-size:13px"><strong>电脑名称：</strong>Xiaolin-MacBook-Air</div>
+              <div style="font-size:13px;margin-top:6px"><strong>目标服务：</strong><code>${state.serverUrl}</code> · 账号 <code>@xiaolin</code></div>
+              <div style="font-size:12px;color:var(--im-text-muted);margin-top:6px">内置运行环境已就绪 · 默认开启开机登录自启</div>
+            </div>
+            <div class="action-row">
+              <button class="btn primary" style="flex:1" onclick="switchScene('local');showToast('已完成本机绑定并启动后台节点')">绑定并启动这台电脑</button>
+              <button class="btn" onclick="showToast('暂不绑定电脑，仅作为聊天客户端进入')">暂不绑定</button>
+            </div>
+          </div>`;
+      } else if (state.bindStep === 'bindTakeover') {
+        inner = `
+          <div class="auth-card">
+            <span class="chip online">检测到当前账号的本机节点</span>
+            <h2 style="margin:10px 0 6px;font-size:21px">接管本机已有的助手与工作区</h2>
+            <p style="margin:0;color:var(--im-text-muted);font-size:13px">这台电脑此前已绑定至你当前的账号 <code>@xiaolin</code>。</p>
+            <div class="takeover-callout">
+              <strong>平滑接管将保留以下全部内容：</strong>
+              <ul style="margin:6px 0 0;padding-left:18px;color:var(--im-text-muted);font-size:12.5px">
+                <li>原电脑身份 <code>Air-Studio</code> 与已连接模型凭据</li>
+                <li>已有助手（个人助手 PA、研发助手 E1）及原会话历史</li>
+                <li>全部本地工作区文件；旧后台启动入口自动停用移交，不产生双实例冲突</li>
+              </ul>
+            </div>
+            <div class="action-row">
+              <button class="btn primary" style="flex:1" onclick="switchScene('local');showToast('已平滑接管原节点，助手已在线')">接管并进入工作台</button>
+              <button class="btn" onclick="state.bindStep='login';render()">返回</button>
+            </div>
+          </div>`;
+      } else if (state.bindStep === 'bindForeign') {
+        inner = `
+          <div class="auth-card">
+            <span class="chip warn">这台电脑已绑定其他账号</span>
+            <h2 style="margin:10px 0 6px;font-size:21px">确认是否执行整机设备转移？</h2>
+            <p style="margin:0;color:var(--im-text-muted);font-size:13px">本机现有节点 <code>Air-Studio</code> 归属于另一账号，当前登录账号无权读取其本机配置、日志或私人工作区。</p>
+            <div class="takeover-callout warn">
+              <strong>设备归属保护说明：</strong>
+              <div style="font-size:12.5px;color:var(--im-text-muted)">默认你可以直接进入聊天（不触碰本机现有节点）。仅当确认将整台电脑及普通助手移交给当前账号时才执行设备转移。</div>
+            </div>
+            <div class="action-row">
+              <button class="btn primary" style="flex:1" onclick="showToast('已进入纯聊天模式，不改动原主人本机节点')">仅使用聊天（推荐）</button>
+              <button class="btn" onclick="showToast('需二次明确确认后才执行整机转移')">确认整机转移…</button>
+            </div>
+          </div>`;
+      } else {
+        inner = `
+          <div class="auth-card">
+            <span class="chip warn">连接未完成</span>
+            <h2 style="margin:10px 0 6px;font-size:21px">暂时无法连接到目标服务</h2>
+            <p style="margin:0 0 14px;color:var(--im-text-muted);font-size:13px">无法访问 <code>${state.serverUrl}</code>（连接超时）。本机已有节点与工作区文件未受影响。</p>
+            <div class="action-row">
+              <button class="btn primary" onclick="state.bindStep='bindTakeover';render()">重试连接</button>
+              <button class="btn" onclick="state.bindStep='editingServer';render()">修改服务地址</button>
+            </div>
+          </div>`;
+      }
+
+      return `
+        <div class="desktop-stage">
+          <div class="desktop-window">
+            <div class="window-titlebar">
+              <span class="traffic-lights"><i></i><i></i><i></i></span>
+              <span class="window-titlebar-center">Crewden Desktop</span>
+              <span>${state.serverUrl}</span>
+            </div>
+            <div class="auth-card-wrap">${inner}</div>
+          </div>
+        </div>`;
+    }
+
+    function renderLocalScene() {
+      const statusChip = state.nodeRunning
+        ? `<span class="chip online"><span class="status-dot online"></span>本机在线 · 运行时正常</span>`
+        : `<span class="chip muted"><span class="status-dot"></span>本机节点已停止</span>`;
+
+      const workerItems = [
+        { id: 'dsh', name: '内置 DSH 运行时（默认）', probe: '随应用受管提供 · 已就绪', ok: true },
+        { id: 'codex', name: 'Codex CLI', probe: '已检测到 · /opt/homebrew/bin/codex', ok: true },
+        { id: 'claude', name: 'Claude Code', probe: state.claudeInstalled ? '已检测到 · /usr/local/bin/claude' : '未在当前 PATH 中找到 claude（可在下方添加 PATH）', ok: state.claudeInstalled }
+      ];
+
+      const filteredLogs = LOG_LINES.filter(l => !state.logQuery || l.toLowerCase().includes(state.logQuery.toLowerCase()));
+
+      return `
+        <div class="desktop-stage">
+          <div class="menubar-strip">
+            <span>系统菜单栏 / 托盘常驻栏（宿主独立维护实时消息、@提及与待决权限通知，关主窗后仍在线）</span>
+            <button class="tray-trigger" onclick="state.trayOpen=!state.trayOpen;render()">
+              <span class="status-dot ${state.nodeRunning ? 'online' : ''}"></span>
+              Crewden · ${state.nodeRunning ? '本机在线 (2 未读)' : '已暂停'} ▾
+            </button>
+            ${state.trayOpen ? `
+              <div class="tray-popover" role="menu" aria-label="系统托盘菜单">
+                <h4>${state.computerAlias}（这台电脑）</h4>
+                <div class="tray-meta">${state.nodeRunning ? `已连接 ${state.serverUrl} · ${state.activeTasks} 个任务运行中` : '本机后台节点已手动停止'}</div>
+                <div class="tray-menu">
+                  <button onclick="state.windowHidden=false;state.trayOpen=false;render()"><span>打开主窗口</span><span>⌘0</span></button>
+                  <button onclick="state.nodeRunning=!state.nodeRunning;state.trayOpen=false;showToast(state.nodeRunning?'已启动本机节点':'已停止本机节点');render()">
+                    <span>${state.nodeRunning ? '停止本机后台节点' : '启动本机后台节点'}</span>
+                  </button>
+                  <button onclick="state.trayOpen=false;showToast('已完成本机节点平滑重启')"><span>重启本机后台节点</span></button>
+                  <button onclick="state.autostart=!state.autostart;showToast('登录自启已'+(state.autostart?'开启':'关闭'));render()">
+                    <span>开机登录自启</span><span>${state.autostart ? '✓ 已开启' : '已关闭'}</span>
+                  </button>
+                </div>
+              </div>` : ''}
+          </div>
+
+          ${state.windowHidden ? `
+            <div class="action-box" style="text-align:center;padding:42px 20px;background:#fff">
+              <h3>主聊天窗口已收起到菜单栏 / 系统托盘</h3>
+              <p>Rust 宿主继续在后台维护未读角标、新消息/@提及与工具权限审批系统通知，点击通知直达目标会话。</p>
+              <button class="btn primary" onclick="state.windowHidden=false;render()">重新打开主窗口</button>
+            </div>` : `
+          <div class="desktop-window">
+            <div class="window-titlebar">
+              <span class="traffic-lights" title="点击红点收起主窗口到托盘"><i onclick="state.windowHidden=true;render()"></i><i></i><i></i></span>
+              <span class="window-titlebar-center">Crewden — 电脑</span>
+              <span>未读消息: 2</span>
+            </div>
+            ${renderAppShell('nodes', `<main class="computers-wrap">
+              <button class="back-link" onclick="showToast('返回个人空间 /me')">← 个人空间</button>
+              <div class="page-head">
+                <div class="page-head-copy">
+                  <h1>电脑</h1>
+                  <p>共 2 台电脑，${state.nodeRunning ? 2 : 1} 台在线。这台电脑可直接管理状态、更新、运行配置与日志。</p>
+                </div>
+                <button class="btn" onclick="switchScene('web')">+ 连接电脑</button>
+              </div>
+
+              <section class="local-computer-card" aria-label="这台电脑">
+                <div class="computer-summary">
+                  <div style="flex:1 1 260px;min-width:0">
+                    ${state.renaming ? `
+                      <div class="action-row">
+                        <input class="text-input" style="max-width:240px" value="${state.renameDraft}" aria-label="电脑名称" oninput="state.renameDraft=this.value" />
+                        <button class="btn primary compact" onclick="if(state.renameDraft.trim()){state.computerAlias=state.renameDraft.trim();state.renaming=false;showToast('电脑名称已保存');render();}">保存名称</button>
+                        <button class="btn compact" onclick="state.renaming=false;render()">取消</button>
+                      </div>` : `
+                      <div class="computer-title-row">
+                        <h2>${state.computerAlias}</h2>
+                        <span class="chip">这台电脑</span>
+                        ${statusChip}
+                        <button class="btn subtle compact" onclick="state.renameDraft=state.computerAlias;state.renaming=true;render()">改名</button>
+                      </div>`}
+                    <div class="computer-meta">
+                      <span>Nano v2.4.0</span>
+                      <span>·</span>
+                      <span>2 位助手（个人助手 PA、研发助手 E1）</span>
+                      ${state.nodeRunning && state.activeTasks > 0 ? `<span>·</span><span style="color:var(--im-accent);font-weight:600">${state.activeTasks} 个本机任务执行中</span>` : ''}
+                    </div>
+                  </div>
+                  <div class="computer-controls">
+                    <button class="btn compact" ${!state.nodeRunning ? 'disabled' : ''} onclick="showToast('进入在此电脑新建助手')">+ 新建助手</button>
+                    ${state.nodeRunning ? `
+                      <button class="btn compact" onclick="showToast('已按平滑屏障重启本机节点')">重启</button>
+                      <button class="btn compact" onclick="state.nodeRunning=false;state.activeTasks=0;showToast('本机后台节点已停止');render()">停止</button>
+                    ` : `
+                      <button class="btn primary compact" onclick="state.nodeRunning=true;showToast('本机后台节点已启动上线');render()">启动</button>
+                    `}
+                  </div>
+                </div>
+
+                ${state.updateAvailable && state.nodeRunning ? `
+                  <div class="node-update-band">
+                    <div>
+                      <h3>有新版本 v2.4.1 可用</h3>
+                      <p>复用本机已有运行环境缓存，仅需下载变更应用包（4.2 MB），在途任务完成后自动平滑切换。</p>
+                    </div>
+                    <button class="btn primary compact" onclick="state.updateAvailable=false;showToast('已完成受管更新至 v2.4.1，界面与节点已同步切换');render()">更新电脑端</button>
+                  </div>` : ''}
+
+                <div class="local-quick-strip">
+                  <div>
+                    <strong style="font-size:13px">开机登录自启</strong>
+                    <span style="font-size:12px;color:var(--im-text-muted);margin-left:6px">登录系统后静默驻留托盘并自动拉起本机节点（免重启即时保存）</span>
+                  </div>
+                  <button class="switch" role="switch" aria-label="开机登录自启" aria-checked="${state.autostart}" onclick="state.autostart=!state.autostart;showToast('登录自启已'+(state.autostart?'开启':'关闭')+'，不影响当前运行任务');render()"><i></i></button>
+                </div>
+
+                <details class="section-disclosure" ${state.configExpanded ? 'open' : ''} ontoggle="state.configExpanded=this.open">
+                  <summary>
+                    <span>本机运行配置（Worker 框架 · 网络代理 · 审批模型 · 环境变量）</span>
+                    <span style="font-size:12px;color:var(--im-accent)">${state.dirtyRestart ? '● 有待保存修改' : '展开配置 ▾'}</span>
+                  </summary>
+                  <div class="local-sections">
+                    <div class="panel-box">
+                      <h3>一级委派 Worker 框架</h3>
+                      <p class="hint">按合并后的运行 PATH 实时探测本机可执行状态。</p>
+                      <div class="worker-options" role="radiogroup" aria-label="本机一级委派 Worker 框架">
+                        ${workerItems.map(item => `
+                          <button type="button" class="worker-option" role="radio" aria-checked="${state.workerRuntime === item.id}"
+                            onclick="state.workerRuntime='${item.id}';state.dirtyRestart=true;state.saveError='';render()">
+                            <div>
+                              <strong style="font-size:13px">${item.name}</strong>
+                              <small>${item.probe}</small>
+                            </div>
+                            <span class="chip ${item.ok ? 'online' : 'warn'}">${item.ok ? '可用' : '未就绪'}</span>
+                          </button>`).join('')}
+                      </div>
+                    </div>
+
+                    <div class="panel-box">
+                      <h3>网络代理与专用审批模型</h3>
+                      <p class="hint">仅支持 HTTP/HTTPS 代理地址，自动同步本机出站与子进程代理变量。</p>
+                      <div class="toggle-row">
+                        <strong style="font-size:13px">启用本机 HTTP/HTTPS 代理</strong>
+                        <button class="switch" role="switch" aria-label="启用本机代理" aria-checked="${state.proxyEnabled}"
+                          onclick="state.proxyEnabled=!state.proxyEnabled;state.dirtyRestart=true;state.saveError='';render()"><i></i></button>
+                      </div>
+                      <div class="field" style="margin-top:8px">
+                        <label>代理地址</label>
+                        <input class="text-input" value="${state.proxyUrl}" ${state.proxyEnabled ? '' : 'disabled'} oninput="state.proxyUrl=this.value;state.dirtyRestart=true;state.saveError='';render()" />
+                      </div>
+                      <div class="field">
+                        <label>直连排除地址 (NO_PROXY)</label>
+                        <input class="text-input" value="${state.noProxy}" ${state.proxyEnabled ? '' : 'disabled'} oninput="state.noProxy=this.value;state.dirtyRestart=true;state.saveError='';render()" />
+                      </div>
+                      <div class="field" style="margin-bottom:0">
+                        <label>专用自动审批模型</label>
+                        <select class="select-input" onchange="state.approvalModel=this.value;state.dirtyRestart=true;state.saveError='';render()">
+                          <option value="inherit" ${state.approvalModel === 'inherit' ? 'selected' : ''}>跟随各助手自身模型（默认）</option>
+                          <option value="codexOAuth:gpt-6-luna" ${state.approvalModel === 'codexOAuth:gpt-6-luna' ? 'selected' : ''}>codexOAuth:gpt-6-luna（已注册）</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div class="panel-box full">
+                      <h3>
+                        <span>本机运行环境变量</span>
+                        <button class="btn subtle compact" onclick="state.envVars.push({key:'',value:''});state.dirtyRestart=true;render()">+ 添加变量</button>
+                      </h3>
+                      <p class="hint">独立管理非代理环境变量（如自定义工具 PATH、本地搜索地址）。</p>
+                      <div class="env-list">
+                        ${state.envVars.map((row, idx) => `
+                          <div class="env-item-card">
+                            <input class="text-input" value="${row.key}" placeholder="变量名（如 SEARXNG_URL）" aria-label="环境变量名" oninput="state.envVars[${idx}].key=this.value;state.dirtyRestart=true" />
+                            <input class="text-input" value="${row.value}" placeholder="变量值" aria-label="环境变量值" oninput="state.envVars[${idx}].value=this.value;state.dirtyRestart=true" />
+                            <button class="btn compact" onclick="state.envVars.splice(${idx},1);state.dirtyRestart=true;render()">移除此项</button>
+                          </div>`).join('')}
+                      </div>
+                    </div>
+
+                    <div class="save-bar ${state.saveError ? 'error' : state.dirtyRestart ? 'warn' : ''}">
+                      <div style="font-size:13px;flex:1 1 220px;min-width:0">
+                        ${state.saveError
+                          ? `<strong>配置未生效：</strong>${state.saveError}`
+                          : state.dirtyRestart
+                            ? (state.nodeRunning && state.activeTasks > 0
+                                ? `<strong>待重启生效：</strong>当前有 ${state.activeTasks} 个本机任务执行中，保存后将等待空闲或确认后平滑重启节点。`
+                                : `<strong>待重启生效：</strong>保存后将自动重启本机节点并验证恢复上线。`)
+                            : `<span style="color:var(--im-text-muted)">当前显示的是本机节点已确认生效的配置。</span>`}
+                      </div>
+                      <div class="action-row">
+                        ${state.dirtyRestart ? `<button class="btn compact" onclick="state.proxyUrl='http://127.0.0.1:7890';state.dirtyRestart=false;state.saveError='';render()">放弃修改</button>` : ''}
+                        <button class="btn primary compact" ${!state.dirtyRestart ? 'disabled' : ''} onclick="state.dirtyRestart=false;state.saveError='';state.nodeRunning=true;showToast('已保存并完成本机节点平滑重启');render()">
+                          ${state.nodeRunning ? '保存并重启本机节点' : '保存配置'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+
+                <details class="section-disclosure" ${state.logsExpanded ? 'open' : ''} ontoggle="state.logsExpanded=this.open">
+                  <summary>
+                    <span>本机运行日志与连接诊断</span>
+                    <span style="font-size:12px;color:var(--im-text-muted)">查看 / 搜索日志 ▾</span>
+                  </summary>
+                  <div style="padding:4px 22px 20px">
+                    <div class="log-toolbar">
+                      <input class="text-input" style="max-width:260px;min-height:32px" placeholder="搜索日志关键字（如 WARN、probe）…" aria-label="搜索运行日志" value="${state.logQuery}" oninput="state.logQuery=this.value;render()" />
+                      <button class="btn compact" onclick="showToast('已刷新最新运行日志')">刷新</button>
+                      <button class="btn compact" onclick="showToast('已复制当前筛选日志')">复制日志</button>
+                    </div>
+                    <div class="log-viewer">${filteredLogs.length ? filteredLogs.join('\n') : '无匹配的日志记录'}</div>
+                  </div>
+                </details>
+              </section>
+
+              <article class="remote-computer-card">
+                <div class="computer-summary">
+                  <div>
+                    <div class="computer-title-row">
+                      <h2>Team-Build-Server</h2>
+                      <span class="chip online"><span class="status-dot online"></span>在线</span>
+                    </div>
+                    <div class="computer-meta">
+                      <span>远端 Linux 节点 · Nano v2.4.0 · 3 位助手</span>
+                    </div>
+                  </div>
+                  <button class="btn compact" onclick="showToast('打开常规远端电脑详情抽屉')">详情 ›</button>
+                </div>
+              </article>
+            </main>`)}
+          </div>`}
+        </div>`;
+    }
+
+    function renderWorkScene() {
+      const isLocal = state.targetNode === 'local';
+      return `
+        <div class="desktop-stage">
+          <div class="desktop-window">
+            <div class="window-titlebar">
+              <span class="traffic-lights"><i></i><i></i><i></i></span>
+              <span class="window-titlebar-center">Crewden — 助手工作视图</span>
+              <span>Work</span>
+            </div>
+            ${renderAppShell('agents', `<div class="agents-overview">
+              <aside class="agents-rail" aria-label="助手列表">
+                <div class="agents-rail-title">数字员工与个人助手</div>
+                <button class="agent-rail-item ${isLocal ? 'active' : ''}" onclick="state.targetNode='local';render()">
+                  <span>研发助手 E1</span><span class="chip online">本机</span>
+                </button>
+                <button class="agent-rail-item ${!isLocal ? 'active' : ''}" onclick="state.targetNode='remote';state.workSubTab='records';render()">
+                  <span>质量保障 Q1</span><span class="chip muted">远端</span>
+                </button>
+              </aside>
+
+              <section class="agent-work-main">
+                <div class="agent-work-header">
+                  <div>
+                    <strong style="font-size:16px">${isLocal ? '研发助手 E1' : '质量保障 Q1'}</strong>
+                    <div style="font-size:12px;color:var(--im-text-muted)">${isLocal ? 'e1 · Air-Studio（这台电脑）' : 'q1 · Team-Build-Server（远端节点）'}</div>
+                  </div>
+                  <div class="action-row">
+                    <div class="work-view-tabs" role="tablist" aria-label="Work 查看方式">
+                      <button role="tab" aria-selected="${state.workSubTab === 'records'}" onclick="state.workSubTab='records';render()">工作记录</button>
+                      <button role="tab" aria-selected="${state.workSubTab === 'trajectory'}" onclick="state.workSubTab='trajectory';render()">原生轨迹</button>
+                    </div>
+                    <button class="btn compact" onclick="showToast('打开与该助手的聊天')">发消息</button>
+                  </div>
+                </div>
+
+                ${state.workSubTab === 'records' ? `
+                  <div style="padding-bottom:20px">
+                    <div class="tool-card">
+                      <div class="tool-card-head">
+                        <div>
+                          <span class="chip muted" style="margin-right:6px">write</span>
+                          <span class="tool-card-path">reports/perf-audit.md</span>
+                        </div>
+                        ${isLocal ? `
+                          <div class="action-row">
+                            <button class="btn primary compact" onclick="showToast('已调用系统默认应用打开 perf-audit.md')">打开文件</button>
+                            <button class="btn compact" onclick="showToast('已在 Finder / 资源管理器中定位该文件')">在 Finder 中显示</button>
+                          </div>` : `<span style="font-size:12px;color:var(--im-text-muted)">2,480 bytes（远端工作区）</span>`}
+                      </div>
+                      <div class="tool-card-body"># 压测结论摘要\n1. 本机 IPC 直读消除跨公网 WebSocket 往返延迟；\n2. 产物已保存至工作区 reports/perf-audit.md。</div>
+                    </div>
+
+                    <div class="tool-card">
+                      <div class="tool-card-head">
+                        <div>
+                          <span class="chip muted" style="margin-right:6px">edit</span>
+                          <span class="tool-card-path">scripts/run-bench.sh</span>
+                        </div>
+                        ${isLocal ? `
+                          <div class="action-row">
+                            <button class="btn compact" title="可执行脚本仅支持在文件管理器中定位，避免误运行" onclick="showToast('可执行脚本已在 Finder / 资源管理器中定位（禁止直接运行）')">在 Finder 中显示</button>
+                          </div>` : ''}
+                      </div>
+                      <div class="tool-card-body">@@ -12,4 +12,5 @@\n+export BENCH_ITERATIONS=50</div>
+                    </div>
+                  </div>` : `
+                  <div>
+                    <div class="trajectory-bar">
+                      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        ${isLocal
+                          ? `<span class="chip online">本机直读 · 实时更新 · 只读</span>`
+                          : `<span class="chip muted">已连接 · 实时更新 · 只读</span>`}
+                      </div>
+                      <span style="font-size:12px;color:var(--im-text-muted)">时长 · 折叠 · 搜索</span>
+                    </div>
+                    <div class="trajectory-mock-table">
+                      <div class="traj-row">
+                        <div class="traj-row-head">
+                          <span>#14 · Tool Call · <code>bash</code>（4.2s）</span>
+                          <span class="chip muted">${isLocal ? '24.8 MiB 完整输出' : '18 KB 输出'}</span>
+                        </div>
+                        <div class="traj-payload">$ pnpm --filter @nano/personal-assistant test --reporter=verbose\n ✓ tests/inbox-recovery.test.ts (42 tests) 1840ms\n ✓ tests/global-dispatch.test.ts (31 tests) 2110ms\n [共 312,490 行完整标准输出，支持直接翻阅与全文搜索]</div>
+                      </div>
+                      <div class="traj-row">
+                        <div class="traj-row-head">
+                          <span>#15 · Subagent Fork · <code>核对火焰图采样热点</code></span>
+                          <button class="btn subtle compact" onclick="showToast('经本机 parentSession 链校验直接进入子执行范围')">进入本次执行 ›</button>
+                        </div>
+                        <div class="traj-payload">已完成 · 输出 3 处同步序列化瓶颈定位结论与修复建议</div>
+                      </div>
+                    </div>
+                  </div>`}
+              </section>
+            </div>`)}
+          </div>
+        </div>`;
+    }
+
+    function render() {
+      renderControls();
+      const stage = document.getElementById('stage');
+      if (state.scene === 'web') stage.innerHTML = renderWebScene();
+      else if (state.scene === 'bind') stage.innerHTML = renderBindScene();
+      else if (state.scene === 'local') stage.innerHTML = renderLocalScene();
+      else stage.innerHTML = renderWorkScene();
+    }
+
+    render();
+  </script>
+</body>
+</html>
