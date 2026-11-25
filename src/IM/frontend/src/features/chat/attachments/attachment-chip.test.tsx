@@ -26,6 +26,7 @@ describe("AttachmentChip", () => {
       />
     );
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
+    expect(screen.getByText("PDF")).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
@@ -40,6 +41,7 @@ describe("AttachmentChip", () => {
       />
     );
     expect(screen.getByText("diagram.svg")).toBeInTheDocument();
+    expect(screen.getByText("SVG")).toBeInTheDocument();
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
