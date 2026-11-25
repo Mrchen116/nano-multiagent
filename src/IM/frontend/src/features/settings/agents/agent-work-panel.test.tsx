@@ -918,7 +918,7 @@ it.each(cliWorkerRuntimes)(
           ? [call(), message(4, "assistant", "共 18 行。")] : [message(1, "user", "请核对账单"), call()],
         revision: finished ? 4 : 2, next_cursor: null,
       }
-      : url.includes("/sessions/external/turns?") ? {turns: [{...workerTurn, status: finished ? "completed" : "running"}], next_cursor: null}
+      : url.includes("/sessions/external/turns?") ? {turns: [{...workerTurn, status: finished ? "completed" : "running", ...(finished && runtime === "antigravity" ? {usage: {context_used: 12000, context_window: 100000, output: 180, cache_read_tokens: 9000, cache_total_input_tokens: 12000, total_tokens: 12180}} : {})}], next_cursor: null}
       : view)));
     const {router} = renderWork("/settings/agents/global?view=work&work_view=delegation");
     fireEvent.click(await screen.findByRole("button", {name: new RegExp(`核对账单.*${framework}.*最近调用.*${tool}`)}));
@@ -937,6 +937,13 @@ it.each(cliWorkerRuntimes)(
     expect(await within(article).findByText("18 ledger.csv")).toBeVisible();
     expect(within(article).getByText("共 18 行。")).toBeVisible();
     expect(within(article).getAllByTestId("process-item")).toHaveLength(1);
+    if (runtime === "antigravity") {
+      const usageSummary = within(article).getByText("本轮统计").closest("summary")!;
+      expect(usageSummary).toHaveTextContent(/12,000.*12%.*12\.18K tok/);
+      usageSummary.closest("details")!.open = true;
+      expect(within(article).getByText("/ 100,000")).toBeVisible();
+      expect(within(article).getByText("9,000 (75%)")).toBeVisible();
+    }
     fireEvent.click(screen.getByRole("button", {name: "← 返回派工关系"}));
     expect(await screen.findByRole("button", {name: /核对账单/})).toBeVisible();
     await act(() => router.navigate("/settings/agents/global?view=work&work_view=trajectory&execution=external"));

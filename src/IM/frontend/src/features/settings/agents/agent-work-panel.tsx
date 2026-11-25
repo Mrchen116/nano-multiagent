@@ -14,7 +14,7 @@ import { formatWorkDuration, tr, WorkEventTime } from "./agent-work-text";
 import { i18n, useTranslation } from "../../../i18n";
 import { PermissionCard } from "../../chat/components/permission-card";
 import { WorkNavigationContext, WorkThreadLink } from "../../chat/components/work-thread-link";
-import { workerRuntimeNames, refreshReadyWork, AgentExecutionDeletedError, workAccessLost, workBase, workRequest, workSessionPath, type WorkItemsPage, type WorkFocus, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
+import { isExternalCliWorker, workerRuntimeNames, refreshReadyWork, AgentExecutionDeletedError, workAccessLost, workBase, workRequest, workSessionPath, type WorkItemsPage, type WorkFocus, type WorkItem, type WorkSession, type WorkTurn, type WorkTurnPage, type WorkView } from "./agent-work-api";
 import "./agent-work.css";
 import { useWorkHistory, workHistoryTurnKey } from './agent-work-history';
 import { LegacyWorkLinks, WorkLink } from './agent-work-links';
@@ -312,7 +312,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
   });
   const sessions = separate ? [] : view?.other_executions ?? [];
   const selected = separate ? metadata.data : sessions.find(s => s.session_id === metadataId);
-  const externalWorker = selected?.scope === "worker" && (selected.runtime === "codex" || selected.runtime === "claude");
+  const externalWorker = selected?.scope === "worker" && isExternalCliWorker(selected.runtime);
   const nativeAvailable = !externalWorker && (!separate || !metadataId || metadataId === view?.main_session_id || metadata.isSuccess);
   useEffect(() => {
     if (!nativeMode || !externalWorker || !metadataId) return;

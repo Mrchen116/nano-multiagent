@@ -76,7 +76,7 @@ llm:
 
 ### 本机 Global worker 框架
 
-在本机 Gateway 配置文件的 `gateway` 段设置 `worker_runtime`，可选 `dsh`（默认）、`codex` 或 `claude`。例如：
+在本机 Gateway 配置文件的 `gateway` 段设置 `worker_runtime`，可选 `dsh`（默认）、`codex`、`claude` 或 `antigravity`。例如：
 
 ```yaml
 gateway:

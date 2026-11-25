@@ -1,4 +1,4 @@
-import { cliWorkerRuntimes } from '@nano/product-contracts/worker-runtimes';
+import { cliWorkerRuntimes } from '@nano/product-contracts';
 import { expect, it, vi } from 'vitest';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
@@ -52,6 +52,7 @@ it.each(cliWorkerRuntimes)('%s binds follow-ups to the original session and repl
   }));
   const exec = { callId: 'dispatch', signal: new AbortController().signal } as ToolRunContext;
   const row = await manager.start(root, runtime, 'review', 'inspect A', exec);
+  expect(await manager.isWorker(row.workerId)).toBe(true);
   expect(await manager.start(root, 'dsh', 'review', 'inspect A', exec)).toMatchObject({
     workerId: row.workerId,
     runtime,

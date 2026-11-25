@@ -4,7 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent';
 import { SessionId, SessionLogOffset, type Session } from '@deepseek-ai/dsh-session';
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain';
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools';
-import type { ModelRunProjection, RuntimeWorkerChange, RuntimeWorkerDetail } from '@nano/product-contracts';
+import { workerRuntimes, type ModelRunProjection, type RuntimeWorkerChange, type RuntimeWorkerDetail } from '@nano/product-contracts';
 import { z } from 'zod';
 import { jsonBytes, workPageBytes } from '../work-page.js';
 import { openCliWorker } from './drivers.js';
@@ -15,7 +15,7 @@ const recordSchema = z.object({
   rootId: z.string(),
   callId: z.string(),
   label: z.string(),
-  runtime: z.enum(['dsh', 'codex', 'claude']),
+  runtime: z.enum(workerRuntimes),
   state: z.enum(['starting', 'running', 'completed', 'failed', 'interrupted']),
   sessionId: z.string().optional(),
   activationId: z.string().optional(),

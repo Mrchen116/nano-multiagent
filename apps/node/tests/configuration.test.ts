@@ -1,9 +1,8 @@
-import { workerRuntimes } from '@nano/product-contracts/worker-runtimes';
 import { mkdtemp, readFile, writeFile, rm, stat, symlink, realpath } from 'node:fs/promises';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { agentConfigurationFingerprint, canonicalAgentConfiguration } from '@nano/product-contracts';
+import { agentConfigurationFingerprint, canonicalAgentConfiguration, workerRuntimes } from '@nano/product-contracts';
 import {builtinSkillsRoot, personalSkillsRoot} from '@nano/personal-assistant';
 import { NodeConfiguration, type NodeConfigurationFile } from '../src/configuration.js';
 import { load } from 'js-yaml';

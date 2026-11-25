@@ -13,6 +13,10 @@ export const turnTotals = () =>
   details().flatMap(({ turnId, fact }) =>
     fact.type === 'turn_end' ? [[turnId, fact.payload.usage?.total_tokens ?? null]] : [],
   );
+export const turnUsages = () =>
+  details().flatMap(({ turnId, fact }) =>
+    fact.type === 'turn_end' ? [[turnId, fact.payload.usage]] : [],
+  );
 export const onEnd = vi.fn<CliWorkerOptions['onEnd']>(async () => {});
 export const mcp = { command: 'mcp-bridge', args: ['parent-socket'], env: {} };
 export async function fakeCli(runtime: CliWorkerOptions['runtime'], code: string, sessionId?: string) {
@@ -22,12 +26,13 @@ export async function fakeCli(runtime: CliWorkerOptions['runtime'], code: string
     const fs = require('node:fs');
     const emit = value => console.log(JSON.stringify(value));
     fs.writeFileSync('args', JSON.stringify(process.argv.slice(2)));
+    fs.writeFileSync('env', JSON.stringify(process.env));
     require('node:readline').createInterface({input: process.stdin}).on('line', line => {
       const m = JSON.parse(line);
       fs.appendFileSync('frames', line+'\\n');
       ${code}
     });`;
-  await writeFile(join(cwd, runtime), script, { mode: 0o755 });
+  await writeFile(join(cwd, runtime === 'antigravity' ? 'agy' : runtime), script, { mode: 0o755 });
   return (cli = await openCliWorker({
     runtime,
     cwd,

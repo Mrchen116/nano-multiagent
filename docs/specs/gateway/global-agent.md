@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Global Agent Specification
 
-> 对齐: feat-786
+> 对齐: feat-788
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 
 ## Purpose
@@ -425,7 +425,7 @@
 
 #### Scenario: 机器级派工与中断恢复
 - **WHEN** 本机普通 Global 或 PA 派出新事项
-- **THEN** 使用节点配置的 DSH、Codex CLI 或 Claude Code，默认 DSH。框架及会话随该事项固定，追加与结果归原委派。
+- **THEN** 使用节点配置的 DSH、Codex CLI、Claude Code 或 Antigravity CLI，默认 DSH。框架及会话随该事项固定，追加与结果归原委派。
 - **AND** 宿主恢复时将丢失的外部执行标为中断，携原 worker ID 向所属父 Agent 投递可重放、去重的中断通知；已保存的终局回报优先交付。用户明确续做时恢复原 CLI 会话。正常轮次结束时保留 worker 原文，由父级根据内容判断成果或待补问题。
 
 #### Scenario: 外部通信能力不等于派工权限
