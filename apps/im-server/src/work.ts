@@ -1,6 +1,6 @@
 import {rejectDeletedExecution} from './agent-deletion.js';
 import { requireLifecycle } from './agent-lifecycle.js';
-import { canAccessSpace, agentAvailable } from "./identity.js";
+import { canAccessSpace, agentAvailable, ownerAccount } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
 import { searchMessages } from "./message-search.js";
 import type { FastifyInstance } from "fastify";
@@ -171,6 +171,26 @@ export class Work {
       ...this.records.summaries.delegation(root, main, window, until, after, limit)};
   }
 
+  private memberExecutionNode(viewer: Row | undefined, agentId: string) {
+    const peer = one(this.db, `
+      SELECT ap.*, n.alias, n.node_name,
+        EXISTS(SELECT 1 FROM personal_agent_bindings p WHERE p.agent_id=ap.agent_id) AS personal
+      FROM agent_profiles ap
+      JOIN nodes n ON n.node_id=ap.node_id AND n.owner_id=ap.owner_id
+      WHERE ap.agent_id=?
+    `, agentId);
+    if (!peer || !agentAvailable(this.db, peer)) return;
+    if (peer.owner_id !== viewer?.owner_id &&
+      (peer.personal || peer.space_id !== "company:default" || !canAccessSpace(viewer, peer.space_id))) {
+      return;
+    }
+    const name = peer.alias?.trim() || peer.node_name?.trim();
+    return {
+      id: peer.node_id,
+      ...(name && name !== peer.node_id ? { name } : {}),
+    };
+  }
+
   query(c: Row, p: Row): Row {
     if (p.keywords !== undefined && (p.query !== undefined || p.keyword !== undefined)) fail(400, 'invalid_arguments');
     if (p.keywords !== undefined && (!Array.isArray(p.keywords) || p.keywords.some((v: unknown) => typeof v !== 'string'))) fail(400, 'invalid_arguments');
@@ -291,6 +311,9 @@ export class Work {
     if (p.thread_root_message_id && (p.action !== 'read' || !baseTarget || p.message_id || p.around_message_id)) fail(400, 'invalid_arguments');
     if (p.action === "info") {
       if (!target) fail(404, "target_not_accessible");
+      const includeExecutionNodes = p.include_execution_nodes === true && !memory && target.type === "group" &&
+        !target.external_source && conversationAccess(this.db, baseTarget!, readerId)?.is_member;
+      const viewer = includeExecutionNodes ? ownerAccount(this.db, agent.owner_id) : undefined;
       return {
         target: baseTarget,
         ...(memory ? { metadata_scope: 'current', history_cutoff: p.memory_cutoff } : {}),
@@ -298,12 +321,16 @@ export class Work {
         type: target.type,
         channel: target.external_source ?? "web",
         visibility:target.visibility,is_member:target.is_member,can_write:target.can_write,dissolved_at:target.dissolved_at,
-        members: members(baseTarget!).map((m) => ({
-          user_id: m.id,
-          name: m.name,
-          type: m.kind,
-          mention: `<mention type="user" target_id="${m.id}"/>`,
-        })),
+        members: members(baseTarget!).map((m) => {
+          const node = includeExecutionNodes && m.agent_id ? this.memberExecutionNode(viewer, m.agent_id) : undefined;
+          return {
+            user_id: m.id,
+            name: m.name,
+            type: m.kind,
+            mention: `<mention type="user" target_id="${m.id}"/>`,
+            ...(node ? { execution_node: node } : {}),
+          };
+        }),
       };
     }
     const identity: Row = {
