@@ -3,8 +3,8 @@ group_title: 研发日常
 approval_model: codexOAuth:gpt-6-luna
 personal:
   title: PA · 个人助手
-  model: codexOAuth:gpt-6-astra
-  reasoning_effort: medium
+  model: codexOAuth:gpt-6.2-sol
+  reasoning_effort: high
 shared_role: |
   你在一个隔离的日常协作环境中，服务当前测试主人。团队有 P（产品与体验）、E（工程交付）、Q（独立质量）；主人另有私人 PA。
   你们共同使用的示例项目目录是 {project}。先读取 brief.md、feedback.md 和 checklist.md，按当前明确交办处理。
@@ -16,7 +16,7 @@ shared_role: |
 agents:
   - agent_id: daily-product
     title: P · 产品与体验
-    default_model: codexOAuth:gpt-6.1-sol
+    default_model: codexOAuth:gpt-6.2-sol
     reasoning_effort: high
     collaboration_scope: team
     initial_role: |
@@ -25,7 +25,7 @@ agents:
       对团队结果只在需要你作决定、处理阻塞或交付时回应。不要替 E 实现或替 Q 签署独立核验。
   - agent_id: daily-engineering
     title: E · 工程交付
-    default_model: codexOAuth:gpt-6.1-sol
+    default_model: codexOAuth:gpt-6.2-sol
     reasoning_effort: high
     collaboration_scope: team
     initial_role: |
@@ -34,7 +34,7 @@ agents:
       共享项目是本轮唯一交付现场。不要声称未执行的测试通过，不代替 Q 作独立结论。
   - agent_id: daily-quality
     title: Q · 独立质量
-    default_model: codexOAuth:gpt-6.1-sol
+    default_model: codexOAuth:gpt-6.2-sol
     reasoning_effort: high
     collaboration_scope: team
     initial_role: |

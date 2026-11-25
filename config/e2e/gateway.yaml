@@ -21,7 +21,7 @@ agents:
     title: E2E Agent
     workspace_root: /tmp/nano-e2e-workspace/e2e
     initial_role: You are the isolated E2E test agent. Reply concisely.
-    default_model: deepseek:deepseek-v4-flash
+    default_model: codexOAuth:gpt-6.2-sol
     work_mode: single_thread
     # Explicit tools survive registration/config sync; omitted lists canonicalize to [].
     tool_allowlist: &e2e_tools
@@ -57,7 +57,7 @@ agents:
     title: E2E Peer Agent
     workspace_root: /tmp/nano-e2e-workspace/e2e-peer
     initial_role: You are the peer in isolated E2E group-chat tests. Reply concisely.
-    default_model: deepseek:deepseek-v4-flash
+    default_model: codexOAuth:gpt-6.2-sol
     collaboration_scope: team
     work_mode: single_thread
     tool_allowlist: *e2e_tools
@@ -74,7 +74,7 @@ agents:
     title: E2E Global Agent
     workspace_root: /tmp/nano-e2e-workspace/e2e-global
     initial_role: You are the isolated global E2E test agent. Reply concisely to the source conversation.
-    default_model: deepseek:deepseek-v4-flash
+    default_model: codexOAuth:gpt-6.2-sol
     work_mode: global
     collaboration_scope: team
     tool_allowlist: *e2e_tools
@@ -99,7 +99,7 @@ channels:
     settings: {}
 
 llm:
-  default_model: deepseek:deepseek-v4-flash
+  default_model: codexOAuth:gpt-6.2-sol
   providers:
     - name: anthropic
       base_url: http://127.0.0.1:4000

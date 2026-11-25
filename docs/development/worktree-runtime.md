@@ -72,10 +72,10 @@
 
 | 固定角色 | 职责 | 主模型 / 推理档位 |
 |---|---|---|
-| P · 产品与体验（`daily-product`） | 整理目标、范围和可观察验收标准 | `codexOAuth:gpt-6.1-sol` / `high` |
-| E · 工程交付（`daily-engineering`） | 完成交办、自测、交付可检查产物 | `codexOAuth:gpt-6.1-sol` / `high` |
-| Q · 独立质量（`daily-quality`） | 依据原始要求和真实产物独立核实 | `codexOAuth:gpt-6.1-sol` / `high` |
-| PA · 个人助手（产品生成 ID） | 服务测试主人、读取允许的来源、跟进明确交办 | `codexOAuth:gpt-6-astra` / `medium` |
+| P · 产品与体验（`daily-product`） | 整理目标、范围和可观察验收标准 | `codexOAuth:gpt-6.2-sol` / `high` |
+| E · 工程交付（`daily-engineering`） | 完成交办、自测、交付可检查产物 | `codexOAuth:gpt-6.2-sol` / `high` |
+| Q · 独立质量（`daily-quality`） | 依据原始要求和真实产物独立核实 | `codexOAuth:gpt-6.2-sol` / `high` |
+| PA · 个人助手（产品生成 ID） | 服务测试主人、读取允许的来源、跟进明确交办 | `codexOAuth:gpt-6.2-sol` / `high` |
 
 四者均为 Global 模式，显式选择 Codex 审核规则，无备用主模型；独立工具/PA 审核模型为 `codexOAuth:gpt-6-luna`。审核执行代码优先使用受支持的 `low`，不继承主 Agent 的 effort，也没有额外的模板审核 effort 参数。隔离 owner 配置明确开启 Auto、不跳过权限；权限路由和 PA 对外披露仍遵循[产品审核规则](../operations/auto-permissions.md)。开发侧独立 code reviewer/product reviewer 的模型由各自 skill 派发适配决定，产品内的 Q 不能替代它们。
 
@@ -91,7 +91,7 @@
 
 `NANO_MULTIAGENT_E2E_MODEL` 可显式覆盖本轮全部工作模型，采用所选模型目录默认 effort，独立审核仍使用 Luna；清单显示实际值，不把覆盖后的运行冒充默认模型验证。一般验收不设置该变量。daily 不与 `--main-config` 或 `--feishu` 混合。
 
-无参数的 `default` 继续提供 `e2e/e2e-peer/e2e-global` 环境；[关键路径自动回归](e2e-critical-paths.md) 通过 `--main-config` 将所有 provider 替换为本地 recording fixture，不使用模板中的真实代理地址；专用 Feishu、错误上游等场景作为按需补充，不代替日常基线。
+无参数的 `default` 提供 `e2e/e2e-peer/e2e-global` 环境，与 `feishu` profile 一样默认使用 `codexOAuth:gpt-6.2-sol`。[关键路径自动回归](e2e-critical-paths.md) 通过 `--main-config` 将所有 provider 替换为本地 recording fixture，不使用模板中的真实代理地址。专用 Feishu、错误上游等场景按需补充日常验收。
 
 ## 推荐路径：脚本化起停
 
