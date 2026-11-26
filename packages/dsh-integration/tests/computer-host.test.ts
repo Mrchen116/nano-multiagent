@@ -235,3 +235,54 @@ it('bounds a computer assignment by the original surface and target', async () =
     }),
   ).toBe(false);
 });
+
+it('invalidates a pending worker binding when computer use is withdrawn during the owner lookup', async () => {
+  const { ComputerHost } = await import('../src/computer/host.js');
+  const lookup = Promise.withResolvers<{ id: string; text: string }>();
+  const started = Promise.withResolvers<void>();
+  const root = {
+    id: 'root',
+    session: {
+      snapshotEvents: () => [
+        { type: 'turn/start', seq: 1 },
+        {
+          type: 'tool/result',
+          seq: 2,
+          data: {
+            message: {
+              toolCallId: 'read',
+              content: [{ type: 'text', text: JSON.stringify({ messages: [{ id: 'short' }] }) }],
+            },
+          },
+        },
+      ],
+    },
+  };
+  const ctx = {
+    provide() {},
+    on() {},
+    effect() {},
+    get(name: string) {
+      if (name === 'agents') return { get: () => root };
+      if (name === 'nanoApproval') return { sources: { isLiveInbox: () => true } };
+      if (name === 'nanoProduct')
+        return {
+          call: () => {
+            started.resolve();
+            return lookup.promise;
+          },
+        };
+    },
+  };
+  const bindings = new Map([
+    ['root', { sessionId: 'root', agentId: 'a', ownerId: 'owner', revision: '1', cwd: '/tmp' }],
+  ]);
+  const { signal } = new AbortController();
+  const host = new ComputerHost(ctx as any, bindings, () => ({ toolAllowlist: ['computer_use'] }) as any);
+  const grant = host.bindWorker(root as any, 'worker', 'short', signal);
+  await started.promise;
+  host.revokeAgent('a');
+  lookup.resolve({ id: 'original', text: 'Open https://example.org' });
+  await expect(grant).rejects.toThrow('revoked');
+  await expect(host.callWorker(root as any, 'worker', {}, signal)).rejects.toThrow('ended');
+});

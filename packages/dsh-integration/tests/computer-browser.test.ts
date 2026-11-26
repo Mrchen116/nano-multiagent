@@ -63,6 +63,9 @@ it.skipIf(!installed)(
       expect(click.evidence).toContain('Test button');
       await call('navigate', { url: url + 'other' });
       await expect(click.run(signal)).rejects.toThrow();
+      await (await other.prepare('close_tab', {}, signal)).run(signal);
+      await (await other.prepare('open', { url, mode: 'isolated' }, signal)).run(signal);
+      expect(JSON.stringify(await (await other.prepare('snapshot', {}, signal)).run(signal))).toContain('Test button');
     } finally {
       await Promise.all([seat.close(), other.close()]);
       server.close();

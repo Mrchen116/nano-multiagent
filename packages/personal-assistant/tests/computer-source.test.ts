@@ -58,6 +58,8 @@ it('projects computer operations to Work without private input or result content
     time: 20,
     data: { message: { toolCallId: 'call', content: [{ type: 'text', text: 'PRIVATE_RESULT' }] } },
   };
+  const invalid = { ...call, data: { ...call.data, arguments: 'null' } };
+  expect(toolPresentation(invalid, [invalid])?.input.action).toBe('operation');
   for (const event of [call, end]) {
     const projected = toolPresentation(event, [call, end]);
     expect(projected).toMatchObject({ name: 'computer_use', input: { surface: 'desktop', action: 'type' } });
