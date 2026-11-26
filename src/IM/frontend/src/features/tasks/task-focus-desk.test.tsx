@@ -237,6 +237,20 @@ beforeEach(() => {
       if (url.includes("/task-graphs/tg-goal-1")) {
         return Response.json(panoramaGraph);
       }
+      if (url.includes("/task-graphs/tg-ready")) {
+        return Response.json({
+          schema_version: 2,
+          graph_id: "tg-ready",
+          root_node_id: "n-ready",
+          revision: 1,
+          relative_url: "/tasks/tg-ready",
+          created_at: "2026-11-26T00:00:00Z",
+          updated_at: "2026-11-26T00:00:00Z",
+          updated_by: "pa-1",
+          nodes: [makeNode("n-ready", "整理周五演示大纲", { container_id: null, mode: "none", status: "proposed" })],
+          dependencies: [],
+        });
+      }
       if (url.includes("/task-graphs?") && url.includes("statuses=done%2Cclosed")) {
         return Response.json({
           items: [makeSummary({ graph_id: "tg-done", title: "开通燃气账户", status: "done" })],
@@ -356,5 +370,14 @@ describe("progressive focus desk and mobile stage spine", () => {
     await userEvent.click(within(sproutCard).getByRole("button", { name: "批准立项" }));
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]!.body.operations).toEqual([{ op: "approve_task", node_id: "s3" }]);
+  });
+
+  it("redirects single-card /tasks/:graphId?node=... links to Focus Desk + Drawer without fake North Star banner", async () => {
+    const { container, router } = renderFocus("/tasks/tg-ready?scope=n-ready&node=n-ready&return_chat=pa-dm");
+    const backChatLink = await screen.findByRole("link", { name: "‹ 返回原聊天" });
+    expect(backChatLink).toHaveAttribute("href", "/chat/pa-dm");
+    expect(router.state.location.pathname).toBe("/tasks");
+    expect(router.state.location.search).toContain("graph=tg-ready");
+    expect(container.querySelector(".tasks-north-star-banner")).toBeNull();
   });
 });

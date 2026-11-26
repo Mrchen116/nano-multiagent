@@ -1686,7 +1686,9 @@
     },
     "panorama": {
       "backFocus": "‹ 返回任务聚焦",
+      "backToChat": "‹ 返回原聊天",
       "northStarLabel": "终局目标",
+      "goalBannerLabel": "长线目标 · {{title}}",
       "northStarEmpty": "尚未填写终局目标说明，点击根目标详情可补充。",
       "enterSubscope": "进入子脉络",
       "enterSubscopeCount": "进入子脉络 ({{count}}) ›",

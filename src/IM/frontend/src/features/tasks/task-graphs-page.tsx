@@ -333,15 +333,31 @@ export function TaskGraphsPage() {
     setParams(next, { replace: true });
   }, [params, setParams]);
 
-  const query = useTaskGraph(graphId ?? overviewSelection?.graph_id);
+  const focusGraphParam = !graphId ? params.get("graph") : null;
+  const query = useTaskGraph(graphId ?? overviewSelection?.graph_id ?? focusGraphParam ?? undefined);
   const graph = query.data;
   const root = graph?.nodes.find(node => node.id === graph.root_node_id);
   const selectedId = graphId
     ? params.get("node")
-    : overviewSelection?.node_id ?? overviewSelection?.root_node_id;
+    : overviewSelection
+      ? (overviewSelection.node_id ?? overviewSelection.root_node_id)
+      : (params.get("node") ?? (focusGraphParam ? graph?.root_node_id : null));
   const selected = graph?.nodes.find(node => node.id === selectedId);
   const scopeId = params.get("scope") ?? selected?.container_id ?? graph?.root_node_id;
   const scope = graph?.nodes.find(node => node.id === scopeId);
+  const isMultiNodeGoal = Boolean(root && (root.mode !== "none" || (graph?.nodes.length ?? 0) > 1));
+
+  useEffect(() => {
+    if (!graphId || query.isFetching || !graph || !root) return;
+    if (root.mode === "none" && graph.nodes.length <= 1 && params.has("node")) {
+      const next = new URLSearchParams();
+      next.set("graph", graph.graph_id);
+      next.set("node", params.get("node") ?? root.id);
+      if (params.get("return_chat")) next.set("return_chat", params.get("return_chat")!);
+      if (params.get("return_message")) next.set("return_message", params.get("return_message")!);
+      navigate(`/tasks?${next.toString()}`, { replace: true });
+    }
+  }, [graphId, query.isFetching, graph, root, params, navigate]);
 
   useEffect(() => {
     setCopyStatus(null);
@@ -388,6 +404,11 @@ export function TaskGraphsPage() {
     setOverviewSelection(null);
     const next = new URLSearchParams(params);
     next.delete("node");
+    if (!graphId) {
+      next.delete("graph");
+      next.delete("return_chat");
+      next.delete("return_message");
+    }
     setParams(next, { replace: true });
   }
 
@@ -449,7 +470,9 @@ export function TaskGraphsPage() {
   const conversation = graph?.conversation;
   const selectedFocusKey = overviewSelection
     ? `${overviewSelection.graph_id}:${overviewSelection.node_id ?? overviewSelection.root_node_id}`
-    : null;
+    : focusGraphParam && selectedId
+      ? `${focusGraphParam}:${selectedId}`
+      : null;
 
   return (
     <div className="tasks-workspace">
@@ -552,7 +575,15 @@ export function TaskGraphsPage() {
         {!graphId ? (
           <TaskFocusDesk
             selectedKey={selectedFocusKey}
-            onSelectCard={setOverviewSelection}
+            onSelectCard={card => {
+              if (params.has("graph") || params.has("node")) {
+                const next = new URLSearchParams(params);
+                next.delete("graph");
+                next.delete("node");
+                setParams(next, { replace: true });
+              }
+              setOverviewSelection(card);
+            }}
             onOpenEditor={target => setEditor(target)}
           />
         ) : query.isPending ? (
@@ -581,24 +612,27 @@ export function TaskGraphsPage() {
               root &&
               scope && (
                 <>
-                  {/* North-Star Goal Banner */}
-                  <section className="tasks-north-star-banner" aria-label={t("tasks.panorama.northStarLabel")}>
-                    <div className="tasks-north-star-main">
-                      <div className="tasks-north-star-top">
-                        <TaskStatusBadge status={root.status} />
-                        <span className="tasks-north-star-label">
-                          {t("tasks.panorama.northStarLabel")}
-                          {scope.id !== root.id ? ` · ${root.title}` : ""}
-                        </span>
+                  {/* North-Star Goal Banner (only for multi-node Long-Term Goals) */}
+                  {isMultiNodeGoal && (
+                    <section className="tasks-north-star-banner" aria-label={t("tasks.panorama.northStarLabel")}>
+                      <div className="tasks-north-star-main">
+                        <div className="tasks-north-star-top">
+                          <TaskStatusBadge status={root.status} />
+                          <span className="tasks-north-star-label">
+                            {t("tasks.panorama.goalBannerLabel", { title: root.title })}
+                          </span>
+                        </div>
+                        <p className="tasks-north-star-goal">
+                          {root.description
+                            ? t("tasks.focus.northStarPrefix", { summary: root.description })
+                            : t("tasks.panorama.northStarEmpty")}
+                        </p>
                       </div>
-                      <p className="tasks-north-star-goal">
-                        {root.description || t("tasks.panorama.northStarEmpty")}
-                      </p>
-                    </div>
-                    <div className="tasks-north-star-counts">
-                      <TaskCounts counts={scope.direct_counts} />
-                    </div>
-                  </section>
+                      <div className="tasks-north-star-counts">
+                        <TaskCounts counts={scope.direct_counts} />
+                      </div>
+                    </section>
+                  )}
 
                   <div className="tasks-toolbar">
                     <div className="tasks-scope-actions">
@@ -712,6 +746,7 @@ export function TaskGraphsPage() {
                         busy={busy}
                         error={error}
                         returnChatId={params.get("return_chat")}
+                        returnMessageId={params.get("return_message")}
                         onClose={closeDetail}
                         onSelect={select}
                         onEnter={enter}
@@ -737,6 +772,7 @@ export function TaskGraphsPage() {
             busy={busy}
             error={error}
             returnChatId={params.get("return_chat")}
+            returnMessageId={params.get("return_message")}
             onClose={closeDetail}
             onSelect={select}
             onEnter={enter}

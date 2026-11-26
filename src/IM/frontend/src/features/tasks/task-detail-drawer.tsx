@@ -26,6 +26,7 @@ export interface TaskDetailDrawerProps {
   busy: boolean;
   error: string;
   returnChatId?: string | null;
+  returnMessageId?: string | null;
   onClose(): void;
   onSelect(node: TaskNode): void;
   onEnter(node: TaskNode): void;
@@ -110,6 +111,7 @@ function TaskDetailDrawerContent({
   busy,
   error,
   returnChatId,
+  returnMessageId,
   onClose,
   onSelect,
   onEnter,
@@ -231,6 +233,14 @@ function TaskDetailDrawerContent({
               >
                 {t("tasks.focus.crumbGoal", { title: root.title })}
               </button>
+            ) : !docked && returnChatId ? (
+              <Link
+                className="tasks-goal-crumb"
+                to={`/chat/${encodeURIComponent(returnChatId)}`}
+                state={returnMessageId ? { returnAnchorMessageId: returnMessageId } : undefined}
+              >
+                {t("tasks.panorama.backToChat")}
+              </Link>
             ) : showConversationCrumb && conversation ? (
               <span className="tasks-goal-crumb tasks-goal-crumb--idea">
                 {conversation.title}

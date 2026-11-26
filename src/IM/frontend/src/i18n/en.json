@@ -1701,7 +1701,9 @@
     },
     "panorama": {
       "backFocus": "‹ Back to Tasks",
+      "backToChat": "‹ Back to chat",
       "northStarLabel": "North Star Goal",
+      "goalBannerLabel": "Long-term goal · {{title}}",
       "northStarEmpty": "No North Star summary yet. Open root details to add one.",
       "enterSubscope": "Enter subscope",
       "enterSubscopeCount": "Enter subscope ({{count}}) ›",

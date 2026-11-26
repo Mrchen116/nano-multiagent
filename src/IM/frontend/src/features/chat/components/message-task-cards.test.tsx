@@ -113,6 +113,7 @@ describe("embedded live task_cards in MessagePane and stream sync", () => {
             />
           ),
         },
+        { path: "/tasks", element: <div data-testid="focus-route">Focus</div> },
         { path: "/tasks/:graphId", element: <div data-testid="panorama-route">Panorama</div> },
       ],
       { initialEntries: ["/chat/conv-pa"] },
@@ -236,5 +237,51 @@ describe("embedded live task_cards in MessagePane and stream sync", () => {
       kernel_message_id: null,
     });
     expect(reconciledState.messages[0]?.task_cards).toEqual([{ graph_id: "tg-1", node_id: "n-prop" }]);
+  });
+
+  it("routes standalone single-card task_cards to /tasks focus desk instead of the empty goal panorama", async () => {
+    cardItems = [
+      {
+        graph_id: "tg-single",
+        root_node_id: "n1",
+        node_id: "n1",
+        revision: 1,
+        updated_at: "2026-11-26T00:24:15Z",
+        updated_by: "pa-1",
+        relative_url: "/tasks/tg-single",
+        title: "起草一页《Nano 0.9 内测体验速查表》",
+        mode: "none",
+        status: "proposed",
+        can_edit: true,
+        conversation: {
+          id: "conv-pa",
+          title: "PA · 个人助手",
+          visibility: "private",
+          dissolved_at: null,
+          is_member: true,
+          can_write: true,
+        },
+      },
+    ];
+
+    const message: Message = {
+      id: "m-single",
+      conversation_id: "conv-pa",
+      sender: { type: "agent", id: "pa-1", display_name: "PA · 个人助手" },
+      sender_type: "agent",
+      sender_user_id: "pa-1",
+      content: "晨间提议：",
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-11-26T00:25:00Z",
+      permission_requests: [],
+      task_cards: [{ graph_id: "tg-single", node_id: "n1" }],
+    };
+
+    const { router } = renderChatWithCards([message]);
+    const card = await screen.findByTestId("chat-task-card-tg-single-n1");
+    await userEvent.click(card);
+    expect(router.state.location.pathname).toBe("/tasks");
+    expect(router.state.location.search).toBe("?graph=tg-single&node=n1&return_chat=conv-pa&return_message=m-single");
   });
 });

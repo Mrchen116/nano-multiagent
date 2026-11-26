@@ -92,16 +92,25 @@ export function MessageTaskCards({
         }
 
         const nodeId = card.node_id ?? card.root_node_id;
-        const isChild = Boolean(card.node_id && card.node_id !== card.root_node_id && card.root_title);
+        const isChildNode = Boolean(card.node_id && card.node_id !== card.root_node_id);
+        const isChild = Boolean(isChildNode && card.root_title);
+        const isSingleCard = !isChildNode && card.mode === "none";
         const prereqBlocked = isTaskPrereqBlocked(card);
         const editable = canWrite && card.can_edit !== false && (card.conversation?.can_write ?? true);
-        const targetUrl = taskGraphUrl(
-          card.graph_id,
-          card.scope_id ?? card.root_node_id,
-          nodeId,
-          conversationId,
-          messageId,
-        );
+        const targetUrl = isSingleCard
+          ? (() => {
+              const search = new URLSearchParams({ graph: card.graph_id, node: nodeId });
+              if (conversationId) search.set("return_chat", conversationId);
+              if (messageId) search.set("return_message", messageId);
+              return `/tasks?${search.toString()}`;
+            })()
+          : taskGraphUrl(
+              card.graph_id,
+              card.scope_id ?? card.root_node_id,
+              nodeId,
+              conversationId,
+              messageId,
+            );
         const snippet =
           card.status === "proposed"
             ? [
