@@ -32,6 +32,7 @@ import { searchMessages } from './message-search.js';
 import { assertThreadQuote, listUnread, markThreadRead, threadAddressesAgent, threadRelayMetadata, threadRootOrFail } from './threads.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
+import { WorkerPermissionCards } from './worker-permission-cards.js';
 import { InteractionBackground } from './interaction-background.js';
 
 function readableMentions(content: string, members: Row[]): string {
@@ -41,10 +42,12 @@ function readableMentions(content: string, members: Row[]): string {
 }
 export class Messaging {
   readonly records: MessageRecords;
+  readonly workerPermissions: WorkerPermissionCards;
   readonly interactions: Interactions;
   readonly background: InteractionBackground;
   readonly delivery:RelayDelivery;
   constructor(readonly ctx: ImContext) {
+    this.workerPermissions=new WorkerPermissionCards(ctx);
     this.interactions=new Interactions(ctx);this.delivery=new RelayDelivery(ctx);
     this.background=new InteractionBackground(ctx.db, this.interactions);
     this.records=new MessageRecords(ctx.db,{interactions:this.interactions,agentUserId:id=>this.agentUser(id).id,
