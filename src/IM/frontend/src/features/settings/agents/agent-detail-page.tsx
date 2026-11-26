@@ -131,6 +131,13 @@ function resolveEffectiveFeatures(
     for (const feat of capabilityFeatures) {
       result[feat.key] = draft.features?.[feat.key] ?? feat.default_on;
     }
+    if (
+      result.proactive_planning &&
+      draft.features?.proactive_planning === undefined &&
+      (result.task_graph === false || (draft.tool_allowlist !== undefined && !draft.tool_allowlist.includes("task_graph")))
+    ) {
+      result.proactive_planning = false;
+    }
     return result;
   }
   return effectiveCapabilityFeatures(draft, capabilityFeatures, catalog);
@@ -1922,7 +1929,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
           catalog={catalog}
           roleEditor={canManageRole && <AgentRoleEditor editor={roleEditor} />}
           inheritedRules={capabilities.inherited_approval_rules}
-          capabilityFeatures={capabilities.features ?? []}
+          capabilityFeatures={(capabilities.features ?? []).filter(feat => personal || feat.key !== "proactive_planning")}
           capabilitiesKnown={detailQuery.data?.liveCapabilities === true}
           readOnly={readOnly}
           unknownFeatures={detailQuery.data?.display.data?.features.filter(feature => feature.enabled === null).map(feature => feature.key)}

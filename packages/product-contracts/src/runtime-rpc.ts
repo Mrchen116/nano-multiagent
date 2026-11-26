@@ -82,7 +82,11 @@ const methods = {
   })), revoked: ids}), durable),
   'task.execution.block': rpc(input({...session, blocked: bool}), ok),
   'task.execution.changed': rpc(input({...agent, reset: bool.optional()}), ok),
-  'task.wait.repair': rpc(input({...session, ...agent, inputId: id.startsWith('task-wait-repair:')}), durable),
+  'runtime.timezone': rpc(input({timezone: id}), ok),
+  'runtime.clock.advance': rpc(
+    input({nowMs: z.number().int().nonnegative(), settle: bool.optional()}),
+    z.object({nowMs: z.number().int().nonnegative()}),
+  ),
   'knowledge.facts': rpc(input({}), z.object({facts: z.array(fact), reviews: z.array(review)})),
   'knowledge.acknowledge': rpc(input({id}), accepted),
   'knowledge.sources.pending': rpc(input(agent), z.object({pending: z.literal(true)})),

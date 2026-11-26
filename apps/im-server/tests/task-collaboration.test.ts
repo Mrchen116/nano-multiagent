@@ -8,6 +8,7 @@ const agent = {kind:'agent' as const,id:'a',node_id:'n'};
 function setup() {
   const {db,ctx} = fixture();
   ctx.gateway.broadcast = vi.fn();
+  ctx.gateway.groupReply = vi.fn();
   ctx.messaging = new Messaging(ctx);
   return {db,ctx,service:new TaskGraphService(db,ctx.messaging)};
 }
@@ -46,6 +47,7 @@ describe('conversation task collaboration',()=>{
     const messages=all(db,'SELECT * FROM messages');
     expect(messages).toHaveLength(1);
     expect(messages[0].sender_type).toBe('system');
+    expect(messages[0].content).not.toContain('(u1)');
     expect(ctx.messaging.mentionedAgents('chat',messages[0].content)).toEqual(['a']);
     expect(messages[0].content.match(/<mention/g)).toHaveLength(1);
     expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(1);
@@ -97,6 +99,63 @@ describe('conversation task collaboration',()=>{
     expect(()=>s.execute(human,'list',{statuses:'invented'})).toThrow('statuses');
     db.prepare("DELETE FROM conversation_participants WHERE conversation_id='chat' AND user_id='u1'").run();
     expect(s.execute(human,'list',{statuses:'done',assignee_type:'user',assignee_id:'u1'})).toMatchObject({items:[],total:0});
+  });
+
+  it('creates single-card roots by default, upgrades in place to goal graphs, routes proposed approvals by dependency, stamps doing_wake, and aggregates focus & nodes',()=>{
+    const {db,ctx,service:s}=setup();
+    // 1. Single-card root (mode defaults to none) with proposed status -> approve lands in doing for unblocked Agent assignee.
+    const card=s.execute(agent,'create',{
+      conversation_id:'chat',title:'调研自媒体 Bot 平台限制',description:'昨晚日记提到新构想；批准后先做只读调研输出对比文档',status:'proposed',
+      assignee:{type:'agent',id:'a'},request_key:'single-proposed',
+    });
+    expect(card).toMatchObject({mode:'none',status:'proposed'});
+    const approvedSingle=s.execute(human,'apply',{
+      graph_id:card.graph_id,base_revision:1,request_key:'approve-single',change_note:'批准开工',
+      operations:[{op:'approve_task',node_id:'n1'}],
+    });
+    expect(approvedSingle.status).toBe('doing');
+    const snapshotAfterSingle=s.executionSnapshot(agent,'chat').items.find((item:any)=>item.graph_id===card.graph_id);
+    expect(snapshotAfterSingle).toMatchObject({
+      status:'doing',doing_wake:{revision:2,assignee_id:'a',actor:{type:'user',id:'u1'}},
+      root_node_id:'n1',root_title:'调研自媒体 Bot 平台限制',
+    });
+
+    // 2. Single-card root upgraded in place to dag with blocked proposed sprout -> approve lands in todo, not doing.
+    const goal=s.execute(human,'create',{conversation_id:'chat',title:'把 Nano 打磨成熟并推出去',description:'录出 3 分钟演示并邀请 10 位同路人试用',request_key:'goal-create',assignee:{type:'user',id:'u1'}});
+    expect(goal.mode).toBe('none');
+    s.execute(human,'apply',{
+      graph_id:goal.graph_id,base_revision:1,request_key:'expand-goal',change_note:'展开阶段图',
+      operations:[
+        {op:'update_task',node_id:'n1',patch:{mode:'dag',status:'doing'}},
+        {op:'add_task',client_ref:'demo',container_id:'n1',title:'录 3 分钟真实场景 Demo',status:'doing',assignee:{type:'user',id:'u1'}},
+        {op:'add_task',client_ref:'seed',container_id:'n1',title:'整理首批 10 人内测邀请',description:'Demo 之后需要种子反馈；批准后起草邀请文案草稿',status:'proposed',assignee:{type:'agent',id:'a'}},
+        {op:'add_dependency',from:'@demo',to:'@seed'},
+      ],
+    });
+    const focusBefore=s.execute(human,'focus',{});
+    expect(focusBefore.needs_you.map((n:any)=>n.title)).toContain('整理首批 10 人内测邀请');
+    expect(focusBefore.goals.map((g:any)=>g.title)).toContain('把 Nano 打磨成熟并推出去');
+
+    // Approve blocked proposed node -> lands in todo because predecessor @demo is not done yet.
+    s.execute(human,'apply',{
+      graph_id:goal.graph_id,base_revision:2,request_key:'approve-blocked',change_note:'先立项',
+      operations:[{op:'approve_task',node_id:'n3'}],
+    });
+    expect(s.execute(human,'get',{graph_id:goal.graph_id,view:'all'}).nodes.find((n:any)=>n.id==='n3')).toMatchObject({status:'todo'});
+    expect(s.execute(human,'get',{graph_id:goal.graph_id,view:'all'}).nodes.find((n:any)=>n.id==='n3').doing_wake).toBeUndefined();
+
+    // Batch nodes endpoint enforces conversation ACL and returns live node card state.
+    const batch=s.execute(human,'nodes',{refs:`${card.graph_id}:n1,${goal.graph_id}:n3`});
+    expect(batch.items).toHaveLength(2);
+    expect(s.execute({kind:'user',id:'u2'},'nodes',{refs:`${card.graph_id}:n1`}).items).toEqual([]);
+
+    // Top-level ChatMessage.task_cards persists and enforces read ACL.
+    const msg=ctx.messaging.publishAgent({kind:'gateway',node_id:'n',owner_id:'o1',node_epoch:1},'a','op-cards',{
+      from_session_id:'s1',to:'conversation:chat',text:'早！这是候选提议卡',task_cards:[{graph_id:goal.graph_id,node_id:'n3'}],
+    });
+    expect(ctx.messaging.message(msg.message_id).task_cards).toEqual([{graph_id:goal.graph_id,node_id:'n3'}]);
+    expect(ctx.messaging.records.historySummary('chat',msg.message_id).task_cards).toEqual([{graph_id:goal.graph_id,node_id:'n3'}]);
+    void db;
   });
 
 });

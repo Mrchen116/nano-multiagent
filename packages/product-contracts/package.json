@@ -20,6 +20,10 @@
       "types": "./lib/capabilities.d.ts",
       "default": "./lib/capabilities.js"
     },
+    "./task-graphs": {
+      "types": "./lib/task-graphs.d.ts",
+      "default": "./lib/task-graphs.js"
+    },
     "./trajectory-wire": {
       "types": "./lib/trajectory-wire.d.ts",
       "default": "./lib/trajectory-wire.js"

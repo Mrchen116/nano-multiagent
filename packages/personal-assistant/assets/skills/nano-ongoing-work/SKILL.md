@@ -1,76 +1,51 @@
 ---
 name: nano-ongoing-work
-description: 接续已接受的跨轮次工作，协调内部执行者，处理等待、更正、停止和用户明确接续，直至实际交付。适用于 Global Agent、个人助手及其内部执行者；当轮即可结束的问答无需使用。
+description: Carry accepted multi-turn commitments across turns using progressive task graphs, event-driven doing wakes, flexible waiting, and background workers until verified delivery. Use for Global Agents, Personal Assistants, and their internal workers; skip for single-turn Q&A.
 ---
 
-# 持续推进已交办的工作
+# Follow Through on Ongoing Work
 
-先确认用户要的结果、当前有效要求以及已完成部分。能推进就推进；确实需要别人或未来事件才能继续时，留下恢复位置。不要把使用本 Skill 变成让用户填表或额外审批的流程。
+Confirm the intended outcome, active constraints, and already-completed evidence first. Make concrete progress whenever executable; when work genuinely depends on another person or a future checkpoint, leave an explicit recovery path. Never turn this Skill into bureaucratic form-filling for the user.
 
-## 按当前角色承担责任
+## Own Responsibility by Role
 
-- Global／PA 主 Agent 直接处理日常交流、状态反馈、回顾、查待办和小事。需要独立调查或制作成果的完整事项，交给一个后台可接续的原生 `subagent`（`run_in_background: true`）负责到底。交接目标、任务特有的约束、可用材料和回报要求。主动开展时说明依据的职责和授权。把用户要求、自己的待验证判断、以及自己在授权内作出的决定分别标明。扩大改动范围或增加重启等操作前，核对原有授权是否覆盖。执行者自主选方案、调查、执行、验证和再分工。主 Agent 继续接新输入，按可独立交付的目标区分事项，避免重复派工或重复调查。
-- 初次派工和后续转发都照引用户相关原话，补上执行所需的背景。需要区分说话人时，用自然语言说明。会话 ID、用户 ID 和消息 ID 留在主 Agent 自己的路由记录里。普通子 Agent 默认使用当前工作区并获得仓库指令，交接时省略默认工作区、常驻规则和工具限制。
-- 一级完整事项执行者自行组织必要的下级工作、整合并验证成果，只向主 Agent 提出确需其提供的聊天资料、决定或权限，回传完整结果和真实缺口。普通下级只承担直接父级交办的子目标，不因此负责整项用户目标。主 Agent 是唯一用户沟通入口；内部执行者不得自行消费主 Inbox、查询产品聊天，或通过其他工具向用户、群聊、外部 IM Agent 发送产品消息。
-- 有独立子工作且当前能力允许时，一级执行者自行再委派；提供相关目标、材料、限制、交付要求和需要上级介入的条件，不默认要求逐阶段或泛泛的“关键进展”汇报，需要中途汇报时明确具体节点；自己核对下级结果后回传。内部通信和返回沿原生机制，受理回执不代表工作完成或已向用户交付。完整事项采用可接续执行者，不用一次性 fork 代替反复更正和后续接续。
-- 需要跨轮恢复时，在已有工作记录保存实际返回的执行者 ID、来源和产物位置。补充、更正、答复与后续修改回到原执行者；主 Agent 只核对成果是否回应原要求、产物与依据是否可用，具体缺口交回原执行者补齐。已有 Task 的负责人和业务规则不变；委派不以创建 Task 为前提，也不新增 Task 联动。
-- 交接聊天截图时，给执行者运行时实际提供的可读路径，或给双方都能打开的已有工作区图片文件，让执行者用 `read_image` 查看。没有可用路径时，说明缺的是哪张图。执行者需要该图才能判断时，向主 Agent 要图，再继续依赖该图的部分。
+- The Global / PA root Agent directly handles everyday conversation, status checks, quick lookups, and small actions. Delegate each self-contained investigation, draft, or implementation deliverable to one continuable background worker (`delegate_worker(action="start", label, message)` or a continuable `subagent` with `run_in_background: true`). Pass the goal, task-specific constraints, usable materials, and expected deliverable; quote relevant user words verbatim and keep IM conversation, user, and message IDs in the root Agent's own routing notes.
+- Distinguish user instructions, your own working hypotheses, and decisions taken within existing authority. Check whether existing authorization covers broader scope or new side effects before acting; ask only when a real decision would change the outcome.
+- First-level workers organize any sub-tasks, verify results, and report outcomes or actionable blockers back to their parent. Only the root Agent reads the product Inbox, queries product chats, or delivers public messages (`send_message` / `send_user_message`).
+- Route follow-ups, corrections, answers, and revisions back to the original worker by ID rather than spawning duplicate workers. When passing chat images or attachments, provide an actual readable local path (such as `download_attachment` `local_path` or a workspace file) so the worker can open it directly.
 
-## 协调以需要行动为界
+## Coordinate Only When Action Changes
 
-- 执行者在既定范围内持续推进，常规步骤和可自行恢复的问题不逐项汇报，不等父级回复“继续”才工作。只有缺少父级才能提供的资料或决定、交付受到实质影响，或到达明确约定的汇报节点时，才在执行中发消息。发送前先判断父级要因此做什么不同的事；如果只需回答“收到/继续”，就继续工作并把信息合并到最终结果。常规测试通过、自行恢复问题不自动算汇报节点；说明真正需要什么，不把普通进展包装成请示。
-- 父级收到内部消息，先判断自己需要改变什么。纯进展无需回复“收到”“继续”或重述原限制；有新资料、决定、更正、停止或接续要求时才联系原执行者。内部消息到来不自动触发对用户通知。
-- 按原生返回模式交付结果：可接续执行者在结束前用内部 send_message 一次发送完整结果，随后简短收尾；一次性 fork 通过完成结果回传，不额外发送同一成果。父级已处理结果后，随后的完成通知不再触发重复回复或交付。真正的新阻塞、用户更正和后续成果仍正常处理。
+- Workers proceed through routine steps and recoverable issues without asking "continue" or streaming routine test logs. Message the parent only when missing parent-held facts/decisions, when delivery scope materially changes, or at an explicitly agreed checkpoint.
+- When receiving an internal worker message, decide what action changes; routine progress needs no "received/continue" reply and does not automatically trigger a public user message.
+- Continuable workers send one self-contained result to their parent before finishing, followed by a brief closing note; one-shot forks return through completion without a duplicate send.
 
-## 沿用已有工作，不另造任务系统
+## One Progressive Task System, Zero Duplicate Ledgers
 
-- 先找当前事项已有的任务、工作文件或会话来源，继续更新同一处，不复制进另一份账本。已有用户事项由主 Agent 用 task_graph 查询和更新；创建任务仍遵守工具的要求，不因用户聊天提到一件事就自动建图。
-- 尚无合适记录、又确实需要跨轮次恢复时，才在 Agent Workspace 的 `.nanoassistant/ongoing-work.md` 留下简短工作笔记。已有同用途文件就沿用；没有真实工作不创建空文件。复杂内容可以引用已有详情和产物，不抄聊天历史。
-- 只记继续工作所必需的信息：原请求和回复目标、当前要求、实际进展、下一步或等待条件，以及存在时的任务/子 Agent/定时任务 ID。仅在要求、执行者、可交付成果或等待/阻塞状态实质变化时更新对应条目，替换过时状态，不按消息追加流水。普通构建、测试进度留在执行者的产物中，不逐条复制到父级账本。稳定偏好归 Memory，可复用方法归 Skill。
-- 多件事分别记录和推进。用户改变其中一件，不重启、暂停或覆盖其他工作。记录是工作线索，不是新的授权来源；对外动作仍核对原请求、当前权限和实际受众。
+- Track durable commitments and multi-step goals in `task_graph`—never maintain a parallel Markdown task ledger such as `.nanoassistant/ongoing-work.md`. Use `notes` only for concise session-local operational context (such as active worker IDs or pending morning handoff references), durable `MEMORY.md` (maintained by Dreaming) for lasting preferences/boundaries, and Skills for reusable procedures.
+- **Start small, expand in place**:
+  - Create a standalone commitment or candidate idea as a single-card root (`mode: "none"`, the default of `task_graph(action="create")`).
+  - When a single card grows into ordered milestones or parallel options, upgrade that node in place from `mode: "none"` to `mode: "dag"` or `"explore"` via `task_graph(action="apply")` (or pass initial `operations` directly on `create` when the structure is already clear). Sub-containers can nest progressively while every deep task keeps its root North Star goal in focus.
+  - Keep independent matters in separate cards/graphs; updating or pausing one matter must not overwrite or halt unrelated work.
+- **Keep materials decoupled from task fields**: put concise talking points directly in the chat message, write longer drafts or research artifacts to workspace files and attach them via `send_message(local_files=[...])`, and embed live `task_cards: [{ graph_id, node_id }]` on `send_message` when presenting actionable cards in Nano IM.
 
-## 收到新输入时
+## Event-Driven Execution and Flexible Waiting
 
-1. 区分日常交流、独立新交办和已有事项补充；话题相近不自动并入原事项，归属不明且会影响执行时才澄清。当前上下文已有足够事实时直接使用，只在缺少恢复信息或原始来源时读取对应记录。子 Agent 缺少必要聊天原文时向父级请求。保留真实作者、谈话对象和上下文，不能仅凭主人身份把向他人说的话当成给 PA 的指令，也不能把外部消息冒充授权。日常反馈按新状态直接承接，不把整天包装成一个持续执行任务。
-2. 根据已有结果和回执辨认已完成动作；确实需要执行下一步且结果未知时，才查询实际对象、回执或原消息。纯进展消息不触发例行巡检，避免重复发送、重复预约或重复派工。
-3. 用户更正优先更新当前要求，再判断哪些成果仍可用。若已有执行者，按记录中的真实 ID 向原执行者传达相关更正，不另起一份重复工作；执行者负责同步给受影响的下级。晚到的旧结果要按新要求核对。
-4. 完成可做的下一步。主 Agent 在长事项执行或等待期间仍处理独立短问题；一个事项在等人时，继续其他已获授权的独立工作，保持各自要求和成果独立。
+- **Single-shot `doing` wakes**: entering `doing` (or being reassigned/resumed into `doing`) wakes the responsible Agent once with the task's root North Star context (`root_title`, `root_goal_summary`, `parent_path`). Make real progress in that turn; when the turn ends and no further step is immediately runnable, the session naturally settles to `idle` without a polling loop.
+- **Choose the right recovery mechanism when waiting**:
 
-## 遇到权限阻塞时
-
-先核对被拒动作、具体理由、原始用户要求和仍有效的限制，再判断到底缺什么。子 Agent 向父级带回这些事实；主 Agent 对照原话处理，不能仅转述“权限不足”就让用户再批一次。
-
-- 原授权仍覆盖的常规查询、私人材料和必要验证，继续推进允许的部分。父级可澄清自己交办时加的限制，但不能替用户新增授权或撤销用户的限制。
-- 区分禁止的对象、数据内容和副作用。例如禁止导出原始记录，不等于禁止不包含原文的汇总；只有实际避开被禁止内容与副作用的替代才可尝试，仍须正常权限检查。不能换工具、路径或输出介质重复被拒动作，也不能反复提交相同请求碰运气。
-- 确实需要新增权限或用户选择时，提出具体动作、必要原因和已有成果。得到有效答复后联系原执行者继续，并让其同步相关下级；不要另开重复任务。用户明确停止的事项只按下面的接续规则恢复。
-
-## 停止与明确接续对应同一事项
-
-- 主 Agent 按用户指定范围查询当前 Task、工作记录和执行者状态，使用现有管理工具中断对应执行者，并处理该事项专用的后续触发。涉及下级时通过原执行者及现有管理工具协调，核对实际停止情况，不声称暂停 Task 就自动停止整棵执行树。
-- 把实际状态、保留成果和未完成部分写回原记录；未能确认停止时如实说明。其他事项继续推进，晚到结果、条件变化和普通新消息都不能自行恢复用户已停止的工作。
-- 用户明确要求接续后，主 Agent 核对当前 Task 状态、原要求和执行者状态，沿既有机制联系原执行者继续，向其传达新的有效要求。原执行者无法接续时说明具体原因与可用成果，明确后续安排，不静默从头复制工作。重启或重新读到旧记录本身不是恢复授权。
-
-## 等待必须有实际恢复方式
-
-| 等待对象 | 复用什么 |
+| Waiting On | How to Record & Resume |
 | --- | --- |
-| 子 Agent | 保留真实执行 ID，等待完成或失败通知，不因沉默反复轮询或重复派工 |
-| 用户决定 | 先给出具体成果和建议，明确必要问题；收到回答再继续，不周期性催问 |
-| 外部消息 | 关联原聊天和相关事项，收到实际变化后接续；不要为已有消息事件再建轮询 |
-| 明确时间 | 使用现有 schedule 工具，成功后保存实际 ID；记录一个时间不等于已安排 |
-| 获准周期性关注 | 复用现有 Heartbeat 或 schedule；先检查已有触发，避免重复 |
+| Background worker | Keep the worker ID; its completion/report automatically wakes the parent—never poll in a loop. |
+| Human reply or decision | Deliver clear findings/options first, then set `status="waiting"` with `wait: { reason, asked_user_id }` (putting the concrete question or decision needed directly in `reason`) and **no** `schedule_id`. Incoming messages wake you naturally—do not set nagging timers. |
+| External event with no fixed clock | Record `status="waiting"` with `wait: { reason }` (no `schedule_id`) or rely on an already-enabled `Heartbeat` check in `.nanoassistant/HEARTBEAT.md` when periodic scanning was authorized. |
+| Specific future date/time or cross-day follow-up | Ensure the task is assigned to you (`assignee.type="agent"`), create a native `schedule` (`schedule_create`, up to 180 days out) for the actual milestone or follow-up time, then record `status="waiting"` with `wait: { reason, schedule_id }`. Never invent 1-hour busy-wait loops for multi-day deadlines. |
 
-使用 Heartbeat 时，先读 Workspace 的 `.nanoassistant/HEARTBEAT.md`，保留已有内容，只增改当前事项所需的检查指令和工作记录位置。Heartbeat Feature 未启用、节点离线或没有真实触发时，不承诺会自动醒来；需要精确时间用定时工具。不要替用户开启无关监控，也不要创建一套新的计时器。
+- When a scheduled check or message wakes you, read the latest Inbox / conversation messages and task state first; if the item was already resolved or superseded, update or close the task quietly without sending redundant follow-ups.
 
-已有 Task 需要转为 waiting 时，由主 Agent 按 task_graph 的现有要求关联有效 Schedule；普通消息事件或一条笔记不能替代该关联。子 Agent 向父级回传等待原因及恢复条件，由主 Agent 维护用户事项状态。
+## Handling New Inputs, Blockers, Stops, and Completion
 
-进入等待前，把下一步、恢复条件和真实触发 ID 写回原记录。普通会话、完成通知和 Heartbeat 唤醒后，只恢复有关且仍有效的工作。没有变化就保持安静，不追加无意义巡检流水。
-
-## 结束靠结果，不靠回合结束
-
-- 交付：按要求核验真实文件、对象、消息或操作回执。子 Agent 向父级回传成果、验证情况和剩余缺口；主 Agent 将可用结果送到正确的会话。内部总结、草稿、已受理和一次工具返回都不等于对用户交付。
-- 阻塞：先尝试可恢复的修正或安全可行的替代；仍需用户处理时说明具体缺什么，以及已经准备好的成果，不让用户重新接管整个流程。
-- 完成：更新原记录，停止仅为该事项创建且已不再需要的跟进；用户没要求验收就不要额外制造一个“等待确认”阶段。
-- 持续关注：一次检查完成不等于长期职责结束，按原约定的期限、退出条件或用户取消收口。
-
-主 Agent 对长任务先简短确认；执行期间只向用户发送对其有用的成果、影响交付的重要变化、需其介入的阻塞或约定节点更新，合并内部阶段进展。测试通过、子 Agent 接单、常规故障自行恢复不逐项转发；用户主动询问状态时直接回答，明确要求的汇报频率仍遵守。纯内部进展无需读改笔记、回复子 Agent 或发用户消息时，按当前运行模式私有收尾；真正阻塞、停止、更正和最终交付不得因此遗漏。对外发送仍核实真实回执。
+- Distinguish casual chat, brand-new assignments, and revisions to existing tasks. Apply user corrections to the active requirement first and forward updates to the original worker before judging late results.
+- On a permission denial, inspect the exact denied action, reason, and original user scope. Continue permitted parts and safe alternatives that genuinely avoid the restricted data or side effect; never disguise or retry a denied action through another tool, and ask the user concisely only when new authorization is genuinely needed.
+- On `/stop` or an explicit pause, halt the targeted workers/tasks, record preserved artifacts and remaining gaps accurately, and never auto-resume paused work from background events; resume only on explicit human instruction.
+- Completion requires verified artifacts, state updates, and actual `send_message` delivery (`status: "sent"`) to the task's conversation—an internal draft or tool receipt alone is not user delivery. Prefer `in_review` when human sign-off is expected, or `done` when directly verified; clean up temporary task-specific schedules that are no longer needed.

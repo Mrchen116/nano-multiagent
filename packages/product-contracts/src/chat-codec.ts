@@ -1,4 +1,5 @@
 import type { AgentPublication, ChatAttachment, ChatPermission, ChatProcessItem, ChatStreamFact, ChatToolCall } from './chat.js';
+import { validateTaskCards, type TaskCardRef } from './task-graphs.js';
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('chat field must be an object');
@@ -19,6 +20,13 @@ export function chatAttachments(value: unknown): ChatAttachment[] {
   if (!Array.isArray(value)) throw new Error('invalid chat attachments');
   for (const item of value) { const row = object(item); required(row, 'url'); fields(row, ['content_type', 'file_name'], 'string'); }
   return value as ChatAttachment[];
+}
+/** Validate top-level task_cards references at transport entry. */
+export function chatTaskCards(value: TaskCardRef[]): TaskCardRef[];
+export function chatTaskCards(value: unknown): TaskCardRef[] | undefined;
+export function chatTaskCards(value: unknown): TaskCardRef[] | undefined {
+  if (value === undefined) return undefined;
+  return validateTaskCards(value);
 }
 function tool(value: unknown): ChatToolCall {
   const row = object(value); required(row, 'id'); fields(row, ['name', 'status', 'approval', 'reason'], 'string'); fields(row, ['seq'], 'number');
@@ -88,8 +96,9 @@ export function decodeAgentPublication(value: unknown): AgentPublication {
   if (typeof row.text !== 'string') throw new Error('invalid_agent_message');
   fields(row, ['node_id','reply_to_message_id','in_thread_of'], 'string'); fields(row, ['lifecycle_revision'], 'number', true);
   if (row.attachments != null) chatAttachments(row.attachments);
+  if (row.task_cards != null) chatTaskCards(row.task_cards);
   if (row.background_returns != null && !Array.isArray(row.background_returns)) throw new Error('invalid chat background_returns');
-  if (!row.text.trim() && row.interactive === undefined && !(row.background_returns as unknown[] | undefined)?.length) throw new Error('invalid_agent_message');
+  if (!row.text.trim() && row.interactive === undefined && !(row.background_returns as unknown[] | undefined)?.length && !(row.task_cards as unknown[] | undefined)?.length) throw new Error('invalid_agent_message');
   if (row.reply_draft !== undefined) throw new Error('reply_draft is retired; use ComposeMessage');
   return row as unknown as AgentPublication;
 }

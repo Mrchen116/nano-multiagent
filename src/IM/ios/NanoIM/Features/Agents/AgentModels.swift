@@ -74,6 +74,13 @@ struct AgentDraft: Equatable, Sendable {
         if skills_selection_mode == "explicit_denylist" { return candidates.filter { !skills.contains($0) } }
         return skills_selection_mode == "default_discovery" ? candidates : skills
     }
+    func isFeatureEnabled(_ feature: AgentFeature) -> Bool {
+        if let explicit = features[feature.key] { return explicit }
+        if feature.key == "proactive_planning" && (features["task_graph"] == false || (!tool_allowlist.isEmpty && !effectiveTools.contains("task_graph"))) {
+            return false
+        }
+        return feature.default_on
+    }
     var effectiveTools: [String] {
         effectiveTools(capabilities: nil, personal: false)
     }

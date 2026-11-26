@@ -501,7 +501,7 @@ export class Gateway {
             "invalid_arguments",
             "request_id required",
           );
-        if(personal && ['get','list','activity'].includes(p.action)) {
+        if(personal && ['get','list','activity','focus','nodes'].includes(p.action)) {
           const pa=this.ctx.personal!,binding=pa.authority(c,{agent_id:p.agent_id});
           return {type:'task_graph.result',payload:{request_id:p.request_id,ok:true,result:this.tasks.readPersonal(
             {kind:'agent',id:p.agent_id,node_id:c.node_id},binding.owner_user_id,p.action,p.args??{},id=>pa.sourceAllowed(binding,id))}};
@@ -797,7 +797,7 @@ export class Gateway {
       c?.type !== "group" ||
       m.sender_type !== "agent" ||
       m.delivery_status !== "completed" ||
-      (!m.content.trim() && !m.interactive) ||
+      (!m.content.trim() && !m.interactive && !m.task_cards?.length) ||
       m.content.trim() === "NO_REPLY"
     )
       return;

@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session';
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query';
 import type { SessionBinding } from '../index.js';
-import { isWorkerReport, qualifiedEvents, safeBoundary, sourceConversations } from './memory-source-view.js';
+import { isTaskContext, isWorkerReport, qualifiedEvents, safeBoundary, sourceConversations } from './memory-source-view.js';
 import { estimateInputTokens } from './dreaming-budget.js';
 import { isHumanSource } from '../input-source.js';
 import { batchToolResult, historyLocators, nativeMaterial, renderMaterial, renderSessionMaterials, type HistoryLocators } from './memory-trajectory.js';
@@ -33,7 +33,7 @@ export interface ChildMaterial {
   sessionId: string; rootSessionId: string; baseline: number; through: number; sourceVersion: string;
   text: string; events: SessionEvent[]; inheritedEvents: SessionEvent[]; historyLocators?: HistoryLocators; omitted: number; unavailable?: number;
 }
-export interface SourceOptions { maxInputTokens: number; rotation?: number; target?: CycleTarget; generation?: number }
+export interface SourceOptions { maxInputTokens: number; rotation?: number; target?: CycleTarget; generation?: number; excludeTaskContextIds?: ReadonlySet<string> }
 export interface FrozenBatch {
   id: string; units: MemoryUnit[]; ranges: Array<{ sessionId: string; start: number; through: number; observed: number; continuation?: SourceContinuation }>;
   conversations?: string[]; text?: string; cutoffs?: Record<string, number>; historyThrough?: Record<string, number>; filtered: number; blocked: Array<{ sessionId: string; reason: string }>; inputTokens: number;
@@ -103,7 +103,12 @@ export class MemorySources {
               : batchToolResult(event, call.data.name, locators[event.seq]));
           } else if (event.type === 'user/message') {
             const source = event.data.source;
-            if (isHumanSource(source) || source.kind === 'agent-message' || source.kind === 'subagent-settled' || isWorkerReport(source)) {
+            const taskMessageId = isTaskContext(source)
+              ? String('messageId' in source && source.messageId ? source.messageId : event.data.id)
+              : undefined;
+            if (taskMessageId && options.excludeTaskContextIds?.has(taskMessageId)) {
+              result.filtered++;
+            } else if (isHumanSource(source) || isTaskContext(source) || source.kind === 'agent-message' || source.kind === 'subagent-settled' || isWorkerReport(source)) {
               const conversation = 'conversationId' in source ? String(source.conversationId) : '';
               if(conversation)(result.conversations??=[]).push(conversation);
               selected.push(nativeMaterial(event, locators[event.seq]));

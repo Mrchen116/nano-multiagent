@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   changeCapability,
+  definitionsForRole,
   effectiveCapabilityFeatures,
   effectiveFeatures,
   effectiveSelectedTools,
@@ -10,6 +11,7 @@ import {
   sanitizeStaticToolAllowlist,
   validateCapabilities,
 } from '../src/capabilities.js';
+import { agentConfigurationFingerprint } from '../src/configuration.js';
 
 const off = Object.fromEntries(['intelligent_ui', 'plugin_management', 'task_graph', 'dreaming', 'cron_scheduling', 'heartbeat'].map(key => [key, false]));
 const draft = () => ({features: {...off}, tool_allowlist: [] as string[], skills: [] as string[], skills_selection_mode: 'explicit_allowlist'});
@@ -170,5 +172,29 @@ describe('capability selections', () => {
       feature!.requires.features.forEach(next => visit(next, [...path, key]));
     };
     featureDependencies.forEach(feature => visit(feature.key, []));
+  });
+
+  it('scopes proactive_planning strictly to personal Agents without drifting legacy fingerprints or breaking task-off upgrades', () => {
+    expect(definitionsForRole(false).map(item => item.key)).not.toContain('proactive_planning');
+    expect(definitionsForRole(true).map(item => item.key)).toContain('proactive_planning');
+    expect(effectiveFeatures()).not.toHaveProperty('proactive_planning');
+    expect(effectiveFeatures({}, definitionsForRole(true)).proactive_planning).toBe(true);
+
+    // Legacy PA that explicitly disabled task_graph before proactive_planning existed degrades cleanly.
+    const legacyTaskOff = { work_mode: 'global', personal_agent: { bindingId: 'b1', ownerId: 'u1', conversationId: 'c1', epoch: 1 }, features: { task_graph: false }, tool_allowlist: ['send_message', 'skill'] };
+    expect(effectiveFeatures(legacyTaskOff.features, definitionsForRole(true), legacyTaskOff).proactive_planning).toBe(false);
+    expect(validateCapabilities(legacyTaskOff)).toEqual([]);
+
+    // Active PA requires turning off proactive_planning before disabling task_graph.
+    const activePa = { ...draft(), work_mode: 'global', personal_agent: legacyTaskOff.personal_agent, features: { ...off, task_graph: true, cron_scheduling: true, proactive_planning: true }, tool_allowlist: ['task_graph', 'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history'] };
+    expect(changeCapability(activePa, { kind: 'feature', name: 'task_graph', enabled: false }, {}).blocks[0]).toMatchObject({ code: 'required_by_feature', required_by: ['proactive_planning'] });
+    const afterProactiveOff = changeCapability(activePa, { kind: 'feature', name: 'proactive_planning', enabled: false }, {}).draft;
+    expect(afterProactiveOff.features.proactive_planning).toBe(false);
+    expect(afterProactiveOff.tool_allowlist).toContain('task_graph');
+    expect(changeCapability(afterProactiveOff, { kind: 'feature', name: 'task_graph', enabled: false }, {}).blocks).toEqual([]);
+
+    // Stored fingerprint without proactive_planning key stays bit-identical.
+    const basePayload = { agent_id: 'pa_1', work_mode: 'global', personal_agent: legacyTaskOff.personal_agent, features: { task_graph: true, cron_scheduling: true } };
+    expect(agentConfigurationFingerprint(basePayload)).toBe('2e9a8fd6fc535195d0a1c038992840e8118b3d83d6a107c7c6647ae85bd817aa');
   });
 });

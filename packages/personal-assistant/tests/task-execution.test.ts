@@ -3,17 +3,20 @@ import type {AgentConfiguration,RelayInput,TaskResponsibility} from '@nano/produ
 import {TaskExecution} from '../src/task-execution.js';
 import {NodeStore} from '../src/store.js';
 
-it('discovers UI-started responsibility, validates the current session, and recovers an unconfirmed stop',async()=>{
+it('discovers UI-started doing_wake once, keeps unscheduled waiting quiet, and recovers an unconfirmed stop',async()=>{
   const store=new NodeStore(':memory:','owner');
   const agent:AgentConfiguration={agentId:'a',mode:'single_thread',workspace:'/tmp',revision:'1',provider:'p',model:'m',features:{task_graph:false,cron_scheduling:true}};
-  let task:TaskResponsibility={graph_id:'g',node_id:'n1',title:'Wait for decision',status:'waiting',revision:2,conversation:{id:'chat'},relative_url:'/tasks/g',wait:{reason:'Await reply',schedule_id:'schedule',owner_agent_id:'a',session_id:'previous',next_check_at:new Date(Date.now()+60_000).toISOString()}};
-  let online=true,paused=false,valid=true,noticeOnline=false;const notices:Record<string,unknown>[]=[];const runtimeBlocks:boolean[]=[];
+  let task:TaskResponsibility={
+    graph_id:'g',node_id:'n1',title:'Wait for decision',status:'waiting',revision:2,
+    conversation:{id:'chat'},relative_url:'/tasks/g',
+    wait:{reason:'Confirm timeline?',asked_user_id:'owner'},
+  };
+  let online=true,paused=false,noticeOnline=false;const notices:Record<string,unknown>[]=[];const runtimeBlocks:boolean[]=[];
   const options={nodeId:'node',ownerId:'owner',store,agents:[agent],drain:async()=>{},context:async()=>({messages:[{inputId:'original-task-pause',conversationId:'chat',content:[{type:'text' as const,text:'Original Task update with application-attested human pause'}]}],revoked:[]}),runtime:{onNotification:()=>()=>{},request:async(method:string,value:unknown)=>{
     const args=value as Record<string,unknown>;
     if(method==='task.execution.block')runtimeBlocks.push(Boolean(args.blocked));
     if(method==='task.context.passive'){notices.push(args);if(!noticeOnline)throw new Error('notice unavailable');return {accepted:true,durable:true};}
     if(method==='session.cancel')return {wasRunning:true};
-    if(method==='schedule.wait.inspect')return {valid,owner_agent_id:'a',session_id:args.sessionId,next_check_at:task.wait?.next_check_at,checked_at:new Date().toISOString()};
     return {};
   }},relay:{request:async(type:string)=>{
     if(type==='task.execution.scopes')return {type:'result',payload:{ok:true,result:{conversation_ids:['chat']}}};
@@ -28,12 +31,27 @@ it('discovers UI-started responsibility, validates the current session, and reco
     await service.recover(['a']);
     const binding=store.bindingFor('a','chat')!;expect(binding).toBeTruthy();
     const identity={sessionId:binding.sessionId,agentId:'a',ownerId:'owner'};
-    expect(await service.snapshot(identity)).toMatchObject({kind:'continue',repair_task_ids:['g/n1']});
-    task={...task,wait:{...task.wait!,session_id:binding.sessionId}};
-    const updated='2026-10-23T15:00:00Z';
-    Object.assign(task,{updated_at:updated});
-    expect(await service.snapshot(identity)).toMatchObject({kind:'quiescent',tasks:[{status:'waiting',updated_at:updated}]});
-    valid=false;expect(await service.snapshot(identity)).toMatchObject({kind:'continue',repair_task_ids:['g/n1']});
+
+    // Waiting without a schedule stays quiescent without a repair_task_ids loop.
+    expect(await service.snapshot(identity)).toMatchObject({kind:'quiescent',tasks:[{status:'waiting',wait:{reason:'Confirm timeline?',asked_user_id:'owner'}}]});
+
+    // External doing_wake triggers single-shot continue until durably acked; self-authored doing stays quiescent.
+    task={
+      graph_id:'g',node_id:'n1',title:'Execute approved plan',status:'doing',revision:3,
+      updated_at:'2026-10-23T15:00:00Z',conversation:{id:'chat'},relative_url:'/tasks/g',
+      doing_wake:{revision:3,at:'2026-10-23T15:00:00Z',actor:{type:'user',id:'owner'},assignee_id:'a'},
+    };
+    expect(await service.snapshot(identity)).toMatchObject({kind:'continue',tasks:[{status:'doing',unwoken_doing:true}]});
+    service.ackDoing({...identity,items:[{graph_id:'g',node_id:'n1',revision:3}]});
+    const ackedSnap=await service.snapshot(identity);
+    expect(ackedSnap).toMatchObject({kind:'quiescent',tasks:[{status:'doing'}]});
+    expect(ackedSnap.tasks[0]?.unwoken_doing).toBeUndefined();
+
+    task={...task,revision:4,doing_wake:{revision:4,at:'2026-10-23T15:05:00Z',actor:{type:'agent',id:'a'},assignee_id:'a'}};
+    const selfSnap=await service.snapshot(identity);
+    expect(selfSnap).toMatchObject({kind:'quiescent',tasks:[{status:'doing'}]});
+    expect(selfSnap.tasks[0]?.unwoken_doing).toBeUndefined();
+
     const input:RelayInput={agent_id:'a',conversation_id:'chat',relay_task_id:'stop',idempotency_key:'stop',metadata:{},message:{id:'stop',content:'/stop',sender_type:'user',sender_user_id:'owner',attachments:[]}};
     online=false;
     await expect(service.stop(binding,input)).rejects.toThrow('offline');

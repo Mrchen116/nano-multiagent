@@ -1,11 +1,32 @@
 import Foundation
 import CoreGraphics
 
-struct TaskWait: Codable, Sendable, Hashable {
-    var reason: String; var schedule_id: String; var owner_agent_id: String; var session_id: String; var next_check_at: String
+extension Notification.Name {
+    static let nanoTaskGraphChanged = Notification.Name("NanoIM.TaskGraph.Changed")
 }
+
+/// Lightweight message-level reference to an authoritative task-graph node.
+struct TaskCardRef: Codable, Sendable, Hashable, Identifiable {
+    var graph_id: String
+    var node_id: String
+    var id: String { cardKey }
+    var cardKey: String { "\(graph_id):\(node_id)" }
+}
+
+/// Persisted waiting facts; timer fields are optional to support silent waiting on human replies.
+struct TaskWait: Codable, Sendable, Hashable {
+    var reason: String
+    var schedule_id: String? = nil
+    var owner_agent_id: String? = nil
+    var session_id: String? = nil
+    var next_check_at: String? = nil
+    var asked_user_id: String? = nil
+}
+
 struct TaskWaitHealth: Codable, Sendable, Hashable {
-    var state: String; var checked_at: String; var reason_code: String?
+    var state: String
+    var checked_at: String
+    var reason_code: String? = nil
 }
 
 struct TaskNode: Codable, Identifiable, Sendable, Hashable {
@@ -34,11 +55,25 @@ struct TaskNode: Codable, Identifiable, Sendable, Hashable {
     var can_delete: Bool?
     var can_claim: Bool?
     var direct_counts: TaskCounts?
-    var wait: TaskWait?
-    var wait_health: TaskWaitHealth?
+    var proposed_for_user_id: String? = nil
+    var wait: TaskWait? = nil
+    var wait_health: TaskWaitHealth? = nil
+    var prereq_blocked: Bool? = nil
+    var blocked_by_dag: Bool? = nil
+    var root_goal_summary: String? = nil
 
+    func isPrereqBlocked(in graph: TaskGraph? = nil) -> Bool {
+        if let prereq_blocked { return prereq_blocked }
+        if let blocked_by_dag { return blocked_by_dag }
+        return graph?.isPrereqBlocked(id) ?? false
+    }
 }
-struct TaskDependency: Codable, Sendable, Hashable { let from: String; let to: String }
+
+struct TaskDependency: Codable, Sendable, Hashable {
+    let from: String
+    let to: String
+}
+
 struct TaskGraph: Codable, Sendable {
     var schema_version: Int
     var graph_id: String
@@ -51,25 +86,343 @@ struct TaskGraph: Codable, Sendable {
     var updated_by: String
     var relative_url: String
     var conversation: TaskConversation
+
+    var rootNode: TaskNode? {
+        nodes.first { $0.id == root_node_id }
+    }
+
+    func isPrereqBlocked(_ nodeID: String) -> Bool {
+        guard let node = nodes.first(where: { $0.id == nodeID }),
+              let parentID = node.container_id,
+              let parent = nodes.first(where: { $0.id == parentID }),
+              parent.mode == "dag" else { return false }
+        return dependencies.contains { edge in
+            edge.to == nodeID && nodes.first(where: { $0.id == edge.from })?.status != "done"
+        }
+    }
+
+    func directChildren(of scopeID: String) -> [TaskNode] {
+        nodes.filter { $0.container_id == scopeID }
+            .sorted { ($0.order, $0.id) < ($1.order, $1.id) }
+    }
+
+    /// Groups direct children of a scope into dependency-ordered vertical stages.
+    func stageLayers(scopeID: String) -> [[TaskNode]] {
+        let children = directChildren(of: scopeID)
+        guard !children.isEmpty else { return [] }
+        let scopeMode = nodes.first { $0.id == scopeID }?.mode ?? "none"
+        if scopeMode != "dag" {
+            return children.map { [$0] }
+        }
+        let ids = Set(children.map(\.id))
+        let localEdges = dependencies.filter { ids.contains($0.from) && ids.contains($0.to) }
+        if localEdges.isEmpty {
+            return children.map { [$0] }
+        }
+        var indegree = Dictionary(uniqueKeysWithValues: children.map { ($0.id, 0) })
+        var ranks = indegree
+        for edge in localEdges { indegree[edge.to, default: 0] += 1 }
+        var queue = children.filter { indegree[$0.id] == 0 }.map(\.id)
+        while !queue.isEmpty {
+            let current = queue.removeFirst()
+            for edge in localEdges where edge.from == current {
+                ranks[edge.to] = max(ranks[edge.to] ?? 0, (ranks[current] ?? 0) + 1)
+                indegree[edge.to, default: 0] -= 1
+                if indegree[edge.to] == 0 { queue.append(edge.to) }
+            }
+        }
+        let grouped = Dictionary(grouping: children) { ranks[$0.id] ?? 0 }
+        return grouped.keys.sorted().compactMap { grouped[$0] }
+    }
 }
-struct TaskSummary: Codable, Identifiable, Sendable {
-    var graph_id: String; var root_node_id: String; var revision: Int; var updated_at: String
-    var updated_by: String; var relative_url: String; var title: String; var mode: String; var status: String
-    var node_id: String?
-    var scope_id: String?
-    var parent_path: [TaskPathPart]?
+
+struct TaskGoalProgress: Codable, Sendable, Hashable {
+    var done: Int
+    var total: Int
+}
+
+struct TaskGoalStage: Codable, Sendable, Hashable, Identifiable {
+    var id: String
+    var title: String
+    var status: String
+    var mode: String
+    var child_count: Int? = nil
+}
+
+struct TaskSummary: Codable, Identifiable, Sendable, Hashable {
+    var graph_id: String
+    var root_node_id: String
+    var revision: Int
+    var updated_at: String
+    var updated_by: String
+    var relative_url: String
+    var title: String
+    var description: String? = nil
+    var result: String? = nil
+    var mode: String
+    var status: String
+    var node_id: String? = nil
+    var scope_id: String? = nil
+    var root_title: String? = nil
+    var root_goal_summary: String? = nil
+    var parent_path: [TaskPathPart]? = nil
     var conversation: TaskConversation
-    var created_by: ActorRef?
-    var assignee: ActorRef?
-    var direct_counts: TaskCounts?
-    var wait: TaskWait?
-    var wait_health: TaskWaitHealth?
-    var id: String { graph_id + ":" + (node_id ?? root_node_id) }
+    var created_by: ActorRef? = nil
+    var assignee: ActorRef? = nil
+    var direct_counts: TaskCounts? = nil
+    var proposed_for_user_id: String? = nil
+    var wait: TaskWait? = nil
+    var wait_health: TaskWaitHealth? = nil
+    var prereq_blocked: Bool? = nil
+    var can_edit: Bool? = nil
+    var can_delete: Bool? = nil
+    var can_claim: Bool? = nil
+    var progress: TaskGoalProgress? = nil
+    var stage_nodes: [TaskGoalStage]? = nil
+
+    var id: String { graph_id + ":" + effectiveNodeID }
+    var effectiveNodeID: String { node_id ?? root_node_id }
+    var isPrereqBlocked: Bool { prereq_blocked ?? false }
+
+    private enum CodingKeys: String, CodingKey {
+        case graph_id, root_node_id, revision, updated_at, updated_by, relative_url, title
+        case description, result, mode, status, node_id, scope_id, root_title, root_goal_summary
+        case parent_path, conversation, created_by, assignee, direct_counts, proposed_for_user_id, wait, wait_health
+        case prereq_blocked, blocked_by_dag, can_edit, can_delete, can_claim, progress, stage_nodes
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        graph_id = try c.decode(String.self, forKey: .graph_id)
+        root_node_id = try c.decode(String.self, forKey: .root_node_id)
+        revision = try c.decodeIfPresent(Int.self, forKey: .revision) ?? 1
+        updated_at = try c.decodeIfPresent(String.self, forKey: .updated_at) ?? ""
+        updated_by = try c.decodeIfPresent(String.self, forKey: .updated_by) ?? ""
+        let gid = graph_id
+        relative_url = try c.decodeIfPresent(String.self, forKey: .relative_url) ?? "/tasks/\(gid)"
+        title = try c.decode(String.self, forKey: .title)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        result = try c.decodeIfPresent(String.self, forKey: .result)
+        mode = try c.decodeIfPresent(String.self, forKey: .mode) ?? "none"
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? "todo"
+        node_id = try c.decodeIfPresent(String.self, forKey: .node_id)
+        scope_id = try c.decodeIfPresent(String.self, forKey: .scope_id)
+        root_title = try c.decodeIfPresent(String.self, forKey: .root_title)
+        root_goal_summary = try c.decodeIfPresent(String.self, forKey: .root_goal_summary)
+        parent_path = try c.decodeIfPresent([TaskPathPart].self, forKey: .parent_path)
+        conversation = try c.decode(TaskConversation.self, forKey: .conversation)
+        created_by = try c.decodeIfPresent(ActorRef.self, forKey: .created_by)
+        assignee = try c.decodeIfPresent(ActorRef.self, forKey: .assignee)
+        direct_counts = try c.decodeIfPresent(TaskCounts.self, forKey: .direct_counts)
+        proposed_for_user_id = try c.decodeIfPresent(String.self, forKey: .proposed_for_user_id)
+        wait = try c.decodeIfPresent(TaskWait.self, forKey: .wait)
+        wait_health = try c.decodeIfPresent(TaskWaitHealth.self, forKey: .wait_health)
+        prereq_blocked = try c.decodeIfPresent(Bool.self, forKey: .prereq_blocked)
+            ?? c.decodeIfPresent(Bool.self, forKey: .blocked_by_dag)
+        can_edit = try c.decodeIfPresent(Bool.self, forKey: .can_edit)
+        can_delete = try c.decodeIfPresent(Bool.self, forKey: .can_delete)
+        can_claim = try c.decodeIfPresent(Bool.self, forKey: .can_claim)
+        progress = try c.decodeIfPresent(TaskGoalProgress.self, forKey: .progress)
+        stage_nodes = try c.decodeIfPresent([TaskGoalStage].self, forKey: .stage_nodes)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(graph_id, forKey: .graph_id)
+        try c.encode(root_node_id, forKey: .root_node_id)
+        try c.encode(revision, forKey: .revision)
+        try c.encode(updated_at, forKey: .updated_at)
+        try c.encode(updated_by, forKey: .updated_by)
+        try c.encode(relative_url, forKey: .relative_url)
+        try c.encode(title, forKey: .title)
+        try c.encodeIfPresent(description, forKey: .description)
+        try c.encodeIfPresent(result, forKey: .result)
+        try c.encode(mode, forKey: .mode)
+        try c.encode(status, forKey: .status)
+        try c.encodeIfPresent(node_id, forKey: .node_id)
+        try c.encodeIfPresent(scope_id, forKey: .scope_id)
+        try c.encodeIfPresent(root_title, forKey: .root_title)
+        try c.encodeIfPresent(root_goal_summary, forKey: .root_goal_summary)
+        try c.encodeIfPresent(parent_path, forKey: .parent_path)
+        try c.encode(conversation, forKey: .conversation)
+        try c.encodeIfPresent(created_by, forKey: .created_by)
+        try c.encodeIfPresent(assignee, forKey: .assignee)
+        try c.encodeIfPresent(direct_counts, forKey: .direct_counts)
+        try c.encodeIfPresent(proposed_for_user_id, forKey: .proposed_for_user_id)
+        try c.encodeIfPresent(wait, forKey: .wait)
+        try c.encodeIfPresent(wait_health, forKey: .wait_health)
+        try c.encodeIfPresent(prereq_blocked, forKey: .prereq_blocked)
+        try c.encodeIfPresent(can_edit, forKey: .can_edit)
+        try c.encodeIfPresent(can_delete, forKey: .can_delete)
+        try c.encodeIfPresent(can_claim, forKey: .can_claim)
+        try c.encodeIfPresent(progress, forKey: .progress)
+        try c.encodeIfPresent(stage_nodes, forKey: .stage_nodes)
+    }
 }
-struct TaskGraphPage: Decodable, Sendable { let items: [TaskSummary]; let next_cursor: String?; let total: Int }
+
+/// Live node summary returned by `GET /im/v1/task-graphs/nodes` and cached locally for chat task cards.
+struct TaskCardNodeSummary: Codable, Identifiable, Sendable, Hashable {
+    var graph_id: String
+    var node_id: String
+    var root_node_id: String
+    var revision: Int
+    var scope_id: String? = nil
+    var title: String
+    var description: String? = nil
+    var result: String? = nil
+    var mode: String
+    var status: String
+    var proposed_for_user_id: String? = nil
+    var wait: TaskWait? = nil
+    var wait_health: TaskWaitHealth? = nil
+    var prereq_blocked: Bool? = nil
+    var root_title: String? = nil
+    var root_goal_summary: String? = nil
+    var parent_path: [TaskPathPart]? = nil
+    var conversation: TaskConversation? = nil
+    var assignee: ActorRef? = nil
+    var created_by: ActorRef? = nil
+    var direct_counts: TaskCounts? = nil
+    var can_edit: Bool? = nil
+    var relative_url: String? = nil
+    var updated_at: String? = nil
+
+    var id: String { cardKey }
+    var cardKey: String { "\(graph_id):\(node_id)" }
+    var isPrereqBlocked: Bool { prereq_blocked ?? false }
+
+    private enum CodingKeys: String, CodingKey {
+        case graph_id, node_id, root_node_id, revision, scope_id, title, description, result
+        case mode, status, proposed_for_user_id, wait, wait_health, prereq_blocked, blocked_by_dag
+        case root_title, root_goal_summary, parent_path, conversation, assignee, created_by
+        case direct_counts, can_edit, relative_url, updated_at
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let gid = try c.decode(String.self, forKey: .graph_id)
+        let nid = try c.decode(String.self, forKey: .node_id)
+        graph_id = gid
+        node_id = nid
+        root_node_id = try c.decodeIfPresent(String.self, forKey: .root_node_id) ?? nid
+        revision = try c.decodeIfPresent(Int.self, forKey: .revision) ?? 1
+        scope_id = try c.decodeIfPresent(String.self, forKey: .scope_id)
+        title = try c.decode(String.self, forKey: .title)
+        description = try c.decodeIfPresent(String.self, forKey: .description)
+        result = try c.decodeIfPresent(String.self, forKey: .result)
+        mode = try c.decodeIfPresent(String.self, forKey: .mode) ?? "none"
+        status = try c.decodeIfPresent(String.self, forKey: .status) ?? "todo"
+        proposed_for_user_id = try c.decodeIfPresent(String.self, forKey: .proposed_for_user_id)
+        wait = try c.decodeIfPresent(TaskWait.self, forKey: .wait)
+        wait_health = try c.decodeIfPresent(TaskWaitHealth.self, forKey: .wait_health)
+        prereq_blocked = try c.decodeIfPresent(Bool.self, forKey: .prereq_blocked)
+            ?? c.decodeIfPresent(Bool.self, forKey: .blocked_by_dag)
+        root_title = try c.decodeIfPresent(String.self, forKey: .root_title)
+        root_goal_summary = try c.decodeIfPresent(String.self, forKey: .root_goal_summary)
+        parent_path = try c.decodeIfPresent([TaskPathPart].self, forKey: .parent_path)
+        conversation = try c.decodeIfPresent(TaskConversation.self, forKey: .conversation)
+        assignee = try c.decodeIfPresent(ActorRef.self, forKey: .assignee)
+        created_by = try c.decodeIfPresent(ActorRef.self, forKey: .created_by)
+        direct_counts = try c.decodeIfPresent(TaskCounts.self, forKey: .direct_counts)
+        can_edit = try c.decodeIfPresent(Bool.self, forKey: .can_edit)
+        relative_url = try c.decodeIfPresent(String.self, forKey: .relative_url)
+        updated_at = try c.decodeIfPresent(String.self, forKey: .updated_at)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(graph_id, forKey: .graph_id)
+        try c.encode(node_id, forKey: .node_id)
+        try c.encode(root_node_id, forKey: .root_node_id)
+        try c.encode(revision, forKey: .revision)
+        try c.encodeIfPresent(scope_id, forKey: .scope_id)
+        try c.encode(title, forKey: .title)
+        try c.encodeIfPresent(description, forKey: .description)
+        try c.encodeIfPresent(result, forKey: .result)
+        try c.encode(mode, forKey: .mode)
+        try c.encode(status, forKey: .status)
+        try c.encodeIfPresent(proposed_for_user_id, forKey: .proposed_for_user_id)
+        try c.encodeIfPresent(wait, forKey: .wait)
+        try c.encodeIfPresent(wait_health, forKey: .wait_health)
+        try c.encodeIfPresent(prereq_blocked, forKey: .prereq_blocked)
+        try c.encodeIfPresent(root_title, forKey: .root_title)
+        try c.encodeIfPresent(root_goal_summary, forKey: .root_goal_summary)
+        try c.encodeIfPresent(parent_path, forKey: .parent_path)
+        try c.encodeIfPresent(conversation, forKey: .conversation)
+        try c.encodeIfPresent(assignee, forKey: .assignee)
+        try c.encodeIfPresent(created_by, forKey: .created_by)
+        try c.encodeIfPresent(direct_counts, forKey: .direct_counts)
+        try c.encodeIfPresent(can_edit, forKey: .can_edit)
+        try c.encodeIfPresent(relative_url, forKey: .relative_url)
+        try c.encodeIfPresent(updated_at, forKey: .updated_at)
+    }
+}
+
+struct TaskFocusCounts: Codable, Sendable, Hashable {
+    var needs_you: Int = 0
+    var stashed: Int = 0
+    var active: Int = 0
+    var goals: Int = 0
+    var completed: Int = 0
+}
+
+struct TaskFocusCursors: Codable, Sendable, Hashable {
+    var needs_you: String? = nil
+    var stashed: String? = nil
+    var active: String? = nil
+    var goals: String? = nil
+    var completed: String? = nil
+}
+
+/// Aggregated response for `GET /im/v1/task-graphs/focus`.
+struct TaskFocusResponse: Codable, Sendable {
+    var needs_you: [TaskSummary]
+    var stashed: [TaskSummary]
+    var active: [TaskSummary]
+    var goals: [TaskSummary]
+    var completed: [TaskSummary]
+    var completed_count: Int
+    var counts: TaskFocusCounts
+    var next_cursors: TaskFocusCursors
+
+    private enum CodingKeys: String, CodingKey {
+        case needs_you, stashed, active, goals, completed, completed_count, counts, next_cursors
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let needs = try c.decodeIfPresent([TaskSummary].self, forKey: .needs_you) ?? []
+        let stash = try c.decodeIfPresent([TaskSummary].self, forKey: .stashed) ?? []
+        let act = try c.decodeIfPresent([TaskSummary].self, forKey: .active) ?? []
+        let gls = try c.decodeIfPresent([TaskSummary].self, forKey: .goals) ?? []
+        let compItems = try c.decodeIfPresent([TaskSummary].self, forKey: .completed) ?? []
+        let comp = try c.decodeIfPresent(Int.self, forKey: .completed_count) ?? compItems.count
+        needs_you = needs
+        stashed = stash
+        active = act
+        goals = gls
+        completed = compItems
+        completed_count = comp
+        counts = try c.decodeIfPresent(TaskFocusCounts.self, forKey: .counts)
+            ?? TaskFocusCounts(needs_you: needs.count, stashed: stash.count, active: act.count, goals: gls.count, completed: comp)
+        next_cursors = try c.decodeIfPresent(TaskFocusCursors.self, forKey: .next_cursors) ?? TaskFocusCursors()
+    }
+}
+
+struct TaskGraphPage: Decodable, Sendable {
+    let items: [TaskSummary]
+    let next_cursor: String?
+    let total: Int
+}
+
 struct TaskActivity: Decodable, Identifiable, Sendable {
-    let graph_id: String; let node_id: String; let scope_id: String?; let title: String
-    let root_title: String; let status: String; let updated_at: String
+    let graph_id: String
+    let node_id: String
+    let scope_id: String?
+    let title: String
+    let root_title: String
+    let status: String
+    let updated_at: String
     var id: String { graph_id + ":" + node_id }
 }
 
@@ -108,28 +461,76 @@ struct NativeTaskLayout {
     }
 }
 
+let taskStatuses = ["proposed", "todo", "doing", "waiting", "in_review", "done", "paused", "backlog", "closed"]
+let taskGroups = ["proposed", "todo", "doing", "in_review", "backlog", "done", "closed"]
+
+func isKnownTaskStatus(_ status: String) -> Bool {
+    taskStatuses.contains(status)
+}
+
+/// Maps the nine canonical statuses to exact badge words while safely displaying unknown future statuses.
 func taskStatus(_ status: String) -> String {
-    switch status { case "todo": return L("待办", "To do"); case "doing": return L("推进中", "Advancing"); case "waiting": return L("等待中", "Waiting"); case "done": return L("完成", "Done"); case "paused": return L("暂缓", "Paused"); case "in_review": return L("待确认", "In review"); case "closed": return L("已关闭", "Closed"); default: return status }
+    switch status {
+    case "proposed": return L("待拍板", "Proposed")
+    case "todo": return L("待办", "To do")
+    case "doing": return L("推进中", "Advancing")
+    case "waiting": return L("等待中", "Waiting")
+    case "in_review": return L("待确认", "In review")
+    case "done": return L("已完成", "Done")
+    case "paused": return L("已暂缓", "Paused")
+    case "backlog": return L("先存着", "Backlog")
+    case "closed": return L("已关闭", "Closed")
+    default:
+        let trimmed = status.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? L("未知状态", "Unknown") : trimmed
+    }
+}
+
+func taskGroupTitle(_ group: String) -> String {
+    group == "doing" ? L("进行中", "In progress") : taskStatus(group)
+}
+
+func taskEditableStatuses(_ current: String?) -> [String] {
+    var base = taskStatuses.filter { $0 != "waiting" || current == "waiting" }
+    if let current, !current.isEmpty, !base.contains(current) { base.append(current) }
+    return base
+}
+
+func taskGroupContains(_ group: String, status: String) -> Bool {
+    group == status || (group == "todo" && status == "paused") || (group == "doing" && status == "waiting")
 }
 
 struct TaskConversation: Codable, Sendable, Hashable {
     var id: String
     var title: String
     var visibility: String
-    var dissolved_at: String?
+    var dissolved_at: String? = nil
     var is_member: Bool
     var can_write: Bool
 }
+
 struct TaskCounts: Codable, Sendable, Hashable {
-    var todo: Int; var doing: Int; var waiting: Int; var in_review: Int; var done: Int; var paused: Int; var closed: Int; var total: Int
+    var proposed: Int? = nil
+    var todo: Int
+    var doing: Int
+    var waiting: Int
+    var in_review: Int
+    var done: Int
+    var paused: Int
+    var backlog: Int? = nil
+    var closed: Int
+    var total: Int
+
+    var proposedCount: Int { proposed ?? 0 }
+    var backlogCount: Int { backlog ?? 0 }
     var summary: String { L("直属子任务：已完成 \(done) / 共 \(total)", "Direct subtasks: \(done) done / \(total) total") }
 }
-struct TaskPathPart: Codable, Sendable, Hashable { var id: String; var title: String }
-let taskStatuses = ["todo", "doing", "waiting", "in_review", "done", "paused", "closed"]
-let taskGroups = ["todo", "doing", "in_review", "done", "closed"]
-func taskGroupTitle(_ group: String) -> String { group == "doing" ? L("进行中", "In progress") : taskStatus(group) }
-func taskEditableStatuses(_ current: String?) -> [String] { taskStatuses.filter { $0 != "waiting" || current == "waiting" } }
-func taskGroupContains(_ group: String, status: String) -> Bool { group == status || (group == "todo" && status == "paused") || (group == "doing" && status == "waiting") }
+
+struct TaskPathPart: Codable, Sendable, Hashable {
+    var id: String
+    var title: String
+    var mode: String? = nil
+}
 
 extension ActorRef {
     var taskKey: String { type + ":" + id }
@@ -137,26 +538,92 @@ extension ActorRef {
     var taskValue: JSONValue { .object(["type": .string(type), "id": .string(id)]) }
 }
 
+enum TaskOperations {
+    /// Builds the `approve_task` mutation payload for `/im/v1/task-graphs/:id/apply`.
+    static func approve(nodeID: String, assignee: ActorRef? = nil) -> JSONValue {
+        var payload: [String: JSONValue] = [
+            "op": .string("approve_task"),
+            "node_id": .string(nodeID)
+        ]
+        if let assignee { payload["assignee"] = assignee.taskValue }
+        return .object(payload)
+    }
+
+    static func setStatus(nodeID: String, status: String) -> JSONValue {
+        .object([
+            "op": .string("update_task"),
+            "node_id": .string(nodeID),
+            "patch": .object(["status": .string(status)])
+        ])
+    }
+
+    static func setMode(nodeID: String, mode: String) -> JSONValue {
+        .object([
+            "op": .string("update_task"),
+            "node_id": .string(nodeID),
+            "patch": .object(["mode": .string(mode)])
+        ])
+    }
+}
+
 struct TaskDraft: Equatable {
     var title = ""
     var description = ""
     var result = ""
-    var mode = "dag"
+    var mode = "none"
     var status = "todo"
     var assignee: ActorRef?
+    var proposed_for_user_id: String? = nil
     var changeNote = ""
-    init(node: TaskNode? = nil) {
-        if let node { title = node.title; description = node.description; result = node.result; mode = node.mode; status = node.status; assignee = node.assignee }
+
+    init(node: TaskNode? = nil, defaultMode: String = "none") {
+        self.mode = defaultMode
+        if let node {
+            title = node.title
+            description = node.description
+            result = node.result
+            mode = node.mode
+            status = node.status
+            assignee = node.assignee
+            proposed_for_user_id = node.proposed_for_user_id
+        }
     }
+
     func operations(node: TaskNode?, parentID: String?) -> [JSONValue] {
         if let node {
-            var result: [JSONValue] = [.object(["op": .string("update_task"), "node_id": .string(node.id), "patch": .object(["title": .string(title), "description": .string(description), "result": .string(self.result), "status": .string(status)])])]
-            if assignee?.taskKey != node.assignee?.taskKey { result.append(.object(["op": .string("set_assignee"), "node_id": .string(node.id), "assignee": assignee?.taskValue ?? .null])) }
-            return result
+            var patch: [String: JSONValue] = [
+                "title": .string(title),
+                "description": .string(description),
+                "result": .string(self.result),
+                "status": .string(status)
+            ]
+            if proposed_for_user_id != node.proposed_for_user_id {
+                patch["proposed_for_user_id"] = proposed_for_user_id.map(JSONValue.string) ?? .null
+            }
+            var ops: [JSONValue] = [.object(["op": .string("update_task"), "node_id": .string(node.id), "patch": .object(patch)])]
+            if assignee?.taskKey != node.assignee?.taskKey {
+                ops.append(.object(["op": .string("set_assignee"), "node_id": .string(node.id), "assignee": assignee?.taskValue ?? .null]))
+            }
+            return ops
         }
-        return [.object(["op": .string("add_task"), "client_ref": .string("new"), "container_id": .string(parentID ?? ""), "title": .string(title), "description": .string(description), "mode": .string(mode), "status": .string(status), "result": .string(result), "assignee": assignee?.taskValue ?? .null])]
+        var add: [String: JSONValue] = [
+            "op": .string("add_task"),
+            "client_ref": .string("new"),
+            "container_id": .string(parentID ?? ""),
+            "title": .string(title),
+            "description": .string(description),
+            "mode": .string(mode),
+            "status": .string(status),
+            "result": .string(result),
+            "assignee": assignee?.taskValue ?? .null
+        ]
+        if let userID = proposed_for_user_id, !userID.isEmpty {
+            add["proposed_for_user_id"] = .string(userID)
+        }
+        return [.object(add)]
     }
 }
+
 enum TaskEditField: String, CaseIterable, Identifiable {
     case title, description, result, status, assignee
     var id: String { rawValue }
@@ -242,7 +709,80 @@ extension IMClient {
         guard graph.schema_version == 2 else { throw APIError(status: 422, detail: L("暂不支持此任务图版本。", "Unsupported task graph version.")) }
         return graph
     }
+
+    func taskFocus(scope: String = "mine", query: String = "", assignee: ActorRef? = nil,
+                   conversationID: String? = nil, section: String? = nil, cursor: String? = nil,
+                   limit: Int = 30) async throws -> TaskFocusResponse {
+        var params: [URLQueryItem] = [
+            .init(name: "scope", value: scope),
+            .init(name: "limit", value: String(limit))
+        ]
+        if !query.isEmpty { params.append(.init(name: "query", value: query)) }
+        if scope == "assignee", let assignee {
+            params.append(.init(name: "assignee_type", value: assignee.type))
+            params.append(.init(name: "assignee_id", value: assignee.id))
+        }
+        if let conversationID, !conversationID.isEmpty {
+            params.append(.init(name: "conversation_id", value: conversationID))
+        }
+        if let section { params.append(.init(name: "section", value: section)) }
+        if let cursor { params.append(.init(name: "cursor", value: cursor)) }
+        return try await get("/im/v1/task-graphs/focus", query: params)
+    }
+
+    func taskNodes(_ refs: [TaskCardRef]) async throws -> [TaskCardNodeSummary] {
+        guard !refs.isEmpty else { return [] }
+        struct Response: Decodable, Sendable { let items: [TaskCardNodeSummary] }
+        let joined = refs.prefix(50).map(\.cardKey).joined(separator: ",")
+        let response: Response = try await get("/im/v1/task-graphs/nodes", query: [.init(name: "refs", value: joined)])
+        return response.items
+    }
+
     func applyTask(_ graph: TaskGraph, operations: [JSONValue], note: String = "", key: String) async throws {
-        let _: JSONValue = try await send("/im/v1/task-graphs/\(graph.graph_id.pathComponent)/apply", body: ["base_revision": .number(Double(graph.revision)), "request_key": .string(key), "operations": .array(operations), "change_note": .string(note)] as [String: JSONValue])
+        try await applyTaskOperations(graphID: graph.graph_id, revision: graph.revision, operations: operations, note: note, key: key)
+    }
+
+    func applyTaskOperations(graphID: String, revision: Int, operations: [JSONValue], note: String = "", key: String = UUID().uuidString) async throws {
+        let body: [String: JSONValue] = [
+            "base_revision": .number(Double(revision)),
+            "request_key": .string(key),
+            "operations": .array(operations),
+            "change_note": .string(note)
+        ]
+        do {
+            let _: JSONValue = try await send("/im/v1/task-graphs/\(graphID.pathComponent)/apply", body: body)
+        } catch let apiError as APIError where apiError.status == 409 || apiError.code == "version_conflict" {
+            let fresh = try await taskGraph(graphID)
+            let retryBody: [String: JSONValue] = [
+                "base_revision": .number(Double(fresh.revision)),
+                "request_key": .string(UUID().uuidString),
+                "operations": .array(operations),
+                "change_note": .string(note)
+            ]
+            let _: JSONValue = try await send("/im/v1/task-graphs/\(graphID.pathComponent)/apply", body: retryBody)
+        }
+        notifyTaskGraphChanged(graphID)
+    }
+
+    func approveTask(graphID: String, revision: Int, nodeID: String, assignee: ActorRef? = nil, note: String = "", key: String = UUID().uuidString) async throws {
+        try await applyTaskOperations(graphID: graphID, revision: revision, operations: [TaskOperations.approve(nodeID: nodeID, assignee: assignee)], note: note, key: key)
+    }
+
+    func createQuickTask(conversationID: String, title: String, key: String = UUID().uuidString) async throws {
+        let body: [String: JSONValue] = [
+            "conversation_id": .string(conversationID),
+            "title": .string(title),
+            "mode": .string("none"),
+            "status": .string("todo"),
+            "request_key": .string(key)
+        ]
+        let receipt: JSONValue = try await send("/im/v1/task-graphs", body: body)
+        notifyTaskGraphChanged(receipt["graph_id"].stringValue ?? "")
+    }
+
+    nonisolated func notifyTaskGraphChanged(_ graphID: String) {
+        Task { @MainActor in
+            NotificationCenter.default.post(name: .nanoTaskGraphChanged, object: self, userInfo: ["graph_id": graphID])
+        }
     }
 }

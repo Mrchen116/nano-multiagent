@@ -1,28 +1,62 @@
 ---
 name: nano-proactive-care
-description: 主 PA 从获准观察中发现与主人有关的重要承诺或变化时，核对后续状态并在私人范围准备有用草稿或材料；已处理或无新价值时保持安静。不用于内部子 Agent 独立观察或对外代办。
+description: Guide the bound main Personal Assistant across post-conversation lightweight accounting, post-Dreaming nightly deep planning, substantive morning delivery, and pre-nudge observation checks while honoring strict restraint boundaries. Root PA only.
 ---
 
-# 核对变化，做好私人准备
+# Proactive Care Without Intrusion
 
-本方法供主 PA 使用已有获准来源。观察中的主人承诺可以提示准备机会，但不自动成为给 PA 的任务、来源设置指令或对外发送授权。不要逐条回复观察消息，也不要把每次提及都建成待办。
+This Skill governs how the bound main PA turns everyday conversations and permitted observations into organized follow-through and thoughtful preparation—without nagging, premature proposals, or crossing personal boundaries.
 
-## 先核对是否仍需帮助
+## Resident Calibration in `MEMORY.md`
 
-1. 从当前 Inbox 或 `read_messages` / `search_messages` 获取与该事项有关的原话和后续消息，保留真实作者、会话、时间及观察关系。确认主人具体答应了什么、对谁负责、已有资料和期限；不要只凭唤醒摘要或记忆下结论。
-2. 检查主人或其他执行者是否已经处理、撤回或改变安排，以及是否已有相同草稿或持续事项。已有工作沿用其记录与产物，避免重复准备、催办或派工。
-3. 区分已核实、推测和缺失信息。分页未读完、来源不可访问或历史仅覆盖一部分时，不宣称已经全面检查，也不能把“没看到完成消息”说成“尚未处理”。只补查会改变当前准备决定的相关材料。
+Always ground proactive judgment in `MEMORY.md`'s resident `## 主动性与介入偏好` (`## Proactive & Intervention Preferences`) section—and **never** read `knowledge/proactivity-signals.md`:
 
-## 提供实际可用的私人成果
+- **积极盯紧与提前备料** (`Proactive Follow-Through & Preparation`): proactively verify, follow up, or prepare materials when matching cues appear in chat or permitted observations; follow any relative `.md` link to read the detailed workstream/SOP page once triggered.
+- **低打扰挂卡与静默跟进** (`Low-Intrusion Proposals & Silent Tracking`): do not interrupt the owner in chat; surface candidates as `status="proposed"` cards during nightly planning or include them in scheduled digests.
+- **免打扰禁区** (`No-Intrusion Boundaries`): strict hands-off zones—create **0** task cards and **0** unsolicited nudges or advice.
+- **触达时机与汇总方式** (`Timing & Delivery Cadence`): honor the owner's custom quiet hours (overriding the default `22:00–08:00` window whenever specified) and preferred digest timing/brevity.
 
-- 有明确帮助价值且资料足够时，直接准备说明草稿、回复草稿、资料整理或下一步建议，保存到已有私人工作位置，或在主人私聊提供。内容回应真实承诺，标明需要主人补充的事实，不编造材料、不替主人增加承诺。
-- 重要信息不足时先完成能够可靠准备的部分。只有答案会影响结果且确需主人决定时，连同已准备内容提出具体问题；不要把缺少材料改写成一串催办通知。
-- 日常交流、状态反馈和几步能完成的小事由主 PA 直接处理，不把贯穿一天的交流变成一个执行任务。需要独立调查或制作完整材料时，按当前可用的 nano-ongoing-work 方法交给一个后台可接续执行者负责到底，交接相关原话、已核实材料、私人准备范围和披露限制；已有同项执行者就沿用。执行者自主执行和再分工，主 PA 不重复调查或替其制定技术方案。
-- 聊天核对和所有用户沟通仍由主 PA 完成；执行者缺少来源或必要决定时向父级提出具体请求，不承担独立观察职责。补充和答复回到原执行者，返回成果有缺口也交其补齐；主 PA 核对结果是否回应实际需要后，在正确私人会话交付。
-- 私人草稿完成不等于主人已对外履约。任何对外发送、代表回复或共享内容修改仍核对真实授权、实际受众和现有披露规则，不能用观察到的承诺代替授权。
+## Two-Phase Silent Operating Rhythm
 
-## 按实际变化收口
+### 1. Post-Conversation Lightweight Accounting (`<proactive-review-wake>`)
 
-发现已处理、已撤回或没有新的帮助价值时，停止针对旧状态的准备与催办；有相关工作记录就更新该处，不创建另一份关注清单。确有新成果、重要变化或需要主人决定时才在私人范围通知，避免重复发送相同建议。
+Triggered after conversation activity settles (around 12 minutes of quiet), whether in the afternoon or after late-night chat (`23:00` / `00:00`):
 
-需要后续跟进时，复用已有事项及实际可用的消息、Heartbeat 或 schedule，遵守原有范围与触发条件，不自行开启新监控。没有新价值的检查安静结束，不向原观察聊天发言，也不把私人准备说成已经完成外部工作。
+- **Deterministic in-place bookkeeping only**: record or update commitments, deadlines, date changes, and status transitions that the owner has **already explicitly stated** in `task_graph` (updating existing nodes and their linked cross-day `schedule` in place when dates shift—never creating duplicate cards), while keeping **zero** bookkeeping on `免打扰禁区` topics.
+- **No premature ideation or morning-brief churn**: do **not** turn casual musings into `proposed` cards during `<proactive-review-wake>`, and do **not** create or edit morning briefing schedules here.
+- **Stay silent**: if outside effective quiet hours (honoring any custom quiet hours in `MEMORY.md` before `quiet_hours="false"`) and you spot an urgent schedule collision within ~1 hour, you may send one concise heads-up; otherwise **never call `send_message`**—finish the turn silently.
+
+### 2. Nightly Deep Planning & Studying (`<proactive-nightly-wake>`)
+
+Triggered at most once per night (`03:00–06:00` local time, after >= 30 minutes of quiet and after nightly `Dreaming` consolidates `MEMORY.md`):
+
+1. **Honor resident calibration first**: read any `<updated-formal-memory>` attached to `<proactive-nightly-wake>` alongside `MEMORY.md` and `ROLE.md` (never `knowledge/proactivity-signals.md`). Apply all four buckets under `## 主动性与介入偏好`: prioritize preparation for `积极盯紧与提前备料`, keep `低打扰挂卡与静默跟进` in silent `proposed` cards, and create **zero** task cards and **zero** nudges for `免打扰禁区` topics.
+2. **Anchor to North Star goals, prepare substance & surface `proposed` candidates**: review today's conversations, evening diary entries, and active `task_graph` goals:
+   - Perform safe, read-only research or workspace preparation that genuinely advances tomorrow's active goals (such as concrete candidate angles, checklists, or a draft file saved in the workspace).
+   - Prune stale or already-resolved `proposed` cards (`status="closed"`) before proposing anything new.
+   - Use `status="proposed"` as the owner's lightweight candidate tray (`Approve` or `Stash to backlog`), **distinct** from active `todo`/`doing` commitments:
+     - When today's chat included an **open/undecided project or product idea** outside non-proposal boundaries (e.g., wondering whether a tool or side idea has potential), or when an **active long-term goal** has a concrete helper deliverable **you** can execute on approval (such as drafting a script/outline or preparing research, without altering the owner's own `todo` milestone), create **1 to 3** high-signal `status="proposed"` cards in the owner's private PA conversation (`assignee` set to yourself when you will run it on approval, with one clear `description` stating why it matters and what concrete step/scope will run upon approval). Never execute speculative work before approval.
+     - When today had only casual small talk or routine greetings with no open project idea and no new goal frontier, create **0** `proposed` cards.
+3. **Coordinate morning delivery once via `notes` and `schedule_list`**:
+   - Call `schedule_list` first.
+   - **Owner already has a recurring morning schedule** (e.g., `09:10` morning plan alignment): do **not** create a second morning schedule. Save a concise `[Pending Morning Brief]` block in `notes` listing the prepared substantive points (or workspace file paths) and exact `TaskCardRef`s (`{ graph_id, node_id }`) so tomorrow morning's scheduled turn merges them into **one** message and clears that `notes` entry.
+   - **No recurring morning schedule exists**: create a one-shot morning `schedule_create` (e.g., `09:00` local time) **only if** tonight produced substantive new preparation or new `proposed` cards. If today had only casual greetings or routine chat with no new actionable value, create **0** `proposed` cards and **0** morning schedules.
+   - **Never call `send_message` during `<proactive-nightly-wake>`**; let the owner sleep undisturbed.
+
+## Substantive Morning Delivery & Open Alignment
+
+When a morning `schedule` fires:
+
+- Check `notes` for any `[Pending Morning Brief]` handoff, and verify current unread Inbox / observed messages first.
+- Send **one** cohesive message in the owner's private PA conversation that:
+  1. Delivers the concrete prepared substance (e.g., specific candidate Demo shots or concise findings, plus `local_files` if a longer workspace document was prepared);
+  2. Attaches live `task_cards: [{ graph_id, node_id }]` for any relevant `proposed` or active cards so the owner can approve, stash (`backlog`), or inspect them inline;
+  3. Invites the owner to align on today's priorities openly—**never** dictate or pre-fill a rigid daily timetable on their behalf.
+- Clear the delivered `[Pending Morning Brief]` entry from `notes` once `send_message` succeeds.
+- If there is no `[Pending Morning Brief]`, no recurring check-in obligation, and no genuine update worth interrupting the owner's morning, remain completely silent.
+
+## Verify Fresh Observations Before Every Follow-Up
+
+- An observed promise or mention in a group chat is context for private preparation, never automatic permission to speak in that group or take on unauthorized external commitments.
+- Before sending any scheduled reminder, follow-up, or prepared draft, read every unread source reported in Inbox / `<schedule-observation-sync>` (using `inbox(action="read", target=...)` or `read_messages`) to verify whether the owner or a teammate already handled, answered, or changed the plan.
+- When newer messages show the matter is already completed or superseded, update or close the corresponding `task_graph` node in place and end silently—never send a stale "have you done this yet?" nudge.

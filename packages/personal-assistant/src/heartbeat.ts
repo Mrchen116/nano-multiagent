@@ -12,6 +12,7 @@ interface Options {
   settings(agentId: string): HeartbeatSettings;
   binding(agent: AgentConfiguration): Promise<SessionBinding>;
   available(agentId: string): boolean; onError(error: unknown): void;
+  beforeAdmit?(agent: AgentConfiguration, binding: SessionBinding): Promise<void>;
 }
 interface Intent { generation?:number; lifecycle_revision?:number; agentId: string; task: string; due: number; sessionId: string; inputId: string; content: { type: 'text'; text: string }[]; source: { kind: 'system'; actorId: string; channel: 'heartbeat'; messageId: string }; mode: 'followup'; onlyIfIdle: true }
 
@@ -24,12 +25,22 @@ export class Heartbeat {
   private timer?: ReturnType<typeof setTimeout>;
   private active?: Promise<void>;
   private running = false;
+  private hostClock = false;
+  private now = () => Date.now();
   constructor(path: string, private readonly options: Options) {
     this.db = new DatabaseSync(path);
     this.db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; CREATE TABLE IF NOT EXISTS due(agent TEXT, task TEXT, time INTEGER, PRIMARY KEY(agent,task)); CREATE TABLE IF NOT EXISTS pending(agent TEXT PRIMARY KEY, intent TEXT NOT NULL); CREATE TABLE IF NOT EXISTS resets(agent TEXT PRIMARY KEY,generation INTEGER NOT NULL,time INTEGER NOT NULL)');
   }
+  /** Use an isolated monotonic clock and disable wall-clock background polling. */
+  useClock(now: () => number): void {
+    this.now = now;
+    this.hostClock = true;
+    this.running = false;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+  }
   /** Cancel pending ticks and start the next cadence after this lifecycle boundary. */
-  resetAgent(agentId:string,now=Date.now()):void {
+  resetAgent(agentId:string,now=this.now()):void {
     this.db.prepare('INSERT INTO resets VALUES(?,1,?) ON CONFLICT(agent) DO UPDATE SET generation=generation+1,time=excluded.time').run(agentId,now);
     this.db.prepare('DELETE FROM pending WHERE agent=?').run(agentId);
     this.db.prepare('DELETE FROM due WHERE agent=?').run(agentId);
@@ -59,11 +70,11 @@ export class Heartbeat {
   busyFor(agentId: string): boolean { return this.admitting.has(agentId) || !!this.db.prepare('SELECT 1 FROM pending WHERE agent=?').get(agentId); }
   subscription(agentId: string, enabled: boolean): void { if (enabled) this.subscriptions.add(agentId); else this.subscriptions.delete(agentId); }
   start(interval = 1000): void {
-    if (this.running) return; this.running = true;
+    if (this.running || this.hostClock) return; this.running = true;
     const next = () => { if (this.running) this.timer = setTimeout(() => { void this.tick().catch(this.options.onError).finally(next); }, interval); };
     next();
   }
-  tick(agentId?: string, manual = false, now = Date.now()): Promise<void> {
+  tick(agentId?: string, manual = false, now = this.now()): Promise<void> {
     if (this.active) return this.active;
     const task = this.evaluate(agentId, manual, now).finally(() => { this.active = undefined; }); this.active = task; return task;
   }
@@ -107,7 +118,14 @@ export class Heartbeat {
     try {
     const evidence = await this.options.runtime.request('session.lookup', { sessionId: intent.sessionId, inputId: intent.inputId });
     if(!this.valid(intent.agentId,intent.generation??0,intent.lifecycle_revision))return;
-    if (!evidence.accepted) await this.options.runtime.request('session.submit', intent);
+    if (!evidence.accepted) {
+      const agent = this.options.agents.find(item => item.agentId === intent.agentId);
+      if (agent?.personal && this.options.beforeAdmit) {
+        const binding = await this.options.binding(agent);
+        await this.options.beforeAdmit(agent, binding).catch(this.options.onError);
+      }
+      await this.options.runtime.request('session.submit', intent);
+    }
     if(!this.valid(intent.agentId,intent.generation??0,intent.lifecycle_revision))return;
     // Busy is a skipped boundary, never a delayed low-priority wake behind human work.
     this.db.exec('BEGIN IMMEDIATE');

@@ -207,6 +207,7 @@ export function applyWsEvent(
         thread_root_message_id: ev.thread_root_message_id ?? current?.thread_root_message_id,
         pa_agent_id: ev.pa_agent_id,
         attachments: ev.attachments,
+        ...(ev.task_cards !== undefined ? { task_cards: ev.task_cards } : current?.task_cards ? { task_cards: current.task_cards } : {}),
         delivery_status: ev.delivery_status,
         created_at: ev.created_at,
         tool_calls: ev.tool_calls,
@@ -266,6 +267,7 @@ export function applyWsEvent(
         thread_root_message_id: ev.thread_root_message_id,
         pa_agent_id: ev.pa_agent_id,
         attachments: ev.attachments ?? [],
+        ...(ev.task_cards ? { task_cards: ev.task_cards } : {}),
         delivery_status: ev.delivery_status,
         created_at: ev.created_at,
         tool_calls: ev.tool_calls,
@@ -306,6 +308,7 @@ export function applyWsEvent(
       return patchMessage(state, ev.message_id, (m) => ({
         ...m,
         content: ev.content,
+        ...(ev.task_cards ? { task_cards: ev.task_cards } : {}),
         reply_process: m.reply_process?.map(item => item.kind === "revalidation" && item.status === "running" ? {...item, status: ev.delivery_status === "failed" ? "failed" : "completed"} : item),
         delivery_status: ev.delivery_status === "failed" ? "failed" : "completed",
         token_usage: ev.token_usage,

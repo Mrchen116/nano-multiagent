@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {sortedJsonUtf8} from '@nano/product-contracts/serialization';
-import {featureClosure, featureDependencies, sanitizeStaticToolAllowlist} from '@nano/product-contracts/capabilities';
+import {definitionsForRole, featureClosure, sanitizeStaticToolAllowlist} from '@nano/product-contracts/capabilities';
 import {all, one, fail, now, type Row} from './context.js';
 import type {PersonalAgents} from './personal-agent.js';
 import {createAgent, readNodeCreationCapabilities, requireOwnedNode} from './agent-creation.js';
@@ -43,11 +43,12 @@ export class PersonalAgentCreation {
       const nodes=all(ctx.db,'SELECT node_id,node_name,alias,status FROM nodes WHERE owner_id=? ORDER BY node_id',binding.owner_id);
       const capabilities=await readNodeCreationCapabilities(ctx,id,binding.owner_id);
       // Recommend a valid dependency closure, using this computer's actual catalog.
-      const features=featureClosure(Object.fromEntries(featureDependencies.map(feature=>{
+      const roleFeatures=definitionsForRole(false);
+      const features=featureClosure(Object.fromEntries(roleFeatures.map(feature=>{
         const available=capabilities.features.find((entry:Row)=>entry.key===feature.key);
         return [feature.key,!!available?.default_on && available.available!==false];
-      })));
-      const dependencies=featureDependencies.filter(feature=>features[feature.key]);
+      })), roleFeatures);
+      const dependencies=roleFeatures.filter(feature=>features[feature.key]);
       const defaults={work_mode:'global',collaboration_scope:'team',default_model:null,
         model_fallbacks:[],reasoning_effort:null,approval_mode:null,workspace_root:null,features,
         skills_selection_mode:'explicit_allowlist',

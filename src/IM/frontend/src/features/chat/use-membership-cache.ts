@@ -51,6 +51,16 @@ export function useMembershipCache() {
       for (const [id, revision] of Object.entries(snapshot?.executionCleanupRevisions ?? {})) retireChatReadCache(client, id, revision);
       return refresh();
     }, onEvent: event => {
+      if (
+        event.eventType === "task_graph.changed"
+        || (event.eventType === "message.created"
+          && typeof event.payload.system_notice === "object"
+          && event.payload.system_notice !== null
+          && (event.payload.system_notice as { kind?: unknown }).kind === "task_graph")
+      ) {
+        void client.invalidateQueries({ queryKey: ["task-graphs"] });
+        if (event.eventType === "task_graph.changed") return;
+      }
       if (event.eventType === "conversation.execution_cleanup") {
         const { conversation_id: id, execution_cleanup_revision: revision } = event.payload;
         if (typeof id === "string" && typeof revision === "number") retireChatReadCache(client, id, revision);

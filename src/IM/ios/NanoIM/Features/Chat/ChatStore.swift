@@ -15,6 +15,7 @@ final class ChatStore {
     var inspectedConversation: Conversation?
     var openThreadRoot: String?
     var threadRevision = 0
+    var taskCardsRevision = 0
     var timelines: [String: [TimelineItem]] = [:]
     private var receivedTimelineResults: Set<String> = []
     var before: [String: String] = [:]
@@ -552,6 +553,7 @@ final class ChatStore {
         latestReadResult = [:]
         cancelContinuityDeadline()
         executionCleanupRevisions = [:]; knownDeletedActorIDs = []; readingPositions = [:]; pendingReadingPositions = [:]; restoreReadingPositions = [:]
+        taskCardsRevision = 0
     }
 
     func run() async {
@@ -1060,6 +1062,12 @@ final class ChatStore {
         if ["agent.work.updated", "agent.status_changed"].contains(event.event_type),
            let id = data["agent_id"].stringValue {
             NotificationCenter.default.post(name: .crewdenWorkUpdated, object: client, userInfo: ["agent_id": id])
+        }
+        if event.event_type == "task_graph.changed" || data["system_notice"]["kind"].stringValue == "task_graph" {
+            taskCardsRevision += 1
+            let graphID = data["graph_id"].stringValue ?? data["system_notice"]["graph_id"].stringValue ?? ""
+            NotificationCenter.default.post(name: .nanoTaskGraphChanged, object: client, userInfo: ["graph_id": graphID])
+            if event.event_type == "task_graph.changed", event.event_id == nil { return }
         }
         let chat = data["conversation_id"].stringValue
         if event.event_type == "conversation.execution_cleanup" {

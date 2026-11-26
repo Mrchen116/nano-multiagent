@@ -1,10 +1,41 @@
-import type { Context } from '@deepseek-ai/cordis';
+import { Service, type Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import { MAX_TITLE_LENGTH, MIN_EVERY_INTERVAL_SECONDS, ScheduleInputError } from '@deepseek-ai/dsh-schedule';
 import { delegationDepthOf } from '@deepseek-ai/dsh-subagent';
 import type { ToolExecution } from '@deepseek-ai/dsh-tools';
-import type { ScheduleInput } from '@nano/product-contracts/runtime-rpc';
+import type { ScheduleInput, ScheduleOutput } from '@nano/product-contracts/runtime-rpc';
 import { createSessionSchedule, listSessionSchedules, updateSessionSchedule, type ScheduleSelectorInput } from '../cron-owners.js';
+
+export interface LogicalCronClockImpl {
+  readonly enabled: boolean;
+  now(): number;
+  createSchedule(agentId: string, sessionId: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<ScheduleOutput<'create'> | { code: string; message: string }>;
+  listSchedules(agentId: string, sessionId: string): Promise<ScheduleOutput<'list'>>;
+  alignSchedule(agentId: string, scheduleId: string): Promise<void>;
+}
+
+export class LogicalCronClock extends Service implements LogicalCronClockImpl {
+  constructor(ctx: Context, private readonly impl: LogicalCronClockImpl) {
+    super(ctx, 'nanoCronClock');
+  }
+  get enabled(): boolean { return this.impl.enabled; }
+  now(): number { return this.impl.now(); }
+  createSchedule(agentId: string, sessionId: string, args: Record<string, unknown>, signal?: AbortSignal) {
+    return this.impl.createSchedule(agentId, sessionId, args, signal);
+  }
+  listSchedules(agentId: string, sessionId: string) {
+    return this.impl.listSchedules(agentId, sessionId);
+  }
+  alignSchedule(agentId: string, scheduleId: string) {
+    return this.impl.alignSchedule(agentId, scheduleId);
+  }
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    nanoCronClock?: LogicalCronClock;
+  }
+}
 
 export const name = 'nano-cron';
 export const inject = ['tools', 'systemPrompt', 'nanoProduct'];
@@ -104,8 +135,13 @@ export function apply(ctx: Context, config: Config) {
       },
       output: jsonOutput,
       execute: (args, exec) =>
-        runForRootSession(exec, agent =>
-          createSessionSchedule(child.schedule, agent.session.id, args as { title: string; prompt: string } & ScheduleSelectorInput, exec.signal)),
+        runForRootSession(exec, agent => {
+          const clock = ctx.get('nanoCronClock');
+          if (clock?.enabled && (args as { rrule?: unknown }).rrule === undefined) {
+            return clock.createSchedule(config.agentId, agent.session.id, (args ?? {}) as Record<string, unknown>, exec.signal);
+          }
+          return createSessionSchedule(child.schedule, agent.session.id, args as { title: string; prompt: string } & ScheduleSelectorInput, exec.signal);
+        }),
     });
 
     child.tools.register({
@@ -117,7 +153,11 @@ export function apply(ctx: Context, config: Config) {
         render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }],
       },
       isConcurrencySafe: () => true,
-      execute: (_args, exec) => runForRootSession(exec, agent => listSessionSchedules(child.schedule, agent.session.id)),
+      execute: (_args, exec) => runForRootSession(exec, agent => {
+        const clock = ctx.get('nanoCronClock');
+        if (clock?.enabled) return clock.listSchedules(config.agentId, agent.session.id);
+        return listSessionSchedules(child.schedule, agent.session.id);
+      }),
     });
 
     child.tools.register({
@@ -141,8 +181,14 @@ export function apply(ctx: Context, config: Config) {
       },
       output: jsonOutput,
       execute: (args, exec) =>
-        runForRootSession(exec, agent =>
-          updateSessionSchedule(child.schedule, agent.session.id, args as ScheduleInput<'update'>['args'], exec.signal)),
+        runForRootSession(exec, async agent => {
+          const updated = await updateSessionSchedule(child.schedule, agent.session.id, args as ScheduleInput<'update'>['args'], exec.signal);
+          const clock = ctx.get('nanoCronClock');
+          if (clock?.enabled && 'record' in updated && updated.record && Date.parse(updated.record.scheduledAt) <= clock.now()) {
+            await clock.alignSchedule(config.agentId, updated.id);
+          }
+          return updated;
+        }),
     });
 
     child.tools.register({

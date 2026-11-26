@@ -166,6 +166,7 @@ struct ChatMessage: Codable, Sendable, Identifiable {
     var receipts_requested: Bool?
     var receipts: [MessageReceipt]?
     var delegation: JSONValue?
+    var task_cards: [TaskCardRef]? = nil
     var thread_root_message_id: String?
     var thread: ThreadSummary?
     var canStartThread: Bool {
@@ -234,7 +235,13 @@ enum ChatTimelinePresentation {
 /// Merge authoritative pages by stable identity; replay never appends a delta twice.
 enum TimelineMerge {
     static func merge(current: [TimelineItem], page: [TimelineItem], older: Bool, discarded: Set<String>) -> [TimelineItem] {
-        let byID = Dictionary((current + page).map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let byID = Dictionary((current + page).map { ($0.id, $0) }, uniquingKeysWith: { first, last in
+            var merged = last
+            if merged.message?.task_cards == nil, let existing = first.message?.task_cards {
+                merged.message?.task_cards = existing
+            }
+            return merged
+        })
         let retained = byID.values.filter { !discarded.contains($0.id) }
         let messages = retained.filter { $0.message != nil }.sorted {
             ($0.message?.created_at ?? "", $0.id) < ($1.message?.created_at ?? "", $1.id)

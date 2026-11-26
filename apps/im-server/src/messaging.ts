@@ -1,7 +1,7 @@
 import { chatAllowed, ownerDirect, providerFacts, storedProviderFacts } from './collaboration.js';
 import { conversationName } from './conversation-name.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
-import { interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
+import { chatTaskCards, interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt, type TaskCardRef } from '@nano/product-contracts';
 import { messageInput, messageMetadata, sendPrincipal, type MessageInput, type SendPrincipal, type SendMessageCommand } from './message-input.js';
 import { MessageRecords, type MessageMetadata, type MessageEventFrame, type MessageRelayRecord } from './message-records.js';
 import type { ChatAttachment, ChatMessage } from '@nano/product-contracts';
@@ -471,6 +471,22 @@ export class Messaging {
     });
   }
 
+  private validateTaskCardRefs(principal: Row, agentId: string | undefined, refs: TaskCardRef[] | null | undefined): TaskCardRef[] | undefined {
+    if (!refs?.length) return undefined;
+    let validated: TaskCardRef[];
+    try { validated = chatTaskCards(refs); } catch (error) { fail(422, (error as Error).message); }
+    for (const ref of validated!) {
+      const row = one(this.db, 'SELECT conversation_id, document_json FROM task_graphs WHERE graph_id=?', ref.graph_id);
+      if (!row) fail(404, 'task card target not found');
+      this.access(principal, row.conversation_id, agentId, 'read');
+      const doc = JSON.parse(row.document_json);
+      if (!Array.isArray(doc.nodes) || !doc.nodes.some((n: Row) => n.id === ref.node_id)) {
+        fail(404, 'task card node not found');
+      }
+    }
+    return validated!;
+  }
+
   /** Commit a validated explicit publication under its existing dispatch identity. */
   publishAgent(principal:Extract<SendPrincipal,{kind:'gateway'}>,agentId:string,operationId:string|undefined,p:AgentPublication):ChatPublicationReceipt {
     const db=this.db;
@@ -485,6 +501,7 @@ export class Messaging {
       const saved = this.message(previous.message_id);
       const savedInteractive = this.interactions.publication(previous.message_id);
       if (saved.reply_to?.message_id !== p.reply_to_message_id || saved.thread_root_message_id !== p.in_thread_of || saved.content !== p.text.trim() || sortedJsonAscii(saved.attachments.map(item => item.url)) !== sortedJsonAscii((p.attachments ?? []).map(item => item.url))
+        || sortedJsonAscii(saved.task_cards ?? []) !== sortedJsonAscii(p.task_cards ?? [])
         || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
         || this.resolveTarget(agentId, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
       return {
@@ -500,6 +517,7 @@ export class Messaging {
     if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
     this.access(principal, id, agentId, "write");
     const attachments = this.publicationAttachments(id, p.attachments);
+    const taskCards = this.validateTaskCardRefs(principal, agentId, p.task_cards);
     const threadRoot=threadRootOrFail(db,id,p.in_thread_of);
     const replyTo=this.replyReference(id,p.reply_to_message_id);
     assertThreadQuote(db,id,threadRoot,replyTo?.message_id);
@@ -526,7 +544,7 @@ export class Messaging {
       attachments,
       key,
       'completed',
-      { interactive, reply_to:replyTo, thread_root_id:threadRoot, publish: false },
+      { interactive, ...(taskCards ? { task_cards: taskCards } : {}), reply_to:replyTo, thread_root_id:threadRoot, publish: false },
     );
     if (p.background_returns)
       this.records.background(created.id,p.background_returns);
@@ -582,8 +600,9 @@ export class Messaging {
     if (b.interactive !== undefined && (p.kind !== 'gateway' || type !== 'agent')) fail(403, 'Only Agent messages may contain interactive replies');
     const attachments = b.attachments ?? [];
     if (attachments.length > 5) fail(400, "too many attachments");
-    if (!b.content?.trim() && !attachments.length && !b.interactive)
+    if (!b.content?.trim() && !attachments.length && !b.interactive && !b.task_cards?.length)
       fail(400, "message content, attachments or interactive reply required");
+    const taskCards = this.validateTaskCardRefs(p, agentId, b.task_cards);
     b.content = this.validateReferences(p, id, b.content ?? "", agentId);
     for (const a of attachments) a.url = this.validateReferences(p, id, a.url!, agentId);
     const old=key?this.records.attempt(id,key):undefined;
@@ -605,7 +624,7 @@ export class Messaging {
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, thread_root_id:threadRoot, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), ...(taskCards ? { task_cards: taskCards } : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, thread_root_id:threadRoot, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });

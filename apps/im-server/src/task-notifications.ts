@@ -4,11 +4,14 @@ const escape = (value: string) => value.replaceAll('&','&amp;').replaceAll('<','
 
 /** Describe real business changes once per node, using only current member mentions. */
 export function taskNotices(doc: Row, before: Row | null, actorName: string,
-  resolve: (ref: Row | null) => Row | null, canMention: (user: string) => boolean): Row[] {
+  resolve: (ref: Row | null) => Row | null, canMention: (user: string) => boolean,
+  actor?: { kind?: 'user' | 'agent'; id?: string }): Row[] {
   const messages: Row[] = [];
   const ids = new Set<string>([...doc.nodes, ...(before?.nodes ?? [])].map((n:Row) => n.id));
   for (const id of ids) {
     const n = doc.nodes.find((n:Row) => n.id === id), old = before?.nodes.find((n:Row) => n.id === id);
+    const node = n ?? old;
+    const creatorSelfAction = actor?.kind === 'agent' && !!node?.created_by && node.created_by.type === 'agent' && actor.id === node.created_by.id;
     const changes:string[] = [], kinds:string[] = [], attention = new Map<string,Row>(), refs=new Set<string>([id]);
     const person=(ref:Row) => escape(resolve(ref)?.display_name??ref.id);
     const task=(nodeId:string|null|undefined) => {
@@ -22,7 +25,17 @@ export function taskNotices(doc: Row, before: Row | null, actorName: string,
     const note = (kind:string, text:string) => { kinds.push(kind);changes.push(text); };
     add(n?.assignee);add(old?.assignee);
     if(!n) {
-      note('deleted','已删除，原入口已失效');
+      if (old?.status === 'proposed') {
+        if (creatorSelfAction) {
+          note('deleted', '过期提议已收起（已删除，原入口已失效）');
+          attention.delete('agent:' + actor!.id);
+        } else {
+          note('deleted', '待拍板提议已删除，原入口已失效');
+          add(old.created_by);
+        }
+      } else {
+        note('deleted','已删除，原入口已失效');
+      }
       add(before?.nodes.find((p:Row) => p.id === old.container_id)?.assignee);
     } else {
       if(!old)note('created','已创建');
@@ -31,8 +44,29 @@ export function taskNotices(doc: Row, before: Row | null, actorName: string,
       if(old && old.description !== n.description)note('requirements','正文要求已更新，请读取最新正文');
       if(old && old.result !== n.result)note('result','结果已更新');
       if(old?.status !== n.status) {
-        const status:Row = {todo:'待办',doing:'进行中',waiting:'等待',in_review:'提交待确认',done:'完成',paused:'暂缓',closed:'关闭'};
-        note('status',status[n.status]);
+        const status:Row = {proposed:'待拍板',todo:'待办',doing:'推进中',waiting:'等待中',in_review:'提交待确认',done:'已完成',paused:'已暂缓',backlog:'先存着',closed:'已关闭'};
+        let statusText: string = status[n.status];
+        if (old?.status === 'proposed') {
+          const isHumanActor = !actor?.kind || actor.kind === 'user';
+          if (creatorSelfAction) {
+            statusText = n.status === 'closed' ? '过期提议已收起（已关闭）' : `从待拍板转为${status[n.status]}`;
+            attention.delete('agent:' + actor!.id);
+          } else {
+            add(n.created_by ?? old.created_by);
+            if (isHumanActor) {
+              const proposedDecision: Record<string, string> = {
+                closed: '未采纳（已关闭）',
+                backlog: '暂存待定（先存着）',
+                todo: '已批准（待办）',
+                doing: '已批准（推进中）',
+              };
+              statusText = proposedDecision[n.status] ?? `从待拍板转为${status[n.status]}`;
+            } else {
+              statusText = `从待拍板转为${status[n.status]}`;
+            }
+          }
+        }
+        note('status',statusText);
         if(['done','in_review'].includes(n.status)){add(n.created_by);add(doc.nodes.find((p:Row) => p.id === n.container_id)?.assignee);}
         if(['paused','closed'].includes(n.status))for(const child of doc.nodes.filter((p:Row) => p.container_id===n.id&&p.assignee?.type==='agent'))add(child.assignee);
       }
@@ -53,7 +87,7 @@ export function taskNotices(doc: Row, before: Row | null, actorName: string,
       }
     }
     if(!changes.length)continue;
-    const node=n??old, mentioned=new Set<string>();
+    const mentioned=new Set<string>();
     const labels=[...attention.values()].map(ref=>resolve(ref)).filter((actor):actor is Row => !!actor).map(actor=>{
       if(!actor.user_id||!canMention(actor.user_id)||mentioned.has(actor.user_id))return escape(actor.display_name);
       mentioned.add(actor.user_id);return '<mention type="user" target_id="'+actor.user_id+'"/>';
@@ -61,7 +95,8 @@ export function taskNotices(doc: Row, before: Row | null, actorName: string,
     const title=escape(node.title), link='/tasks/'+doc.graph_id+'?scope='+(node.container_id??doc.root_node_id)+'&node='+id;
     messages.push({content:escape(actorName)+'：'+(n?'['+title+']('+link+')':title)+'，'+changes.join('；')+(labels.length?'。'+labels.join(' '):''),
       metadata:{kind:'task_graph',graph_id:doc.graph_id,node_id:id,scope_id:node.container_id??doc.root_node_id,
-        revision:doc.revision,event_time:doc.updated_at,task_refs:[...refs].map(node_id=>({graph_id:doc.graph_id,node_id})),change_kinds:kinds,
+        revision:doc.revision,event_time:doc.updated_at,previous_status:old?.status??null,status:n?.status??null,
+        task_refs:[...refs].map(node_id=>({graph_id:doc.graph_id,node_id})),change_kinds:kinds,
         attention_actor_ids:[...attention.values()].map(ref=>ref.id)}});
   }
   return messages;
