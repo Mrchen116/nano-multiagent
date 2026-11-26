@@ -1,4 +1,5 @@
 import { externalAvatarId } from "./identity.js";
+import { externalChannelOwnerId, matchesExternalChannel } from './channels.js';
 import { chatAllowed, ownerDirect, storedProviderFacts } from './collaboration.js';
 import { conversationName } from './conversation-name.js';
 import {parseAvatarVariant} from './configuration-input.js';
@@ -105,12 +106,12 @@ export class PersonalAgents {
     return this.sourceAllowed(b,message.conversation_id) && !!one(this.db,`SELECT 1 FROM messages m JOIN conversations c ON c.id=m.conversation_id
       WHERE m.id=? AND ${contactReadable}`,message.id,b.binding_id);
   }
-  private feishuChannel(b:Row,chat:Row):Row|undefined {
-    if(chat.external_source!=='feishu'||chat.owner_id!==b.owner_id)return;
-    return all(this.db,`SELECT ch.agent_id,ch.node_id,ch.config_json,ch.provider_runtime_json FROM agent_channels ch
+  private externalChannel(b:Row,chat:Row):Row|undefined {
+    if((chat.external_source!=='feishu'&&chat.external_source!=='wechat')||chat.owner_id!==b.owner_id)return;
+    return all(this.db,`SELECT ch.agent_id,ch.node_id,ch.provider,ch.config_json,ch.provider_runtime_json FROM agent_channels ch
       JOIN agent_profiles a ON a.agent_id=ch.agent_id AND a.node_id=ch.node_id
-      WHERE ch.owner_id=? AND ch.agent_id=? AND ch.provider='feishu' AND ch.enabled=1`,b.owner_id,chat.config_agent_id)
-      .find(row=>String(chat.external_chat_id).startsWith(`feishu:${JSON.parse(row.config_json).app_id}:${chat.type==='group'?'group':'dm'}:`));
+      WHERE ch.owner_id=? AND ch.agent_id=? AND ch.provider=? AND ch.enabled=1`,b.owner_id,chat.config_agent_id,chat.external_source)
+      .find(row=>matchesExternalChannel(row,chat));
   }
   /** Identify a private owner destination from current persisted channel facts.
    *
@@ -124,8 +125,8 @@ export class PersonalAgents {
     if(conversationId===b.conversation_id)return true;
     const chat=one(this.db,'SELECT * FROM conversations WHERE id=?',conversationId);
     if(!chat||chat.config_agent_id!==b.agent_id)return false;
-    const channel=this.feishuChannel(b,chat);
-    const owner=channel && channel.node_id===b.node_id && JSON.parse(channel.provider_runtime_json).owner_open_id;
+    const channel=this.externalChannel(b,chat);
+    const owner=channel && channel.node_id===b.node_id ? externalChannelOwnerId(channel) : undefined;
     return !!owner && chat.type==='direct' && chat.external_chat_id.endsWith(`:dm:${owner}`);
   }
   /** Resolve identity and participation from persisted origin facts.
@@ -138,8 +139,8 @@ export class PersonalAgents {
    */
   sourceFacts(b: Row, message: Row) {
     const chat=one(this.db,'SELECT * FROM conversations WHERE id=?',message.conversation_id)!;
-    const channel=this.feishuChannel(b,chat);
-    const providerOwner=channel && JSON.parse(channel.provider_runtime_json).owner_open_id;
+    const channel=this.externalChannel(b,chat);
+    const providerOwner=channel ? externalChannelOwnerId(channel) : undefined;
     const participant=chat.external_source
       ? !!channel && channel.agent_id===b.agent_id && channel.node_id===b.node_id
       : !!one(this.db,'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',message.conversation_id,this.ctx.messaging.agentUser(b.agent_id).id);
@@ -216,7 +217,7 @@ export class PersonalAgents {
     };
   }
   private batchConversationMeta(b: Row, chat: Row): Row {
-    const channel = this.feishuChannel(b, chat);
+    const channel = this.externalChannel(b, chat);
     const participant = chat.external_source
       ? !!channel && channel.agent_id === b.agent_id && channel.node_id === b.node_id
       : !!one(this.db, 'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?', chat.id, this.ctx.messaging.agentUser(b.agent_id).id);

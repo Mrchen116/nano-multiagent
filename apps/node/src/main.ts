@@ -24,7 +24,7 @@ import { ModelSetup } from './model-setup.js';
 import {CapabilityRequests} from './capability-requests.js';
 import { NodeTrajectory } from './trajectory.js';
 import { LocalNodeBridge } from './local-bridge.js';
-import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
+import { WebRelayConnection, FeishuConnection, WeChatConnection, WeChatLoginCoordinator, isWeChatChannelRevokedOnDisk, purgeWeChatChannelState, ChannelKey } from '@nano/channels';
 import { WorkSync, NodeStore, TaskExecution, TaskContext, ScheduleDeletions, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, AgentDeletionIntent, AgentLifecycleSnapshot, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor, ConfigurationInspector } from '@nano/dsh-integration/client';
@@ -244,6 +244,8 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
     };
   },
 });
+const wechatStateRoot = join(home, 'wechat-state');
+let wechatLogin: WeChatLoginCoordinator;
 const modelSetup = new ModelSetup(configuration, runtime);
 const relay = new WebRelayConnection({
   url: config.im_service.url,
@@ -303,7 +305,7 @@ const relay = new WebRelayConnection({
       capabilityRequests.cancelAll();
       await lifecycle.connected(false);
       trajectory?.closeAll();
-      if (state === 'revoked') { workAvailable=false; managed.revoke(); }
+      if (state === 'revoked') { workAvailable=false; await managed.revoke(); }
       return;
     }
     const registration = relay.registration;
@@ -423,6 +425,16 @@ const handlers:NodeHandlers = {
     return {deleted:result?.deleted===true};
   },
   'node.setup.request':input=>modelSetup.handle(input).catch(()=>({error_code:'setup_invalid',message:'Model setup is unavailable'})),
+  'node.wechat.setup.request':async input=>{
+    if (!agents.some(agent=>agent.agentId===input.agent_id)) {
+      return {state:'failed' as const,error_code:'agent_not_found',message:'Agent does not exist on this node'};
+    }
+    return wechatLogin.handle(input).catch(error=>({
+      state:'failed' as const,
+      error_code:'wechat_setup_failed',
+      message:error instanceof Error ? error.message : 'WeChat QR setup failed',
+    }));
+  },
   'node.distill.prompt.request':input=>history.distill(input).catch(error=>({error_code:'runtime_unavailable',message:String(error)})),
   'session.fork.request':input=>history.fork(input),
   'agent.work.permission':()=>({ok:false,error:'request_ended'}),
@@ -469,7 +481,10 @@ external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config
   personalAgent: id => !!agents.find(agent => agent.agentId === id)?.personal,
   globalAgent: id => agents.some(agent => agent.agentId === id && agent.mode === 'global' && !agent.personal),
   personalDelivery: delivery => globalProduct.externalDelivery(delivery),
-  onError: reportError, runtimeFooter: config.display?.platforms?.feishu?.runtime_footer?.enabled ?? config.display?.runtime_footer?.enabled,
+  onError: reportError,
+  runtimeFooter: provider => (provider === 'wechat'
+    ? config.display?.platforms?.wechat?.runtime_footer?.enabled
+    : config.display?.platforms?.feishu?.runtime_footer?.enabled) ?? config.display?.runtime_footer?.enabled ?? false,
   attention: input => needsAttention(input, agents.find(agent => agent.agentId === input.agent_id)!),
   receive: input => admitted(() => agents.find(agent => agent.agentId === input.agent_id)?.mode === 'global' ? globalProduct.receive(input) : product.receive(input)),
   permission: payload => product.permission(payload),
@@ -477,15 +492,58 @@ external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config
 });
 managed = new ManagedChannels(join(home, 'channels.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, key: channelKey, relay,
   hasAgent: id => agents.some(agent => agent.agentId === id), retired: id=>!!deletionLedger.read(id), onError: reportError,
-  remove: agentId => external.remove(agentId),
+  remove: (agentId, provider) => external.remove(agentId, provider),
+  purgeChannel: async ({ channelId, provider }) => {
+    if (provider === 'wechat') await purgeWeChatChannelState(wechatStateRoot, channelId);
+  },
   create: (channel, secret, callbacks) => {
-    const connection = new FeishuConnection({ appId: channel.config.app_id, appSecret: secret.app_secret!, botOpenId: channel.provider_runtime.bot_open_id, ownerOpenId: channel.provider_runtime.owner_open_id }, {
-      receive: message => external.receive(channel.agent_id, message), card: value => external.card(channel.agent_id, value), onError: reportError,
+    if (channel.provider === 'wechat') {
+      const connection = new WeChatConnection({
+        channelId: channel.channel_id,
+        botId: channel.config.bot_id!,
+        botToken: secret.bot_token!,
+        ownerUserId: channel.config.owner_user_id!,
+        baseUrl: channel.config.base_url,
+        stateRoot: wechatStateRoot,
+        credentialRevision: channel.credential_revision,
+        env: { ...process.env, ...env },
+      }, {
+        receive: message => external.receive(channel.agent_id, message, 'wechat'),
+        onError: reportError,
+        status: state => {
+          callbacks.status(state);
+          const summary = typeof state === 'string' ? state : `${state.state}:${state.code ?? ''}`;
+          process.stderr.write(`WeChat ${channel.agent_id}: ${summary}\n`);
+        },
+      });
+      external.add(channel.agent_id, connection, 'wechat');
+      return connection;
+    }
+    const connection = new FeishuConnection({ appId: channel.config.app_id!, appSecret: secret.app_secret!, botOpenId: channel.provider_runtime.bot_open_id, ownerOpenId: channel.provider_runtime.owner_open_id }, {
+      receive: message => external.receive(channel.agent_id, message, 'feishu'), card: value => external.card(channel.agent_id, value), onError: reportError,
       metadata: callbacks.metadata,
       status: state => { callbacks.status(state); process.stderr.write(`Feishu ${channel.agent_id}: ${state}\n`); },
     });
-    external.add(channel.agent_id, connection); return connection;
+    external.add(channel.agent_id, connection, 'feishu'); return connection;
   },
+});
+wechatLogin = new WeChatLoginCoordinator({
+  env: { ...process.env, ...env },
+  resolveLocalCredentials: (channelId, agentId) => {
+    const opened = managed.openCachedChannel(channelId, agentId, 'wechat');
+    if (!opened || !opened.secret.bot_token) return undefined;
+    return {
+      bot_token: opened.secret.bot_token,
+      bot_id: opened.channel.config.bot_id ?? '',
+      owner_user_id: opened.channel.config.owner_user_id ?? '',
+      base_url: opened.channel.config.base_url ?? '',
+      revoked: isWeChatChannelRevokedOnDisk(wechatStateRoot, channelId, opened.channel.credential_revision),
+    };
+  },
+  listLocalTokens: () => managed.listCachedSecrets('wechat')
+    .filter(item => !isWeChatChannelRevokedOnDisk(wechatStateRoot, item.channel.channel_id, item.channel.credential_revision))
+    .map(item => item.secret.bot_token ?? '')
+    .filter(Boolean),
 });
 // Disabled local placeholders have no provider identity to enroll.
 managed.seed((config.channels ?? []).filter(channel => channel.name.startsWith('feishu:') && (channel.enabled !== false || channel.settings.appId)).map(channel => ({
@@ -624,7 +682,7 @@ const updater = new NodeUpdater(configuration, {
   prepare: async operationId => {
     if (updateHolding && updateHolding !== operationId) return false;
     updateHolding = operationId;
-    const busy = () => admissions > 0 || inspector.metrics().preview_active > 0 || modelSetup.busy || product.busy || globalProduct.busy || heartbeat.busy || operations.busy || knowledge.busy || workflows.busy;
+    const busy = () => admissions > 0 || inspector.metrics().preview_active > 0 || modelSetup.busy || wechatLogin?.busy || product.busy || globalProduct.busy || heartbeat.busy || operations.busy || knowledge.busy || workflows.busy;
     if (!runtime.available || busy()) return false;
     const result = await runtime.request('update.prepare', {operationId}) as {ready: boolean};
     return result.ready && !busy();
@@ -766,7 +824,7 @@ async function stop() {
   clearInterval(taskWatch);
   trajectory.closeAll();
   await localBridge.close().catch(reportError);
-  try { capabilityRequests.cancelAll(); await deletions.close(); await inspector.close(); await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await relay.stop(); await product.stop(); await globalProduct.stop(); await Promise.allSettled(readyRecoveryTasks); await operations.close(); await external.stop(); inbox.close(); store.close(); }
+  try { capabilityRequests.cancelAll(); await deletions.close(); await inspector.close(); await workSync.stop(); await updater.close(); await wechatLogin?.stop(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await relay.stop(); await product.stop(); await globalProduct.stop(); await Promise.allSettled(readyRecoveryTasks); await operations.close(); await external.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}
 }

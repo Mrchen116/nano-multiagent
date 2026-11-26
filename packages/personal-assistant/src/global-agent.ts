@@ -1096,9 +1096,10 @@ export class GlobalAgent {
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
+    const isExternalChannel = info?.channel === 'feishu' || info?.channel === 'wechat' || info?.channel === 'external';
     if((replyTo || inThread) && info?.channel && info.channel!=='web')throw new Error('Quoted replies and topics require a Nano IM destination');
     if (hasLocalMedia && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local attachments require a writable Nano IM conversation');
-    if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
+    if (isExternalChannel && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const baseTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
     const reviewTargets = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web'
       ? [...new Set(baseTargets)].filter((id): id is string => typeof id === 'string').map(id => joinThreadTarget(id, inThread)) : [];
@@ -1154,7 +1155,7 @@ export class GlobalAgent {
       const response = await this.publishMessage({ node_id: this.options.nodeId, text, ...(attachments ? {attachments} : {}),
         ...(replyTo?{reply_to_message_id:replyTo}:{}),
         ...(inThread?{in_thread_of:inThread}:{}),
-        ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
+        ...(interactive && !isExternalChannel ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : targetBase, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload,source);
     } catch (error) {
@@ -1544,7 +1545,7 @@ export class GlobalAgent {
   }
   private async transmitReceipt(input: RelayInput, status: string) {
     if(input.metadata.pa_observation) {
-      if(input.metadata.channel==='feishu')await this.options.relay.request('node.delivery_receipt',{node_id:this.options.nodeId,agent_id:input.agent_id,external_source_message_id:input.message.id,delivery_status:status});
+      if(input.metadata.channel==='feishu' || input.metadata.channel==='wechat')await this.options.relay.request('node.delivery_receipt',{node_id:this.options.nodeId,agent_id:input.agent_id,external_source_message_id:input.message.id,delivery_status:status});
       return;
     }
     await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });

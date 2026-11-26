@@ -580,8 +580,12 @@ export class PersonalAssistant {
   async external(config:AgentConfiguration,binding:SessionBinding,delivery:ExternalDelivery):Promise<string> {
     if(!delivery.shadowId)throw new Error('External source has not yet synchronized');
     await this.options.flushConversation?.(config, binding, delivery.shadowId);
+    const kind=delivery.provider ?? 'feishu';
+    const destination=kind==='wechat'
+      ? {bot_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId}
+      : {app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId};
     const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,incident_ref:delivery.incidentRef,
-      conversation_id:delivery.shadowId,content:delivery.text,transport:{kind:'feishu',destination:{app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId},card:delivery.card}});
+      conversation_id:delivery.shadowId,content:delivery.text,transport:{kind,destination,card:delivery.card}});
     if(proposal.owner_private===true)return delivery.dispatch(delivery.text,delivery.card);
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string')return proposal.message_id;
     if(['sending','unknown'].includes(String(proposal.state)))throw new Error('External outcome unknown; no automatic resend');

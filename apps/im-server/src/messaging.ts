@@ -1,4 +1,5 @@
 import { chatAllowed, ownerDirect, providerFacts, storedProviderFacts } from './collaboration.js';
+import { matchesExternalChannel } from './channels.js';
 import { conversationName } from './conversation-name.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
@@ -418,7 +419,7 @@ export class Messaging {
     const binding=this.ctx.personal!.authority(principal,{agent_id:agentId});
     const c=one(this.db,'SELECT * FROM conversations WHERE id=? AND config_agent_id=? AND owner_id=?',id,agentId,binding.owner_id);
     const channel=c?all(this.db,'SELECT * FROM agent_channels WHERE agent_id=? AND node_id=? AND owner_id=? AND provider=? AND enabled=1',agentId,binding.node_id,binding.owner_id,c.external_source)
-      .find(row=>String(c.external_chat_id).startsWith(`${row.provider}:${JSON.parse(row.config_json).app_id}:${c.type==='group'?'group':'dm'}:`)):undefined;
+      .find(row=>matchesExternalChannel(row,c)):undefined;
     if(!c||!channel||!this.ctx.personal!.sourceAllowed(binding,id))fail(403,'incoming_source_not_verified');
     return {...c,owner_user_id:binding.owner_user_id};
   }
@@ -600,7 +601,7 @@ export class Messaging {
       : b.timezone === undefined ? one(this.db, "SELECT timezone FROM users WHERE id=?", p.id)?.timezone ?? null
       : this.updateUserTimezone(p.id, b.timezone);
     const agents = b.suppress_relay ? [] : this.relayAgents(id).filter(a=>type!=='agent' || a.agent_id!==agentId);
-    const origin = p.kind==='gateway' && c.external_source==='feishu' && c.config_agent_id===agentId && type==='user' && b.sender_source_id
+    const origin = p.kind==='gateway' && (c.external_source==='feishu' || c.external_source==='wechat') && c.config_agent_id===agentId && type==='user' && b.sender_source_id
       ? providerFacts(b.provider_facts) : undefined;
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {

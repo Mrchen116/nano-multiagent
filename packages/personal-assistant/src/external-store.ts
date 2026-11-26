@@ -12,14 +12,33 @@ function decodeFrame(value: unknown): ExternalFrame {
   return isSystemNotice(value) ? value : decodeChatStream(value);
 }
 
-export interface ExternalChat { id: string; agentId: string; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }
+export type ExternalProvider = 'feishu' | 'wechat';
+export type ExternalMessagePart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; key: string; fileName?: string }
+  | { type: 'file'; key: string; fileName: string; mediaType?: string };
+export interface ExternalStoredMessage {
+  messageId: string;
+  chatId: string;
+  senderId: string;
+  isGroup: boolean;
+  mentioned: boolean;
+  time: string;
+  parentId?: string;
+  mentionIds?: string[];
+  senderName?: string;
+  chatName?: string;
+  contextOnly?: boolean;
+  parts: ExternalMessagePart[];
+}
+export interface ExternalChat { id: string; agentId: string; provider?: ExternalProvider; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }
 export interface ExternalOutput { lifecycle_revision:number; id: string; chatId: string; operationId: string; reply?: string; state: string; platformId?: string; imId?: string }
 
 type InboundRow = { id: string; chatId: string; body: string; accepted: number; mirror: string | null; reaction: string | null; reactionStage: 'received' | 'read' | null };
-export type ExternalInbound = Omit<InboundRow, 'body'> & { message: FeishuMessage; input: RelayInput };
+export type ExternalInbound = Omit<InboundRow, 'body'> & { message: ExternalStoredMessage; input: RelayInput };
 const selectInbound = 'SELECT id,chat_id AS chatId,body,accepted,mirror,reaction,reaction_stage AS reactionStage FROM inbound';
 function decodeInbound({ body, ...row }: InboundRow): ExternalInbound {
-  return { ...row, ...JSON.parse(body) as { message: FeishuMessage; input: RelayInput } };
+  return { ...row, ...JSON.parse(body) as { message: ExternalStoredMessage; input: RelayInput } };
 }
 
 /** Separate facts for platform delivery and IM projection; one can succeed without the other. */
@@ -81,7 +100,7 @@ export class ExternalStore {
       .all(agentId, selected, selected) as {body:string}[]).map(row => JSON.parse(row.body) as ExternalChat);
   }
   saveChat(chat: ExternalChat): void { this.db.prepare('INSERT INTO chats VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body').run(chat.id, chat.agentId, JSON.stringify(chat)); }
-  saveInbound(id: string, chatId: string, message: FeishuMessage, input: RelayInput): void {
+  saveInbound(id: string, chatId: string, message: ExternalStoredMessage | FeishuMessage, input: RelayInput): void {
     this.db.prepare('INSERT OR IGNORE INTO inbound(id,chat_id,body) VALUES(?,?,?)').run(id, chatId, JSON.stringify({ message, input }));
   }
   inbound(id: string): ExternalInbound | undefined {
@@ -116,7 +135,7 @@ export class ExternalStore {
   recentInbound(chatId: string): ExternalInbound[] {
     return (this.db.prepare(selectInbound + ' WHERE chat_id=? ORDER BY rowid DESC LIMIT 50').all(chatId) as InboundRow[]).reverse().map(decodeInbound);
   }
-  updateInput(id: string, message: FeishuMessage, input: RelayInput): void { this.db.prepare('UPDATE inbound SET body=? WHERE id=?').run(JSON.stringify({ message, input }), id); }
+  updateInput(id: string, message: ExternalStoredMessage | FeishuMessage, input: RelayInput): void { this.db.prepare('UPDATE inbound SET body=? WHERE id=?').run(JSON.stringify({ message, input }), id); }
   accept(id: string): void { this.db.prepare('UPDATE inbound SET accepted=1 WHERE id=?').run(id); }
   mirrorInput(id: string, messageId: string): void { this.db.prepare('UPDATE inbound SET mirror=? WHERE id=?').run(messageId, id); }
   reaction(id: string, reaction: string | null, stage?: 'received' | 'read'): void {

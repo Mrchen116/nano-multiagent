@@ -192,7 +192,7 @@ export class SingleThread {
     const control = sessionControl(input, config);
     const command = controlText(input);
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command) && !control ||
-      command === '/new' && input.metadata.channel === 'feishu' && !needsAttention(input,config);
+      command === '/new' && (input.metadata.channel === 'feishu' || input.metadata.channel === 'wechat') && !needsAttention(input,config);
     if (priority === 'skip' || unaddressedControl || store.skippedChat(input)) {
       store.skipChat(input);
       await this.options.relay.request('node.delivery_receipt', { node_id:this.options.nodeId, relay_task_id:input.relay_task_id, delivery_status:'skipped' });
@@ -309,7 +309,7 @@ export class SingleThread {
       const source: SubmitInput['source'] = deadline
         ? {kind:'system', channel:'chat-background', actorId:binding.agentId, messageId:inputId}
         : {kind:input.message.sender_type === 'user' ? 'human' : 'system', actorId:input.message.sender_user_id,
-          ...(input.metadata.channel === 'feishu' && input.metadata.owner_user_id === binding.ownerId ? {roleAccountId:binding.ownerId} : {}),
+          ...((input.metadata.channel === 'feishu' || input.metadata.channel === 'wechat') && input.metadata.owner_user_id === binding.ownerId ? {roleAccountId:binding.ownerId} : {}),
           channel:typeof input.metadata.channel === 'string' ? input.metadata.channel : 'web_relay', messageId:input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender},
           ...(input.message.pa_agent_id ? {pa_agent_id:input.message.pa_agent_id} : {}), contextEnvelope,
           ...(input.message.sender_type === 'user' && (chatBatch || input.metadata.thread_root_message_id) ? {directHumanText:input.message.content} : {})};
@@ -368,8 +368,9 @@ export class SingleThread {
     const sourceTime = 'provider_source_time' in input.metadata ? input.metadata.provider_source_time : input.message.created_at;
     if (typeof sourceTime === 'string' && Number.isFinite(Date.parse(sourceTime))) {
       const time = formatLocalTime(sourceTime, input.message.timezone);
-      contextEnvelope = `Message time: ${time}${input.message.timezone ? ` (${input.message.timezone})` : ''}; source: ${input.metadata.channel === 'feishu' ? 'Feishu' : 'Web IM'}.`;
-      if (labelSource && !threadRoot && !input.metadata.origin && !binding.conversationId.startsWith('external:') && input.metadata.channel !== 'feishu') {
+      const sourceLabel = input.metadata.channel === 'feishu' ? 'Feishu' : input.metadata.channel === 'wechat' ? 'WeChat' : 'Web IM';
+      contextEnvelope = `Message time: ${time}${input.message.timezone ? ` (${input.message.timezone})` : ''}; source: ${sourceLabel}.`;
+      if (labelSource && !threadRoot && !input.metadata.origin && !binding.conversationId.startsWith('external:') && input.metadata.channel !== 'feishu' && input.metadata.channel !== 'wechat') {
         contextEnvelope += ` IM message ID: ${shortMsgId}.`;
       }
       content.push({ type: 'text', text: contextEnvelope });

@@ -72,13 +72,85 @@ function channelError(code: string, status = 422, current?: Row): never {
 }
 const joined = `SELECT ac.*,s.observed_revision,s.connection_state,s.diagnostics_state,s.status_code,s.status_message,s.checks_json,s.received_at,n.status AS node_status,h.manifest_revision AS head_manifest_revision,h.applied_manifest_revision,h.last_apply_error_json FROM agent_channels ac LEFT JOIN agent_channel_status s ON s.channel_id=ac.channel_id LEFT JOIN nodes n ON n.node_id=ac.node_id LEFT JOIN channel_manifest_heads h ON h.node_id=ac.node_id`;
 function config(provider: string, input: Row): Row {
-  if (provider !== "feishu") channelError("channel_provider_unsupported");
-  if (!input || typeof input.app_id !== "string" || !input.app_id.trim())
-    channelError("channel_config_invalid");
-  return { app_id: input.app_id.trim() };
+  if (provider === "feishu") {
+    if (!input || typeof input.app_id !== "string" || !input.app_id.trim())
+      channelError("channel_config_invalid");
+    return { app_id: input.app_id.trim() };
+  }
+  if (provider === "wechat") {
+    if (
+      !input ||
+      typeof input.bot_id !== "string" ||
+      !input.bot_id.trim() ||
+      typeof input.owner_user_id !== "string" ||
+      !input.owner_user_id.trim() ||
+      typeof input.base_url !== "string" ||
+      !input.base_url.trim()
+    )
+      channelError("channel_config_invalid");
+    return {
+      bot_id: input.bot_id.trim(),
+      owner_user_id: input.owner_user_id.trim(),
+      base_url: input.base_url.trim(),
+    };
+  }
+  channelError("channel_provider_unsupported");
 }
 function fingerprint(provider: string, c: Row) {
+  if (provider === "wechat") {
+    return createHash("sha256")
+      .update(`wechat\0${c.bot_id}\0${c.owner_user_id}`)
+      .digest("hex");
+  }
   return createHash("sha256").update(`${provider}\0${c.app_id}`).digest("hex");
+}
+function removalDisplayConfig(provider: string, c: Row): Row {
+  if (provider === "wechat") {
+    return {
+      bot_id_suffix: String(c.bot_id ?? "").slice(-6),
+      owner_user_id_suffix: String(c.owner_user_id ?? "").slice(-4),
+    };
+  }
+  return { app_id_suffix: String(c.app_id ?? "").slice(-5) };
+}
+
+/** Resolves the bound owner's external platform user ID from persisted channel columns. */
+export function externalChannelOwnerId(row: Row): string | undefined {
+  if (row.provider === "wechat") {
+    const owner = JSON.parse(row.config_json).owner_user_id;
+    return typeof owner === "string" && owner ? owner : undefined;
+  }
+  if (row.provider === "feishu") {
+    const owner = JSON.parse(row.provider_runtime_json).owner_open_id;
+    return typeof owner === "string" && owner ? owner : undefined;
+  }
+  return undefined;
+}
+
+/** Verifies whether an `agent_channels` row owns a persisted shadow `conversations` record. */
+export function matchesExternalChannel(row: Row, chat: Row): boolean {
+  if (row.provider !== chat.external_source) return false;
+  const cfg = JSON.parse(row.config_json);
+  if (row.provider === "feishu") {
+    return (
+      typeof cfg.app_id === "string" &&
+      Boolean(cfg.app_id) &&
+      String(chat.external_chat_id).startsWith(
+        `feishu:${cfg.app_id}:${chat.type === "group" ? "group" : "dm"}:`,
+      )
+    );
+  }
+  if (row.provider === "wechat") {
+    return (
+      chat.type === "direct" &&
+      typeof cfg.bot_id === "string" &&
+      Boolean(cfg.bot_id) &&
+      typeof cfg.owner_user_id === "string" &&
+      Boolean(cfg.owner_user_id) &&
+      chat.external_chat_id === `wechat:${cfg.bot_id}:dm:${cfg.owner_user_id}`
+    );
+  }
+  return false;
 }
 function removalView(r: Row) {
   return {
@@ -249,6 +321,8 @@ export class ChannelService {
   }
   create(owner: string, agent: string, input: Row) {
     return transaction(this.db, () => {
+      if (input?.provider === "wechat")
+        channelError("channel_interactive_setup_required", 422);
       const node = this.agent(owner, agent),
         key = this.key(owner, node),
         c = config(input.provider, input.config);
@@ -323,8 +397,11 @@ export class ChannelService {
       if (r.channel_revision !== input.channel_revision)
         channelError("channel_revision_conflict", 409, view(r));
       const c = config(r.provider, input.config),
-        changed = c.app_id !== JSON.parse(r.config_json).app_id,
+        serializedConfig = sortedJsonUtf8(c),
+        changed = serializedConfig !== r.config_json,
         mode = input.credentials?.mode;
+      if (r.provider === "wechat" && (mode !== "keep" || changed))
+        channelError("channel_interactive_setup_required", 422);
       if (!["keep", "replace"].includes(mode) || (changed && mode !== "replace"))
         channelError("channel_credentials_required");
       if (typeof input.enabled !== "boolean") channelError("channel_config_invalid");
@@ -397,9 +474,9 @@ export class ChannelService {
           agent,
           r.node_id,
           r.provider,
-          sortedJsonUtf8({
-            app_id_suffix: JSON.parse(r.config_json).app_id.slice(-5),
-          }),
+          sortedJsonUtf8(
+            removalDisplayConfig(r.provider, JSON.parse(r.config_json)),
+          ),
           revision,
           h.manifest_revision,
           new Date(Date.now() + 7 * 86400000).toISOString(),
@@ -474,7 +551,7 @@ export class ChannelService {
           !r ||
           !r.channel_id ||
           !r.agent_id ||
-          r.provider !== "feishu" ||
+          !["feishu", "wechat"].includes(r.provider) ||
           r.credential_key_id !== k.key_id ||
           !r.credential_envelope ||
           !Object.keys(r.credential_envelope).length ||
@@ -679,6 +756,131 @@ export class ChannelService {
       };
     });
   }
+  preflightWeChatSetup(
+    owner: string,
+    agent: string,
+    editingChannelId?: string,
+    expectedRevision?: number,
+  ): string {
+    const node = this.agent(owner, agent);
+    this.key(owner, node);
+    if (
+      one(
+        this.db,
+        "SELECT 1 FROM agent_channel_removals WHERE owner_id=? AND agent_id=? AND provider='wechat' AND apply_state!='applied'",
+        owner,
+        agent,
+      )
+    )
+      channelError("channel_deletion_pending", 409);
+    if (editingChannelId) {
+      const r = this.row(owner, agent, editingChannelId);
+      if (r.provider !== "wechat") channelError("channel_provider_unsupported");
+      if (expectedRevision !== undefined && r.channel_revision !== expectedRevision)
+        channelError("channel_revision_conflict", 409, view(r));
+    } else if (
+      one(
+        this.db,
+        "SELECT 1 FROM agent_channels WHERE owner_id=? AND agent_id=? AND provider='wechat'",
+        owner,
+        agent,
+      )
+    ) {
+      channelError("channel_provider_already_exists", 409);
+    }
+    return node;
+  }
+  completeWeChatSetup(
+    owner: string,
+    agent: string,
+    binding: { bot_token: string; bot_id: string; owner_user_id: string; base_url: string },
+    editingChannelId?: string,
+    expectedRevision?: number,
+  ) {
+    return transaction(this.db, () => {
+      const node = this.preflightWeChatSetup(owner, agent, editingChannelId, expectedRevision);
+      const k = this.key(owner, node);
+      const c = config("wechat", {
+        bot_id: binding.bot_id,
+        owner_user_id: binding.owner_user_id,
+        base_url: binding.base_url,
+      });
+      const serializedConfig = sortedJsonUtf8(c);
+      const nextFp = fingerprint("wechat", c);
+      if (editingChannelId) {
+        const r = this.row(owner, agent, editingChannelId);
+        const identityChanged = serializedConfig !== r.config_json;
+        const nextCredRev = r.credential_revision + 1;
+        const envelope = sealChannelSecret(
+          k.public_key,
+          { bot_token: binding.bot_token },
+          {
+            owner_id: owner,
+            node_id: r.node_id,
+            agent_id: agent,
+            channel_id: editingChannelId,
+            provider: "wechat",
+            credential_revision: nextCredRev,
+          },
+        );
+        this.db
+          .prepare(
+            "UPDATE agent_channels SET enabled=1,config_json=?,provider_identity_fingerprint=?,provider_identity_revision=?,provider_runtime_json='{}',credential_envelope_json=?,credential_key_id=?,credential_revision=?,channel_revision=?,updated_at=? WHERE channel_id=?",
+          )
+          .run(
+            serializedConfig,
+            nextFp,
+            r.provider_identity_revision + +identityChanged,
+            sortedJsonUtf8(envelope),
+            k.key_id,
+            nextCredRev,
+            r.channel_revision + 1,
+            now(),
+            editingChannelId,
+          );
+        this.advance(owner, r.node_id);
+        return {
+          resource: view(this.row(owner, agent, editingChannelId)),
+          manifest: this.manifest(r.node_id)!,
+        };
+      }
+      const id = `ch_${randomUUID().replaceAll("-", "")}`,
+        stamp = now();
+      const envelope = sealChannelSecret(
+        k.public_key,
+        { bot_token: binding.bot_token },
+        {
+          owner_id: owner,
+          node_id: node,
+          agent_id: agent,
+          channel_id: id,
+          provider: "wechat",
+          credential_revision: 1,
+        },
+      );
+      this.db
+        .prepare(
+          "INSERT INTO agent_channels(channel_id,owner_id,agent_id,node_id,provider,enabled,config_json,provider_identity_fingerprint,provider_identity_revision,provider_runtime_json,credential_envelope_json,credential_key_id,credential_revision,channel_revision,created_at,updated_at) VALUES(?,?,?,?,'wechat',1,?,?,1,'{}',?,?,1,1,?,?)",
+        )
+        .run(
+          id,
+          owner,
+          agent,
+          node,
+          serializedConfig,
+          nextFp,
+          sortedJsonUtf8(envelope),
+          k.key_id,
+          stamp,
+          stamp,
+        );
+      this.advance(owner, node);
+      return {
+        resource: view(this.row(owner, agent, id)),
+        manifest: this.manifest(node)!,
+      };
+    });
+  }
 }
 export function registerChannelRoutes(app: FastifyInstance, ctx: ImContext) {
   const service = new ChannelService(ctx.db),
@@ -760,5 +962,80 @@ export function registerChannelRoutes(app: FastifyInstance, ctx: ImContext) {
       );
     if (!push(r.manifest)) channelError("channel_node_offline", 409);
     return r.resource;
+  });
+  const wechatSetups = new Map<
+    string,
+    { owner: string; agentId: string; editingChannelId?: string; channelRevision?: number; committed?: Row }
+  >();
+  app.post("/im/v1/agents/:agent_id/channels/wechat/setup", async (req) => {
+    const owner = writable(req),
+      agentId = params(req).agent_id,
+      b = body(req) ?? {},
+      action = b.action;
+    if (!["start", "status", "verify_code", "cancel"].includes(action))
+      channelError("channel_config_invalid");
+    const editingChannelId =
+      typeof b.editing_channel_id === "string" && b.editing_channel_id.trim()
+        ? b.editing_channel_id.trim()
+        : undefined;
+    const channelRevision =
+      b.channel_revision !== undefined ? Number(b.channel_revision) : undefined;
+    if (channelRevision !== undefined && (!Number.isInteger(channelRevision) || channelRevision < 1))
+      channelError("channel_revision_invalid");
+
+    if (action === "start") {
+      const nodeId = service.preflightWeChatSetup(owner, agentId, editingChannelId, channelRevision);
+      const reply = await ctx.gateway.request(nodeId, "node.wechat.setup.request", {
+        action: "start",
+        agent_id: agentId,
+        ...(editingChannelId ? { editing_channel_id: editingChannelId } : {}),
+      });
+      if (reply.setup_id) {
+        wechatSetups.set(reply.setup_id, { owner, agentId, editingChannelId, channelRevision });
+      }
+      if (reply.state === "confirmed" && reply.binding) {
+        const committed = service.completeWeChatSetup(owner, agentId, reply.binding, editingChannelId, channelRevision);
+        push(committed.manifest);
+        if (reply.setup_id) wechatSetups.set(reply.setup_id, { owner, agentId, committed: committed.resource });
+        return { setup_id: reply.setup_id, state: "confirmed", channel: committed.resource };
+      }
+      const { binding: _neverEcho, ...safe } = reply;
+      return safe;
+    }
+
+    const setupId = typeof b.setup_id === "string" && b.setup_id.trim() ? b.setup_id.trim() : "";
+    if (!setupId) channelError("channel_config_invalid");
+    const tracked = wechatSetups.get(setupId);
+    if (tracked && (tracked.owner !== owner || tracked.agentId !== agentId))
+      channelError("channel_not_found", 404);
+    if (tracked?.committed && (action === "status" || action === "verify_code")) {
+      return { setup_id: setupId, state: "confirmed", channel: tracked.committed };
+    }
+    const profile = one(ctx.db, "SELECT node_id FROM agent_profiles WHERE agent_id=? AND owner_id=?", agentId, owner);
+    if (!profile?.node_id) channelError("channel_not_found", 404);
+
+    let rpcPayload: Parameters<typeof ctx.gateway.request<"node.wechat.setup.request">>[2];
+    if (action === "verify_code") {
+      const code = typeof b.code === "string" ? b.code.trim() : "";
+      if (!/^\d{1,12}$/.test(code)) channelError("channel_verify_code_invalid", 422);
+      rpcPayload = { action: "verify_code", agent_id: agentId, setup_id: setupId, code };
+    } else if (action === "cancel") {
+      rpcPayload = { action: "cancel", agent_id: agentId, setup_id: setupId };
+    } else {
+      rpcPayload = { action: "status", agent_id: agentId, setup_id: setupId };
+    }
+
+    const reply = await ctx.gateway.request(profile.node_id, "node.wechat.setup.request", rpcPayload);
+    if (action === "cancel") wechatSetups.delete(setupId);
+    if (reply.state === "confirmed" && reply.binding) {
+      const effectiveEditId = editingChannelId ?? tracked?.editingChannelId;
+      const effectiveRev = channelRevision ?? tracked?.channelRevision;
+      const committed = service.completeWeChatSetup(owner, agentId, reply.binding, effectiveEditId, effectiveRev);
+      push(committed.manifest);
+      wechatSetups.set(setupId, { owner, agentId, committed: committed.resource });
+      return { setup_id: setupId, state: "confirmed", channel: committed.resource };
+    }
+    const { binding: _neverEcho, ...safe } = reply;
+    return safe;
   });
 }

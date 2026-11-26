@@ -135,6 +135,30 @@ export function openDatabase(path: string): DatabaseSync {
       initializeWorkLifetimeUsage(db);
       db.prepare("INSERT INTO schema_migrations VALUES('work-lifetime-usage-v1')").run();
     }
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='owner-direct-wechat-view-v1'").get()) {
+      db.exec(`DROP VIEW IF EXISTS owner_direct_agent_messages;
+        CREATE VIEW owner_direct_agent_messages AS
+          SELECT m.id AS message_id, a.agent_id
+          FROM messages m
+          JOIN conversations c ON c.id=m.conversation_id AND c.type='direct'
+          JOIN agent_profiles a ON ((m.sender_source_id IS NOT NULL AND a.agent_id=c.config_agent_id)
+            OR (m.sender_source_id IS NULL AND EXISTS (SELECT 1 FROM conversation_participants cp JOIN users agent ON agent.id=cp.user_id
+              WHERE cp.conversation_id=c.id AND agent.username='agent:'||a.agent_id)))
+          WHERE m.sender_type='user'
+          AND NOT EXISTS (SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=m.id AND d.representation_operation_id IS NOT NULL)
+          AND ((m.sender_source_id IS NULL AND m.sender_user_id=COALESCE(
+                (SELECT b.owner_user_id FROM personal_agent_bindings b WHERE b.agent_id=a.agent_id),
+                (SELECT u.id FROM users u WHERE u.owner_id=a.owner_id AND u.username NOT LIKE 'agent:%' AND u.username NOT LIKE 'shadow:%' AND u.username!='system' LIMIT 1)))
+            OR (c.config_agent_id=a.agent_id AND c.external_source='feishu' AND EXISTS (
+              SELECT 1 FROM agent_channels ch WHERE ch.agent_id=a.agent_id AND ch.provider='feishu' AND ch.enabled=1
+              AND ch.owner_id=a.owner_id AND ch.node_id=a.node_id AND m.sender_source_id=json_extract(ch.provider_runtime_json,'$.owner_open_id')
+              AND c.external_chat_id='feishu:'||json_extract(ch.config_json,'$.app_id')||':dm:'||m.sender_source_id))
+            OR (c.config_agent_id=a.agent_id AND c.external_source='wechat' AND EXISTS (
+              SELECT 1 FROM agent_channels ch WHERE ch.agent_id=a.agent_id AND ch.provider='wechat' AND ch.enabled=1
+              AND ch.owner_id=a.owner_id AND ch.node_id=a.node_id AND m.sender_source_id=json_extract(ch.config_json,'$.owner_user_id')
+              AND c.external_chat_id='wechat:'||json_extract(ch.config_json,'$.bot_id')||':dm:'||m.sender_source_id)));`);
+      db.prepare("INSERT INTO schema_migrations VALUES('owner-direct-wechat-view-v1')").run();
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

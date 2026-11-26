@@ -38,6 +38,17 @@ for service in vite im; do
     rm -f "$WT_ROOT/.$service.pid" "$WT_ROOT/.$service.process-start"
   fi
 done
+for twin_pid_file in "$WT_ROOT/.wechat-twin.pid" "$WT_ROOT/wechat-twin.pid"; do
+  if [[ -f "$twin_pid_file" ]]; then
+    twin_pid="$(cat "$twin_pid_file")"
+    if [[ "$twin_pid" =~ ^[1-9][0-9]*$ ]] && kill -0 "$twin_pid" 2>/dev/null; then
+      if ps -p "$twin_pid" -o command= 2>/dev/null | grep -Fq "e2e-wechat-twin.mjs"; then
+        kill "$twin_pid" 2>/dev/null || true
+      fi
+    fi
+    rm -f "$twin_pid_file"
+  fi
+done
 if [[ -f "$WT_ROOT/.e2e-ports.env" ]]; then
   feishu_lock_dir="$(sed -n 's/^export E2E_FEISHU_LISTENER_LOCK=//p' "$WT_ROOT/.e2e-ports.env" | head -1)"
   if [[ -n "$feishu_lock_dir" && -f "$feishu_lock_dir/owner" ]] && grep -Fqx "worktree=$WT_ROOT" "$feishu_lock_dir/owner"; then

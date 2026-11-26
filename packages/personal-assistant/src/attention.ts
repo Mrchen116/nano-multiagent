@@ -15,7 +15,7 @@ export function chatDelivery(input: RelayInput, config: AgentConfiguration, owne
   const direct = meta.conversation_type === 'direct' && meta.personal_delivery !== 'observer' && !meta.pa_observation;
   const ownerDirect = typeof meta.owner_direct === 'boolean' ? meta.owner_direct
     : direct && input.message.sender_type === 'user' && !input.message.pa_agent_id
-      && (meta.channel==='feishu' ? meta.owner_user_id===ownerId : input.message.sender_user_id===ownerId);
+      && ((meta.channel==='feishu' || meta.channel==='wechat') ? meta.owner_user_id===ownerId : input.message.sender_user_id===ownerId);
   // A followed topic can wake an observer without turning observed text into an instruction.
   const addressedTopic = typeof meta.thread_root_message_id === 'string' && meta.addressed_to_agent === true;
   return classifyChatDelivery(config.collaborationScope, {
@@ -50,10 +50,10 @@ export function controlText(input:RelayInput):string {
 /** Return the original send instant when it is known for this channel. */
 export function sourceInstant(input: RelayInput): number | undefined {
   const meta=input.metadata;
-  const feishu=meta.channel==='feishu' || (!meta.channel && meta.trigger_source!=='im' && input.conversation_id.startsWith('external:'));
+  const external=meta.channel==='feishu' || meta.channel==='wechat' || (!meta.channel && meta.trigger_source!=='im' && input.conversation_id.startsWith('external:'));
   const value='provider_source_time' in meta ? meta.provider_source_time
-    : feishu ? Number(meta.source_timestamp) : input.message.created_at;
+    : external ? Number(meta.source_timestamp) : input.message.created_at;
   if(typeof value!=='string' && typeof value!=='number')return;
   const time=typeof value==='number'?value:Date.parse(value);
-  if(Number.isSafeInteger(time) && (!feishu || time>0) && !Number.isNaN(new Date(time).getTime()))return time;
+  if(Number.isSafeInteger(time) && (!external || time>0) && !Number.isNaN(new Date(time).getTime()))return time;
 }
