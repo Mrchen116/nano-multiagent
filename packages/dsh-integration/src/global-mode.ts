@@ -115,7 +115,7 @@ Respect denials; do not repeat the rejected action through another tool, channel
         if ((args as { interactive?: unknown }).interactive !== undefined || (args as { task_cards?: unknown }).task_cards !== undefined || (args as {reply_to_message_id?:unknown}).reply_to_message_id !== undefined || (args as {local_images?:unknown}).local_images !== undefined || (args as {local_files?:unknown}).local_files !== undefined || (args as {receipt_of?:unknown}).receipt_of !== undefined) throw new Error('Interactive, task_cards, quoted replies, and local attachments require a public target');
         const message = (args as { message: string }).message;
         if(config.mode==='global' && exec.agent && await ctx.nanoWorkers.isWorker(internalAgent))
-          return ctx.nanoWorkers.control(exec.agent,internalAgent,'send',message,exec.signal);
+          return ctx.nanoWorkers.control(exec.agent,internalAgent,'send',message,exec.signal,exec.callId);
         const wf = ctx.get('workflowEngine') as { isWorkChild?: (parentId: string, target: string, parent?: unknown) => Promise<boolean> } | undefined;
         if (exec.agent && await wf?.isWorkChild?.(exec.agent.id, internalAgent, exec.agent))
           throw new Error('Workflow step executions are managed by workflow(action="resume"), not send_message');

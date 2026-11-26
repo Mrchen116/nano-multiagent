@@ -382,7 +382,7 @@ export class LocalWorkers {
     }
   }
 
-  async control(root: Agent, id: string, action: 'send' | 'stop', text: string, signal: AbortSignal, dispatchCallId?: string) {
+  async control(root: Agent, id: string, action: 'send' | 'stop', text: string, signal: AbortSignal, dispatchCallId: string) {
     if (!this.bound(root.id)) throw new Error('Worker controls require the bound Global root');
     return this.serialize(this.commands, root.id, async () => {
       const row = (await this.domain).table('workers').get(id);
@@ -404,7 +404,7 @@ export class LocalWorkers {
         return { workerId: id, state: (await this.domain).table('workers').get(id)?.state };
       }
       if (!row.sessionId) throw new Error('The original CLI session was never established');
-      const cli = await this.activate(root, row, text, dispatchCallId ?? row.callId);
+      const cli = await this.activate(root, row, text, dispatchCallId);
       await this.change(row, { state: 'running' });
       try {
         await cli.send(text);
