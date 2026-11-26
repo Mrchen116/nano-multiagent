@@ -271,6 +271,10 @@ impl DesktopPaths {
         self.desktop_home.join("seed-current.json")
     }
 
+    pub fn is_isolated_autostart(&self) -> bool {
+        self.test_autostart_dir.is_some()
+    }
+
     pub fn connection_dir(&self, im_origin: &str) -> Result<PathBuf, String> {
         let normalized = normalize_im_origin(im_origin)?;
         let hash = &sha256_hex(normalized.as_bytes())[..16];

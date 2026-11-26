@@ -539,47 +539,31 @@ async fn handle_internal_deep_link(
 #[derive(Deserialize)]
 struct PopupBannerQuery {
     nonce: Option<String>,
-    title: Option<String>,
-    body: Option<String>,
-    kind: Option<String>,
-    route: Option<String>,
 }
 
-async fn handle_internal_popup_banner(
-    State(state): State<Arc<HostSharedState>>,
-    Query(query): Query<PopupBannerQuery>,
-) -> Response {
-    if query.nonce.as_deref() != Some(state.boot_nonce.as_str()) {
-        return json_error(StatusCode::FORBIDDEN, "Invalid popup nonce");
-    }
-    let initial = json!({
-        "nonce": state.boot_nonce,
-        "title": query.title.unwrap_or_default(),
-        "body": query.body.unwrap_or_default(),
-        "kind": query.kind.unwrap_or_else(|| "human_message".to_string()),
-        "route": query.route.unwrap_or_else(|| "/chat".to_string()),
-    });
-    let html = format!(
-        r##"<!doctype html>
+const POPUP_BANNER_CSP: &str =
+    "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'self'";
+
+const POPUP_BANNER_HTML: &str = r##"<!doctype html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
 <style>
-  * {{ box-sizing: border-box; user-select: none; -webkit-user-select: none; }}
-  html, body {{
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+  html, body {
     margin: 0; width: 100%; height: 100%; overflow: hidden;
     background: transparent !important;
     font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
     color: #231836;
-  }}
-  body {{
+  }
+  body {
     padding: 8px 14px 20px 14px;
-  }}
-  @keyframes popupEnter {{
-    from {{ opacity: 0; transform: translateY(-5px) scale(0.985); }}
-    to {{ opacity: 1; transform: translateY(0) scale(1); }}
-  }}
-  .card {{
+  }
+  @keyframes popupEnter {
+    from { opacity: 0; transform: translateY(-5px) scale(0.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .card {
     width: 100%; height: 100%; padding: 12px 15px;
     display: flex; align-items: center; gap: 12px;
     background: rgba(255, 255, 255, 0.97);
@@ -590,36 +574,36 @@ async fn handle_internal_popup_banner(
     position: relative;
     animation: popupEnter 180ms cubic-bezier(0.22, 1, 0.36, 1);
     transition: background 140ms ease, transform 140ms ease;
-  }}
-  .card:hover {{ background: #FFFFFF; }}
-  .card:active {{ transform: scale(0.992); }}
-  .avatar {{
+  }
+  .card:hover { background: #FFFFFF; }
+  .card:active { transform: scale(0.992); }
+  .avatar {
     width: 42px; height: 42px; flex-shrink: 0; border-radius: 13px;
     background: #FFF0B5;
     color: #6B43D8;
     display: grid; place-items: center;
-  }}
-  .avatar svg {{ width: 24px; height: 24px; }}
-  .main {{ flex: 1; min-width: 0; padding-right: 18px; }}
-  .meta {{ display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }}
-  .brand {{ font-size: 11px; font-weight: 700; color: #6B43D8; letter-spacing: -0.15px; }}
-  .sep, .time {{ font-size: 11px; color: #968FA6; font-weight: 500; }}
-  .title {{
+  }
+  .avatar svg { width: 24px; height: 24px; }
+  .main { flex: 1; min-width: 0; padding-right: 18px; }
+  .meta { display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }
+  .brand { font-size: 11px; font-weight: 700; color: #6B43D8; letter-spacing: -0.15px; }
+  .sep, .time { font-size: 11px; color: #968FA6; font-weight: 500; }
+  .title {
     font-size: 13.5px; font-weight: 650; line-height: 1.28; color: #231836;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;
-  }}
-  .body {{
+  }
+  .body {
     font-size: 12px; line-height: 1.36; color: #665E78;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  }}
-  .close {{
+  }
+  .close {
     position: absolute; top: 10px; right: 11px; width: 22px; height: 22px;
     border: 0; border-radius: 999px; background: transparent; color: #968FA6;
     font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center;
     opacity: 0.65; transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
-  }}
-  .card:hover .close {{ opacity: 1; }}
-  .close:hover {{ background: #F1EEF8; color: #231836; }}
+  }
+  .card:hover .close { opacity: 1; }
+  .close:hover { background: #F1EEF8; color: #231836; }
 </style>
 </head>
 <body>
@@ -643,43 +627,62 @@ async fn handle_internal_popup_banner(
     <button type="button" class="close" id="close" aria-label="关闭通知">×</button>
   </div>
 <script>
-  const state = {initial};
-  function cleanPreviewText(raw) {{
+  const params = new URLSearchParams(window.location.search);
+  const state = {
+    nonce: params.get("nonce") || "",
+    title: params.get("title") || "",
+    body: params.get("body") || "",
+    kind: params.get("kind") || "human_message",
+    route: params.get("route") || "/chat",
+    locale: params.get("locale") || "zh",
+  };
+  function cleanPreviewText(raw) {
     return String(raw || "").replace(/`([^`]+)`/g, "$1").trim();
-  }}
-  function render(next) {{
+  }
+  function render(next) {
     Object.assign(state, next);
+    const isEn = String(state.locale || "").toLowerCase().startsWith("en");
+    document.documentElement.lang = isEn ? "en" : "zh-CN";
+    document.getElementById("time").textContent = isEn ? "Now" : "现在";
+    document.getElementById("close").setAttribute("aria-label", isEn ? "Dismiss" : "关闭通知");
     document.getElementById("title").textContent = cleanPreviewText(state.title) || "Crewden";
     document.getElementById("body").textContent = cleanPreviewText(state.body);
-  }}
+  }
   window.__updateCrewdenPopup = render;
   render(state);
 
-  document.getElementById("close").addEventListener("click", (e) => {{
+  document.getElementById("close").addEventListener("click", (e) => {
     e.stopPropagation();
-    fetch("/desktop/internal/popup-action", {{
+    fetch("/desktop/internal/popup-action", {
       method: "POST",
-      headers: {{ "Content-Type": "application/json" }},
-      body: JSON.stringify({{ nonce: state.nonce, action: "dismiss" }}),
-    }});
-  }});
-  document.getElementById("card").addEventListener("click", () => {{
-    fetch("/desktop/internal/popup-action", {{
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nonce: state.nonce, action: "dismiss" }),
+    });
+  });
+  document.getElementById("card").addEventListener("click", () => {
+    fetch("/desktop/internal/popup-action", {
       method: "POST",
-      headers: {{ "Content-Type": "application/json" }},
-      body: JSON.stringify({{ nonce: state.nonce, action: "open", route: state.route }}),
-    }});
-  }});
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ nonce: state.nonce, action: "open", route: state.route }),
+    });
+  });
 </script>
 </body>
-</html>"##,
-        initial = initial
-    );
+</html>"##;
+
+async fn handle_internal_popup_banner(
+    State(state): State<Arc<HostSharedState>>,
+    Query(query): Query<PopupBannerQuery>,
+) -> Response {
+    if query.nonce.as_deref() != Some(state.boot_nonce.as_str()) {
+        return json_error(StatusCode::FORBIDDEN, "Invalid popup nonce");
+    }
     Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "text/html; charset=utf-8")
+        .header("content-security-policy", POPUP_BANNER_CSP)
         .header("cache-control", "no-store")
-        .body(Body::from(html))
+        .body(Body::from(POPUP_BANNER_HTML))
         .unwrap()
 }
 
@@ -2481,5 +2484,22 @@ mod tests {
             .await
             .unwrap();
         assert!(html_v2.contains("upgraded-v2"));
+
+        // 9. Popup banner returns static CSP-protected HTML with zero server-side `<script>` interpolation!
+        let xss_url = format!(
+            "http://127.0.0.1:{}/desktop/internal/popup-banner?nonce={}&title=%3C%2Fscript%3E%3Cscript%3Eevil()%3C%2Fscript%3E&body=%3Cimg%20src%3Dx%20onerror%3D1%3E",
+            port, host.state.boot_nonce
+        );
+        let popup_res = client.get(&xss_url).send().await.unwrap();
+        assert_eq!(popup_res.status(), reqwest::StatusCode::OK);
+        let csp = popup_res
+            .headers()
+            .get("content-security-policy")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(csp.contains("default-src 'none'"));
+        let popup_html = popup_res.text().await.unwrap();
+        assert!(!popup_html.contains("evil()"));
+        assert!(!popup_html.contains("<img"));
     }
 }

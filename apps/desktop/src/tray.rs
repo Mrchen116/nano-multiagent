@@ -303,6 +303,7 @@ impl DesktopUiBridge for TauriUiCoordinator {
             return;
         };
         let record = item.clone();
+        let locale = self.locale.lock().unwrap().clone();
         let app_for_show = app.clone();
         let _ = app.run_on_main_thread(move || {
             let mut popup_url =
@@ -316,7 +317,8 @@ impl DesktopUiBridge for TauriUiCoordinator {
                 .append_pair("title", &record.title)
                 .append_pair("body", &record.body)
                 .append_pair("kind", &record.kind)
-                .append_pair("route", &record.target_route);
+                .append_pair("route", &record.target_route)
+                .append_pair("locale", &locale);
 
             let win = if let Some(existing) = app_for_show.get_webview_window(POPUP_WINDOW_LABEL) {
                 let payload = json!({
@@ -324,10 +326,13 @@ impl DesktopUiBridge for TauriUiCoordinator {
                     "body": record.body,
                     "kind": record.kind,
                     "route": record.target_route,
+                    "locale": locale,
                 });
+                let payload_json_str =
+                    serde_json::to_string(&payload.to_string()).unwrap_or_else(|_| "\"{}\"".to_string());
                 let _ = existing.eval(&format!(
-                    "if (window.__updateCrewdenPopup) {{ window.__updateCrewdenPopup({}); }} else {{ window.location.replace({}); }}",
-                    payload,
+                    "if (window.__updateCrewdenPopup) {{ window.__updateCrewdenPopup(JSON.parse({})); }} else {{ window.location.replace({}); }}",
+                    payload_json_str,
                     serde_json::to_string(popup_url.as_str()).unwrap_or_default()
                 ));
                 existing

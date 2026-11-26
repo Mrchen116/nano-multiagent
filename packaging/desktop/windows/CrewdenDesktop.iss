@@ -25,6 +25,7 @@ SolidCompression=no
 
 [Files]
 Source: "..\..\..\dist\desktop-windows-build\CrewdenDesktop.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\..\apps\desktop\icons\128x128.png"; DestDir: "{app}"; DestName: "crewden-toast-icon.png"; Flags: ignoreversion
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\manifest.desktop-win32-x64.json"; DestDir: "{app}\seed-archives"; Flags: ignoreversion
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-win32-x64.json"; DestDir: "{app}\seed-archives"; Flags: ignoreversion
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-runtime-win32-x64.tar.gz"; DestDir: "{app}\seed-archives"; Flags: ignoreversion nocompression
@@ -37,7 +38,7 @@ Name: "{userprograms}\Crewden Desktop"; Filename: "{app}\CrewdenDesktop.exe"; Wo
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\AppUserModelId\work.crewden.desktop"; ValueType: string; ValueName: "DisplayName"; ValueData: "Crewden"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\AppUserModelId\work.crewden.desktop"; ValueType: string; ValueName: "IconBackgroundColor"; ValueData: "0"
-Root: HKCU; Subkey: "Software\Classes\AppUserModelId\work.crewden.desktop"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\CrewdenDesktop.exe"
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\work.crewden.desktop"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\crewden-toast-icon.png"
 Root: HKCU; Subkey: "Software\Classes\crewden-desktop"; ValueType: string; ValueName: ""; ValueData: "URL:Crewden Desktop"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\crewden-desktop"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\crewden-desktop\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\CrewdenDesktop.exe"",0"

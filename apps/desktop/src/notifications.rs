@@ -1246,7 +1246,11 @@ async fn run_single_session_stream(
 
                 if matches!(
                     event_type.as_str(),
-                    "agent.created" | "agent.updated" | "agent.deleted"
+                    "agent.created"
+                        | "agent.updated"
+                        | "agent.deleted"
+                        | "agent.status_changed"
+                        | "agent.lifecycle.changed"
                 ) {
                     tracker.owned_agents.clear();
                     tracker.foreign_agents.clear();
