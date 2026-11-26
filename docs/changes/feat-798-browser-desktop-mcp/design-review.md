@@ -31,3 +31,28 @@
 - W1：PA 在渲染引用、背景前提供每条认证用户消息的直接原文；旧记录缺失时不凭拼接正文授予权限。
 - W2：仅启用工具时扩展 delegate_worker.start，显式选择真实交办引用，由宿主验证并绑定单一 activation，root 与获委派者共用一次消费位。普通委派没有该能力。
 - W3：后台连接前核实 Chrome、扩展版本和运行状态，避免旧浏览器的连接页抢焦点。
+
+## Round 2
+
+- Reviewer 为独立复审者 `/root/gate2_closure`，目标为 `4dad7cf14` 的 `design.md` 及两份 Gateway delta。
+- `review_mode: closure`。三项修订限于直接消息取证、委派绑定与后台连接前置条件。其他设计判断沿用 Round 1。本轮包含 Agent Context 设计审查。
+- `started_at: 2026-11-27T01:08:45+09:00`，`completed_at: 2026-11-27T01:09:19+09:00`，`duration: 34s`。
+- **Issues Found**，0 CRITICAL，1 WARNING。
+
+### 历史问题闭环
+
+- **R1-W1 · still-open（R2-W1）**。作者将 PA 原文来源固定为组装引用前的 `input.message.content`，并规定旧记录缺少 `directHumanText` 时无读取资格。对照 `single-thread.ts:311–315,334–338`，这已解决普通直聊缺原文、引用或卡片混入的问题。对直接消息的发送者是否有权操作本节点仍欠明确规则，见下。
+- **R1-W2 · closed**。作者在启用能力时才向根会话的 `delegate_worker.start` 增加 `computer_request_ref`。与 `global-mode.ts:21–30` 和 `local-workers/manager.ts:249` 对照，宿主可以在启动时解析本轮取得的真实消息，检查归属及操作范围后绑定特定 activation；普通派工无需参数且无此工具。根会话与承接同一消息的 Worker 共享消费位。M1 已安排双交办并发、关闭能力时的出站 schema 及模型实际选参检查。
+- **R1-W3 · closed**。作者要求连接前确认浏览器进程已运行、Chrome 至少为 158.0.8127.2、所选 Profile 的扩展至少为 0.5.0，并为前置条件不足返回启动或升级指引。微软说明分别把两项版本约束用于 token 连接页和后台任务页，且要求浏览器已运行。M1 已包含旧浏览器连接前停止与双任务后台操作。此次核实的是设计条件，实际前台焦点由 M1 验证。[微软扩展后台模式](https://github.com/microsoft/playwright/blob/main/packages/extension/README.md#working-in-the-background)
+
+### Issues
+
+**R2-W1 · 对直接人类输入，系统剪贴板的一次性资格仍缺少节点授权判据。** `design.md:29` 对 Global Inbox 明确要求主人交办，对 single-thread 直接路径则规定取已认证发送者原文、明确肯定请求即产生资格。宿主能确认一条消息来自真人，同时也允许非主人的定向协作消息进入会话。现有 `attention.ts:13–24` 明确区分 `ownerDirect` 与 `directToAgent`，`input-source.ts:25–27` 的真人来源检查也未比较节点主人。若协作者请求整理自己刚复制的内容，按现有文字实现的根会话可能直接读出主人机器上的剪贴板。请把直接路径签发资格限定到持有本节点授权的真实发送者、其本人发出且确实交办给当前 Agent 的消息，说明沿用的可信身份映射。M1 以主人和已认证协作者发送相同文本对照，一者可用一次，另一者直到返回均没有触碰系统剪贴板。此处为已确认的设计遗漏，尚无运行时读取结论。
+
+### Recommendations
+
+无。
+
+### Round 2 resolution
+
+直接系统输入要求真实 actorId 匹配节点主人，Global Inbox 须有宿主认定的 owner + participant，代理与协作者不能授予资格。M1 对相同主人/协作者原话做成对验证。
