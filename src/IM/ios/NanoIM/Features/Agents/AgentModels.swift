@@ -75,9 +75,12 @@ struct AgentDraft: Equatable, Sendable {
         return skills_selection_mode == "default_discovery" ? candidates : skills
     }
     var effectiveTools: [String] {
-        Array(Set(tool_allowlist + fixed_tools + (work_mode == "global" ? ["inbox", "conversations", "read_messages", "search_messages", "threads", "send_message", "delegate_worker"] : []))).sorted()
+        effectiveTools(capabilities: nil, personal: false)
     }
-    func payload(version: Int? = nil, creating: Bool = false, customWorkspace: Bool = false, confirmed: Bool = false) -> [String: JSONValue] {
+    func effectiveTools(capabilities: AgentCapabilities?, personal: Bool) -> [String] {
+        Array(Set(effectiveSelectedTools(capabilities: capabilities) + fixed_tools + AgentCapabilities.modeFixedTools(mode: work_mode, personal: personal))).sorted()
+    }
+    func payload(version: Int? = nil, creating: Bool = false, customWorkspace: Bool = false, confirmed: Bool = false, personal: Bool = false, capabilities: AgentCapabilities? = nil) -> [String: JSONValue] {
         var body: [String: JSONValue] = [
             "display_name": .string(display_name.trimmingCharacters(in: .whitespacesAndNewlines)),
             "description": .string(description), "default_model": default_model.isEmpty ? .null : .string(default_model),
@@ -85,7 +88,7 @@ struct AgentDraft: Equatable, Sendable {
             "reasoning_effort": reasoning_effort.isEmpty ? .null : .string(reasoning_effort),
             "approval_mode": approval_mode.isEmpty ? .null : .string(approval_mode),
             "skills": .array(skills.map(JSONValue.string)), "skills_selection_mode": .string(skills_selection_mode),
-            "tool_allowlist": .array(effectiveTools.map(JSONValue.string)),
+            "tool_allowlist": .array(sanitizeStaticTools(personal: personal, capabilities: capabilities).map(JSONValue.string)),
             "features": .object(features.mapValues(JSONValue.bool)),
             "collaboration_scope": .string(collaboration_scope)
         ]
@@ -100,11 +103,12 @@ struct AgentDraft: Equatable, Sendable {
         }
         return body
     }
-    func previewPayload(capabilities: AgentCapabilities?, creating: Bool, customWorkspace: Bool) -> [String: JSONValue] {
+    func previewPayload(capabilities: AgentCapabilities?, creating: Bool, customWorkspace: Bool, personal: Bool = false) -> [String: JSONValue] {
         let skillIDs = skills_selection_mode == "default_discovery" ? capabilities?.skills.map(\.name) ?? [] : skills
-        var body: [String: JSONValue] = ["scenario": .string("direct"), "features": .object(features.mapValues(JSONValue.bool)), "tool_ids": .array(effectiveTools.map(JSONValue.string)), "skill_ids": .array(skillIDs.map(JSONValue.string)), "skills_selection_mode": .string(skills_selection_mode), "work_mode": .string(work_mode)]
-        body["heartbeat_enabled"] = .bool(features["heartbeat"] ?? false)
-        body["cron_enabled"] = .bool(features["cron_scheduling"] ?? false)
+        let resolvedFeatures = effectiveFeatures(capabilities: capabilities)
+        var body: [String: JSONValue] = ["scenario": .string("direct"), "features": .object(resolvedFeatures.mapValues(JSONValue.bool)), "tool_ids": .array(effectiveTools(capabilities: capabilities, personal: personal).map(JSONValue.string)), "skill_ids": .array(skillIDs.map(JSONValue.string)), "skills_selection_mode": .string(skills_selection_mode), "work_mode": .string(work_mode)]
+        body["heartbeat_enabled"] = .bool(resolvedFeatures["heartbeat"] ?? false)
+        body["cron_enabled"] = .bool(resolvedFeatures["cron_scheduling"] ?? false)
         if creating {
             body["agent_id_hint"] = .string(agent_id)
             body["workspace_mode"] = .string(customWorkspace ? "custom" : "default")
@@ -120,8 +124,20 @@ struct AgentNode: Codable, Identifiable, Sendable {
     var name: String { alias.flatMap { $0.isEmpty ? nil : $0 } ?? node_name }
 }
 struct AgentOption: Codable, Identifiable, Sendable {
-    var name: String; var description: String?; var default_on: Bool?; var location: String?; var source_group: String?
+    var name: String; var description: String?; var default_on: Bool?; var enabled: Bool?; var location: String?; var source_group: String?
+    var plugin_bundle: String?; var plugin_title: JSONValue?
     var id: String { location ?? name }
+    var localizedPluginTitle: String? {
+        if let plugin_title {
+            if let string = plugin_title.stringValue, !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return string }
+            if let values = plugin_title.objectValue {
+                let candidate = values[L("zh", "en")]?.stringValue ?? values[L("zh-CN", "en-US")]?.stringValue ?? values["en"]?.stringValue ?? values.sorted { $0.key < $1.key }.first?.value.stringValue
+                if let candidate, !candidate.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return candidate }
+            }
+        }
+        if let plugin_bundle, !plugin_bundle.isEmpty { return plugin_bundle }
+        return nil
+    }
     func skillGroup(workspaceRoot: String) -> String {
         if let source_group { return source_group }
         let path = (location ?? "").replacingOccurrences(of: "\\", with: "/")

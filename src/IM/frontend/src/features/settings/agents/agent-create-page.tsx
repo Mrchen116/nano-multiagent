@@ -1,6 +1,12 @@
 import { AvatarPicker, avatarVariantFor } from "../../chat/components/avatar-picker";
 import { createConversation } from "../../chat/chat-api";
-import { changeCapability } from "@nano/product-contracts/capabilities";
+import {
+  changeCapability,
+  effectiveCapabilityFeatures,
+  effectiveSelectedTools,
+  sanitizeStaticToolAllowlist,
+  type CapabilityCatalog,
+} from "@nano/product-contracts/capabilities";
 import { capabilityCatalog, useCapabilityEditor } from "./capability-editor";
 import { ApprovalModeField, type ApprovalMode } from "./approval-mode-field";
 import "./agent-settings.css";
@@ -25,6 +31,7 @@ import { SkillSourceSelector } from "./skill-source-selector";
 import {
   AgentFeature,
   AgentSummary,
+  type CapabilitySnapshot,
   createNodeAgent,
   getNodeCreateState,
   getNodeApprovalRules,
@@ -48,11 +55,15 @@ function sameStringList(left: string[], right: string[]) {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function defaultNames(options: { name: string; default_on?: boolean }[]) {
-  return normalizeAllowlist(
+function defaultNames(options: { name: string; default_on?: boolean; source_group?: string | null }[], workMode?: string) {
+  const workspaceNames = options.filter((option) => option.source_group === "workspace").map((option) => option.name);
+  return sanitizeStaticToolAllowlist(
     options
-      .filter((option) => option.default_on === true)
-      .map((option) => option.name)
+      .filter((option) => option.default_on === true && option.source_group !== "workspace")
+      .map((option) => option.name),
+    workMode,
+    "root",
+    workspaceNames,
   );
 }
 
@@ -60,8 +71,11 @@ function normalizeText(value: string) {
   return value.trim();
 }
 
-function normalizeDraft(draft: CreateAgentFormState, modelOptions: ModelOption[]): CreateAgentFormState {
+function normalizeDraft(draft: CreateAgentFormState, modelOptions: ModelOption[], capabilities?: CapabilitySnapshot): CreateAgentFormState {
   const defaultModel = normalizeText(draft.default_model ?? "") || null;
+  const workspaceNames = (capabilities?.tools ?? [])
+    .filter((tool) => tool.source_group === "workspace")
+    .map((tool) => tool.name);
   return {
     ...draft,
     agent_id: normalizeText(draft.agent_id),
@@ -70,7 +84,7 @@ function normalizeDraft(draft: CreateAgentFormState, modelOptions: ModelOption[]
     initial_role: draft.initial_role?.trim() ? draft.initial_role : undefined,
     features: draft.features ?? {},
     skills: normalizeAllowlist(draft.skills),
-    tool_allowlist: normalizeAllowlist(draft.tool_allowlist),
+    tool_allowlist: sanitizeStaticToolAllowlist(draft.tool_allowlist, draft.work_mode, "root", workspaceNames),
     default_model: defaultModel,
     model_fallbacks: fallbacksAfterPrimaryChange(draft.model_fallbacks ?? [], defaultModel),
     reasoning_effort: normalizeReasoningEffort(modelOptions, defaultModel, draft.reasoning_effort),
@@ -91,16 +105,12 @@ function validateDraft(draft: CreateAgentFormState, t: (key: string) => string) 
   return errors;
 }
 
-// Draft features take precedence; fall back to capability default_on when key absent.
 function resolveEffectiveFeatures(
-  draftFeatures: Record<string, boolean> | undefined,
-  capabilityFeatures: AgentFeature[]
+  draft: CreateAgentFormState,
+  capabilityFeatures: AgentFeature[],
+  catalog?: CapabilityCatalog,
 ): Record<string, boolean> {
-  const result: Record<string, boolean> = {};
-  for (const feat of capabilityFeatures) {
-    result[feat.key] = draftFeatures?.[feat.key] ?? feat.default_on;
-  }
-  return result;
+  return effectiveCapabilityFeatures(draft, capabilityFeatures, catalog);
 }
 
 const EMPTY_DRAFT: CreateAgentFormState = {
@@ -126,6 +136,7 @@ const EMPTY_DRAFT: CreateAgentFormState = {
 // Creation keeps the initial role separate from stable prompt preview.
 interface CreateBehaviorCardProps {
   draft: CreateAgentFormState;
+  catalog: CapabilityCatalog;
   inheritedRules?: "nano" | "codex" | "dsh" | null;
   capabilityFeatures: AgentFeature[];
   selectedNodeId: string;
@@ -139,6 +150,7 @@ interface CreateBehaviorCardProps {
 
 function CreateBehaviorCard({
   draft,
+  catalog,
   capabilityFeatures,
   inheritedRules,
   selectedNodeId,
@@ -157,14 +169,10 @@ function CreateBehaviorCard({
   const previewTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const effectiveFeatures = useMemo(
-    () => resolveEffectiveFeatures(draft.features, capabilityFeatures),
-    [draft.features, capabilityFeatures]
+    () => resolveEffectiveFeatures(draft, capabilityFeatures, catalog),
+    [draft, capabilityFeatures, catalog]
   );
 
-  // feat-379-M9 (決策 11): use node-level preview endpoint — no agent needed yet.
-  // feat-379-M9 (決策 14): tool_ids comes directly from draft.tool_allowlist; the old
-  // effectiveToolIds hack that injected capability-inferred tools is removed because
-  // _build_tool_names() now correctly includes all tools (R1 fix).
   const fetchPreview = useCallback(async () => {
     if (!selectedNodeId) return;
     setPreviewLoading(true);
@@ -172,7 +180,7 @@ function CreateBehaviorCard({
     try {
       const text = await nodePromptPreview(selectedNodeId, {
         features: effectiveFeatures,
-        tool_ids: draft.tool_allowlist ?? [],
+        tool_ids: effectiveSelectedTools(draft, catalog),
         ...(draft.work_mode ? { work_mode: draft.work_mode } : {}),
         skill_ids: draft.skills ?? [],
         skills_selection_mode: draft.skills_selection_mode,
@@ -189,10 +197,8 @@ function CreateBehaviorCard({
   }, [
     selectedNodeId,
     effectiveFeatures,
-    draft.tool_allowlist,
-    draft.work_mode,
-    draft.skills,
-    draft.agent_id,
+    catalog,
+    draft,
     workspaceMode,
     workspaceRoot
   ]);
@@ -415,17 +421,21 @@ export function AgentCreatePage() {
 
   const capabilities = createStateQuery.data?.capabilities;
   const capabilityEditor = useCapabilityEditor(draft, setDraft, capabilities);
+  const catalog = useMemo(
+    () => capabilityCatalog(capabilities, draft.work_mode, false, draft),
+    [capabilities, draft],
+  );
   const modelOptions = capabilities?.model_options ?? [];
   const platformDefaultModel = capabilities?.platform_default_model ?? null;
   const normalizedDraft = useMemo(() => {
-    const normalized = normalizeDraft(draft, modelOptions);
+    const normalized = normalizeDraft(draft, modelOptions, capabilities);
     return {
       ...normalized,
       workspace_root: workspaceMode === "custom" ? normalized.workspace_root : null,
       confirm_existing_workspace:
         workspaceMode === "custom" && existingConfirmationRequired && existingConfirmed
     };
-  }, [draft, existingConfirmationRequired, existingConfirmed, modelOptions, workspaceMode]);
+  }, [draft, existingConfirmationRequired, existingConfirmed, modelOptions, capabilities, workspaceMode]);
   const validationErrors = useMemo(() => validateDraft(normalizedDraft, t), [normalizedDraft, t]);
   const hasValidationErrors = Object.keys(validationErrors).length > 0;
   const hasStaleReasoning = isStaleReasoningEffort(
@@ -472,20 +482,23 @@ export function AgentCreatePage() {
     if (!capabilities) return;
 
     if (!toolsEditedRef.current) {
-      const toolDefaults = defaultNames(capabilities.tools);
       setDraft((current) => {
-        if (sameStringList(current.tool_allowlist, toolDefaults)) return current;
+        const workspaceNames = capabilities.tools.filter((tool) => tool.source_group === "workspace").map((tool) => tool.name);
+        const toolDefaults = defaultNames(capabilities.tools, current.work_mode);
         if (
           current.tool_allowlist.length > 0 &&
           !sameStringList(current.tool_allowlist, autoDefaultToolsRef.current)
         ) {
           return current;
         }
-        autoDefaultToolsRef.current = toolDefaults;
         let next = { ...current, features: Object.fromEntries((capabilities.features ?? []).map(f => [f.key, f.default_on])), tool_allowlist: toolDefaults };
         for (const feature of capabilities.features ?? []) {
-          if (feature.default_on) next = changeCapability(next, { kind: "feature", name: feature.key, enabled: true }, capabilityCatalog(capabilities, next.work_mode)).draft;
+          if (feature.default_on) next = changeCapability(next, { kind: "feature", name: feature.key, enabled: true }, capabilityCatalog(capabilities, next.work_mode, false, next)).draft;
         }
+        const cleaned = sanitizeStaticToolAllowlist(next.tool_allowlist, next.work_mode, "root", workspaceNames);
+        next = { ...next, tool_allowlist: cleaned };
+        autoDefaultToolsRef.current = cleaned;
+        if (sameStringList(current.tool_allowlist, cleaned) && JSON.stringify(current.features) === JSON.stringify(next.features)) return current;
         return next;
       });
     }
@@ -780,7 +793,30 @@ export function AgentCreatePage() {
           <h3 className="im-agent-card-title">{t("agents.redesign.workMode")}</h3>
           <div className="im-create-modes">
             {(["global", "single_thread"] as const).map(mode => <label key={mode} className="im-create-mode">
-              <input type="radio" name="work_mode" value={mode} checked={(draft.work_mode ?? "global") === mode} onChange={() => { setDraft({ ...draft, work_mode: mode }); setIsDirty(true); }} />
+              <input
+                type="radio"
+                name="work_mode"
+                value={mode}
+                checked={(draft.work_mode ?? "global") === mode}
+                onChange={() => {
+                  setDraft((current) => {
+                    let next = { ...current, work_mode: mode };
+                    if (capabilities) {
+                      const workspaceNames = capabilities.tools.filter((tool) => tool.source_group === "workspace").map((tool) => tool.name);
+                      const modeCatalog = capabilityCatalog(capabilities, mode, false, next);
+                      const activeFeatures = effectiveCapabilityFeatures(next, capabilities.features ?? [], modeCatalog);
+                      for (const feat of capabilities.features ?? []) {
+                        if (activeFeatures[feat.key]) {
+                          next = changeCapability(next, { kind: "feature", name: feat.key, enabled: true }, capabilityCatalog(capabilities, mode, false, next)).draft;
+                        }
+                      }
+                      next = { ...next, tool_allowlist: sanitizeStaticToolAllowlist(next.tool_allowlist, mode, "root", workspaceNames) };
+                    }
+                    return next;
+                  });
+                  setIsDirty(true);
+                }}
+              />
               <span><strong>{t(`agents.redesign.mode.${mode}`)}</strong><small>{t(`agents.redesign.modeHelp.${mode}`)}</small></span>
             </label>)}
           </div>
@@ -961,6 +997,7 @@ export function AgentCreatePage() {
         {capabilityEditor.toast}
         <CreateBehaviorCard
           draft={draft}
+          catalog={catalog}
           inheritedRules={inheritedApprovalRules}
           capabilityFeatures={capabilities.features ?? []}
           selectedNodeId={selectedNodeId}
@@ -1009,13 +1046,28 @@ export function AgentCreatePage() {
             />
             <PillSelector
               testId="pill-selector-tools"
+              collapsible
+              defaultExpanded={false}
+              countSummary={(enabled, total) => t("agents.form.access.toolsCount", { enabled, total })}
               label={t("agents.form.access.tools")}
-              selected={[...new Set([...draft.tool_allowlist, ...capabilityCatalog(capabilities, draft.work_mode).fixed_tools])]}
-              fixed={capabilityCatalog(capabilities, draft.work_mode).fixed_tools}
-              options={[...capabilities.tools, ...capabilityCatalog(capabilities, draft.work_mode).fixed_tools.filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name }))]}
+              selected={[...new Set([...effectiveSelectedTools(normalizedDraft, catalog), ...catalog.fixed_tools])].filter(name => name !== 'memory')}
+              fixed={catalog.fixed_tools}
+              options={[
+                ...capabilities.tools.map((tool) =>
+                  tool.source_group === "workspace"
+                    ? { ...tool, enabled: catalog.fixed_tools.includes(tool.name) || (effectiveSelectedTools(normalizedDraft, catalog).includes("plugin_manager") && tool.enabled !== false) }
+                    : tool,
+                ),
+                ...catalog.fixed_tools.filter(name => !capabilities.tools.some(t => t.name === name)).map(name => ({ name })),
+              ]}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
+              onToggleOption={(option, nextEnabled) => {
+                toolsEditedRef.current = true;
+                setIsDirty(true);
+                capabilityEditor.toggleTool(option.name, nextEnabled);
+              }}
               onChange={(toolAllowlist) => {
                 toolsEditedRef.current = true;
                 setIsDirty(true);

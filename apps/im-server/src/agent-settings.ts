@@ -1,4 +1,5 @@
 /** Retain bounded settings display data without making snapshots writable authority. */
+import {effectiveCapabilityFeatures, effectiveSelectedTools, type FeatureDependency} from '@nano/product-contracts/capabilities';
 import {fail, one, type ImContext, type Row} from './context.js';
 import type {Connection} from './gateway.js';
 
@@ -53,11 +54,25 @@ export function settingsReadCurrent(ctx: ImContext, before: Row, after: Row, con
 /** Project configuration names and resolved selections, never the full optional catalog. */
 export function configurationDisplay(profile: Row, capabilities: Row, derivedCurrent = true): Row {
   const configuredSkills: string[] = (JSON.parse(profile.skills_json) ?? []).filter((name: string) => name !== 'skill-creator');
+  const configuredTools: string[] = JSON.parse(profile.tool_allowlist_json) ?? [];
   const mode = profile.skills_selection_mode ?? (configuredSkills.length ? 'explicit_allowlist' : 'default_discovery');
   const skills: Row[] = capabilities.skills ?? [];
   const tools: Row[] = capabilities.tools ?? [];
   const models: Row[] = capabilities.models ?? [];
   const features: Row = Object.fromEntries(Object.entries(JSON.parse(profile.features_json)).filter(([key]) => !['memory_curation', 'skill_creation'].includes(key) && (key !== 'dreaming' || capabilities.memory_mode !== 'legacy')));
+  const definitions: FeatureDependency[] = (capabilities.features ?? []).map((item: Row) => ({
+    key: String(item.key),
+    default_on: !!item.default_on,
+    requires: {
+      features: Array.isArray(item.requires?.features) ? item.requires.features : [],
+      tools: Array.isArray(item.requires?.tools) ? item.requires.tools : [],
+      skills: Array.isArray(item.requires?.skills) ? item.requires.skills : [],
+    },
+  }));
+  const draft = {features, tool_allowlist: configuredTools, skills: configuredSkills, skills_selection_mode: mode, work_mode: profile.work_mode};
+  const catalog = derivedCurrent ? {features: definitions, tools: tools.map(tool => String(tool.name)), skills: skills.map(skill => String(skill.name))} : undefined;
+  const resolvedFeatures = derivedCurrent ? effectiveCapabilityFeatures(draft, definitions, catalog) : {};
+  const resolvedTools = derivedCurrent ? effectiveSelectedTools(draft, catalog) : configuredTools;
   const modelNames: string[] = [...new Set([profile.default_model ?? (derivedCurrent ? capabilities.platform_default_model : null), ...JSON.parse(profile.model_fallbacks_json)].filter(Boolean))] as string[];
   const mainModel = models.find(model => model.name === modelNames[0]);
   const level = profile.reasoning_effort ?? (derivedCurrent && mainModel?.reasoning?.kind === 'selectable' ? mainModel.reasoning.default : null);
@@ -70,9 +85,9 @@ export function configurationDisplay(profile: Row, capabilities: Row, derivedCur
     reasoning: level == null ? null : {value:level,source:profile.reasoning_effort == null ? 'inherited' : 'explicit'},
     features: [...new Set([...(capabilities.features ?? []).map((feature: Row) => feature.key), ...Object.keys(features)])].filter(key => !['memory_curation','skill_creation'].includes(String(key)) && (key !== 'dreaming' || capabilities.memory_mode !== 'legacy')).map(key => {
       const feature = (capabilities.features ?? []).find((item: Row) => item.key === key) ?? {};
-      return {key,...pick(feature,['label_i18n','help_i18n']),enabled: key in features ? features[key] : derivedCurrent ? !!feature.default_on : null,source:key in features?'explicit':'default'};
+      return {key,...pick(feature,['label_i18n','help_i18n']),enabled: key in features ? features[key] : derivedCurrent ? (resolvedFeatures[String(key)] ?? !!feature.default_on) : null,source:key in features?'explicit':'default'};
     }),
-    tools: (JSON.parse(profile.tool_allowlist_json) as string[]).map(name => ({name,description:tools.find(tool => tool.name === name)?.description ?? ''})),
+    tools: resolvedTools.map(name => ({name,description:tools.find(tool => tool.name === name)?.description ?? ''})),
     skills: selectedSkills.filter(name => name !== 'skill-creator').map(name => ({name,...pick(skills.find(skill => skill.name === name) ?? {}, ['description','source_group']),
       enabled:mode === 'explicit_allowlist' ? true : configuredSkills.includes(name) ? false : derivedCurrent ? true : null,
       source:configuredSkills.includes(name) ? 'explicit' : 'discovered'})),

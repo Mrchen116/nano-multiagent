@@ -1,5 +1,5 @@
 import {globalWorkRole, isOrdinaryChild} from './child-role.js';
-import {fixedTools} from '@nano/product-contracts/capabilities';
+import {effectiveSelectedTools, fixedTools} from '@nano/product-contracts/capabilities';
 import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import { isUserInvocable, renderSkillContent } from '@deepseek-ai/dsh-skill';
 import type {} from '@deepseek-ai/dsh-tool-skill';
@@ -11,6 +11,7 @@ import type { SkillCandidate, SkillProviderControl } from '@deepseek-ai/dsh-skil
 import type { AgentConfiguration } from './index.js';
 import { contextTools } from './agent-context.js';
 import { isHumanSource } from './input-source.js';
+import type { WorkspaceToolMetadata } from './workspace-tools.js';
 
 export const goalTools = ['create_goal', 'get_goal', 'update_goal'];
 export const cordisInspectTools = ['cordis_inspect_list', 'cordis_inspect_query'] as const;
@@ -21,7 +22,7 @@ const userEntryTools = new Set(['ask_user_question', 'present', 'enter_plan_mode
 function allowsCordisInspect(config: AgentConfiguration, agent?: Agent): boolean {
   if (!config.workspace) return false;
   if (agent && (isOrdinaryChild(agent) || globalWorkRole(agent, config))) return false;
-  return config.toolAllowlist === undefined || config.toolAllowlist.includes('plugin_manager');
+  return true;
 }
 
 /** Filters the native callable view after preset contributions are assembled. */
@@ -29,7 +30,11 @@ export class ToolSelection {
   private readonly agents = new Map<Agent, { config: AgentConfiguration; isWorkWorker: boolean; dispose?: () => void }>();
   private changing = false;
   private nativeDefaults?: Set<string>;
-  constructor(private readonly ctx: Context, private readonly installed: (config: AgentConfiguration) => string[] = () => []) {
+  constructor(
+    private readonly ctx: Context,
+    private readonly installed: (config: AgentConfiguration) => string[] = () => [],
+    private readonly installedMetadata: (config: AgentConfiguration) => ReadonlyMap<string, WorkspaceToolMetadata> = () => new Map(),
+  ) {
     ctx.on('tools/change', () => {
       if (this.changing) return;
       this.changing = true;
@@ -48,9 +53,10 @@ export class ToolSelection {
     const allow = config.toolAllowlist;
     const inspectAllowed = allowsCordisInspect(config, agent);
     if (allow === undefined) return names.filter(name => cordisInspectSet.has(name) ? inspectAllowed : (agent && this.independentTool(agent, config, name) || !defaultOff.includes(name)));
+    const effectiveAllow = effectiveSelectedTools({ features: config.features, tool_allowlist: allow }, { tools: names });
     const installed = allow.includes('plugin_manager') ? this.installed(config) : [];
-    const selected = new Set([...allow, ...installed, ...contextTools, ...(inspectAllowed ? cordisInspectTools : [])]);
-    return names.filter(name => cordisInspectSet.has(name) ? inspectAllowed : (selected.has(name) || agent && this.independentTool(agent, config, name)));
+    const selected = new Set([...effectiveAllow, ...installed, ...contextTools]);
+    return names.filter(name => cordisInspectSet.has(name) ? (inspectAllowed && selected.has(name)) : (selected.has(name) || agent && this.independentTool(agent, config, name)));
   }
   attach(agent: Agent, config: AgentConfiguration, isWorkWorker: boolean) {
     const state = { config, isWorkWorker }; this.agents.set(agent, state);
@@ -62,11 +68,21 @@ export class ToolSelection {
     this.changing = true;
     try {
       state.dispose?.(); state.dispose = undefined;
-      const schemas = agent.ctx.tools.schemas(agent).filter(tool => !cordisInspectSet.has(tool.name));
+      const inspectAllowed = allowsCordisInspect(state.config, agent);
+      const schemas = agent.ctx.tools.schemas(agent).filter(tool => inspectAllowed || !cordisInspectSet.has(tool.name));
       const installed = new Set(this.installed(state.config));
+      const metadata = this.installedMetadata(state.config);
       const selected = new Set(this.selection(state.config, schemas.map(tool => tool.name), agent));
-      return schemas.map(tool => installed.has(tool.name)
-        ? { ...tool, source_group: 'workspace' as const, enabled: selected.has(tool.name) } : tool);
+      return schemas.map(tool => {
+        if (!installed.has(tool.name)) return tool;
+        const owner = metadata.get(tool.name);
+        return {
+          ...tool,
+          source_group: 'workspace' as const,
+          enabled: selected.has(tool.name),
+          ...(owner ? { plugin_bundle: owner.plugin_bundle, plugin_title: owner.plugin_title } : {}),
+        };
+      });
     }
     finally { this.refresh(agent, state); this.changing = false; }
   }

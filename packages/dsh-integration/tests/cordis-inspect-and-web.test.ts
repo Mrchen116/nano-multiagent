@@ -10,16 +10,19 @@ import { featureDependencies } from '@nano/product-contracts/capabilities';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
-const features = Object.fromEntries(featureDependencies.map(f => [f.key, false]));
+const offFeatures = Object.fromEntries(featureDependencies.map(f => [f.key, false]));
+const legacyFeatures = Object.fromEntries(featureDependencies.filter(f => f.key !== 'plugin_management').map(f => [f.key, false]));
 
-it('gates cordis_inspect_* strictly behind plugin_manager on roots (including PA) and forks while excluding ordinary subagents and locking on withdrawal', async () => {
+it('exposes cordis_inspect_* in catalog, preserves pre-feat-791 plugin_manager continuity, supports standalone inspect selection, and locks on withdrawal', async () => {
   const home = await mkdtemp(join(tmpdir(), 'cordis-inspect-'));
   const workspaceDev = join(home, 'workspace-dev');
+  const workspaceStandalone = join(home, 'workspace-standalone');
   const workspacePlain = join(home, 'workspace-plain');
   let client: RuntimeClient | undefined;
   let logs = '';
   try {
     await mkdir(workspaceDev, { recursive: true });
+    await mkdir(workspaceStandalone, { recursive: true });
     await mkdir(workspacePlain, { recursive: true });
     await writeFile(join(home, 'fixture.mjs'), `import { writeFile } from 'node:fs/promises';
 export const name = 'inspect-fixture';
@@ -48,20 +51,26 @@ export function apply(ctx) {
     await client.rpc.request('initialize', {
       protocol: 1,
       agents: [
-        { agentId: 'dev', revision: '1', workspace: workspaceDev, provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'], features },
-        { agentId: 'plain', revision: '1', workspace: workspacePlain, provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['read'], features },
+        { agentId: 'dev', revision: '1', workspace: workspaceDev, provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['plugin_manager'], features: legacyFeatures },
+        { agentId: 'standalone', revision: '1', workspace: workspaceStandalone, provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['cordis_inspect_list'], features: offFeatures },
+        { agentId: 'plain', revision: '1', workspace: workspacePlain, provider: 'deepseek-official', model: 'deepseek-flash', toolAllowlist: ['read'], features: legacyFeatures },
       ],
       bindings: [],
     });
     await client.rpc.request('session.ensure', { sessionId: 's-dev', agentId: 'dev', revision: '1', ownerId: 'owner', cwd: workspaceDev });
+    await client.rpc.request('session.ensure', { sessionId: 's-standalone', agentId: 'standalone', revision: '1', ownerId: 'owner', cwd: workspaceStandalone });
     await client.rpc.request('session.ensure', { sessionId: 's-plain', agentId: 'plain', revision: '1', ownerId: 'owner', cwd: workspacePlain });
 
     const catalog = await client.rpc.request('configuration.catalog', { agentId: 'dev', cwd: workspaceDev }) as { tools: { name: string }[] };
-    expect(catalog.tools.map(t => t.name)).not.toContain('cordis_inspect_list');
-    expect(catalog.tools.map(t => t.name)).not.toContain('cordis_inspect_query');
+    expect(catalog.tools.map(t => t.name)).toEqual(expect.arrayContaining(['cordis_inspect_list', 'cordis_inspect_query']));
 
     const devCaps = await client.rpc.request('session.capabilities', { sessionId: 's-dev' }) as { tools: string[] };
     expect(devCaps.tools).toEqual(expect.arrayContaining(['plugin_manager', 'cordis_inspect_list', 'cordis_inspect_query']));
+
+    const standaloneCaps = await client.rpc.request('session.capabilities', { sessionId: 's-standalone' }) as { tools: string[] };
+    expect(standaloneCaps.tools).toContain('cordis_inspect_list');
+    expect(standaloneCaps.tools).not.toContain('cordis_inspect_query');
+    expect(standaloneCaps.tools).not.toContain('plugin_manager');
 
     const plainCaps = await client.rpc.request('session.capabilities', { sessionId: 's-plain' }) as { tools: string[] };
     expect(plainCaps.tools).not.toContain('cordis_inspect_list');
@@ -81,7 +90,7 @@ export function apply(ctx) {
     expect(listResult.isError).not.toBe(true);
     expect(queryResult.isError).not.toBe(true);
 
-    // Personal Agent, ordinary subagents, and CapabilityState withdrawal lock checks.
+    // Personal Agent, subagent_fork parity, ordinary subagents, and CapabilityState withdrawal lock checks.
     const fakeCtx = { on: () => () => {}, tools: { schemas: () => [] } } as never;
     const selector = new ToolSelection(fakeCtx);
     const paEnabledSelection = selector.selection({
@@ -95,6 +104,12 @@ export function apply(ctx) {
       personal: { bindingId: 'b', ownerId: 'owner', conversationId: 'dm', epoch: 1 },
     }, ['plugin_manager', 'cordis_inspect_list', 'cordis_inspect_query']);
     expect(paEnabledSelection).toEqual(['plugin_manager', 'cordis_inspect_list', 'cordis_inspect_query']);
+    const forkSelection = selector.selection(
+      { agentId: 'standalone', revision: '1', workspace: workspacePlain, provider: 'p', model: 'm', features: offFeatures, toolAllowlist: ['cordis_inspect_list', 'read'] },
+      ['plugin_manager', 'cordis_inspect_list', 'cordis_inspect_query', 'read'],
+      { session: { header: { origin: 'subagent-fork' } } } as never,
+    );
+    expect(forkSelection).toEqual(['cordis_inspect_list', 'read']);
     const paDisabledSelection = selector.selection({
       agentId: 'pa',
       revision: '1',
@@ -107,19 +122,19 @@ export function apply(ctx) {
     }, ['read', 'cordis_inspect_list', 'cordis_inspect_query']);
     expect(paDisabledSelection).toEqual(['read']);
     const subagentSelection = selector.selection(
-      { agentId: 'dev', revision: '1', workspace: workspaceDev, provider: 'p', model: 'm', toolAllowlist: ['plugin_manager'] },
+      { agentId: 'dev', revision: '1', workspace: workspaceDev, provider: 'p', model: 'm', toolAllowlist: ['plugin_manager', 'cordis_inspect_list'] },
       ['plugin_manager', 'cordis_inspect_list', 'cordis_inspect_query'],
       { session: { header: { origin: 'subagent' } } } as never,
     );
     expect(subagentSelection).not.toContain('cordis_inspect_list');
     const state = new CapabilityState((cfg, names) => selector.selection(cfg, names));
-    const before = { agentId: 'dev', revision: '1', workspace: workspaceDev, provider: 'p', model: 'm', features, toolAllowlist: ['plugin_manager', 'read'] };
-    const after = { ...before, revision: '2', toolAllowlist: ['read'] };
+    const before = { agentId: 'dev', revision: '1', workspace: workspaceDev, provider: 'p', model: 'm', features: {...offFeatures, plugin_management: true}, toolAllowlist: ['plugin_manager', 'cordis_inspect_list', 'cordis_inspect_query', 'read'], skills: ['nano-plugin-development'], skillsSelectionMode: 'explicit_allowlist' as const };
+    const after = { ...before, revision: '2', features: offFeatures, toolAllowlist: ['read'], skills: [] };
     expect(state.begin('in-flight', 'dev', { kind: 'tool', name: 'cordis_inspect_query' })).toBe(true);
-    expect(await state.prepare({ operationId: 'op1', fingerprint: '2', config: after }, before, { tools: ['plugin_manager', 'read'], skills: [] }, async () => ({ active_schedules: 0, busy: state.busy('dev') })))
+    expect(await state.prepare({ operationId: 'op1', fingerprint: '2', config: after }, before, { tools: ['plugin_manager', 'cordis_inspect_list', 'cordis_inspect_query', 'read'], skills: ['nano-plugin-development'] }, async () => ({ active_schedules: 0, busy: state.busy('dev') })))
       .toMatchObject({ ready: false, blocks: [{ code: 'capability_busy', target: { kind: 'tool', name: 'cordis_inspect_query' } }] });
     state.end('in-flight');
-    expect(await state.prepare({ operationId: 'op1', fingerprint: '2', config: after }, before, { tools: ['plugin_manager', 'read'], skills: [] }, async () => ({ active_schedules: 0, busy: state.busy('dev') })))
+    expect(await state.prepare({ operationId: 'op1', fingerprint: '2', config: after }, before, { tools: ['plugin_manager', 'cordis_inspect_list', 'cordis_inspect_query', 'read'], skills: ['nano-plugin-development'] }, async () => ({ active_schedules: 0, busy: state.busy('dev') })))
       .toMatchObject({ ready: true });
     expect(state.begin('after-prepare', 'dev', { kind: 'tool', name: 'cordis_inspect_list' })).toBe(false);
     state.release('dev', 'op1');

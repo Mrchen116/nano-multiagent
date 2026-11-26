@@ -14,11 +14,22 @@ struct CapabilityBlock: Codable, Equatable, Sendable {
     var code: String
     var target: CapabilityTarget
     var required_by: [String]? = nil
+    var plugin: String? = nil
     var message: String {
         switch code {
         case "required_by_feature":
             if let owner = required_by?.first, required_by?.count == 1 { return L("请先关闭「", "Turn off “") + agentFeatureName(owner) + L("」", "” first") }
             return L("请先关闭使用此项的功能，再调整此项", "Turn off the features using this capability first")
+        case "provided_by_plugin":
+            if let plugin, !plugin.isEmpty {
+                return L("此工具由插件「\(plugin)」提供，请在「插件」页关闭", "Provided by plugin “\(plugin)”. Turn it off in Plugins")
+            }
+            return L("此工具由已启用的工作区插件提供，请在「插件」页关闭", "Provided by an enabled workspace plugin. Turn it off in Plugins")
+        case "plugin_requires_manager":
+            if let plugin, !plugin.isEmpty {
+                return L("此工具由插件「\(plugin)」提供，需先开启「插件开发与管理」或 plugin_manager", "Provided by plugin “\(plugin)”. Enable Plugin development & management or plugin_manager first")
+            }
+            return L("此工作区插件工具需先开启「插件开发与管理」或 plugin_manager", "Enable Plugin development & management or plugin_manager to use this workspace plugin tool")
         case "fixed_capability": return L("这是当前模式的基础能力，不能关闭", "This capability is required by the current mode")
         case "active_tasks": return L("还有进行中或等待中的任务，请先暂停或结束这些任务，再关闭 Task", "Pause or finish active and waiting tasks before turning off Task")
         case "active_schedules": return L("还有生效中的定时任务，请先停用或删除这些安排，再关闭 Cron", "Disable or delete active schedules before turning off Cron")
@@ -42,7 +53,53 @@ struct CapabilityUsage: Decodable, Sendable {
 }
 
 extension AgentDraft {
-    mutating func changeCapabilities(_ actions: [CapabilityAction], capabilities: AgentCapabilities) -> [CapabilityBlock] {
+    func skillSelected(_ name: String) -> Bool {
+        let mode = skills_selection_mode
+        if mode == "default_discovery" { return true }
+        return mode == "explicit_denylist" ? !skills.contains(name) : skills.contains(name)
+    }
+
+    func effectiveFeatures(capabilities: AgentCapabilities?) -> [String: Bool] {
+        let definitions = capabilities?.features ?? []
+        var result = Dictionary(uniqueKeysWithValues: definitions.map { ($0.key, features[$0.key] ?? $0.default_on) })
+        for (key, value) in features where result[key] == nil && !["memory_curation", "skill_creation"].contains(key) {
+            result[key] = value
+        }
+        if let pluginFeature = definitions.first(where: { $0.key == "plugin_management" }), features["plugin_management"] == nil {
+            let hasManager = tool_allowlist.contains("plugin_manager")
+            let hasSkills = pluginFeature.requires.skills.allSatisfy { skillSelected($0) }
+            let toolsAvailable = capabilities.map { caps in pluginFeature.requires.tools.allSatisfy { req in caps.tools.contains { $0.name == req } } } ?? true
+            let skillsAvailable = capabilities.map { caps in pluginFeature.requires.skills.allSatisfy { req in caps.skills.contains { $0.name == req } } } ?? true
+            result["plugin_management"] = hasManager && hasSkills && toolsAvailable && skillsAvailable
+        }
+        return result
+    }
+
+    func effectiveSelectedTools(capabilities: AgentCapabilities?) -> [String] {
+        var result = tool_allowlist
+        if features["plugin_management"] == nil, result.contains("plugin_manager") {
+            for name in ["cordis_inspect_list", "cordis_inspect_query"] where (capabilities?.tools.contains { $0.name == name } ?? true) && !result.contains(name) {
+                result.append(name)
+            }
+        }
+        return result
+    }
+
+    func sanitizeStaticTools(personal: Bool = false, capabilities: AgentCapabilities? = nil) -> [String] {
+        let excluded = Set(
+            AgentCapabilities.modeFixedTools(mode: work_mode, personal: personal)
+            + ["notes", "history", "new_context", "get_context_remaining"]
+            + (capabilities?.tools.filter { $0.source_group == "workspace" }.map(\.name) ?? [])
+        )
+        var seen = Set<String>()
+        return tool_allowlist.compactMap { raw in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !excluded.contains(trimmed), seen.insert(trimmed).inserted else { return nil }
+            return trimmed
+        }
+    }
+
+    mutating func changeCapabilities(_ actions: [CapabilityAction], capabilities: AgentCapabilities, personal: Bool = false) -> [CapabilityBlock] {
         var candidate = self
         if actions.contains(where: { $0.kind == "skill" }), skills_selection_mode == "explicit_allowlist" {
             let enabled = Set(skills)
@@ -50,23 +107,35 @@ extension AgentDraft {
             candidate.skills_selection_mode = "explicit_denylist"
         }
         for action in actions {
-            let blocks = candidate.changeCapability(action, capabilities: capabilities)
+            let blocks = candidate.changeCapability(action, capabilities: capabilities, personal: personal)
             if !blocks.isEmpty { return blocks }
         }
         self = candidate
         return []
     }
 
-    func removingCapabilities(from previous: AgentDraft, capabilities: AgentCapabilities) -> [CapabilityTarget] {
-        capabilities.features.filter { (previous.features[$0.key] ?? $0.default_on) && features[$0.key] != true }.map { .init(kind: "feature", name: $0.key) }
-        + previous.tool_allowlist.filter { !tool_allowlist.contains($0) }.map { .init(kind: "tool", name: $0) }
+    func removingCapabilities(from previous: AgentDraft, capabilities: AgentCapabilities, personal: Bool = false) -> [CapabilityTarget] {
+        let prevFeatures = previous.effectiveFeatures(capabilities: capabilities)
+        let nextFeatures = effectiveFeatures(capabilities: capabilities)
+        let prevTools = previous.effectiveSelectedTools(capabilities: capabilities)
+        let nextTools = effectiveSelectedTools(capabilities: capabilities)
+        let fixed = capabilities.fixedTools(mode: work_mode, personal: personal)
+        return capabilities.features.filter { prevFeatures[$0.key] == true && nextFeatures[$0.key] != true }.map { .init(kind: "feature", name: $0.key) }
+        + prevTools.filter { !nextTools.contains($0) && !fixed.contains($0) }.map { .init(kind: "tool", name: $0) }
         + previous.enabledSkills(candidates: capabilities.skills.map(\.name)).filter { !enabledSkills(candidates: [$0]).contains($0) }.map { .init(kind: "skill", name: $0) }
     }
     /// Applies the dependency data supplied by the owning node without inferring a feature from a tool.
-    mutating func changeCapability(_ action: CapabilityAction, capabilities: AgentCapabilities) -> [CapabilityBlock] {
+    mutating func changeCapability(_ action: CapabilityAction, capabilities: AgentCapabilities, personal: Bool = false) -> [CapabilityBlock] {
         var next = self
         let definitions = capabilities.features
-        for feature in definitions where next.features[feature.key] == nil { next.features[feature.key] = feature.default_on }
+        let fixed = capabilities.fixedTools(mode: work_mode, personal: personal)
+        if action.kind == "tool", let option = capabilities.tools.first(where: { $0.name == action.name && $0.source_group == "workspace" }) {
+            let active = fixed.contains(action.name) || (effectiveSelectedTools(capabilities: capabilities).contains("plugin_manager") && option.enabled != false)
+            let code = (!action.enabled || active) ? "provided_by_plugin" : "plugin_requires_manager"
+            return [.init(code: code, target: action.target, plugin: option.localizedPluginTitle)]
+        }
+        next.features = effectiveFeatures(capabilities: capabilities)
+        next.tool_allowlist = effectiveSelectedTools(capabilities: capabilities)
         func owners(_ target: CapabilityTarget, _ draft: AgentDraft) -> [String] {
             definitions.filter { feature in
                 draft.features[feature.key] == true && feature.requires.values(for: target.kind).contains(target.name)
@@ -75,7 +144,7 @@ extension AgentDraft {
         if !action.enabled {
             let required = owners(action.target, next)
             if !required.isEmpty { return [.init(code: "required_by_feature", target: action.target, required_by: required)] }
-            if action.kind == "tool" && capabilities.fixedTools(mode: work_mode).contains(action.name) { return [.init(code: "fixed_capability", target: action.target)] }
+            if action.kind == "tool" && fixed.contains(action.name) { return [.init(code: "fixed_capability", target: action.target)] }
         }
         func setSkill(_ name: String, _ enabled: Bool, _ draft: inout AgentDraft) {
             if draft.skills_selection_mode == "default_discovery" {
@@ -106,7 +175,7 @@ extension AgentDraft {
                 }
             } else if feature.key != "dreaming" {
                 // Closing automatic Dreaming keeps ordinary memory read/write tools.
-                for name in feature.requires.tools where !capabilities.fixedTools(mode: work_mode).contains(name) && owners(.init(kind: "tool", name: name), next).isEmpty { next.tool_allowlist.removeAll { $0 == name } }
+                for name in feature.requires.tools where !fixed.contains(name) && owners(.init(kind: "tool", name: name), next).isEmpty { next.tool_allowlist.removeAll { $0 == name } }
                 for name in feature.requires.skills where owners(.init(kind: "skill", name: name), next).isEmpty { setSkill(name, false, &next) }
             }
         } else if action.kind == "tool" {
@@ -118,7 +187,7 @@ extension AgentDraft {
             for kind in ["feature", "tool", "skill"] {
                 for name in feature.requires.values(for: kind) {
                     let available = kind == "feature" ? definitions.contains { $0.key == name } : kind == "tool" ? capabilities.tools.contains { $0.name == name } : capabilities.skills.contains { $0.name == name }
-                    let selected = kind == "feature" ? next.features[name] == true : kind == "tool" ? next.tool_allowlist.contains(name) || capabilities.fixedTools(mode: work_mode).contains(name) : next.enabledSkills(candidates: [name]).contains(name)
+                    let selected = kind == "feature" ? next.features[name] == true : kind == "tool" ? next.tool_allowlist.contains(name) || fixed.contains(name) : next.enabledSkills(candidates: [name]).contains(name)
                     if !available || !selected {
                         let code = available ? "required_by_feature" : "capability_unavailable"
                         let target = CapabilityTarget(kind: kind, name: name)
@@ -131,12 +200,13 @@ extension AgentDraft {
         if blocks.isEmpty { self = next }
         return blocks
     }
-    mutating func initializeCapabilities(_ capabilities: AgentCapabilities) {
+    mutating func initializeCapabilities(_ capabilities: AgentCapabilities, personal: Bool = false) {
         fixed_tools = capabilities.fixed_tools ?? []
         features = Dictionary(uniqueKeysWithValues: capabilities.features.map { ($0.key, $0.default_on) })
-        for feature in capabilities.features where feature.default_on { _ = changeCapability(.init(kind: "feature", name: feature.key, enabled: true), capabilities: capabilities) }
+        for feature in capabilities.features where feature.default_on { _ = changeCapability(.init(kind: "feature", name: feature.key, enabled: true), capabilities: capabilities, personal: personal) }
+        tool_allowlist = sanitizeStaticTools(personal: personal, capabilities: capabilities)
     }
-    mutating func restoreCapabilities(_ blocks: [CapabilityBlock], capabilities: AgentCapabilities) {
+    mutating func restoreCapabilities(_ blocks: [CapabilityBlock], capabilities: AgentCapabilities, personal: Bool = false) {
         for block in blocks where block.code != "capability_unavailable" {
             let name = block.target.name
             if block.target.kind == "feature" { features[name] = true }
@@ -146,12 +216,19 @@ extension AgentDraft {
                 if skills_selection_mode == "explicit_denylist" { skills.removeAll { $0 == name } }
             }
         }
-        if let feature = capabilities.features.first(where: { features[$0.key] ?? $0.default_on }) { _ = changeCapability(.init(kind: "feature", name: feature.key, enabled: true), capabilities: capabilities) }
+        let resolved = effectiveFeatures(capabilities: capabilities)
+        if let feature = capabilities.features.first(where: { resolved[$0.key] ?? $0.default_on }) { _ = changeCapability(.init(kind: "feature", name: feature.key, enabled: true), capabilities: capabilities, personal: personal) }
+        tool_allowlist = sanitizeStaticTools(personal: personal, capabilities: capabilities)
     }
 }
 
 extension AgentCapabilities {
-    func fixedTools(mode: String) -> [String] {
-        Array(Set((fixed_tools ?? []) + (mode == "global" ? ["inbox", "conversations", "read_messages", "search_messages", "threads", "send_message", "delegate_worker"] : [])))
+    static func modeFixedTools(mode: String, personal: Bool = false) -> [String] {
+        guard mode == "global" else { return [] }
+        return ["inbox", "conversations", "read_messages", "search_messages", "threads", "send_message", "download_attachment", "delegate_worker"] + (personal ? ["personal_sources", "send_user_message"] : [])
+    }
+
+    func fixedTools(mode: String, personal: Bool = false) -> [String] {
+        Array(Set((fixed_tools ?? []) + Self.modeFixedTools(mode: mode, personal: personal)))
     }
 }
