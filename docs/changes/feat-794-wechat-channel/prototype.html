@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>feat-794 WeChat Channel Prototype</title>
+  <style>
+    :root {
+      --im-bg: #f8fafc;
+      --im-surface: #ffffff;
+      --im-border: #e2e8f0;
+      --im-text: #0f172a;
+      --im-text-muted: #64748b;
+      --im-accent: #0f766e;
+      --im-accent-hover: #115e59;
+      --im-danger: #be123c;
+      --im-overlay: rgba(15, 23, 42, 0.44);
+      --im-shadow-strong: 0 20px 44px rgba(15, 23, 42, 0.16);
+      --im-font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Inter", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      margin: 0;
+      font-family: var(--im-font-sans);
+      color: var(--im-text);
+      background: transparent;
+    }
+    /* Demo harness bar — explicitly outside product UI */
+    .demo-bar {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 10px 14px;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      font-size: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .demo-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 600;
+      color: #99f6e4;
+    }
+    .demo-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .demo-chip {
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(255, 255, 255, 0.08);
+      color: #e2e8f0;
+      border-radius: 6px;
+      padding: 4px 9px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .demo-chip[aria-pressed="true"] {
+      background: #14b8a6;
+      border-color: #14b8a6;
+      color: #042f2e;
+      font-weight: 700;
+    }
+
+    /* Crewden Agent Settings Shell (Existing Background + Incremental Channels Tab) */
+    .product-frame {
+      position: relative;
+      background: var(--im-surface);
+      border: 1px solid var(--im-border);
+      border-radius: 14px;
+      min-height: 560px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 18px 24px 0;
+      border-bottom: 1px solid var(--im-border);
+    }
+    .panel-title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .panel-title {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    .panel-subtitle {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: var(--im-text-muted);
+    }
+    .settings-tabs {
+      display: flex;
+      gap: 22px;
+      margin-top: 14px;
+    }
+    .settings-tab {
+      border: 0;
+      background: none;
+      padding: 8px 0 10px;
+      font-size: 13px;
+      color: var(--im-text-muted);
+      border-bottom: 2px solid transparent;
+      cursor: default;
+    }
+    .settings-tab.active {
+      color: var(--im-text);
+      font-weight: 600;
+      border-bottom-color: var(--im-accent);
+    }
+    .panel-body {
+      padding: 18px 24px 28px;
+    }
+    .channels-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--im-border);
+    }
+    .channels-head p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--im-text-muted);
+      max-width: 470px;
+    }
+    .im-btn {
+      border: 1px solid var(--im-border);
+      background: #ffffff;
+      color: var(--im-text);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      min-height: 32px;
+    }
+    .im-btn-primary {
+      background: var(--im-accent);
+      border-color: var(--im-accent);
+      color: #ffffff;
+    }
+    .im-btn-danger {
+      color: var(--im-danger);
+    }
+    .im-btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
+    .im-channel-card {
+      padding: 16px 0;
+      border-bottom: 1px solid var(--im-border);
+      display: grid;
+      gap: 10px;
+    }
+    .im-channel-card-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .im-channel-logo {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .logo-feishu { background: #eff6ff; color: #1d4ed8; }
+    .logo-wechat { background: #ecfdf5; color: #047857; }
+    .im-channel-copy {
+      flex: 1 1 190px;
+      min-width: 0;
+    }
+    .im-channel-title-line {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+    .im-channel-title-line h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .pill {
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+    .pill-ok { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+    .pill-err { background: #fff1f2; border-color: #fecdd3; color: #be123c; }
+    .im-channel-meta {
+      margin: 4px 0 0;
+      font-size: 12px;
+      color: var(--im-text-muted);
+      overflow-wrap: anywhere;
+    }
+    .im-channel-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .im-channel-footer {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--im-text-muted);
+    }
+    .im-channel-footer strong.err { color: var(--im-danger); }
+    .im-channel-footer strong.ok { color: #1e293b; }
+
+    /* Modal inside product-frame */
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: var(--im-overlay);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 20;
+    }
+    .chat-modal {
+      background: var(--im-surface);
+      border: 1px solid var(--im-border);
+      border-radius: 16px;
+      box-shadow: var(--im-shadow-strong);
+      width: 100%;
+      max-width: 400px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .chat-modal-header {
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid var(--im-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .chat-modal-header h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .close-btn {
+      border: 0;
+      background: none;
+      font-size: 18px;
+      color: var(--im-text-muted);
+      cursor: pointer;
+      padding: 4px 6px;
+    }
+    .chat-modal-body {
+      padding: 16px 18px;
+      display: grid;
+      gap: 12px;
+    }
+    .provider-option {
+      width: 100%;
+      border: 1px solid var(--im-border);
+      border-radius: 10px;
+      padding: 11px 12px;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .provider-option:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .provider-option-copy {
+      flex: 1;
+      display: grid;
+      gap: 2px;
+    }
+    .provider-option-copy strong { font-size: 13px; }
+    .provider-option-copy span { font-size: 12px; color: var(--im-text-muted); }
+
+    .qr-stage {
+      display: grid;
+      justify-items: center;
+      gap: 10px;
+      padding: 8px 0 4px;
+      text-align: center;
+    }
+    .qr-box {
+      position: relative;
+      width: 184px;
+      height: 184px;
+      border-radius: 12px;
+      border: 1px solid var(--im-border);
+      padding: 12px;
+      background: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .qr-overlay {
+      position: absolute;
+      inset: 0;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 14px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .qr-hint {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--im-text);
+    }
+    .qr-subhint {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--im-text-muted);
+    }
+    .pin-field {
+      display: grid;
+      gap: 6px;
+    }
+    .pin-field label {
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .pin-input {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 9px 12px;
+      font-size: 16px;
+      letter-spacing: 0.18em;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+    }
+    .pin-input[aria-invalid="true"] {
+      border-color: var(--im-danger);
+      background: #fff1f2;
+    }
+    .alert-error {
+      margin: 0;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #fff1f2;
+      border: 1px solid #fecdd3;
+      font-size: 12px;
+      line-height: 1.45;
+      font-weight: 600;
+      color: var(--im-danger);
+    }
+    .chat-modal-footer {
+      padding: 12px 18px 14px;
+      border-top: 1px solid var(--im-border);
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .chat-modal-sheet-handle {
+      display: none;
+      justify-content: center;
+      padding: 10px 0 2px;
+    }
+    .chat-modal-sheet-handle-bar {
+      width: 36px;
+      height: 4px;
+      border-radius: 999px;
+      background: #cbd5e1;
+    }
+    @media (max-width: 520px) {
+      .panel-header { padding: 14px 16px 0; }
+      .panel-body { padding: 14px 16px 22px; }
+      .im-btn { min-height: 38px; }
+      .modal-backdrop {
+        align-items: flex-end;
+        padding: 0;
+      }
+      .chat-modal {
+        max-width: 100%;
+        border-radius: 18px 18px 0 0;
+      }
+      .chat-modal-sheet-handle {
+        display: flex;
+      }
+    }
+  </style>
+</head>
+<body>
+  <aside class="demo-bar" aria-label="原型演示控制栏">
+    <span class="demo-badge">交互原型 · 仅演示状态切换（下方为产品界面）</span>
+    <div class="demo-controls">
+      <button type="button" class="demo-chip" data-scene="picker" aria-pressed="false">1. 选择通道</button>
+      <button type="button" class="demo-chip" data-scene="qr_wait" aria-pressed="false">2. 待扫码</button>
+      <button type="button" class="demo-chip" data-scene="qr_scanned" aria-pressed="false">3. 已扫码待确认</button>
+      <button type="button" class="demo-chip" data-scene="pin_code" aria-pressed="false">4. 数字验证码</button>
+      <button type="button" class="demo-chip" data-scene="pin_error" aria-pressed="false">5. 验证码错误重试</button>
+      <button type="button" class="demo-chip" data-scene="qr_expired" aria-pressed="false">6. 二维码过期</button>
+      <button type="button" class="demo-chip" data-scene="connected" aria-pressed="false">7. 已连接双通道</button>
+      <button type="button" class="demo-chip" data-scene="revoked" aria-pressed="false">8. 登录失效重绑</button>
+    </div>
+  </aside>
+
+  <main class="product-frame">
+    <header class="panel-header">
+      <div class="panel-title-row">
+        <div>
+          <h1 class="panel-title">个人助手 · 设置</h1>
+          <p class="panel-subtitle">Mac mini · 在线 · 全局模式（本次仅增量修改「外部通道」页签）</p>
+        </div>
+      </div>
+      <nav class="settings-tabs" aria-label="助手设置分区">
+        <span class="settings-tab">概览</span>
+        <span class="settings-tab">配置</span>
+        <span class="settings-tab">插件</span>
+        <span class="settings-tab active">外部通道</span>
+      </nav>
+    </header>
+
+    <section class="panel-body">
+      <div class="channels-head">
+        <p>连接外部聊天工具后，对应对话会自动同步为内部 IM 独立会话。每个助手每种通道最多连接一个实例，凭据加密保存在所属电脑。</p>
+        <button type="button" class="im-btn im-btn-primary" id="open-add-btn">+ 添加通道</button>
+      </div>
+
+      <!-- Existing Feishu card baseline -->
+      <article class="im-channel-card">
+        <div class="im-channel-card-head">
+          <span class="im-channel-logo logo-feishu">飞</span>
+          <div class="im-channel-copy">
+            <div class="im-channel-title-line">
+              <h3>飞书</h3>
+              <span class="pill pill-ok">已连接</span>
+            </div>
+            <p class="im-channel-meta">App ID · cli_•••••8a91f</p>
+          </div>
+          <div class="im-channel-actions">
+            <button type="button" class="im-btn">编辑</button>
+            <button type="button" class="im-btn">重连</button>
+            <button type="button" class="im-btn">停用</button>
+            <button type="button" class="im-btn im-btn-danger">删除</button>
+          </div>
+        </div>
+        <div class="im-channel-footer">
+          <span><strong class="ok">已同步</strong> · 节点长连接运行中</span>
+          <span>更新于 18:42</span>
+        </div>
+      </article>
+
+      <!-- Incremental WeChat channel card (shown in connected / revoked scenes) -->
+      <article class="im-channel-card" id="wechat-card" hidden>
+        <div class="im-channel-card-head">
+          <span class="im-channel-logo logo-wechat">微</span>
+          <div class="im-channel-copy">
+            <div class="im-channel-title-line">
+              <h3>微信</h3>
+              <span class="pill pill-ok" id="wechat-pill">已连接</span>
+            </div>
+            <p class="im-channel-meta" id="wechat-meta">绑定微信 · wxid_•••••3k92 · 仅限绑定者本人私聊</p>
+          </div>
+          <div class="im-channel-actions">
+            <button type="button" class="im-btn" id="wechat-rebind-btn">重新扫码</button>
+            <button type="button" class="im-btn" id="wechat-reconnect-btn">重连</button>
+            <button type="button" class="im-btn">停用</button>
+            <button type="button" class="im-btn im-btn-danger">删除</button>
+          </div>
+        </div>
+        <div class="im-channel-footer">
+          <span id="wechat-footer" role="status"><strong class="ok">已同步</strong> · 个人微信官方通道单连接运行中</span>
+          <span>更新于 18:55</span>
+        </div>
+      </article>
+    </section>
+
+    <!-- Incremental Modal -->
+    <div class="modal-backdrop" id="modal-backdrop">
+      <section class="chat-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="chat-modal-sheet-handle" aria-hidden="true"><div class="chat-modal-sheet-handle-bar"></div></div>
+        <header class="chat-modal-header">
+          <h2 id="modal-title">绑定微信通道</h2>
+          <button type="button" class="close-btn" id="close-modal-btn" aria-label="关闭">×</button>
+        </header>
+        <div class="chat-modal-body" id="modal-body"></div>
+        <footer class="chat-modal-footer" id="modal-footer"></footer>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const QR_SVG = `
+      <svg viewBox="0 0 120 120" width="156" height="156" role="img" aria-label="微信绑定二维码">
+        <rect width="120" height="120" fill="#ffffff"/>
+        <path fill="#0f172a" d="M8,8 h32 v32 h-32 z M14,14 v20 h20 v-20 z M20,20 h8 v8 h-8 z
+          M80,8 h32 v32 h-32 z M86,14 v20 h20 v-20 z M92,20 h8 v8 h-8 z
+          M8,80 h32 v32 h-32 z M14,86 v20 h20 v-20 z M20,92 h8 v8 h-8 z
+          M48,12 h8 v8 h-8 z M64,12 h8 v16 h-8 z M48,28 h12 v8 h-12 z
+          M12,48 h16 v8 h-16 z M36,48 h16 v12 h-16 z M60,44 h12 v16 h-12 z
+          M80,48 h12 v8 h-12 z M100,48 h12 v16 h-12 z M48,68 h24 v8 h-24 z
+          M80,64 h16 v16 h-16 z M48,84 h8 v24 h-8 z M64,88 h16 v8 h-16 z
+          M88,88 h20 v8 h-20 z M72,102 h16 v10 h-16 z M96,100 h16 v12 h-16 z"/>
+      </svg>`;
+
+    const backdrop = document.getElementById("modal-backdrop");
+    const modalTitle = document.getElementById("modal-title");
+    const modalBody = document.getElementById("modal-body");
+    const modalFooter = document.getElementById("modal-footer");
+    const wechatCard = document.getElementById("wechat-card");
+    const wechatPill = document.getElementById("wechat-pill");
+    const wechatFooter = document.getElementById("wechat-footer");
+    const wechatRebindBtn = document.getElementById("wechat-rebind-btn");
+    const wechatReconnectBtn = document.getElementById("wechat-reconnect-btn");
+    const openAddBtn = document.getElementById("open-add-btn");
+    const chips = document.querySelectorAll(".demo-chip");
+
+    function renderPinModal(hasError) {
+      modalTitle.textContent = "扫码绑定微信通道";
+      modalBody.innerHTML = `
+        <div class="pin-field">
+          <label for="pin-input">输入手机微信显示的数字验证码</label>
+          <input id="pin-input" class="pin-input" type="text" inputmode="numeric" maxlength="12" value="${hasError ? "000000" : "482916"}" aria-invalid="${hasError}" aria-describedby="pin-help" />
+          ${hasError ? '<p class="alert-error" role="alert">验证码不正确，请核对手机微信界面显示的数字后重试；若验证码已失效可点击「重新扫码」。</p>' : ""}
+          <p id="pin-help" class="qr-subhint">请查看刚扫码的手机微信屏幕，输入展示的纯数字验证码完成绑定。</p>
+        </div>`;
+      modalFooter.innerHTML = `
+        <button type="button" class="im-btn" id="pin-rescan-btn">重新扫码</button>
+        <button type="button" class="im-btn im-btn-primary" id="pin-submit-btn">确认绑定</button>`;
+      const input = document.getElementById("pin-input");
+      const submitBtn = document.getElementById("pin-submit-btn");
+      const syncDisabled = () => {
+        submitBtn.disabled = !/^\d{1,12}$/.test(input.value.trim());
+      };
+      input.addEventListener("input", syncDisabled);
+      syncDisabled();
+      document.getElementById("pin-rescan-btn").onclick = () => setScene("qr_wait");
+      submitBtn.onclick = () => setScene("connected");
+    }
+
+    function setScene(scene) {
+      chips.forEach((chip) => chip.setAttribute("aria-pressed", String(chip.dataset.scene === scene)));
+      if (scene === "connected") {
+        backdrop.hidden = true;
+        wechatCard.hidden = false;
+        openAddBtn.disabled = true;
+        wechatPill.className = "pill pill-ok";
+        wechatPill.textContent = "已连接";
+        wechatRebindBtn.className = "im-btn";
+        wechatReconnectBtn.hidden = false;
+        wechatFooter.setAttribute("role", "status");
+        wechatFooter.innerHTML = '<strong class="ok">已同步</strong> · 个人微信官方通道单连接运行中';
+        return;
+      }
+      if (scene === "revoked") {
+        backdrop.hidden = true;
+        wechatCard.hidden = false;
+        openAddBtn.disabled = true;
+        wechatPill.className = "pill pill-err";
+        wechatPill.textContent = "连接失败";
+        /* Token revoked: hide useless Reconnect and promote Re-scan as primary recovery action */
+        wechatRebindBtn.className = "im-btn im-btn-primary";
+        wechatReconnectBtn.hidden = true;
+        wechatFooter.setAttribute("role", "alert");
+        wechatFooter.innerHTML = '<strong class="err">登录已失效</strong> · 微信侧已解除授权或在别处重新扫码，请点击「重新扫码」恢复绑定';
+        return;
+      }
+
+      openAddBtn.disabled = false;
+      wechatCard.hidden = true;
+      backdrop.hidden = false;
+
+      if (scene === "picker") {
+        modalTitle.textContent = "添加外部通道";
+        modalBody.innerHTML = `
+          <button type="button" class="provider-option" disabled>
+            <span class="im-channel-logo logo-feishu">飞</span>
+            <span class="provider-option-copy">
+              <strong>飞书</strong>
+              <span>连接飞书开放平台企业自建机器人</span>
+            </span>
+            <span style="font-size:11px;font-weight:600;color:#64748b">已添加</span>
+          </button>
+          <button type="button" class="provider-option" id="pick-wechat-btn">
+            <span class="im-channel-logo logo-wechat">微</span>
+            <span class="provider-option-copy">
+              <strong>微信</strong>
+              <span>手机微信扫码绑定专属机器人，仅限本人 1:1 私聊</span>
+            </span>
+          </button>`;
+        modalFooter.innerHTML = `<button type="button" class="im-btn" onclick="backdrop.hidden=true">取消</button>`;
+        document.getElementById("pick-wechat-btn").onclick = () => setScene("qr_wait");
+        return;
+      }
+
+      if (scene === "pin_code") {
+        renderPinModal(false);
+        return;
+      }
+      if (scene === "pin_error") {
+        renderPinModal(true);
+        return;
+      }
+
+      modalTitle.textContent = "扫码绑定微信通道";
+      if (scene === "qr_wait") {
+        modalBody.innerHTML = `
+          <div class="qr-stage">
+            <div class="qr-box">${QR_SVG}</div>
+            <p class="qr-hint">请使用本人手机微信扫描二维码</p>
+            <p class="qr-subhint">无需注册开放平台；绑定后仅接收扫码微信号本人的私聊消息，自动同步到内部 IM 影子会话。</p>
+          </div>`;
+        modalFooter.innerHTML = `<button type="button" class="im-btn" onclick="setScene('picker')">返回</button><button type="button" class="im-btn" onclick="backdrop.hidden=true">取消</button>`;
+      } else if (scene === "qr_scanned") {
+        modalBody.innerHTML = `
+          <div class="qr-stage">
+            <div class="qr-box">
+              ${QR_SVG}
+              <div class="qr-overlay" style="color:#047857">
+                <span style="font-size:24px">✓</span>
+                <span>已扫码，请在手机微信上点击确认</span>
+              </div>
+            </div>
+            <p class="qr-hint">等待手机端确认授权…</p>
+            <p class="qr-subhint">若手机屏幕弹出数字验证码，页面将自动切换至验证码输入步骤。</p>
+          </div>`;
+        modalFooter.innerHTML = `<button type="button" class="im-btn" onclick="setScene('qr_wait')">更换二维码</button><button type="button" class="im-btn" onclick="backdrop.hidden=true">取消</button>`;
+      } else if (scene === "qr_expired") {
+        modalBody.innerHTML = `
+          <div class="qr-stage">
+            <div class="qr-box">
+              ${QR_SVG}
+              <div class="qr-overlay" style="color:#b45309">
+                <span>二维码已过期</span>
+                <button type="button" class="im-btn im-btn-primary" onclick="setScene('qr_wait')">刷新二维码</button>
+              </div>
+            </div>
+            <p class="qr-hint">连续超时未扫码，已暂停自动刷新</p>
+            <p class="qr-subhint">点击「刷新二维码」即可立即获取新二维码继续绑定。</p>
+          </div>`;
+        modalFooter.innerHTML = `<button type="button" class="im-btn" onclick="backdrop.hidden=true">取消</button>`;
+      }
+    }
+
+    chips.forEach((chip) => {
+      chip.addEventListener("click", () => setScene(chip.dataset.scene));
+    });
+    openAddBtn.addEventListener("click", () => setScene("picker"));
+    wechatRebindBtn.addEventListener("click", () => setScene("qr_wait"));
+    document.getElementById("close-modal-btn").addEventListener("click", () => { backdrop.hidden = true; });
+
+    const initial = window.__INITIAL_SCENE__ || new URLSearchParams(location.search).get("scene") || "qr_wait";
+    setScene(initial);
+  </script>
+</body>
+</html>
