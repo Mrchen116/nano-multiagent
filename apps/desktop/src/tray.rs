@@ -1,7 +1,7 @@
 use crate::autostart::{get_desktop_login_autostart, set_desktop_login_autostart};
 use crate::config::DesktopPaths;
 use crate::host_server::HostSharedState;
-use crate::local_node::{resolve_active_bundle, run_local_admin_sync};
+use crate::local_node::{open_external_url, resolve_active_bundle, run_local_admin_sync};
 use crate::notifications::{DesktopNotificationRecord, DesktopUiBridge, WindowAttentionState};
 use serde_json::json;
 use std::path::PathBuf;
@@ -11,6 +11,7 @@ use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::webview::NewWindowResponse;
 use tauri::{
     AppHandle, LogicalPosition, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
@@ -97,6 +98,12 @@ fn format_tray_tooltip(zh: bool, total_unread: u64) -> String {
     }
 }
 
+fn is_loopback_host_url(url: &url::Url, expected_port: Option<u16>) -> bool {
+    url.scheme() == "http"
+        && url.host_str() == Some("127.0.0.1")
+        && expected_port.map(|port| url.port() == Some(port)).unwrap_or(true)
+}
+
 impl TauriUiCoordinator {
     pub fn bind_app(&self, handle: AppHandle, port: u16, boot_nonce: String) {
         *self.app_handle.lock().unwrap() = Some(handle);
@@ -154,6 +161,10 @@ impl TauriUiCoordinator {
         let initial_route = effective_route.as_deref().unwrap_or("/chat");
         let url = self.build_bootstrap_url(initial_route)?;
         self.set_current_route(initial_route.to_string());
+        let expected_port = self.bootstrap_base.lock().unwrap().as_ref().map(|(p, _)| *p);
+        let paths_for_nav = app.try_state::<Arc<HostSharedState>>().map(|s| s.paths.clone());
+        let paths_for_new_win = paths_for_nav.clone();
+        let coord_for_new_win = app.state::<Arc<TauriUiCoordinator>>().inner().clone();
 
         let win = WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, WebviewUrl::External(url))
             .title("Crewden")
@@ -161,6 +172,37 @@ impl TauriUiCoordinator {
             .min_inner_size(380.0, 560.0)
             .visible(true)
             .focused(true)
+            .on_navigation(move |nav_url| {
+                if matches!(nav_url.scheme(), "about" | "blob")
+                    || is_loopback_host_url(nav_url, expected_port)
+                {
+                    return true;
+                }
+                if matches!(nav_url.scheme(), "http" | "https") {
+                    if let Some(ref paths) = paths_for_nav {
+                        let _ = open_external_url(paths, nav_url.as_str());
+                    }
+                }
+                false
+            })
+            .on_new_window(move |win_url, _features| {
+                if is_loopback_host_url(&win_url, expected_port) {
+                    let route = match win_url.query() {
+                        Some(q) if !q.is_empty() => format!("{}?{}", win_url.path(), q),
+                        _ => win_url.path().to_string(),
+                    };
+                    if route.starts_with('/') {
+                        coord_for_new_win.activate_route(&route);
+                    }
+                    return NewWindowResponse::Deny;
+                }
+                if matches!(win_url.scheme(), "http" | "https") {
+                    if let Some(ref paths) = paths_for_new_win {
+                        let _ = open_external_url(paths, win_url.as_str());
+                    }
+                }
+                NewWindowResponse::Deny
+            })
             .build()
             .ok()?;
 

@@ -327,6 +327,77 @@ fn non_empty_str<'a>(val: &'a Value) -> Option<&'a str> {
     val.as_str().map(str::trim).filter(|s| !s.is_empty())
 }
 
+fn normalize_user_id(raw: &str) -> &str {
+    let trimmed = raw.trim();
+    trimmed.strip_prefix("user:").unwrap_or(trimmed)
+}
+
+fn is_thread_audience_allowed(payload: &Value, self_user_id: &str) -> bool {
+    let Some(_thread_root) = non_empty_str(&payload["thread_root_message_id"]) else {
+        return true;
+    };
+    let Some(notify_ids) = payload["thread_notify_user_ids"].as_array() else {
+        return true;
+    };
+    let target = normalize_user_id(self_user_id);
+    if target.is_empty() {
+        return false;
+    }
+    notify_ids
+        .iter()
+        .filter_map(|v| v.as_str())
+        .any(|uid| normalize_user_id(uid) == target)
+}
+
+fn is_viewing_conversation_route(current_route: &str, cid: &str) -> bool {
+    if cid.is_empty() {
+        return false;
+    }
+    let base = format!("/chat/{}", cid);
+    if current_route == base {
+        return true;
+    }
+    let Some(rest) = current_route.strip_prefix(&base) else {
+        return false;
+    };
+    rest.starts_with('?') || rest.starts_with('#') || rest.starts_with('/')
+}
+
+fn build_conversation_target_route(cid: &str, thread_root_id: Option<&str>) -> String {
+    let mut base = format!("/chat/{}", cid);
+    if let Some(root) = thread_root_id.map(str::trim).filter(|s| !s.is_empty()) {
+        let mut serializer = url::form_urlencoded::Serializer::new(String::new());
+        serializer.append_pair("thread", root);
+        base.push('?');
+        base.push_str(&serializer.finish());
+    }
+    base
+}
+
+fn has_interactive_card(payload: &Value) -> bool {
+    non_empty_str(&payload["interactive"]["source"]).is_some()
+        || payload["has_interactive_card"].as_bool().unwrap_or(false)
+}
+
+fn extract_attachment_preview(payload: &Value, en: bool) -> Option<String> {
+    if let Some(name) = non_empty_str(&payload["file_name"]) {
+        return Some(name.to_string());
+    }
+    if let Some(arr) = payload["attachments"].as_array() {
+        if let Some(first_name) = arr.first().and_then(|item| non_empty_str(&item["file_name"])) {
+            return Some(first_name.to_string());
+        }
+        if !arr.is_empty() {
+            return Some(if en {
+                "Attachment".to_string()
+            } else {
+                "[附件]".to_string()
+            });
+        }
+    }
+    None
+}
+
 /// Pure classifier for `/im/ws/user` canonical events covering the 4 required Desktop notification types.
 pub fn classify_user_stream_event(
     event_type: &str,
@@ -388,18 +459,24 @@ pub fn classify_user_stream_event_localized(
                 return None;
             }
             if let Some(uid) = non_empty_str(&payload["sender_user_id"]) {
-                if uid == self_user_id {
+                if normalize_user_id(uid) == normalize_user_id(self_user_id) {
                     return None;
                 }
+            }
+            if !is_thread_audience_allowed(payload, self_user_id) {
+                return None;
             }
             let cid = payload["conversation_id"].as_str().unwrap_or("");
             if cid.is_empty() || muted_conversations.get(cid).copied().unwrap_or(false) {
                 return None;
             }
-            let target_route = format!("/chat/{}", cid);
-            if attention.visible_and_focused && attention.current_route.starts_with(&target_route) {
+            if attention.visible_and_focused
+                && is_viewing_conversation_route(&attention.current_route, cid)
+            {
                 return None;
             }
+            let thread_root = non_empty_str(&payload["thread_root_message_id"]);
+            let target_route = build_conversation_target_route(cid, thread_root);
             let msg_id = payload["message_id"].as_str().unwrap_or("");
             let sender = non_empty_str(&payload["sender"]["display_name"])
                 .or_else(|| non_empty_str(&payload["sender_display_name"]))
@@ -407,9 +484,25 @@ pub fn classify_user_stream_event_localized(
                 .or_else(|| pending_agent_senders.get(msg_id).map(String::as_str))
                 .or_else(|| conv_titles.get(cid).map(String::as_str))
                 .unwrap_or(if en { "Assistant" } else { "助手" });
-            let fallback_done = if en { "Reply completed" } else { "已完成本轮回复" };
-            let preview = strip_mention_xml(payload["content"].as_str().unwrap_or(fallback_done));
+            let fallback_done = if has_interactive_card(payload) {
+                if en { "[Interactive card]" } else { "[交互卡片]" }
+            } else if en {
+                "Reply completed"
+            } else {
+                "已完成本轮回复"
+            };
+            let raw_content = payload["content"].as_str().unwrap_or("");
+            let preview = strip_mention_xml(raw_content);
             let body: String = preview.chars().take(90).collect();
+            let resolved_body = if !body.is_empty() {
+                body
+            } else if has_interactive_card(payload) {
+                fallback_done.to_string()
+            } else if let Some(att) = extract_attachment_preview(payload, en) {
+                att
+            } else {
+                fallback_done.to_string()
+            };
             Some(DesktopNotificationRecord {
                 id: format!("notif-{}", random_hex_token(8)),
                 kind: "message_completed".to_string(),
@@ -418,27 +511,43 @@ pub fn classify_user_stream_event_localized(
                 } else {
                     format!("{} · 回复完成", sender)
                 },
-                body: if body.is_empty() {
-                    fallback_done.to_string()
-                } else {
-                    body
-                },
+                body: resolved_body,
                 target_route,
                 created_at: now_epoch_secs(),
             })
         }
         "message.created" => {
             let cid = payload["conversation_id"].as_str().unwrap_or("");
-            if cid.is_empty() {
+            if cid.is_empty() || !is_thread_audience_allowed(payload, self_user_id) {
                 return None;
             }
             let sender_type = non_empty_str(&payload["sender_type"])
                 .or_else(|| non_empty_str(&payload["sender"]["type"]))
                 .unwrap_or("");
+            // Explicit card publications (`publishAgent`) emit a terminal `message.created`
+            // with `delivery_status == "completed"` and no follow-up `message.completed`.
+            if sender_type == "agent"
+                && payload["delivery_status"].as_str() == Some("completed")
+                && has_interactive_card(payload)
+            {
+                return classify_user_stream_event_localized(
+                    "message.completed",
+                    payload,
+                    self_user_id,
+                    muted_conversations,
+                    conv_titles,
+                    pending_agent_senders,
+                    attention,
+                    locale,
+                );
+            }
             let sender_user_id = non_empty_str(&payload["sender_user_id"])
                 .or_else(|| non_empty_str(&payload["sender"]["id"]))
                 .unwrap_or("");
-            if sender_type != "user" || sender_user_id.is_empty() || sender_user_id == self_user_id {
+            if sender_type != "user"
+                || sender_user_id.is_empty()
+                || normalize_user_id(sender_user_id) == normalize_user_id(self_user_id)
+            {
                 return None;
             }
             let content = payload["content"].as_str().unwrap_or("");
@@ -446,10 +555,13 @@ pub fn classify_user_stream_event_localized(
             if !is_mention && muted_conversations.get(cid).copied().unwrap_or(false) {
                 return None;
             }
-            let target_route = format!("/chat/{}", cid);
-            if attention.visible_and_focused && attention.current_route.starts_with(&target_route) {
+            if attention.visible_and_focused
+                && is_viewing_conversation_route(&attention.current_route, cid)
+            {
                 return None;
             }
+            let thread_root = non_empty_str(&payload["thread_root_message_id"]);
+            let target_route = build_conversation_target_route(cid, thread_root);
             let sender_name = non_empty_str(&payload["sender_display_name"])
                 .or_else(|| non_empty_str(&payload["sender"]["display_name"]))
                 .or_else(|| non_empty_str(&payload["sender_name"]))
@@ -457,6 +569,21 @@ pub fn classify_user_stream_event_localized(
                 .unwrap_or(if en { "New message" } else { "新消息" });
             let clean = strip_mention_xml(content);
             let body: String = clean.chars().take(90).collect();
+            let resolved_body = if !body.is_empty() {
+                body
+            } else if has_interactive_card(payload) {
+                if en {
+                    "[Interactive card]".to_string()
+                } else {
+                    "[交互卡片]".to_string()
+                }
+            } else if let Some(att) = extract_attachment_preview(payload, en) {
+                att
+            } else if en {
+                "Sent a new message".to_string()
+            } else {
+                "发来一条新消息".to_string()
+            };
             Some(DesktopNotificationRecord {
                 id: format!("notif-{}", random_hex_token(8)),
                 kind: if is_mention {
@@ -473,15 +600,7 @@ pub fn classify_user_stream_event_localized(
                 } else {
                     sender_name.to_string()
                 },
-                body: if body.is_empty() {
-                    if en {
-                        "Sent a new message".to_string()
-                    } else {
-                        "发来一条新消息".to_string()
-                    }
-                } else {
-                    body
-                },
+                body: resolved_body,
                 target_route,
                 created_at: now_epoch_secs(),
             })
@@ -492,7 +611,7 @@ pub fn classify_user_stream_event_localized(
                 .as_str()
                 .or_else(|| payload["status"].as_str())
                 .unwrap_or("pending");
-            if status != "pending" {
+            if status != "pending" || !is_thread_audience_allowed(payload, self_user_id) {
                 return None;
             }
             let cid = payload["conversation_id"]
@@ -502,10 +621,14 @@ pub fn classify_user_stream_event_localized(
             if cid.is_empty() || muted_conversations.get(cid).copied().unwrap_or(false) {
                 return None;
             }
-            let target_route = format!("/chat/{}", cid);
-            if attention.visible_and_focused && attention.current_route.starts_with(&target_route) {
+            if attention.visible_and_focused
+                && is_viewing_conversation_route(&attention.current_route, cid)
+            {
                 return None;
             }
+            let thread_root = non_empty_str(&payload["thread_root_message_id"])
+                .or_else(|| non_empty_str(&req_obj["thread_root_message_id"]));
+            let target_route = build_conversation_target_route(cid, thread_root);
             let tool = non_empty_str(&req_obj["tool_name"])
                 .or_else(|| non_empty_str(&req_obj["tool"]))
                 .or_else(|| non_empty_str(&payload["tool_name"]))
@@ -1140,6 +1263,7 @@ async fn run_single_session_stream(
     center.set_ws_connected(true);
 
     let mut pending_agent_senders: HashMap<String, String> = HashMap::new();
+    let mut pending_agent_cards: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut ping_interval = tokio::time::interval(Duration::from_secs(25));
     ping_interval.tick().await;
 
@@ -1203,7 +1327,14 @@ async fn run_single_session_stream(
                     }
                     "conversation.membership_changed"
                     | "conversation.deleted"
-                    | "message.receipts_changed" => {
+                    | "message.receipts_changed"
+                    | "message.discarded" => {
+                        if event_type == "message.discarded" {
+                            if let Some(mid) = non_empty_str(&payload["message_id"]) {
+                                pending_agent_senders.remove(mid);
+                                pending_agent_cards.remove(mid);
+                            }
+                        }
                         let _ = sync_conversations_and_cursor(
                             http_client,
                             &active.im_origin,
@@ -1222,24 +1353,51 @@ async fn run_single_session_stream(
                             .or_else(|| non_empty_str(&payload["sender"]["type"]))
                             .unwrap_or("");
                         if sender_type == "agent" {
-                            if let (Some(mid), Some(sname)) = (
-                                non_empty_str(&payload["message_id"]).or_else(|| non_empty_str(&payload["id"])),
-                                non_empty_str(&payload["sender"]["display_name"])
+                            if let Some(mid) =
+                                non_empty_str(&payload["message_id"]).or_else(|| non_empty_str(&payload["id"]))
+                            {
+                                if let Some(sname) = non_empty_str(&payload["sender"]["display_name"])
                                     .or_else(|| non_empty_str(&payload["sender_display_name"]))
-                                    .or_else(|| non_empty_str(&payload["sender_name"])),
-                            ) {
-                                if pending_agent_senders.len() >= 128 {
-                                    pending_agent_senders.clear();
+                                    .or_else(|| non_empty_str(&payload["sender_name"]))
+                                {
+                                    if pending_agent_senders.len() >= 128 {
+                                        pending_agent_senders.clear();
+                                    }
+                                    pending_agent_senders.insert(mid.to_string(), sname.to_string());
                                 }
-                                pending_agent_senders.insert(mid.to_string(), sname.to_string());
+                                if has_interactive_card(&payload) {
+                                    if pending_agent_cards.len() >= 128 {
+                                        pending_agent_cards.clear();
+                                    }
+                                    pending_agent_cards.insert(mid.to_string());
+                                }
                             }
                         }
-                        center.on_message_created(
-                            cid,
-                            sender_uid == self_user_id,
-                            payload["unread_count"].as_u64(),
-                            ui.as_ref(),
-                        );
+                        let allowed_in_thread = is_thread_audience_allowed(&payload, &self_user_id);
+                        let is_self_author =
+                            !sender_uid.is_empty() && normalize_user_id(sender_uid) == normalize_user_id(&self_user_id);
+                        let attention_now = ui.window_attention();
+                        let focused_here = attention_now.visible_and_focused
+                            && is_viewing_conversation_route(&attention_now.current_route, cid);
+                        if non_empty_str(&payload["thread_root_message_id"]).is_some() {
+                            if allowed_in_thread && !is_self_author {
+                                let _ = sync_conversations_and_cursor(
+                                    http_client,
+                                    &active.im_origin,
+                                    &access_token,
+                                    center,
+                                    ui.as_ref(),
+                                )
+                                .await;
+                            }
+                        } else if allowed_in_thread && !focused_here {
+                            center.on_message_created(
+                                cid,
+                                is_self_author,
+                                payload["unread_count"].as_u64(),
+                                ui.as_ref(),
+                            );
+                        }
                     }
                     _ => {}
                 }
@@ -1256,15 +1414,26 @@ async fn run_single_session_stream(
                     tracker.foreign_agents.clear();
                 }
 
-                if event_type == "message.completed" {
-                    if let Some(mid) = non_empty_str(&payload["message_id"]) {
-                        if tracker.notified_completed_messages.iter().any(|x| x == mid) {
+                let is_terminal_agent_card_create = event_type == "message.created"
+                    && non_empty_str(&payload["sender_type"])
+                        .or_else(|| non_empty_str(&payload["sender"]["type"]))
+                        == Some("agent")
+                    && payload["delivery_status"].as_str() == Some("completed")
+                    && has_interactive_card(&payload);
+                if event_type == "message.completed" || is_terminal_agent_card_create {
+                    if let Some(mid) = non_empty_str(&payload["message_id"]).map(str::to_string) {
+                        if pending_agent_cards.remove(&mid) {
+                            if let Some(obj) = payload.as_object_mut() {
+                                obj.insert("has_interactive_card".to_string(), json!(true));
+                            }
+                        }
+                        if tracker.notified_completed_messages.iter().any(|x| x == &mid) {
                             continue;
                         }
                         if tracker.notified_completed_messages.len() >= 64 {
                             tracker.notified_completed_messages.pop_front();
                         }
-                        tracker.notified_completed_messages.push_back(mid.to_string());
+                        tracker.notified_completed_messages.push_back(mid);
                     }
                 }
 
@@ -1510,5 +1679,144 @@ mod tests {
         )
         .unwrap();
         assert_eq!(en_done.title, "研发助手 PA · Reply ready");
+    }
+
+    #[test]
+    fn filters_unfollowed_group_threads_and_deep_links_followed_threads_and_interactive_cards() {
+        let muted = HashMap::new();
+        let mut titles = HashMap::new();
+        titles.insert("c-group".to_string(), "产品讨论群".to_string());
+        let mut pending_agents = HashMap::new();
+        pending_agents.insert("m-card-done".to_string(), "交互助手".to_string());
+
+        let hidden = WindowAttentionState {
+            visible_and_focused: false,
+            current_route: "/chat".to_string(),
+        };
+        let focused_prefix_neighbor = WindowAttentionState {
+            visible_and_focused: true,
+            current_route: "/chat/c-group-2".to_string(),
+        };
+
+        // 1. Unfollowed group thread reply (`thread_notify_user_ids` excludes `u-self`) is suppressed
+        assert!(classify_user_stream_event(
+            "message.created",
+            &json!({
+                "conversation_id": "c-group",
+                "message_id": "m-t1",
+                "thread_root_message_id": "root-42",
+                "thread_notify_user_ids": ["u-other"],
+                "sender_type": "user",
+                "sender_user_id": "u-peer",
+                "sender_display_name": "阿杰",
+                "content": "这个话题里继续讨论"
+            }),
+            "u-self",
+            &muted,
+            &titles,
+            &hidden,
+        )
+        .is_none());
+
+        // 2. Followed group thread reply (`thread_notify_user_ids` includes `u-self`) deep-links to `?thread=root-42`
+        //    and is NOT falsely suppressed when focused on a prefix-neighbor route `/chat/c-group-2`
+        let followed_thread = classify_user_stream_event(
+            "message.created",
+            &json!({
+                "conversation_id": "c-group",
+                "message_id": "m-t2",
+                "thread_root_message_id": "root-42",
+                "thread_notify_user_ids": ["u-other", "u-self"],
+                "sender_type": "user",
+                "sender_user_id": "u-peer",
+                "sender_display_name": "阿杰",
+                "content": "已同步给你"
+            }),
+            "u-self",
+            &muted,
+            &titles,
+            &focused_prefix_neighbor,
+        )
+        .unwrap();
+        assert_eq!(followed_thread.kind, "human_message");
+        assert_eq!(followed_thread.target_route, "/chat/c-group?thread=root-42");
+
+        // 3. Thread-scoped `permission.request` respects `thread_notify_user_ids` and deep-links to `?thread=`
+        assert!(classify_user_stream_event(
+            "permission.request",
+            &json!({
+                "conversation_id": "c-group",
+                "thread_root_message_id": "root-42",
+                "thread_notify_user_ids": ["u-other"],
+                "permission_request": { "tool_name": "bash", "status": "pending" }
+            }),
+            "u-self",
+            &muted,
+            &titles,
+            &hidden,
+        )
+        .is_none());
+        let thread_perm = classify_user_stream_event(
+            "permission.request",
+            &json!({
+                "conversation_id": "c-group",
+                "thread_root_message_id": "root-42",
+                "thread_notify_user_ids": ["u-self"],
+                "permission_request": { "tool_name": "bash", "status": "pending" }
+            }),
+            "u-self",
+            &muted,
+            &titles,
+            &hidden,
+        )
+        .unwrap();
+        assert_eq!(thread_perm.target_route, "/chat/c-group?thread=root-42");
+
+        // 4. Card-only Agent completion (`has_interactive_card` or terminal `publishAgent` `message.created`)
+        let card_completed = classify_user_stream_event_with_senders(
+            "message.completed",
+            &json!({
+                "conversation_id": "c-group",
+                "message_id": "m-card-done",
+                "content": "",
+                "has_interactive_card": true,
+                "delivery_status": "completed"
+            }),
+            "u-self",
+            &muted,
+            &titles,
+            &pending_agents,
+            &hidden,
+        )
+        .unwrap();
+        assert_eq!(card_completed.kind, "message_completed");
+        assert_eq!(card_completed.body, "[交互卡片]");
+
+        let publish_card_created = classify_user_stream_event_localized(
+            "message.created",
+            &json!({
+                "conversation_id": "c-group",
+                "message_id": "m-pub-card",
+                "thread_root_message_id": "root-99",
+                "thread_notify_user_ids": ["u-self"],
+                "sender_type": "agent",
+                "sender_user_id": "agent:pa",
+                "sender_display_name": "PA",
+                "content": "",
+                "delivery_status": "completed",
+                "interactive": { "format": "openui", "source": "root = Text(\"Hi\")" }
+            }),
+            "u-self",
+            &muted,
+            &titles,
+            &pending_agents,
+            &hidden,
+            "en",
+        )
+        .unwrap();
+        assert_eq!(publish_card_created.kind, "message_completed");
+        assert_eq!(publish_card_created.title, "PA · Reply ready");
+        assert_eq!(publish_card_created.body, "[Interactive card]");
+        assert_eq!(publish_card_created.target_route, "/chat/c-group?thread=root-99");
     }
 }
