@@ -613,6 +613,21 @@ export class GlobalAgent {
     const config=this.options.agents.find(agent=>agent.agentId===agentId);
     if(config?.personal)await this.refreshPersonalSources(config);
   }
+  /** Authenticate and review personal Task-context notices fetched ahead of live relay delivery. */
+  async settleSyncedTaskContext(agentId:string,sessionId:string):Promise<void> {
+    const config=this.options.agents.find(agent=>agent.agentId===agentId && agent.personal);
+    if(!config)return;
+    const binding=this.options.store.bindingForSession(sessionId)??await this.main(config);
+    let hasFailure=false;
+    for(const input of this.options.inbox.reviews.unclassified(config.agentId)) {
+      const result=await this.personal.admit(config,binding,input);
+      if(result.kind==='failed')hasFailure=true;
+    }
+    if(hasFailure)await this.deliverReviewFailures(config);
+    if(this.options.inbox.reviews.pendingConversations(config.agentId).length>0) {
+      await this.flushPendingReviews(config,binding);
+    }
+  }
   private refreshPersonalSources(config: AgentConfiguration): Promise<ReadonlySet<string>> {
     const previous = this.sourceRefreshes.get(config.agentId) ?? Promise.resolve(new Set<string>());
     const task = previous.catch(() => new Set<string>()).then(async () => {

@@ -8,7 +8,8 @@ interface Identity {agentId:string;sessionId:string;ownerId:string}
 interface Evidence {inputId:string;content:{type:string;text?:string}[];turn:number;consumedSeq:number}
 export interface PendingTaskContextItem {messageId:string;conversationId:string;timeMs:number;text:string}
 interface Options {nodeId:string;ownerId:string;agents:AgentConfiguration[];store:NodeStore;inbox:InboxStore;runtime:RuntimePort;
-  relay:{request(type:string,payload:Record<string,unknown>):Promise<ProtocolFrame>};refreshSources(agentId:string):Promise<void>}
+  relay:{request(type:string,payload:Record<string,unknown>):Promise<ProtocolFrame>};refreshSources(agentId:string):Promise<void>;
+  settlePersonalInputs?:(agentId:string,sessionId:string)=>Promise<void>}
 /** Product owner of original Task-message catch-up and native consumption receipts. */
 export class TaskContext {
   private readonly syncing=new Map<string,{started:boolean;done:Promise<void>}>();
@@ -24,6 +25,7 @@ export class TaskContext {
     const cut={started:false,done:Promise.resolve()};
     cut.done=(previous?.done??Promise.resolve()).catch(()=>{}).then(async()=>{
       cut.started=true;
+      const config=this.options.agents.find(item=>item.agentId===agentId);
       await this.options.refreshSources(agentId);
       let after=this.options.store.taskContextCursor(agentId),through:number|undefined;
       do {
@@ -31,13 +33,20 @@ export class TaskContext {
         const frame=await this.options.relay.request('task.context.sync',{node_id:this.options.nodeId,agent_id:agentId,request_id:randomUUID(),after,through,limit:32,pending});
         this.options.store.lifecycle.assert(agentId);
         if(!frame.payload.ok)throw new Error('Task context authority unavailable');
-        const page=frame.payload.result as {through:number;next:number;items:{message_id:string;conversation_id:string;allowed:boolean;input?:RelayInput}[];revoked_message_ids:string[]};
+        const page=frame.payload.result as {through:number;next:number;items:{message_id:string;conversation_id:string;projection_kind?:string;allowed:boolean;input?:RelayInput}[];revoked_message_ids:string[]};
         if(!Number.isSafeInteger(page.through)||!Number.isSafeInteger(page.next)||page.next<after||page.next>page.through||through!==undefined&&through!==page.through||page.next===after&&page.next!==page.through)throw new Error('Invalid Task context fixed range');
         through=page.through;
         const revoke=(id:string,cid:string)=>{this.options.store.revokeSystemContext(agentId,id,cid);this.options.inbox.revokeSystemContext(agentId,id);};
         for(const item of page.items) {
-          if(item.allowed&&item.input)this.options.inbox.receive(item.input,false);
-          else revoke(item.message_id,item.conversation_id);
+          if(item.allowed&&item.input) {
+            if(config?.personal&&item.projection_kind!=='revoked'&&!this.options.inbox.input(agentId,item.input.message.id)) {
+              const staged=structuredClone(item.input);
+              staged.metadata={...staged.metadata,personal_unclassified:true};
+              this.options.inbox.receive(staged,false);
+            } else {
+              this.options.inbox.receive(item.input,false);
+            }
+          } else revoke(item.message_id,item.conversation_id);
         }
         for(const id of page.revoked_message_ids??[]){const row=this.options.store.systemContextInput(agentId,id);if(row)revoke(id,row.conversation_id);}
         // Inbox writes precede this cursor. A crash retries immutable IDs, never skips originals.
@@ -75,7 +84,10 @@ export class TaskContext {
     const config=agents.find(item=>item.agentId===agentId)!;
     const scope=config.mode==='global'?undefined:store.imConversation(agentId,binding.conversationId);
     let authority=true;
-    try {await this.sync(agentId);} catch {authority=false;}
+    try {
+      await this.sync(agentId);
+      if(config.personal)await this.options.settlePersonalInputs?.(agentId,sessionId);
+    } catch {authority=false;}
     this.binding(identity);
     if(store.taskContextRetired(sessionId))return {messages:[],revoked:[]};
     const revoked=store.systemContextInputs(agentId,'revoked').map(row=>row.input_id);
@@ -100,6 +112,7 @@ export class TaskContext {
     if(!config)return [];
     const scope=config.mode==='global'?undefined:store.imConversation(agentId,binding.conversationId);
     await this.sync(agentId);
+    if(config.personal)await this.options.settlePersonalInputs?.(agentId,sessionId);
     this.binding(identity);
     if(store.taskContextRetired(sessionId))return [];
     const revoked=new Set(store.systemContextInputs(agentId,'revoked').map(row=>row.input_id));

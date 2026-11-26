@@ -140,10 +140,12 @@ export function apply(ctx) {
       const text = lastUser?.content?.find(b => b.type === 'text')?.text || '';
       if (text.startsWith('try-read-signals')) {
         const signalsFile = process.env.DSH_HOME + '/.nanoassistant/memory/knowledge/proactivity-signals.md';
-        const memoryFile = process.env.DSH_HOME + '/.nanoassistant/memory/MEMORY.md';
+        const memoryRoot = process.env.DSH_HOME + '/.nanoassistant/memory';
+        const memoryFile = memoryRoot + '/MEMORY.md';
         const calls = [
           ['read', { file_path: signalsFile }],
           ['grep', { path: signalsFile, pattern: '体脂' }],
+          ['grep', { path: memoryRoot, pattern: '体脂' }],
           ['read', { file_path: memoryFile }],
         ];
         if (n < calls.length) {
@@ -291,10 +293,14 @@ export function apply(ctx) {
     const paObserved = await client.rpc.request('session.observe', { sessionId: 'pa-root' }) as { events: any[] };
     const fgReadSignals = paObserved.events.find(e => e.type === 'tool/result' && e.data.message.toolCallId === 'fg-0');
     const fgGrepSignals = paObserved.events.find(e => e.type === 'tool/result' && e.data.message.toolCallId === 'fg-1');
-    const fgReadMemory = paObserved.events.find(e => e.type === 'tool/result' && e.data.message.toolCallId === 'fg-2');
+    const fgDirGrepMemory = paObserved.events.find(e => e.type === 'tool/result' && e.data.message.toolCallId === 'fg-2');
+    const fgReadMemory = paObserved.events.find(e => e.type === 'tool/result' && e.data.message.toolCallId === 'fg-3');
     expect(fgReadSignals?.data.message.isError).toBe(true);
     expect(JSON.stringify(fgReadSignals?.data.message.content)).toContain('proactivity-signals.md is an offline Dreaming observation pool');
     expect(fgGrepSignals?.data.message.isError).toBe(true);
+    expect(fgDirGrepMemory?.data.message.isError).not.toBe(true);
+    expect(JSON.stringify(fgDirGrepMemory?.data.message.content)).not.toContain('proactivity-signals.md');
+    expect(JSON.stringify(fgDirGrepMemory?.data.message.content)).not.toContain('seen: 1');
     expect(fgReadMemory?.data.message.isError).not.toBe(true);
     // Confirm msg-reject-1 was injected into pa-root session events on Day 2:
     expect(paObserved.events.some(e => e.type === 'user/message' && e.data.id === 'msg-reject-1' && e.data.source?.channel === 'task-context')).toBe(true);

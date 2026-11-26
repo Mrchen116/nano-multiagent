@@ -47,18 +47,23 @@ export function taskNotices(doc: Row, before: Row | null, actorName: string,
         const status:Row = {proposed:'待拍板',todo:'待办',doing:'推进中',waiting:'等待中',in_review:'提交待确认',done:'已完成',paused:'已暂缓',backlog:'先存着',closed:'已关闭'};
         let statusText: string = status[n.status];
         if (old?.status === 'proposed') {
-          if (creatorSelfAction && n.status === 'closed') {
-            statusText = '过期提议已收起（已关闭）';
+          const isHumanActor = !actor?.kind || actor.kind === 'user';
+          if (creatorSelfAction) {
+            statusText = n.status === 'closed' ? '过期提议已收起（已关闭）' : `从待拍板转为${status[n.status]}`;
             attention.delete('agent:' + actor!.id);
-          } else if (!creatorSelfAction) {
+          } else {
             add(n.created_by ?? old.created_by);
-            const proposedDecision: Record<string, string> = {
-              closed: '未采纳（已关闭）',
-              backlog: '暂存待定（先存着）',
-              todo: '已批准（待办）',
-              doing: '已批准（推进中）',
-            };
-            statusText = proposedDecision[n.status] ?? `从待拍板转为${status[n.status]}`;
+            if (isHumanActor) {
+              const proposedDecision: Record<string, string> = {
+                closed: '未采纳（已关闭）',
+                backlog: '暂存待定（先存着）',
+                todo: '已批准（待办）',
+                doing: '已批准（推进中）',
+              };
+              statusText = proposedDecision[n.status] ?? `从待拍板转为${status[n.status]}`;
+            } else {
+              statusText = `从待拍板转为${status[n.status]}`;
+            }
           }
         }
         note('status',statusText);

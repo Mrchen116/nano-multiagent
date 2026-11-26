@@ -48,7 +48,8 @@ export const createNanoProduct: NanoEvaluationOptions['createProduct'] = options
     onError: error => appendFileSync(join(directory, 'product-errors.log'), String(error) + '\n'),
   });
   const taskContext = new TaskContext({ nodeId, ownerId: identity.ownerId, agents: [config], store, inbox, runtime, relay,
-    refreshSources: agentId => product.prepareSystemContext(agentId) });
+    refreshSources: agentId => product.prepareSystemContext(agentId),
+    settlePersonalInputs: (agentId, sessionId) => product.settleSyncedTaskContext(agentId, sessionId) });
   product.attachTaskContext(taskContext);
   return {
     importSession: session => chat.importSession(session),

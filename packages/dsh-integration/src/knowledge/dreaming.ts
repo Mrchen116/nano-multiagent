@@ -243,7 +243,14 @@ export class Dreaming {
     try { return await promise; } catch (error) { this.owners.delete(config.agentId); throw error; }
   }
   private async saveOwner(agentId: string, owner: DreamingOwner) { await (await this.domain).table('owners').put(key(agentId), owner); }
-  private async saveRun(run: DreamingRun) { await (await this.domain).table('runs').put(run.id, { ...run, batch: { ...run.batch, units: run.batch.units.map(unit => ({ ...unit, events: [] })) } }); this.options.notify(); }
+  private async saveRun(run: DreamingRun) {
+    await (await this.domain).table('runs').put(run.id, {
+      ...run,
+      ...(run.pendingTaskContext ? { pendingTaskContext: run.pendingTaskContext.map(item => ({ ...item, text: '' })) } : {}),
+      batch: { ...run.batch, units: run.batch.units.map(unit => ({ ...unit, events: [] })) },
+    });
+    this.options.notify();
+  }
   /** Automatic admission never reserves the root Agent for the model call. */
   async tick(agentId: string, now = this.now()): Promise<unknown> {
     const config = this.configuration(agentId);
@@ -628,7 +635,7 @@ export class Dreaming {
     try{limit=await dreamingInputLimit(this.ctx,config);}
     catch(error){return {active:this.active.has(agentId),backlog:{state:'model_capacity_unavailable',scope:'unavailable',reason:String(error)}};}
     const target=await this.sources.freezeTarget(agentId,owner.streams,owner.activationAt,{generation:policy.generation});
-    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),rotation:owner.rotation,target};
+    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),rotation:owner.rotation,target,excludeTaskContextIds:new Set(owner.integratedTaskContextIds??[])};
     const batch=await this.sources.freeze(agentId,owner.streams,options);
     const materials=await this.sources.children(agentId,target,{...batch,ranges:[],cutoffs:{}},options);
     const summaries=(await this.domain).table('summaries');

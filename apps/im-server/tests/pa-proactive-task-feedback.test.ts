@@ -123,4 +123,48 @@ it('indexes owner proposed-card decisions for PA with trusted_owner_task_notice 
   expect(cursorAfterSelfClose).toBe(cursorBeforeSelfClose);
   const selfAdmitted = service.admitSource(principal, { ...args, source_message_id: selfCloseMsg.id, conversation_id: 'chat' });
   expect(selfAdmitted.trusted_owner_task_notice).toBeUndefined();
+
+  // Another non-creator Agent (`b`) closing PA (`a`)'s proposed card in a shared group uses neutral transition wording (NOT human 未采纳/已批准) while notifying creator `a`.
+  db.prepare("INSERT INTO agent_profiles(agent_id,node_id,owner_id,space_id,display_name,tool_allowlist_json,features_json,profile_version,created_at,updated_at) VALUES('b','n','o1','company:default','Peer Agent',?,?,1,?,?)").run(
+    JSON.stringify(['task_graph']),
+    JSON.stringify({ task_graph: true }),
+    new Date().toISOString(),
+    new Date().toISOString(),
+  );
+  const peerUser = ctx.messaging.agentUser('b');
+  db.prepare("INSERT OR IGNORE INTO conversation_participants(conversation_id,user_id) VALUES('shared',?)").run(peerUser.id);
+  db.prepare("INSERT OR IGNORE INTO agent_lifecycle(agent_id,desired,revision,requested_at) VALUES('b','enabled',1,?)").run(new Date().toISOString());
+
+  const sharedProposed = tasks.execute(
+    { kind: 'agent', id: 'a', node_id: 'n' },
+    'create',
+    {
+      request_key: 'rk-6',
+      conversation_id: 'shared',
+      title: '共享群待拍板提案',
+      description: '由 PA 创建，随后由另一 Agent 关闭',
+      status: 'proposed',
+      assignee: { type: 'user', id: 'u1' },
+    },
+  );
+  tasks.execute(
+    { kind: 'agent', id: 'b', node_id: 'n' },
+    'apply',
+    {
+      request_key: 'rk-7',
+      graph_id: sharedProposed.graph_id,
+      base_revision: 1,
+      change_note: '',
+      operations: [{ op: 'update_task', node_id: 'n1', patch: { status: 'closed' } }],
+    },
+  );
+  const peerCloseMsg = db.prepare("SELECT * FROM messages WHERE conversation_id='shared' AND sender_type='system' ORDER BY rowid DESC LIMIT 1").get() as { content: string; system_notice_json: string };
+  expect(peerCloseMsg.content).toContain('从待拍板转为已关闭');
+  expect(peerCloseMsg.content).not.toContain('未采纳');
+  expect(JSON.parse(peerCloseMsg.system_notice_json)).toMatchObject({
+    previous_status: 'proposed',
+    status: 'closed',
+    actor: { type: 'agent', id: 'b' },
+    attention_actor_ids: expect.arrayContaining(['a']),
+  });
 });
