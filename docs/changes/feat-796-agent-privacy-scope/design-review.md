@@ -252,3 +252,119 @@
 - **`R1-W5`**: `accepted` — 新增 [specs/im/spec.md](specs/im/spec.md)、[specs/im/ios-client.md](specs/im/ios-client.md)、[specs/gateway/external-channels.md](specs/gateway/external-channels.md) 3 份 delta-spec 并登记到 [design.md](design.md)；同时修复 [specs/im/web-chat-ux.md](specs/im/web-chat-ux.md)（完整保留 `#### Scenario: 新建群聊选择真人同事与本人候选 Agent` 的分组、搜索及排除他人普通 Agent 条款）与 [specs/gateway/routing-delivery.md](specs/gateway/routing-delivery.md)（完整保留 `#### Scenario: IM 在线时投递成功并回执` 标题与 `ok=True` 回执条款）。
 - **`R1-R1`**: `accepted` — 在 [design.md](design.md) UX Grounding 表中明确首次引导 Step 2 与 `PersonalAgentDialog` 使用紧凑两档分段控件配合单行短文案，确保 `390x844` 首屏可见主创建按钮。
 - **`R1-R2`**: `accepted` — 在 [design.md](design.md) `Runbook for Reviewer` 启动命令与步骤 2 中显式加入前置 `npm --prefix src/IM/frontend run build`（或 `--vite` 说明）。
+
+---
+
+## Round 2
+
+### Metadata
+
+- **reviewer_target**: `docs/changes/feat-796-agent-privacy-scope` @ `cc4a74903e86a25b7771da223cecec75114a386c`（diff from Round 1 `a7c9a4d328cae35fe69f65997f0b69e96ec49b7f`，branch `unit/feat-796-agent-privacy-scope`，base `origin/develop` `95f074c7a`）
+- **review_mode**: `delta`
+- **mode_reason**: 本轮未变更 `spec.md` 用户需求、单 Milestone 切分与 `dsh-integration` 边界，聚焦于回应 R1 阻塞项的有界设计修订（三组精细权限谓词、`ownerDirect/ownerInternal/ownerObserved` 正交分离、新增 `agent.scope.revoked` 清退帧、补齐 iOS 创建/只读面及新增 3 份 delta-spec），并逐点核查新增机制在真实源码组装入口上的波及面。
+- **retained_from**: `Round 1`（`spec.md` 原始需求与用户确认约束、关键决策 1 枚举复用、`packages/dsh-integration` 零改动边界、无需独立 `prototype.html` 的判断，以及本轮未改动的 4 份 delta-spec `specs/im/agents-nodes.md`、`specs/im/auth-tenancy.md`、`specs/gateway/global-agent.md`、`specs/gateway/personal-agent.md` 经核对无波及冲突，沿用 Round 1 证据）
+- **started_at**: `2026-11-27T00:17:44+09:00`
+- **completed_at**: `2026-11-27T00:25:05+09:00`
+- **duration**: `7m 21s`
+
+### Verdict
+
+**Issues Found (Changes Requested)** — `1 CRITICAL, 2 WARNING, 0 Recommendation`
+
+---
+
+### Coverage 与证据（Delta 范围与波及核查）
+
+对照 `git diff a7c9a4d328cae35fe69f65997f0b69e96ec49b7f..cc4a74903e86a25b7771da223cecec75114a386c` 与工作树真实源码逐项核实：
+
+1. **中心权限谓词与原生轨迹鉴权（关键决策 2 + `specs/im/agent-work.md`）**：
+   - 废除泛化放宽 `currentActorCanAccess` 后，`canTeamContactAgent`、`canViewAgentWork` 与 `canAgentAccessConversation` 职责边界清晰：既打通了个人空间团队成员公开普通 Agent 的目录、建聊、`resolveTarget`、斜杠命令、Work 与 `trajectory.ts` 4 处鉴权（含切换私有时 `trajectory.check()` 主动 `1008` 断连），也打通了同主人存量 `company:default` 与 `personal:<owner_id>` Agent 的内部群/直聊定址，同时完整保留 `tenancy.test.ts:400-402` 双 Agent 跨空间 `404` 断言并显式阻断 `'owner_only'` Agent 访问 `public` 群。
+   - **新发现波及缺口**：将 `Messaging.access` Gateway 分支（`messaging.ts:126`）一刀切替换为 `canAgentAccessConversation` 会误杀切换 `'owner_only'` 后节点对收紧前历史消息上报的 `node.delivery_receipt`（`gateway.ts:579`）与重启对账 `agent.message.status`（`gateway.ts:628`），详见 `R2-W1`。
+2. **入站分类、`SingleThread` 会话隔离与话题/回执（关键决策 3 + `specs/gateway/routing-delivery.md`）**：
+   - `owner_direct_agent_messages` 与 `facts.ownerDirect` 保持严格匹配真人主人 1:1 / 飞书主人单聊，`SingleThread.chatBinding` 不再有心跳主会话被专属群或 `agent-agent` 私聊劫持的风险；独立下发 `owner_internal` 后，专属群未点名消息继续保持 10 分钟背景合并，`SingleThread` 定时器短路及 `threads.ts:35` / `message-records.ts:409` 硬判 `'team'` 均已闭合。
+3. **切换收口、`agent.scope.revoked` 与双端只读/创建体验（关键决策 4、UX Grounding、`specs/im/ios-client.md`、`specs/im/web-chat-ux.md`、`specs/im/conversations-messages.md`）**：
+   - 中心退群事务补齐了 `thread_followers`、`running` 气泡、未决 `permission_requests`、二次 `retireTeamBacklog` 与 `publishMessages(notices)`；`PATCH /conversations/:id` 放行成员个人 `is_pinned/is_muted`；Web 与 iOS 创建/只读/建群互斥全部对齐。
+   - **新发现波及缺口**：新增的中心→节点帧 `agent.scope.revoked` 必须经 `apps/node/src/main.ts`（`WebRelayConnection.onFrame` L263–299 及 `configuration.restrictChat` L598）分发执行，但 `design.md` 涉及范围与 Milestone `范围` 均漏列了 `apps/node/`，详见 `R2-W2`。
+4. **私有助手外部渠道出站拦截（关键决策 5 + 新增 `specs/gateway/external-channels.md`）**：
+   - PA 的 `ownerObserved` 过滤、`gateway.ts:455` 错误码解包与 `PersonalAssistant.send` 前置校验均已闭合。
+   - **新发现阻塞冲突**：新增 `specs/gateway/external-channels.md` L98–101 明确承诺“**PA 或普通 Agent** 处于「私有」（`owner_only`）”向非主人飞书会话发消息均前置拒绝，但 `design.md` 仅在 `PersonalAssistant.send` 拦截了 PA，漏掉了普通/全局 Agent 所走的 `ExternalChannels`（`packages/personal-assistant/src/external.ts:286-310, 367`），详见 `R2-C1`。
+5. **12 份 Delta-spec 完整性核查**：
+   - `./scripts/docs-check` 通过（267 maintained Markdown sources）；`specs/im/spec.md` 中 `Conversations and Messages` 计数 `39 -> 40` 与新增 1 条 Requirement 精确一致；`web-chat-ux.md` 与 `routing-delivery.md` 已完整恢复原 Scenario 标题与有效条款。
+
+---
+
+### 历史问题闭环
+
+| 原 Issue ID | Author Resolution | 本轮核实证据 | 状态 |
+|---|---|---|---|
+| `R1-C1` | `accepted` — 提炼 `canTeamContactAgent` / `canViewAgentWork` / `canAgentAccessConversation`，覆盖跨空间会话/网关/命令/Work 门禁，保持 `tenancy.test.ts:400-402` 并禁止私有助手访问公开群 | `design.md` L13–15、L80–86 已覆盖全部正向跨空间与公开群/双 Agent 观察边界；仅收紧后历史 `node.delivery_receipt` / `agent.message.status` 在 `gateway.ts:579, 628` 存在衍生兼容问题，单列为 `R2-W1` | `closed`（衍生项跟踪于 `R2-W1`） |
+| `R1-C2` | `accepted` — `trajectory.ts` 4 处鉴权接入 `canViewAgentWork`，配置切换后调用 `trajectory.check()` 关闭失权 WS，补齐 `specs/im/agent-work.md` | `design.md` L15、L82、L146 及 `specs/im/agent-work.md` L32–56 完整覆盖 | `closed` |
+| `R1-C3` | `accepted` — 分离 `ownerDirect` 与 `ownerInternal`，保护 `SingleThread` canonical 心跳会话并恢复专属群 10 分钟背景合并与定时器重排 | `design.md` L11、L88–94、L127–128 与 `specs/gateway/routing-delivery.md` L11–14 完整闭合 | `closed` |
+| `R1-C4` | `accepted` — `ownerObserved` 限定 `personal_delivery === 'observer'`、PA `external:` 前置校验、修正 `gateway.ts:455` 与未建聊 `resolve_target` 返回结构化 `not_sent` | PA 自身旁观与外发链路已在 `design.md` L102–106、L167–168 闭合；但普通/全局 `'owner_only'` Agent 在 `external.ts` 的飞书出站拦截漏落，单列为 `R2-C1` | `closed`（普通 Agent 外部渠道缺口跟踪于 `R2-C1`） |
+| `R1-W1` | `accepted` — 补齐 iOS `AgentsView.swift`（`AgentCreateView`）、`ChatModels.swift`、`ChatStorage.swift`、`ConversationView.swift`、`NewChatView.swift`、`ChatInfoView.swift` 与 `specs/im/ios-client.md` | `design.md` L20、L177–180、L232 与 `specs/im/ios-client.md` L5–24 完整覆盖 | `closed` |
+| `R1-W2` | `accepted` — 补齐退群事务清理、二次 `retireTeamBacklog`、`publishMessages`、PA `request_key` 409 校验及 `agent.scope.revoked` | 中心侧逻辑已在 `design.md` L96–99、L114、L129 覆盖；但 `agent.scope.revoked` 在节点宿主 `apps/node/src/main.ts` 的接线入口遗漏，单列为 `R2-W2` | `closed`（节点入口遗漏跟踪于 `R2-W2`） |
+| `R1-W3` | `accepted` — 明确同主人存量 `company:default` 与 `personal:<owner_id>` Agent 内部会话空间选择、跨空间 `direct_key` 查找复用与 Gateway 准入 | `design.md` L84–85 与 `specs/im/conversations-messages.md` L10 完整覆盖 | `closed` |
+| `R1-W4` | `accepted` — 放行 owner-internal 下 `threads.ts` 与 `message-records.ts`，允许成员 `PATCH` 个人置顶/免打扰，收口 Web 分支按钮/失效 `⚙` 与资料页不可访问态 | `design.md` L94、L100、L122、L179 与 `specs/im/conversations-messages.md` L41–44、`specs/im/web-chat-ux.md` L26–29 完整覆盖 | `closed` |
+| `R1-W5` | `accepted` — 新增 `specs/im/spec.md`、`specs/im/ios-client.md`、`specs/gateway/external-channels.md`，恢复 `web-chat-ux.md` 与 `routing-delivery.md` 既有 Scenario 内容 | 12 份 delta-spec 逐一核对通过，`./scripts/docs-check` 零错误 | `closed` |
+| `R1-R1` | `accepted` — 首次引导与 `PersonalAgentDialog` 采用紧凑两档分段控件配单行短文案 | `design.md` L178 已采纳 | `closed` |
+| `R1-R2` | `accepted` — Runbook 增加前端 `build` 前置命令与 `--vite` 说明 | `design.md` L220、L224 已采纳 | `closed` |
+
+---
+
+### Issues
+
+#### `R2-C1` [CRITICAL] 普通/全局 `'owner_only'` Agent 的外部渠道出站拦截在 `ExternalChannels`（`packages/personal-assistant/src/external.ts`）中缺失，与新增 `specs/gateway/external-channels.md` 契约直接矛盾
+
+- **位置**：
+  - `docs/changes/feat-796-agent-privacy-scope/specs/gateway/external-channels.md` L98–101（`#### Scenario: 私有档位下向非主人外部渠道会话主动发消息被前置拦截`）
+  - `docs/changes/feat-796-agent-privacy-scope/design.md` L19、L105、L167–168
+  - `packages/personal-assistant/src/external.ts` L286–310、L361–368、L394–399、L423–445
+  - `packages/personal-assistant/src/global-agent.ts` L1154–1159
+- **证据**：
+  1. 本轮新增的 `specs/gateway/external-channels.md` L99–101 明确规定：**“GIVEN PA 或普通 Agent 处于「私有」（`owner_only`）……尝试向飞书群聊或非绑定主人的飞书单聊发送消息，THEN Gateway 在向外部渠道实际发信及写入内部 IM 影子占位消息之前拒绝该请求”**。
+  2. 但 `design.md` L19 与关键决策 5（L105）仅在 `PersonalAssistant.send`（PA 专属路径）中加入了 `external:` 前置校验，完全未涉及 `packages/personal-assistant/src/external.ts`。
+  3. 在真实代码中，普通 Global Agent（`global-agent.ts:1154`）与 `single_thread` Agent 向 `external:feishu:...` 发送消息时**不经过 `PersonalAssistant.send`**，而是直接调用 `ExternalChannels.requestAdmitted`（`external.ts:286-310`）：该路径在 L293–296 立即落库 `turn_start` 镜像帧并在 `publishAdmitted`（L367 `else await dispatch(text, card)`）直接调用 `connection.send(...)` 发往飞书，完全未检查 `this.options.ownerOnly?.(agentId)` 与 `owner_recipient`（`!chat.isGroup && !!ownerOpenId && chat.sourceId === 'feishu:' + chat.appId + ':dm:' + ownerOpenId`）。
+  4. 更严重的是，消息发出后 `ExternalChannels.flush()`（L435）尝试将 `turn_start` 同步到内部 IM 影子会话时，会撞上本轮 `design.md` L85 新增的 `canAgentAccessConversation`（拒绝 `'owner_only'` Agent 写入非主人影子会话），导致飞书侧已泄漏外发，而节点 `pendingFrames()` 陷入持续报错重试。
+- **未修后果**：处于「私有」档位的普通/全局 Agent 仍可向飞书群聊或非主人飞书用户真实发出消息，并破坏本地外部镜像队列收敛，违反 `spec.md` 第 3 条验收标准与 `specs/gateway/external-channels.md` L98–101。设计需将 `packages/personal-assistant/src/external.ts` 纳入改动：在 `ExternalChannels` 处理 `agent.message`（L286）与 `node.streaming_delta (turn_start)`（L304）入口处，当 `this.options.ownerOnly?.(agentId) === true` 且目标会话不是已绑定 `ownerOpenId` 的飞书单聊时，在 `this.state.prepare` / 落库帧 / 调飞书 API 之前直接拒绝并返回明确 `collaboration_scope_restricted` 错误。
+
+---
+
+#### `R2-W1` [WARNING] 将 `canAgentAccessConversation` 直接套用于 `gateway.ts:579`（`node.delivery_receipt`）与 `gateway.ts:628`（`agent.message.status`）会导致切换 `'owner_only'` 后的历史回执对账报 `404` 并堵死节点回执队列
+
+- **位置**：
+  - `docs/changes/feat-796-agent-privacy-scope/design.md` L85
+  - `apps/im-server/src/gateway.ts` L570–599（`node.delivery_receipt`）、L624–630（`agent.message.status`）
+  - `apps/im-server/src/messaging.ts` L126（`Messaging.access`）
+  - `packages/personal-assistant/src/inbox.ts` L207–211、L378–386
+- **证据**：
+  1. 当 Agent X 从 `'team'` 切为 `'owner_only'` 时，中心将其移出外人群 `G1` 且外部同事私聊 `D1` 不属于 owner-internal（因此 `canAgentAccessConversation(db, X, G1/D1)` 返回 `false`）。
+  2. 与此同时，节点 `InboxStore.confirmRestricted`（`inbox.ts:207`）会将收紧前已入库的 `G1`/`D1` 消息更新为 `relay_receipts.status = 'skipped', confirmed = 0`（或对切换前已被模型读取的消息上报 `'sent' | 'read' | 'completed'`——`gateway.ts:586` 专门为此设计了 `scopeCancelled` 分支），随后由节点按批（`LIMIT 100`）向中心发送 `node.delivery_receipt`；同理，若切换瞬间有一条已发出的 `agent_message_dispatch_log` 丢失了回包，节点重启 `recoverPublications`（`global-agent.ts:1254`）会调用 `agent.message.status`。
+  3. 按 `design.md` L85 让 `Messaging.access` Gateway 分支（被 `gateway.ts:579` 与 `gateway.ts:628` 调用）统一强制 `canAgentAccessConversation`，这两处历史对账都会对 `G1`/`D1` 抛出 `404 conversation_id not found`！
+- **未修后果**：切换为 `'owner_only'` 后，节点本地 `relay_receipts` 中属于原外人群/外部私聊的 `skipped` 或已完成回执永远无法 `confirmed = 1`，持续失败重试甚至占满 `pendingRelays` 窗口阻塞后续主人内部会话的回执上报。设计需区分“新建/读取会话内容（要求当前 `canAgentAccessConversation`）”与“结清已存在的历史 `relay_tasks` 回执（`gateway.ts:579` 凭已匹配的 `(relay_task_id, target_node_id, agent_id)` 结清，无需当前仍具备会话访问权）及核对已提交的 `agent_message_dispatch_log`（`gateway.ts:628` 凭 `source_agent_id === agent.agent_id` 返回既有幂等回执）”。
+
+---
+
+#### `R2-W2` [WARNING] 新增 `agent.scope.revoked` 协议帧遗漏节点宿主分发入口 `apps/node/src/main.ts`（含 DSH 运行时待发队列撤回），且 Milestone `范围` 未包含 `apps/node/`
+
+- **位置**：
+  - `docs/changes/feat-796-agent-privacy-scope/design.md` L19–20、L99、L129、L145、L232（`M1-agent-privacy-scope` `范围`）
+  - `apps/node/src/main.ts` L263–299（`WebRelayConnection.onFrame`）、L594–601（`configuration.restrictChat`）
+- **证据**：
+  1. 在真实生产组装中，`packages/personal-assistant` 不直接监听中心 WebSocket 帧；所有中心主动下发帧（如 `pa.observations.available`、`task.execution.changed`、`relay.message`）均由 `apps/node/src/main.ts:263-299` 的 `onFrame` 接收并转发。
+  2. 此外，若某条被 `agent.scope.revoked` 清退的会话输入此前已生成 `inbox_notifications` 或 `SingleThread` 待发消息并排入 DSH 运行时缓冲（但尚未向模型 Provider 发出首包），仅清理 `InboxStore` / `SingleThread` 内存状态不够，还需像 `apps/node/src/main.ts:597-600` 一样调用 `runtime.request('configuration.restrictChat', ...)` 并 `confirmRestricted`。
+  3. 当前 `design.md` L20“涉及范围”与 L232 Milestone `范围` 仅列出 `packages/product-contracts/`、`packages/personal-assistant/`、`apps/im-server/`、`src/IM/frontend/`、`src/IM/ios/`，遗漏了 `apps/node/`（及若通过共享协议类型声明帧名涉及的 `packages/channels/`，或直接在 `onFrame` 处理控制帧）。
+- **未修后果**：下游实施若严格遵守 Milestone `范围` 不改 `apps/node/src/main.ts`，中心发出的 `agent.scope.revoked` 将在节点侧被静默忽略，群由内变外与 RPC 窗口期的陈旧缓冲清退机制无法实际生效。设计需在涉及范围与 Milestone `范围` 补入 `apps/node/`，并写明 `onFrame` 接收 `agent.scope.revoked` 后联动 `restrictChat` 的闭环路径。
+
+---
+
+### Recommendations
+
+本轮无新增可选建议。
+
+---
+
+### Author Resolutions
+
+- **`R2-C1`**: `accepted` — 在 [design.md](design.md) 涉及范围、关键决策 5 与 Milestone 退出标准中将 `packages/personal-assistant/src/external.ts` 纳入改动：在 `ExternalChannels.requestAdmitted` 处理 `agent.message` 与 `node.streaming_delta (turn_start)` 的入口处校验 `this.options.ownerOnly?.(agentId) === true` 与已绑定 `ownerOpenId` 飞书单聊身份，非主人飞书单聊与飞书群在 `this.state.prepare`、落库镜像帧和调用飞书发送 API 之前直接以 `collaboration_scope_restricted` 拒绝，与 [specs/gateway/external-channels.md](specs/gateway/external-channels.md) 契约完全对齐。
+- **`R2-W1`**: `accepted` — 在 [design.md](design.md) 关键决策 2 中明确区分当前会话读写门禁（使用 `canAgentAccessConversation`）与收紧前既有记录的历史对账操作：`gateway.ts:579`（`node.delivery_receipt`，已由 `(relay_task_id, target_node_id)` 与 `requireAgent` 绑定）与 `gateway.ts:628`（`agent.message.status`，已由 `source_agent_id === agent.agent_id` 绑定）仅核验会话存在与 `agentAvailable(db, agent)`，保证切换 `'owner_only'` 后历史 `skipped / read / completed` 回执与重启幂等对账正常结清而不报 `404`。
+- **`R2-W2`**: `accepted` — 在 [design.md](design.md) 涉及范围、关键决策 4、接口契约与 `M1-agent-privacy-scope` Milestone `范围` 中补入 `apps/node/`（`apps/node/src/main.ts`），写明由 `WebRelayConnection.onFrame` 接收 `agent.scope.revoked` 并联动 `globalProduct` / `product` 与 `runtime.request('configuration.restrictChat', ...)` + `confirmRestricted` 同步撤回 DSH 运行时待发队列输入。
