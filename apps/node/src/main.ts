@@ -550,6 +550,7 @@ const scheduleDeletions=new ScheduleDeletions({ownerId:config.node.user_id,agent
   await runtime.request('schedule.deleted.notify',{agentId:intent.agentId,sessionId:intent.sessionId,inputId:intent.changeInputId,content:[{type:'text',text:'The user deleted the Schedule identified below. It will no longer wake you as planned. Account for this change when checking your existing arrangements. This is a Schedule change, not a new task or permission, and it does not resume paused work.\n'+JSON.stringify({schedule_id:intent.scheduleId,title:intent.title,agent_id:intent.agentId,session_id:intent.sessionId,deleted_at:intent.deletedAt,actor:intent.actor})}]});
  }});
 const taskContext=new TaskContext({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,inbox,runtime: runtime.product,relay,refreshSources:agentId=>globalProduct.prepareSystemContext(agentId)});
+globalProduct.attachTaskContext(taskContext);
 runtime.handle('product.task_context.prepare',value=>taskContext.prepare(value as Parameters<TaskContext['prepare']>[0]));
 runtime.handle('product.task_context.commit',value=>taskContext.commit(value as Parameters<TaskContext['commit']>[0]));
 runtime.handle('product.task_execution.snapshot', value=>tasks.snapshot(value as Parameters<TaskExecution['snapshot']>[0]));

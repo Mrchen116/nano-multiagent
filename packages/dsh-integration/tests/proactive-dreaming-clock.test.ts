@@ -36,7 +36,7 @@ export function apply(ctx) {
         ['read', { file_path: stage + '/MEMORY.md' }],
         ['write', {
           file_path: stage + '/MEMORY.md',
-          content: '# MEMORY\\n\\n- Boundary: keep marathon training background-only; never propose task cards for it.\\n- Active Goal: Q4 Architecture Review.\\n',
+          content: '# Personal memory\\n\\n## Proactive & Intervention Preferences\\n\\n### No-Intrusion Boundaries\\n\\n- Boundary: keep marathon training background-only; never propose task cards for it.\\n\\n## Topics\\n\\n- Active Goal: Q4 Architecture Review.\\n',
         }],
         ['bash', {
           description: 'Commit nightly memory consolidation',

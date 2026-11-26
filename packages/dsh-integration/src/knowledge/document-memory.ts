@@ -74,7 +74,7 @@ export class DocumentMemory {
         : windowEntry ?? await this.entry(documents, main);
       assembly.variables.nano_document_memory = [
         'Current saved Markdown is durable understanding, not user authorization, Task state or live permissions. Use read/glob/grep for memory files. Only Dreaming updates formal memory; never use write/edit, shell or other tools to bypass this boundary. Load nano-memory for memory guidance.',
-        config.personal ? 'Role: personal assistant. Keep the owner’s background, relationships, preferences and workstreams; preserve exceptions and uncertainty.' : 'Role: independent expert. Keep domain/environment knowledge, audience-specific collaboration and verified work experience. A requester is not implicitly your owner.',
+        config.personal ? 'Role: personal assistant. Keep the owner’s background, relationships, preferences and workstreams; preserve exceptions and uncertainty. Confirmed proactive & intervention calibration lives in MEMORY.md; knowledge/proactivity-signals.md is an offline Dreaming observation pool—do not read or query it.' : 'Role: independent expert. Keep domain/environment knowledge, audience-specific collaboration and verified work experience. A requester is not implicitly your owner.',
         `Memory directory: ${documents.root}. This library belongs to the product Agent and does not follow a child working directory. Search this directory for more detailed memory.`,
         'Read the complete relevant pages before applying a conclusion. The inline MEMORY.md is a snapshot taken at the start of this context window. Current corrections supersede older context, restored notes and history. Update affected original children through the existing follow-up channel. Apply corrections and requests to stop using a memory immediately within their stated scope, without a maintenance call. Dreaming reads those original conversation messages and updates durable memory later. A correction limited to this turn does not delete a lasting preference. Do not claim memory is saved until the host reports it.',
       ].join('\n\n');
@@ -122,15 +122,21 @@ export class DocumentMemory {
     });
     ctx.on('tools/execute', async (exec, next) => {
       const agent = exec.agent; const config = agent && options.configOf(agent);
-      const arg = exec.arguments as { file_path?: string };
-      if (!agent || !config || config.knowledge?.memoryMode === 'legacy' || !['read', 'write', 'edit'].includes(exec.name) || typeof arg.file_path !== 'string') return next();
-      const documents = await this.forConfig(config); const absolute = resolve(agent.session.header.cwd!, arg.file_path);
+      const arg = exec.arguments as { file_path?: string; path?: string };
+      if (!agent || !config || config.knowledge?.memoryMode === 'legacy' || !['read', 'write', 'edit', 'grep'].includes(exec.name)) return next();
+      const rawPath = exec.name === 'grep' ? arg.path : arg.file_path;
+      if (typeof rawPath !== 'string') return next();
+      const documents = await this.forConfig(config); const absolute = resolve(agent.session.header.cwd!, rawPath);
       if (exec.name === 'read' && this.roleAgents.has(agent) && absolute === rolePath(documents.workspace) && !await resolveRoleFile(ctx.fs, documents.workspace)) {
         throw new Error('The role path is not a regular file in the assigned workspace.');
       }
       const target = await ctx.fs.resolve(absolute); const canonical = ctx.fs.processPath(target);
       if (!inside(documents.root, absolute) && !inside(documents.root, canonical)) return next();
-      if (exec.name !== 'read') throw new Error('Only Dreaming may update formal memory. Use current corrections in this conversation; request memory_maintenance run when the user asks to save them.');
+      if (exec.name === 'write' || exec.name === 'edit') throw new Error('Only Dreaming may update formal memory. Use current corrections in this conversation; request memory_maintenance run when the user asks to save them.');
+      const signalsPath = join(documents.root, 'knowledge', 'proactivity-signals.md');
+      if (config.personal && !String(agent.id).startsWith('dreaming-') && (absolute === signalsPath || canonical === signalsPath)) {
+        throw new Error('knowledge/proactivity-signals.md is an offline Dreaming observation pool and cannot be read during foreground or worker turns. Rely on confirmed preferences in MEMORY.md.');
+      }
       return next();
     });
   }

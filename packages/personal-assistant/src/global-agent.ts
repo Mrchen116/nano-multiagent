@@ -1,6 +1,7 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
+import type { TaskContext } from './task-context.js';
 import { prepareLocalAttachments, unknownScreenshotReceipt, type AttachmentDownloader, type AttachmentUploader, type ScreenshotUploader } from './screenshot-delivery.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
@@ -39,7 +40,9 @@ const callPosition = (event: RuntimeEvent | undefined): PublicationPosition | un
 
 /** Cross-chat cognition and delivery. The runtime alone schedules model turns. */
 export class GlobalAgent {
-  private readonly sourceRefreshes = new Map<string, Promise<void>>();
+  private readonly sourceRefreshes = new Map<string, Promise<ReadonlySet<string>>>();
+  private readonly personalAllowedSources = new Map<string, ReadonlySet<string>>();
+  private taskContext?: TaskContext;
   private readonly controls: SessionControls;
   private readonly personal: PersonalAssistant;
   private observations?: Promise<void>;
@@ -110,6 +113,10 @@ export class GlobalAgent {
         this.reconcileRoot(binding).catch(options.onError);
       }
     });
+  }
+  /** Wire the process-wide singleton TaskContext so Dreaming pre-fetch shares its sync lock. */
+  attachTaskContext(taskContext: TaskContext): void {
+    this.taskContext = taskContext;
   }
   /** Require each affected root to reconcile durable input before its next wake. */
   runtimeUnavailable(agentIds: readonly string[]): void {
@@ -419,7 +426,7 @@ export class GlobalAgent {
     if((isTaskNotice && !taskContext) || this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
     const high=!unaddressedControl && !isTaskNotice && chatDelivery(input,config,this.options.ownerId)==='high';
     const nowMs = this.options.clockNow?.() ?? Date.now();
-    if (config.personal && input.metadata.personal_is_owner !== true && input.metadata.personal_delivery === 'participant') {
+    if (config.personal && input.metadata.personal_is_owner !== true && input.metadata.personal_trusted_task_notice !== true && input.metadata.personal_delivery === 'participant') {
       const currentState = this.options.inbox.reviews.get(config.agentId, input.message.id)?.state;
       if (currentState !== 'admitted') {
         const dueAt = input.metadata.context_only || isTaskNotice ? null : (high ? 0 : nowMs + 600_000);
@@ -606,9 +613,9 @@ export class GlobalAgent {
     const config=this.options.agents.find(agent=>agent.agentId===agentId);
     if(config?.personal)await this.refreshPersonalSources(config);
   }
-  private refreshPersonalSources(config: AgentConfiguration): Promise<void> {
-    const previous = this.sourceRefreshes.get(config.agentId) ?? Promise.resolve();
-    const task = previous.catch(() => {}).then(async () => {
+  private refreshPersonalSources(config: AgentConfiguration): Promise<ReadonlySet<string>> {
+    const previous = this.sourceRefreshes.get(config.agentId) ?? Promise.resolve(new Set<string>());
+    const task = previous.catch(() => new Set<string>()).then(async () => {
       await this.options.runtime.request('knowledge.sources.pending', { agentId: config.agentId });
       const sources = await this.personal.request(config, 'pa.sources', { action: 'list' });
       const items = sources.items as { id: string; excluded: boolean }[];
@@ -618,6 +625,8 @@ export class GlobalAgent {
         revision: String((sources.policy as {revision:number}).revision), allowed: [...allowed], excluded: items.filter(item => item.excluded).map(item => item.id),
       } });
       this.options.inbox.revokeUnavailableSources(config.agentId, allowed);
+      this.personalAllowedSources.set(config.agentId, allowed);
+      return allowed;
     });
     this.sourceRefreshes.set(config.agentId, task);
     void task.finally(() => { if (this.sourceRefreshes.get(config.agentId) === task) this.sourceRefreshes.delete(config.agentId); }).catch(() => {});
@@ -858,6 +867,22 @@ export class GlobalAgent {
       const personalConfig = this.options.agents.find(agent=>agent.agentId===binding.agentId && agent.personal);
       if (call.method === 'memory.sources.refresh') {
         if (!personalConfig) throw new Error('Trusted personal identity required');
+        if (call.args.includePendingTaskContext === true && this.taskContext) {
+          if (this.options.inbox.reviews.pendingConversations(personalConfig.agentId).length > 0) {
+            await this.flushPendingReviews(personalConfig, binding);
+          }
+          const items = await this.taskContext.peekPendingForDreaming({
+            agentId: personalConfig.agentId,
+            sessionId: binding.sessionId,
+            ownerId: this.options.ownerId,
+          });
+          const allowed = this.personalAllowedSources.get(personalConfig.agentId)
+            ?? await this.refreshPersonalSources(personalConfig);
+          return {
+            synchronized: true,
+            pendingTaskContext: items.filter(item => allowed.has(item.conversationId)),
+          };
+        }
         await this.refreshPersonalSources(personalConfig); return { synchronized: true };
       }
       if(call.method==='pa.authorization') {

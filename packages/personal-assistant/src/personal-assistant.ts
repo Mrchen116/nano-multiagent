@@ -62,7 +62,9 @@ export class PersonalAssistant {
     if(source.allowed!==true){if(source.scope_skipped===true)input.metadata.scope_skipped=true;return false;}
     if (typeof source.is_owner !== 'boolean' || !['participant','observer'].includes(String(source.delivery))) throw new Error('Missing trusted personal source facts');
     delete input.metadata.personal_source_role;
+    delete input.metadata.personal_trusted_task_notice;
     input.metadata.personal_is_owner = source.is_owner;
+    if (source.trusted_owner_task_notice === true) input.metadata.personal_trusted_task_notice = true;
     input.metadata.personal_delivery = source.delivery;
     input.metadata.conversation_type = source.conversation_type;
     input.metadata.channel = source.channel;
@@ -102,7 +104,7 @@ export class PersonalAssistant {
       }
       // Save authenticated provenance before a crash; this does not itself admit the text.
       inbox.classify(input,false);
-      if(input.metadata.personal_is_owner!==true && input.metadata.personal_delivery==='participant') {
+      if(input.metadata.personal_is_owner!==true && input.metadata.personal_trusted_task_notice!==true && input.metadata.personal_delivery==='participant') {
         const context=await this.request(config,'pa.input.context',{source_message_id:input.message.id});
         const verdict=await this.review(config,'input',{...context,source:{conversation_id:input.conversation_id,message_id:input.message.id,
           actor:input.message.sender_user_id,kind:input.message.sender_type,actor_risk:input.metadata.personal_actor_risk}});

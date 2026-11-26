@@ -1,6 +1,6 @@
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import { createHistoryView } from 'dsh-agent-context';
-import { isWorkerReport } from './memory-source-view.js';
+import { isTaskContext, isWorkerReport } from './memory-source-view.js';
 import { isHumanSource } from '../input-source.js';
 
 export interface HistoryLocator { session_id: string; window_id: string; item_id?: string }
@@ -70,7 +70,7 @@ export function nativeMaterial(event: SessionEvent, history?: HistoryLocator, co
     const source = event.data.source;
     const fromMain = context && (source.kind === 'agent-message' && source.senderSessionId === context.mainAgentSessionId ||
       context.delegated && source.kind === 'user' && !isHumanSource(source));
-    const label = isHumanSource(source) ? 'human user' : fromMain ? 'main agent' :
+    const label = isHumanSource(source) ? 'human user' : isTaskContext(source) ? 'task context' : fromMain ? 'main agent' :
       isWorkerReport(source) || ['user','agent-message','subagent-settled'].includes(source.kind) ? 'other agent' : 'harness context';
     return {...base,label,messageId:event.data.id,source,content:event.data.content.filter(block=>block.type!=='reasoning')};
   }

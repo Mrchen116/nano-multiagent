@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DREAMING_SCHEDULE } from '@nano/product-contracts';
-import { mkdir, readFile, writeFile, readdir, chmod, rm } from 'node:fs/promises';
+import { lstat, mkdir, readFile, writeFile, readdir, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
@@ -11,7 +11,7 @@ import { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import type { DocumentMemory } from './document-memory.js';
 import { MemorySources, commitSourceRange, selectChildMaterial, renderSessionMaterials, type ChildMaterial, type CycleTarget, type FrozenBatch } from './memory-sources.js';
-import { dreamingDomain, dreamingStageTitles, type DreamingOwner, type DreamingRun, type TaskSummary } from './dreaming-state.js';
+import { dreamingDomain, dreamingStageTitles, type DreamingOwner, type DreamingPendingTaskContext, type DreamingRun, type TaskSummary } from './dreaming-state.js';
 import type { MemoryDocuments } from './memory-documents.js';
 import { atomicWrite } from './files.js';
 import { runDreamingAgent, memoryDigest } from './dreaming-agent.js';
@@ -229,6 +229,7 @@ export class Dreaming {
       const owner: DreamingOwner = {
         protocol: 2,
         integrated: {},
+        ...(Array.isArray(imported?.integratedTaskContextIds) ? { integratedTaskContextIds: imported.integratedTaskContextIds } : {}),
         activationAt,
         ...(imported?.lastSuccessAutomatic !== undefined ? { lastSuccessAutomatic: imported.lastSuccessAutomatic } : {}),
         lastCompletedCycle,
@@ -270,10 +271,21 @@ export class Dreaming {
     if (timing.explicitInterval && !quiet && parent.status === 'idle') return;
     return this.start(parent, true);
   }
-  private async refreshSources(parent: Agent, config: AgentConfiguration, signal: AbortSignal) {
-    if (!config.personal) return;
+  private async refreshSources(parent: Agent, config: AgentConfiguration, signal: AbortSignal, includePendingTaskContext = false): Promise<DreamingPendingTaskContext[]> {
+    if (!config.personal) return [];
     await this.documents.sourcesPending(config.agentId);
-    await this.ctx.nanoProduct.call('memory.sources.refresh', {}, { agent: parent, signal, callId: ToolCallId(`dreaming-policy-${randomUUID()}`) });
+    const response = await this.ctx.nanoProduct.call(
+      'memory.sources.refresh',
+      includePendingTaskContext ? { includePendingTaskContext: true } : {},
+      { agent: parent, signal, callId: ToolCallId(`dreaming-policy-${randomUUID()}`) },
+    ) as { pendingTaskContext?: unknown } | undefined;
+    if (!includePendingTaskContext || !Array.isArray(response?.pendingTaskContext)) return [];
+    return response.pendingTaskContext.filter((item): item is DreamingPendingTaskContext =>
+      !!item && typeof item === 'object'
+      && typeof (item as DreamingPendingTaskContext).messageId === 'string'
+      && typeof (item as DreamingPendingTaskContext).conversationId === 'string'
+      && typeof (item as DreamingPendingTaskContext).timeMs === 'number'
+      && typeof (item as DreamingPendingTaskContext).text === 'string');
   }
   /** Manually requested work bypasses automatic timing, not scope, budgets or lifecycle. */
   start(parent: Agent, automatic: boolean, _requestRef?: string, importLegacy = false): Promise<unknown> {
@@ -293,11 +305,12 @@ export class Dreaming {
     owner.lastAttempt=this.now();await this.saveOwner(config.agentId,owner);
     const completed:string[]=[];let run:DreamingRun|undefined;
     try{
-      await this.refreshSources(parent,config,signal);
+      let pendingTaskPool=await this.refreshSources(parent,config,signal,true);
       const eligibility=await library.status();
       if(eligibility.sourcesPending)throw new Error('Source eligibility has not been refreshed.');
       const baselines=await this.sources.baseline(config.agentId);
       for(const [id,progress] of Object.entries(baselines))owner.streams[id]??=progress;
+      owner.streams[parent.id]??={baseline:-1,cursor:-1};
       await this.saveOwner(config.agentId,owner);
       const target=await this.sources.freezeTarget(config.agentId,owner.streams,owner.activationAt,{generation:eligibility.generation});
       const cycleId=randomUUID();const limit=await dreamingInputLimit(this.ctx,config,signal);
@@ -306,16 +319,43 @@ export class Dreaming {
       let importPending=importLegacy;
       while(true){
         signal.throwIfAborted();await assertDreamingSources(library,target.generation);
-        const options={maxInputTokens:budget,rotation:owner.rotation++,target};
+        const integratedTaskIds=new Set(owner.integratedTaskContextIds??[]);
+        const options={maxInputTokens:budget,rotation:owner.rotation++,target,excludeTaskContextIds:integratedTaskIds};
         let batch=deferred ? {...deferred.batch,id:randomUUID(),units:[],text:'',inputTokens:0} : await this.sources.freeze(config.agentId,owner.streams,options);
+        const batchTaskIds=new Set<string>();
+        for(const unit of batch.units){
+          for(const item of unit.events as Array<Record<string,unknown>>){
+            const record=item.type==='source_text_continuation'?(item.source as Record<string,unknown>|undefined):item;
+            const src=record?.source as {kind?:string;channel?:string;messageId?:string}|undefined;
+            if(src?.kind==='nano-system'&&src.channel==='task-context'){
+              batchTaskIds.add(String(src.messageId??record?.messageId??''));
+            }
+          }
+        }
+        pendingTaskPool=pendingTaskPool.filter(item=>!integratedTaskIds.has(item.messageId)&&!batchTaskIds.has(item.messageId));
+        let selectedPending=deferred?[]:[...pendingTaskPool];
         let materials=deferred ? [] : await this.sources.children(config.agentId,target,batch,options);
-        const includeConversations=()=>{batch.conversations=[...new Set([...(batch.conversations??[]),...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents]))])];};
+        const baseConversations=[...(batch.conversations??[])];
+        const baseCutoff=batch.cutoffs?.[parent.id]??target.roots[parent.id]?.time??0;
+        const includeConversations=()=>{
+          batch.conversations=[...new Set([
+            ...baseConversations,
+            ...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents])),
+            ...selectedPending.map(item=>item.conversationId),
+          ])];
+          if(selectedPending.length){
+            batch.cutoffs??={};
+            batch.cutoffs[parent.id]=Math.max(baseCutoff,owner.activationAt,...selectedPending.map(item=>item.timeMs));
+          }else if(batch.cutoffs){
+            batch.cutoffs[parent.id]=baseCutoff;
+          }
+        };
         includeConversations();
         const cache=(await this.domain).table('summaries');
         const pendingMaterial=materials.some(material=>owner.integrated[material.sessionId]!==material.sourceVersion);
         const check=(await library.repositoryIssues()).length>0;
         const hasProgress=batch.ranges.some(range=>range.through>range.start||range.continuation);
-        if(!batch.units.length&&!pendingMaterial&&!deferred?.summaries.length&&!check&&!importPending){
+        if(!batch.units.length&&!selectedPending.length&&!pendingMaterial&&!deferred?.summaries.length&&!check&&!importPending){
           // Filtered system events can advance without a model; genuine blocked prefixes cannot.
           for(const range of batch.ranges)commitSourceRange(owner.streams[range.sessionId]!,range);
           await this.saveOwner(config.agentId,owner);
@@ -335,6 +375,7 @@ export class Dreaming {
         }
         run=this.newRun(parent,config,work,library,target,cycleId,batch,'consolidate');
         run.importLegacy=importPending;
+        if(selectedPending.length)run.pendingTaskContext=selectedPending;
         await this.prepare(run,library);
         await this.saveRun(run);
         const current=run;
@@ -358,14 +399,25 @@ export class Dreaming {
           let input=await render();
           let measured=await capacity.measure(input);
           while(measured>capacity.limit){
-            const excess=measured-capacity.limit;
-            materialBudget=Math.min(materialBudget-1,current.batch.inputTokens-excess-512);
-            if(materialBudget<=0||!current.batch.units.length)throw new Error('Dreaming fixed input leaves no capacity for source material.');
-            const id=current.batch.id;
-            current.batch=await this.sources.freeze(config.agentId,owner.streams,{...options,maxInputTokens:materialBudget});
-            current.batch.id=id;
-            batch=current.batch;
-            materials=await this.sources.children(config.agentId,target,batch,options);
+            if(current.batch.units.length>0){
+              const excess=measured-capacity.limit;
+              materialBudget=Math.min(materialBudget-1,current.batch.inputTokens-excess-512);
+              if(materialBudget<=0){
+                if(!selectedPending.length)throw new Error('Dreaming fixed input leaves no capacity for source material.');
+                current.batch={...current.batch,units:[],text:'',inputTokens:0,ranges:current.batch.ranges.map(r=>({...r,through:r.start,continuation:undefined}))};
+              }else{
+                const id=current.batch.id;
+                current.batch=await this.sources.freeze(config.agentId,owner.streams,{...options,maxInputTokens:materialBudget});
+                current.batch.id=id;
+              }
+              batch=current.batch;
+              materials=await this.sources.children(config.agentId,target,batch,options);
+            }else if(selectedPending.length>1){
+              selectedPending=selectedPending.slice(0,Math.max(1,Math.floor(selectedPending.length/2)));
+              current.pendingTaskContext=selectedPending;
+            }else{
+              throw new Error('Dreaming fixed input leaves no capacity for source material.');
+            }
             includeConversations();
             input=await render();
             measured=await capacity.measure(input);
@@ -398,7 +450,7 @@ export class Dreaming {
             if(materialSize<=budget&&await capacity.measure(candidate)<=capacity.limit){input=candidate;usedMaterial=materialSize;}
             else{current.summaries.pop();remaining.push(summary);}
           }
-          if(remaining.length&&!batch.units.length&&!current.summaries.length)throw new Error('A task summary does not fit the available input capacity; it remains unintegrated.');
+          if(remaining.length&&!batch.units.length&&!selectedPending.length&&!current.summaries.length)throw new Error('A task summary does not fit the available input capacity; it remains unintegrated.');
           return input;
         });
         signal.throwIfAborted();await assertDreamingSources(library,run.generation);
@@ -471,6 +523,15 @@ export class Dreaming {
     else{
       inputs.push('# Batch materials (evidence included below)');
       for(const material of renderSessionMaterials(run.batch.units))inputs.push(`## Main Agent trajectory\n${material.text}`);
+      if(run.pendingTaskContext?.length){
+        const renderedPending=run.pendingTaskContext.map(item=>[
+          `[task context] · ${item.timeMs>0?new Date(item.timeMs).toISOString():'unknown-time'}`,
+          `messageId: ${item.messageId}`,
+          `conversationId: ${item.conversationId}`,
+          item.text,
+        ].join('\n')).join('\n\n');
+        inputs.push(`## Unconsumed task context updates\n${renderedPending}`);
+      }
       for(const summary of run.summaries){
         const text=await readFile(summary.path,'utf8');if(memoryDigest(text)!==summary.hash)throw new Error('Task summary changed before snapshot.');
         inputs.push(`## ${summary.noSignal?'Subagent trajectory summary with no signal; old summary retired':owner.integrated[summary.sessionId]?'Updated subagent trajectory summary; replaces the same source':'New subagent trajectory summary'}\nSource session_id: ${summary.sessionId}\n\n${text}`);
@@ -478,6 +539,16 @@ export class Dreaming {
       const entryIssue=await library.entryIssue();
       const entry=entryIssue?undefined:(await library.context()).entry;
       inputs.push(`Contents of ${join(library.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${entryIssue?`${entryIssue}. Restore a concise regular file from the current pages and this batch before completing.`:entry??'Read the complete entry at this path.'}\n</memory_content>`);
+      if(library.role==='personal'){
+        const signalsPath=join(library.root,'knowledge/proactivity-signals.md');
+        const signalsBody=await lstat(signalsPath).then(
+          info=>info.isFile()?readFile(signalsPath,'utf8'):undefined,
+          error=>(error as NodeJS.ErrnoException).code==='ENOENT'?undefined:Promise.reject(error),
+        );
+        if(signalsBody!==undefined){
+          inputs.push(`Contents of ${signalsPath} — background single-signal observation pool (Dreaming-only; never link from MEMORY.md):\n<proactivity_signals>\n${signalsBody||'(empty)'}\n</proactivity_signals>`);
+        }
+      }
     }
     if(run.importLegacy){
       const {legacy}=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8'));
@@ -517,6 +588,10 @@ export class Dreaming {
   private async commitProgress(run:DreamingRun,owner:DreamingOwner){
     for(const range of run.batch.ranges)if(owner.streams[range.sessionId])commitSourceRange(owner.streams[range.sessionId]!,range);
     for(const summary of run.summaries)owner.integrated[summary.sessionId]=summary.sourceVersion;
+    if(run.pendingTaskContext?.length){
+      const merged=[...(owner.integratedTaskContextIds??[]),...run.pendingTaskContext.map(item=>item.messageId)];
+      owner.integratedTaskContextIds=[...new Set(merged)].slice(-512);
+    }
     await this.saveOwner(run.agentId,owner);
   }
   private async disposeHandle(work:Active){

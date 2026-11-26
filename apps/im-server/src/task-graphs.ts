@@ -755,7 +755,7 @@ export class TaskGraphService {
       source_chat_id: source?.conversation_id ?? null,
     };
     const persistNotices = () => {
-      for (const notice of taskNotices(doc, before, p.display_name, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
+      for (const notice of taskNotices(doc, before, p.display_name, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid), { kind: actor.kind, id: actor.id }))
         notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,actor:{type:actor.kind,id:actor.id},
           ...(actor.kind==='user'&&doc.nodes.some((n:Obj)=>n.id===notice.metadata.node_id&&before?.nodes.find((p:Obj)=>p.id===n.id)?.status!==n.status&&(n.status==='paused'||n.status==='doing'&&n.resume_request?.revision===doc.revision))
             ?{human_control:{action:doc.nodes.find((n:Obj)=>n.id===notice.metadata.node_id).status==='paused'?'pause':'resume',actor:{type:'user',id:actor.id},task_refs:notice.metadata.task_refs,revision:doc.revision,event_time:doc.updated_at}}:{}),

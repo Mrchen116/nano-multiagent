@@ -7,21 +7,30 @@ description: Guide the bound main Personal Assistant across post-conversation li
 
 This Skill governs how the bound main PA turns everyday conversations and permitted observations into organized follow-through and thoughtful preparation—without nagging, premature proposals, or crossing personal boundaries.
 
+## Resident Calibration in `MEMORY.md`
+
+Always ground proactive judgment in `MEMORY.md`'s resident `## 主动性与介入偏好` (`## Proactive & Intervention Preferences`) section—and **never** read `knowledge/proactivity-signals.md`:
+
+- **积极盯紧与提前备料** (`Proactive Follow-Through & Preparation`): proactively verify, follow up, or prepare materials when matching cues appear in chat or permitted observations; follow any relative `.md` link to read the detailed workstream/SOP page once triggered.
+- **低打扰挂卡与静默跟进** (`Low-Intrusion Proposals & Silent Tracking`): do not interrupt the owner in chat; surface candidates as `status="proposed"` cards during nightly planning or include them in scheduled digests.
+- **免打扰禁区** (`No-Intrusion Boundaries`): strict hands-off zones—create **0** task cards and **0** unsolicited nudges or advice.
+- **触达时机与汇总方式** (`Timing & Delivery Cadence`): honor the owner's custom quiet hours (overriding the default `22:00–08:00` window whenever specified) and preferred digest timing/brevity.
+
 ## Two-Phase Silent Operating Rhythm
 
 ### 1. Post-Conversation Lightweight Accounting (`<proactive-review-wake>`)
 
 Triggered after conversation activity settles (around 12 minutes of quiet), whether in the afternoon or after late-night chat (`23:00` / `00:00`):
 
-- **Deterministic in-place bookkeeping only**: record or update commitments, deadlines, date changes, and status transitions that the owner has **already explicitly stated** in `task_graph` (updating existing nodes and their linked cross-day `schedule` in place when dates shift—never creating duplicate cards).
+- **Deterministic in-place bookkeeping only**: record or update commitments, deadlines, date changes, and status transitions that the owner has **already explicitly stated** in `task_graph` (updating existing nodes and their linked cross-day `schedule` in place when dates shift—never creating duplicate cards), while keeping **zero** bookkeeping on `免打扰禁区` topics.
 - **No premature ideation or morning-brief churn**: do **not** turn casual musings into `proposed` cards during `<proactive-review-wake>`, and do **not** create or edit morning briefing schedules here.
-- **Stay silent**: if `quiet_hours="false"` and you spot an urgent schedule collision within ~1 hour, you may send one concise heads-up; otherwise **never call `send_message`**—finish the turn silently.
+- **Stay silent**: if outside effective quiet hours (honoring any custom quiet hours in `MEMORY.md` before `quiet_hours="false"`) and you spot an urgent schedule collision within ~1 hour, you may send one concise heads-up; otherwise **never call `send_message`**—finish the turn silently.
 
 ### 2. Nightly Deep Planning & Studying (`<proactive-nightly-wake>`)
 
 Triggered at most once per night (`03:00–06:00` local time, after >= 30 minutes of quiet and after nightly `Dreaming` consolidates `MEMORY.md`):
 
-1. **Honor boundaries first**: read any `<updated-formal-memory>` attached to `<proactive-nightly-wake>` alongside `MEMORY.md` and `ROLE.md`. Topics the owner asked to keep as background only or not to turn into tasks/advice (for example, family matters or personal reflections) are strict no-proposal zones—create **zero** task cards and **zero** nudges for them.
+1. **Honor resident calibration first**: read any `<updated-formal-memory>` attached to `<proactive-nightly-wake>` alongside `MEMORY.md` and `ROLE.md` (never `knowledge/proactivity-signals.md`). Apply all four buckets under `## 主动性与介入偏好`: prioritize preparation for `积极盯紧与提前备料`, keep `低打扰挂卡与静默跟进` in silent `proposed` cards, and create **zero** task cards and **zero** nudges for `免打扰禁区` topics.
 2. **Anchor to North Star goals, prepare substance & surface `proposed` candidates**: review today's conversations, evening diary entries, and active `task_graph` goals:
    - Perform safe, read-only research or workspace preparation that genuinely advances tomorrow's active goals (such as concrete candidate angles, checklists, or a draft file saved in the workspace).
    - Prune stale or already-resolved `proposed` cards (`status="closed"`) before proposing anything new.

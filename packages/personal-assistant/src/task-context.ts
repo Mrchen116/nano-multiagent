@@ -6,6 +6,7 @@ import type {InboxStore} from './inbox.js';
 const digest=(content:unknown)=>createHash('sha256').update(JSON.stringify(content)).digest('hex');
 interface Identity {agentId:string;sessionId:string;ownerId:string}
 interface Evidence {inputId:string;content:{type:string;text?:string}[];turn:number;consumedSeq:number}
+export interface PendingTaskContextItem {messageId:string;conversationId:string;timeMs:number;text:string}
 interface Options {nodeId:string;ownerId:string;agents:AgentConfiguration[];store:NodeStore;inbox:InboxStore;runtime:RuntimePort;
   relay:{request(type:string,payload:Record<string,unknown>):Promise<ProtocolFrame>};refreshSources(agentId:string):Promise<void>}
 /** Product owner of original Task-message catch-up and native consumption receipts. */
@@ -87,6 +88,38 @@ export class TaskContext {
       const row=store.systemContextInput(agentId,message.inputId);
       return row?.state==='prepared'&&row.session_id===sessionId;
     })};
+  }
+
+  /** Synchronize Task notices and inspect unconsumed admitted items for Dreaming without mutating consumption state. */
+  async peekPendingForDreaming(identity:Identity):Promise<PendingTaskContextItem[]> {
+    const {agentId,sessionId}=identity;
+    const {agents,store,inbox}=this.options;
+    const binding=this.binding(identity);
+    if(store.taskContextRetired(sessionId))return [];
+    const config=agents.find(item=>item.agentId===agentId);
+    if(!config)return [];
+    const scope=config.mode==='global'?undefined:store.imConversation(agentId,binding.conversationId);
+    await this.sync(agentId);
+    this.binding(identity);
+    if(store.taskContextRetired(sessionId))return [];
+    const revoked=new Set(store.systemContextInputs(agentId,'revoked').map(row=>row.input_id));
+    return inbox.prepareSystemContext(agentId,sessionId)
+      .filter(message=>(config.mode==='global'||message.conversationId===scope)&&!revoked.has(message.inputId))
+      .filter(message=>{
+        const state=store.systemContextInput(agentId,message.inputId)?.state;
+        return state!=='consumed'&&state!=='revoked';
+      })
+      .map(message=>{
+        const original=inbox.input(agentId,message.inputId);
+        const noticeTime=(original?.message.system_notice as {event_time?:string}|undefined)?.event_time;
+        const parsed=Date.parse(String(original?.message.created_at??noticeTime??''));
+        return {
+          messageId:message.inputId,
+          conversationId:message.conversationId,
+          timeMs:Number.isFinite(parsed)?parsed:0,
+          text:message.content.map(part=>part.text??'').join('\n'),
+        };
+      });
   }
 
   /** Acknowledge only a matching durable ingestion or a terminally discarded claim. */

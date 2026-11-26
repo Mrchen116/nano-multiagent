@@ -49,6 +49,7 @@ export const createNanoProduct: NanoEvaluationOptions['createProduct'] = options
   });
   const taskContext = new TaskContext({ nodeId, ownerId: identity.ownerId, agents: [config], store, inbox, runtime, relay,
     refreshSources: agentId => product.prepareSystemContext(agentId) });
+  product.attachTaskContext(taskContext);
   return {
     importSession: session => chat.importSession(session),
     snapshot: path => chat.snapshot(path),
