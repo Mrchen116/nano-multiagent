@@ -174,6 +174,8 @@ it("declutters TaskDetailDrawer with clickable Agent avatar popover and floating
   const drawer = await screen.findByRole("dialog", { name: "节点详情" });
   expect(within(drawer).queryByText(/负责人执行状态/)).not.toBeInTheDocument();
   expect(within(drawer).queryByText(/u_5mguhd/)).not.toBeInTheDocument();
+  expect(within(drawer).getByRole("heading", { name: "为什么提议 & 批准后怎么做" })).toBeVisible();
+  expect(within(drawer).getByRole("heading", { name: "背景与具体要求" })).toBeVisible();
   expect(within(drawer).getByRole("button", { name: "不采纳" })).toBeVisible();
   expect(within(drawer).queryByRole("menuitem", { name: "删除" })).not.toBeInTheDocument();
 

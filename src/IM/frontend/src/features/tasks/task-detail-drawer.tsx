@@ -368,6 +368,9 @@ function TaskDetailDrawerContent({
 
         {hasProposal && (
           <section className="tasks-proposal-callout">
+            <h3 className="tasks-drawer-heading tasks-drawer-heading--proposal">
+              {t("tasks.panorama.whyProposed")}
+            </h3>
             {node.proposal?.rationale && (
               <p className="tasks-proposal-rationale">{node.proposal.rationale}</p>
             )}
@@ -381,11 +384,14 @@ function TaskDetailDrawerContent({
         )}
 
         {(hasDescription || (!hasProposal && node.status !== "waiting" && !hasResult)) && (
-          <div className={`tasks-prose tasks-drawer-prose${!hasDescription ? " is-empty" : ""}`}>
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>
-              {hasDescription ? node.description : t("tasks.noDescription")}
-            </ReactMarkdown>
-          </div>
+          <section className="tasks-drawer-block">
+            <h3 className="tasks-drawer-heading">{t("tasks.panorama.backgroundReq")}</h3>
+            <div className={`tasks-prose tasks-drawer-prose${!hasDescription ? " is-empty" : ""}`}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>
+                {hasDescription ? node.description : t("tasks.noDescription")}
+              </ReactMarkdown>
+            </div>
+          </section>
         )}
 
         {hasResult && (
