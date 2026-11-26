@@ -62,7 +62,7 @@ export function apply(ctx) {
       const prompt=options.messages.at(-1).content[0].text;
       fs.appendFileSync(home+'/reviews',JSON.stringify({prompt,system:options.system})+'\n');
       while (!fs.existsSync(home+'/release-review')) await setTimeout(15,undefined,{signal:options.signal});
-      text='<block>no</block>';
+      text=fs.existsSync(home+'/deny-review') ? '<block>yes</block><reason>Forbidden by policy</reason>' : '<block>no</block>';
     } else {
       const input=options.messages.findLast(m=>m.role==='user' && (m.source?.kind==='user' || (m.source?.kind==='nano-system' && m.source.channel==='heartbeat')));
       if(input?.content.some(b=>b.text?.startsWith('Dispatch')) && !started.has(input.id)) {
@@ -86,7 +86,7 @@ export function apply(ctx) {
     runtime.onNotification((method,data)=>{if(method==='approval.request') cards.push(data as typeof cards[number]);});
     await runtime.request('initialize',{protocol:1,bindings:[],agents:(['codex','antigravity'] as const).map(workerRuntime=>({
       agentId:workerRuntime,knowledge:{memoryMode:'legacy'},revision:'1',mode:'global',provider:'fixture',model:'main',workerRuntime,
-      approval:{...approvalDefaults,globalRoot:home,rules:'nano',reviewer:{provider:'fixture',model:'review'}},
+      approval:{...approvalDefaults,globalRoot:home,rules:'nano',denyLimit:1,unattendedFallback:workerRuntime==='antigravity'?'allow':'deny',reviewer:{provider:'fixture',model:'review'}},
     }))});
     const submit=async (sessionId:string,inputId:string,channel:string,text:string)=>{
       await runtime.request('session.submit',{sessionId,inputId,mode:'followup',content:[{type:'text',text}],
@@ -132,8 +132,23 @@ export function apply(ctx) {
       await submit(sessionId,'launch-'+sessionId,channel,'Dispatch another directory check');
       await expect.poll(()=>json(reply)).toMatchObject(expected);
     }
+    const reviewCount=async ()=>(await readFile(join(home,'reviews'),'utf8')).trim().split('\n').length;
+    expect(await reviewCount()).toBe(2);
+    for (const scenario of ['withdrawn','blocked']) {
+      const sessionId='unattended-'+scenario;
+      await rm(join(home,'reply-agy'));
+      if (scenario==='withdrawn') await rm(join(home,'release-review'));
+      else await writeFile(join(home,'deny-review'),'deny');
+      await runtime.request('session.ensure',{sessionId,agentId:'antigravity',ownerId:'owner',cwd:home,revision:'1'});
+      await submit(sessionId,'launch-'+scenario,'heartbeat','Dispatch a background check');
+      if (scenario==='withdrawn') {
+        await expect.poll(reviewCount).toBe(3);
+        await submit(sessionId,'withdraw-'+scenario,'chat-A','Cancel authorization for this check');
+        await writeFile(join(home,'release-review'),'go');
+      }
+      await expect.poll(()=>json('reply-agy')).toMatchObject({outcome:{optionId:'no'}});
+    }
     expect(cards).toHaveLength(2);
-    expect((await readFile(join(home,'reviews'),'utf8')).trim().split('\n')).toHaveLength(2);
   } catch(error) {
     const state=await client?.rpc.request('session.observe',{sessionId:'codex'}).catch(()=>undefined) as {events?:{type:string;data:unknown}[]}|undefined;
     throw new Error(String(error)+'\n'+JSON.stringify(state?.events?.filter(e=>['tool/result','tool/call','turn/end'].includes(e.type))).slice(-7000)+'\n'+logs,{cause:error});

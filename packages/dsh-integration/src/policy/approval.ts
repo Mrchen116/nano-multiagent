@@ -195,7 +195,8 @@ export class NanoApproval extends Service {
         if (policy.dangerouslySkipPermissions) decision = {kind:'allow'};
         else if (policy.enabled) {
           const before = JSON.stringify(retainInstructions(agent, [], owner));
-          decision = await this.classifyAction(exec, config, undefined, async reason => ({kind:'ask', reason}), () => {
+          decision = await this.classifyAction(exec, config, undefined, async (reason, source) =>
+            source === 'worker_evidence_changed' && !interactive ? {kind:'deny', reason} : {kind:'ask', reason}, () => {
             if (JSON.stringify(retainInstructions(agent, [], owner)) !== before)
               throw new Error('Root human evidence changed during worker review');
           });
@@ -220,11 +221,11 @@ export class NanoApproval extends Service {
     const header = agent.session.requestHeader();
     const reviewer = policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model };
     const started = Date.now();
-    const unavailable = async (error: unknown, superseded?: number): Promise<PreToolDecision> => {
+    const unavailable = async (error: unknown, superseded?: number, source = 'classifier_unavailable'): Promise<PreToolDecision> => {
       if (exec.signal.aborted) return { kind: 'cancel' };
       const reason = `Automatic reviewer unavailable: ${String(error)}`;
       await this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, { reviewer, elapsedMs: Date.now() - started }, superseded);
-      return escalate(reason, 'classifier_unavailable');
+      return escalate(reason, source);
     };
     let result: ApprovalReviewResult;
     try {
@@ -238,9 +239,10 @@ export class NanoApproval extends Service {
       { reviewer, metadata, elapsedMs: Date.now() - started, ...(usage ? { usage } : {}) });
     if (exec.signal.aborted) return { kind: 'cancel' };
     // The audit write yields. Revalidate before publishing the gate result to native dispatch.
-    try { checkWorkerEvidence?.(); result.assertCurrent?.(); } catch (error) { return unavailable(error, counts.index); }
+    try { checkWorkerEvidence?.(); } catch (error) { return unavailable(error, counts.index, 'worker_evidence_changed'); }
+    try { result.assertCurrent?.(); } catch (error) { return unavailable(error, counts.index); }
     if (verdict.behavior === 'allow') return { kind: 'allow' };
-    if (!['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return escalate(verdict.reason, 'classifier_block');
+    if (!checkWorkerEvidence && !['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return escalate(verdict.reason, 'classifier_block');
     return { kind: 'deny', reason: verdict.reason, info: { name: 'NanoApprovalDenied', code: 'classifier_block', reason: verdict.reason } };
   }
 }
