@@ -104,3 +104,17 @@ Gateway 对来自内置 Web IM 或外部 Channel 的真人消息，在不改变�
 - **WHEN** buffered 与当前消息一起进入 Agent context
 - **THEN** 每条新消息同时保留实际 Channel、固定时间与既有 `[sender]`
 - **AND** envelope 不额外输出 Direct/Group 或内部 routing identity
+
+#### Scenario: model envelope 不污染用户可见正文
+- **WHEN** 用户在 Web IM、飞书、个人微信或 shadow conversation 查看、复制或搜索消息
+- **THEN** message body 仍是用户原文，不含模型侧 time/Channel prefix
+
+#### Scenario: 功能启用前的旧历史不补造 context
+- **GIVEN** 既有 transcript 或 group buffer row 没有可靠 occurrence time/actual Channel marker
+- **WHEN** 功能启用后继续原 conversation
+- **THEN** 旧内容保持原样，不用当前时间或当前入口补 stamp
+- **AND** 此后新收到的真人消息开始使用固定 envelope
+
+#### Scenario: 自动输入保留各自来源
+- **WHEN** Heartbeat、Cron、子 Agent 或内部通知产生消息
+- **THEN** 消息保留各自可信的来源与发生时间，不附加真人消息的 time/Channel envelope。
