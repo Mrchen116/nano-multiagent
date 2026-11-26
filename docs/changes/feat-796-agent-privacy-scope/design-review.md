@@ -368,3 +368,56 @@
 - **`R2-C1`**: `accepted` — 在 [design.md](design.md) 涉及范围、关键决策 5 与 Milestone 退出标准中将 `packages/personal-assistant/src/external.ts` 纳入改动：在 `ExternalChannels.requestAdmitted` 处理 `agent.message` 与 `node.streaming_delta (turn_start)` 的入口处校验 `this.options.ownerOnly?.(agentId) === true` 与已绑定 `ownerOpenId` 飞书单聊身份，非主人飞书单聊与飞书群在 `this.state.prepare`、落库镜像帧和调用飞书发送 API 之前直接以 `collaboration_scope_restricted` 拒绝，与 [specs/gateway/external-channels.md](specs/gateway/external-channels.md) 契约完全对齐。
 - **`R2-W1`**: `accepted` — 在 [design.md](design.md) 关键决策 2 中明确区分当前会话读写门禁（使用 `canAgentAccessConversation`）与收紧前既有记录的历史对账操作：`gateway.ts:579`（`node.delivery_receipt`，已由 `(relay_task_id, target_node_id)` 与 `requireAgent` 绑定）与 `gateway.ts:628`（`agent.message.status`，已由 `source_agent_id === agent.agent_id` 绑定）仅核验会话存在与 `agentAvailable(db, agent)`，保证切换 `'owner_only'` 后历史 `skipped / read / completed` 回执与重启幂等对账正常结清而不报 `404`。
 - **`R2-W2`**: `accepted` — 在 [design.md](design.md) 涉及范围、关键决策 4、接口契约与 `M1-agent-privacy-scope` Milestone `范围` 中补入 `apps/node/`（`apps/node/src/main.ts`），写明由 `WebRelayConnection.onFrame` 接收 `agent.scope.revoked` 并联动 `globalProduct` / `product` 与 `runtime.request('configuration.restrictChat', ...)` + `confirmRestricted` 同步撤回 DSH 运行时待发队列输入。
+
+---
+
+## Round 3
+
+### Metadata
+
+- **reviewer_target**: `docs/changes/feat-796-agent-privacy-scope` @ `7da11b777aadcd277274b21d29debceddac21d4a`（diff from Round 2 `cc4a74903e86a25b7771da223cecec75114a386c`，branch `unit/feat-796-agent-privacy-scope`，base `origin/develop` `95f074c7a`）
+- **review_mode**: `closure`
+- **mode_reason**: 本轮 diff 仅包含 `design.md` 针对 `R2-C1`、`R2-W1`、`R2-W2` 的 5 处局部收口与 `design-review.md` 的 `Author Resolutions`，未变更 `spec.md`、整体架构或任何 `specs/**` delta-spec，符合 `closure`（历史问题关闭与局部消歧）核查条件。
+- **retained_from**: `Round 1, Round 2`（`spec.md` 用户需求与确认约束、三组中心权限谓词、入站分类与 `SingleThread` 心跳会话隔离、PA 静默旁观保留、双端 UX Grounding、12 份 delta-spec 锚定与 `packages/dsh-integration` 零改动边界均在 Round 1–2 完成核实且本轮零改动，沿用既有审查证据）
+- **started_at**: `2026-11-27T00:30:24+09:00`
+- **completed_at**: `2026-11-27T00:34:20+09:00`
+- **duration**: `3m 56s`
+
+### Verdict
+
+**Approved** — `0 CRITICAL, 0 WARNING, 0 Recommendation`
+
+---
+
+### Coverage 与证据（Closure 核查）
+
+对照 `git diff cc4a74903e86a25b7771da223cecec75114a386c..7da11b777aadcd277274b21d29debceddac21d4a` 与工作树源码逐点复核：
+
+1. **普通/全局 Agent 与 PA 外部渠道出站前置拦截统一闭环（`R2-C1`）**：
+   - `design.md` L19、L105、L232 已将 `packages/personal-assistant/src/external.ts` 纳入改动：在 `ExternalChannels.requestAdmitted` 处理 `agent.message`（`external.ts:286`）与 `node.streaming_delta` `turn_start`（`external.ts:304`）入口处，当 `this.options.ownerOnly?.(agentId) === true` 且目标会话不是已绑定该渠道 `ownerOpenId` 的飞书单聊（`!chat.isGroup && !!ownerOpenId && chat.sourceId === 'feishu:' + chat.appId + ':dm:' + ownerOpenId`）时，在 `this.state.prepare`、落库镜像帧及调用飞书发送 API 之前直接以 `collaboration_scope_restricted` 拒绝；配合 `PersonalAssistant.send` 的 `pa.action.prepare` 前置校验，普通/全局 Agent 与 PA 均与 `specs/gateway/external-channels.md` L98–101 契约完全一致，且与 `design.md` L209 `single-thread.ts` 终态错误结清逻辑衔接闭合。
+2. **当前会话门禁与收紧后历史回执/幂等对账解耦（`R2-W1`）**：
+   - `design.md` L85、L232 已将新建/读取/写入当前会话内容的操作（`Messaging.access` Gateway 分支支撑的 `publishAgent` / `ChatStreaming` / `agent.config.boundary` / `media.ts`、`gateway.ts:141` `permission_response`、`conversation-actions.ts:150`）与历史记录对账操作明确分离：`apps/im-server/src/gateway.ts:579`（`node.delivery_receipt`，已由 `(relay_task_id, target_node_id)` 与 `requireAgent` 绑定）及 `gateway.ts:628`（`agent.message.status`，已由 `dispatch_request_key` 与 `source_agent_id === agent.agent_id` 绑定）仅校验会话存在与 `agentAvailable(db, agent)`，确保切换 `'owner_only'` 后的 `skipped / read / completed` 回执（含 `gateway.ts:586` `scopeCancelled` 分支）与重启发布对账正常结清，不报 `404`、不阻塞 `relay_receipts` 队列。
+3. **节点宿主 `agent.scope.revoked` 接线与架构边界复核（`R2-W2`）**：
+   - `design.md` L19、L99、L126、L129、L232 已将 `apps/node/`（`apps/node/src/main.ts`）纳入涉及范围、接口契约与 `M1-agent-privacy-scope` 范围及 `[worker]` 测试要求；核查 `packages/channels/src/index.ts:9-12, 311` 确认 `WebRelayConnection` 将任意服务端主动推送的通用 `ProtocolFrame { type, payload }` 直接转发至 `options.onFrame`，无需改动 `packages/channels/`；同时 `apps/node/src/main.ts` 通过既有 `@nano/dsh-integration/client` 调用 `runtime.request('configuration.restrictChat', { agentId, operationId, changes })` + `confirmRestricted` 撤回 DSH 待发队列输入，符合 [AGENTS.md](../../../AGENTS.md) 与 [SPEC.md](../../../SPEC.md) 跨包依赖边界。
+
+---
+
+### 历史问题闭环
+
+| 原 Issue ID | Author Resolution | 本轮核实证据 | 状态 |
+|---|---|---|---|
+| `R2-C1` | `accepted` — 将 `packages/personal-assistant/src/external.ts` 纳入改动，在 `ExternalChannels.requestAdmitted`（`agent.message` 与 `node.streaming_delta` `turn_start`）前置校验 `ownerOnly(agentId)` 与绑定 `ownerOpenId` 飞书单聊，非主人目标在 `prepare` / 落库帧 / 调飞书 API 前直接以 `collaboration_scope_restricted` 拒绝 | `design.md` L19、L105、L232 与 `external.ts:286-310`、`specs/gateway/external-channels.md` L98–101 逐项对齐，零飞书误发且零 `flush()` 死循环 | `closed` |
+| `R2-W1` | `accepted` — 区分当前会话读写门禁（`canAgentAccessConversation`）与收紧前历史记录对账，`gateway.ts:579`（`node.delivery_receipt`）与 `gateway.ts:628`（`agent.message.status`）仅校验会话存在与 `agentAvailable(db, agent)` | `design.md` L85、L232 与 `apps/im-server/src/gateway.ts:570-630` 核对一致，收紧后历史回执与幂等对账正常结清 | `closed` |
+| `R2-W2` | `accepted` — 在涉及范围、关键决策 4、接口契约与 Milestone `范围` / `[worker]` 测试中补入 `apps/node/`（`apps/node/src/main.ts`），由 `WebRelayConnection.onFrame` 接收 `agent.scope.revoked` 并联动 `restrictChat` + `confirmRestricted` | `design.md` L19、L99、L126、L129、L232 与 `apps/node/src/main.ts:263-299, 597-600`、`packages/channels/src/index.ts:311` 核对一致，无需改动 `packages/channels/` 或 `packages/dsh-integration/` | `closed` |
+
+---
+
+### Issues
+
+无（`0 CRITICAL, 0 WARNING`）。
+
+---
+
+### Recommendations
+
+无（`0 Recommendation`）。
