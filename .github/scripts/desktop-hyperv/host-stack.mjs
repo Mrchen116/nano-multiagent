@@ -47,13 +47,22 @@ async function rewriteDesktopRelease(srcDir, dstDir, version) {
   const manifestPath = join(dstDir, 'manifest.desktop-win32-x64.json');
 
   const desc = JSON.parse(await readFile(descPath, 'utf8'));
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  if (
+    desc.version === version &&
+    manifest.version === version &&
+    String(desc.runtime?.download_url ?? '').startsWith(ghBase) &&
+    String(manifest.download_url ?? '').startsWith(ghBase)
+  ) {
+    return { desc, manifest };
+  }
+
   desc.version = version;
   desc.runtime.download_url = ghBase + desc.runtime.name;
   desc.app.download_url = ghBase + desc.app.name;
   const descBytes = Buffer.from(JSON.stringify(desc, null, 2) + '\n');
   await writeFile(descPath, descBytes);
 
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   manifest.version = version;
   manifest.size = descBytes.byteLength;
   manifest.sha256 = sha256(descBytes);

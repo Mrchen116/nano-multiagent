@@ -156,7 +156,9 @@ try {
             Start-Sleep -Seconds 1
         }
         if (!$hostReady) { throw 'CrewdenDesktop.exe did not finish first-boot seed unpack within 360s' }
-        Start-Sleep -Seconds 4
+        Start-Sleep -Seconds 3
+        try { [System.Windows.Forms.SendKeys]::SendWait('{ESC}') } catch {}
+        Start-Sleep -Seconds 2
         Capture-Screen "$edition-01-login-gui.png"
         & $desktopExe '--stop'
         $bootProc.WaitForExit(10000) | Out-Null
@@ -166,7 +168,7 @@ try {
         if (!(Test-Path $bundledNode)) { throw "Missing unpacked bundled node.exe at $bundledNode" }
 
         # Run comprehensive Step 1 verification using bundled Node v24.22.1 (guest PATH remains zero-Node!)
-        & $bundledNode 'C:\CrewdenQA\verify-guest.mjs' 'step1' $edition $hostIp $lab $desktopExe $f781VerRoot $wv2Version
+        & $bundledNode 'C:\CrewdenQA\verify-guest.mjs' 'step1' $edition $hostIp $lab $desktopExe $f781VerRoot $wv2Version *> (Join-Path $lab 'verify-step1.log')
         if ($LASTEXITCODE -ne 0) { throw "verify-guest.mjs step1 failed ($LASTEXITCODE)" }
 
         Set-Content -Path $stepFile -Value '2' -NoNewline
@@ -178,7 +180,7 @@ try {
     if ($step -eq 2) {
         $seedMarker = Get-Content -Raw (Join-Path $env:LOCALAPPDATA 'CrewdenDesktop\seed-current.json') | ConvertFrom-Json
         $bundledNode = Join-Path $seedMarker.version_root 'runtime\node.exe'
-        & $bundledNode 'C:\CrewdenQA\verify-guest.mjs' 'step2' $edition $hostIp $lab
+        & $bundledNode 'C:\CrewdenQA\verify-guest.mjs' 'step2' $edition $hostIp $lab *> (Join-Path $lab 'verify-step2.log')
         if ($LASTEXITCODE -ne 0) { throw "verify-guest.mjs step2 failed ($LASTEXITCODE)" }
 
         Set-Content -Path $stepFile -Value '3' -NoNewline
@@ -190,7 +192,7 @@ try {
     if ($step -eq 3) {
         $seedMarker = Get-Content -Raw (Join-Path $env:LOCALAPPDATA 'CrewdenDesktop\seed-current.json') | ConvertFrom-Json
         $bundledNode = Join-Path $seedMarker.version_root 'runtime\node.exe'
-        & $bundledNode 'C:\CrewdenQA\verify-guest.mjs' 'step3' $edition $hostIp $lab
+        & $bundledNode 'C:\CrewdenQA\verify-guest.mjs' 'step3' $edition $hostIp $lab *> (Join-Path $lab 'verify-step3.log')
         if ($LASTEXITCODE -ne 0) { throw "verify-guest.mjs step3 failed ($LASTEXITCODE)" }
 
         Push-Receipt 'pass.json' @{ passed = $true; edition = $edition; completed_at = (Get-Date).ToUniversalTime().ToString('o') }
@@ -198,11 +200,13 @@ try {
         exit 0
     }
 } catch {
-    Push-Receipt 'failed.json' @{
-        edition = $edition
-        error = $_.Exception.Message
-        line = $_.InvocationInfo.ScriptLineNumber
-        stack = $_.ScriptStackTrace
+    if (!(Test-Path (Join-Path $lab 'failed.json'))) {
+        Push-Receipt 'failed.json' @{
+            edition = $edition
+            error = $_.Exception.Message
+            line = $_.InvocationInfo.ScriptLineNumber
+            stack = $_.ScriptStackTrace
+        }
     }
     shutdown.exe /s /t 5 /f
     exit 1

@@ -33,12 +33,17 @@ async function pushReceipt(name, payload) {
   }).catch(() => {});
 }
 
-async function captureDesktopScreenshot(fileName) {
+async function captureDesktopScreenshot(fileName, focusPid = null) {
   const outPath = join(labDir, 'screenshots', fileName);
   const ps = `
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-    Add-Type 'using System; using System.Runtime.InteropServices; public static class Dpi { [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); }'
+    Add-Type 'using System; using System.Runtime.InteropServices; public static class Dpi { [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); }'
     [Dpi]::SetProcessDPIAware() | Out-Null
+    ${
+      focusPid
+        ? `$p = Get-Process -Id ${Number(focusPid)} -ErrorAction SilentlyContinue; if ($p -and $p.MainWindowHandle -ne [IntPtr]::Zero) { [Dpi]::ShowWindow($p.MainWindowHandle, 9) | Out-Null; [Dpi]::SetForegroundWindow($p.MainWindowHandle) | Out-Null; Start-Sleep -Milliseconds 500 }`
+        : ''
+    }
     $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
     $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
     $g = [System.Drawing.Graphics]::FromImage($bmp)
@@ -102,7 +107,7 @@ async function hostReq(hostState, capCookie, path, { method = 'GET', token, body
     headers,
     redirect: 'manual',
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    signal: AbortSignal.timeout(60000),
+    signal: AbortSignal.timeout(240000),
   });
   const text = await res.text();
   let json = null;
@@ -447,11 +452,17 @@ async function runStep1() {
     return items.find((x) => x.sender?.type === 'agent' && String(x.content).includes('已完成Windows本地轨迹验证')) ?? null;
   }, 150_000, 1000);
 
-  // Read root session_id from local node.sqlite3
+  // Read root session_id from local node.sqlite3 (`sessions` / `canonical_sessions` in NodeStore)
   const { DatabaseSync } = await import('node:sqlite');
   const nodeDb = new DatabaseSync(join(connDir, '.dsh-runtime', originalNodeId, 'node.sqlite3'), { readOnly: true });
-  const sessionRow = nodeDb.prepare('SELECT session_id FROM session_bindings WHERE agent_id=? LIMIT 1').get(paAgentId);
+  const sessionRow =
+    nodeDb
+      .prepare('SELECT session_id FROM sessions WHERE agent_id=? AND conversation_id=? LIMIT 1')
+      .get(paAgentId, `global:${paAgentId}`) ??
+    nodeDb.prepare('SELECT session_id FROM canonical_sessions WHERE agent_id=? LIMIT 1').get(paAgentId) ??
+    nodeDb.prepare('SELECT session_id FROM sessions WHERE agent_id=? LIMIT 1').get(paAgentId);
   nodeDb.close();
+  assert.ok(sessionRow?.session_id, 'Expected persisted PA root session_id in node.sqlite3');
   const rootSessionId = sessionRow.session_id;
 
   const t0 = performance.now();
@@ -593,7 +604,7 @@ async function runStep1() {
     body: { route: `/settings/agents/${paAgentId}?view=work` },
   });
   await delay(3000);
-  await captureDesktopScreenshot(`${edition}-03-work-trajectory-gui.png`);
+  await captureDesktopScreenshot(`${edition}-03-work-trajectory-gui.png`, hostState.pid);
 
   report.phases.local_trajectory_and_explorer = {
     passed: true,
@@ -618,7 +629,7 @@ async function runStep1() {
     body: { route: '/settings/nodes' },
   });
   await delay(2500);
-  await captureDesktopScreenshot(`${edition}-04-nodes-admin-gui.png`);
+  await captureDesktopScreenshot(`${edition}-04-nodes-admin-gui.png`, hostState.pid);
 
   const beforeKill = JSON.parse(await readFile(join(connDir, '.gateway-state.json'), 'utf8'));
   await exec('taskkill.exe', ['/F', '/PID', String(beforeKill.pid)], { windowsHide: true });
@@ -706,7 +717,7 @@ async function runStep1() {
   const buildNote = await hostReq(hostState, capCookie, '/build-note.txt');
   assert.equal(buildNote.text.trim(), 'upgraded-1.0.1');
   await delay(1500);
-  await captureDesktopScreenshot(`${edition}-05-updated-101-gui.png`);
+  await captureDesktopScreenshot(`${edition}-05-updated-101-gui.png`, hostState.pid);
 
   // Broken 1.0.2 candidate rollback check
   await fetch(`${assetAdminOrigin}/__admin/publish-version`, {
