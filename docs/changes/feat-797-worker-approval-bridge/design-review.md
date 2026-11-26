@@ -27,3 +27,18 @@
 - R1-W1 accepted。设计明确派工证据快照、后续限制及出站验证。
 - R1-W2 accepted。结案写入独立消息正文，保持 resolved 以及历史可读。
 - R1-W3 accepted。新增 external-channels delta，并验收飞书来源的私聊投递。
+
+## Round 2
+
+- reviewer：独立 design_review Agent。审查对象为 `6cb490e18`。
+- review_mode：delta。修订增加了外部渠道 delta，并调整派工证据归属、既有审批卡终态及对应的 M1 验收。retained_from: Round 1；用户选择、三种驱动的单次决策、私聊身份校验、跨包职责与里程碑拆分沿用 R1 的覆盖证据。
+- started_at：2026-11-27T00:35:01+09:00。completed_at：2026-11-27T00:35:33+09:00。duration：32 秒。
+- Verdict：Approved。0 CRITICAL / 0 WARNING。
+
+### 历史问题闭环与变化证据
+
+- **R1-W1 closed。** Author Resolution 接受派工证据快照。`design.md` 将现场取证绑定到派工根 turn、调用与宿主所见原话，保留 Inbox 的发送者、目标及消息 ID，明确后续聊天只能提供约束。作用域不清有人工或拒绝分支，并在决策返回与审计写入后复核。相比 R1 所查 `ApprovalSources.humanInputs` 的最近轮语义，M1 现用甲派工、乙后到的实际出站输入以及审查期间撤回来检验两类证据。
+- **R1-W2 closed。** Author Resolution 接受同一消息写入结案正文。设计以 resolved 收起操作，消息正文保留 Worker、动作和实际终态。核对 Web 的 `message-pane.tsx:3005` 及 iOS 的 `ChatMessageView.swift:351`，该方法兼容 Web 过滤已决控件和 SwiftUI 的已决展示分支。M1 增加代表性客户端答卡、取消后重读历史，覆盖具体用户操作。
+- **R1-W3 closed。** Author Resolution 接受飞书来源隔离。新增 `specs/gateway/external-channels.md` 限定了外部 Worker 请求和终态的唯一目的地。逐字对照 canonical 的同名 Requirement，原正文及 15 个既有 Scenario 均保留；原生审批的回原聊天语义继续成立。M1 已包含飞书来源隔离。
+
+本轮为设计复审。实际审核请求、客户端展示和端到端投递由 M1 验证。
