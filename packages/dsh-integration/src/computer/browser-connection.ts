@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { access, readFile, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
+import { access, mkdir, mkdtemp, readFile, readdir, readlink, rename, rm, writeFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
@@ -141,4 +141,36 @@ export async function dailyPrerequisites(profile: string) {
     if (manifest && atLeast(manifest.version, [0, 5, 0])) return exe;
   }
   throw new Error('Install or update the official Playwright Extension (0.5.0+) in the paired Chrome profile.');
+}
+
+function processAlive(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
+}
+
+/** Reclaim a dead runtime's private seat files only after its browser has also exited. */
+export async function seatDirectory() {
+  const file = process.env.NANO_BROWSER_PAIRING_FILE;
+  if (!file) return mkdtemp(join(tmpdir(), 'nano-browser-'));
+  const root = file + '.seats';
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  for (const dir of await readdir(root, { withFileTypes: true })) {
+    const pid = /^([1-9]\d*)-[a-zA-Z0-9]{6}$/.exec(dir.name)?.[1];
+    if (!dir.isDirectory() || !pid || processAlive(Number(pid))) continue;
+    const path = join(root, dir.name);
+    let lock: string | undefined;
+    try {
+      lock = await readlink(join(path, 'profile', 'SingletonLock'));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') continue;
+    }
+    const browserPid = lock && /-([1-9]\d*)$/.exec(lock)?.[1];
+    if (lock && (!browserPid || processAlive(Number(browserPid)))) continue;
+    await rm(path, { recursive: true, force: true });
+  }
+  return mkdtemp(join(root, process.pid + '-'));
 }

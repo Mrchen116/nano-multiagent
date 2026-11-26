@@ -208,6 +208,7 @@ Other Agents in Nano IM may run on different nodes. A local path shared by anoth
   }
   /** Withdraw choices now; additions and the rest of the configuration wait for idle. */
   restrictSelection(next: AgentConfiguration): void {
+    if (!next.toolAllowlist?.includes('computer_use')) this.host.nanoComputer.revokeAgent(next.agentId);
     for (const config of this.allConfigurations()) if (config.agentId === next.agentId) {
       if (next.toolAllowlist !== undefined) config.toolAllowlist = this.tools.selection(config, next.toolAllowlist);
       if (next.skillSelection?.mode === 'explicit_allowlist') config.skillSelection = { mode: 'explicit_allowlist', names: config.skillSelection?.mode === 'explicit_allowlist' ? config.skillSelection.names.filter(name => next.skillSelection!.names.includes(name)) : [...next.skillSelection.names] };

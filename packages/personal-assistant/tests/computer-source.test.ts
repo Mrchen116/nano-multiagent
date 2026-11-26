@@ -39,3 +39,28 @@ it('admits only the addressed owner from a completed Global Inbox read and spend
     inbox.close();
   }
 });
+
+it('projects computer operations to Work without private input or result content', async () => {
+  const { toolPresentation } = await import('../src/presentation.js');
+  const call = {
+    type: 'tool/call',
+    seq: 1,
+    time: 10,
+    data: {
+      name: 'computer_use',
+      callId: 'call',
+      arguments: JSON.stringify({ surface: 'desktop', action: 'type', input: { text: 'PRIVATE_INPUT' } }),
+    },
+  };
+  const end = {
+    type: 'tool/result',
+    seq: 2,
+    time: 20,
+    data: { message: { toolCallId: 'call', content: [{ type: 'text', text: 'PRIVATE_RESULT' }] } },
+  };
+  for (const event of [call, end]) {
+    const projected = toolPresentation(event, [call, end]);
+    expect(projected).toMatchObject({ name: 'computer_use', input: { surface: 'desktop', action: 'type' } });
+    expect(JSON.stringify(projected)).not.toContain('PRIVATE_');
+  }
+});

@@ -231,7 +231,7 @@ export class ApprovalSources {
   }
 
   private appendResult(lines: Record<string, unknown>[], sessionId: string, id: string, name: string | undefined, content: readonly ContentBlock[], isError: boolean, includeBody = false) {
-    lines.push({ outcome: isError ? 'error' : 'ok', id, ...(includeBody ? { tool_result: text(content), tool: name, trust: 'untrusted-evidence' } : {}) });
+    lines.push({ outcome: isError ? 'error' : 'ok', id, ...(includeBody && name !== 'computer_use' ? { tool_result: text(content), tool: name, trust: 'untrusted-evidence' } : {}) });
     if (!isError && name && hostResults.includes(name)) {
       lines.push({ [`${name}_result`]: parseJson(text(content)), id,
         ...(name === 'inbox' ? { observation: this.isLiveInbox(sessionId, id) ? 'live' : 'restored' } : ['conversations', 'read_messages', 'search_messages'].includes(name) ? {observation:'historical'} : {}) });

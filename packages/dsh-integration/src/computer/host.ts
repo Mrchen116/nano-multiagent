@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
+import { SessionId } from '@deepseek-ai/dsh-session';
 import { ToolCallId, type ContentBlock } from '@deepseek-ai/dsh-llm';
 import type { ToolExecution, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import { isHumanSource, scopedChatEvents } from '../input-source.js';
+import { computerScope, scopeAllows } from './scope.js';
 import { BrowserBackend } from './browser.js';
 import { DesktopBackend } from './desktop.js';
 import type { ComputerBackend, ComputerContent, PreparedAction } from './backend.js';
@@ -29,7 +31,6 @@ type Seat = {
 };
 type Pending = { seat: Seat; action: PreparedAction; signal: AbortSignal; request?: OwnerRequest };
 type WorkerCall = { seat: Seat; result?: ComputerContent[] };
-type ProductExec = Pick<ToolExecution, 'agent' | 'signal' | 'callId'>;
 
 const parameters = {
   type: 'object',
@@ -39,7 +40,7 @@ const parameters = {
     input: { type: 'object', additionalProperties: true },
     request_ref: {
       type: 'string',
-      description: 'Owner message for this task; required when multiple owner requests are present.',
+      description: 'Inbox message ID or direct IM message ID. Omit for the sole direct owner request.',
     },
   },
   required: ['surface', 'action'],
@@ -65,6 +66,7 @@ export class ComputerHost {
   private workers = new Map<string, Seat>();
   private calls = new Map<string, WorkerCall>();
   private prepared = new Map<ToolExecution['token'], Pending>();
+  private revokedAt = new Map<string, number>();
   private direct = new Map<string, Set<string>>();
   constructor(
     private ctx: Context,
@@ -78,7 +80,10 @@ export class ComputerHost {
         live.add(event.data.id);
         this.direct.set(session.id, live);
       }
-      if (event.type === 'turn/end') this.endRoot(session.id);
+      if (event.type === 'turn/end') {
+        this.revokedAt.delete(session.id);
+        this.endRoot(session.id);
+      }
     });
     ctx.on('agent/disposed', ({ agent }) => this.endRoot(agent.id));
     ctx.on('tools/result', (exec) => {
@@ -113,6 +118,21 @@ export class ComputerHost {
     return !!this.bindings.get(root.id) && this.config(root)?.toolAllowlist?.includes('computer_use');
   }
 
+  /** Release computer authority immediately when the owner deselects the tool. */
+  revokeAgent(agentId: string) {
+    for (const [id, seat] of this.workers) {
+      if (this.bindings.get(seat.root.id)?.agentId !== agentId) continue;
+      this.workers.delete(id);
+      void this.close(seat);
+    }
+    for (const [id, binding] of this.bindings)
+      if (binding.agentId === agentId) {
+        const seq = this.ctx.get('agents')?.get(SessionId(id))?.session.snapshotEvents().at(-1)?.seq;
+        if (seq !== undefined) this.revokedAt.set(id, seq);
+        this.endRoot(id);
+      }
+  }
+
   private endRoot(id: string) {
     this.direct.delete(id);
     const seat = this.roots.get(id);
@@ -126,13 +146,14 @@ export class ComputerHost {
   }
 
   private async original(root: Agent, ref: string | undefined, signal: AbortSignal): Promise<OwnerRequest> {
+    if (ref === 'current') ref = undefined;
     const owner = this.bindings.get(root.id)?.ownerId;
     const events = scopedChatEvents(root.session.snapshotEvents());
     const start = events.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
     if (!owner || start?.type !== 'turn/start') throw new Error('No active owner request');
     const matches: OwnerRequest[] = [];
     for (const e of events) {
-      if (e.seq <= start.seq) continue;
+      if (e.seq <= Math.max(start.seq, this.revokedAt.get(root.id) ?? -1)) continue;
       if (e.type === 'user/message' && this.direct.get(root.id)?.has(e.data.id) && isHumanSource(e.data.source)) {
         const src = e.data.source;
         if (
@@ -140,7 +161,7 @@ export class ComputerHost {
           src.computerOwnerRequest &&
           src.directHumanText &&
           !src.pa_agent_id &&
-          (!ref || ref === e.data.id || ref === src.messageId)
+          (!ref || ref === e.data.id || ref === src.messageId || ref === src.computerOwnerRequest)
         )
           matches.push({ id: src.messageId, ref: src.messageId, text: src.directHumanText });
       }
@@ -179,6 +200,9 @@ export class ComputerHost {
     if (!this.enabled(root) || this.workers.has(id)) throw new Error('Computer delegation is unavailable');
     const request = await this.original(root, ref, signal);
     signal.throwIfAborted();
+    const scope = computerScope(request.text, requestsClipboard(request.text));
+    if (!scope.browser && !scope.desktop && !scope.clipboard)
+      throw new Error('That owner instruction does not request a browser, desktop app or clipboard.');
     if ([...this.workers.values()].some((s) => s.root === root && s.request?.id === request.id))
       throw new Error('This computer task is already assigned');
     const seat: Seat = { root, request, controller: new AbortController() };
@@ -242,7 +266,16 @@ export class ComputerHost {
       if (!observation && !request) request = await this.original(root, args.request_ref, signal);
       if (!worker && request && seat.request && seat.request.id !== request.id)
         throw new Error('This seat belongs to another owner request in the current turn');
-      if (request) seat.request = request;
+      if (request && !observation) {
+        const scope = computerScope(request.text, requestsClipboard(request.text));
+        if (!scopeAllows(request.text, scope, args.surface, args.action, args.input ?? {}))
+          throw new Error(
+            args.action === 'read_clipboard'
+              ? 'Reading the system clipboard requires a direct owner request.'
+              : 'This target is outside the original computer assignment. Use an owner instruction naming the website or application.',
+          );
+        seat.request = request;
+      }
       const backend =
         args.surface === 'browser'
           ? (seat.browser ??= new BrowserBackend(root.session.header.cwd!))

@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ComputerBackend, ComputerContent, PreparedAction } from './backend.js';
 import { openMcp } from './mcp.js';
@@ -11,6 +10,7 @@ import {
   pairing,
   recordCheck,
   requiresRepair,
+  seatDirectory,
   type Pairing,
 } from './browser-connection.js';
 
@@ -113,18 +113,16 @@ export class BrowserBackend implements ComputerBackend {
   private closed = false;
   private readonly origins = new Set<string>();
   private readonly tabs = new Set<string>();
+  private readonly pendingTabs = new Set<string>();
   private seen?: { tab: Tab; snapshot: string; refs: Map<string, string> };
   private clipboard?: string;
 
   constructor(private readonly cwd: string) {}
 
-  private async start(mode: Mode, signal: AbortSignal) {
-    const saved = mode === 'daily' ? await pairing() : undefined;
-    if (mode === 'daily' && !saved)
-      throw new Error('Daily Chrome is not paired. Run browser pair on the node or request isolated mode.');
+  private async start(mode: Mode, signal: AbortSignal, saved?: Pairing) {
     const exe = saved ? await dailyPrerequisites(saved.profile) : await chromeExecutable();
     signal.throwIfAborted();
-    this.dir = await mkdtemp(join(tmpdir(), 'nano-browser-'));
+    this.dir = await seatDirectory();
     const init = join(this.dir, 'page.cjs');
     await writeFile(init, initCode, { mode: 0o600 });
     const argv = [
@@ -243,6 +241,12 @@ export class BrowserBackend implements ComputerBackend {
   private async uploadFile(raw: string) {
     const root = await realpath(this.cwd);
     const target = await realpath(resolve(root, raw));
+    const privateFile = process.env.NANO_BROWSER_PAIRING_FILE;
+    if (privateFile) {
+      const privateDir = await realpath(dirname(privateFile)).catch(() => dirname(privateFile));
+      if (target === privateDir || target.startsWith(privateDir + sep))
+        throw new Error('Node-private browser data cannot be uploaded.');
+    }
     const rel = relative(root, target);
     if (!rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel) || !(await stat(target)).isFile())
       throw new Error('Choose a file within the task workspace.');
@@ -306,7 +310,7 @@ export class BrowserBackend implements ComputerBackend {
           try {
             if (saved && (await pairing())?.id !== saved.id)
               throw new Error('Browser pairing changed. Request the action again.');
-            await this.start(mode, sig);
+            await this.start(mode, sig, saved);
             const initial = await this.current(sig);
             if (initial.url !== 'about:blank' && initial.url !== 'chrome://newtab/')
               throw new Error('The new browser seat did not start on a blank tab.');
@@ -413,14 +417,20 @@ export class BrowserBackend implements ComputerBackend {
         if (action === 'navigate' || action === 'new_tab') {
           if (action === 'navigate') await client.call('browser_navigate', { url: url!.href }, sig);
           else {
-            await client.call('browser_tabs', { action: 'new', url: url!.href }, sig);
-            this.tabs.add((await this.current(sig)).id);
+            const marker = 'about:blank#nano-' + randomUUID();
+            this.pendingTabs.add(marker);
+            await client.call('browser_tabs', { action: 'new', url: marker }, sig);
+            const created = await this.current(sig);
+            if (created.url !== marker) throw new Error('New tab changed before binding.');
+            this.tabs.add(created.id);
+            this.pendingTabs.delete(marker);
+            await client.call('browser_navigate', { url: url!.href }, sig);
           }
           this.origins.add(url!.origin);
         } else if (action === 'close_tab') {
           await client.call('browser_tabs', { action: 'close', index: live.index }, sig);
           this.tabs.delete(live.id);
-          if (!this.tabs.size) await this.close();
+          if (!this.tabs.size) await this.release();
         } else if (action === 'upload') {
           if ((await this.uploadFile(field(input, 'path'))) !== file) throw new Error('Upload target changed.');
           await client.call('browser_file_upload', { paths: [file] }, sig);
@@ -438,10 +448,14 @@ export class BrowserBackend implements ComputerBackend {
 
   private async release() {
     try {
-      if (this.mode === 'daily' && this.client && this.tabs.size) {
+      if (this.mode === 'daily' && this.client && (this.tabs.size || this.pendingTabs.size)) {
         // Chrome keeps extension tab groups on disconnect. Leave any tabs added by the user alone.
         const signal = AbortSignal.timeout(5000);
         try {
+          if (this.pendingTabs.size) {
+            for (const tab of (await this.inventory(signal)).tabs)
+              if (this.pendingTabs.has(tab.url)) this.tabs.add(tab.id);
+          }
           for (const id of this.tabs) {
             const live = (await this.inventory(signal)).tabs.find((t) => t.id === id);
             if (live) await this.client.call('browser_tabs', { action: 'close', index: live.index }, signal);
@@ -459,6 +473,7 @@ export class BrowserBackend implements ComputerBackend {
       this.clipboard = undefined;
       this.seen = undefined;
       this.tabs.clear();
+      this.pendingTabs.clear();
       this.origins.clear();
     }
   }

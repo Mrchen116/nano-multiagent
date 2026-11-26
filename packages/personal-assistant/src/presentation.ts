@@ -52,10 +52,21 @@ function screenshotProcess(call: RuntimeEvent, state: 'running' | 'completed' | 
     ...(result ? {duration_ms:result.time-call.time} : {})};
 }
 
+// Computer output can contain clipboard text, form values and account screenshots.
+function computerProcess(call:RuntimeEvent, state:'running'|'failed'|'completed', result?:RuntimeEvent) {
+  if (call.data.name !== 'computer_use') return;
+  const args=argumentsObject(call.data.arguments);
+  const surface=args.surface==='browser'?'browser':'desktop';
+  const action=typeof args.action === 'string' && /^[a-z_]{1,32}$/.test(args.action) ? args.action : 'operation';
+  return {id:typeof call.data.callId==='string'?call.data.callId:undefined, name:'computer_use',
+    input:{surface,action}, status:state,output:surface+' '+action+' ('+state+')',detail:undefined,
+    ...(result?{duration_ms:result.time-call.time}:{})};
+}
+
 /** Project durable tool events using their original names and stable call identity. */
 export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[], linkChildren = true) {
   const data = event.data;
-  if (event.type === 'tool/call') return screenshotProcess(event, 'running') ?? {
+  if (event.type === 'tool/call') return computerProcess(event,'running') ?? screenshotProcess(event, 'running') ?? {
     id: typeof data.callId === 'string' ? data.callId : undefined, name: typeof data.name === 'string' ? data.name : undefined, input: argumentsObject(data.arguments), status: 'running', output: toolSummary(data.name, argumentsObject(data.arguments), data.nanoToolView as NativeToolView | undefined), detail: {native_view: (data.nanoToolView as NativeToolView | undefined)?.call ?? {card: 'generic'}, native_call: (data.nanoToolView as NativeToolView | undefined)?.call}, ...workflowDetail(data.name,argumentsObject(data.arguments)),
   };
   if (event.type === 'tool/result') {
@@ -64,6 +75,8 @@ export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[], li
     const message = data.message as { toolCallId: string; isError?: boolean; content: { type: string; text?: string }[] };
     const call = events.find(item => item.type === 'tool/call' && item.data.callId === message.toolCallId);
     if (!call) return undefined;
+    const computer = computerProcess(call,message.isError?'failed':'completed',event);
+    if (computer) return computer;
     const screenshot = screenshotProcess(call, message.isError ? 'failed' : 'completed', event);
     if (screenshot) return screenshot;
     const output = message.content.filter(block => block.type === 'text').map(block => block.text ?? '').join('');

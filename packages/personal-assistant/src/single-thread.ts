@@ -314,7 +314,7 @@ export class SingleThread {
           ...(input.metadata.channel === 'feishu' && input.metadata.owner_user_id === binding.ownerId ? {roleAccountId:binding.ownerId} : {}),
           channel:typeof input.metadata.channel === 'string' ? input.metadata.channel : 'web_relay', messageId:input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender},
           ...(input.message.pa_agent_id ? {pa_agent_id:input.message.pa_agent_id} : {}), contextEnvelope,
-          ...(computerRequest ? {computerOwnerRequest:true} : {}),
+          ...(computerRequest ? {computerOwnerRequest:store.toolReferences.messageRef(binding.agentId,input.message.id)} : {}),
           ...(input.message.sender_type === 'user' && (computerRequest || chatBatch || input.metadata.thread_root_message_id) ? {directHumanText:input.message.content} : {})};
       await runtime.request('session.submit', {sessionId:binding.sessionId, inputId,
         mode:chatBatch ? 'steer' : input.metadata.context_only ? 'inject' : 'followup', content,
