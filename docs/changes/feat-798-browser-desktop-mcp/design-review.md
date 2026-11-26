@@ -56,3 +56,26 @@
 ### Round 2 resolution
 
 直接系统输入要求真实 actorId 匹配节点主人，Global Inbox 须有宿主认定的 owner + participant，代理与协作者不能授予资格。M1 对相同主人/协作者原话做成对验证。
+
+## Round 3
+
+- Reviewer 为独立复审者 `/root/gate2_owner`，审查版本为 `cfc248a95`。
+- `review_mode: closure`。本轮复核 R2-W1 修订的主人来源判据及 M1 验证安排。其余判断沿用 Round 2。
+- `started_at: 2026-11-27T01:10:44+09:00`，`completed_at: 2026-11-27T01:11:22+09:00`，`duration: 38s`。
+- **Issues Found**，0 CRITICAL，1 WARNING。
+
+### 历史问题闭环
+
+- **R2-W1 · 直接路径已关闭，Global 来源接线仍需修订。** 作者将直接路径限定为本人发出的原话、真实 `actorId` 与节点绑定的 `ownerId` 相等，并排除观察、代理代发和仅渠道账号相同的消息。`single-thread.ts:311–315` 的直接发送者、独立的渠道关联账号和代发标记支持该判断。`design.md:29,35` 及 Round 2 resolution 共同给出了 M1 对照：同一句交办，主人可读一次，协作者从请求到返回的系统读取次数为零。
+
+### Issues
+
+**R3-W1 · 普通 Global Inbox 缺少修订中指定的两个来源字段。** `design.md:29` 要求 Global Inbox 同时使用 `sender.is_owner` 与 `participant`。实际 `packages/personal-assistant/src/inbox.ts:773,823–836` 只在具有 `personal_delivery` 的 PA 输入上投影这两项。普通 Global 页有真实消息 ID、发送者 ID、类型与 target，即使主人直接交办也没有这两个字段。按该判据，合法的 Global 主会话和它授权的 Worker 都取不到一次读取资格。请将 PA 与普通 Global 的宿主判断分别落到实际来源，例如 Global 以本轮完整读取的消息核对真实发送者、节点主人、会话目标及对当前 Agent 的交办。M1 的主人/协作者同文对照应覆盖普通 Global 的真实 Inbox 入口。
+
+### Recommendations
+
+无。
+
+### Round 3 resolution
+
+普通 Global 从 Inbox 真实读到的 RelayInput 判断实际主人与目标；PA 额外核实 participant。M1 分别验证真实 Global 入口和 PA。
