@@ -804,7 +804,7 @@ export default class NanoRuntime {
           }
         }
         await (await knowledge).dreaming.configurationChanging(next);
-        (await configuration).restrictSelection(next);
+        await (await configuration).restrictSelection(next);
         const restricted = { ...previous.features };
         for (const [key, enabled] of Object.entries(next.features ?? {})) if (!enabled) restricted[key] = false;
         await (await configuration).setFeatures(next.agentId, restricted);

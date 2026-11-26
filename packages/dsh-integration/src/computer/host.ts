@@ -7,7 +7,7 @@ import type { ToolExecution, ToolRunContext } from '@deepseek-ai/dsh-tools';
 import type { PromptContentPart } from '@deepseek-ai/dsh-attachment';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import { isHumanSource, scopedChatEvents } from '../input-source.js';
-import { computerScope, scopeAllows } from './scope.js';
+import { computerScope, permitsWindow, scopeAllows } from './scope.js';
 import { BrowserBackend } from './browser.js';
 import { DesktopBackend } from './desktop.js';
 import type { ComputerBackend, ComputerContent, PreparedAction } from './backend.js';
@@ -66,6 +66,7 @@ export class ComputerHost {
   private workers = new Map<string, Seat>();
   private calls = new Map<string, WorkerCall>();
   private prepared = new Map<ToolExecution['token'], Pending>();
+  private grantEpoch = new Map<string, number>();
   private revokedAt = new Map<string, number>();
   private direct = new Map<string, Set<string>>();
   constructor(
@@ -120,6 +121,7 @@ export class ComputerHost {
 
   /** Release computer authority immediately when the owner deselects the tool. */
   revokeAgent(agentId: string) {
+    this.grantEpoch.set(agentId, (this.grantEpoch.get(agentId) ?? 0) + 1);
     for (const [id, seat] of this.workers) {
       if (this.bindings.get(seat.root.id)?.agentId !== agentId) continue;
       this.workers.delete(id);
@@ -151,7 +153,8 @@ export class ComputerHost {
     const events = scopedChatEvents(root.session.snapshotEvents());
     const start = events.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
     if (!owner || start?.type !== 'turn/start') throw new Error('No active owner request');
-    const matches: OwnerRequest[] = [];
+    const matches = new Map<string, OwnerRequest>();
+    const seenReads = new Set<string>();
     for (const e of events) {
       if (e.seq <= Math.max(start.seq, this.revokedAt.get(root.id) ?? -1)) continue;
       if (e.type === 'user/message' && this.direct.get(root.id)?.has(e.data.id) && isHumanSource(e.data.source)) {
@@ -163,7 +166,7 @@ export class ComputerHost {
           !src.pa_agent_id &&
           (!ref || ref === e.data.id || ref === src.messageId || ref === src.computerOwnerRequest)
         )
-          matches.push({ id: src.messageId, ref: src.messageId, text: src.directHumanText });
+          matches.set(src.messageId, { id: src.messageId, ref: src.messageId, text: src.directHumanText });
       }
       if (
         e.type !== 'tool/result' ||
@@ -181,24 +184,30 @@ export class ComputerHost {
       }
       if (!page.messages?.some((m) => m.id === ref && !m.partial)) continue;
       const read = e.data.message.toolCallId;
+      if (seenReads.has(read)) continue;
+      seenReads.add(read);
       const source = (await this.ctx
         .get('nanoProduct')!
         .call('computer.request', { ref, read }, { agent: root, signal, callId: ToolCallId(randomUUID()) })) as {
         id: string;
         text: string;
       } | null;
-      if (source) matches.push({ ...source, ref, read });
+      if (source) matches.set(source.id, { ...source, ref, read });
     }
-    if (matches.length !== 1)
+    if (matches.size !== 1)
       throw new Error(
         'Identify one complete owner instruction addressed to this Agent. For Inbox tasks pass its message ID as request_ref.',
       );
-    return matches[0]!;
+    return matches.values().next().value!;
   }
 
   async bindWorker(root: Agent, id: string, ref: string, signal: AbortSignal): Promise<() => void> {
     if (!this.enabled(root) || this.workers.has(id)) throw new Error('Computer delegation is unavailable');
+    const agentId = this.bindings.get(root.id)!.agentId;
+    const epoch = this.grantEpoch.get(agentId);
     const request = await this.original(root, ref, signal);
+    if (!this.enabled(root) || epoch !== this.grantEpoch.get(agentId))
+      throw new Error('Computer assignment was revoked');
     signal.throwIfAborted();
     const scope = computerScope(request.text, requestsClipboard(request.text));
     if (!scope.browser && !scope.desktop && !scope.clipboard)
@@ -281,6 +290,8 @@ export class ComputerHost {
           ? (seat.browser ??= new BrowserBackend(root.session.header.cwd!))
           : (seat.desktop ??= new DesktopBackend());
       const action = await backend.prepare(args.action, args.input ?? {}, signal);
+      if (action.window && (!request || !permitsWindow(request.text, action.window)))
+        throw new Error('Name the intended window title in the original owner request.');
       if (action.access === 'system_clipboard' && (!request || !requestsClipboard(request.text)))
         throw new Error(
           'Reading the system clipboard requires a direct owner request such as “把我刚复制的内容整理一下”.',

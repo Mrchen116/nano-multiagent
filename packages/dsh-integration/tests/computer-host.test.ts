@@ -10,7 +10,7 @@ it('gates the real outbound tools, allows one explicitly requested clipboard rea
   const home = await mkdtemp(join(tmpdir(), 'nano-computer-host-'));
   let client: RuntimeClient | undefined;
   let logs = '';
-  const inputs = ['ordinary', 'off', 'worker', 'describe', 'clipboard', 'unrelated', 'write'];
+  const inputs = ['ordinary', 'off', 'worker', 'describe', 'clipboard', 'unrelated', 'write', 'global'];
   const evidence = join(home, 'requests.jsonl');
   try {
     // Replace only the final OS clipboard operation. No fixture action can read a real pasteboard.
@@ -100,6 +100,8 @@ export function apply(ctx){
       provider: 'fixture',
       model: 'fixture',
       knowledge: { memoryMode: 'legacy' },
+      features: { intelligent_ui: false, task_graph: false, plugin_management: false },
+      ...(id === 'global' ? { mode: 'global', workerRuntime: 'codex' } : {}),
       ...(id === 'ordinary'
         ? {}
         : {
@@ -143,6 +145,27 @@ export function apply(ctx){
         )
         .toBeTruthy();
     }
+    const global = agents.find((a) => a.agentId === 'global')!;
+    const applied = await client.rpc.request('configuration.apply', {
+      ...global,
+      revision: '2',
+      toolAllowlist: ['read'],
+    });
+    expect(applied, JSON.stringify(applied)).toMatchObject({ effective: true });
+    await client.rpc.request('session.submit', {
+      sessionId: 'global',
+      inputId: 'withdrawn',
+      mode: 'followup',
+      content: [{ type: 'text', text: 'Ordinary chat after disabling computer use' }],
+      source: { kind: 'human', actorId: 'owner', channel: 'test', messageId: 'withdrawn' },
+    });
+    await expect
+      .poll(
+        async () =>
+          (await client!.rpc.request('session.lookup', { sessionId: 'global', inputId: 'withdrawn' })).terminal,
+        { timeout: 10000 },
+      )
+      .toBeTruthy();
     const requests = (await readFile(evidence, 'utf8'))
       .trim()
       .split('\n')
@@ -150,6 +173,12 @@ export function apply(ctx){
     const hasTool = (row: { tools?: Array<{ name: string }> }) =>
       row.tools?.some((t) => t.name === 'computer_use') ?? false;
     const first = (id: string) => requests.find((r) => r.session === id && !r.system);
+    const globalSteps = requests.filter((r) => r.session === 'global' && !r.system);
+    const delegationSchema = (row: any) =>
+      row.tools.find((t: any) => t.name === 'delegate_worker').parameters.properties;
+    expect(delegationSchema(globalSteps[0])).toHaveProperty('computer_request_ref');
+    expect(delegationSchema(globalSteps.at(-1))).not.toHaveProperty('computer_request_ref');
+    expect(hasTool(globalSteps.at(-1))).toBe(false);
     expect(hasTool(first('ordinary'))).toBe(false);
     expect(hasTool(first('describe'))).toBe(true);
     expect(first('describe').tools.filter((tool: { name: string }) => tool.name !== 'computer_use')).toEqual(
@@ -179,8 +208,20 @@ export function apply(ctx){
 }, 60_000);
 
 it('bounds a computer assignment by the original surface and target', async () => {
-  const { computerScope, scopeAllows } = await import('../src/computer/scope.js');
+  const { computerScope, permitsWindow, scopeAllows } = await import('../src/computer/scope.js');
   const request = '请打开 https://example.org 检查订单';
+  expect(permitsWindow('请在 TextEdit 的「草稿 A」窗口输入', { title: '草稿 B', candidates: 1 })).toBe(false);
+  expect(permitsWindow('请在 TextEdit 窗口输入', { title: '草稿 A', candidates: 2 })).toBe(false);
+  const bare = 'Use Chrome to check example.org in an isolated profile';
+  expect(
+    scopeAllows(bare, computerScope(bare, false), 'browser', 'open', { url: 'https://example.net/', mode: 'isolated' }),
+  ).toBe(false);
+  expect(
+    scopeAllows(bare, computerScope(bare, false), 'browser', 'open', { url: 'https://example.org/', mode: 'daily' }),
+  ).toBe(false);
+  expect(
+    scopeAllows(bare, computerScope(bare, false), 'browser', 'open', { url: 'https://example.org/', mode: 'isolated' }),
+  ).toBe(true);
   const scope = computerScope(request, false);
   expect(scopeAllows(request, scope, 'browser', 'open', { url: 'https://example.org/orders' })).toBe(true);
   expect(scopeAllows(request, scope, 'browser', 'navigate', { url: 'https://example.net' })).toBe(false);

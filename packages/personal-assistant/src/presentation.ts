@@ -55,7 +55,7 @@ function screenshotProcess(call: RuntimeEvent, state: 'running' | 'completed' | 
 // Computer output can contain clipboard text, form values and account screenshots.
 function computerProcess(call:RuntimeEvent, state:'running'|'failed'|'completed', result?:RuntimeEvent) {
   if (call.data.name !== 'computer_use') return;
-  const args=argumentsObject(call.data.arguments);
+  const args=argumentsObject(call.data.arguments) ?? {};
   const surface=args.surface==='browser'?'browser':'desktop';
   const action=typeof args.action === 'string' && /^[a-z_]{1,32}$/.test(args.action) ? args.action : 'operation';
   return {id:typeof call.data.callId==='string'?call.data.callId:undefined, name:'computer_use',

@@ -870,6 +870,7 @@ export class GlobalAgent {
         if (typeof call.args.id !== 'string' || !call.args.id) throw new Error('Missing computer request identity');
         return this.options.inbox.claimComputerClipboard(binding.ownerId, call.args.id);
       }
+      await this.reconcileRoot(binding);
       const id = this.options.store.toolReferences.resolveMessageId(binding.agentId,String(call.args.ref));
       const personal = !!this.options.agents.find(agent => agent.agentId === binding.agentId)?.personal;
       return this.options.inbox.computerRequest(binding.agentId,binding.ownerId,binding.sessionId,String(call.args.read),id,personal) ?? null;

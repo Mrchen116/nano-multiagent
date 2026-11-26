@@ -2,6 +2,7 @@
 export interface PreparedAction {
   access: 'observe' | 'review' | 'system_clipboard';
   evidence: string;
+  window?: { title: string; candidates: number };
   run(signal: AbortSignal): Promise<ComputerContent[]>;
 }
 

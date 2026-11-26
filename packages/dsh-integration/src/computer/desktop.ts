@@ -191,6 +191,7 @@ export class DesktopBackend implements ComputerBackend {
       return {
         access: 'review',
         evidence: JSON.stringify({ ...target, title }),
+        window: {title,candidates:initial.rows.length},
         run: async (signal) => {
           const { row, foreground } = await this.inspect(target, signal);
           if ((row.title ?? '') !== title || foreground !== initial.foreground)
