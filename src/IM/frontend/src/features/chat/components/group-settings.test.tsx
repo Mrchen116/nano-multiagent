@@ -203,3 +203,35 @@ it("keeps human members in the header avatar cluster, displays @username, and tr
   await user.click(screen.getByText("Lin Xia"));
   expect(onSelectHumanMember).toHaveBeenCalledWith("user-2", expect.any(HTMLButtonElement));
 });
+
+it("filters addable colleagues and agents by name or @username while preserving prior selections", async () => {
+  const user = userEvent.setup();
+  const onAddParticipants = vi.fn().mockResolvedValue(undefined);
+  renderSettings({
+    onAddParticipants,
+    addableAgents: [
+      { agentId: "u-lin", type: "user", displayName: "Lin Xia", username: "linxia" },
+      { agentId: "u-zhou", type: "user", displayName: "Zhou Yu", username: "zhouyu" },
+      { agentId: "release-sre", type: "agent", displayName: "Release SRE", status: "online" }
+    ]
+  });
+  await user.click(screen.getByRole("button", { name: /Add members/i }));
+  const search = screen.getByRole("searchbox", { name: /Find people or Agents/i });
+
+  await user.type(search, "@lin");
+  expect(screen.getByLabelText("Lin Xia")).toBeVisible();
+  expect(screen.queryByLabelText("Zhou Yu")).toBeNull();
+  await user.click(screen.getByLabelText("Lin Xia"));
+
+  await user.clear(search);
+  await user.type(search, "sre");
+  expect(screen.getByLabelText("Release SRE")).toBeVisible();
+  await user.click(screen.getByLabelText("Release SRE"));
+
+  await user.clear(search);
+  await user.type(search, "nonexistent");
+  expect(screen.getByText("No contacts found")).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: /Add \(2\)/i }));
+  expect(onAddParticipants).toHaveBeenCalledWith(["u-lin", "release-sre"]);
+});

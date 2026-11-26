@@ -469,6 +469,48 @@ describe("ConversationSidebar", () => {
     await user.click(row);
     expect(startDirect).toHaveBeenCalledWith(expect.objectContaining({ user_id: "u-chen" }));
   });
+
+  it("caps search contact matches to top 5 with inline expand and caps People tab unchatted colleagues with directory link", async () => {
+    const user = userEvent.setup();
+    const openDirectory = vi.fn();
+    const contacts = [
+      { user_id: "u1", kind: "human" as const, display_name: "Me", username: "me" },
+      ...Array.from({ length: 8 }, (_, idx) => ({
+        user_id: `u-team-${idx + 1}`,
+        kind: "human" as const,
+        display_name: `Teammate ${idx + 1}`,
+        username: `mate${idx + 1}`
+      }))
+    ];
+    render(
+      <ConversationSidebar
+        conversations={CONVS}
+        selfUserId="u1"
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        contacts={contacts}
+        onStartDirectChat={vi.fn()}
+        onOpenPeopleDirectory={openDirectory}
+        searchMessages={async () => ({ messages: [] })}
+      />
+    );
+
+    // 1. Browse mode under People tab caps unchatted teammates to 6 and shows People directory jump.
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    expect(screen.getByRole("button", { name: /Teammate 6/ })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Teammate 7/ })).toBeNull();
+    const dirBtn = screen.getByRole("button", { name: /View all in People \(8\)/ });
+    await user.click(dirBtn);
+    expect(openDirectory).toHaveBeenCalledTimes(1);
+
+    // 2. Search mode caps matched contacts to 5 until expanded in place.
+    await user.type(screen.getByRole("searchbox"), "Teammate");
+    expect(screen.getByRole("button", { name: /Teammate 5/ })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Teammate 6/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Show all 8 contacts" }));
+    expect(screen.getByRole("button", { name: /Teammate 8/ })).toBeVisible();
+  });
 });
 
 it.each([false, true])("resolves agent/user mentions in preview and search (distill=%s)", async (distillMode) => {

@@ -83,6 +83,7 @@ export function GroupSettings(props: GroupSettingsProps) {
   const [renaming, setRenaming] = useState(false);
   const [nameDraft, setNameDraft] = useState(title);
   const [adding, setAdding] = useState(false);
+  const [addSearch, setAddSearch] = useState("");
   const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
   const [confirmingRemoveId, setConfirmingRemoveId] = useState<string | null>(null);
   const [confirmingDissolve, setConfirmingDissolve] = useState(false);
@@ -127,8 +128,15 @@ export function GroupSettings(props: GroupSettingsProps) {
     );
   }
 
+  function openAdd() {
+    setAddSearch("");
+    setActionError(null);
+    setAdding(true);
+  }
+
   function closeAdd() {
     setAdding(false);
+    setAddSearch("");
     setSelectedAgentIds([]);
     setActionError(null);
   }
@@ -219,6 +227,19 @@ export function GroupSettings(props: GroupSettingsProps) {
     ...addableAgents.filter((a) => a.type === "user"),
     ...addableAgents.filter((a) => a.type !== "user")
   ];
+  const rawAddSearch = addSearch.trim().toLowerCase();
+  const userAddSearch = rawAddSearch.startsWith("@") ? rawAddSearch.slice(1) : rawAddSearch;
+  const filteredAddable = !rawAddSearch
+    ? orderedAddable
+    : orderedAddable.filter((a) => {
+        if (a.displayName.toLowerCase().includes(rawAddSearch)) return true;
+        if (a.type === "user") {
+          if (!a.username || !userAddSearch) return false;
+          const uname = a.username.toLowerCase();
+          return uname.includes(rawAddSearch) || uname.includes(userAddSearch);
+        }
+        return a.agentId.toLowerCase().includes(rawAddSearch);
+      });
   const pickerRows =
     orderedAddable.length === 0 ? (
       <div className="group-settings-empty">
@@ -226,19 +247,35 @@ export function GroupSettings(props: GroupSettingsProps) {
         <p>{t("chat.groupSettings.noAddableAgents")}</p>
       </div>
     ) : (
-      orderedAddable.map((a) => {
-        const on = selectedAgentIds.includes(a.agentId);
-        return (
-          <label key={a.agentId} className={`group-settings-pick${on ? " group-settings-pick--on" : ""}`}>
-            <input type="checkbox" checked={on} aria-label={a.displayName} onChange={() => toggleAgent(a.agentId)} />
-            <Avatar id={a.type === "user" ? a.agentId : agentAvatarId(a.agentId)} size={30} />
-            <span className="group-settings-member-text">
-              <span className="group-settings-pick-name">{a.displayName}</span>
-              {a.type === "user" && a.username && <span className="group-settings-member-sub">@{a.username}</span>}
-            </span>
-          </label>
-        );
-      })
+      <>
+        <div className="group-settings-add-search-wrap">
+          <input
+            type="search"
+            className="chat-sidebar-search"
+            aria-label={t("chat.contacts.search")}
+            placeholder={t("chat.contacts.search")}
+            value={addSearch}
+            onChange={(e) => setAddSearch(e.target.value)}
+          />
+        </div>
+        {filteredAddable.length === 0 ? (
+          <p className="group-settings-empty-search">{t("chat.contacts.empty")}</p>
+        ) : (
+          filteredAddable.map((a) => {
+            const on = selectedAgentIds.includes(a.agentId);
+            return (
+              <label key={a.agentId} className={`group-settings-pick${on ? " group-settings-pick--on" : ""}`}>
+                <input type="checkbox" checked={on} aria-label={a.displayName} onChange={() => toggleAgent(a.agentId)} />
+                <Avatar id={a.type === "user" ? a.agentId : agentAvatarId(a.agentId)} size={30} />
+                <span className="group-settings-member-text">
+                  <span className="group-settings-pick-name">{a.displayName}</span>
+                  {a.type === "user" && a.username && <span className="group-settings-member-sub">@{a.username}</span>}
+                </span>
+              </label>
+            );
+          })
+        )}
+      </>
     );
 
   // ─── Member row (shared) ──────────────────────────────────────────────────
@@ -439,7 +476,7 @@ export function GroupSettings(props: GroupSettingsProps) {
             <ul className="group-settings-card">
               {!manageMode && !readOnly && (
                 <li className="group-settings-add-row">
-                  <button type="button" className="group-settings-add-link" onClick={() => setAdding(true)}>
+                  <button type="button" className="group-settings-add-link" onClick={openAdd}>
                     <span className="group-settings-add-icon" aria-hidden="true">＋</span>
                     {t("chat.groupSettings.addMembers")}
                   </button>
@@ -484,7 +521,7 @@ export function GroupSettings(props: GroupSettingsProps) {
               {t("chat.groupSettings.members")} · {members.length}
             </span>
             {!adding && !readOnly && (
-              <button type="button" className="group-settings-add-link" onClick={() => setAdding(true)}>
+              <button type="button" className="group-settings-add-link" onClick={openAdd}>
                 ＋ {t("chat.groupSettings.addMembers")}
               </button>
             )}

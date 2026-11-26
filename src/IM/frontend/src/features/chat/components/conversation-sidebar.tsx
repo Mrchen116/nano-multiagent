@@ -22,6 +22,8 @@ type FilterKey = "all" | ConversationKind;
 type SidebarSearchState = { query: string; filter: FilterKey; pages: number; scrollTop: number; listFilter?: FilterKey };
 
 const FILTER_ORDER: FilterKey[] = ["all", "direct-user", "direct-agent", "group", "agent-network"];
+const CONTACT_PREVIEW_LIMIT = 5;
+const UNCHATTED_COLLEAGUES_LIMIT = 6;
 
 const FILTER_LABEL: Record<FilterKey, string> = {
   all: "chat.list.filters.all",
@@ -48,6 +50,7 @@ export interface ConversationSidebarProps {
   onNewChat?(): void;
   contacts?: Contact[];
   onStartDirectChat?(contact: Contact): void | Promise<void>;
+  onOpenPeopleDirectory?(): void;
   agents?: SidebarAgent[];
   distillMode?: boolean;
   selectedDistillConversationIds?: Set<string>;
@@ -91,6 +94,7 @@ export function ConversationSidebar({
   onNewChat,
   contacts,
   onStartDirectChat,
+  onOpenPeopleDirectory,
   agents,
   distillMode = false,
   selectedDistillConversationIds = new Set(),
@@ -117,6 +121,7 @@ export function ConversationSidebar({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const restoreScroll = useRef<number | null>(initialSearch?.scrollTop ?? null);
   const [pendingContactId, setPendingContactId] = useState<string | null>(null);
+  const [showAllContacts, setShowAllContacts] = useState(false);
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent);
   const shortcutLabel = isMac ? "⌘K" : "Ctrl+K";
   const saveSearch = (update: Partial<SidebarSearchState>) => {
@@ -124,6 +129,10 @@ export function ConversationSidebar({
     onSearchChange?.(searchState.current);
   };
   const [contextMenu, setContextMenu] = useState<{ conversationId: string; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    setShowAllContacts(false);
+  }, [search, filter]);
 
   useEffect(() => {
     function handleGlobalKeyDown(event: KeyboardEvent) {
@@ -259,6 +268,11 @@ export function ConversationSidebar({
       .sort((a, b) => a.display_name.localeCompare(b.display_name));
   }, [searchActive, search, distillMode, filter, contacts, onStartDirectChat, searchConversations, selfUserId]);
 
+  const totalColleaguesCount = useMemo(
+    () => (contacts ?? []).filter((c) => c.kind === "human" && c.user_id !== selfUserId).length,
+    [contacts, selfUserId]
+  );
+
   const openContactChat = (contact: Contact) => {
     if (!onStartDirectChat || pendingContactId) return;
     setPendingContactId(contact.user_id);
@@ -268,6 +282,7 @@ export function ConversationSidebar({
   const exitSearch = () => {
     setSearchActive(false);
     setSearch("");
+    setShowAllContacts(false);
     setFilter(listFilter.current);
     restoreScroll.current = null;
     saveSearch({query:"", filter:listFilter.current, pages:1, scrollTop:0});
@@ -470,7 +485,7 @@ export function ConversationSidebar({
         )}
         {matchedContacts.length > 0 && !distillMode ? <>
           <li className="chat-search-heading">{t("chat.list.contactResults")}</li>
-          {matchedContacts.map((contact) => {
+          {(showAllContacts ? matchedContacts : matchedContacts.slice(0, CONTACT_PREVIEW_LIMIT)).map((contact) => {
             const subtitle = contact.kind === "human"
               ? (contact.username ? `@${contact.username}` : t("chat.contacts.person"))
               : [contact.owner_display_name, contact.role === "personal" ? t("pa.label") : contact.node_name].filter(Boolean).join(" · ");
@@ -498,10 +513,17 @@ export function ConversationSidebar({
               </li>
             );
           })}
+          {!showAllContacts && matchedContacts.length > CONTACT_PREVIEW_LIMIT ? (
+            <li>
+              <button type="button" className="chat-search-more" onClick={() => setShowAllContacts(true)}>
+                {t("chat.list.showAllContacts", { count: matchedContacts.length })}
+              </button>
+            </li>
+          ) : null}
         </> : null}
         {unchattedColleagues.length > 0 ? <>
           <li className="chat-search-heading">{t("chat.list.teamColleagues")}</li>
-          {unchattedColleagues.map((colleague) => {
+          {unchattedColleagues.slice(0, UNCHATTED_COLLEAGUES_LIMIT).map((colleague) => {
             const pa = contacts?.find((c) => c.kind === "agent" && c.role === "personal" && (c.owner_user_id ?? c.owner_id) === colleague.user_id);
             const subtitle = [colleague.username ? `@${colleague.username}` : t("chat.contacts.person"), pa ? t("chat.contacts.hasAssistant", { name: pa.display_name }) : null].filter(Boolean).join(" · ");
             return (
@@ -528,6 +550,13 @@ export function ConversationSidebar({
               </li>
             );
           })}
+          {unchattedColleagues.length > UNCHATTED_COLLEAGUES_LIMIT && onOpenPeopleDirectory ? (
+            <li>
+              <button type="button" className="chat-search-more" onClick={onOpenPeopleDirectory}>
+                {t("chat.list.openPeopleDirectory", { count: totalColleaguesCount })}
+              </button>
+            </li>
+          ) : null}
         </> : null}
         {search.trim() && searchMessages && !distillMode ? <>
           {searchResult && searchResult.messages.length > 0 ? <li className="chat-search-heading">{t('chat.list.messageResults')}</li> : null}

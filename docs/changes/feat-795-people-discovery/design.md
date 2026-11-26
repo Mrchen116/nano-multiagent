@@ -4,6 +4,7 @@
 
 ## Changelog
 
+- **v3 (用户评审后补充 Raft 轻量体验收敛)**：按用户确认补充三项轻量规模化保护：侧栏搜索「联系人」分组默认预览前 5 条并提供「查看全部 N 位联系人」原地展开；侧栏「同事」Tab 未私聊同事最多展示前 6 位，超出时显示「去同事目录查看全部 (N) →」跳转 `/people`；`GroupSettings`「添加成员」面板增加姓名/`@username`/Agent ID 搜索过滤并保留跨搜索词多选状态。
 - **v2 (Gate 2 Round 1 修订)**：采纳 `R1-C1~C3`、`R1-W1~W5` 与 `R1-R1~R3`：将 `apps/im-server/src/server.ts` SPA 路由白名单（放行 `/people`）纳入范围；明确排除 `conversation.external_source` 与 `sender.avatar_id` 以 `external:` 开头的未映射外部发送者；在 `contacts.ts` 为 Agent 统一补齐解析后的 `owner_user_id`（`users.id`）及公司 Agent 的 `owner_display_name` 回退，并在 `AgentProfilePage` 拉取完整 `contacts` 解析可见真人管理者；对 `membership_status === "active"` 的团队成员禁用全屏 `FirstUseWelcome` 遮挡侧栏；区分点击同事公开 PA（直接 1:1 私聊，且非本人 PA 资料页隐藏 `Work` Tab 与空设备行）与专业数字员工（进入 `/settings/agents/:id`）；将 `PersonPopover` 层级提至 `z-index: 110`、打通 `MarkdownContent` + `renderInlineContent` 双正文路径（排除引用块 `replyPreview`）并安全追加 `draft` + `draftMentions`；明确侧栏状态互斥、站内 1:1 去重键、`$IM_URL/health` 检查端点、移动端底栏角标锚定与 `GroupSettings` `@username` 透传。
 
 ## 现状分析

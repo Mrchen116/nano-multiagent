@@ -1434,6 +1434,7 @@ export function ChatWorkspacePage() {
           onNewGroup={() => setShowNewGroup(true)}
           contacts={contactsQuery.data}
           onStartDirectChat={openDirectChatWithContact}
+          onOpenPeopleDirectory={() => navigate("/people")}
           distillMode={distillMode}
           selectedDistillConversationIds={selectedDistillConversationIds}
           selectedDistillSourceNodeId={selectedDistillSourceNodeId}
