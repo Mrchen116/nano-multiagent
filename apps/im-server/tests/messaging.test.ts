@@ -52,7 +52,14 @@ it("projects the actual sender for group previews, including former and external
     sender_source_id: "ou-peer",
   });
   expect(preview().last_message_sender_name).toBe("ou-peer");
+  const other = messaging.insertMessage("chat", "u1", "user", "在", [], null, "completed", {
+    sender_display_name:"另一位成员", sender_source_id:"ou-other",
+  });
+  expect(external.sender.avatar_id).toMatch(/^external:/);
+  expect(external.sender.avatar_id).not.toEqual(other.sender.avatar_id);
+  expect(external.sender_user_id).toBe(other.sender_user_id);
   const event = messaging.records.createdEvent(external.id);
+  expect(JSON.parse(event.payload_json).sender.avatar_id).toBe(external.sender.avatar_id);
   expect(JSON.parse(event.payload_json).sender_display_name).toBe("ou-peer");
   messaging.insertMessage("chat", "a1", "agent", "", [], null, "completed", {
     sender_display_name: "读书会助手",

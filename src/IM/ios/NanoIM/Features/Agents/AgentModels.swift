@@ -2,6 +2,7 @@ import Foundation
 
 /// Wire contracts for owner configuration and Gateway-reported capabilities.
 struct AgentConfig: Codable, Sendable, Equatable {
+    var avatar_variant: Int?
     var agent_id: String
     var owner_id: String
     var node_id: String?

@@ -1,3 +1,4 @@
+import { externalAvatarId } from "./identity.js";
 import { chatAllowed, ownerDirect, storedProviderFacts } from './collaboration.js';
 import { conversationName } from './conversation-name.js';
 import {parseAvatarVariant} from './configuration-input.js';
@@ -227,7 +228,7 @@ export class PersonalAgents {
     const incidents=this.incidents(owner).items;
     return {items:all(this.db,'SELECT actor_id FROM pa_contact_blocks WHERE binding_id=? ORDER BY rowid DESC',b.binding_id).map(block=>{
       const history=incidents.filter((i:Row)=>i.actor_id===block.actor_id);
-      return {actor_id:block.actor_id,actor_name:history[0]?.actor_name ?? block.actor_id,reason:history[0]?.reason ?? '',
+      return {actor_id:block.actor_id,...(block.actor_id.startsWith('external:') ? {avatar_id:externalAvatarId(block.actor_id)} : {}),actor_name:history[0]?.actor_name ?? block.actor_id,reason:history[0]?.reason ?? '',
         evidence:history.map((i:Row)=>{
           const original=!!conversationAccess(this.db,i.conversation_id,b.owner_user_id);
           return {id:i.id,reason:i.reason,original,conversation_id:original?i.conversation_id:b.conversation_id,message_id:original?i.source_message_id:i.owner_notice_message_id};
@@ -380,7 +381,7 @@ export class PersonalAgents {
   }
 
   incidents(owner:string) {
-    const b=this.binding(owner);return {items:b?all(this.db,'SELECT i.*,COALESCE(m.sender_display_name,u.display_name,i.actor_id) actor_name FROM pa_incidents i JOIN messages m ON m.id=i.source_message_id LEFT JOIN users u ON u.id=i.actor_id WHERE i.binding_id=? ORDER BY i.rowid DESC',b.binding_id):[]};
+    const b=this.binding(owner);return {items:b?all(this.db,'SELECT i.*,COALESCE(m.sender_display_name,u.display_name,i.actor_id) actor_name FROM pa_incidents i JOIN messages m ON m.id=i.source_message_id LEFT JOIN users u ON u.id=i.actor_id WHERE i.binding_id=? ORDER BY i.rowid DESC',b.binding_id).map(row => row.actor_id.startsWith('external:') ? {...row,avatar_id:externalAvatarId(row.actor_id)} : row):[]};
   }
   /** Project unfinished communication from persisted receipts, not model claims. */
   incidentEvent(b:Row,incident:Row) {

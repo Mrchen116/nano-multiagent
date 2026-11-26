@@ -1,3 +1,4 @@
+import { Avatar, AvatarIdentities } from "../../chat/components/avatar";
 import "./company-members-page.css";
 
 import * as Dialog from "@radix-ui/react-dialog";
@@ -59,6 +60,9 @@ export function CompanyMembersPage() {
   const closeDialog = () => { if (!change.isPending) { setTarget(null); change.reset(); } };
 
   return (
+    <AvatarIdentities source="names" actors={members.map(member => ({
+      type:"user", id:member.id, display_name:member.display_name || member.username,
+    }))}>
     <section className="company-page" aria-label={t("company.title")}>
       {isMobile && (
         <div className="sticky top-0 z-10 flex h-12 shrink-0 items-center gap-2 border-b border-im-border bg-[oklch(0.97_0.004_240)] px-1">
@@ -91,7 +95,7 @@ export function CompanyMembersPage() {
               return (
                 <li key={member.id} className="company-columns company-member-row">
                   <div className="company-identity">
-                    <span aria-hidden="true" className="company-avatar">{name.trim().slice(0, 2).toUpperCase()}</span>
+                    <Avatar id={member.id} size={isMobile ? 34 : 38} />
                     <div className="min-w-0">
                       <p className="company-member-name">{name}{member.id === currentUser.id && <span className="ml-2 text-[11px] font-normal text-im-text-muted">{t("company.you")}</span>}</p>
                       <p className="company-username">@{member.username}</p>
@@ -128,5 +132,6 @@ export function CompanyMembersPage() {
         </Dialog.Portal>
       </Dialog.Root>
     </section>
+    </AvatarIdentities>
   );
 }

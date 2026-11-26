@@ -78,7 +78,7 @@ struct AgentsView: View {
                 PersonalAgentManagementView(client: client, agentID: assistant.agent_id)
             } label: {
                 HStack(spacing: 12) {
-                    AssistantPortrait(personal: true, seed: assistant.agent_id, selected: assistant.avatar_variant, size: 36)
+                    AvatarView(id: .personal(assistant), size: 36)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(L("我的个人助手", "My personal assistant")).font(.caption.weight(.medium)).foregroundStyle(NanoTheme.muted)
                         Text(assistant.display_name).font(.headline).foregroundStyle(NanoTheme.ink)
@@ -102,7 +102,7 @@ struct AgentsView: View {
         let id = contact.agent_id ?? contact.user_id
         let owned = contact.owner_id != nil && (contact.owner_id == user.id || contact.owner_id == user.owner_id)
         return HStack(spacing: 9) {
-            AssistantPortrait(personal: contact.role == "personal", seed: id, selected: contact.avatar_variant, size: 32)
+            AvatarView(id: .contact(contact), size: 32)
                 .overlay(alignment: .bottomTrailing) {
                     if let status = contact.status {
                         Circle().fill(status == "online" ? Color.green : Color.secondary)
@@ -147,14 +147,14 @@ struct AgentsView: View {
 
 /// Keep the profile tint keyed to the selected assistant identity.
 private func assistantPaper(_ id: String, _ selected: Int?) -> Color {
-    let variant = selected.flatMap { (0..<24).contains($0) ? $0 : nil } ?? AssistantPortrait.variant(for: id)
+    let variant = selected.flatMap { (0..<24).contains($0) ? $0 : nil } ?? PortraitPreview.defaultVariant(for: id)
     return [Color.purple, .mint, .blue, .orange, .pink, .yellow][variant % 6].opacity(0.12)
 }
 
 struct NativePersonalAgentState: Decodable, Sendable {
     var binding: Binding?
     var creation: JSONValue?
-    struct Binding: Decodable, Sendable {
+    struct Binding: Decodable, Sendable, PersonalAvatarBinding {
         var agent_id: String; var display_name: String; var status: String
         var node_id: String?; var conversation_id: String?; var avatar_variant: Int?
     }
@@ -191,7 +191,7 @@ struct AgentProfileView: View {
                             }
                         }
                         Spacer(minLength: 0)
-                        AssistantPortrait(personal: shownContact.role == "personal", seed: agentID, selected: shownContact.avatar_variant, size: 86)
+                        AvatarView(id: .contact(shownContact), size: 86)
                     }
                     Button { Task { await openChat() } } label: {
                         Label(L("发消息", "Message"), systemImage: "bubble.left.fill")
@@ -307,7 +307,7 @@ struct AgentCreateView: View {
             if let created {
                 Section {
                     VStack(spacing: 10) {
-                        AssistantPortrait(personal: false, seed: created.agent_id, selected: selectedVariant, size: 84)
+                        AvatarView(id: .created(created), size: 84)
                         Text(created.display_name).font(.title.bold())
                         Label(L("助手已创建", "Assistant created"), systemImage: "checkmark.circle.fill").font(.subheadline).foregroundStyle(.secondary)
                         Button(L("开始聊天", "Start chatting")) { Task { await openCreatedChat(created) } }
@@ -322,7 +322,7 @@ struct AgentCreateView: View {
                     HStack(spacing: 14) {
                         Button { choosingAppearance.toggle() } label: {
                             ZStack(alignment: .bottomTrailing) {
-                                AssistantPortrait(personal: false, seed: draft.agent_id, selected: selectedVariant, size: 58)
+                                PortraitPreview(personal: false, variant: selectedVariant, size: 58)
                                 Image(systemName: "paintpalette.fill").font(.caption2).frame(width: 22, height: 22)
                                     .foregroundStyle(NanoTheme.accent).background(NanoTheme.surface, in: Circle())
                             }

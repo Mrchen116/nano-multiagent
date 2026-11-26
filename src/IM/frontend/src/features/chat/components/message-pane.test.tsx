@@ -2917,7 +2917,7 @@ it.each(['legacy','owner','recipient'])('preserves PA message identity and conte
 it.each(['direct', 'group', 'observer'] as const)('shows sender identity where needed in %s conversations', mode => {
   const personalReply: Message = {...SAMPLE_MESSAGES[1], sender:{...SAMPLE_MESSAGES[1].sender,role:'personal'}};
   const {container} = render(<MessagePane conversation={{...(mode === 'group' ? GROUP_CONV : DIRECT_CONV),is_observer:mode==='observer'}}
-    messages={[personalReply]} personalAgent mentionCandidates={[]} onSend={()=>{}} />);
+    messages={[personalReply]} mentionCandidates={[]} onSend={()=>{}} />);
   expect(container.querySelector('.chat-bubble-sender') !== null).toBe(mode !== 'direct');
   expect(container.querySelector('.pa-badge')).toBeNull();
   expect(container.querySelector('.chat-kind-badge')).toBeNull();

@@ -4,7 +4,7 @@ import { useTranslation } from "../../../i18n";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useAuthStore } from "../../auth/auth-store";
 import { listContacts, type Contact } from "../contacts-api";
-import { Avatar, colorForAgentSeed } from "./avatar";
+import { Avatar } from "./avatar";
 
 export function NewChatModal({ onClose, onSelect }: { onClose(): void; onSelect(contact: Contact): Promise<void> }) {
   const { t } = useTranslation();
@@ -28,7 +28,7 @@ export function NewChatModal({ onClose, onSelect }: { onClose(): void; onSelect(
         {query.isSuccess && !query.data.some(c => c.user_id !== self) && <p>{t("chat.contacts.empty")}</p>}
         <ul className="chat-modal-agents">{query.data?.filter(c => c.user_id !== self).map(c => <li key={c.user_id}>
           <button className="chat-modal-agent" disabled={busy} onClick={() => void select(c)}>
-            <Avatar agentId={c.agent_id ?? undefined} personal={c.role === "personal"} avatarVariant={c.avatar_variant} initials={c.display_name.slice(0, 2)} color={colorForAgentSeed(c.display_name)} size={34} status={c.status} />
+            <Avatar id={c.user_id} size={34} status={c.status} />
             <span className="chat-modal-agent-body"><strong className="chat-modal-agent-name">{c.display_name}</strong><span className="chat-modal-agent-meta">{c.kind === "human" ? t("chat.contacts.person") : [c.owner_display_name, c.role==='personal'?t('pa.label'):c.node_name].filter(Boolean).join(" · ")}</span></span>
           </button>
         </li>)}</ul>

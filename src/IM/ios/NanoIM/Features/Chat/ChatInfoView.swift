@@ -192,8 +192,7 @@ struct ChatInfoView: View {
             } message: { Text(L("未完成任务会关闭，已完成结果与聊天历史保留，只读查看。", "Unfinished tasks close. Completed results and conversation history remain read-only.")) }
     }
     private func portrait(_ actor: ActorRef, size: CGFloat) -> some View {
-        AvatarView(name: actor.display_name ?? actor.id, kind: actor.type == "agent" ? "agent" : "person",
-                   size: size, agentID: actor.id, role: actor.role, variant: actor.avatar_variant)
+        AvatarView(id: .actor(actor), size: size)
     }
 
     private func identityHeader(_ chat: Conversation) -> some View {
@@ -201,7 +200,7 @@ struct ChatInfoView: View {
         let peer = chat.participants.first { ($0.user_id ?? $0.id) != store.user.id }
         return HStack(alignment: .center, spacing: 16) {
             if isGroup {
-                AvatarView(name: chat.title, kind: "group", size: 64)
+                AvatarView(id: .group(chat.id), size: 64)
             } else if chat.is_observer == true {
                 HStack(spacing: -15) {
                     ForEach(chat.participants.prefix(2), id: \.self) { actor in

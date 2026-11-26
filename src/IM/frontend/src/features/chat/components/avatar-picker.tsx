@@ -1,6 +1,12 @@
 import { useTranslation } from '../../../i18n';
 import { AssistantPortrait } from './assistant-portrait';
 import './avatar-picker.css';
+export { avatarVariantFor } from './assistant-portrait';
+
+/** Preview an unsaved choice in the assistant creation form. */
+export function AvatarPreview({ value, size }: { value: number; size: number }) {
+  return <AssistantPortrait variant={value} size={size} />;
+}
 
 /** Choose a preset without making appearance a required setup step. */
 export function AvatarPicker({ personal = false, value, onChange, disabled = false }: {

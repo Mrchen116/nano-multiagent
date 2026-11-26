@@ -35,7 +35,7 @@ export const createPersonalAgent = (input: CreatePersonalAgent) => authFetchJson
 export const updatePersonalAgentPolicy = (input: Partial<Omit<PersonalAgentPolicy, 'revision'>> & {expected_revision: number}) => authFetchJson<PersonalAgentPolicy>(`${base}/policy`, {method: 'PATCH', body: JSON.stringify(input)});
 export const renamePersonalAgent = (display_name: string) => authFetchJson<PersonalAgentState>(base, {method:'PATCH',body:JSON.stringify({display_name})});
 export interface PersonalIncident {
-  id: string; actor_id: string; actor_name: string; conversation_id: string;
+  id: string; actor_id: string; avatar_id?: string; actor_name: string; conversation_id: string;
   source_message_id: string; category: string; reason: string; count: number;
   status: string; owner_notice_message_id: string | null; peer_notice_message_id?: string | null;
 }
@@ -43,7 +43,7 @@ export const getPersonalIncidents = () => authFetchJson<{items: PersonalIncident
 export const respondToPersonalIncident = (id: string, action: 'block' | 'misunderstanding' | 'dismiss') => authFetchJson<PersonalIncident>(`${base}/incidents/${encodeURIComponent(id)}`,{method:'POST',body:JSON.stringify({action})});
 
 export interface BlockedPersonalContact {
-  actor_id: string; actor_name: string; reason: string;
+  actor_id: string; avatar_id?: string; actor_name: string; reason: string;
   evidence: {id: string; reason: string; original: boolean; conversation_id: string; message_id: string | null}[];
 }
 export const getBlockedPersonalContacts = () => authFetchJson<{items: BlockedPersonalContact[]}>(`${base}/blocked-contacts`);

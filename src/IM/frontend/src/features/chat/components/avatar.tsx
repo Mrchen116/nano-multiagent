@@ -1,19 +1,9 @@
+import AVATAR_PALETTE from "../../../../../shared/avatar-palette.json";
+import { createContext, useContext, useMemo, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AssistantPortrait } from "./assistant-portrait";
-import type { Conversation } from "../chat-types";
+import type { Actor, Conversation } from "../chat-types";
 
-/**
- * Shared person and Agent palette, seeded by display name: historical message senders carry
- * an IM user UUID rather than agent_id, so names keep colors aligned across views.
- */
-const AVATAR_PALETTE = [
-  { background: "#ffccac", foreground: "#733b27" },
-  { background: "#bfe8d9", foreground: "#275b49" },
-  { background: "#e2d8ff", foreground: "#57408c" },
-  { background: "#ffd0e3", foreground: "#783955" },
-  { background: "#acdfef", foreground: "#214d63" },
-  { background: "#ffdb80", foreground: "#634621" },
-  { background: "#cadbff", foreground: "#364c83" }
-];
+
 
 /** Deterministic color from a curated palette, seeded by the full display name. */
 export function colorForAgentSeed(seed: string): string {
@@ -32,12 +22,6 @@ export function colorForAgent(agent: { display_name?: string | null; agent_id?: 
   return colorForAgentSeed(agent.display_name || agent.agent_id || "");
 }
 
-/** A person's avatar follows the other participant, not the editable chat title. */
-export function directPersonAvatarName(conversation: Conversation, selfUserId: string | null): string {
-  const peer = conversation.participants.find(person => person.type === "user" && person.id !== selfUserId);
-  return peer?.display_name || peer?.id || conversation.title;
-}
-
 /** Initials for an agent display name. The same name must render the same
  *  initials on every surface (settings list, detail, chat), so the rule lives
  *  here once instead of being copied per call site. */
@@ -47,31 +31,94 @@ export function initialsOf(displayName: string): string {
   return trimmed.slice(0, 2).toUpperCase();
 }
 
-interface AvatarProps {
-  personal?: boolean;
-  agentId?: string;
-  avatarVariant?: number | null;
-  initials: string;
-  /** Must be provided by every call site via colorForAgent(). Required to prevent
-   *  per-call-site seed divergence — omitting it is a type error. */
-  color: string;
-  size?: number;
-  status?: "online" | "offline" | "running" | null;
+// Every mounted surface reads the same account-scoped directory, including portals.
+class IdentityDirectory {
+  private sources = new Map<ReadonlyMap<string, Actor>, number>();
+  private listeners = new Set<() => void>();
+
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
+
+  register(actors: ReadonlyMap<string, Actor>, priority: number) {
+    this.sources.set(actors, priority);
+    this.listeners.forEach(listener => listener());
+    return () => {
+      this.sources.delete(actors);
+      this.listeners.forEach(listener => listener());
+    };
+  }
+
+  get(id: string) {
+    let result: Actor | undefined;
+    let best = -1;
+    for (const [actors, priority] of this.sources) {
+      const actor = actors.get(id);
+      if (actor && priority > best) {
+        best = priority;
+        result = actor;
+      }
+    }
+    return result;
+  }
 }
 
-/**
- * Shared initials or personal-assistant portrait with an optional status dot.
- *
- * `color` is required: callers must pass `colorForAgent({display_name, agent_id})`
- * (or an explicit fixed color for non-agent avatars such as group chats). Making
- * it required ensures the compiler catches any future call site that forgets to
- * wire up the single source of truth.
- *
- * Status dot matches prototype (im-components.jsx): border uses the sidebar
- * background colour so the dot sits cleanly on dark sidebar rows.
- */
-export function Avatar({ initials, color, size = 32, status, personal = false, agentId, avatarVariant }: AvatarProps) {
-  const bg = color;
+const emptyDirectory = new IdentityDirectory();
+const AvatarDirectory = createContext<IdentityDirectory | null>(null);
+
+/** Agent-only APIs use logical IDs. Keep them separate from IM user UUIDs. */
+export function agentAvatarId(id: string): string {
+  return `agent:${id}`;
+}
+
+export function actorAvatarId(actor: Actor): string {
+  return actor.avatar_id ?? actor.user_id ?? (actor.type === "agent" ? agentAvatarId(actor.id) : actor.id);
+}
+
+export function directAvatarId(chat: Conversation, self: string | null): string {
+  const peer = chat.participants.find(actor => actor.type === "agent")
+    ?? chat.participants.find(actor => actor.id !== self);
+  return peer ? actorAvatarId(peer) : "";
+}
+
+/** Publish already-authorized identity data to every avatar in the account. */
+export function AvatarIdentities({ actors, source = "history", children }: {
+  actors: Actor[]; source?: "contacts" | "members" | "history" | "names"; children: ReactNode;
+}) {
+  const parent = useContext(AvatarDirectory);
+  const [local] = useState(() => new IdentityDirectory());
+  const directory = parent ?? local;
+  const entries = useMemo(() => {
+    const map = new Map<string, Actor>();
+    for (const actor of actors) {
+      map.set(actorAvatarId(actor), actor);
+      if (actor.type === "agent") map.set(agentAvatarId(actor.id), actor);
+    }
+    return map;
+  }, [actors]);
+  useLayoutEffect(() => directory.register(entries, { contacts: 3, members: 2, history: 1, names: 0 }[source]),
+    [directory, entries, source]);
+  return <AvatarDirectory.Provider value={directory}>{children}</AvatarDirectory.Provider>;
+}
+
+/** Illustration for onboarding and the create-assistant action before an identity exists. */
+export function AssistantIllustration({ size }: { size: number }) {
+  return <AssistantPortrait size={size} />;
+}
+
+/** Display an IM identity. An unresolved ID gets a neutral placeholder. */
+export function Avatar({ id, size = 32, status }: {
+  id: string; size?: number; status?: "online" | "offline" | "running" | null;
+}) {
+  const directory = useContext(AvatarDirectory) ?? emptyDirectory;
+  const actor = useSyncExternalStore(directory.subscribe, () => directory.get(id));
+  const name = actor?.display_name || actor?.id || "?";
+  const agentId = actor?.type === "agent" ? actor.id : undefined;
+  const personal = actor?.role === "personal";
+  const avatarVariant = actor?.avatar_variant;
+  const initials = initialsOf(name);
+  const bg = colorForAgentSeed(name);
   const dotSize = size * 0.28;
   return (
     <span className="chat-avatar" style={{ width: size, height: size }}>

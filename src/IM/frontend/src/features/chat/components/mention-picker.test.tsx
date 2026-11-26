@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import "../../../i18n";
 import type { MentionCandidate } from "../chat-types";
-import { colorForAgent } from "./avatar";
+import { AvatarIdentities, colorForAgent } from "./avatar";
 import { MentionPicker } from "./mention-picker";
 
 const CANDIDATES: MentionCandidate[] = [
@@ -47,7 +47,7 @@ describe("MentionPicker", () => {
   // If Avatar is called without `color`, it falls back to colorForAgentSeed(initials) which uses
   // a 2-char seed and diverges from the canonical display_name-seeded color used everywhere else.
   it("avatar background color matches colorForAgent for each candidate (bugfix-415 regression)", () => {
-    render(<MentionPicker candidates={CANDIDATES} query="" onSelect={() => {}} onClose={() => {}} />);
+    render(<AvatarIdentities actors={CANDIDATES.map(c => ({type:"user", id:c.user_id, display_name:c.display_name}))}><MentionPicker candidates={CANDIDATES} query="" onSelect={() => {}} onClose={() => {}} /></AvatarIdentities>);
     const faces = document.querySelectorAll<HTMLElement>(".chat-avatar-face");
     expect(faces).toHaveLength(CANDIDATES.length);
     CANDIDATES.forEach((c, i) => {

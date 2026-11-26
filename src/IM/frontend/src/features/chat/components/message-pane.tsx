@@ -51,7 +51,7 @@ import {
   type ReplyReference,
   type TimelineItem
 } from "../chat-types";
-import { Avatar, GroupAvatar, colorForAgentSeed, directPersonAvatarName, initialsOf } from "./avatar";
+import { Avatar, AvatarIdentities, directAvatarId, GroupAvatar } from "./avatar";
 import { MENTION_RE, reconstructWireContent, type DraftMention, parseMentions, mentionPlainText, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { DirectConversationMenu } from "./direct-conversation-menu";
@@ -114,7 +114,6 @@ export interface MessagePaneProps {
   threadMessageId?: string | null;
   onOpenThread?(id: string): void;
   onCloseLocatedThread?(): void;
-  personalAgent?: boolean;
   returnNavigation?: React.ReactNode;
   /** Typed timeline keeps durable non-message entries out of MessageBubble. */
   timeline?: TimelineItem[];
@@ -131,10 +130,6 @@ export interface MessagePaneProps {
   nodeStatus?: "online" | "offline";
   nodeId?: string | null;
   nodeUpdate?: NodeUpdateView;
-  /** Agent color for header avatar (direct-agent conversations). */
-  agentColor?: string | null;
-  /** Agent initials for header avatar (direct-agent conversations). */
-  agentInitials?: string | null;
   /** Mobile navigation and touch-sized conversation actions. */
   isMobile?: boolean;
   onSend(text: string, attachments: Attachment[], interactionReply?: InteractionReplyInput, idempotencyKey?: string, replyToMessageId?: string): void | Promise<void | Message>;
@@ -240,7 +235,6 @@ export function MessagePane({
   onOpenThread,
   onCloseLocatedThread,
   cooperationAgent,
-  personalAgent = false,
   returnNavigation,
   timeline,
   messages: messagesProp,
@@ -253,8 +247,6 @@ export function MessagePane({
   nodeStatus = "offline",
   nodeId,
   nodeUpdate,
-  agentColor,
-  agentInitials,
   isMobile = false,
   onSend,
   onRecovered,
@@ -709,7 +701,6 @@ export function MessagePane({
   }
 
   const kind = classifyConversationKind(conversation);
-  const avatarName = kind === "direct-user" ? directPersonAvatarName(conversation, selfUserId) : conversation.title;
   const isGroup = conversation.type === "group";
   const mentionMatch = isGroup ? MENTION_RE.exec(draft) : null;
   const mentionQuery = mentionMatch?.[1] ?? null;
@@ -1184,13 +1175,11 @@ export function MessagePane({
   }, []);
   const directAgent = conversation.type === "direct" ? conversation.participants.find(participant =>
     participant.type === "agent" && !participant.is_deleted && globalAgentIds.includes(participant.id)) : undefined;
-  const headerAvatar = <Avatar
-    personal={personalAgent}
-    agentId={conversation.participants.find(p => p.type === "agent")?.id}
-    avatarVariant={conversation.participants.find(p => p.type === "agent")?.avatar_variant}
-    initials={kind === "direct-agent" ? (agentInitials ?? avatarName.slice(0, 2)) : avatarName.slice(0, 2)}
-    color={kind === "direct-agent" ? (agentColor ?? colorForAgentSeed(avatarName)) : colorForAgentSeed(avatarName)}
-    size={34}
+  const chatActors = useMemo(() => [
+    ...messages.map(message => ({ ...message.sender, user_id: message.sender_user_id })),
+    ...conversation.participants,
+  ], [messages, conversation.participants]);
+  const headerAvatar = <Avatar id={directAvatarId(conversation, selfUserId)} size={34}
     status={kind === "direct-agent" ? nodeStatus : null}
   />;
 
@@ -1210,6 +1199,7 @@ export function MessagePane({
     : null;
 
   return (
+    <AvatarIdentities actors={chatActors}>
     <section className={["chat-pane", activeSurface ? "chat-pane--message-actions-open" : "", openThreadId ? "chat-pane--with-thread" : ""].filter(Boolean).join(" ")} aria-label={conversation.title}>
       <div className="chat-pane-main">
       <header className="chat-pane-header">
@@ -1568,6 +1558,7 @@ export function MessagePane({
           onSent={message => onRecoveredRef.current?.(message)} />
       )}
     </section>
+    </AvatarIdentities>
   );
 }
 
@@ -1890,6 +1881,7 @@ function MessageReceipt({ receipts: cached, load }: {
         <Dialog.Content style={position} tabIndex={0} aria-describedby={undefined}
           className="fixed z-50 overflow-y-auto overscroll-contain rounded-xl border border-[var(--im-border)] bg-[var(--im-surface)] text-left shadow-[var(--im-shadow-strong)]">
           <Dialog.Title className="sr-only">{t(`chat.messagePane.receipt.${status}`)}</Dialog.Title>
+        <AvatarIdentities actors={receipts.flatMap(receipt => receipt.recipient ?? [])}>
         <span className="grid gap-1 px-3 py-2">
           {receipts.map(receipt => {
             const Mark = receipt.status === "sent" ? Check : CheckCheck;
@@ -1898,7 +1890,7 @@ function MessageReceipt({ receipts: cached, load }: {
               : "bg-[var(--im-surface-2)] text-[var(--im-text-muted)]";
             return (
               <span key={receipt.recipient_id} className="flex min-h-8 items-center gap-2">
-                <Avatar initials={initialsOf(receipt.display_name)} color={colorForAgentSeed(receipt.display_name)} size={24} />
+                <Avatar id={receipt.recipient_id} size={24} />
                 <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--im-text)]">{receipt.display_name}</span>
                 <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${tint}`}>
                   <Mark size={12} strokeWidth={1.9} />
@@ -1908,6 +1900,7 @@ function MessageReceipt({ receipts: cached, load }: {
             );
           })}
         </span>
+        </AvatarIdentities>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
@@ -1987,9 +1980,7 @@ function MessageBubble({
   const isHuman = message.sender.type === "user";
   const isUser = isHuman && (message.sender.id === selfUserId || message.sender_user_id === selfUserId);
   const isAgent = message.sender.type === "agent";
-  const initials = initialsOf(message.sender.display_name ?? message.sender.id);
   const ts = formatHM(message.created_at);
-  const senderColor = colorForAgentSeed(message.sender.display_name ?? message.sender.id);
   const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
   const statusAlign = isUser ? "justify-end" : "justify-start";
   const deliveryStatus = message.delivery_status;
@@ -2140,9 +2131,7 @@ function MessageBubble({
     : null;
 
   const messageAvatar = <span className="chat-bubble-avatar" data-testid={`message-avatar-${message.id}`}>
-    <Avatar initials={initials} color={senderColor} size={30}
-      agentId={isAgent && !message.pa_agent_id ? message.sender.id : undefined}
-      personal={isAgent && !message.pa_agent_id && message.sender.role === "personal"} avatarVariant={message.sender.avatar_variant} />
+    <Avatar id={message.sender.avatar_id ?? message.sender_user_id} size={30} />
   </span>;
 
   if (isSystem) {

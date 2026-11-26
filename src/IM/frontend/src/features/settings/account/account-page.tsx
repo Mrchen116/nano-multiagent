@@ -1,3 +1,4 @@
+import { Avatar } from "../../chat/components/avatar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -94,13 +95,7 @@ export function AccountPage() {
               </header>
               <div className="settings-section-content">
                 <div className="settings-identity">
-                  <span
-                    className="settings-avatar"
-                    aria-hidden="true"
-                    data-testid="account-avatar"
-                  >
-                    {(displayName || "U").trim().slice(0, 2).toUpperCase()}
-                  </span>
+                  <span data-testid="account-avatar"><Avatar id={profile.user_id || profile.id} size={52} /></span>
                   <div>
                     <strong>{displayName}</strong>
                     <span>@{profile.username}</span>
