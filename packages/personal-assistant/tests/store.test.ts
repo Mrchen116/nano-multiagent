@@ -200,3 +200,16 @@ it('preserves native background delegation kind without declaring the child comp
   const result={seq:2,time:2,type:'tool/result',data:{message:{toolCallId:'child',content:[{type:'text',text:'started subagent child-session'}]},nanoToolView:{childSessionId:'child-session',delegationKind:'continuable'}}};
   expect(toolPresentation(result,[call,result])).toMatchObject({status:'completed',detail:{delegation_kind:'continuable',child_session_id:'child-session',content:'started subagent child-session'}});
 });
+
+it('keeps a native worker helper result readable without a link to hidden Work', () => {
+  const events = [
+    {seq:1,time:1,type:'tool/call',data:{turn:1,callId:'launch',name:'subagent',arguments:'{}'}},
+    {seq:2,time:2,type:'tool/result',data:{turn:1,message:{toolCallId:'launch',content:[{type:'text',text:'helper result'}]},
+      nanoToolView:{childSessionId:'helper'}}},
+  ];
+  const project = (workerParentId?:string) => projectWorkEvent('child',events[1]!,events,true,workerParentId);
+  expect(project()?.payload).toMatchObject({presentation:{detail:{child_session_id:'helper'}}});
+  const result = project('root');
+  expect(result?.payload).toMatchObject({presentation:{detail:{content:'helper result'}}});
+  expect(result).not.toHaveProperty('payload.presentation.detail.child_session_id');
+});

@@ -19,7 +19,7 @@ it.each([false,true])('keeps ready unfragmented and preserves large catalogs thr
   }finally{native.dispose();}
 });
 
-it('keeps root and historical runs navigable while hiding worker and helper trajectories', async () => {
+it('keeps root and historical runs navigable and opens native workers while hiding their helpers', async () => {
   const parents:Record<string,string> = {legacy:'root',worker:'root',helper:'worker'};
   const ctx = {
     nanoWorkers:{isWorker:async(id:string)=>id==='worker'},
@@ -33,9 +33,9 @@ it('keeps root and historical runs navigable while hiding worker and helper traj
   const open=(sessionId:string)=>native.prepare({observerId:'reader',rootAgentId:'agent',rootSessionId:'root',sessionId,ownerId:'owner',nodeId:'node',nodeEpoch:1});
   try {
     await open('root');
-    expect(await native.call({observerId:'reader',method:'trajectory/runs'})).toMatchObject({value:[{sessionId:'legacy'}]});
+    expect(await native.call({observerId:'reader',method:'trajectory/runs'})).toMatchObject({value:[{sessionId:'legacy'},{sessionId:'worker'}]});
     await expect(open('legacy')).resolves.toHaveProperty('initialCatalog');
-    await expect(open('worker')).rejects.toThrow('trajectory_scope_not_allowed');
+    await expect(open('worker')).resolves.toHaveProperty('initialCatalog');
     await expect(open('helper')).rejects.toThrow('trajectory_scope_not_allowed');
   } finally { native.dispose(); }
 });

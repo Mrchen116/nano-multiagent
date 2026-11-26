@@ -1,4 +1,5 @@
 """Real iOS identities use AvatarView. Preset previews belong to creation and onboarding."""
+
 import re
 from pathlib import Path
 
@@ -21,4 +22,6 @@ def test_native_identity_screens_cannot_draw_portrait_presets():
             forbidden.append(path)
         if path not in PREVIEW_SCREENS and re.search(r"\bPortraitPreview\s*\(", source):
             forbidden.append(path)
-    assert not forbidden, f"Use AvatarView(id:size:) for existing identities: {forbidden}"
+    assert not forbidden, (
+        f"Use AvatarView(id:size:) for existing identities: {forbidden}"
+    )

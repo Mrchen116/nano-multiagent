@@ -1472,11 +1472,13 @@ export class GlobalAgent {
     read: Options['runtime']['request'], stoppedRevision?:number): Promise<void> {
     const {inbox}=this.options;
     const binding={...root,sessionId:child.id};
-    const registered=this.workEvent(binding,'registered',{type:'session_registered',payload:{
+    const registered=child.nativeWorker ? undefined : this.workEvent(binding,'registered',{type:'session_registered',payload:{
       scope:child.workflowRunId?'workflow':'subagent',workflow_run_id:child.workflowRunId,parent_session_id:child.parentId,
       child_agent_id:child.id,title:child.label??child.id,description:child.label,
     }});
     let prior=inbox.workCut(child.id);
+    // Worker identity arrives on the root stream before the first native detail.
+    if (child.nativeWorker && !prior && stoppedRevision === undefined) await this.reconcileRoot(root);
     if (prior && child.throughSeq!==undefined && prior.throughSeq===child.throughSeq && prior.modelVersion===child.modelVersion) return;
     let more:boolean;
     do {
@@ -1487,11 +1489,12 @@ export class GlobalAgent {
       if (!page.durable) throw new Error('No durable child event barrier');
       more=page.more;
       if (more && page.throughSeq<=(afterSeq??-1)) throw new Error('Work child page did not advance');
-      const facts=[registered,...this.modelNotices(binding,page.modelRuns)];
+      const facts=this.modelNotices(binding,page.modelRuns);
+      if (registered) facts.unshift(registered);
       const raw=[...inbox.workOpenEvents(child.id),...page.events];
       const events=logicalEvents(workSuffix(raw,prior),page.modelRuns,true);
       for (const event of events) {
-        const projected=projectWorkEvent(child.id,event,events,true);
+        const projected=projectWorkEvent(child.id,event,events,true,child.nativeWorker ? child.parentId : undefined);
         if (projected) {
           const {turn,...fact}=projected;
           facts.push(this.workEvent(binding,`runtime:${event.seq}`,fact,turn,event.time));

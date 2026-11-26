@@ -99,7 +99,7 @@ ctx.on('llm/stream',async function*(o){
     expect(calls).toEqual([]);
     const descendants = await nativeChildren(home);
     const visible = await workDescendants(client!.rpc, {sessionId:'root'});
-    expect(visible.map(row=>row.id).sort()).toEqual((mode==='global' ? [...new Set(before.filter(row=>row.fork).map(row=>row.id))] : children).sort());
+    expect(visible.map(row=>row.id).sort()).toEqual((mode==='global' ? [...new Set(before.filter(row=>row.parent==='root').map(row=>row.id))] : children).sort());
     for (const child of descendants) {
       const results = child.events.filter((event: any) => event.type === 'tool/result' && typeof event.surfaceOp !== 'object');
       const continuable = before.find(row => row.id === child.id).fork === false;
@@ -110,7 +110,7 @@ ctx.on('llm/stream',async function*(o){
     if (mode === 'global') {
       await client!.rpc.request('trajectory.prepare', { observerId: 'root', rootAgentId: 'a', rootSessionId: 'root', sessionId: 'root', ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 });
       const runs = (await client!.rpc.request('trajectory.call', { observerId: 'root', method: 'trajectory/runs' }) as any).value;
-      expect(runs.map((run:any)=>run.sessionId)).toEqual(visible.map(row=>row.id));
+      expect([...new Set(runs.map((run:any)=>run.sessionId))].sort()).toEqual(visible.map(row=>row.id).sort());
       const rootWork = await client!.rpc.request('session.work.root',{sessionId:'root'}) as any;
       const usage = rootWork.workerChanges.filter((row:any)=>row.workerId===firstChild && row.turnUsage);
       expect(usage[0].turnUsage).toEqual({id:'1',totalTokens:18});
@@ -232,7 +232,12 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o,next){const age
       expect(row.tools.find(tool=>tool.name==='send_message').parameters.properties).not.toHaveProperty('target');
     }
     await expect.poll(async()=>(await nativeChildren(home)).filter(row=>row.events.some((event:any)=>event.type==='turn/end')).length).toBe(3);
-    expect(await workDescendants(client!.rpc,{sessionId:'root'})).toEqual([]);
+    const visible = await workDescendants(client!.rpc,{sessionId:'root'});
+    expect(visible).toMatchObject([{id:first.id,nativeWorker:true}]);
+    expect(visible[0]!.events.map(event=>event.type)).toEqual(expect.arrayContaining(['user/message','tool/call','tool/result','turn/end']));
+    await client!.rpc.request('trajectory.prepare',{observerId:'worker',rootAgentId:config.agentId,rootSessionId:'root',sessionId:first.id,ownerId:'owner',nodeId:'node',nodeEpoch:1});
+    const catalog = await client!.rpc.request('trajectory.call',{observerId:'worker',method:'session/list'}) as any;
+    expect(catalog.value.items[0].sessionId).toBe(first.id);
     const fork=wire.find(row=>row.fork)!;expect(fork.tools).toEqual(first.tools);expect(withoutCache(fork.system)).toEqual(withoutCache(first.system));
     const children=await nativeChildren(home);
     expect(children.find(row=>row.id===first.id).events.filter((event:any)=>event.type==='tool/result' && typeof event.surfaceOp !== 'object').every((event:any)=>!event.data.message.isError)).toBe(true);
@@ -266,7 +271,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o,next){const age
     const settle = async () => {
       await expect.poll(async () => {
         // Work checks a catalog cut already traversed by the product reader.
-        expect(await workDescendants(client!.rpc, {sessionId:'root'})).toEqual([]);
+        expect(await workDescendants(client!.rpc, {sessionId:'root'})).toMatchObject([{id:first.id,nativeWorker:true}]);
         const root = await client!.rpc.request('session.observe',{sessionId:'root'}) as any;
         const children = await nativeChildren(home);
         const page=await client!.rpc.request('session.work.root',{sessionId:'root',afterSeq:root.throughSeq}) as import('@nano/product-contracts').RuntimeWorkPage;
@@ -372,7 +377,7 @@ yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'fini
     await expect.poll(()=>readFile(join(home,'root-received'),'utf8').catch(()=>'' )).toBe('yes');
     await applying;
     expect(JSON.parse(await readFile(join(home,'child-tools.json'),'utf8'))).toContain('read');
-    expect(await workDescendants(client.rpc,{sessionId:'root'})).toEqual([]);
+    expect(await workDescendants(client.rpc,{sessionId:'root'})).toMatchObject([{nativeWorker:true}]);
     await expect.poll(async()=>{
       const rows=await nativeChildren(home);
       return rows[0]?.events.some((e:any)=>e.type==='tool/result' && typeof e.surfaceOp !== 'object'&&!e.data.message.isError);

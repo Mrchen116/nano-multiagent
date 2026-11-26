@@ -24,7 +24,7 @@ export const descendantDomain: CatalogDomain = defineDomain({name:'nano_work_cat
     interruptedTurnEnd:z.number().nullable().optional(),
     witness:z.object({header:z.string(),eventCount:z.number().optional(),sizeBytes:z.number().optional()}).optional()})),
 }});
-type Descendant = SubagentDescendantListEntry & { throughSeq?: number };
+type Descendant = SubagentDescendantListEntry & { throughSeq?: number; nativeWorker?: boolean };
 interface Edge {
   root: SessionId;
   parent: SessionId;
@@ -128,7 +128,7 @@ export class DescendantReader {
       id = edge.parent;
     }
     const first = ancestry.at(-1);
-    if (!first || await this.ctx.nanoWorkers.isWorker(first.entry.id)) return [];
+    if (ancestry.length > 1 && first && await this.ctx.nanoWorkers.isWorker(first.entry.id)) return [];
     return ancestry.reverse();
   }
 
@@ -142,8 +142,9 @@ export class DescendantReader {
       const throughSeq = live ? live.seq - 1 : cached && !cached.active && await this.unchanged(edge.entry.id,cached) ? cached.cursor : undefined;
       const {createdAt: _, ...identity} = edge.entry;
       if (identity.mode === 'unknown') continue;
+      const nativeWorker = edge.parent === root && await this.ctx.nanoWorkers.isWorker(edge.entry.id);
       rows.push({...identity,kind:'child',parentId:edge.parent,depth:rows.length+1,
-        activity:live ? 'running' : 'inactive',hasChildren:!!cached?.children.length,throughSeq});
+        activity:live ? 'running' : 'inactive',hasChildren:!nativeWorker && !!cached?.children.length,...(nativeWorker && {nativeWorker}),throughSeq});
     }
     return rows;
   }
@@ -243,7 +244,8 @@ export class DescendantReader {
     const visited = new Set([rootId]);
     for (let position = stack.pop(); position; position = stack.pop()) {
       const { entry, parentId, depth } = position;
-      if (visited.has(entry.id) || (purpose === 'work' && depth === 1 && await this.ctx.nanoWorkers.isWorker(entry.id))) continue;
+      if (visited.has(entry.id)) continue;
+      const nativeWorker = purpose === 'work' && depth === 1 && await this.ctx.nanoWorkers.isWorker(entry.id);
       visited.add(entry.id);
       if (entry.mode === 'unknown') {
         yield {kind:'diagnostic',id:entry.id,parentId,depth,reason:'unsupported'};
@@ -262,8 +264,9 @@ export class DescendantReader {
       const { createdAt: _, ...identity } = entry;
       yield { ...identity, kind: 'child', parentId, depth,
         activity: this.ctx.sessions.get(entry.id) ? 'running' : 'inactive',
-        hasChildren: read.catalog.children.length > 0, throughSeq: read.catalog.cursor };
+        hasChildren: !nativeWorker && read.catalog.children.length > 0, ...(nativeWorker && {nativeWorker}), throughSeq: read.catalog.cursor };
 
+      if (nativeWorker) continue;
       for (const child of [...read.catalog.children].reverse()) stack.push({ entry: child, parentId: entry.id, depth: depth + 1 });
     }
   }

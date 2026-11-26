@@ -109,7 +109,8 @@ export class NativeTrajectory {
     let current = selected.header;
     const visited = new Set<string>();
     while (current.id !== scope.rootSessionId) {
-      if (!current.parentSession || visited.has(current.id) || await this.ctx.nanoWorkers.isWorker(current.id)) throw new Error('trajectory_scope_not_allowed');
+      if (!current.parentSession || visited.has(current.id) ||
+          (current.id !== selected.header.id && await this.ctx.nanoWorkers.isWorker(current.id))) throw new Error('trajectory_scope_not_allowed');
       visited.add(current.id);
       using parent = await this.ctx.sessionQuery.observeSession(current.parentSession, { signal: controller.signal, projectionMode: 'none' });
       current = parent.header;
@@ -132,11 +133,8 @@ export class NativeTrajectory {
     let value: unknown;
     if (request.method === 'trajectory/runs') {
       const runs = await this.ctx.nanoTrajectoryRuns.read(observer.scope.sessionId);
-      const visible = [];
-      for (const run of runs) {
-        if (!await this.ctx.nanoWorkers.isWorker(run.sessionId)) visible.push(run);
-      }
-      value = visible;
+      value = observer.scope.sessionId !== observer.scope.rootSessionId && await this.ctx.nanoWorkers.isWorker(observer.scope.sessionId)
+        ? runs.filter(run => run.sessionId === observer.scope.sessionId) : runs;
     } else if (request.method === 'session/list') {
       using cut = await this.ctx.sessionQuery.observeSession(SessionId(observer.scope.sessionId), { signal });
       value = this.catalog(cut);

@@ -611,7 +611,7 @@ export default class NanoRuntime {
       if (entry.kind !== 'child') return {kind:'diagnostic',id:entry.id,parentId:entry.parentId,reason:entry.reason};
       const workflowRunId = engine.workRelationship(entry.parentId,entry.id);
       return {kind:'child',id:entry.id,parentId:entry.parentId,label:entry.label,throughSeq:entry.throughSeq,mode:entry.mode,
-        depth:entry.depth,activity:entry.activity,hasChildren:entry.hasChildren,modelVersion:policy.fallback.workVersion(entry.id),
+        ...(entry.nativeWorker && {nativeWorker:true}),depth:entry.depth,activity:entry.activity,hasChildren:entry.hasChildren,modelVersion:policy.fallback.workVersion(entry.id),
         ...(workflowRunId ? {workflowRunId} : {})};
     };
     const catalogs = new WorkCatalogPages();
