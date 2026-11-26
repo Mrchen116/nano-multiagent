@@ -175,7 +175,12 @@ function view(r: Row): Row {
     error = null,
     observed = null;
   const first = r.last_apply_error_json
-    ? JSON.parse(r.last_apply_error_json).find((x: unknown) => x && typeof x === "object")
+    ? JSON.parse(r.last_apply_error_json).find(
+        (x: unknown) =>
+          x &&
+          typeof x === "object" &&
+          (!("channel_id" in x) || !(x as { channel_id?: unknown }).channel_id || (x as { channel_id?: unknown }).channel_id === r.channel_id),
+      )
     : null;
   if (first) {
     error = {
@@ -195,12 +200,9 @@ function view(r: Row): Row {
       status_updated_at: r.received_at,
       status_stale: r.node_status !== "online",
     };
-    if (
-      !error &&
-      (r.applied_manifest_revision ?? 0) >= (r.head_manifest_revision ?? 0) &&
-      r.observed_revision >= r.channel_revision
-    )
+    if (!error && r.observed_revision >= r.channel_revision) {
       sync = r.connection_state === "failed" ? "failed" : "applied";
+    }
   }
   return {
     channel_id: r.channel_id,

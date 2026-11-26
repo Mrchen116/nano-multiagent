@@ -255,6 +255,7 @@ export async function transformWeChatInboundMessage(
   const notices: string[] = [];
   const mediaSummaries: string[] = [];
   let cumulativeMediaBytes = 0;
+  let usableCount = 0;
   let sawXmlOrRef = false;
   let refPrefix: string | undefined;
 
@@ -269,10 +270,12 @@ export async function transformWeChatInboundMessage(
       const parsedXml = parseWeChatXmlPayload(rawText);
       if (parsedXml.kind === 'plain_text') {
         if (parsedXml.text) {
+          usableCount++;
           parts.push({ type: 'text', text: parsedXml.text });
         }
       } else if (parsedXml.kind === 'share_card' || parsedXml.kind === 'merged_forward' || parsedXml.kind === 'xml_quote') {
         sawXmlOrRef = true;
+        usableCount++;
         parts.push({ type: 'text', text: parsedXml.formatted });
       } else {
         sawXmlOrRef = true;
@@ -313,6 +316,7 @@ export async function transformWeChatInboundMessage(
         }
         cumulativeMediaBytes += decrypted.length;
         const normalized = await normalizeWeChatImage(decrypted);
+        usableCount++;
         parts.push({
           type: 'image',
           key: `img_${index}`,
@@ -322,6 +326,7 @@ export async function transformWeChatInboundMessage(
         });
         mediaSummaries.push('[图片]');
       } catch (err) {
+        if (ctx.abortSignal.aborted) throw err;
         const detail = err instanceof Error && err.message.includes('limit')
           ? '超过 16 MiB 上限'
           : '媒体下载或解密失败';
@@ -334,6 +339,7 @@ export async function transformWeChatInboundMessage(
     if (item.type === WeChatItemType.VOICE && item.voice_item) {
       const transcript = item.voice_item.text?.trim();
       if (transcript) {
+        usableCount++;
         parts.push({ type: 'text', text: `[语音转写] ${transcript}` });
         mediaSummaries.push(`[语音] ${transcript.slice(0, 80)}`);
         continue;
@@ -353,6 +359,7 @@ export async function transformWeChatInboundMessage(
         }
         cumulativeMediaBytes += decrypted.length;
         const audio = await decodeWeChatVoice(decrypted, item.voice_item);
+        usableCount++;
         parts.push({
           type: 'text',
           text: `[收到微信语音（无自带转写），已解密转换为音频附件 ${audio.fileName}]`,
@@ -366,6 +373,7 @@ export async function transformWeChatInboundMessage(
         });
         mediaSummaries.push(`[语音附件: ${audio.fileName}]`);
       } catch (err) {
+        if (ctx.abortSignal.aborted) throw err;
         const detail = err instanceof Error && err.message.includes('limit')
           ? '超过 8 MiB 语音上限'
           : '未附带文字转写且音频转码失败';
@@ -397,6 +405,7 @@ export async function transformWeChatInboundMessage(
           continue;
         }
         cumulativeMediaBytes += decrypted.length;
+        usableCount++;
         parts.push({
           type: 'file',
           key: `file_${index}`,
@@ -406,6 +415,7 @@ export async function transformWeChatInboundMessage(
         });
         mediaSummaries.push(`[文件: ${fileName}]`);
       } catch (err) {
+        if (ctx.abortSignal.aborted) throw err;
         const detail = err instanceof Error && err.message.includes('limit')
           ? '超过 25 MiB 单文件上限'
           : '文件下载或解密失败';
@@ -437,6 +447,7 @@ export async function transformWeChatInboundMessage(
           continue;
         }
         cumulativeMediaBytes += decrypted.length;
+        usableCount++;
         parts.push({
           type: 'file',
           key: `video_${index}`,
@@ -446,6 +457,7 @@ export async function transformWeChatInboundMessage(
         });
         mediaSummaries.push(`[视频: ${fileName}]`);
       } catch (err) {
+        if (ctx.abortSignal.aborted) throw err;
         const detail = err instanceof Error && err.message.includes('limit')
           ? '超过 25 MiB 上限'
           : '视频下载或解密失败';
@@ -463,6 +475,12 @@ export async function transformWeChatInboundMessage(
   if (parts.length === 0) {
     notices.push('暂不支持直接解析该类型的微信消息，请发送文字、图片、语音、链接或文件。');
     parts.push({ type: 'text', text: '[收到空负载或暂不支持解析的微信消息]' });
+  }
+
+  const uniqueNotices = Array.from(new Set(notices));
+  const fallbackOnly = usableCount === 0 && uniqueNotices.length > 0;
+  if (fallbackOnly) {
+    parts.splice(0, parts.length, { type: 'text', text: uniqueNotices.join('\n') });
   }
 
   if (refPrefix) {
@@ -496,7 +514,6 @@ export async function transformWeChatInboundMessage(
     && parts.length === 1
     && parts[0]?.type === 'text';
 
-  const uniqueNotices = Array.from(new Set(notices));
   return {
     messageId: msgId,
     svrId: svrId || undefined,
@@ -507,6 +524,7 @@ export async function transformWeChatInboundMessage(
     time: String(wire.create_time_ms ?? Date.now()),
     parts,
     plainSingleText,
+    ...(fallbackOnly ? { contextOnly: true } : {}),
     ...(uniqueNotices.length > 0 ? { preprocessNotice: uniqueNotices.join('\n') } : {}),
   };
 }

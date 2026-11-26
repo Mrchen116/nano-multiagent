@@ -123,6 +123,7 @@ function DiagnosticsPanel({
   provider: ChannelProviderDescriptor;
 }) {
   const { t } = useTranslation();
+  if (!provider.diagnostics) return null;
   const state = channel.observed?.diagnostics_state;
   if (state !== "limited" && state !== "unknown") return null;
   const limited = state === "limited";
@@ -287,7 +288,7 @@ function ConnectionCard({
             ? tokenRevoked
               ? {
                 strong: t("agents.channels.wechat.revokedTitle"),
-                copy: channel.apply_error?.message || observed?.status_message || t("agents.channels.wechat.revokedDetail"),
+                copy: channel.apply_error?.message || t("agents.channels.wechat.revokedDetail"),
               }
               : {
                 strong: t("agents.channels.status.failed"),
@@ -448,7 +449,9 @@ interface ChannelDialogProps {
   initialStep: "provider" | "credentials";
   pending: boolean;
   readOnly: boolean;
+  wechatReadOnly: boolean;
   requestError: string | null;
+  wechatRequestError: string | null;
   onClose(): void;
   onSave(
     provider: ChannelProviderDescriptor,
@@ -465,7 +468,9 @@ function ChannelDialog({
   initialStep,
   pending,
   readOnly,
+  wechatReadOnly,
   requestError,
+  wechatRequestError,
   onClose,
   onSave,
   onWeChatConfirmed,
@@ -507,13 +512,14 @@ function ChannelDialog({
   function cancelActiveWeChatSetup(targetId?: string | null, targetState?: string) {
     const id = targetId ?? activeWechatSetupRef.current.id;
     const state = targetState ?? activeWechatSetupRef.current.state;
+    activeWechatSetupRef.current = { id: null, state: "cancelled" };
     if (id && (state === "waiting_scan" || state === "scanned" || state === "need_verify_code")) {
       void setupWeChatChannel(agentId, { action: "cancel", setup_id: id }).catch(() => undefined);
     }
   }
 
   async function startWeChatSetup(replacePrevious = false) {
-    if (readOnly) return;
+    if (wechatReadOnly) return;
     if (!editing && occupiedProviderIds.has("wechat")) return;
     if (replacePrevious) {
       cancelActiveWeChatSetup();
@@ -531,6 +537,7 @@ function ChannelDialog({
       });
       if (startSeqRef.current !== seq) return;
       if (result.state === "confirmed" && result.channel) {
+        activeWechatSetupRef.current = { id: null, state: "confirmed" };
         setWechatState("confirmed");
         onWeChatConfirmed(result.channel);
         return;
@@ -549,7 +556,14 @@ function ChannelDialog({
   }
 
   useEffect(() => {
-    if (!isWeChatSetup || readOnly) return;
+    return () => {
+      cancelActiveWeChatSetup();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!isWeChatSetup || wechatReadOnly) return;
     void startWeChatSetup(false);
     return () => {
       startSeqRef.current += 1;
@@ -558,7 +572,7 @@ function ChannelDialog({
   }, [isWeChatSetup]);
 
   useEffect(() => {
-    if (!isWeChatSetup || readOnly || !wechatSetupId) return;
+    if (!isWeChatSetup || wechatReadOnly || !wechatSetupId) return;
     if (wechatState !== "waiting_scan" && wechatState !== "scanned") return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -568,12 +582,13 @@ function ChannelDialog({
           action: "status",
           setup_id: wechatSetupId,
         });
-        if (cancelled) return;
         if (result.state === "confirmed" && result.channel) {
+          activeWechatSetupRef.current = { id: null, state: "confirmed" };
           setWechatState("confirmed");
           onWeChatConfirmed(result.channel);
           return;
         }
+        if (cancelled) return;
         if (result.qr_svg) setWechatQrSvg(result.qr_svg);
         setWechatState(result.state);
         if (result.state === "failed") {
@@ -594,11 +609,11 @@ function ChannelDialog({
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [agentId, isWeChatSetup, onWeChatConfirmed, readOnly, t, wechatSetupId, wechatState]);
+  }, [agentId, isWeChatSetup, onWeChatConfirmed, t, wechatReadOnly, wechatSetupId, wechatState]);
 
   async function submitWeChatPin() {
     const trimmed = wechatPin.trim();
-    if (readOnly || wechatPinSubmitting || !wechatSetupId || !/^\d{1,12}$/.test(trimmed)) return;
+    if (wechatReadOnly || wechatPinSubmitting || !wechatSetupId || !/^\d{1,12}$/.test(trimmed)) return;
     setWechatPinSubmitting(true);
     setWechatPinError(null);
     try {
@@ -608,6 +623,7 @@ function ChannelDialog({
         code: trimmed,
       });
       if (result.state === "confirmed" && result.channel) {
+        activeWechatSetupRef.current = { id: null, state: "confirmed" };
         setWechatState("confirmed");
         onWeChatConfirmed(result.channel);
         return;
@@ -735,7 +751,7 @@ function ChannelDialog({
                   inputMode="numeric"
                   maxLength={12}
                   autoComplete="one-time-code"
-                  disabled={readOnly || wechatPinSubmitting}
+                  disabled={wechatReadOnly || wechatPinSubmitting}
                   value={wechatPin}
                   aria-invalid={wechatPinError ? "true" : "false"}
                   aria-describedby={pinHelpId}
@@ -776,7 +792,7 @@ function ChannelDialog({
                       <button
                         type="button"
                         className="im-btn im-btn-primary"
-                        disabled={readOnly}
+                        disabled={wechatReadOnly}
                         onClick={() => void startWeChatSetup(false)}
                       >
                         {t("agents.channels.wechat.refreshQr")}
@@ -802,7 +818,7 @@ function ChannelDialog({
                 </p>
               </div>
             )}
-            {requestError ? <p className="m-0 text-xs font-semibold text-rose-700" role="alert">{requestError}</p> : null}
+            {wechatRequestError ? <p className="m-0 text-xs font-semibold text-rose-700" role="alert">{wechatRequestError}</p> : null}
           </div>
         ) : provider && form ? (
           <div className="chat-modal-body gap-3">
@@ -895,7 +911,7 @@ function ChannelDialog({
                 <button
                   type="button"
                   className="chat-modal-btn-ghost"
-                  disabled={readOnly || wechatPinSubmitting}
+                  disabled={wechatReadOnly || wechatPinSubmitting}
                   onClick={() => void startWeChatSetup(true)}
                 >
                   {t("agents.channels.actions.rescan")}
@@ -903,7 +919,7 @@ function ChannelDialog({
                 <button
                   type="button"
                   className="chat-modal-btn-primary"
-                  disabled={readOnly || wechatPinSubmitting || !pinValid}
+                  disabled={wechatReadOnly || wechatPinSubmitting || !pinValid}
                   onClick={() => void submitWeChatPin()}
                 >
                   {wechatPinSubmitting ? t("agents.channels.wechat.pinSubmitting") : t("agents.channels.wechat.pinSubmit")}
@@ -914,7 +930,7 @@ function ChannelDialog({
                 <button
                   type="button"
                   className="chat-modal-btn-ghost"
-                  disabled={readOnly}
+                  disabled={wechatReadOnly}
                   onClick={() => void startWeChatSetup(true)}
                 >
                   {t("agents.channels.wechat.replaceQr")}
@@ -928,7 +944,7 @@ function ChannelDialog({
                 <button
                   type="button"
                   className="chat-modal-btn-primary"
-                  disabled={readOnly}
+                  disabled={wechatReadOnly}
                   onClick={() => void startWeChatSetup(false)}
                 >
                   {t("agents.channels.actions.rescan")}
@@ -1345,7 +1361,9 @@ export function AgentChannelsPanel({
           initialStep={dialog.step}
           pending={saveMutation.isPending}
           readOnly={blocked || draftConflict}
+          wechatReadOnly={offline}
           requestError={draftConflict ? conflictNotice : connectionNotice ?? requestError?.message ?? (unconfirmed ? tr("提交结果待确认，草稿已保留。", "Submission result is unconfirmed; your draft is retained.") : null)}
+          wechatRequestError={offline ? connectionNotice : requestError?.message ?? null}
           onClose={() => setDialog(null)}
           onSave={(provider, form) => {
             if (blocked || draftConflict) return;

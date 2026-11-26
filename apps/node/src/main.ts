@@ -549,7 +549,7 @@ wechatLogin = new WeChatLoginCoordinator({
 managed.seed((config.channels ?? []).filter(channel => channel.name.startsWith('feishu:') && (channel.enabled !== false || channel.settings.appId)).map(channel => ({
   agentId: channel.name.slice(7), enabled: channel.enabled !== false, appId: channel.settings.appId!, appSecret: channel.settings.appSecret!, botOpenId: channel.settings.botOpenId, ownerOpenId: channel.settings.ownerOpenId,
 })));
-tasks=new TaskExecution({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,runtime: runtime.product,relay,context:binding=>taskContext.prepare({sessionId:binding.sessionId,agentId:binding.agentId,ownerId:binding.ownerId}),
+tasks=new TaskExecution({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,runtime: runtime.product,relay:external,context:binding=>taskContext.prepare({sessionId:binding.sessionId,agentId:binding.agentId,ownerId:binding.ownerId}),
   drain:async sessionId=>{await Promise.allSettled([...productCalls.values()].filter(c=>c.sessionId===sessionId).map(c=>c.promise));},
 });
 product = new SingleThread({
@@ -776,7 +776,7 @@ agentLifecycle = new NodeAgentLifecycle({
     });
     await agentLifecycle.ready(agentId, supervisor.processInstanceId!);
   },
-  cancel: agentId => { store.cancelAgent(agentId); inbox.cancelAgent(agentId); product.cancelAgent(agentId); globalProduct.cancelAgent(agentId); },
+  cancel: agentId => { store.cancelAgent(agentId); inbox.cancelAgent(agentId); external.cancelAgent(agentId); product.cancelAgent(agentId); globalProduct.cancelAgent(agentId); },
   resetHeartbeat: agentId => heartbeat.resetAgent(agentId),
   report: async report => { await relay.request('agent.lifecycle.report', {...report}, {priority:'control'}); },
 });

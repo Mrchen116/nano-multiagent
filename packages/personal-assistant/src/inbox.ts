@@ -850,6 +850,24 @@ export class InboxStore {
     return result;
   }
   updateTarget(agent: string, target: string, name: string): void { this.db.prepare('INSERT INTO targets VALUES(?,?,?) ON CONFLICT(agent_id,target) DO UPDATE SET name=excluded.name').run(agent, target, name); }
+  /** Return whether the latest non-context human message across an external chat and its IM shadow originated from internal Web IM. */
+  latestHumanTriggerIsInternalIm(agent: string, shadowId: string, externalId?: string): boolean {
+    const targets = externalId && externalId !== shadowId ? [shadowId, externalId] : [shadowId];
+    const row = this.db.prepare(
+      `SELECT target, payload FROM inbox
+       WHERE agent_id = ? AND target IN (SELECT value FROM json_each(?))
+         AND json_extract(payload, '$.message.sender_type') = 'user'
+         AND coalesce(json_extract(payload, '$.metadata.context_only'), 0) = 0
+         AND coalesce(json_extract(payload, '$.metadata.scope_skipped'), 0) = 0
+       ORDER BY seq DESC LIMIT 1`,
+    ).get(agent, JSON.stringify(targets)) as { target: string; payload: string } | undefined;
+    if (!row) return false;
+    const input = JSON.parse(row.payload) as RelayInput;
+    if (input.metadata.trigger_source === 'im') return true;
+    if (input.metadata.channel === 'web') return true;
+    if (!input.metadata.channel && row.target === shadowId && !shadowId.startsWith('external:')) return true;
+    return false;
+  }
   imageReferences(session: string, call: string): string[] {
     return this.imageSources(session, call).map(source => source.url);
   }

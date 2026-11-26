@@ -250,4 +250,95 @@ describe("AgentChannelsPanel WeChat channel flow", () => {
       channel_revision: 2,
     });
   });
+
+  it("hides Feishu permission diagnostics on WeChat cards, deduplicates revoked copy, survives background refetches on confirm, and cancels on passive unmount", async () => {
+    const user = userEvent.setup();
+    let currentChannel = wechatChannel({
+      observed: {
+        observed_revision: 2,
+        connection_state: "failed",
+        diagnostics_state: "unknown",
+        status_code: "wechat_token_revoked",
+        status_message: "微信登录已失效，请点击「重新扫码」恢复绑定",
+        status_updated_at: "2026-07-15T06:50:00Z",
+      },
+    });
+    apiMocks.listAgentChannels.mockImplementation(async () => [currentChannel]);
+
+    let resolveStatus!: (value: Record<string, unknown>) => void;
+    wechatSetupMocks.setupWeChatChannel.mockImplementation(async (_agentId: string, payload: Record<string, unknown>) => {
+      if (payload.action === "start") {
+        return {
+          setup_id: "setup_race",
+          state: "waiting_scan",
+          qr_svg: '<svg viewBox="0 0 10 10"><path d="M0,0h10v10h-10z"/></svg>',
+        };
+      }
+      if (payload.action === "status") {
+        return new Promise((resolve) => {
+          resolveStatus = resolve;
+        });
+      }
+      return { setup_id: String(payload.setup_id), state: "cancelled" };
+    });
+
+    const view = renderPanel();
+    expect(await screen.findByText("登录已失效")).toBeInTheDocument();
+    // FE-F2: WeChat card never renders Feishu's unknown permissions panel.
+    expect(screen.queryByText("权限状态暂时无法确认")).not.toBeInTheDocument();
+    // FE-F4: Revoked footer uses concise revokedDetail instead of repeating "登录已失效 · 微信登录已失效...".
+    expect(screen.queryByText(/微信登录已失效，请点击/)).not.toBeInTheDocument();
+    expect(screen.getByText(/微信侧已解除授权或在别处重新扫码/)).toBeInTheDocument();
+
+    // FE-F3: Open Re-scan QR, trigger a background listAgentChannels refetch with bumped revision right as status confirms.
+    await user.click(screen.getByRole("button", { name: "重新扫码" }));
+    expect(await screen.findByText("请使用本人手机微信扫描二维码")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(wechatSetupMocks.setupWeChatChannel).toHaveBeenCalledWith("agent-1", {
+        action: "status",
+        setup_id: "setup_race",
+      });
+    });
+
+    const updatedChannel = wechatChannel({
+      channel_revision: 3,
+      observed: {
+        observed_revision: 3,
+        connection_state: "connected",
+        diagnostics_state: "unknown",
+        status_updated_at: "2026-07-15T06:55:00Z",
+      },
+    });
+    currentChannel = updatedChannel;
+    await act(async () => {
+      void view.queryClient.invalidateQueries({ queryKey: ["settings", "agents", "agent-1", "channels"] });
+      resolveStatus({
+        setup_id: "setup_race",
+        state: "confirmed",
+        channel: updatedChannel,
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByText(/通道已在其他地方更新/)).not.toBeInTheDocument();
+
+    // CR-F8: Passive unmount while QR dialog is open cancels the node login session.
+    wechatSetupMocks.setupWeChatChannel.mockClear();
+    wechatSetupMocks.setupWeChatChannel.mockResolvedValue({
+      setup_id: "setup_unmount",
+      state: "waiting_scan",
+      qr_svg: '<svg viewBox="0 0 10 10"><path d="M0,0h10v10h-10z"/></svg>',
+    });
+    await user.click(screen.getByRole("button", { name: "重新扫码" }));
+    expect(await screen.findByText("请使用本人手机微信扫描二维码")).toBeInTheDocument();
+
+    view.unmount();
+    expect(wechatSetupMocks.setupWeChatChannel).toHaveBeenCalledWith("agent-1", {
+      action: "cancel",
+      setup_id: "setup_unmount",
+    });
+  });
 });

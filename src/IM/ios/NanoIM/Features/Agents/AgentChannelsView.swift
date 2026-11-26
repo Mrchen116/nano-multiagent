@@ -61,7 +61,7 @@ struct AgentChannelsView: View {
             if observed.status_stale == true { Text(L("节点离线或状态已过期；此状态并非当前连接确认。", "Node offline or status stale; this is not a current connection confirmation.")).font(.caption) }
             if let message = observed.status_message, !message.isEmpty { Text(message) }
             if let code = observed.status_code, !code.isEmpty { Text(code).font(.caption).textSelection(.enabled) }
-            if observed.diagnostics_state == "unknown" { Text(L("权限状态暂时无法确认。可重连后重试诊断。", "Permission status is unknown. Reconnect to retry diagnostics.")) }
+            if channel.isFeishu, observed.diagnostics_state == "unknown" { Text(L("权限状态暂时无法确认。可重连后重试诊断。", "Permission status is unknown. Reconnect to retry diagnostics.")) }
             ForEach(observed.checks ?? []) { check in
                 DisclosureGroup(check.check_id + " · " + check.state) {
                     Text(check.effect)

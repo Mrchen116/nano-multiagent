@@ -1098,7 +1098,7 @@ export class GlobalAgent {
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
     const isExternalChannel = info?.channel === 'feishu' || info?.channel === 'wechat' || info?.channel === 'external';
-    const allowsExternalImages = info?.channel === 'wechat' && info?.type === 'direct' && !filePaths?.length && !!this.options.stageExternalImage;
+    const allowsExternalImages = (info?.channel === 'wechat' || info?.channel === 'feishu') && info?.type === 'direct' && !filePaths?.length && !!this.options.stageExternalImage;
     if((replyTo || inThread) && info?.channel && info.channel!=='web')throw new Error('Quoted replies and topics require a Nano IM destination');
     if (hasLocalMedia && (!reviewConversation || (info?.channel !== 'web' && !allowsExternalImages))) throw new Error('Local attachments require a writable Nano IM conversation');
     if (isExternalChannel && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
@@ -1153,11 +1153,30 @@ export class GlobalAgent {
       const changed = revalidate();
       if (changed) return changed;
     }
+    const rawRequestedBase = targetBase.replace(/^conversation:/, '');
+    const resolvedExternalId = typeof info?.target === 'string' && info.target.startsWith('external:')
+      ? info.target
+      : (reviewConversation ? store.canonicalConversation(binding.agentId, reviewConversation) : undefined);
+    const resolvedShadowId = resolvedExternalId?.startsWith('external:')
+      ? store.imConversation(binding.agentId, resolvedExternalId)
+      : undefined;
+    const singleThreadImTrigger = !global
+      && rawRequestedBase === 'current'
+      && !!resolvedShadowId
+      && store.inputs(binding.sessionId).at(-1)?.input.metadata.trigger_source === 'im';
+    const globalImShadowTrigger = global
+      && !rawRequestedBase.startsWith('external:')
+      && !!resolvedShadowId
+      && rawRequestedBase === resolvedShadowId
+      && inbox.latestHumanTriggerIsInternalIm(binding.agentId, resolvedShadowId, resolvedExternalId);
+    const internalShadowOnly = singleThreadImTrigger || globalImShadowTrigger;
+
     inbox.settlePublication(call.operationId, 'sending');
     try {
       const response = await this.publishMessage({ node_id: this.options.nodeId, text, ...(attachments ? {attachments} : {}),
         ...(replyTo?{reply_to_message_id:replyTo}:{}),
         ...(inThread?{in_thread_of:inThread}:{}),
+        ...(internalShadowOnly ? {internal_shadow_only: true} : {}),
         ...(interactive && !isExternalChannel ? {interactive} : {}),
         to: conversation ? `conversation:${conversation}` : targetBase, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload,source);

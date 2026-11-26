@@ -3216,9 +3216,10 @@ body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 14px;
+  padding: 10px;
   font-size: 12px;
   font-weight: 600;
+  text-wrap: balance;
 }
 
 .im-wechat-pin-input {

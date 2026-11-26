@@ -303,7 +303,7 @@ describe('WeChat rich inbound parsing, media normalization, and quote store', ()
       expect(oversizeMsg?.preprocessNotice).toContain('25 MiB');
       expect(oversizeMsg?.parts[0]).toMatchObject({ type: 'text' });
 
-      // 6. Unsupported sticker/empty item -> explicit non-silent fallback notice on both surfaces
+      // 6. Unsupported sticker/empty item -> readable fallback notice on both surfaces + contextOnly so no double LLM reply
       const unsupportedMsg = await transformWeChatInboundMessage({
         message_id: '1006',
         from_user_id: 'wxid_owner',
@@ -314,8 +314,25 @@ describe('WeChat rich inbound parsing, media normalization, and quote store', ()
         }],
       }, { db, baseUrl, ownerUserId: 'wxid_owner', abortSignal: new AbortController().signal, env });
       expect(unsupportedMsg?.preprocessNotice).toBeTruthy();
-      expect(unsupportedMsg?.parts[0]?.type).toBe('text');
+      expect(unsupportedMsg?.parts).toEqual([{ type: 'text', text: unsupportedMsg?.preprocessNotice }]);
+      expect(unsupportedMsg?.contextOnly).toBe(true);
       expect(unsupportedMsg?.plainSingleText).toBe(false);
+
+      // 7. Aborted signal during media download rethrows immediately instead of fabricating a media error message
+      const aborted = new AbortController();
+      aborted.abort(new Error('shutting down'));
+      await expect(transformWeChatInboundMessage({
+        message_id: '1007',
+        from_user_id: 'wxid_owner',
+        message_type: WeChatMessageType.USER,
+        item_list: [{
+          type: WeChatItemType.IMAGE,
+          image_item: {
+            mid_size: 128,
+            media: { encrypt_query_param: 'file_pdf', aes_key: fileKey.toString('base64') },
+          },
+        }],
+      }, { db, baseUrl, ownerUserId: 'wxid_owner', abortSignal: aborted.signal, env })).rejects.toThrow();
     } finally {
       db.close();
       await new Promise<void>(resolve => server.close(() => resolve()));

@@ -31,6 +31,7 @@ export interface WeChatInboundMessage {
   time: string;
   parts: WeChatInboundPart[];
   plainSingleText?: boolean;
+  contextOnly?: boolean;
   preprocessNotice?: string;
 }
 
@@ -130,7 +131,6 @@ export class WeChatConnection {
 
   private readonly env: NodeJS.ProcessEnv;
   private readonly strangerRepliedAt = new Map<string, number>();
-  private readonly mediaBufferCache = new Map<string, { data: Buffer; mediaType: string }>();
   private db?: DatabaseSync;
   private abortController?: AbortController;
   private loopPromise?: Promise<void>;
@@ -215,7 +215,6 @@ export class WeChatConnection {
     if (this.loopPromise) {
       await this.loopPromise.catch(() => {});
     }
-    this.mediaBufferCache.clear();
     if (this.db) {
       try { this.db.close(); } catch { /* ignore */ }
       this.db = undefined;
@@ -376,11 +375,8 @@ export class WeChatConnection {
     return undefined;
   }
 
-  async image(_messageId: string, key: string): Promise<{ data: Buffer; mediaType: string }> {
-    const cached = this.mediaBufferCache.get(key);
-    if (!cached) throw new Error('WeChat inbound image buffer is unavailable');
-    this.mediaBufferCache.delete(key);
-    return cached;
+  async image(): Promise<{ data: Buffer; mediaType: string }> {
+    throw new Error('WeChat inbound images are persisted inline at arrival');
   }
 
   async updateCard(): Promise<void> {
@@ -469,10 +465,10 @@ export class WeChatConnection {
     if (!senderId) return;
     const msgId = String(wire.message_id ?? wire.svr_id ?? wire.seq ?? '');
     if (!msgId || this.hasSeenMessage(msgId)) return;
-    this.markSeenMessage(msgId);
 
     if (senderId !== this.wechatConfig.ownerUserId) {
       await this.replyStrangerRateLimited(senderId, wire.context_token, signal);
+      if (!signal.aborted) this.markSeenMessage(msgId);
       return;
     }
 
@@ -488,12 +484,10 @@ export class WeChatConnection {
       abortSignal: signal,
       env: this.env,
     });
-    if (!parsed) return;
-
-    for (const part of parsed.parts) {
-      if (part.type === 'image') {
-        this.mediaBufferCache.set(part.key, { data: part.data, mediaType: part.mediaType });
-      }
+    if (signal.aborted) return;
+    if (!parsed) {
+      this.markSeenMessage(msgId);
+      return;
     }
 
     if (parsed.preprocessNotice && wire.context_token?.trim()) {
@@ -508,8 +502,10 @@ export class WeChatConnection {
         env: this.env,
       }).catch(err => this.options.onError(err instanceof Error ? err : new Error(String(err))));
     }
+    if (signal.aborted) return;
 
     await this.options.receive(parsed);
+    this.markSeenMessage(msgId);
   }
 
   private async replyStrangerRateLimited(strangerId: string, contextToken: string | undefined, signal: AbortSignal): Promise<void> {

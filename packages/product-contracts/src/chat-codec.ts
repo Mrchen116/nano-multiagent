@@ -88,9 +88,10 @@ export function decodeAgentPublication(value: unknown): AgentPublication {
   const row = object(value); required(row, 'from_session_id'); required(row, 'to');
   if (typeof row.text !== 'string') throw new Error('invalid_agent_message');
   fields(row, ['node_id','reply_to_message_id','in_thread_of'], 'string'); fields(row, ['lifecycle_revision'], 'number', true);
+  fields(row, ['internal_shadow_only'], 'boolean');
   if (row.attachments != null) chatAttachments(row.attachments);
   if (row.background_returns != null && !Array.isArray(row.background_returns)) throw new Error('invalid chat background_returns');
-  if (!row.text.trim() && row.interactive === undefined && !(row.background_returns as unknown[] | undefined)?.length) throw new Error('invalid_agent_message');
+  if (!row.text.trim() && row.interactive === undefined && !(row.attachments as unknown[] | undefined)?.length && !(row.background_returns as unknown[] | undefined)?.length) throw new Error('invalid_agent_message');
   if (row.reply_draft !== undefined) throw new Error('reply_draft is retired; use ComposeMessage');
   return row as unknown as AgentPublication;
 }

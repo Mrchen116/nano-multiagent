@@ -86,6 +86,7 @@ export interface AgentPublication {
   background_returns?: unknown[];
   interactive?: unknown;
   pa_incident_ref?: unknown;
+  internal_shadow_only?: boolean;
 }
 export interface ChatPublicationReceipt {conversation_id: string; message_id: string; target_kind: string; target_id: string; source_agent_id: string}
 export interface ChatActor {avatar_id?: string; type: string; id: string; display_name: string; user_id: string; is_stale: boolean | null; role?: 'personal'; avatar_variant?: number}

@@ -50,7 +50,8 @@ export function controlText(input:RelayInput):string {
 /** Return the original send instant when it is known for this channel. */
 export function sourceInstant(input: RelayInput): number | undefined {
   const meta=input.metadata;
-  const external=meta.channel==='feishu' || meta.channel==='wechat' || (!meta.channel && meta.trigger_source!=='im' && input.conversation_id.startsWith('external:'));
+  const external=(meta.channel==='feishu' || meta.channel==='wechat' || (!meta.channel && meta.trigger_source!=='im' && input.conversation_id.startsWith('external:')))
+    && input.message.sender_type === 'user';
   const value='provider_source_time' in meta ? meta.provider_source_time
     : external ? Number(meta.source_timestamp) : input.message.created_at;
   if(typeof value!=='string' && typeof value!=='number')return;

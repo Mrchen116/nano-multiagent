@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { isRasterImageMime } from '@nano/product-contracts';
 
 type ObjectValue = Record<string, unknown>;
 
@@ -108,16 +109,17 @@ export class ToolReferences {
     return this.reference(agent, 'incident', value, 'i_');
   }
 
-  /** Compact a native IM attachment URL to an 8-char `a_xxxxxx` reference.
+  /** Compact a native IM or authenticated node-local external attachment URL to an 8-char `a_xxxxxx` reference.
    *
    * Args:
    *   agent: Trusted product Agent identity.
-   *   url: Canonical native IM media URL (`/im/v1/conversations/:id/(images|attachments)/:rid`).
+   *   url: Canonical native IM media URL or authenticated `external:<agentId>:...` attachment key.
    * Returns:
-   *   Stable `<= 8`-char reference for native URLs, or undefined for non-native URLs.
+   *   Stable `<= 8`-char reference for eligible URLs, or undefined otherwise.
    */
   attachmentRef(agent: string, url: string): string | undefined {
-    if (!NATIVE_ATTACHMENT_URL_RE.test(url)) return undefined;
+    const isExternalInbound = url.startsWith(`external:${agent}:`) && !url.startsWith('external:out:');
+    if (!NATIVE_ATTACHMENT_URL_RE.test(url) && !isExternalInbound) return undefined;
     return this.reference(agent, 'attachment', url, 'a_');
   }
 
@@ -296,7 +298,12 @@ export class ToolReferences {
         if (typeof entry.text === 'string') entry.text = this.projectMentions(agent, entry.text);
         if (typeof entry.url === 'string') {
           const ref = this.attachmentRef(agent, entry.url);
-          if (ref) entry.attachment_id = ref;
+          if (ref) {
+            entry.attachment_id = ref;
+            if (entry.url.startsWith('external:') && !isRasterImageMime(typeof entry.content_type === 'string' ? entry.content_type : undefined)) {
+              delete entry.url;
+            }
+          }
         }
         return entry;
       });
@@ -309,7 +316,12 @@ export class ToolReferences {
         const entry = { ...item as ObjectValue };
         if (typeof entry.url === 'string') {
           const ref = this.attachmentRef(agent, entry.url);
-          if (ref) entry.attachment_id = ref;
+          if (ref) {
+            entry.attachment_id = ref;
+            if (entry.url.startsWith('external:') && !isRasterImageMime(typeof entry.content_type === 'string' ? entry.content_type : undefined)) {
+              delete entry.url;
+            }
+          }
         }
         return entry;
       });

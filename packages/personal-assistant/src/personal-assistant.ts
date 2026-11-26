@@ -402,7 +402,12 @@ export class PersonalAssistant {
 
   /** Read the receipt from the authority that committed this screenshot message. */
   async screenshotReceipt(config: AgentConfiguration, target: string, operationId: string): Promise<Data> {
-    const conversation = await this.resolve(config, this.options.store.toolReferences.splitResolvedTarget(config.agentId, target).base);
+    const base = this.options.store.toolReferences.splitResolvedTarget(config.agentId, target).base.replace(/^conversation:/, '');
+    const canonical = this.options.store.canonicalConversation(config.agentId, base);
+    if (canonical.startsWith('external:')) {
+      return (await this.options.relay.request('agent.message.status', { node_id: this.options.nodeId, agent_id: config.agentId, operation_id: operationId })).payload;
+    }
+    const conversation = await this.resolve(config, base);
     if (conversation === config.personal!.conversationId)
       return (await this.options.relay.request('agent.message.status', {node_id:this.options.nodeId,agent_id:config.agentId,operation_id:operationId})).payload;
     return this.request(config, 'pa.action.status', {request_key:operationId,conversation_id:conversation});
@@ -426,8 +431,10 @@ export class PersonalAssistant {
     const representation=call.method==='send_user_message'?'owner':'self';
     if (hasLocalMedia && (incident || representation !== 'self')) throw new Error('Local attachments require a regular self-authored message');
     if(representation==='owner' && (call.sessionId!==binding.sessionId || !config.personal))throw new Error('Only the bound main PA may represent its owner');
-    const deliveryTarget=this.options.store.canonicalConversation(config.agentId,targetBase.replace(/^conversation:/,''));
-    const allowsExternalImages = deliveryTarget.startsWith(`external:${config.agentId}:wechat:`) && !filePaths?.length && !!this.options.stageExternalImage;
+    const rawTarget = targetBase.replace(/^conversation:/, '');
+    const deliveryTarget = this.options.store.canonicalConversation(config.agentId, rawTarget);
+    const allowsExternalImages = (deliveryTarget.startsWith(`external:${config.agentId}:wechat:`) || deliveryTarget.startsWith(`external:${config.agentId}:feishu:`))
+      && deliveryTarget.includes(':dm:') && !filePaths?.length && !!this.options.stageExternalImage;
     if (hasLocalMedia && deliveryTarget.startsWith('external:') && !allowsExternalImages) throw new Error('Local attachments require a writable Nano IM conversation');
     if(deliveryTarget.startsWith('external:')&&representation==='owner')throw new Error('Owner representation requires a native IM conversation');
     if((replyTo || inThread) && deliveryTarget.startsWith('external:'))throw new Error('Quotes and topics require a Nano IM destination');
@@ -486,17 +493,57 @@ export class PersonalAssistant {
       if (shadowId && inbox.blocking(config.agentId, joinThreadTarget(shadowId, inThread))) {
         return {status:'held_for_revalidation',target,message:'Read new messages in this conversation and reconsider this draft before sending.'};
       }
+      const internalShadowOnly = !rawTarget.startsWith('external:')
+        && !!shadowId
+        && inbox.latestHumanTriggerIsInternalIm(config.agentId, shadowId, deliveryTarget);
+      inbox.preparePublication(operationId, target, publicationBody, binding.agentId);
       const extAttachments = hasLocalMedia
         ? await prepareLocalAttachments(this.options.stageExternalImage, undefined, {
             agentId: config.agentId, conversationId: deliveryTarget, operationId,
             lifecycleRevision: this.options.store.lifecycle.assert(config.agentId), signal,
           }, paths, undefined, call.args.attachments)
         : undefined;
-      const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
-        ...(extAttachments?.length ? {attachments: extAttachments} : {}),
-        ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
-      if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
-      return {status:'sent',target,message_id:response.payload.message_id};
+      if (hasLocalMedia) {
+        signal.throwIfAborted();
+        await this.options.flushConversation?.(config, binding, shadowId);
+        if (shadowId && inbox.blocking(config.agentId, joinThreadTarget(shadowId, inThread))) {
+          const held = {status:'held_for_revalidation',target,message:'Read the new messages before sending this draft.'};
+          inbox.settlePublication(operationId, 'held', held);
+          return held;
+        }
+      }
+      inbox.settlePublication(operationId, 'sending');
+      try {
+        const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
+          ...(extAttachments?.length ? {attachments: extAttachments} : {}),
+          ...(internalShadowOnly ? {internal_shadow_only: true} : {}),
+          ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
+        if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
+        const result={status:'sent',target,message_id:response.payload.message_id,...(typeof response.payload.conversation_id==='string'?{conversation_id:response.payload.conversation_id}:{})};
+        inbox.settlePublication(operationId,'confirmed',result);
+        return result;
+      } catch (error) {
+        if (hasLocalMedia && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
+          const rejected = {status:'not_sent',target,reason:error.message};
+          inbox.settlePublication(operationId,'rejected',rejected);
+          return rejected;
+        }
+        if (hasLocalMedia && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
+          inbox.settlePublication(operationId,'rejected');
+          throw new Error(error.detail ? JSON.stringify(error.detail) : error.code ?? error.message);
+        }
+        if (inbox.publication(operationId)?.state !== 'confirmed') inbox.settlePublication(operationId, 'unknown');
+        if (error instanceof RelayDeliveryError && error.delivery === 'unknown') {
+          const receipt = await this.screenshotReceipt(config, target, operationId).catch(() => undefined);
+          if (receipt?.found === true && typeof receipt.message_id === 'string') {
+            const recovered = {status:'sent',target,message_id:receipt.message_id,...(typeof receipt.conversation_id==='string'?{conversation_id:receipt.conversation_id}:{})};
+            inbox.settlePublication(operationId,'confirmed',recovered);
+            return recovered;
+          }
+        }
+        if (hasLocalMedia) return unknownScreenshotReceipt(target, operationId);
+        throw error;
+      }
     }
     if (conversation !== config.personal!.conversationId) await this.options.flushConversation?.(config, binding, conversation);
     if (inbox.blocking(config.agentId,reviewTarget)) return {status:'held_for_revalidation',target,

@@ -8,6 +8,7 @@ import { ExternalChannels } from '../../../packages/personal-assistant/src/exter
 import { NodeStore } from '../../../packages/personal-assistant/src/store.js';
 import { requestIm } from '../../node/src/im-http.js';
 import { ownerDirect } from '../src/collaboration.js';
+import { ChannelService } from '../src/channels.js';
 import { openDatabase } from '../src/db.js';
 import type { Connection } from '../src/gateway.js';
 import { createServer } from '../src/server.js';
@@ -52,7 +53,7 @@ it('enforces interactive WeChat setup, seals bot_token without browser echo, and
     db.prepare("INSERT INTO nodes(node_id,owner_id,node_name,status) VALUES('node','owner','Node','online')").run();
     db.prepare("INSERT INTO node_binding_state(node_id,owner_id,node_epoch) VALUES('node','owner',1)").run();
     db.prepare("INSERT INTO node_credential_keys(node_id,owner_id,key_id,algorithm,public_key,updated_at) VALUES('node','owner','key-1','X25519-HKDF-SHA256-AES-256-GCM',?,?)").run(testPublicKeyBase64(), now);
-    db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,workspace_root,collaboration_scope,space_id,created_at,updated_at) VALUES('pa_main','owner','node','Personal Assistant','/pa','owner_only','personal:owner',?,?)").run(now, now);
+    db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,workspace_root,work_mode,collaboration_scope,space_id,created_at,updated_at) VALUES('pa_main','owner','node','Personal Assistant','/pa','global','owner_only','personal:owner',?,?)").run(now, now);
     db.prepare("INSERT INTO conversations(id,title,type,owner_id,space_id,config_agent_id,created_at) VALUES('owner-chat','PA','direct','owner','personal:owner','pa_main',?)").run(now);
     db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('owner-chat','owner')").run();
     db.prepare("INSERT INTO personal_agent_bindings VALUES('binding','owner','owner','pa_main','node',1,'owner-chat','PA','create','active',NULL,?)").run(now);
@@ -312,6 +313,37 @@ it('enforces interactive WeChat setup, seals bot_token without browser echo, and
     );
     const completedMsg = app.im.messaging.message(turnStart.message_id!);
     expect(completedMsg.attachments).toEqual([uploadedAtt]);
+
+    // Regression FE-F1: A sibling Feishu channel failure in last_apply_error_json must NOT taint a healthy connected WeChat channel.
+    const channelSvc = new ChannelService(db);
+    const fsCreated = feishuCreate.json() as { channel_id: string };
+    const headRev = (db.prepare('SELECT manifest_revision FROM channel_manifest_heads WHERE node_id = ?').get('node') as { manifest_revision: number }).manifest_revision;
+    const wxRev = (db.prepare('SELECT channel_revision FROM agent_channels WHERE channel_id = ?').get(wxChannelId) as { channel_revision: number }).channel_revision;
+    channelSvc.recordStatus({ node_id: 'node', channel_id: wxChannelId, channel_revision: wxRev, runtime_incarnation: 'inc-wx-1', instance_started: true, status_sequence: 1, connection_state: 'connected', diagnostics_state: 'unknown', checks: [] });
+    channelSvc.recordReconcile({ node_id: 'node', manifest_revision: headRev, outcome: 'retryable_failed', failures: [{ channel_id: fsCreated.channel_id, error_code: 'feishu_connect_failed', error_message: 'Channel connection could not start' }], removal_outcomes: [] });
+
+    const channelList = channelSvc.list('owner', 'pa_main');
+    const wxView = channelList.find((row: { channel_id: string }) => row.channel_id === wxChannelId)!;
+    const fsView = channelList.find((row: { channel_id: string }) => row.channel_id === fsCreated.channel_id)!;
+    expect(wxView).toMatchObject({ sync_state: 'applied', apply_error: null, observed: { connection_state: 'connected' } });
+    expect(fsView).toMatchObject({ sync_state: 'failed', apply_error: { code: 'feishu_connect_failed', message: 'Channel connection could not start' } });
+
+    // Regression PJ-F1: task.execution.pause accepts authenticated WeChat shadow /stop input without relay_tasks.
+    const graph = app.im.gateway.tasks.execute({ kind: 'user', id: 'owner' }, 'create', {
+      title: 'Follow up WeChat task', mode: 'dag', conversation_id: msgRow!.conversation_id, request_key: 'wx-graph-1', status: 'doing', assignee: { type: 'agent', id: 'pa_main' },
+    });
+    await external.receive('pa_main', { messageId: 'wx_stop_1', chatId: 'wxid_owner_real', senderId: 'wxid_owner_real', isGroup: false, mentioned: true, time: String(Date.now()), parts: [{ type: 'text', text: '/stop' }], plainSingleText: true }, 'wechat');
+    const stopShadowRow = db.prepare("SELECT id, conversation_id FROM messages WHERE caller_idempotency_key='shadow:external:pa_main:wechat:wxbot_pa_1:wx_stop_1'").get() as { id: string; conversation_id: string } | undefined;
+    expect(stopShadowRow).toBeTruthy();
+
+    app.im.gateway.valid = () => true;
+    const pauseRes = await app.im.gateway.handle(
+      fakeConn,
+      'task.execution.pause',
+      { node_id: 'node', agent_id: 'pa_main', request_id: 'pause-wx-1', request_key: 'task-stop:pa_main:wx_stop_1', control_message_id: stopShadowRow!.id },
+    );
+    expect(pauseRes).toMatchObject({ type: 'task.execution.pause.result', payload: { ok: true, result: { paused: 1 } } });
+    expect(app.im.gateway.tasks.execute({ kind: 'user', id: 'owner' }, 'get', { graph_id: graph.graph_id, view: 'all' }).nodes[0]?.status).toBe('paused');
   } finally {
     await external?.stop();
     store.close();

@@ -396,8 +396,15 @@ export class SingleThread {
       content.push({ type: 'text', text: `${content.length ? '\n\n' : ''}${lines.join('\n')}\n\nCurrent message:\n` });
     }
     if (ordered && input.metadata.conversation_type === 'group') content.push({ type: 'text', text: `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ` });
+    let prevWasMessageText = false;
     for (const part of parts) {
-      if (part.type === 'text') { content.push({ type: 'text', text: part.text ?? '' }); continue; }
+      if (part.type === 'text') {
+        const sep = prevWasMessageText && input.metadata.channel === 'wechat' ? '\n\n' : '';
+        content.push({ type: 'text', text: `${sep}${part.text ?? ''}` });
+        prevWasMessageText = true;
+        continue;
+      }
+      prevWasMessageText = false;
       const attachment = input.message.attachments.find(attachment => attachment.url === part.url);
       if (!attachment) throw new Error('Unsupported image media type');
       if (!isRasterImageMime(attachment.content_type)) {

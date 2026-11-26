@@ -149,6 +149,9 @@ export class ExternalStore {
   output(id: string): ExternalOutput | undefined {
     return this.db.prepare('SELECT id,chat_id AS chatId,operation_id AS operationId,reply,state,platform_id AS platformId,im_id AS imId,lifecycle_revision FROM outputs WHERE id=?').get(id) as unknown as ExternalOutput | undefined;
   }
+  outputByOperation(operationId: string): ExternalOutput | undefined {
+    return this.db.prepare('SELECT id,chat_id AS chatId,operation_id AS operationId,reply,state,platform_id AS platformId,im_id AS imId,lifecycle_revision FROM outputs WHERE operation_id=?').get(operationId) as unknown as ExternalOutput | undefined;
+  }
   prepare(chatId: string, operationId: string, reply?: string, revision=1): ExternalOutput {
     const id = `external:${createHash('sha256').update(operationId).digest('hex')}`;
     this.db.prepare('INSERT OR IGNORE INTO outputs(id,chat_id,operation_id,reply,lifecycle_revision) VALUES(?,?,?,?,?)').run(id, chatId, operationId, reply ?? null, revision);
@@ -201,6 +204,9 @@ export class ExternalStore {
   }
   closeApprovalsForChat(chatId: string): void {
     this.db.prepare('UPDATE approvals SET settled=1, closed=1 WHERE output_id IN (SELECT id FROM outputs WHERE chat_id=?)').run(chatId);
+  }
+  closeApprovalsForAgent(agentId: string): void {
+    this.db.prepare('UPDATE approvals SET settled=1, closed=1 WHERE output_id IN (SELECT id FROM outputs WHERE chat_id IN (SELECT id FROM chats WHERE agent_id=?))').run(agentId);
   }
   close(): void { this.db.close(); }
 }

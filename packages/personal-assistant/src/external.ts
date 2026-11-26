@@ -161,8 +161,22 @@ export class ExternalChannels {
     for (const p of PROVIDERS) this.connections.delete(connKey(p, agentId));
   }
 
+  /** Cancel active external approvals and transient recovery timers when an Agent is disabled. */
+  cancelAgent(agentId: string): void {
+    clearTimeout(this.retry.get(agentId));
+    this.retry.delete(agentId);
+    this.retryDelay.delete(agentId);
+    this.state.closeApprovalsForAgent(agentId);
+    for (const chat of this.state.chats()) {
+      if (chat.agentId === agentId) {
+        void this.stopTyping(chat).catch(this.options.onError);
+      }
+    }
+  }
+
   /** Purge local copies without contacting the external platform. */
   purgeAgent(agentId: string): void {
+    this.cancelAgent(agentId);
     this.remove(agentId);
     this.state.purgeAgent(agentId);
   }
@@ -266,7 +280,10 @@ export class ExternalChannels {
       }),
     };
 
-    const text = storedMessage.parts.filter(part => part.type === 'text').map(part => part.text).join('');
+    const text = storedMessage.parts
+      .filter(part => part.type === 'text')
+      .map(part => part.text)
+      .join(provider === 'wechat' ? '\n\n' : '');
     const attachments = storedMessage.parts
       .filter((part): part is Extract<typeof part, { type: 'image' | 'file' }> => part.type === 'image' || part.type === 'file')
       .map(part => ({
@@ -630,6 +647,58 @@ export class ExternalChannels {
       if (!source?.mirror || !chat?.shadowId) throw new Error('Personal source is not yet synchronized');
       return this.options.relay.request(type, { ...payload, source_message_id: source.mirror, conversation_id: chat.shadowId });
     }
+    if (type === 'task.execution.pause' && String(payload.control_message_id).startsWith('external:')) {
+      const source = typeof payload.control_message_id === 'string' ? this.state.inbound(payload.control_message_id) : undefined;
+      const chat = source && source.input.agent_id === payload.agent_id ? this.state.chat(source.chatId) : undefined;
+      if (!source || !chat) {
+        return {
+          type: 'task.execution.pause.result',
+          payload: {
+            request_id: payload.request_id,
+            ok: false,
+            error: { code: 'invalid_human_control', message: 'Unknown external stop input' },
+          },
+        };
+      }
+      if (!this.ready) {
+        if (!chat.shadowId && !this.options.globalAgent?.(chat.agentId) && !this.options.personalAgent?.(chat.agentId)) {
+          return {
+            type: 'task.execution.pause.result',
+            payload: { request_id: payload.request_id, ok: true, result: { paused: 0, offline_unmirrored: true } },
+          };
+        }
+        throw new Error('External stop requires center synchronization');
+      }
+      if (!source.mirror) await this.mirrorInput(source);
+      const refreshedSource = this.state.inbound(source.id);
+      const refreshedChat = this.state.chat(chat.id);
+      if (!refreshedSource?.mirror || !refreshedChat?.shadowId) {
+        throw new Error('External stop input has not been mirrored');
+      }
+      return this.options.relay.request(type, {
+        ...payload,
+        control_message_id: refreshedSource.mirror,
+        ...(payload.conversation_id !== undefined || (!this.options.globalAgent?.(chat.agentId) && !this.options.personalAgent?.(chat.agentId))
+          ? { conversation_id: payload.conversation_id ?? refreshedChat.shadowId }
+          : {}),
+      });
+    }
+    if (type === 'agent.message.status' && typeof payload.agent_id === 'string' && typeof payload.operation_id === 'string') {
+      const existing = this.state.outputByOperation(`${payload.agent_id}|tool_call:${payload.operation_id}`);
+      if (existing) {
+        const chat = this.state.chat(existing.chatId);
+        if (chat?.agentId === payload.agent_id) {
+          if (existing.state === 'confirmed' && (existing.platformId || existing.imId)) {
+            return ack(type, {
+              found: true,
+              message_id: existing.platformId ?? existing.imId,
+              conversation_id: existing.reply ? chat.id : (chat.shadowId ?? chat.id),
+            });
+          }
+          return ack(type, { found: false });
+        }
+      }
+    }
     if (type === 'task_graph.command' && ['create', 'apply', 'delete'].includes(String(payload.action)) && String(payload.source_message_id).startsWith('external:')) {
       const source = typeof payload.source_message_id === 'string' ? this.state.inbound(payload.source_message_id) : undefined;
       if (!source?.mirror || source.input.agent_id !== payload.agent_id) {
@@ -664,7 +733,8 @@ export class ExternalChannels {
         if (publication.reply_to_message_id !== undefined) throw new Error('Quoted replies require a Nano IM destination');
         const agentId = String(publication.from_session_id).split('|')[0];
         if (chat.agentId !== agentId) throw new Error('External target belongs to another Agent');
-        const output = this.state.prepare(chat.id, String(publication.from_session_id), 'explicit', Number(publication.lifecycle_revision ?? 1));
+        const replyMode = publication.internal_shadow_only ? undefined : 'explicit';
+        const output = this.state.prepare(chat.id, String(publication.from_session_id), replyMode, Number(publication.lifecycle_revision ?? 1));
         this.state.frame(output.id, { lifecycle_revision: output.lifecycle_revision, kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
         const complete: CompletedMessage = {
           lifecycle_revision: output.lifecycle_revision,
@@ -676,6 +746,12 @@ export class ExternalChannels {
           delivery_status: 'completed',
         };
         await this.finish(output, complete);
+        if (publication.internal_shadow_only) {
+          await this.flush();
+          const settled = this.state.output(output.id)!;
+          if (settled.imId) this.state.settle(output.id, 'confirmed', settled.imId);
+          return ack(type, { message_id: settled.imId ?? output.id, conversation_id: chat.shadowId ?? chat.id });
+        }
         void this.flush().catch(this.options.onError);
         return ack(type, { message_id: output.platformId ?? this.state.output(output.id)!.platformId, conversation_id: chat.id });
       }
@@ -772,6 +848,7 @@ export class ExternalChannels {
     if (!rawText.includes('data:image/')) return payload;
     const existing = payload.attachments ?? [];
     const inlineAttachments: ChatAttachment[] = [];
+    const strippedSpans: [number, number][] = [];
     const dataUriRe = /!\[[^\]\n]*\]\((data:image\/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/=\s]+))\)/gi;
     let match: RegExpExecArray | null;
     while ((match = dataUriRe.exec(rawText)) !== null) {
@@ -787,10 +864,20 @@ export class ExternalChannels {
       const url = `external:out:${output.operationId}:inline:${idx}`;
       this.state.saveImage(url, agentId, buf, detected.mime, fileName);
       inlineAttachments.push({ url, content_type: detected.mime, file_name: fileName });
+      strippedSpans.push([match.index, match.index + match[0].length]);
     }
     if (!inlineAttachments.length) return payload;
+    let cleanedText = '';
+    let cursor = 0;
+    for (const [start, end] of strippedSpans) {
+      cleanedText += rawText.slice(cursor, start);
+      cursor = end;
+    }
+    cleanedText += rawText.slice(cursor);
+    cleanedText = cleanedText.replace(/\n{3,}/g, '\n\n').trim();
     return {
       ...payload,
+      final_content: cleanedText,
       attachments: [...existing, ...inlineAttachments],
     };
   }
@@ -1211,10 +1298,32 @@ function approvalCard(id: string, request: Record<string, unknown>, group: boole
   return { config: { wide_screen_mode: true, update_multi: true }, elements };
 }
 
+function summarizeApprovalInput(toolInput: unknown): string | undefined {
+  if (!toolInput || typeof toolInput !== 'object' || Array.isArray(toolInput)) return undefined;
+  const entries = Object.entries(toolInput as Record<string, unknown>);
+  if (!entries.length) return undefined;
+  const lines: string[] = [];
+  for (const [key, value] of entries.slice(0, 6)) {
+    const raw = typeof value === 'string' ? value : JSON.stringify(value);
+    if (raw === undefined) continue;
+    const compact = raw.replace(/\s+/g, ' ').trim();
+    const chars = Array.from(compact);
+    const clipped = chars.length > 120 ? `${chars.slice(0, 120).join('')}…` : compact;
+    lines.push(`${key}: ${clipped}`);
+  }
+  if (entries.length > 6) lines.push(`…共 ${entries.length} 项参数`);
+  if (!lines.length) return undefined;
+  const joined = lines.join('\n');
+  const totalChars = Array.from(joined);
+  return totalChars.length > 300 ? `${totalChars.slice(0, 300).join('')}…` : joined;
+}
+
 function wechatApprovalPrompt(request: Record<string, unknown>): string {
   const toolName = String(request.tool_name ?? 'tool');
   const reason = typeof request.reason === 'string' && request.reason.trim() ? request.reason.trim() : '需要人工确认受控操作';
-  return `【待确认操作】${toolName}\n原因：${reason}\n\n请直接回复「允许」（或 1）批准执行，或回复「拒绝 [原因]」（或 2）取消；也可在内部 IM 审批卡片中点击按钮。`;
+  const inputSummary = summarizeApprovalInput(request.tool_input);
+  const summaryBlock = inputSummary ? `\n参数摘要：\n${inputSummary}` : '';
+  return `【待确认操作】${toolName}\n原因：${reason}${summaryBlock}\n\n请直接回复「允许」（或 1）批准执行，或回复「拒绝 [原因]」（或 2）取消；也可在内部 IM 审批卡片中点击按钮。`;
 }
 
 function footerSummary(metadata: CompletedMessage): string | undefined {
