@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "../../i18n";
 import { authFetchJson } from "../auth/auth-fetch";
 import { listConversations } from "../chat/chat-api";
@@ -42,17 +42,23 @@ export function TaskEditor({
   const [title, setTitle] = useState(node?.title ?? target.initialTitle ?? "");
   const [description, setDescription] = useState(node?.description ?? "");
   const [result, setResult] = useState(node?.result ?? "");
+  const [addingResult, setAddingResult] = useState(() => Boolean(node?.result?.trim()));
   const [status, setStatus] = useState<TaskStatus>(target.claim ? "doing" : node?.status ?? "todo");
   const [mode, setMode] = useState<TaskMode>(node?.mode ?? target.defaultMode ?? (parent ? "none" : "dag"));
   const [assignee, setAssignee] = useState(node?.assignee ? `${node.assignee.type}:${node.assignee.id}` : "");
   const [conversationId, setConversationId] = useState(graph?.conversation?.id ?? target.conversationId ?? "");
   const [note, setNote] = useState("");
+  const [hoveredAssigneeHelp, setHoveredAssigneeHelp] = useState(false);
+  const [pinnedAssigneeHelp, setPinnedAssigneeHelp] = useState(false);
+  const showAssigneeHelp = hoveredAssigneeHelp || pinnedAssigneeHelp;
   const [revision, setRevision] = useState(graph?.revision);
   const [requestKey, setRequestKey] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState(false);
   const [latest, setLatest] = useState<TaskNode | null>(null);
+  const resultRef = useRef<HTMLTextAreaElement | null>(null);
+
   const conversations = useQuery({
     queryKey: ["task-write-conversations"],
     queryFn: listConversations,
@@ -66,6 +72,18 @@ export function TaskEditor({
   const candidates = members.data?.participants.filter(actor => actor.type !== "system" && !actor.is_stale) ?? [];
   const writable = conversations.data?.filter(chat => chat.can_write && !chat.dissolved_at) ?? [];
   const heading = t(node ? "tasks.edit" : parent ? "tasks.createChild" : "tasks.createRoot");
+
+  const isGoalRoot = !parent && (node ? node.container_id === null && node.mode !== "none" : mode !== "none");
+  const descriptionLabel = t(isGoalRoot ? "tasks.panorama.northStarLabel" : "tasks.description");
+  const baselineStatus = (latest ?? node)?.status;
+  const needsReworkReason = Boolean(graph && baselineStatus === "done" && status === "doing");
+  const showResultField =
+    addingResult ||
+    Boolean(result.trim()) ||
+    Boolean(latest?.result?.trim()) ||
+    status === "in_review" ||
+    status === "done" ||
+    status === "closed";
 
   async function readLatest() {
     setBusy(true);
@@ -94,7 +112,7 @@ export function TaskEditor({
   async function save(event: React.FormEvent) {
     event.preventDefault();
     if (!title.trim() || !conversationId || conflict) return;
-    if ((latest ?? node)?.status === "done" && status === "doing" && !note.trim()) {
+    if (needsReworkReason && !note.trim()) {
       setError(t("tasks.reworkRequired"));
       return;
     }
@@ -148,7 +166,7 @@ export function TaskEditor({
           base_revision: revision,
           request_key: requestKey,
           operations,
-          change_note: note,
+          change_note: needsReworkReason ? note.trim() : "",
         });
       }
       onSaved(saved.graph_id ?? graph!.graph_id);
@@ -175,13 +193,20 @@ export function TaskEditor({
         <Dialog.Overlay className="tasks-dialog-overlay tasks-edit-overlay" />
         <Dialog.Content className="tasks-edit-dialog" aria-describedby={undefined}>
           <div className="tasks-dialog-heading">
-            <Dialog.Title>{heading}</Dialog.Title>
+            <div className="tasks-edit-heading-main">
+              <Dialog.Title>{heading}</Dialog.Title>
+              {graph?.conversation?.title && (
+                <p className="tasks-edit-sub">
+                  {t("tasks.conversation")} · {graph.conversation.title}
+                </p>
+              )}
+            </div>
             <Dialog.Close className="tasks-button" disabled={busy}>
               {t("tasks.close")}
             </Dialog.Close>
           </div>
           <form className="tasks-edit-form" onSubmit={save}>
-            {!graph ? (
+            {!graph && (
               <label>
                 {t("tasks.conversation")}
                 <select
@@ -200,37 +225,79 @@ export function TaskEditor({
                   ))}
                 </select>
               </label>
-            ) : (
-              <p>
-                {t("tasks.conversation")}: {graph.conversation?.title}
-              </p>
             )}
+
             <label>
               {t("tasks.title")}
               <input autoFocus required value={title} onChange={e => setTitle(e.target.value)} />
             </label>
-            <label>
-              {t("tasks.description")}
-              <textarea
-                required={status === "proposed"}
-                value={description}
-                onChange={e => setDescription(e.target.value)}
-              />
-            </label>
-            <label>
-              {t("tasks.statusLabel")}
-              <select value={status} onChange={e => setStatus(e.target.value as TaskStatus)}>
-                {editableTaskStatuses((latest ?? node)?.status).map(value => (
-                  <option value={value} key={value}>
-                    {statusLabel(value)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {t("tasks.result")}
-              <textarea value={result} onChange={e => setResult(e.target.value)} />
-            </label>
+
+            <div className={target.claim ? "tasks-edit-field" : "tasks-edit-row"}>
+              <label>
+                {t("tasks.statusLabel")}
+                <select value={status} onChange={e => setStatus(e.target.value as TaskStatus)}>
+                  {editableTaskStatuses((latest ?? node)?.status).map(value => (
+                    <option value={value} key={value}>
+                      {statusLabel(value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              {!target.claim && (
+                <div className="tasks-edit-field">
+                  <div className="tasks-edit-label-row">
+                    <label htmlFor="task-edit-assignee">{t("tasks.assignee")}</label>
+                    <span
+                      className="tasks-field-help"
+                      onMouseEnter={() => setHoveredAssigneeHelp(true)}
+                      onMouseLeave={() => setHoveredAssigneeHelp(false)}
+                    >
+                      <button
+                        type="button"
+                        className="tasks-field-help-btn"
+                        aria-label={t("tasks.assigneeHelpAria")}
+                        aria-expanded={showAssigneeHelp}
+                        onClick={() => setPinnedAssigneeHelp(prev => !prev)}
+                        onBlur={() => setPinnedAssigneeHelp(false)}
+                        onKeyDown={e => {
+                          if (e.key === "Escape" && showAssigneeHelp) {
+                            e.stopPropagation();
+                            setHoveredAssigneeHelp(false);
+                            setPinnedAssigneeHelp(false);
+                          }
+                        }}
+                      >
+                        ?
+                      </button>
+                      {showAssigneeHelp && (
+                        <span role="tooltip" className="tasks-field-help-tip">
+                          {t("tasks.membersOnly")}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <select
+                    id="task-edit-assignee"
+                    value={assignee}
+                    onChange={e => setAssignee(e.target.value)}
+                  >
+                    <option value="">{t("tasks.unassigned")}</option>
+                    {node?.assignee &&
+                      assignee === `${node.assignee.type}:${node.assignee.id}` &&
+                      !candidates.some(actor => `${actor.type}:${actor.id}` === assignee) && (
+                        <option value={assignee}>{actorName(node.assignee)}</option>
+                      )}
+                    {candidates.map(actor => (
+                      <option key={`${actor.type}:${actor.id}`} value={`${actor.type}:${actor.id}`}>
+                        {actor.display_name ?? actor.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
             {!node && (
               <label>
                 {t("tasks.structure")}
@@ -243,31 +310,55 @@ export function TaskEditor({
                 </select>
               </label>
             )}
-            {!target.claim && (
+
+            <label>
+              {descriptionLabel}
+              <textarea
+                rows={3}
+                required={status === "proposed"}
+                placeholder={t(
+                  status === "proposed" ? "tasks.descriptionProposedPlaceholder" : "tasks.descriptionPlaceholder",
+                )}
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+              />
+            </label>
+
+            {showResultField ? (
               <label>
-                {t("tasks.assignee")}
-                <select value={assignee} onChange={e => setAssignee(e.target.value)}>
-                  <option value="">{t("tasks.unassigned")}</option>
-                  {node?.assignee &&
-                    assignee === `${node.assignee.type}:${node.assignee.id}` &&
-                    !candidates.some(actor => `${actor.type}:${actor.id}` === assignee) && (
-                      <option value={assignee}>{actorName(node.assignee)}</option>
-                    )}
-                  {candidates.map(actor => (
-                    <option key={`${actor.type}:${actor.id}`} value={`${actor.type}:${actor.id}`}>
-                      {actor.display_name ?? actor.id}
-                    </option>
-                  ))}
-                </select>
+                {t("tasks.result")}
+                <textarea
+                  ref={resultRef}
+                  rows={3}
+                  placeholder={t("tasks.resultPlaceholder")}
+                  value={result}
+                  onChange={e => setResult(e.target.value)}
+                />
+              </label>
+            ) : (
+              <button
+                type="button"
+                className="tasks-edit-add-btn"
+                onClick={() => {
+                  setAddingResult(true);
+                  requestAnimationFrame(() => resultRef.current?.focus());
+                }}
+              >
+                {t("tasks.addResult")}
+              </button>
+            )}
+
+            {needsReworkReason && (
+              <label>
+                {t("tasks.reworkReasonLabel")}
+                <input
+                  value={note}
+                  onChange={e => setNote(e.target.value)}
+                  placeholder={t("tasks.reworkPlaceholder")}
+                />
               </label>
             )}
-            <p className="tasks-detail-note">{t("tasks.membersOnly")}</p>
-            {graph && (
-              <label>
-                {t("tasks.changeNote")}
-                <input value={note} onChange={e => setNote(e.target.value)} placeholder={t("tasks.reworkRequired")} />
-              </label>
-            )}
+
             {members.isError && <p role="alert">{t("tasks.readFailed")}</p>}
             {error && (
               <p className="tasks-notice" role="alert">
@@ -291,7 +382,7 @@ export function TaskEditor({
               </section>
             )}
             <button
-              className="tasks-button tasks-button--primary"
+              className="tasks-button tasks-button--primary tasks-edit-submit"
               disabled={busy || conflict || !conversationId || !title.trim()}
             >
               {t(latest ? "tasks.retrySave" : "tasks.save")}
