@@ -51,7 +51,7 @@ import {
   type ReplyReference,
   type TimelineItem
 } from "../chat-types";
-import { Avatar, GroupAvatar, colorForAgentSeed, directPersonAvatarName, initialsOf } from "./avatar";
+import { ActorAvatar, Avatar, GroupAvatar, colorForAgentSeed, directPersonAvatarName } from "./avatar";
 import { MENTION_RE, reconstructWireContent, type DraftMention, parseMentions, mentionPlainText, mentionNameMap, mentionDisplayName } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { DirectConversationMenu } from "./direct-conversation-menu";
@@ -1553,7 +1553,7 @@ export function MessagePane({
             submittedMessageId={submittedMessageId} onSend={sendCard} historyProcess={historyProcess}
             onComposeMessage={onComposeMessage} onNavigateMessage={locate} />}
           renderReceipt={message => message.sender_user_id === selfUserId && Boolean(message.receipts?.length) &&
-              <MessageReceipt receipts={message.receipts ?? []} load={historyProcess && (signal => historyProcess.load(message.id,signal))} />}
+              <MessageReceipt participants={conversation.participants} receipts={message.receipts ?? []} load={historyProcess && (signal => historyProcess.load(message.id,signal))} />}
           onClose={() => {
             const origin = document.getElementById(`chat-message-${openThreadId}`);
             setOpenThreadId(null);
@@ -1828,7 +1828,8 @@ function ContextMenu({
   );
 }
 
-function MessageReceipt({ receipts: cached, load }: {
+function MessageReceipt({ receipts: cached, load, participants }: {
+  participants: Actor[] | undefined;
   receipts: NonNullable<Message["receipts"]>;
   load?: (signal: AbortSignal) => Promise<Message>;
 }) {
@@ -1892,13 +1893,14 @@ function MessageReceipt({ receipts: cached, load }: {
           <Dialog.Title className="sr-only">{t(`chat.messagePane.receipt.${status}`)}</Dialog.Title>
         <span className="grid gap-1 px-3 py-2">
           {receipts.map(receipt => {
+            const recipient = participants?.find(actor => (actor.user_id ?? actor.id) === receipt.recipient_id);
             const Mark = receipt.status === "sent" ? Check : CheckCheck;
             const tint = receipt.status === "read"
               ? "bg-[var(--im-accent-soft)] text-[var(--im-accent-2)]"
               : "bg-[var(--im-surface-2)] text-[var(--im-text-muted)]";
             return (
               <span key={receipt.recipient_id} className="flex min-h-8 items-center gap-2">
-                <Avatar initials={initialsOf(receipt.display_name)} color={colorForAgentSeed(receipt.display_name)} size={24} />
+                <ActorAvatar actor={recipient ?? { type: "user", id: receipt.recipient_id, display_name: receipt.display_name }} size={24} />
                 <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--im-text)]">{receipt.display_name}</span>
                 <span className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${tint}`}>
                   <Mark size={12} strokeWidth={1.9} />
@@ -1987,9 +1989,7 @@ function MessageBubble({
   const isHuman = message.sender.type === "user";
   const isUser = isHuman && (message.sender.id === selfUserId || message.sender_user_id === selfUserId);
   const isAgent = message.sender.type === "agent";
-  const initials = initialsOf(message.sender.display_name ?? message.sender.id);
   const ts = formatHM(message.created_at);
-  const senderColor = colorForAgentSeed(message.sender.display_name ?? message.sender.id);
   const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
   const statusAlign = isUser ? "justify-end" : "justify-start";
   const deliveryStatus = message.delivery_status;
@@ -2140,9 +2140,7 @@ function MessageBubble({
     : null;
 
   const messageAvatar = <span className="chat-bubble-avatar" data-testid={`message-avatar-${message.id}`}>
-    <Avatar initials={initials} color={senderColor} size={30}
-      agentId={isAgent && !message.pa_agent_id ? message.sender.id : undefined}
-      personal={isAgent && !message.pa_agent_id && message.sender.role === "personal"} avatarVariant={message.sender.avatar_variant} />
+    <ActorAvatar actor={message.pa_agent_id ? { ...message.sender, type: "user" } : message.sender} size={30} />
   </span>;
 
   if (isSystem) {
@@ -2244,7 +2242,7 @@ function MessageBubble({
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span className="relative inline-flex items-center gap-1">
             <time className={repeatedTime ? "chat-time-repeated" : undefined} dateTime={message.created_at} data-testid={`message-timestamp-${message.id}`}>{ts}</time>
-            {isUser && !!message.receipts?.length && <MessageReceipt receipts={message.receipts}
+            {isUser && !!message.receipts?.length && <MessageReceipt participants={participants} receipts={message.receipts}
               load={historyProcess && (signal => historyProcess.load(message.id, signal))} />}
           </span>
           {message.interaction_reply && deliveryStatus === "pending" && <span role="status">{t("chat.interactive.queued")}</span>}

@@ -1,5 +1,5 @@
 import { AssistantPortrait } from "./assistant-portrait";
-import type { Conversation } from "../chat-types";
+import type { Actor, Conversation } from "../chat-types";
 
 /**
  * Shared person and Agent palette, seeded by display name: historical message senders carry
@@ -47,10 +47,18 @@ export function initialsOf(displayName: string): string {
   return trimmed.slice(0, 2).toUpperCase();
 }
 
+/** Render an IM identity with the same portrait and palette across surfaces. */
+export function ActorAvatar({ actor, size }: { actor: Actor; size: number }) {
+  const name = actor.display_name ?? actor.id;
+  return <Avatar size={size} initials={initialsOf(name)} color={colorForAgentSeed(name)}
+    agentId={actor.type === "agent" ? actor.id : undefined}
+    personal={actor.type === "agent" && actor.role === "personal"} avatarVariant={actor.avatar_variant} />;
+}
+
 interface AvatarProps {
-  personal?: boolean;
-  agentId?: string;
-  avatarVariant?: number | null;
+  personal: boolean | undefined;
+  agentId: string | undefined;
+  avatarVariant: number | null | undefined;
   initials: string;
   /** Must be provided by every call site via colorForAgent(). Required to prevent
    *  per-call-site seed divergence — omitting it is a type error. */

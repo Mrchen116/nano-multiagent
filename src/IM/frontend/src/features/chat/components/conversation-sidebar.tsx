@@ -4,7 +4,7 @@ import type { MessageSearchResult } from '../chat-api';
 
 import { useTranslation } from "../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
-import { Avatar, GroupAvatar, colorForAgent, colorForAgentSeed, directPersonAvatarName } from "./avatar";
+import { ActorAvatar, Avatar, GroupAvatar, colorForAgent, colorForAgentSeed, directPersonAvatarName } from "./avatar";
 import { NewConversationMenu } from "./new-conversation-menu";
 import {
   getDistillConversationUnavailableKey,
@@ -372,15 +372,19 @@ export function ConversationSidebar({
         )}
         {search.trim() && searchMessages && !distillMode ? <>
           {searchResult && searchResult.messages.length > 0 ? <li className="chat-search-heading">{t('chat.list.messageResults')}</li> : null}
-          {searchResult?.messages.map(message => <li key={message.message_id}>
+          {searchResult?.messages.map(message => {
+            const chat = searchConversations.find(c => c.id === message.conversation_id);
+            const peer = chat?.participants.find(actor => actor.type === "agent")
+              ?? chat?.participants.find(actor => actor.id !== selfUserId);
+            return <li key={message.message_id}>
             <button type="button" className="chat-sidebar-row chat-search-result" onClick={() => message.thread_root_message_id
               ? onSelectMessage?.(message.conversation_id, message.message_id, message.thread_root_message_id)
               : onSelectMessage?.(message.conversation_id, message.message_id)}>
-              <span className="chat-sidebar-row-avatar">{searchConversations.find(c => c.id === message.conversation_id)?.type === 'group' ? <GroupAvatar groupId={message.conversation_id} size={36} label={t("chat.list.filters.group")} /> : <Avatar initials={message.conversation_name.slice(0, 2)} color={colorForAgentSeed(message.conversation_name)} size={36} />}</span>
+              <span className="chat-sidebar-row-avatar">{chat?.type === 'group' ? <GroupAvatar groupId={message.conversation_id} size={36} label={t("chat.list.filters.group")} /> : <ActorAvatar actor={peer ?? { type: "user", id: message.conversation_id, display_name: message.conversation_name }} size={36} />}</span>
               <span className="chat-sidebar-row-body"><span className="chat-sidebar-row-title-line"><span className="chat-sidebar-row-title">{message.conversation_name}</span><span className="chat-sidebar-row-time">{formatSearchDate(message.created_at)}</span></span>
                 <span className="chat-search-snippet">{message.sender_name}: {highlightMatch(message.snippet, search)}</span></span>
             </button>
-          </li>)}
+          </li>; })}
           {searchLoading ? <li className="chat-sidebar-empty" role="status">{t('chat.list.searchLoading')}</li> : null}
           {searchError ? <li className="chat-sidebar-empty" role="alert">{t('chat.list.searchError')} <button type="button" onClick={() => searchResult?.next_cursor ? loadMore() : setRetrySearch(n => n + 1)}>{t('chat.list.retrySearch')}</button></li> : null}
           {!searchLoading && !searchError && searchResult && !searchResult.messages.length && filtered.length === 0 ? <li className="chat-search-empty">{t('chat.list.noSearchResults')}</li> : null}
