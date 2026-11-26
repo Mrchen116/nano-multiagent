@@ -265,11 +265,11 @@ sequenceDiagram
 
 **Review 驱动方式**：
 - M1 在当前 macOS Apple Silicon 主机上以剥离 `/opt/homebrew/bin` 的洁净 `PATH` 和 `--isolated-root "$WT_ROOT/isolated"` 启动真实 `Crewden.app`（内置官方 Node `24.22.1` 受管运行时），连接隔离 daily 栈，逐项实测：Web 双入口与 Intel Mac 分流说明、零命令行全新绑机与真实对话、同账号已有节点接管、跨账号归属保护（非归属账号不泄露配置/日志/工作区且不静默转移设备）、关闭主窗口后宿主后台接收真人新消息/`@提及`/聊天与 Work 待决权限通知并点击直达、切服保留原服务未确认发送记录且不串台、`>16 MiB` 输出阻断 `WorkSync` 后的主/子执行原生轨迹本机直读、工具卡路径打开与 Finder 定位、免中断任务的 `autostart` 切换、代理/Worker/环境变量/审批模型更新重启与非法配置回滚，以及生成第二个固定测试版本实测 macOS 受管更新复用 `runtime` 缓存与坏包自动回退。
-- M2 通过 Grok Bot `Bbot` 在干净 Windows 10 x64 与 Windows 11 x64 虚拟机上实测从 Web 下载双击安装、应用内绑机与真实回复、与 `feat-781` `Crewden-Setup-x64.exe` 同机并存互不破坏及平滑接管、系统重启后登录托盘自启上线、强杀后台恢复、关闭自启、本机轨迹直读、资源管理器文件定位、「这台电脑」配置与回滚，以及 Windows 受管更新复用 `runtime` 缓存与回退。结束后全量执行 `e2e-down.sh` 与 VM 快照还原。
+- M2 在干净官方 Windows 10 x64 与 Windows 11 x64 Hyper-V 虚拟机（复用 `feat-781` 云端嵌套虚拟化验收架构）上实测从 IM 下载安装、应用内绑机与真实回复、与 `feat-781` `Crewden-Setup-x64.exe` 同机并存互不破坏及平滑接管、系统重启后登录托盘自启上线、强杀后台恢复、关闭自启后重启保持离线、本机轨迹直读、资源管理器文件定位、「这台电脑」配置与回滚，以及 Windows 受管更新复用 `runtime` 缓存与回退。结束后全量销毁回收临时 VM 与隔离 IM 资源。
 
 **验收前置**：
 - macOS Apple Silicon 主机（当前 `air` / `mini` 已具备 `darwin-arm64`、Rust `cargo`/`rustc`、Playwright 与测试模型代理；打包脚本自动从官方源拉取校验 `node-v24.22.1-darwin-arm64`）。
-- Windows 10 x64 与 Windows 11 x64 干净虚拟机（复用 `feat-781` 已落地的 Grok Bot `Bbot` KVM 快照环境及 Windows 候选构建工作流）。
+- Windows 10 x64 与 Windows 11 x64 干净官方评估镜像 Hyper-V 虚拟机（复用 `feat-781` 同构嵌套 Hyper-V 洁净环境及 Windows 候选构建工作流）。
 
 ## Milestones
 
