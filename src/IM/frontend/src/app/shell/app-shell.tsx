@@ -1,7 +1,9 @@
-import { PropsWithChildren } from "react";
-import { Link, NavLink, useMatch } from "react-router-dom";
+import { PropsWithChildren, useEffect } from "react";
+import { Link, NavLink, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
+import { isDesktopClient } from "../../desktop/desktop-context";
+import { DesktopNodeOnboardingBanner } from "../../desktop/desktop-node-onboarding-banner";
 import { useIsMobile } from "../../hooks/use-is-mobile";
 import { useTranslation } from "../../i18n";
 import { listConversations } from "../../features/chat/chat-api";
@@ -26,6 +28,42 @@ export function AppShell({ children }: PropsWithChildren) {
   const isMobileConversation = isMobile && Boolean(conversationMatch);
   const { t } = useTranslation();
   const authed = useAuthStore((s) => Boolean(s.user));
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!isDesktopClient()) return;
+    (window as unknown as { __CREWDEN_SHELL_READY__?: boolean }).__CREWDEN_SHELL_READY__ = true;
+    const onNavigate = (event: Event) => {
+      const target = (event as CustomEvent<string>).detail;
+      if (typeof target === "string" && target.startsWith("/")) {
+        navigate(target);
+      }
+    };
+    window.addEventListener("crewden:navigate", onNavigate);
+    return () => {
+      (window as unknown as { __CREWDEN_SHELL_READY__?: boolean }).__CREWDEN_SHELL_READY__ = false;
+      window.removeEventListener("crewden:navigate", onNavigate);
+    };
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!isDesktopClient()) return;
+    const current_route = `${location.pathname}${location.search}`;
+    void fetch("/desktop/v1/attention", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ current_route }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { navigate_to?: string | null } | null) => {
+        if (data?.navigate_to && data.navigate_to !== current_route) {
+          navigate(data.navigate_to);
+        }
+      })
+      .catch(() => {});
+  }, [location.pathname, location.search, navigate]);
 
   const { data: conversations } = useQuery({
     queryKey: ["chat", "conversations"],
@@ -51,7 +89,10 @@ export function AppShell({ children }: PropsWithChildren) {
           <UserMenu />
         </header>
       )}
-      <main className="im-shell-main">{children}</main>
+      <main className="im-shell-main">
+        {children}
+        <DesktopNodeOnboardingBanner />
+      </main>
       {isMobile && !isMobileConversation && (
         <nav aria-label="mobile" className="im-shell-bottombar">
           <NavLink to="/chat" className="im-shell-bottomtab">

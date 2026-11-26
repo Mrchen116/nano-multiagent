@@ -42,12 +42,20 @@ ALLOWED = {
     },
     "packages/trajectory-ui": {"@nano/product-contracts"},
     "src/IM/frontend": {
+        "@nano/product-contracts",
+        "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/interactive-functions",
         "@nano/product-contracts/capabilities",
         "@nano/product-contracts/agent-lifecycle",
         "@nano/product-contracts/worker-runtimes",
     },
+    "apps/desktop": {
+        "@nano/product-contracts",
+        "@nano/product-contracts/desktop-local",
+        "@nano/product-contracts/worker-runtimes",
+    },
     "apps/im-server": {
+        "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/node-rpc",
         "@nano/product-contracts/interactive-functions",
         "@nano/product-contracts/serialization",
@@ -55,6 +63,7 @@ ALLOWED = {
         "@nano/product-contracts/capabilities",
     },
     "apps/node": {
+        "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/node-rpc",
         "@nano/product-contracts/runtime-rpc",
         "@nano/product-contracts",

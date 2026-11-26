@@ -1,3 +1,4 @@
+import { desktopScopedKey } from "../../desktop/desktop-context";
 import { AuthApiError, refreshTokens, login as loginApi, register as registerApi, logoutApi } from "./auth-api";
 import { useAuthStore, type BrowserSession } from "./auth-store";
 
@@ -8,11 +9,19 @@ export type SessionReadiness =
   | { status: "signed_out" };
 const refreshFlights = new Map<number, Promise<SessionReadiness>>();
 let channel: BroadcastChannel | undefined;
+let channelName: string | undefined;
 const SESSION_CHANGE_KEY = 'im_session_changed_at_v1';
 
+function sessionChangeStorageKey() {
+  return desktopScopedKey(SESSION_CHANGE_KEY);
+}
+
 function sessionChannel() {
-  if (!channel) {
-    channel = new BroadcastChannel("im-session");
+  const expectedName = desktopScopedKey("im-session");
+  if (!channel || channelName !== expectedName) {
+    channel?.close();
+    channelName = expectedName;
+    channel = new BroadcastChannel(expectedName);
     channel.onmessage = ({ data }) => {
       if (data !== "login" && data !== "logout") return;
       useAuthStore.getState().clear();
@@ -30,14 +39,14 @@ export function adoptPageSession(session: BrowserSession):boolean {
   sessionChannel();
   // Another tab can change the Cookie while this document downloads its JS,
   // before our BroadcastChannel listener exists. Persist only this fence.
-  if (Number(localStorage.getItem(SESSION_CHANGE_KEY)) > performance.timeOrigin) return false;
+  if (Number(localStorage.getItem(sessionChangeStorageKey())) > performance.timeOrigin) return false;
   useAuthStore.getState().setSession(session,true);
   return true;
 }
 
 async function withSessionLock<T>(operation: () => Promise<T>): Promise<T> {
   sessionChannel();
-  return navigator.locks.request("im-session", operation);
+  return navigator.locks.request(desktopScopedKey("im-session"), operation);
 }
 
 function decodeJwtExpiry(token: string): number | null {
@@ -111,7 +120,7 @@ async function establishSession(operation: () => Promise<BrowserSession>): Promi
     const session = await operation();
     if (useAuthStore.getState().revision !== revision) throw new Error("Session changed");
     useAuthStore.getState().setSession(session, true);
-    localStorage.setItem(SESSION_CHANGE_KEY,String(Date.now()));
+    localStorage.setItem(sessionChangeStorageKey(),String(Date.now()));
     sessionChannel().postMessage("login");
     return session;
   });
@@ -127,7 +136,7 @@ export function logout(): Promise<void> {
   useAuthStore.getState().clear();
   return withSessionLock(async () => {
     await logoutApi();
-    localStorage.setItem(SESSION_CHANGE_KEY,String(Date.now()));
+    localStorage.setItem(sessionChangeStorageKey(),String(Date.now()));
     sessionChannel().postMessage("logout");
   });
 }

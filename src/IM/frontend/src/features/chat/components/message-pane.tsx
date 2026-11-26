@@ -22,6 +22,9 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
+import { isDesktopClient } from "../../../desktop/desktop-context";
+import { WorkspaceAgentContext } from "../../../desktop/use-desktop-local-agents";
+import { DesktopWorkspaceFileLink } from "../../../desktop/workspace-path-actions";
 import { useTranslation } from "../../../i18n";
 import { awaitPendingDiscard, beginSend } from "../interaction-background";
 import { TaskGraphLink } from "../../tasks/task-graph-link";
@@ -2343,6 +2346,9 @@ const MarkdownContent = React.memo(function MarkdownContent({
       const { node: _node, children, href, ...rest } = props;
       const label = getReactNodeText(children);
       if (protectedResourceUrl(href ?? "")) return <AttachmentLink href={href}>{children}</AttachmentLink>;
+      if (isDesktopClient() && /^file:\/\//i.test(href ?? "")) {
+        return <DesktopWorkspaceFileLink href={href}>{children}</DesktopWorkspaceFileLink>;
+      }
       const disposition = classifyChatLink(href ?? "", window.location.href);
       if (disposition === "unsupported") {
         return <span className="im-md-link-unsupported">{children}</span>;
@@ -2512,7 +2518,9 @@ function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, 
   const fallbackAttachments = message.attachments?.map((attachment, index) => ({attachment, index}))
     .filter(({attachment}) => !shownAttachments.has(attachment.url));
 
-  return <>
+  const workspaceOwnerAgentId = message.pa_agent_id ?? (isAgent ? message.sender.id : null);
+
+  return <WorkspaceAgentContext.Provider value={workspaceOwnerAgentId}>
     {message.content && (
       <div
         ref={bodyRef}
@@ -2589,5 +2597,5 @@ function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, 
           onResolved={() => {/* WS event will update the message status */}}
         />
       ))}
-  </>;
+  </WorkspaceAgentContext.Provider>;
 }

@@ -60,6 +60,8 @@ export async function bindDevice(
   configuration: NodeConfiguration,
   options: {
     auto?: boolean;
+    inAppAccessToken?: string;
+    confirmTransfer?: boolean;
     recover?: boolean;
     signal: AbortSignal;
     confirm(text: string): Promise<boolean>;
@@ -83,8 +85,14 @@ export async function bindDevice(
   const post = async <T>(
     action: string,
     payload: unknown,
-    browser = false,
+    browserToken?: string | boolean,
   ): Promise<T> => {
+    const bearerToken =
+      typeof browserToken === "string"
+        ? browserToken
+        : browserToken
+          ? config.im_service.token
+          : undefined;
     for (;;) {
     const response = await fetch(
       new URL("/im/v1/device-binding/" + action, base),
@@ -92,8 +100,8 @@ export async function bindDevice(
         method: "POST",
         headers: {
           "content-type": "application/json",
-          ...(browser
-            ? { authorization: "Bearer " + config.im_service.token }
+          ...(bearerToken
+            ? { authorization: "Bearer " + bearerToken }
             : {}),
         },
         body: JSON.stringify(payload),
@@ -151,7 +159,9 @@ export async function bindDevice(
   if (options.recover) await post("recover-device", credential);
   let state = await post<BindingState>("prepare", credential);
   if (state.state === "awaiting_account") {
-    if (options.auto)
+    if (options.inAppAccessToken)
+      await post("accept", { browser_token: operation.browser_token }, options.inAppAccessToken);
+    else if (options.auto)
       await post("accept", { browser_token: operation.browser_token }, true);
     else {
       const bindingUrl = new URL(operation.bind_url);
@@ -165,7 +175,7 @@ export async function bindDevice(
     }
     while (state.state === "awaiting_account") {
       options.signal.throwIfAborted();
-      await wait(3000, undefined, { signal: options.signal });
+      await wait(options.inAppAccessToken ? 50 : 3000, undefined, { signal: options.signal });
       state = await post<BindingState>("prepare", credential);
     }
   }
@@ -181,8 +191,22 @@ export async function bindDevice(
       `Transfer this device to ${state.target_name} (${state.target_user_id})\nAgents: ${agents.join(", ")}\nAssistant work history transfers with the device. Existing private chats and task graphs remain in their original space.`,
     );
     else options.report(`Connecting this computer to ${state.target_name}…`);
+    if (transfer && options.inAppAccessToken && !options.auto && !options.confirmTransfer) {
+      await post("cancel", credential);
+      await rm(path, { force: true });
+      throw Object.assign(
+        new Error("Device transfer confirmation required"),
+        {
+          code: "transfer_confirmation_required",
+          targetName: state.target_name,
+          targetUserId: state.target_user_id,
+          targetOwner: state.target_owner,
+          agents,
+        },
+      );
+    }
     if (
-      transfer && !options.auto &&
+      transfer && !options.auto && !(options.inAppAccessToken && options.confirmTransfer) &&
       !(await options.confirm(
         process.platform === "win32" ? `将这台电脑、助手及工作记录移交给 ${state.target_name}（${state.target_user_id}）？\n助手：${agents.join(", ")}` : "Type yes to confirm the complete device transfer: ",
       ))

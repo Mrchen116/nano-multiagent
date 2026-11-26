@@ -203,3 +203,100 @@ it("recovers a committed binding after a lost response and preserves the prior o
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it("separates inAppAccessToken binding from explicit device transfer confirmation", async () => {
+  const home = await mkdtemp(join(tmpdir(), "nano-device-inapp-"));
+  const path = join(home, "config.yaml");
+  const challenge = "inapp-challenge";
+  const confirmation = { operation_id: "op2", target_user_id: "u2", epoch: 1, snapshot_hash: "h2" };
+  const snapshot = { agent_profiles: [], channel_manifest_heads: [], agent_channels: [], agent_channel_removals: [] };
+  let state = "awaiting_account";
+  const cancelled: string[] = [];
+
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    const action = req.url!.split("/").at(-1)!;
+    let result: unknown = { state };
+    if (action === "start") {
+      const remote = createPublicKey({
+        key: { kty: "OKP", crv: "X25519", x: Buffer.from(body.public_key, "base64").toString("base64url") },
+        format: "jwk",
+      });
+      const pair = generateKeyPairSync("x25519");
+      const salt = randomBytes(32), nonce = randomBytes(12), aad = { purpose: "device-binding", operation_id: "op2" };
+      const key = Buffer.from(hkdfSync("sha256", diffieHellman({ privateKey: pair.privateKey, publicKey: remote }), salt, "nano-multiagent/device-binding-v1", 32));
+      const cipher = createCipheriv("aes-256-gcm", key, nonce);
+      cipher.setAAD(Buffer.from(canonical(aad)));
+      const ciphertext = Buffer.concat([cipher.update(challenge), cipher.final(), cipher.getAuthTag()]);
+      state = "awaiting_account";
+      result = {
+        operation_id: "op2",
+        operation_token: "op-token",
+        browser_token: "browser-token",
+        bind_url: "http://127.0.0.1/bind",
+        challenge: {
+          aad,
+          ephemeral_public_key: Buffer.from(pair.publicKey.export({ format: "jwk" }).x!, "base64url").toString("base64"),
+          salt: salt.toString("base64"),
+          nonce: nonce.toString("base64"),
+          ciphertext: ciphertext.toString("base64"),
+        },
+      };
+    } else if (action === "accept") {
+      expect(req.headers.authorization).toBe("Bearer desktop-session-token");
+      state = "awaiting_local_confirmation";
+    } else if (action === "prepare") {
+      result = { state, target_name: "Bob", target_user_id: "u2", target_owner: "owner-bob", confirmation, snapshot };
+    } else if (action === "cancel") {
+      cancelled.push(body.operation_id);
+      state = "cancelled";
+    } else if (action === "commit") {
+      state = "committed";
+    } else if (action === "recover") {
+      result = { node_id: "device", owner_id: "owner-bob", runtime_token: "rt-bob", snapshot };
+    }
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify(result));
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as { port: number }).port;
+  try {
+    await writeFile(
+      path,
+      JSON.stringify({
+        node: { node_id: "device", user_id: "owner-alice" },
+        im_service: { url: `http://127.0.0.1:${port}`, token: "old-runtime-token" },
+        agents: [],
+        llm: { default_model: "x", providers: [] },
+      }),
+    );
+    const config = await NodeConfiguration.read(path);
+    await expect(
+      bindDevice(config, {
+        inAppAccessToken: "desktop-session-token",
+        confirmTransfer: false,
+        signal: new AbortController().signal,
+        confirm: async () => true,
+        open: () => { throw new Error("Must not open external browser"); },
+        report: () => {},
+      }),
+    ).rejects.toMatchObject({ code: "transfer_confirmation_required" });
+    expect(cancelled).toEqual(["op2"]);
+
+    const confirmed = await bindDevice(config, {
+      inAppAccessToken: "desktop-session-token",
+      confirmTransfer: true,
+      signal: new AbortController().signal,
+      confirm: async () => false,
+      open: () => { throw new Error("Must not open external browser"); },
+      report: () => {},
+    });
+    expect(confirmed).toEqual({ nodeId: "device", ownerId: "owner-bob" });
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(home, { recursive: true, force: true });
+  }
+});

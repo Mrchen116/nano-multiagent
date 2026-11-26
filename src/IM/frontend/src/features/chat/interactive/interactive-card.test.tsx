@@ -5,7 +5,14 @@ import { InteractionSubmissionError } from './submission-error';
 import { listMessages, readInteractionDraft, saveInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
 import { resetInteractionBackground } from '../interaction-background';
+import { openDesktopExternal } from '../../../desktop/desktop-api';
+import { isDesktopClient } from '../../../desktop/desktop-context';
 vi.mock('../chat-api', () => ({listMessages:vi.fn(),readInteractionDraft: vi.fn(), saveInteractionDraft: vi.fn()}));
+vi.mock('../../../desktop/desktop-api', () => ({ openDesktopExternal: vi.fn(() => Promise.resolve()) }));
+vi.mock('../../../desktop/desktop-context', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../desktop/desktop-context')>();
+  return { ...actual, isDesktopClient: vi.fn(() => false) };
+});
 const message = {id:'card', conversation_id:'chat', content:'确认草稿', interactive:{format:'openui',catalog_version:'nano-iui-1',source:`$body = "周六见"
 root = Col([form])
 form = Form([TextArea($body, "消息草稿", "编辑"), Button("发送给林悦", @SendToChat("发送给林悦"))])`}} as Message;
@@ -181,4 +188,20 @@ it('keeps a Pressable drawing unchanged inside a read-only historical card', asy
   expect(await screen.findByText('数量 1')).toBeVisible();
   expect(send).not.toHaveBeenCalled();
   expect(saveInteractionDraft).not.toHaveBeenCalled();
+});
+
+it('routes @OpenUrl actions through openDesktopExternal when running inside Crewden Desktop', async () => {
+  vi.mocked(isDesktopClient).mockReturnValue(true);
+  vi.mocked(readInteractionDraft).mockResolvedValue({draft_revision:0,state:{},submission_message_id:null});
+  const winOpen = vi.spyOn(window, 'open').mockImplementation(() => null);
+  const source = 'root = Button("查看文档", @OpenUrl("https://crewden.work/docs"))';
+  try {
+    render(<InteractiveCard message={{...message, interactive:{...message.interactive!,source}}} onSend={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', {name: '查看文档'}));
+    await waitFor(() => expect(openDesktopExternal).toHaveBeenCalledWith('https://crewden.work/docs'));
+    expect(winOpen).not.toHaveBeenCalled();
+  } finally {
+    winOpen.mockRestore();
+    vi.mocked(isDesktopClient).mockReturnValue(false);
+  }
 });

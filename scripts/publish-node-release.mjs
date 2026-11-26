@@ -24,6 +24,7 @@ if (!changes || !upgradeNotes) throw new Error('RELEASE_CHANGES and RELEASE_UPGR
 const candidate = JSON.parse(await readFile(join(directory, 'manifest.candidate.json'), 'utf8'));
 const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 const tag = `v${version}`;
+const base = `https://github.com/${repository}/releases/download/${tag}/`;
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 if (candidate.version !== revision || !/^[a-f0-9]{40}$/.test(revision)
   || !/^[a-f0-9]{64}$/.test(candidate.sha256) || candidate.package !== 'nano-node.tgz'
@@ -31,7 +32,7 @@ if (candidate.version !== revision || !/^[a-f0-9]{40}$/.test(revision)
   || candidate.download_url !== `https://github.com/${repository}/releases/download/node-${revision}/nano-node.tgz`)
   throw new Error('Candidate manifest must match this checkout and the fixed public Release asset');
 const manifest = { ...candidate, version, source_commit: revision,
-  download_url: `https://github.com/${repository}/releases/download/${tag}/nano-node.tgz` };
+  download_url: base + 'nano-node.tgz' };
 execFileSync('git', ['diff', '--quiet', 'HEAD', '--'], { cwd: root });
 const archive = join(directory, candidate.package);
 if (hash(await readFile(archive)) !== candidate.sha256) throw new Error('Candidate package checksum does not match');
@@ -39,21 +40,23 @@ const metadata = JSON.parse(execFileSync('tar', ['-xOf', archive, './.nano-relea
 if (metadata.source_commit !== revision || metadata.updater_protocol !== 1 || metadata.data_epoch !== 1
     || candidate.source_commit !== revision || candidate.updater_protocol !== 1 || candidate.data_epoch !== 1)
   throw new Error('Candidate package metadata does not match the source and updater protocol');
-// Windows metadata already names the formal version because its descriptor is itself hashed.
+
+async function checksum(path) {
+  const digest = createHash('sha256');
+  for await (const chunk of createReadStream(path)) digest.update(chunk);
+  return digest.digest('hex');
+}
+
+// Windows lightweight node metadata already names the formal version because its descriptor is itself hashed.
 const windowsName = 'manifest.win32-x64.json';
 const windowsDirectory = join(directory, 'windows');
 const windowsPath = join(windowsDirectory, windowsName);
 const windows = existsSync(windowsPath) ? JSON.parse(await readFile(windowsPath, 'utf8')) : null;
 if (!windows && existsSync(join(root, 'scripts/build-windows-installer.ps1')))
   throw new Error('The selected source requires its matching Windows build');
-const windowsAssets = [];
-async function checksum(path) {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
-  return hash.digest('hex');
-}
+const extraAssets = [];
+const promotedManifests = [];
 if (windows) {
-  const base = `https://github.com/${repository}/releases/download/${tag}/`;
   if (windows.package !== 'windows-x64.json' || windows.platform !== 'win32-x64'
       || windows.version !== version || windows.source_commit !== revision
       || windows.updater_protocol !== 1 || windows.data_epoch !== 1
@@ -70,9 +73,62 @@ if (windows) {
     const path = join(windowsDirectory, name);
     if ((await stat(path)).size !== asset.size || await checksum(path) !== asset.sha256)
       throw new Error(`Windows asset failed size or SHA-256 verification: ${name}`);
-    windowsAssets.push({name, path, url: base + name, sha256: asset.sha256});
+    extraAssets.push({name, path, url: base + name, sha256: asset.sha256});
   }
+  promotedManifests.push({name: windowsName, payload: windows});
 }
+
+const desktopSpecs = [
+  {
+    platform: 'desktop-darwin-arm64',
+    subdir: 'desktop-darwin-arm64',
+    manifestName: 'manifest.desktop-darwin-arm64.json',
+    descriptorName: 'desktop-darwin-arm64.json',
+    installerName: 'Crewden-Desktop-arm64.dmg',
+    runtimeName: 'desktop-runtime-darwin-arm64.tar.gz',
+    appName: 'desktop-app-darwin-arm64.tar.gz',
+    scriptGate: 'scripts/package-macos-desktop.py',
+  },
+  {
+    platform: 'desktop-win32-x64',
+    subdir: 'desktop-win32-x64',
+    manifestName: 'manifest.desktop-win32-x64.json',
+    descriptorName: 'desktop-win32-x64.json',
+    installerName: 'Crewden-Desktop-Setup-x64.exe',
+    runtimeName: 'desktop-runtime-win32-x64.tar.gz',
+    appName: 'desktop-app-win32-x64.tar.gz',
+    scriptGate: 'scripts/build-desktop-windows.ps1',
+  },
+];
+
+for (const spec of desktopSpecs) {
+  const sub = join(directory, spec.subdir);
+  const mPath = join(sub, spec.manifestName);
+  const dm = existsSync(mPath) ? JSON.parse(await readFile(mPath, 'utf8')) : null;
+  if (!dm && existsSync(join(root, spec.scriptGate)))
+    throw new Error(`The selected source requires its matching Desktop build (${spec.platform})`);
+  if (!dm) continue;
+  if (dm.package !== spec.descriptorName || dm.platform !== spec.platform
+      || dm.version !== version || dm.source_commit !== revision
+      || dm.updater_protocol !== 1 || dm.data_epoch !== 1 || dm.shell_protocol !== 1
+      || dm.node_major !== 24 || dm.pnpm_version !== '11.7.0'
+      || dm.download_url !== base + dm.package || dm.installer?.download_url !== base + spec.installerName)
+    throw new Error(`Desktop candidate (${spec.platform}) does not match the requested release`);
+  const descriptor = JSON.parse(await readFile(join(sub, dm.package), 'utf8'));
+  if (descriptor.version !== version || descriptor.source_commit !== revision
+      || descriptor.updater_protocol !== 1 || descriptor.data_epoch !== 1 || descriptor.shell_protocol !== 1
+      || descriptor.runtime?.name !== spec.runtimeName || descriptor.app?.name !== spec.appName)
+    throw new Error(`Desktop descriptor (${spec.platform}) has an incompatible source or asset layout`);
+  for (const [name, asset] of [[dm.package, dm], [spec.installerName, dm.installer],
+      [descriptor.runtime.name, descriptor.runtime], [descriptor.app.name, descriptor.app]]) {
+    const path = join(sub, name);
+    if ((await stat(path)).size !== asset.size || await checksum(path) !== asset.sha256)
+      throw new Error(`Desktop asset failed size or SHA-256 verification: ${name}`);
+    extraAssets.push({name, path, url: base + name, sha256: asset.sha256});
+  }
+  promotedManifests.push({name: spec.manifestName, payload: dm});
+}
+
 const visibility = execFileSync('gh', ['repo', 'view', repository, '--json', 'visibility', '--jq', '.visibility'], { encoding: 'utf8' }).trim();
 if (visibility !== 'PUBLIC') throw new Error('Installer releases require a public repository');
 const notes = [
@@ -82,16 +138,16 @@ const notes = [
     `- 安装包 [${candidate.package}](${manifest.download_url})`,
     `- 源码提交 [\`${revision}\`](https://github.com/${repository}/commit/${revision})`,
     `- SHA-256 \`${candidate.sha256}\``,
-    ...windowsAssets.map(({name, url, sha256}) => `- [${name}](${url}) SHA-256 \`${sha256}\``),
+    ...extraAssets.map(({name, url, sha256}) => `- [${name}](${url}) SHA-256 \`${sha256}\``),
   ].join('\n'),
 ].join('\n\n');
 // gh release create fails if this tag already has a Release; never use upload --clobber.
-execFileSync('gh', ['release', 'create', tag, archive, ...windowsAssets.map(asset => asset.path), '--repo', repository, '--target', revision,
+execFileSync('gh', ['release', 'create', tag, archive, ...extraAssets.map(asset => asset.path), '--repo', repository, '--target', revision,
   '--title', `Nano Node v${version}`, '--notes', notes, '--latest=false'], { stdio: 'inherit' });
 const temporary = await mkdtemp(join(directory, '.verify-'));
 try {
   // Disable curl config so publisher credentials cannot mask anonymous access failures.
-  for (const asset of [{name: candidate.package, url: manifest.download_url, sha256: candidate.sha256}, ...windowsAssets]) {
+  for (const asset of [{name: candidate.package, url: manifest.download_url, sha256: candidate.sha256}, ...extraAssets]) {
     const downloaded = join(temporary, asset.name);
     execFileSync('curl', ['--disable', '--fail', '--location', '--silent', '--show-error', '--retry', '2',
       '--proto', '=https', '--proto-redir', '=https', asset.url, '-o', downloaded], { stdio: 'inherit' });
@@ -101,9 +157,9 @@ try {
   const verified = join(temporary, 'manifest.json');
   await writeFile(verified, JSON.stringify(manifest, null, 2) + '\n');
   await rename(verified, join(directory, 'manifest.json'));
-  if (windows) {
-    await writeFile(join(temporary, windowsName), JSON.stringify(windows, null, 2) + '\n');
-    await rename(join(temporary, windowsName), join(directory, windowsName));
+  for (const item of promotedManifests) {
+    await writeFile(join(temporary, item.name), JSON.stringify(item.payload, null, 2) + '\n');
+    await rename(join(temporary, item.name), join(directory, item.name));
   }
   console.log(`Verified IM manifest ready: ${join(directory, 'manifest.json')}`);
 } finally {

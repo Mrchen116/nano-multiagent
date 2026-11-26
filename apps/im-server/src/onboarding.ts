@@ -19,14 +19,14 @@ function setupStatus(value: Row) {
 }
 
 /** Bridge first-run setup to the currently owned node over its existing connection. */
-export function registerOnboardingRoutes(app: FastifyInstance, ctx: ImContext, releaseDirectory: string) {
+export function registerOnboardingRoutes(app: FastifyInstance, ctx: ImContext, releaseDirectory: string, iosDownloadUrl?: string) {
   const revisions = new WeakMap<object,string>();
   app.get('/im/v1/onboarding', req => {
     const user = ctx.identity.authenticateRequest(req);
     return {
       nodes: all(ctx.db, 'SELECT node_id,node_name,alias,status FROM nodes WHERE owner_id=? ORDER BY rowid', user.owner_id),
       agents: all(ctx.db, 'SELECT agent_id,display_name,node_id,default_model,workspace_root,work_mode FROM agent_profiles WHERE owner_id=? AND is_stale=0 ORDER BY rowid', user.owner_id),
-      install: installMaterials(ctx.publicUrl, releaseDirectory),
+      install: installMaterials(ctx.publicUrl, releaseDirectory, iosDownloadUrl),
     };
   });
   app.post('/im/v1/nodes/:node_id/setup', async req => {

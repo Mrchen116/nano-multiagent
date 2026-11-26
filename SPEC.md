@@ -4,7 +4,7 @@
 
 nano-multiagent 面向以 IM 为协作与工作主体的组织级 Agent 平台，由真人、各自的 PA 和承担专业职能的数字员工共同工作；长期职责、主动性、并行工作与记忆的产品方向见 [产品愿景](docs/product/vision.md)。本文定义当前跨包架构与执行边界。
 
-系统提供常驻 Agent 和独立 IM 中心。用户从 Web IM、原生 iPhone App 或飞书与数字人交互。数字人由配置定义，拥有身份、workspace、模型和能力；PA 的个人服务角色复用 Global 执行模式，内部 subagent 是一次工作的执行单元，不是新的公司成员。
+系统提供常驻 Agent 和独立 IM 中心。用户从 Web IM、Crewden Desktop 桌面端、原生 iPhone App 或飞书与数字人交互。数字人由配置定义，拥有身份、workspace、模型和能力；PA 的个人服务角色复用 Global 执行模式，内部 subagent 是一次工作的执行单元，不是新的公司成员。
 
 DSH 是产品主 Agent 执行运行时，以未修改的官方包启动在每个节点的受管子进程中。版本由 pnpm lockfile 锁定；当前为 `0.2.2-rc.5`。Nano 不维护第二套 Agent Loop，不复制 DSH 执行运行时源码，不导入其私有实现。浏览器轨迹 UI 的单包分叉例外见下文。旧 Python `agent`、`coding_cli`、`personal_assistant` 和 Python IM 后端已退役，旧文档见 [历史入口](docs/archive/pre-dsh-581/README.md)。
 
@@ -15,7 +15,9 @@ DSH 是产品主 Agent 执行运行时，以未修改的官方包启动在每个
 ```mermaid
 flowchart TD
   Web[Web IM / 原生 iPhone] -->|HTTP / WS| IM[TypeScript IM 中心]
-  IM <-->|设备认证 WS / HTTP| Node[用户机器：TypeScript Node]
+  Desktop[Crewden Desktop 宿主] -->|非浏览器 JSON 会话 HTTP / WS| IM
+  Desktop <-->|同用户本地 IPC / local-admin| Node[用户机器：TypeScript Node]
+  IM <-->|设备认证 WS / HTTP| Node
   Feishu[飞书] <-->|平台长连接 / API| Channels[Channels]
   Channels <--> Node
   Node <-->|stdio JSON RPC| DSH[普通 Agent 共享 DSH host；PA 按 binding/epoch 隔离]
@@ -31,7 +33,8 @@ flowchart TD
 | 包 / 目录 | 唯一职责 |
 |---|---|
 | `apps/im-server` | HTTP/WS、账号与私人/公司资源空间授权、聊天及媒体授权、节点绑定、配置 operation、通道 desired state、任务图、Work 与用量投影 |
-| `apps/node` | CLI 与 macOS 生命周期、节点配置与设备凭据、provider 目录、产品和运行时装配、DSH 进程监管 |
+| `apps/desktop` | Tauri v2 原生桌面宿主：本地同源回环网关、独立后台用户事件流与系统原生通知/角标守护、菜单栏/托盘与登录自启协调、按 `owner_id` 门禁桥接本机 `apps/node` 的状态/配置/轨迹直读与工作区安全定位 |
+| `apps/node` | CLI 与本机生命周期、节点配置与设备凭据、本机管理桥接、provider 目录、产品和运行时装配、DSH 进程监管 |
 | `packages/product-contracts` | 与执行运行时无关的产品数据、配置指纹和端口契约 |
 | `packages/channels` | Web relay 传输、飞书收发、通道密文与平台身份 |
 | `packages/personal-assistant` | Inbox、单聊天/global 路由、群发言边界、durable handoff、结果投递、外部镜像、配置恢复与主动工作策略 |
@@ -53,6 +56,7 @@ Node 仅通过 `@nano/dsh-integration/client` 管理 stdio 进程客户端；产
 ## 依赖方向
 
 - IM 只依赖 product-contracts，不导入 Node、PA、Channels 或 DSH。
+- Desktop 宿主只依赖 product-contracts（若包含前端/辅助 TS），经本地 IPC / CLI 与 Node 交互，不导入 Node、PA、Channels、IM 或 DSH。
 - PA 只依赖 product-contracts 与 Channels；Channels 只依赖 product-contracts。
 - Node 装配 PA、Channels、product-contracts 与 integration 的公开进程 client。
 - 服务端只有 integration 可以导入 `@deepseek-ai/*`，且必须是已声明依赖的公开 exports。它不导入 PA、Channels 或 IM。

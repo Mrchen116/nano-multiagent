@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link, Navigate } from 'react-router-dom';
+import { Link, Navigate, useLocation } from 'react-router-dom';
 import * as Dialog from '@radix-ui/react-dialog';
-import { ArrowRight, Check, Clock3, FileText, GitBranch, Play, Sparkles, X } from 'lucide-react';
+import { ArrowRight, Check, Clock3, FileText, GitBranch, Sparkles, X } from 'lucide-react';
 import { NanoBrand } from '../../app/shell/nano-brand';
 import { useTranslation } from '../../i18n';
 import { ProductHeader } from './product-header';
 import { ProductStorySections } from './product-story';
+import { HeroDownloadActions, PublicDownloadSection, usePublicInstallMaterials } from './public-download-section';
 import { accountEnabled, useAuthStore } from '../auth/auth-store';
 import './public-home.css';
 
@@ -15,12 +16,24 @@ const roles = ['personal', 'engineering', 'quality'] as const;
 /** Present the public product story while preserving returning users' entry route. */
 export function PublicHomePage({ restoreSession = false }: { restoreSession?: boolean }) {
   const { t } = useTranslation();
+  const location = useLocation();
   const text = (key: string) => t(`crewdenHome.${key}`);
   const [stage, setStage] = useState(2);
   const user = useAuthStore(s => s.user);
   const hydrated = useAuthStore(s => s.hydrated);
+  const { materials } = usePublicInstallMaterials();
   const scene = (key: string) => text(`scenes.${stages[stage]}.${key}`);
   useEffect(() => { if (restoreSession && !hydrated) void useAuthStore.getState().hydrate(); }, [restoreSession, hydrated]);
+  useEffect(() => {
+    if (!location.hash) return;
+    const targetId = location.hash.slice(1);
+    if (!targetId) return;
+    const el = document.getElementById(targetId);
+    if (el && typeof el.scrollIntoView === 'function') {
+      const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ behavior: reduced ? 'instant' : 'smooth', block: 'start' });
+    }
+  }, [location.hash]);
   if (restoreSession && hydrated && user) return <Navigate to={accountEnabled(user) ? '/chat' : '/membership'} replace />;
 
   function watch() {
@@ -38,10 +51,7 @@ export function PublicHomePage({ restoreSession = false }: { restoreSession?: bo
           <h1 id="home-title">{text('titleFirst')}<br />{text('titleSecond')}</h1>
           <p className="crew-product-definition">{text('definition')}</p>
           <p className="crew-lead">{text('intro')}</p>
-          <div className="crew-actions">
-            <Link className="crew-primary" to="/register">{t('auth.register.submit')}</Link>
-            <button className="crew-watch" onClick={watch}><Play />{text('watch')}</button>
-          </div>
+          <HeroDownloadActions materials={materials} onWatch={watch} />
           <div className="crew-controls" id="product-demo">
             <p>{text('scenario')}</p>
             <div className="crew-steps" role="group" aria-label={text('navigation')}>
@@ -101,9 +111,10 @@ export function PublicHomePage({ restoreSession = false }: { restoreSession?: bo
           </div>
         </div>
       </section>
+      <PublicDownloadSection materials={materials} />
       <ProductStorySections />
     </main>
-    <footer className="crew-footer"><Link to="/about" aria-label={t('publicHome.home')}><NanoBrand /></Link><span>{text('footer')}</span><a href="#questions">{t('crewdenStory.nav.faq')}</a><Link to="/login">{t('publicHome.signIn')}</Link></footer>
+    <footer className="crew-footer"><Link to="/about" aria-label={t('publicHome.home')}><NanoBrand /></Link><span>{text('footer')}</span><a href="#download">{t('crewdenStory.nav.download')}</a><a href="#questions">{t('crewdenStory.nav.faq')}</a><Link to="/login">{t('publicHome.signIn')}</Link></footer>
   </div>;
 }
 

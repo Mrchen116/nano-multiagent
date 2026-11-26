@@ -13,7 +13,8 @@ const projection = (r: Row): NodeUpdateOperation => ({ id: r.id, request_id: r.r
   cancel_requested: !!r.cancel_requested, relay_gated: !!r.relay_gated, updated_at: r.updated_at,
   ...(r.error_code ? { error_code: r.error_code } : {}) });
 const sameRelease = (a: NodeRelease | null, b: Row) => a?.kind === 'managed' && a.platform === b.platform && a.sha256 === b.sha256
-  && a.source_commit === (b.source_commit ?? b.version) && a.version === b.version;
+  && a.source_commit === (b.source_commit ?? b.version) && a.version === b.version
+  && (b.shell_protocol === undefined || a.shell_protocol === b.shell_protocol);
 
 /** Owns authorization and relay handoff facts; the user's computer owns installation. */
 export class NodeUpdates {
@@ -33,7 +34,8 @@ export class NodeUpdates {
   /** Persist only the authenticated connection's declared installation identity. */
   register(id: Identity, value: unknown) {
     const v = value as NodeRelease | undefined;
-    const release = v && ['managed', 'source'].includes(v.kind) && typeof v.version === 'string'
+    const validShell = v?.shell_protocol === undefined || (Number.isInteger(v.shell_protocol) && Number(v.shell_protocol) >= 1);
+    const release = v && validShell && ['managed', 'source'].includes(v.kind) && typeof v.version === 'string'
       && (v.kind === 'source' || typeof v.sha256 === 'string' && /^[a-f0-9]{64}$/.test(v.sha256)
         && typeof v.source_commit === 'string' && /^[a-f0-9]{40}$/.test(v.source_commit)) ? v : null;
     this.ctx.db.prepare('INSERT INTO node_installations VALUES(?,?,?,?,?) ON CONFLICT(node_id) DO UPDATE SET owner_id=excluded.owner_id,node_epoch=excluded.node_epoch,release_json=excluded.release_json,updated_at=excluded.updated_at')
@@ -54,7 +56,8 @@ export class NodeUpdates {
     else if (!target) reason = 'unpublished';
     else if (!this.ctx.gateway.isOnline(node.node_id)) reason = 'offline';
     else if (sameRelease(current, target)) reason = 'current';
-    else if (target.updater_protocol !== 1 || target.data_epoch !== current?.data_epoch) reason = 'incompatible';
+    else if (target.updater_protocol !== 1 || target.data_epoch !== current?.data_epoch
+      || (target.shell_protocol !== undefined && target.shell_protocol !== current?.shell_protocol)) reason = 'incompatible';
     else reason = 'available';
     return { installation, current, target, operation, reason, available: reason === 'available',
       install_command: current?.platform === undefined ? unixInstallCommand(this.ctx.publicUrl) : '' };

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
+import { DesktopServerBar } from "../../desktop/desktop-server-bar";
 import { getCurrentLanguage, useTranslation } from "../../i18n";
 import { AuthApiError } from "./auth-api";
 import { AuthPasswordField, AuthTextField } from "./auth-form-fields";
@@ -113,6 +114,7 @@ export function RegisterPage() {
         </>
       }
     >
+      <DesktopServerBar />
       <form className="im-auth-form" onSubmit={handleSubmit} noValidate aria-describedby={cooldown.remaining > 0 || formError ? "auth-feedback" : undefined}>
         <AuthTextField
           id="username"

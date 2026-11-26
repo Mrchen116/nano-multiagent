@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="44" height="44">
+  <title>Crewden Menu Bar Template — Monochrome Cut-out Wink Bubble</title>
+  <defs>
+    <mask id="wink-cutout">
+      <rect width="100" height="100" fill="#FFFFFF"/>
+      <g transform="translate(51 49) rotate(-9) translate(-50 -50)">
+        <rect x="32" y="32.5" width="13" height="20" rx="6.5" fill="#000000"/>
+        <path d="M 55,44.5 Q 63,34 71,44.5" fill="none" stroke="#000000" stroke-width="9.5" stroke-linecap="round"/>
+      </g>
+    </mask>
+  </defs>
+  <g mask="url(#wink-cutout)" transform="translate(51 49) rotate(-9) translate(-50 -50)">
+    <path fill="#000000" d="M 33,12 H 67 C 82.5,12 91,20.5 91,36 V 52 C 91,67.5 82.5,76 67,76 H 44 L 23.5,90.5 C 20.6,92.5 17,90.4 17,86.9 V 73.2 C 11.2,68.8 9,61.5 9,52 V 36 C 9,20.5 17.5,12 33,12 Z"/>
+  </g>
+</svg>

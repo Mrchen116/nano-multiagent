@@ -1,5 +1,6 @@
 import { LongOutput } from "./tool-long-output";
 import { useTranslation } from "../../../i18n";
+import { WorkspacePathActions } from "../../../desktop/workspace-path-actions";
 import type { ToolCall } from "../chat-types";
 
 type RecordValue = Record<string, unknown>;
@@ -31,19 +32,25 @@ export function NativeToolDetail({ call }: {call: ToolCall}) {
   </div>;
   const rawInput = pending.rawInput ?? (Object.keys(pending).length === 0 ? call.input : undefined);
   const title = text(view.title) || text(pending.title);
+  const inputRecord = record(call.input);
+  const genericFilePath =
+    call.status !== "failed" &&
+    (call.name === "write" || call.name === "edit" || call.name === "read")
+      ? text(view.path) || text(pending.path) || text(inputRecord.file_path) || text(inputRecord.path)
+      : "";
   let result;
   if (call.status === "failed") result = body && renderText(body);
   else if (view.card === "diff" && Array.isArray(view.diffs)) result = records(view.diffs).map((diff, index) => <div key={index}>
-    <p><code>{text(diff.path)}</code></p>
+    <div className="desktop-path-row"><code>{text(diff.path)}</code><WorkspacePathActions path={text(diff.path)} /></div>
     {renderText([...(diff.oldText == null ? [] : text(diff.oldText).split("\n").map(line => `- ${line}`)), ...text(diff.newText).split("\n").map(line => `+ ${line}`)].join("\n"))}
   </div>);
   else if (view.card === "read" && Array.isArray(view.lines)) result = <>
-    <p><code>{text(view.path)}</code>{typeof view.totalLines === "number" && <small> · {records(view.lines).length ? `${view.offset}–${records(view.lines).at(-1)?.number}` : "0"} / {view.totalLines}</small>}</p>
+    <div className="desktop-path-row"><span><code>{text(view.path)}</code>{typeof view.totalLines === "number" && <small> · {records(view.lines).length ? `${view.offset}–${records(view.lines).at(-1)?.number}` : "0"} / {view.totalLines}</small>}</span><WorkspacePathActions path={text(view.path)} /></div>
     {renderText(records(view.lines).map(line => `${line.number}  ${text(line.text)}`).join("\n"))}
   </>;
   else if (view.card === "search" && (Array.isArray(view.files) || Array.isArray(view.paths))) result = <>
     {typeof view.total === "number" && <p>{view.total} {t("agents.work.匹配", {defaultValue:"匹配"})}</p>}
-    {view.shape === "paths" ? renderText((view.paths as string[]).join("\n")) : records(view.files).map((file, index) => <div key={index}><code>{text(file.path)}</code>{renderText(records(file.matches).map(match => `${match.lineNumber}  ${text(match.line)}`).join("\n"))}</div>)}
+    {view.shape === "paths" ? renderText((view.paths as string[]).join("\n")) : records(view.files).map((file, index) => <div key={index}><div className="desktop-path-row"><code>{text(file.path)}</code><WorkspacePathActions path={text(file.path)} /></div>{renderText(records(file.matches).map(match => `${match.lineNumber}  ${text(match.line)}`).join("\n"))}</div>)}
     {capped}
   </>;
   else if (view.card === "web" && view.kind === "search" && Array.isArray(view.sources)) result = <>
@@ -55,7 +62,10 @@ export function NativeToolDetail({ call }: {call: ToolCall}) {
     <p><a href={text(view.url)} target="_blank" rel="noreferrer">{text(view.url)}</a>{typeof view.statusCode === "number" && <small> · HTTP {view.statusCode}</small>}</p>
     {body && renderText(body)}{capped}
   </>;
-  else result = body && renderText(body);
+  else result = <>
+    {genericFilePath && <div className="desktop-path-row"><code>{genericFilePath}</code><WorkspacePathActions path={genericFilePath} /></div>}
+    {body && renderText(body)}
+  </>;
   return <div className="chat-native-tool-detail">
     {title && title !== rawInput && <strong>{title}</strong>}
     {rawInput != null && renderText(typeof rawInput === "string" ? rawInput : JSON.stringify(rawInput, null, 2))}

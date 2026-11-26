@@ -81,6 +81,87 @@ it('serves independently verified Windows materials for the configured origin an
   expect((await app.inject({ url: '/im/v1/onboarding', headers })).json().install.windows_x64).toBeNull();
 });
 
+it('serves Desktop macOS arm64 and Windows x64 materials side-by-side with lightweight installers', async () => {
+  const { app, headers, dir } = await fixture(true);
+  const base = manifest.download_url.slice(0, manifest.download_url.lastIndexOf('/') + 1);
+  const macDesktop = {
+    ...manifest,
+    platform: 'desktop-darwin-arm64',
+    package: 'desktop-darwin-arm64.json',
+    download_url: base + 'desktop-darwin-arm64.json',
+    size: 1024,
+    updater_protocol: 1,
+    data_epoch: 1,
+    shell_protocol: 1,
+    installer: { download_url: base + 'Crewden-Desktop-arm64.dmg', size: 16384, sha256: 'd'.repeat(64) },
+  };
+  const winDesktop = {
+    ...manifest,
+    platform: 'desktop-win32-x64',
+    package: 'desktop-win32-x64.json',
+    download_url: base + 'desktop-win32-x64.json',
+    size: 1024,
+    updater_protocol: 1,
+    data_epoch: 1,
+    shell_protocol: 1,
+    installer: { download_url: base + 'Crewden-Desktop-Setup-x64.exe', size: 24576, sha256: 'e'.repeat(64) },
+  };
+  expect((await app.inject('/install/manifest.desktop-darwin-arm64.json')).statusCode).toBe(503);
+  expect((await app.inject('/install/manifest.desktop-win32-x64.json')).statusCode).toBe(503);
+
+  writeFileSync(join(dir, 'manifest.desktop-darwin-arm64.json'), JSON.stringify(macDesktop));
+  writeFileSync(join(dir, 'manifest.desktop-win32-x64.json'), JSON.stringify(winDesktop));
+
+  const state = await app.inject({ url: '/im/v1/onboarding', headers: { ...headers, host: 'attacker.example' } });
+  expect(state.json().install).toMatchObject({
+    available: true,
+    desktop_darwin_arm64: {
+      download_url: macDesktop.installer.download_url,
+      connect_url: 'crewden-desktop://connect?origin=https%3A%2F%2Fnano.example',
+      version: macDesktop.version,
+    },
+    desktop_win32_x64: {
+      download_url: winDesktop.installer.download_url,
+      connect_url: 'crewden-desktop://connect?origin=https%3A%2F%2Fnano.example',
+      version: winDesktop.version,
+    },
+  });
+  expect((await app.inject('/install/manifest.desktop-darwin-arm64.json')).json()).toEqual(macDesktop);
+  expect((await app.inject('/install/manifest.desktop-win32-x64.json')).json()).toEqual(winDesktop);
+
+  const publicInstall = await app.inject({ url: '/im/v1/public/install', headers: { host: 'attacker.example' } });
+  expect(publicInstall.statusCode).toBe(200);
+  expect(publicInstall.headers['cache-control']).toBe('no-store');
+  expect(publicInstall.body).not.toContain('attacker');
+  expect(publicInstall.json()).toMatchObject({
+    available: true,
+    origin: 'https://nano.example',
+    desktop_darwin_arm64: { download_url: macDesktop.installer.download_url, version: macDesktop.version },
+    desktop_win32_x64: { download_url: winDesktop.installer.download_url, version: winDesktop.version },
+    ios: null,
+  });
+
+  const iosApp = await createServer({
+    dbPath: join(dir, 'im-ios.sqlite3'),
+    publicUrl: 'https://nano.example',
+    nodeReleaseDir: dir,
+    iosDownloadUrl: 'https://testflight.apple.com/join/crewden',
+  });
+  closers.push(async () => { await iosApp.close(); });
+  expect((await iosApp.inject('/im/v1/public/install')).json().ios).toEqual({
+    download_url: 'https://testflight.apple.com/join/crewden',
+  });
+
+  const insecureIosApp = await createServer({
+    dbPath: join(dir, 'im-ios-http.sqlite3'),
+    publicUrl: 'https://nano.example',
+    nodeReleaseDir: dir,
+    iosDownloadUrl: 'http://insecure.example/app',
+  });
+  closers.push(async () => { await insecureIosApp.close(); });
+  expect((await insecureIosApp.inject('/im/v1/public/install')).json().ios).toBeNull();
+});
+
 it('serves a pinned manifest without the package and redirects old scripts without a body', async () => {
   const { app, dir } = await fixture();
   const response = await app.inject('/install/manifest.json');
