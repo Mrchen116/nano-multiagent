@@ -59,15 +59,14 @@ it("renders schedule-less silent waiting with user question cleanly without sche
   render(
     <TaskWaitInfo
       wait={{
-        reason: "Waiting for owner reply on restaurant preference",
-        question: "Indoor booth or terrace table?",
+        reason: "Indoor booth or terrace table?",
         asked_user_id: "user-1",
         next_check_at: null,
         schedule_id: null,
       }}
     />,
   );
-  expect(screen.getByText("Waiting for owner reply on restaurant preference")).toBeVisible();
+  expect(screen.getByText("Question awaiting reply")).toBeVisible();
   expect(screen.getByText(/Indoor booth or terrace table\?/)).toBeVisible();
   expect(screen.queryByText(/could not be verified/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Invalid Date/)).not.toBeInTheDocument();
@@ -106,16 +105,14 @@ it("declutters TaskDetailDrawer with clickable Agent avatar popover and floating
     id: "n1",
     container_id: null,
     title: "起草一页《Nano 0.9 内测体验速查表》",
-    description: "浓缩 3 分钟内能试完的核心交互亮点，供内测朋友对照体验。",
+    description:
+      "内测邀请发出时附一页简洁速查表，能让朋友无需翻长文档直接体验重点。批准后：在本私聊起草一页 3 分钟亮点速查表供你审阅，绝不对外发送。",
     mode: "none",
     status: "proposed",
     assignee: { type: "agent", id: "pa_demo", display_name: "PA · 个人助手" },
     created_by: { type: "user", id: "u_5mguhd", display_name: "Test User" },
-    proposal: {
-      rationale: "内测邀请发出时附一页简洁速查表，能让朋友无需翻长文档直接体验重点",
-      on_approve: "起草一页精炼的《Nano 0.9 内测体验速查表》直接发回本私聊供你审阅",
-    },
     result: "",
+    change_note: "主人说明误点并要求停下",
     derived_from_id: null,
     selected_candidate_id: null,
     selection_reason: "",
@@ -174,8 +171,10 @@ it("declutters TaskDetailDrawer with clickable Agent avatar popover and floating
   const drawer = await screen.findByRole("dialog", { name: "节点详情" });
   expect(within(drawer).queryByText(/负责人执行状态/)).not.toBeInTheDocument();
   expect(within(drawer).queryByText(/u_5mguhd/)).not.toBeInTheDocument();
-  expect(within(drawer).getByRole("heading", { name: "为什么提议 & 批准后怎么做" })).toBeVisible();
-  expect(within(drawer).getByRole("heading", { name: "背景与具体要求" })).toBeVisible();
+  expect(within(drawer).queryByRole("heading", { name: "最近变更说明" })).not.toBeInTheDocument();
+  expect(within(drawer).getByText(/主人说明误点并要求停下/)).toBeVisible();
+  expect(within(drawer).getByText("提议事项 · 你点批准前不会自动执行")).toBeVisible();
+  expect(within(drawer).getByRole("heading", { name: "任务说明" })).toBeVisible();
   expect(within(drawer).getByRole("button", { name: "不采纳" })).toBeVisible();
   expect(within(drawer).queryByRole("menuitem", { name: "删除" })).not.toBeInTheDocument();
 

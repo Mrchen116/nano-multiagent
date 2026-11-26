@@ -35,13 +35,10 @@ export function TaskWaitInfo({
   const state = health?.state ?? "unknown";
   return (
     <div className={`tasks-wait${compact ? " tasks-wait--compact" : ""}`}>
-      {!compact && <strong>{t("tasks.wait.reason")}</strong>}
-      <span className="tasks-wait-reason">{wait?.reason || t("tasks.wait.reasonUnavailable")}</span>
-      {wait?.question && (
-        <span className="tasks-wait-question">
-          {t("tasks.wait.questionLabel")} · {wait.question}
-        </span>
+      {!compact && (
+        <strong>{t(wait?.asked_user_id ? "tasks.wait.questionLabel" : "tasks.wait.reason")}</strong>
       )}
+      <span className="tasks-wait-reason">{wait?.reason || t("tasks.wait.reasonUnavailable")}</span>
       {hasSchedule && state !== "valid" && (!compact || health) && (
         <span className="tasks-wait-diagnostic">{t(`tasks.wait.${state}`)}</span>
       )}

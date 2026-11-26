@@ -3,6 +3,7 @@ import { useTranslation } from "../../i18n";
 import { layoutTaskScope } from "./task-graph-layout";
 import { isTaskPrereqBlocked, writeTaskGraph, type TaskGraph, type TaskNode } from "./task-graphs-api";
 import { actorName } from "./task-progress";
+import { plainTaskSnippet } from "./task-progress";
 import { TaskStatusBadge } from "./task-status-badge";
 import { TaskAssigneeInline } from "./task-wait";
 
@@ -171,13 +172,15 @@ export function TaskStageSpine({
                 </div>
 
                 <h3 className="tasks-spine-title">{node.title}</h3>
-                {(node.proposal?.rationale || node.wait?.reason || node.description) && (
+                {(node.wait?.reason || node.result || node.description) && (
                   <p className="tasks-spine-desc">
-                    {isSprout
-                      ? node.proposal?.rationale || node.description
-                      : node.status === "waiting"
-                        ? node.wait?.question || node.wait?.reason
-                        : node.result || node.description}
+                    {plainTaskSnippet(
+                      node.status === "waiting"
+                        ? node.wait?.reason || node.description
+                        : (node.status === "in_review" || node.status === "done") && node.result?.trim()
+                          ? node.result
+                          : node.description || node.result,
+                    )}
                   </p>
                 )}
 

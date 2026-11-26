@@ -13,30 +13,6 @@ struct TaskCardRef: Codable, Sendable, Hashable, Identifiable {
     var cardKey: String { "\(graph_id):\(node_id)" }
 }
 
-/// Metadata explaining why PA proposed a candidate task and what approval authorizes.
-struct TaskProposal: Codable, Sendable, Hashable {
-    var rationale: String
-    var on_approve: String
-    var proposed_for_user_id: String? = nil
-
-    init(rationale: String = "", on_approve: String = "", proposed_for_user_id: String? = nil) {
-        self.rationale = rationale
-        self.on_approve = on_approve
-        self.proposed_for_user_id = proposed_for_user_id
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case rationale, on_approve, proposed_for_user_id
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        rationale = try container.decodeIfPresent(String.self, forKey: .rationale) ?? ""
-        on_approve = try container.decodeIfPresent(String.self, forKey: .on_approve) ?? ""
-        proposed_for_user_id = try container.decodeIfPresent(String.self, forKey: .proposed_for_user_id)
-    }
-}
-
 /// Persisted waiting facts; timer fields are optional to support silent waiting on human replies.
 struct TaskWait: Codable, Sendable, Hashable {
     var reason: String
@@ -44,7 +20,6 @@ struct TaskWait: Codable, Sendable, Hashable {
     var owner_agent_id: String? = nil
     var session_id: String? = nil
     var next_check_at: String? = nil
-    var question: String? = nil
     var asked_user_id: String? = nil
 }
 
@@ -80,7 +55,7 @@ struct TaskNode: Codable, Identifiable, Sendable, Hashable {
     var can_delete: Bool?
     var can_claim: Bool?
     var direct_counts: TaskCounts?
-    var proposal: TaskProposal? = nil
+    var proposed_for_user_id: String? = nil
     var wait: TaskWait? = nil
     var wait_health: TaskWaitHealth? = nil
     var prereq_blocked: Bool? = nil
@@ -195,7 +170,7 @@ struct TaskSummary: Codable, Identifiable, Sendable, Hashable {
     var created_by: ActorRef? = nil
     var assignee: ActorRef? = nil
     var direct_counts: TaskCounts? = nil
-    var proposal: TaskProposal? = nil
+    var proposed_for_user_id: String? = nil
     var wait: TaskWait? = nil
     var wait_health: TaskWaitHealth? = nil
     var prereq_blocked: Bool? = nil
@@ -212,7 +187,7 @@ struct TaskSummary: Codable, Identifiable, Sendable, Hashable {
     private enum CodingKeys: String, CodingKey {
         case graph_id, root_node_id, revision, updated_at, updated_by, relative_url, title
         case description, result, mode, status, node_id, scope_id, root_title, root_goal_summary
-        case parent_path, conversation, created_by, assignee, direct_counts, proposal, wait, wait_health
+        case parent_path, conversation, created_by, assignee, direct_counts, proposed_for_user_id, wait, wait_health
         case prereq_blocked, blocked_by_dag, can_edit, can_delete, can_claim, progress, stage_nodes
     }
 
@@ -239,7 +214,7 @@ struct TaskSummary: Codable, Identifiable, Sendable, Hashable {
         created_by = try c.decodeIfPresent(ActorRef.self, forKey: .created_by)
         assignee = try c.decodeIfPresent(ActorRef.self, forKey: .assignee)
         direct_counts = try c.decodeIfPresent(TaskCounts.self, forKey: .direct_counts)
-        proposal = try c.decodeIfPresent(TaskProposal.self, forKey: .proposal)
+        proposed_for_user_id = try c.decodeIfPresent(String.self, forKey: .proposed_for_user_id)
         wait = try c.decodeIfPresent(TaskWait.self, forKey: .wait)
         wait_health = try c.decodeIfPresent(TaskWaitHealth.self, forKey: .wait_health)
         prereq_blocked = try c.decodeIfPresent(Bool.self, forKey: .prereq_blocked)
@@ -273,7 +248,7 @@ struct TaskSummary: Codable, Identifiable, Sendable, Hashable {
         try c.encodeIfPresent(created_by, forKey: .created_by)
         try c.encodeIfPresent(assignee, forKey: .assignee)
         try c.encodeIfPresent(direct_counts, forKey: .direct_counts)
-        try c.encodeIfPresent(proposal, forKey: .proposal)
+        try c.encodeIfPresent(proposed_for_user_id, forKey: .proposed_for_user_id)
         try c.encodeIfPresent(wait, forKey: .wait)
         try c.encodeIfPresent(wait_health, forKey: .wait_health)
         try c.encodeIfPresent(prereq_blocked, forKey: .prereq_blocked)
@@ -297,7 +272,7 @@ struct TaskCardNodeSummary: Codable, Identifiable, Sendable, Hashable {
     var result: String? = nil
     var mode: String
     var status: String
-    var proposal: TaskProposal? = nil
+    var proposed_for_user_id: String? = nil
     var wait: TaskWait? = nil
     var wait_health: TaskWaitHealth? = nil
     var prereq_blocked: Bool? = nil
@@ -318,7 +293,7 @@ struct TaskCardNodeSummary: Codable, Identifiable, Sendable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case graph_id, node_id, root_node_id, revision, scope_id, title, description, result
-        case mode, status, proposal, wait, wait_health, prereq_blocked, blocked_by_dag
+        case mode, status, proposed_for_user_id, wait, wait_health, prereq_blocked, blocked_by_dag
         case root_title, root_goal_summary, parent_path, conversation, assignee, created_by
         case direct_counts, can_edit, relative_url, updated_at
     }
@@ -337,7 +312,7 @@ struct TaskCardNodeSummary: Codable, Identifiable, Sendable, Hashable {
         result = try c.decodeIfPresent(String.self, forKey: .result)
         mode = try c.decodeIfPresent(String.self, forKey: .mode) ?? "none"
         status = try c.decodeIfPresent(String.self, forKey: .status) ?? "todo"
-        proposal = try c.decodeIfPresent(TaskProposal.self, forKey: .proposal)
+        proposed_for_user_id = try c.decodeIfPresent(String.self, forKey: .proposed_for_user_id)
         wait = try c.decodeIfPresent(TaskWait.self, forKey: .wait)
         wait_health = try c.decodeIfPresent(TaskWaitHealth.self, forKey: .wait_health)
         prereq_blocked = try c.decodeIfPresent(Bool.self, forKey: .prereq_blocked)
@@ -366,7 +341,7 @@ struct TaskCardNodeSummary: Codable, Identifiable, Sendable, Hashable {
         try c.encodeIfPresent(result, forKey: .result)
         try c.encode(mode, forKey: .mode)
         try c.encode(status, forKey: .status)
-        try c.encodeIfPresent(proposal, forKey: .proposal)
+        try c.encodeIfPresent(proposed_for_user_id, forKey: .proposed_for_user_id)
         try c.encodeIfPresent(wait, forKey: .wait)
         try c.encodeIfPresent(wait_health, forKey: .wait_health)
         try c.encodeIfPresent(prereq_blocked, forKey: .prereq_blocked)
@@ -598,7 +573,7 @@ struct TaskDraft: Equatable {
     var mode = "none"
     var status = "todo"
     var assignee: ActorRef?
-    var proposal: TaskProposal? = nil
+    var proposed_for_user_id: String? = nil
     var changeNote = ""
 
     init(node: TaskNode? = nil, defaultMode: String = "none") {
@@ -610,7 +585,7 @@ struct TaskDraft: Equatable {
             mode = node.mode
             status = node.status
             assignee = node.assignee
-            proposal = node.proposal
+            proposed_for_user_id = node.proposed_for_user_id
         }
     }
 
@@ -622,8 +597,8 @@ struct TaskDraft: Equatable {
                 "result": .string(self.result),
                 "status": .string(status)
             ]
-            if let proposal, proposal != node.proposal || status == "proposed" {
-                patch["proposal"] = proposalValue(proposal)
+            if proposed_for_user_id != node.proposed_for_user_id {
+                patch["proposed_for_user_id"] = proposed_for_user_id.map(JSONValue.string) ?? .null
             }
             var ops: [JSONValue] = [.object(["op": .string("update_task"), "node_id": .string(node.id), "patch": .object(patch)])]
             if assignee?.taskKey != node.assignee?.taskKey {
@@ -642,21 +617,10 @@ struct TaskDraft: Equatable {
             "result": .string(result),
             "assignee": assignee?.taskValue ?? .null
         ]
-        if let proposal, status == "proposed" {
-            add["proposal"] = proposalValue(proposal)
+        if let userID = proposed_for_user_id, !userID.isEmpty {
+            add["proposed_for_user_id"] = .string(userID)
         }
         return [.object(add)]
-    }
-
-    private func proposalValue(_ proposal: TaskProposal) -> JSONValue {
-        var dict: [String: JSONValue] = [
-            "rationale": .string(proposal.rationale),
-            "on_approve": .string(proposal.on_approve)
-        ]
-        if let userID = proposal.proposed_for_user_id {
-            dict["proposed_for_user_id"] = .string(userID)
-        }
-        return .object(dict)
     }
 }
 

@@ -42,19 +42,12 @@ export type TaskConversation = {
   can_write: boolean;
 };
 
-export type TaskProposalMeta = {
-  rationale: string;
-  on_approve: string;
-  proposed_for_user_id?: string | null;
-};
-
 export type TaskWait = {
   reason: string;
   schedule_id?: string | null;
   owner_agent_id?: string | null;
   session_id?: string | null;
   next_check_at?: string | null;
-  question?: string | null;
   asked_user_id?: string | null;
 };
 
@@ -70,7 +63,7 @@ export type TaskCardRef = {
 };
 
 export type TaskNode = {
-  proposal?: TaskProposalMeta | null;
+  proposed_for_user_id?: string | null;
   wait?: TaskWait;
   wait_health?: TaskWaitHealth;
   prereq_blocked?: boolean;
@@ -124,7 +117,7 @@ export type TaskGraphSummary = Pick<
   TaskGraph,
   "graph_id" | "root_node_id" | "revision" | "updated_at" | "updated_by" | "relative_url"
 > &
-  Pick<TaskNode, "wait" | "wait_health" | "proposal"> & {
+  Pick<TaskNode, "wait" | "wait_health" | "proposed_for_user_id"> & {
     title: string;
     description?: string;
     result?: string;

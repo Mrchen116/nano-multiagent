@@ -95,15 +95,15 @@ struct TaskEmbeddedCardsView: View {
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(NanoTheme.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if let rationale = summary.proposal?.rationale, !rationale.isEmpty {
-                        Text(rationale)
-                            .font(.caption)
-                            .foregroundStyle(NanoTheme.muted)
-                            .lineLimit(3)
-                    } else if summary.status == "waiting", let reason = summary.wait?.reason, !reason.isEmpty {
+                    if summary.status == "waiting", let reason = summary.wait?.reason, !reason.isEmpty {
                         Text(reason)
                             .font(.caption)
                             .foregroundStyle(Color(red: 0.60, green: 0.38, blue: 0.09))
+                            .lineLimit(2)
+                    } else if ["in_review", "done"].contains(summary.status), let res = summary.result, !res.isEmpty {
+                        Text(res)
+                            .font(.caption)
+                            .foregroundStyle(NanoTheme.muted)
                             .lineLimit(2)
                     } else if let desc = summary.description, !desc.isEmpty {
                         Text(desc)

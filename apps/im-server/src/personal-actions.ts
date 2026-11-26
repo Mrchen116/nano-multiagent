@@ -194,7 +194,7 @@ export class PersonalActions {
         status: node.status,
         ...(node.description ? { description: node.description } : {}),
         ...(node.result ? { result: node.result } : {}),
-        ...(node.proposal ? { proposal: node.proposal } : {}),
+        ...(node.proposed_for_user_id ? { proposed_for_user_id: node.proposed_for_user_id } : {}),
         ...(node.wait ? { wait: node.wait } : {}),
       };
     });

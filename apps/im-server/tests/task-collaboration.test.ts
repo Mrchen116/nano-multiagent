@@ -104,8 +104,8 @@ describe('conversation task collaboration',()=>{
     const {db,ctx,service:s}=setup();
     // 1. Single-card root (mode defaults to none) with proposed status -> approve lands in doing for unblocked Agent assignee.
     const card=s.execute(agent,'create',{
-      conversation_id:'chat',title:'调研自媒体 Bot 平台限制',description:'梳理限流与发布接口',status:'proposed',
-      assignee:{type:'agent',id:'a'},proposal:{rationale:'昨晚日记提到新构想',on_approve:'先做只读调研输出对比文档'},request_key:'single-proposed',
+      conversation_id:'chat',title:'调研自媒体 Bot 平台限制',description:'昨晚日记提到新构想；批准后先做只读调研输出对比文档',status:'proposed',
+      assignee:{type:'agent',id:'a'},request_key:'single-proposed',
     });
     expect(card).toMatchObject({mode:'none',status:'proposed'});
     const approvedSingle=s.execute(human,'apply',{
@@ -127,7 +127,7 @@ describe('conversation task collaboration',()=>{
       operations:[
         {op:'update_task',node_id:'n1',patch:{mode:'dag',status:'doing'}},
         {op:'add_task',client_ref:'demo',container_id:'n1',title:'录 3 分钟真实场景 Demo',status:'doing',assignee:{type:'user',id:'u1'}},
-        {op:'add_task',client_ref:'seed',container_id:'n1',title:'整理首批 10 人内测邀请',status:'proposed',assignee:{type:'agent',id:'a'},proposal:{rationale:'Demo 之后需要种子反馈',on_approve:'起草邀请文案草稿'}},
+        {op:'add_task',client_ref:'seed',container_id:'n1',title:'整理首批 10 人内测邀请',description:'Demo 之后需要种子反馈；批准后起草邀请文案草稿',status:'proposed',assignee:{type:'agent',id:'a'}},
         {op:'add_dependency',from:'@demo',to:'@seed'},
       ],
     });

@@ -91,12 +91,9 @@ beforeEach(() => {
         node_id: "n-ready",
         root_node_id: "n-ready",
         title: "整理周五演示大纲",
+        description: "周五上午就要给客户演示，提前备好框架；批准后先拉取本周改动生成首版大纲",
         status: "proposed",
         prereq_blocked: false,
-        proposal: {
-          rationale: "周五上午就要给客户演示，提前备好框架",
-          on_approve: "先拉取本周改动生成首版大纲",
-        },
         assignee: { type: "agent", id: "pa-1", display_name: "小满" },
       }),
       makeSummary({
@@ -105,12 +102,9 @@ beforeEach(() => {
         root_node_id: "root-goal",
         root_title: "季度搬家计划",
         title: "预约搬家公司",
+        description: "签约完成后即可锁定车次；批准后对比三家报价发你挑选",
         status: "proposed",
         prereq_blocked: true,
-        proposal: {
-          rationale: "签约完成后即可锁定车次",
-          on_approve: "对比三家报价发你挑选",
-        },
       }),
     ],
     stashed: [
@@ -131,8 +125,7 @@ beforeEach(() => {
         title: "等待房东回传合同",
         status: "waiting",
         wait: {
-          reason: "周四下午复查合同",
-          question: "是否接受押一付三？",
+          reason: "是否接受押一付三？",
           asked_user_id: "user-1",
           next_check_at: "2026-11-27T06:00:00Z",
         },
@@ -183,7 +176,7 @@ beforeEach(() => {
       makeNode("s2", "核对合同条款", { status: "doing" }),
       makeNode("s3", "预约搬家车队", {
         status: "proposed",
-        proposal: { rationale: "合同敲定后马上锁档期", on_approve: "联系三家搬家车队询价" },
+        description: "合同敲定后马上锁档期；批准后联系三家搬家车队询价",
       }),
     ],
     dependencies: [

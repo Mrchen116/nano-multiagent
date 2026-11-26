@@ -57,14 +57,11 @@ describe("embedded live task_cards in MessagePane and stream sync", () => {
         updated_by: "pa-1",
         relative_url: "/tasks/tg-1",
         title: "拉取最新指标截图",
+        description: "演示 PPT 第 4 页需要本周最新活跃曲线；批准后自动导出仪表盘 PNG 并贴回会话",
         mode: "none",
         status: "proposed",
         prereq_blocked: false,
         can_edit: true,
-        proposal: {
-          rationale: "演示 PPT 第 4 页需要本周最新活跃曲线",
-          on_approve: "自动导出仪表盘 PNG 并贴回会话",
-        },
         conversation: {
           id: "conv-pa",
           title: "小满",

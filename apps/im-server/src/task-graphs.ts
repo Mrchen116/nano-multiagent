@@ -137,28 +137,20 @@ export function validateDocument(doc: Obj) {
     text(n.title, "title", 240);
     actorRef(n.created_by);
     if (n.assignee !== null) actorRef(n.assignee);
-    for (const key of ["description", "result"]) text(n[key], key, 32000, true);
+    text(n.description, "description", 32000, n.status !== "proposed");
+    text(n.result, "result", 32000, true);
     text(n.selection_reason, "selection_reason", 8000, true);
     if (!isTaskMode(n.mode) || !isTaskStatus(n.status))
       invalid("Unknown node mode or record status");
-    if (n.proposal != null) {
-      if (typeof n.proposal !== "object" || Array.isArray(n.proposal))
-        invalid("proposal must be an object");
-      const proposalKeys = ["rationale", "on_approve", "proposed_for_user_id"];
-      if (Object.keys(n.proposal).some((k) => !proposalKeys.includes(k)))
-        fail("invalid_arguments", "Unknown fields in proposal");
-      text(n.proposal.rationale ?? "", "proposal.rationale", 4000, n.status !== "proposed");
-      text(n.proposal.on_approve ?? "", "proposal.on_approve", 4000, n.status !== "proposed");
-      if (n.proposal.proposed_for_user_id != null)
-        text(n.proposal.proposed_for_user_id, "proposal.proposed_for_user_id", 128);
+    if (n.proposed_for_user_id != null) {
+      text(n.proposed_for_user_id, "proposed_for_user_id", 128);
     }
     if (n.status === 'waiting') {
       if (!n.wait || typeof n.wait !== 'object' || Array.isArray(n.wait)) invalid('Waiting requires a reason');
-      const waitKeys = ['reason', 'schedule_id', 'owner_agent_id', 'session_id', 'next_check_at', 'question', 'asked_user_id'];
+      const waitKeys = ['reason', 'schedule_id', 'owner_agent_id', 'session_id', 'next_check_at', 'asked_user_id'];
       if (Object.keys(n.wait).some(k => !waitKeys.includes(k))) fail('invalid_arguments', 'Unknown fields in wait');
       text(n.wait.reason, 'wait.reason', 8000);
       if (n.wait.schedule_id != null) text(n.wait.schedule_id, 'wait.schedule_id', 256);
-      if (n.wait.question != null) text(n.wait.question, 'wait.question', 4000, true);
       if (n.wait.asked_user_id != null) text(n.wait.asked_user_id, 'wait.asked_user_id', 128);
     }
     if (!Number.isInteger(n.order)) invalid("order must be an integer");
@@ -218,7 +210,7 @@ export function validateDocument(doc: Obj) {
   acyclic([...by.keys()], doc.dependencies);
   acyclic([...by.keys()], derivations);
 }
-const editable = ["title", "description", "mode", "status", "result", "links", "order", "wait", "proposal"];
+const editable = ["title", "description", "mode", "status", "result", "links", "order", "wait", "proposed_for_user_id"];
 export function applyOperations(
   document: Obj,
   operations: any,
@@ -354,7 +346,7 @@ export function applyOperations(
   }
   for (const n of doc.nodes) {
     if (n.status !== "waiting") delete n.wait;
-    if (n.proposal === null) delete n.proposal;
+    if (n.proposed_for_user_id === null) delete n.proposed_for_user_id;
   }
   validateDocument(doc);
   for (const id of changed)
@@ -400,7 +392,7 @@ function summary(d: Obj): Obj {
     root_goal_summary: rootGoalSummary(root),
     mode: root.mode,
     status: root.status,
-    ...(root.proposal ? {proposal: root.proposal} : {}),
+    ...(root.proposed_for_user_id ? {proposed_for_user_id: root.proposed_for_user_id} : {}),
     ...(root.wait ? {wait:root.wait} : {}),
     ...(root.doing_wake ? {doing_wake: root.doing_wake} : {}),
     created_by: root.created_by,
@@ -415,7 +407,7 @@ const fields: Obj = {
   nodes: ["refs"],
   activity: ["conversation_id"],
   get: ["graph_id", "scope_id", "view"],
-  create: ["conversation_id", "title", "description", "mode", "request_key", "assignee", "status", "result", "proposal", "wait", "operations"],
+  create: ["conversation_id", "title", "description", "mode", "request_key", "assignee", "status", "result", "proposed_for_user_id", "wait", "operations"],
   apply: [
     "graph_id",
     "base_revision",
@@ -581,7 +573,7 @@ export class TaskGraphService {
             created_by: identity,
             updated_by_actor: identity,
             assignee: args.assignee == null ? null : actorRef(args.assignee),
-            ...(args.proposal ? {proposal: args.proposal} : {}),
+            ...(args.proposed_for_user_id != null ? {proposed_for_user_id: args.proposed_for_user_id} : {}),
             ...(args.wait ? {wait: args.wait} : {}),
           }),
         ],
@@ -803,7 +795,7 @@ export class TaskGraphService {
             created_by: identity,
             updated_by_actor: identity,
             assignee: args.assignee == null ? null : actorRef(args.assignee),
-            ...(args.proposal ? { proposal: args.proposal } : {}),
+            ...(args.proposed_for_user_id != null ? { proposed_for_user_id: args.proposed_for_user_id } : {}),
             ...(args.wait ? { wait: args.wait } : {}),
             last_chat_id: chat,
           }),
@@ -964,16 +956,6 @@ export class TaskGraphService {
         );
         if (!member || !qualifiedUser(this.db, member.id))
           fail('invalid_arguments', 'asked_user_id must be a human member of the task conversation');
-      } else if (n.wait.question?.trim()) {
-        const chatMeta = this.row('SELECT type FROM conversations WHERE id=?', doc.conversation_id);
-        if (chatMeta?.type === 'direct') {
-          const humans = this.rows(
-            "SELECT u.id FROM conversation_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=? AND u.username NOT LIKE 'agent:%' AND u.username!='system'",
-            doc.conversation_id,
-          );
-          const counterpart = actor.kind === 'user' ? humans.find(h => h.id !== actor.id) : humans[0];
-          if (counterpart) n.wait.asked_user_id = counterpart.id;
-        }
       }
       if (n.wait.schedule_id != null) {
         const checked = waits.find(item=>item.node_id===n.id);
@@ -1227,7 +1209,7 @@ export class TaskGraphService {
       result: n.result,
       mode: n.mode,
       status: n.status,
-      proposal: n.proposal,
+      ...(n.proposed_for_user_id ? { proposed_for_user_id: n.proposed_for_user_id } : {}),
       wait: n.wait,
       doing_wake: n.doing_wake,
       resume_request: n.resume_request,
@@ -1415,8 +1397,8 @@ export class TaskGraphService {
           inNeedsYou =
             (n.status === "proposed" &&
               (isPersonalChat ||
-                n.proposal?.proposed_for_user_id === user ||
-                (!n.proposal?.proposed_for_user_id &&
+                n.proposed_for_user_id === user ||
+                (!n.proposed_for_user_id &&
                   (sameActor(n.assignee, userActor) ||
                     sameActor(parent?.assignee ?? null, userActor) ||
                     sameActor(root.created_by, userActor) ||

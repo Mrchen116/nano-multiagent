@@ -11,6 +11,7 @@ import {
   type TaskCardRef,
   type TaskGraphSummary,
 } from "../../tasks/task-graphs-api";
+import { plainTaskSnippet } from "../../tasks/task-progress";
 import { TaskStatusBadge } from "../../tasks/task-status-badge";
 import "../../tasks/task-graphs.css";
 
@@ -111,17 +112,13 @@ export function MessageTaskCards({
               conversationId,
               messageId,
             );
-        const snippet =
-          card.status === "proposed"
-            ? [
-                card.proposal?.rationale,
-                card.proposal?.on_approve ? `${t("tasks.panorama.onApproveLabel")}${card.proposal.on_approve}` : "",
-              ]
-                .filter(Boolean)
-                .join(" · ") || card.description
-            : card.status === "waiting"
-              ? [card.wait?.question, card.wait?.reason].filter(Boolean).join(" · ") || card.description
-              : card.result || card.description;
+        const snippet = plainTaskSnippet(
+          card.status === "waiting"
+            ? card.wait?.reason || card.description
+            : (card.status === "in_review" || card.status === "done") && card.result?.trim()
+              ? card.result
+              : card.description || card.result,
+        );
         const statusNote =
           card.status === "doing"
             ? t("tasks.cards.approvedDoing")

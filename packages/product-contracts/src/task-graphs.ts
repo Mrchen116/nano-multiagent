@@ -56,12 +56,6 @@ export function isTaskStatus(value: unknown): value is TaskStatus {
   return typeof value === 'string' && (TASK_STATUSES as readonly string[]).includes(value);
 }
 
-export interface TaskProposalMeta {
-  rationale: string;
-  on_approve: string;
-  proposed_for_user_id?: string | null;
-}
-
 /** Persisted Task waiting facts; Schedule is optional and remains timer authority when bound. */
 export interface TaskWait {
   reason: string;
@@ -69,7 +63,6 @@ export interface TaskWait {
   owner_agent_id?: string | null;
   session_id?: string | null;
   next_check_at?: string | null;
-  question?: string | null;
   asked_user_id?: string | null;
 }
 

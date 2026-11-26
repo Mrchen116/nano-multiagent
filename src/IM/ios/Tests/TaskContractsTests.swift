@@ -142,14 +142,13 @@ struct TaskContractsTests {
     }
 
     @Test func silentWaitWithoutScheduleAndNineStateCountsDecodeCleanly() throws {
-        let waitJSON = #"{"reason":"Waiting on Sam to confirm travel dates","question":"Is Nov 18 confirmed?","asked_user_id":"u_sam"}"#
+        let waitJSON = #"{"reason":"Is Nov 18 confirmed?","asked_user_id":"u_sam"}"#
         let silentWait = try JSONDecoder().decode(TaskWait.self, from: Data(waitJSON.utf8))
-        #expect(silentWait.reason == "Waiting on Sam to confirm travel dates")
+        #expect(silentWait.reason == "Is Nov 18 confirmed?")
         #expect(silentWait.schedule_id == nil)
         #expect(silentWait.owner_agent_id == nil)
         #expect(silentWait.session_id == nil)
         #expect(silentWait.next_check_at == nil)
-        #expect(silentWait.question == "Is Nov 18 confirmed?")
         #expect(silentWait.asked_user_id == "u_sam")
 
         let countsJSON = #"{"proposed":2,"todo":1,"doing":1,"waiting":1,"in_review":0,"done":3,"paused":0,"backlog":4,"closed":1,"total":13}"#
@@ -173,16 +172,13 @@ struct TaskContractsTests {
             "updated_at": "2026-11-26T01:00:00Z",
             "updated_by": "PA",
             "title": "Compare Shinkansen vs flight",
+            "description": "Stage 2 hotel shortlist is nearly ready; draft a fare & transfer table on approval",
             "mode": "none",
             "status": "proposed",
             "root_title": "Kyoto Trip",
             "root_goal_summary": "5-day Kyoto itinerary under budget",
             "blocked_by_dag": true,
-            "proposal": {
-              "rationale": "Stage 2 hotel shortlist is nearly ready",
-              "on_approve": "Draft a fare & transfer table",
-              "proposed_for_user_id": "u_owner"
-            },
+            "proposed_for_user_id": "u_owner",
             "conversation": {"id": "c_pa", "title": "PA", "visibility": "private", "is_member": true, "can_write": true}
           }],
           "stashed": [{
@@ -223,8 +219,8 @@ struct TaskContractsTests {
         let focus = try JSONDecoder().decode(TaskFocusResponse.self, from: Data(focusJSON.utf8))
         #expect(focus.needs_you.count == 1)
         #expect(focus.needs_you.first?.isPrereqBlocked == true)
-        #expect(focus.needs_you.first?.proposal?.rationale == "Stage 2 hotel shortlist is nearly ready")
-        #expect(focus.needs_you.first?.proposal?.on_approve == "Draft a fare & transfer table")
+        #expect(focus.needs_you.first?.description == "Stage 2 hotel shortlist is nearly ready; draft a fare & transfer table on approval")
+        #expect(focus.needs_you.first?.proposed_for_user_id == "u_owner")
         #expect(focus.needs_you.first?.root_goal_summary == "5-day Kyoto itinerary under budget")
         #expect(focus.stashed.first?.status == "backlog")
         #expect(focus.goals.first?.progress?.done == 1)
@@ -238,17 +234,17 @@ struct TaskContractsTests {
           "root_node_id": "root",
           "revision": 4,
           "title": "Compare Shinkansen vs flight",
+          "description": "Ready now; compare fares on approval",
           "mode": "none",
           "status": "proposed",
           "prereq_blocked": false,
-          "proposal": {"rationale": "Ready now", "on_approve": "Compare fares"},
           "root_title": "Kyoto Trip"
         }
         """
         let summary = try JSONDecoder().decode(TaskCardNodeSummary.self, from: Data(nodesJSON.utf8))
         #expect(summary.cardKey == "tg_trip:stage_3")
         #expect(summary.isPrereqBlocked == false)
-        #expect(summary.proposal?.on_approve == "Compare fares")
+        #expect(summary.description == "Ready now; compare fares on approval")
 
         let approvePlain = TaskOperations.approve(nodeID: "stage_3")
         #expect(approvePlain == .object(["op": .string("approve_task"), "node_id": .string("stage_3")]))

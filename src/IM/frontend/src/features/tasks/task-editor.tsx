@@ -211,7 +211,11 @@ export function TaskEditor({
             </label>
             <label>
               {t("tasks.description")}
-              <textarea value={description} onChange={e => setDescription(e.target.value)} />
+              <textarea
+                required={status === "proposed"}
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+              />
             </label>
             <label>
               {t("tasks.statusLabel")}

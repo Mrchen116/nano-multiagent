@@ -20,7 +20,7 @@ extension ChatRepositoryTests {
 
         let cachedSummary = try JSONDecoder().decode(
             TaskCardNodeSummary.self,
-            from: Data(#"{"graph_id":"tg_kyoto","node_id":"stage_hotel","root_node_id":"root","revision":3,"title":"Shortlist Kyoto hotels","mode":"explore","status":"proposed","proposal":{"rationale":"Dates confirmed","on_approve":"Compare 3 options"}}"#.utf8)
+            from: Data(#"{"graph_id":"tg_kyoto","node_id":"stage_hotel","root_node_id":"root","revision":3,"title":"Shortlist Kyoto hotels","description":"Dates confirmed; compare 3 options on approval","mode":"explore","status":"proposed"}"#.utf8)
         )
         try await repo.cacheTaskCards([cachedSummary])
         let databaseURL = repo.location.databaseURL
@@ -39,7 +39,7 @@ extension ChatRepositoryTests {
             TaskCardRef(graph_id: "tg_kyoto", node_id: "stage_hotel")
         ])
         XCTAssertEqual(restoredSummaries["tg_kyoto:stage_hotel"]?.status, "proposed")
-        XCTAssertEqual(restoredSummaries["tg_kyoto:stage_hotel"]?.proposal?.on_approve, "Compare 3 options")
+        XCTAssertEqual(restoredSummaries["tg_kyoto:stage_hotel"]?.description, "Dates confirmed; compare 3 options on approval")
 
         // A sparse message update omitting task_cards preserves stored task_cards_json.
         let fresh = try await reopened.writeContext()

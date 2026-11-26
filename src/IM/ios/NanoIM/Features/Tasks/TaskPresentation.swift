@@ -10,19 +10,15 @@ struct TaskWaitView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: compact ? 4 : 8) {
             if !compact {
-                Text(L("当前等待原因与复查安排", "Waiting reason and follow-up"))
+                Text(wait?.asked_user_id != nil
+                     ? L("待回复问题", "Awaiting your reply")
+                     : L("当前等待原因与复查安排", "Waiting reason and follow-up"))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.orange)
             }
             Text(wait?.reason ?? L("等待原因暂不可用", "Waiting reason unavailable"))
                 .lineLimit(compact ? 2 : nil)
                 .fixedSize(horizontal: false, vertical: true)
-            if let question = wait?.question?.trimmingCharacters(in: .whitespacesAndNewlines), !question.isEmpty {
-                Text(L("待回复：", "Pending question: ") + question)
-                    .font(compact ? .caption : .footnote)
-                    .foregroundStyle(NanoTheme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
             if hasTimer {
                 if state == "invalid" {
                     Text(L("安排需要处理：负责人需重新核对并安排跟进。", "Schedule needs attention. The assignee must check and arrange follow-up."))

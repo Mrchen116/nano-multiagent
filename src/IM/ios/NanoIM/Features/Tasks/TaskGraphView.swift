@@ -158,7 +158,7 @@ struct TaskGraphView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 TaskStatusBadge(status: root.status)
-                Text(L("终局目标", "North Star Goal"))
+                Text(L("长线目标", "Long-term goal"))
                     .font(.caption.weight(.bold))
                     .foregroundStyle(NanoTheme.accent)
                 Spacer()
@@ -396,9 +396,7 @@ struct TaskGraphView: View {
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(NanoTheme.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if let rationale = node.proposal?.rationale, !rationale.isEmpty {
-                        Text(rationale).font(.caption).foregroundStyle(NanoTheme.muted).lineLimit(3)
-                    } else if !node.description.isEmpty {
+                    if !node.description.isEmpty {
                         Text(node.description).font(.caption).foregroundStyle(NanoTheme.muted).lineLimit(2)
                     }
                     if let derivedID = node.derived_from_id,
@@ -660,22 +658,12 @@ struct TaskNodeView: View {
                         TaskAgentRuntimeView(client: client, agentID: agentID, graphID: graph.graph_id, nodeID: node.id)
                     }
 
-                    // Stage-adaptive proposal block
-                    if node.status == "proposed" || node.proposal != nil {
+                    if node.status == "proposed" {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text(L("为什么提议 & 批准后怎么做", "Why proposed & what happens on approve"))
+                            Text(L("提议事项 · 你点批准前不会自动执行", "Proposed item · Nothing runs until you approve"))
                                 .font(.caption.weight(.bold))
                                 .foregroundStyle(Color(red: 0.37, green: 0.28, blue: 0.06))
-                            if let rationale = node.proposal?.rationale, !rationale.isEmpty {
-                                Text(rationale).font(.subheadline).textSelection(.enabled)
-                            }
-                            if let onApprove = node.proposal?.on_approve, !onApprove.isEmpty {
-                                Text(L("批准后行动：", "On approve: ") + onApprove)
-                                    .font(.footnote)
-                                    .foregroundStyle(NanoTheme.muted)
-                                    .textSelection(.enabled)
-                            }
-                            if node.status == "proposed", node.can_edit == true {
+                            if node.can_edit == true {
                                 HStack(spacing: 8) {
                                     Button(prereqBlocked ? L("批准立项", "Approve to queue") : L("批准开工", "Approve & start")) {
                                         Task { await approve() }
@@ -683,7 +671,7 @@ struct TaskNodeView: View {
                                     .buttonStyle(.borderedProminent)
                                     Button(L("先存着", "Stash")) { Task { await changeStatus("backlog") } }
                                         .buttonStyle(.bordered)
-                                    Button(L("关闭", "Close")) { Task { await changeStatus("closed") } }
+                                    Button(L("不采纳", "Dismiss")) { Task { await changeStatus("closed") } }
                                         .buttonStyle(.bordered)
                                 }
                                 .controlSize(.small)
@@ -735,28 +723,27 @@ struct TaskNodeView: View {
                         .disabled(busy)
                     }
 
-                    if !node.description.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            taskSectionLabel(L("背景与具体要求", "Background & requirements"))
+                    VStack(alignment: .leading, spacing: 8) {
+                        taskSectionLabel(node.id == graph.root_node_id && (node.mode != "none" || graph.nodes.count > 1)
+                                         ? L("目标说明", "Goal description")
+                                         : L("任务说明", "Task description"))
+                        if !node.description.isEmpty {
                             MarkdownView(text: node.description, client: client)
+                        } else {
+                            Text(L("暂无说明", "No description"))
+                                .font(.caption).foregroundStyle(NanoTheme.muted)
                         }
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 13))
                     }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(NanoTheme.canvas, in: RoundedRectangle(cornerRadius: 13))
 
-                    if !node.result.isEmpty || ["doing", "waiting", "in_review", "done"].contains(node.status) {
+                    if !node.result.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             taskSectionLabel(["done", "closed"].contains(node.status)
-                                             ? L("最终结果与结论", "Final outcome")
-                                             : L("当前进展与阶段结果", "Progress & result"))
-                            if !node.result.isEmpty {
-                                MarkdownView(text: node.result, client: client)
-                            } else {
-                                Text(L("正在推进中，完成后可在此记录结论与产出物。",
-                                       "In progress; record outcomes here as work advances."))
-                                    .font(.caption).foregroundStyle(NanoTheme.muted)
-                            }
+                                             ? L("最终结果", "Final outcome")
+                                             : L("当前进展", "Current progress"))
+                            MarkdownView(text: node.result, client: client)
                         }
                         .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)

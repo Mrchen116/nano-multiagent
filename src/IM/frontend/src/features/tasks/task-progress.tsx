@@ -12,6 +12,18 @@ const columns: TaskStatus[] = ["todo", "doing", "in_review", "done", "closed"];
 
 export const actorName = (actor?: TaskActor | null) => actor?.display_name || actor?.id;
 
+/** Strip inline Markdown markers so 1-2 line card previews read cleanly without raw `**` or `#`. */
+export function plainTaskSnippet(raw?: string | null): string {
+  if (!raw) return "";
+  return raw
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^[-*+]\s+/gm, "")
+    .replace(/(\*\*|__|~~|`)/g, "")
+    .replace(/\s*\n+\s*/g, " · ")
+    .trim();
+}
+
 export function TaskCounts({ counts }: { counts?: DirectCounts }) {
   const { t } = useTranslation();
   return <small>{t("tasks.directCount", { done: counts?.done ?? 0, total: counts?.total ?? 0 })}</small>;

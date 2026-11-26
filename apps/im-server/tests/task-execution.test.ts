@@ -76,11 +76,11 @@ describe('durable Task execution responsibility',()=>{
       inspect.mockClear();
       await tasks.executeChecked(actor,'apply',{
         graph_id:graph.graph_id,base_revision:2,request_key:'silent-wait',change_note:'Need owner choice',
-        operations:[{op:'update_task',node_id:'n1',patch:{status:'waiting',wait:{reason:'Waiting for owner choice',question:'Pick Option A or B?',asked_user_id:'u1'}}}],
+        operations:[{op:'update_task',node_id:'n1',patch:{status:'waiting',wait:{reason:'Pick Option A or B?',asked_user_id:'u1'}}}],
       });
       expect(inspect).not.toHaveBeenCalled();
       const loaded = await tasks.executeChecked(human,'get',{graph_id:graph.graph_id,view:'all'});
-      expect(loaded.nodes[0]).toMatchObject({status:'waiting',wait:{reason:'Waiting for owner choice',question:'Pick Option A or B?',asked_user_id:'u1'}});
+      expect(loaded.nodes[0]).toMatchObject({status:'waiting',wait:{reason:'Pick Option A or B?',asked_user_id:'u1'}});
       expect(loaded.nodes[0].wait_health).toBeUndefined();
 
       // Rejects asked_user_id outside the conversation's human members.

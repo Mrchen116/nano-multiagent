@@ -568,9 +568,8 @@ class ProactivityVerifier:
             f"Expected 1-3 high-signal proposed cards after nightly planning, got {len(proposed_night)}: {proposed_night}"
         )
         for card in proposed_night:
-            prop = card.get("proposal") or {}
-            assert prop.get("rationale") and prop.get("on_approve"), (
-                f"Proposed card missing rationale/on_approve: {card}"
+            assert (card.get("description") or "").strip(), (
+                f"Proposed card missing non-empty description: {card}"
             )
 
         trace_source, _, records_night = session_trace_snapshot(

@@ -11,9 +11,9 @@ it('freezes full task_card_summaries and source provenance for PA disclosure rev
   const privateTask = ctx.gateway.tasks.execute({ kind: 'user', id: 'u1' }, 'create', {
     conversation_id: 'chat',
     title: 'Confidential Q4 pricing draft',
-    description: 'Internal floor margin 38%',
+    description: 'Internal floor margin 38%; prepare deck on approval',
     status: 'proposed',
-    proposal: { rationale: 'Owner discussed Q4 margins', on_approve: 'Prepare deck' },
+    proposed_for_user_id: 'u1',
     request_key: 'priv-card',
   });
 
@@ -33,8 +33,8 @@ it('freezes full task_card_summaries and source provenance for PA disclosure rev
       graph_revision: 1,
       title: 'Confidential Q4 pricing draft',
       status: 'proposed',
-      description: 'Internal floor margin 38%',
-      proposal: expect.objectContaining({ rationale: 'Owner discussed Q4 margins', on_approve: 'Prepare deck' }),
+      description: 'Internal floor margin 38%; prepare deck on approval',
+      proposed_for_user_id: 'u1',
     }),
   ]);
   expect(proposal.evidence.sources).toContainEqual({ conversation_id: 'chat', allowed: true });

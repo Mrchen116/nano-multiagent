@@ -188,7 +188,7 @@ it('projects the exact frozen disclosure and complete audience without backend g
  });
  frozen.payload={content:'Shared task change',task:{action:'apply',arguments:{graph_id:'graph',base_revision:7,operations:[{op:'update_task',patch:{result:'Full shared task result'}}]},source_message_id:'source'}};
  expect(personalReviewAction(frozen)).toMatchObject({tool:'task_graph',arguments:{...frozen.payload.task.arguments,action:'apply',source_message_id:'source'}});
- const cardSummary={graph_id:'tg_priv',node_id:'n2',conversation_id:'priv-chat',graph_revision:3,title:'Confidential Q4 roadmap',status:'proposed',description:'Internal margin numbers',proposal:{rationale:'Private note',on_approve:'Draft memo'}};
+ const cardSummary={graph_id:'tg_priv',node_id:'n2',conversation_id:'priv-chat',graph_revision:3,title:'Confidential Q4 roadmap',status:'proposed',description:'Internal margin numbers; draft memo on approval'};
  frozen.payload={content:'Here are the cards',attachments:[],attachment_snapshots:[],task_cards:[{graph_id:'tg_priv',node_id:'n2'}],task_card_summaries:[cardSummary]};
  expect(personalReviewAction(frozen)).toMatchObject({tool:'send_message',arguments:{target:'group',text:'Here are the cards',task_cards:[{graph_id:'tg_priv',node_id:'n2'}],task_card_summaries:[cardSummary]}});
  frozen.payload={content:'Missing summary',attachments:[],attachment_snapshots:[],task_cards:[{graph_id:'tg_priv',node_id:'n2'}]};

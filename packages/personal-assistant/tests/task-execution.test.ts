@@ -9,7 +9,7 @@ it('discovers UI-started doing_wake once, keeps unscheduled waiting quiet, and r
   let task:TaskResponsibility={
     graph_id:'g',node_id:'n1',title:'Wait for decision',status:'waiting',revision:2,
     conversation:{id:'chat'},relative_url:'/tasks/g',
-    wait:{reason:'Await reply',question:'Confirm timeline?',asked_user_id:'owner'},
+    wait:{reason:'Confirm timeline?',asked_user_id:'owner'},
   };
   let online=true,paused=false,noticeOnline=false;const notices:Record<string,unknown>[]=[];const runtimeBlocks:boolean[]=[];
   const options={nodeId:'node',ownerId:'owner',store,agents:[agent],drain:async()=>{},context:async()=>({messages:[{inputId:'original-task-pause',conversationId:'chat',content:[{type:'text' as const,text:'Original Task update with application-attested human pause'}]}],revoked:[]}),runtime:{onNotification:()=>()=>{},request:async(method:string,value:unknown)=>{
@@ -33,7 +33,7 @@ it('discovers UI-started doing_wake once, keeps unscheduled waiting quiet, and r
     const identity={sessionId:binding.sessionId,agentId:'a',ownerId:'owner'};
 
     // Waiting without a schedule stays quiescent without a repair_task_ids loop.
-    expect(await service.snapshot(identity)).toMatchObject({kind:'quiescent',tasks:[{status:'waiting',wait:{reason:'Await reply',question:'Confirm timeline?'}}]});
+    expect(await service.snapshot(identity)).toMatchObject({kind:'quiescent',tasks:[{status:'waiting',wait:{reason:'Confirm timeline?',asked_user_id:'owner'}}]});
 
     // External doing_wake triggers single-shot continue until durably acked; self-authored doing stays quiescent.
     task={

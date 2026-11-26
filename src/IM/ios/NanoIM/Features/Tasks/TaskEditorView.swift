@@ -46,9 +46,7 @@ struct TaskEditorView: View {
     private var reworking: Bool { baseline?.status == "done" && draft.status == "doing" }
     private var proposalIncomplete: Bool {
         guard draft.status == "proposed" else { return false }
-        let rationale = draft.proposal?.rationale.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let onApprove = draft.proposal?.on_approve.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return rationale.isEmpty || onApprove.isEmpty
+        return draft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
@@ -97,24 +95,10 @@ struct TaskEditorView: View {
                         .overlay(alignment: .top) { Divider() }
                         .overlay(alignment: .bottom) { Divider() }
 
-                    if draft.status == "proposed" {
-                        field(L("提议依据 · 必填", "Proposal rationale · required"),
-                              prompt: L("说明为什么提出这项建议", "Why is this candidate worth considering?"),
-                              text: Binding(get: { draft.proposal?.rationale ?? "" }, set: { value in
-                                  var current = draft.proposal ?? TaskProposal()
-                                  current.rationale = value
-                                  draft.proposal = current
-                              }), key: "rationale")
-                        field(L("批准后行动 · 必填", "Action on approve · required"),
-                              prompt: L("说明批准后执行什么范围", "What will happen once approved?"),
-                              text: Binding(get: { draft.proposal?.on_approve ?? "" }, set: { value in
-                                  var current = draft.proposal ?? TaskProposal()
-                                  current.on_approve = value
-                                  draft.proposal = current
-                              }), key: "on_approve")
-                    }
-
-                    field(L("任务说明", "Description"), prompt: L("补充终局目标与必要背景", "Add the goal and useful context"), text: $draft.description, key: "description")
+                    field(draft.status == "proposed" ? L("任务说明 · 必填", "Task description · required") : L("任务说明", "Task description"),
+                          prompt: draft.status == "proposed" ? L("说明提议原因与批准后具体执行的动作", "State why this matters and what runs once approved") : L("补充背景要求与具体做法", "Add context and instructions"),
+                          text: $draft.description,
+                          key: "description")
                     if node != nil || addingResult || !draft.result.isEmpty || draft.status == "done" {
                         field(L("当前结果", "Result"), prompt: L("记录进展或交付结果", "Record progress or the outcome"), text: $draft.result, key: "result")
                     } else {
@@ -271,13 +255,8 @@ struct TaskEditorView: View {
                 "result": .string(draft.result),
                 "assignee": draft.assignee?.taskValue ?? .null
             ]
-            if let proposal = draft.proposal, draft.status == "proposed" {
-                var prop: [String: JSONValue] = [
-                    "rationale": .string(proposal.rationale),
-                    "on_approve": .string(proposal.on_approve)
-                ]
-                if let uid = proposal.proposed_for_user_id { prop["proposed_for_user_id"] = .string(uid) }
-                createBody["proposal"] = .object(prop)
+            if let uid = draft.proposed_for_user_id, !uid.isEmpty {
+                createBody["proposed_for_user_id"] = .string(uid)
             }
             body = createBody
             path = "/im/v1/task-graphs"

@@ -157,10 +157,12 @@ function TaskDetailDrawerContent({
   const parent = graph.nodes.find(candidate => candidate.id === node.container_id);
   const children = graph.nodes.filter(candidate => candidate.container_id === node.id);
   const isChildOfGoal = Boolean(root && node.id !== root.id);
+  const isGoalRoot = Boolean(
+    root && node.id === root.id && (root.mode !== "none" || graph.nodes.length > 1),
+  );
   const prereqBlocked = isTaskPrereqBlocked(node, graph, node.id);
   const isProposal = node.status === "proposed";
   const isStashed = node.status === "backlog" || node.status === "paused";
-  const hasProposal = isProposal && Boolean(node.proposal?.rationale || node.proposal?.on_approve);
   const hasDescription = Boolean(node.description?.trim());
   const hasResult = Boolean(node.result?.trim());
 
@@ -218,6 +220,7 @@ function TaskDetailDrawerContent({
   );
   const creatorLabel = stripRawActorId(actorName(node.created_by) || node.updated_by || "");
   const timeLabel = formatCompactTime(node.updated_at, i18n.language);
+  const noteLabel = node.change_note?.trim() || "";
   const fallbackChatTarget = returnChatId || conversation?.id || null;
 
   return (
@@ -370,63 +373,41 @@ function TaskDetailDrawerContent({
           </section>
         )}
 
+        {isProposal && (
+          <p className="tasks-proposed-hint">{t("tasks.focus.proposedHint")}</p>
+        )}
+
         {node.status === "waiting" && (
           <section className="tasks-drawer-section tasks-drawer-section--wait">
             <TaskWaitInfo wait={node.wait} health={node.wait_health} />
           </section>
         )}
 
-        {hasProposal && (
-          <section className="tasks-proposal-callout">
-            <h3 className="tasks-drawer-heading tasks-drawer-heading--proposal">
-              {t("tasks.panorama.whyProposed")}
-            </h3>
-            {node.proposal?.rationale && (
-              <p className="tasks-proposal-rationale">{node.proposal.rationale}</p>
-            )}
-            {node.proposal?.on_approve && (
-              <p className="tasks-proposal-plan">
-                <strong>{t("tasks.panorama.onApproveShort")}</strong>
-                {node.proposal.on_approve}
-              </p>
-            )}
-          </section>
-        )}
-
-        {(hasDescription || (!hasProposal && node.status !== "waiting" && !hasResult)) && (
-          <section className="tasks-drawer-block">
-            <h3 className="tasks-drawer-heading">{t("tasks.panorama.backgroundReq")}</h3>
-            <div className={`tasks-prose tasks-drawer-prose${!hasDescription ? " is-empty" : ""}`}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>
-                {hasDescription ? node.description : t("tasks.noDescription")}
-              </ReactMarkdown>
-            </div>
-          </section>
-        )}
+        <section className="tasks-drawer-block">
+          <h3 className="tasks-drawer-heading">
+            {t(isGoalRoot ? "tasks.panorama.northStarLabel" : "tasks.panorama.backgroundReq")}
+          </h3>
+          <div className={`tasks-prose tasks-drawer-prose${!hasDescription ? " is-empty" : ""}`}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>
+              {hasDescription ? node.description : t("tasks.noDescription")}
+            </ReactMarkdown>
+          </div>
+        </section>
 
         {hasResult && (
           <section className="tasks-result-block">
-            <div className="tasks-drawer-section-label">
-              <span>
-                {t(
-                  node.status === "done" || node.status === "closed"
-                    ? "tasks.panorama.finalResult"
-                    : "tasks.panorama.currentProgress",
-                )}
-              </span>
-            </div>
+            <h3 className="tasks-drawer-heading">
+              {t(
+                node.status === "done" || node.status === "closed"
+                  ? "tasks.panorama.finalResult"
+                  : "tasks.panorama.currentProgress",
+              )}
+            </h3>
             <div className="tasks-prose">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>
                 {node.result}
               </ReactMarkdown>
             </div>
-          </section>
-        )}
-
-        {node.change_note && (
-          <section className="tasks-drawer-group">
-            <h3>{t("tasks.changeNote")}</h3>
-            <p className="tasks-prose">{node.change_note}</p>
           </section>
         )}
 
@@ -524,11 +505,15 @@ function TaskDetailDrawerContent({
           </section>
         )}
 
-        {(creatorLabel || timeLabel) && (
+        {(creatorLabel || timeLabel || noteLabel) && (
           <p className="tasks-drawer-byline">
-            {creatorLabel ? t("tasks.bylineCreated", { creator: creatorLabel }) : ""}
-            {creatorLabel && timeLabel ? " · " : ""}
-            {timeLabel}
+            {[
+              creatorLabel ? t("tasks.bylineCreated", { creator: creatorLabel }) : "",
+              timeLabel,
+              noteLabel,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
         )}
       </div>

@@ -18,7 +18,7 @@ import {
   type TaskFocusSection,
   type TaskGraphSummary,
 } from "./task-graphs-api";
-import { actorName } from "./task-progress";
+import { actorName, plainTaskSnippet } from "./task-progress";
 import { TaskStatusBadge, TaskStatusHelpDialog } from "./task-status-badge";
 import { TaskAssigneeInline } from "./task-wait";
 import type { TaskEditTarget } from "./task-editor";
@@ -289,13 +289,13 @@ export function TaskFocusDesk({
     const canEdit = item.can_edit !== false && item.conversation?.can_write !== false;
     const cardBusy = busyCardKey === cardKey;
 
-    const descSnippet = isProposal
-      ? [item.proposal?.rationale, item.proposal?.on_approve].filter(Boolean).join(" · ") || item.description
-      : item.status === "in_review"
-        ? item.result || item.description
-        : isStashed
-          ? item.proposal?.rationale || item.description
-          : item.result || item.description;
+    const descSnippet = plainTaskSnippet(
+      item.status === "waiting"
+        ? ""
+        : (item.status === "in_review" || item.status === "done") && item.result?.trim()
+          ? item.result
+          : item.description,
+    );
 
     return (
       <article
@@ -323,10 +323,7 @@ export function TaskFocusDesk({
           {descSnippet && <p className="tasks-card-desc">{descSnippet}</p>}
           <div className="tasks-card-meta-row">
             <TaskStatusBadge status={item.status} />
-            {item.status === "waiting" && item.wait?.question && (
-              <span className="tasks-wait-chip">{item.wait.question}</span>
-            )}
-            {item.status === "waiting" && !item.wait?.question && item.wait?.reason && (
+            {item.status === "waiting" && item.wait?.reason && (
               <span className="tasks-wait-chip">{item.wait.reason}</span>
             )}
             {item.status === "waiting" && item.wait?.next_check_at && (

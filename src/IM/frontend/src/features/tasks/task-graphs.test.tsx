@@ -343,7 +343,7 @@ describe("task graph browsing", () => {
     await userEvent.click(within(crumbs).getByRole("button", { name: "A Choose direction" }));
     await userEvent.click(screen.getByRole("button", { name: "View Y Templates" }));
     expect(screen.getByText("Does not meet the quality target")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Latest change" })).toBeInTheDocument();
-    expect(screen.getByText("User chose to stop this direction")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Latest change" })).not.toBeInTheDocument();
+    expect(screen.getByText(/User chose to stop this direction/)).toBeInTheDocument();
   });
 });

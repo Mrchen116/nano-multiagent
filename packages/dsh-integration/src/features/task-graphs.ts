@@ -20,10 +20,10 @@ Each node records its actual creator and optional human or Agent assignee. Do no
 
 Lifecycle states and event-driven execution
 Use proposed, todo, doing, waiting, in_review, done, paused, backlog, and closed:
-- proposed: candidate idea or frontier next step awaiting human approval (requires proposal={rationale, on_approve}; never auto-execute speculative work before approval). When approved (approve_task or owner confirmation), an unblocked Agent-assigned node enters doing; blocked or human-assigned nodes enter todo.
+- proposed: candidate idea or frontier next step awaiting human approval (requires a non-blank description stating why this item is worth doing and what concrete action/scope will run upon approval; never auto-execute speculative work before approval). When approved (approve_task or owner confirmation), an unblocked Agent-assigned node enters doing; blocked or human-assigned nodes enter todo.
 - backlog: stashed for later without reminders or nudges; promote to todo when ready.
 - doing: active execution. Entering, resuming, or being reassigned into doing triggers a single event wake; make concrete progress during that turn, after which the session naturally settles to idle without idle polling loops.
-- waiting: active responsibility blocked on a future time or external reply. Always record a clear wait.reason. When a timed recheck or cross-day follow-up is needed, first create a native Schedule (up to 180 days out) for the current root session and pass wait={reason, schedule_id}. When waiting on a human reply or unscheduled external event, omit schedule_id (and optionally set question and asked_user_id) instead of creating nagging 1-hour timers.
+- waiting: active responsibility blocked on a future time or external reply. Always record a clear wait.reason (stating the blocker or question awaiting reply). When a timed recheck or cross-day follow-up is needed, first create a native Schedule (up to 180 days out) for the current root session and pass wait={reason, schedule_id}. When waiting on a human reply or unscheduled external event, omit schedule_id (and set asked_user_id when waiting on a human member's reply) instead of creating nagging 1-hour timers.
 
 Control and completion
 Schedule reminders recheck facts; read current Task state and Inbox messages first, and do not reopen paused, backlog, closed, done, or in_review Tasks from a timer alone. /stop pauses owned doing and waiting within the product scope.

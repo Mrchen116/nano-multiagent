@@ -496,7 +496,7 @@ struct TasksView: View {
             }
 
             Text(candidateTab == .proposed
-                 ? L("点击卡片可查看提议依据与计划；你点头前不会自动开工。", "Tap any card for rationale and plan; nothing runs until you approve.")
+                 ? L("点击卡片查看完整任务说明；你点头前不会自动开工。", "Tap any card for full task description; nothing runs until you approve.")
                  : L("暂不排期的点子平时免打扰；想做时点「提上日程」即进入下方进行中。", "Saved ideas stay quiet; tap Schedule anytime to move them into Active."))
                 .font(.caption)
                 .foregroundStyle(NanoTheme.muted)
@@ -575,25 +575,19 @@ struct TasksView: View {
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(NanoTheme.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if let rationale = item.proposal?.rationale, !rationale.isEmpty {
-                        Text(rationale)
+                    if item.status == "waiting", let reason = item.wait?.reason, !reason.isEmpty {
+                        Text(reason)
                             .font(.caption)
                             .foregroundStyle(NanoTheme.muted)
                             .lineLimit(3)
-                    } else if let question = item.wait?.question ?? item.wait?.reason, !question.isEmpty {
-                        Text(question)
-                            .font(.caption)
-                            .foregroundStyle(NanoTheme.muted)
-                            .lineLimit(3)
-                    } else if let desc = item.description, !desc.isEmpty {
-                        Text(desc)
+                    } else if ["in_review", "done"].contains(item.status), let res = item.result, !res.isEmpty {
+                        Text(res)
                             .font(.caption)
                             .foregroundStyle(NanoTheme.muted)
                             .lineLimit(2)
-                    }
-                    if item.status == "proposed", let onApprove = item.proposal?.on_approve, !onApprove.isEmpty {
-                        Text(L("批准后：", "On approve: ") + onApprove)
-                            .font(.caption2)
+                    } else if let desc = item.description, !desc.isEmpty {
+                        Text(desc)
+                            .font(.caption)
                             .foregroundStyle(NanoTheme.muted)
                             .lineLimit(2)
                     }
@@ -700,8 +694,8 @@ struct TasksView: View {
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(NanoTheme.ink)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    if let rationale = item.proposal?.rationale ?? item.description, !rationale.isEmpty {
-                        Text(rationale)
+                    if let desc = item.description, !desc.isEmpty {
+                        Text(desc)
                             .font(.caption)
                             .foregroundStyle(NanoTheme.muted)
                             .lineLimit(2)
