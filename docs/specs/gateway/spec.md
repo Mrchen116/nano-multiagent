@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-786
+> 对齐: feat-790
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
 
@@ -20,7 +20,7 @@
 |---|---|---|
 | [Routing and Delivery](routing-delivery.md) | 入站路由、逐消息时间与实际入口、会话控制与图文/文件投递、后台 Agent / Workflow 原始返回、self-evolution 维护隔离与重放去重、按需原始历史导出、跨机文件交接与附件下载 | 26 |
 | [Global Agent](global-agent.md) | 跨聊天主上下文、Inbox 消费、聊天搜索与回查、成员查询、完整事项单一执行者、日常直接处理、主会话协调交付、显式发送、目标群及私聊复核与控制命令、任务过程沟通与内部收尾、主 Agent 专属产品聊天工具 | 23 |
-| [Service Lifecycle](service-lifecycle.md) | 同源安装与空节点设置、主动更新和回退、节点启停、独立 Agent 停用、永久删除与只读管理、macOS 登录自启与异常恢复、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 18 |
+| [Service Lifecycle](service-lifecycle.md) | 同源安装与空节点设置、主动更新和回退、Desktop 单实例接管与环境复用、节点启停、独立 Agent 停用、永久删除与只读管理、macOS 登录自启与异常恢复、IM WS、reconnect/ack、auto-bind、默认本机 home/workspace、cache warning | 19 |
 | [Agent Capabilities](agent-capabilities.md) | 模型与运行配置、Feature 与工具选择、Skill 和插件、委派、上下文与记忆、Dreaming 及模型调用恢复 | 64 |
 | [Tool Approval](tool-approval.md) | 自动审批策略、审核模型、授权上下文、只读调查与原始指令完整性 | 10 |
 | [Heartbeat and Cron](heartbeat-cron.md) | 心跳启停、定时工具与有效安排、错过触发后的恢复及主会话归属 | 5 |
