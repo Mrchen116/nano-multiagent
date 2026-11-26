@@ -609,10 +609,12 @@ const POPUP_BANNER_HTML: &str = r##"<!doctype html>
 <body>
   <div class="card" id="card" role="button" tabindex="0">
     <div class="avatar" aria-hidden="true">
-      <svg viewBox="0 0 64 64" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-        <path fill-rule="evenodd" d="M23 8H41C51.5 8 58 14.5 58 25V37C58 47.5 51.5 54 41 54H29L18.9 60.7C17.7 61.5 16 60.6 16 59.1V52.7C9.7 50.4 6 45.1 6 37V25C6 14.5 12.5 8 23 8ZM23 14C15.8 14 12 17.8 12 25V37C12 43.6 15 47 22 48.3V51.6L27 48H41C48.2 48 52 44.2 52 37V25C52 17.8 48.2 14 41 14H23Z"/>
-        <rect x="21" y="24" width="7" height="12" rx="3.5"/>
-        <rect x="36" y="24" width="7" height="12" rx="3.5"/>
+      <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+        <g transform="translate(51 49) rotate(-9) translate(-50 -50)">
+          <path fill="#6B43D8" d="M 33,12 H 67 C 82.5,12 91,20.5 91,36 V 52 C 91,67.5 82.5,76 67,76 H 44 L 23.5,90.5 C 20.6,92.5 17,90.4 17,86.9 V 73.2 C 11.2,68.8 9,61.5 9,52 V 36 C 9,20.5 17.5,12 33,12 Z"/>
+          <rect x="32.5" y="33" width="12" height="19" rx="6" fill="#FFF0B5"/>
+          <path d="M 55.5,44.5 Q 63,34.5 70.5,44.5" fill="none" stroke="#FFF0B5" stroke-width="8.5" stroke-linecap="round"/>
+        </g>
       </svg>
     </div>
     <div class="main">

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="1024" height="1024">
+  <title>Crewden — 底边探头精灵（第一轮方案 B）</title>
+  <defs>
+    <clipPath id="sq">
+      <path d="M 50,0 C 79,0 89.5,0 94.75,5.25 C 100,10.5 100,21 100,50 C 100,79 100,89.5 94.75,94.75 C 89.5,100 79,100 50,100 C 21,100 10.5,100 5.25,94.75 C 0,89.5 0,79 0,50 C 0,21 0,10.5 5.25,5.25 C 10.5,0 21,0 50,0 Z"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#sq)">
+    <rect width="100" height="100" fill="#FFF0B5"/>
+    <g transform="translate(53 59) rotate(-8) translate(-50 -50)">
+      <rect x="4" y="6" width="92" height="96" rx="38" fill="#6B43D8"/>
+      <rect x="28" y="28" width="13.5" height="24" rx="6.75" fill="#FFF0B5"/>
+      <rect x="56.5" y="28" width="13.5" height="24" rx="6.75" fill="#FFF0B5"/>
+    </g>
+  </g>
+</svg>
