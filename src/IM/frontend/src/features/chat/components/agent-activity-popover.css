@@ -11,7 +11,8 @@
 .chat-agent-activity-trigger[aria-expanded=true] { outline:2px solid var(--im-accent); outline-offset:3px; }
 .chat-agent-activity {
   position:fixed;
-  z-index:80;
+  z-index:120;
+  pointer-events:auto;
   width:min(324px, calc(100vw - 16px));
   max-height:calc(100dvh - 16px);
   overflow:auto;

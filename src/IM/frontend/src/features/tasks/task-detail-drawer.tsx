@@ -1,5 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useState } from "react";
+import { Link2, MoreHorizontal, Pencil, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -15,7 +16,7 @@ import {
 } from "./task-graphs-api";
 import { actorName, TaskCounts } from "./task-progress";
 import { TaskStatusBadge } from "./task-status-badge";
-import { TaskAgentRuntime, TaskWaitInfo } from "./task-wait";
+import { TaskAssigneePill, TaskWaitInfo } from "./task-wait";
 import type { TaskEditTarget } from "./task-editor";
 
 export interface TaskDetailDrawerProps {
@@ -34,6 +35,25 @@ export interface TaskDetailDrawerProps {
   onOpenGoal?(graphId: string): void;
   onAct(fn: () => Promise<unknown>): Promise<void>;
   onDeletedRoot?(): void;
+}
+
+function isAgentPopoverEvent(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest(".chat-agent-activity"));
+}
+
+function formatCompactTime(iso: string, lang: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(lang, {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function stripRawActorId(label: string): string {
+  return label.replace(/\s*\([a-z0-9_-]{4,}\)\s*$/i, "").trim();
 }
 
 export function TaskDetailDrawer(props: TaskDetailDrawerProps) {
@@ -63,6 +83,17 @@ export function TaskDetailDrawer(props: TaskDetailDrawerProps) {
           className="tasks-drawer-sheet"
           aria-label={t("tasks.nodeDetails")}
           aria-describedby={undefined}
+          onEscapeKeyDown={event => {
+            if (document.querySelector(".chat-agent-activity, .tasks-more-dropdown")) {
+              event.preventDefault();
+            }
+          }}
+          onPointerDownOutside={event => {
+            if (isAgentPopoverEvent(event.target)) event.preventDefault();
+          }}
+          onInteractOutside={event => {
+            if (isAgentPopoverEvent(event.target)) event.preventDefault();
+          }}
         >
           <Dialog.Title className="sr-only">{t("tasks.nodeDetails")}</Dialog.Title>
           <TaskDetailDrawerContent {...props} />
@@ -91,6 +122,34 @@ function TaskDetailDrawerContent({
 }: TaskDetailDrawerProps) {
   const { t, i18n } = useTranslation();
   const [deleting, setDeleting] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setDeleting(false);
+    setMoreOpen(false);
+  }, [graph.graph_id, node.id]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const closeOutside = (event: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
+        setMoreOpen(false);
+      }
+    };
+    const closeEsc = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setMoreOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", closeOutside);
+    document.addEventListener("keydown", closeEsc, true);
+    return () => {
+      document.removeEventListener("mousedown", closeOutside);
+      document.removeEventListener("keydown", closeEsc, true);
+    };
+  }, [moreOpen]);
 
   const root = graph.nodes.find(candidate => candidate.id === graph.root_node_id);
   const parent = graph.nodes.find(candidate => candidate.id === node.container_id);
@@ -99,9 +158,9 @@ function TaskDetailDrawerContent({
   const prereqBlocked = isTaskPrereqBlocked(node, graph, node.id);
   const isProposal = node.status === "proposed";
   const isStashed = node.status === "backlog" || node.status === "paused";
-  const showProgressBlock =
-    Boolean(node.result?.trim()) ||
-    ["doing", "waiting", "in_review", "done", "closed"].includes(node.status);
+  const hasProposal = isProposal && Boolean(node.proposal?.rationale || node.proposal?.on_approve);
+  const hasDescription = Boolean(node.description?.trim());
+  const hasResult = Boolean(node.result?.trim());
 
   const deletionIds = new Set([node.id]);
   for (let depth = 0; depth < 8; depth++) {
@@ -142,40 +201,121 @@ function TaskDetailDrawerContent({
     );
 
   const conversation = graph.conversation;
+  const assigneeDisplayName = actorName(node.assignee);
+  const showConversationCrumb =
+    !isChildOfGoal &&
+    Boolean(
+      conversation &&
+        (conversation.visibility === "public" || conversation.title !== assigneeDisplayName),
+    );
+  const canConfigureAgent = Boolean(
+    node.assignee?.type === "agent" &&
+      node.assignee.id.startsWith("pa_") &&
+      conversation?.visibility === "private" &&
+      conversation?.can_write,
+  );
+  const creatorLabel = stripRawActorId(actorName(node.created_by) || node.updated_by || "");
+  const timeLabel = formatCompactTime(node.updated_at, i18n.language);
+  const fallbackChatTarget = returnChatId || conversation?.id || null;
 
   return (
     <div className="tasks-drawer-inner">
       <div className="tasks-drawer-head">
         <div className="tasks-drawer-head-top">
-          {isChildOfGoal && root ? (
+          <div className="tasks-drawer-crumb-slot">
+            {isChildOfGoal && root ? (
+              <button
+                type="button"
+                className="tasks-goal-crumb"
+                onClick={() => (onOpenGoal ? onOpenGoal(graph.graph_id) : onEnter(root))}
+              >
+                {t("tasks.focus.crumbGoal", { title: root.title })}
+              </button>
+            ) : showConversationCrumb && conversation ? (
+              <span className="tasks-goal-crumb tasks-goal-crumb--idea">
+                {conversation.title}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="tasks-drawer-head-tools">
+            {node.can_edit && (
+              <button
+                type="button"
+                className="tasks-icon-btn"
+                aria-label={t("tasks.edit")}
+                title={t("tasks.edit")}
+                onClick={() => onEdit({ graph, node })}
+              >
+                <Pencil size={15} />
+              </button>
+            )}
             <button
               type="button"
-              className="tasks-goal-crumb"
-              onClick={() => (onOpenGoal ? onOpenGoal(graph.graph_id) : onEnter(root))}
+              className="tasks-icon-btn"
+              aria-label={t("tasks.copyReference")}
+              title={t("tasks.copyReference")}
+              onClick={() => onCopy(node)}
             >
-              {t("tasks.focus.crumbGoal", { title: root.title })}
+              <Link2 size={15} />
             </button>
-          ) : (
-            <span className="tasks-goal-crumb tasks-goal-crumb--idea">
-              {conversation
-                ? t("tasks.focus.crumbSingle", { chat: conversation.title })
-                : `${t("tasks.nodeDetails")} · ${node.id}`}
-            </span>
-          )}
-          <button type="button" className="tasks-pill-btn tasks-pill-btn--ghost" onClick={onClose}>
-            {t("tasks.close")}
-          </button>
+            {node.can_delete && (
+              <div className="tasks-menu-anchor" ref={moreRef}>
+                <button
+                  type="button"
+                  className="tasks-icon-btn"
+                  aria-label={t("tasks.more")}
+                  title={t("tasks.more")}
+                  aria-expanded={moreOpen}
+                  onClick={() => setMoreOpen(current => !current)}
+                >
+                  <MoreHorizontal size={16} />
+                </button>
+                {moreOpen && (
+                  <div className="tasks-popover-menu tasks-popover-menu--right tasks-more-dropdown" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="tasks-popover-option tasks-popover-option--danger"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        setDeleting(true);
+                      }}
+                    >
+                      <span className="tasks-popover-danger-label">
+                        <Trash2 size={14} aria-hidden />
+                        <span>{t("tasks.delete")}</span>
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              type="button"
+              className="tasks-icon-btn"
+              aria-label={t("tasks.close")}
+              title={t("tasks.close")}
+              onClick={onClose}
+            >
+              <X size={17} />
+            </button>
+          </div>
         </div>
 
         <h2 className="tasks-drawer-title">{node.title}</h2>
+
         <div className="tasks-drawer-meta">
           <TaskStatusBadge status={node.status} />
+          <TaskAssigneePill
+            assignee={node.assignee}
+            graphId={graph.graph_id}
+            nodeId={node.id}
+            canConfigureAgent={canConfigureAgent}
+            canEdit={node.can_edit}
+            onAssignClick={() => onEdit({ graph, node })}
+          />
           {node.mode !== "none" && <span className="tasks-mode">{t(`tasks.mode.${node.mode}`)}</span>}
-          <span>
-            {t("tasks.focus.assigneeLabel", {
-              assignee: actorName(node.assignee) || t("tasks.unassigned"),
-            })}
-          </span>
         </div>
       </div>
 
@@ -186,8 +326,38 @@ function TaskDetailDrawerContent({
           </p>
         )}
 
-        {node.assignee?.type === "agent" && (
-          <TaskAgentRuntime agentId={node.assignee.id} graphId={graph.graph_id} nodeId={node.id} />
+        {deleting && (
+          <section className="tasks-conflict">
+            <h3>{t("tasks.deleteSubtree")}</h3>
+            <p>{t("tasks.deleteScope", { title: node.title, count: deletionIds.size })}</p>
+            <div className="tasks-drawer-action-row">
+              <button
+                type="button"
+                className="tasks-pill-btn tasks-pill-btn--danger"
+                disabled={busy}
+                onClick={() =>
+                  void onAct(async () => {
+                    await writeTaskGraph(
+                      `/${encodeURIComponent(graph.graph_id)}`,
+                      {
+                        base_revision: graph.revision,
+                        request_key: crypto.randomUUID(),
+                        node_id: node.id,
+                      },
+                      "DELETE",
+                    );
+                    onClose();
+                    if (node.id === graph.root_node_id) onDeletedRoot?.();
+                  })
+                }
+              >
+                {t("tasks.confirmDelete", { count: deletionIds.size })}
+              </button>
+              <button type="button" className="tasks-pill-btn" onClick={() => setDeleting(false)}>
+                {t("tasks.cancel")}
+              </button>
+            </div>
+          </section>
         )}
 
         {node.status === "waiting" && (
@@ -196,42 +366,30 @@ function TaskDetailDrawerContent({
           </section>
         )}
 
-        {isProposal && (node.proposal?.rationale || node.proposal?.on_approve) && (
-          <section className="tasks-drawer-section tasks-drawer-section--butter">
-            <div className="tasks-drawer-section-label">
-              <span>{t("tasks.panorama.whyProposed")}</span>
-            </div>
-            {node.proposal?.rationale && <p>{node.proposal.rationale}</p>}
+        {hasProposal && (
+          <section className="tasks-proposal-callout">
+            {node.proposal?.rationale && (
+              <p className="tasks-proposal-rationale">{node.proposal.rationale}</p>
+            )}
             {node.proposal?.on_approve && (
-              <p>
-                <strong>{t("tasks.panorama.onApproveLabel")}</strong> {node.proposal.on_approve}
+              <p className="tasks-proposal-plan">
+                <strong>{t("tasks.panorama.onApproveShort")}</strong>
+                {node.proposal.on_approve}
               </p>
             )}
           </section>
         )}
 
-        <section className={`tasks-drawer-section${isProposal && !node.proposal ? " tasks-drawer-section--butter" : ""}`}>
-          <div className="tasks-drawer-section-label">
-            <span>{t(isProposal && !node.proposal ? "tasks.panorama.whyProposed" : "tasks.panorama.backgroundReq")}</span>
-            {node.can_edit && (
-              <button
-                type="button"
-                className="tasks-pill-btn tasks-pill-btn--ghost tasks-pill-btn--xs"
-                onClick={() => onEdit({ graph, node })}
-              >
-                {t("tasks.edit")}
-              </button>
-            )}
-          </div>
-          <div className="tasks-prose">
+        {(hasDescription || (!hasProposal && node.status !== "waiting" && !hasResult)) && (
+          <div className={`tasks-prose tasks-drawer-prose${!hasDescription ? " is-empty" : ""}`}>
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>
-              {node.description || t("tasks.noDescription")}
+              {hasDescription ? node.description : t("tasks.noDescription")}
             </ReactMarkdown>
           </div>
-        </section>
+        )}
 
-        {showProgressBlock && (
-          <section className="tasks-drawer-section">
+        {hasResult && (
+          <section className="tasks-result-block">
             <div className="tasks-drawer-section-label">
               <span>
                 {t(
@@ -243,21 +401,21 @@ function TaskDetailDrawerContent({
             </div>
             <div className="tasks-prose">
               <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>
-                {node.result || t("tasks.noResult")}
+                {node.result}
               </ReactMarkdown>
             </div>
           </section>
         )}
 
         {node.change_note && (
-          <section className="tasks-drawer-section">
+          <section className="tasks-drawer-group">
             <h3>{t("tasks.changeNote")}</h3>
             <p className="tasks-prose">{node.change_note}</p>
           </section>
         )}
 
         {parent?.mode === "dag" && (predecessors.length > 0 || successors.length > 0) && (
-          <section className="tasks-drawer-section">
+          <section className="tasks-drawer-group">
             <div className="tasks-drawer-section-label">
               <span>{t("tasks.panorama.stageRelations")}</span>
             </div>
@@ -293,7 +451,7 @@ function TaskDetailDrawerContent({
         )}
 
         {derivedSource && (
-          <section className="tasks-drawer-section">
+          <section className="tasks-drawer-group">
             <div className="tasks-drawer-section-label">
               <span>{t("tasks.derivedFrom")}</span>
             </div>
@@ -308,7 +466,7 @@ function TaskDetailDrawerContent({
         )}
 
         {currentChoice && (
-          <section className="tasks-drawer-section">
+          <section className="tasks-drawer-group">
             <div className="tasks-drawer-section-label">
               <span>{t("tasks.currentChoice")}</span>
             </div>
@@ -319,12 +477,12 @@ function TaskDetailDrawerContent({
                 </button>
               </li>
             </ul>
-            <p>{node.selection_reason || t("tasks.noReason")}</p>
+            {node.selection_reason && <p>{node.selection_reason}</p>}
           </section>
         )}
 
         {node.links.length > 0 && (
-          <section className="tasks-drawer-section">
+          <section className="tasks-drawer-group">
             <div className="tasks-drawer-section-label">
               <span>{t("tasks.links")}</span>
             </div>
@@ -341,7 +499,7 @@ function TaskDetailDrawerContent({
         )}
 
         {children.length > 0 && (
-          <section className="tasks-drawer-section">
+          <section className="tasks-drawer-group">
             <div className="tasks-drawer-section-label">
               <span>{t("tasks.structure")}</span>
               <span>{t("tasks.nodeCount", { count: children.length })}</span>
@@ -350,38 +508,12 @@ function TaskDetailDrawerContent({
           </section>
         )}
 
-        {deleting && (
-          <section className="tasks-conflict">
-            <h3>{t("tasks.deleteSubtree")}</h3>
-            <p>{t("tasks.deleteScope", { title: node.title, count: deletionIds.size })}</p>
-            <div className="tasks-drawer-action-row">
-              <button
-                type="button"
-                className="tasks-pill-btn tasks-pill-btn--primary"
-                disabled={busy}
-                onClick={() =>
-                  void onAct(async () => {
-                    await writeTaskGraph(
-                      `/${encodeURIComponent(graph.graph_id)}`,
-                      {
-                        base_revision: graph.revision,
-                        request_key: crypto.randomUUID(),
-                        node_id: node.id,
-                      },
-                      "DELETE",
-                    );
-                    onClose();
-                    if (node.id === graph.root_node_id) onDeletedRoot?.();
-                  })
-                }
-              >
-                {t("tasks.confirmDelete", { count: deletionIds.size })}
-              </button>
-              <button type="button" className="tasks-pill-btn" onClick={() => setDeleting(false)}>
-                {t("tasks.cancel")}
-              </button>
-            </div>
-          </section>
+        {(creatorLabel || timeLabel) && (
+          <p className="tasks-drawer-byline">
+            {creatorLabel ? t("tasks.bylineCreated", { creator: creatorLabel }) : ""}
+            {creatorLabel && timeLabel ? " · " : ""}
+            {timeLabel}
+          </p>
         )}
       </div>
 
@@ -415,7 +547,7 @@ function TaskDetailDrawerContent({
                   void applyOp([{ op: "update_task", node_id: node.id, patch: { status: "closed" } }])
                 }
               >
-                {t("tasks.focus.closeAction")}
+                {t("tasks.focus.dismissProposal")}
               </button>
             </>
           )}
@@ -538,49 +670,24 @@ function TaskDetailDrawerContent({
               {t("tasks.panorama.splitSingleCard")}
             </button>
           )}
+        </div>
 
-          {node.last_chat_id && (
-            <button type="button" className="tasks-pill-btn" onClick={() => onDiscuss(node)}>
-              {t("tasks.discussNode")}
-            </button>
-          )}
-
-          <button type="button" className="tasks-pill-btn" onClick={() => onCopy(node)}>
-            {t("tasks.copyReference")}
+        {node.last_chat_id ? (
+          <button
+            type="button"
+            className="tasks-pill-btn tasks-pill-btn--soft"
+            onClick={() => onDiscuss(node)}
+          >
+            {t("tasks.discussNode")}
           </button>
-
-          {node.can_delete && (
-            <details className="tasks-more-menu">
-              <summary className="tasks-pill-btn tasks-pill-btn--ghost">{t("tasks.more")}</summary>
-              <button
-                type="button"
-                className="tasks-pill-btn tasks-pill-btn--danger"
-                onClick={() => setDeleting(true)}
-              >
-                {t("tasks.delete")}
-              </button>
-            </details>
-          )}
-        </div>
-
-        <div className="tasks-drawer-foot-meta">
-          <span>
-            {t("tasks.creator")}: {actorName(node.created_by) || "—"} · {t("tasks.updatedBy")}:{" "}
-            {node.updated_by} · {new Date(node.updated_at).toLocaleString(i18n.language)} · v{graph.revision}
-          </span>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {!docked && returnChatId && (
-              <Link className="tasks-inline-link" to={`/chat/${encodeURIComponent(returnChatId)}`}>
-                {t("tasks.goChat")}
-              </Link>
-            )}
-            {conversation && (
-              <Link className="tasks-inline-link" to={`/chat/${encodeURIComponent(conversation.id)}`}>
-                {t(conversation.dissolved_at ? "tasks.history" : "tasks.conversation")} · {conversation.title}
-              </Link>
-            )}
-          </div>
-        </div>
+        ) : !docked && fallbackChatTarget ? (
+          <Link
+            className="tasks-pill-btn tasks-pill-btn--soft"
+            to={`/chat/${encodeURIComponent(fallbackChatTarget)}`}
+          >
+            {t("tasks.goChat")}
+          </Link>
+        ) : null}
       </div>
     </div>
   );

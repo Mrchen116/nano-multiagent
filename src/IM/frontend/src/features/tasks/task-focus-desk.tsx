@@ -20,6 +20,7 @@ import {
 } from "./task-graphs-api";
 import { actorName } from "./task-progress";
 import { TaskStatusBadge, TaskStatusHelpDialog } from "./task-status-badge";
+import { TaskAssigneeInline } from "./task-wait";
 import type { TaskEditTarget } from "./task-editor";
 
 function isPersonalConversation(chat: Conversation): boolean {
@@ -336,11 +337,7 @@ export function TaskFocusDesk({
             {item.status === "todo" && prereqBlocked && (
               <span className="tasks-wait-chip">{t("tasks.focus.prereqWaiting")}</span>
             )}
-            <span>
-              {t(isStashed ? "tasks.focus.stashedMutedHint" : "tasks.focus.assigneeLabel", {
-                assignee: actorName(item.assignee) || t("tasks.unassigned"),
-              })}
-            </span>
+            <TaskAssigneeInline assignee={item.assignee} stashedMuted={isStashed} />
           </div>
         </div>
 

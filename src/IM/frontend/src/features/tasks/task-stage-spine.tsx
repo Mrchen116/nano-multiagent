@@ -4,6 +4,7 @@ import { layoutTaskScope } from "./task-graph-layout";
 import { isTaskPrereqBlocked, writeTaskGraph, type TaskGraph, type TaskNode } from "./task-graphs-api";
 import { actorName } from "./task-progress";
 import { TaskStatusBadge } from "./task-status-badge";
+import { TaskAssigneeInline } from "./task-wait";
 
 export function TaskStageSpine({
   graph,
@@ -181,11 +182,7 @@ export function TaskStageSpine({
                 )}
 
                 <div className="tasks-spine-meta">
-                  <span>
-                    {t("tasks.focus.assigneeLabel", {
-                      assignee: actorName(node.assignee) || t("tasks.unassigned"),
-                    })}
-                  </span>
+                  <TaskAssigneeInline assignee={node.assignee} />
                   {scope.selected_candidate_id === node.id && (
                     <span className="tasks-picked">{t("tasks.picked")}</span>
                   )}
