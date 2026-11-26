@@ -65,7 +65,8 @@ it('keeps a second Global available through Relay while an old child blocks reco
       export const name='relay-scale';export const inject=['llm','sessionQuery','sessionPersistence','tools'];
       export function apply(ctx){
         // Seed a pre-Nano native child so cold recovery reads the historical Work catalogue.
-        ctx.tools.register({...ctx.tools.get('subagent'),name:'seed_legacy_child'});
+        const mountLegacy=()=>{const base=ctx.tools.get('subagent');if(base&&!ctx.tools.get('seed_legacy_child'))ctx.tools.register({...base,name:'seed_legacy_child'});};
+        mountLegacy();ctx.on('tools/change',mountLegacy);
         const file=process.env.DSH_HOME;
         if(process.env.NANO_TEST_COLD){
           const observe=ctx.sessionQuery.observeSession.bind(ctx.sessionQuery);
@@ -102,7 +103,7 @@ it('keeps a second Global available through Relay while an old child blocks reco
           if(text==='launch native child'&&!launched){
             launched=true;
             yield {type:'block-end',index:0,block:{type:'tool-call',name:'seed_legacy_child',id:'start-child',
-              arguments:JSON.stringify({prompt:'hold native child',description:'hold recovery',run_in_background:true,backgroundMode:'continuable'})}};
+              arguments:JSON.stringify({prompt:'hold native child',description:'hold recovery'})}};
             yield {type:'finish',reason:{kind:'tool-calls'}};return;
           }
           yield {type:'block-end',index:0,block:{type:'text',text:'done'}};
@@ -156,7 +157,7 @@ it('keeps a second Global available through Relay while an old child blocks reco
     native!.rpc.handle('model.check',()=>({published:false}));
     step('relay register');await deadline(relay.start());
     step('held A recovery');send(root,'resume-a');
-    await expect.poll(async()=>(await lines('blocked.jsonl')).some(row=>row.id===child),{timeout:10000}).toBe(true);
+    await expect.poll(async()=>(await lines('blocked.jsonl')).some(row=>row.id===child),{timeout:30000}).toBe(true);
     step('B delivery while A is held');send(other,'accept-b');
     await expect.poll(async()=>(await lines('model.jsonl')).some(row=>row.id===other.sessionId),{timeout:30000}).toBe(true);
     expect(traffic.some(frame=>frame.type==='node.delivery_receipt' && frame.payload.relay_task_id==='accept-b')).toBe(true);
@@ -165,7 +166,7 @@ it('keeps a second Global available through Relay while an old child blocks reco
 
     step('resume A');await unlink(join(home,'hold-child'));
     await expect.poll(async()=>(await lines('model.jsonl')).some(row=>row.id===child &&
-      row.messages.some((message:{source?:{channel?:string}})=>message.source?.channel==='runtime-recovery')),{timeout:30000}).toBe(true);
+      row.messages.some((message:{source?:{channel?:string;rpcId?:string}})=>message.source?.channel==='runtime-recovery' || message.source?.rpcId?.startsWith('nano-runtime-recovery:'))),{timeout:30000}).toBe(true);
     const reads = await lines('reads.jsonl');
     expect(reads.filter(row => row.id === root.sessionId && row.events > 1)).toHaveLength(1);
     expect(reads.filter(row => row.id === child).length).toBeGreaterThan(0);

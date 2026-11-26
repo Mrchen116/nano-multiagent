@@ -44,7 +44,7 @@ class WorkspaceTree extends EntryTree {
       if (subgroup === undefined) delete owner.subgroup; else owner.subgroup = subgroup;
     }
   }
-  override write(): void {}
+  override commit(): void {}
 }
 
 /** Own workspace profiles while native DSH owns package operations and plugin lifecycles. */
@@ -187,7 +187,7 @@ class WorkspaceOwner {
       finally { stop(); }
       const leaking = new Set<string>();
       for (const entry of mount.tree.entries()) if (entry.fiber && !entry.disabled) {
-        const services = leakedServices(mount.ctx, entry.fiber);
+        const services = leakedServices(mount.ctx, entry.fiber.ctx.fiber);
         if (services.length) { leaking.add(entry.options.id); audit.failed.push(`${entry.options.id} (${entry.options.name}): root services ${services.join(', ')}; use a local isolate group`); }
       }
       diagnostics.push(...audit.failed, ...audit.pending);

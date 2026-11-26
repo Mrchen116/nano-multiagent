@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import type { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import type { SessionAddress, SessionFollowRequest, SessionProjectionValues } from '@deepseek-ai/dsh-api-session-controller/types';
+import type SessionToolResults from '@deepseek-ai/dsh-client-ui-trajectory';
 import { TRAJECTORY_VERSION, TRAJECTORY_MAX_BYTES, type TrajectoryScope } from '@nano/product-contracts';
 import type { AgentConfiguration, SessionBinding } from './index.js';
 import type { RpcPeer } from './rpc.js';
@@ -16,12 +17,18 @@ interface Observer {
   streams: Map<string, TrajectoryStream>;
   cursor: number;
 }
+interface LiveToolResultSeqs {
+  firstByCallId: Map<string, number>;
+  originBySeq: Map<number, number>;
+}
+const MAX_LIVE_TOOL_RESULT_SEQS = 1_000;
 type Request = { observerId: string; method: string; params?: { args?: { request?: Record<string, any> } }; streamId?: string; initialBatch?: boolean; attachmentAuthorized?: boolean };
 
 /** Owns the native read boundary; callers cannot acquire an Agent through this service. */
 export class NativeTrajectory {
   private readonly observers = new Map<string, Observer>();
   private readonly closing = new Map<string, Set<Promise<void>>>();
+  private readonly liveToolSeqs = new WeakMap<object, LiveToolResultSeqs>();
 
   constructor(private readonly ctx: Context, private readonly options: {
     controller: Promise<SessionController>;
@@ -50,7 +57,46 @@ export class NativeTrajectory {
       return {};
     });
     peer.handle('trajectory.close', value => { this.close((value as Request).observerId); return {}; });
-    this.ctx.effect(() => () => this.dispose());
+    // Post-step surface rewrites (such as dsh-agent-context short-ID tagging) emit a
+    // replacement tool/result event with a new seq while SessionToolResults keeps the
+    // live structured value keyed by the initial tool/result seq for that callId.
+    const onSessionEvent = this.ctx.on('session/event', (session, event) => {
+      if (this.ctx.sessions.get(session.id) !== session) return;
+      const rawCallId = event.type === 'tool/result'
+        ? (event.data.message.toolCallId ?? event.data.message.source?.callId)
+        : event.type === 'tool/ptc-dispatch'
+          ? (event.data as { subCallId?: unknown }).subCallId
+          : undefined;
+      if (rawCallId === undefined) return;
+      const callId = String(rawCallId);
+      let index = this.liveToolSeqs.get(session);
+      if (!index) {
+        index = { firstByCallId: new Map(), originBySeq: new Map() };
+        this.liveToolSeqs.set(session, index);
+      }
+      const origin = index.firstByCallId.get(callId);
+      if (origin === undefined) {
+        index.firstByCallId.set(callId, event.seq);
+        if (index.firstByCallId.size > MAX_LIVE_TOOL_RESULT_SEQS) {
+          const oldest = index.firstByCallId.keys().next().value;
+          if (oldest !== undefined) index.firstByCallId.delete(oldest);
+        }
+      } else if (origin !== event.seq) {
+        index.originBySeq.set(event.seq, origin);
+        if (index.originBySeq.size > MAX_LIVE_TOOL_RESULT_SEQS) {
+          const oldest = index.originBySeq.keys().next().value;
+          if (oldest !== undefined) index.originBySeq.delete(oldest);
+        }
+      }
+    }, { global: true });
+    const onSessionDisposed = this.ctx.on('session/disposed', session => {
+      this.liveToolSeqs.delete(session);
+    }, { global: true });
+    this.ctx.effect(() => () => {
+      onSessionEvent();
+      onSessionDisposed();
+      this.dispose();
+    });
   }
 
   /** Check the trusted global binding and the persisted native parent chain. */
@@ -102,9 +148,10 @@ export class NativeTrajectory {
     } else if (request.method === 'trajectory/attachment-source') {
       const sources = [];
       let sessionId = observer.scope.sessionId;
+      const attachmentId = String(args.attachment?.attachmentId ?? args.attachmentId ?? '');
       // Native child histories may inherit an attachment from their authorized parent.
       while (true) {
-        sources.push(...await this.ctx.nanoTrajectoryAttachments.read(sessionId, String(args.attachmentId)));
+        sources.push(...await this.ctx.nanoTrajectoryAttachments.read(sessionId, attachmentId));
         if (sessionId === observer.scope.rootSessionId) break;
         using parent = await this.ctx.sessionQuery.observeSession(SessionId(sessionId), { signal, projectionMode: 'none' });
         if (!parent.header.parentSession) break;
@@ -113,7 +160,7 @@ export class NativeTrajectory {
       value = { sources };
     } else if (request.method === 'session/attachment') {
       if (!request.attachmentAuthorized) throw new Error('无法验证附件访问权限');
-      value = await controller.attachment({ sessionId: SessionId(observer.scope.sessionId), attachmentId: args.attachmentId });
+      value = await controller.attachment({ sessionId: SessionId(observer.scope.sessionId), attachment: args.attachment });
     } else throw new Error('trajectory_read_only_method_required');
     signal.throwIfAborted();
     return { ok: true, value: request.method === 'session/attachment' ? value : withoutInlineImages(value) };
@@ -122,12 +169,15 @@ export class NativeTrajectory {
   /** Open one official native stream; reads use bounded, explicitly pulled batches. */
   async open(request: Request) {
     const observer = this.observer(request.observerId), args = this.arguments(observer, request);
-    if (!['session/follow', 'session/control'].includes(request.method)) throw new Error('trajectory_read_only_method_required');
+    if (!['session/follow', 'session/control', 'toolResults/watch'].includes(request.method)) throw new Error('trajectory_read_only_method_required');
+    if (request.method === 'toolResults/watch' && (!Number.isSafeInteger(args.seq) || args.seq < 0)) throw new Error('trajectory_invalid_seq');
     const window = request.method === 'session/follow' ? this.window(args, 5) : undefined;
     const streamId = randomUUID();
     const stream = new TrajectoryStream(signal => request.method === 'session/follow'
       ? this.follow(observer, { ...window!, address: observer.address, assistantStream: true }, signal)
-      : this.control(observer, signal));
+      : request.method === 'toolResults/watch'
+        ? this.watchToolResult(observer, args.seq, signal)
+        : this.control(observer, signal));
     observer.streams.set(streamId, stream);
     if (request.initialBatch === true) {
       try { return { streamId, initialBatch: await stream.next() }; }
@@ -197,6 +247,21 @@ export class NativeTrajectory {
     return { maxMessages: Math.min(maxMessages, cap), ...(turnWindow ? { turnWindow } : {}) };
   }
 
+  private async *watchToolResult(observer: Observer, seq: number, signal: AbortSignal) {
+    const store = (this.ctx as Context & { sessionToolResults?: SessionToolResults }).sessionToolResults;
+    if (!store) {
+      yield { available: false };
+      if (!signal.aborted) await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }));
+      return;
+    }
+    const sessionId = SessionId(observer.scope.sessionId);
+    const liveSession = this.ctx.sessions.get(sessionId);
+    const targetSeq = (liveSession && this.liveToolSeqs.get(liveSession)?.originBySeq.get(seq)) ?? seq;
+    for await (const frame of store.watch({ sessionId, seq: targetSeq }, signal)) {
+      yield withoutInlineImages(frame);
+    }
+  }
+
   private async *control(observer: Observer, signal: AbortSignal) {
     const controller = await this.options.controller;
     for await (const frame of controller.control(signal)) {
@@ -240,7 +305,7 @@ export class NativeTrajectory {
         const page = await controller.page({ ...this.window(request), address: observer.address, throughSeq: cut.cursor }, signal);
         if (changed || this.ctx.sessions.get(id)) throw new Error('generation_changed');
         observer.cursor = cut.cursor;
-        yield withoutInlineImages({ type: 'snapshot', header: cut.header, cursor: cut.cursor, ...page,
+        yield withoutInlineImages({ type: 'snapshot', header: cut.header, ...page, cursor: cut.cursor,
           projections: { asOfSeq: cut.cursor, values: (cut.projections?.values ?? {}) as SessionProjectionValues }, assistantStream: { revision: 0 } });
         if (!changed && !signal.aborted) await new Promise<void>(resolve => { wake = resolve; });
         if (changed && !signal.aborted) throw new Error('generation_changed');

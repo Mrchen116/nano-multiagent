@@ -159,7 +159,7 @@ it.each([
     }
     await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
     const port = (server.address() as { port: number }).port;
-    await writeFile(join(home, 'native-tools.mjs'), "export const name='native-tools';export const inject=['tools'];export function apply(ctx){ctx.on('agent/created',({agent})=>{agent.ctx.tools.presentAs('native');});}");
+    await writeFile(join(home, 'native-tools.mjs'), "export const name='native-tools';export function apply(){}");
     await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { wire: { api: 'anthropic-messages',
       apiKeyEnv: 'NANO_TEST_KEY', baseURL: 'http://127.0.0.1:' + port, models: [{ id: 'fixture', contextWindow: 100000 }],
       retryPolicy: { mode: 'normal', maxRetries: 0 } } } } }, { id: 'nano-compaction', config: { retainTokens: 0, maxTokens: 256 } },
@@ -255,7 +255,7 @@ it.each([
       expect(strings(messages)).not.toContain(documentMarker);
       expect(strings(messages).split(updatedMarker)).toHaveLength(2);
       expect(strings(messages).split('<context_window>\n')).toHaveLength(2);
-      const latestSnapshot = messages.findLast((message: unknown) => strings(message).includes('Current runtime context'));
+      const latestSnapshot = messages.findLast((message: unknown) => strings(message).includes('The following information describes your current session'));
       expect(strings(latestSnapshot)).toContain(updatedMarker);
       expect(strings(latestSnapshot)).not.toContain(documentMarker);
       expect(strings(messages)).not.toContain('These pages changed');

@@ -100,7 +100,7 @@ export class TrajectoryObservers {
         const input = JSON.parse(raw.toString()) as TrajectoryRequest;
         if (!observer.ready || !observer.node || !['call', 'open', 'next', 'abort'].includes(input.type)
           || typeof input.requestId !== 'string' || input.requestId.length > 128) throw new Error('invalid observer request');
-        if (['call', 'open'].includes(input.type) && !['trajectory/runs', 'session/list', 'session/page', 'session/projections', 'session/attachment', 'session/control', 'session/follow'].includes(input.method ?? '')) {
+        if (['call', 'open'].includes(input.type) && !['trajectory/runs', 'session/list', 'session/page', 'session/projections', 'session/attachment', 'session/control', 'session/follow', 'toolResults/watch'].includes(input.method ?? '')) {
           this.write(observer, socket, { type: 'error', requestId: input.requestId, code: 'read_only', message: '只允许读取原生轨迹' }); return;
         }
         if (input.type === 'call' && input.method === 'session/attachment') {

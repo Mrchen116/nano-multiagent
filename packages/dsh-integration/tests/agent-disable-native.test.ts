@@ -59,14 +59,14 @@ export function apply(ctx) {
   const started=new Set();
   ctx.on('agent/created',({agent})=>{if(!['root','root-b'].includes(agent.id)||started.has(agent.id))return;started.add(agent.id);setTimeout(async()=>{try {
     const home=process.env.DSH_HOME,id=agent.id;
-    const child=await ctx.subagents.start('spawn',{parent:agent,prompt:[{type:'text',text:'hold child'}],signal:new AbortController().signal});
-    const grandchild=await ctx.subagents.start('spawn',{parent:child.localAgent,prompt:[{type:'text',text:'hold grandchild'}],signal:new AbortController().signal});
-    const continued=await ctx.subagents.startContinuable({provider:'spawn',label:'persistent child',request:{parent:agent,prompt:[{type:'text',text:'hold continued'}]},signal:new AbortController().signal});
+    const child=await ctx.subagents.startActivation({provider:'spawn',label:'hold child',delivery:'caller',parent:agent,prompt:[{type:'text',text:'hold child'}],signal:new AbortController().signal});
+    const grandchild=await ctx.subagents.startActivation({provider:'spawn',label:'hold grandchild',delivery:'caller',parent:ctx.agents.get(child.childId),prompt:[{type:'text',text:'hold grandchild'}],signal:new AbortController().signal});
+    const continued=await ctx.subagents.startActivation({provider:'spawn',label:'persistent child',delivery:'parent',parent:agent,prompt:[{type:'text',text:'hold continued'}],signal:new AbortController().signal});
     const shell=ctx.subprocess.spawn({argv:['/bin/bash','-c',"trap '' TERM; (trap '' TERM; while true; do echo tick >> "+id+"-bash; sleep .03; done) & wait"],cwd:home,stdio:{stdin:'ignore',stdout:'ignore',stderr:'ignore'},graceMs:150});
-    const job=ctx.jobs.start({kind:'bash',label:'managed tree',owner:grandchild.id,run:()=>({cancel:()=>shell.terminate(),done:shell.done.then(()=>({status:'killed'}))})});
+    const job=ctx.jobs.start({kind:'bash',label:'managed tree',owner:grandchild.childId,run:()=>({cancel:()=>shell.terminate(),done:shell.done.then(()=>({status:'killed'}))})});
     const pty=await ctx.terminals.spawn(agent,{type:'shell',cwd:home});
     ctx.jobs.start({kind:'pty-send',label:'managed terminal',owner:agent.id,run:()=>{const send=ctx.terminals.startSend(agent,pty.sessionId,{text:'while true; do echo tick >> '+id+'-pty; sleep .03; done',submit:true});return {cancel:()=>send.cancel(),done:send.done.then(()=>({status:'killed'}))};}});
-    await writeFile(home+'/'+id+'-ready',JSON.stringify({child:child.id,grandchild:grandchild.id,continued:continued.childId,job}));
+    await writeFile(home+'/'+id+'-ready',JSON.stringify({child:child.childId,grandchild:grandchild.childId,continued:continued.childId,job}));
   }catch(error){await writeFile(process.env.DSH_HOME+'/error',String(error));}},0);});
 }`);
     const native = createRequire(createRequire(import.meta.url).resolve('@deepseek-ai/dsh/package.json'));

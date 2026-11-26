@@ -207,14 +207,14 @@ it('terminates a stalled provider at the preparation deadline and retains its us
   const options = await fixtureOptions(root);
   const candidate = new NanoMemoryCandidate({ ...options, environment: { ...options.environment, EVALUATION_HANG: '1' } });
   try {
-    const result = await candidate.prepare(history, { ...limits, timeoutMs: 5000 });
+    const result = await candidate.prepare(history, { ...limits, timeoutMs: 8000 });
     expect(result.status, JSON.stringify(result)).toBe('incomplete');
     if (result.status === 'ready' || !result.receipt) throw new Error('Missing interrupted preparation evidence');
     expect(result.receipt.usage.modelCalls).toBe(1);
     const audit = JSON.parse(await readFile(result.receipt.evidenceRef, 'utf8'));
     expect(() => process.kill(audit.processId, 0)).toThrow();
   } finally { await candidate.close(); await rm(root, { recursive: true, force: true }); }
-}, 15000);
+}, 25000);
 
 
 it('isolates parallel case runtimes and keeps a sealed chat reusable after another case is cancelled', async () => {

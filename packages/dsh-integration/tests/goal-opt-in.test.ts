@@ -13,14 +13,15 @@ it('defaults optional tools off and honors each ordinary tool selection', async 
     await writeFile(join(home, 'probe.mjs'), `import {writeFile} from 'node:fs/promises';
 export const name='goal-probe';export const inject=['tools','llm','agents','subagents'];
 export function apply(ctx){
+ctx.on('agent/created',({agent})=>{if(agent.session.header.origin!=='subagent'){agent.session.append('plan/mode',{active:true});agent.session.append('plan/mode',{active:false});}});
 ctx.on('agent/pre-step',async({agent,messages,signal},next)=>{
 if(agent.id==='default' && messages.some(m=>m.content.some(b=>b.type==='text'&&b.text==='probe'))){
-  const child=await ctx.subagents.start('fork',{parent:agent,signal,label:'goal-child',prompt:[{type:'text',text:'child probe'}]});
+  const child=await ctx.subagents.startActivation({provider:'fork',delivery:'caller',parent:agent,signal,label:'goal-child',prompt:[{type:'text',text:'child probe'}]});
   try{await child.result;}finally{await child.dispose();}
 }
-const result=await ctx.tools.execute({name:'get_goal',callId:'probe',arguments:{},agent,signal:new AbortController().signal});
+const probeSig=new AbortController().signal;const modelSelection=agent.model.current()??{provider:agent.options.provider??'deepseek-official',model:agent.options.model??'deepseek-flash'};const toolSet=await ctx.tools.resolve({scope:agent,agent,modelSelection,signal:probeSig});const result=(await ctx.tools.execute({calls:[{type:'tool-call',id:'probe',name:'get_goal',arguments:'{}'}],agent,toolSet,signal:probeSig})).results[0].result;toolSet.dispose();
 await writeFile(process.env.DSH_HOME+'/'+(agent.session.header.origin==='subagent'?'child':agent.id)+'.json',JSON.stringify(result));return next();});
-ctx.on('llm/stream',async function*(o){const agent=ctx.agents.currentInitiator();await writeFile(process.env.DSH_HOME+'/'+agent.id+'.request.json',JSON.stringify(o.messages));await writeFile(process.env.DSH_HOME+'/'+agent.id+'.tools.json',JSON.stringify(o.tools));if(o.messages.findLast(m=>m.role==='user')?.id==='hold'){await new Promise(resolve=>o.signal.addEventListener('abort',resolve,{once:true}));return;}yield{type:'block-end',index:0,block:{type:'text',text:'ordinary reply'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
+ctx.on('llm/stream',async function*(o){const agent=ctx.agents.get(o.sessionId);await writeFile(process.env.DSH_HOME+'/'+agent.id+'.request.json',JSON.stringify(o.messages));await writeFile(process.env.DSH_HOME+'/'+agent.id+'.tools.json',JSON.stringify(o.tools));if(o.messages.findLast(m=>m.role==='user')?.id==='hold'){await new Promise(resolve=>o.signal.addEventListener('abort',resolve,{once:true}));return;}yield{type:'block-end',index:0,block:{type:'text',text:'ordinary reply'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home, [{insert: [{id: 'goal-probe', name: join(home, 'probe.mjs')}]}]);
     client = new RuntimeClient({home, cwd: home, onLog: text => {logs += text;}});
     registerNoopTaskHosts(client);

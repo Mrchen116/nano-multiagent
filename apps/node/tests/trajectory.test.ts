@@ -16,7 +16,7 @@ it.each([false,true])('drains native reads through the configured network agent 
   if(routed)http.globalAgent=networkAgent;
   const page = { records: [{ text: '历史😀"\\'.repeat(300_000) }], hasMore: true };
   const runtime = { request: async (method: string) => method === 'trajectory.prepare'
-    ? { version: '0.2.1-alpha.1' } : { ok: true, value: page } } as unknown as RuntimePort;
+    ? { version: '0.2.2-rc.5' } : { ok: true, value: page } } as unknown as RuntimePort;
   const trajectory = new NodeTrajectory({ imUrl: routed ? 'http://unreachable.invalid:1' : `http://127.0.0.1:${port}`, runtime, valid: () => true });
   const scope = { observerId: 'reader', rootAgentId: 'agent', rootSessionId: 'root', sessionId: 'child', ownerId: 'owner', nodeId: 'node', nodeEpoch: 1 };
   const connected = once(server, 'connection');

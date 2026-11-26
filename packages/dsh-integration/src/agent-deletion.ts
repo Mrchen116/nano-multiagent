@@ -2,7 +2,7 @@ import { lstat, mkdir, open, readdir, realpath, rename, rm } from 'node:fs/promi
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import { SESSION_FORMAT_VERSION, SessionId, type SessionHeader } from '@deepseek-ai/dsh-session/types';
-import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl';
+import { name as jsonlPersistenceName, type Config as JsonlPersistenceConfig } from '@deepseek-ai/dsh-session-persistence-jsonl';
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain';
 import { z } from 'zod';
 import type { SessionBinding } from './index.js';
@@ -53,6 +53,24 @@ async function syncDirectory(path: string): Promise<void> {
   try { await directory.sync(); } finally { await directory.close(); }
 }
 
+interface ManagedJsonlPersistence {
+  readonly name?: string;
+  readonly config: JsonlPersistenceConfig;
+  list(): ReturnType<Context['sessionPersistence']['list']>;
+  stat(id: SessionId): ReturnType<Context['sessionPersistence']['stat']>;
+  resolveCurrentLog(id: SessionId): Promise<string | undefined>;
+  acquireWriteLease(header: SessionHeader): Promise<{ release(): Promise<void> }>;
+}
+
+function isManagedJsonlPersistence(storage: unknown): storage is ManagedJsonlPersistence {
+  if (!storage || typeof storage !== 'object') return false;
+  const candidate = storage as Partial<ManagedJsonlPersistence>;
+  return candidate.name === jsonlPersistenceName
+    && typeof candidate.config?.root === 'string'
+    && typeof candidate.resolveCurrentLog === 'function'
+    && typeof candidate.acquireWriteLease === 'function';
+}
+
 /** Owns the runtime retirement fence and the locked JSONL layout used by Nano. */
 export class SessionDeletion {
   private readonly state;
@@ -60,7 +78,7 @@ export class SessionDeletion {
   private readonly active = new Map<string, Set<Promise<unknown>>>();
   private readonly root: string;
 
-  constructor(private readonly ctx: Context, private readonly storage: JsonlSessionPersistence,
+  constructor(private readonly ctx: Context, private readonly storage: ManagedJsonlPersistence,
     private readonly home: string) {
     this.root = resolve(home, 'sessions');
     if (resolve(storage.config.root) !== this.root) throw new Error('Unsupported session deletion storage root');
@@ -74,7 +92,7 @@ export class SessionDeletion {
     const query = ctx.sessionQuery as typeof ctx.sessionQuery & {config?: {openAt?: string}};
     // The supported profile never opens an FTS index. The optional SQLite
     // service exposes no scoped purge operation in this pinned version.
-    if (!ctx.get('sessionProjectionCache') && storage instanceof JsonlSessionPersistence && query.config?.openAt === 'never')
+    if (!ctx.get('sessionProjectionCache') && isManagedJsonlPersistence(storage) && query.config?.openAt === 'never')
       return new SessionDeletion(ctx, storage, home);
   }
 

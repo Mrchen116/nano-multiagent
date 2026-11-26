@@ -1,7 +1,7 @@
 import { TrajectoryValueDecoder } from '@nano/product-contracts/trajectory-wire';
 
 const calls = new Set(['session/list', 'session/page', 'session/projections', 'session/attachment', 'trajectory/runs']);
-const streams = new Set(['session/control', 'session/follow']);
+const streams = new Set(['session/control', 'session/follow', 'toolResults/watch']);
 
 interface Pending {
   resolve(value: any): void;

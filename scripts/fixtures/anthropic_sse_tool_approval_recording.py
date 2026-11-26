@@ -79,7 +79,7 @@ def _sse_text(text: str) -> bytes:
 def _sse_tool_call(sequence: int) -> bytes:
     arguments = json.dumps(
         {
-            "file_path": f"approval-route-{sequence}.txt",
+            "file_path": f"CLAUDE.md.approval-route-{sequence}.txt",
             "content": f"approval-route-{sequence}",
         }
     )
@@ -118,8 +118,21 @@ def _sse_tool_call(sequence: int) -> bytes:
     return _frames_bytes(frames)
 
 
+def _system_text(body: dict[str, Any]) -> str:
+    system = body.get("system", [])
+    if isinstance(system, str):
+        return system
+    return "\n".join(
+        block.get("text", "")
+        for block in system
+        if isinstance(block, dict) and isinstance(block.get("text"), str)
+    )
+
+
 def _is_classifier(body: dict[str, Any]) -> bool:
-    return any(tool["name"].startswith("guardian_") for tool in body.get("tools", []))
+    return _system_text(body).startswith(
+        "You are judging one planned coding-agent action."
+    ) or any(tool["name"].startswith("guardian_") for tool in body.get("tools", []))
 
 
 def _last_message_has_tool_result(body: dict[str, Any]) -> bool:

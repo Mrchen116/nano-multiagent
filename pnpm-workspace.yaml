@@ -8,10 +8,10 @@ allowBuilds:
   node-addon-require-builtin: false
   protobufjs: false
   "@google/genai": false
-  '@deepseek-ai/dsh-subprocess-local': set this to true or false
-  "@deepseek-ai/dsh-subprocess-local@0.2.1-alpha.1": true
+  '@deepseek-ai/dsh-subprocess-local': true
+  "@deepseek-ai/dsh-subprocess-local@0.2.2-rc.5": true
   '@openuidev/lang-core': false
 
 # Public storage-domain schemas share the exact Zod type vocabulary.
 overrides:
-  "@deepseek-ai/dsh-storage-domain>zod": "4.6.5"
+  "@deepseek-ai/dsh-storage-domain>zod": "4.6.6"

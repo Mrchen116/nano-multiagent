@@ -1,9 +1,11 @@
+import {AsyncLocalStorage} from 'node:async_hooks';
 import type {Context} from '@deepseek-ai/cordis';
 import type {Agent} from '@deepseek-ai/dsh-agent';
 import {freezeMessage,MessageId} from '@deepseek-ai/dsh-llm';
 import type {Session,SessionEvent} from '@deepseek-ai/dsh-session';
 import {stripContextItemId} from 'dsh-agent-context';
 import type {SessionBinding} from './index.js';
+import {isDiagnosticPromptAssembly} from './prompt-assembly.js';
 import type {RpcPeer} from './rpc.js';
 
 interface Prepared {
@@ -57,8 +59,16 @@ export class TaskContextDriver {
     availability(agent:Agent,available:boolean,inputs:NonNullable<Prepared['unavailableInputs']>):void;
     lifecycleRevision(agentId:string):number;
   }) {
-    const preparations = new WeakMap<Agent,{prepared:Prepared;cut?:EvidenceCut}>();
+    const preparations = new Map<string,{prepared:Prepared;cut?:EvidenceCut}>();
+    const stoppingSessions = new Set<string>();
+    const nonStepHook = new AsyncLocalStorage<boolean>();
     ctx.on('session/event', (session, event) => {
+      if (event.type === 'turn/start' || event.type === 'turn/end') {
+        preparations.delete(session.id);
+        stoppingSessions.delete(session.id);
+      } else if (event.type === 'agent/inbox/spliced' && event.data.target === 'next-step' && (event.data.removedCount ?? 0) > 0) {
+        stoppingSessions.delete(session.id);
+      }
       const cut = this.starting.get(session);
       if (cut && !cut.starting) {
         observeEvent(cut,event);
@@ -70,29 +80,49 @@ export class TaskContextDriver {
       if (event.type === 'turn/start') this.liveIndependent.set(session,false);
       if (event.type === 'user/message' && independent(event.data)) this.liveIndependent.set(session,true);
     });
-    ctx.on('system-prompt/assemble', async (_assembly,context,next) => {
-      const agent = context.agent ?? context.scope as Agent | undefined;
-      if (!agent || !context.signal || !options.bindings.has(agent.id)) return next();
-      preparations.delete(agent);
+    ctx.on('agent/request-error', (_payload, next) => nonStepHook.run(true, next), {prepend:true});
+    ctx.on('agent/turn-stopping', ({agent}) => {
+      if (options.bindings.has(agent.id)) stoppingSessions.add(agent.id);
+    }, {prepend:true});
+    const prepareStep = async (agent: Agent, signal: AbortSignal) => {
       let cut: EvidenceCut | undefined;
       try { cut = await this.reconcile(agent); } catch { /* Current authority can still identify withheld inputs. */ }
       const prepared = await options.peer.request('product.task_context.prepare',{
         ...this.identity(agent), evidenceReady: Boolean(cut),
       }) as Prepared;
-      context.signal.throwIfAborted();
+      signal.throwIfAborted();
       if (!cut) {
         prepared.unavailable = true;
         prepared.messages = [];
       }
       options.availability(agent,!prepared.unavailable,prepared.unavailableInputs??[]);
-      preparations.set(agent,{prepared,cut});
+      return {prepared,cut};
+    };
+    ctx.on('system-prompt/assemble', async (_assembly,context,next) => {
+      const agent = context.agent ?? context.scope as Agent | undefined;
+      if (
+        !agent ||
+        agent.status === 'idle' ||
+        !context.signal ||
+        !options.bindings.has(agent.id) ||
+        isDiagnosticPromptAssembly() ||
+        nonStepHook.getStore() === true ||
+        stoppingSessions.has(agent.id) ||
+        preparations.has(agent.id)
+      ) return next();
+      const entry = await prepareStep(agent, context.signal);
+      preparations.set(agent.id,entry);
+      context.signal.addEventListener('abort', () => {
+        preparations.delete(agent.id);
+      }, {once:true});
       return next();
     },{prepend:true});
     ctx.on('agent/pre-step',async ({agent,messages,signal},next) => {
       if (!options.bindings.has(agent.id)) return next();
+      stoppingSessions.delete(agent.id);
       const current = this.identity(agent);
-      const {prepared,cut} = preparations.get(agent)!;
-      preparations.delete(agent);
+      const {prepared,cut} = preparations.get(agent.id) ?? await prepareStep(agent, signal);
+      preparations.delete(agent.id);
       signal.throwIfAborted();
       const revoked = new Set(prepared.revoked);
       const pending = new Set(Array.from(cut?.pending.values() ?? [], item => item.inputId));
@@ -116,7 +146,7 @@ export class TaskContextDriver {
             lifecycle_revision:options.lifecycleRevision(current.agentId)},content:message.content}));
       }
       await ctx.sessions.flush(agent.session);
-      return next();
+      return nonStepHook.run(true, next);
     },{prepend:true});
     ctx.on('agent/turn-stopping', async ({agent}) => {
       if (options.bindings.has(agent.id)) await this.reconcile(agent).catch(() => {});

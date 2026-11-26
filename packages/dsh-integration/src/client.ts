@@ -27,8 +27,10 @@ export async function prepareProfile(home: string, providerPatch: unknown[] = []
     dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@nano/dsh-integration'] } },
   }, null, 2));
   // JSON is a YAML subset, so runtime configuration needs no custom serializer.
+  const explicitSearch = process.env.DSH_WEB_SEARCH_PROVIDER ?? (process.env.SEARXNG_URL ? 'searxng' : process.env.BRAVE_API_KEY ? 'brave' : undefined);
+  const webPatch = explicitSearch ? [{id: 'web', config: {searchProvider: explicitSearch}}] : [];
   const deletionPatch = [{id: 'nano-runtime', config: {agentDeletion: options.agentDeletion === true}}];
-  await writeFile(join(profile, 'cordis.patch.yml'), JSON.stringify([{id: 'subagent', config: {maxDepth: 2}}, {id: 'web', config: {searchProvider: process.env.DSH_WEB_SEARCH_PROVIDER ?? (process.env.SEARXNG_URL ? 'searxng' : 'duckduckgo')}}, ...providerPatch, ...deletionPatch], null, 2));
+  await writeFile(join(profile, 'cordis.patch.yml'), JSON.stringify([{id: 'subagent', config: {maxDepth: 2}}, ...webPatch, ...providerPatch, ...deletionPatch], null, 2));
 }
 
 async function link(target: string, path: string) {
@@ -101,8 +103,10 @@ export class RuntimeClient {
   /** Drain the runtime before asking the official launcher to dispose its root. */
   async shutdown(): Promise<void> {
     if (this.ownsInspector) await this.inspector?.close();
-    await this.rpc.request('shutdown', {});
-    this.process.kill('SIGTERM');
+    if (this.process.exitCode === null && this.process.signalCode === null) {
+      await this.rpc.request('shutdown', {}).catch(() => {});
+      this.process.kill('SIGTERM');
+    }
     await this.exited;
   }
 }

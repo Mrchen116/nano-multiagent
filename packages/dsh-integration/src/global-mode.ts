@@ -76,7 +76,7 @@ Persistence and blocked actions
 Continue work you undertake within your responsibilities and authority until its intended outcome is delivered or a concrete blocker has been communicated. A failed tool call or denied action is not completion. Inspect execution failures, correct recoverable errors and take a useful permitted next step.
 
 Respect denials; do not repeat the rejected action through another tool, channel or identity. If human input is required, report the blocked action and reason in the originating conversation. A denied message does not prohibit a separate clarification or blocker report under the usual delivery checks; exclude the denied content.` });
-  else ctx.systemPrompt.section({ name: 'nano-communication', order: 800, text: ({agent}) => isOrdinaryChild(agent) ? '' : `Your final prose is delivered to the current conversation (or the current thread when woken in a thread). Use send_message with an explicit target and message content for public delivery: target="current" means this conversation's main timeline, and target="current:<root_message_id>" (or "<chat_id>:<root_message_id>") replies inside a thread. Use read_messages and search_messages to inspect chat or thread history, conversations to discover/inspect chats, and threads to manage group thread subscriptions. Use agent_id/message only for native internal child or parent communication. After confirmed card, image, or file delivery via send_message, end with the exact non-empty final text NO_REPLY so the host suppresses a duplicate final reply.` });
+  else ctx.systemPrompt.section({ name: 'nano-communication', order: 800, text: ({agent}) => isOrdinaryChild(agent) ? '' : `Your final prose is delivered to the current conversation (or the current thread when woken in a thread). Use send_message with an explicit target and message content for public delivery: target="current" means this conversation's main timeline, and target="current:<root_message_id>" (or "<chat_id>:<root_message_id>") replies inside a thread. Use read_messages and search_messages to inspect chat or thread history, conversations to discover/inspect chats, and threads to manage group thread subscriptions. Use agent/message only for native internal child or parent communication. After confirmed card, image, or file delivery via send_message, end with the exact non-empty final text NO_REPLY so the host suppresses a duplicate final reply.` });
   const groupTarget = config.mode === 'global' ? 'Use the source target from Inbox.' : 'Use target="current" for this group.';
   const nodeLookup = ` To look up a peer's execution node, use action="info" for a Nano IM group you belong to. ${groupTarget} Compare the latest execution_node.id with your own node ID. Device names can repeat. A missing ID or failed lookup means the peer's node is unknown. Confirm the origin of a path from earlier work separately.`;
   const tools: Pick<ToolDefinition, 'name' | 'description' | 'parameters'>[] = [
@@ -98,21 +98,29 @@ Respect denials; do not repeat the rejected action through another tool, channel
     { name: 'download_attachment', description: 'Download an authorized Nano IM file or image attachment by its short attachment_id (<= 8 chars, e.g. a_xxxxxx) from inbox, read_messages, search_messages, or an inbound message into your managed local download directory; returns local_path, file_name, content_type, and byte_size. Root main Agent only.', parameters: {
       type: 'object', properties: { attachment_id: { type: 'string', minLength: 1, description: 'Short attachment_id (e.g. a_xxxxxx) from inbox, read_messages, search_messages, or an inbound message.' } }, required: ['attachment_id'], additionalProperties: false,
     } },
-    { name: 'send_message', description: 'Send a public message as yourself to a writable chat (<chat_id>), thread (<chat_id>:<root_id>), user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. To send local images to Nano IM, pass local_images; to send general local files (<= 25 MiB), pass local_files. If the result is unknown, check receipt_of using the returned operation_id. When the Intelligent UI Feature is enabled and an interactive explanation, exploration, comparison or editor helps the task, first load nano-interactive-ui, then include interactive with the supported OpenUI source. Use the native agent_id/message fields to continue a direct internal child or report to your direct parent; that returns native input acceptance, not public delivery.', parameters: {
-      type: 'object', properties: { ...screenshotMessageProperties, agent_id: { type: 'string' }, message: { type: 'string' } }, oneOf: [{ required: ['target'], anyOf: screenshotMessageParameters.anyOf }, { required: ['agent_id', 'message'], not: { anyOf: [{required:['interactive']}, {required:['reply_to_message_id']}, {required:['local_images']}, {required:['local_files']}, {required:['receipt_of']}] } }], additionalProperties: false,
+    { name: 'send_message', description: 'Send a public message as yourself to a writable chat (<chat_id>), thread (<chat_id>:<root_id>), user, or IM Agent; returns actual sent, held_for_revalidation, or unknown state. To send local images to Nano IM, pass local_images; to send general local files (<= 25 MiB), pass local_files. If the result is unknown, check receipt_of using the returned operation_id. When the Intelligent UI Feature is enabled and an interactive explanation, exploration, comparison or editor helps the task, first load nano-interactive-ui, then include interactive with the supported OpenUI source. Use the native agent/message fields to continue a subagent in your subagent tree or report to your parent; that returns native input acceptance, not public delivery.', parameters: {
+      type: 'object', properties: { ...screenshotMessageProperties, agent: { type: 'string', description: 'The name or id of another agent in your subagent tree, as shown by list_agents.' }, agent_id: { type: 'string', description: 'Legacy alias for agent; pass agent instead and never combine both.' }, message: { type: 'string' } }, oneOf: [
+        { required: ['target'], anyOf: screenshotMessageParameters.anyOf },
+        { required: ['agent', 'message'], not: { anyOf: [{required:['target']}, {required:['agent_id']}, {required:['interactive']}, {required:['reply_to_message_id']}, {required:['local_images']}, {required:['local_files']}, {required:['receipt_of']}] } },
+        { required: ['agent_id', 'message'], not: { anyOf: [{required:['target']}, {required:['agent']}, {required:['interactive']}, {required:['reply_to_message_id']}, {required:['local_images']}, {required:['local_files']}, {required:['receipt_of']}] } },
+      ], additionalProperties: false,
     } },
   ];
   for (const tool of tools.filter(tool => config.mode === 'global' || tool.name !== 'inbox')) ctx.tools.register({ ...tool,
     output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => tool.name === 'inbox'
       ? (value as unknown as { content: ContentBlock[] }).content : [{ type: 'text', text: JSON.stringify(value) }] },
     execute: async (args, exec) => {
-      if (tool.name === 'send_message' && typeof (args as { agent_id?: unknown }).agent_id === 'string') {
+      const internalAgent = (args as { agent?: unknown; agent_id?: unknown }).agent ?? (args as { agent_id?: unknown }).agent_id;
+      if (tool.name === 'send_message' && typeof internalAgent === 'string') {
         if ((args as { interactive?: unknown }).interactive !== undefined || (args as {reply_to_message_id?:unknown}).reply_to_message_id !== undefined || (args as {local_images?:unknown}).local_images !== undefined || (args as {local_files?:unknown}).local_files !== undefined || (args as {receipt_of?:unknown}).receipt_of !== undefined) throw new Error('Interactive, quoted replies, and local attachments require a public target');
-        const {agent_id,message}=args as {agent_id:string;message:string};
-        if(config.mode==='global' && exec.agent && await ctx.nanoWorkers.isWorker(agent_id))
-          return ctx.nanoWorkers.control(exec.agent,agent_id,'send',message,exec.signal);
+        const message = (args as { message: string }).message;
+        if(config.mode==='global' && exec.agent && await ctx.nanoWorkers.isWorker(internalAgent))
+          return ctx.nanoWorkers.control(exec.agent,internalAgent,'send',message,exec.signal);
+        const wf = ctx.get('workflowEngine') as { isWorkChild?: (parentId: string, target: string, parent?: unknown) => Promise<boolean> } | undefined;
+        if (exec.agent && await wf?.isWorkChild?.(exec.agent.id, internalAgent, exec.agent))
+          throw new Error('Workflow step executions are managed by workflow(action="resume"), not send_message');
         if (!nativeSend) throw new Error('Native child communication is unavailable');
-        return nativeSend.execute(args, exec);
+        return nativeSend.execute({ agent: internalAgent, message }, exec);
       }
       const result = await ctx.nanoProduct.call(tool.name, tool.name === 'send_message' ? normalizeMessageArguments(args, true) : args, exec);
       if (tool.name !== 'inbox') return result;
@@ -158,10 +166,13 @@ export function registerUserMessage(ctx: Context): void {
  *   completeTaskOwner: Whether this ordinary Global/PA first-level child owns the
  *     complete delegated matter. Defaults to the existing child guidance.
  */
-export function registerChildGuidance(ctx: Context, inheritedProductSend = false, completeTaskOwner = false): void {
+export function registerChildGuidance(ctx: Context, inheritedProductSend = false, completeTaskOwner = false, nativeSend?: ToolDefinition): void {
   if (inheritedProductSend) {
-    const send = ctx.tools.get('send_message')!;
-    ctx.tools.register({...send,description:'Send a useful internal message to your direct parent or child. Acceptance is not public delivery.',parameters:{type:'object',properties:{agent_id:{type:'string'},message:{type:'string'}},required:['agent_id','message'],additionalProperties:false}});
+    if (nativeSend) ctx.tools.register(nativeSend);
+    else {
+      const send = ctx.tools.get('send_message')!;
+      ctx.tools.register({...send,description:'Send a useful internal message to another agent in your subagent tree. Acceptance is not public delivery.',parameters:{type:'object',properties:{agent:{type:'string',description:'The name of another agent in your subagent tree, as shown by list_agents.'},message:{type:'string',description:'The message to deliver to the agent.'}},required:['agent','message'],additionalProperties:false}});
+    }
   }
   ctx.systemPrompt.section({ name: 'nano-global-child', order: 800, text: completeTaskOwner
     ? `You own the complete delegated matter. Choose the approach, carry out and verify the work, and organize any helpers. Handle routine decisions and recoverable problems yourself. Apply the parent's corrections and stops to your work and helpers.

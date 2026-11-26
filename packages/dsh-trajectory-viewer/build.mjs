@@ -7,7 +7,7 @@ import { build } from 'esbuild';
 const require = createRequire(import.meta.url);
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dist = path.join(root, 'dist');
-const version = '0.2.1-alpha.1';
+const version = '0.2.2-rc.5';
 const modules = new Map();
 // Published /client entries are registration bundles, not ES modules. Copy
 // these unchanged; only the shell and singleton modules enter esbuild.
@@ -18,10 +18,15 @@ function visit(id) {
   const directory = path.dirname(packagePath);
   const metadata = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
   if (id !== '@nano/trajectory-ui' && metadata.version !== version) throw new Error(`Native viewer version mismatch: ${id}`);
-  const source = fs.readFileSync(path.join(directory, 'lib/client.js'), 'utf8');
+  const clientExport = metadata.exports?.['./client'];
+  const clientEntryRel = typeof clientExport === 'string'
+    ? clientExport
+    : (clientExport?.browser ?? clientExport?.default ?? './lib/client.js');
+  const clientEntry = path.join(directory, clientEntryRel);
+  const source = fs.readFileSync(clientEntry, 'utf8');
   const external = [...new Set([...source.matchAll(/require\("([^"]+)"\)/g)]
     .map(match => match[1]).filter(name => !name.includes('${')))];
-  modules.set(id, { directory, metadata, external });
+  modules.set(id, { directory, metadata, external, clientEntry });
   for (const dependency of external) {
     if (dependency.startsWith('@deepseek-ai/') && dependency.endsWith('/client')) visit(dependency);
   }
@@ -33,11 +38,14 @@ visit('@nano/trajectory-ui');
 fs.rmSync(path.join(dist, 'plugins', '@deepseek-ai', 'dsh-client-ui-trajectory'), { recursive: true, force: true });
 fs.mkdirSync(dist, { recursive: true });
 const manifest = { rev: version, modules: [], plugins: [] };
-for (const [id, { directory, metadata, external }] of modules) {
+for (const [id, { directory, metadata, external, clientEntry }] of modules) {
   const destination = path.join(dist, 'plugins', id);
   fs.mkdirSync(destination, { recursive: true });
+  fs.copyFileSync(clientEntry, path.join(destination, 'client.js'));
   for (const file of fs.readdirSync(path.join(directory, 'lib'))) {
-    if (/^client.*\.js$/.test(file)) fs.copyFileSync(path.join(directory, 'lib', file), path.join(destination, file));
+    if (/^client.*\.js$/.test(file) && file !== 'client.js' && file !== 'client.browser.js' && !file.startsWith('client.node.')) {
+      fs.copyFileSync(path.join(directory, 'lib', file), path.join(destination, file));
+    }
   }
   manifest.modules.push({ id, url: `plugins/??${id}/client.js&rev=${version}`, rev: version,
     inject: metadata.dsh?.client?.inject ?? [], external });

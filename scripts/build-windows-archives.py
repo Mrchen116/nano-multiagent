@@ -86,13 +86,30 @@ def dependencies(directory):
 # desktop bundles. Drop only these CLI edges: another active importer still keeps a package.
 ALTERNATE_CLI_PACKAGES = {
     "@deepseek-ai/dsh-acp-app",
+    "@deepseek-ai/dsh-client-ui-agent-preset",
+    "@deepseek-ai/dsh-client-ui-cordis",
+    "@deepseek-ai/dsh-cordis-client-runner",
+    "@deepseek-ai/dsh-cua-bundle",
+    "@deepseek-ai/dsh-deepseek-chat-import",
+    "@deepseek-ai/dsh-experimental-auto-review",
+    "@deepseek-ai/dsh-experimental-badge-skill-bundle",
+    "@deepseek-ai/dsh-experimental-cot-translation-bundle",
+    "@deepseek-ai/dsh-experimental-forge-bundle",
+    "@deepseek-ai/dsh-experimental-inspector-profile",
+    "@deepseek-ai/dsh-experimental-liveshare",
+    "@deepseek-ai/dsh-experimental-plugin-market-bundle",
+    "@deepseek-ai/dsh-experimental-ralph-bundle",
+    "@deepseek-ai/dsh-experimental-session-search",
+    "@deepseek-ai/dsh-experimental-session-titles-bundle",
+    "@deepseek-ai/dsh-experimental-terminal-bundle",
+    "@deepseek-ai/dsh-experimental-tool-worktree",
+    "@deepseek-ai/dsh-experimental-voice-input-bundle",
     "@deepseek-ai/dsh-headless",
+    "@deepseek-ai/dsh-personalized-recommendations",
     "@deepseek-ai/dsh-sdk-app",
     "@deepseek-ai/dsh-sdk-minimal",
-    "@deepseek-ai/dsh-web-app",
     "@deepseek-ai/dsh-skill-office",
-    "@deepseek-ai/dsh-experimental-inspector-profile",
-    "@deepseek-ai/dsh-experimental-voice-input-bundle",
+    "@deepseek-ai/dsh-web-app",
 }
 
 
