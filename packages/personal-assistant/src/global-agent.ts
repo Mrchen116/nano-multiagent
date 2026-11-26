@@ -864,6 +864,16 @@ export class GlobalAgent {
     if ((call.method === 'inbox' || call.method === 'conversations' || call.method === 'read_messages' || call.method === 'search_messages' || call.method === 'threads' || call.method === 'download_attachment' || call.method === 'memory.conversations' || call.method === 'send_message') && call.sessionId !== call.rootSessionId) throw new Error('Only the global main Agent may use product conversation tools');
     if(call.method==='send_user_message' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may represent its owner');
     if(call.method==='agent_creation' && (call.sessionId!==call.rootSessionId || !this.options.agents.find(agent=>agent.agentId===binding.agentId)?.personal)) throw new Error('Only the bound main PA may create Agents');
+    if (call.method === 'computer.request' || call.method === 'computer.claim') {
+      if (call.sessionId !== call.rootSessionId) throw new Error('Computer operations require the bound root');
+      if (call.method === 'computer.claim') {
+        if (typeof call.args.id !== 'string' || !call.args.id) throw new Error('Missing computer request identity');
+        return this.options.inbox.claimComputerClipboard(binding.ownerId, call.args.id);
+      }
+      const id = this.options.store.toolReferences.resolveMessageId(binding.agentId,String(call.args.ref));
+      const personal = !!this.options.agents.find(agent => agent.agentId === binding.agentId)?.personal;
+      return this.options.inbox.computerRequest(binding.agentId,binding.ownerId,binding.sessionId,String(call.args.read),id,personal) ?? null;
+    }
     const references = this.options.store.toolReferences;
     const result = await this.execute({ ...call, args: call.method === 'memory.conversations' ? call.args : references.arguments(call.agentId, call.method, call.args) }, binding);
     if (call.method === 'memory.conversations') return result;

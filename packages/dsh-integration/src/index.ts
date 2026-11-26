@@ -1,3 +1,4 @@
+import {ComputerHost} from './computer/host.js';
 /** Nano's sole stdio server inside an unmodified DSH profile. */
 import { personalEvidenceMessages, personalReviewAction, personalReviewImages, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
 import { randomUUID } from 'node:crypto';
@@ -191,6 +192,7 @@ export default class NanoRuntime {
       if(!receipt.accepted)throw new Error('Parent did not accept the worker report');
     },id=>this.bindings.has(id),root=>this.peer.notify('session.work.changed',{sessionId:root,rootSessionId:root}));
     let configurationService: ConfigurationScopes;
+    new ComputerHost(ctx,this.bindings,agent=>configurationService?.forAgent(agent));
     this.capabilities = new CapabilityState((config, names) => configurationService.selection(config, names));
     const history = new NativeHistory(ctx, process.env.DSH_HOME!);
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!, (agentId, action) => !['catalog', 'history', 'list', 'delete'].includes(action) && (this.capabilities.held(agentId, {kind: 'feature', name: 'cron_scheduling'}) || this.capabilities.held(agentId, {kind: 'tool', name: `schedule_${action}`})));

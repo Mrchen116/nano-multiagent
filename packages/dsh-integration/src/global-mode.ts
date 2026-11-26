@@ -14,19 +14,20 @@ export const name = 'nano-global-mode';
 export const inject = ['nanoWorkers', 'nanoProduct', 'tools', 'systemPrompt', 'attachments', 'nanoApproval', 'nanoTrajectoryAttachments'];
 
 /** Global mode supplies root Inbox access and explicit product communication. */
-export function apply(ctx: Context, config: { mode?: string; personal?: boolean; workerRuntime?: WorkerRuntime }) {
+export function apply(ctx: Context, config: { mode?: string; personal?: boolean; workerRuntime?: WorkerRuntime; computerUse?: boolean }) {
   ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions });
   const nativeSend = ctx.tools.get('send_message');
   if(config.mode==='global') ctx.tools.register({
     name:'delegate_worker', description:'Delegate a complete matter to a background worker. Start returns its ID. Send a correction or stop the original worker by ID.',
-    parameters:{type:'object',properties:{action:{type:'string',enum:['start','send','stop']},label:{type:'string',description:'Required on start. A short, user-visible task title in the user’s language. Name the action and its target.'},message:{type:'string',description:'The full assignment on start, or the follow-up instructions on send.'},worker_id:{type:'string'}},required:['action'],additionalProperties:false},
+    parameters:{type:'object',properties:{action:{type:'string',enum:['start','send','stop']},label:{type:'string',description:'Required on start. A short, user-visible task title in the user’s language. Name the action and its target.'},message:{type:'string',description:'The full assignment on start, or the follow-up instructions on send.'},worker_id:{type:'string'},...(config.computerUse ? {computer_request_ref:{type:'string',description:'On start, bind the computer tool to this original owner message ID for this worker.'}} : {})},required:['action'],additionalProperties:false},
     output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},
     execute:async(args,exec)=>{
-      const {action,label,message,worker_id}=args as {action:string;label?:string;message?:string;worker_id?:string};
+      const {action,label,message,worker_id,computer_request_ref}=args as {action:string;label?:string;message?:string;worker_id?:string;computer_request_ref?:string};
+      if(computer_request_ref !== undefined && (!config.computerUse || action!=='start' || !computer_request_ref.trim())) throw new Error('A computer assignment needs an enabled start and an original owner message ID');
       const root=exec.agent;
       if(!root || root.session.header.origin==='subagent')throw new Error('Only the Global root can delegate work');
       if(action==='start' && label?.trim() && message?.trim()) {
-        const row=await ctx.nanoWorkers.start(root,config.workerRuntime??'dsh',label,message,exec);
+        const row=await ctx.nanoWorkers.start(root,config.workerRuntime??'dsh',label,message,exec,computer_request_ref);
         return {worker_id:row.workerId,runtime:row.runtime,state:row.state};
       }
       if(worker_id && (action==='stop' || action==='send' && message?.trim()))

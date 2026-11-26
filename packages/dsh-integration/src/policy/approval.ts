@@ -22,6 +22,7 @@ import type {} from './codex.js';
 import { contextTools } from '../agent-context.js';
 import { normalizeMessageArguments } from '../message-arguments.js';
 import { isHumanSource } from '../input-source.js';
+import type {} from '../computer/host.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
 const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'delegate_worker', 'subagent_fork', 'interrupt_agent', 'list_agents', 'wait_agent', 'structured_output', 'inbox', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'memory', ...cordisInspectTools]);
@@ -118,7 +119,7 @@ export class NanoApproval extends Service {
         return {kind:'deny', reason:privateScreenshotApproval};
       return { kind: 'ask', reason };
     }
-    const allowed = route === 'unattended' && config.approval!.unattendedFallback === 'allow';
+    const allowed = exec.name !== 'computer_use' && route === 'unattended' && config.approval!.unattendedFallback === 'allow';
     await this.record(exec, route, allowed ? 'allow' : 'deny', reason, config.approval!);
     return allowed ? { kind: 'allow' } : { kind: 'deny', reason: `${reason} (${source}; ${route})`, info: { name: 'NanoApprovalDenied', code: source } };
   }
@@ -129,12 +130,27 @@ export class NanoApproval extends Service {
     const message = exec.name === 'send_message' ? exec.arguments as {local_images?: unknown; local_files?: unknown; receipt_of?:unknown} : undefined;
     if (downstream.kind === 'ask' && (Array.isArray(message?.local_images) || Array.isArray(message?.local_files)))
       return {kind:'deny', reason:privateScreenshotApproval};
+    if (exec.name === 'computer_use') {
+      if (downstream.kind === 'deny' || downstream.kind === 'cancel') return downstream;
+      if (!agent || !config || !policy) return {kind:'deny',reason:'Computer access requires a configured host approval policy'};
+      try {
+        const evidence = await this.ctx.nanoComputer.prepare(exec);
+        if (evidence.access !== 'review') {
+          if (downstream.kind !== 'allow') return downstream;
+          await this.record(exec,'computer_local','allow','',policy);
+          return {kind:'allow'};
+        }
+        exec = {...exec, arguments:{...exec.arguments as Record<string,unknown>, host_observation:evidence}};
+      } catch (error) {
+        return {kind:'deny',reason:error instanceof Error ? error.message : 'Computer target unavailable'};
+      }
+    }
     if (downstream.kind !== 'allow' || !agent || !config || !policy || exec.name === 'run_code' && !exec.parent) return downstream;
     if (typeof message?.receipt_of === 'string') return downstream;
     const allow = async (source: string) => { await this.record(exec, source, 'allow', '', policy); return { kind: 'allow' } as const; };
     // Session-local continuation must work with Auto off; downstream denials still win.
     if (contextTools.has(exec.name)) return allow('internal_context');
-    if (policy.dangerouslySkipPermissions) return allow('explicit_skip');
+    if (policy.dangerouslySkipPermissions && exec.name !== 'computer_use') return allow('explicit_skip');
     // Source preferences use the original owner message and revision checked by the product host.
     if (config.personal && exec.name === 'personal_sources') return allow('owner_source_control');
     if (config.personal && exec.name === 'agent_creation' && ['options','status'].includes(String((exec.arguments as {action?:unknown}).action))) return allow('owner_creation_query');
@@ -144,7 +160,7 @@ export class NanoApproval extends Service {
         || exec.name === 'skill_manage' && (exec.arguments as { action?: unknown }).action === 'list'
         || exec.name === 'task_graph' && ['list', 'get'].includes((exec.arguments as { action: string }).action)
         || exec.name === 'workflow' && ['list', 'read'].includes((exec.arguments as { action: string }).action))
-      || !['bash', 'send_message', 'send_user_message'].includes(exec.name) && policy.alwaysAllowTools.includes(exec.name)
+      || !['bash', 'send_message', 'send_user_message'].includes(exec.name) && exec.name !== 'computer_use' && policy.alwaysAllowTools.includes(exec.name)
       || exec.name === 'send_message' && isInternalSendArgs(exec.arguments))) return allow('safe_tool');
     // The product reviews the exact external payload at commit; avoid a duplicate automatic verdict.
     if (config.personal && policy.enabled && ['send_message', 'send_user_message'].includes(exec.name)) return allow('product_disclosure_gate');

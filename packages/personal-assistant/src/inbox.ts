@@ -1,3 +1,4 @@
+import {computerOwnerText} from './computer-source.js';
 import { sourceInstant } from './attention.js';
 import { InboxReviews } from './inbox-review.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
@@ -44,6 +45,7 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS fragments(seq INTEGER,part INTEGER,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY,data TEXT);
       CREATE TABLE IF NOT EXISTS reads(session_id TEXT,call_id TEXT,fragments TEXT,body TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
+      CREATE TABLE IF NOT EXISTS computer_clipboard_claims(owner TEXT,message TEXT,PRIMARY KEY(owner,message));
       CREATE TABLE IF NOT EXISTS query_reads(session_id TEXT,call_id TEXT,fragments TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
       CREATE TABLE IF NOT EXISTS wakes(agent_id TEXT PRIMARY KEY,watermark INTEGER);
       CREATE TABLE IF NOT EXISTS inbox_notifications(session_id TEXT,input_id TEXT,agent_id TEXT,seqs TEXT,summary TEXT,delivered INTEGER DEFAULT 0,PRIMARY KEY(session_id,input_id));
@@ -876,6 +878,24 @@ export class InboxStore {
       kind: 'chat' as const, conversationId: message.target ?? body.target, messageId: message.id, url: part.url!,
     })));
   }
+  /** Resolve the original owner instruction behind a committed, host-observed read. */
+  computerRequest(agent: string, owner: string, session: string, call: string, id: string, personal: boolean) {
+    const row = this.db.prepare(`SELECT i.payload FROM inbox i JOIN ingestions g ON g.seq=i.seq
+      JOIN reads r ON r.session_id=g.session_id AND r.call_id=?
+      WHERE g.session_id=? AND i.agent_id=? AND i.message_id=? AND i.consumed=1
+      AND EXISTS (SELECT 1 FROM json_each(r.fragments) WHERE json_extract(value,'$.seq')=i.seq)
+      AND NOT EXISTS (SELECT 1 FROM scope_cancelled WHERE agent_id=i.agent_id AND message_id=i.message_id)`)
+      .get(call,session,agent,id) as {payload:string} | undefined;
+    if (!row) return;
+    const text = computerOwnerText(JSON.parse(row.payload) as RelayInput,owner,personal);
+    return text ? {id,text} : undefined;
+  }
+
+  /** Reserve a single OS read across active seats and restarts before contacting the driver. */
+  claimComputerClipboard(owner: string, id: string): boolean {
+    return this.db.prepare('INSERT OR IGNORE INTO computer_clipboard_claims VALUES(?,?)').run(owner,id).changes === 1;
+  }
+
   prepareRead(session: string, call: string, content: { type: string; text?: string }[]): void {
     const row = this.db.prepare('SELECT body FROM reads WHERE session_id=? AND call_id=?').get(session, call) as { body: string } | undefined;
     if (!row || content[0]?.text !== row.body || content.filter(part => part.type === 'image').length !== this.imageReferences(session, call).length) throw new Error('Incomplete prepared inbox content');

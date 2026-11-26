@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { WorkerRuntime, RuntimeWorkerDetail, WorkUsage } from '@nano/product-contracts';
 import { WorkerTurnDetails, codexItem, type CodexItem } from './work-details.js';
 import { CliProcess, acknowledged } from './cli-process.js';
+import { boundAcpTool, hostedWorkerMcp, type WorkerMcpLaunch } from './hosted-mcp.js';
 
 export type CliEndState = 'completed' | 'failed' | 'interrupted';
 export interface CliWorkerOptions {
@@ -12,7 +13,8 @@ export interface CliWorkerOptions {
   cwd: string;
   sessionId?: string;
   instructions: string;
-  mcp: { command: string; args: string[]; env: Record<string, string> };
+  mcp: WorkerMcpLaunch;
+  computer?: WorkerMcpLaunch;
   onReport(id: string, message: string): Promise<void>;
   onDetail(id: string, detail: RuntimeWorkerDetail): Promise<void>;
   onEnd(id: string, state: CliEndState, text: string): Promise<void>;
@@ -273,7 +275,11 @@ async function codex(options: CliWorkerOptions) {
       sandbox: 'workspace-write',
       approvalPolicy: 'on-request',
       approvalsReviewer: 'auto_review',
-      config: { 'mcp_servers.nano-parent': { ...options.mcp, required: true } },
+      config: Object.fromEntries(hostedWorkerMcp(options.mcp, options.computer).map(({server, launch, tools}) => [
+        `mcp_servers.${server}`,
+        {...launch, required: true, ...(server === 'nano-computer'
+          ? {tools: Object.fromEntries(tools.map(name => [name, {approval_mode: 'approve'}]))} : {})},
+      ])),
     };
     const response = await request<{ thread: { id: string }; model?: string }>(
       threadId ? 'thread/resume' : 'thread/start',
@@ -332,6 +338,15 @@ async function codex(options: CliWorkerOptions) {
 }
 
 async function claude(options: CliWorkerOptions) {
+  const hosted = hostedWorkerMcp(options.mcp, options.computer);
+  const payload = JSON.stringify({mcpServers: Object.fromEntries(hosted.map(({server, launch}) => [server, launch]))});
+  const directory = options.computer && await mkdtemp(join(tmpdir(), 'nano-claude-mcp-'));
+  const config = directory ? join(directory, 'mcp.json') : payload;
+  if (directory) {
+    // A bound computer launch carries a short-lived credential. Keep it out of argv and ps output.
+    try { await writeFile(config, payload, {mode: 0o600}); }
+    catch (error) { await rm(directory, {recursive: true, force: true}); throw error; }
+  }
   const sessionId = options.sessionId ?? randomUUID();
   const args = [
     '--print',
@@ -348,13 +363,15 @@ async function claude(options: CliWorkerOptions) {
     '--append-system-prompt',
     options.instructions,
     '--allowedTools',
-    'mcp__nano-parent__send_message',
+    ...hosted.flatMap(({server, tools}) => tools.map(name => `mcp__${server}__${name}`)),
     '--mcp-config',
-    JSON.stringify({ mcpServers: { 'nano-parent': options.mcp } }),
+    config,
     options.sessionId ? '--resume' : '--session-id',
     sessionId,
   ];
-  const proc = new CliProcess('claude', args, options.cwd);
+  const proc = new CliProcess('claude', args, options.cwd, directory ? {
+    onCleanup: () => rm(directory, {recursive: true, force: true}),
+  } : undefined);
   const events = new TurnEvents(options);
   const unconsumed = new Map<string, string>();
   let model: string | undefined;
@@ -527,8 +544,6 @@ async function claude(options: CliWorkerOptions) {
 
 const ANTIGRAVITY_MAX_INPUT_BYTES = 185_000;
 const ANTIGRAVITY_MAX_TOOL_TEXT = 16_000;
-const ANTIGRAVITY_DIRECT_PARENT_MCP = /^Run mcp_nano-parent_send_message\??$/;
-const ANTIGRAVITY_PROXIED_PARENT_MCP = /^MCP Tool send_message\??$/;
 
 function normalizeAcpToolName(title?: string, kind?: string) {
   const trimmed = title?.trim();
@@ -586,6 +601,7 @@ interface AcpPromptResult {
 }
 
 interface TrackedAcpTool {
+  explicitName?: string;
   name: string;
   title?: string;
   kind?: string;
@@ -594,6 +610,7 @@ interface TrackedAcpTool {
 }
 
 async function antigravity(options: CliWorkerOptions) {
+  const hosted = hostedWorkerMcp(options.mcp, options.computer);
   const runtimeTmp = await mkdtemp(join(tmpdir(), 'nano-agy-tmp-'));
   const proc = new CliProcess('agy', ['acp', '--process-per-session'], options.cwd, {
     env: {
@@ -751,23 +768,18 @@ async function antigravity(options: CliWorkerOptions) {
           kind?: string;
           name?: string;
         }[];
-        const hasCommandField = ['CommandLine', 'command_line', 'commandLine', 'command'].some(
-          (key) => rawInput !== undefined && key in rawInput,
-        );
-        const isParentSend =
-          kind !== 'execute' &&
-          !hasCommandField &&
-          (ANTIGRAVITY_DIRECT_PARENT_MCP.test(title) ||
-            (explicitName === 'mcp_nano-parent_send_message' &&
-              (!title || ANTIGRAVITY_DIRECT_PARENT_MCP.test(title))) ||
-            ((explicitName === 'invoke_mcp_tool' || ANTIGRAVITY_PROXIED_PARENT_MCP.test(title)) &&
-              rawInput?.ServerName === 'nano-parent' &&
-              rawInput?.ToolName === 'send_message'));
+        const names = [rawCall.name, rawCall.toolName, cached?.explicitName].filter((v): v is string => !!v);
+        const titles = [rawCall.title, cached?.title].filter((v): v is string => !!v).map(v => v.trim().replace(/\?$/, ''));
+        const inputs = [cached?.rawInput, rawInput].filter((v): v is Record<string, unknown> => !!v);
+        const hostedTool = sessionId && sessionId === params.sessionId && events.active &&
+          rawCall.toolCallId && !rawCall.toolCallId.startsWith('interaction_') &&
+          boundAcpTool(hosted, names, titles, [rawCall.kind, cached?.kind], inputs);
 
         let outcome: unknown;
-        if (isParentSend) {
-          const allow = opts.find((o) => o.kind === 'allow_once') ?? opts.find((o) => o.kind === 'allow_always');
-          outcome = allow?.optionId ? { outcome: 'selected', optionId: allow.optionId } : { outcome: 'cancelled' };
+        if (hostedTool) {
+          const allow = opts.find(o => o.kind === 'allow_once') ??
+            (hostedTool === 'send_message' ? opts.find(o => o.kind === 'allow_always') : undefined);
+          outcome = allow ? {outcome: 'selected', optionId: allow.optionId} : {outcome: 'cancelled'};
         } else if (typeof rawCall.toolCallId === 'string' && rawCall.toolCallId.startsWith('interaction_')) {
           outcome = { outcome: 'cancelled' };
           events.report(
@@ -855,6 +867,7 @@ async function antigravity(options: CliWorkerOptions) {
             : prev?.rawInput;
         const entry: TrackedAcpTool = {
           name,
+          explicitName: prev?.explicitName ?? upd.name ?? upd.toolName,
           title: typeof upd.title === 'string' ? upd.title : prev?.title,
           kind: typeof upd.kind === 'string' ? upd.kind : prev?.kind,
           rawInput,
@@ -896,14 +909,10 @@ async function antigravity(options: CliWorkerOptions) {
       },
     });
     supportsAppend = initialized?.agentCapabilities?._meta?.antigravity?.systemPrompt?.append === true;
-    const mcpServers = [
-      {
-        name: 'nano-parent',
-        command: options.mcp.command,
-        args: options.mcp.args,
-        env: Object.entries(options.mcp.env).map(([name, value]) => ({ name, value })),
-      },
-    ];
+    const mcpServers = hosted.map(({server, launch}) => ({
+      name: server, command: launch.command, args: launch.args,
+      env: Object.entries(launch.env).map(([name, value]) => ({name, value})),
+    }));
     const meta = supportsAppend
       ? { _meta: { antigravity: { systemPrompt: { append: options.instructions } } } }
       : {};

@@ -7,6 +7,7 @@ interface NanoInputIdentity {
   messageId: string;
   contextEnvelope?: string;
   directHumanText?: string;
+  computerOwnerRequest?: boolean;
   nanoTeamChat?: boolean;
   sender?: Record<string, unknown>;
   pa_agent_id?: string;

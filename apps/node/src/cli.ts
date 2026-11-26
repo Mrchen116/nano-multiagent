@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { NodeConfiguration } from "./configuration.js";
-import { manageGateway, applyGatewayEnvironment } from "./lifecycle.js";
+import { manageGateway, applyGatewayEnvironment, browserPairingFile } from "./lifecycle.js";
 import { bindDevice } from "./device-binding.js";
 import { bootstrapNode } from "./bootstrap.js";
 const { values, positionals } = parseArgs({
@@ -22,6 +22,7 @@ const { values, positionals } = parseArgs({
     "source-root": {type: "string"},
     destination: {type: "string"},
     foreground: { type: "boolean" },
+    profile: { type: "string" },
     "auto-bind": { type: "boolean" },
     "recover-device": { type: "boolean" },
     "im-service-url": { type: "string" },
@@ -32,10 +33,18 @@ const command = positionals[0] ?? "start";
 const action = command === "setup" ? "start" : command;
 if (values.help) {
   process.stdout.write(
-    "Usage: pnpm pa [setup|start|stop|restart|status|bind|migrate|local-admin] [--config path] [--foreground] [--im-service-url URL] [--auto-bind] [--recover-device]\n",
+    "Usage: pnpm pa [setup|start|stop|restart|status|bind|migrate|local-admin|browser pair|browser status|browser disconnect] [--config path] [--foreground] [--im-service-url URL] [--auto-bind] [--recover-device]\n",
   );
 } else
   try {
+    if (action === "browser") {
+      const config = await NodeConfiguration.read(resolve(values.config ?? join(homedir(), ".nanoassistant/config.yaml")));
+      if (!config.value.node.user_id) throw new Error("Bind this node before pairing a browser.");
+      const {browserCommand} = await import("./browser-pairing.js");
+      const result = await browserCommand(positionals[1] ?? "status", browserPairingFile(config.path, config.value.node), values.profile ?? "Default");
+      process.stdout.write(JSON.stringify(result) + "\n");
+      process.exit(0);
+    }
     if (action === "local-admin") {
       const subcommand = positionals[1] ?? "inspect";
       const origin = values.origin ?? values["im-service-url"];

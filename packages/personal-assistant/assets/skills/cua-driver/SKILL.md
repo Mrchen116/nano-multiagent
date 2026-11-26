@@ -1,6 +1,6 @@
 ---
 name: cua-driver
-description: Drive a native GUI app (macOS, Windows, Linux) via the cua-driver CLI (default) or MCP server; snapshot its accessibility tree, act through snapshot-bound element tokens, native menu paths, exact window geometry, or pixel coordinates, and verify from fresh state. Use when the user asks you to operate, drive, automate, or perform a GUI task in a real application on the host, or to continue, resume, or recall recent Cua activity.
+description: Operate a native GUI app through Nano computer_use when enabled, or the standalone CuaDriver CLI/MCP on macOS, Windows or Linux. Observe a specific window, act using snapshot-bound controls, and verify the result.
 version: 0.38.0 # x-release-please-version
 metadata:
   openclaw:
@@ -31,7 +31,9 @@ metadata:
 
 # cua-driver
 
-Operate one exact target, observe it narrowly, act by element, and verify the user's postcondition at checkpoints.
+When Nano provides `computer_use`, use its browser surface for webpages and its desktop surface for native windows. Start with `describe` or `status` on the intended surface. See [Nano host controls](NANO.md) for target selection, clipboard and recovery. A refusal from the host applies to the requested action across all entry points.
+
+For a standalone CuaDriver task, operate one exact target, observe it narrowly, act by element, and verify the requested postcondition at checkpoints.
 
 ## Efficient loop
 

@@ -49,7 +49,7 @@ async function admitted<T>(action: () => Promise<T>): Promise<T> {
   admissions++;
   try { return await action(); } finally { admissions--; }
 }
-applyGatewayEnvironment(config);
+applyGatewayEnvironment(config, configPath);
 const imOverride=process.argv.indexOf('--im-service-url');if(imOverride>=0)config.im_service.url=process.argv[imOverride+1]!;
 const lifecycle=await claimGateway(configPath);
 if (!config.node.user_id || !config.im_service.token) throw new Error('Bind this node before starting its runtime');

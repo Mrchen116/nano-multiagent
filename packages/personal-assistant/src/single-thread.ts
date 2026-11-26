@@ -1,3 +1,4 @@
+import {computerOwnerText} from './computer-source.js';
 import { randomUUID } from 'node:crypto';
 import type { RuntimeInput } from '@nano/product-contracts/runtime-rpc';
 import type { ChatStreamFact, ChatStreamReceipt, ChatTurnStart, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
@@ -306,13 +307,15 @@ export class SingleThread {
       const chat = !!chatBatch || !input.metadata.origin && !input.metadata.runtime_input_id &&
         ['direct','group'].includes(String(input.metadata.conversation_type));
       const teamChat = chat && chatDelivery(input,{...config,collaborationScope:'owner_only'},this.options.ownerId) === 'skip';
+      const computerRequest = config.toolAllowlist?.includes('computer_use') && computerOwnerText(input,binding.ownerId,!!config.personal);
       const source: SubmitInput['source'] = deadline
         ? {kind:'system', channel:'chat-background', actorId:binding.agentId, messageId:inputId}
         : {kind:input.message.sender_type === 'user' ? 'human' : 'system', actorId:input.message.sender_user_id,
           ...(input.metadata.channel === 'feishu' && input.metadata.owner_user_id === binding.ownerId ? {roleAccountId:binding.ownerId} : {}),
           channel:typeof input.metadata.channel === 'string' ? input.metadata.channel : 'web_relay', messageId:input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender},
           ...(input.message.pa_agent_id ? {pa_agent_id:input.message.pa_agent_id} : {}), contextEnvelope,
-          ...(input.message.sender_type === 'user' && (chatBatch || input.metadata.thread_root_message_id) ? {directHumanText:input.message.content} : {})};
+          ...(computerRequest ? {computerOwnerRequest:true} : {}),
+          ...(input.message.sender_type === 'user' && (computerRequest || chatBatch || input.metadata.thread_root_message_id) ? {directHumanText:input.message.content} : {})};
       await runtime.request('session.submit', {sessionId:binding.sessionId, inputId,
         mode:chatBatch ? 'steer' : input.metadata.context_only ? 'inject' : 'followup', content,
         attachmentSources, source:{...source,...(teamChat ? {nanoTeamChat:true} : {})}});
