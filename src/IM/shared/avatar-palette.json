@@ -1,0 +1,30 @@
+[
+  {
+    "background": "#ffccac",
+    "foreground": "#733b27"
+  },
+  {
+    "background": "#bfe8d9",
+    "foreground": "#275b49"
+  },
+  {
+    "background": "#e2d8ff",
+    "foreground": "#57408c"
+  },
+  {
+    "background": "#ffd0e3",
+    "foreground": "#783955"
+  },
+  {
+    "background": "#acdfef",
+    "foreground": "#214d63"
+  },
+  {
+    "background": "#ffdb80",
+    "foreground": "#634621"
+  },
+  {
+    "background": "#cadbff",
+    "foreground": "#364c83"
+  }
+]

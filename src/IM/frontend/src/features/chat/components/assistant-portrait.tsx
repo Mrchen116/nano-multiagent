@@ -1,9 +1,6 @@
+import PALETTE from "../../../../../shared/portrait-palette.json";
 import './assistant-portrait.css';
 
-const PALETTE = [
-  ['#b19aef', '#43335e'], ['#8bcbb0', '#285345'], ['#8cbce9', '#2c4b6c'],
-  ['#f0ab89', '#704735'], ['#eaa5c2', '#693c56'], ['#eac76a', '#655126'],
-];
 // The silhouette carries the personality so the face stays legible at chat size.
 const PERSONAL_SHAPES = [
   'M15 38C15 19 25 10 42 11c18 1 27 13 25 30-2 18-16 28-33 25C20 64 13 53 15 38Z',
@@ -32,7 +29,7 @@ export function AssistantPortrait({ size = 64, personal = true, seed = '', varia
 }) {
   const selected = variant ?? (seed ? avatarVariantFor(seed) : 0);
   const color = selected % 6, style = Math.floor(selected / 6);
-  const [body, ink] = PALETTE[color];
+  const { body, ink } = PALETTE[color];
   return <svg className="assistant-portrait" data-avatar={`${personal ? 'personal' : 'agent'}-${selected}`} width={size} height={size} viewBox="0 0 80 80" fill="none" aria-hidden="true">
     <path d={(personal ? PERSONAL_SHAPES : AGENT_SHAPES)[style]} fill={body} />
     <g transform={`rotate(${FACE_TILTS[style]} 40 40)`}>

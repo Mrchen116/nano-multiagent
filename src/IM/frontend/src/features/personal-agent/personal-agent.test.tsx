@@ -67,11 +67,12 @@ it('restores a pending creation from the server instead of creating a second ide
 });
 
 it('groups repeated privacy notices and acknowledges without changing policy',async()=>{
- const incident={id:'incident',actor_id:'lin',actor_name:'Lin',conversation_id:'lin-chat',source_message_id:'source',category:'private',reason:'Repeated request for private notes after refusal.',count:2,status:'open',owner_notice_message_id:'notice'};
+ const incident={id:'incident',actor_id:'external:group:lin',avatar_id:'external:opaque',actor_name:'Lin',conversation_id:'lin-chat',source_message_id:'source',category:'private',reason:'Repeated request for private notes after refusal.',count:2,status:'open',owner_notice_message_id:'notice'};
  vi.mocked(api.getPersonalIncidents).mockResolvedValue({items:[incident,{...incident,id:'second',source_message_id:'source-2',count:1}]});
  vi.mocked(api.respondToPersonalIncident).mockResolvedValue({} as api.PersonalIncident);
  mount(<PersonalAgentCollaboration state={state}/>);
  await userEvent.click(await screen.findByRole('button',{name:/Privacy protection/}));
+ expect(document.querySelector('.pa-privacy-person-heading .chat-avatar-face')).toHaveTextContent('LI');
  expect(screen.getAllByRole('heading',{name:'Lin'})).toHaveLength(1);
  expect(screen.getByText('Nothing to do. Your assistant declined these requests.')).toBeInTheDocument();
  await userEvent.click(screen.getByRole('button',{name:'Got it'}));
@@ -82,7 +83,7 @@ it('groups repeated privacy notices and acknowledges without changing policy',as
 });
 
 it('keeps privacy records available when acknowledging fails',async()=>{
- vi.mocked(api.getPersonalIncidents).mockResolvedValue({items:[{id:'incident',actor_id:'lin',actor_name:'Lin',conversation_id:'lin-chat',source_message_id:'source',category:'private',reason:'Private notes requested.',count:1,status:'open',owner_notice_message_id:'notice'}]});
+ vi.mocked(api.getPersonalIncidents).mockResolvedValue({items:[{id:'incident',actor_id:'external:group:lin',avatar_id:'external:opaque',actor_name:'Lin',conversation_id:'lin-chat',source_message_id:'source',category:'private',reason:'Private notes requested.',count:1,status:'open',owner_notice_message_id:'notice'}]});
  vi.mocked(api.respondToPersonalIncident).mockRejectedValue(new Error('offline'));
  mount(<PersonalAgentCollaboration state={state}/>);
  await userEvent.click(await screen.findByRole('button',{name:/Privacy protection/}));
@@ -107,6 +108,7 @@ it('shows active blocked people, opens evidence and keeps a failed unblock retry
  vi.mocked(api.unblockPersonalContact).mockRejectedValueOnce(new Error('Offline')).mockImplementation(async()=>{vi.mocked(api.getBlockedPersonalContacts).mockResolvedValue({items:[]});return {ok:true};});
  mount(<PersonalAgentSettings agentId="a1"/>);
  await screen.findByText('Lin');
+ expect(document.querySelector('.pa-blocked-heading .chat-avatar-face')).toHaveTextContent('LI');
  await userEvent.click(screen.getByText('Reasons and records'));
  expect(screen.getByRole('link',{name:/View original message/})).toHaveAttribute('href','/chat/pa-peer?message_id=probe');
  await userEvent.click(screen.getByRole('button',{name:'Unblock'}));await screen.findByRole('alert');

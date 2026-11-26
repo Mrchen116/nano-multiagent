@@ -1,5 +1,4 @@
-import { AvatarPicker } from "../../chat/components/avatar-picker";
-import { avatarVariantFor } from "../../chat/components/assistant-portrait";
+import { AvatarPicker, avatarVariantFor } from "../../chat/components/avatar-picker";
 import { createConversation } from "../../chat/chat-api";
 import { changeCapability } from "@nano/product-contracts/capabilities";
 import { capabilityCatalog, useCapabilityEditor } from "./capability-editor";

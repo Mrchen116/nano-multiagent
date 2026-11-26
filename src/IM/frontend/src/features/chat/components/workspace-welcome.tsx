@@ -1,10 +1,10 @@
+import { AssistantIllustration, Avatar, agentAvatarId } from "./avatar";
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowUpRight, MessagesSquare } from 'lucide-react';
 import { useTranslation } from '../../../i18n';
 import type { Conversation } from '../chat-types';
 import { conversationPreview } from './conversation-preview';
-import { AssistantPortrait } from './assistant-portrait';
 import { AssistantStarters } from './assistant-starters';
 import './workspace-welcome.css';
 
@@ -30,7 +30,7 @@ export function WorkspaceWelcome({ assistant, conversation, onStart, onNewChat }
     <div className="workspace-welcome-content">
       <div className="workspace-welcome-drawing" aria-hidden="true">
         <span className="workspace-welcome-paper"><span /><span /><span /></span>
-        <span className="workspace-welcome-pal"><AssistantPortrait seed={assistant?.agent_id} variant={assistant?.avatar_variant} size={88} /></span>
+        <span className="workspace-welcome-pal">{assistant ? <Avatar id={agentAvatarId(assistant.agent_id)} size={88} /> : <AssistantIllustration size={88} />}</span>
         <span className="workspace-welcome-reply"><MessagesSquare /></span>
         <span className="workspace-welcome-dot" />
       </div>
@@ -38,7 +38,7 @@ export function WorkspaceWelcome({ assistant, conversation, onStart, onNewChat }
       <p>{t(returning ? 'workspaceWelcome.returnIntro' : 'workspaceWelcome.intro')}</p>
       <div className="workspace-welcome-actions">
         <Link className="workspace-welcome-personal" to={assistant ? `/chat/${assistant.conversation_id}` : '/onboarding'}>
-          <span className="workspace-welcome-action-icon" aria-hidden="true"><AssistantPortrait seed={assistant?.agent_id} variant={assistant?.avatar_variant} size={42} /></span>
+          <span className="workspace-welcome-action-icon" aria-hidden="true">{assistant ? <Avatar id={agentAvatarId(assistant.agent_id)} size={42} /> : <AssistantIllustration size={42} />}</span>
           <span><strong>{conversation?.title || assistant?.display_name || t('workspaceWelcome.setup')}{returning && <small className="workspace-welcome-recent-label">{t('workspaceWelcome.recent')}</small>}</strong><small className="workspace-welcome-preview">{preview || t('workspaceWelcome.personal')}</small></span><ArrowUpRight aria-hidden="true" />
         </Link>
       </div>

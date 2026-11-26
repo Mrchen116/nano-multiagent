@@ -177,12 +177,12 @@ private struct WelcomeCrew: View {
         ZStack {
             if !compact {
                 Capsule().fill(NanoTheme.softAccent.opacity(0.75)).frame(width: 174, height: 12).offset(y: 47)
-                AssistantPortrait(personal: false, seed: "", selected: 9, size: 65)
+                PortraitPreview(personal: false, variant: 9, size: 65)
                     .rotationEffect(.degrees(appeared ? -12 : -20)).offset(x: -68, y: 15)
-                AssistantPortrait(personal: false, seed: "", selected: 13, size: 69)
+                PortraitPreview(personal: false, variant: 13, size: 69)
                     .rotationEffect(.degrees(registering ? 16 : 9)).offset(x: 66, y: 12)
             }
-            AssistantPortrait(personal: true, seed: "", selected: 0, size: compact ? 43 : 102)
+            PortraitPreview(personal: true, variant: 0, size: compact ? 43 : 102)
                 .rotationEffect(.degrees(compact ? -6 : registering ? 5 : -4))
                 .offset(y: appeared ? 0 : 7)
         }.frame(maxWidth: .infinity).frame(height: compact ? 44 : 128)

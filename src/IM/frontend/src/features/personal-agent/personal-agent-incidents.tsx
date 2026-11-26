@@ -1,3 +1,4 @@
+import { Avatar, AvatarIdentities } from "../chat/components/avatar";
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -30,7 +31,10 @@ export function PersonalAgentIncidents({bindingId}:{bindingId:string}) {
   for(const item of open)groups.set(item.actor_id,[...(groups.get(item.actor_id)??[]),item]);
   const total=open.reduce((sum,item)=>sum+item.count,0);
   if(!open.length)return feedback?<p className="pa-privacy-feedback" role="status">{feedback}</p>:null;
-  return <section className="pa-privacy" aria-label={t('pa.privacy.title')}>
+  const actors = (open).map(person => ({
+    type: "user" as const, id:person.avatar_id ?? person.actor_id, display_name:person.actor_name,
+  }));
+  return <AvatarIdentities actors={actors} source="names"><section className="pa-privacy" aria-label={t('pa.privacy.title')}>
     <button type="button" className="pa-privacy-summary" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>
       <span className="pa-privacy-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3 4 6v5c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6l-8-3Z"/><path d="m8 12 3 3 5-6"/></svg></span>
       <span className="pa-privacy-summary-copy"><strong>{t('pa.privacy.title')}<span className="pa-privacy-protected">{t('pa.privacy.protected')}</span></strong><span>{t('pa.privacy.requests',{count:total})} · {t('pa.privacy.contacts',{count:groups.size})}</span></span>
@@ -39,7 +43,7 @@ export function PersonalAgentIncidents({bindingId}:{bindingId:string}) {
     {expanded&&<div className="pa-privacy-body">
       <p className="pa-privacy-intro">{t('pa.privacy.intro')}</p>
       {[...groups.entries()].map(([actorId,items])=><article className="pa-privacy-person" key={actorId}>
-        <div className="pa-privacy-person-heading"><span className="pa-privacy-avatar" aria-hidden="true">{Array.from(items[0].actor_name)[0]}</span><h3>{items[0].actor_name}</h3><span>{t('pa.privacy.requests',{count:items.reduce((sum,item)=>sum+item.count,0)})}</span></div>
+        <div className="pa-privacy-person-heading"><Avatar id={items[0].avatar_id ?? actorId} size={28} /><h3>{items[0].actor_name}</h3><span>{t('pa.privacy.requests',{count:items.reduce((sum,item)=>sum+item.count,0)})}</span></div>
         <p className="pa-privacy-reason">{items[0].reason}</p>
         <details className="pa-privacy-evidence"><summary>{t('pa.privacy.evidence')}</summary><ol>{items.map(item=><li key={item.id}><p>{item.reason}</p><Link to={`/chat/${encodeURIComponent(item.conversation_id)}?message_id=${encodeURIComponent(item.source_message_id)}`} state={{personalAgentReturn:true}}>{t('pa.privacy.source')}<span aria-hidden="true"> ↗</span></Link>{item.count>1&&<span className="pa-privacy-repeat">{t('pa.privacy.requests',{count:item.count})}</span>}</li>)}</ol></details>
         <div className="pa-privacy-actions"><button type="button" disabled={respond.isPending} onClick={()=>respond.mutate({items,action:'dismiss'})}>{t('pa.privacy.dismiss')}</button>
@@ -50,5 +54,5 @@ export function PersonalAgentIncidents({bindingId}:{bindingId:string}) {
       {feedback&&<p className="pa-privacy-feedback" role="status">{feedback}</p>}
       {respond.isError&&<p className="pa-error" role="alert">{t('pa.privacy.error')}</p>}
     </div>}
-  </section>;
+  </section></AvatarIdentities>;
 }

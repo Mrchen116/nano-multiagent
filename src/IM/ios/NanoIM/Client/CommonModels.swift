@@ -32,6 +32,7 @@ struct Contact: Codable, Identifiable, Sendable, Hashable {
 }
 
 struct ActorRef: Codable, Sendable, Hashable {
+    var avatar_id: String?
     var type: String
     var id: String
     var display_name: String?

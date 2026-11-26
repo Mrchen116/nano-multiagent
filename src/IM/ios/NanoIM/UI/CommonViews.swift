@@ -44,51 +44,6 @@ enum NanoTheme {
     static let softAccent = Color("SoftAccent")
 }
 
-struct AvatarView: View {
-    let name: String
-    var online: Bool = false
-    var kind: String = "person"
-    var size: CGFloat = 44
-    var agentID: String?
-    var role: String?
-    var variant: Int?
-    private var initials: String {
-        let value = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2)).uppercased()
-        return value.isEmpty ? "AG" : value
-    }
-    private var palette: (background: Color, foreground: Color) {
-        if kind == "group" { return (Color("GroupAvatar"), Color("GroupAvatarInk")) }
-        let colors: [(UInt32, UInt32)] = [(0xe4dbcf, 0x6b5945), (0xd9dfd1, 0x506345), (0xdfd8e8, 0x69567b), (0xe7d7dc, 0x79525f), (0xcbdedb, 0x2f5954), (0xd5ddea, 0x485c7d)]
-        let pair = colors[Self.paletteIndex(for: name)]
-        return (color(pair.0), color(pair.1))
-    }
-    static func paletteIndex(for name: String) -> Int {
-        // Web coerces only the left shift to Int32; subtraction retains the wider value.
-        var hash: Int64 = 0
-        for codeUnit in name.utf16 {
-            hash = Int64(Int32(truncatingIfNeeded: hash) &<< 5) - hash + Int64(codeUnit)
-        }
-        return Int(abs(hash) % 6)
-    }
-    private func color(_ hex: UInt32) -> Color {
-        Color(red: Double((hex >> 16) & 255) / 255, green: Double((hex >> 8) & 255) / 255, blue: Double(hex & 255) / 255)
-    }
-    var body: some View {
-        Group {
-            if kind == "agent" {
-                AssistantPortrait(personal: role == "personal", seed: agentID ?? name, selected: variant, size: size)
-            } else if kind == "group" { Image(systemName: "person.2") }
-            else { Text(initials) }
-        }
-        .font(.system(size: size * 0.35, weight: .semibold)).foregroundStyle(palette.foreground)
-        .frame(width: size, height: size)
-        .background(kind == "agent" ? Color.clear : palette.background, in: RoundedRectangle(cornerRadius: kind == "group" ? size * 0.275 : size / 2))
-        .overlay(alignment: .bottomTrailing) {
-            if online { Circle().fill(Color.green).frame(width: size * 0.23, height: size * 0.23).overlay(Circle().stroke(NanoTheme.surface, lineWidth: 2)) }
-        }.accessibilityHidden(true)
-    }
-}
-
 struct NanoSearchField: View {
     @Binding var text: String
     let prompt: String

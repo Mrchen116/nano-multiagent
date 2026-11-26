@@ -1,4 +1,4 @@
-import { AssistantPortrait } from "../chat/components/assistant-portrait";
+import { AssistantIllustration } from "../chat/components/avatar";
 import "../chat/components/assistant-starters.css";
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -33,7 +33,7 @@ export function FirstUseWelcome({ onNewChat }: { onNewChat(): void }) {
   return <section className="first-use product-entry" aria-labelledby="first-use-title">
     <div className="first-use-inner">
       <header className="first-use-heading">
-        <AssistantPortrait size={72} />
+        <AssistantIllustration size={72} />
         <span className="first-use-eyebrow">{t('firstUse.eyebrow')}</span>
         <h1 id="first-use-title">{t('firstUse.title')}</h1>
         <p>{t('firstUse.intro')}</p>

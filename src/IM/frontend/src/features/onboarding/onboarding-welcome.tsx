@@ -1,4 +1,4 @@
-import { AssistantPortrait } from "../chat/components/assistant-portrait";
+import { AssistantIllustration } from "../chat/components/avatar";
 import { Laptop, KeyRound } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { getCurrentLanguage, useTranslation } from '../../i18n';
@@ -22,9 +22,9 @@ export function OnboardingWelcome({ name, onStart }: { name: string; onStart(): 
     </section>
     <aside className="onboarding-welcome-preview" aria-label={text('个人助手使用示意', 'Illustration of using an assistant')}>
       <div className="onboarding-preview-label">{text('设置完成后 · 使用示意', 'After setup · Illustration')}</div>
-      <div className="onboarding-pa-preview"><div className="onboarding-pa-preview-header"><span aria-hidden="true"><AssistantPortrait size={32} /></span><div><strong>{text('你的个人助手', 'Your personal assistant')}</strong><small>{text('与你的私人对话', 'A private conversation with you')}</small></div></div>
+      <div className="onboarding-pa-preview"><div className="onboarding-pa-preview-header"><span aria-hidden="true"><AssistantIllustration size={32} /></span><div><strong>{text('你的个人助手', 'Your personal assistant')}</strong><small>{text('与你的私人对话', 'A private conversation with you')}</small></div></div>
         <div className="onboarding-preview-user">{text('这周的发布要延期了，帮我跟进相关讨论，整理还有哪些事要做。', 'This week’s release is delayed. Follow the relevant discussions and help me work out what still needs doing.')}</div>
-        <div className="onboarding-preview-reply"><span aria-hidden="true"><AssistantPortrait size={32} /></span><p>{text('我们可以先明确要跟进的聊天和目标，再持续整理变化与下一步。', 'Let’s identify the conversations and goal, then keep track of changes and next steps.')}</p></div>
+        <div className="onboarding-preview-reply"><span aria-hidden="true"><AssistantIllustration size={32} /></span><p>{text('我们可以先明确要跟进的聊天和目标，再持续整理变化与下一步。', 'Let’s identify the conversations and goal, then keep track of changes and next steps.')}</p></div>
       </div>
       <div className="onboarding-welcome-role"><strong>{text('先有自己的助手，再一起协作', 'Your assistant first. Collaboration when you need it.')}</strong><p>{text('个人助手长期为你服务；承担专业职责的数字员工是你的协作伙伴。以后可以在聊天里把相关的人与数字同事 聚到一起。', 'Your assistant works for you over time. Digital coworkers take on professional roles. Bring the right people and Agents into a conversation when you need them.')}</p></div>
       <p className="onboarding-preview-caption">{text('这是使用示意，尚未创建助手或执行任务。', 'This is an illustration. No assistant has been created or task run.')}</p>

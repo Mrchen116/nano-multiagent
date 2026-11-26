@@ -2,12 +2,10 @@ import { useId, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
-import { Avatar, colorForAgent } from "./avatar";
+import { Avatar, agentAvatarId } from "./avatar";
 
 interface AgentRow {
   agent_id: string;
-  role?: "personal";
-  avatar_variant?: number | null;
   display_name: string;
   description?: string;
   node_name?: string;
@@ -116,7 +114,7 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
                     aria-label={a.display_name}
                     style={{ width: 16, height: 16, accentColor: "var(--im-accent)", flexShrink: 0 }}
                   />
-                  <Avatar agentId={a.kind === "human" ? undefined : a.agent_id} personal={a.role === "personal"} avatarVariant={a.avatar_variant} initials={a.display_name.slice(0, 2)} size={30} status={a.status} color={colorForAgent({ display_name: a.display_name, agent_id: a.agent_id })} />
+                  <Avatar id={a.kind === "human" ? a.agent_id : agentAvatarId(a.agent_id)} size={30} status={a.status} />
                   <span className="chat-modal-agent-body">
                     <span className="chat-modal-agent-topline">
                       <span className="chat-modal-agent-name">{a.display_name}</span>

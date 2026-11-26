@@ -24,8 +24,7 @@ struct AgentActivityView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 HStack(alignment: .center, spacing: 10) {
-                    AvatarView(name: contact.display_name, online: page?.node_connection_state == "online", kind: "agent",
-                               size: 70, agentID: agentID, role: contact.role, variant: contact.avatar_variant)
+                    AvatarView(id: .contact(contact), size: 70, online: page?.node_connection_state == "online")
                     VStack(alignment: .leading, spacing: 5) {
                         Text(contact.display_name).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
                         if let page {
