@@ -63,6 +63,11 @@ export class ExternalStore {
     if(!(this.db.prepare('PRAGMA table_info(outputs)').all() as {name:string}[]).some(c=>c.name==='lifecycle_revision'))this.db.exec('ALTER TABLE outputs ADD COLUMN lifecycle_revision INTEGER NOT NULL DEFAULT 1');
     if (!(this.db.prepare('PRAGMA table_info(inbound)').all() as {name:string}[]).some(c=>c.name==='reaction_stage'))
       this.db.exec('ALTER TABLE inbound ADD COLUMN reaction_stage TEXT');
+    if (!(this.db.prepare('PRAGMA table_info(images)').all() as {name:string}[]).some(c=>c.name==='file_name'))
+      this.db.exec('ALTER TABLE images ADD COLUMN file_name TEXT');
+    const approvalCols = (this.db.prepare('PRAGMA table_info(approvals)').all() as {name:string}[]).map(c => c.name);
+    if (!approvalCols.includes('closed')) this.db.exec('ALTER TABLE approvals ADD COLUMN closed INTEGER NOT NULL DEFAULT 0');
+    if (!approvalCols.includes('decided_surface')) this.db.exec('ALTER TABLE approvals ADD COLUMN decided_surface TEXT');
     // A crash after dispatch has no trustworthy platform result. Recovery must never blindly send it again.
     this.db.exec("UPDATE outputs SET state='unknown' WHERE state='sending'");
   }
@@ -161,20 +166,41 @@ export class ExternalStore {
   }
   pendingFrames() { return (this.db.prepare('SELECT id,output_id AS outputId,body FROM frames WHERE mirrored=0 ORDER BY rowid').all() as { id: string; outputId: string; body: string }[]).map(row => ({ ...row, body: decodeFrame(JSON.parse(row.body)) })); }
   confirmFrame(id: string): void { this.db.prepare('UPDATE frames SET mirrored=1 WHERE id=?').run(id); }
-  image(url: string, agentId: string): { data: Buffer; mediaType: string; uploaded: string | null } | undefined {
-    const row = this.db.prepare('SELECT data,media_type AS mediaType,uploaded FROM images WHERE url=? AND agent_id=?').get(url, agentId) as { data: Uint8Array; mediaType: string; uploaded: string | null } | undefined;
-    return row && { ...row, data: Buffer.from(row.data) };
+  image(url: string, agentId: string): { data: Buffer; mediaType: string; uploaded: string | null; fileName?: string } | undefined {
+    const row = this.db.prepare('SELECT data,media_type AS mediaType,uploaded,file_name AS fileName FROM images WHERE url=? AND agent_id=?').get(url, agentId) as { data: Uint8Array; mediaType: string; uploaded: string | null; fileName: string | null } | undefined;
+    return row && { data: Buffer.from(row.data), mediaType: row.mediaType, uploaded: row.uploaded, ...(row.fileName ? { fileName: row.fileName } : {}) };
   }
-  saveImage(url: string, agentId: string, data: Buffer, mediaType: string): void { this.db.prepare('INSERT OR IGNORE INTO images(url,agent_id,data,media_type) VALUES(?,?,?,?)').run(url, agentId, data, mediaType); }
+  saveImage(url: string, agentId: string, data: Buffer, mediaType: string, fileName?: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO images(url,agent_id,data,media_type,file_name) VALUES(?,?,?,?,?)').run(url, agentId, data, mediaType, fileName ?? null);
+  }
   uploaded(url: string, attachment: unknown): void { this.db.prepare('UPDATE images SET uploaded=? WHERE url=?').run(JSON.stringify(attachment), url); }
   approval(requestId: string, outputId: string, body: Record<string, unknown>, platformId?: string): void {
     this.db.prepare('INSERT INTO approvals(request_id,output_id,body,platform_id) VALUES(?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET platform_id=coalesce(excluded.platform_id,platform_id)').run(requestId, outputId, JSON.stringify(body), platformId ?? null);
   }
   /** Read one approval by its durable request identity. */
   approvalForRequest(requestId: string) {
-    const row = this.db.prepare('SELECT request_id AS requestId,output_id AS outputId,platform_id AS platformId,body,settled FROM approvals WHERE request_id=?').get(requestId) as {requestId:string;outputId:string;platformId:string|null;body:string;settled:number}|undefined;
+    const row = this.db.prepare('SELECT request_id AS requestId,output_id AS outputId,platform_id AS platformId,body,settled,closed,decided_surface AS decidedSurface FROM approvals WHERE request_id=?').get(requestId) as {requestId:string;outputId:string;platformId:string|null;body:string;settled:number;closed:number;decidedSurface:string|null}|undefined;
     return row && {...row, body:JSON.parse(row.body) as Record<string,unknown>};
   }
-  settleApproval(requestId: string): void { this.db.prepare('UPDATE approvals SET settled=1 WHERE request_id=?').run(requestId); }
+  /** Read the newest non-closed approval belonging to an active turn in `chatId`. */
+  latestActiveApprovalForChat(chatId: string) {
+    const row = this.db.prepare(
+      `SELECT a.request_id AS requestId, a.output_id AS outputId, a.platform_id AS platformId, a.body, a.settled, a.closed, a.decided_surface AS decidedSurface
+       FROM approvals a
+       JOIN outputs o ON o.id = a.output_id
+       WHERE o.chat_id = ? AND a.closed = 0
+       ORDER BY a.rowid DESC LIMIT 1`,
+    ).get(chatId) as { requestId: string; outputId: string; platformId: string | null; body: string; settled: number; closed: number; decidedSurface: string | null } | undefined;
+    return row && { ...row, body: JSON.parse(row.body) as Record<string, unknown> };
+  }
+  settleApproval(requestId: string, surface?: string): void {
+    this.db.prepare('UPDATE approvals SET settled=1, decided_surface=coalesce(decided_surface, ?) WHERE request_id=?').run(surface ?? null, requestId);
+  }
+  closeApprovalsForOutput(outputId: string): void {
+    this.db.prepare('UPDATE approvals SET settled=1, closed=1 WHERE output_id=?').run(outputId);
+  }
+  closeApprovalsForChat(chatId: string): void {
+    this.db.prepare('UPDATE approvals SET settled=1, closed=1 WHERE output_id IN (SELECT id FROM outputs WHERE chat_id=?)').run(chatId);
+  }
   close(): void { this.db.close(); }
 }

@@ -1,9 +1,13 @@
+import { constants } from 'node:fs';
+import { open } from 'node:fs/promises';
+import { basename, isAbsolute } from 'node:path';
 import type { FeishuConfiguration, FeishuMessage, ProtocolFrame, WeChatInboundMessage } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
 import {
   decodeAgentPublication,
   decodeChatStream,
   formatLocalTime,
+  type ChatAttachment,
   type ChatStreamFact,
   type RelayInput,
 } from '@nano/product-contracts';
@@ -47,6 +51,7 @@ export interface ExternalDelivery {
   chatId: string;
   text: string;
   card?: Record<string, unknown>;
+  attachments?: ChatAttachment[];
   operationId: string;
   incidentRef?: string;
   dispatch(text: string, card?: Record<string, unknown>): Promise<string>;
@@ -230,12 +235,12 @@ export class ExternalChannels {
       if (part.type === 'image' && 'data' in part && Buffer.isBuffer(part.data)) {
         const url = `${eventId}:${part.key}`;
         if (!this.state.image(url, agentId)) {
-          this.state.saveImage(url, agentId, part.data, part.mediaType);
+          this.state.saveImage(url, agentId, part.data, part.mediaType, 'fileName' in part ? part.fileName : undefined);
         }
       } else if (part.type === 'file' && 'data' in part && Buffer.isBuffer(part.data)) {
         const url = `${eventId}:${part.key}`;
         if (!this.state.image(url, agentId)) {
-          this.state.saveImage(url, agentId, part.data, part.mediaType);
+          this.state.saveImage(url, agentId, part.data, part.mediaType, part.fileName);
         }
       }
     }
@@ -341,6 +346,54 @@ export class ExternalChannels {
     if (connection.supportsReactions !== false && this.options.globalAgent?.(agentId) && this.attention(input, storedMessage)) {
       input.metadata.agent_receipt = true;
     }
+
+    const trimmedControl = text.trim();
+    if (ownerDirect && (trimmedControl === '/stop' || trimmedControl === '/new')) {
+      this.state.closeApprovalsForChat(id);
+    }
+
+    const isPlainSingleWeChat = provider === 'wechat'
+      && ownerDirect
+      && !this.options.personalAgent?.(agentId)
+      && !this.options.globalAgent?.(agentId)
+      && 'plainSingleText' in rawMessage
+      && rawMessage.plainSingleText === true;
+    const approvalCmd = isPlainSingleWeChat ? parseWeChatApprovalCommand(text) : undefined;
+    const activeApproval = approvalCmd ? this.state.latestActiveApprovalForChat(id) : undefined;
+
+    if (approvalCmd && activeApproval) {
+      // Mirror the owner's reply to the IM shadow conversation without starting a model turn.
+      input.metadata.scope_skipped = true;
+      input = this.options.store.admitInput(input);
+      this.state.saveInbound(eventId, id, storedMessage, input);
+      await this.admitOnce(eventId);
+
+      if (activeApproval.settled) {
+        await connection.send(
+          rawMessage.chatId,
+          '该工具审批已处理，无需重复确认。',
+          `approval-dup:${rawMessage.messageId}`,
+        ).catch(this.options.onError);
+        return;
+      }
+
+      const approvalOutput = this.state.output(activeApproval.outputId);
+      this.state.settleApproval(activeApproval.requestId, 'wechat');
+      await this.options.permission({
+        request_id: activeApproval.requestId,
+        decision: approvalCmd.decision,
+        ...(approvalCmd.reason ? { reason: approvalCmd.reason } : {}),
+        agent_id: agentId,
+        lifecycle_revision: approvalOutput?.lifecycle_revision ?? revision,
+      });
+      await connection.send(
+        rawMessage.chatId,
+        approvalCmd.decision === 'allow_once' ? '已允许本次工具操作，继续执行中。' : '已拒绝本次工具操作。',
+        `approval-ack:${activeApproval.requestId}`,
+      ).catch(this.options.onError);
+      return;
+    }
+
     input = this.options.store.admitInput(input);
     this.state.saveInbound(eventId, id, storedMessage, input);
     return this.admitOnce(eventId);
@@ -416,6 +469,62 @@ export class ExternalChannels {
     const image = this.state.image(url, agentId);
     if (!image) throw new Error('Image is outside the authenticated external input');
     return image;
+  }
+
+  attachment(url: string, agentId: string): { data: Buffer; mediaType: string; fileName?: string } {
+    const item = this.state.image(url, agentId);
+    if (!item) throw new Error('Image is outside the authenticated external input');
+    return {
+      data: item.data,
+      mediaType: item.mediaType,
+      ...(item.fileName ? { fileName: item.fileName } : {}),
+    };
+  }
+
+  /** Stages a validated local raster image (`1B..10 MiB`, `<= 4096x4096`) in `ExternalStore` for offline-capable external delivery and later IM shadow upload. */
+  async stageOutboundImage(input: {
+    agentId: string;
+    conversationId: string;
+    operationId: string;
+    index: number;
+    path: string;
+    lifecycleRevision: number;
+    signal: AbortSignal;
+  }): Promise<ChatAttachment> {
+    if (!isAbsolute(input.path)) throw new Error('Use an absolute local image path');
+    this.options.store.lifecycle.assert(input.agentId, input.lifecycleRevision);
+    const url = `external:out:${input.operationId}:${input.index}`;
+    const name = basename(input.path);
+    const existing = this.state.image(url, input.agentId);
+    if (existing) {
+      return { url, content_type: existing.mediaType, file_name: existing.fileName ?? name };
+    }
+
+    const file = await open(input.path, constants.O_RDONLY | constants.O_NONBLOCK);
+    let bytes: Buffer;
+    try {
+      const stat = await file.stat();
+      if (!stat.isFile() || !stat.size || stat.size > 10 * 1024 * 1024) {
+        throw new Error('Use a non-empty regular image file up to 10 MiB');
+      }
+      const scratch = Buffer.allocUnsafe(stat.size + 1);
+      const { bytesRead } = await file.read(scratch, 0, scratch.length, 0);
+      if (bytesRead !== stat.size) throw new Error('The image changed while reading it');
+      bytes = scratch.subarray(0, bytesRead);
+    } finally {
+      await file.close();
+    }
+
+    const detected = inspectRasterImageBuffer(bytes);
+    if (!detected) {
+      throw new Error('Outbound external image must be a valid PNG, JPEG, GIF, or WebP file');
+    }
+    if (detected.width > 4096 || detected.height > 4096) {
+      throw new Error('Outbound external image dimensions must not exceed 4096x4096');
+    }
+
+    this.state.saveImage(url, input.agentId, bytes, detected.mime, name);
+    return { url, content_type: detected.mime, file_name: name };
   }
 
   restrictToOwner(agentId: string): void {
@@ -562,6 +671,7 @@ export class ExternalChannels {
           kind: 'message_completed',
           message_id: output.id,
           final_content: publication.text,
+          ...(publication.attachments?.length ? { attachments: publication.attachments } : {}),
           pa_incident_ref: publication.pa_incident_ref,
           delivery_status: 'completed',
         };
@@ -595,12 +705,15 @@ export class ExternalChannels {
         throw new Error('External reply source belongs to another conversation');
       }
       const final = source === undefined ? output : this.state.finalReply(output, source);
+      this.state.closeApprovalsForOutput(output.id);
+      if (final.id !== output.id) this.state.closeApprovalsForOutput(final.id);
       await this.finish(final, stream);
       if (final.reply) await this.removeReaction(final.reply);
       if (output.reply && output.reply !== final.reply) await this.removeReaction(output.reply);
     } else {
       this.state.frame(output.id, stream);
       if (stream.kind === 'message_discarded') {
+        this.state.closeApprovalsForOutput(output.id);
         const chat = this.state.chat(output.chatId);
         if (chat) await this.stopTyping(chat);
       }
@@ -630,27 +743,56 @@ export class ExternalChannels {
   private async finish(output: ExternalOutput, payload: CompletedMessage): Promise<void> {
     const chat = this.state.chat(output.chatId)!;
     const provider = chatProvider(chat);
+    const enrichedPayload = this.extractInlineDataImages(output, chat.agentId, payload);
     try {
-      if (output.reply && String(payload.final_content ?? '').trim()) {
-        await this.publish(output, String(payload.final_content), payload);
+      if (output.reply && (String(enrichedPayload.final_content ?? '').trim() || enrichedPayload.attachments?.length)) {
+        await this.publish(output, String(enrichedPayload.final_content ?? ''), enrichedPayload);
       }
-      this.state.frame(output.id, payload);
+      this.state.frame(output.id, enrichedPayload);
       await this.stopTyping(chat);
     } catch (error) {
       await this.stopTyping(chat);
       if (error instanceof RelayDeliveryError && error.delivery === 'unknown') {
         const providerLabel = provider === 'wechat' ? '微信' : '飞书';
         this.state.frame(output.id, {
-          ...payload,
+          ...enrichedPayload,
           delivery_status: 'failed',
           external_delivery_status: 'unknown',
-          final_content: `${payload.final_content ?? ''}\n\n${providerLabel}发送结果未知，未自动重发。`,
+          final_content: `${enrichedPayload.final_content ?? ''}\n\n${providerLabel}发送结果未知，未自动重发。`,
         });
         if (output.reply) await this.removeReaction(output.reply);
         void this.flush().catch(this.options.onError);
       }
       throw error;
     }
+  }
+
+  private extractInlineDataImages(output: ExternalOutput, agentId: string, payload: CompletedMessage): CompletedMessage {
+    const rawText = payload.final_content ?? '';
+    if (!rawText.includes('data:image/')) return payload;
+    const existing = payload.attachments ?? [];
+    const inlineAttachments: ChatAttachment[] = [];
+    const dataUriRe = /!\[[^\]\n]*\]\((data:image\/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/=\s]+))\)/gi;
+    let match: RegExpExecArray | null;
+    while ((match = dataUriRe.exec(rawText)) !== null) {
+      if (existing.length + inlineAttachments.length >= 5) break;
+      const b64 = match[3]!.replace(/\s+/g, '');
+      const buf = Buffer.from(b64, 'base64');
+      if (buf.length === 0 || buf.length > 10 * 1024 * 1024) continue;
+      const detected = inspectRasterImageBuffer(buf);
+      if (!detected || detected.width > 4096 || detected.height > 4096) continue;
+      const idx = inlineAttachments.length;
+      const ext = detected.mime === 'image/jpeg' ? '.jpg' : `.${detected.mime.slice(6)}`;
+      const fileName = `inline-${idx + 1}${ext}`;
+      const url = `external:out:${output.operationId}:inline:${idx}`;
+      this.state.saveImage(url, agentId, buf, detected.mime, fileName);
+      inlineAttachments.push({ url, content_type: detected.mime, file_name: fileName });
+    }
+    if (!inlineAttachments.length) return payload;
+    return {
+      ...payload,
+      attachments: [...existing, ...inlineAttachments],
+    };
   }
 
   private async publish(output: ExternalOutput, text: string, metadata?: CompletedMessage): Promise<void> {
@@ -678,11 +820,26 @@ export class ExternalChannels {
         ? appendPlainRuntimeFooter(text, metadata)
         : text;
 
+      const outboundImages: { data: Buffer; mediaType: string }[] = [];
+      for (const att of metadata?.attachments ?? []) {
+        const attUrl = att.url;
+        if (attUrl?.startsWith('external:')) {
+          const img = this.state.image(attUrl, chat.agentId);
+          if (img) outboundImages.push({ data: img.data, mediaType: img.mediaType });
+        }
+      }
+
       const dispatch = async (body: string, frozenCard?: Record<string, unknown>) => {
         this.options.store.lifecycle.assert(chat.agentId, output.lifecycle_revision);
         this.state.settle(output.id, 'sending');
         try {
-          const id = await connection.send(chat.chatId, body, output.operationId, frozenCard);
+          const id = await connection.send(
+            chat.chatId,
+            body,
+            output.operationId,
+            frozenCard,
+            outboundImages.length ? outboundImages : undefined,
+          );
           this.state.settle(output.id, 'confirmed', id);
           return id;
         } catch {
@@ -703,6 +860,7 @@ export class ExternalChannels {
           chatId: chat.chatId,
           text: bodyWithFooter,
           card,
+          ...(metadata?.attachments?.length ? { attachments: metadata.attachments } : {}),
           operationId: output.operationId,
           incidentRef: typeof metadata?.pa_incident_ref === 'string' ? metadata.pa_incident_ref : undefined,
           dispatch,
@@ -820,10 +978,43 @@ export class ExternalChannels {
                 this.state.mirrorOutput(output.id, response.payload.message_id);
               } else {
                 if (!output.imId) return;
+                let streamBody = frame.body;
+                if (streamBody.kind === 'message_completed' && streamBody.attachments?.length) {
+                  const uploadedAttachments: ChatAttachment[] = [];
+                  for (const att of streamBody.attachments) {
+                    const attUrl = att.url;
+                    if (!attUrl) continue;
+                    if (!attUrl.startsWith('external:')) {
+                      uploadedAttachments.push(att);
+                      continue;
+                    }
+                    const blob = this.state.image(attUrl, chat.agentId);
+                    if (!blob) continue;
+                    if (blob.uploaded) {
+                      uploadedAttachments.push(JSON.parse(blob.uploaded) as ChatAttachment);
+                    } else {
+                      const fileName = att.file_name || blob.fileName || 'image.png';
+                      const uploaded = await this.options.im(
+                        `/im/v1/conversations/${encodeURIComponent(chat.shadowId!)}/images?agent_id=${encodeURIComponent(chat.agentId)}&file_name=${encodeURIComponent(fileName)}&screenshot=1`,
+                        {
+                          method: 'POST',
+                          headers: { 'Content-Type': blob.mediaType, 'Idempotency-Key': `shadow-out:${attUrl}` },
+                          body: new Uint8Array(blob.data),
+                        },
+                      ) as ChatAttachment;
+                      this.state.uploaded(attUrl, uploaded);
+                      uploadedAttachments.push(uploaded);
+                    }
+                  }
+                  streamBody = {
+                    ...streamBody,
+                    attachments: uploadedAttachments,
+                  };
+                }
                 await this.forwardStream(
-                  frame.body.kind === 'run_terminal_reconcile'
-                    ? { ...frame.body, node_id: this.options.nodeId }
-                    : { ...frame.body, node_id: this.options.nodeId, message_id: output.imId },
+                  streamBody.kind === 'run_terminal_reconcile'
+                    ? { ...streamBody, node_id: this.options.nodeId }
+                    : { ...streamBody, node_id: this.options.nodeId, message_id: output.imId },
                 );
               }
               this.state.confirmFrame(frame.id);
@@ -950,13 +1141,25 @@ export class ExternalChannels {
   private async resolveApproval(requestId: string, decision: string): Promise<void> {
     const pending = requestId ? this.state.approvalForRequest(requestId) : undefined;
     if (!pending) return;
-    this.state.settleApproval(requestId);
-    if (!pending.platformId) return;
+    const alreadySettled = pending.settled === 1;
+    this.state.settleApproval(requestId, 'im');
     const output = this.state.output(pending.outputId)!;
     const chat = this.state.chat(output.chatId)!;
     const provider = chatProvider(chat);
     const connection = this.connections.get(connKey(provider, chat.agentId));
-    if (!connection || connection.supportsCards === false) return;
+    if (!connection) return;
+    if (connection.supportsCards === false) {
+      if (!alreadySettled && provider === 'wechat') {
+        const label = decision === 'allow_once' || decision === 'allow' ? '已允许' : '已拒绝';
+        await connection.send(
+          chat.chatId,
+          `工具审批已在内部 IM 处理（${label}）。`,
+          `approval-im:${requestId}`,
+        ).catch(this.options.onError);
+      }
+      return;
+    }
+    if (!pending.platformId) return;
     await connection.updateCard(pending.platformId, approvalStatus(decision));
   }
 
@@ -1046,4 +1249,55 @@ function approvalStatus(decision: string): Record<string, unknown> {
 
 function chatTitle(chat: ExternalChat): string {
   return [chat.agentId, ...(chat.isGroup && chat.name ? [chat.name] : []), chatProvider(chat)].join(' · ');
+}
+
+function parseWeChatApprovalCommand(text: string): { decision: 'allow_once' | 'deny'; reason?: string } | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+  if (/^(?:允许|同意|批准|allow|yes|1)$/i.test(trimmed)) {
+    return { decision: 'allow_once' };
+  }
+  const denyMatch = /^(?:拒绝|不同意|deny|no|2)(?:\s+([\s\S]+))?$/i.exec(trimmed);
+  if (denyMatch) {
+    const reason = denyMatch[1]?.trim();
+    return { decision: 'deny', ...(reason ? { reason } : {}) };
+  }
+  return undefined;
+}
+
+function inspectRasterImageBuffer(bytes: Buffer): { mime: string; width: number; height: number } | undefined {
+  if (bytes.length >= 24 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return { mime: 'image/png', width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+  }
+  if (bytes.length >= 10 && (bytes.subarray(0, 6).toString('ascii') === 'GIF87a' || bytes.subarray(0, 6).toString('ascii') === 'GIF89a')) {
+    return { mime: 'image/gif', width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) };
+  }
+  if (bytes.length >= 30 && bytes.subarray(0, 4).toString('ascii') === 'RIFF' && bytes.subarray(8, 12).toString('ascii') === 'WEBP') {
+    const chunk = bytes.subarray(12, 16).toString('ascii');
+    if (chunk === 'VP8X') {
+      const width = 1 + bytes.readUIntLE(24, 3);
+      const height = 1 + bytes.readUIntLE(27, 3);
+      return { mime: 'image/webp', width, height };
+    }
+    return { mime: 'image/webp', width: 1, height: 1 };
+  }
+  if (bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    let offset = 2;
+    while (offset + 8 < bytes.length) {
+      if (bytes[offset] !== 0xff) { offset++; continue; }
+      const marker = bytes[offset + 1]!;
+      if (marker === 0xff) { offset++; continue; }
+      if (marker === 0xd8 || marker === 0xd9) { offset += 2; continue; }
+      const segLen = bytes.readUInt16BE(offset + 2);
+      if (segLen < 2 || offset + 2 + segLen > bytes.length) break;
+      if ((marker >= 0xc0 && marker <= 0xc3) || (marker >= 0xc5 && marker <= 0xc7) || (marker >= 0xc9 && marker <= 0xcb) || (marker >= 0xcd && marker <= 0xcf)) {
+        const height = bytes.readUInt16BE(offset + 5);
+        const width = bytes.readUInt16BE(offset + 7);
+        return { mime: 'image/jpeg', width, height };
+      }
+      offset += 2 + segLen;
+    }
+    return { mime: 'image/jpeg', width: 1, height: 1 };
+  }
+  return undefined;
 }

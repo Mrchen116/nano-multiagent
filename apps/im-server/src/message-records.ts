@@ -121,7 +121,19 @@ export class MessageRecords {
   }
   /** Store the producer's final text/statistics and release its permission wait. */
   complete(m:ChatMessage,p:Extract<ChatStreamFact,{kind:'message_completed'}>):void {
-    this.db.prepare('UPDATE messages SET content=?,delivery_status=?,token_usage_json=?,elapsed_ms=?,kernel_message_id=?,awaiting_permission_at=NULL WHERE id=?').run(p.final_content??m.content,p.delivery_status??'completed',p.token_usage?JSON.stringify(p.token_usage):null,p.elapsed_ms??null,p.kernel_message_id??null,m.id);
+    let attachmentsJson: string | undefined;
+    if (p.attachments?.length) {
+      if (p.attachments.length > 5) fail(422, 'too many attachments');
+      const verified = p.attachments.map(({ url }) => {
+        const match = url?.match(/^\/im\/v1\/conversations\/([^/]+)\/(?:images|attachments)\/([\w-]+)$/);
+        if (!match || match[1] !== m.conversation_id) fail(422, 'attachment must belong to the destination conversation');
+        const row = this.db.prepare('SELECT file_name,content_type FROM message_images WHERE conversation_id=? AND image_id=?').get(m.conversation_id, match[2]!) as { file_name: string; content_type: string } | undefined;
+        if (!row) fail(404, 'attachment not found');
+        return { url, file_name: row.file_name, content_type: row.content_type };
+      });
+      attachmentsJson = JSON.stringify(verified);
+    }
+    this.db.prepare('UPDATE messages SET content=?,attachments_json=coalesce(?,attachments_json),delivery_status=?,token_usage_json=?,elapsed_ms=?,kernel_message_id=?,awaiting_permission_at=NULL WHERE id=?').run(p.final_content??m.content,attachmentsJson??null,p.delivery_status??'completed',p.token_usage?JSON.stringify(p.token_usage):null,p.elapsed_ms??null,p.kernel_message_id??null,m.id);
     if(m.thread_root_message_id) recordThreadDelivery(this.db,m.id);
   }
   /** Apply the existing provisional-message deletion semantics and roll back the projection it wrote on insert.

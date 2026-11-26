@@ -193,6 +193,7 @@ const server = createServer(async (req, res) => {
       const message = {
         seq: seqCounter,
         message_id: body.message_id ?? 900_000 + msgCounter,
+        ...(body.svr_id !== undefined ? { svr_id: body.svr_id } : {}),
         from_user_id: body.from_user_id ?? "wxid_owner_3k92",
         to_user_id: body.to_user_id ?? "bot_wx_twin",
         create_time_ms: body.create_time_ms ?? Date.now(),

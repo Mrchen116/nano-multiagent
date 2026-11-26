@@ -61,3 +61,27 @@ export {
   type WeChatInboundTransformer,
   type WeChatStatusReport,
 } from './connection.js';
+export {
+  MAX_NORMALIZED_IMAGE_BYTES,
+  MAX_WECHAT_FILE_BYTES,
+  MAX_WECHAT_IMAGE_BYTES,
+  MAX_WECHAT_IMAGE_DIMENSION,
+  MAX_WECHAT_MESSAGE_MEDIA_BYTES,
+  MAX_WECHAT_VOICE_BYTES,
+  transformWeChatInboundMessage,
+  wrapPcm16MonoWav,
+} from './inbound.js';
+export {
+  WeChatQuoteStore,
+  resolvePartialQuote,
+  type PartialQuoteResult,
+  type WeChatQuoteRecord,
+} from './quote-store.js';
+export {
+  MAX_MERGED_FORWARD_DEPTH,
+  MAX_MERGED_FORWARD_ITEMS,
+  MAX_WECHAT_XML_BYTES,
+  decodeXmlText,
+  parseWeChatXmlPayload,
+  type ParsedWeChatXml,
+} from './xml.js';

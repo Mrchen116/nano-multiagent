@@ -23,6 +23,7 @@ interface Options {
   nodeId: string; ownerId: string; agents: AgentConfiguration[]; store: NodeStore; inbox: InboxStore; runtime: RuntimePort;
   relay: {request(type: string, payload: Data): Promise<ProtocolFrame>}; onError(error: unknown): void;
   uploadScreenshot?: ScreenshotUploader;
+  stageExternalImage?: ScreenshotUploader;
   uploadAttachment?: AttachmentUploader;
   flushConversation?: (config: AgentConfiguration, binding: SessionBinding, conversationId?: string) => Promise<void>;
 }
@@ -426,7 +427,8 @@ export class PersonalAssistant {
     if (hasLocalMedia && (incident || representation !== 'self')) throw new Error('Local attachments require a regular self-authored message');
     if(representation==='owner' && (call.sessionId!==binding.sessionId || !config.personal))throw new Error('Only the bound main PA may represent its owner');
     const deliveryTarget=this.options.store.canonicalConversation(config.agentId,targetBase.replace(/^conversation:/,''));
-    if (hasLocalMedia && deliveryTarget.startsWith('external:')) throw new Error('Local attachments require a writable Nano IM conversation');
+    const allowsExternalImages = deliveryTarget.startsWith(`external:${config.agentId}:wechat:`) && !filePaths?.length && !!this.options.stageExternalImage;
+    if (hasLocalMedia && deliveryTarget.startsWith('external:') && !allowsExternalImages) throw new Error('Local attachments require a writable Nano IM conversation');
     if(deliveryTarget.startsWith('external:')&&representation==='owner')throw new Error('Owner representation requires a native IM conversation');
     if((replyTo || inThread) && deliveryTarget.startsWith('external:'))throw new Error('Quotes and topics require a Nano IM destination');
     const conversation = deliveryTarget.startsWith('external:')?targetBase.replace(/^conversation:/,''):await this.resolve(config,targetBase);
@@ -484,7 +486,14 @@ export class PersonalAssistant {
       if (shadowId && inbox.blocking(config.agentId, joinThreadTarget(shadowId, inThread))) {
         return {status:'held_for_revalidation',target,message:'Read new messages in this conversation and reconsider this draft before sending.'};
       }
+      const extAttachments = hasLocalMedia
+        ? await prepareLocalAttachments(this.options.stageExternalImage, undefined, {
+            agentId: config.agentId, conversationId: deliveryTarget, operationId,
+            lifecycleRevision: this.options.store.lifecycle.assert(config.agentId), signal,
+          }, paths, undefined, call.args.attachments)
+        : undefined;
       const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
+        ...(extAttachments?.length ? {attachments: extAttachments} : {}),
         ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
       if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
       return {status:'sent',target,message_id:response.payload.message_id};
@@ -585,7 +594,7 @@ export class PersonalAssistant {
       ? {bot_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId}
       : {app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId};
     const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,incident_ref:delivery.incidentRef,
-      conversation_id:delivery.shadowId,content:delivery.text,transport:{kind,destination,card:delivery.card}});
+      conversation_id:delivery.shadowId,content:delivery.text,...(delivery.attachments?.length?{attachments:delivery.attachments}:{}),transport:{kind,destination,card:delivery.card}});
     if(proposal.owner_private===true)return delivery.dispatch(delivery.text,delivery.card);
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string')return proposal.message_id;
     if(['sending','unknown'].includes(String(proposal.state)))throw new Error('External outcome unknown; no automatic resend');

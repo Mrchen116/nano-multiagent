@@ -12,7 +12,9 @@ import {
   sendWeChatTyping,
   type WeChatWireMessage,
 } from './ilink.js';
+import { transformWeChatInboundMessage } from './inbound.js';
 import { chunkWeChatText, filterWeChatMarkdown, uploadWeChatOutboundImage } from './outbound.js';
+import { WeChatQuoteStore } from './quote-store.js';
 
 export type WeChatInboundPart =
   | { type: 'text'; text: string }
@@ -478,15 +480,14 @@ export class WeChatConnection {
       this.setKv('context_token', wire.context_token.trim());
     }
 
-    const parsed = this.options.transformInbound
-      ? await this.options.transformInbound(wire, {
-        db: this.db!,
-        baseUrl: this.config.baseUrl,
-        ownerUserId: this.wechatConfig.ownerUserId,
-        abortSignal: signal,
-        env: this.env,
-      })
-      : this.defaultTextInbound(wire, msgId, senderId);
+    const transformer = this.options.transformInbound ?? transformWeChatInboundMessage;
+    const parsed = await transformer(wire, {
+      db: this.db!,
+      baseUrl: this.config.baseUrl,
+      ownerUserId: this.wechatConfig.ownerUserId,
+      abortSignal: signal,
+      env: this.env,
+    });
     if (!parsed) return;
 
     for (const part of parsed.parts) {
@@ -509,36 +510,6 @@ export class WeChatConnection {
     }
 
     await this.options.receive(parsed);
-  }
-
-  private defaultTextInbound(wire: WeChatWireMessage, msgId: string, senderId: string): WeChatInboundMessage | undefined {
-    const items = wire.item_list ?? [];
-    const texts: string[] = [];
-    for (const item of items) {
-      if (item.type === WeChatItemType.TEXT && item.text_item?.text) {
-        texts.push(item.text_item.text);
-      } else if (item.type === WeChatItemType.VOICE && item.voice_item?.text?.trim()) {
-        texts.push(`[语音转写] ${item.voice_item.text.trim()}`);
-      }
-    }
-    const combined = texts.join('\n').trim();
-    if (!combined) return undefined;
-    const singlePlainText = items.length === 1
-      && items[0]?.type === WeChatItemType.TEXT
-      && !items[0]?.ref_msg
-      && !combined.trimStart().startsWith('<msg')
-      && !combined.includes('<appmsg');
-    return {
-      messageId: msgId,
-      svrId: wire.svr_id ?? wire.message_id,
-      chatId: senderId,
-      senderId,
-      isGroup: false,
-      mentioned: true,
-      time: String(wire.create_time_ms ?? Date.now()),
-      parts: [{ type: 'text', text: combined }],
-      plainSingleText: singlePlainText,
-    };
   }
 
   private async replyStrangerRateLimited(strangerId: string, contextToken: string | undefined, signal: AbortSignal): Promise<void> {
@@ -575,14 +546,12 @@ export class WeChatConnection {
 
   private rememberOutboundQuote(svrId: string, text: string): void {
     if (!this.db || !svrId || !text) return;
-    try {
-      this.db.prepare(
-        'INSERT OR REPLACE INTO quotes(svr_id, direction, text, media_json, created_at) VALUES(?,?,?,?,?)',
-      ).run(svrId, 'outbound', text, null, Date.now());
-      this.db.exec('DELETE FROM quotes WHERE svr_id NOT IN (SELECT svr_id FROM quotes ORDER BY created_at DESC LIMIT 500)');
-    } catch {
-      // Quote caching is best-effort and never fails message delivery.
-    }
+    new WeChatQuoteStore(this.db).save({
+      svrId,
+      direction: 'outbound',
+      text,
+      ...(text === '[图片]' ? { mediaSummary: '[图片]' } : {}),
+    });
   }
 
   private getKv(key: string): string | undefined {

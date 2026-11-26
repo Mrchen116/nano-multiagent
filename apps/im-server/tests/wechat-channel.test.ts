@@ -265,6 +265,7 @@ it('enforces interactive WeChat setup, seals bot_token without browser echo, and
         request_key: 'wx_reply_1',
         conversation_id: msgRow!.conversation_id,
         content: '好的，已为你记下下午三点的会议提醒。',
+        attachments: [{ url: 'external:out:wx_reply_1:0', content_type: 'image/png', file_name: 'chart.png' }],
         transport: {
           kind: 'wechat',
           destination: {
@@ -276,6 +277,41 @@ it('enforces interactive WeChat setup, seals bot_token without browser echo, and
       },
     );
     expect(transportProposal).toMatchObject({ owner_private: true, conversation_id: msgRow!.conversation_id });
+
+    // Uploaded shadow outbound image attaches cleanly onto message_completed in shadow chat.
+    const png1x1 = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      'base64',
+    );
+    const uploadRes = await app.inject({
+      method: 'POST',
+      url: `/im/v1/conversations/${msgRow!.conversation_id}/images?agent_id=pa_main&file_name=chart.png&screenshot=1`,
+      headers: {
+        authorization: 'Bearer gateway-token',
+        'content-type': 'image/png',
+        'idempotency-key': 'shadow-out:1',
+      },
+      payload: png1x1,
+    });
+    expect(uploadRes.statusCode).toBe(201);
+    const uploadedAtt = uploadRes.json() as { url: string; content_type: string; file_name: string };
+
+    const turnStart = app.im.gateway.streaming(
+      { node_id: 'node', owner_id: 'owner', node_epoch: 1 },
+      { kind: 'turn_start', agent_id: 'pa_main', conversation_id: msgRow!.conversation_id, idempotency_key: 'wx-out-img-1' },
+    );
+    app.im.gateway.streaming(
+      { node_id: 'node', owner_id: 'owner', node_epoch: 1 },
+      {
+        kind: 'message_completed',
+        message_id: turnStart.message_id!,
+        final_content: '已发送图表',
+        attachments: [uploadedAtt],
+        delivery_status: 'completed',
+      },
+    );
+    const completedMsg = app.im.messaging.message(turnStart.message_id!);
+    expect(completedMsg.attachments).toEqual([uploadedAtt]);
   } finally {
     await external?.stop();
     store.close();

@@ -19,6 +19,7 @@ interface Options {
   runtime: RuntimePort; relay: { readonly ready?: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   image(url: string, agentId: string): Promise<string>;
   uploadScreenshot?: ScreenshotUploader;
+  stageExternalImage?: ScreenshotUploader;
   uploadAttachment?: AttachmentUploader;
   downloadAttachment?: AttachmentDownloader;
   onError(error: unknown): void;
@@ -1097,8 +1098,9 @@ export class GlobalAgent {
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
     const isExternalChannel = info?.channel === 'feishu' || info?.channel === 'wechat' || info?.channel === 'external';
+    const allowsExternalImages = info?.channel === 'wechat' && info?.type === 'direct' && !filePaths?.length && !!this.options.stageExternalImage;
     if((replyTo || inThread) && info?.channel && info.channel!=='web')throw new Error('Quoted replies and topics require a Nano IM destination');
-    if (hasLocalMedia && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local attachments require a writable Nano IM conversation');
+    if (hasLocalMedia && (!reviewConversation || (info?.channel !== 'web' && !allowsExternalImages))) throw new Error('Local attachments require a writable Nano IM conversation');
     if (isExternalChannel && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const baseTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
     const reviewTargets = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web'
@@ -1140,7 +1142,8 @@ export class GlobalAgent {
     const held = revalidate();
     if (held) return held;
 
-    const attachments = hasLocalMedia ? await prepareLocalAttachments(this.options.uploadScreenshot, this.options.uploadAttachment, {
+    const imageUploader = allowsExternalImages ? this.options.stageExternalImage : this.options.uploadScreenshot;
+    const attachments = hasLocalMedia ? await prepareLocalAttachments(imageUploader, allowsExternalImages ? undefined : this.options.uploadAttachment, {
       agentId:binding.agentId, conversationId:reviewConversation!, operationId:call.operationId,
       lifecycleRevision:store.lifecycle.assert(binding.agentId), signal,
     }, paths, filePaths, call.args.attachments) : call.args.attachments === undefined ? undefined : chatAttachments(call.args.attachments);

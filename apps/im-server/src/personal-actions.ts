@@ -151,6 +151,14 @@ export class PersonalActions {
     if(typeof args.request_key!=='string'||!args.request_key||typeof args.content!=='string'||!args.content.trim()&&args.interactive===undefined)fail(422,'concrete_proposal_required');
     if(!this.pa.sourceAllowed(b,args.conversation_id,'write'))fail(403,'destination_not_accessible');
     if(args.transport&&!args.content.trim())fail(422,'external_text_required');
+    if(args.incident_ref&&(args.interactive||args.attachments?.length||args.task))fail(403,'invalid_security_notice');
+    if(args.transport && args.in_thread_of!==undefined)fail(422,'external_thread_unavailable');
+    if(args.transport&&args.reply_to_message_id!==undefined)fail(422,'external_quoted_reply_unavailable');
+    if(args.transport && this.pa.ownerConversation(b,args.conversation_id)) {
+      this.transport(b,args.conversation_id,args.transport);
+      if(args.attachments!==undefined && (!Array.isArray(args.attachments) || args.attachments.length>5))fail(422,'invalid_attachments');
+      return {owner_private:true,conversation_id:args.conversation_id};
+    }
     if(args.transport&&args.attachments?.length)fail(409,'external_attachment_adapter_unavailable');
     let interactive;try{interactive=interactiveResponse(args.interactive);}catch(error){fail(422,(error as Error).message);}
     if(interactive?.source_mode==='patch') {
@@ -220,6 +228,9 @@ export class PersonalActions {
   /** Decode images once at prepare; commit uses the frozen hash and checked bytes. */
   async prepareChecked(principal:Row,args:Row) {
     const b=this.pa.authority(principal,args);
+    if(args.transport && this.pa.ownerConversation(b,args.conversation_id)) {
+      return this.prepare(principal,args,[]);
+    }
     const attachments=this.attachments(b,b.conversation_id,args.attachments??[],String(args.content??'')+String(args.interactive?.source??''));
     const images=await decodePersonalImages(attachments.snapshots.map(row=>({...row,bytes:this.snapshotBytes(row)})));
     return this.prepare(principal,args,images);
