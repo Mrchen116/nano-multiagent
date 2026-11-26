@@ -119,6 +119,8 @@ describe("Crewden Desktop session isolation, onboarding picker, and foreign-owne
       />,
     );
 
+    // Select macOS explicitly so the test is OS-independent on Linux CI (`ubuntu-latest`) as well as macOS.
+    await user.click(screen.getByRole("button", { name: "macOS" }));
     expect(screen.getByText("下载完整 Desktop 客户端")).toBeInTheDocument();
     expect(screen.getByText("仅装轻量后台节点")).toBeInTheDocument();
     expect(screen.getByText(/Intel 芯片 Mac 请选择「仅装轻量后台节点」/)).toBeInTheDocument();
