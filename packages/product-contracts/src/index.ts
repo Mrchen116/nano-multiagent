@@ -143,6 +143,7 @@ export interface RuntimeWorkPage {
   more: boolean;
 }
 export interface RuntimeWorkChild {
+  nativeWorker?: boolean;
   kind: 'child' | 'diagnostic';
   id: string;
   parentId: string;

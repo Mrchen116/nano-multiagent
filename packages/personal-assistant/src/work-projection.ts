@@ -2,7 +2,7 @@ import type { RuntimeEvent, WorkFact } from '@nano/product-contracts';
 import { tokenUsage, toolPresentation, modelAt } from './presentation.js';
 
 /** The same native facts render main and child execution without treating drafts as public replies. */
-export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events: RuntimeEvent[], child = false): (WorkFact & { turn?: number }) | undefined {
+export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events: RuntimeEvent[], child = false, workerParentId?: string): (WorkFact & { turn?: number }) | undefined {
   if (event.type === 'compaction/end') {
     const {turn, compactionId, sourceCommandId, error} = event.data;
     const matching = (candidate: RuntimeEvent) => typeof compactionId === 'string'
@@ -48,6 +48,10 @@ export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events:
     const source = event.data.source as {kind?: string; channel?: string; senderSessionId?: string; background_returns?: unknown[]} | undefined;
     if (source?.background_returns?.length) return {type: 'injection_consumed', turn, payload: {background_returns: source.background_returns}};
     const workerReport = source?.kind === 'nano-system' && source.channel === 'worker-report';
+    if (workerParentId && (source?.kind === 'user' || (source?.kind === 'agent-message' && source.senderSessionId === workerParentId))) {
+      const content = event.data.content as {type:string; text?:string}[];
+      return {type:'message',turn,payload:{role:'user',text:content.filter(part=>part.type==='text').map(part=>part.text).join('')}};
+    }
     if (source && (workerReport || ['agent-message', 'subagent-settled'].includes(source.kind ?? ''))) {
       const content = event.data.content as {type: string; text?: string}[];
       return {type: 'message', turn, payload: {message_id: typeof event.data.id === 'string' ? event.data.id : undefined, role: 'system', source_kind: workerReport ? 'worker-report' : source.kind, source_session_id: source.senderSessionId, text: content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')}};

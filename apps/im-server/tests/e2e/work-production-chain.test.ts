@@ -53,11 +53,13 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     {seq:12, time:workerTime+12, type:'turn/start', data:{turn:2}},
     {seq:13, time:workerTime+13, type:'user/message', data:{turn:2, id:'report', source:{kind:'nano-system', channel:'worker-report'}, content:[{type:'text',text:'报表已确认'}]}},
     {seq:14, time:workerTime+14, type:'user/message', data:{turn:2, id:'dsh-report', source:{kind:'agent-message',senderSessionId:'b-worker'}, content:[{type:'text',text:'正在核对附件'}]}},
-    {seq:15, time:workerTime+15, type:'turn/end', data:{turn:2, reason:{kind:'completed'}}},
+    {seq:15,time:workerTime+15,type:'tool/call',data:{turn:2,callId:'b-worker-call',name:'delegate_worker',arguments:JSON.stringify({action:'start',label:'核对附件'})}},
+    {seq:16,time:workerTime+16,type:'tool/call',data:{turn:2,callId:'append',name:'delegate_worker',arguments:JSON.stringify({action:'send',worker_id:'b-worker',message:'补查附件'})}},
+    {seq:17, time:workerTime+17, type:'turn/end', data:{turn:2, reason:{kind:'completed'}}},
   ];
   const child: RuntimeEvent[] = [
     {seq: 1, time: 1004, type: 'turn/start', data: {turn: 1}},
-    {seq: 2, time: 1005, type: 'user/message', data: {source: {kind: 'subagent'}, content: []}},
+    {seq: 2, time: 1005, type: 'user/message', data: {source: {kind: 'user'}, content: [{type:'text',text:'核对附件'}]}},
     {seq: 3, time: 1006, type: 'assistant/message', data: {turn: 1, message: {id: 'child-answer', content: [{type: 'text', text: '子执行正文'}]}}},
     {seq: 4, time: 1007, type: 'turn/end', data: {turn: 1, reason: {kind: 'completed'}}},
   ];
@@ -72,11 +74,12 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
         return {};
       }
       if (method === 'session.work.check') return {rootSettled:true};
-      if (method === 'session.work.children') return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:4,modelVersion:'done'}]};
+      if (method === 'session.work.children') return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:4,modelVersion:'done'},
+        {kind:'child',id:'b-worker',parentId:'main',nativeWorker:true,throughSeq:4,modelVersion:'done'}]};
       const isChild=method==='session.work.child';
       const events=isChild ? child : source;
       const after=args.afterSeq??-1;
-      const throughSeq=isChild ? (after<2?2:4) : (after<4?4:after<10?10:15);
+      const throughSeq=isChild ? (after<2?2:4) : (after<4?4:after<10?10:17);
       return {workerChanges:isChild ? [] : pendingWorkers,events:events.filter(event=>event.seq>after && event.seq<=throughSeq),durable:true,
         modelRuns:[],modelVersion:'done',throughSeq,more:throughSeq<events.at(-1)!.seq};
     },
@@ -89,7 +92,7 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   await expect.poll(()=>inbox.workProcessingPending).toBe(false);
   const produced = inbox.journalSeq;
   expect(inbox.journal(0).some(event => event.type === 'tool_end')).toBe(true);
-  expect(inbox.workCheckpoints('main')).toMatchObject({main: {throughSeq: 15}, child: {throughSeq: 4}});
+  expect(inbox.workCheckpoints('main')).toMatchObject({main: {throughSeq: 17}, child: {throughSeq: 4}});
   const makeSync = (url: string) => new WorkSync({nodeId: node.node, inbox, url, credentials: () => node.runtime, onError: error => errors.push(error)});
   let sync = makeSync(center.base); cleanups.push(() => sync.stop()); sync.start();
   await expect.poll(() => inbox.throughSeq, {timeout: 10000}).toBe(produced);
@@ -101,7 +104,9 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     expect.objectContaining({payload:expect.objectContaining({text:'报表已确认',source_kind:'worker-report'})}),
     expect.objectContaining({payload:expect.objectContaining({text:'正在核对附件',source_worker_id:'b-worker'})}),
   ]));
-  expect(first.body.turns[0].items.some((item:{payload:{source_session_id?:string}})=>item.payload.source_session_id==='b-worker')).toBe(false);
+  expect(first.body.turns[0].items.some((item:{payload:{source_session_id?:string}})=>item.payload.source_session_id==='b-worker')).toBe(true);
+  const dispatches = first.body.turns[0].items.filter((item:{kind:string})=>item.kind==='tool');
+  expect(dispatches.map((item:{payload:{child_session_id:string}})=>item.payload.child_session_id)).toEqual(['b-worker','b-worker']);
   const graph = (query:string) => center.http('GET','/im/v1/agents/global/work/delegation?window=2h&limit=1'+query,undefined,center.tokens.alice);
   const page = (await graph('')).body;
   expect(page.next_cursor).toBe('a-worker');
@@ -125,9 +130,16 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
       {kind:'tool',payload:{input:{path:'report.txt'},detail:{content:output},status:'completed'}},
     ],
   }]);
-  expect(first.body.other_executions.map((row:{session_id:string})=>row.session_id).sort()).toEqual(['c-worker','child']);
+  expect(first.body.other_executions.map((row:{session_id:string})=>row.session_id).sort()).toEqual(['b-worker','c-worker','child']);
   expect((await center.http('GET','/im/v1/agents/global/work/sessions/a-worker/turns',undefined,center.tokens.alice)).status).toBe(404);
-  expect((await center.http('GET','/im/v1/agents/global/work/sessions/b-worker/turns',undefined,center.tokens.alice)).status).toBe(404);
+  const native = await center.http('GET','/im/v1/agents/global/work/sessions/b-worker/turns',undefined,center.tokens.alice);
+  expect(native.body.turns).toMatchObject([{turn_id:'1',status:'completed',items:[
+    {kind:'message',payload:{role:'user',text:'核对附件'}}, {kind:'message',payload:{text:'子执行正文'}},
+  ]}]);
+  expect((await center.http('GET','/im/v1/agents/global/work/activity',undefined,center.tokens.alice)).body.sessions)
+    .toContainEqual(expect.objectContaining({session_id:'b-worker',has_work_records:true}));
+  const prepare = (token:string)=>center.http('POST','/im/v1/agents/global/trajectory/prepare',{session_id:'b-worker'},token);
+  expect((await prepare(center.tokens.alice)).status).toBe(200);
   expect(first.body.turns[1]).toMatchObject({status: 'completed', usage: {context_used: 12, output: 3, context_window: 8192}, elapsed_ms: 8});
   expect(first.body.turns[1].usage.total_tokens).toBeUndefined();
   const tool = first.body.turns[1].items.find((item: {item_id: string}) => item.item_id === 'tool:write');

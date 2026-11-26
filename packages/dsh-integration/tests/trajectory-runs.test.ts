@@ -230,7 +230,9 @@ it('resumes both interrupted child levels without new user input while preservin
     const child = work.workerChanges.find(worker => worker.label === 'Nested interrupted work')!.workerId;
     const grandchild = (await f.nativeChildren()).find(entry => entry.parentId === child)!.id;
     const childEvents = async (id: string) => (await f.nativeChildren()).find(entry => entry.id === id)!.events;
-    expect((await f.runs()).map(run => run.sessionId)).not.toContain(child);
+    expect((await f.runs()).map(run => run.sessionId)).toContain(child);
+    await f.prepare(child);
+    expect((await f.runs(child)).map(run => run.sessionId)).not.toContain(grandchild);
     f.client().process.kill('SIGKILL'); await f.client().exited;
     const count = (await f.requests()).length;
     await f.start(false); await f.ensure(); await f.prepare();

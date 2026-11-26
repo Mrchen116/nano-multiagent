@@ -71,9 +71,9 @@ it('restores cold catalog cuts and only reads changed child bodies for their tru
   // A new native worker owns the whole subtree, including a helper discovered earlier.
   workers.add(child);
   reads.length = 0;
-  expect(await catalog(recovered)).toEqual([]);
+  expect(await catalog(recovered)).toMatchObject([{id:child,nativeWorker:true,hasChildren:false}]);
   expect(await recovered.targets(root, grandchild)).toEqual([]);
-  await expect(recovered.eventPage(root, child, 0, false, cold, cold)).rejects.toThrow('no readable Work');
+  expect(await recovered.targets(root, child)).toMatchObject([{id:child,nativeWorker:true}]);
   await expect(recovered.eventPage(root, grandchild, 0, false, cold, cold)).rejects.toThrow('no readable Work');
   expect(reads).toEqual([]);
   expect(await recovered.interruptedChildren(rootCut)).toEqual({interrupted:[{id:child,turnEnd:100}],complete:true});

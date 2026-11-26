@@ -197,7 +197,7 @@ it.each(cliWorkerRuntimes)('%s Work preserves exact focus, live activity, tool r
   await invalidWorkerEvent('worker','worker_state',{...reopen,runtime:'dsh'});
   await invalidWorkerEvent('worker','worker_state',{...reopen,call_id:'different'});
   await invalidWorkerEvent('worker','worker_state',{...reopen,title:'不同派工'});
-  await invalidWorkerEvent('dsh-worker','message',{text:'不应接收'},'d');
+  await invalidWorkerEvent('dsh-worker','message',{text:'缺少轮次'});
   await invalidWorkerEvent('worker','permission_request',{request_id:'unbound'},'t');
   await append([
     ['worker','turn_started',{model:'test-model'},'cli-turn'],

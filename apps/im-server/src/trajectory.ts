@@ -68,7 +68,7 @@ export class TrajectoryObservers {
     const personal=one(this.ctx.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",agentId);
     if(personal && personal.owner_user_id!==auth.user_id)throw new Error("该执行不可访问");
     const selected = this.ctx.gateway.work.session(agentId, sessionId);
-    if (selected.scope === 'worker') throw new Error('该执行没有原生 DSH 轨迹');
+    if (selected.scope === 'worker' && selected.runtime !== 'dsh') throw new Error('该执行没有原生 DSH 轨迹');
     let root = selected;
     while (root.parent_session_id) root = this.ctx.gateway.work.session(agentId, root.parent_session_id);
     if (root.scope !== 'global_main') throw new Error('该执行不可访问');
