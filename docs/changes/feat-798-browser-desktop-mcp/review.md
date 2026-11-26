@@ -12,3 +12,5 @@
 | 关闭工具的普通对话仍会发现新说明 | Cua Skill 元数据沿用基线，详细说明在加载正文后提供。已对比匹配配置的工具数组和同一 Global 的实际开关请求。 |
 
 现行 Cua Skill 的独立 CLI 使用方式在 delta 中保留，并写明宿主工具在已授权任务里的优先入口。运行结果与未验项见 [M1 验证](M1-host-tools/verification.md)。unit 当前保留在活动区。
+
+相邻 feat-797 尚未进入本单元的 develop 基线。对两个本地特性 head 使用 git merge-tree 预检，文本冲突出现在 local-workers/drivers.ts、local-workers/manager.ts 和 tests/helpers/local-worker-cli.ts。集成时需将受绑定的 nano-computer 注册并入 797 的 hostedWorkerMcp，同时保留它的原生 CLI 判断与本单元的取消回收。

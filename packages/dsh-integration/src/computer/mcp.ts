@@ -1,9 +1,11 @@
-import { Client } from '@modelcontextprotocol/client';
-import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import type { ComputerContent } from './backend.js';
 
 /** Connect one seat to a host-selected stdio server with a minimal child environment. */
 export async function openMcp(command: string, args: string[], env?: Record<string, string>, cwd?: string) {
+  const [{ Client }, { StdioClientTransport }] = await Promise.all([
+    import('@modelcontextprotocol/client'),
+    import('@modelcontextprotocol/client/stdio'),
+  ]);
   const client = new Client({ name: 'nano-computer', version: '1' });
   const transport = new StdioClientTransport({ command, args, env, cwd, stderr: 'ignore' });
   try {

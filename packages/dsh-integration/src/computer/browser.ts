@@ -14,7 +14,6 @@ import {
   type Pairing,
 } from './browser-connection.js';
 
-const cli = join(dirname(createRequire(import.meta.url).resolve('@playwright/mcp/package.json')), 'cli.js');
 type Client = Awaited<ReturnType<typeof openMcp>>;
 type Tab = { id: string; index: number; url: string; title: string; revision: number };
 type Mode = 'daily' | 'isolated';
@@ -125,6 +124,7 @@ export class BrowserBackend implements ComputerBackend {
     this.dir = await seatDirectory();
     const init = join(this.dir, 'page.cjs');
     await writeFile(init, initCode, { mode: 0o600 });
+    const cli = join(dirname(createRequire(import.meta.url).resolve('@playwright/mcp/package.json')), 'cli.js');
     const argv = [
       cli,
       '--executable-path',
