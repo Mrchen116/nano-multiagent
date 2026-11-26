@@ -38,7 +38,7 @@ export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events:
     const start = events.findLast(candidate => candidate.seq < event.seq && candidate.type === 'turn/start');
     if (start) return { type: 'model_selected', turn: start.data.turn as number, payload: { model } };
   }
-  const tool = toolPresentation(event, events);
+  const tool = toolPresentation(event, events, !workerParentId);
   if (tool) return { type: event.type === 'tool/call' ? 'tool_start' : 'tool_end', turn, payload: { call_id: tool.id, tool_name: tool.name, arguments: tool.input, is_error: tool.status === 'failed', reason_code: 'reason' in tool ? tool.reason : undefined, duration_ms: "duration_ms" in tool ? tool.duration_ms : undefined, presentation: { summary: tool.output ?? '', detail:tool.detail } } };
   if (event.type === 'assistant/message') {
     const message = event.data.message as { id: string; content: { type: string; text?: string }[] };
@@ -54,7 +54,7 @@ export function projectWorkEvent(sessionId: string, event: RuntimeEvent, events:
     }
     if (source && (workerReport || ['agent-message', 'subagent-settled'].includes(source.kind ?? ''))) {
       const content = event.data.content as {type: string; text?: string}[];
-      return {type: 'message', turn, payload: {message_id: typeof event.data.id === 'string' ? event.data.id : undefined, role: 'system', source_kind: workerReport ? 'worker-report' : source.kind, source_session_id: source.senderSessionId, text: content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')}};
+      return {type: 'message', turn, payload: {message_id: typeof event.data.id === 'string' ? event.data.id : undefined, role: 'system', source_kind: workerReport ? 'worker-report' : source.kind, source_session_id: workerParentId ? undefined : source.senderSessionId, text: content.filter(part => part.type === 'text').map(part => part.text ?? '').join('')}};
     }
   }
   if (event.type === 'turn/end') {

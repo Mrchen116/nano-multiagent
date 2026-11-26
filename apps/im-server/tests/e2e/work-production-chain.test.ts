@@ -61,7 +61,8 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
     {seq: 1, time: 1004, type: 'turn/start', data: {turn: 1}},
     {seq: 2, time: 1005, type: 'user/message', data: {source: {kind: 'user'}, content: [{type:'text',text:'核对附件'}]}},
     {seq: 3, time: 1006, type: 'assistant/message', data: {turn: 1, message: {id: 'child-answer', content: [{type: 'text', text: '子执行正文'}]}}},
-    {seq: 4, time: 1007, type: 'turn/end', data: {turn: 1, reason: {kind: 'completed'}}},
+    {seq: 4, time: 1007, type: 'user/message', data: {turn:1,source:{kind:'subagent-settled',senderSessionId:'internal-helper'},content:[{type:'text',text:'内部核对完成'}]}},
+    {seq: 5, time: 1008, type: 'turn/end', data: {turn: 1, reason: {kind: 'completed'}}},
   ];
   const errors: unknown[] = [];
   const runtime: RuntimePort = {
@@ -74,12 +75,12 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
         return {};
       }
       if (method === 'session.work.check') return {rootSettled:true};
-      if (method === 'session.work.children') return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:4,modelVersion:'done'},
-        {kind:'child',id:'b-worker',parentId:'main',nativeWorker:true,throughSeq:4,modelVersion:'done'}]};
+      if (method === 'session.work.children') return {children:[{kind:'child',id:'child',parentId:'main',throughSeq:5,modelVersion:'done'},
+        {kind:'child',id:'b-worker',parentId:'main',nativeWorker:true,throughSeq:5,modelVersion:'done'}]};
       const isChild=method==='session.work.child';
       const events=isChild ? child : source;
       const after=args.afterSeq??-1;
-      const throughSeq=isChild ? (after<2?2:4) : (after<4?4:after<10?10:17);
+      const throughSeq=isChild ? (after<2?2:5) : (after<4?4:after<10?10:17);
       return {workerChanges:isChild ? [] : pendingWorkers,events:events.filter(event=>event.seq>after && event.seq<=throughSeq),durable:true,
         modelRuns:[],modelVersion:'done',throughSeq,more:throughSeq<events.at(-1)!.seq};
     },
@@ -92,7 +93,7 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   await expect.poll(()=>inbox.workProcessingPending).toBe(false);
   const produced = inbox.journalSeq;
   expect(inbox.journal(0).some(event => event.type === 'tool_end')).toBe(true);
-  expect(inbox.workCheckpoints('main')).toMatchObject({main: {throughSeq: 17}, child: {throughSeq: 4}});
+  expect(inbox.workCheckpoints('main')).toMatchObject({main: {throughSeq: 17}, child: {throughSeq: 5}});
   const makeSync = (url: string) => new WorkSync({nodeId: node.node, inbox, url, credentials: () => node.runtime, onError: error => errors.push(error)});
   let sync = makeSync(center.base); cleanups.push(() => sync.stop()); sync.start();
   await expect.poll(() => inbox.throughSeq, {timeout: 10000}).toBe(produced);
@@ -135,7 +136,9 @@ it('projects real PA main/child facts through its durable journal and HTTP uploa
   const native = await center.http('GET','/im/v1/agents/global/work/sessions/b-worker/turns',undefined,center.tokens.alice);
   expect(native.body.turns).toMatchObject([{turn_id:'1',status:'completed',items:[
     {kind:'message',payload:{role:'user',text:'核对附件'}}, {kind:'message',payload:{text:'子执行正文'}},
+    {kind:'message',payload:{text:'内部核对完成'}},
   ]}]);
+  expect(native.body.turns[0].items.at(-1).payload.source_session_id).toBeUndefined();
   expect((await center.http('GET','/im/v1/agents/global/work/activity',undefined,center.tokens.alice)).body.sessions)
     .toContainEqual(expect.objectContaining({session_id:'b-worker',has_work_records:true}));
   const prepare = (token:string)=>center.http('POST','/im/v1/agents/global/trajectory/prepare',{session_id:'b-worker'},token);
