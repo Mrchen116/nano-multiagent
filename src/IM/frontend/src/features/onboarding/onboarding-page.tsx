@@ -1,5 +1,5 @@
-import { AvatarPicker } from "../chat/components/avatar-picker";
-import { AssistantPortrait, avatarVariantFor } from "../chat/components/assistant-portrait";
+import { AvatarPicker, AvatarPreview, avatarVariantFor } from "../chat/components/avatar-picker";
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
@@ -159,7 +159,7 @@ export function OnboardingPage() {
             <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(0)}>{text('← 返回', '← Back')}</button>{!editingModel && next(2, !configured || working || node?.status !== 'online')}</div>
           </>}
           {step === 2 && <><span className="onboarding-card-eyebrow">{text('第三步 · 认识你的助手', 'Meet your assistant')}</span><h2>{text('给你的个人助手起个名字', 'Name your personal assistant')}</h2><p className="onboarding-sub">{text('它会成为你的长期协作伙伴。名字随时可以修改，先选一个你喜欢的称呼。','This is the start of a long-term working relationship. Pick a name you like; you can change it later.')}</p>
-            <div className="onboarding-identity-preview"><AssistantPortrait variant={avatar} size={44} /><div><strong>{name.trim() || text('你的个人助手', 'Your personal assistant')}</strong><small>{text('为你服务的长期助手', 'Your long-term personal assistant')}</small></div></div>
+            <div className="onboarding-identity-preview"><AvatarPreview value={avatar} size={44} /><div><strong>{name.trim() || text('你的个人助手', 'Your personal assistant')}</strong><small>{text('为你服务的长期助手', 'Your long-term personal assistant')}</small></div></div>
             <label htmlFor="onboarding-name">{text('给助手起个名字', 'Name your assistant')}</label><input id="onboarding-name" value={name} onChange={e => setName(e.target.value)} maxLength={80} />
             <AvatarPicker personal value={avatar} onChange={setAvatar} disabled={create.isPending} />
             <div className="onboarding-ready-summary"><span>✓ {node?.alias || node?.node_name}</span><span>{configured && !setup.isError ? '✓ ' : ''}{setup.data?.models.find(model => model.model === setup.data?.default_model)?.display_name || setup.data?.default_model || text('等待模型确认', 'Waiting for model confirmation')}</span></div>

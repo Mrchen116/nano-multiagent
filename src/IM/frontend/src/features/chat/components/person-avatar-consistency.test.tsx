@@ -3,17 +3,39 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 
 import "../../../i18n";
 import type { Actor, Conversation, Message } from "../chat-types";
-import { Avatar } from "./avatar";
+import { Avatar, AvatarIdentities } from "./avatar";
 import { ConversationSidebar } from "./conversation-sidebar";
 import { MentionPicker } from "./mention-picker";
 import { MessagePane } from "./message-pane";
 
 it("requires portrait identity when adding an avatar surface", () => {
   type Props = Parameters<typeof Avatar>[0];
-  expectTypeOf<Pick<Props, "initials" | "color">>().not.toExtend<Props>();
-  expectTypeOf<Omit<Props, "agentId">>().not.toExtend<Props>();
-  expectTypeOf<Omit<Props, "personal">>().not.toExtend<Props>();
-  expectTypeOf<Omit<Props, "avatarVariant">>().not.toExtend<Props>();
+  expectTypeOf<keyof Props>().toEqualTypeOf<"id" | "size" | "status">();
+  expectTypeOf<Props>().toMatchTypeOf<{id:string}>();
+});
+
+it("keeps the portrait renderer private to identity avatars and the creation picker", () => {
+  const files = import.meta.glob("/src/**/*.{ts,tsx}", {eager: true, query: "?raw", import: "default"}) as Record<string, string>;
+  const imports = Object.entries(files).filter(([path, source]) =>
+    !path.includes(".test.") && /["'][^"']*\/assistant-portrait(?:\.tsx)?["']/.test(source));
+  expect(imports.map(([path]) => path).sort()).toEqual([
+    "/src/features/chat/components/avatar-picker.tsx",
+    "/src/features/chat/components/avatar.tsx",
+  ]);
+});
+
+it("updates all sizes and both ID forms together when the contact profile arrives", () => {
+  const actor: Actor = {type:"agent", id:"milo", user_id:"uuid-milo", role:"personal", avatar_variant:3};
+  const view = (contacts: Actor[]) => <AvatarIdentities source="contacts" actors={contacts}>
+    <Avatar id="uuid-milo" size={24} />
+    <AvatarIdentities actors={[actor]}><Avatar id="agent:milo" size={48} /></AvatarIdentities>
+  </AvatarIdentities>;
+  const {container, rerender} = render(view([]));
+  const faces = () => Array.from(container.querySelectorAll("svg"), face =>
+    [face.getAttribute("width"), face.getAttribute("data-avatar")]);
+  expect(faces()).toEqual([["24","personal-3"], ["48","personal-3"]]);
+  rerender(view([{...actor, avatar_variant:7}]));
+  expect(faces()).toEqual([["24","personal-7"], ["48","personal-7"]]);
 });
 
 const PEOPLE: Actor[] = [
@@ -41,14 +63,14 @@ describe("person avatar consistency", () => {
         sender_user_id: peer.id, sender_type: "user", content: "准备好了",
         attachments: [], permission_requests: [], delivery_status: "completed", created_at: conversation.created_at,
       };
-      const view = (group = false) => <>
+      const view = (group = false) => <AvatarIdentities actors={PEOPLE}>
         <ConversationSidebar conversations={[conversation]} selfUserId={self.id}
           activeConversationId="dm" onSelect={() => {}} onNewGroup={() => {}} />
         <MessagePane conversation={group ? { ...conversation, type: "group", direct_kind: null } : conversation}
           messages={[message]} selfUserId={self.id} mentionCandidates={[]} onSend={() => {}} />
         <MentionPicker candidates={[{ user_id: peer.id, display_name: peer.display_name!,
           initials: peer.display_name!, status: "offline" }]} query="" onSelect={() => {}} onClose={() => {}} />
-      </>;
+      </AvatarIdentities>;
       const { container, rerender } = render(view());
       const mentionFace = container.querySelector(".chat-mention-picker .chat-avatar-face")!;
       const sidebarFace = screen.getByTestId("conv-avatar-dm").querySelector(".chat-avatar-face")!;
@@ -77,6 +99,24 @@ describe("person avatar consistency", () => {
   );
 });
 
+it("keeps two mirrored senders distinct from the IM owner who received both messages", () => {
+  const owner = PEOPLE[0];
+  const conversation: Conversation = {
+    id:"mirror", title:"Feishu", type:"group", direct_kind:null, participants:[owner], participant_ids:[owner.id],
+    owner_id:owner.id, creator_id:owner.id, is_pinned:false, is_muted:false, unread_count:0,
+    last_message_preview:null, last_message_at:null, created_at:"2026-11-17T00:00:00Z",
+  };
+  const messages: Message[] = ["Lin", "Alex"].map(name => ({
+    id:name, conversation_id:conversation.id, sender_user_id:owner.id, sender_type:"user",
+    sender:{...owner, display_name:name, avatar_id:`external:${name}`}, content:"hello", attachments:[],
+    permission_requests:[], delivery_status:"completed", created_at:conversation.created_at,
+  }));
+  render(<AvatarIdentities actors={[owner]} source="contacts"><MessagePane conversation={conversation}
+    messages={messages} mentionCandidates={[]} onSend={()=>{}} /></AvatarIdentities>);
+  expect(screen.getByTestId("message-avatar-Lin")).toHaveTextContent("LI");
+  expect(screen.getByTestId("message-avatar-Alex")).toHaveTextContent("AL");
+});
+
 it('distinguishes two same-name personal assistants in a group and keeps the chosen face in private chat', () => {
   const assistants: Actor[] = [
     {type:'agent',id:'pa-one',user_id:'uuid-one',display_name:'Milo',role:'personal',avatar_variant:0},
@@ -87,12 +127,12 @@ it('distinguishes two same-name personal assistants in a group and keeps the cho
     owner_id:'u1',creator_id:'u1',is_pinned:false,is_muted:false,unread_count:0,last_message_preview:null,last_message_at:null,created_at:'2026-11-17T00:00:00Z',
   };
   const messages: Message[] = assistants.map((sender,i)=>({
-    id:`avatar-${i}`,conversation_id:conversation.id,sender,sender_user_id:sender.id,sender_type:'agent',
+    id:`avatar-${i}`,conversation_id:conversation.id,sender,sender_user_id:sender.user_id!,sender_type:'agent',
     content:'Hello',attachments:[],permission_requests:[],delivery_status:'completed',created_at:conversation.created_at,
   }));
   messages.push({
     ...messages[0], id:'outgoing', sender:PEOPLE[0], sender_user_id:PEOPLE[0].id, sender_type:'user',
-    receipts:assistants.map(actor => ({recipient_id:actor.user_id!, display_name:'Milo', status:'read'})),
+    receipts:assistants.map(actor => ({recipient_id:actor.user_id!, recipient:actor, display_name:'Milo', status:'read'})),
   });
   const {container,rerender} = render(<MessagePane conversation={conversation} selfUserId={PEOPLE[0].id} messages={messages} mentionCandidates={[]} onSend={()=>{}} />);
   expect(screen.getByTestId('message-avatar-avatar-0').querySelector('svg')).toHaveAttribute('data-avatar','personal-0');
@@ -101,8 +141,13 @@ it('distinguishes two same-name personal assistants in a group and keeps the cho
   const receiptFaces = Array.from(screen.getByRole('dialog').querySelectorAll('[data-avatar]'),
     face => face.getAttribute('data-avatar'));
   expect(receiptFaces).toEqual(['personal-0', 'personal-7']);
+  // Reopen history after both recipients leave, with only the outgoing message loaded.
+  rerender(<MessagePane conversation={{...conversation, participants:[PEOPLE[0]]}} messages={[messages[2]]}
+    selfUserId={PEOPLE[0].id} mentionCandidates={[]} onSend={()=>{}} />);
+  expect(Array.from(screen.getByRole('dialog').querySelectorAll('[data-avatar]'), face => face.getAttribute('data-avatar')))
+    .toEqual(['personal-0', 'personal-7']);
   rerender(<MessagePane conversation={{...conversation,type:'direct',direct_kind:'agent',title:'A new name',participants:[assistants[1]]}}
-    personalAgent messages={[messages[1]]} mentionCandidates={[]} onSend={()=>{}} />);
+    messages={[messages[1]]} mentionCandidates={[]} onSend={()=>{}} />);
   expect(container.querySelector('.chat-pane-header [data-avatar]')).toHaveAttribute('data-avatar','personal-7');
   expect(screen.getByTestId('message-avatar-avatar-1').querySelector('svg')).toHaveAttribute('data-avatar','personal-7');
 });

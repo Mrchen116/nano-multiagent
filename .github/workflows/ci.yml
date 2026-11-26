@@ -166,6 +166,7 @@ jobs:
       - name: Dependency audit (critical)
         run: npm audit --audit-level=critical
 
-      # npm run test = vitest run；不跑 npm run build（不引入 tsc 类型检查）
+      - name: Typecheck Web IM and its component contracts
+        run: npx tsc -b
       - name: vitest run
         run: npm run test

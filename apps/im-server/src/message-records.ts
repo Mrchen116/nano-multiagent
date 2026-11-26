@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import type { ChatActor, ChatAttachment, ChatEvent, ChatHistoryMessage, ChatMessage, ChatPermission, ChatProcessItem, ChatProcessSummary, ChatStreamFact, ChatThinking, ChatToolCall, InteractionSnapshot, MessageInteractive } from '@nano/product-contracts';
+import { externalAvatarId } from './identity.js';
 import { lifecycle } from './agent-lifecycle.js';
 import { fail, now, transaction } from './context.js';
 
@@ -51,6 +52,16 @@ export function withHumanApproval(call:ChatToolCall, permissions:ChatPermission[
   return {...call,approval:decision==='allow_once'?'user_allow':'user_deny',...(decision==='deny'?{reason:'denied'}:{})};
 }
 
+function chatActor(user: MessageUser, profile?: {binding_id?: unknown; avatar_variant?: unknown}): ChatActor {
+  const agent = user.username.startsWith('agent:');
+  return {
+    type: agent ? 'agent' : 'user', id: agent ? user.username.slice(6) : user.id,
+    user_id: user.id, display_name: user.display_name, is_stale: user.is_stale ? true : null,
+    ...(profile?.binding_id ? {role:'personal'} : {}),
+    ...(typeof profile?.avatar_variant === 'number' ? {avatar_variant:profile.avatar_variant} : {}),
+  };
+}
+
 /** Own message SQL/JSON and projection; authorization and relay policy belong to callers. */
 export class MessageRecords {
   /** Bind persistence to the existing interaction owner and event delivery hooks. */
@@ -61,11 +72,10 @@ export class MessageRecords {
   attempt(cid:string,key:string):MessageRecord|undefined {return this.db.prepare('SELECT * FROM messages WHERE conversation_id=? AND caller_idempotency_key=?').get(cid,key) as unknown as MessageRecord|undefined;}
   /** Project the stored author while preserving personal-Agent attribution. */
   actor(u:MessageUser):ChatActor {
-    const agent = u.username.startsWith('agent:') ? u.username.slice(6) : null;
-    const identity = agent ? this.db.prepare('SELECT a.avatar_variant,b.binding_id FROM agent_profiles a LEFT JOIN personal_agent_bindings b ON b.agent_id=a.agent_id WHERE a.agent_id=?').get(agent) : undefined;
-    return {type:agent ? 'agent' : 'user',id:agent ?? u.id,display_name:u.display_name,user_id:u.id,is_stale:u.is_stale?true:null,
-      ...(identity?.binding_id ? {role:'personal' as const} : {}),
-      ...(typeof identity?.avatar_variant === 'number' ? {avatar_variant:identity.avatar_variant} : {})};
+    const profile = u.username.startsWith('agent:')
+      ? this.db.prepare('SELECT a.avatar_variant,b.binding_id FROM agent_profiles a LEFT JOIN personal_agent_bindings b ON b.agent_id=a.agent_id WHERE a.agent_id=?').get(u.username.slice(6))
+      : undefined;
+    return chatActor(u, profile);
   }
   /** Persist original event data, then invoke the existing publish/wake policy.
    * Args:
@@ -161,12 +171,18 @@ export class MessageRecords {
   senderView<T extends ChatMessage>(message: T, viewerId: string): T {
     if (!message.receipts_requested || message.sender_user_id !== viewerId) return message;
     const receipts = this.db.prepare(`
-      SELECT r.recipient_id, coalesce(a.display_name,u.display_name) AS display_name,
+      SELECT r.recipient_id, u.username, a.avatar_variant, b.binding_id, coalesce(a.display_name,u.display_name) AS display_name,
         CASE r.status WHEN 2 THEN 'read' WHEN 1 THEN 'received' ELSE 'sent' END AS status
       FROM message_receipts r JOIN users u ON u.id=r.recipient_id
       LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
+      LEFT JOIN personal_agent_bindings b ON b.agent_id=a.agent_id
       WHERE r.message_id=? ORDER BY display_name,r.recipient_id
-    `).all(message.id) as unknown as NonNullable<ChatMessage['receipts']>;
+    `).all(message.id).map(row => {
+      const recipient = chatActor({
+        id:String(row.recipient_id), username:String(row.username), display_name:String(row.display_name),
+      }, row);
+      return {recipient_id:recipient.user_id, display_name:recipient.display_name, recipient, status:row.status as 'sent'|'received'|'read'};
+    });
     return {...message, receipts};
   }
   /** Project public message data and non-enumerable internal details from stored columns.
@@ -272,7 +288,8 @@ export class MessageRecords {
       id:m.id,conversation_id:m.conversation_id,sender_user_id:m.sender_user_id,sender_type:m.sender_type,
       lifecycle_revision:m.lifecycle_revision,content:m.content,delivery_status:m.delivery_status,created_at:m.created_at,
       timezone:m.timezone,elapsed_ms:m.elapsed_ms,kernel_message_id:m.kernel_message_id,
-      sender:{...this.actor(u),type:m.sender_type,display_name:m.sender_display_name??u.display_name},
+      sender:{...this.actor(u),type:m.sender_type,display_name:m.sender_display_name ?? (m.sender_source_id ? '?' : u.display_name),
+        ...(m.sender_source_id ? {avatar_id:externalAvatarId(`external:${m.conversation_id}:${m.sender_source_id}`)} : {})},
       ...(deletedWork ? {work_record_deleted:true} : {}),
       ...(updateWait!==undefined?{update_wait:updateWait}:{}),
       ...(delegation?.representation_operation_id?{pa_agent_id:delegation.agent_id}:delegation?{delegation:{agent_id:delegation.agent_id,authorized_by:delegation.authorized_by,display_name:delegation.display_name,label:`${(this.db.prepare('SELECT display_name FROM users WHERE id=?').get(delegation.authorized_by) as MessageAuthorName|undefined)?.display_name??delegation.display_name}的 PA`}}:{}),

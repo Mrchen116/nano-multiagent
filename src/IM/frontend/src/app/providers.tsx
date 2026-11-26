@@ -1,10 +1,28 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { PropsWithChildren, useEffect, useState } from "react";
+import { AvatarIdentities } from "../features/chat/components/avatar";
+import { listContacts } from "../features/chat/contacts-api";
+import type { Actor } from "../features/chat/chat-types";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { useMobileViewport } from "../hooks/use-mobile-viewport";
 import { accountEnabled, useAuthStore } from "../features/auth/auth-store";
 
 import { forgetComposerUser } from "../features/chat/components/composer-draft-store";
 import { forgetInteractionBackground } from '../features/chat/interaction-background';
+
+function AccountAvatarDirectory({ children }: PropsWithChildren) {
+  const user = useAuthStore(state => state.user);
+  const contacts = useQuery({ queryKey: ["contacts", user?.id], queryFn: () => listContacts(),
+    enabled: !!user && accountEnabled(user) });
+  const actors = useMemo(() => {
+    const rows: Actor[] = (contacts.data ?? []).map(contact => ({
+      type: contact.kind === "agent" ? "agent" : "user", id: contact.agent_id ?? contact.user_id,
+      user_id: contact.user_id, display_name: contact.display_name, role: contact.role, avatar_variant: contact.avatar_variant,
+    }));
+    if (user) rows.push({ type: "user", id: user.id, display_name: user.display_name || user.username });
+    return rows;
+  }, [contacts.data, user]);
+  return <AvatarIdentities key={user?.id ?? ""} actors={actors} source="contacts">{children}</AvatarIdentities>;
+}
 
 export function AppProviders({ children }: PropsWithChildren) {
   useMobileViewport();
@@ -36,5 +54,5 @@ export function AppProviders({ children }: PropsWithChildren) {
     });
   }, [queryClient]);
 
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+  return <QueryClientProvider client={queryClient}><AccountAvatarDirectory>{children}</AccountAvatarDirectory></QueryClientProvider>;
 }

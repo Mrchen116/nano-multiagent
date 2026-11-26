@@ -1,3 +1,4 @@
+import { Avatar, agentAvatarId } from "../../chat/components/avatar";
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -44,7 +45,7 @@ export function NodeDetails({ node, pending, error, save, resetError }: {
     <div className="node-detail-row"><span>{t('computers.lastOnline')}</span><span>{node.last_heartbeat_at ? new Date(node.last_heartbeat_at).toLocaleString(i18n.language) : t('computers.noConnection')}</span></div>
     <h4 className="node-section-title">{t('computers.assistantsHere')}</h4>
     {query.isPending ? <p className="node-muted">{t('common.loading')}</p> : query.isError ? <div className="node-inline-error"><p>{t('computers.assistantsFailed')}</p><button className="node-button" onClick={() => void query.refetch()}>{t('common.retry')}</button></div>
-      : agents.length ? agents.map(agent => <div className="node-detail-row" key={agent.agent_id}><span className="node-assistant"><span className="node-assistant-avatar">{agent.display_name.slice(0, 1)}</span>{agent.display_name}</span></div>)
+      : agents.length ? agents.map(agent => <div className="node-detail-row" key={agent.agent_id}><span className="node-assistant"><Avatar id={agentAvatarId(agent.agent_id)} size={30} />{agent.display_name}</span></div>)
       : <p className="node-muted">{t('computers.noAssistants')}</p>}
     {canManage ? <Link className="node-button node-create" to={`/settings/nodes/${encodeURIComponent(node.node_id)}/agents/new`}><NodeIcon name="plus"/>{t('computers.createAssistant')}</Link>
       : <button className="node-button node-create" disabled><NodeIcon name="plus"/>{t('computers.createAssistant')}</button>}

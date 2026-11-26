@@ -1,4 +1,4 @@
-import { AssistantPortrait } from "./assistant-portrait";
+import { Avatar, agentAvatarId } from "./avatar";
 import { AssistantStarters } from "./assistant-starters";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -11,7 +11,6 @@ export interface CooperationGuideAgent {
   name: string;
   personal: boolean;
   online: boolean;
-  avatarVariant?: number | null;
 }
 
 /** First-conversation prompts for the verified owner; never render the role document. */
@@ -48,7 +47,7 @@ export function CooperationGuide({ agent, canStart, onStart }: {
   </section>;
   if (!agent.personal) return agreement;
   return <section className="assistant-introduction" aria-label={t('assistantStart.label')}>
-    <AssistantPortrait seed={agent.id} variant={agent.avatarVariant} size={80} />
+    <Avatar id={agentAvatarId(agent.id)} size={80} />
     <h2>{t('assistantStart.title', { name: agent.name })}</h2>
     <p>{t('assistantStart.intro')}</p>
     <AssistantStarters disabled={!canStart} onStart={onStart} />

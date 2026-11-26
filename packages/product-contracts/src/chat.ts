@@ -88,7 +88,7 @@ export interface AgentPublication {
   pa_incident_ref?: unknown;
 }
 export interface ChatPublicationReceipt {conversation_id: string; message_id: string; target_kind: string; target_id: string; source_agent_id: string}
-export interface ChatActor {type: string; id: string; display_name: string; user_id: string; is_stale: boolean | null; role?: 'personal'; avatar_variant?: number}
+export interface ChatActor {avatar_id?: string; type: string; id: string; display_name: string; user_id: string; is_stale: boolean | null; role?: 'personal'; avatar_variant?: number}
 /** Frozen original message; quoted text is conversation data, never instructions. */
 export interface ChatReplyReference {
   message_id: string;
@@ -127,6 +127,7 @@ export function projectChatReplyContext(reply: ChatReplyReference) {
 
 /** The sender's view of one recipient's confirmed message progress. */
 export interface MessageReceipt {
+  recipient?: ChatActor;
   recipient_id: string;
   display_name: string;
   status: 'sent' | 'received' | 'read';

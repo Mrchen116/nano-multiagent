@@ -17,7 +17,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from "react-rout
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { createConversation } from "../../chat/chat-api";
-import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar";
+import { Avatar, agentAvatarId } from "../../chat/components/avatar";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 import {
   effectiveReasoningModel,
@@ -1662,12 +1662,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
               ‹
             </button>
           )}
-          <Avatar agentId={draft.agent_id} personal={personal} avatarVariant={draft.avatar_variant}
-            initials={initialsOf(draft.display_name)}
-            color={colorForAgent(draft)}
-            size={32}
-            status={displayedNodeStatus === "online" ? "online" : "offline"}
-          />
+          <Avatar id={agentAvatarId(draft.agent_id)} size={32} status={displayedNodeStatus === "online" ? "online" : "offline"} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="im-agent-panel-title-line">
               <h2 className="im-agent-panel-title">{draft.display_name || draft.agent_id}</h2>
