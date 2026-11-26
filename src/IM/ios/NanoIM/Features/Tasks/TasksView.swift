@@ -495,12 +495,6 @@ struct TasksView: View {
                 Spacer()
             }
 
-            Text(candidateTab == .proposed
-                 ? L("点击卡片查看完整任务说明；你点头前不会自动开工。", "Tap any card for full task description; nothing runs until you approve.")
-                 : L("暂不排期的点子平时免打扰；想做时点「提上日程」即进入下方进行中。", "Saved ideas stay quiet; tap Schedule anytime to move them into Active."))
-                .font(.caption)
-                .foregroundStyle(NanoTheme.muted)
-
             if candidateTab == .proposed {
                 if focus.needs_you.isEmpty {
                     calmZeroCard(L("当前没有待你拍板的事项，可以切到旁边「先存着 (\(focus.counts.stashed))」看看备选点子。",
@@ -769,8 +763,6 @@ struct TasksView: View {
                     .padding(.vertical, 2)
                     .background(NanoTheme.surface, in: Capsule())
                 Spacer()
-                Text(L("点卡片查看阶段详情", "Tap for stage details"))
-                    .font(.caption2).foregroundStyle(NanoTheme.muted)
             }
 
             if focus.active.isEmpty {
@@ -884,9 +876,6 @@ struct TasksView: View {
                     .background(NanoTheme.surface, in: Capsule())
                 Spacer()
             }
-            Text(L("跨周多阶段大事的总盘子；当前具体步骤已同步在「当前行动」中。",
-                   "Big-picture goals across stages; active steps appear automatically in Current actions."))
-                .font(.caption).foregroundStyle(NanoTheme.muted)
 
             if focus.goals.isEmpty {
                 VStack(spacing: 12) {
@@ -949,7 +938,7 @@ struct TasksView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
             if !goalSummary.isEmpty {
-                Text(L("终局目标：", "North Star: ") + goalSummary)
+                Text(L("目标说明：", "Goal description: ") + goalSummary)
                     .font(.caption)
                     .foregroundStyle(NanoTheme.muted)
                     .lineLimit(3)

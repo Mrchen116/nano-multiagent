@@ -300,7 +300,6 @@ function TaskGraphCanvas({
           {t(derive ? "tasks.derivation" : "tasks.dependencies")}
         </span>
         <span>{t(derive ? "tasks.droppedHint" : "tasks.statusHint")}</span>
-        <span>{t("tasks.canvasHint")}</span>
       </div>
     </div>
   );

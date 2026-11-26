@@ -922,7 +922,6 @@ export function TaskFocusDesk({
               <h2 className="tasks-section-title">
                 {t("tasks.focus.goalsTitle")} <span className="tasks-count-pill">{counts.goals}</span>
               </h2>
-              <span className="tasks-section-sub">{t("tasks.focus.goalsSub")}</span>
             </div>
             {goals.length === 0 ? (
               <div className="tasks-calm-zero">{t("tasks.focus.goalsEmpty")}</div>
@@ -980,9 +979,6 @@ export function TaskFocusDesk({
                         <span className="tasks-scope-tab-count">{counts.stashed}</span>
                       </button>
                     </div>
-                    <span className="tasks-section-sub">
-                      {t(inboxTab === "needs_you" ? "tasks.focus.needsYouSub" : "tasks.focus.stashedSub")}
-                    </span>
                   </div>
 
                   {inboxTab === "needs_you" ? (
@@ -1034,7 +1030,6 @@ export function TaskFocusDesk({
                   {t("tasks.focus.activeSection")}{" "}
                   <span className="tasks-count-pill">{counts.active}</span>
                 </h2>
-                <span className="tasks-section-sub">{t("tasks.focus.activeSub")}</span>
               </div>
               {active.length === 0 ? (
                 <div className="tasks-calm-zero">{t("tasks.focus.activeEmpty")}</div>
@@ -1072,7 +1067,6 @@ export function TaskFocusDesk({
                         count: completedItems.length || counts.completed,
                       })}
                     </strong>
-                    <span className="tasks-section-sub">{t("tasks.focus.completedSub")}</span>
                   </div>
                   <button
                     type="button"

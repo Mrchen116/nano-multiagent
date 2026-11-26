@@ -12,7 +12,7 @@ import "./agent-activity-popover.css";
 export interface AgentActivityAnchor {
   agentId: string;
   name: string;
-  element: HTMLButtonElement;
+  element: HTMLElement;
 }
 
 export function AgentActivityPopover({anchor, nodeName, canConfigure, fallbackRuntimeState, onClose}: {
@@ -130,7 +130,10 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, fallbackRu
       <header className="chat-agent-activity-header">
         <div>
           <h3 id="chat-agent-activity-title">{anchor.name}</h3>
-          <span>{label("title")}</span>
+          <div className="chat-agent-activity-sub">
+            <span>{label("title")}</span>
+            <code className="chat-agent-activity-id">{anchor.agentId}</code>
+          </div>
         </div>
         {canConfigure && data && !activity.isError && <Link to={`${profile}?view=config`} className="chat-agent-activity-icon"
           aria-label={label("config")} title={label("config")}><Settings size={17} /></Link>}

@@ -264,6 +264,7 @@ describe("progressive focus desk and mobile stage spine", () => {
     await screen.findByText("整理周五演示大纲");
 
     expect(container.querySelectorAll(".tasks-focus-topbar select, .tasks-quick-create select")).toHaveLength(0);
+    expect(container.querySelectorAll(".tasks-section-sub")).toHaveLength(0);
     expect(screen.getByRole("button", { name: /与我有关/ })).toBeInTheDocument();
 
     // Waiting badge strictly keeps its canonical word; question/reason render outside the badge pill.

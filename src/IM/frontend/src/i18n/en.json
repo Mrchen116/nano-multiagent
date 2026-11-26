@@ -1107,6 +1107,13 @@
       "starting": "Starting…",
       "startError": "Could not prepare the selected chats. Check that their Gateway is online and their history is available, then try again."
     },
+    "actorCard": {
+      "trigger": "View {{name}}’s profile card",
+      "member": "Member",
+      "agent": "Agent",
+      "idLabel": "ID",
+      "openAccount": "Account profile"
+    },
     "agentActivity": {
       "starting": "Starting",
       "trigger": "View {{name}}’s activity",

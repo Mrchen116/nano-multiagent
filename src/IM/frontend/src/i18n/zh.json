@@ -1099,6 +1099,13 @@
       "starting": "启动中…",
       "startError": "无法准备所选聊天记录。请确认对应设备在线、历史记录可用后重试。"
     },
+    "actorCard": {
+      "trigger": "查看{{name}}的名片",
+      "member": "成员",
+      "agent": "数字员工",
+      "idLabel": "唯一标识",
+      "openAccount": "账号资料"
+    },
     "agentActivity": {
       "starting": "启动中",
       "trigger": "查看{{name}}的工作状态",

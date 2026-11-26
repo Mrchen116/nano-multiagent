@@ -755,7 +755,7 @@ export class TaskGraphService {
       source_chat_id: source?.conversation_id ?? null,
     };
     const persistNotices = () => {
-      for (const notice of taskNotices(doc, before, actorName, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
+      for (const notice of taskNotices(doc, before, p.display_name, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
         notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,actor:{type:actor.kind,id:actor.id},
           ...(actor.kind==='user'&&doc.nodes.some((n:Obj)=>n.id===notice.metadata.node_id&&before?.nodes.find((p:Obj)=>p.id===n.id)?.status!==n.status&&(n.status==='paused'||n.status==='doing'&&n.resume_request?.revision===doc.revision))
             ?{human_control:{action:doc.nodes.find((n:Obj)=>n.id===notice.metadata.node_id).status==='paused'?'pause':'resume',actor:{type:'user',id:actor.id},task_refs:notice.metadata.task_refs,revision:doc.revision,event_time:doc.updated_at}}:{}),
@@ -1034,7 +1034,8 @@ export class TaskGraphService {
             this.pauseNode(node,stopActor,now);
           }
           this.save({...next,owner_id:row.owner_id});
-          for(const notice of taskNotices(next,before,actor.id,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',next.conversation_id,uid)))
+          const stopActorLabel=this.identity(stopActor)?.display_name??stopActor.id;
+          for(const notice of taskNotices(next,before,stopActorLabel,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',next.conversation_id,uid)))
             notices.push(this.messaging.persistTaskNotice(next.conversation_id,this.messaging.agentUser(actor.id).id,notice.content,{...notice.metadata,actor:stopActor,...(original?{human_control:{action:'pause',actor:stopActor,original_user_message_id:original.id,original_user_message_time:original.created_at,task_refs:notice.metadata.task_refs,revision:next.revision,event_time:now,scope:{agent_id:actor.id,conversation_id:conversationId??null}}}:{})},actor.id));
         }
         result={paused:items.length};
@@ -1108,8 +1109,9 @@ export class TaskGraphService {
         }
         if(changed) {
           const next={...doc,owner_id:row.owner_id,revision:doc.revision+1,updated_at:at,updated_by:userId};this.save(next);
-          for(const notice of taskNotices(next,JSON.parse(row.document_json),userId,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',doc.conversation_id,uid)))
-            notices.push(this.messaging.persistTaskNotice(doc.conversation_id,userId,notice.content,notice.metadata));
+          const freezeActorLabel=this.identity({type:'user',id:userId})?.display_name??userId;
+          for(const notice of taskNotices(next,JSON.parse(row.document_json),freezeActorLabel,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',doc.conversation_id,uid)))
+            notices.push(this.messaging.persistTaskNotice(doc.conversation_id,userId,notice.content,{...notice.metadata,actor:{type:'user',id:userId}}));
         }
       }
       this.db.exec('COMMIT');

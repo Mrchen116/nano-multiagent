@@ -47,6 +47,7 @@ describe('conversation task collaboration',()=>{
     const messages=all(db,'SELECT * FROM messages');
     expect(messages).toHaveLength(1);
     expect(messages[0].sender_type).toBe('system');
+    expect(messages[0].content).not.toContain('(u1)');
     expect(ctx.messaging.mentionedAgents('chat',messages[0].content)).toEqual(['a']);
     expect(messages[0].content.match(/<mention/g)).toHaveLength(1);
     expect(all(db,'SELECT * FROM relay_tasks')).toHaveLength(1);

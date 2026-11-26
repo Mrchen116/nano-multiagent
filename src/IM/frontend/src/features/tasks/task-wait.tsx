@@ -8,6 +8,10 @@ import {
   type AgentActivityAnchor,
 } from "../chat/components/agent-activity-popover";
 import {
+  ActorProfilePopover,
+  type ActorProfileAnchor,
+} from "../chat/components/actor-profile-popover";
+import {
   Avatar,
   colorForAgent,
   colorForAgentSeed,
@@ -161,12 +165,15 @@ export function TaskAssigneePill({
 }) {
   const { t } = useTranslation();
   const inRouter = useInRouterContext();
+  const selfUserId = useAuthStore(state => state.user?.id);
   const [anchor, setAnchor] = useState<AgentActivityAnchor | null>(null);
+  const [humanAnchor, setHumanAnchor] = useState<ActorProfileAnchor | null>(null);
   const isAgent = assignee?.type === "agent";
   const runtimeState = useTaskAgentRuntimeState(isAgent ? assignee.id : undefined, graphId, nodeId);
 
   useEffect(() => {
     setAnchor(null);
+    setHumanAnchor(null);
   }, [graphId, nodeId, assignee?.id]);
 
   const name = actorName(assignee);
@@ -182,10 +189,33 @@ export function TaskAssigneePill({
 
   if (!isAgent) {
     return (
-      <span className="tasks-assignee-pill" title={`${t("tasks.assignee")}: ${name}`}>
-        <Avatar size={20} initials={initialsOf(name)} color={colorForAgentSeed(name)} />
-        <span>{name}</span>
-      </span>
+      <>
+        <button
+          type="button"
+          className="tasks-assignee-pill tasks-assignee-pill--agent"
+          aria-label={t("chat.actorCard.trigger", { name })}
+          aria-expanded={Boolean(humanAnchor)}
+          title={t("chat.actorCard.trigger", { name })}
+          onClick={event => {
+            const element = event.currentTarget;
+            setHumanAnchor(current =>
+              current
+                ? null
+                : {
+                    type: "user",
+                    id: assignee.id,
+                    name,
+                    isSelf: Boolean(selfUserId && assignee.id === selfUserId),
+                    element,
+                  },
+            );
+          }}
+        >
+          <Avatar size={20} initials={initialsOf(name)} color={colorForAgentSeed(name)} />
+          <span>{name}</span>
+        </button>
+        {humanAnchor && <ActorProfilePopover anchor={humanAnchor} onClose={() => setHumanAnchor(null)} />}
+      </>
     );
   }
 

@@ -3,6 +3,7 @@ import { formatHM } from "../message-time";
 import { ThreadColumn } from "./thread-column";
 import { CooperationGuide, type CooperationGuideAgent } from "./cooperation-guide";
 import { AgentActivityPopover, type AgentActivityAnchor } from "./agent-activity-popover";
+import { ActorProfilePopover, type ActorProfileAnchor } from "./actor-profile-popover";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Check, CheckCheck, Copy, GitFork, ListTodo, ListTree, PanelRight, MessagesSquare, Reply } from "lucide-react";
 import React, {
@@ -1173,15 +1174,58 @@ export function MessagePane({
   }, [slashOpen]);
 
   const [activityAnchor, setActivityAnchor] = useState<AgentActivityAnchor | null>(null);
+  const [actorCardAnchor, setActorCardAnchor] = useState<ActorProfileAnchor | null>(null);
   const closeActivity = useCallback(() => {
     setActivityAnchor(current => {
       current?.element.focus({preventScroll: true});
       return null;
     });
   }, []);
-  useEffect(() => { setActivityAnchor(null); }, [conversation.id]);
+  const closeActorCard = useCallback(() => {
+    setActorCardAnchor(null);
+  }, []);
+  useEffect(() => {
+    setActivityAnchor(null);
+    setActorCardAnchor(null);
+  }, [conversation.id]);
   const openActivity = useCallback((next: AgentActivityAnchor) => {
+    setActorCardAnchor(null);
     setActivityAnchor(current => current?.element === next.element ? null : next);
+  }, []);
+  const actorContextRef = useRef({ globalAgentIds, manageableWorkAgentIds, selfUserId });
+  actorContextRef.current = { globalAgentIds, manageableWorkAgentIds, selfUserId };
+  const openActorCard = useCallback((actor: Actor, element: HTMLElement) => {
+    const { globalAgentIds: globals, manageableWorkAgentIds: manageable, selfUserId: selfId } =
+      actorContextRef.current;
+    if (actor.type === "agent" && !actor.is_deleted && globals.includes(actor.id)) {
+      setActorCardAnchor(null);
+      setActivityAnchor(current =>
+        current?.element === element
+          ? null
+          : { agentId: actor.id, name: actor.display_name ?? actor.id, element },
+      );
+      return;
+    }
+    setActivityAnchor(null);
+    setActorCardAnchor(current =>
+      current?.element === element
+        ? null
+        : {
+            type: actor.type === "agent" ? "agent" : "user",
+            id: actor.id,
+            userId: actor.user_id,
+            name: actor.display_name ?? actor.id,
+            role: actor.role,
+            avatarVariant: actor.avatar_variant,
+            isSelf: Boolean(
+              selfId &&
+                actor.type !== "agent" &&
+                (actor.id === selfId || actor.user_id === selfId),
+            ),
+            canConfigure: actor.type === "agent" && manageable.includes(actor.id),
+            element,
+          },
+    );
   }, []);
   const directAgent = conversation.type === "direct" ? conversation.participants.find(participant =>
     participant.type === "agent" && !participant.is_deleted && globalAgentIds.includes(participant.id)) : undefined;
@@ -1315,6 +1359,7 @@ export function MessagePane({
                     selfUserId={selfUserId}
                     workHref={workHrefFor(m)}
                     onActivity={m.sender.type === "agent" && !m.work_record_deleted && globalAgentIds.includes(m.sender.id) ? openActivity : undefined}
+                    onActorClick={openActorCard}
                     activityExpanded={activityAnchor?.element.dataset.activityAnchor === m.id}
                     conversationId={conversation.id}
                     readOnly={conversation.can_write === false}
@@ -1442,6 +1487,8 @@ export function MessagePane({
 
       {activityAnchor && globalAgentIds.includes(activityAnchor.agentId) && <AgentActivityPopover
         key={activityAnchor.agentId} anchor={activityAnchor} nodeName={agentNodeNames[activityAnchor.agentId] ?? (activityAnchor.agentId === directAgent?.id ? nodeName : null)} canConfigure={manageableWorkAgentIds.includes(activityAnchor.agentId)} onClose={closeActivity} />}
+      {actorCardAnchor && <ActorProfilePopover
+        key={`${actorCardAnchor.type}:${actorCardAnchor.id}`} anchor={actorCardAnchor} onClose={closeActorCard} />}
       {/* feat-484-M1: single pane-level copy snackbar / live region. */}
       {copyNotice && (
         <div
@@ -1549,7 +1596,7 @@ export function MessagePane({
           mentionCandidates={mentionCandidates} isMobile={isMobile} onRead={onReadMessage}
           renderQuote={quote => replyPreview(quote, conversation.participants, zh)}
           renderBody={(message, sendCard, submittedMessageId, locate) => <MessageContents message={message}
-            participants={conversation.participants} readOnly={conversation.can_write===false} isGroup={isGroup}
+            participants={conversation.participants} onActorClick={openActorCard} readOnly={conversation.can_write===false} isGroup={isGroup}
             interactiveReadOnly={conversation.can_write===false || Boolean(message.interactive?.read_only || message.interactive?.superseded_by)}
             submittedMessageId={submittedMessageId} onSend={sendCard} historyProcess={historyProcess}
             onComposeMessage={onComposeMessage} onNavigateMessage={locate} />}
@@ -1921,6 +1968,7 @@ function MessageBubble({
   selfUserId,
   workHref,
   onActivity,
+  onActorClick,
   activityExpanded,
   availableMessageIds,
   conversationId,
@@ -1951,6 +1999,7 @@ function MessageBubble({
   selfUserId?: string | null;
   workHref?: string;
   onActivity?(anchor: AgentActivityAnchor): void;
+  onActorClick?(actor: Actor, element: HTMLElement): void;
   activityExpanded?: boolean;
   availableMessageIds?: ReadonlySet<string>;
   conversationId: string;
@@ -2148,10 +2197,40 @@ function MessageBubble({
 
   if (isSystem) {
     const noticeText = formatSystemNotice(t, message.system_notice, isDirectChat);
+    const parsedOperator =
+      !noticeText && message.system_notice?.kind === "task_graph"
+        ? parseTaskNoticeOperator(message.content, message.system_notice.actor, participants)
+        : null;
     return (
       <div className="chat-bubble-system">
         {message.system_notice?.kind === "task_graph" && <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})} · </time>}
-        {noticeText ?? <MarkdownContent content={message.content} participants={participants} />}
+        {noticeText ? (
+          noticeText
+        ) : parsedOperator ? (
+          <>
+            {onActorClick ? (
+              <button
+                type="button"
+                className="chat-system-actor-chip"
+                aria-haspopup="dialog"
+                aria-label={t("chat.actorCard.trigger", { name: parsedOperator.displayName })}
+                onClick={event => onActorClick(parsedOperator.actor, event.currentTarget)}
+              >
+                {parsedOperator.displayName}
+              </button>
+            ) : (
+              <span>{parsedOperator.displayName}</span>
+            )}
+            <span>：</span>
+            <MarkdownContent
+              content={parsedOperator.restMarkdown}
+              participants={participants}
+              onActorClick={onActorClick}
+            />
+          </>
+        ) : (
+          <MarkdownContent content={message.content} participants={participants} onActorClick={onActorClick} />
+        )}
       </div>
     );
   }
@@ -2210,7 +2289,7 @@ function MessageBubble({
             <span>{replyPreview(message.reply_to,participants,t('chat.messagePane.reply','回复')==='回复')}</span>
           </Link>}
           <MessageContents message={message} bodyRef={bodyRef} onCopyCode={handleCopyCode}
-            participants={participants} readOnly={readOnly} isGroup={isGroup} interactiveReadOnly={interactiveReadOnly}
+            participants={participants} onActorClick={onActorClick} readOnly={readOnly} isGroup={isGroup} interactiveReadOnly={interactiveReadOnly}
             submittedMessageId={interactiveSubmissionId} onSend={onInteractionSend} onComposeMessage={onComposeMessage}
             historyProcess={historyProcess} availableMessageIds={availableMessageIds}
             onNavigateMessage={id => document.getElementById(`chat-message-${id}`)?.scrollIntoView({block:"center",behavior:"smooth"})} />
@@ -2308,16 +2387,85 @@ function ThreadEntry({message, participants, expanded, onOpen}: {
   );
 }
 
+function parseTaskNoticeOperator(
+  content: string,
+  noticeActor: { type: "user" | "agent"; id: string } | undefined,
+  participants: Actor[] | undefined,
+): { actor: Actor; displayName: string; restMarkdown: string } | null {
+  const match = /^((?:\\.|[^：\n\[])+?)\s*(?:：|:\s+)\s*([\s\S]+)$/.exec(content);
+  if (!match) return null;
+  const unescapedPrefix = match[1]!.replace(/\\([\[\]()*_`])/g, "$1").trim();
+  const idMatch = /^(.+?)\s*(?:\(([a-zA-Z0-9_:-]{2,})\))?$/.exec(unescapedPrefix);
+  const rawName = (idMatch?.[1] ?? unescapedPrefix).trim();
+  const legacyId = idMatch?.[2];
+  if (!rawName) return null;
+
+  const byNotice = noticeActor
+    ? participants?.find(
+        p => p.type === noticeActor.type && (p.id === noticeActor.id || p.user_id === noticeActor.id),
+      )
+    : undefined;
+  const byLegacy =
+    !byNotice && legacyId
+      ? participants?.find(p => p.id === legacyId || p.user_id === legacyId)
+      : undefined;
+  const byName =
+    !byNotice && !byLegacy
+      ? participants?.find(p => p.display_name === rawName || p.id === rawName)
+      : undefined;
+  const matched = byNotice ?? byLegacy ?? byName;
+  const inferredType: "user" | "agent" =
+    matched?.type === "agent" ||
+    noticeActor?.type === "agent" ||
+    Boolean(legacyId && (legacyId.startsWith("pa_") || legacyId.startsWith("agent_")))
+      ? "agent"
+      : "user";
+  const inferredId = matched?.id ?? noticeActor?.id ?? legacyId ?? rawName;
+  const displayName = matched?.display_name || rawName;
+  return {
+    actor: matched ?? {
+      type: inferredType,
+      id: inferredId,
+      display_name: displayName,
+      role: inferredId.startsWith("pa_") ? "personal" : undefined,
+    },
+    displayName,
+    restMarkdown: match[2]!,
+  };
+}
+
+function resolveMentionActor(
+  targetId: string,
+  displayName: string,
+  participants?: Actor[],
+): Actor {
+  const matched = participants?.find(p => (p.user_id || p.id) === targetId || p.id === targetId);
+  return (
+    matched ?? {
+      type: targetId.startsWith("pa_") || targetId.startsWith("agent:") ? "agent" : "user",
+      id: targetId.startsWith("agent:") ? targetId.slice(6) : targetId,
+      user_id: targetId,
+      display_name: displayName,
+    }
+  );
+}
+
 const MarkdownContent = React.memo(function MarkdownContent({
   content,
   participants,
   onCopyCode,
+  onActorClick,
 }: {
   content: string;
   participants?: Actor[];
   onCopyCode?(codeElement: HTMLElement): void;
+  onActorClick?(actor: Actor, element: HTMLElement): void;
 }) {
   const { t } = useTranslation();
+  const actorClickRef = useRef(onActorClick);
+  actorClickRef.current = onActorClick;
+  const participantsRef = useRef(participants);
+  participantsRef.current = participants;
   // CR-3: participantMap 和 components 用 useMemo，仅 participants 变化时重建，
   // 保证 react-markdown 的 components 引用稳定，不触发不必要的 pipeline 重建。
   const participantMap = useMemo(() => mentionNameMap(participants), [participants]);
@@ -2338,6 +2486,31 @@ const MarkdownContent = React.memo(function MarkdownContent({
 
       const displayName = mentionDisplayName(targetId, participantMap);
       if (displayName !== "unknown") {
+        if (actorClickRef.current) {
+          return (
+            <span
+              className="chat-mention-chip chat-mention-chip--interactive"
+              data-target-id={targetId}
+              tabIndex={0}
+              aria-haspopup="dialog"
+              onClick={event => {
+                event.stopPropagation();
+                const actor = resolveMentionActor(targetId, displayName, participantsRef.current);
+                actorClickRef.current?.(actor, event.currentTarget);
+              }}
+              onKeyDown={event => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const actor = resolveMentionActor(targetId, displayName, participantsRef.current);
+                  actorClickRef.current?.(actor, event.currentTarget);
+                }
+              }}
+            >
+              @{displayName}
+            </span>
+          );
+        }
         return (
           <span className="chat-mention-chip" data-target-id={targetId}>
             @{displayName}
@@ -2427,6 +2600,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
 function renderInlineContent(
   text: string,
   participants?: Actor[],
+  onActorClick?: (actor: Actor, element: HTMLElement) => void,
 ): React.ReactNode {
   const participantMap = mentionNameMap(participants);
 
@@ -2440,6 +2614,31 @@ function renderInlineContent(
     if (seg.kind === "mention") {
       const displayName = mentionDisplayName(seg.target_id, participantMap);
       if (displayName !== "unknown") {
+        if (onActorClick) {
+          const actor = resolveMentionActor(seg.target_id, displayName, participants);
+          return (
+            <span
+              key={idx}
+              className="chat-mention-chip chat-mention-chip--interactive"
+              data-target-id={seg.target_id}
+              tabIndex={0}
+              aria-haspopup="dialog"
+              onClick={event => {
+                event.stopPropagation();
+                onActorClick(actor, event.currentTarget);
+              }}
+              onKeyDown={event => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onActorClick(actor, event.currentTarget);
+                }
+              }}
+            >
+              @{displayName}
+            </span>
+          );
+        }
         return (
           <span key={idx} className="chat-mention-chip" data-target-id={seg.target_id}>
             @{displayName}
@@ -2492,10 +2691,11 @@ function timelineTimeDividers(items: TimelineItem[], locale: string): Map<string
 }
 
 /** Both reading surfaces preserve card actions, attachments, process history and approvals. */
-function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, isGroup, interactiveReadOnly,
+function MessageContents({message, participants, onActorClick, bodyRef, onCopyCode, readOnly, isGroup, interactiveReadOnly,
   submittedMessageId, onSend, onComposeMessage, historyProcess, availableMessageIds, onNavigateMessage}: {
   message: Message;
   participants?: Actor[];
+  onActorClick?(actor: Actor, element: HTMLElement): void;
   bodyRef?: React.Ref<HTMLDivElement>;
   onCopyCode?(element:HTMLElement):void;
   readOnly?:boolean;
@@ -2531,8 +2731,8 @@ function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, 
         className={`chat-message-body${isHuman && !message.pa_agent_id ? " chat-bubble-content" : ""}`}
       >
         {isHuman && !message.pa_agent_id
-          ? renderInlineContent(message.content, participants)
-          : <MarkdownContent content={message.content} participants={participants} onCopyCode={onCopyCode} />}
+          ? renderInlineContent(message.content, participants, onActorClick)
+          : <MarkdownContent content={message.content} participants={participants} onCopyCode={onCopyCode} onActorClick={onActorClick} />}
       </div>
     )}
     {!!message.task_cards?.length && (

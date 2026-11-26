@@ -190,6 +190,7 @@ export interface TokenUsage {
 
 export interface SystemNotice {
   kind: string;
+  actor?: { type: "user" | "agent"; id: string };
   agent_id?: string;
   agent_display_name?: string;
   reason?: string;
