@@ -69,29 +69,32 @@ describe("AppShell", () => {
     localStorage.clear();
   });
 
-  it("renders desktop navigation with Chat/Agents destinations and an account trigger", () => {
+  it("renders desktop navigation with Chat/People/Tasks/Agents destinations and an account trigger", () => {
     renderShell("/chat");
     const banner = screen.getByRole("banner");
     expect(banner).toBeInTheDocument();
     expect(within(banner).getByText(/crewden/i)).toBeInTheDocument();
     expect(within(banner).getByRole("link", { name: /chat/i })).toHaveAttribute("href", "/chat");
+    expect(within(banner).getByRole("link", { name: /people/i })).toHaveAttribute("href", "/people");
     expect(within(banner).getByRole("link", { name: /tasks/i })).toHaveAttribute("href", "/tasks");
     expect(within(banner).getByRole("link", { name: /agents/i })).toHaveAttribute("href", "/settings/agents");
     expect(within(banner).getByRole("button", { name: /alex chen/i })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: /mobile/i })).not.toBeInTheDocument();
   });
 
-  it("renders the mobile bottom nav with four tabs below 768px", () => {
+  it("renders the mobile bottom nav with five tabs below 768px", () => {
     setViewportWidth(640);
     const { container } = renderShell("/chat");
     const mobile = screen.getByRole("navigation", { name: /mobile/i });
     const chatLink = within(mobile).getByRole("link", { name: /chat/i });
     expect(chatLink).toHaveAttribute("href", "/chat");
     expect(chatLink).toHaveClass("active");
+    expect(within(mobile).getByRole("link", { name: /people/i })).toHaveAttribute("href", "/people");
     expect(within(mobile).getByRole("link", { name: /agents/i })).toHaveAttribute("href", "/settings/agents");
     expect(within(mobile).getByRole("link", { name: /me/i })).toHaveAttribute("href", "/me");
-    expect(container.querySelectorAll("svg[data-mobile-nav-icon]")).toHaveLength(4);
+    expect(container.querySelectorAll("svg[data-mobile-nav-icon]")).toHaveLength(5);
     expect(within(mobile).getByRole("link", { name: /tasks/i })).toHaveAttribute("href", "/tasks");
+    expect(container.querySelector('[data-mobile-nav-icon="people"]')).toBeInTheDocument();
     expect(container.querySelector('[data-mobile-nav-icon="tasks"]')).toBeInTheDocument();
     expect(container.querySelector('[data-mobile-nav-icon="chat"]')).toBeInTheDocument();
     expect(container.querySelector('[data-mobile-nav-icon="agents"]')).toBeInTheDocument();

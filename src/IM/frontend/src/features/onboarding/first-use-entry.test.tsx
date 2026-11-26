@@ -84,3 +84,22 @@ it('gives a returning empty personal account a setup route, not a disabled creat
   await userEvent.click(screen.getByRole('link',{name:/Continue later, open your space/}));
   await waitFor(()=>expect(screen.getByRole('heading',{name:'Your personal assistant starts here.'})).toBeInTheDocument());
 });
+
+it('keeps ConversationSidebar visible for an active team member with zero chats and no bound PA', async () => {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async input => {
+    const url = String(input);
+    if (url.endsWith('/im/v1/personal-agent')) return Response.json({binding:null,policy:null});
+    if (url.includes('/im/v1/contacts')) return Response.json({
+      items:[{user_id:'u-lin',kind:'human',display_name:'Lin Xia',username:'linxia'}],
+      next_cursor:null
+    });
+    if (url.endsWith('/im/v1/conversations')) return Response.json({items:[]});
+    if (url.endsWith('/im/v1/nodes') || url.endsWith('/im/v1/agents')) return Response.json([]);
+    return new Response(null,{status:404});
+  });
+  renderRouter({routes:appRoutes,initialEntries:['/chat'],auth:{...TEST_AUTH_USER,personal_space_enabled:true,membership_status:'active',owned_node_ids:[]}});
+  expect(await screen.findByRole('searchbox')).toBeVisible();
+  expect(screen.queryByRole('heading',{name:'Your personal assistant starts here.'})).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('tab',{name:'People'}));
+  expect(await screen.findByRole('button',{name:/Lin Xia/})).toBeVisible();
+});

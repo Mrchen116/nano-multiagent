@@ -11,17 +11,19 @@ export interface GroupSettingsMember {
   userId: string | null;
   type: "user" | "agent" | "system";
   displayName: string;
+  username?: string | null;
   isSelf: boolean;
   isCreator: boolean;
   status?: "online" | "offline" | null;
   isStale?: boolean | null;
 }
 
-/** A candidate agent for the add-members picker (already filtered to non-members). */
+/** A candidate agent or colleague for the add-members picker (already filtered to non-members). */
 export interface GroupSettingsAgentOption {
   agentId: string;
   type?: "user" | "agent";
   displayName: string;
+  username?: string | null;
   status?: "online" | "offline" | null;
 }
 
@@ -50,6 +52,7 @@ export interface GroupSettingsProps {
   onLeave?(): void | Promise<unknown>;
   onDissolve(): void | Promise<unknown>;
   onOpenAgentConfig(agentId: string): void;
+  onSelectHumanMember?(userId: string, element: HTMLButtonElement): void;
 }
 
 /**
@@ -157,7 +160,7 @@ export function GroupSettings(props: GroupSettingsProps) {
   ) : null;
 
   // ─── Avatar cluster (group identity) ──────────────────────────────────────
-  const clusterMembers = agentMembers.length > 0 ? agentMembers : members;
+  const clusterMembers = members.filter((m) => m.type !== "system");
   const clusterAvatars = (size: number) => {
     const shown = clusterMembers.slice(0, 3);
     const extra = clusterMembers.length - shown.length;
@@ -212,20 +215,27 @@ export function GroupSettings(props: GroupSettingsProps) {
   );
 
   // ─── Add-members picker body (shared between inline drawer + mobile screen) ─
+  const orderedAddable = [
+    ...addableAgents.filter((a) => a.type === "user"),
+    ...addableAgents.filter((a) => a.type !== "user")
+  ];
   const pickerRows =
-    addableAgents.length === 0 ? (
+    orderedAddable.length === 0 ? (
       <div className="group-settings-empty">
         <span className="group-settings-empty-icon" aria-hidden="true">👥</span>
         <p>{t("chat.groupSettings.noAddableAgents")}</p>
       </div>
     ) : (
-      addableAgents.map((a) => {
+      orderedAddable.map((a) => {
         const on = selectedAgentIds.includes(a.agentId);
         return (
           <label key={a.agentId} className={`group-settings-pick${on ? " group-settings-pick--on" : ""}`}>
             <input type="checkbox" checked={on} aria-label={a.displayName} onChange={() => toggleAgent(a.agentId)} />
             <Avatar id={a.type === "user" ? a.agentId : agentAvatarId(a.agentId)} size={30} />
-            <span className="group-settings-pick-name">{a.displayName}</span>
+            <span className="group-settings-member-text">
+              <span className="group-settings-pick-name">{a.displayName}</span>
+              {a.type === "user" && a.username && <span className="group-settings-member-sub">@{a.username}</span>}
+            </span>
           </label>
         );
       })
@@ -264,10 +274,20 @@ export function GroupSettings(props: GroupSettingsProps) {
             >
               {memberFace(m)}
             </button>
+          ) : m.type === "user" && !m.isSelf && m.userId && !manageMode && props.onSelectHumanMember ? (
+            <button
+              type="button"
+              className="group-settings-member-body group-settings-member-body--link"
+              onClick={(event) => props.onSelectHumanMember?.(m.userId!, event.currentTarget)}
+            >
+              {memberFace(m)}
+            </button>
           ) : (
             <div className="group-settings-member-body">{memberFace(m)}</div>
           )}
-          {m.type === "agent" && !manageMode && <span className="group-settings-chev" aria-hidden="true">›</span>}
+          {((m.type === "agent" && !manageMode) || (m.type === "user" && !m.isSelf && m.userId && !manageMode && props.onSelectHumanMember)) && (
+            <span className="group-settings-chev" aria-hidden="true">›</span>
+          )}
         </div>
         {confirming && (
           <div className="group-settings-inline-confirm">
@@ -299,7 +319,9 @@ export function GroupSettings(props: GroupSettingsProps) {
     const statusText =
       m.type === "agent"
         ? `${m.status === "online" ? t("chat.groupSettings.online") : t("chat.groupSettings.offline")} · ${t("chat.groupSettings.agentRole")}`
-        : m.isSelf ? t("chat.groupSettings.self") : t("chat.contacts.person");
+        : m.isSelf
+        ? (m.username ? `@${m.username} · ${t("chat.groupSettings.self")}` : t("chat.groupSettings.self"))
+        : (m.username ? `@${m.username}` : t("chat.contacts.person"));
     return (
       <>
         <span

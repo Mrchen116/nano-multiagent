@@ -9,6 +9,7 @@ import { MembershipPage } from "../features/auth/membership-page";
 import { CompanyMembersPage } from "../features/settings/company/company-members-page";
 import { RequireAuth } from "../features/auth/require-auth";
 import { MePage } from "../features/me/me-page";
+import { PeopleDirectoryPage } from "../features/people/people-directory-page";
 import { AccountPage } from "../features/settings/account/account-page";
 import { AgentCreatePage } from "../features/settings/agents/agent-create-page";
 import { AgentProfilePage } from "../features/settings/agents/agent-profile-page";
@@ -41,6 +42,7 @@ export const appRoutes: RouteObject[] = [
     children: [
       { path: "chat", element: <Suspense fallback={null}><ChatWorkspacePage /></Suspense> },
       { path: "chat/:conversationId", element: <Suspense fallback={null}><ChatWorkspacePage /></Suspense> },
+      { path: "people", element: <PeopleDirectoryPage /> },
       { path: "me", element: <MePage /> },
       { path: "tasks", element: <Suspense fallback={null}><TaskGraphsPage /></Suspense> },
       { path: "tasks/:graphId", element: <Suspense fallback={null}><TaskGraphsPage /></Suspense> },

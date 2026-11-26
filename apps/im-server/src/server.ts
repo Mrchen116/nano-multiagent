@@ -337,7 +337,7 @@ export async function createServer(options: ServerOptions = {}) {
     }
     if (
       path === "/" || path === "/about" ||
-      /^\/(chat|tasks|settings|bind\/confirm|login|register|membership|onboarding|me)(\/|$)/.test(path)
+      /^\/(chat|tasks|people|settings|bind\/confirm|login|register|membership|onboarding|me)(\/|$)/.test(path)
     ) {
       const index = join(dist, "index.html");
       if (existsSync(index)) {

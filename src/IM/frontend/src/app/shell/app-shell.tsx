@@ -9,7 +9,7 @@ import { useTranslation } from "../../i18n";
 import { listConversations } from "../../features/chat/chat-api";
 import { useAuthStore } from "../../features/auth/auth-store";
 import { useLocalUnreadFeedback } from "../../features/notifications/local-unread-feedback";
-import { AgentsNavIcon, ChatNavIcon, MeNavIcon, TasksNavIcon } from "./mobile-nav-icons";
+import { AgentsNavIcon, ChatNavIcon, MeNavIcon, PeopleNavIcon, TasksNavIcon } from "./mobile-nav-icons";
 import { NanoBrand } from "./nano-brand";
 import "./app-shell.css";
 import { UserMenu } from "./user-menu";
@@ -83,6 +83,7 @@ export function AppShell({ children }: PropsWithChildren) {
             <NavLink to="/chat" end={false}>
               <ChatNavIcon /><span>{t("shell.tabs.chat")}</span>
             </NavLink>
+            <NavLink to="/people"><PeopleNavIcon /><span>{t("shell.tabs.people")}</span></NavLink>
             <NavLink to="/tasks"><TasksNavIcon /><span>{t("shell.tabs.tasks")}</span></NavLink>
             <NavLink to="/settings/agents"><AgentsNavIcon /><span>{t("shell.tabs.agents")}</span></NavLink>
           </nav>
@@ -96,36 +97,50 @@ export function AppShell({ children }: PropsWithChildren) {
       {isMobile && !isMobileConversation && (
         <nav aria-label="mobile" className="im-shell-bottombar">
           <NavLink to="/chat" className="im-shell-bottomtab">
-            <span aria-hidden className="im-shell-bottomtab-icon">
-              <ChatNavIcon />
+            <span className="im-shell-bottomtab-icon-wrap">
+              <span aria-hidden className="im-shell-bottomtab-icon">
+                <ChatNavIcon />
+              </span>
+              {totalUnread > 0 && (
+                <span data-testid="shell-chat-unread" className="im-shell-unread-badge">
+                  {totalUnread}
+                </span>
+              )}
             </span>
             <span>{t("shell.tabs.chat")}</span>
-            {totalUnread > 0 && (
-              <span data-testid="shell-chat-unread" className="im-shell-unread-badge">
-                {totalUnread}
-              </span>
-            )}
+          </NavLink>
+          <NavLink to="/people" className="im-shell-bottomtab">
+            <span className="im-shell-bottomtab-icon-wrap">
+              <span aria-hidden className="im-shell-bottomtab-icon"><PeopleNavIcon /></span>
+            </span>
+            <span>{t("shell.tabs.people")}</span>
           </NavLink>
           <NavLink to="/tasks" className="im-shell-bottomtab">
-            <span aria-hidden className="im-shell-bottomtab-icon"><TasksNavIcon /></span>
+            <span className="im-shell-bottomtab-icon-wrap">
+              <span aria-hidden className="im-shell-bottomtab-icon"><TasksNavIcon /></span>
+            </span>
             <span>{t("shell.tabs.tasks")}</span>
           </NavLink>
           <NavLink to="/settings/agents" className="im-shell-bottomtab">
-            <span aria-hidden className="im-shell-bottomtab-icon">
-              <AgentsNavIcon />
+            <span className="im-shell-bottomtab-icon-wrap">
+              <span aria-hidden className="im-shell-bottomtab-icon">
+                <AgentsNavIcon />
+              </span>
             </span>
             <span>{t("shell.tabs.agents")}</span>
           </NavLink>
           <NavLink to="/me" className="im-shell-bottomtab">
-            <span aria-hidden className="im-shell-bottomtab-icon">
-              <MeNavIcon />
+            <span className="im-shell-bottomtab-icon-wrap">
+              <span aria-hidden className="im-shell-bottomtab-icon">
+                <MeNavIcon />
+              </span>
+              {totalUnread > 0 && (
+                <span data-testid="shell-me-unread" className="im-shell-unread-badge">
+                  {totalUnread}
+                </span>
+              )}
             </span>
             <span>{t("shell.tabs.me")}</span>
-            {totalUnread > 0 && (
-              <span data-testid="shell-me-unread" className="im-shell-unread-badge">
-                {totalUnread}
-              </span>
-            )}
           </NavLink>
         </nav>
       )}

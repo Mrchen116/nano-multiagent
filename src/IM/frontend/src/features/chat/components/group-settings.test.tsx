@@ -174,3 +174,32 @@ it("does not grant visibility changes from group creator identity alone", () => 
   await userEvent.click(screen.getByRole('switch', {name:'Mute chat'}));
   expect(change).toHaveBeenCalledWith({is_muted:false});
 });
+
+it("keeps human members in the header avatar cluster, displays @username, and triggers colleague card on click", async () => {
+  const user = userEvent.setup();
+  const onSelectHumanMember = vi.fn();
+  const { container } = render(
+    <GroupSettings
+      title="Product Sync"
+      members={[
+        { id: "user-1", userId: "user-1", type: "user", displayName: "Alex", username: "alex", isSelf: true, isCreator: true },
+        { id: "user-2", userId: "user-2", type: "user", displayName: "Lin Xia", username: "linxia", isSelf: false, isCreator: false },
+        { id: "planner", userId: "uuid-planner", type: "agent", displayName: "Planner", isSelf: false, isCreator: false, status: "online" }
+      ]}
+      addableAgents={[]}
+      isMobile={false}
+      onClose={vi.fn()}
+      onRename={vi.fn()}
+      onAddParticipants={vi.fn()}
+      onRemoveParticipant={vi.fn()}
+      onDissolve={vi.fn()}
+      onOpenAgentConfig={vi.fn()}
+      onSelectHumanMember={onSelectHumanMember}
+    />
+  );
+  // Cluster shows all 3 actual members rather than excluding humans when an Agent is present.
+  expect(container.querySelectorAll(".group-settings-cluster .chat-avatar")).toHaveLength(3);
+  expect(screen.getByText("@linxia")).toBeVisible();
+  await user.click(screen.getByText("Lin Xia"));
+  expect(onSelectHumanMember).toHaveBeenCalledWith("user-2", expect.any(HTMLButtonElement));
+});
