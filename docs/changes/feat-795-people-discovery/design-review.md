@@ -157,3 +157,66 @@
 - **`R1-R1`**: `accepted` — 已在 `design.md`（涉及范围、关键决策 1）采纳：`/people` 行尾使用 `.im-settings-action` 次级安静按钮，本人行仅显示「你 / You」与个人设置入口，并明确区分加载骨架、失败重试、个人空间引导与空搜索态。
 - **`R1-R2`**: `accepted` — 已在 `design.md`（涉及范围、关键决策 1）采纳：移动端 5 项底栏 `.im-shell-bottomtab` 自适应宽度并将 `.im-shell-unread-badge` 锚定到 `.im-shell-bottomtab-icon`。
 - **`R1-R3`**: `accepted` — 已在 `design.md`（涉及范围、关键决策 5）与 `specs/im/web-chat-ux.md` 采纳：`GroupSettings` 成员列表与加人候选同步透传并展示真人 `@username`。
+
+---
+
+## Round 2
+
+### Metadata
+
+- **reviewer**: Independent Gate 2 Design Reviewer (`f2eab8f0-a8e8-479d-b91a-d9da74d298ec`, `change-design-reviewer` + `frontend-experience-review` design mode)
+- **target**: `feat-795-people-discovery @ 146486bbb`（对比 `8c0616479..146486bbb`，`/Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-795-people-discovery`）
+- **review_mode**: `delta`
+- **mode_reason**: `8c0616479..146486bbb` 为针对 Round 1 问题的有界设计修订（仅修改 `design.md`、`specs/im/agents-nodes.md`、`specs/im/web-chat-ux.md` 并追加 `Author Resolutions`），核心需求范围、跨包边界、共享存储 schema 与单里程碑拓扑未变，适用 `delta` 复审全部变更段落、波及装配点与历史问题闭环。
+- **started_at**: `2026-11-26T18:42:10+09:00`
+- **completed_at**: `2026-11-26T18:45:10+09:00`
+- **duration**: `3m 00s`
+
+### Verdict
+
+- **Verdict**: `Approved`
+- **Counts**: `0 CRITICAL / 0 WARNING / 1 Recommendation`
+
+---
+
+### Coverage 与证据
+
+- **`retained_from: Round 1`（保留未变部分的既有证据）**：
+  - 跨包依赖红线（不触碰 DSH runtime / `packages/personal-assistant`）、Agent Context 零影响、无一次性数据库迁移（无需 `deployment-prompt.md`）、`POST /im/v1/conversations` 幂等 1:1 建连、`apps/desktop/src/host_server.rs:2202` SPA 回退兼容性、`src/IM/ios/NanoIM/Client/CommonModels.swift` 可选字段向后兼容性，以及 `change-code-review` + `frontend-experience-review` 审查能力组合均在 `8c0616479..146486bbb` 中保持不变，沿用 Round 1 已核实的判断与代码证据。
+- **本轮变更与波及范围核查（`8c0616479..146486bbb`）**：
+  1. **服务端路由与联系人接口（`design.md:13-15,79,96-97,104-120`）**：
+     - `apps/im-server/src/server.ts` SPA 白名单正则明确扩展为 `/^\/(chat|tasks|people|settings|bind\/confirm|login|register|membership|onboarding|me)(\/|$)/` 并维持 `Cache-Control: no-store`，与 canonical `docs/specs/im/web-chat-ux.md:60`（HTML 入口 `no-store`）一致。
+     - `apps/im-server/src/contacts.ts` 在保留既有 `visible()` 租户/个人空间隔离与公开 PA 节点隐藏的前提下，为 `kind === "human"` 投影 `username`（`q` 支持 `@username` 归一匹配），并为 `kind === "agent"` 通过 `owners` 表（按 `users.owner_id` 索引）补齐 `owner_user_id`（`users.id`）与 `owner_display_name` 回退，闭合了 `contacts.ts` → 前端归属聚合 → `POST /im/v1/conversations`（要求 `users.id`）的数据流。
+  2. **前端体验与交互状态边界（`design.md:16-22,78-98,157`）**：
+     - `/people` 目录、移动端 5 项底栏角标锚定、活跃团队成员不被 `FirstUseWelcome` 遮挡侧栏、侧栏 `⌘K/Ctrl+K` 焦点保护与 `!searchActive && !distillMode && filter === "direct-user"` 状态隔离、站内非外部 1:1 去重键、外部代记发送者双重排除（`!conversation?.external_source && !message.sender.avatar_id?.startsWith("external:")`）、公开 PA vs 专业数字员工点击分流、`PersonPopover` `z-index: 110` 与防穿透关闭、双正文 `@mention` 渲染（排除 `replyPreview`）及保留草稿/附件的 `insertMention` 均已落入对应组件职责，无新增交互冲突。
+  3. **Delta-specs 锚点与条款回归检查（`specs/im/agents-nodes.md`、`specs/im/web-chat-ux.md`）**：
+     - 对照 canonical `docs/specs/im/agents-nodes.md:819-833` 与 `docs/specs/im/web-chat-ux.md:28-45,542-581` 逐段复核：所有 `### Requirement:` 标题与既有仍适用 Scenario（含非当年消息年份、窄屏搜索恢复、卡片初始视图搜索、移动端具体会话隐藏底栏、私聊/群聊减少重复身份信息、群聊轻量标题栏、中英文切换保留未发送草稿）完整保留；`NewChatModal` 与 `NewGroupModal` 拆分后既满足 `spec.md:86-88` 的跨团队归属与分类筛选，又保护了公开 PA 不暴露 `node_id` 的隐私契约，不会误伤合法实现。
+  4. **Runbook 与 Milestone M1（`design.md:169,181`）**：
+     - Runbook 健康检查已修正为真实存在的 `$IM_URL/health`，保留用户待测隔离真栈的约束清晰；M1 `范围` 与 `退出标准` 已完整覆盖 `server.ts`、`contacts.ts`、前后端测试与构建门禁。
+
+---
+
+### 历史问题闭环
+
+- **`R1-C1`**（Author Resolution: `accepted`）：已在 `design.md:14,79,106,181` 与 `specs/im/web-chat-ux.md:60` 纳入 `apps/im-server/src/server.ts` SPA 白名单放行 `people` 及服务端路由测试 — **`closed`**。
+- **`R1-C2`**（Author Resolution: `accepted`）：已在 `design.md:21,92,157,181` 与 `specs/im/web-chat-ux.md:60` 明确同时排除 `conversation?.external_source` 与 `message.sender.avatar_id?.startsWith("external:")` 的外部未映射代记发送者 — **`closed`**。
+- **`R1-C3`**（Author Resolution: `accepted`）：已在 `design.md:13,15,22,93,97,117,120` 与 `specs/im/agents-nodes.md:14` 补齐 `contacts.ts` 的 `owner_user_id`（`users.id`）解析、`owner_display_name` 回退及 `AgentProfilePage` 全量 `listContacts("")` 可见真人校验 — **`closed`**。
+- **`R1-W1`**（Author Resolution: `accepted`）：已在 `design.md:21,87-88,181` 与 `specs/im/web-chat-ux.md:60` 限定 `FirstUseWelcome` 仅用于 `membership_status !== "active"`，保证活跃团队成员始终可见 `ConversationSidebar` — **`closed`**。
+- **`R1-W2`**（Author Resolution: `accepted`）：已在 `design.md:17,22,93,181`、`specs/im/agents-nodes.md:14` 与 `specs/im/web-chat-ux.md:60` 明确点击同事公开 PA 直接发起 1:1 会话（且非本人 PA 资料页隐藏 `Work` Tab 与空设备行）、点击专业数字员工进入 `/settings/agents/:agentId` — **`closed`**。
+- **`R1-W3`**（Author Resolution: `accepted`）：已在 `design.md:18,21,94,181` 与 `specs/im/web-chat-ux.md:59-60` 明确 `PersonPopover` `z-index: 110` 及防穿透关闭、双正文渲染路径（排除 `replyPreview`）与保留草稿/附件追加 `draftMentions` 的 `insertMention` — **`closed`**。
+- **`R1-W4`**（Author Resolution: `accepted`）：已在 `specs/im/web-chat-ux.md:38-46,59` 拆分为 `新建聊天分类筛选并区分真人同事与跨团队 Agent` 与 `新建群聊选择真人同事与本人候选 Agent`，并补齐桌面主导航 `Chat、People、Tasks、Agents` — **`closed`**。
+- **`R1-W5`**（Author Resolution: `accepted`）：已在 `design.md:19,84,88,169` 与 `specs/im/web-chat-ux.md:8-9,60` 明确侧栏状态互斥、站内非外部 1:1 按 `user_id`/`agent_id` 去重及 Runbook `$IM_URL/health` 检查端点 — **`closed`**。
+- **`R1-R1` ~ `R1-R3`**（Author Resolution: `accepted`）：次级安静按钮权重与状态区分（`design.md:17,79`）、移动端 5 项底栏未读角标锚定（`design.md:16,81`）与 `GroupSettings` `@username` 透传（`design.md:20,97`、`specs/im/web-chat-ux.md:45`）均已妥善融入 — **`closed`**。
+
+---
+
+### Issues
+
+无（`0 CRITICAL / 0 WARNING`）。
+
+---
+
+### Recommendations
+
+- **`R2-R1` — 实施细节顺手对齐 PA 分支的 `owner_display_name` 与 `AgentProfilePage` 本人归属判定**
+  - 在落地 `apps/im-server/src/contacts.ts:30-46` 时，`SELECT` `owners` 行顺带取出 `id, display_name`，将 `owner_display_name: row.owner_display_name ?? owner?.display_name` 与 `owner_user_id: owner?.id` 同时写入 `if (binding_id)`（公开 PA）和普通公司 Agent 两个返回分支；并在 `src/IM/frontend/src/features/settings/agents/agent-profile-page.tsx` 判定“是否为本人管理的 Agent”（如第 50、85、88、132 行）时统一使用 `(agent.owner_user_id ?? agent.owner_id) === self`，让 `users.owner_id !== users.id` 的历史账号在查看本人与同事 Agent 时同样零偏差。
