@@ -66,6 +66,9 @@ export function UserMenu() {
         <Link role="menuitem" to="/settings/models" onClick={close} className="im-user-menu-item">
           <UserMenuIcon kind="models" /><span>{lang === 'zh' ? '模型服务' : 'Model services'}</span><span aria-hidden>›</span>
         </Link>
+        {!isDesktopClient() && <Link role="menuitem" to="/about#download" onClick={close} className="im-user-menu-item">
+          <UserMenuIcon kind="download" /><span>{t('shell.userMenu.downloadApps')}</span><span aria-hidden>›</span>
+        </Link>}
       </div>
       {user.membership_status === 'active' && <div className="im-user-menu-section" role="group" aria-label={t('shell.userMenu.policies')}>
         <Link role="menuitem" to="/settings/policies" onClick={close} className="im-user-menu-item">

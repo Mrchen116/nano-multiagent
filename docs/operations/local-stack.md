@@ -20,7 +20,7 @@
 
 明确发布并选择该版本作为安装入口后，从成功运行下载原始 `manifest.json`，备份当前清单并原子替换到 IM 的 `IM_NODE_RELEASE_DIR`；未配置该变量时默认使用 IM checkout 的 `dist/node-release`。核对版本号、源码 SHA、固定下载地址和 SHA-256。IM 只需这份清单，包体留在 GitHub。普通服务更新或回退继续保留所选安装版本，不自动切换清单。
 
-Windows x64 安装入口单独读取同目录的 `manifest.win32-x64.json`。在隔离实例中选择候选时，核对平台、源码 SHA、安装器和 `windows-x64.json` 描述文件的大小及 SHA-256，保留前一份验证过的清单。正式启用 Windows 入口时使用对应 Release 实际下载验证后的清单。IM 提供 `/install/manifest.win32-x64.json`，浏览器从清单指定的固定 Release 下载 EXE。若只需撤回 Windows 下载入口，撤下这一份清单；其他平台使用各自的清单。
+Windows x64 安装入口单独读取同目录的 `manifest.win32-x64.json`；macOS Apple Silicon 与 Windows x64 的 Crewden Desktop 桌面客户端分别读取同目录的 `manifest.desktop-darwin-arm64.json` 与 `manifest.desktop-win32-x64.json`（均随 `Publish Node installer` 工作流的 `node-manifest-X.Y.Z` 一并校验产出）。在隔离实例中选择候选时，核对平台、源码 SHA、安装器和对应描述文件的大小及 SHA-256，保留前一份验证过的清单。正式启用时使用对应 Release 实际下载验证后的清单。若只需撤回某一平台下载入口，撤下对应清单即可；官网多端下载区中 iOS 入口默认展示「即将上线」，待上架 App Store 或 TestFlight 后可通过环境变量 `IM_IOS_DOWNLOAD_URL`（仅接受 `https://` 地址）点亮跳转。
 
 IM 提供 `/install.sh` 与 `/install/manifest.json`，旧 `/install/nano-node.tgz` 仅重定向到清单中的固定 GitHub 地址。清单缺失或无效时返回未发布状态，不提供失效安装命令。正式开放安装前，还需从公网入口完成匿名下载、真实首次安装、绑定和助手回复；本地候选包或下载 fixture 不能替代这项验收。
 

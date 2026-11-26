@@ -4,18 +4,21 @@ export interface OnboardingNode { node_id: string; node_name: string; alias: str
 export interface OnboardingAgent { agent_id: string; display_name: string; node_id: string; default_model: string; workspace_root: string; work_mode: string }
 export interface WindowsInstall { download_url: string; connect_url: string }
 export interface DesktopInstall { download_url: string; connect_url: string; version: string }
+export interface IosInstall { download_url: string }
+export interface PublicInstallMaterials {
+  available: boolean;
+  origin: string;
+  command: string;
+  script_url: string;
+  windows_x64?: WindowsInstall | null;
+  desktop_darwin_arm64?: DesktopInstall | null;
+  desktop_win32_x64?: DesktopInstall | null;
+  ios?: IosInstall | null;
+}
 export interface OnboardingState {
   nodes: OnboardingNode[];
   agents: OnboardingAgent[];
-  install: {
-    available: boolean;
-    origin: string;
-    command: string;
-    script_url: string;
-    windows_x64?: WindowsInstall | null;
-    desktop_darwin_arm64?: DesktopInstall | null;
-    desktop_win32_x64?: DesktopInstall | null;
-  };
+  install: PublicInstallMaterials;
 }
 export type ModelProtocol = 'openai-completions' | 'anthropic-messages' | 'openai-responses';
 export interface ServiceModel { id: string; display_name?: string; context_window?: number; max_tokens?: number; input?: ('text' | 'image')[] }

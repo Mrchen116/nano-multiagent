@@ -20,6 +20,18 @@ function allowsDesktopConnectOrigin(originUrl: URL): boolean {
   return originUrl.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(originUrl.hostname);
 }
 
+function parseIosDownloadUrl(raw?: string): { download_url: string } | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return null;
+    return { download_url: parsed.toString() };
+  } catch {
+    return null;
+  }
+}
+
 /** Read the selected platform's verified metadata.
  *
  * Args:
@@ -50,7 +62,7 @@ export function unixInstallCommand(origin: string) {
  * Returns:
  *   Installation availability and platform-specific download/connect materials for this IM.
  */
-export function installMaterials(origin: string, directory: string) {
+export function installMaterials(origin: string, directory: string, iosDownloadUrl?: string) {
   const originUrl = new URL(origin);
   const base = originUrl.origin;
   const available = releaseManifest(directory) !== null;
@@ -68,6 +80,7 @@ export function installMaterials(origin: string, directory: string) {
   const desktop_win32_x64 = winDesktop?.platform === 'desktop-win32-x64' && desktopAllowed
     ? { download_url: winDesktop.installer.download_url, connect_url: desktopConnectUrl, version: winDesktop.version }
     : null;
+  const ios = parseIosDownloadUrl(iosDownloadUrl);
   return {
     available,
     origin: base,
@@ -76,6 +89,7 @@ export function installMaterials(origin: string, directory: string) {
     windows_x64,
     desktop_darwin_arm64,
     desktop_win32_x64,
+    ios,
   };
 }
 
@@ -85,8 +99,12 @@ export function installMaterials(origin: string, directory: string) {
  *   app: IM HTTP server.
  *   ctx: IM context with the configured public URL.
  *   directory: Deployment directory containing the verified manifest.
+ *   iosDownloadUrl: Optional HTTPS store/distribution URL for the iOS client.
  */
-export function registerInstallRoutes(app: FastifyInstance, ctx: ImContext, directory: string) {
+export function registerInstallRoutes(app: FastifyInstance, ctx: ImContext, directory: string, iosDownloadUrl?: string) {
+  app.get('/im/v1/public/install', (_req, reply) => {
+    return reply.header('Cache-Control', 'no-store').send(installMaterials(ctx.publicUrl, directory, iosDownloadUrl));
+  });
   app.get('/install.sh', (_req, reply) => {
     if (!releaseManifest(directory)) fail(503, 'Computer installer is not published yet');
     const template = readFileSync(new URL('../assets/install.sh', import.meta.url), 'utf8');

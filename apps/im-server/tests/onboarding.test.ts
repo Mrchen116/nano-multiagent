@@ -128,6 +128,38 @@ it('serves Desktop macOS arm64 and Windows x64 materials side-by-side with light
   });
   expect((await app.inject('/install/manifest.desktop-darwin-arm64.json')).json()).toEqual(macDesktop);
   expect((await app.inject('/install/manifest.desktop-win32-x64.json')).json()).toEqual(winDesktop);
+
+  const publicInstall = await app.inject({ url: '/im/v1/public/install', headers: { host: 'attacker.example' } });
+  expect(publicInstall.statusCode).toBe(200);
+  expect(publicInstall.headers['cache-control']).toBe('no-store');
+  expect(publicInstall.body).not.toContain('attacker');
+  expect(publicInstall.json()).toMatchObject({
+    available: true,
+    origin: 'https://nano.example',
+    desktop_darwin_arm64: { download_url: macDesktop.installer.download_url, version: macDesktop.version },
+    desktop_win32_x64: { download_url: winDesktop.installer.download_url, version: winDesktop.version },
+    ios: null,
+  });
+
+  const iosApp = await createServer({
+    dbPath: join(dir, 'im-ios.sqlite3'),
+    publicUrl: 'https://nano.example',
+    nodeReleaseDir: dir,
+    iosDownloadUrl: 'https://testflight.apple.com/join/crewden',
+  });
+  closers.push(async () => { await iosApp.close(); });
+  expect((await iosApp.inject('/im/v1/public/install')).json().ios).toEqual({
+    download_url: 'https://testflight.apple.com/join/crewden',
+  });
+
+  const insecureIosApp = await createServer({
+    dbPath: join(dir, 'im-ios-http.sqlite3'),
+    publicUrl: 'https://nano.example',
+    nodeReleaseDir: dir,
+    iosDownloadUrl: 'http://insecure.example/app',
+  });
+  closers.push(async () => { await insecureIosApp.close(); });
+  expect((await insecureIosApp.inject('/im/v1/public/install')).json().ios).toBeNull();
 });
 
 it('serves a pinned manifest without the package and redirects old scripts without a body', async () => {
