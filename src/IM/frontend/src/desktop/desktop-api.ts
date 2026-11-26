@@ -1,0 +1,167 @@
+import type {
+  DesktopLocalConfigInput,
+  DesktopLocalInspectResponse,
+  DesktopLocalOwnership,
+  DesktopWorkerProbeItem,
+} from "@nano/product-contracts/desktop-local";
+import { authFetch } from "../features/auth/auth-fetch";
+import { readHttpError } from "../features/auth/http-error";
+import type { DesktopPlatformId } from "./desktop-context";
+
+export interface DesktopHostContextResponse {
+  im_origin: string;
+  context_epoch: number;
+  platform: DesktopPlatformId;
+}
+
+export interface DesktopConnectResponse {
+  ok: true;
+  node_id: string;
+  node_name: string;
+  ready: boolean;
+  ownership: DesktopLocalOwnership;
+}
+
+export type DesktopTrajectoryPrepareResponse =
+  | { mode: "local"; ticket: string }
+  | { mode: "remote" };
+
+export class DesktopTransferRequiredError extends Error {
+  readonly nodeName?: string;
+  constructor(message: string, nodeName?: string) {
+    super(message);
+    this.name = "DesktopTransferRequiredError";
+    this.nodeName = nodeName;
+  }
+}
+
+export class DesktopApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  constructor(status: number, message: string, code?: string) {
+    super(message);
+    this.name = "DesktopApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+async function hostFetchJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const res = await fetch(path, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
+  if (!res.ok) {
+    const err = await readHttpError(res);
+    throw new DesktopApiError(res.status, err.detail || `Request failed (${res.status})`, err.code);
+  }
+  return (await res.json()) as T;
+}
+
+async function authedDesktopJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await authFetch(path, init);
+  if (!res.ok) {
+    const err = await readHttpError(res);
+    if (res.status === 409 && (err.code === "transfer_confirmation_required" || err.detail.includes("transfer_confirmation_required"))) {
+      throw new DesktopTransferRequiredError(err.detail || "Transfer confirmation required");
+    }
+    throw new DesktopApiError(res.status, err.detail || `Request failed (${res.status})`, err.code);
+  }
+  return (await res.json()) as T;
+}
+
+/** Read current loopback host context (`im_origin`, `context_epoch`, `platform`). */
+export function getDesktopContext(): Promise<DesktopHostContextResponse> {
+  return hostFetchJson<DesktopHostContextResponse>("/desktop/v1/context");
+}
+
+/** Switch active IM server origin on the Desktop host and increment `context_epoch`. */
+export function switchDesktopServer(imOrigin: string): Promise<DesktopHostContextResponse> {
+  return hostFetchJson<DesktopHostContextResponse>("/desktop/v1/server", {
+    method: "PUT",
+    body: JSON.stringify({ im_origin: imOrigin.trim() }),
+  });
+}
+
+/** Open an external `http(s)://` URL in the OS default browser without IM credentials. */
+export async function openDesktopExternal(url: string): Promise<void> {
+  await hostFetchJson<{ ok: boolean }>("/desktop/v1/open-external", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
+}
+
+/** Inspect local node ownership, live status, proxy/env config, workers, and logs. */
+export function inspectDesktopLocalNode(logQuery?: string): Promise<DesktopLocalInspectResponse> {
+  const suffix = logQuery?.trim() ? `?log_query=${encodeURIComponent(logQuery.trim())}` : "";
+  return authedDesktopJson<DesktopLocalInspectResponse>(`/desktop/v1/local-node/inspect${suffix}`);
+}
+
+/** Probe DSH / Codex CLI / Claude Code availability against candidate `PATH`. */
+export function probeDesktopWorkers(extraPath?: string): Promise<{ workers: DesktopWorkerProbeItem[] }> {
+  return authedDesktopJson<{ workers: DesktopWorkerProbeItem[] }>("/desktop/v1/local-node/probe-workers", {
+    method: "POST",
+    body: JSON.stringify({ extra_path: extraPath ?? "" }),
+  });
+}
+
+/** Bind a fresh computer, smoothly take over a same-owner node, or confirm full-machine transfer. */
+export function connectDesktopLocalNode(input?: {
+  confirmTransfer?: boolean;
+  nodeName?: string;
+}): Promise<DesktopConnectResponse> {
+  return authedDesktopJson<DesktopConnectResponse>("/desktop/v1/local-node/connect", {
+    method: "POST",
+    body: JSON.stringify({
+      confirm_transfer: Boolean(input?.confirmTransfer),
+      ...(input?.nodeName ? { node_name: input.nodeName } : {}),
+    }),
+  });
+}
+
+/** Run serialized local node lifecycle actions or non-interrupting login autostart toggle. */
+export function controlDesktopLocalNode(input: {
+  action: "start" | "stop" | "restart" | "autostart";
+  enabled?: boolean;
+}): Promise<DesktopLocalInspectResponse> {
+  return authedDesktopJson<DesktopLocalInspectResponse>("/desktop/v1/local-node/lifecycle", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Validate, atomically persist, and restart (with automatic rollback on failure) local node config. */
+export function saveDesktopLocalNodeConfig(input: DesktopLocalConfigInput): Promise<DesktopLocalInspectResponse> {
+  return authedDesktopJson<DesktopLocalInspectResponse>("/desktop/v1/local-node/config", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Open or reveal a verified workspace path in Finder / Explorer. */
+export function openDesktopWorkspacePath(input: {
+  agent_id: string;
+  path: string;
+  action: "open" | "reveal";
+}): Promise<{ ok: true; resolved_path: string }> {
+  return authedDesktopJson<{ ok: true; resolved_path: string }>("/desktop/v1/workspace/open", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Attempt local direct trajectory preparation; returns `{ mode: "remote" }` when not local. */
+export function prepareDesktopLocalTrajectory(input: {
+  agent_id: string;
+  session_id: string;
+}): Promise<DesktopTrajectoryPrepareResponse> {
+  return authedDesktopJson<DesktopTrajectoryPrepareResponse>("/desktop/v1/trajectory/prepare", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}

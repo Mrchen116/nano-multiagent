@@ -1,12 +1,14 @@
+import { desktopScopedKey } from '../../desktop/desktop-context';
+
 /** Open the origin-scoped chat database without replacing in-flight legacy send attempts.
  *
  * Returns:
  *   A caller-owned connection. Account IDs remain part of every store key; IndexedDB's
- *   origin boundary supplies service isolation. Upgrade adds only private leave watermarks.
+ *   origin boundary supplies service isolation on Web, while Desktop scopes by `imOrigin`.
  */
 export function openChatDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('im-message-attempts', 2);
+    const request = indexedDB.open(desktopScopedKey('im-message-attempts'), 2);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains('attempts')) {

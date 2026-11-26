@@ -74,8 +74,14 @@ def _results(body: dict) -> dict[str, dict]:
     }
 
 
+def _system_text(body: dict) -> str:
+    return _text({"content": body.get("system", [])})
+
+
 def _response(body: dict, scenario: str) -> bytes:
-    if any(tool["name"].startswith("guardian_") for tool in body.get("tools", [])):
+    if _system_text(body).startswith(
+        "You are judging one planned coding-agent action."
+    ) or any(tool["name"].startswith("guardian_") for tool in body.get("tools", [])):
         return _sse_text('{"outcome":"allow"}', input_tokens=100)
     if not body.get("tools"):
         return _sse_text("<block>no</block>", input_tokens=100)
@@ -85,7 +91,9 @@ def _response(body: dict, scenario: str) -> bytes:
         for message in messages
         if message["role"] == "user"
         and _text(message)
-        and not _text(message).startswith("Current runtime context.")
+        and not _text(message).startswith(
+            ("Current runtime context.", "<system-reminder>")
+        )
     ]
     latest = user_texts[-1]
     results = _results(body)

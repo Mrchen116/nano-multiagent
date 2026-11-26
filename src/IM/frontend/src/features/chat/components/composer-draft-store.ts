@@ -1,3 +1,4 @@
+import { desktopScopedKey } from "../../../desktop/desktop-context";
 import type { Attachment } from "../chat-types";
 import { forgetSendAttempts } from "./send-attempt-store";
 
@@ -66,12 +67,13 @@ export function readingPositionStoreFor(
 }
 
 export function composerStoreFor(userId: string | null): Map<string, ComposerSnapshot> {
-  const key = userId ?? "anon";
+  const rawOwner = userId ?? "anon";
+  const key = desktopScopedKey(rawOwner);
   let store = stores.get(key);
   if (!store) {
     store = new Map();
     stores.set(key, store);
-    owners.set(store,key);
+    owners.set(store, rawOwner);
   }
   return store;
 }
@@ -146,10 +148,11 @@ export function restoreComposerMembership(store: Map<string, ComposerSnapshot>, 
 export function forgetComposerUser(userId: string): void {
   void forgetSendAttempts(userId).catch(() => {});
   readingStores.delete(userId);
-  const store = stores.get(userId);
+  const key = desktopScopedKey(userId);
+  const store = stores.get(key);
   if (!store) return;
   for (const id of store.keys()) forgetComposerConversation(store, id);
-  stores.delete(userId);
+  stores.delete(key);
 }
 
 /** Topic drafts share the account store and membership lifetime with the parent chat. */

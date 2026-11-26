@@ -136,12 +136,12 @@ it.each([{contextWindow:256000,fixed:0,maxBatches:3},{contextWindow:1000000,fixe
   let client: InstanceType<typeof RuntimeClient> | undefined;
   await writeFile(join(home, 'fixture.mjs'), `
 import {appendFileSync} from 'node:fs';
-export const inject=['llm'];
+export const inject=['llm','tools'];
 export function apply(ctx){
-ctx.on('system-prompt/assemble',async(assembly,context,next)=>{
- const result=await next();
- if(String(context.scope?.id).startsWith('dreaming-'))result.tools=result.tools.map(tool=>tool.name==='read'?{...tool,description:tool.description+'固'.repeat(${fixed})}:tool);
- return result;
+ctx.on('agent/created',({agent})=>{
+ if(!String(agent.id).startsWith('dreaming-')||!${fixed})return;
+ const base=ctx.tools.get('read',agent);
+ if(base)agent.ctx.tools.register({...base,description:base.description+'固'.repeat(${fixed})});
 });
 ctx.on('llm/stream',async function*(request){
   appendFileSync(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify(request)+'\\n');

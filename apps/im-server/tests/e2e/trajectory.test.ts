@@ -25,7 +25,7 @@ it.each([true, false])('pairs a shared Work reader separately from device traffi
   cleanups.push(() => node.terminate());
   await once(node, 'open');
   expect(node.extensions).toBe('permessage-deflate');
-  node.send(JSON.stringify({ type: 'ready', observerId: prepare.payload.scope.observerId, version: '0.2.1-alpha.1' }));
+  node.send(JSON.stringify({ type: 'ready', observerId: prepare.payload.scope.observerId, version: '0.2.2-rc.5' }));
   expect((await browserFrames.next()).type).toBe('ready');
   expect(browser.extensions).toBe(compression ? 'permessage-deflate' : '');
   const reused = new WebSocket(url); cleanups.push(() => reused.terminate());
@@ -115,7 +115,7 @@ it.each([false,true])('pairs an authorized prepared reader without repeating nod
     node = new WebSocket(f.base.replace('http:','ws:')+`/im/ws/node-trajectory?ticket=${prepare.payload.ticket}`);
     cleanups.push(()=>node!.terminate());
     await once(node,'open');
-    node.send(JSON.stringify({type:'ready',observerId:prepare.payload.scope.observerId,version:'0.2.1-alpha.1'}));
+    node.send(JSON.stringify({type:'ready',observerId:prepare.payload.scope.observerId,version:'0.2.2-rc.5'}));
   };
   if(nodeFirst) await pairNode();
   const url=f.base.replace('http:','ws:')+`/im/ws/agent-trajectory?ticket=${grant.body.ticket}&agent_id=global&session_id=prepared-main`;
@@ -147,7 +147,7 @@ it('expires an unclaimed prepared reader even when the node has already paired',
   const grant=await f.http('POST','/im/v1/agents/global/trajectory/prepare',{session_id:'prepared-main'},f.tokens.bob);
   const prepare=await device.frames.next(frame=>frame.type==='trajectory.prepare');
   const node=new WebSocket(f.base.replace('http:','ws:')+`/im/ws/node-trajectory?ticket=${prepare.payload.ticket}`);cleanups.push(()=>node.terminate());await once(node,'open');
-  node.send(JSON.stringify({type:'ready',observerId:prepare.payload.scope.observerId,version:'0.2.1-alpha.1'}));
+  node.send(JSON.stringify({type:'ready',observerId:prepare.payload.scope.observerId,version:'0.2.2-rc.5'}));
   expect((await once(node,'close'))[0]).toBe(1013);
   const browser=new WebSocket(f.base.replace('http:','ws:')+`/im/ws/agent-trajectory?ticket=${grant.body.ticket}&agent_id=global&session_id=prepared-main`,{origin:'http://127.0.0.1:8011'});cleanups.push(()=>browser.terminate());
   expect((await once(browser,'close'))[0]).toBe(1008);
@@ -215,7 +215,7 @@ it('bounds first-frame preparation in either pairing order and keeps successful 
   }
   const retry = await connect(false);
   expect(stalled.map(reader => reader.observerId)).not.toContain(retry.observerId);
-  retry.node.send(JSON.stringify({ type: 'ready', observerId: retry.observerId, version: '0.2.1-alpha.1' }));
+  retry.node.send(JSON.stringify({ type: 'ready', observerId: retry.observerId, version: '0.2.2-rc.5' }));
   expect(await retry.frames.next()).toMatchObject({ type: 'ready', observerId: retry.observerId });
   // The readiness deadline must not become a limit on quiet, established readers.
   await new Promise(resolve => setTimeout(resolve, 31_000));

@@ -16,11 +16,13 @@ private typealias PluginRead = AgentSettingsRead<PluginCatalog>
 struct AgentPluginsView: View {
     let client: IMClient
     let agentID: String
+    var onChanged: (() async -> Void)? = nil
     @Environment(\.scenePhase) private var scenePhase
     @State private var read: PluginRead?
     @State private var error: String?
     @State private var removing: PluginCatalog.Entry?
     @State private var busy = false
+    @State private var hadPending = false
     private var writable: Bool { !busy && error == nil && read?.source == "current" && read?.data?.pending == nil }
     var body: some View {
         List {
@@ -78,6 +80,12 @@ struct AgentPluginsView: View {
             let result: PluginRead = try await client.get(agentPath(agentID) + "/settings/sections/plugins")
             try Task.checkCancellation()
             read = result; error = nil
+            if result.data?.pending != nil {
+                hadPending = true
+            } else if hadPending && result.source == "current" {
+                hadPending = false
+                await onChanged?()
+            }
         } catch {
             guard !Task.isCancelled else { return }
             if let api = error as? APIError, [401, 403, 404].contains(api.status) { read = nil }
@@ -90,9 +98,14 @@ struct AgentPluginsView: View {
         var body: [String: JSONValue] = ["action": .string(enabled == nil ? "remove_bundle" : "set_bundle"), "target": .string(plugin.name)]
         if let enabled { body["enabled"] = .bool(enabled) }
         var failure: String?
-        do { let _: PluginCatalog = try await client.send(agentPath(agentID) + "/plugins", body: body) }
+        var appliedImmediately = false
+        do {
+            let result: PluginCatalog = try await client.send(agentPath(agentID) + "/plugins", body: body)
+            if result.pending != nil { hadPending = true } else { appliedImmediately = true }
+        }
         catch { failure = agentError(error) }
         busy = false; await refresh()
+        if appliedImmediately { await onChanged?() }
         if let failure { error = failure }
     }
 }

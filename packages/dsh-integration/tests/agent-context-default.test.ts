@@ -91,17 +91,18 @@ it.each(['nano','codex','dsh'] as const)('allows bounded internal context operat
   let client: RuntimeClient | undefined; let logs = '';
   try {
     await writeFile(join(home,'probe.mjs'), `import {writeFile} from 'node:fs/promises';
-export const inject=['tools','llm','subagents'];
+export const inject=['tools','llm','subagents','agents'];
 export function apply(ctx) {
   ctx.tools.register({name:'context_forbidden',description:'A business side effect',parameters:{type:'object',properties:{}},output:{schema:{type:'object'},render:(_a,r)=>[{type:'text',text:JSON.stringify(r)}]},execute:()=>{throw Error('BUSINESS_TOOL_EXECUTED');}});
   ctx.on('tools/pre-execute',(exec,next)=>exec.name==='notes'&&exec.arguments.path==='blocked'?{kind:'deny',reason:'EXPLICIT_CONTEXT_DENY'}:next());
-  ctx.on('llm/stream',async function*(){yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};});
+  const probe=async(target)=>{const results=[];for(const [name,args] of [['notes',{action:'write',path:'checkpoint',text:'PRIVATE_PROGRESS'}],['history',{action:'list_windows'}],['get_context_remaining',{}],['new_context',{}],['notes',{action:'write',path:'blocked',text:'must not write'}],['context_forbidden',{}]]){const sig=new AbortController().signal;const modelSelection=target.model.current()??{provider:target.options.provider??'deepseek-official',model:target.options.model??'deepseek-flash'};const toolSet=await ctx.tools.resolve({scope:target,agent:target,modelSelection,signal:sig});const out=(await ctx.tools.execute({calls:[{type:'tool-call',id:'probe-'+target.id+'-'+name,name,arguments:JSON.stringify(args)}],agent:target,toolSet,signal:sig})).results[0].result;toolSet.dispose();results.push({name,blocked:args.path==='blocked',result:out});}return results;};
+  let childProbed;
+  ctx.on('llm/stream',async function*(o){const c=o.sessionId&&o.sessionId!=='root'?ctx.agents.get(o.sessionId):undefined;if(c&&!childProbed)childProbed=await probe(c);yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};});
   ctx.on('agent/created',({agent})=>{if(agent.id!=='root')return;setTimeout(async()=>{
     try {
-      const run=await ctx.subagents.start('spawn',{parent:agent,prompt:[{type:'text',text:'context probe'}],signal:new AbortController().signal});
-      await run.result; const child=run.localAgent;
-      const probe=async(target)=>{const results=[];for(const [name,args] of [['notes',{action:'write',path:'checkpoint',text:'PRIVATE_PROGRESS'}],['history',{action:'list_windows'}],['get_context_remaining',{}],['new_context',{}],['notes',{action:'write',path:'blocked',text:'must not write'}],['context_forbidden',{}]]) results.push({name,blocked:args.path==='blocked',result:await ctx.tools.execute({name,callId:'probe-'+target.id+'-'+name,arguments:args,agent:target,signal:new AbortController().signal})});return results;};
-      await writeFile(process.env.DSH_HOME+'/probe.json',JSON.stringify({root:await probe(agent),child:await probe(child)}));await run.dispose();
+      const run=await ctx.subagents.startActivation({provider:'spawn',label:'context probe',delivery:'caller',parent:agent,prompt:[{type:'text',text:'context probe'}],signal:new AbortController().signal});
+      await run.result;
+      await writeFile(process.env.DSH_HOME+'/probe.json',JSON.stringify({root:await probe(agent),child:childProbed}));await run.dispose();
     } catch(error) {await writeFile(process.env.DSH_HOME+'/probe.json',JSON.stringify({error:String(error)}));}
   },0);});
 }`);

@@ -16,7 +16,7 @@ import { InAppToast } from "./components/in-app-toast";
 
 import { useIsMobile } from "../../hooks/use-is-mobile";
 import { useTranslation } from "../../i18n";
-import { colorForAgent } from "./components/avatar";
+import { AvatarIdentities } from "./components/avatar";
 import {
   getConversation,
   getMessageDetail,
@@ -466,6 +466,8 @@ export function ChatWorkspacePage() {
   const contactsQuery = useQuery({ queryKey: ["contacts", selfUserId], queryFn: () => listContacts(), refetchInterval: 3000 });
   const publicAgents = (contactsQuery.data ?? []).filter(c => c.kind === "agent");
   const distillAgentIds = new Set(publicAgents.filter(a => a.owner_id === selfUserId && a.work_mode === "single_thread").map(a => a.agent_id));
+  const workspaceActors = useMemo(() => (conversationsQuery.data ?? []).flatMap(chat => chat.participants),
+    [conversationsQuery.data]);
   const sidebarConversations = localConversations.map(c => distillAgentIds.has(c.source_agent_id ?? "") ? c : { ...c, source_agent_id: null, source_node_id: null });
   function canDistillConversation(c: Conversation) { return isDistillConversationEligible(c) && distillAgentIds.has(c.source_agent_id ?? ""); }
 
@@ -527,15 +529,13 @@ export function ChatWorkspacePage() {
     nodeStatus: "online" | "offline";
     nodeId?: string | null;
     nodeUpdate?: NodeUpdateView;
-    agentColor: string | null;
-    agentInitials: string | null;
   }>(() => {
     if (!activeConversation) {
-      return { agentId: null, nodeName: null, nodeStatus: "offline", agentColor: null, agentInitials: null };
+      return { agentId: null, nodeName: null, nodeStatus: "offline" };
     }
     const agentParticipant = activeConversation.participants.find((p) => p.type === "agent");
     if (!agentParticipant) {
-      return { agentId: null, nodeName: null, nodeStatus: "offline", agentColor: null, agentInitials: null };
+      return { agentId: null, nodeName: null, nodeStatus: "offline" };
     }
     const agent = publicAgents.find(a => a.agent_id === agentParticipant.id);
     const owned=agentsQuery.data?.find(a=>a.agent_id===agentParticipant.id);
@@ -546,15 +546,13 @@ export function ChatWorkspacePage() {
       nodeStatus: agent?.status ?? "offline",
       nodeId: node?.node_id,
       nodeUpdate: node?.update,
-      agentColor: colorForAgent({ display_name: agent?.display_name ?? agentParticipant.display_name ?? agentParticipant.id }),
-      agentInitials: (agent?.display_name ?? agentParticipant.display_name ?? agentParticipant.id).slice(0, 2)
     };
   }, [activeConversation, contactsQuery.data, agentsQuery.data, nodesQuery.data]);
 
   const ownedDirectAgent = activeConversation?.type === "direct"
     && publicAgents.find(agent => agent.agent_id === headerAgentContext.agentId && agent.owner_id === selfUserId && agent.work_mode === "global");
   const cooperationAgent = isPersonalConversation && personalBinding ? {
-    id: personalBinding.agent_id, name: personalBinding.display_name, personal: true, avatarVariant:personalBinding.avatar_variant,
+    id: personalBinding.agent_id, name: personalBinding.display_name, personal: true,
     online: headerAgentContext.nodeStatus === "online",
   } : ownedDirectAgent ? {
     id: ownedDirectAgent.agent_id!, name: ownedDirectAgent.display_name, personal: false,
@@ -585,7 +583,6 @@ export function ChatWorkspacePage() {
         id: p.id,
         userId,
         type: p.type,
-        role: p.role, avatarVariant:p.avatar_variant,
         displayName: p.display_name ?? p.id,
         isSelf: p.type === "user" && userId === selfUserId,
         isCreator: userId != null && userId === activeConversation.creator_id,
@@ -599,7 +596,7 @@ export function ChatWorkspacePage() {
     if (!activeConversation) return [];
     const members = new Set(activeConversation.participants.map(p => p.user_id ?? p.id));
     return (contactsQuery.data ?? []).filter(c => !members.has(c.user_id) && (c.kind === "human" || c.owner_id === selfUserId)).map(c => ({
-      agentId: c.agent_id ?? c.user_id, type: c.kind === "human" ? "user" : "agent", displayName: c.display_name, status: c.status, role:c.role, avatarVariant:c.avatar_variant
+      agentId: c.agent_id ?? c.user_id, type: c.kind === "human" ? "user" : "agent", displayName: c.display_name, status: c.status
     }));
   }, [activeConversation, contactsQuery.data, selfUserId]);
 
@@ -1381,6 +1378,7 @@ export function ChatWorkspacePage() {
   }
 
   return (
+    <AvatarIdentities actors={workspaceActors} source="members">
     <div className="chat-workspace" ref={chatRootRef}>
       {(workReturnUrl || locatorNotice) && <div className="im-work-chat-navigation" role="status">{workReturnUrl && <button type="button" onClick={() => navigate(workReturnUrl)}>{t("agents.work.← 返回工作")}</button>}{locatorNotice && <span>{t(`agents.work.${locatorNotice}`, {defaultValue:locatorNotice})}</span>}</div>}
       {forkToast && (
@@ -1425,7 +1423,7 @@ export function ChatWorkspacePage() {
           personalAgentEntry={personalAgent.isError
             ? <div className="pa-entry pa-notice"><button type="button" onClick={() => void personalAgent.refetch()}>{t('pa.retry','个人助手暂不可用 · 重试')}</button></div>
             : personalAgent.isSuccess && <PersonalAgentEntry
-              name={personalBinding?.display_name} agentId={personalBinding?.agent_id} avatarVariant={personalBinding?.avatar_variant}
+              name={personalBinding?.display_name} agentId={personalBinding?.agent_id}
               conversation={localConversations.find(c => c.id === personalBinding?.conversation_id)}
               active={isPersonalConversation}
               onSelect={() => personalBinding ? navigate(`/chat/${personalBinding.conversation_id}`) : navigate('/onboarding')}
@@ -1496,7 +1494,6 @@ export function ChatWorkspacePage() {
             })}
             onCloseLocatedThread={() => location.state?.fromThreadTimeline
               ? navigate(-1) : navigate(location.pathname, {replace: true, state: location.state})}
-            personalAgent={isPersonalConversation || publicAgents.some(a=>a.agent_id===headerAgentContext.agentId&&a.role==='personal')}
             cooperationAgent={messagesQuery.isSuccess && !messagesQuery.isFetching && hasMoreHistory === false && messagesQuery.data.items.length === 0 ? cooperationAgent : undefined}
             returnNavigation={location.state?.personalAgentReturn && personalBinding && !isPersonalConversation
               ? <button type="button" onClick={()=>navigate(`/chat/${encodeURIComponent(personalBinding.conversation_id)}`)}>{t('pa.return','← 返回个人助手')}</button>
@@ -1526,8 +1523,6 @@ export function ChatWorkspacePage() {
             nodeStatus={headerAgentContext.nodeStatus}
             nodeId={headerAgentContext.nodeId}
             nodeUpdate={headerAgentContext.nodeUpdate}
-            agentColor={headerAgentContext.agentColor}
-            agentInitials={headerAgentContext.agentInitials}
             onSend={(text, attachments, interactionReply, idempotencyKey, replyToMessageId) => sendMutation.mutateAsync({
               conversationId: activeConversation.id,
               text,
@@ -1572,7 +1567,7 @@ export function ChatWorkspacePage() {
           />
         ) : conversationId ? (
           <PendingConversationPane conversation={localConversations.find(chat => chat.id === conversationId)}
-            personal={isPersonalConversation} selfUserId={selfUserId}>
+            selfUserId={selfUserId}>
             {historyStatus}
           </PendingConversationPane>
         ) : (
@@ -1597,7 +1592,7 @@ export function ChatWorkspacePage() {
           isBusy={createGroupMutation.isPending}
           error={createGroupMutation.isError}
           agents={(contactsQuery.data ?? []).filter(c => c.user_id !== selfUserId && (c.kind === "human" || c.owner_id === selfUserId)).map(c => ({
-            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id, role:c.role, avatar_variant:c.avatar_variant
+            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id
           }))}
           onClose={() => setShowNewGroup(false)}
           onCreate={(payload) => createGroupMutation.mutate(payload)}
@@ -1709,5 +1704,6 @@ export function ChatWorkspacePage() {
         />
       )}
     </div>
+    </AvatarIdentities>
   );
 }

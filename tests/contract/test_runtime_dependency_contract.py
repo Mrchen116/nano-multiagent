@@ -10,6 +10,12 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 IMPORT = re.compile(r"(?:\bfrom\s*|\bimport\s*\(?\s*)['\"]([^'\"]+)['\"]")
+# Web and native iOS use the same static avatar assets and parity fixtures.
+SHARED_AVATAR_DATA = {
+    ROOT / "src/IM/shared/avatar-palette.json",
+    ROOT / "src/IM/shared/portrait-palette.json",
+    ROOT / "src/IM/shared/avatar-test-cases.json",
+}
 ALLOWED = {
     "packages/product-contracts": set(),
     "packages/channels": {
@@ -36,12 +42,20 @@ ALLOWED = {
     },
     "packages/trajectory-ui": {"@nano/product-contracts"},
     "src/IM/frontend": {
+        "@nano/product-contracts",
+        "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/interactive-functions",
         "@nano/product-contracts/capabilities",
         "@nano/product-contracts/agent-lifecycle",
         "@nano/product-contracts/worker-runtimes",
     },
+    "apps/desktop": {
+        "@nano/product-contracts",
+        "@nano/product-contracts/desktop-local",
+        "@nano/product-contracts/worker-runtimes",
+    },
     "apps/im-server": {
+        "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/node-rpc",
         "@nano/product-contracts/interactive-functions",
         "@nano/product-contracts/serialization",
@@ -49,6 +63,7 @@ ALLOWED = {
         "@nano/product-contracts/capabilities",
     },
     "apps/node": {
+        "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/node-rpc",
         "@nano/product-contracts/runtime-rpc",
         "@nano/product-contracts",
@@ -90,6 +105,8 @@ def test_product_owns_no_runtime_internals(package: str) -> None:
             ), (path, specifier)
             if specifier.startswith("."):
                 resolved = (path.parent / specifier).resolve()
+                if package == "src/IM/frontend" and resolved in SHARED_AVATAR_DATA:
+                    continue
                 assert resolved.is_relative_to(ROOT / package), (path, specifier)
 
 

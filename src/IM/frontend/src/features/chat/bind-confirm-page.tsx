@@ -1,3 +1,4 @@
+import { Avatar } from "./components/avatar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -62,7 +63,7 @@ export function BindConfirmPage() {
           <div className="bind-phase-label"><span />{t(committed ? "onboarding.bindConnectedLabel" : accepted ? "onboarding.bindConnectingLabel" : "onboarding.bindConfirmLabel")}</div>
           <h1 id="bind-title">{t(committed ? "onboarding.bindConnectedTitle" : accepted ? "onboarding.bindConnectingTitle" : binding?.is_transfer ? "company.bind.title" : "onboarding.bindTitle")}</h1>
           <p className="bind-description">{binding?.is_transfer ? t("onboarding.transferHistory") : t(committed ? "onboarding.bindConnectedNote" : accepted ? "onboarding.bindWaitingNote" : "onboarding.bindDescription")}</p>
-          <div className="bind-account"><span className="bind-avatar" aria-hidden="true">{accountName.slice(0, 1)}</span><div><small>{t(binding?.is_transfer ? "company.bind.account" : "onboarding.bindAccount")}</small><strong>{accountName}</strong></div>
+          <div className="bind-account"><Avatar id={user?.id ?? ""} size={40} /><div><small>{t(binding?.is_transfer ? "company.bind.account" : "onboarding.bindAccount")}</small><strong>{accountName}</strong></div>
             {!accepted && !committed && <Link to="/login" state={{ signOut: true, from: location.pathname + location.hash }}>{t("company.bind.switch")}</Link>}
           </div>
           {binding?.agents && binding.agents.length > 0 && <p className="bind-agents">{t("shell.tabs.agents")}: {binding.agents.join(", ")}</p>}

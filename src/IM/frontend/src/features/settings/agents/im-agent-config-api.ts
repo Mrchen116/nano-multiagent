@@ -74,6 +74,8 @@ export interface AgentAllowlistOption {
   // same-named skills at different paths. Absent/null for tools and older Gateways.
   location?: string | null;
   source_group?: "workspace" | "global" | "compatibility" | null;
+  plugin_bundle?: string | null;
+  plugin_title?: PluginText | null;
 }
 
 export interface AgentCommandOption {
@@ -368,6 +370,8 @@ export function normalizeAllowlistOptions(values: Array<string | AgentAllowlistO
         ...(typeof value.enabled === "boolean" || value.enabled === null ? {enabled: value.enabled} : {}),
         location: value.location ?? null,
         source_group: value.source_group ?? null,
+        ...(value.plugin_bundle ? {plugin_bundle: value.plugin_bundle} : {}),
+        ...(value.plugin_title ? {plugin_title: value.plugin_title} : {}),
       }];
     }
     return [];

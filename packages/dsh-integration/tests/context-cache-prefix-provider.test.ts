@@ -66,7 +66,6 @@ it.each([false, true])('checks Anthropic wire prefixes including images within t
     await writeFile(join(home,'fixture.mjs'),`
 export const inject=['tools'];
 export function apply(ctx) {
-  ctx.on('agent/created',({agent})=>{agent.ctx.tools.presentAs('native');});
   let unblock;
   const bFinished = new Promise(resolve => { unblock = resolve; });
   ctx.tools.register({

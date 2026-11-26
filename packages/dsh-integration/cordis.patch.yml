@@ -1,7 +1,27 @@
+- id: tool-fs
+  config:
+    applyPatch: true
+- id: tool-subagent-control
+  config:
+    interrupt: true
+- id: ptc-runtime
+  config:
+    executionMode: per-call
 - id: tool-web
   config:
     fetch: false
+    searchTimeoutMs: 60000
 # Only this plugin writes protocol frames to stdout. Official CLI owns the host.
+- id: tool-working-directory
+  disabled: true
+- id: agent-team
+  disabled: true
+- id: tool-agent-team
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: web-deepseek-api
+  disabled: true
 - id: compaction-basic
   disabled: true
 - id: session-projection-cache
@@ -19,6 +39,14 @@
 - id: session-telemetry-otel
   disabled: true
 - insert:
+    - id: nano-cordis-host-runner
+      name: '@deepseek-ai/dsh-cordis-host-runner'
+    - id: nano-cordis-inspect-host
+      name: '@deepseek-ai/dsh-tool-cordis/host'
+    - id: nano-tool-cordis
+      name: '@deepseek-ai/dsh-tool-cordis'
+    - id: nano-trajectory-tool-results
+      name: '@deepseek-ai/dsh-client-ui-trajectory'
     - id: nano-compaction
       name: '@nano/dsh-integration/compaction'
     - id: nano-workspace

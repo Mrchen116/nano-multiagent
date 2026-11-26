@@ -1,6 +1,6 @@
 import {childProbe, nativeChildren} from './helpers/native-child-probe.js';
 import { workDescendants } from './helpers/work-history.js';
-import { mkdir, mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
@@ -24,8 +24,8 @@ async function fixture() {
   export const name='run-facts-fixture';export const inject=['llm','tools','agents','subagents','sessionQuery'];export function apply(ctx){
     // Seed legacy DSH edges via its native tool so the historical navigation contract
     // remains exercised after Global switches new delegations to delegate_worker.
-    const nativeSpawn = ctx.tools.get('subagent');
-    ctx.tools.register({...nativeSpawn, name:'fixture_legacy_spawn'});
+    const mountSpawn=()=>{const nativeSpawn=ctx.tools.get('subagent');if(nativeSpawn&&!ctx.tools.get('fixture_legacy_spawn'))ctx.tools.register({...nativeSpawn, name:'fixture_legacy_spawn'});};
+    mountSpawn();ctx.on('tools/change',mountSpawn);
     const observe=ctx.sessionQuery.observeSession.bind(ctx.sessionQuery);
     ctx.sessionQuery.observeSession=async(id,options)=>{
       const failed=await readFile(${JSON.stringify(failedObservation)},'utf8').catch(error=>{if(error.code!=='ENOENT')throw error;});
@@ -33,7 +33,7 @@ async function fixture() {
       return observe(id,options);
     };
     ctx.tools.register({name:'fixture_drain',description:'Release resident fixture',parameters:{type:'object',properties:{id:{type:'string'}},required:['id']},
-      output:{schema:{},render:()=>[{type:'text',text:'released'}]},execute:async(args,exec)=>{await ctx.subagents.drainContinuableChildren(exec.agent,[args.id]);return {};}});
+      output:{schema:{},render:()=>[{type:'text',text:'released'}]},execute:async(_args,exec)=>{await ctx.subagents.drainDescendants([exec.agent]);return {};}});
     const held=new Map();ctx.tools.register({name:'fixture_release',description:'Release fixture work',parameters:{type:'object',properties:{}},output:{schema:{},render:()=>[{type:'text',text:'released'}]},execute:async()=>{for(const release of held.values())release();held.clear();return {};}});
     const concurrent=new Map();
     const seen=new Set();
@@ -51,27 +51,30 @@ async function fixture() {
       let calls=[];
       if(!seen.has(key)){
         seen.add(key);
-        if(user?.source?.channel==='runtime-recovery'&&o.sessionId!=='root')calls=[call('return-'+user.id,'send_message',{agent_id:ctx.agents.get(o.sessionId).session.header.parentSession,message:'resumed-result '+o.sessionId})];
-        if(text==='parallel')calls=[call('spawn-call','subagent',{prompt:'nested',description:'Ordinary work',run_in_background:false}),call('fork-call','subagent_fork',{prompt:'fork-leaf',description:'Fork work'})];
-        if(text==='nested')calls=[call('nested-call','subagent',{prompt:'leaf',description:'Nested work',run_in_background:false})];
-        if(text==='leaf')calls=[call('too-deep','subagent',{prompt:'unreachable',description:'Third level',run_in_background:false})];
-        if(text==='background')calls=[call('background-call','subagent',{prompt:'resident',description:'Resident work',run_in_background:true})];
-        if(text.startsWith('wake:'))calls=[call(user.id+'-wake','send_message',{agent_id:text.slice(5),message:'resident-again'})];
+        if((user?.source?.channel==='runtime-recovery'||String(user?.source?.rpcId??'').startsWith('nano-runtime-recovery:'))&&o.sessionId!=='root'){const parentId=ctx.agents.get(o.sessionId).session.header.parentSession;calls=[call('return-'+user.id,'send_message',{agent:parentId==='root'?'lead':parentId,message:'resumed-result '+o.sessionId})];}
+        if(text==='parallel')calls=[call('spawn-call','subagent',{prompt:'nested',description:'Ordinary work'}),call('fork-call','subagent_fork',{prompt:'fork-leaf',description:'Fork work'})];
+        if(text==='nested')calls=[call('nested-call','subagent',{prompt:'leaf',description:'Nested work'})];
+        if(text==='leaf')calls=[call('too-deep','subagent',{prompt:'unreachable',description:'Third level'})];
+        if(text==='background')calls=[call('background-call','subagent',{prompt:'resident',description:'Resident work'})];
+        if(text.startsWith('wake:'))calls=[call(user.id+'-wake','send_message',{agent:text.slice(5),message:'resident-again'})];
         if(text==='release')calls=[call(user.id+'-release','fixture_release',{})];
         if(text.startsWith('drain:'))calls=[call(user.id+'-drain','fixture_drain',{id:text.slice(6)})];
-        if(['fail','cancel'].includes(text))calls=[call(text+'-call','subagent_fork',{prompt:'child-'+text,description:text,run_in_background:false})];
-        if(text==='fork-tree-crash')calls=[call(user.id+'-fork-tree','subagent_fork',{prompt:'child-nested-hold',description:'Interrupted fork tree'}),call('fork-call','subagent',{prompt:'child-hold',description:'Resumable sibling',run_in_background:true})];
+        if(['fail','cancel'].includes(text))calls=[call(text+'-call','subagent_fork',{prompt:'child-'+text,description:text})];
+        if(text==='fork-tree-crash')calls=[call(user.id+'-fork-tree','subagent_fork',{prompt:'child-nested-hold',description:'Interrupted fork tree'}),call('fork-call','subagent',{prompt:'child-hold',description:'Resumable sibling'})];
         if(text==='fork-crash')calls=[call(user.id+'-fork','subagent_fork',{prompt:'child-hold',description:'Interrupted fork'})];
         if(text==='nested-crash')calls=[call(user.id+'-nested','delegate_worker',{action:'start',message:'child-nested-hold',label:'Nested interrupted work'})];
-        if(text==='child-nested-hold')calls=[call(user.id+'-grandchild','subagent',{prompt:'child-hold',description:'Nested interrupted leaf',run_in_background:true})];
-        if(text==='crash')calls=[call(user.id+'-crash','subagent',{prompt:'child-hold',description:text,run_in_background:true,backgroundMode:'continuable'})];
+        if(text==='child-nested-hold')calls=[call(user.id+'-grandchild','subagent',{prompt:'child-hold',description:'Nested interrupted leaf'})];
+        if(text==='crash')calls=[call(user.id+'-crash','subagent',{prompt:'child-hold',description:text})];
       }
       if(calls.length){for(const item of calls)yield item;yield{type:'finish',reason:{kind:'tool-calls'}};return;}
       yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};
     });
   }`);
-  await prepareProfile(home, [{ id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'test' }], retryPolicy: { mode: 'normal', maxRetries: 0 } } } } },
-    { insert: [childProbe, { id: 'run-facts-fixture', name: join(home, 'fixture.mjs') }] }]);
+  await prepareProfile(home, [
+    { id: 'session-persistence-jsonl', config: { root: join(home, 'sessions'), compression: 'none' } },
+    { id: 'llm-pi-ai', config: { providers: { fixture: { api: 'openai-completions', baseURL: 'http://127.0.0.1:9', apiKeyEnv: 'NANO_TEST_KEY', models: [{ id: 'test' }], retryPolicy: { mode: 'normal', maxRetries: 0 } } } } },
+    { insert: [childProbe, { id: 'run-facts-fixture', name: join(home, 'fixture.mjs') }] },
+  ]);
   const start = async (ensure = true) => {
     client = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
     registerNoopTaskHosts(client);
@@ -111,11 +114,23 @@ it('records exact ordinary/fork bounds and parallel/nested causal links, then re
   try {
     await f.submit('seed completed parent history');
     await f.submit('parallel');
+    await expect.poll(async () => {
+      const current = await f.runs();
+      return current.length === 2 && current.every(run => run.state === 'completed');
+    }, { timeout: 15000 }).toBe(true);
+    await expect.poll(async () => {
+      const spawn = (await f.runs()).find(run => run.provider === 'spawn');
+      if (!spawn) return false;
+      await f.prepare(spawn.sessionId);
+      const childRuns = await f.runs(spawn.sessionId);
+      return childRuns.length === 2 && childRuns.every(run => run.state === 'completed');
+    }, { timeout: 15000 }).toBe(true);
+    await expect.poll(async () => ((await f.client().rpc.request('session.observe', { sessionId: 'root' })) as any).status, { timeout: 15000 }).toBe('idle');
     const runs = await f.runs();
     expect(runs, f.logs()).toHaveLength(2);
     const rootEvents = await f.events('root');
     for (const run of runs) {
-      expect(run).toMatchObject({ parentSessionId: 'root', kind: 'tool', delegation: 'foreground', state: 'completed', stopReason: 'completed' });
+      expect(run).toMatchObject({ parentSessionId: 'root', kind: 'tool', delegation: 'background', state: 'completed', stopReason: 'completed' });
       expect(run.launchSeq).toBe(rootEvents.find(e => e.type === 'tool/call' && e.data.callId === run.callId).seq);
       const events = await f.events(run.sessionId);
       expect(run.startSeq).toBeDefined();
@@ -202,7 +217,12 @@ it('delivers a lost external worker to its original parent once after cold recov
 it('resumes both interrupted child levels without new user input while preserving failed and cancelled terminals', async () => {
   const f = await fixture();
   try {
-    await f.submit('fail'); await f.submit('cancel');
+    await f.submit('fail');
+    await expect.poll(async () => (await f.runs())[0]?.state, { timeout: 15000 }).toBe('failed');
+    await expect.poll(async () => ((await f.client().rpc.request('session.observe', { sessionId: 'root' })) as any).status, { timeout: 15000 }).toBe('idle');
+    await f.submit('cancel');
+    await expect.poll(async () => (await f.runs())[1]?.state, { timeout: 15000 }).toBe('cancelled');
+    await expect.poll(async () => ((await f.client().rpc.request('session.observe', { sessionId: 'root' })) as any).status, { timeout: 15000 }).toBe('idle');
     expect((await f.runs()).map(run => [run.stopReason, run.state])).toEqual([['error', 'failed'], ['aborted', 'cancelled']]);
     await f.submit('nested-crash');
     await expect.poll(async () => (await f.requests()).filter(row => row.messages.some((m:any) => m.content.some((b:any) => b.text === 'child-hold'))).length).toBeGreaterThan(0);
@@ -210,14 +230,16 @@ it('resumes both interrupted child levels without new user input while preservin
     const child = work.workerChanges.find(worker => worker.label === 'Nested interrupted work')!.workerId;
     const grandchild = (await f.nativeChildren()).find(entry => entry.parentId === child)!.id;
     const childEvents = async (id: string) => (await f.nativeChildren()).find(entry => entry.id === id)!.events;
-    expect((await f.runs()).map(run => run.sessionId)).not.toContain(child);
+    expect((await f.runs()).map(run => run.sessionId)).toContain(child);
+    await f.prepare(child);
+    expect((await f.runs(child)).map(run => run.sessionId)).not.toContain(grandchild);
     f.client().process.kill('SIGKILL'); await f.client().exited;
     const count = (await f.requests()).length;
     await f.start(false); await f.ensure(); await f.prepare();
     await expect.poll(async () => new Set((await f.requests()).slice(count).map(row=>row.sessionId)).size).toBe(3);
     const resumed = (await f.requests()).slice(count);
     expect(new Set(resumed.map(row=>row.sessionId))).toEqual(new Set(['root',child,grandchild]));
-    for (const row of resumed.filter(row=>row.sessionId!=='root')) expect(row.messages.some((m:any)=>m.source?.channel==='runtime-recovery' && m.content[0].text.includes('original authorization'))).toBe(true);
+    for (const row of resumed.filter(row=>row.sessionId!=='root')) expect(row.messages.some((m:any)=>(m.source?.channel==='runtime-recovery' || String(m.source?.rpcId ?? '').startsWith('nano-runtime-recovery:')) && m.content[0].text.includes('original authorization'))).toBe(true);
     await expect.poll(async () => (await childEvents(child)).findLast(event=>event.type==='turn/end')?.data.reason.kind).toBe('completed');
     await expect.poll(async () => (await childEvents(grandchild)).findLast(event=>event.type==='turn/end')?.data.reason.kind).toBe('completed');
     expect(resumed.some(row=>row.sessionId==='root'&&JSON.stringify(row.messages).includes('resumed-result'))).toBe(true);
@@ -260,7 +282,7 @@ it('retries a partial crash cut before a managed child can replace interruption 
     await f.restoreChildObservation();
     expect(await notify()).toMatchObject({durable: true});
     await f.ensure();
-    await expect.poll(async () => (await f.requests()).slice(requestsBeforeRestart).some(request=>request.sessionId===children[1] && request.messages.some((m:any)=>m.source?.channel==='runtime-recovery'))).toBe(true);
+    await expect.poll(async () => (await f.requests()).slice(requestsBeforeRestart).some(request=>request.sessionId===children[1] && request.messages.some((m:any)=>m.source?.channel==='runtime-recovery' || String(m.source?.rpcId ?? '').startsWith('nano-runtime-recovery:')))).toBe(true);
     // The first child already received explicit managed work; it is not restarted again.
     expect((await f.requests()).slice(requestsBeforeRestart).filter(request=>request.sessionId===children[0])).toHaveLength(1);
   } catch (error) { throw new Error(`${error}
@@ -269,19 +291,70 @@ ${f.logs()}`, { cause: error }); }
 }, 30000);
 
 
+async function rewriteAsHistoricalOneShot(home: string, childId: string): Promise<void> {
+  const entries = await readdir(join(home, 'sessions'), { recursive: true, withFileTypes: true });
+  let matchedCatalog = false;
+  let matchedDescriptor = false;
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.jsonl')) continue;
+    const filePath = join(entry.parentPath, entry.name);
+    const text = await readFile(filePath, 'utf8');
+    const lines = text.split('\n');
+    const isTargetChild = lines[0]?.includes(JSON.stringify(childId)) ?? false;
+    let changed = false;
+    const nextLines = lines.map((line, index) => {
+      if (!line.trim() || index === 0) return line;
+      const parsed = JSON.parse(line);
+      if (parsed.type === 'subagent/catalog' && parsed.data?.childId === childId) {
+        changed = true;
+        matchedCatalog = true;
+        return JSON.stringify({
+          ...parsed,
+          data: {
+            version: 1,
+            childId: parsed.data.childId,
+            childCreatedAt: parsed.data.childCreatedAt,
+            mode: 'one-shot',
+            ...(parsed.data.label !== undefined ? { label: parsed.data.label } : {}),
+          },
+        });
+      }
+      if (isTargetChild && parsed.type === 'subagent/descriptor') {
+        changed = true;
+        matchedDescriptor = true;
+        return JSON.stringify({
+          ...parsed,
+          data: {
+            version: 3,
+            mode: 'one-shot',
+            provider: parsed.data.provider,
+            ...(parsed.data.label !== undefined ? { label: parsed.data.label } : {}),
+          },
+        });
+      }
+      return line;
+    });
+    if (changed) await writeFile(filePath, nextLines.join('\n'), 'utf8');
+  }
+  expect({ matchedCatalog, matchedDescriptor }).toEqual({ matchedCatalog: true, matchedDescriptor: true });
+  await rm(join(home, 'storages/nano_work_catalog'), { recursive: true, force: true });
+}
+
 it.each(['fork-crash','fork-tree-crash'])('returns %s to its original root without blocking resumable siblings',async scenario=>{
  const f=await fixture();
  try{
   await f.client().rpc.request('session.submit',{sessionId:'root',inputId:scenario,mode:'followup',content:[{type:'text',text:scenario}],source:{kind:'human',actorId:'owner',channel:'test',messageId:'fork-crash'}});
   await expect.poll(async()=>(await f.requests()).filter(row=>row.sessionId!=='root').length).toBeGreaterThanOrEqual(scenario==='fork-crash'?1:3);
-  const child=(await f.requests()).find(row=>row.sessionId!=='root').sessionId;
-  const descendants=await workDescendants(f.client().rpc,{sessionId:'root'});expect(descendants.some(row=>row.id===child)).toBe(true);
+  const descendants=await workDescendants(f.client().rpc,{sessionId:'root'});
+  const forkChild=descendants.find(row=>row.kind==='child'&&row.parentId==='root'&&row.label?.startsWith('Interrupted fork'))!;
+  expect(forkChild).toBeDefined();
   f.client().process.kill('SIGKILL');await f.client().exited;const count=(await f.requests()).length;
+  await rewriteAsHistoricalOneShot(f.home,forkChild.id);
   await f.start();
   await expect.poll(async()=>((await f.client().rpc.request('session.observe',{sessionId:'root'})) as any).status).toBe('idle');
   const resumed=(await f.requests()).slice(count);
   if(scenario==='fork-crash'){expect(resumed).toHaveLength(1);expect(resumed[0].sessionId).toBe('root');}
-  else {const sibling=descendants.find(row=>row.kind==='child'&&row.parentId==='root'&&row.mode==='continuable')!;await expect.poll(async()=>(await f.requests()).slice(count).some(row=>row.sessionId===sibling.id)).toBe(true);}
+  else {const sibling=descendants.find(row=>row.kind==='child'&&row.parentId==='root'&&row.id!==forkChild.id&&row.mode==='continuable')!;await expect.poll(async()=>(await f.requests()).slice(count).some(row=>row.sessionId===sibling.id)).toBe(true);}
   expect(resumed.find(row=>row.sessionId==='root')!.messages.filter((m:any)=>m.source?.channel==='runtime-recovery')).toEqual(expect.arrayContaining([expect.objectContaining({content:expect.arrayContaining([expect.objectContaining({text:expect.stringContaining('could not be resumed in place')})])})]));
   const settled=(await f.requests()).length;f.client().process.kill('SIGKILL');await f.client().exited;await f.start();
   expect(await f.requests()).toHaveLength(settled);

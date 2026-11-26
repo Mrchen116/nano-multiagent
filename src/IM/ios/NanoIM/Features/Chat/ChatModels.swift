@@ -63,11 +63,7 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
         return !participants.isEmpty && participants.allSatisfy { $0.type == "agent" } ? "network" : "group"
     }
     var peerAgent: ActorRef? { type == "direct" ? participants.first { $0.type == "agent" } : nil }
-    func avatarName(selfID: String) -> String {
-        guard type != "group" else { return title }
-        let peer = participants.first { category == "agent" ? $0.type == "agent" : $0.type == "user" && ($0.user_id ?? $0.id) != selfID }
-        return peer?.display_name ?? peer?.id ?? title
-    }
+
 }
 struct ChatAttachment: Codable, Sendable, Hashable, Identifiable {
     var url: String
@@ -116,6 +112,7 @@ struct ChatPermission: Codable, Sendable, Identifiable {
 }
 struct MessageReceipt: Codable, Sendable, Identifiable {
     enum Status: String, Codable, Sendable { case sent, received, read }
+    var recipient: ActorRef?
     var recipient_id: String
     var display_name: String
     var status: Status
@@ -176,7 +173,7 @@ struct ChatMessage: Codable, Sendable, Identifiable {
         thread_root_message_id == nil && ["agent", "user"].contains(sender_type) && ["completed", "sent", "pending"].contains(delivery_status)
     }
 }
-struct ThreadParticipant: Codable, Sendable { var id: String; var display_name: String }
+struct ThreadParticipant: Codable, Sendable { var actor: ActorRef?; var id: String; var display_name: String }
 struct ThreadSummary: Codable, Sendable { var reply_count: Int; var latest_preview: String?; var latest_at: String?; var participants: [ThreadParticipant]? }
 struct TimelineItem: Codable, Sendable, Identifiable {
     var type: String

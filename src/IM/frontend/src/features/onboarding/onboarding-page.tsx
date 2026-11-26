@@ -1,9 +1,12 @@
-import { AvatarPicker } from "../chat/components/avatar-picker";
-import { AssistantPortrait, avatarVariantFor } from "../chat/components/assistant-portrait";
+import { AvatarPicker, AvatarPreview, avatarVariantFor } from "../chat/components/avatar-picker";
+
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { desktopScopedKey, isDesktopClient } from '../../desktop/desktop-context';
+import { DesktopDualInstallPicker, hasDesktopInstallAwareness } from '../../desktop/desktop-install-picker';
+import { DesktopNodeOnboardingBanner } from '../../desktop/desktop-node-onboarding-banner';
 import { useIsMobile } from '../../hooks/use-is-mobile';
 import { OnboardingWelcome } from './onboarding-welcome';
 import { ProductHeader } from '../home/product-header';
@@ -25,7 +28,7 @@ export function OnboardingPage() {
   const navigate = useNavigate(), cache = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const reconnectId = searchParams.get('node') || null;
-  const draftKey = `nano-onboarding:${user.id}`;
+  const draftKey = desktopScopedKey(`nano-onboarding:${user.id}`);
   const [draft] = useState(() => { try { return JSON.parse(localStorage.getItem(draftKey) ?? '{}'); } catch { return {}; } });
   const isMobile = useIsMobile();
   const phoneHandoff = isMobile && suggestedPlatform() !== 'windows';
@@ -85,8 +88,11 @@ export function OnboardingPage() {
   });
   useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({requestKey,nodeId:currentNodeId??'',name,started,avatar})); }, [draftKey,requestKey,currentNodeId,name,started,avatar]);
   const install = state.data?.install;
-  const windows = platform === 'windows' && install?.windows_x64 !== undefined;
-  const installAvailable = windows ? !!install?.windows_x64 : install?.available;
+  const dualDesktopAware = hasDesktopInstallAwareness(install);
+  const windows = !dualDesktopAware && platform === 'windows' && install?.windows_x64 !== undefined;
+  const installAvailable = dualDesktopAware
+    ? Boolean(install?.available || install?.windows_x64 || install?.desktop_darwin_arm64 || install?.desktop_win32_x64)
+    : windows ? !!install?.windows_x64 : install?.available;
   function awaitWindowsBinding(opened: boolean) {
     setWindowsOpened(opened);
     setViewStep(0);
@@ -121,6 +127,35 @@ export function OnboardingPage() {
             {phoneHandoff && <div className="onboarding-handoff"><strong>{text('正在用手机？到电脑上继续', 'On your phone? Continue on a computer')}</strong><p>{text('在工作电脑上打开此链接，登录同一账号即可接着设置。', 'Open this link on your work computer and sign in to the same account to continue.')}</p><div><input aria-label={text('电脑端设置链接', 'Computer setup link')} value={setupLink} readOnly /><button className="onboarding-secondary" onClick={async () => { try { await navigator.clipboard.writeText(setupLink); setLinkCopied(true); setLinkCopyError(false); } catch { setLinkCopyError(true); } }}>{linkCopied ? text('已复制', 'Copied') : text('复制链接', 'Copy link')}</button></div>{linkCopyError && <p role="alert">{text('请选中上方链接手动复制。', 'Select and copy the link above.')}</p>}</div>}
             {phoneHandoff && <button className="onboarding-install-toggle" aria-expanded={installExpanded} onClick={() => setInstallExpanded(!installExpanded)}>{text('查看电脑上的安装步骤', 'View computer installation steps')} <span aria-hidden="true">{installExpanded ? '−' : '+'}</span></button>}
             {(!phoneHandoff || installExpanded) && <div className="onboarding-install-content">
+            {isDesktopClient() ? (
+              <DesktopNodeOnboardingBanner
+                inline
+                onConnected={(connectedId) => {
+                  localStorage.setItem(targetKey, connectedId);
+                  setNodeId(connectedId);
+                  setBindingTarget(connectedId);
+                  void state.refetch();
+                }}
+              />
+            ) : dualDesktopAware && install ? (
+              <DesktopDualInstallPicker
+                install={install}
+                onRecheck={() => void state.refetch()}
+                onStartDesktopOrWindows={awaitWindowsBinding}
+                renderUnixHeadless={() => (
+                  <>
+                    {install.available && <div className="onboarding-install-tabs" role="group" aria-label={text('安装方式', 'Installation method')}>{(['manual', 'agent'] as const).map(method => <button key={method} onClick={() => { setInstallMethod(method); setCopied(false); setCopyError(false); }} aria-pressed={installMethod === method}>{method === 'manual' ? text('在终端安装', 'Use a terminal') : text('交给本地 Agent', 'Use a local agent')}</button>)}</div>}
+                    {install.available ? <>
+                      <ol className="onboarding-install-steps"><li><span>1</span>{installMethod === 'manual' ? text('复制命令，在工作电脑的终端粘贴运行。', 'Copy the command and run it in your computer’s terminal.') : text('复制说明，发给电脑上的 Codex、Claude Code 等。', 'Copy the instructions into Codex, Claude Code, or another local agent.')}</li><li><span>2</span>{text('安装后，在打开的网页中确认绑定这台电脑。', 'After installation, confirm the computer in the browser that opens.')}</li><li><span>3</span>{text('回到这里，电脑连接成功后即可继续。', 'Return here to continue once your computer connects.')}</li></ol>
+                      <div className="onboarding-instructions"><div className="onboarding-command-header"><span aria-hidden="true"><i /><i /><i /></span>{installMethod === 'manual' ? text('终端命令', 'Terminal command') : text('给本地 Agent 的说明', 'Instructions for your local agent')}</div>{installMethod === 'manual' ? <code>{install.command}</code> : <details open={copyError || undefined}><summary>{text('查看完整安装说明', 'View installation instructions')}</summary><code>{installPrompt}</code></details>}</div>
+                      <button className="onboarding-primary onboarding-copy" onClick={() => void copy()}>{copied ? text('已复制，请到电脑上继续', 'Copied. Continue on your computer.') : installMethod === 'agent' ? text('复制安装说明', 'Copy agent instructions') : text('复制安装命令', 'Copy install command')}{copied ? <Check aria-hidden="true" /> : <Copy aria-hidden="true" />}</button>
+                      {copyError && error(text('无法自动复制，请选中上方内容手动复制。', 'Clipboard is unavailable. Select and copy the text above.'))}
+                    </> : <div className="onboarding-unavailable" role="status"><strong>{text('安装包暂不可用', 'The installer is not available yet')}</strong><p>{text('当前服务尚未提供电脑端安装包。你的账号已就绪，可以稍后回来继续。', 'This service has not published a computer installer. Your account is ready; you can return and continue later.')}</p><button className="onboarding-secondary" onClick={() => void state.refetch()}>{text('重新检查', 'Check again')}</button></div>}
+                  </>
+                )}
+              />
+            ) : (
+              <>
             {install?.windows_x64 === undefined && <p className="onboarding-platforms">macOS <span>·</span> Linux <span>·</span> Windows (WSL)</p>}
             {install?.windows_x64 !== undefined && <InstallPlatformPicker value={platform} onChange={value => {
               setPlatform(value);
@@ -137,6 +172,8 @@ export function OnboardingPage() {
               {copyError && error(text('无法自动复制，请选中上方内容手动复制。', 'Clipboard is unavailable. Select and copy the text above.'))}
             </> : <div className="onboarding-unavailable" role="status"><strong>{text('安装包暂不可用', 'The installer is not available yet')}</strong><p>{text('当前服务尚未提供电脑端安装包。你的账号已就绪，可以稍后回来继续。', 'This service has not published a computer installer. Your account is ready; you can return and continue later.')}</p><button className="onboarding-secondary" onClick={() => void state.refetch()}>{text('重新检查', 'Check again')}</button></div>}
             </>}
+              </>
+            )}
             </div>}
             {state.data && state.data.nodes.length > (bindingTarget === '' ? 0 : 1) && <label>
               {bindingTarget === '' ? text('选择你刚刚确认的电脑', 'Choose the computer you just confirmed') : text('选择电脑', 'Choose computer')}
@@ -159,7 +196,7 @@ export function OnboardingPage() {
             <div className="onboarding-footer"><button className="onboarding-link" onClick={() => setViewStep(0)}>{text('← 返回', '← Back')}</button>{!editingModel && next(2, !configured || working || node?.status !== 'online')}</div>
           </>}
           {step === 2 && <><span className="onboarding-card-eyebrow">{text('第三步 · 认识你的助手', 'Meet your assistant')}</span><h2>{text('给你的个人助手起个名字', 'Name your personal assistant')}</h2><p className="onboarding-sub">{text('它会成为你的长期协作伙伴。名字随时可以修改，先选一个你喜欢的称呼。','This is the start of a long-term working relationship. Pick a name you like; you can change it later.')}</p>
-            <div className="onboarding-identity-preview"><AssistantPortrait variant={avatar} size={44} /><div><strong>{name.trim() || text('你的个人助手', 'Your personal assistant')}</strong><small>{text('为你服务的长期助手', 'Your long-term personal assistant')}</small></div></div>
+            <div className="onboarding-identity-preview"><AvatarPreview value={avatar} size={44} /><div><strong>{name.trim() || text('你的个人助手', 'Your personal assistant')}</strong><small>{text('为你服务的长期助手', 'Your long-term personal assistant')}</small></div></div>
             <label htmlFor="onboarding-name">{text('给助手起个名字', 'Name your assistant')}</label><input id="onboarding-name" value={name} onChange={e => setName(e.target.value)} maxLength={80} />
             <AvatarPicker personal value={avatar} onChange={setAvatar} disabled={create.isPending} />
             <div className="onboarding-ready-summary"><span>✓ {node?.alias || node?.node_name}</span><span>{configured && !setup.isError ? '✓ ' : ''}{setup.data?.models.find(model => model.model === setup.data?.default_model)?.display_name || setup.data?.default_model || text('等待模型确认', 'Waiting for model confirmation')}</span></div>

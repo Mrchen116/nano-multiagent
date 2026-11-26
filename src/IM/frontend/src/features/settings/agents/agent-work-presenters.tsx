@@ -1,4 +1,5 @@
 import { useContext, useState, type ReactNode, type Ref } from "react";
+import { WorkspacePathActions } from "../../../desktop/workspace-path-actions";
 import { useTranslation } from "../../../i18n";
 import type { BackgroundReturn, TokenUsage, ToolCall } from "../../chat/chat-types";
 import { ConversationToolCard } from "../../chat/components/conversation-tool-card";
@@ -140,7 +141,7 @@ export function WorkTool({ call, workerTool, expanded, onExpandedChange, detailF
             {detail.error && <p className="im-work-error">{text(detail.error) || text(record(detail.error).message)}</p>}
             {!pending && <p><span className="im-work-status-label">{tr(labels[business] || (error ? "失败" : "已完成"))}</span> {text(detail.agent_id)}</p>}
             {text(detail.content) && <pre>{text(detail.content)}</pre>}
-            {text(detail.output_file) && <p className="im-work-muted">{tr("结果文件")}：<code>{text(detail.output_file)}</code></p>}
+            {text(detail.output_file) && <p className="im-work-muted desktop-path-row"><span>{tr("结果文件")}：<code>{text(detail.output_file)}</code></span><WorkspacePathActions path={text(detail.output_file)} /></p>}
           </> : internalMessage ? <>
             {text(detail.content) && <pre>{text(detail.content)}</pre>}
             {messageId && <WorkFields value={{[tr("消息 ID")]: messageId}} />}

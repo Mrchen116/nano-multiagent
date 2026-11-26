@@ -82,7 +82,7 @@ export function apply(ctx){
     }else if(process.env.EVALUATION_DELEGATE_ROOT&&o.sessionId!==process.env.EVALUATION_DELEGATE_ROOT){
       if(n===0){
         await new Promise(resolve=>setTimeout(resolve,1200));
-        call=['send_message',{agent_id:process.env.EVALUATION_DELEGATE_ROOT,message:'DELEGATED_RESULT: '+all.match(/You live in (?:Berlin|Paris|Rome)\\./)?.at(-1)}];
+        call=['send_message',{agent:'lead',message:'DELEGATED_RESULT: '+all.match(/You live in (?:Berlin|Paris|Rome)\\./)?.at(-1)}];
       }
     }else{
       const memory=process.cwd()+'/.nanoassistant/memory';

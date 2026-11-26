@@ -4,7 +4,8 @@ import { createPortal } from "react-dom";
 import { Link, useInRouterContext } from "react-router-dom";
 
 import { useTranslation } from "../../../i18n";
-import { Avatar, colorForAgent, colorForAgentSeed, initialsOf } from "./avatar";
+import type { Actor } from "../chat-types";
+import { Avatar, AvatarIdentities, actorAvatarId } from "./avatar";
 import "./agent-activity-popover.css";
 
 export interface ActorProfileAnchor {
@@ -93,7 +94,17 @@ export function ActorProfilePopover({
         : null;
   const footerLabel = isAgent ? t("chat.agentActivity.config") : t("chat.actorCard.openAccount");
 
+  const actor: Actor = {
+    type: anchor.type,
+    id: anchor.id,
+    ...(anchor.userId ? { user_id: anchor.userId } : {}),
+    display_name: anchor.name,
+    ...(isPersonal ? { role: "personal" as const } : {}),
+    ...(anchor.avatarVariant != null ? { avatar_variant: anchor.avatarVariant } : {}),
+  };
+
   return createPortal(
+    <AvatarIdentities actors={[actor]} source="names">
     <div
       ref={card}
       className="chat-agent-activity chat-actor-card"
@@ -102,18 +113,7 @@ export function ActorProfilePopover({
       tabIndex={-1}
     >
       <header className="chat-agent-activity-header chat-actor-card-header">
-        <Avatar
-          size={36}
-          personal={isPersonal}
-          agentId={isAgent ? anchor.id : undefined}
-          avatarVariant={anchor.avatarVariant}
-          initials={initialsOf(anchor.name)}
-          color={
-            isAgent
-              ? colorForAgent({ display_name: anchor.name, agent_id: anchor.id })
-              : colorForAgentSeed(anchor.name)
-          }
-        />
+        <Avatar id={actorAvatarId(actor)} size={36} />
         <div>
           <div className="chat-actor-card-title-row">
             <h3 id="chat-actor-card-title">{anchor.name}</h3>
@@ -147,7 +147,8 @@ export function ActorProfilePopover({
           </Link>
         </footer>
       )}
-    </div>,
+    </div>
+    </AvatarIdentities>,
     document.body,
   );
 }

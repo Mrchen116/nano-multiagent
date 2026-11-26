@@ -89,7 +89,7 @@
 .crew-receipt small { display: block; font-size: 10px; color: #497668; margin-top: 4px; }
 .crew-receipt > svg { width: 16px; height: 16px; color: #285b4e; margin-left: 12px; }
 .crew-footer { background: white; border-top: 1px solid #eee8f5; display: flex; align-items: center; gap: 30px; padding: 35px max(40px, calc((100% - 1224px) / 2)); font-size: 12px; color: var(--home-muted); }
-.crew-footer > a:nth-last-child(2) { margin-left: auto; }
+.crew-footer > span { margin-right: auto; }
 .crew-footer > a:last-child { display: flex; gap: 10px; align-items: center; min-height: 44px; }
 .crew-footer > a:last-child svg { width: 15px; height: 15px; }
 .crew-footer .im-nano-brand { color: #302049; font-size: 24px; gap: 10px; }

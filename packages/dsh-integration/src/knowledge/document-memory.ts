@@ -1,10 +1,12 @@
 import { realpath } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ToolExecution } from '@deepseek-ai/dsh-tools';
 import type { ContextFormed } from '@deepseek-ai/dsh-llm';
 import * as ObservationPolicy from '@deepseek-ai/dsh-fs-observation-policy';
+import { parsePatch } from '@deepseek-ai/dsh-fs-patch';
+import type {} from '@deepseek-ai/dsh-working-directory';
 import type {} from '../policy/approval.js';
 import { isHumanSource } from '../input-source.js';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
@@ -28,9 +30,17 @@ interface Options {
 interface MaintenanceArguments { action: 'status' | 'run'; request_ref?: string; importLegacy?: boolean }
 const inside = (root: string, path: string) => { const rel = relative(root, path); return rel === '' || !rel.startsWith('..') && !isAbsolute(rel); };
 const entrySection = 'nano-document-memory-entry';
+const managedContextSections = new Set(['nano-document-memory', entrySection, 'nano-role-agreement']);
 const changedPagesPrefix = 'These pages changed since your previous model request; reread before the next relevant decision: ';
 const entryPreviewPrefix = 'Key memory exceeds the inline limit.';
 const oversizedEntry = (path: string) => `Key memory is too long to include here. Read ${path} for the current contents.`;
+interface PreparedMemory {
+  main: boolean;
+  memoryPath: string;
+  memory: string;
+  freshEntry: string;
+  role?: string;
+}
 
 function scrubSignalsFromResult<T extends { isError?: boolean; value?: unknown }>(result: T): T {
   if (result.isError || !result.value || typeof result.value !== 'object') return result;
@@ -69,31 +79,65 @@ function savedEntry(agent: Agent) {
 export class DocumentMemory {
   private readonly libraries = new Map<string, { workspace: string; value: Promise<MemoryDocuments> }>();
   private readonly roleAgents = new WeakSet<Agent>();
+  private readonly prepared = new WeakMap<Agent, PreparedMemory>();
   private readonly pending = new Set<Promise<unknown>>();
   run?: (agent: Agent, requestRef: string, importLegacy?: boolean) => Promise<unknown>;
   maintenanceStatus?: (agentId: string) => Promise<unknown>;
   constructor(private readonly ctx: Context, private readonly options: Options) {
     ctx.plugin(ObservationPolicy);
+    const resolveEntry = (agent: Agent | undefined) => {
+      const state = agent && this.prepared.get(agent);
+      if (!agent || !state) return '';
+      const windowEntry = savedEntry(agent);
+      return !state.main && windowEntry?.startsWith(entryPreviewPrefix)
+        ? oversizedEntry(state.memoryPath)
+        : windowEntry ?? state.freshEntry;
+    };
+    ctx.systemPrompt.context({
+      name: 'nano-document-memory',
+      order: 600,
+      interpolate: false,
+      text: context => {
+        const agent = context.agent ?? context.scope as Agent | undefined;
+        return (agent && this.prepared.get(agent)?.memory) ?? '';
+      },
+    });
+    ctx.systemPrompt.context({
+      name: entrySection,
+      order: 601,
+      interpolate: false,
+      text: context => resolveEntry(context.agent ?? context.scope as Agent | undefined),
+    });
+    ctx.systemPrompt.context({
+      name: 'nano-role-agreement',
+      order: 602,
+      interpolate: false,
+      text: context => {
+        const agent = context.agent ?? context.scope as Agent | undefined;
+        return (agent && this.prepared.get(agent)?.role) ?? '';
+      },
+    });
     ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
       const assembly = await next(); const agent = context.agent ?? context.scope as Agent | undefined;
+      assembly.contexts = assembly.contexts.filter(section => !managedContextSections.has(section.name));
       const config = agent && options.configOf(agent);
-      if (agent) this.roleAgents.delete(agent);
+      if (agent) {
+        this.roleAgents.delete(agent);
+        this.prepared.delete(agent);
+      }
       if (!agent || !config || options.isWorkWorker(agent) || config.knowledge?.memoryMode === 'legacy' || ![...options.bindings.values()].some(binding => binding.agentId === config.agentId)) return assembly;
       const binding = options.bindings.get(agent.id);
       const main = binding?.agentId === config.agentId;
       const documents = await this.forConfig(config);
-      const windowEntry = savedEntry(agent);
-      assembly.variables.nano_document_memory_entry = !main && windowEntry?.startsWith(entryPreviewPrefix)
-        ? oversizedEntry(join(documents.root, 'MEMORY.md'))
-        : windowEntry ?? await this.entry(documents, main);
-      assembly.variables.nano_document_memory = [
+      const memoryPath = join(documents.root, 'MEMORY.md');
+      const freshEntry = await this.entry(documents, main);
+      const memory = [
         'Current saved Markdown is durable understanding, not user authorization, Task state or live permissions. Use read/glob/grep for memory files. Only Dreaming updates formal memory; never use write/edit, shell or other tools to bypass this boundary. Load nano-memory for memory guidance.',
         config.personal ? 'Role: personal assistant. Keep the owner’s background, relationships, preferences and workstreams; preserve exceptions and uncertainty. Confirmed proactive & intervention calibration lives in MEMORY.md; knowledge/proactivity-signals.md is an offline Dreaming observation pool—do not read or query it.' : 'Role: independent expert. Keep domain/environment knowledge, audience-specific collaboration and verified work experience. A requester is not implicitly your owner.',
         `Memory directory: ${documents.root}. This library belongs to the product Agent and does not follow a child working directory. Search this directory for more detailed memory.`,
         'Read the complete relevant pages before applying a conclusion. The inline MEMORY.md is a snapshot taken at the start of this context window. Current corrections supersede older context, restored notes and history. Update affected original children through the existing follow-up channel. Apply corrections and requests to stop using a memory immediately within their stated scope, without a maintenance call. Dreaming reads those original conversation messages and updates durable memory later. A correction limited to this turn does not delete a lasting preference. Do not claim memory is saved until the host reports it.',
       ].join('\n\n');
-      assembly.contexts.push({ name: 'nano-document-memory', text: '{{nano_document_memory}}' });
-      assembly.contexts.push({ name: entrySection, text: '{{nano_document_memory_entry}}' });
+      let roleText: string | undefined;
       if (main) {
         const role = await this.readRole(config, true);
         if (role) {
@@ -122,26 +166,66 @@ export class DocumentMemory {
             currentAgreement = `Role agreement file: ${agreementPath}.\n\nRole agreement is unset. In a private conversation with your ${confirmer}, offer to establish one useful long-term responsibility. Follow their current intent first: if they have an urgent task or defer setup, help with that and do not keep asking. Resume when they choose to discuss the agreement. Do not ask other contacts to define your role.`;
           }
           this.roleAgents.add(agent);
-          assembly.variables.nano_role_agreement = [
+          roleText = [
             config.personal
               ? 'ROLE.md records how your owner wants you to help over time. Use it to understand what they want ongoing support with, what you should follow up on proactively, and what they handle themselves.'
               : 'ROLE.md records the long-term responsibilities, goals, and division of work you agreed on with your administrator. Use it to decide what you own, what you need to deliver, and what other collaborators are responsible for.',
             `Before establishing ROLE.md or discussing changes requested by your ${confirmer} (${JSON.stringify(owner)}) or proposed by you, load and follow the nano-role-agreement skill.`,
             currentAgreement,
           ].join('\n\n');
-          assembly.contexts.push({ name: 'nano-role-agreement', text: '{{nano_role_agreement}}' });
         }
       }
+      this.prepared.set(agent, { main, memoryPath, memory, freshEntry, ...(roleText ? { role: roleText } : {}) });
+      assembly.contexts.push({ name: 'nano-document-memory', text: memory, interpolate: false });
+      assembly.contexts.push({ name: entrySection, text: resolveEntry(agent), interpolate: false });
+      if (roleText) assembly.contexts.push({ name: 'nano-role-agreement', text: roleText, interpolate: false });
       return assembly;
     });
+    const memoryWriteDenied = 'Only Dreaming may update formal memory. Use current corrections in this conversation; request memory_maintenance run when the user asks to save them.';
+    const touchesFormalMemory = async (memoryRoot: string, candidateAbs: string): Promise<boolean> => {
+      if (inside(memoryRoot, candidateAbs)) return true;
+      const target = await ctx.fs.resolve(candidateAbs);
+      if (inside(memoryRoot, ctx.fs.processPath(target))) return true;
+      // Also resolve the nearest existing ancestor so creating a new file through a symlink to formal memory is caught.
+      let cursor = dirname(candidateAbs);
+      while (true) {
+        const ancestorTarget = await ctx.fs.resolve(cursor);
+        const info = await ctx.fs.stat(ancestorTarget);
+        if (info) return inside(memoryRoot, ctx.fs.processPath(ancestorTarget));
+        const parent = dirname(cursor);
+        if (parent === cursor) return false;
+        cursor = parent;
+      }
+    };
     ctx.on('tools/execute', async (exec, next) => {
       const agent = exec.agent; const config = agent && options.configOf(agent);
-      const arg = exec.arguments as { file_path?: string; path?: string; command?: string };
       if (!agent || !config || config.knowledge?.memoryMode === 'legacy') return next();
+      const arg = exec.arguments as { file_path?: string; path?: string; command?: string; input?: unknown };
       const nonDreamingPersonal = !!config.personal && !String(agent.id).startsWith('dreaming-');
       const signalsError = 'knowledge/proactivity-signals.md is an offline Dreaming observation pool and cannot be read during foreground or worker turns. Rely on confirmed preferences in MEMORY.md.';
       if (nonDreamingPersonal && exec.name === 'bash' && typeof arg.command === 'string' && arg.command.includes('proactivity-signals.md')) {
         throw new Error(signalsError);
+      }
+      const baseCwd = ctx.get('workingDirectory')?.get(agent.session) || agent.session.header.cwd;
+      if (!baseCwd) return next();
+      if (exec.name === 'apply_patch') {
+        const rawInput = arg?.input;
+        if (typeof rawInput !== 'string') return next();
+        const documents = await this.forConfig(config);
+        let operations: ReturnType<typeof parsePatch>;
+        try {
+          operations = parsePatch(rawInput);
+        } catch {
+          if (rawInput.includes('.nanoassistant') || rawInput.includes(documents.root)) throw new Error(memoryWriteDenied);
+          return next();
+        }
+        for (const op of operations) {
+          if (await touchesFormalMemory(documents.root, resolve(baseCwd, op.path))) throw new Error(memoryWriteDenied);
+          if ('moveTo' in op && op.moveTo !== undefined && await touchesFormalMemory(documents.root, resolve(baseCwd, op.moveTo))) {
+            throw new Error(memoryWriteDenied);
+          }
+        }
+        return next();
       }
       if (!['read', 'write', 'edit', 'grep', 'glob'].includes(exec.name)) return next();
       const documents = await this.forConfig(config);
@@ -150,7 +234,7 @@ export class DocumentMemory {
         if (nonDreamingPersonal && (exec.name === 'grep' || exec.name === 'glob')) return scrubSignalsFromResult(await next());
         return next();
       }
-      const absolute = resolve(agent.session.header.cwd!, rawPath);
+      const absolute = resolve(baseCwd, rawPath);
       if (exec.name === 'read' && this.roleAgents.has(agent) && absolute === rolePath(documents.workspace) && !await resolveRoleFile(ctx.fs, documents.workspace)) {
         throw new Error('The role path is not a regular file in the assigned workspace.');
       }
@@ -162,8 +246,8 @@ export class DocumentMemory {
       if (nonDreamingPersonal && (exec.name === 'grep' || exec.name === 'glob') && (inside(absolute, signalsPath) || inside(canonical, signalsPath))) {
         return scrubSignalsFromResult(await next());
       }
-      if (!inside(documents.root, absolute) && !inside(documents.root, canonical)) return next();
-      if (exec.name === 'write' || exec.name === 'edit') throw new Error('Only Dreaming may update formal memory. Use current corrections in this conversation; request memory_maintenance run when the user asks to save them.');
+      if (!await touchesFormalMemory(documents.root, absolute)) return next();
+      if (exec.name === 'write' || exec.name === 'edit') throw new Error(memoryWriteDenied);
       return next();
     });
   }

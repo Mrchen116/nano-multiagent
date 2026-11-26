@@ -12,7 +12,7 @@ it("forks a native message with its configuration and compacted prefix, independ
   await writeFile(
     join(home, "fixture.mjs"),
     `import {appendFile}from'node:fs/promises';export const name='history-fixture';export const inject=['llm','subagents'];export function apply(ctx){
-    ctx.on('agent/pre-step',async({agent,messages,signal},next)=>{if(agent.session.header.origin!=='subagent'&&messages.some(m=>m.content.some(b=>b.type==='text'&&b.text.startsWith('fork-only')))){const run=await ctx.subagents.start('fork',{parent:agent,signal,label:'history-child',prompt:[{type:'text',text:'CHILD_FROM_HISTORY'}],toolFilter:{allow:[]}});try{await run.result;}finally{await run.dispose();}}return next();});
+    ctx.on('agent/pre-step',async({agent,messages,signal},next)=>{if(agent.session.header.origin!=='subagent'&&messages.some(m=>m.content.some(b=>b.type==='text'&&b.text.startsWith('fork-only')))){const run=await ctx.subagents.startActivation({provider:'fork',delivery:'caller',parent:agent,signal,label:'history-child',prompt:[{type:'text',text:'CHILD_FROM_HISTORY'}]});try{await run.result;}finally{await run.dispose();}}return next();});
     ctx.on('llm/stream',async function*(o){await appendFile(process.env.DSH_HOME+'/requests.jsonl',JSON.stringify({purpose:o.purpose,model:o.model,messages:o.messages,system:o.system})+'\\n');yield{type:'block-end',index:0,block:{type:'text',text:o.purpose==='compaction'?'HISTORY_SUMMARY':'Useful answer. '.repeat(100)}};yield{type:'finish',reason:{kind:'stop'},usage:{inputTokens:100,outputTokens:20}};});}`,
   );
   let config = {

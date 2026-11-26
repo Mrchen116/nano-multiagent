@@ -5,6 +5,8 @@ import ReactMarkdown, { type Components, defaultUrlTransform } from "react-markd
 import remarkGfm from "remark-gfm";
 
 import { useTranslation } from "../../../i18n";
+import { openDesktopExternal } from "../../../desktop/desktop-api";
+import { isDesktopClient } from "../../../desktop/desktop-context";
 import { authFetch } from "../../auth/auth-fetch";
 import { useAuthStore } from "../../auth/auth-store";
 import { protectedResourceUrl } from "../components/message-image";
@@ -272,7 +274,11 @@ export function AttachmentPreviewModal({
       return;
     }
     if (!privateUrl && !isSameOriginUrl(href)) {
-      window.open(href, "_blank", "noreferrer");
+      if (isDesktopClient()) {
+        void openDesktopExternal(href).catch(() => setDownloadFailed(true));
+      } else {
+        window.open(href, "_blank", "noreferrer");
+      }
       return;
     }
     setDownloading(true);

@@ -49,13 +49,34 @@ def sync_default_tools(
         path = f"/im/v1/agents/{agent_id}"
         catalog = request("GET", path + "/capabilities")
         current = request("GET", path + "/config")
-        available = {tool["name"] for tool in catalog["tools"]}
-        selected = set(current.get("tool_allowlist") or []) & available
-        selected.update(tool["name"] for tool in catalog["tools"] if tool["default_on"])
-        selected.update(catalog["fixed_tools"])
+        available_tools = catalog["tools"]
+        fixed_set = set(catalog.get("fixed_tools") or [])
+        workspace_tools = {
+            tool["name"]
+            for tool in available_tools
+            if tool.get("source_group") == "workspace"
+        }
+        static_available = (
+            {tool["name"] for tool in available_tools} - workspace_tools - fixed_set
+        )
+        selected = set(current.get("tool_allowlist") or []) & static_available
+        selected.update(
+            tool["name"]
+            for tool in available_tools
+            if tool["default_on"] and tool["name"] in static_available
+        )
         for feature in catalog["features"]:
-            if current["features"].get(feature["key"]):
-                selected.update(feature["requires"]["tools"])
+            enabled = current["features"].get(feature["key"])
+            if enabled is None:
+                enabled = (
+                    ("plugin_manager" in selected)
+                    if feature["key"] == "plugin_management"
+                    else bool(feature.get("default_on"))
+                )
+            if enabled:
+                selected.update(
+                    set(feature["requires"]["tools"]) - fixed_set - workspace_tools
+                )
         if selected != set(current.get("tool_allowlist") or []):
             request(
                 "PATCH",

@@ -79,6 +79,7 @@
       "account": "Account",
       "policies": "Policies",
       "language": "Language",
+      "downloadApps": "Download apps",
       "signOut": "Sign out"
     },
     "home": "Crewden workspace"
@@ -327,6 +328,10 @@
       "retained": "Required capabilities were kept; other selections were cleared",
       "activeTasks": "Pause or finish active and waiting tasks before turning off Task",
       "activeSchedules": "Disable or delete active schedules before turning off Cron",
+      "providedByPlugin": "Provided by plugin “{{plugin}}”. Turn it off in Plugins",
+      "providedByPluginGeneric": "Provided by an enabled workspace plugin. Turn it off in Plugins",
+      "pluginRequiresManager": "Provided by plugin “{{plugin}}”. Enable Plugin development & management or plugin_manager first",
+      "pluginRequiresManagerGeneric": "Enable Plugin development & management or plugin_manager to use this workspace plugin tool",
       "fixed": "This capability is required by the current mode",
       "busy": "This capability is in use. Try again shortly",
       "unavailable": "Capability status is unavailable. Try again shortly"
@@ -577,6 +582,7 @@
         "skillsGroupClear": "Clear group",
         "skillsCompatibility": "Compatibility (Claude/Codex)",
         "tools": "Tool Allowlist",
+        "toolsCount": "{{enabled}} / {{total}} enabled",
         "model": "Default Model",
         "fallbackToggle": "Fallbacks",
         "fallbackUnset": "unset",
@@ -1409,6 +1415,10 @@
     "intelligent_ui": {
       "label": "Intelligent UI",
       "help": "Guide this Agent to use interactive cards when helpful. Turning this off removes that guidance; cards can still be sent when the message tool is enabled."
+    },
+    "plugin_management": {
+      "label": "Plugin development & management",
+      "help": "Allow the assistant to author, install, and manage workspace plugins and inspect host runtime contracts read-only."
     },
     "task_graph": {
       "label": "Task Graphs",
@@ -2298,8 +2308,43 @@
     },
     "definition": "A shared workspace for people and AI."
   },
+  "crewdenDownload": {
+    "heroMac": "Download for macOS",
+    "heroWindows": "Download for Windows",
+    "heroIos": "Get iOS app",
+    "useInBrowser": "Use in browser",
+    "openWorkspace": "Open workspace",
+    "heroMetaMac": "Apple Silicon (.dmg) · Zero terminal setup",
+    "heroMetaWindows": "Windows 10 / 11 x64 (.exe) · Zero terminal setup",
+    "heroMetaIos": "iPhone (iOS 17+) · Native experience",
+    "iosSoonHeroHint": "iOS app coming soon · Use Crewden in your browser today",
+    "otherFromMac": "Windows / iOS / All platforms ↓",
+    "otherFromWindows": "macOS / iOS / All platforms ↓",
+    "otherFromIos": "See macOS / Windows desktop apps ↓",
+    "allPlatformsLink": "Download apps (macOS · Windows · iOS) ↓",
+    "sectionTitle": "Get Crewden on your devices",
+    "sectionSubtitle": "Desktop apps bundle the workspace and resident local node; mobile keeps your work within reach anywhere.",
+    "currentDevice": "Current device",
+    "macosReq": "Apple Silicon (M-series) · DMG",
+    "macosDesc": "Built-in local node and menu bar presence with instant local file and trajectory access.",
+    "macosAction": "Download for macOS",
+    "windowsReq": "Windows 10 / 11 (x64) · EXE",
+    "windowsDesc": "Ready out of the box with system tray presence, login autostart, and desktop notifications.",
+    "windowsAction": "Download for Windows",
+    "desktopUnpublished": "Installer not published yet",
+    "iosReq": "iPhone · iOS 17+",
+    "iosDesc": "Native mobile chat to check progress, reply to teammates, and approve permissions on the go.",
+    "iosAction": "Get iOS app",
+    "iosComingSoon": "Coming soon",
+    "headlessPrompt": "Using an Intel Mac, Linux / WSL, or running a headless server node?",
+    "headlessToggle": "Lightweight background node setup",
+    "headlessBody": "Run only the background node without a desktop window and continue chatting in the browser:",
+    "headlessWindowsPrefix": "On Windows, you can also use:",
+    "headlessWindowsLink": "Windows lightweight node installer (.exe)"
+  },
   "crewdenStory": {
     "nav": {
+      "download": "Download",
       "how": "Meet your AI partners",
       "capabilities": "How work continues",
       "start": "Getting started",

@@ -41,7 +41,11 @@ export class ConfigurationScopes extends Service {
     super(ctx, 'nanoConfiguration'); this.host = ctx; this.configurations = options.configurations;
     trackForkCreation(ctx);
     this.extensions = new WorkspaceExtensions(ctx, (id, catalogChanged) => {this.tools.update(id); if (catalogChanged) options.changed(id);});
-    this.tools = new ToolSelection(ctx, config => this.extensions.tools(config.agentId));
+    this.tools = new ToolSelection(
+      ctx,
+      config => this.extensions.tools(config.agentId),
+      config => this.extensions.toolMetadata(config.agentId),
+    );
   }
   /** Configure the trusted Node package invocation before any workspace is mounted.
    *
@@ -143,14 +147,23 @@ export class ConfigurationScopes extends Service {
       if (!selected.features?.heartbeat) disabled.add('nano-heartbeat');
       if (!this.tools.selection(selected, Skills.goalTools).length) disabled.add('tool:goal');
       assembly.sections = assembly.sections.filter(section => !disabled.has(section.name));
-      for (const section of assembly.sections) if (section.name === 'tool:write' || section.name === 'tool:edit')
-        section.text = section.text.replace(' (the default fs-observation-policy requires it)', '');
       assembly.contexts = assembly.contexts.filter(section => !disabled.has(section.name));
       return assembly;
     }, { prepend: true });
   }
   async attachAgent(agent: Agent, config: AgentConfiguration, isWorkWorker: boolean): Promise<void> {
     attachChildRole(agent, config);
+    if (agent.session.header.origin === 'subagent' && agent.session.header.cwd) {
+      const currentWd = this.host.get('workingDirectory')?.get(agent.session);
+      if (currentWd && currentWd !== agent.session.header.cwd) {
+        const headerReal = await realpath(agent.session.header.cwd).catch(() => undefined);
+        if (headerReal === currentWd) {
+          for (const msg of [...agent.inbox.nextTurn, ...agent.inbox.nextStep]) {
+            if ((msg.source as { kind?: string }).kind === 'working-directory') agent.inbox.remove(msg.id);
+          }
+        }
+      }
+    }
     const role = globalWorkRole(agent, config);
     const internal = isOrdinaryChild(agent) || role === 'worker-fork';
     const workspace = config.workspace ? await realpath(config.workspace) : undefined;
@@ -170,7 +183,7 @@ Other Agents in Nano IM may run on different nodes. A local path shared by anoth
     } });
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
     scope.skills = agent.ctx.plugin(Skills, {config, isWorkWorker}); await scope.skills.await();
-    if (internal && role !== 'subagent') GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global', role === 'worker' || role === 'worker-fork');
+    if (internal && role !== 'subagent') GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global', role === 'worker' || role === 'worker-fork', this.host.tools.get('send_message'));
     else if (!internal && config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal, workerRuntime:config.workerRuntime }).await();
     if (config.personal && !internal) await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config, isWorkWorker);

@@ -78,7 +78,7 @@ struct AgentsView: View {
                 PersonalAgentManagementView(client: client, agentID: assistant.agent_id)
             } label: {
                 HStack(spacing: 12) {
-                    AssistantPortrait(personal: true, seed: assistant.agent_id, selected: assistant.avatar_variant, size: 36)
+                    AvatarView(id: .personal(assistant), size: 36)
                     VStack(alignment: .leading, spacing: 3) {
                         Text(L("我的个人助手", "My personal assistant")).font(.caption.weight(.medium)).foregroundStyle(NanoTheme.muted)
                         Text(assistant.display_name).font(.headline).foregroundStyle(NanoTheme.ink)
@@ -102,7 +102,7 @@ struct AgentsView: View {
         let id = contact.agent_id ?? contact.user_id
         let owned = contact.owner_id != nil && (contact.owner_id == user.id || contact.owner_id == user.owner_id)
         return HStack(spacing: 9) {
-            AssistantPortrait(personal: contact.role == "personal", seed: id, selected: contact.avatar_variant, size: 32)
+            AvatarView(id: .contact(contact), size: 32)
                 .overlay(alignment: .bottomTrailing) {
                     if let status = contact.status {
                         Circle().fill(status == "online" ? Color.green : Color.secondary)
@@ -147,14 +147,14 @@ struct AgentsView: View {
 
 /// Keep the profile tint keyed to the selected assistant identity.
 private func assistantPaper(_ id: String, _ selected: Int?) -> Color {
-    let variant = selected.flatMap { (0..<24).contains($0) ? $0 : nil } ?? AssistantPortrait.variant(for: id)
+    let variant = selected.flatMap { (0..<24).contains($0) ? $0 : nil } ?? PortraitPreview.defaultVariant(for: id)
     return [Color.purple, .mint, .blue, .orange, .pink, .yellow][variant % 6].opacity(0.12)
 }
 
 struct NativePersonalAgentState: Decodable, Sendable {
     var binding: Binding?
     var creation: JSONValue?
-    struct Binding: Decodable, Sendable {
+    struct Binding: Decodable, Sendable, PersonalAvatarBinding {
         var agent_id: String; var display_name: String; var status: String
         var node_id: String?; var conversation_id: String?; var avatar_variant: Int?
     }
@@ -191,7 +191,7 @@ struct AgentProfileView: View {
                             }
                         }
                         Spacer(minLength: 0)
-                        AssistantPortrait(personal: shownContact.role == "personal", seed: agentID, selected: shownContact.avatar_variant, size: 86)
+                        AvatarView(id: .contact(shownContact), size: 86)
                     }
                     Button { Task { await openChat() } } label: {
                         Label(L("发消息", "Message"), systemImage: "bubble.left.fill")
@@ -307,7 +307,7 @@ struct AgentCreateView: View {
             if let created {
                 Section {
                     VStack(spacing: 10) {
-                        AssistantPortrait(personal: false, seed: created.agent_id, selected: selectedVariant, size: 84)
+                        AvatarView(id: .created(created), size: 84)
                         Text(created.display_name).font(.title.bold())
                         Label(L("助手已创建", "Assistant created"), systemImage: "checkmark.circle.fill").font(.subheadline).foregroundStyle(.secondary)
                         Button(L("开始聊天", "Start chatting")) { Task { await openCreatedChat(created) } }
@@ -322,7 +322,7 @@ struct AgentCreateView: View {
                     HStack(spacing: 14) {
                         Button { choosingAppearance.toggle() } label: {
                             ZStack(alignment: .bottomTrailing) {
-                                AssistantPortrait(personal: false, seed: draft.agent_id, selected: selectedVariant, size: 58)
+                                PortraitPreview(personal: false, variant: selectedVariant, size: 58)
                                 Image(systemName: "paintpalette.fill").font(.caption2).frame(width: 22, height: 22)
                                     .foregroundStyle(NanoTheme.accent).background(NanoTheme.surface, in: Circle())
                             }
@@ -408,6 +408,14 @@ struct AgentCreateView: View {
             draft.description = value == "research" ? L("研究与资料比较", "Research and comparison") : value == "writing" ? L("写作与内容策划", "Writing and planning") : ""
             draft.initial_role = instruction
         }
+        .onChange(of: draft.work_mode) { _, _ in
+            guard let capabilities else { return }
+            let active = draft.effectiveFeatures(capabilities: capabilities)
+            for feature in capabilities.features where active[feature.key] == true {
+                _ = draft.changeCapability(.init(kind: "feature", name: feature.key, enabled: true), capabilities: capabilities)
+            }
+            draft.tool_allowlist = draft.sanitizeStaticTools(personal: false, capabilities: capabilities)
+        }
     }
     private func openCreatedChat(_ agent: AgentConfig) async {
         openingChat = true; defer { openingChat = false }
@@ -425,6 +433,8 @@ struct AgentCreateView: View {
         guard let capabilities else { return }
         if let block = draft.changeCapabilities(actions, capabilities: capabilities).first {
             capabilityToast = .init(text: block.message, anchor: block.target.kind + ":" + block.target.name)
+        } else {
+            draft.tool_allowlist = draft.sanitizeStaticTools(personal: false, capabilities: capabilities)
         }
     }
     private func loadCapabilities() async {
@@ -435,7 +445,7 @@ struct AgentCreateView: View {
             let value: AgentCapabilities = try await client.get("/im/v1/nodes/\(agentSegment(selectedNode))/capabilities")
             guard !Task.isCancelled else { return }
             capabilities = value; error = nil
-            draft.tool_allowlist = value.tools.filter { $0.default_on == true }.map(\.name)
+            draft.tool_allowlist = value.tools.filter { $0.default_on == true && $0.source_group != "workspace" }.map(\.name)
             draft.skills = []; draft.skills_selection_mode = "explicit_denylist"
             draft.initializeCapabilities(value)
             if !changed { initialDraft = draft }
@@ -445,7 +455,7 @@ struct AgentCreateView: View {
         guard draft.agent_id.range(of: "^[a-z0-9_-]+$", options: .regularExpression) != nil else { error = L("Agent ID 仅允许小写字母、数字、下划线和短横线。", "Agent ID accepts lowercase letters, digits, underscores, and hyphens only."); return }
         busy = true; error = nil; defer { busy = false }
         do {
-            var payload = draft.payload(creating: true, customWorkspace: customWorkspace, confirmed: confirmed)
+            var payload = draft.payload(creating: true, customWorkspace: customWorkspace, confirmed: confirmed, capabilities: capabilities)
             payload["avatar_variant"] = .number(Double(selectedVariant))
             created = try await client.send("/im/v1/nodes/\(agentSegment(selectedNode))/agents", body: payload)
         }

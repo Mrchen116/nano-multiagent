@@ -30,12 +30,12 @@ export async function apply(ctx) {
  ctx.sessionPersistence.open=async(...args)=>{const handle=await open(...args);if(!handle)return handle;const read=handle.read.bind(handle);handle.read=async(...range)=>{const result=await read(...range);await appendFile(process.env.DSH_HOME+'/body-reads.jsonl',JSON.stringify({id:handle.id,offset:range[0]??0,events:result.events.length})+'\\n');return result;};return handle;};
  if(process.env.NANO_FIXTURE_APPEND_CHILD){const h=await ctx.sessionPersistence.open(process.env.NANO_FIXTURE_APPEND_CHILD,'write');const r=await h.read();await h.append(Array.from({length:260},(_,i)=>({seq:r.events.length+i,time:Date.now(),type:'fixture/work-gap',ignorable:true,data:{}})));await h.flush();await h.close();}
  if(process.env.NANO_FIXTURE_PAUSE_ATTEMPT){
-   const start=ctx.subagents.start.bind(ctx.subagents);
-   ctx.subagents.start=async(...args)=>{
+   const start=ctx.subagents.startActivation.bind(ctx.subagents);
+   ctx.subagents.startActivation=async(...args)=>{
      const run=await start(...args);
-     if(args[1].parent.id==='workflow-crash'){
-       if(!await ctx.sessions.flush(args[1].parent.session))throw Error('fixture cannot flush parent catalog');
-       await appendFile(process.env.DSH_HOME+'/before-attempt.jsonl',JSON.stringify({id:run.id})+'\\n');
+     if(args[0].parent.id==='workflow-crash'){
+       if(!await ctx.sessions.flush(args[0].parent.session))throw Error('fixture cannot flush parent catalog');
+       await appendFile(process.env.DSH_HOME+'/before-attempt.jsonl',JSON.stringify({id:run.childId})+'\\n');
        await new Promise(()=>{});
      }
      return run;

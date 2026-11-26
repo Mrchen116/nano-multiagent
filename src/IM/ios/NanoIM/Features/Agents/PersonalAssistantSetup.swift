@@ -59,7 +59,7 @@ struct PersonalAssistantSetup: View {
                 }
                 if let chat = boundChat, let binding = personal?.binding {
                     VStack(spacing: 10) {
-                        AssistantPortrait(personal: true, seed: binding.agent_id, selected: binding.avatar_variant, size: 104)
+                        AvatarView(id: .personal(binding), size: 104)
                         Text(binding.display_name).font(.largeTitle.bold())
                         if binding.status == "unavailable" {
                             Label(L("助手暂时不可用", "Assistant temporarily unavailable"), systemImage: "pause.circle").foregroundStyle(.secondary)
@@ -125,12 +125,12 @@ struct PersonalAssistantSetup: View {
     private var assistantIdentity: some View {
         VStack(spacing: 14) {
             if let pending = personal?.binding {
-                AssistantPortrait(personal: true, seed: pending.agent_id, selected: pending.avatar_variant, size: 100)
+                AvatarView(id: .personal(pending), size: 100)
                 Text(pending.display_name).font(.title.bold())
             } else {
                 Button { choosingAppearance.toggle() } label: {
                     ZStack(alignment: .bottomTrailing) {
-                        AssistantPortrait(personal: true, seed: user.id, selected: variant, size: 90)
+                        PortraitPreview(personal: true, variant: variant, size: 90)
                         Image(systemName: "paintpalette.fill").font(.caption.bold()).foregroundStyle(NanoTheme.accent)
                             .frame(width: 26, height: 26).background(NanoTheme.surface, in: Circle())
                     }.padding(6)
@@ -159,7 +159,7 @@ struct PersonalAssistantSetup: View {
     private func firstComputer(_ onboarding: AssistantOnboarding) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(spacing: 4) {
-                AssistantPortrait(personal: true, seed: user.id, selected: variant, size: 68)
+                PortraitPreview(personal: true, variant: variant, size: 68)
                     .frame(width: 118, height: 76)
                     .background(NanoTheme.softAccent, in: RoundedRectangle(cornerRadius: 9))
                     .overlay { RoundedRectangle(cornerRadius: 9).strokeBorder(NanoTheme.ink, lineWidth: 3) }
@@ -221,7 +221,7 @@ struct PersonalAssistantSetup: View {
         name = saved?["name"] as? String ?? name
         requestKey = saved?["key"] as? String ?? requestKey
         nodeID = saved?["node"] as? String ?? nodeID
-        variant = saved?["variant"] as? Int ?? AssistantPortrait.variant(for: user.id)
+        variant = saved?["variant"] as? Int ?? PortraitPreview.defaultVariant(for: user.id)
     }
     private func saveDraft() {
         guard boundChat == nil else { return }

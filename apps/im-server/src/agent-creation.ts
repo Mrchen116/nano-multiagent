@@ -16,10 +16,23 @@ export function requireOwnedNode(ctx: ImContext, id: string, owner: string): Row
   return node;
 }
 
+function pluginTitle(value: unknown): string | Record<string, string> | null {
+  const direct = optionalText(value);
+  if (direct) return direct;
+  if (!isRecord(value)) return null;
+  const entries = Object.entries(value).flatMap(([key, item]) => {
+    const text = optionalText(item);
+    return text ? [[key, text] as const] : [];
+  });
+  return entries.length ? Object.fromEntries(entries) : null;
+}
+
 export function allowlistOptions(value: unknown): Row[] {
   return (Array.isArray(value) ? value : []).flatMap((item) => {
     const entry = typeof item === "string" ? { name: item } : item;
     if (!entry || !optionalText(entry.name)) return [];
+    const bundle = optionalText(entry.plugin_bundle);
+    const title = pluginTitle(entry.plugin_title);
     return [
       {
         name: entry.name.trim(),
@@ -30,6 +43,8 @@ export function allowlistOptions(value: unknown): Row[] {
         source_group: ["workspace", "global", "compatibility"].includes(entry.source_group)
           ? entry.source_group
           : null,
+        ...(bundle ? {plugin_bundle: bundle} : {}),
+        ...(title ? {plugin_title: title} : {}),
       },
     ];
   });

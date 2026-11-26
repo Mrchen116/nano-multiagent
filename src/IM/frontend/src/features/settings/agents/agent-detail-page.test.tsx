@@ -1345,6 +1345,7 @@ describe("explicit empty tool allowlist", () => {
 
     renderDetailPage(queryClient);
     await screen.findByRole("heading", { name: "Core Planner" });
+    await user.click(screen.getByTestId("pill-selector-tools-toggle"));
 
     await waitFor(() => {
       expect(pill("read")?.getAttribute("aria-pressed")).toBe("true");

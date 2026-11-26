@@ -56,7 +56,7 @@ The root model enumerates both identities. `baseline` allows four model requests
 
 ## Code and replay
 
-Last checked against product source `e11661f18` and its lockfile: DSH `0.2.1-alpha.1`, dsh-agent-context `0.3.0-rc.9`, pi-ai `0.87.1`. Product source is unchanged from `d286fa11e` (only the initial model and skill changed). Inspect the owning code and replay relevant requests before advancing this reference.
+Last checked against `unit/feat-787-dsh-022-upgrade` and its lockfile: DSH `0.2.2-rc.5`, dsh-agent-context `0.3.0-rc.12`, pi-ai `0.87.1`. Inspect the owning code and replay relevant requests before advancing this reference.
 
 | Path | Implementation and evidence |
 |---|---|

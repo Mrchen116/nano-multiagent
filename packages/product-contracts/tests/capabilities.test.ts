@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { changeCapability, definitionsForRole, effectiveFeatures, featureClosure, featureDependencies, fixedTools, validateCapabilities } from '../src/capabilities.js';
+import {
+  changeCapability,
+  definitionsForRole,
+  effectiveCapabilityFeatures,
+  effectiveFeatures,
+  effectiveSelectedTools,
+  featureClosure,
+  featureDependencies,
+  fixedTools,
+  sanitizeStaticToolAllowlist,
+  validateCapabilities,
+} from '../src/capabilities.js';
 import { agentConfigurationFingerprint } from '../src/configuration.js';
 
-const off = Object.fromEntries(['intelligent_ui', 'task_graph', 'dreaming', 'cron_scheduling', 'heartbeat'].map(key => [key, false]));
+const off = Object.fromEntries(['intelligent_ui', 'plugin_management', 'task_graph', 'dreaming', 'cron_scheduling', 'heartbeat'].map(key => [key, false]));
 const draft = () => ({features: {...off}, tool_allowlist: [] as string[], skills: [] as string[], skills_selection_mode: 'explicit_allowlist'});
 describe('capability selections', () => {
   it('expands Task into the full Cron capability and keeps Cron when Task closes', () => {
@@ -81,6 +92,77 @@ describe('capability selections', () => {
     const reopened = changeCapability(closed.draft,{kind:'tool',name:'agent_creation',enabled:true},{});
     expect(reopened.blocks).toEqual([]);
     expect(reopened.draft.tool_allowlist).toContain('agent_creation');
+  });
+  it('manages plugin_management dependencies and allows standalone inspect tools when closed', () => {
+    const opened = changeCapability(draft(), {kind: 'feature', name: 'plugin_management', enabled: true}, {});
+    expect(opened.blocks).toEqual([]);
+    expect(opened.draft.features.plugin_management).toBe(true);
+    expect(opened.draft.tool_allowlist).toEqual(expect.arrayContaining(['plugin_manager', 'cordis_inspect_list', 'cordis_inspect_query']));
+    expect(opened.draft.skills).toContain('nano-plugin-development');
+    expect(changeCapability(opened.draft, {kind: 'tool', name: 'cordis_inspect_list', enabled: false}, {}).blocks[0]).toMatchObject({
+      code: 'required_by_feature',
+      required_by: ['plugin_management'],
+    });
+    expect(changeCapability(opened.draft, {kind: 'skill', name: 'nano-plugin-development', enabled: false}, {}).blocks[0]).toMatchObject({
+      code: 'required_by_feature',
+      required_by: ['plugin_management'],
+    });
+    const closed = changeCapability(opened.draft, {kind: 'feature', name: 'plugin_management', enabled: false}, {}).draft;
+    expect(closed.features.plugin_management).toBe(false);
+    expect(closed.tool_allowlist).toEqual([]);
+    expect(closed.skills).not.toContain('nano-plugin-development');
+    const singleInspect = changeCapability(closed, {kind: 'tool', name: 'cordis_inspect_list', enabled: true}, {}).draft;
+    expect(singleInspect.features.plugin_management).toBe(false);
+    expect(singleInspect.tool_allowlist).toEqual(['cordis_inspect_list']);
+    expect(validateCapabilities(singleInspect)).toEqual([]);
+  });
+  it('preserves pre-feat-791 default and restricted configs without disk migration', () => {
+    const pre791Off = {intelligent_ui: false, task_graph: false, dreaming: false, cron_scheduling: false, heartbeat: false};
+    const legacyAllowed = {features: {...pre791Off}, tool_allowlist: ['plugin_manager', 'read'], skills: [], skills_selection_mode: 'default_discovery'};
+    expect(effectiveCapabilityFeatures(legacyAllowed).plugin_management).toBe(true);
+    expect(effectiveSelectedTools(legacyAllowed)).toEqual(['plugin_manager', 'read', 'cordis_inspect_list', 'cordis_inspect_query']);
+    expect(validateCapabilities(legacyAllowed)).toEqual([]);
+    const edited = changeCapability(legacyAllowed, {kind: 'feature', name: 'heartbeat', enabled: true}, {
+      tools: ['plugin_manager', 'read', 'cordis_inspect_list', 'cordis_inspect_query'],
+      skills: ['nano-plugin-development'],
+    });
+    expect(edited.blocks).toEqual([]);
+    expect(edited.draft.features.plugin_management).toBe(true);
+    expect(edited.draft.tool_allowlist).toEqual(expect.arrayContaining(['cordis_inspect_list', 'cordis_inspect_query']));
+
+    const legacyRestricted = {features: {intelligent_ui: false, task_graph: false, dreaming: false}, tool_allowlist: ['read'], skills: [], skills_selection_mode: 'explicit_allowlist'};
+    expect(effectiveCapabilityFeatures(legacyRestricted).plugin_management).toBe(false);
+    expect(effectiveSelectedTools(legacyRestricted)).toEqual(['read']);
+    expect(validateCapabilities(legacyRestricted)).toEqual([]);
+
+    const legacyExplicitSkillsMissing = {features: {intelligent_ui: false, task_graph: false, dreaming: false}, tool_allowlist: ['plugin_manager'], skills: ['other-skill'], skills_selection_mode: 'explicit_allowlist'};
+    expect(effectiveCapabilityFeatures(legacyExplicitSkillsMissing).plugin_management).toBe(false);
+    expect(validateCapabilities(legacyExplicitSkillsMissing)).toEqual([]);
+
+    const workspacelessCatalog = {tools: ['read'], skills: []};
+    expect(effectiveCapabilityFeatures(legacyAllowed, featureDependencies, workspacelessCatalog).plugin_management).toBe(false);
+    expect(validateCapabilities({features: {intelligent_ui: false, task_graph: false, dreaming: false}, tool_allowlist: ['read']}, workspacelessCatalog)).toEqual([]);
+  });
+  it('reports plugin-attributed blocks and sanitizes static allowlists by mode and role', () => {
+    const catalog = {
+      fixed_tools: ['notes'],
+      plugin_tools: {
+        notes: {bundle: 'dsh-agent-context', title: '上下文整理', enabled: true},
+        roll_dice: {bundle: 'dice-plugin', title: 'Dice Plugin', enabled: false},
+      },
+    };
+    expect(changeCapability(draft(), {kind: 'tool', name: 'notes', enabled: false}, catalog).blocks).toEqual([
+      {code: 'provided_by_plugin', target: {kind: 'tool', name: 'notes'}, plugin: '上下文整理'},
+    ]);
+    expect(changeCapability(draft(), {kind: 'tool', name: 'roll_dice', enabled: true}, catalog).blocks).toEqual([
+      {code: 'plugin_requires_manager', target: {kind: 'tool', name: 'roll_dice'}, plugin: 'Dice Plugin'},
+    ]);
+    expect(sanitizeStaticToolAllowlist(['read', 'send_message', 'inbox', 'notes', 'roll_dice', 'memory'], 'single_thread', 'root', ['roll_dice']))
+      .toEqual(['read', 'send_message', 'inbox', 'memory']);
+    expect(sanitizeStaticToolAllowlist(['read', 'send_message', 'inbox', 'notes', 'personal_sources'], 'global', 'root'))
+      .toEqual(['read', 'personal_sources']);
+    expect(sanitizeStaticToolAllowlist(['read', 'send_message', 'inbox', 'notes', 'personal_sources', 'send_user_message'], 'global', 'personal'))
+      .toEqual(['read']);
   });
   it('has only known, acyclic Feature dependencies', () => {
     const visit = (key: string, path: string[]) => {

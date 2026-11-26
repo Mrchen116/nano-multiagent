@@ -11,11 +11,11 @@ import {
   ActorProfilePopover,
   type ActorProfileAnchor,
 } from "../chat/components/actor-profile-popover";
+import type { Actor } from "../chat/chat-types";
 import {
   Avatar,
-  colorForAgent,
-  colorForAgentSeed,
-  initialsOf,
+  AvatarIdentities,
+  actorAvatarId,
 } from "../chat/components/avatar";
 import {
   getTaskRuntime,
@@ -108,6 +108,17 @@ export function TaskAgentRuntime({
   );
 }
 
+function toIdentityActor(assignee: TaskActor, name: string): Actor {
+  const isPersonal = assignee.type === "agent" && assignee.id.startsWith("pa_");
+  return {
+    type: assignee.type,
+    id: assignee.id,
+    ...(assignee.user_id ? { user_id: assignee.user_id } : {}),
+    display_name: name,
+    ...(isPersonal ? { role: "personal" as const } : {}),
+  };
+}
+
 /** Compact inline avatar + display name for task list and spine cards. */
 export function TaskAssigneeInline({
   assignee,
@@ -127,19 +138,14 @@ export function TaskAssigneeInline({
       </span>
     );
   }
-  const isAgent = assignee.type === "agent";
-  const isPersonal = isAgent && assignee.id.startsWith("pa_");
+  const actor = toIdentityActor(assignee, name);
   return (
-    <span className="tasks-assignee-inline">
-      <Avatar
-        size={17}
-        personal={isPersonal}
-        agentId={isAgent ? assignee.id : undefined}
-        initials={initialsOf(name)}
-        color={isAgent ? colorForAgent({ display_name: name, agent_id: assignee.id }) : colorForAgentSeed(name)}
-      />
-      <span>{name}</span>
-    </span>
+    <AvatarIdentities actors={[actor]} source="names">
+      <span className="tasks-assignee-inline">
+        <Avatar id={actorAvatarId(actor)} size={17} />
+        <span>{name}</span>
+      </span>
+    </AvatarIdentities>
   );
 }
 
@@ -187,9 +193,11 @@ export function TaskAssigneePill({
     );
   }
 
+  const actor = toIdentityActor(assignee, name);
+
   if (!isAgent) {
     return (
-      <>
+      <AvatarIdentities actors={[actor]} source="names">
         <button
           type="button"
           className="tasks-assignee-pill tasks-assignee-pill--agent"
@@ -204,6 +212,7 @@ export function TaskAssigneePill({
                 : {
                     type: "user",
                     id: assignee.id,
+                    userId: assignee.user_id,
                     name,
                     isSelf: Boolean(selfUserId && assignee.id === selfUserId),
                     element,
@@ -211,15 +220,14 @@ export function TaskAssigneePill({
             );
           }}
         >
-          <Avatar size={20} initials={initialsOf(name)} color={colorForAgentSeed(name)} />
+          <Avatar id={actorAvatarId(actor)} size={20} />
           <span>{name}</span>
         </button>
         {humanAnchor && <ActorProfilePopover anchor={humanAnchor} onClose={() => setHumanAnchor(null)} />}
-      </>
+      </AvatarIdentities>
     );
   }
 
-  const isPersonal = assignee.id.startsWith("pa_");
   const avatarStatus =
     runtimeState === "running"
       ? "running"
@@ -230,7 +238,7 @@ export function TaskAssigneePill({
           : null;
 
   return (
-    <>
+    <AvatarIdentities actors={[actor]} source="names">
       <button
         type="button"
         className="tasks-assignee-pill tasks-assignee-pill--agent"
@@ -242,14 +250,7 @@ export function TaskAssigneePill({
           setAnchor(current => (current ? null : { agentId: assignee.id, name, element }));
         }}
       >
-        <Avatar
-          size={20}
-          personal={isPersonal}
-          agentId={assignee.id}
-          initials={initialsOf(name)}
-          color={colorForAgent({ display_name: name, agent_id: assignee.id })}
-          status={avatarStatus}
-        />
+        <Avatar id={actorAvatarId(actor)} size={20} status={avatarStatus} />
         <span>{name}</span>
         {runtimeState === "running" && (
           <span className="tasks-assignee-live-tag">{t("tasks.runtime.running")}</span>
@@ -263,6 +264,6 @@ export function TaskAssigneePill({
           onClose={() => setAnchor(null)}
         />
       )}
-    </>
+    </AvatarIdentities>
   );
 }

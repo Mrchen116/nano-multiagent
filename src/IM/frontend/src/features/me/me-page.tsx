@@ -1,6 +1,8 @@
+import { Avatar } from "../chat/components/avatar";
 import { Link, useNavigate } from "react-router-dom";
 
 import { UserMenuIcon } from "../../app/shell/user-menu-icons";
+import { isDesktopClient } from "../../desktop/desktop-context";
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
 import { useQuery } from "@tanstack/react-query";
@@ -41,7 +43,6 @@ export function MePage() {
     setLanguage(next);
   };
 
-  const initials = (user?.display_name || user?.username || "U").slice(0, 2).toUpperCase();
 
   return (
     <section className={`im-me-page ${PAGE_BG} flex-1 overflow-y-auto pb-6`} data-testid="me-page">
@@ -54,13 +55,7 @@ export function MePage() {
         className={`${CARD_BG} flex w-full items-center gap-4 px-[18px] pt-[26px] pb-[24px] border-b border-[oklch(0.91_0.005_240)]`}
         data-testid="me-identity-card"
       >
-        <span
-          className="flex w-[62px] h-[62px] shrink-0 items-center justify-center rounded-full bg-[oklch(0.52_0.14_270)] text-white text-[22px] font-bold"
-          aria-hidden="true"
-          data-testid="me-identity-avatar"
-        >
-          {initials}
-        </span>
+        <span data-testid="me-identity-avatar"><Avatar id={user?.id ?? ""} size={62} /></span>
         <div className="flex-1 min-w-0">
           <p className="m-0 text-[20px] font-extrabold tracking-tight text-[oklch(0.14_0.01_240)] truncate">
             {user?.display_name ?? user?.username ?? ""}
@@ -128,6 +123,8 @@ export function MePage() {
       </div>
 
       <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/settings/models" className={ROW_BASE}><span className={ICON_BASE} aria-hidden><UserMenuIcon kind="models" /></span><p className={LABEL}>{lang === 'zh' ? '模型服务' : 'Model services'}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>
+
+      {!isDesktopClient() && <div className={`${CARD_BG} ${CARD_BORDER} mt-[14px]`}><Link to="/about#download" className={ROW_BASE}><span className={ICON_BASE} aria-hidden><UserMenuIcon kind="download" /></span><p className={LABEL}>{t("shell.userMenu.downloadApps")}</p><span className={CHEVRON} aria-hidden>›</span></Link></div>}
 
       {user?.membership_status === "active" && <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}

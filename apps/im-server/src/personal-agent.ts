@@ -1,3 +1,4 @@
+import { externalAvatarId } from "./identity.js";
 import { chatAllowed, ownerDirect, storedProviderFacts } from './collaboration.js';
 import { conversationName } from './conversation-name.js';
 import {parseAvatarVariant} from './configuration-input.js';
@@ -8,7 +9,7 @@ import {readAgentProfile, type AgentProfileRecord} from './configuration-records
 import {isRecord} from './node-rpc-values.js';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline } from './agent-settings.js';
-import { changeCapability, definitionsForRole } from '@nano/product-contracts/capabilities';
+import { changeCapability, definitionsForRole, sanitizeStaticToolAllowlist } from '@nano/product-contracts/capabilities';
 import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { all, one, now, chatId, fail, body, params, transaction, type Row, type ImContext } from './context.js';
@@ -237,7 +238,7 @@ export class PersonalAgents {
     const incidents=this.incidents(owner).items;
     return {items:all(this.db,'SELECT actor_id FROM pa_contact_blocks WHERE binding_id=? ORDER BY rowid DESC',b.binding_id).map(block=>{
       const history=incidents.filter((i:Row)=>i.actor_id===block.actor_id);
-      return {actor_id:block.actor_id,actor_name:history[0]?.actor_name ?? block.actor_id,reason:history[0]?.reason ?? '',
+      return {actor_id:block.actor_id,...(block.actor_id.startsWith('external:') ? {avatar_id:externalAvatarId(block.actor_id)} : {}),actor_name:history[0]?.actor_name ?? block.actor_id,reason:history[0]?.reason ?? '',
         evidence:history.map((i:Row)=>{
           const original=!!conversationAccess(this.db,i.conversation_id,b.owner_user_id);
           return {id:i.id,reason:i.reason,original,conversation_id:original?i.conversation_id:b.conversation_id,message_id:original?i.source_message_id:i.owner_notice_message_id};
@@ -390,7 +391,7 @@ export class PersonalAgents {
   }
 
   incidents(owner:string) {
-    const b=this.binding(owner);return {items:b?all(this.db,'SELECT i.*,COALESCE(m.sender_display_name,u.display_name,i.actor_id) actor_name FROM pa_incidents i JOIN messages m ON m.id=i.source_message_id LEFT JOIN users u ON u.id=i.actor_id WHERE i.binding_id=? ORDER BY i.rowid DESC',b.binding_id):[]};
+    const b=this.binding(owner);return {items:b?all(this.db,'SELECT i.*,COALESCE(m.sender_display_name,u.display_name,i.actor_id) actor_name FROM pa_incidents i JOIN messages m ON m.id=i.source_message_id LEFT JOIN users u ON u.id=i.actor_id WHERE i.binding_id=? ORDER BY i.rowid DESC',b.binding_id).map(row => row.actor_id.startsWith('external:') ? {...row,avatar_id:externalAvatarId(row.actor_id)} : row):[]};
   }
   /** Project unfinished communication from persisted receipts, not model claims. */
   incidentEvent(b:Row,incident:Row) {
@@ -539,10 +540,12 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const resolved=await ctx.gateway.request(b.node_id,'node.capabilities.resolve',{});
         const catalog=resolved?.capabilities;
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
-        const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.default_on||tool.name==='send_message').map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'personal_sources','agent_creation'])];
+        const workspaceTools=catalog.tools.filter(isRecord).filter(tool=>tool.source_group==='workspace').map(tool=>tool.name).filter((name):name is string=>typeof name==='string');
+        const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.source_group!=='workspace' && (tool.default_on||tool.name==='send_message')).map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'agent_creation'])];
         const paFeatures=definitionsForRole(true);
         let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(paFeatures.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:'team' as const,default_model:null,model_fallbacks:[],workspace_root:null};
         for(const feature of paFeatures) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
+        candidate.tool_allowlist=sanitizeStaticToolAllowlist(candidate.tool_allowlist,'global','personal',workspaceTools);
         await ops.create(candidate,u.owner_id,b.node_id);
       }
       transaction(ctx.db,()=>{

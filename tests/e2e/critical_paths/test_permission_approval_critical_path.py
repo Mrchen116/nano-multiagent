@@ -38,7 +38,7 @@ def _approval_journey(tmp_path: Path, decision: str) -> None:
                 Path(stack.wt_dir)
                 / ".gateway-workspace"
                 / agent
-                / "approval-route-1.txt"
+                / "CLAUDE.md.approval-route-1.txt"
             )
             if decision == "allow_once":
                 assert target.read_text() == "approval-route-1"

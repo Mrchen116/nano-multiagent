@@ -32,6 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       windows: ${{ steps.platform.outputs.windows }}
+      desktop: ${{ steps.platform.outputs.desktop }}
     steps:
       - name: Require explicit immutable source and version
         env:
@@ -50,6 +51,11 @@ jobs:
           else
             echo "windows=false" >> "$GITHUB_OUTPUT"
           fi
+          if test -f scripts/package-macos-desktop.py && test -f scripts/build-desktop-windows.ps1; then
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "desktop=false" >> "$GITHUB_OUTPUT"
+          fi
   windows:
     needs: source
     if: needs.source.outputs.windows == 'true'
@@ -57,9 +63,16 @@ jobs:
     with:
       commit: ${{ inputs.commit }}
       version: ${{ inputs.version }}
+  desktop:
+    needs: source
+    if: needs.source.outputs.desktop == 'true'
+    uses: ./.github/workflows/desktop-candidate.yml
+    with:
+      commit: ${{ inputs.commit }}
+      version: ${{ inputs.version }}
   publish:
-    needs: [source, windows]
-    if: always() && needs.source.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped')
+    needs: [source, windows, desktop]
+    if: always() && needs.source.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped')
     runs-on: ubuntu-latest
     steps:
       # Keep publishing policy from this workflow revision, even for older source commits.
@@ -85,6 +98,16 @@ jobs:
         with:
           name: windows-x64-${{ inputs.commit }}
           path: dist/node-release/windows
+      - uses: actions/download-artifact@v4
+        if: needs.desktop.result == 'success'
+        with:
+          name: desktop-darwin-arm64-${{ inputs.commit }}
+          path: dist/node-release/desktop-darwin-arm64
+      - uses: actions/download-artifact@v4
+        if: needs.desktop.result == 'success'
+        with:
+          name: desktop-win32-x64-${{ inputs.commit }}
+          path: dist/node-release/desktop-win32-x64
       - name: Publish and anonymously verify the same packages
         env:
           RELEASE_VERSION: ${{ inputs.version }}
@@ -99,4 +122,6 @@ jobs:
           path: |
             dist/node-release/manifest.json
             dist/node-release/manifest.win32-x64.json
+            dist/node-release/manifest.desktop-darwin-arm64.json
+            dist/node-release/manifest.desktop-win32-x64.json
           if-no-files-found: error

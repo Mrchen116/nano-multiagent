@@ -1,5 +1,5 @@
 import * as Label from "@radix-ui/react-label";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 // M19/R11-3: prototype `im-components.jsx::MultiSelect` 视觉重写 —
 // 全部 options 平铺 pill (不是 picker / 浮层 / checkbox grid),每项 <button>
@@ -12,12 +12,17 @@ export type PillOption = {
   description?: string;
   source_group?: string | null;
   enabled?: boolean | null;
+  plugin_bundle?: string | null;
+  plugin_title?: string | Record<string, string> | null;
 };
 
 type PillSelectorProps = {
   testId: string;
   label: string;
   labelAction?: ReactNode;
+  collapsible?: boolean;
+  defaultExpanded?: boolean;
+  countSummary?: (enabled: number, total: number) => string;
   selected: string[];
   fixed?: string[];
   options: PillOption[];
@@ -26,12 +31,16 @@ type PillSelectorProps = {
   errorMessage?: string | null;
   onRetry?: () => void;
   onChange: (next: string[]) => void;
+  onToggleOption?: (option: PillOption, nextEnabled: boolean) => void;
 };
 
 export function PillSelector({
   testId,
   label,
   labelAction,
+  collapsible = false,
+  defaultExpanded = false,
+  countSummary,
   selected,
   fixed = [],
   options,
@@ -40,21 +49,55 @@ export function PillSelector({
   errorMessage = null,
   onRetry,
   onChange,
+  onToggleOption,
 }: PillSelectorProps) {
-  const selectable = options.filter(opt => opt.source_group !== "workspace");
+  const [expanded, setExpanded] = useState(() => (collapsible ? defaultExpanded : true));
+
   function isSelected(opt: PillOption): boolean {
+    if (opt.source_group === "workspace") {
+      return fixed.includes(opt.name) || opt.enabled === true;
+    }
     return selected.includes(opt.name) || fixed.includes(opt.name);
   }
 
-  function toggle(name: string) {
-    const isOn = selected.includes(name) || fixed.includes(name);
-    onChange(isOn ? selected.filter((n) => n !== name) : [...selected, name]);
+  const enabledCount = options.filter(isSelected).length;
+
+  function toggle(opt: PillOption) {
+    const isOn = isSelected(opt);
+    if (onToggleOption) {
+      onToggleOption(opt, !isOn);
+      return;
+    }
+    if (opt.source_group === "workspace") return;
+    onChange(isOn ? selected.filter((n) => n !== opt.name) : [...selected, opt.name]);
   }
 
   return (
     <div className="im-agent-field">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <Label.Root>{label}</Label.Root>
+        {collapsible ? (
+          <button
+            type="button"
+            data-testid={`${testId}-toggle`}
+            aria-expanded={expanded}
+            aria-controls={`${testId}-panel`}
+            onClick={() => setExpanded((current) => !current)}
+            className="inline-flex min-h-8 items-center gap-2 rounded px-1 py-0.5 text-left text-[13px] font-semibold text-slate-900 hover:text-[var(--im-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--im-accent)]"
+          >
+            <span aria-hidden="true" className="w-3 text-xs text-slate-500">
+              {expanded ? "▾" : "▸"}
+            </span>
+            <span>{label}</span>
+            <span
+              data-testid={`${testId}-count`}
+              className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-slate-600"
+            >
+              {countSummary ? countSummary(enabledCount, options.length) : `${enabledCount} / ${options.length}`}
+            </span>
+          </button>
+        ) : (
+          <Label.Root>{label}</Label.Root>
+        )}
         {labelAction}
       </div>
       {isLoading && options.length === 0 ? (
@@ -68,17 +111,18 @@ export function PillSelector({
             </button>
           ) : null}
         </div>
-      ) : (
+      ) : expanded ? (
         <div
+          id={`${testId}-panel`}
           data-testid={testId}
           className="flex flex-wrap gap-[6px]"
           role="group"
           aria-label={label}
         >
-          {selectable.length === 0 ? (
+          {options.length === 0 ? (
             <p className="text-sm text-slate-500">—</p>
           ) : (
-            selectable.map((opt) => {
+            options.map((opt) => {
               const isOn = isSelected(opt);
               return (
                 <button
@@ -88,7 +132,7 @@ export function PillSelector({
                   aria-pressed={isOn}
                   disabled={readOnly}
                   title={opt.description || opt.name}
-                  onClick={() => toggle(opt.name)}
+                  onClick={() => toggle(opt)}
                   className={
                     "px-[11px] py-[4px] rounded-full text-[12px] font-semibold font-mono border transition-colors " +
                     (isOn
@@ -102,7 +146,7 @@ export function PillSelector({
             })
           )}
         </div>
-      )}
+      ) : null}
 
     </div>
   );

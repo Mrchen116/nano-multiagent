@@ -133,6 +133,8 @@ describe("company access", () => {
       return response({ members: [member], next_cursor: null });
     });
     mount("/settings/company");
+    await screen.findByText("Alex");
+    expect(document.querySelector(".company-member-row .chat-avatar-face")).toHaveTextContent("AL");
     await userEvent.click(await screen.findByRole("button", { name: "Approve" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Alex can now access the company workspace.");
     await userEvent.click(await screen.findByRole("button", { name: "Suspend member" }));

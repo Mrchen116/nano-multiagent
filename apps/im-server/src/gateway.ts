@@ -312,7 +312,7 @@ export class Gateway {
     }
     const old = this.nodes.get(c.node_id);
     if (old && old.socket !== c.socket) old.socket.close(1008, "connection replaced");
-    c.managedWindows=p.release?.kind==='managed' && p.release.platform==='win32-x64';
+    c.managedWindows=p.release?.kind==='managed' && (p.release.platform==='win32-x64' || p.release.platform==='desktop-win32-x64');
     c.agent_lifecycle_v1=p.capabilities?.agent_lifecycle_v1===true;
     c.agent_deletion_v1=p.capabilities?.agent_deletion_v1===true;
     this.nodes.set(c.node_id, c);

@@ -35,8 +35,12 @@ struct AgentConfigView: View {
     @State private var roleHasUnsavedChanges = false
     private var dirty: Bool {
         guard let config else { return false }
-        var baseline = config.draft; baseline.fixed_tools = draft.fixed_tools
-        return draft != baseline
+        var baseline = config.draft
+        baseline.fixed_tools = draft.fixed_tools
+        baseline.tool_allowlist = baseline.sanitizeStaticTools(personal: personal, capabilities: capabilities)
+        var current = draft
+        current.tool_allowlist = current.sanitizeStaticTools(personal: personal, capabilities: capabilities)
+        return current != baseline
     }
 
     var body: some View {
@@ -71,7 +75,7 @@ struct AgentConfigView: View {
                         Text(L("工作模式和目录在创建后固定。", "Work mode and directory are fixed after creation.")).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Section { NavigationLink(L("插件", "Plugins")) { AgentPluginsView(client: client, agentID: agentID) } }
+                Section { NavigationLink(L("插件", "Plugins")) { AgentPluginsView(client: client, agentID: agentID, onChanged: { await load() }) } }
                 Section { NavigationLink(L("现有定时任务", "Existing scheduled jobs")) { AgentCronView(client: client, agentID: agentID) } }
                 if let capabilityError {
                     Section { ErrorNotice(message: capabilityError); Text(L("能力目录不可用，保留已有配置。重新连接设备后再更改能力。", "Capabilities are unavailable. Existing selections are preserved; reconnect the device to change them.")); Button(L("重读能力", "Reload capabilities")) { Task { await load() } } }
@@ -104,7 +108,7 @@ struct AgentConfigView: View {
                                 Text(L("版本", "Version") + ": \(currentConfig.profile_version)")
                             }.textSelection(.enabled)
                             Button(L("保留草稿，基于此版本继续编辑", "Keep draft and edit against this version")) { self.config = currentConfig; conflicted = false; self.currentConfig = nil; error = nil }
-                            Button(L("使用服务端配置替换草稿", "Replace draft with server configuration"), role: .destructive) { self.config = currentConfig; draft = currentConfig.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; conflicted = false; self.currentConfig = nil; error = nil }
+                            Button(L("使用服务端配置替换草稿", "Replace draft with server configuration"), role: .destructive) { self.config = currentConfig; draft = currentConfig.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; draft.tool_allowlist = draft.sanitizeStaticTools(personal: personal, capabilities: capabilities); conflicted = false; self.currentConfig = nil; error = nil }
                         }
                     } else {
                         Button(L("提示词预览", "Preview prompt")) { Task { await loadPreview() } }.disabled(capabilities == nil || busy)
@@ -165,9 +169,10 @@ struct AgentConfigView: View {
         capabilityToast = nil
         guard let capabilities, !checkingCapability else { return }
         var candidate = draft
-        let blocks = candidate.changeCapabilities(actions, capabilities: capabilities)
+        let blocks = candidate.changeCapabilities(actions, capabilities: capabilities, personal: personal)
         if let block = blocks.first { capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name); return }
-        let removed = candidate.removingCapabilities(from: draft, capabilities: capabilities)
+        candidate.tool_allowlist = candidate.sanitizeStaticTools(personal: personal, capabilities: capabilities)
+        let removed = candidate.removingCapabilities(from: draft, capabilities: capabilities, personal: personal)
         if removed.isEmpty { draft = candidate; return }
         checkingCapability = true
         Task {
@@ -176,7 +181,8 @@ struct AgentConfigView: View {
                 let usage: CapabilityUsage = try await client.get(agentPath(agentID) + "/capability-usage")
                 if let block = usage.blocks(removing: removed).first { capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name); return }
                 // Apply against the current draft so unrelated edits survive the request.
-                let blocks = draft.changeCapabilities(actions, capabilities: capabilities)
+                let blocks = draft.changeCapabilities(actions, capabilities: capabilities, personal: personal)
+                draft.tool_allowlist = draft.sanitizeStaticTools(personal: personal, capabilities: capabilities)
                 if let block = blocks.first { capabilityToast = .init(text: block.message, anchor: action.kind + ":" + action.name) }
             } catch { capabilityToast = .init(text: CapabilityBlock(code: "capability_unavailable", target: action.target).message, anchor: action.kind + ":" + action.name) }
         }
@@ -185,9 +191,18 @@ struct AgentConfigView: View {
         do {
             let value: AgentConfigSnapshot = try await client.get(agentPath(agentID) + "/settings")
             try Task.checkCancellation()
-            if !dirty { config = value.config; draft = value.config.draft }
-            else if config?.profile_version != value.config.profile_version { currentConfig = value.config; conflicted = true }
+            let wasDirty = dirty
             capabilities = value.live_capabilities
+            if !wasDirty {
+                config = value.config
+                draft = value.config.draft
+                draft.tool_allowlist = draft.sanitizeStaticTools(personal: personal, capabilities: capabilities)
+            } else if config?.profile_version != value.config.profile_version {
+                currentConfig = value.config
+                conflicted = true
+            } else {
+                draft.tool_allowlist = draft.sanitizeStaticTools(personal: personal, capabilities: capabilities)
+            }
             draft.fixed_tools = capabilities?.fixed_tools ?? []
             settingsRead = value.display; ready = value.ready
             if value.pending_operation != nil { pending = true }
@@ -204,10 +219,13 @@ struct AgentConfigView: View {
     private func save() async {
         guard let config, ready, !deleting else { return }
         busy = true; saved = false; error = nil; defer { busy = false }
-        do { let value: AgentConfig = try await client.send(agentPath(agentID) + "/config", method: "PATCH", body: draft.payload(version: config.profile_version)); self.config = value; draft = value.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; saved = true }
+        do {
+            let value: AgentConfig = try await client.send(agentPath(agentID) + "/config", method: "PATCH", body: draft.payload(version: config.profile_version, personal: personal, capabilities: capabilities))
+            self.config = value; draft = value.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; draft.tool_allowlist = draft.sanitizeStaticTools(personal: personal, capabilities: capabilities); saved = true
+        }
         catch {
             if let blocks = (error as? APIError)?.blocks, let block = blocks.first, let capabilities {
-                draft.restoreCapabilities(blocks, capabilities: capabilities)
+                draft.restoreCapabilities(blocks, capabilities: capabilities, personal: personal)
                 capabilityToast = .init(text: block.message, anchor: block.target.kind + ":" + block.target.name)
             } else { self.error = agentError(error); pending = (error as? APIError)?.code == "config_apply_pending" || !(error is APIError); conflicted = !pending && isAgentStateConflict(error) }
         }
@@ -222,7 +240,8 @@ struct AgentConfigView: View {
             let value = snapshot.config
             var current = value.draft
             current.fixed_tools = draft.fixed_tools
-            if !dirty || current.payload() == draft.payload() {
+            current.tool_allowlist = current.sanitizeStaticTools(personal: personal, capabilities: capabilities)
+            if !dirty || current.payload(personal: personal, capabilities: capabilities) == draft.payload(personal: personal, capabilities: capabilities) {
                 config = value; draft = current; saved = true; error = nil
             } else if value.profile_version != config?.profile_version {
                 currentConfig = value; conflicted = true; saved = false
@@ -237,7 +256,7 @@ struct AgentConfigView: View {
     }
     private func loadPreview() async {
         busy = true; defer { busy = false }
-        do { preview = try await client.send(agentPath(agentID) + "/prompt-preview", body: draft.previewPayload(capabilities: capabilities, creating: false, customWorkspace: false)) }
+        do { preview = try await client.send(agentPath(agentID) + "/prompt-preview", body: draft.previewPayload(capabilities: capabilities, creating: false, customWorkspace: false, personal: personal)) }
         catch { self.error = agentError(error) }
     }
 }
@@ -333,20 +352,34 @@ struct AgentEditorFields: View {
         if let roleEditor { roleEditor }
         if showCapabilities { Group {
         Section {
-            DisclosureGroup(L("工具", "Tools") + " · \(draft.tool_allowlist.filter { $0 != "memory" }.count)") {
-                if let capabilities {
-                    ForEach(capabilities.tools.filter { $0.name != "memory" }) { option in
-                        VStack(alignment: .leading) {
-                            Toggle(option.name, isOn: Binding(get: { draft.effectiveTools.contains(option.name) }, set: { change(.init(kind: "tool", name: option.name, enabled: $0)) })).capabilityAnchor("tool:" + option.name)
-                            if let description = option.description, !description.isEmpty {
-                                DisclosureGroup(L("工具说明", "Tool description")) {
-                                    Text(description).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                                }.font(.caption)
-                            }
+            let fixed = capabilities?.fixedTools(mode: draft.work_mode, personal: personal) ?? AgentCapabilities.modeFixedTools(mode: draft.work_mode, personal: personal)
+            let effectiveStatic = draft.effectiveSelectedTools(capabilities: capabilities)
+            let allowsManager = effectiveStatic.contains("plugin_manager")
+            let visibleOptions: [AgentOption] = {
+                let base = (capabilities?.tools ?? []).filter { $0.name != "memory" }
+                let missingFixed = fixed.filter { name in name != "memory" && !base.contains { $0.name == name } }.map { AgentOption(name: $0) }
+                return base + missingFixed
+            }()
+            let missingStored = draft.sanitizeStaticTools(personal: personal, capabilities: capabilities).filter { tool in tool != "memory" && !visibleOptions.contains { $0.name == tool } }
+            let enabledCount = visibleOptions.filter { option in
+                if option.source_group == "workspace" { return fixed.contains(option.name) || (allowsManager && option.enabled != false) }
+                return fixed.contains(option.name) || effectiveStatic.contains(option.name)
+            }.count + missingStored.count
+            DisclosureGroup(L("工具", "Tools") + " · \(enabledCount)") {
+                ForEach(visibleOptions) { option in
+                    let isOn = option.source_group == "workspace"
+                        ? (fixed.contains(option.name) || (allowsManager && option.enabled != false))
+                        : (fixed.contains(option.name) || effectiveStatic.contains(option.name))
+                    VStack(alignment: .leading) {
+                        Toggle(option.name, isOn: Binding(get: { isOn }, set: { change(.init(kind: "tool", name: option.name, enabled: $0)) })).capabilityAnchor("tool:" + option.name)
+                        if let description = option.description, !description.isEmpty {
+                            DisclosureGroup(L("工具说明", "Tool description")) {
+                                Text(description).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                            }.font(.caption)
                         }
                     }
                 }
-                ForEach(draft.tool_allowlist.filter { tool in tool != "memory" && !(capabilities?.tools.contains { $0.name == tool } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
+                ForEach(missingStored, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
             }
         }
         Section {
@@ -375,10 +408,11 @@ struct AgentEditorFields: View {
             }
         }
         Section {
+            let resolvedFeatures = draft.effectiveFeatures(capabilities: capabilities)
             DisclosureGroup(L("运行特性", "Runtime features")) {
                 ForEach((capabilities?.features ?? []).filter { !["memory_curation", "skill_creation"].contains($0.key) && (personal || $0.key != "proactive_planning") }) { feature in
                     VStack(alignment: .leading, spacing: 5) {
-                        Toggle(agentFeatureName(feature.key), isOn: Binding(get: { draft.isFeatureEnabled(feature) }, set: { change(.init(kind: "feature", name: feature.key, enabled: $0)) }))
+                        Toggle(agentFeatureName(feature.key), isOn: Binding(get: { resolvedFeatures[feature.key] ?? draft.isFeatureEnabled(feature) }, set: { change(.init(kind: "feature", name: feature.key, enabled: $0)) }))
                             .capabilityAnchor("feature:" + feature.key)
                         if let subtitle = agentFeatureSubtitle(feature.key, personal: personal) {
                             Text(subtitle).font(.caption).foregroundStyle(.secondary)
@@ -408,6 +442,7 @@ struct AgentEditorFields: View {
 func agentFeatureName(_ key: String) -> String {
     switch key {
     case "intelligent_ui": return L("交互式回复", "Intelligent UI")
+    case "plugin_management": return L("插件开发与管理", "Plugin development & management")
     case "task_graph": return L("任务图", "Task graphs")
     case "proactive_planning": return L("主动筹划", "Proactive planning")
     case "dreaming": return L("Dreaming · 自动整理记忆", "Dreaming · Automatic memory organization")

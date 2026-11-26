@@ -27,10 +27,10 @@
   .assistant-starter > svg { position: static; flex: none; }
   .assistant-starter-icon { flex: none; }
   .assistant-introduction { padding: 16px 0; }
-  .assistant-introduction > .assistant-portrait { width: 64px; height: 64px; }
+  .assistant-introduction > .chat-avatar { zoom: .8; }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .assistant-introduction > .assistant-portrait, .workspace-welcome-drawing, .first-use-heading > .assistant-portrait { animation: assistant-arrive 420ms ease-out both; transform-origin: center bottom; }
+  .assistant-introduction > .chat-avatar, .workspace-welcome-drawing, .first-use-heading > .assistant-portrait { animation: assistant-arrive 420ms ease-out both; transform-origin: center bottom; }
   @keyframes assistant-arrive { from { opacity: 0; transform: translateY(6px) rotate(-6deg); } to { opacity: 1; transform: none; } }
 }
 @media (prefers-reduced-motion: reduce) { .assistant-starter { transition: none; } .assistant-starter:hover:not(:disabled) { transform: none; } }

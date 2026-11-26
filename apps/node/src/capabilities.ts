@@ -4,7 +4,14 @@ import type { NodeConfigurationFile } from "./configuration.js";
 
 interface Catalog {
   workflows?: { name: string; description: string }[];
-  tools: { name: string; description: string; source_group?: "workspace"; enabled?: boolean }[];
+  tools: {
+    name: string;
+    description: string;
+    source_group?: "workspace";
+    enabled?: boolean;
+    plugin_bundle?: string;
+    plugin_title?: string | Record<string, string>;
+  }[];
   skills: {
     name: string;
     description: string;
@@ -51,7 +58,14 @@ export function projectCapabilities(
       name: tool.name,
       description: tool.description,
       default_on: tool.source_group !== "workspace" && !["send_message", "run_code", "subagent_fork", "exit_plan_mode", "create_goal", "get_goal", "update_goal"].includes(tool.name),
-      ...(tool.source_group === "workspace" ? {source_group: tool.source_group, enabled: tool.enabled} : {}),
+      ...(tool.source_group === "workspace"
+        ? {
+            source_group: tool.source_group,
+            enabled: tool.enabled,
+            ...(tool.plugin_bundle ? { plugin_bundle: tool.plugin_bundle } : {}),
+            ...(tool.plugin_title !== undefined ? { plugin_title: tool.plugin_title } : {}),
+          }
+        : {}),
     })),
     skills: catalog.skills.filter(skill => skill.name !== 'skill-creator').map((skill) => ({
       name: skill.name,

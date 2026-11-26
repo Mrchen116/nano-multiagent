@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar";
+import { Avatar, agentAvatarId } from "../../chat/components/avatar";
 import { useAuthStore } from "../../auth/auth-store";
 import { useTranslation } from "../../../i18n";
 import type { AgentSummary, NodeSummary } from "./im-agent-config-api";
@@ -79,12 +79,7 @@ export function AgentRow({ agent, nodes, nodesPending = false, statusBadge, isAc
       aria-label={agent.display_name}
       aria-current={isActive ? "page" : undefined}
     >
-      <Avatar agentId={agent.agent_id} personal={agent.role === "personal"} avatarVariant={agent.avatar_variant}
-        initials={initialsOf(agent.display_name)}
-        color={colorForAgent(agent)}
-        size={isMobile ? 38 : 32}
-        status={status}
-      />
+      <Avatar id={agentAvatarId(agent.agent_id)} size={isMobile ? 38 : 32} status={status} />
       <div className="im-agent-row-copy min-w-0 flex-1">
         <p
           className={`m-0 flex items-center gap-1 min-w-0 font-semibold text-im-text ${isMobile ? "text-[15px]" : "text-[13px]"}`}

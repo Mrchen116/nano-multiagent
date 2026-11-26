@@ -350,7 +350,7 @@ it("fills a first PA example without sending or replacing an existing draft", as
   const client = new QueryClient({defaultOptions:{queries:{retry:false}}});
   const withGuide = (conversation:Conversation, extra:Partial<ComponentProps<typeof MessagePane>>={}) => <QueryClientProvider client={client}>{pane(conversation,extra)}</QueryClientProvider>;
   const cooperationAgent = {id:"a-planner",name:"Planner",personal:true,online:true};
-  const {rerender,unmount} = render(withGuide(CONV_A, {personalAgent:true, cooperationAgent, onSend}));
+  const {rerender,unmount} = render(withGuide(CONV_A, { cooperationAgent, onSend}));
   const example='I have an idea I haven’t quite figured out. Help me think it through. Start by asking what I want to do, one question at a time.';
   await userEvent.click(await screen.findByRole('button',{name:/Untangle an idea/}));
   expect(screen.getByRole('textbox')).toHaveValue(example);
@@ -360,7 +360,7 @@ it("fills a first PA example without sending or replacing an existing draft", as
   await userEvent.type(screen.getByRole('textbox'),' Keep Friday free.');
   rerender(withGuide(CONV_B));
   expect(screen.queryByText('Let Planner get to know you')).not.toBeInTheDocument();
-  rerender(withGuide(CONV_A,{personalAgent:true,cooperationAgent,onSend}));
+  rerender(withGuide(CONV_A,{cooperationAgent,onSend}));
   expect(screen.getByRole('textbox')).toHaveValue(example+' Keep Friday free.');
   expect(onSend).not.toHaveBeenCalled();
   await userEvent.click(screen.getByRole('button',{name:'Send'}));
@@ -370,10 +370,10 @@ it("fills a first PA example without sending or replacing an existing draft", as
     sender_user_id:"u1",sender_type:"user",content:example,attachments:[],permission_requests:[],
     delivery_status:"pending" as const,created_at:"2026-01-01T00:00:00Z",
   };
-  rerender(withGuide(CONV_A,{personalAgent:true,cooperationAgent,onSend,messages:[sentMessage]}));
+  rerender(withGuide(CONV_A,{cooperationAgent,onSend,messages:[sentMessage]}));
   expect(screen.queryByRole('region',{name:'Working agreement'})).not.toBeInTheDocument();
   rerender(withGuide(CONV_B));
-  rerender(withGuide(CONV_A,{personalAgent:true,cooperationAgent,onSend,messages:[sentMessage]}));
+  rerender(withGuide(CONV_A,{cooperationAgent,onSend,messages:[sentMessage]}));
   expect(screen.queryByRole('region',{name:'Working agreement'})).not.toBeInTheDocument();
   unmount();client.clear();
 });

@@ -4,7 +4,7 @@ This isolated browser composition mounts `@nano/trajectory-ui`, the Nano-maintai
 source fork of the DSH trajectory UI. Its table, timeline and inspectors provide
 one view with launch actions and execution scope. Official Connection, Typert,
 generated Remote, Session Controller, Conversation, Session and Attachment plugins
-remain version-pinned at `0.2.1-alpha.1`; their registration bundles are unchanged.
+remain version-pinned at `0.2.2-rc.5`; their registration bundles are unchanged.
 Native events, assistant chunks, projections and attachment results cross the
 carrier unchanged. The build embeds its non-secret module manifest and preloads
 only static entry dependencies and registration bundles; component initialization

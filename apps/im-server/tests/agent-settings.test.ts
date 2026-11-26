@@ -303,14 +303,38 @@ it('rejects legacy live and cached usage while retaining fresh offline statistic
   } finally {await app.close();}
 });
 
-it('preserves fixed context and personal tools in settings capabilities', async () => {
-  const {app,ctx}=setup();
-  ctx.gateway.request=async()=>({capabilities:{...capabilities,fixed_tools:['new_context','personal_sources']}});
+it('preserves fixed context, plugin bundle attribution, and pre-feat-791 plugin_management continuity in settings capabilities', async () => {
+  const {app,ctx,db}=setup();
+  const pluginFeature={key:'plugin_management',label_i18n:'feature.plugin_management.label',help_i18n:'feature.plugin_management.help',default_on:true,available:true,
+    requires:{features:[],tools:['plugin_manager','cordis_inspect_list','cordis_inspect_query'],skills:['nano-plugin-development']}};
+  ctx.gateway.request=async()=>({capabilities:{
+    ...capabilities,
+    features:[pluginFeature],
+    tools:[
+      {name:'read',description:'Read'},
+      {name:'plugin_manager',description:'Manage plugins'},
+      {name:'cordis_inspect_list',description:'List inspectable services'},
+      {name:'cordis_inspect_query',description:'Query inspectable service'},
+      {name:'notes',description:'Notes',source_group:'workspace',enabled:true,plugin_bundle:'dsh-agent-context',plugin_title:{zh:'上下文整理',en:'Context'}},
+    ],
+    skills:[{name:'nano-plugin-development',source_group:'global'}],
+    fixed_tools:['new_context','personal_sources'],
+  }});
   try {
-    const legacy=(await app.inject('/im/v1/agents/a/capabilities')).json();
-    const settings=(await app.inject('/im/v1/agents/a/settings')).json();
-    expect(settings.live_capabilities.fixed_tools).toEqual(legacy.fixed_tools);
-    expect(settings.live_capabilities.fixed_tools).toEqual(['new_context','personal_sources']);
+    db.prepare("UPDATE agent_profiles SET tool_allowlist_json='[\"read\"]',features_json='{}',skills_selection_mode='default_discovery'").run();
+    const restricted=(await app.inject('/im/v1/agents/a/settings')).json();
+    expect(restricted.live_capabilities.fixed_tools).toEqual(['new_context','personal_sources']);
+    expect(restricted.live_capabilities.tools.find((t:any)=>t.name==='notes')).toMatchObject({plugin_bundle:'dsh-agent-context',plugin_title:{zh:'上下文整理',en:'Context'}});
+    expect(restricted.display.data.features.find((f:any)=>f.key==='plugin_management')).toMatchObject({enabled:false,source:'default'});
+    ctx.gateway.nodes.clear();
+    const offlineRestricted=(await app.inject('/im/v1/agents/a/settings')).json();
+    expect(offlineRestricted.display.data.features.find((f:any)=>f.key==='plugin_management')).toMatchObject({enabled:false});
+
+    connectFixtureGateway({ctx,db});
+    db.prepare("UPDATE agent_profiles SET profile_version=2,tool_allowlist_json='[\"plugin_manager\"]',features_json='{}',skills_selection_mode='default_discovery'").run();
+    const allowed=(await app.inject('/im/v1/agents/a/settings')).json();
+    expect(allowed.display.data.features.find((f:any)=>f.key==='plugin_management')).toMatchObject({enabled:true,source:'default'});
+    expect(allowed.display.data.tools.map((t:any)=>t.name)).toEqual(expect.arrayContaining(['plugin_manager','cordis_inspect_list','cordis_inspect_query']));
   } finally {await app.close();}
 });
 

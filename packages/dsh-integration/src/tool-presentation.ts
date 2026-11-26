@@ -48,9 +48,19 @@ export function recordToolPresentations(ctx: Context, home: string) {
   ctx.on('tools/result', (exec, result) => {
     if (!exec.agent?.session.header.agentPreset?.startsWith('nano:')) return;
     const definition = ctx.tools.get(exec.name, exec.agent);
-    const value = !result.isError && result.value && typeof result.value === 'object' && !Array.isArray(result.value) ? result.value : {};
-    const delegationKind = exec.name === 'subagent' && ['foreground', 'continuable', 'background'].includes(String(value.kind)) ? String(value.kind) : undefined;
-    const child = value.kind === 'continuable' ? value.subagentId : value.kind === 'foreground' ? value.runId : undefined;
+    const value = !result.isError && result.value && typeof result.value === 'object' && !Array.isArray(result.value) ? result.value as Record<string, unknown> : {};
+    const activationName = value.kind === 'activation' && typeof value.name === 'string' ? value.name : undefined;
+    const catalog = activationName
+      ? exec.agent.session.snapshotEvents().findLast((event): event is Extract<SessionEvent, { type: 'subagent/catalog' }> =>
+          event.type === 'subagent/catalog' && 'name' in event.data && event.data.name === activationName)?.data
+      : undefined;
+    const delegationKind = catalog && catalog.mode !== 'unknown'
+      ? (catalog.mode === 'continuable' ? 'continuable' : 'background')
+      : exec.name === 'subagent' && ['foreground', 'continuable', 'background'].includes(String(value.kind))
+        ? String(value.kind)
+        : undefined;
+    const child = (catalog && catalog.mode !== 'unknown' ? catalog.childId : undefined)
+      ?? (value.kind === 'continuable' ? value.subagentId : value.kind === 'foreground' ? value.runId : undefined);
     const view = {
       callId: exec.callId,
       ...(delegationKind ? {delegationKind} : {}),

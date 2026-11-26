@@ -82,17 +82,16 @@ def _consumed(view: dict, target: str, message_id: str) -> dict | None:
 
 
 def _delegation(view: dict) -> dict | None:
-    return next(
-        (
-            call
-            for call in _tools(view, "subagent")
-            if call.get("status") == "completed"
-            and not call.get("input", {}).get("agent_id")
-            and call.get("input", {}).get("run_in_background") is True
-            and call.get("detail", {}).get("child_session_id")
-        ),
-        None,
-    )
+    for call in _tools(view, "delegate_worker"):
+        if (
+            call.get("status") != "completed"
+            or call.get("input", {}).get("action") != "start"
+        ):
+            continue
+        worker_id = call.get("detail", {}).get("worker_id")
+        if isinstance(worker_id, str) and worker_id:
+            return {**call, "worker_id": worker_id}
+    return None
 
 
 def _followup(view: dict, child_id: str, amendment: str) -> dict | None:
@@ -157,7 +156,7 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
                         "inbox",
                         "conversations",
                         "send_message",
-                        "subagent",
+                        "delegate_worker",
                     ],
                     "skills": [],
                     "features": {
@@ -196,7 +195,7 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
             main_session = first["main_session_id"]
             delegation = _delegation(first)
             assert delegation is not None
-            child_id = delegation["detail"]["child_session_id"]
+            child_id = delegation["worker_id"]
             assert not im_user.agent_messages(chat_a, agent_id)
             assert not im_user.agent_messages(chat_b, agent_id)
             message_b = im_user.send_message(
@@ -220,20 +219,24 @@ def test_global_agent_reads_cross_chat_amendment_and_follows_same_child(
             assert followup["session_id"] == delegation["session_id"] == main_session
             assert followup["seq"] > delegation["seq"]
             assert final["main_session_id"] == main_session
-            assert len(_tools(final, "subagent")) == 1
+            assert len(_tools(final, "delegate_worker")) == 1
             assert {turn["session_id"] for turn in final["turns"]} == {main_session}
+            graph = _get(http, f"{base}/delegation")
             linked = [
                 session
-                for session in final["other_executions"]
-                if session.get("child_agent_id") == child_id
+                for session in graph["nodes"]
+                if session.get("session_id") == child_id
             ]
             assert len(linked) == 1
             assert linked[0]["parent_session_id"] == main_session
-            child = _get(
-                http, f"{base}/sessions/{quote(linked[0]['session_id'], safe='')}/turns"
+            assert linked[0]["scope"] == "worker"
+            assert linked[0]["runtime"] == "dsh"
+            prepared = http.post(
+                f"/im/v1/agents/{agent_id}/trajectory/prepare",
+                json={"session_id": main_session},
             )
-            assert child["turns"], (
-                "actual child session must have a readable Work trace"
+            assert prepared.is_success and prepared.json().get("ticket"), (
+                "main session must have an accessible native trajectory"
             )
             deliveries = _dispatches(final, chat_a)
             messages = im_user.agent_messages(chat_a, agent_id)

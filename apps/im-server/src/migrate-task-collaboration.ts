@@ -64,6 +64,7 @@ function receiptConversation(db:DatabaseSync,row:Row,mapping:Row):string {
 }
 /** Inspect without guessing missing historical identities or mutating the database. */
 export function inspectMigration(db:DatabaseSync):Row {
+  clearPrepared(db);
   if(current(db)) return {state:'already_migrated',graphs:all(db,'SELECT graph_id FROM task_graphs').length};
   return {state:'requires_mapping',fingerprint:fingerprint(db),graphs:Object.fromEntries(all(db,'SELECT * FROM task_graphs').map(row=>{
     const d=JSON.parse(row.document_json);
@@ -72,6 +73,7 @@ export function inspectMigration(db:DatabaseSync):Row {
 }
 /** Apply an explicitly evidenced mapping once, with a consistent pre-change backup. */
 export async function applyMigration(db:DatabaseSync,mapping:Row,backupPath:string):Promise<Row> {
+  clearPrepared(db);
   if(current(db)) throw Error('Already migrated; refusing to overwrite v2 progress');
   if(existsSync(backupPath)) throw Error('Backup already exists; choose a new path');
   plan(db,mapping);

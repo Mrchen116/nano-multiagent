@@ -25,6 +25,56 @@ struct CapabilitySelectionTests {
         #expect(draft.features["dreaming"] == false)
         #expect(draft.tool_allowlist == tools)
     }
+    @Test func pluginManagementContinuityPluginBlocksAndModeSanitization() {
+        let pluginFeature = AgentFeature(
+            key: "plugin_management",
+            label_i18n: "feature.plugin_management.label",
+            help_i18n: "feature.plugin_management.help",
+            default_on: true,
+            available: true,
+            requires: .init(features: [], tools: ["plugin_manager", "cordis_inspect_list", "cordis_inspect_query"], skills: ["nano-plugin-development"])
+        )
+        let caps = AgentCapabilities(
+            fixed_tools: ["notes"],
+            node_id: "n",
+            models: [],
+            skills: [.init(name: "nano-plugin-development")],
+            tools: [
+                .init(name: "read"),
+                .init(name: "send_message"),
+                .init(name: "plugin_manager"),
+                .init(name: "cordis_inspect_list"),
+                .init(name: "cordis_inspect_query"),
+                .init(name: "notes", enabled: true, source_group: "workspace", plugin_bundle: "dsh-agent-context", plugin_title: .string("Context")),
+                .init(name: "roll_dice", enabled: true, source_group: "workspace", plugin_bundle: "dice-plugin", plugin_title: .string("Dice")),
+            ],
+            features: [pluginFeature]
+        )
+
+        var legacyAllowed = AgentDraft()
+        legacyAllowed.work_mode = "global"
+        legacyAllowed.tool_allowlist = ["plugin_manager", "read", "notes", "inbox"]
+        legacyAllowed.skills_selection_mode = "default_discovery"
+        #expect(legacyAllowed.effectiveFeatures(capabilities: caps)["plugin_management"] == true)
+        #expect(Set(legacyAllowed.effectiveSelectedTools(capabilities: caps)) == Set(["plugin_manager", "read", "notes", "inbox", "cordis_inspect_list", "cordis_inspect_query"]))
+        #expect(legacyAllowed.sanitizeStaticTools(personal: false, capabilities: caps) == ["plugin_manager", "read"])
+
+        let pluginBlock = legacyAllowed.changeCapability(.init(kind: "tool", name: "notes", enabled: false), capabilities: caps)
+        #expect(pluginBlock == [.init(code: "provided_by_plugin", target: .init(kind: "tool", name: "notes"), plugin: "Context")])
+
+        var legacyRestricted = AgentDraft()
+        legacyRestricted.work_mode = "single_thread"
+        legacyRestricted.tool_allowlist = ["read", "send_message", "notes"]
+        legacyRestricted.skills_selection_mode = "explicit_allowlist"
+        #expect(legacyRestricted.effectiveFeatures(capabilities: caps)["plugin_management"] == false)
+        #expect(legacyRestricted.sanitizeStaticTools(personal: false, capabilities: caps) == ["read", "send_message"])
+        let requiresManager = legacyRestricted.changeCapability(.init(kind: "tool", name: "roll_dice", enabled: true), capabilities: caps)
+        #expect(requiresManager == [.init(code: "plugin_requires_manager", target: .init(kind: "tool", name: "roll_dice"), plugin: "Dice")])
+
+        #expect(legacyRestricted.changeCapability(.init(kind: "tool", name: "cordis_inspect_list", enabled: true), capabilities: caps).isEmpty)
+        #expect(legacyRestricted.features["plugin_management"] == false)
+        #expect(legacyRestricted.tool_allowlist.contains("cordis_inspect_list"))
+    }
     struct Fixture: Decodable {
         struct Definition: Decodable {
             var key: String; var default_on: Bool; var requires: AgentFeature.Requirements

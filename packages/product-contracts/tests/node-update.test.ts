@@ -37,3 +37,39 @@ it('binds the Windows bootstrap and descriptor to the same versioned release', (
   expect(parseReleaseManifest({...windows, platform: undefined})).toBeNull();
   expect(parseReleaseManifest({...release, platform: 'win32-x64'})).toBeNull();
 });
+
+it('validates desktop-darwin-arm64 and desktop-win32-x64 manifests with shell_protocol=1', () => {
+  const base = release.download_url.slice(0, release.download_url.lastIndexOf('/') + 1);
+  const macDesktop = {
+    ...release,
+    platform: 'desktop-darwin-arm64',
+    package: 'desktop-darwin-arm64.json',
+    size: 512,
+    shell_protocol: 1,
+    download_url: base + 'desktop-darwin-arm64.json',
+    installer: {
+      download_url: base + 'Crewden-Desktop-arm64.dmg',
+      sha256: 'e'.repeat(64),
+      size: 16384,
+    },
+  };
+  const winDesktop = {
+    ...release,
+    platform: 'desktop-win32-x64',
+    package: 'desktop-win32-x64.json',
+    size: 520,
+    shell_protocol: 1,
+    download_url: base + 'desktop-win32-x64.json',
+    installer: {
+      download_url: base + 'Crewden-Desktop-Setup-x64.exe',
+      sha256: 'f'.repeat(64),
+      size: 24576,
+    },
+  };
+  expect(parseReleaseManifest(macDesktop)).toEqual(macDesktop);
+  expect(parseReleaseManifest(winDesktop)).toEqual(winDesktop);
+  expect(parseReleaseManifest({ ...macDesktop, shell_protocol: undefined })).toBeNull();
+  expect(parseReleaseManifest({ ...macDesktop, shell_protocol: 2 })).toBeNull();
+  expect(parseReleaseManifest({ ...macDesktop, installer: { ...macDesktop.installer, download_url: base + 'Crewden-Setup-x64.exe' } })).toBeNull();
+  expect(parseReleaseManifest({ ...release, shell_protocol: 1 })).toBeNull();
+});

@@ -50,7 +50,7 @@ export function registerTool(ctx: Context, configuration: (agent: Agent) => Agen
             JSON.stringify({graph_id:response.result.graph_id,revision:response.result.revision,...response.result.feedback}),
             ...(response.result.feedback.tasks.some(task=>task.status==='waiting')?['For waiting Tasks, communicate actual progress, the specific blocker, alternatives tried, what is needed from whom and the next check.']:[]),
             ...(response.result.feedback.tasks.some(task=>task.status==='in_review'||task.status==='done')?['For in_review or done Tasks, communicate the verified result and evidence needed to use or assess it.']:[]),
-            internal?"Report this meaningful feedback to your parent with the fixed conversation for the root's public delivery. Internal send_message uses agent_id/message; accepted input is not public delivery.":'Deliver this meaningful feedback to the fixed conversation. In Global mode use send_message; a private closing note is not delivery.',
+            internal?"Report this meaningful feedback to your parent with the fixed conversation for the root's public delivery. Internal send_message uses agent/message; accepted input is not public delivery.":'Deliver this meaningful feedback to the fixed conversation. In Global mode use send_message; a private closing note is not delivery.',
             'Skip feedback already confirmed delivered. Receipt replay or routine waiting renewal is not a reason to resend unchanged content. A failed or unknown send is not delivery and does not undo waiting or its valid Schedule. Continue other executable responsibilities after this feedback.',
           ].join('\n')}],
         }));

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TaskEditorView: View {
+    @Environment(\.avatarDirectory) private var avatarDirectory
     let client: IMClient
     let node: TaskNode?
     let parentID: String?
@@ -192,7 +193,7 @@ struct TaskEditorView: View {
             List(conversations) { chat in
                 Button { conversationID = chat.id; showingConversation = false } label: {
                     HStack {
-                        AvatarView(name: chat.title, kind: chat.type == "group" ? "group" : "agent", size: 36)
+                        AvatarView(id: .conversation(chat, selfID: avatarDirectory.userID), size: 36)
                         Text(chat.title).foregroundStyle(NanoTheme.ink)
                         Spacer()
                         if conversationID == chat.id { Image(systemName: "checkmark") }

@@ -23,6 +23,7 @@ import { providerProfiles } from './providers.js';
 import { ModelSetup } from './model-setup.js';
 import {CapabilityRequests} from './capability-requests.js';
 import { NodeTrajectory } from './trajectory.js';
+import { LocalNodeBridge } from './local-bridge.js';
 import { WebRelayConnection, FeishuConnection, ChannelKey } from '@nano/channels';
 import { WorkSync, NodeStore, TaskExecution, TaskContext, ScheduleDeletions, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ProactiveCoordinator, isProactivePlanningEnabled, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, AgentDeletionIntent, AgentLifecycleSnapshot, ProactiveSyncObservationsInput, RelayInput } from '@nano/product-contracts';
@@ -76,6 +77,7 @@ const inbox = new InboxStore(join(home, 'global.sqlite3'));
 let agentLifecycle: NodeAgentLifecycle;
 let lifecycleSync: Promise<void> = Promise.resolve();
 const supervisors = new Map<string, RuntimeSupervisor>();
+const runningSessionsByPartition = new Map<string, Set<string>>();
 let product: SingleThread;
 let tasks:TaskExecution;
 const productCalls=new Map<string,{sessionId:string;promise:Promise<unknown>}>();
@@ -223,11 +225,23 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
       },
       onError: reportError,
       onUnavailable: async () => {
+        runningSessionsByPartition.get(partition.key)?.clear();
         globalProduct?.runtimeUnavailable(partition.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
         await reportPersonalAvailability(partition,false);
         for (const observer of runtime.unavailable(partition)) trajectory?.close(observer);
         if (partition.key === 'ordinary') { await rm(updatePath(configPath, '.node-update-handoff.json'), {force:true}); await lifecycle.unavailable(); }
       },
+    });
+    const partitionRunning = new Set<string>();
+    runningSessionsByPartition.set(partition.key, partitionRunning);
+    supervisor.onNotification((method, value) => {
+      if (method === 'session.status') {
+        const s = value as { sessionId?: string; status?: string };
+        if (typeof s.sessionId === 'string' && s.sessionId) {
+          if (s.status === 'running') partitionRunning.add(s.sessionId);
+          else partitionRunning.delete(s.sessionId);
+        }
+      }
     });
     supervisors.set(partition.key, supervisor);
     return { get available() { return supervisor.available; },
@@ -387,7 +401,7 @@ const handlers:NodeHandlers = {
       if (!config.agents.some(agent=>agent.agent_id===input.agent_id)) throw new Error('Plugin request has no Agent on this node');
       const plugins = await runtime.request('plugins.manage',{agentId:input.agent_id,action:input.action,
         target:'target' in input ? input.target : undefined,enabled:'enabled' in input ? input.enabled : undefined}) as NonNullable<NodeReply<'node.plugins.request'>['plugins']>;
-      if (input.action !== 'list_bundles') publishCatalogChange();
+      if (input.action !== 'list_bundles' && !plugins.pending) publishCatalogChange();
       return {plugins};
     } catch (error) {return {error:String(error)};}
   },
@@ -777,6 +791,30 @@ agentLifecycle = new NodeAgentLifecycle({
   resetHeartbeat: agentId => heartbeat.resetAgent(agentId),
   report: async report => { await relay.request('agent.lifecycle.report', {...report}, {priority:'control'}); },
 });
+const localBridge = new LocalNodeBridge({
+  configPath,
+  nodeId: config.node.node_id,
+  ownerId: () => config.node.user_id,
+  nodeEpoch: () => relay.registration?.node_epoch,
+  ready: () => !stopping,
+  connected: () => relay.ready,
+  bindings: () => store.bindings(),
+  runtime,
+  activeTasks: () => {
+    let runningSessions = 0;
+    for (const set of runningSessionsByPartition.values()) runningSessions += set.size;
+    return Math.max(
+      runningSessions,
+      productCalls.size +
+        (admissions > 0 ? 1 : 0) +
+        (product?.busy ? 1 : 0) +
+        (globalProduct?.busy ? 1 : 0) +
+        (heartbeat?.busy ? 1 : 0) +
+        (workflows.busy ? 1 : 0),
+    );
+  },
+});
+await localBridge.start();
 await updater.start();
 await managed.start();
 workSync.start();
@@ -798,6 +836,7 @@ async function stop() {
   for(const recovery of readyRecovery.values())clearTimeout(recovery.timer);
   clearInterval(taskWatch);
   trajectory.closeAll();
+  await localBridge.close().catch(reportError);
   try { await logicalClock?.close(); capabilityRequests.cancelAll(); await deletions.close(); await inspector.close(); await workSync.stop(); await updater.close(); await modelSetup.stop(); await managed.stop(); await proactiveCoordinator.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await relay.stop(); await product.stop(); await globalProduct.stop(); await Promise.allSettled(readyRecoveryTasks); await operations.close(); await external.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}

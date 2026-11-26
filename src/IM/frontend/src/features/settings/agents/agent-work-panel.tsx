@@ -1,10 +1,13 @@
 import { keepPreviousData, useInfiniteQuery, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { TaskGraphLink } from "../../tasks/task-graph-link";
 
+import { WorkspaceAgentContext } from "../../../desktop/use-desktop-local-agents";
+import { DesktopWorkspaceFileLink } from "../../../desktop/workspace-path-actions";
+import { isDesktopClient } from "../../../desktop/desktop-context";
 import { subscribeUserStream } from "../../../realtime/user-stream";
 import type { BackgroundReturn, PermissionRequest, TokenUsage, ToolCall } from "../../chat/chat-types";
 import { formatDuration } from "../../chat/components/tool-calls-panel";
@@ -465,7 +468,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
       activity={active} workerRecordsRevision={view?.worker_records_revision} preview={continuous ? loadPreview : undefined} visible={!nativeMode && !graphMode} headUpdate={nativeMode || graphMode ? 0 : main ? viewQuery.dataUpdatedAt : childQuery.dataUpdatedAt}
       focusToken={!nativeMode && focus?.session_id === turn.session_id && focus?.turn_id === turn.turn_id ? replyFocusToken : undefined} />;
   };
-  return <WorkNavigationContext.Provider value={{ returnUrl: `${location.pathname}?view=work`, beforeLeave: save, names, people }}>
+  return <WorkspaceAgentContext.Provider value={agentId}><WorkNavigationContext.Provider value={{ returnUrl: `${location.pathname}?view=work`, beforeLeave: save, names, people }}>
     <div ref={root} className={`im-work${continuous ? " im-work-continuous" : ""}`} data-testid="agent-work-panel">
       {viewQuery.isLoading ? <p role="status" className="im-work-state">{tr("正在加载工作记录…")}</p> : viewQuery.isError && !view && !viewQuery.isFetchNextPageError ? <div role="alert" className="im-work-state">{viewQuery.error.message}{!(viewQuery.error instanceof AgentExecutionDeletedError) && <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button>}</div> : view && <>
         {viewQuery.isRefetchError && <p className="im-work-callout" role="status">{viewQuery.error.message} <button type="button" onClick={() => void viewQuery.refetch()}>{tr("重试")}</button></p>}
@@ -530,7 +533,7 @@ export function AgentWorkPanel({ agentId, agentName }: { agentId: string; agentN
         </div>
       </>}
     </div>
-  </WorkNavigationContext.Provider>;
+  </WorkNavigationContext.Provider></WorkspaceAgentContext.Provider>;
 }
 
 function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refresh, focusToken, separate, activity, headUpdate, workerRecordsRevision = 0, preview, visible, onNative}: {
@@ -734,7 +737,18 @@ function Turn({turn, agentId, online, sessions, expanded, expand, onChild, refre
             {(bodyText || source) && <div className="im-work-assistant"><header className="im-work-message-head">
               <strong>{tr(originLabel)}</strong>
               {source && <button type="button" className="im-work-child-link" onClick={() => onChild(source)}>{tr("查看关联执行")}<span aria-hidden="true">↗</span></button>}
-            </header><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ a: TaskGraphLink }}>{bodyText}</ReactMarkdown></div>}
+            </header><ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              urlTransform={(url) => (isDesktopClient() && url.startsWith("file://") ? url : defaultUrlTransform(url))}
+              components={{
+                a: ({ href, children, ...props }) =>
+                  href?.startsWith("file://") ? (
+                    <DesktopWorkspaceFileLink href={href}>{children}</DesktopWorkspaceFileLink>
+                  ) : (
+                    <TaskGraphLink href={href} {...props}>{children}</TaskGraphLink>
+                  ),
+              }}
+            >{bodyText}</ReactMarkdown></div>}
             {backgroundRows(p.background_returns, itemKey)}
           </li>;
         }

@@ -12,6 +12,8 @@ import { listMessages, readInteractionDraft } from '../chat-api';
 import type { Message } from '../chat-types';
 import type { InteractionReplyInput } from './types';
 import { useTranslation } from '../../../i18n';
+import { openDesktopExternal } from '../../../desktop/desktop-api';
+import { isDesktopClient } from '../../../desktop/desktop-context';
 import './interactive-card.css';
 import { InteractionSubmissionError } from './submission-error';
 import { attachDraftRecord, forgetInteractionDraft, interactionDraftRecord, registerDraftHandle,
@@ -170,8 +172,15 @@ export function InteractiveCard({message, readOnly, isGroup, submittedMessageId,
       return;
     }
     if (action.type === 'open_url') {
-      try { const url=new URL(String(action.params.url)); if (!['https:','http:'].includes(url.protocol)) throw new Error('Unsupported URL'); window.open(url.href,'_blank','noopener,noreferrer'); }
-      catch { setError('action'); }
+      try {
+        const url = new URL(String(action.params.url));
+        if (!['https:', 'http:'].includes(url.protocol)) throw new Error('Unsupported URL');
+        if (isDesktopClient()) {
+          void openDesktopExternal(url.href).catch(() => { if (viewActive.current) setError('action'); });
+        } else {
+          window.open(url.href, '_blank', 'noopener,noreferrer');
+        }
+      } catch { setError('action'); }
       return;
     }
     if (action.type === 'nano_continue' && typeof action.params.action_id === 'string') {

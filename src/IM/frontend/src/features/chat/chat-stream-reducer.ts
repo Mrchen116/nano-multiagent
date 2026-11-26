@@ -255,6 +255,7 @@ export function applyWsEvent(
           id: senderId,
           display_name: resolvedDisplayName,
           role: ev.sender?.role,
+          avatar_id: ev.sender?.avatar_id,
           avatar_variant: ev.sender?.avatar_variant
         },
         sender_user_id: ev.sender_user_id,

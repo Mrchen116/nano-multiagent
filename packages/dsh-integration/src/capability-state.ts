@@ -1,4 +1,5 @@
-import { definitionsForRole, effectiveFeatures, fixedTools, validateCapabilities, type CapabilityBlock, type CapabilityCatalog, type CapabilityTarget } from '@nano/product-contracts/capabilities';
+import { definitionsForRole, effectiveCapabilityFeatures, fixedTools, validateCapabilities, type CapabilityBlock, type CapabilityCatalog, type CapabilityTarget } from '@nano/product-contracts/capabilities';
+import { cordisInspectTools } from './capabilities.js';
 import type { AgentConfiguration } from './index.js';
 
 /** Convert the runtime projection without inventing a second dependency graph. */
@@ -57,12 +58,13 @@ export class CapabilityState {
     if (previous) {
       if (previous.knowledge?.memoryMode === 'legacy' && previous.knowledge.legacyMemory?.enabled !== false
         && (config.knowledge?.memoryMode !== 'legacy' || config.knowledge.legacyMemory?.enabled === false)) targets.push({kind:'feature',name:'memory_curation'});
-      const before = effectiveFeatures(previous.features, definitionsForRole(Boolean(previous.personal)), capabilityDraft(previous));
-      const after = effectiveFeatures(config.features, definitionsForRole(Boolean(config.personal)), capabilityDraft(config));
+      const before = effectiveCapabilityFeatures(capabilityDraft(previous), definitionsForRole(Boolean(previous.personal)), catalog);
+      const after = effectiveCapabilityFeatures(capabilityDraft(config), definitionsForRole(Boolean(config.personal)), catalog);
       for (const name of Object.keys(before)) if (before[name] && !after[name]) targets.push({kind: 'feature', name});
       const fixed = fixedTools(config.mode, config.personal ? 'personal' : 'root');
-      const beforeTools = new Set([...this.selection(previous, catalog.tools ?? []), ...fixed]);
-      const afterTools = new Set([...this.selection(config, catalog.tools ?? []), ...fixed]);
+      const inspectableTools = [...new Set([...(catalog.tools ?? []), ...cordisInspectTools])];
+      const beforeTools = new Set([...this.selection(previous, inspectableTools), ...fixed]);
+      const afterTools = new Set([...this.selection(config, inspectableTools), ...fixed]);
       for (const name of beforeTools) if (!afterTools.has(name)) targets.push({kind: 'tool', name});
       const skill = (value: AgentConfiguration, name: string) => value.skillSelection?.mode === 'explicit_allowlist' ? value.skillSelection.names.includes(name) : value.skillSelection?.mode !== 'explicit_denylist' || !value.skillSelection.names.includes(name);
       for (const name of catalog.skills ?? []) if (skill(previous, name) && !skill(config, name)) targets.push({kind: 'skill', name});

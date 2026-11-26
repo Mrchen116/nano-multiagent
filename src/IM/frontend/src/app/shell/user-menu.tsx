@@ -3,9 +3,10 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
+import { isDesktopClient } from "../../desktop/desktop-context";
 import { useAuthStore } from "../../features/auth/auth-store";
 import { listNodes } from "../../features/settings/im-settings-api";
-import { Avatar, colorForAgentSeed, initialsOf } from "../../features/chat/components/avatar";
+import { Avatar } from "../../features/chat/components/avatar";
 import { UserMenuIcon } from "./user-menu-icons";
 
 /** Keep account and workspace preferences in one place beside desktop navigation. */
@@ -40,7 +41,7 @@ export function UserMenu() {
 
   if (!user) return null;
   const name = user.display_name || user.username;
-  const avatar = <Avatar initials={initialsOf(name)} color={colorForAgentSeed(name)} size={36} />;
+  const avatar = <Avatar id={user.id} size={36} />;
   const handleLanguage = (next: Locale) => { setLanguage(next); setOpen(false); triggerRef.current?.focus(); };
   const close = () => setOpen(false);
 
@@ -65,6 +66,9 @@ export function UserMenu() {
         <Link role="menuitem" to="/settings/models" onClick={close} className="im-user-menu-item">
           <UserMenuIcon kind="models" /><span>{lang === 'zh' ? '模型服务' : 'Model services'}</span><span aria-hidden>›</span>
         </Link>
+        {!isDesktopClient() && <Link role="menuitem" to="/about#download" onClick={close} className="im-user-menu-item">
+          <UserMenuIcon kind="download" /><span>{t('shell.userMenu.downloadApps')}</span><span aria-hidden>›</span>
+        </Link>}
       </div>
       {user.membership_status === 'active' && <div className="im-user-menu-section" role="group" aria-label={t('shell.userMenu.policies')}>
         <Link role="menuitem" to="/settings/policies" onClick={close} className="im-user-menu-item">
@@ -87,7 +91,7 @@ export function UserMenu() {
       <button role="menuitem" type="button" onClick={() => {
         // Let dirty forms confirm navigation before LoginPage clears the session.
         navigate('/login', { replace: true, state: { signOut: true } });
-      }} className="im-user-menu-item im-user-menu-signout"><UserMenuIcon kind="logout" /><span>{t('shell.userMenu.signOut')}</span></button>
+      }} className="im-user-menu-item im-user-menu-signout"><UserMenuIcon kind="logout" /><span>{isDesktopClient() ? (lang === 'zh' ? '退出登录 / 切换服务' : 'Sign out / Switch server') : t('shell.userMenu.signOut')}</span></button>
     </div>}
   </div>;
 }

@@ -4,6 +4,12 @@ import { AgentLifecycleAction, AgentLifecycleStatus, useAgentLifecycle } from '.
 import { useAuthStore } from '../../auth/auth-store';
 import "./agent-settings.css";
 import {AgentOverviewPanel, AgentSessionsPanel} from "./agent-summary-panels";
+import {
+  effectiveCapabilityFeatures,
+  effectiveSelectedTools,
+  sanitizeStaticToolAllowlist,
+  type CapabilityCatalog,
+} from "@nano/product-contracts/capabilities";
 import { capabilityCatalog, useCapabilityEditor } from "./capability-editor";
 import { PersonalAgentSettings } from '../../personal-agent/personal-agent-settings';
 import { ApprovalModeField, type ApprovalMode } from "./approval-mode-field";
@@ -17,7 +23,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from "react-rout
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { createConversation } from "../../chat/chat-api";
-import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar";
+import { Avatar, agentAvatarId } from "../../chat/components/avatar";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 import {
   effectiveReasoningModel,
@@ -38,6 +44,7 @@ import {
   AgentAllowlistOption,
   AgentConfig,
   AgentFeature,
+  type CapabilitySnapshot,
   CronJobSummary,
   ModelOption,
   SkillUsageItem,
@@ -66,15 +73,25 @@ function normalizeText(value: string) {
 
 function normalizeAgentConfig(
   config: AgentConfigFormState,
+  capabilities?: CapabilitySnapshot,
+  personal = false,
 ): AgentConfigFormState {
   const defaultModel = normalizeText(config.default_model ?? "") || null;
+  const workspaceNames = (capabilities?.tools ?? [])
+    .filter((tool) => tool.source_group === "workspace")
+    .map((tool) => tool.name);
   return {
     ...config,
     display_name: normalizeText(config.display_name),
     description: normalizeText(config.description),
     features: config.features ?? {},
     skills: normalizeAllowlist(config.skills),
-    tool_allowlist: normalizeAllowlist(config.tool_allowlist),
+    tool_allowlist: sanitizeStaticToolAllowlist(
+      config.tool_allowlist,
+      config.work_mode,
+      personal ? "personal" : "root",
+      workspaceNames,
+    ),
     default_model: defaultModel,
     model_fallbacks: fallbacksAfterPrimaryChange(config.model_fallbacks ?? [], defaultModel),
     reasoning_effort: config.reasoning_effort,
@@ -82,9 +99,14 @@ function normalizeAgentConfig(
 }
 
 // Presence, timestamps and server revisions never turn an untouched form into a draft.
-function sameEditableConfig(a: AgentConfig, b: AgentConfig): boolean {
+function sameEditableConfig(
+  a: AgentConfig,
+  b: AgentConfig,
+  capabilities?: CapabilitySnapshot,
+  personal = false,
+): boolean {
   const fields = (config: AgentConfig) => {
-    const {node_id, node_name, node_status, updated_at, profile_version, ...editable} = normalizeAgentConfig(config);
+    const {node_id, node_name, node_status, updated_at, profile_version, ...editable} = normalizeAgentConfig(config, capabilities, personal);
     return editable;
   };
   return JSON.stringify(fields(a)) === JSON.stringify(fields(b));
@@ -96,25 +118,29 @@ function validateDraft(draft: AgentConfigFormState) {
   return errors;
 }
 
-// feat-379-M3: resolve effective feature values from draft + capabilities defaults.
-// Draft features take precedence; fall back to capability default_on when key absent.
+// feat-379-M3 / feat-791: resolve effective feature values from draft + capabilities defaults,
+// preserving pre-feat-791 plugin_manager restrictions without disk migration.
 function resolveEffectiveFeatures(
-  draftFeatures: Record<string, boolean> | undefined,
+  draft: AgentConfigFormState,
   capabilityFeatures: AgentFeature[],
-  toolAllowlist?: string[],
+  catalog?: CapabilityCatalog,
+  capabilitiesKnown = true,
 ): Record<string, boolean> {
-  const result: Record<string, boolean> = {};
-  for (const feat of capabilityFeatures) {
-    result[feat.key] = draftFeatures?.[feat.key] ?? feat.default_on;
+  if (!capabilitiesKnown) {
+    const result: Record<string, boolean> = {};
+    for (const feat of capabilityFeatures) {
+      result[feat.key] = draft.features?.[feat.key] ?? feat.default_on;
+    }
+    if (
+      result.proactive_planning &&
+      draft.features?.proactive_planning === undefined &&
+      (result.task_graph === false || (draft.tool_allowlist !== undefined && !draft.tool_allowlist.includes("task_graph")))
+    ) {
+      result.proactive_planning = false;
+    }
+    return result;
   }
-  if (
-    result.proactive_planning &&
-    draftFeatures?.proactive_planning === undefined &&
-    (result.task_graph === false || (toolAllowlist !== undefined && !toolAllowlist.includes("task_graph")))
-  ) {
-    result.proactive_planning = false;
-  }
-  return result;
+  return effectiveCapabilityFeatures(draft, capabilityFeatures, catalog);
 }
 
 function resolveModelOptions(modelOptions: ModelOption[] | undefined, currentModel: string | null, fallbacks: string[] = []): ModelOption[] {
@@ -148,6 +174,7 @@ interface BehaviorCardProps {
   capabilitiesKnown: boolean;
   agentId: string;
   draft: AgentConfigFormState;
+  catalog: CapabilityCatalog;
   inheritedRules?: "nano" | "codex" | "dsh" | null;
   capabilityFeatures: AgentFeature[];
   onApprovalModeChange: (value: ApprovalMode) => void;
@@ -162,6 +189,7 @@ function BehaviorCard({
   capabilitiesKnown,
   agentId,
   draft,
+  catalog,
   capabilityFeatures,
   inheritedRules,
   onApprovalModeChange,
@@ -182,14 +210,11 @@ function BehaviorCard({
   useEffect(() => { if (readOnly) { previewAbort.current?.abort(); setPreviewLoading(false); setPreviewStale(true); } return () => previewAbort.current?.abort(); }, [readOnly]);
 
   const effectiveFeatures = useMemo(
-    () => resolveEffectiveFeatures(draft.features, capabilityFeatures, draft.tool_allowlist),
-    [draft.features, capabilityFeatures, draft.tool_allowlist]
+    () => resolveEffectiveFeatures(draft, capabilityFeatures, catalog, capabilitiesKnown),
+    [draft, capabilityFeatures, catalog, capabilitiesKnown]
   );
 
   // Fetch preview when opened or when draft changes while open.
-  // feat-379-M9 (決策 14): tool_ids comes directly from draft.tool_allowlist; the old
-  // effectiveToolIds hack that injected capability-inferred tools is removed because
-  // _build_tool_names() now correctly includes all tools (R1 fix).
   const fetchPreview = useCallback(async () => {
     if (readOnly) return;
     previewAbort.current?.abort();
@@ -200,7 +225,7 @@ function BehaviorCard({
     try {
       const text = await promptPreview(agentId, {
         features: effectiveFeatures,
-        tool_ids: draft.tool_allowlist ?? [],
+        tool_ids: effectiveSelectedTools(draft, catalog),
         ...(draft.work_mode === "global" ? { work_mode: "global" as const } : {}),
         skill_ids: draft.skills,
         skills_selection_mode: draft.skills_selection_mode
@@ -211,7 +236,7 @@ function BehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [readOnly, agentId, effectiveFeatures, draft.work_mode, draft.tool_allowlist, draft.skills, draft.skills_selection_mode]);
+  }, [readOnly, agentId, effectiveFeatures, catalog, draft]);
 
   // Debounce preview re-fetch when draft changes while preview is open.
   useEffect(() => {
@@ -1346,24 +1371,24 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
   const readOnly = settings.readOnly || confirmationPending || deleting || roleEditor.saving;
   const settingsReason = confirmationPending && (!settings.reason || settings.reason === 'refreshingEditable') ? 'pending' : settings.reason;
 
+  const capabilities = detailQuery.data?.capabilities;
   useEffect(() => {
     const config = detailQuery.data?.config;
     if (!config) return;
     setDraft(current => {
-      if (current && baseConfig.current && !sameEditableConfig(current, baseConfig.current) && !sameEditableConfig(current, config)) return current;
+      if (current && baseConfig.current && !sameEditableConfig(current, baseConfig.current, capabilities, personal) && !sameEditableConfig(current, config, capabilities, personal)) return current;
       baseConfig.current = config;
       return config;
     });
-  }, [detailQuery.data?.config]);
+  }, [detailQuery.data?.config, capabilities, personal]);
 
-  const capabilities = detailQuery.data?.capabilities;
   const capabilityEditor = useCapabilityEditor(draft, setDraft, capabilities, agentId, personal);
   const owningNode = detailQuery.data?.owningNode ?? null;
   const modelOptions = capabilities?.model_options ?? [];
   const platformDefaultModel = capabilities?.platform_default_model ?? null;
   const normalizedDraft = useMemo(
-    () => (draft ? normalizeAgentConfig(draft) : null),
-    [draft, modelOptions],
+    () => (draft ? normalizeAgentConfig(draft, capabilities, personal) : null),
+    [draft, capabilities, personal],
   );
   const availableModels = useMemo(
     () => resolveModelOptions(capabilities?.model_options, draft?.default_model ?? null, draft?.model_fallbacks),
@@ -1376,15 +1401,25 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
     effectiveReasoningModel(draft?.default_model ?? null, platformDefaultModel),
     draft?.reasoning_effort ?? null,
   );
-  const fixedTools = capabilityCatalog(capabilities, draft?.work_mode, personal).fixed_tools;
+  const catalog = useMemo(
+    () => capabilityCatalog(capabilities, draft?.work_mode, personal, draft),
+    [capabilities, draft, personal],
+  );
+  const fixedTools = catalog.fixed_tools;
   const absent = (names: string[], options: {name: string}[]) => names.filter(name => !options.some(option => option.name === name));
   const missingModels = absent([draft?.default_model, ...(draft?.model_fallbacks ?? [])].filter((name): name is string => !!name), modelOptions);
-  const missingTools = absent((draft?.tool_allowlist ?? []).filter(name => name !== 'memory'), [...(capabilities?.tools ?? []), ...fixedTools.map(name => ({name}))]);
+  const sanitizedAllowlist = normalizedDraft?.tool_allowlist ?? [];
+  const missingTools = absent(sanitizedAllowlist.filter(name => name !== 'memory'), [...(capabilities?.tools ?? []), ...fixedTools.map(name => ({name}))]);
+  const effectiveTools = useMemo(
+    () => (draft ? effectiveSelectedTools({ ...draft, tool_allowlist: sanitizedAllowlist }, catalog) : []),
+    [draft, sanitizedAllowlist, catalog],
+  );
+  const draftAllowsPluginManager = effectiveTools.includes("plugin_manager");
   const missingSkills = absent(draft?.skills ?? [], capabilities?.skills ?? []);
   const missingAllowedSkills = (draft?.skills_selection_mode ?? ((draft?.skills.length ?? 0) > 0 ? "explicit_allowlist" : "default_discovery")) === "explicit_allowlist" ? missingSkills : [];
   const catalogCurrent = detailQuery.data?.liveCapabilities === true && !readOnly;
   const catalogInvalid = catalogCurrent && (missingModels.length > 0 || missingTools.length > 0 || missingAllowedSkills.length > 0);
-  const configDirty = !!(draft && baseConfig.current && !sameEditableConfig(draft, baseConfig.current));
+  const configDirty = !!(draft && baseConfig.current && !sameEditableConfig(draft, baseConfig.current, capabilities, personal));
   const isDirty = configDirty || roleEditor.dirty;
   const versionConflict = configDirty && baseConfig.current?.profile_version !== detailQuery.data?.config.profile_version;
   const queryErrorDetail =
@@ -1670,12 +1705,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
               ‹
             </button>
           )}
-          <Avatar agentId={draft.agent_id} personal={personal} avatarVariant={draft.avatar_variant}
-            initials={initialsOf(draft.display_name)}
-            color={colorForAgent(draft)}
-            size={32}
-            status={displayedNodeStatus === "online" ? "online" : "offline"}
-          />
+          <Avatar id={agentAvatarId(draft.agent_id)} size={32} status={displayedNodeStatus === "online" ? "online" : "offline"} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div className="im-agent-panel-title-line">
               <h2 className="im-agent-panel-title">{draft.display_name || draft.agent_id}</h2>
@@ -1896,6 +1926,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
         <BehaviorCard
           agentId={agentId}
           draft={draft}
+          catalog={catalog}
           roleEditor={canManageRole && <AgentRoleEditor editor={roleEditor} />}
           inheritedRules={capabilities.inherited_approval_rules}
           capabilityFeatures={(capabilities.features ?? []).filter(feat => personal || feat.key !== "proactive_planning")}
@@ -2018,6 +2049,9 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
             <div className="h-px bg-[var(--im-border)]" aria-hidden="true" />
             <PillSelector
               testId="pill-selector-tools"
+              collapsible
+              defaultExpanded={false}
+              countSummary={(enabled, total) => t("agents.form.access.toolsCount", { enabled, total })}
               readOnly={readOnly}
               label={t("agents.form.access.tools")}
               labelAction={
@@ -2030,12 +2064,23 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
                   <span aria-hidden="true">→</span>
                 </button>
               }
-              selected={[...new Set([...draft.tool_allowlist, ...fixedTools])].filter(name => name !== 'memory')}
+              selected={[...new Set([...effectiveTools, ...fixedTools])].filter(name => name !== 'memory')}
               fixed={fixedTools}
-              options={[...capabilities.tools, ...[...missingTools, ...fixedTools.filter(name => !capabilities.tools.some(tool => tool.name === name))].map(name => ({name}))]}
+              options={[
+                ...capabilities.tools.map((tool) =>
+                  tool.source_group === "workspace"
+                    ? { ...tool, enabled: fixedTools.includes(tool.name) || (draftAllowsPluginManager && tool.enabled !== false) }
+                    : tool,
+                ),
+                ...[...missingTools, ...fixedTools.filter(name => !capabilities.tools.some(tool => tool.name === name))].map(name => ({name})),
+              ]}
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
+              onToggleOption={(option, nextEnabled) => {
+                setSaved(false);
+                capabilityEditor.toggleTool(option.name, nextEnabled);
+              }}
               onChange={(toolAllowlist) => {
                 setSaved(false);
                 capabilityEditor.tools([...toolAllowlist, ...draft.tool_allowlist.filter(name => name === 'memory')]);

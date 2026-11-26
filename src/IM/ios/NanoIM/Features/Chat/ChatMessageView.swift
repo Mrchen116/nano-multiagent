@@ -17,7 +17,6 @@ struct ChatMessageView: View {
     private var mine: Bool { message.sender.id == selfID }
     private var receipts: [MessageReceipt] { mine && message.sender_type == "user" ? message.receipts ?? [] : [] }
     private var intelligentUI: Bool { message.interactive?.catalog_version == "nano-iui-1" }
-    private var participantSender: ActorRef? { participants.first { $0.id == message.sender.id } }
     private var senderName: String { message.sender.display_name ?? participants.first { ($0.user_id ?? $0.id) == message.sender.id }?.display_name ?? message.sender.id }
     var body: some View {
         if message.system_notice?["kind"].stringValue == "task_graph" {
@@ -41,7 +40,7 @@ struct ChatMessageView: View {
         } else { bubble }
     }
     @ViewBuilder private var senderAvatar: some View {
-        let avatar = AvatarView(name: senderName, kind: message.sender_type == "agent" ? "agent" : "person", size: 32, agentID: message.sender.id, role: message.sender.role ?? participantSender?.role, variant: message.sender.avatar_variant ?? participantSender?.avatar_variant)
+        let avatar = AvatarView(id: .sender(message), size: 32)
         if let openActivity {
             Button(action: openActivity) { avatar }.buttonStyle(.plain)
                 .accessibilityLabel(L("查看\(senderName)的活动", "View activity for \(senderName)"))
@@ -251,7 +250,7 @@ private struct MessageReceiptButton: View {
         VStack(spacing: 6) {
             ForEach(receipts) { receipt in
                 HStack(spacing: 8) {
-                    AvatarView(name: receipt.display_name, size: 24).accessibilityHidden(true)
+                    AvatarView(id: .receipt(receipt), size: 24).accessibilityHidden(true)
                     Text(receipt.display_name).font(.subheadline.weight(.medium))
                     Spacer(minLength: 4)
                     HStack(spacing: 4) {

@@ -10,7 +10,7 @@ struct TopicEntryButton: View {
             HStack(spacing: 6) {
                 HStack(spacing: -5) {
                     ForEach((summary.participants ?? []).prefix(3), id: \.id) { person in
-                        AvatarView(name: person.display_name, size: 18)
+                        AvatarView(id: .threadParticipant(person), size: 18)
                     }
                 }.accessibilityHidden(true)
                 Text(L("\(summary.reply_count) 条回复", "\(summary.reply_count) replies"))
@@ -78,6 +78,7 @@ struct ThreadView: View {
                 }
             }
         }
+        .transformEnvironment(\.avatarDirectory) { $0 = $0.includingHistory([root] + items) }
         .safeAreaInset(edge: .bottom, spacing: 0) { if writable { composer } }
         .background(NanoTheme.canvas)
         .navigationTitle(L("话题", "Thread"))

@@ -1,8 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { inspectDesktopLocalNode } from '../../../desktop/desktop-api';
+import { isDesktopClient } from '../../../desktop/desktop-context';
+import { DesktopLocalComputerCard } from '../../../desktop/desktop-local-computer-card';
 import { useTranslation } from '../../../i18n';
 import { subscribeUserStream } from '../../../realtime/user-stream';
+import { useAuthStore } from '../../auth/auth-store';
 import { listNodes, updateNode, type NodeSettingsProfile } from '../im-settings-api';
 import { NodeUpdatePanel, nodeUpdateActive, nodeUpdateNeedsRecovery, nodeUpdateSwitching } from './node-update-panel';
 import { NodeDrawer, NodeIcon } from './node-surface';
@@ -15,13 +19,27 @@ import { computerName, computerVersion, lastSeenTime, NodeStatus } from './node-
 /** Manage owned computers while preserving update and realtime query ownership. */
 export function NodesPage() {
   const { t, i18n } = useTranslation();
+  const userId = useAuthStore(s => s.user?.id);
+  const desktopMode = isDesktopClient();
   const client = useQueryClient();
   const { hash } = useLocation();
   const returnFocus = useRef<HTMLElement | null>(null);
   const [panel, setPanel] = useState<{ kind: 'detail' | 'connect' | 'recovery'; id?: string } | null>(null);
   const query = useQuery({ queryKey: ['settings', 'nodes'], queryFn: listNodes,
     refetchInterval: query => query.state.data?.some(n => nodeUpdateActive(n.update)) ? 2000 : 60000 });
+  const localInspectQuery = useQuery({
+    queryKey: ['desktop', 'local-node', userId],
+    queryFn: () => inspectDesktopLocalNode(),
+    enabled: desktopMode && Boolean(userId),
+    refetchInterval: 10_000,
+  });
   const nodes = query.data ?? [];
+  const localNodeId =
+    desktopMode &&
+    (localInspectQuery.data?.ownership === 'managed_online' || localInspectQuery.data?.ownership === 'managed_stopped')
+      ? localInspectQuery.data.node_id
+      : undefined;
+  const visibleNodes = localNodeId ? nodes.filter(n => n.node_id !== localNodeId) : nodes;
   const selected = nodes.find(n => n.node_id === panel?.id);
   const mutation = useMutation({
     mutationFn: ({ node, alias }: { node: NodeSettingsProfile; alias: string }) => updateNode(node.node_id, {
@@ -68,15 +86,27 @@ export function NodesPage() {
     <header className="computers-heading"><div><h1>{t('computers.title')}</h1><p>{hasData ? t('computers.summary', { count: nodes.length, total: nodes.length, online }) : t('computers.subtitle')}</p></div>
       <button className="node-button" onClick={() => open('connect')}><NodeIcon name="plus"/>{t('computers.connect')}</button>
     </header>
+    {desktopMode && (
+      <DesktopLocalComputerCard
+        nodes={nodes}
+        onSaveAlias={(node, alias) => mutation.mutateAsync({ node, alias })}
+        aliasSaving={mutation.isPending}
+        aliasError={mutation.isError}
+        onResetAliasError={mutation.reset}
+        onOpenRecovery={id => open('recovery', id)}
+      />
+    )}
     {query.isPending ? <div role="status" aria-label={t('settings.nodes.loading')}><div className="node-skeleton"/><div className="node-skeleton"/></div>
       : !hasData && query.isError ? <section className="nodes-empty"><NodeIcon name="info"/><h2>{t('settings.nodes.loadFailed')}</h2><p>{t('computers.loadHelp')}</p><button className="node-button primary" onClick={() => void query.refetch()}>{t('common.retry')}</button></section>
-      : nodes.length === 0 ? <section className="nodes-empty" data-testid="nodes-empty"><span className="node-computer-icon"><NodeIcon name="computer"/></span><h2>{t('computers.emptyTitle')}</h2><p>{t('computers.emptyBody')}</p><button className="node-button primary" onClick={() => open('connect')}>{t('computers.connect')}</button></section>
+      : nodes.length === 0 && !desktopMode ? <section className="nodes-empty" data-testid="nodes-empty"><span className="node-computer-icon"><NodeIcon name="computer"/></span><h2>{t('computers.emptyTitle')}</h2><p>{t('computers.emptyBody')}</p><button className="node-button primary" onClick={() => open('connect')}>{t('computers.connect')}</button></section>
+      : visibleNodes.length === 0 ? null
       : <>
         {query.isError && <div className="node-notice" role="alert"><NodeIcon name="info"/><span>{t('computers.stale')}</span><button className="node-button" onClick={() => void query.refetch()}>{t('common.retry')}</button></div>}
         <div className="computers-list-label"><span>{t('computers.connected')}</span><span>{t('computers.private')}</span></div>
-        {nodes.map(node => {
+        {visibleNodes.map(node => {
           const name = computerName(node, t('computers.unnamed'));
           const offline = node.status !== 'online' && !nodeUpdateSwitching(node.update);
+          const desktopNodePlatform = node.update?.current?.platform === 'desktop-darwin-arm64' || node.update?.current?.platform === 'desktop-win32-x64';
           return <article className={`computer-card ${offline ? 'offline' : ''}`} key={node.node_id} id={`node-${node.node_id}`}>
             <div className="computer-main"><span className="node-computer-icon"><NodeIcon name="computer"/></span>
               <div className="computer-identity"><h2><button onClick={() => open('detail', node.node_id)}>{name}</button></h2>
@@ -84,7 +114,7 @@ export function NodesPage() {
               </div><button className="computer-detail-link" aria-label={t('computers.viewDetails', { name })} onClick={() => open('detail', node.node_id)}><span>{t('computers.details')}</span><NodeIcon name="next"/></button>
             </div>
             {node.update && <NodeUpdatePanel nodeId={node.node_id} update={node.update} onInstructions={() => open('recovery', node.node_id)}/>}
-            {offline && !nodeUpdateNeedsRecovery(node.update) && <p className="computer-offline-note">{node.last_heartbeat_at ? t('computers.lastSeen', { time: lastSeenTime(node.last_heartbeat_at, i18n.language) }) : t('computers.noConnection')} · {node.update?.current?.platform === 'win32-x64'
+            {offline && !nodeUpdateNeedsRecovery(node.update) && <p className="computer-offline-note">{node.last_heartbeat_at ? t('computers.lastSeen', { time: lastSeenTime(node.last_heartbeat_at, i18n.language) }) : t('computers.noConnection')} · {(node.update?.current?.platform === 'win32-x64' || desktopNodePlatform)
               ? <button className="node-button text" onClick={() => open('recovery', node.node_id)}>{t('computers.reconnectAction')}</button>
               : t('computers.reconnect')}</p>}
           </article>;

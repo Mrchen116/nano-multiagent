@@ -16,7 +16,7 @@ export const name='child-delivery';export const inject=['agents','subagents','to
 export function apply(ctx){const seen=new Set();
 ctx.on('agent/pre-step',async({agent,signal},next)=>{
  if(agent.id==='root'&&agent.session.deriveMessages().length&&!seen.has('root')){
-  seen.add('root');const run=await ctx.subagents.start('fork',{parent:agent,signal,label:'coordinate-peer',prompt:[{type:'text',text:'Deliver the authorized coordination message'}]});
+  seen.add('root');const run=await ctx.subagents.startActivation({provider:'fork',delivery:'caller',parent:agent,signal,label:'coordinate-peer',prompt:[{type:'text',text:'Deliver the authorized coordination message'}]});
   try{await run.result;}finally{await run.dispose();}
  }return next();
 });
@@ -27,8 +27,11 @@ ctx.on('llm/stream',async function*(o){
  if(agent?.session.header.parentSession==='root'&&!seen.has(agent.id)){
   seen.add(agent.id);const names=ctx.tools.schemas(agent).map(t=>t.name);
   let representation;try{await ctx.nanoProduct.call('send_user_message',{target:'c_peer',text:'Forbidden child representation'},{agent,signal:o.signal,callId:'child-owner'});}catch(error){representation=String(error);}
-  const result=await ctx.tools.execute({name:'send_message',callId:'child-send',arguments:{target:'c_peer',text:'Authorized coordination'},agent,signal:o.signal});
-  const task=await ctx.tools.execute({name:'task_graph',callId:'child-task',arguments:{action:'create',target:'c_peer',title:'Shared coordination',mode:'dag',request_key:'child-task'},agent,signal:o.signal});
+  const modelSelection=agent.model.current()??{provider:agent.options.provider??'deepseek-official',model:agent.options.model??'deepseek-flash'};
+  const toolSet=await ctx.tools.resolve({scope:agent,agent,modelSelection,signal:o.signal});
+  const result=(await ctx.tools.execute({calls:[{type:'tool-call',id:'child-send',name:'send_message',arguments:JSON.stringify({target:'c_peer',text:'Authorized coordination'})}],agent,toolSet,signal:o.signal})).results[0].result;
+  const task=(await ctx.tools.execute({calls:[{type:'tool-call',id:'child-task',name:'task_graph',arguments:JSON.stringify({action:'create',target:'c_peer',title:'Shared coordination',mode:'dag',request_key:'child-task'})}],agent,toolSet,signal:o.signal})).results[0].result;
+  toolSet.dispose();
   await writeFile(process.env.DSH_HOME+'/result.json',JSON.stringify({child:agent.id,names,result,task,representation}));
  }
  yield{type:'block-end',index:0,block:{type:'text',text:isReview?'{"decision":"allow","reason":"Authorized"}':'done'}};

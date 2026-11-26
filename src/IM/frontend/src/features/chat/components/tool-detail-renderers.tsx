@@ -15,6 +15,7 @@ import { ConversationToolCard } from "./conversation-tool-card";
 // because detail is an open record (DIY tools may carry anything).
 
 import { type ReactNode } from "react";
+import { WorkspacePathActions } from "../../../desktop/workspace-path-actions";
 import { LongOutput } from "./tool-long-output";
 
 import { useTranslation } from "../../../i18n";
@@ -122,7 +123,12 @@ function DiffCard({ detail }: { detail: ToolDetail }) {
   const bodyLines = diff.split("\n").filter((l) => !l.startsWith("+++") && !l.startsWith("---"));
   return (
     <div className="chat-tool-detail-diff">
-      {path && <div className="chat-tool-detail-diff-file">{path}</div>}
+      {path && (
+        <div className="chat-tool-detail-diff-file desktop-path-row">
+          <span>{path}</span>
+          <WorkspacePathActions path={path} />
+        </div>
+      )}
       <LongOutput
         text={bodyLines.join("\n")}
         truncatedAtSource={detail.truncated === true}
@@ -148,9 +154,12 @@ function WriteCard({ detail }: { detail: ToolDetail }) {
   const bytes = detail.bytes;
   return (
     <div className="chat-tool-detail-write">
-      <div className="chat-tool-detail-write-head">
-        {path}
-        {typeof bytes === "number" && <span className="chat-tool-detail-write-bytes">{bytes} bytes</span>}
+      <div className="chat-tool-detail-write-head desktop-path-row">
+        <span>
+          {path}
+          {typeof bytes === "number" && <span className="chat-tool-detail-write-bytes"> {bytes} bytes</span>}
+        </span>
+        {path && <WorkspacePathActions path={path} />}
       </div>
       <LongOutput
         text={content}
@@ -266,8 +275,9 @@ function AgentCard({ detail, isResultPending = false }: ToolDetailCardProps) {
           </div>
           {content && <div className="chat-tool-detail-agent-content">{content}</div>}
           {outputFile && (
-            <div className="chat-tool-detail-agent-file">
-              {t("chat.messagePane.toolDetail.agentOutputFile", { file: outputFile })}
+            <div className="chat-tool-detail-agent-file desktop-path-row">
+              <span>{t("chat.messagePane.toolDetail.agentOutputFile", { file: outputFile })}</span>
+              <WorkspacePathActions path={outputFile} />
             </div>
           )}
           {error && <pre className="chat-tool-call-pre">{error}</pre>}
@@ -347,6 +357,7 @@ function WorkflowCard({
                   <WorkflowField label="runId" value={runId} />
                   <WorkflowField label="taskId" value={taskId} />
                   <WorkflowField label="scriptPath" value={scriptPath} />
+                  {scriptPath && <WorkspacePathActions path={scriptPath} />}
                   <WorkflowField label="transcriptDir" value={transcriptDir} />
                 </div>
                 {error && <pre className="chat-tool-call-pre">{error}</pre>}
@@ -402,7 +413,10 @@ function ReadCard({ detail }: { detail: ToolDetail }) {
   }
   return (
     <div className="chat-tool-detail-term">
-      <div className="chat-tool-detail-term-out">{parts.join(" · ")}</div>
+      <div className="chat-tool-detail-term-out desktop-path-row">
+        <span>{parts.join(" · ")}</span>
+        {path && <WorkspacePathActions path={path} />}
+      </div>
     </div>
   );
 }
@@ -482,7 +496,12 @@ function SkillCard({ detail, isResultPending = false }: ToolDetailCardProps) {
       {/* minor: show the skill name + action explicitly, not just ✓. */}
       <div className="chat-tool-detail-info-head">✓ {[action, name].filter(Boolean).join(" ")}</div>
       {message && <div className="chat-tool-detail-info-meta">{message}</div>}
-      {path && <div className="chat-tool-detail-info-body">{path}</div>}
+      {path && (
+        <div className="chat-tool-detail-info-body desktop-path-row">
+          <span>{path}</span>
+          <WorkspacePathActions path={path} />
+        </div>
+      )}
     </div>
   );
 }
@@ -510,7 +529,10 @@ function SkillViewCard({ detail }: { detail: ToolDetail }) {
       )}
       {location && (
         <Section label="location">
-          <div className="chat-tool-detail-info-meta">{location}</div>
+          <div className="chat-tool-detail-info-meta desktop-path-row">
+            <span>{location}</span>
+            <WorkspacePathActions path={location} />
+          </div>
         </Section>
       )}
       {content && (

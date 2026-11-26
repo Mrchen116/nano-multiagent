@@ -4,41 +4,20 @@ import { GlobalAgent, InboxStore, NodeStore, TaskContext } from '../src/index.js
 import { PersonalAssistant } from '../src/personal-assistant.js';
 
 function makeTaskNoticeInput(params: {
-  id: string;
-  conversationId: string;
-  actorType: 'user' | 'agent';
-  actorId: string;
-  content: string;
-  createdAt: string;
-  previousStatus?: string | null;
-  status?: string | null;
+  id: string; conversationId: string; actorType: 'user' | 'agent'; actorId: string;
+  content: string; createdAt: string; previousStatus?: string | null; status?: string | null;
 }): RelayInput {
   return {
-    agent_id: 'pa',
-    conversation_id: params.conversationId,
-    relay_task_id: `relay-${params.id}`,
-    idempotency_key: `idem-${params.id}`,
-    metadata: {
-      conversation_type: params.conversationId === 'c_owner' ? 'direct' : 'group',
-      task_context: true,
-    },
+    agent_id: 'pa', conversation_id: params.conversationId,
+    relay_task_id: `relay-${params.id}`, idempotency_key: `idem-${params.id}`,
+    metadata: { conversation_type: params.conversationId === 'c_owner' ? 'direct' : 'group', task_context: true },
     message: {
-      id: params.id,
-      content: params.content,
-      sender_type: 'system',
-      sender_user_id: params.actorId,
-      created_at: params.createdAt,
-      attachments: [],
+      id: params.id, content: params.content, sender_type: 'system', sender_user_id: params.actorId,
+      created_at: params.createdAt, attachments: [],
       system_notice: {
-        kind: 'task_graph',
-        graph_id: 'tg_1',
-        node_id: 'n1',
-        scope_id: 'n1',
-        revision: 2,
-        event_time: params.createdAt,
-        previous_status: params.previousStatus ?? 'proposed',
-        status: params.status ?? 'closed',
-        actor: { type: params.actorType, id: params.actorId },
+        kind: 'task_graph', graph_id: 'tg_1', node_id: 'n1', scope_id: 'n1', revision: 2,
+        event_time: params.createdAt, previous_status: params.previousStatus ?? 'proposed',
+        status: params.status ?? 'closed', actor: { type: params.actorType, id: params.actorId },
         attention_actor_ids: ['pa'],
       },
     },
@@ -49,21 +28,11 @@ it('admits trusted owner private task notices without pa.review, flushes shared-
   const store = new NodeStore(':memory:', 'owner');
   const inbox = new InboxStore(':memory:');
   const config: AgentConfiguration = {
-    agentId: 'pa',
-    mode: 'global',
-    workspace: '/tmp/pa',
-    revision: '1',
-    provider: 'fixture',
-    model: 'fixture',
+    agentId: 'pa', mode: 'global', workspace: '/tmp/pa', revision: '1', provider: 'fixture', model: 'fixture',
     personal: { bindingId: 'b_pa', ownerId: 'owner', conversationId: 'c_owner', epoch: 1 },
   };
   const binding = store.bind({
-    agentId: 'pa',
-    ownerId: 'owner',
-    sessionId: 'pa-root',
-    conversationId: 'global:pa',
-    cwd: '/tmp/pa',
-    revision: '1',
+    agentId: 'pa', ownerId: 'owner', sessionId: 'pa-root', conversationId: 'global:pa', cwd: '/tmp/pa', revision: '1',
   });
 
   const reviewCalls: unknown[] = [];

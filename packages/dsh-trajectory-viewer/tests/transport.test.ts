@@ -49,6 +49,13 @@ describe("read-only native viewer transport", () => {
     expect(request).toMatchObject({ type: "call", method: "session/page", params: payload });
     c.respond(request, { ok: true, value: { records: [], hasMore: false } });
     await expect(result).resolves.toEqual({ ok: true, value: { records: [], hasMore: false } });
+    const toolStream = c.transport.rpc.open!("/api", "toolResults/watch", { args: { request: { sessionId: "selected", seq: 3 } } }, new AbortController().signal)[Symbol.asyncIterator]();
+    const openedToolWatch = c.nextMessage();
+    const firstToolFrame = toolStream.next();
+    const watchReq = await openedToolWatch;
+    expect(watchReq).toMatchObject({ type: "open", method: "toolResults/watch", initialBatch: true });
+    c.respond(watchReq, { streamId: "tw1", initialBatch: { frames: [{ available: false }], done: true } });
+    await expect(firstToolFrame).resolves.toEqual({ value: { available: false }, done: false });
   });
 
   it('uses the prepared catalog once, then performs fresh remote reads', async () => {

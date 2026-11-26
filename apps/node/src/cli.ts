@@ -16,6 +16,9 @@ const { values, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     config: { type: "string" },
+    origin: { type: "string" },
+    "owner-id": { type: "string" },
+    "log-query": { type: "string" },
     "source-root": {type: "string"},
     destination: {type: "string"},
     foreground: { type: "boolean" },
@@ -29,10 +32,108 @@ const command = positionals[0] ?? "start";
 const action = command === "setup" ? "start" : command;
 if (values.help) {
   process.stdout.write(
-    "Usage: pnpm pa [setup|start|stop|restart|status|bind|migrate] [--config path] [--foreground] [--im-service-url URL] [--auto-bind] [--recover-device]\n",
+    "Usage: pnpm pa [setup|start|stop|restart|status|bind|migrate|local-admin] [--config path] [--foreground] [--im-service-url URL] [--auto-bind] [--recover-device]\n",
   );
 } else
   try {
+    if (action === "local-admin") {
+      const subcommand = positionals[1] ?? "inspect";
+      const origin = values.origin ?? values["im-service-url"];
+      if (!origin) throw new Error("local-admin requires --origin <IM URL>");
+      const {
+        LocalAdminHttpError,
+        connectLocalNode,
+        controlLocalNodeLifecycle,
+        inspectLocalNode,
+        probeDesktopWorkers,
+        resolveLocalWorkspaceTarget,
+        updateLocalNodeConfig,
+      } = await import("./local-admin.js");
+      const readStdinJson = async (): Promise<Record<string, unknown>> => {
+        if (process.stdin.isTTY) return {};
+        const chunks: Buffer[] = [];
+        for await (const chunk of process.stdin) chunks.push(Buffer.from(chunk));
+        const text = Buffer.concat(chunks).toString("utf8").trim();
+        return text ? (JSON.parse(text) as Record<string, unknown>) : {};
+      };
+      try {
+        let payload: unknown;
+        if (subcommand === "inspect") {
+          payload = await inspectLocalNode({
+            origin,
+            ownerId: values["owner-id"],
+            configPath: values.config,
+            logQuery: values["log-query"],
+          });
+        } else if (subcommand === "probe-workers") {
+          const input = await readStdinJson();
+          const current = await inspectLocalNode({ origin, ownerId: values["owner-id"], configPath: values.config });
+          if (current.ownership === "foreign_owner") {
+            throw new LocalAdminHttpError(403, "foreign_owner", "This computer belongs to another account");
+          }
+          payload = { workers: await probeDesktopWorkers(typeof input.path === "string" ? input.path : undefined) };
+        } else if (subcommand === "connect") {
+          const input = await readStdinJson();
+          payload = await connectLocalNode({
+            origin,
+            ownerId: values["owner-id"] ?? "",
+            accessToken: String(input.access_token ?? ""),
+            confirmTransfer: Boolean(input.confirm_transfer),
+            configPath: values.config,
+            activeMetadata: input.active_metadata as Record<string, string> | undefined,
+          });
+        } else if (subcommand === "lifecycle") {
+          const input = await readStdinJson();
+          const lifeAction = String(input.action ?? "");
+          if (!["start", "stop", "restart", "autostart-on", "autostart-off"].includes(lifeAction)) {
+            throw new LocalAdminHttpError(400, "invalid_action", "Unsupported lifecycle action");
+          }
+          payload = await controlLocalNodeLifecycle({
+            origin,
+            ownerId: values["owner-id"] ?? "",
+            action: lifeAction as "start" | "stop" | "restart" | "autostart-on" | "autostart-off",
+            configPath: values.config,
+          });
+        } else if (subcommand === "config") {
+          const input = await readStdinJson();
+          payload = await updateLocalNodeConfig({
+            origin,
+            ownerId: values["owner-id"] ?? "",
+            update: input as unknown as import("@nano/product-contracts").DesktopLocalConfigInput,
+            configPath: values.config,
+          });
+        } else if (subcommand === "resolve-workspace") {
+          const input = await readStdinJson();
+          const mode = input.mode === "open" ? "open" : "reveal";
+          payload = await resolveLocalWorkspaceTarget({
+            origin,
+            ownerId: values["owner-id"] ?? "",
+            agentId: String(input.agent_id ?? ""),
+            targetPath: String(input.target_path ?? ""),
+            mode,
+            configPath: values.config,
+          });
+        } else {
+          throw new LocalAdminHttpError(400, "unknown_subcommand", `Unknown local-admin subcommand: ${subcommand}`);
+        }
+        process.stdout.write(JSON.stringify({ ok: true, status: 200, data: payload }) + "\n");
+        process.exit(0);
+      } catch (adminError) {
+        if (adminError instanceof LocalAdminHttpError) {
+          process.stdout.write(
+            JSON.stringify({
+              ok: false,
+              status: adminError.status,
+              error_code: adminError.errorCode,
+              message: adminError.message,
+              ...(adminError.details ?? {}),
+            }) + "\n",
+          );
+          process.exit(2);
+        }
+        throw adminError;
+      }
+    }
     if (action === 'migrate') {
       if(!values['source-root']||!values.destination)throw new Error('Usage: pnpm pa migrate --source-root <old-owner-root> --destination <new-empty-directory>');
       const {migrateNode}=await import('./migration.js');
@@ -86,8 +187,10 @@ if (values.help) {
         await manageGateway(configPath, config.value, 'stop');
       }
     }
-    if (["start", "restart"].includes(action))
+    if (["start", "restart"].includes(action)) {
+      config.validateNodeSettings();
       for (const agent of config.value.agents) config.runtime(agent);
+    }
     if (values["im-service-url"])
       config.value.im_service.url = values["im-service-url"];
     if (

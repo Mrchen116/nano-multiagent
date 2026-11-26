@@ -358,7 +358,7 @@ it('resumes a paged native child after runtime loss and pairs the complete tool 
         if(!called.has(id)){
           called.add(id);
           yield {type:'block-end',index:0,block:{type:'tool-call',id:'call-'+id,name:id==='root'?'subagent_fork':'work_probe',
-            arguments:id==='root'?JSON.stringify({prompt:'Use work_probe',description:'Child Work',run_in_background:false}):'{}'}};
+            arguments:id==='root'?JSON.stringify({prompt:'Use work_probe',description:'Child Work'}):'{}'}};
           yield {type:'finish',reason:{kind:'tool-calls'}};return;
         }
         yield {type:'block-end',index:0,block:{type:'text',text:'DONE'}};yield {type:'finish',reason:{kind:'stop'}};
@@ -375,6 +375,8 @@ it('resumes a paged native child after runtime loss and pairs the complete tool 
     await client!.rpc.request('session.ensure',binding);
     await client!.rpc.request('session.submit',{sessionId:'root',inputId:'start',mode:'followup',content:[{type:'text',text:'Launch child'}],source:{kind:'human',channel:'test',actorId:'owner',messageId:'start'}});
     await expect.poll(async()=>await client!.rpc.request('session.lookup',{sessionId:'root',inputId:'start'})).toMatchObject({terminal:{kind:'completed'}});
+    await expect.poll(async()=>((await client!.rpc.request('session.work.children',{sessionId:'root'})) as any).children?.[0]?.activity).toBe('inactive');
+    await expect.poll(async()=>((await client!.rpc.request('session.observe',{sessionId:'root'})) as any).status).toBe('idle');
     const create=()=>new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,image:async()=>'',onError:error=>errors.push(error),
       relay:{request:async()=>({type:'ack',payload:{}})},
       runtime:{onNotification:()=>()=>{},request:async(method,args:any)=>{

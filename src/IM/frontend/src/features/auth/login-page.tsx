@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 
+import { DesktopServerBar } from "../../desktop/desktop-server-bar";
 import { useTranslation } from "../../i18n";
 import { AuthApiError } from "./auth-api";
 import { AuthPasswordField, AuthTextField } from "./auth-form-fields";
@@ -84,6 +85,7 @@ export function LoginPage() {
 
   if (!signOut && !hydrated) {
     return <AuthPageFrame intent="login" title={t('auth.login.title')} subtitle={t('auth.login.subtitle')} footer={null}>
+      <DesktopServerBar />
       {hydrationError ? <div className="crew-account-recovery"><AuthAlert>{t('auth.feedback.serviceUnavailable')}</AuthAlert><button className="im-auth-submit" onClick={() => void useAuthStore.getState().hydrate()}>{t('company.refresh')}</button></div>
         : <p className="crew-account-restoring" role="status">{t('auth.common.restoring')}</p>}
     </AuthPageFrame>;
@@ -113,6 +115,7 @@ export function LoginPage() {
         </>
       }
     >
+      <DesktopServerBar />
       <form className="im-auth-form" onSubmit={handleSubmit} noValidate aria-describedby={cooldown.remaining > 0 || formError ? "auth-feedback" : undefined}>
         <AuthTextField
           id="username"

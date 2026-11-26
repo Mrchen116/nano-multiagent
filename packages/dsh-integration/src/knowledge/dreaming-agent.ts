@@ -4,13 +4,14 @@ import { isAbsolute, join, relative, resolve } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import { SessionId } from '@deepseek-ai/dsh-session';
-import { finalAssistantOutput, snapshotSubagentDescriptor } from '@deepseek-ai/dsh-subagent';
+import { finalAssistantOutput, SUBAGENT_DESCRIPTOR_VERSION, type OneShotSubagentDescriptorData } from '@deepseek-ai/dsh-subagent';
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm';
 import { renderPrompt, renderContextSnapshot } from '@deepseek-ai/dsh-system-prompt';
 import { dreamingInputLimit, estimateInputTokens, type DreamingInput } from './dreaming-budget.js';
 import ContextRolloverEngine from 'dsh-agent-context';
 import { z } from 'zod';
 import { contextTools } from '../agent-context.js';
+import { assembleAgentPrompt } from '../prompt-assembly.js';
 import type { AgentConfiguration } from '../index.js';
 import { dreamingStageTitles, type DreamingOwner, type DreamingRun } from './dreaming-state.js';
 import { memoryEntryLimit, type DocumentBatchStart, type MemoryDocuments } from './memory-documents.js';
@@ -57,22 +58,22 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
   const sessionId=SessionId(`dreaming-${run.id}`);
   const label=dreamingStageTitles[run.stage];
   let requestedModel: string | undefined;
-  const handle=await host.agents.create({sessionId,parentAgent:parent,
+  const globalToolNames = new Set(host.tools.schemas().map(tool => tool.name));
+  const handle=await host.agents.withInitiator(parent, () => host.agents.create({sessionId,
     meta:{cwd:directory,parentSession:parent.id,origin:'subagent'},signal,
     agentOptions:{provider:config.provider,model:config.model,...(config.reasoningEffort ? {reasoningEffort:ReasoningEffortId(config.reasoningEffort)} : {}),maxTokens:8192},
     setup:async(ctx,agent)=>{
-      agent.session.append('subagent/descriptor',snapshotSubagentDescriptor({mode:'one-shot',provider:'native',label}));
+      agent.session.append('subagent/descriptor',{version:SUBAGENT_DESCRIPTOR_VERSION,mode:'one-shot',provider:'native',label} satisfies OneShotSubagentDescriptorData);
       if(recovery) await ctx.isolate('compaction',Symbol()).plugin(ContextRolloverEngine,{modelSurface:'always'}).await();
       if(!extraction) await ctx.plugin(NativeBash,{enableRunInBackground:false,promoteOnTimeout:false}).await();
-      ctx.tools.restrict({allow:allowed.filter(name=>!contextTools.has(name)&&!['source_history','conversations'].includes(name))});
-      ctx.tools.presentAs('native');
+      ctx.tools.restrict({allow:allowed.filter(name=>globalToolNames.has(name)&&!contextTools.has(name)&&!['bash','source_history','conversations'].includes(name))});
       ctx.systemPrompt.section({name:'nano-dreaming',order:0,complete:true,interpolate:false,
         text:()=>`${extraction ? extractionPrompt : consolidationPrompt(!!config.personal)}\n\nRole: ${config.personal ? 'personal assistant for the bound owner' : 'independent expert, with audience-specific collaboration'}.`});
       ctx.on('system-prompt/assemble',async(_assembly,_context,next)=>{
         await assertDreamingSources(library,run.generation);
         const assembly=await next();
         return {...assembly,sections:assembly.sections.filter(section=>section.name==='nano-dreaming'||section.name==='context:agent-context'||section.name.startsWith('tool:')),
-          contexts:assembly.contexts.filter(context=>context.name==='agent-context:references'),tools:assembly.tools.filter(tool=>allowed.includes(tool.name))};
+          contexts:assembly.contexts.filter(context=>context.name==='agent-context:references')};
       },{prepend:true});
       let firstRequest=true;
       ctx.on('llm/stream',async function*(request,next){
@@ -102,7 +103,7 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
       });
       if(!extraction)registerDreamingHistory(ctx,host,parent,run,owner,library,sources,conversations);
     },
-  });
+  }));
   const navigation=()=>extraction ? 'The supplied task trajectory is data. Recover your original input with history after a window change.'
     : `<memory_repository>
 ${directory}
@@ -118,7 +119,7 @@ IM source directory (data): ${JSON.stringify(conversations())}`;
     signal.throwIfAborted();
     const content=(text: string)=>inputBlocks(`${navigation()}\n\n${text}`);
     const text=await input({limit,measure:async text=>{
-      const assembly=await handle.agent.ctx.systemPrompt.assemble({scope:handle.agent,signal});
+      const assembly=await assembleAgentPrompt(host, handle.agent, signal);
       return estimateInputTokens(JSON.stringify({system:renderPrompt(assembly),messages:[{role:'user',content:renderContextSnapshot(assembly)},{role:'user',content:content(text)}],tools:assembly.tools}))+512;
     }});
     await options.save();

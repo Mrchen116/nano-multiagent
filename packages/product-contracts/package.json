@@ -43,6 +43,10 @@
     "./node-rpc": {
       "types": "./lib/node-rpc.d.ts",
       "default": "./lib/node-rpc.js"
+    },
+    "./desktop-local": {
+      "types": "./lib/desktop-local.d.ts",
+      "default": "./lib/desktop-local.js"
     }
   },
   "scripts": {
@@ -51,6 +55,6 @@
   },
   "dependencies": {
     "@openuidev/lang-core": "1.0.1",
-    "zod": "4.6.5"
+    "zod": "4.6.6"
   }
 }

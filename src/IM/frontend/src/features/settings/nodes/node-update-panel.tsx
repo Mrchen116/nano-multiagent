@@ -63,7 +63,7 @@ export function NodeUpdatePanel({ nodeId, update, onInstructions }: {
     <span className="node-update-symbol"><NodeIcon name={state === 'succeeded' ? 'check' : state === 'waiting' ? 'clock' : error || bridge ? 'info' : 'update'} spin={active && state !== 'waiting'}/></span>
     <div className="node-update-copy"><h3 aria-live="polite">{title}</h3>
       <p>{state === 'available' && update.target?.release_notes ? update.target.release_notes
-        : state === 'recovery_required' && update.current?.platform === 'win32-x64' ? t('computers.recoveryBody') : t(`nodeUpdate.${state}.body`)}</p>
+        : state === 'recovery_required' && ['win32-x64', 'desktop-darwin-arm64', 'desktop-win32-x64'].includes(update.current?.platform ?? '') ? t('computers.recoveryBody') : t(`nodeUpdate.${state}.body`)}</p>
       {active && <div className="node-update-steps" aria-label={t('computers.updateStages')}>{['prepare', 'idle', 'switch'].map((stage, index) => <span key={stage} className={index === step ? 'current' : index < step ? 'done' : ''}>{t(`computers.stage.${stage}`)}</span>)}</div>}
     </div>
     {canCancel ? <button className="node-button" disabled={cancel.isPending || op!.cancel_requested} onClick={() => cancel.mutate()}>{t(op!.cancel_requested || cancel.isPending ? 'nodeUpdate.cancelling' : 'nodeUpdate.cancel')}</button>

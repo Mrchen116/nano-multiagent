@@ -8,7 +8,7 @@ import { existsSync, createReadStream, mkdirSync, readFileSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
 import { PersonalAgents, registerPersonalAgentRoutes } from "./personal-agent.js";
 import { registerOnboardingRoutes } from "./onboarding.js";
-import { defaultReleaseDirectory, registerInstallRoutes } from "./install.js";
+import { defaultReleaseDirectory, installMaterials, registerInstallRoutes } from "./install.js";
 import { registerNodeUpdateRoutes } from './node-updates.js';
 import { openDatabase } from "./db.js";
 import { browserSessionCookieName, createIdentity } from "./identity.js";
@@ -31,6 +31,7 @@ export interface ServerOptions {
   frontendDevBaseUrl?: string;
   trajectoryDistDir?: string;
   nodeReleaseDir?: string;
+  iosDownloadUrl?: string;
 }
 export function resolveSecret() {
   const secret = process.env.IM_JWT_SECRET?.trim();
@@ -109,6 +110,7 @@ export async function createServer(options: ServerOptions = {}) {
     "/im/v1/auth/refresh",
     "/im/v1/auth/logout",
     "/im/v1/auth/me",
+    "/im/v1/public/install",
   ]);
   app.addHook("preHandler", async (req, reply) => {
     if (req.method === "OPTIONS") return reply.code(204).send();
@@ -183,9 +185,10 @@ export async function createServer(options: ServerOptions = {}) {
     },
   } });
   const releaseDirectory = options.nodeReleaseDir ?? process.env.IM_NODE_RELEASE_DIR ?? defaultReleaseDirectory;
-  registerInstallRoutes(app, ctx, releaseDirectory);
+  const iosDownloadUrl = options.iosDownloadUrl ?? process.env.IM_IOS_DOWNLOAD_URL;
+  registerInstallRoutes(app, ctx, releaseDirectory, iosDownloadUrl);
   registerNodeUpdateRoutes(app, ctx, releaseDirectory);
-  registerOnboardingRoutes(app, ctx, releaseDirectory);
+  registerOnboardingRoutes(app, ctx, releaseDirectory, iosDownloadUrl);
   registerIdentityRoutes(app, ctx);
   registerMessagingRoutes(app, ctx);
   registerMessageAttemptRoutes(app,ctx);
@@ -339,6 +342,8 @@ export async function createServer(options: ServerOptions = {}) {
       const index = join(dist, "index.html");
       if (existsSync(index)) {
         reply.header('Cache-Control','private, no-store').header('Vary','Cookie');
+        const publicInstallJson = JSON.stringify(installMaterials(ctx.publicUrl, releaseDirectory, iosDownloadUrl)).replace(/</g, '\\u003c');
+        const publicInstallScript = `<script id="nano-public-install" type="application/json">${publicInstallJson}</script>`;
         const agentPage = /^\/settings\/agents\/([^/]+)$/.exec(path);
         const cookiePrefix = `${browserSessionCookieName(publicUrl!)}=`;
         const cookie = req.headers.cookie?.split(';').map(value=>value.trim()).find(value=>value.startsWith(cookiePrefix))?.slice(cookiePrefix.length);
@@ -369,10 +374,10 @@ export async function createServer(options: ServerOptions = {}) {
             }
             ctx.identity.browserSession(cookie);
             const bootstrap = JSON.stringify({session,data}).replace(/</g,'\\u003c');
-            return reply.type('text/html').send(readFileSync(index,'utf8').replace('<div id="root">',`<script id="nano-page-bootstrap" type="application/json">${bootstrap}</script><div id="root">`));
+            return reply.type('text/html').send(readFileSync(index,'utf8').replace('<div id="root">',`${publicInstallScript}<script id="nano-page-bootstrap" type="application/json">${bootstrap}</script><div id="root">`));
           } catch { /* Invalidated browser sessions use the normal login flow. */ }
         }
-        return reply.type('text/html').send(createReadStream(index));
+        return reply.type('text/html').send(readFileSync(index,'utf8').replace('<div id="root">',`${publicInstallScript}<div id="root">`));
       }
       return reply.redirect(dev.replace(/\/$/, "") + req.url);
     }

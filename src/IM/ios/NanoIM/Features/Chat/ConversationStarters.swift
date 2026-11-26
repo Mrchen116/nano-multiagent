@@ -14,7 +14,7 @@ struct ConversationStarters: View {
         Group {
             if let agent = ownerAgent, personal || (needsRole && !deferred) {
                 VStack(alignment: .leading, spacing: 12) {
-                    AssistantPortrait(personal: personal, seed: agent.agent_id ?? agent.user_id, selected: agent.avatar_variant, size: 62)
+                    AvatarView(id: .contact(agent), size: 62)
                     Text(personal ? L("和\(agent.display_name)，从一件小事开始。", "Start small with \(agent.display_name).") : L("先和\(agent.display_name)对齐职责", "Agree on \(agent.display_name)’s responsibilities"))
                         .font(.title2.bold()).fixedSize(horizontal: false, vertical: true)
                     if personal {

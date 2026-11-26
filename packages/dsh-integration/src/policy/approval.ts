@@ -5,9 +5,11 @@ import type { UserMessage } from '@deepseek-ai/dsh-llm';
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools';
 import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-permission-presets';
+import type {} from '@deepseek-ai/dsh-working-directory';
 import type { ApprovalConfiguration, MessageApprovalContext } from '@nano/product-contracts';
 import type {} from '../product-bridge.js';
 import type { AgentConfiguration } from '../index.js';
+import { cordisInspectTools } from '../capabilities.js';
 import { approvalDomain, type ApprovalAudit } from './audit.js';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
 import { ApprovalSources } from './sources.js';
@@ -22,13 +24,16 @@ import { normalizeMessageArguments } from '../message-arguments.js';
 import { isHumanSource } from '../input-source.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
-const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'delegate_worker', 'subagent_fork', 'interrupt_agent', 'list_agents', 'structured_output', 'inbox', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'memory']);
+const safeTools = new Set(['read', 'read_image', 'glob', 'grep', 'web_search', 'skill', 'job_output', 'job_list', 'job_kill', 'subagent', 'delegate_worker', 'subagent_fork', 'interrupt_agent', 'list_agents', 'wait_agent', 'structured_output', 'inbox', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'memory', ...cordisInspectTools]);
+const isInternalSendArgs = (value: unknown): boolean =>
+  typeof (value as { agent?: unknown })?.agent === 'string'
+  || typeof (value as { agent_id?: unknown })?.agent_id === 'string';
 
 const privateScreenshotApproval = 'Local attachment delivery needs approval with private evidence. Nothing was uploaded. Ask the owner to send the attachment directly or use an authorized approval mode.';
 
 /** One automatic reviewer; native dispatch, approval audit and cancellation stay native. */
 export class NanoApproval extends Service {
-  static inject = ['tools', 'approval', 'permissionPresets', 'llm', 'agents', 'storageDomain', 'nanoProduct', 'ccApproval', 'codexApproval'];
+  static inject = ['tools', 'approval', 'permissionPresets', 'llm', 'agents', 'storageDomain', 'nanoProduct', 'ccApproval', 'codexApproval', 'workingDirectory'];
   private readonly audit: Promise<Domain<typeof approvalDomain>>;
   private readonly epoch = randomUUID();
   readonly sources = new ApprovalSources();
@@ -118,7 +123,7 @@ export class NanoApproval extends Service {
     return allowed ? { kind: 'allow' } : { kind: 'deny', reason: `${reason} (${source}; ${route})`, info: { name: 'NanoApprovalDenied', code: source } };
   }
   private async review(exec: ToolExecution, next: () => Promise<PreToolDecision>): Promise<PreToolDecision> {
-    if (exec.name === 'send_user_message' || exec.name === 'send_message' && typeof (exec.arguments as {agent_id?:unknown})?.agent_id !== 'string') exec = {...exec, arguments:normalizeMessageArguments(exec.arguments, exec.name === 'send_message')};
+    if (exec.name === 'send_user_message' || exec.name === 'send_message' && !isInternalSendArgs(exec.arguments)) exec = {...exec, arguments:normalizeMessageArguments(exec.arguments, exec.name === 'send_message')};
     const agent = exec.agent; const config = agent && this.config(agent); const policy = config?.approval;
     const downstream = await next();
     const message = exec.name === 'send_message' ? exec.arguments as {local_images?: unknown; local_files?: unknown; receipt_of?:unknown} : undefined;
@@ -140,7 +145,7 @@ export class NanoApproval extends Service {
         || exec.name === 'task_graph' && ['list', 'get'].includes((exec.arguments as { action: string }).action)
         || exec.name === 'workflow' && ['list', 'read'].includes((exec.arguments as { action: string }).action))
       || !['bash', 'send_message', 'send_user_message'].includes(exec.name) && policy.alwaysAllowTools.includes(exec.name)
-      || exec.name === 'send_message' && typeof (exec.arguments as { agent_id?: unknown }).agent_id === 'string')) return allow('safe_tool');
+      || exec.name === 'send_message' && isInternalSendArgs(exec.arguments))) return allow('safe_tool');
     // The product reviews the exact external payload at commit; avoid a duplicate automatic verdict.
     if (config.personal && policy.enabled && ['send_message', 'send_user_message'].includes(exec.name)) return allow('product_disclosure_gate');
     const messageContext = exec.name === 'send_message'
@@ -148,7 +153,8 @@ export class NanoApproval extends Service {
     if (messageContext?.recipient.kind === 'owner') return allow('owner_message');
     if (!policy.enabled) return this.escalate(exec, config, `Permission required for ${exec.name}`, 'manual_required');
     const cwd = agent.session.header.cwd;
-    if (cwd && await codexFileAllowed(cwd, exec.name, exec.arguments, policy)) {
+    const effectiveCwd = cwd ? (this.ctx.get('workingDirectory')?.get(agent.session) || cwd) : undefined;
+    if (cwd && await codexFileAllowed({ workspaceRoot: cwd, effectiveCwd }, exec.name, exec.arguments, policy)) {
       const nativeTool = this.ctx.tools.get(exec.name);
       if (nativeTool && this.ctx.tools.get(exec.name, agent) === nativeTool) return allow('workspace_file');
     }

@@ -15,7 +15,7 @@ it.each(['resume','stopped','background'])('recovers FS progress and new Inbox i
  await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const port=(server.address() as {port:number}).port;
  const config:AgentConfiguration={agentId:'a',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',features:{dreaming:false},approval:{dangerouslySkipPermissions:true}};
  let product!:GlobalAgent;const errors:unknown[]=[];
- const supervisor=new RuntimeSupervisor({home,cwd:home,health:{tickMs:25,timeoutMs:500,intervalMs:50},
+ const supervisor=new RuntimeSupervisor({home,cwd:home,health:{tickMs:25,timeoutMs:1500,intervalMs:50},
   initialize:async rpc=>{await rpc.request('initialize',{protocol:1,agents:[config],bindings:store.bindings(),taskStopFences:stoppedAt?store.bindings().map(binding=>({sessionId:binding.sessionId,stoppedAt})):[]});},
   onReady:async()=>{generations++;await product.recover();recoveries++;},onUnavailable:async()=>product.runtimeUnavailable([config.agentId]),onError:error=>errors.push(error)});
  product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,runtime:supervisor,image:async()=>'',onError:error=>errors.push(error),relay:{request:async(type,p:any)=>{
