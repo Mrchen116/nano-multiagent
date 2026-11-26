@@ -417,14 +417,20 @@ export class MessageRecords {
       JOIN conversations c ON c.id=p.conversation_id
       JOIN users u ON u.id=p.user_id
       LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
-      WHERE c.id=? AND p.user_id<>? AND c.external_source IS NULL
+      WHERE c.id=? AND p.user_id<>?
+        AND (c.external_source IS NULL OR (
+          c.type='direct' AND a.agent_id IS NOT NULL AND a.agent_id=c.config_agent_id
+          AND EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.message_id=? AND d.agent_id=a.agent_id)
+          AND NOT EXISTS (SELECT 1 FROM provider_message_facts f WHERE f.message_id=? AND (
+            coalesce(json_extract(f.facts_json,'$.scope_skipped'),0)=1 OR
+            coalesce(json_extract(f.facts_json,'$.context_only'),0)=1))))
         AND (a.agent_id IS NULL OR a.collaboration_scope='team' OR EXISTS (
           SELECT 1 FROM owner_direct_agent_messages d WHERE d.message_id=? AND d.agent_id=a.agent_id))
         AND (? IS NULL OR c.type<>'group' OR EXISTS (
           SELECT 1 FROM thread_follows f WHERE f.conversation_id=c.id AND f.root_message_id=? AND f.user_id=p.user_id AND f.following=1))
         AND
         (c.type='group' OR (c.type='direct' AND (a.agent_id IS NULL OR a.work_mode='global')))
-    `).run(id,cId,sender,id,extra.thread_root_id ?? null,extra.thread_root_id ?? null);
+    `).run(id,cId,sender,id,id,id,extra.thread_root_id ?? null,extra.thread_root_id ?? null);
     const m = this.message(id);
     // Shadow messages store under the local owner even when the provider has no display name.
     const data = {...m,message_id:id,...(extra.sender_source_id

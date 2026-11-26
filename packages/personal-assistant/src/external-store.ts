@@ -34,9 +34,19 @@ export interface ExternalStoredMessage {
 export interface ExternalChat { id: string; agentId: string; provider?: ExternalProvider; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }
 export interface ExternalOutput { lifecycle_revision:number; id: string; chatId: string; operationId: string; reply?: string; state: string; platformId?: string; imId?: string }
 
-type InboundRow = { id: string; chatId: string; body: string; accepted: number; mirror: string | null; reaction: string | null; reactionStage: 'received' | 'read' | null };
+type InboundRow = {
+  id: string;
+  chatId: string;
+  body: string;
+  accepted: number;
+  mirror: string | null;
+  reaction: string | null;
+  reactionStage: 'received' | 'read' | null;
+  imReceiptStage: 'sent' | 'read' | null;
+  imReceiptConfirmed: 'sent' | 'read' | null;
+};
 export type ExternalInbound = Omit<InboundRow, 'body'> & { message: ExternalStoredMessage; input: RelayInput };
-const selectInbound = 'SELECT id,chat_id AS chatId,body,accepted,mirror,reaction,reaction_stage AS reactionStage FROM inbound';
+const selectInbound = 'SELECT id,chat_id AS chatId,body,accepted,mirror,reaction,reaction_stage AS reactionStage,im_receipt_stage AS imReceiptStage,im_receipt_confirmed AS imReceiptConfirmed FROM inbound';
 function decodeInbound({ body, ...row }: InboundRow): ExternalInbound {
   return { ...row, ...JSON.parse(body) as { message: ExternalStoredMessage; input: RelayInput } };
 }
@@ -61,8 +71,13 @@ export class ExternalStore {
       CREATE TABLE IF NOT EXISTS approvals(request_id TEXT PRIMARY KEY,output_id TEXT NOT NULL,platform_id TEXT,body TEXT NOT NULL,settled INTEGER NOT NULL DEFAULT 0);
     `);
     if(!(this.db.prepare('PRAGMA table_info(outputs)').all() as {name:string}[]).some(c=>c.name==='lifecycle_revision'))this.db.exec('ALTER TABLE outputs ADD COLUMN lifecycle_revision INTEGER NOT NULL DEFAULT 1');
-    if (!(this.db.prepare('PRAGMA table_info(inbound)').all() as {name:string}[]).some(c=>c.name==='reaction_stage'))
+    const inboundCols = (this.db.prepare('PRAGMA table_info(inbound)').all() as {name:string}[]).map(c => c.name);
+    if (!inboundCols.includes('reaction_stage'))
       this.db.exec('ALTER TABLE inbound ADD COLUMN reaction_stage TEXT');
+    if (!inboundCols.includes('im_receipt_stage'))
+      this.db.exec('ALTER TABLE inbound ADD COLUMN im_receipt_stage TEXT');
+    if (!inboundCols.includes('im_receipt_confirmed'))
+      this.db.exec('ALTER TABLE inbound ADD COLUMN im_receipt_confirmed TEXT');
     if (!(this.db.prepare('PRAGMA table_info(images)').all() as {name:string}[]).some(c=>c.name==='file_name'))
       this.db.exec('ALTER TABLE images ADD COLUMN file_name TEXT');
     const approvalCols = (this.db.prepare('PRAGMA table_info(approvals)').all() as {name:string}[]).map(c => c.name);
@@ -145,6 +160,21 @@ export class ExternalStore {
   mirrorInput(id: string, messageId: string): void { this.db.prepare('UPDATE inbound SET mirror=? WHERE id=?').run(messageId, id); }
   reaction(id: string, reaction: string | null, stage?: 'received' | 'read'): void {
     this.db.prepare('UPDATE inbound SET reaction=?,reaction_stage=? WHERE id=?').run(reaction, stage ?? null, id);
+  }
+  recordImReceiptStage(id: string, stage: 'sent' | 'read'): void {
+    this.db.prepare(
+      "UPDATE inbound SET im_receipt_stage=CASE WHEN im_receipt_stage='read' THEN 'read' ELSE ? END WHERE id=?",
+    ).run(stage, id);
+  }
+  pendingImReceipts(): ExternalInbound[] {
+    return (this.db.prepare(
+      selectInbound + " WHERE mirror IS NOT NULL AND mirror!='' AND im_receipt_stage IS NOT NULL AND coalesce(im_receipt_confirmed,'')!=im_receipt_stage ORDER BY rowid",
+    ).all() as InboundRow[]).map(decodeInbound);
+  }
+  confirmImReceipt(id: string, stage: 'sent' | 'read'): void {
+    this.db.prepare(
+      "UPDATE inbound SET im_receipt_confirmed=CASE WHEN im_receipt_confirmed='read' THEN 'read' ELSE ? END WHERE id=?",
+    ).run(stage, id);
   }
   output(id: string): ExternalOutput | undefined {
     return this.db.prepare('SELECT id,chat_id AS chatId,operation_id AS operationId,reply,state,platform_id AS platformId,im_id AS imId,lifecycle_revision FROM outputs WHERE id=?').get(id) as unknown as ExternalOutput | undefined;

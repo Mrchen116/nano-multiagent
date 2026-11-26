@@ -567,6 +567,39 @@ export class Gateway {
       return this.channelHandler(type, p);
     }
     if (type === "node.delivery_receipt") {
+      if (typeof p.external_source_message_id === "string") {
+        if (!['sent','accepted','completed','failed','read'].includes(String(p.delivery_status))) fail(400,'invalid_delivery_status');
+        const targetAgent = this.requireAgent(c, String(p.agent_id ?? ""));
+        const m = one(
+          db,
+          `SELECT m.id, m.conversation_id FROM messages m
+           JOIN conversations conv ON conv.id=m.conversation_id
+           WHERE m.id=? AND conv.config_agent_id=? AND conv.external_source IS NOT NULL`,
+          p.external_source_message_id,
+          targetAgent.agent_id,
+        );
+        if (!m) fail(404, "external source message not found");
+        s.access({ ...c, kind: "gateway" }, m.conversation_id, targetAgent.agent_id);
+        if (['sent','read'].includes(String(p.delivery_status))) {
+          const tracked = one(
+            db,
+            `SELECT 1 FROM message_receipts r JOIN users u ON u.id=r.recipient_id
+             WHERE r.message_id=? AND u.username=?`,
+            m.id,
+            `agent:${targetAgent.agent_id}`,
+          );
+          if (tracked) {
+            const stage = p.delivery_status === 'read' ? 2 : 1;
+            if (db.prepare(`
+              UPDATE message_receipts SET status=?
+              WHERE message_id=? AND recipient_id=(SELECT id FROM users WHERE username=?) AND status<?
+            `).run(stage, m.id, `agent:${targetAgent.agent_id}`, stage).changes) {
+              s.event(m.conversation_id, null, 'message.receipts_changed', {});
+            }
+          }
+        }
+        return ack({ external_source_message_id: m.id });
+      }
       const relay = one(
         db,
         "SELECT * FROM relay_tasks WHERE relay_task_id=? AND target_node_id=?",

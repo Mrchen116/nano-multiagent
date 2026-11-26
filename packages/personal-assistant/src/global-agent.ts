@@ -236,7 +236,7 @@ export class GlobalAgent {
             this.options.inbox.confirmRelay(receipt.input.relay_task_id, receipt.status);
           } catch (error) {
             if (error instanceof RelayDeliveryError && error.delivery === 'rejected'
-              && /scope_not_allowed|agent_not_accessible|conversation_id not found|relay task not found|node_not_registered|gateway_owner_mismatch/.test(error.code ?? '')) {
+              && /scope_not_allowed|agent_not_accessible|conversation_id not found|relay task not found|external source message not found|node_not_registered|gateway_owner_mismatch/.test(error.code ?? '')) {
               this.options.inbox.rejectRelay(receipt.input.relay_task_id);
               this.options.onError(error);
               continue;
@@ -737,7 +737,7 @@ export class GlobalAgent {
     }
   }
 
-  /** Consume persisted source events without changing the owner's read receipts. */
+  /** Consume persisted source events; only owner 1:1 external shadow messages opt into agent receipts. */
   recoverPersonalObservations(): Promise<void> {
     if (this.options.relay.ready === false) return Promise.resolve();
     if (this.observations) return this.observations;
@@ -757,9 +757,15 @@ export class GlobalAgent {
               if(message.sender_agent_id===config.agentId || message.sender?.agent_id===config.agentId || (message.sender?.type==='agent'&&message.sender?.id===config.agentId)) {
                 await this.personal.request(config,'pa.observations.ack',{event_ids:[event.event_id],stage:'processed'}); continue;
               }
+              const agentReceipt = Boolean(
+                event.owner_direct
+                && event.conversation_type === 'direct'
+                && (event.channel === 'feishu' || event.channel === 'wechat')
+                && message.receipts_requested,
+              );
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
-                metadata:{pa_observation:true,owner_direct:event.owner_direct,addressed_to_owner:event.addressed_to_owner,addressed_to_agent:event.addressed_to_agent,
+                metadata:{pa_observation:true,...(agentReceipt ? {agent_receipt:true} : {}),owner_direct:event.owner_direct,addressed_to_owner:event.addressed_to_owner,addressed_to_agent:event.addressed_to_agent,
                   ...(typeof event.agent_user_id==='string'?{agent_user_id:event.agent_user_id}:{}),
                   ...(typeof message.thread_root_message_id==='string'?{thread_root_message_id:message.thread_root_message_id,thread_root_sender:event.thread_root_sender,thread_root_excerpt:event.thread_root_excerpt,thread_earlier:event.thread_earlier,thread_history_truncated:event.thread_history_truncated,...(event.thread_follow_reactivated?{thread_follow_reactivated:true}:{})}:{}),
                   ...('provider_source_time' in event?{provider_source_time:event.provider_source_time}:{}),context_only:event.context_only,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,explicit_mentioned_agent_ids:event.explicit_mentioned_agent_ids,source_policy_revision:event.policy_revision},
@@ -1561,7 +1567,7 @@ export class GlobalAgent {
     this.options.onWork?.();
   }
   private async receipt(input: RelayInput, status: string) {
-    if(input.metadata.pa_observation || (input.relay_task_id.startsWith('external:') && !input.metadata.agent_receipt)) {await this.transmitReceipt(input,status);return;}
+    if((input.metadata.pa_observation || input.relay_task_id.startsWith('external:')) && !input.metadata.agent_receipt) {await this.transmitReceipt(input,status);return;}
     this.options.inbox.settleRelay(input,status);
     this.scheduleReceipts();
   }

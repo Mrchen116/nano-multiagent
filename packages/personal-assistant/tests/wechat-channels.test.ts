@@ -292,18 +292,31 @@ it('routes WeChat shadow sessions, SingleThread source attribution, plain-text r
     expect(wechatSent).toEqual(['这里是总结内容。\n\n—\ngpt-5 · ctx 20%']);
     expect(typingStates.at(-1)).toBe(false);
 
-    // Global Agent WeChat input does not set agent_receipt or trigger Feishu reactions
+    // Global Agent WeChat owner DM opts into IM agent_receipt without calling WeChat reactions,
+    // and stages offline sent/read receipts until the shadow message is mirrored on reconnect.
     let globalInput: RelayInput | undefined;
+    let online = false;
+    const imReceiptFrames: Record<string, unknown>[] = [];
     const globalExternal = new ExternalChannels(':memory:', {
       nodeId: 'node-1',
       ownerId: 'owner-1',
       store,
       globalAgent: () => true,
-      relay: { ready: false, async request() { throw new Error('offline'); } },
-      im: async () => { throw new Error('offline'); },
+      relay: {
+        get ready() { return online; },
+        async request(type, payload) {
+          if (!online) throw new Error('offline');
+          if (type === 'node.delivery_receipt') imReceiptFrames.push(payload);
+          return { type: 'ack', payload: {} };
+        },
+      },
+      im: async path => {
+        if (!online) throw new Error('offline');
+        return { id: path.endsWith('find-or-create') ? 'shadow_wx_global' : 'im_wx_g_1' };
+      },
       receive: async input => { globalInput = input; },
       permission: async () => {},
-      onError: err => { throw err; },
+      onError: () => {},
     });
     globalExternal.add('global-1', {
       supportsReactions: false,
@@ -323,9 +336,29 @@ it('routes WeChat shadow sessions, SingleThread source attribution, plain-text r
       time: '1700000000000',
       parts: [{ type: 'text', text: 'hi global' }],
     }, 'wechat');
-    expect(globalInput?.metadata.agent_receipt).toBeUndefined();
+    expect(globalInput?.metadata.agent_receipt).toBe(true);
     expect(reactionCalls).toBe(0);
     expect(chatDelivery(globalInput!, agentConfig, 'owner-1')).not.toBe('skip');
+
+    await globalExternal.request('node.delivery_receipt', {
+      relay_task_id: globalInput!.relay_task_id,
+      delivery_status: 'sent',
+    });
+    await globalExternal.request('node.delivery_receipt', {
+      relay_task_id: globalInput!.relay_task_id,
+      delivery_status: 'read',
+    });
+    expect(reactionCalls).toBe(0);
+    expect(imReceiptFrames).toEqual([]);
+
+    online = true;
+    await globalExternal.recover('global-1');
+    expect(imReceiptFrames).toEqual([{
+      node_id: 'node-1',
+      agent_id: 'global-1',
+      external_source_message_id: 'im_wx_g_1',
+      delivery_status: 'read',
+    }]);
     await globalExternal.stop();
   } finally {
     await singleThread.stop?.();

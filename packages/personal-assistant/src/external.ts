@@ -360,7 +360,7 @@ export class ExternalChannels {
       },
     };
 
-    if (connection.supportsReactions !== false && this.options.globalAgent?.(agentId) && this.attention(input, storedMessage)) {
+    if ((connection.supportsReactions !== false || ownerDirect) && this.options.globalAgent?.(agentId) && this.attention(input, storedMessage)) {
       input.metadata.agent_receipt = true;
     }
 
@@ -604,22 +604,34 @@ export class ExternalChannels {
 
   private async requestAdmitted(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> {
     if (type === 'node.delivery_receipt' && typeof payload.external_source_message_id === 'string') {
+      const status = String(payload.delivery_status);
       const source = typeof payload.agent_id === 'string' ? this.state.inboundByMirror(payload.external_source_message_id, payload.agent_id) : undefined;
-      if (source && ['completed', 'failed'].includes(String(payload.delivery_status))) {
+      if (source && ['completed', 'failed'].includes(status)) {
         await this.removeReaction(source.id);
         const chat = this.state.chat(source.chatId);
         if (chat) await this.stopTyping(chat);
+      }
+      if (['sent', 'read'].includes(status)) {
+        return this.options.relay.request(type, payload);
       }
       return ack(type);
     }
     if (type === 'node.delivery_receipt' && String(payload.relay_task_id).startsWith('external:')) {
       const id = String(payload.relay_task_id);
+      const status = String(payload.delivery_status);
       const row = this.state.inbound(id);
       if (row?.input.metadata.agent_receipt) {
-        if (['sent', 'read'].includes(String(payload.delivery_status))) {
-          await this.showReceipt(row, payload.delivery_status === 'read' ? 'read' : 'received');
+        if (['sent', 'read'].includes(status)) {
+          await this.showReceipt(row, status === 'read' ? 'read' : 'received');
+          if (row.input.metadata.owner_direct && row.input.metadata.conversation_type === 'direct') {
+            this.state.recordImReceiptStage(id, status === 'read' ? 'read' : 'sent');
+            void this.flush().catch(this.options.onError);
+          }
+        } else if (['completed', 'failed'].includes(status)) {
+          const chat = this.state.chat(row.chatId);
+          if (chat) await this.stopTyping(chat);
         }
-      } else if (['completed', 'failed'].includes(String(payload.delivery_status))) {
+      } else if (['completed', 'failed'].includes(status)) {
         await this.removeReaction(id);
         if (row) {
           const chat = this.state.chat(row.chatId);
@@ -1047,6 +1059,27 @@ export class ExternalChannels {
       while (this.flushAgain) {
         this.flushAgain = false;
         for (const row of this.state.pendingMirrors()) await this.mirrorInput(row);
+        for (const row of this.state.pendingImReceipts()) {
+          const stage = row.imReceiptStage;
+          if (!stage || !row.mirror || !this.options.store.lifecycle.allowed(row.input.agent_id, row.input.lifecycle_revision ?? 1)) continue;
+          try {
+            await this.options.store.lifecycle.run(row.input.agent_id, row.input.lifecycle_revision ?? 1, async () => {
+              await this.options.relay.request('node.delivery_receipt', {
+                node_id: this.options.nodeId,
+                agent_id: row.input.agent_id,
+                external_source_message_id: row.mirror,
+                delivery_status: stage,
+              });
+              this.state.confirmImReceipt(row.id, stage);
+            });
+          } catch (error) {
+            if (error instanceof RelayDeliveryError && error.delivery === 'rejected'
+              && /scope_not_allowed|agent_not_accessible|conversation_id not found|external source message not found|node_not_registered|gateway_owner_mismatch/.test(error.code ?? '')) {
+              this.state.confirmImReceipt(row.id, stage);
+            }
+            this.options.onError(error);
+          }
+        }
         for (const frame of this.state.pendingFrames()) {
           const output = this.state.output(frame.outputId)!;
           const chat = this.state.chat(output.chatId)!;

@@ -287,6 +287,7 @@ sequenceDiagram
 - **Gateway 包入口索引**：[`docs/specs/gateway/spec.md`](../../specs/gateway/spec.md) → 见 [`specs/gateway/spec.md`](specs/gateway/spec.md)（更新 `External Channels` 覆盖说明并将 Requirement 数由 `17` 更新为 `19`）。
 - **Gateway 路由与投递契约**：[`docs/specs/gateway/routing-delivery.md`](../../specs/gateway/routing-delivery.md) → 见 [`specs/gateway/routing-delivery.md`](specs/gateway/routing-delivery.md)（修改 `当前会话的 Agent 图片与文件回复具有统一交付语义` 放开外部私聊 `local_images` 与离线暂存同步，修改 `Agent 可通过短标识下载受保护会话附件` 支持本机已验权 `external:` 入站附件落盘；Requirement 总数保持 `26` 不变）。
 - **IM 通道管理契约**：[`docs/specs/im/agents-nodes.md`](../../specs/im/agents-nodes.md) → 见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)（修改 Agent 通道页统一管理条款，纳入 `wechat`、Web 扫码零明文回显、禁 REST 明文直传及原生 iOS 添加引导与状态管理；Requirement 总数保持 `56` 不变，`docs/specs/im/spec.md` 为 `no spec delta`）。
+- **IM 会话与消息回执契约**：[`docs/specs/im/conversations-messages.md`](../../specs/im/conversations-messages.md) → 见 [`specs/im/conversations-messages.md`](specs/im/conversations-messages.md)（修改 `真人发送的普通聊天消息提供逐人回执`，覆盖主人 1:1 外部私聊影子会话向 Global Agent / Personal Agent 的待送达 → 已送达 → 已读回执推进，保持群旁观、非主人与 SingleThread 边界不变；Requirement 总数不变，`docs/specs/im/spec.md` 为 `no spec delta`）。
 - **其他领域（`gateway/personal-agent.md`、`im/personal-agent.md`、`im/ios-client.md`、`im/desktop-client.md`）**：`no spec delta`——现有条款已通过通用外部通道与管理页面契约覆盖。
 
 ## 风险与回退

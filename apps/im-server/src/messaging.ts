@@ -436,7 +436,7 @@ export class Messaging {
     const content=this.validateReferences(p,id,b.content,agentId);
     const safeAttachments=attachments.map(a=>({url:this.validateReferences(p,id,a.url!,agentId),content_type:a.content_type,file_name:a.file_name}));
     return this.insertMessage(id,c.owner_user_id,'user',content,safeAttachments,key,'completed',{
-      sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,provider_facts:providerFacts(b.provider_facts),
+      sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,provider_facts:providerFacts(b.provider_facts),trackReceipts:true,
     });
   }
   /** Resolve an original message only inside the caller's authorized destination.
@@ -606,7 +606,7 @@ export class Messaging {
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, thread_root_id:threadRoot, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, thread_root_id:threadRoot, publish:false, trackReceipts:type==='user' && (p.kind!=='gateway' || Boolean(origin)) });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
