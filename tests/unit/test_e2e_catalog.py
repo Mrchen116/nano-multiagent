@@ -127,7 +127,6 @@ def test_bootstrap_tracks_product_default_tools_and_keeps_explicit_choices(tmp_p
             "future-default",
             "explicit",
             "feature-tool",
-            "inbox",
         }
         assert config["profile_version"] == 7
         assert config["display_name"] == "Named test agent"

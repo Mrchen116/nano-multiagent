@@ -51,7 +51,7 @@ Agent 启用 `plugin_manager`（含通过默认开启的 `plugin_management`「�
 #### Scenario: 存量配置平滑承接插件管理权限
 - **GIVEN** 升级前已保存且未显式记录 `plugin_management` 特性的存量 Agent 配置
 - **WHEN** 节点启动校验、上报能力或创建会话
-- **THEN** 原先允许使用 `plugin_manager` 的配置自动具备 `cordis_inspect_list` 与 `cordis_inspect_query` 有效权限（未显式禁用 `nano-plugin-development` 时 `plugin_management` 特性按开启解释），不因新增伴随工具触发依赖缺失阻断；原先显式工具白名单不含 `plugin_manager` 的受限配置保持 `plugin_management` 关闭且不扩宽可用工具集
+- **THEN** 原先允许使用 `plugin_manager` 的配置自动具备 `cordis_inspect_list` 与 `cordis_inspect_query` 有效权限（`nano-plugin-development` 仍处于有效选择且所需能力可用时 `plugin_management` 特性按开启解释），不因新增伴随工具触发依赖缺失阻断；原先显式工具白名单不含 `plugin_manager` 的受限配置保持 `plugin_management` 关闭且不扩宽可用工具集
 
 ### Requirement: Agent 工具集 SHALL 按工具选择兑现，Feature 保证完整依赖
 

@@ -264,6 +264,7 @@ describe("agent create page", () => {
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "runtime-created helper" } });
     fireEvent.change(screen.getByLabelText(/^Initial role agreement/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /plan/i }));
+    await user.click(screen.getByTestId("pill-selector-tools-toggle"));
     await user.click(screen.getByRole("button", { name: /^read$/i }));
     await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
     await user.selectOptions(screen.getByLabelText("Approval strategy"), "cc");

@@ -327,6 +327,10 @@
       "retained": "已保留当前功能需要的能力，其余选择已取消",
       "activeTasks": "还有进行中或等待中的任务，请先暂停或结束这些任务，再关闭 Task",
       "activeSchedules": "还有生效中的定时任务，请先停用或删除这些安排，再关闭 Cron",
+      "providedByPlugin": "此工具由插件「{{plugin}}」提供，请在「插件」页关闭",
+      "providedByPluginGeneric": "此工具由已启用的工作区插件提供，请在「插件」页关闭",
+      "pluginRequiresManager": "此工具由插件「{{plugin}}」提供，需先开启「插件开发与管理」或 plugin_manager",
+      "pluginRequiresManagerGeneric": "此工作区插件工具需先开启「插件开发与管理」或 plugin_manager",
       "fixed": "这是当前模式的基础能力，不能关闭",
       "busy": "该能力正在使用中，请稍后再试",
       "unavailable": "暂时无法确认能力状态，请稍后再试"
@@ -576,6 +580,7 @@
         "skillsGroupClear": "取消本组",
         "skillsCompatibility": "兼容来源（Claude/Codex）",
         "tools": "工具允许列表",
+        "toolsCount": "已启用 {{enabled}} / {{total}}",
         "model": "默认模型",
         "fallbackToggle": "备用",
         "fallbackUnset": "未设置",
@@ -1387,6 +1392,10 @@
     "intelligent_ui": {
       "label": "Intelligent UI",
       "help": "引导 Agent 按需使用交互卡片。关闭后不再提供这类指导；消息工具开启时仍可发送卡片。"
+    },
+    "plugin_management": {
+      "label": "插件开发与管理",
+      "help": "允许助手在当前工作区创建、安装、启停插件并只读检查宿主运行时契约。"
     },
     "task_graph": {
       "label": "任务图",

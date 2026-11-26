@@ -371,7 +371,7 @@ const handlers:NodeHandlers = {
       if (!config.agents.some(agent=>agent.agent_id===input.agent_id)) throw new Error('Plugin request has no Agent on this node');
       const plugins = await runtime.request('plugins.manage',{agentId:input.agent_id,action:input.action,
         target:'target' in input ? input.target : undefined,enabled:'enabled' in input ? input.enabled : undefined}) as NonNullable<NodeReply<'node.plugins.request'>['plugins']>;
-      if (input.action !== 'list_bundles') publishCatalogChange();
+      if (input.action !== 'list_bundles' && !plugins.pending) publishCatalogChange();
       return {plugins};
     } catch (error) {return {error:String(error)};}
   },

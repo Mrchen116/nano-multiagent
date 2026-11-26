@@ -327,6 +327,10 @@
       "retained": "Required capabilities were kept; other selections were cleared",
       "activeTasks": "Pause or finish active and waiting tasks before turning off Task",
       "activeSchedules": "Disable or delete active schedules before turning off Cron",
+      "providedByPlugin": "Provided by plugin “{{plugin}}”. Turn it off in Plugins",
+      "providedByPluginGeneric": "Provided by an enabled workspace plugin. Turn it off in Plugins",
+      "pluginRequiresManager": "Provided by plugin “{{plugin}}”. Enable Plugin development & management or plugin_manager first",
+      "pluginRequiresManagerGeneric": "Enable Plugin development & management or plugin_manager to use this workspace plugin tool",
       "fixed": "This capability is required by the current mode",
       "busy": "This capability is in use. Try again shortly",
       "unavailable": "Capability status is unavailable. Try again shortly"
@@ -577,6 +581,7 @@
         "skillsGroupClear": "Clear group",
         "skillsCompatibility": "Compatibility (Claude/Codex)",
         "tools": "Tool Allowlist",
+        "toolsCount": "{{enabled}} / {{total}} enabled",
         "model": "Default Model",
         "fallbackToggle": "Fallbacks",
         "fallbackUnset": "unset",
@@ -1402,6 +1407,10 @@
     "intelligent_ui": {
       "label": "Intelligent UI",
       "help": "Guide this Agent to use interactive cards when helpful. Turning this off removes that guidance; cards can still be sent when the message tool is enabled."
+    },
+    "plugin_management": {
+      "label": "Plugin development & management",
+      "help": "Allow the assistant to author, install, and manage workspace plugins and inspect host runtime contracts read-only."
     },
     "task_graph": {
       "label": "Task Graphs",

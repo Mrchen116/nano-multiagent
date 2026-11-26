@@ -408,6 +408,14 @@ struct AgentCreateView: View {
             draft.description = value == "research" ? L("研究与资料比较", "Research and comparison") : value == "writing" ? L("写作与内容策划", "Writing and planning") : ""
             draft.initial_role = instruction
         }
+        .onChange(of: draft.work_mode) { _, _ in
+            guard let capabilities else { return }
+            let active = draft.effectiveFeatures(capabilities: capabilities)
+            for feature in capabilities.features where active[feature.key] == true {
+                _ = draft.changeCapability(.init(kind: "feature", name: feature.key, enabled: true), capabilities: capabilities)
+            }
+            draft.tool_allowlist = draft.sanitizeStaticTools(personal: false, capabilities: capabilities)
+        }
     }
     private func openCreatedChat(_ agent: AgentConfig) async {
         openingChat = true; defer { openingChat = false }
@@ -425,6 +433,8 @@ struct AgentCreateView: View {
         guard let capabilities else { return }
         if let block = draft.changeCapabilities(actions, capabilities: capabilities).first {
             capabilityToast = .init(text: block.message, anchor: block.target.kind + ":" + block.target.name)
+        } else {
+            draft.tool_allowlist = draft.sanitizeStaticTools(personal: false, capabilities: capabilities)
         }
     }
     private func loadCapabilities() async {
@@ -435,7 +445,7 @@ struct AgentCreateView: View {
             let value: AgentCapabilities = try await client.get("/im/v1/nodes/\(agentSegment(selectedNode))/capabilities")
             guard !Task.isCancelled else { return }
             capabilities = value; error = nil
-            draft.tool_allowlist = value.tools.filter { $0.default_on == true }.map(\.name)
+            draft.tool_allowlist = value.tools.filter { $0.default_on == true && $0.source_group != "workspace" }.map(\.name)
             draft.skills = []; draft.skills_selection_mode = "explicit_denylist"
             draft.initializeCapabilities(value)
             if !changed { initialDraft = draft }
@@ -445,7 +455,7 @@ struct AgentCreateView: View {
         guard draft.agent_id.range(of: "^[a-z0-9_-]+$", options: .regularExpression) != nil else { error = L("Agent ID 仅允许小写字母、数字、下划线和短横线。", "Agent ID accepts lowercase letters, digits, underscores, and hyphens only."); return }
         busy = true; error = nil; defer { busy = false }
         do {
-            var payload = draft.payload(creating: true, customWorkspace: customWorkspace, confirmed: confirmed)
+            var payload = draft.payload(creating: true, customWorkspace: customWorkspace, confirmed: confirmed, capabilities: capabilities)
             payload["avatar_variant"] = .number(Double(selectedVariant))
             created = try await client.send("/im/v1/nodes/\(agentSegment(selectedNode))/agents", body: payload)
         }

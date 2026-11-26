@@ -194,6 +194,7 @@ it("saves a single Goal tool without a feature or selecting its siblings", async
   apiMocks.updateAgentConfig.mockImplementation(async (_id, payload) => ({...state.config,...payload}));
   renderDetail();
   await screen.findByRole('heading', {name:'Settings Agent'});
+  await user.click(screen.getByTestId('pill-selector-tools-toggle'));
   const pill = (name: string) => document.querySelector<HTMLButtonElement>(`[data-testid="pill-selector-tools"] [data-pill-name="${name}"]`)!;
   expect(screen.queryByRole('checkbox', {name:/DSH Goal/})).toBeNull();
   for (const name of names) expect(pill(name)).toHaveAttribute('aria-pressed', 'false');
@@ -213,10 +214,41 @@ it("keeps required tools selected and presents a transient overlay", async () =>
   state.capabilities.features = [{ ...HEARTBEAT, requires: { features: [], tools: ["read"], skills: [] } }];
   apiMocks.getAgentDetailState.mockResolvedValue(state);
   renderDetail();
+  await userEvent.click(await screen.findByTestId("pill-selector-tools-toggle"));
   const tool = await screen.findByRole("button", { name: "read" });
   await userEvent.click(tool);
   expect(tool).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("status")).toHaveTextContent("Heartbeat");
+});
+
+it("guides plugin-provided tools to Plugins via toast and purifies legacy fixed/context tools without marking clean profiles dirty", async () => {
+  const user = userEvent.setup();
+  const state = agentState(HEARTBEAT);
+  state.config.work_mode = "global";
+  state.config.tool_allowlist = ["read", "notes", "inbox"];
+  state.capabilities.fixed_tools = ["inbox", "notes"];
+  state.capabilities.tools = [
+    { name: "read", description: "Read", default_on: true },
+    { name: "notes", description: "Notes", default_on: false, enabled: true, source_group: "workspace", plugin_bundle: "dsh-agent-context", plugin_title: "Context Management" },
+  ];
+  apiMocks.getAgentDetailState.mockResolvedValue(state);
+  apiMocks.updateAgentConfig.mockImplementation(async (_id, payload) => ({ ...state.config, ...payload }));
+  renderDetail();
+  await screen.findByRole("heading", { name: "Settings Agent" });
+  expect(screen.getByRole("button", { name: /^Save Agent$/i })).toBeDisabled();
+  expect(screen.queryByText(/No longer available/i)).toBeNull();
+
+  await user.click(screen.getByTestId("pill-selector-tools-toggle"));
+  const notes = screen.getByRole("button", { name: "notes" });
+  expect(notes).toHaveAttribute("aria-pressed", "true");
+  await user.click(notes);
+  expect(notes).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByRole("status")).toHaveTextContent(/Context Management.*Plugins/i);
+
+  const desc = screen.getByLabelText("Description");
+  await user.type(desc, "Updated");
+  await user.click(screen.getByRole("button", { name: /^Save Agent$/i }));
+  await waitFor(() => expect(apiMocks.updateAgentConfig).toHaveBeenCalledWith("agent-1", expect.objectContaining({ tool_allowlist: ["read"] })));
 });
 
 
@@ -268,6 +300,7 @@ it("extends one overlay on repeated attempts and fades it after two seconds", as
   state.capabilities.features = [{ ...HEARTBEAT, requires: { features: [], tools: ["read"], skills: [] } }];
   apiMocks.getAgentDetailState.mockResolvedValue(state);
   renderDetail();
+  await userEvent.click(await screen.findByTestId("pill-selector-tools-toggle"));
   const tool = await screen.findByRole("button", { name: "read" });
   vi.useFakeTimers();
   try {
