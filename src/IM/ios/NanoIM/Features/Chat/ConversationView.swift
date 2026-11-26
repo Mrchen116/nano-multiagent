@@ -429,7 +429,7 @@ struct ConversationView: View {
                         ForEach(members, id: \.id) { actor in
                             Button { selectCompletion(completion, value: ChatText.mention(actor, participants: conversation?.participants ?? [])) } label: {
                                 HStack(spacing: 10) {
-                                    AvatarView(name: actor.display_name ?? actor.id, kind: actor.type == "agent" ? "agent" : "person", size: 32, agentID: actor.id, role: actor.role, variant: actor.avatar_variant)
+                                    AvatarView(id: .actor(actor), size: 32)
                                     Text(actor.display_name ?? actor.id).foregroundStyle(NanoTheme.ink)
                                     Spacer()
                                     Text(actor.type == "agent" ? "Agent" : L("真人", "Person")).font(.caption).foregroundStyle(NanoTheme.muted)

@@ -270,9 +270,19 @@ export class MessageRecords {
       id:row.id, sender_user_id:row.sender_user_id, display_name:row.display_name,
       preview:(row.content.trim() || row.file_name || '').replace(/\s+/g, ' ').slice(0, 160),
     }));
-    const participants=this.db.prepare(`SELECT m.sender_user_id AS id, COALESCE(m.sender_display_name, u.display_name, m.sender_user_id) AS display_name
-      FROM messages m LEFT JOIN users u ON u.id=m.sender_user_id
-      WHERE m.thread_root_id=? AND coalesce(json_extract(m.system_notice_json,'$.kind'),'')!='thread_unfollowed' GROUP BY m.sender_user_id ORDER BY max(m.rowid) DESC LIMIT 3`).all(id) as {id:string; display_name:string}[];
+    const participants = this.db.prepare(`
+      SELECT m.sender_user_id, m.sender_source_id, m.conversation_id, u.username, a.avatar_variant, b.binding_id,
+        COALESCE(m.sender_display_name, u.display_name, m.sender_user_id) AS display_name
+      FROM messages m JOIN users u ON u.id=m.sender_user_id
+      LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
+      LEFT JOIN personal_agent_bindings b ON b.agent_id=a.agent_id
+      WHERE m.thread_root_id=? AND coalesce(json_extract(m.system_notice_json,'$.kind'),'')!='thread_unfollowed'
+      GROUP BY m.sender_user_id, m.sender_source_id ORDER BY max(m.rowid) DESC LIMIT 3
+    `).all(id).map(row => {
+      const actor = chatActor({id:String(row.sender_user_id), username:String(row.username), display_name:String(row.display_name)}, row);
+      if (row.sender_source_id) actor.avatar_id = externalAvatarId(`external:${row.conversation_id}:${row.sender_source_id}`);
+      return {id:actor.avatar_id ?? actor.user_id, display_name:actor.display_name, actor};
+    });
     return {thread:{reply_count:count.count, latest_preview:latest.content.trim().slice(0,80), latest_at:latest.created_at, recent_replies, participants}};
   }
   private projectMessage(m:Omit<MessageRecord,'caller_idempotency_key'|'caller_payload_json'>):ChatMessage {

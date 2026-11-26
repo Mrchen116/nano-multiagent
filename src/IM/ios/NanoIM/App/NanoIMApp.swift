@@ -233,6 +233,7 @@ private struct RootTabs: View {
     let chat: ChatStore
     let accountUpdated: () -> Void
     let signOut: () -> Void
+    @State private var avatarContacts: [String:Contact] = [:]
     @State private var selectedTab = 0
     private struct ChatRoute: Hashable {
         let conversationID: String
@@ -247,6 +248,13 @@ private struct RootTabs: View {
         self.client = client; self.user = user; self.chat = chat
         self.accountUpdated = accountUpdated; self.signOut = signOut
     }
+    private var avatarDirectory: AvatarDirectory {
+        let conversations = chat.conversations + (chat.inspectedConversation.map { [$0] } ?? [])
+        let directory = AvatarDirectory(user:user, conversations:conversations, contacts:Array(avatarContacts.values))
+        guard let id = chat.selectedID, !chat.checkingAccess.contains(id), !chat.revokedChats.contains(id) else { return directory }
+        return directory.includingHistory(chat.timelines[id]?.compactMap(\.message) ?? [])
+    }
+
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack(path: $chatPath) {
@@ -309,7 +317,7 @@ private struct RootTabs: View {
                 Button { chat.banner = nil; openChat(banner.conversationID) } label: {
                     HStack(spacing: 10) {
                         if let conversation = chat.conversations.first(where: { $0.id == banner.conversationID }) {
-                            AvatarView(name: conversation.avatarName(selfID: user.id), kind: conversation.type == "group" ? "group" : conversation.category == "agent" ? "agent" : "person", size: 32, agentID: conversation.peerAgent?.id, role: conversation.peerAgent?.role, variant: conversation.peerAgent?.avatar_variant)
+                            AvatarView(id: .conversation(conversation, selfID: user.id), size: 32)
                             Text(conversation.title).font(.callout.weight(.semibold)).lineLimit(1)
                         }
                         Text(L("新消息", "New message")).font(.caption).foregroundStyle(NanoTheme.muted)
@@ -317,6 +325,15 @@ private struct RootTabs: View {
                 }
                     .padding(.top, 8).task(id: banner.id) { try? await Task.sleep(for: .seconds(3)); if !Task.isCancelled, chat.banner?.id == banner.id { chat.banner = nil } }
             }
+        }
+        .environment(\.avatarDirectory, avatarDirectory)
+        .onReceive(NotificationCenter.default.publisher(for: ContactDirectoryUpdate.notification)) { event in
+            guard event.object as? IMClient === client, let update = event.userInfo?["update"] as? ContactDirectoryUpdate,
+                  update.userID == user.id else { return }
+            update.apply(to: &avatarContacts)
+        }
+        .task(id: scenePhase) {
+            if scenePhase == .active { _ = try? await client.contacts() }
         }
         .task(id: scenePhase) { if scenePhase == .active { await chat.run() } }
         .task(id: scenePhase) { if scenePhase == .active { try? await client.syncTimeZone() } }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Uses the same silhouettes, palette and immutable identity seed as the Web portrait.
-struct AssistantPortrait: View {
+private struct AssistantPortrait: View {
     let personal: Bool
     let seed: String
     let selected: Int?
@@ -16,10 +16,8 @@ struct AssistantPortrait: View {
         return Int(hash % 24)
     }
 
-    private let colors: [(UInt32, UInt32)] = [
-        (0xb19aef, 0x43335e), (0x8bcbb0, 0x285345), (0x8cbce9, 0x2c4b6c),
-        (0xf0ab89, 0x704735), (0xeaa5c2, 0x693c56), (0xeac76a, 0x655126)
-    ]
+    private struct Colors: Decodable { let body: String; let ink: String }
+    private static let colors = try! JSONDecoder().decode([Colors].self, from: NSDataAsset(name: "portrait-palette")!.data)
     private func color(_ value: UInt32) -> Color {
         Color(red: Double(value >> 16) / 255, green: Double((value >> 8) & 255) / 255, blue: Double(value & 255) / 255)
     }
@@ -27,14 +25,16 @@ struct AssistantPortrait: View {
         let fallback = seed.isEmpty ? 0 : Self.variant(for: seed)
         let variant = selected.flatMap { (0..<24).contains($0) ? $0 : nil } ?? fallback
         let style = variant / 6
-        let (fill, ink) = colors[variant % 6]
+        let colors = Self.colors[variant % 6]
+        let fill = UInt32(colors.body.dropFirst(), radix: 16)!
+        let ink = UInt32(colors.ink.dropFirst(), radix: 16)!
         ZStack {
             Image("portrait-\(personal ? "personal" : "agent")-\(style)").resizable().foregroundStyle(color(fill))
             Canvas { ctx, bounds in
                 ctx.scaleBy(x: bounds.width / 80, y: bounds.height / 80)
                 for x in [31.0, 49.0] {
                     let rx = personal ? 7.0 : 6.5, ry = personal ? 9.0 : 8.0
-                    ctx.fill(Path(ellipseIn: CGRect(x: x-rx, y: 37-ry, width: rx*2, height: ry*2)), with: .color(.white))
+                    ctx.fill(Path(ellipseIn: CGRect(x: x-rx, y: 37-ry, width: rx*2, height: ry*2)), with: .color(color(0xfffdf8)))
                     let pupil = x + (style.isMultiple(of: 2) ? -1 : 2)
                     ctx.fill(Path(ellipseIn: CGRect(x: pupil-2.8, y: 33.8, width: 5.6, height: 8.4)), with: .color(color(ink)))
                 }
@@ -76,5 +76,70 @@ struct PortraitPicker: View {
                     .accessibilityAddTraits(index == variant ? .isSelected : [])
             }
         }
+    }
+}
+
+/// A preview describes an unassigned preset. Persisted identities use AvatarView.
+struct PortraitPreview: View {
+    var personal = true
+    var variant = 0
+    var size: CGFloat
+
+    var body: some View { AssistantPortrait(personal: personal, seed: "", selected: variant, size: size) }
+    static func defaultVariant(for id: String) -> Int { AssistantPortrait.variant(for: id) }
+}
+
+struct AvatarView: View {
+    let id: AvatarIdentity
+    var size: CGFloat = 44
+    var online = false
+    @Environment(\.avatarDirectory) private var directory
+
+    init(id: AvatarIdentity, size: CGFloat = 44, online: Bool = false) {
+        self.id = id; self.size = size; self.online = online
+    }
+
+    struct Swatch: Decodable {
+        let background: String
+        let foreground: String
+    }
+    // The Web component imports the same JSON file packaged in this data asset.
+    static let palette = try! JSONDecoder().decode([Swatch].self, from: NSDataAsset(name:"avatar-palette")!.data)
+    static func paletteIndex(for seed: String) -> Int {
+        var hash: Int64 = 0
+        for unit in seed.utf16 { hash = Int64(Int32(truncatingIfNeeded:hash) &<< 5) - hash + Int64(unit) }
+        return Int(abs(hash) % Int64(palette.count))
+    }
+
+    private static func initials(for name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return "AG" }
+        let initials = String(decoding: trimmed.utf16.prefix(2), as: UTF16.self).uppercased()
+        return String(decoding: initials.utf16.prefix(2), as: UTF16.self)
+    }
+
+    private func color(_ hex: String) -> Color {
+        let rgb = UInt32(hex.dropFirst(), radix:16)!
+        return Color(red:Double(rgb >> 16) / 255, green:Double(rgb >> 8 & 255) / 255, blue:Double(rgb & 255) / 255)
+    }
+    var body: some View {
+        let face = directory.resolve(id)
+        let swatch = Self.palette[Self.paletteIndex(for:face.paletteSeed)]
+        Group {
+            switch face {
+            case let .agent(seed, personal, variant):
+                AssistantPortrait(personal:personal, seed:seed, selected:variant, size:size)
+            case .group:
+                Image("group-avatar").resizable().scaledToFit().frame(width:size * 0.525)
+                    .frame(width:size, height:size).background(color(swatch.background), in: RoundedRectangle(cornerRadius:size * 0.275))
+            case let .person(name):
+                Text(Self.initials(for: name))
+                    .font(.system(size:size * 0.35, weight:.semibold)).frame(width:size, height:size)
+                    .background(color(swatch.background), in:Circle())
+            }
+        }.foregroundStyle(color(swatch.foreground)).overlay(alignment:.bottomTrailing) {
+            if online { Circle().fill(Color.green).frame(width:size * 0.23, height:size * 0.23)
+                .overlay(Circle().stroke(NanoTheme.surface, lineWidth:2)) }
+        }.accessibilityHidden(true)
     }
 }

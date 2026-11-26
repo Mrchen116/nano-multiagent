@@ -1,12 +1,36 @@
+import avatarCases from "../../../../../shared/avatar-test-cases.json";
+import { avatarVariantFor } from "./avatar-picker";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import "../../../i18n";
 import type { Actor, Conversation, Message } from "../chat-types";
-import { Avatar, AvatarIdentities } from "./avatar";
+import { Avatar, AvatarIdentities, colorForAgentSeed } from "./avatar";
 import { ConversationSidebar } from "./conversation-sidebar";
 import { MentionPicker } from "./mention-picker";
 import { MessagePane } from "./message-pane";
+
+it("matches the native avatar contract for stable IDs and palette seeds", () => {
+  for (const [id, variant] of Object.entries(avatarCases.agentSeeds)) expect(avatarVariantFor(id)).toBe(variant);
+  for (const [seed, color] of Object.entries(avatarCases.colors)) expect(colorForAgentSeed(seed)).toBe(color);
+});
+
+it("uses the same eight portrait silhouettes as the native image catalogue", () => {
+  const nativeArt = import.meta.glob("../../../../../ios/NanoIM/Assets.xcassets/portrait-*.imageset/*.svg", {
+    eager: true, query: "?raw", import: "default",
+  }) as Record<string, string>;
+  for (const personal of [true, false]) {
+    for (const style of [0, 1, 2, 3]) {
+      const actor: Actor = {id:"agent", type:"agent", role:personal ? "personal" : undefined, avatar_variant:style * 6};
+      const {container, unmount} = render(<AvatarIdentities actors={[actor]}><Avatar id="agent:agent" /></AvatarIdentities>);
+      const name = `portrait-${personal ? "personal" : "agent"}-${style}`;
+      const svg = nativeArt[`../../../../../ios/NanoIM/Assets.xcassets/${name}.imageset/${name}.svg`];
+      const shape = new DOMParser().parseFromString(svg, "image/svg+xml").querySelector("path");
+      expect(container.querySelector("svg > path")).toHaveAttribute("d", shape!.getAttribute("d"));
+      unmount();
+    }
+  }
+});
 
 it("requires portrait identity when adding an avatar surface", () => {
   type Props = Parameters<typeof Avatar>[0];

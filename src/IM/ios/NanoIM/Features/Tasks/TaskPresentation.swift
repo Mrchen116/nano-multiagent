@@ -84,7 +84,7 @@ struct TaskActorLabel: View {
     var body: some View {
         HStack(spacing: compact ? 5 : 8) {
             if let actor {
-                AvatarView(name: actor.taskName, kind: actor.type == "agent" ? "agent" : "person", size: size, agentID: actor.id, role: actor.role, variant: actor.avatar_variant)
+                AvatarView(id: .actor(actor), size: size)
             } else {
                 Image(systemName: "person")
                     .font(.system(size: size * 0.5, weight: .medium))

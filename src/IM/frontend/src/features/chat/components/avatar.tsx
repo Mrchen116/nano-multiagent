@@ -1,20 +1,9 @@
+import AVATAR_PALETTE from "../../../../../shared/avatar-palette.json";
 import { createContext, useContext, useMemo, useLayoutEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { AssistantPortrait } from "./assistant-portrait";
 import type { Actor, Conversation } from "../chat-types";
 
-/**
- * Shared person and Agent palette, seeded by display name: historical message senders carry
- * an IM user UUID rather than agent_id, so names keep colors aligned across views.
- */
-const AVATAR_PALETTE = [
-  { background: "#ffccac", foreground: "#733b27" },
-  { background: "#bfe8d9", foreground: "#275b49" },
-  { background: "#e2d8ff", foreground: "#57408c" },
-  { background: "#ffd0e3", foreground: "#783955" },
-  { background: "#acdfef", foreground: "#214d63" },
-  { background: "#ffdb80", foreground: "#634621" },
-  { background: "#cadbff", foreground: "#364c83" }
-];
+
 
 /** Deterministic color from a curated palette, seeded by the full display name. */
 export function colorForAgentSeed(seed: string): string {

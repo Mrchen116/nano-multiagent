@@ -11,7 +11,7 @@ struct PersonalAgentPolicy: Decodable, Sendable, Equatable {
 }
 
 private struct PersonalSettings: Decodable, Sendable {
-    struct Binding: Decodable, Sendable {
+    struct Binding: Decodable, Sendable, PersonalAvatarBinding {
         let binding_id, agent_id, conversation_id, display_name, status: String
         let avatar_variant: Int?
     }
@@ -96,7 +96,7 @@ struct PersonalAgentManagementView: View {
     private func profile(_ binding: PersonalSettings.Binding) -> some View {
         Section {
             HStack(spacing: 14) {
-                AssistantPortrait(personal: true, seed: binding.agent_id, selected: binding.avatar_variant, size: 62)
+                AvatarView(id: .personal(binding), size: 62)
                 VStack(alignment: .leading, spacing: 5) {
                     Label(L("助手名称", "Assistant name"), systemImage: "pencil").font(.caption).foregroundStyle(.secondary)
                     TextField(L("名称", "Name"), text: $name).font(.title3.bold()).submitLabel(.done)
