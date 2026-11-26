@@ -165,7 +165,7 @@ export class NanoApproval extends Service {
 
   /** Bind an external process to its dispatch evidence and attendance, even after the root goes idle. */
   bindWorker(agent: Agent, row: WorkerRecord, assignment: string, dispatchCallId: string,
-    ask: (callId: string, tool: string, summary: Record<string, unknown>, signal: AbortSignal, timeout: number) => Promise<{allow:boolean; reason:string}>,
+    ask: (callId: string, tool: string, summary: Record<string, unknown>, reason: string, signal: AbortSignal, timeout: number) => Promise<{allow:boolean; reason:string}>,
   ): NonNullable<CliWorkerOptions['onPermission']> {
     const config = this.config(agent);
     const policy = config?.approval;
@@ -204,7 +204,7 @@ export class NanoApproval extends Service {
       }
       signal.throwIfAborted();
       if (decision.kind === 'ask') {
-        if (interactive) return ask(callId, action.name, action.summary, signal, policy.askTimeoutSec);
+        if (interactive) return ask(callId, action.name, action.summary, decision.reason ?? 'Permission required', signal, policy.askTimeoutSec);
         const allow = policy.unattendedFallback === 'allow';
         await this.record(exec, 'unattended', allow ? 'allow' : 'deny', decision.reason ?? '', policy);
         return {allow, reason:`Unattended fallback: ${allow ? 'allowed once' : 'denied'}.`, report:true};
@@ -225,7 +225,10 @@ export class NanoApproval extends Service {
       if (exec.signal.aborted) return { kind: 'cancel' };
       const reason = `Automatic reviewer unavailable: ${String(error)}`;
       await this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, { reviewer, elapsedMs: Date.now() - started }, superseded);
-      return escalate(reason, source);
+      // Provider errors can contain the request body. Only the audit needs that diagnostic.
+      const cardReason = source === 'worker_evidence_changed' ? 'Root human evidence changed during worker review.'
+        : checkWorkerEvidence ? 'The automatic reviewer could not decide this Worker request.' : reason;
+      return escalate(cardReason, source);
     };
     let result: ApprovalReviewResult;
     try {

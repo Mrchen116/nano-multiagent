@@ -114,6 +114,7 @@ export function apply(ctx) {
       const card=cards.find(card=>card.sessionId===sessionId)!;
       expect(card.worker).toMatchObject({runtime:sessionId,label:'Inspect directory',workerId:expect.stringMatching(/^worker-/)});
       expect(card.reason).toContain('ls /review-target');
+      if (sessionId==='antigravity') expect(card.reason).toContain('Root human evidence changed');
       const decision=sessionId==='codex'?'allowed-once':'rejected';
       await runtime.request('approval.answer',{requestId:card.requestId,decision});
       await expect(runtime.request('approval.answer',{requestId:card.requestId,decision})).rejects.toThrow(/no longer pending/);

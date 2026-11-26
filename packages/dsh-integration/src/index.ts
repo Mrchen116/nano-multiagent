@@ -191,10 +191,10 @@ export default class NanoRuntime {
       if(!receipt.accepted)throw new Error('Parent did not accept the worker report');
     },id=>this.bindings.has(id),root=>this.peer.notify('session.work.changed',{sessionId:root,rootSessionId:root}),
     async (root, row, assignment, dispatchCallId) => (await approval).bindWorker(root, row, assignment, dispatchCallId,
-      async (callId, toolName, summary, signal, timeout) => {
+      async (callId, toolName, summary, escalation, signal, timeout) => {
         if (disabled(root.id) || !this.bindings.has(root.id)) return {allow:false, reason:'Worker root is unavailable.'};
         const worker = {workerId:row.workerId, label:row.label, runtime:row.runtime};
-        const reason = `${JSON.stringify(worker.label)} (${worker.runtime}, ${worker.workerId}) · ${toolName}\n${JSON.stringify(summary)}`;
+        const reason = `${JSON.stringify(worker.label)} (${worker.runtime}, ${worker.workerId}) · ${toolName}\n${JSON.stringify(summary)}\n${escalation}`;
         const result = await this.waitForApproval({sessionId:root.id, callId, toolName, worker, reason,
           toolInput:{arguments:summary}}, signal, timeout);
         return {allow:result.outcome === 'allowed-once', reason:result.reason || result.outcome};
