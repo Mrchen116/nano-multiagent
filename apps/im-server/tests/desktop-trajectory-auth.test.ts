@@ -121,3 +121,47 @@ it('validates workspace vs chat attachment sources against conversation membersh
   });
   expect(chatOwnerAllowed.json()).toEqual({ allowed: true });
 });
+
+it('authorizes workspace open for both global and single_thread owned Agents while blocking non-owners (403) and deleted Agents (410)', async () => {
+  const { app, ownerUser, ownerHeaders, strangerHeaders, strangerUser, now } = await setup();
+  app.im.db.prepare("UPDATE users SET membership_status='active' WHERE id=?").run(strangerUser.id);
+
+  // Insert a `single_thread` Agent owned by Alice (such as a single-thread Personal Agent / assistant).
+  app.im.db
+    .prepare(
+      "INSERT INTO agent_profiles(agent_id,owner_id,space_id,node_id,display_name,work_mode,is_stale,created_at,updated_at) VALUES('pa-single',?,?,'node-1','Single Thread PA','single_thread',0,?,?)",
+    )
+    .run(ownerUser.owner_id, `personal:${ownerUser.owner_id}`, now, now);
+
+  const singleThreadOwnerOk = await app.inject({
+    method: 'POST',
+    url: '/im/v1/agents/pa-single/workspace/authorize',
+    headers: ownerHeaders,
+    payload: {},
+  });
+  expect(singleThreadOwnerOk.statusCode).toBe(200);
+  expect(singleThreadOwnerOk.json()).toEqual({ authorized: true, owner_id: ownerUser.owner_id });
+
+  // Colleague in the same company cannot open Alice's local workspace even on shared `e1`!
+  const colleagueDenied = await app.inject({
+    method: 'POST',
+    url: '/im/v1/agents/e1/workspace/authorize',
+    headers: strangerHeaders,
+    payload: {},
+  });
+  expect(colleagueDenied.statusCode).toBe(403);
+
+  // Deleted Agent returns 410 GONE.
+  app.im.db
+    .prepare(
+      "INSERT INTO agent_deletions(agent_id,operation_id,request_id,owner_id,node_id,node_epoch,revision,profile_version,state) VALUES('pa-single','op-del-1','req-del-1',?,'node-1',5,1,1,'deleted')",
+    )
+    .run(ownerUser.owner_id);
+  const deletedGone = await app.inject({
+    method: 'POST',
+    url: '/im/v1/agents/pa-single/workspace/authorize',
+    headers: ownerHeaders,
+    payload: {},
+  });
+  expect(deletedGone.statusCode).toBe(410);
+});

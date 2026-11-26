@@ -72,7 +72,7 @@ fn forward_to_running_instance(
             .header("x-crewden-reload-token", &existing.reload_token)
             .json(&json!({
                 "url": cli.deep_link_url,
-                "route": "/chat",
+                "route": cli.initial_route.as_deref().unwrap_or("/chat"),
             }))
             .send()
             .await;
@@ -227,6 +227,7 @@ pub fn run_from_env() -> Result<(), String> {
     let shutdown_rx = running.take_shutdown_receiver();
 
     let start_in_background = cli.background;
+    let initial_open_route = cli.initial_route.clone();
     let coord_setup = coord.clone();
     let state_setup = host_state.clone();
     let dev_root_for_autostart = cli.dev_repo_root.clone();
@@ -246,7 +247,10 @@ pub fn run_from_env() -> Result<(), String> {
             }
 
             if !start_in_background {
-                let _ = coord_setup.ensure_main_window(&handle, Some("/chat"));
+                let _ = coord_setup.ensure_main_window(
+                    &handle,
+                    Some(initial_open_route.as_deref().unwrap_or("/chat")),
+                );
             }
 
             spawn_managed_node_supervisor(
@@ -294,6 +298,8 @@ pub fn run_from_env() -> Result<(), String> {
                     let _ = crate::host_server::apply_server_switch(&state_run, &new_origin);
                     coord_run.reload_webview(Some("/chat"));
                     let _ = coord_run.ensure_main_window(app_handle, Some("/chat"));
+                } else if let Ok(Some(route)) = crate::config::parse_deep_link_route(url.as_str()) {
+                    coord_run.activate_route(&route);
                 }
             }
         }

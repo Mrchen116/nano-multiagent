@@ -222,6 +222,25 @@ export class TrajectoryObservers {
     };
   }
 
+  /** Authorize a local workspace file open/reveal for any active local Agent (`global` or `single_thread`) owned by the caller. */
+  authorizeWorkspaceOpen(userId: string, agentId: string): { authorized: true; owner_id: string } {
+    const user = this.ctx.identity.user(userId);
+    rejectDeletedExecution(this.ctx, user ?? {}, agentId, 'agent', agentId);
+    const profile = one(this.ctx.db, 'SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0', agentId);
+    if (!profile || one(this.ctx.db, 'SELECT 1 FROM agent_deletions WHERE agent_id=?', agentId) || !agentAvailable(this.ctx.db, profile) || !canAccessSpace(user, profile.space_id)) {
+      fail(403, '无权访问该助手的工作区');
+    }
+    const personal = one(this.ctx.db, 'SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?', agentId);
+    if (personal && personal.owner_user_id !== userId) {
+      fail(403, '无权访问该助手的工作区');
+    }
+    const callerOwnerId = String(user?.owner_id ?? userId);
+    if (String(profile.owner_id) !== callerOwnerId) {
+      fail(403, '仅该电脑归属者可直接打开本机工作区文件');
+    }
+    return { authorized: true, owner_id: String(profile.owner_id) };
+  }
+
   /** Verify whether a viewer can read trajectory attachment sources originating from workspace or chat messages. */
   authorizeAttachmentSources(userId: string, agentId: string, sources: unknown): { allowed: boolean } {
     if (!Array.isArray(sources) || sources.length === 0) return { allowed: false };
@@ -284,6 +303,10 @@ export function registerTrajectorySockets(app: FastifyInstance, ctx: ImContext):
   app.post('/im/v1/agents/:agent_id/trajectory/authorize-attachment', (request) => {
     const user = ctx.identity.authenticateRequest(request);
     return ctx.gateway.trajectory.authorizeAttachmentSources(user.id, params(request).agent_id, body(request).sources);
+  });
+  app.post('/im/v1/agents/:agent_id/workspace/authorize', (request) => {
+    const user = ctx.identity.authenticateRequest(request);
+    return ctx.gateway.trajectory.authorizeWorkspaceOpen(user.id, params(request).agent_id);
   });
   app.get('/im/ws/agent-trajectory', { websocket: true }, (socket, request) => {
     const allowed = [new URL(ctx.publicUrl).origin, ...(process.env.IM_BROWSER_ORIGINS ?? '').split(',').map(value => value.trim())];

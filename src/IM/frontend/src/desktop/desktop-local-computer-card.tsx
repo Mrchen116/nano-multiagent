@@ -1,5 +1,5 @@
 import { DEFAULT_DESKTOP_NO_PROXY, type DesktopLocalInspectResponse, type DesktopWorkerProbeItem } from "@nano/product-contracts/desktop-local";
-import type { WorkerRuntime } from "@nano/product-contracts";
+import { workerRuntimes, type WorkerRuntime } from "@nano/product-contracts/worker-runtimes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -10,6 +10,7 @@ import { NodeUpdatePanel, nodeUpdateNeedsRecovery, nodeUpdateSwitching } from ".
 import { useTranslation } from "../i18n";
 import {
   controlDesktopLocalNode,
+  DesktopApiError,
   inspectDesktopLocalNode,
   probeDesktopWorkers,
   saveDesktopLocalNodeConfig,
@@ -17,6 +18,37 @@ import {
 import { isDesktopClient } from "./desktop-context";
 import { DesktopNodeOnboardingBanner } from "./desktop-node-onboarding-banner";
 import "./desktop.css";
+
+function localizeConfigSaveError(err: unknown, zh: boolean): string {
+  const code = err instanceof DesktopApiError ? err.code : undefined;
+  const raw = err instanceof Error ? err.message : "";
+  if (code === "invalid_proxy_scheme" || raw.includes("socks://")) {
+    return zh
+      ? "仅支持 http:// 或 https:// 代理地址，暂不支持 socks:// 协议；原配置已保留。"
+      : "Only http:// and https:// proxy URLs are supported (socks:// is not supported).";
+  }
+  if (code === "invalid_proxy_url" || raw.includes("Proxy URL")) {
+    return zh
+      ? "请填写合法的 http:// 或 https:// 代理地址（例如 http://127.0.0.1:7890）。"
+      : "Enter a valid http:// or https:// proxy address (for example http://127.0.0.1:7890).";
+  }
+  if (code === "unregistered_approval_model" || raw.includes("tool_approval_model is not registered")) {
+    return zh
+      ? "所选专用自动审批模型尚未在本机模型目录注册，请先选择已注册模型或恢复默认继承。"
+      : "The selected dedicated approval model is not registered on this computer.";
+  }
+  if (code === "invalid_env_var" || raw.includes("environment variable") || raw.includes("managed automatically")) {
+    return zh
+      ? "环境变量名称或取值格式不合法（请使用字母/下划线开头且不重复，代理变量请在上方代理区设置）。"
+      : "Invalid or duplicate environment variable name/value.";
+  }
+  if (code === "restart_rolled_back" || raw.includes("rolled back")) {
+    return zh
+      ? "新配置重启后未能正常就绪，已自动回退至原先可用的节点配置与运行状态。"
+      : "Restart failed under the new settings; automatically rolled back to the previous working configuration.";
+  }
+  return raw || (zh ? "保存配置失败，已保留原可用配置。" : "Failed to apply settings; previous configuration preserved.");
+}
 
 const WORKER_LABELS: Record<WorkerRuntime, { zh: string; en: string }> = {
   dsh: { zh: "内置 DSH 运行时（默认）", en: "Bundled DSH runtime (Default)" },
@@ -70,6 +102,7 @@ export function DesktopLocalComputerCard({
   const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>([]);
   const [dirty, setDirty] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [confirmBusyCount, setConfirmBusyCount] = useState<number | null>(null);
   const [liveWorkers, setLiveWorkers] = useState<DesktopWorkerProbeItem[] | null>(null);
 
   const [logQuery, setLogQuery] = useState("");
@@ -125,6 +158,7 @@ export function DesktopLocalComputerCard({
     mutationFn: saveDesktopLocalNodeConfig,
     onSuccess: async (next) => {
       setSaveError(null);
+      setConfirmBusyCount(null);
       client.setQueryData(["desktop", "local-node", userId], next);
       syncDraftFromInspect(next);
       await Promise.all([
@@ -133,11 +167,14 @@ export function DesktopLocalComputerCard({
       ]);
     },
     onError: (err) => {
-      setSaveError(
-        err instanceof Error
-          ? err.message
-          : text("保存配置失败，已自动回滚并保留原可用配置。", "Failed to apply settings; rolled back to previous working configuration."),
-      );
+      if (err instanceof DesktopApiError && (err.code === "active_tasks_running" || err.status === 409)) {
+        const match = err.message.match(/(\d+)/);
+        setConfirmBusyCount(match ? Math.max(1, Number(match[1])) : Math.max(1, inspect?.active_tasks ?? 1));
+        setSaveError(null);
+        return;
+      }
+      setConfirmBusyCount(null);
+      setSaveError(localizeConfigSaveError(err, zh));
     },
   });
 
@@ -362,7 +399,7 @@ export function DesktopLocalComputerCard({
             <h3>{text("一级委派 Worker 框架", "Delegated Worker runtime")}</h3>
             <p className="hint">{text("按合并后的运行 PATH 实时探测本机可执行状态。", "Probed against merged service PATH in real time.")}</p>
             <div className="local-worker-options" role="radiogroup" aria-label={text("本机一级委派 Worker 框架", "Delegated Worker runtime")}>
-              {(["dsh", "codex", "claude"] as WorkerRuntime[]).map((rt) => {
+              {workerRuntimes.map((rt) => {
                 const probe = workers.find((w) => w.runtime === rt);
                 const available = rt === "dsh" ? true : Boolean(probe?.available);
                 const detailText =
@@ -542,11 +579,19 @@ export function DesktopLocalComputerCard({
           </div>
 
           <div
-            className={`local-save-bar ${saveError ? "error" : dirty ? "warn" : ""}`}
-            role={saveError ? "alert" : undefined}
+            className={`local-save-bar ${saveError ? "error" : confirmBusyCount !== null || dirty ? "warn" : ""}`}
+            role={saveError || confirmBusyCount !== null ? "alert" : undefined}
           >
             <div style={{ fontSize: 13, flex: "1 1 220px", minWidth: 0 }}>
-              {saveError ? (
+              {confirmBusyCount !== null ? (
+                <>
+                  <strong>{text("存在运行中的本机任务：", "Active local tasks running: ")}</strong>
+                  {text(
+                    `当前有 ${confirmBusyCount} 项任务正在执行，立即重启将中断当前轮次。请确认立即重启，或等待任务完成后再保存。`,
+                    `${confirmBusyCount} task(s) are currently running on this computer. Confirm immediate restart or wait until they finish.`,
+                  )}
+                </>
+              ) : saveError ? (
                 <>
                   <strong>{text("配置未生效：", "Settings not applied: ")}</strong>
                   {saveError}
@@ -555,7 +600,12 @@ export function DesktopLocalComputerCard({
                 running ? (
                   <>
                     <strong>{text("待重启生效：", "Restart required: ")}</strong>
-                    {text("保存后将自动重启本机节点并验证恢复上线。", "Saving restarts the local node and verifies readiness.")}
+                    {(inspect.active_tasks ?? 0) > 0
+                      ? text(
+                          `当前有 ${inspect.active_tasks} 项本机任务正在执行；点击保存时会再次向你确认重启时机。`,
+                          `${inspect.active_tasks} task(s) currently running; you will be asked to confirm before restarting.`,
+                        )
+                      : text("保存后将自动重启本机节点并验证恢复上线。", "Saving restarts the local node and verifies readiness.")}
                   </>
                 ) : (
                   <>
@@ -570,42 +620,84 @@ export function DesktopLocalComputerCard({
               )}
             </div>
             <div className="desktop-action-row">
-              {(dirty || saveError) && (
-                <button
-                  type="button"
-                  className="desktop-btn compact"
-                  disabled={configMutation.isPending}
-                  onClick={() => {
-                    setSaveError(null);
-                    syncDraftFromInspect(inspect);
-                  }}
-                >
-                  {text("放弃修改", "Discard changes")}
-                </button>
+              {confirmBusyCount !== null ? (
+                <>
+                  <button
+                    type="button"
+                    className="desktop-btn compact"
+                    disabled={configMutation.isPending}
+                    onClick={() => setConfirmBusyCount(null)}
+                  >
+                    {text("等待任务完成", "Wait for tasks")}
+                  </button>
+                  <button
+                    type="button"
+                    className="desktop-btn primary compact"
+                    disabled={configMutation.isPending}
+                    onClick={() =>
+                      configMutation.mutate({
+                        worker_runtime: workerRuntime,
+                        proxy: {
+                          enabled: proxyEnabled,
+                          url: proxyUrl,
+                          no_proxy: noProxy,
+                        },
+                        tool_approval_model: effectiveApprovalModel,
+                        environment: envVars.filter((r) => r.key.trim() !== "" || r.value.trim() !== ""),
+                        confirm_restart: true,
+                      })
+                    }
+                  >
+                    {configMutation.isPending
+                      ? text("正在重启…", "Restarting…")
+                      : text("确认立即保存并重启", "Confirm restart now")}
+                  </button>
+                </>
+              ) : (
+                <>
+                  {(dirty || saveError) && (
+                    <button
+                      type="button"
+                      className="desktop-btn compact"
+                      disabled={configMutation.isPending}
+                      onClick={() => {
+                        setSaveError(null);
+                        setConfirmBusyCount(null);
+                        syncDraftFromInspect(inspect);
+                      }}
+                    >
+                      {text("放弃修改", "Discard changes")}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="desktop-btn primary compact"
+                    disabled={(!dirty && !saveError) || configMutation.isPending}
+                    onClick={() => {
+                      if (running && (inspect.active_tasks ?? 0) > 0) {
+                        setConfirmBusyCount(inspect.active_tasks ?? 1);
+                        return;
+                      }
+                      configMutation.mutate({
+                        worker_runtime: workerRuntime,
+                        proxy: {
+                          enabled: proxyEnabled,
+                          url: proxyUrl,
+                          no_proxy: noProxy,
+                        },
+                        tool_approval_model: effectiveApprovalModel,
+                        environment: envVars.filter((r) => r.key.trim() !== "" || r.value.trim() !== ""),
+                      });
+                    }}
+                  >
+                    {configMutation.isPending
+                      ? text("正在保存…", "Saving…")
+                      : running
+                        ? text("保存并重启本机节点", "Save and restart local node")
+                        : text("保存配置", "Save settings")}
+                  </button>
+                </>
               )}
-              <button
-                type="button"
-                className="desktop-btn primary compact"
-                disabled={(!dirty && !saveError) || configMutation.isPending}
-                onClick={() =>
-                  configMutation.mutate({
-                    worker_runtime: workerRuntime,
-                    proxy: {
-                      enabled: proxyEnabled,
-                      url: proxyUrl,
-                      no_proxy: noProxy,
-                    },
-                    tool_approval_model: effectiveApprovalModel,
-                    environment: envVars.filter((r) => r.key.trim() !== "" || r.value.trim() !== ""),
-                  })
-                }
-              >
-                {configMutation.isPending
-                  ? text("正在保存…", "Saving…")
-                  : running
-                    ? text("保存并重启本机节点", "Save and restart local node")
-                    : text("保存配置", "Save settings")}
-              </button>
             </div>
           </div>
         </div>

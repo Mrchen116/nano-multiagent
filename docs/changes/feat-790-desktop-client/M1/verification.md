@@ -11,9 +11,9 @@
 
 | 产物 | 版本 | 字节大小 | SHA-256 | 说明 |
 |---|---|---:|---|---|
-| `Crewden-Desktop-arm64.dmg` | `1.0.0` | `89,092,913 B` (`84.97 MiB`) | `ab0fee07ec1c888bcf509349f156772a0cb4ed5c1a9501fb7c56ebdb81630123` | 含签名 `Crewden.app` + `seed-archives/` |
+| `Crewden-Desktop-arm64.dmg` | `1.0.0` | `89,454,934 B` (`85.31 MiB`) | `8d6be4b7b73ad9c3cfdd2ba9517b91a2c794ed7d5aae232ab86a9750b9dfe67f` | 含签名 `Crewden.app`（极简双色 `CrewdenMark` 图标 + 全透明圆角悬浮通知窗）+ `seed-archives/` |
 | `desktop-runtime-darwin-arm64.tar.gz` | `1.0.0` & `1.0.1` | `74,168,772 B` (`70.73 MiB`) | `b6ff31228477689b0ea007b0bf6ee9ac2dc5146a58d966602886ee7aa3b52947` | 内置 nodejs.org 官方 `SHASUMS256.txt` 校验的 `node-v24.22.1-darwin-arm64` + 锁定 DSH 依赖 + `pnpm@11.7.0`；跨小版本确定性构建 SHA-256 完全一致 |
-| `desktop-app-darwin-arm64.tar.gz` | `1.0.0` | `7,110,493 B` (`6.78 MiB`) | `0d78500f436e704b18a0390a11947fe57e5fa4fb4613723e7565de7b03ad1a9d` | 节点应用代码 + `ui/frontend` + `ui/trajectory` |
+| `desktop-app-darwin-arm64.tar.gz` | `1.0.0` | `7,113,829 B` (`6.78 MiB`) | `44d8354ee0fbd7343489b73a9fd97edbe4fe5656386f90664d67b6aeeb327eab` | 节点应用代码 + `ui/frontend` + `ui/trajectory` |
 | `desktop-app-darwin-arm64.tar.gz` | `1.0.1` | `7,110,513 B` (`6.78 MiB`) | `8abdd409ffa927076d92df2230d5f1803528061981a5e13827cf298e0dc3d510` | 纯应用/前端更新候选包 |
 
 - **受管热更新字节账单（`1.0.0 -> 1.0.1`）**：
@@ -43,3 +43,6 @@
 - `npm --prefix src/IM/frontend test -- --run` & `npm --prefix src/IM/frontend run build`（含 `src/IM/frontend/src/desktop/desktop-client.test.tsx` 等全部前端套件）
 - `pytest -m "not e2e"`（含 `tests/contract/test_runtime_dependency_contract.py` 跨包依赖红线契约）
 - `cargo test --manifest-path apps/desktop/Cargo.toml`（覆盖深链协议安全解析、`/im/ws/user` 四类通知分类与免打扰/焦点抑制、能力 Cookie/Origin 门卫、JTI 串行轮换锁、上游 `503` 保态与静态 UI 热切换）
+- **Stage 4 审查闭环与交互打磨复验**：
+  - 极简双色 `CrewdenMark` 图标与全透明无外框 `22px` 圆角屏幕右上角悬浮通知（实测 `NSWindow` 四角像素 `alpha = 0`，`popup_count >= 1`，`bundleIdentifier = "work.crewden.desktop"`，无 `com.apple.Finder` swizzle），以及 `--background` 未读角标恢复与 `crewden-desktop://open?route=%2Fsettings%2Fagents%2Fdaily-engineering%3Fview%3Dwork` 深链唤醒路由。
+  - `single_thread` 个人助手工作区打开鉴权（owner `200` / 异账号 `403`）、本机轨迹附件默认拒绝（`attachment_forbidden`）、展开态 `NativeToolDetail` 工具卡片文件动作按钮（`m1-desktop-work-paths-1280.png`）、完整 4 类一级 Worker 配置（`antigravity` 实时保存生效 `m1-desktop-nodes-expanded-1280.png`）、DSH `session.status = running` 实时在途任务二次确认（`m1-desktop-nodes-busy-confirm-1280.png`）与 `390px` 中文校验错误及 `456px` 抽屉自适应（`m1-desktop-nodes-error-390.png`、`m1-web-nodes-drawer-1280.png`）。

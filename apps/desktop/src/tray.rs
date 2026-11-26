@@ -2,18 +2,36 @@ use crate::autostart::{get_desktop_login_autostart, set_desktop_login_autostart}
 use crate::config::DesktopPaths;
 use crate::host_server::HostSharedState;
 use crate::local_node::{resolve_active_bundle, run_local_admin_sync};
-use crate::notifications::{DesktopUiBridge, WindowAttentionState};
+use crate::notifications::{DesktopNotificationRecord, DesktopUiBridge, WindowAttentionState};
 use serde_json::json;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
+use tauri::{
+    AppHandle, LogicalPosition, Manager, PhysicalPosition, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
+};
 
 const MAIN_WINDOW_LABEL: &str = "main";
+const POPUP_WINDOW_LABEL: &str = "notification-popup";
+const POPUP_WIDTH: f64 = 388.0;
+const POPUP_HEIGHT: f64 = 124.0;
 const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
+
+#[derive(Clone)]
+struct TrayMenuItems {
+    open_main: MenuItem<tauri::Wry>,
+    open_nodes: MenuItem<tauri::Wry>,
+    start_node: MenuItem<tauri::Wry>,
+    restart_node: MenuItem<tauri::Wry>,
+    stop_node: MenuItem<tauri::Wry>,
+    autostart: CheckMenuItem<tauri::Wry>,
+    quit: MenuItem<tauri::Wry>,
+}
 
 pub struct TauriUiCoordinator {
     app_handle: Mutex<Option<AppHandle>>,
@@ -22,8 +40,13 @@ pub struct TauriUiCoordinator {
     pending_route: Mutex<Option<String>>,
     pub explicit_quit: AtomicBool,
     tray_unread: Mutex<u64>,
+    locale: Mutex<String>,
+    tray_icon: Mutex<Option<TrayIcon>>,
     status_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     autostart_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
+    menu_items: Mutex<Option<TrayMenuItems>>,
+    popup_seq: AtomicU64,
+    popup_shown_count: AtomicU64,
 }
 
 impl Default for TauriUiCoordinator {
@@ -38,9 +61,39 @@ impl Default for TauriUiCoordinator {
             pending_route: Mutex::new(None),
             explicit_quit: AtomicBool::new(false),
             tray_unread: Mutex::new(0),
+            locale: Mutex::new("zh".to_string()),
+            tray_icon: Mutex::new(None),
             status_item: Mutex::new(None),
             autostart_item: Mutex::new(None),
+            menu_items: Mutex::new(None),
+            popup_seq: AtomicU64::new(0),
+            popup_shown_count: AtomicU64::new(0),
         }
+    }
+}
+
+fn format_status_label(zh: bool, total_unread: u64) -> String {
+    if zh {
+        if total_unread > 0 {
+            format!("Crewden 常驻在线（{} 条未读）", total_unread)
+        } else {
+            "Crewden 常驻在线".to_string()
+        }
+    } else if total_unread > 0 {
+        format!("Crewden Online ({} unread)", total_unread)
+    } else {
+        "Crewden Online".to_string()
+    }
+}
+
+fn format_tray_tooltip(zh: bool, total_unread: u64) -> String {
+    if total_unread == 0 {
+        return "Crewden Desktop".to_string();
+    }
+    if zh {
+        format!("Crewden Desktop（{} 条未读）", total_unread)
+    } else {
+        format!("Crewden Desktop ({} unread)", total_unread)
     }
 }
 
@@ -111,6 +164,14 @@ impl TauriUiCoordinator {
             .build()
             .ok()?;
 
+        // Apply any unread count accumulated while running silently in `--background` mode.
+        let current_unread = *self.tray_unread.lock().unwrap();
+        let _ = win.set_badge_count(if current_unread > 0 {
+            Some(current_unread as i64)
+        } else {
+            None
+        });
+
         let coord_clone = app.state::<Arc<TauriUiCoordinator>>().inner().clone();
         win.on_window_event(move |event| match event {
             WindowEvent::CloseRequested { api, .. } => {
@@ -156,11 +217,13 @@ impl DesktopUiBridge for TauriUiCoordinator {
 
     fn update_unread_badge(&self, total_unread: u64) {
         *self.tray_unread.lock().unwrap() = total_unread;
+        let zh = self.locale.lock().unwrap().starts_with("zh");
         let Some(app) = self.app_handle.lock().unwrap().clone() else {
             return;
         };
         let app_clone = app.clone();
         let status_item = self.status_item.lock().unwrap().clone();
+        let tray_icon = self.tray_icon.lock().unwrap().clone();
         let _ = app.run_on_main_thread(move || {
             if let Some(win) = app_clone.get_webview_window(MAIN_WINDOW_LABEL) {
                 let badge = if total_unread > 0 {
@@ -171,17 +234,50 @@ impl DesktopUiBridge for TauriUiCoordinator {
                 let _ = win.set_badge_count(badge);
             }
             if let Some(item) = status_item {
-                let label = if total_unread > 0 {
-                    format!("Crewden 常驻在线（{} 条未读）", total_unread)
-                } else {
-                    "Crewden 常驻在线".to_string()
-                };
-                let _ = item.set_text(label);
+                let _ = item.set_text(format_status_label(zh, total_unread));
+            }
+            if let Some(tray) = tray_icon {
+                let _ = tray.set_tooltip(Some(format_tray_tooltip(zh, total_unread)));
+            }
+        });
+    }
+
+    fn set_locale(&self, locale: &str) {
+        let normalized = if locale.trim().to_ascii_lowercase().starts_with("en") {
+            "en".to_string()
+        } else {
+            "zh".to_string()
+        };
+        *self.locale.lock().unwrap() = normalized.clone();
+        let zh = normalized == "zh";
+        let total_unread = *self.tray_unread.lock().unwrap();
+        let Some(app) = self.app_handle.lock().unwrap().clone() else {
+            return;
+        };
+        let status_item = self.status_item.lock().unwrap().clone();
+        let tray_icon = self.tray_icon.lock().unwrap().clone();
+        let items = self.menu_items.lock().unwrap().clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(status) = status_item {
+                let _ = status.set_text(format_status_label(zh, total_unread));
+            }
+            if let Some(tray) = tray_icon {
+                let _ = tray.set_tooltip(Some(format_tray_tooltip(zh, total_unread)));
+            }
+            if let Some(m) = items {
+                let _ = m.open_main.set_text(if zh { "打开主窗口" } else { "Open Crewden" });
+                let _ = m.open_nodes.set_text(if zh { "电脑与运行设置…" } else { "Computers & local settings…" });
+                let _ = m.start_node.set_text(if zh { "启动本机后台节点" } else { "Start local node" });
+                let _ = m.restart_node.set_text(if zh { "重启本机后台节点" } else { "Restart local node" });
+                let _ = m.stop_node.set_text(if zh { "停止本机后台节点" } else { "Stop local node" });
+                let _ = m.autostart.set_text(if zh { "开机登录自启" } else { "Start at login" });
+                let _ = m.quit.set_text(if zh { "退出 Crewden" } else { "Quit Crewden" });
             }
         });
     }
 
     fn activate_route(&self, target_route: &str) {
+        self.dismiss_notification_popup();
         if target_route.starts_with('/') {
             *self.pending_route.lock().unwrap() = Some(target_route.to_string());
             self.set_current_route(target_route.to_string());
@@ -195,6 +291,148 @@ impl DesktopUiBridge for TauriUiCoordinator {
         let _ = app.run_on_main_thread(move || {
             let _ = coord.ensure_main_window(&app_clone, Some(&route));
         });
+    }
+
+    fn present_notification_popup(&self, item: &DesktopNotificationRecord) {
+        let seq = self.popup_seq.fetch_add(1, Ordering::SeqCst) + 1;
+        self.popup_shown_count.fetch_add(1, Ordering::SeqCst);
+        let Some(app) = self.app_handle.lock().unwrap().clone() else {
+            return;
+        };
+        let Some((port, nonce)) = (*self.bootstrap_base.lock().unwrap()).clone() else {
+            return;
+        };
+        let record = item.clone();
+        let app_for_show = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let mut popup_url =
+                match url::Url::parse(&format!("http://127.0.0.1:{}/desktop/internal/popup-banner", port)) {
+                    Ok(u) => u,
+                    Err(_) => return,
+                };
+            popup_url
+                .query_pairs_mut()
+                .append_pair("nonce", &nonce)
+                .append_pair("title", &record.title)
+                .append_pair("body", &record.body)
+                .append_pair("kind", &record.kind)
+                .append_pair("route", &record.target_route);
+
+            let win = if let Some(existing) = app_for_show.get_webview_window(POPUP_WINDOW_LABEL) {
+                let payload = json!({
+                    "title": record.title,
+                    "body": record.body,
+                    "kind": record.kind,
+                    "route": record.target_route,
+                });
+                let _ = existing.eval(&format!(
+                    "if (window.__updateCrewdenPopup) {{ window.__updateCrewdenPopup({}); }} else {{ window.location.replace({}); }}",
+                    payload,
+                    serde_json::to_string(popup_url.as_str()).unwrap_or_default()
+                ));
+                existing
+            } else {
+                let Ok(created) = WebviewWindowBuilder::new(
+                    &app_for_show,
+                    POPUP_WINDOW_LABEL,
+                    WebviewUrl::External(popup_url),
+                )
+                .title("Crewden Notification")
+                .inner_size(POPUP_WIDTH, POPUP_HEIGHT)
+                .decorations(false)
+                .transparent(true)
+                .shadow(false)
+                .background_color(tauri::window::Color(0, 0, 0, 0))
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .resizable(false)
+                .focused(false)
+                .visible(false)
+                .build() else {
+                    return;
+                };
+                created
+            };
+
+            // Position at top-right on macOS or bottom-right above taskbar on Windows!
+            // Note: body has 8px top, 14px horizontal, and 20px bottom transparent shadow gutter.
+            if let Ok(Some(mon)) = app_for_show.primary_monitor() {
+                let scale = mon.scale_factor();
+                let area = mon.work_area();
+                let w_phys = (POPUP_WIDTH * scale).round() as i32;
+                let h_phys = (POPUP_HEIGHT * scale).round() as i32;
+                let margin_x = (4.0 * scale).round() as i32;
+                let margin_y = (6.0 * scale).round() as i32;
+                let x = area.position.x + area.size.width as i32 - w_phys - margin_x;
+                let y = if cfg!(target_os = "windows") {
+                    area.position.y + area.size.height as i32 - h_phys - margin_y
+                } else {
+                    area.position.y + margin_y
+                };
+                let _ = win.set_position(PhysicalPosition::new(x, y));
+            } else {
+                let _ = win.set_position(LogicalPosition::new(960.0, 24.0));
+            }
+
+            #[cfg(target_os = "macos")]
+            {
+                if let Ok(ns_win_ptr) = win.ns_window() {
+                    unsafe {
+                        let ns_win = ns_win_ptr as *mut objc2::runtime::AnyObject;
+                        if !ns_win.is_null() {
+                            if let Some(ns_color_cls) = objc2::runtime::AnyClass::get(c"NSColor") {
+                                let clear: *mut objc2::runtime::AnyObject =
+                                    objc2::msg_send![ns_color_cls, clearColor];
+                                let _: () = objc2::msg_send![ns_win, setBackgroundColor: clear];
+                            }
+                            let _: () = objc2::msg_send![ns_win, setOpaque: false];
+                            let _: () = objc2::msg_send![ns_win, setHasShadow: false];
+                            // NSStatusWindowLevel = 25; CanJoinAllSpaces | IgnoresCycle | FullScreenAuxiliary
+                            let level: isize = 25;
+                            let behavior: usize = (1 << 0) | (1 << 6) | (1 << 8);
+                            let _: () = objc2::msg_send![ns_win, setLevel: level];
+                            let _: () = objc2::msg_send![ns_win, setCollectionBehavior: behavior];
+                            let _: () = objc2::msg_send![ns_win, setHidesOnDeactivate: false];
+                            let _: () = objc2::msg_send![ns_win, orderFrontRegardless];
+                        }
+                    }
+                } else {
+                    let _ = win.show();
+                }
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                let _ = win.show();
+            }
+        });
+
+        let app_for_timer = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(5500));
+            let Some(coord) = app_for_timer.try_state::<Arc<TauriUiCoordinator>>() else {
+                return;
+            };
+            if coord.popup_seq.load(Ordering::SeqCst) == seq {
+                coord.dismiss_notification_popup();
+            }
+        });
+    }
+
+    fn dismiss_notification_popup(&self) {
+        let Some(app) = self.app_handle.lock().unwrap().clone() else {
+            return;
+        };
+        let app_clone = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(win) = app_clone.get_webview_window(POPUP_WINDOW_LABEL) {
+                let _ = win.hide();
+            }
+        });
+    }
+
+    fn popup_count(&self) -> u64 {
+        self.popup_shown_count.load(Ordering::SeqCst)
     }
 
     fn reload_webview(&self, target_route: Option<&str>) {
@@ -252,6 +490,15 @@ pub fn install_system_tray(
 
     *coord.status_item.lock().unwrap() = Some(status.clone());
     *coord.autostart_item.lock().unwrap() = Some(autostart.clone());
+    *coord.menu_items.lock().unwrap() = Some(TrayMenuItems {
+        open_main: open_main.clone(),
+        open_nodes: open_nodes.clone(),
+        start_node: start_node.clone(),
+        restart_node: restart_node.clone(),
+        stop_node: stop_node.clone(),
+        autostart: autostart.clone(),
+        quit: quit.clone(),
+    });
 
     let menu = Menu::with_items(
         app,
@@ -275,8 +522,9 @@ pub fn install_system_tray(
     let coord_for_click = coord.clone();
     let state_for_menu = host_state.clone();
 
-    TrayIconBuilder::with_id("crewden-tray")
+    let built_tray = TrayIconBuilder::with_id("crewden-tray")
         .icon(icon)
+        .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("Crewden Desktop")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -357,6 +605,7 @@ pub fn install_system_tray(
         .build(app)
         .map_err(|e| e.to_string())?;
 
+    *coord.tray_icon.lock().unwrap() = Some(built_tray);
     Ok(())
 }
 

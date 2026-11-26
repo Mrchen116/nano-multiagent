@@ -59,8 +59,8 @@ export class NodeConfiguration {
   /** Validate node-scoped runtime and approval settings even when the node has zero Agents. */
   validateNodeSettings(candidate: NodeConfigurationFile = this.value): void {
     const runtime = candidate.gateway?.worker_runtime;
-    if (runtime !== undefined && !['dsh', 'codex', 'claude'].includes(runtime)) {
-      throw new Error('gateway.worker_runtime must be dsh, codex, or claude');
+    if (runtime !== undefined && !(workerRuntimes as readonly string[]).includes(runtime)) {
+      throw new Error('gateway.worker_runtime must be dsh, codex, claude, or antigravity');
     }
     if (candidate.llm.tool_approval_model) {
       const reviewer = candidate.llm.providers.find(provider =>

@@ -50,7 +50,7 @@ export function DesktopDualInstallPicker({
       : text("下载 Crewden Desktop (Windows x64)", "Download Crewden Desktop (Windows x64)");
 
   return (
-    <div data-testid="desktop-dual-install-picker">
+    <div className="desktop-picker-root" data-testid="desktop-dual-install-picker">
       <div className="desktop-os-segmented" role="group" aria-label={text("选择电脑系统", "Choose computer OS")}>
         <button
           type="button"
@@ -176,7 +176,7 @@ export function DesktopDualInstallPicker({
             <p>
               {os === "macos"
                 ? text(
-                    "适用于 Apple Silicon (M 系列) Mac；旧款 Intel Mac 请选择右侧「仅装轻量后台节点」。无需安装 Node.js 或打开终端，打开后自动准备运行环境并开启登录自启。",
+                    "适用于 Apple Silicon (M 系列) Mac；Intel 芯片 Mac 请选择「仅装轻量后台节点」。无需安装 Node.js 或打开终端，打开后自动准备运行环境并开启登录自启。",
                     "For Apple Silicon (M-series) Macs; for Intel Macs choose 'Lightweight background node only'. Zero terminal or Node.js setup required, with automatic login autostart.",
                   )
                 : text(

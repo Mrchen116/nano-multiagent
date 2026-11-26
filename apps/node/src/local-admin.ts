@@ -202,6 +202,7 @@ export async function inspectLocalNode(input: {
   const desktopManaged = existsSync(desktopActiveFilePath(configPath));
   const rawState = await gatewayState(configPath);
   const live = Boolean(rawState && (await processBirth(rawState.pid)) === rawState.process_start);
+  const activeTasks = live ? await pingBridgeActiveTasks(configPath) : 0;
   const { proxy, userEnvironment } = extractDesktopProxySettings(value.gateway?.environment);
   const workers = await probeDesktopWorkers(value.gateway?.environment?.PATH);
   const logs = await readLogTail(configPath, input.logQuery);
@@ -220,6 +221,7 @@ export async function inspectLocalNode(input: {
     running: live,
     ready: live ? Boolean(rawState?.ready) : false,
     connected: live ? Boolean(rawState?.connected) : false,
+    active_tasks: activeTasks,
     ...(live && rawState ? { pid: rawState.pid, ...(rawState.runtime_pid ? { runtime_pid: rawState.runtime_pid } : {}) } : {}),
     version: rawState?.release?.version ?? 'source',
     autostart: value.gateway?.autostart !== false,
@@ -361,18 +363,32 @@ export async function controlLocalNodeLifecycle(input: {
     }
   }
 
-  config.validateNodeSettings();
-  for (const agent of config.value.agents) config.runtime(agent);
+  if (input.action !== 'stop') {
+    config.validateNodeSettings();
+    for (const agent of config.value.agents) config.runtime(agent);
+  }
   applyGatewayEnvironment(config.value);
   await manageGateway(config.path, config.value, input.action);
   const rawState = await gatewayState(config.path);
   const running = Boolean(rawState && (await processBirth(rawState.pid)) === rawState.process_start);
+  const activeTasks = running ? await pingBridgeActiveTasks(config.path) : 0;
   return {
     ok: true,
     autostart: config.value.gateway?.autostart !== false,
     running,
-    active_tasks: 0,
+    active_tasks: activeTasks,
   };
+}
+
+function classifyConfigValidationCode(message: string): string {
+  if (message.includes('socks://')) return 'invalid_proxy_scheme';
+  if (message.includes('Proxy URL')) return 'invalid_proxy_url';
+  if (message.includes('tool_approval_model')) return 'unregistered_approval_model';
+  if (message.includes('worker_runtime')) return 'invalid_worker_runtime';
+  if (message.includes('environment variable') || message.includes('NO_PROXY') || message.includes('managed automatically')) {
+    return 'invalid_env_var';
+  }
+  return 'invalid_config';
 }
 
 /** Atomically validate, persist, and apply local node configuration with automatic rollback on failed restart. */
@@ -400,7 +416,8 @@ export async function updateLocalNodeConfig(input: {
       input.update.environment,
     );
   } catch (error) {
-    throw new LocalAdminHttpError(422, 'invalid_config', error instanceof Error ? error.message : String(error));
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new LocalAdminHttpError(422, classifyConfigValidationCode(msg), msg);
   }
 
   const nextLlm = { ...config.value.llm };
@@ -422,13 +439,32 @@ export async function updateLocalNodeConfig(input: {
 
   try {
     config.validateNodeSettings(nextValue);
-    await config.persistNodeSettings(nextValue);
   } catch (error) {
-    throw new LocalAdminHttpError(422, 'invalid_config', error instanceof Error ? error.message : String(error));
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new LocalAdminHttpError(422, classifyConfigValidationCode(msg), msg);
   }
 
   const beforeState = await gatewayState(config.path);
   const wasRunning = Boolean(beforeState && (await processBirth(beforeState.pid)) === beforeState.process_start);
+  if (wasRunning && !input.update.confirm_restart) {
+    const activeTasks = await pingBridgeActiveTasks(config.path);
+    if (activeTasks > 0) {
+      throw new LocalAdminHttpError(
+        409,
+        'active_tasks_running',
+        `There are ${activeTasks} active task(s) running on this computer; confirm restart before applying`,
+        { active_tasks: activeTasks },
+      );
+    }
+  }
+
+  try {
+    await config.persistNodeSettings(nextValue);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new LocalAdminHttpError(422, classifyConfigValidationCode(msg), msg);
+  }
+
   if (!wasRunning) {
     return { ok: true, restarted: false, running: false };
   }

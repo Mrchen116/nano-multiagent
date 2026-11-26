@@ -33,6 +33,12 @@ pub trait DesktopUiBridge: Send + Sync {
     fn update_unread_badge(&self, total_unread: u64);
     fn activate_route(&self, target_route: &str);
     fn reload_webview(&self, target_route: Option<&str>);
+    fn set_locale(&self, _locale: &str) {}
+    fn present_notification_popup(&self, _item: &DesktopNotificationRecord) {}
+    fn dismiss_notification_popup(&self) {}
+    fn popup_count(&self) -> u64 {
+        0
+    }
 }
 
 #[derive(Default)]
@@ -41,6 +47,7 @@ pub struct NoopUiBridge {
     pub activated_routes: Mutex<Vec<String>>,
     pub attention: RwLock<WindowAttentionState>,
     pub pending_route: Mutex<Option<String>>,
+    pub popped_count: Mutex<u64>,
 }
 
 impl DesktopUiBridge for NoopUiBridge {
@@ -73,6 +80,14 @@ impl DesktopUiBridge for NoopUiBridge {
     }
 
     fn reload_webview(&self, _target_route: Option<&str>) {}
+
+    fn present_notification_popup(&self, _item: &DesktopNotificationRecord) {
+        *self.popped_count.lock().unwrap() += 1;
+    }
+
+    fn popup_count(&self) -> u64 {
+        *self.popped_count.lock().unwrap()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -341,6 +356,29 @@ pub fn classify_user_stream_event_with_senders(
     pending_agent_senders: &HashMap<String, String>,
     attention: &WindowAttentionState,
 ) -> Option<DesktopNotificationRecord> {
+    classify_user_stream_event_localized(
+        event_type,
+        payload,
+        self_user_id,
+        muted_conversations,
+        conv_titles,
+        pending_agent_senders,
+        attention,
+        "zh",
+    )
+}
+
+pub fn classify_user_stream_event_localized(
+    event_type: &str,
+    payload: &Value,
+    self_user_id: &str,
+    muted_conversations: &HashMap<String, bool>,
+    conv_titles: &HashMap<String, String>,
+    pending_agent_senders: &HashMap<String, String>,
+    attention: &WindowAttentionState,
+    locale: &str,
+) -> Option<DesktopNotificationRecord> {
+    let en = locale.trim().to_ascii_lowercase().starts_with("en");
     match event_type {
         "message.completed" => {
             if payload["delivery_status"].as_str() == Some("failed") {
@@ -368,16 +406,20 @@ pub fn classify_user_stream_event_with_senders(
                 .or_else(|| non_empty_str(&payload["sender_name"]))
                 .or_else(|| pending_agent_senders.get(msg_id).map(String::as_str))
                 .or_else(|| conv_titles.get(cid).map(String::as_str))
-                .unwrap_or("助手");
-            let preview =
-                strip_mention_xml(payload["content"].as_str().unwrap_or("已完成本轮回复"));
+                .unwrap_or(if en { "Assistant" } else { "助手" });
+            let fallback_done = if en { "Reply completed" } else { "已完成本轮回复" };
+            let preview = strip_mention_xml(payload["content"].as_str().unwrap_or(fallback_done));
             let body: String = preview.chars().take(90).collect();
             Some(DesktopNotificationRecord {
                 id: format!("notif-{}", random_hex_token(8)),
                 kind: "message_completed".to_string(),
-                title: format!("{} · 回复完成", sender),
+                title: if en {
+                    format!("{} · Reply ready", sender)
+                } else {
+                    format!("{} · 回复完成", sender)
+                },
                 body: if body.is_empty() {
-                    "已完成本轮回复".to_string()
+                    fallback_done.to_string()
                 } else {
                     body
                 },
@@ -412,7 +454,7 @@ pub fn classify_user_stream_event_with_senders(
                 .or_else(|| non_empty_str(&payload["sender"]["display_name"]))
                 .or_else(|| non_empty_str(&payload["sender_name"]))
                 .or_else(|| conv_titles.get(cid).map(String::as_str))
-                .unwrap_or("新消息");
+                .unwrap_or(if en { "New message" } else { "新消息" });
             let clean = strip_mention_xml(content);
             let body: String = clean.chars().take(90).collect();
             Some(DesktopNotificationRecord {
@@ -423,12 +465,20 @@ pub fn classify_user_stream_event_with_senders(
                     "human_message".to_string()
                 },
                 title: if is_mention {
-                    format!("{} 在会话中 @提及了你", sender_name)
+                    if en {
+                        format!("{} mentioned you", sender_name)
+                    } else {
+                        format!("{} 在会话中 @提及了你", sender_name)
+                    }
                 } else {
                     sender_name.to_string()
                 },
                 body: if body.is_empty() {
-                    "发来一条新消息".to_string()
+                    if en {
+                        "Sent a new message".to_string()
+                    } else {
+                        "发来一条新消息".to_string()
+                    }
                 } else {
                     body
                 },
@@ -449,7 +499,7 @@ pub fn classify_user_stream_event_with_senders(
                 .as_str()
                 .or_else(|| req_obj["conversation_id"].as_str())
                 .unwrap_or("");
-            if cid.is_empty() {
+            if cid.is_empty() || muted_conversations.get(cid).copied().unwrap_or(false) {
                 return None;
             }
             let target_route = format!("/chat/{}", cid);
@@ -460,12 +510,20 @@ pub fn classify_user_stream_event_with_senders(
                 .or_else(|| non_empty_str(&req_obj["tool"]))
                 .or_else(|| non_empty_str(&payload["tool_name"]))
                 .or_else(|| non_empty_str(&payload["tool"]))
-                .unwrap_or("工具执行");
+                .unwrap_or(if en { "tool action" } else { "工具执行" });
             Some(DesktopNotificationRecord {
                 id: format!("notif-{}", random_hex_token(8)),
                 kind: "chat_permission".to_string(),
-                title: "工具权限待确认".to_string(),
-                body: format!("会话请求授权执行 {}", tool),
+                title: if en {
+                    "Tool approval requested".to_string()
+                } else {
+                    "工具权限待确认".to_string()
+                },
+                body: if en {
+                    format!("Conversation requested approval for {}", tool)
+                } else {
+                    format!("会话请求授权执行 {}", tool)
+                },
                 target_route,
                 created_at: now_epoch_secs(),
             })
@@ -497,8 +555,16 @@ pub fn classify_user_stream_event_with_senders(
             Some(DesktopNotificationRecord {
                 id: format!("notif-{}", random_hex_token(8)),
                 kind: "work_permission".to_string(),
-                title: format!("{} · 等待工具授权", agent_name),
-                body: "点击打开助手 Work 视图处理待决权限请求".to_string(),
+                title: if en {
+                    format!("{} · Tool approval needed", agent_name)
+                } else {
+                    format!("{} · 等待工具授权", agent_name)
+                },
+                body: if en {
+                    "Click to open Agent Work and review the pending permission".to_string()
+                } else {
+                    "点击打开助手 Work 视图处理待决权限请求".to_string()
+                },
                 target_route,
                 created_at: now_epoch_secs(),
             })
@@ -507,45 +573,229 @@ pub fn classify_user_stream_event_with_senders(
     }
 }
 
-fn deliver_os_notification(item: &DesktopNotificationRecord, ui: Arc<dyn DesktopUiBridge>) {
+#[cfg(target_os = "macos")]
+mod macos_notify {
+    #![allow(deprecated)]
+    use super::DesktopUiBridge;
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyObject, ProtocolObject};
+    use objc2::{define_class, msg_send, ClassType};
+    use objc2_foundation::{
+        NSBundle, NSDictionary, NSObject, NSObjectProtocol, NSString, NSUserNotification,
+        NSUserNotificationCenter, NSUserNotificationCenterDelegate,
+    };
+    use std::sync::{Arc, OnceLock, RwLock};
+
+    static MAC_UI_BRIDGE: OnceLock<RwLock<Arc<dyn DesktopUiBridge>>> = OnceLock::new();
+    static MAC_DELEGATE_INIT: OnceLock<()> = OnceLock::new();
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[name = "CrewdenDesktopNotificationDelegate"]
+        struct CrewdenNotificationDelegate;
+
+        unsafe impl NSObjectProtocol for CrewdenNotificationDelegate {}
+
+        unsafe impl NSUserNotificationCenterDelegate for CrewdenNotificationDelegate {
+            #[unsafe(method(userNotificationCenter:didActivateNotification:))]
+            fn did_activate(
+                &self,
+                center: &NSUserNotificationCenter,
+                notification: &NSUserNotification,
+            ) {
+                if let Some(info) = notification.userInfo() {
+                    let key = NSString::from_str("route");
+                    if let Some(val_obj) = info.objectForKey(&key) {
+                        if let Some(ns_str) = val_obj.downcast_ref::<NSString>() {
+                            let route = ns_str.to_string();
+                            if route.starts_with('/') {
+                                if let Some(lock) = MAC_UI_BRIDGE.get() {
+                                    let ui = lock.read().unwrap().clone();
+                                    ui.activate_route(&route);
+                                }
+                            }
+                        }
+                    }
+                }
+                center.removeDeliveredNotification(notification);
+            }
+
+            #[unsafe(method(userNotificationCenter:shouldPresentNotification:))]
+            fn should_present(
+                &self,
+                _center: &NSUserNotificationCenter,
+                _notification: &NSUserNotification,
+            ) -> bool {
+                true
+            }
+        }
+    );
+
+    impl CrewdenNotificationDelegate {
+        fn new() -> Retained<Self> {
+            unsafe { msg_send![Self::class(), new] }
+        }
+    }
+
+    pub fn send_native_notification(title: &str, body: &str, route: &str, ui: Arc<dyn DesktopUiBridge>) {
+        // Never swizzle NSBundle: only post native Notification Center banners when running inside
+        // a real `.app` bundle (where CFBundleIdentifier is `work.crewden.desktop`).
+        let main_bundle = NSBundle::mainBundle();
+        if main_bundle.bundleIdentifier().is_none() {
+            return;
+        }
+        if let Some(lock) = MAC_UI_BRIDGE.get() {
+            *lock.write().unwrap() = ui;
+        } else {
+            let _ = MAC_UI_BRIDGE.set(RwLock::new(ui));
+        }
+        MAC_DELEGATE_INIT.get_or_init(|| {
+            let delegate = CrewdenNotificationDelegate::new();
+            let proto = ProtocolObject::from_retained(delegate);
+            let center = NSUserNotificationCenter::defaultUserNotificationCenter();
+            unsafe {
+                center.setDelegate(Some(&proto));
+            }
+            // Intentionally leak the singleton delegate so unretained NSUserNotificationCenter.delegate stays valid for process lifetime.
+            std::mem::forget(proto);
+        });
+
+        let notif = NSUserNotification::new();
+        let ns_title = NSString::from_str(title);
+        let ns_body = NSString::from_str(body);
+        let key_route = NSString::from_str("route");
+        let val_route = NSString::from_str(route);
+        notif.setTitle(Some(&ns_title));
+        notif.setInformativeText(Some(&ns_body));
+        let val_any: Retained<AnyObject> = Retained::into_super(Retained::into_super(val_route));
+        let dict = NSDictionary::from_retained_objects(&[&*key_route], &[val_any]);
+        unsafe {
+            notif.setUserInfo(Some(&dict));
+        }
+        NSUserNotificationCenter::defaultUserNotificationCenter().deliverNotification(&notif);
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod windows_notify {
+    use crate::config::DesktopPaths;
+    use std::sync::OnceLock;
+    use windows::core::HSTRING;
+    use windows::Data::Xml::Dom::XmlDocument;
+    use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    pub const WINDOWS_AUMID: &str = "work.crewden.desktop";
+    const TOAST_ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
+    static AUMID_REGISTERED: OnceLock<()> = OnceLock::new();
+
+    fn xml_escape(input: &str) -> String {
+        let mut out = String::with_capacity(input.len() + 16);
+        for ch in input.chars() {
+            match ch {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' => out.push_str("&quot;"),
+                '\'' => out.push_str("&apos;"),
+                _ => out.push(ch),
+            }
+        }
+        out
+    }
+
+    fn ensure_windows_aumid_and_protocol(paths: &DesktopPaths) {
+        if paths.is_isolated_autostart() {
+            return;
+        }
+        AUMID_REGISTERED.get_or_init(|| {
+            let icon_path = paths.desktop_home.join("crewden-toast-icon.png");
+            let _ = std::fs::create_dir_all(&paths.desktop_home);
+            let _ = std::fs::write(&icon_path, TOAST_ICON_PNG);
+
+            let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+            if let Ok((aumid_key, _)) =
+                hkcu.create_subkey(format!(r"Software\Classes\AppUserModelId\{}", WINDOWS_AUMID))
+            {
+                let _ = aumid_key.set_value("DisplayName", &"Crewden");
+                let _ = aumid_key.set_value("IconBackgroundColor", &"0");
+                let _ = aumid_key.set_value("IconUri", &icon_path.to_string_lossy().to_string());
+            }
+            if let Ok(exe) = std::env::current_exe() {
+                if let Ok((proto_key, _)) = hkcu.create_subkey(r"Software\Classes\crewden-desktop") {
+                    let _ = proto_key.set_value("", &"URL:Crewden Desktop");
+                    let _ = proto_key.set_value("URL Protocol", &"");
+                }
+                if let Ok((cmd_key, _)) =
+                    hkcu.create_subkey(r"Software\Classes\crewden-desktop\shell\open\command")
+                {
+                    let cmd = format!("\"{}\" \"%1\"", exe.display());
+                    let _ = cmd_key.set_value("", &cmd);
+                }
+            }
+        });
+    }
+
+    pub fn send_native_toast(paths: &DesktopPaths, title: &str, body: &str, route: &str) -> bool {
+        ensure_windows_aumid_and_protocol(paths);
+        let mut launch_url = url::Url::parse("crewden-desktop://open").unwrap();
+        launch_url.query_pairs_mut().append_pair("route", route);
+        let xml_str = format!(
+            "<toast activationType=\"protocol\" launch=\"{}\"><visual><binding template=\"ToastGeneric\"><text id=\"1\">{}</text><text id=\"2\">{}</text></binding></visual></toast>",
+            xml_escape(launch_url.as_str()),
+            xml_escape(title),
+            xml_escape(body),
+        );
+        let Ok(doc) = XmlDocument::new() else {
+            return false;
+        };
+        if doc.LoadXml(&HSTRING::from(xml_str)).is_err() {
+            return false;
+        }
+        let Ok(toast) = ToastNotification::CreateToastNotification(&doc) else {
+            return false;
+        };
+        if let Ok(notifier) =
+            ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(WINDOWS_AUMID))
+        {
+            return notifier.Show(&toast).is_ok();
+        }
+        false
+    }
+}
+
+fn deliver_os_notification(
+    paths: &DesktopPaths,
+    item: &DesktopNotificationRecord,
+    ui: Arc<dyn DesktopUiBridge>,
+) {
     if std::env::var("CREWDEN_SUPPRESS_OS_NOTIFICATIONS").as_deref() == Ok("1") {
         return;
     }
 
     #[cfg(target_os = "macos")]
     {
-        let title = item.title.clone();
-        let body = item.body.clone();
-        let route = item.target_route.clone();
-        std::thread::spawn(move || {
-            let response = mac_notification_sys::Notification::new()
-                .title(&title)
-                .message(&body)
-                .wait_for_click(true)
-                .send();
-            if let Ok(mac_notification_sys::NotificationResponse::Click)
-            | Ok(mac_notification_sys::NotificationResponse::ActionButton(_)) = response
-            {
-                ui.activate_route(&route);
-            }
-        });
+        let _ = paths;
+        // Always pop out Crewden's non-focus-stealing screen-corner floating banner (just like WeChat / Feishu)
+        // so desktop popups work reliably on modern macOS 15/26 even for ad-hoc signed builds or closed main windows!
+        ui.present_notification_popup(item);
+        macos_notify::send_native_notification(&item.title, &item.body, &item.target_route, ui);
     }
 
     #[cfg(target_os = "windows")]
     {
-        let title = item.title.clone();
-        let body = item.body.clone();
-        let route = item.target_route.clone();
+        let paths_clone = paths.clone();
+        let item_clone = item.clone();
         std::thread::spawn(move || {
-            use tauri_winrt_notification::Toast;
-            let _ = Toast::new(Toast::POWERSHELL_APP_ID)
-                .title(&title)
-                .text1(&body)
-                .on_activated(move |_| {
-                    ui.activate_route(&route);
-                    Ok(())
-                })
-                .show();
+            if !windows_notify::send_native_toast(
+                &paths_clone,
+                &item_clone.title,
+                &item_clone.body,
+                &item_clone.target_route,
+            ) {
+                ui.present_notification_popup(&item_clone);
+            }
         });
     }
 }
@@ -553,9 +803,13 @@ fn deliver_os_notification(item: &DesktopNotificationRecord, ui: Arc<dyn Desktop
 struct SessionCursorTracker {
     im_origin: String,
     user_id: String,
+    owner_id: String,
+    locale: String,
     cursor: Option<u64>,
     notified_work_status: HashMap<String, String>,
     notified_completed_messages: VecDeque<String>,
+    owned_agents: std::collections::HashSet<String>,
+    foreign_agents: std::collections::HashSet<String>,
 }
 
 /// Spawn the resident Rust background `/im/ws/user` notification & badge daemon.
@@ -587,9 +841,13 @@ pub fn spawn_notification_daemon(
                 tracker = Some(SessionCursorTracker {
                     im_origin: active.im_origin.clone(),
                     user_id: active.session.user_id.clone(),
+                    owner_id: active.session.owner_id.clone(),
+                    locale: "zh".to_string(),
                     cursor: None,
                     notified_work_status: HashMap::new(),
                     notified_completed_messages: VecDeque::with_capacity(64),
+                    owned_agents: std::collections::HashSet::new(),
+                    foreign_agents: std::collections::HashSet::new(),
                 });
             }
             let tracker_ref = tracker.as_mut().unwrap();
@@ -708,6 +966,66 @@ async fn enrich_work_updated_payload(
     enriched
 }
 
+async fn ensure_agent_owned_by_session(
+    http_client: &reqwest::Client,
+    im_origin: &str,
+    access_token: &str,
+    tracker: &mut SessionCursorTracker,
+    agent_id: &str,
+) -> bool {
+    if agent_id.is_empty() {
+        return false;
+    }
+    if tracker.owned_agents.contains(agent_id) {
+        return true;
+    }
+    if tracker.foreign_agents.contains(agent_id) {
+        return false;
+    }
+    let agents_url = format!("{}/im/v1/agents", im_origin);
+    let Ok(res) = http_client
+        .get(&agents_url)
+        .bearer_auth(access_token)
+        .send()
+        .await
+    else {
+        return false;
+    };
+    if !res.status().is_success() {
+        return false;
+    }
+    let Ok(agents_json) = res.json::<Value>().await else {
+        return false;
+    };
+    if let Some(list) = agents_json["items"]
+        .as_array()
+        .or_else(|| agents_json.as_array())
+    {
+        for item in list {
+            let Some(aid) = item["agent_id"]
+                .as_str()
+                .or_else(|| item["id"].as_str())
+            else {
+                continue;
+            };
+            let item_owner = item["owner_id"].as_str().unwrap_or("");
+            if !item_owner.is_empty() && item_owner == tracker.owner_id {
+                tracker.foreign_agents.remove(aid);
+                tracker.owned_agents.insert(aid.to_string());
+            } else {
+                tracker.owned_agents.remove(aid);
+                tracker.foreign_agents.insert(aid.to_string());
+            }
+        }
+    }
+    if tracker.owned_agents.contains(agent_id) {
+        true
+    } else {
+        tracker.foreign_agents.insert(agent_id.to_string());
+        false
+    }
+}
+
 async fn run_single_session_stream(
     host_state: &crate::host_server::HostSharedState,
     active: &ActiveDaemonSession,
@@ -732,6 +1050,16 @@ async fn run_single_session_stream(
         .as_str()
         .unwrap_or(&active.session.user_id)
         .to_string();
+    if let Some(owner_id) = refresh_json["user"]["owner_id"].as_str() {
+        if !owner_id.is_empty() && owner_id != tracker.owner_id {
+            tracker.owner_id = owner_id.to_string();
+            tracker.owned_agents.clear();
+            tracker.foreign_agents.clear();
+        }
+    }
+    let user_locale = refresh_json["user"]["locale"].as_str().unwrap_or("zh");
+    tracker.locale = user_locale.to_string();
+    ui.set_locale(&tracker.locale);
 
     // 2. Seed initial unread counts, mute preferences, and baseline max_event_id from GET /im/v1/sync
     let synced_max = sync_conversations_and_cursor(
@@ -916,6 +1244,14 @@ async fn run_single_session_stream(
                     _ => {}
                 }
 
+                if matches!(
+                    event_type.as_str(),
+                    "agent.created" | "agent.updated" | "agent.deleted"
+                ) {
+                    tracker.owned_agents.clear();
+                    tracker.foreign_agents.clear();
+                }
+
                 if event_type == "message.completed" {
                     if let Some(mid) = non_empty_str(&payload["message_id"]) {
                         if tracker.notified_completed_messages.iter().any(|x| x == mid) {
@@ -928,8 +1264,20 @@ async fn run_single_session_stream(
                     }
                 }
 
-                // Enrich & deduplicate agent.work.updated waiting_permission transitions
+                // Only notify `agent.work.updated` (`waiting_permission`) for Agents owned by this session's owner_id!
                 if event_type == "agent.work.updated" {
+                    let aid_initial = payload["agent_id"].as_str().unwrap_or("");
+                    if !ensure_agent_owned_by_session(
+                        http_client,
+                        &active.im_origin,
+                        &access_token,
+                        tracker,
+                        aid_initial,
+                    )
+                    .await
+                    {
+                        continue;
+                    }
                     payload = enrich_work_updated_payload(
                         http_client,
                         &active.im_origin,
@@ -956,7 +1304,7 @@ async fn run_single_session_stream(
 
                 let (muted_by_conv, titles_by_conv) = center.snapshot_maps();
                 let attention = ui.window_attention();
-                if let Some(notif) = classify_user_stream_event_with_senders(
+                if let Some(notif) = classify_user_stream_event_localized(
                     &event_type,
                     &payload,
                     &self_user_id,
@@ -964,9 +1312,10 @@ async fn run_single_session_stream(
                     &titles_by_conv,
                     &pending_agent_senders,
                     &attention,
+                    &tracker.locale,
                 ) {
                     center.record(paths, notif.clone());
-                    deliver_os_notification(&notif, ui.clone());
+                    deliver_os_notification(paths, &notif, ui.clone());
                 }
             }
         }
@@ -1133,5 +1482,29 @@ mod tests {
         .unwrap();
         assert_eq!(work_perm.kind, "work_permission");
         assert_eq!(work_perm.target_route, "/settings/agents/eng-1?view=work");
+
+        // 5. Muted conversation suppresses `permission.request`, and English locale formats localized copy
+        assert!(classify_user_stream_event(
+            "permission.request",
+            &json!({ "conversation_id": "muted-conv", "permission_request": { "tool_name": "bash", "status": "pending" } }),
+            "u-self",
+            &muted,
+            &titles,
+            &hidden,
+        )
+        .is_none());
+
+        let en_done = classify_user_stream_event_localized(
+            "message.completed",
+            &json!({ "conversation_id": "c1", "message_id": "m-agent-1", "content": "All done" }),
+            "u-self",
+            &muted,
+            &titles,
+            &pending_agents,
+            &hidden,
+            "en-US",
+        )
+        .unwrap();
+        assert_eq!(en_done.title, "研发助手 PA · Reply ready");
     }
 }

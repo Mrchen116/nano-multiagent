@@ -10,7 +10,8 @@ import {
   resolveLocalWorkspaceTarget,
   updateLocalNodeConfig,
 } from '../src/local-admin.js';
-import { gatewayPlist } from '../src/lifecycle.js';
+import { LocalNodeBridge } from '../src/local-bridge.js';
+import { gatewayPlist, processBirth } from '../src/lifecycle.js';
 
 it('enforces owner_id isolation, probes workers with candidate PATH, validates empty-node approval models, toggles autostart in isolation, and blocks workspace escapes & executables', async () => {
   const root = await mkdtemp(join(tmpdir(), 'nano-desktop-admin-'));
@@ -136,24 +137,84 @@ it('enforces owner_id isolation, probes workers with candidate PATH, validates e
           environment: [],
         },
       }),
-    ).rejects.toMatchObject({ status: 422, errorCode: 'invalid_config' });
+    ).rejects.toMatchObject({ status: 422, errorCode: 'invalid_proxy_scheme' });
 
-    // 4. Valid proxy + env update writes 9 proxy keys cleanly while preserving NANO_OWNER_CONFIG_ROOT.
+    // 4. Accepts `antigravity` worker_runtime, blocks restart when active_tasks > 0 unless confirm_restart: true,
+    //    and allows `stop` even when config has an unregistered tool_approval_model!
+    await writeFile(join(customBin, 'agy'), '#!/bin/sh\necho ok\n');
+    await chmod(join(customBin, 'agy'), 0o755);
+    const probedWithAgy = await probeDesktopWorkers(customBin);
+    expect(probedWithAgy.find(w => w.runtime === 'antigravity')?.available).toBe(true);
+
+    const activeBridge = new LocalNodeBridge({
+      configPath,
+      nodeId: 'node-air',
+      ownerId: () => 'owner-alice',
+      nodeEpoch: () => 1,
+      ready: () => true,
+      connected: () => true,
+      bindings: () => [],
+      activeTasks: () => 2,
+      runtime: { request: async () => ({}) },
+    });
+    const stateFile = join(installRoot, 'connections', 'test', '.gateway-state.json');
+    const birth = await processBirth(process.pid);
+    await writeFile(
+      stateFile,
+      JSON.stringify({ pid: process.pid, config_path: configPath, process_start: birth, ready: true }),
+    );
+    await activeBridge.start();
+    try {
+      await expect(
+        updateLocalNodeConfig({
+          origin: 'https://im.example.com',
+          ownerId: 'owner-alice',
+          configPath,
+          update: {
+            worker_runtime: 'antigravity',
+            proxy: { enabled: true, url: 'http://127.0.0.1:7890', no_proxy: 'localhost,127.0.0.1' },
+            tool_approval_model: 'gpt-6',
+            environment: [{ key: 'PATH', value: customBin }],
+          },
+        }),
+      ).rejects.toMatchObject({ status: 409, errorCode: 'active_tasks_running' });
+    } finally {
+      await activeBridge.close();
+      await rm(stateFile, { force: true });
+    }
+
     await updateLocalNodeConfig({
       origin: 'https://im.example.com',
       ownerId: 'owner-alice',
       configPath,
       update: {
-        worker_runtime: 'codex',
+        worker_runtime: 'antigravity',
         proxy: { enabled: true, url: 'http://127.0.0.1:7890', no_proxy: 'localhost,127.0.0.1' },
         tool_approval_model: 'gpt-6',
         environment: [{ key: 'PATH', value: customBin }],
       },
     });
     const afterUpdate = await inspectLocalNode({ origin: 'https://im.example.com', ownerId: 'owner-alice', configPath });
-    expect(afterUpdate.worker_runtime).toBe('codex');
+    expect(afterUpdate.worker_runtime).toBe('antigravity');
     expect(afterUpdate.proxy).toEqual({ enabled: true, url: 'http://127.0.0.1:7890', no_proxy: 'localhost,127.0.0.1' });
     expect(afterUpdate.tool_approval_model).toBe('gpt-6');
+
+    await writeFile(
+      emptyConfigPath,
+      JSON.stringify({
+        node: { node_id: 'node-empty', user_id: 'owner-alice' },
+        im_service: { url: 'https://im2.example.com', token: 'tok' },
+        agents: [],
+        llm: { default_model: '', tool_approval_model: 'deleted-model', providers: [] },
+      }),
+    );
+    const stoppedInvalid = await controlLocalNodeLifecycle({
+      origin: 'https://im2.example.com',
+      ownerId: 'owner-alice',
+      action: 'stop',
+      configPath: emptyConfigPath,
+    });
+    expect(stoppedInvalid.ok).toBe(true);
 
     // 5. Autostart toggle writes only inside NANO_TEST_AUTOSTART_DIR without touching ~/Library/LaunchAgents.
     expect(gatewayPlist(configPath).startsWith(autostartDir)).toBe(true);

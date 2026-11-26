@@ -32,9 +32,12 @@ Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-app-win32-x64
 Source: "..\..\..\dist\desktop-windows-build\MicrosoftEdgeWebView2Setup.exe"; Flags: dontcopy
 
 [Icons]
-Name: "{userprograms}\Crewden Desktop"; Filename: "{app}\CrewdenDesktop.exe"; WorkingDir: "{app}"; Comment: "Crewden Desktop 工作台与本机助手管理"
+Name: "{userprograms}\Crewden Desktop"; Filename: "{app}\CrewdenDesktop.exe"; WorkingDir: "{app}"; AppUserModelID: "work.crewden.desktop"; Comment: "Crewden Desktop 工作台与本机助手管理"
 
 [Registry]
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\work.crewden.desktop"; ValueType: string; ValueName: "DisplayName"; ValueData: "Crewden"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\work.crewden.desktop"; ValueType: string; ValueName: "IconBackgroundColor"; ValueData: "0"
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\work.crewden.desktop"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\CrewdenDesktop.exe"
 Root: HKCU; Subkey: "Software\Classes\crewden-desktop"; ValueType: string; ValueName: ""; ValueData: "URL:Crewden Desktop"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\crewden-desktop"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\crewden-desktop\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\CrewdenDesktop.exe"",0"

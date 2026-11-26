@@ -123,7 +123,11 @@ export function DesktopNodeOnboardingBanner({
         <div className="desktop-action-row">
           {!confirmingTransfer ? (
             <>
-              {!inline && (
+              {inline ? (
+                <a href="/chat" className="desktop-btn primary">
+                  {text("仅使用聊天（推荐）", "Chat only (Recommended)")}
+                </a>
+              ) : (
                 <button type="button" className="desktop-btn primary" style={{ flex: 1 }} onClick={dismissForSession}>
                   {text("仅使用聊天（推荐）", "Chat only (Recommended)")}
                 </button>

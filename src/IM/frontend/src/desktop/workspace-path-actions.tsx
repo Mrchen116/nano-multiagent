@@ -1,10 +1,33 @@
 import { isBlockedDesktopOpenPath } from "@nano/product-contracts/desktop-local";
 import { useState } from "react";
 import { useTranslation } from "../i18n";
-import { openDesktopWorkspacePath } from "./desktop-api";
+import { DesktopApiError, openDesktopWorkspacePath } from "./desktop-api";
 import { getDesktopBootContext, isDesktopClient } from "./desktop-context";
 import { useDesktopLocalAgentMap, useWorkspaceAgentId } from "./use-desktop-local-agents";
 import "./desktop.css";
+
+function localizeWorkspaceError(err: unknown, zh: boolean): string {
+  const code = err instanceof DesktopApiError ? err.code : undefined;
+  const raw = err instanceof Error ? err.message : "";
+  if (code === "executable_open_blocked" || raw.includes("Executable scripts")) {
+    return zh
+      ? "可执行脚本或应用仅支持在文件管理器中显示，不支持直接运行。"
+      : "Executable files can only be revealed in Finder/Explorer, not launched directly.";
+  }
+  if (code === "outside_workspace" || raw.includes("outside the Agent workspace")) {
+    return zh ? "该路径超出当前助手工作区范围，已拒绝打开。" : "Target path is outside this assistant's workspace.";
+  }
+  if (code === "path_not_found" || raw.includes("no longer exists")) {
+    return zh ? "本机未找到该文件，可能已被移动或删除。" : "File no longer exists on this computer.";
+  }
+  if (code === "workspace_missing") {
+    return zh ? "本机工作区目录不存在。" : "Local workspace directory does not exist.";
+  }
+  if (code === "foreign_owner" || (err instanceof DesktopApiError && err.status === 403)) {
+    return zh ? "当前账号无权直接打开该本机工作区文件。" : "Your account is not authorized to open this local workspace path.";
+  }
+  return raw || (zh ? "无法打开本地路径" : "Could not open local path");
+}
 
 function normalizeFileUrlToPath(fileUrl: string): string | null {
   try {
@@ -68,7 +91,7 @@ function WorkspacePathActionsInner({
     try {
       await openDesktopWorkspacePath({ agent_id: agentId, path, action });
     } catch (err) {
-      setError(err instanceof Error ? err.message : text("无法打开本地路径", "Could not open local path"));
+      setError(localizeWorkspaceError(err, zh));
     } finally {
       setBusy(null);
     }
@@ -161,7 +184,7 @@ function DesktopWorkspaceFileLinkInner({
           event.preventDefault();
           setError(null);
           void openDesktopWorkspacePath({ agent_id: agentId, path: localPath, action }).catch((err) => {
-            setError(err instanceof Error ? err.message : text("无法打开本地文件", "Could not open local file"));
+            setError(localizeWorkspaceError(err, zh));
           });
         }}
       >

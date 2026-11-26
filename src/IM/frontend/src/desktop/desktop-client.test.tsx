@@ -121,7 +121,7 @@ describe("Crewden Desktop session isolation, onboarding picker, and foreign-owne
 
     expect(screen.getByText("下载完整 Desktop 客户端")).toBeInTheDocument();
     expect(screen.getByText("仅装轻量后台节点")).toBeInTheDocument();
-    expect(screen.getByText(/旧款 Intel Mac 请选择右侧「仅装轻量后台节点」/)).toBeInTheDocument();
+    expect(screen.getByText(/Intel 芯片 Mac 请选择「仅装轻量后台节点」/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /下载 Crewden Desktop \(Apple Silicon\)/ })).toHaveAttribute(
       "href",
       "https://im.example/Crewden-Desktop-arm64.dmg",

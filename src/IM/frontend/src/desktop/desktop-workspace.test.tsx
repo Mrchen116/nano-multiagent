@@ -66,6 +66,7 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
     };
 
     let autostart = true;
+    const savedConfigPayloads: Record<string, unknown>[] = [];
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith("/desktop/v1/local-node/inspect")) {
@@ -77,6 +78,7 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
             running: true,
             ready: true,
             connected: true,
+            active_tasks: 2,
             version: "2.4.0",
             autostart,
             worker_runtime: "dsh",
@@ -84,6 +86,7 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
               { runtime: "dsh", available: true, resolved_path: null, detail: "Bundled" },
               { runtime: "codex", available: true, resolved_path: "/opt/homebrew/bin/codex", detail: "Found" },
               { runtime: "claude", available: false, resolved_path: null, detail: "Not found" },
+              { runtime: "antigravity", available: true, resolved_path: "/opt/homebrew/bin/agy", detail: "Found" },
             ],
             proxy: { enabled: true, url: "http://127.0.0.1:7890", no_proxy: "localhost,127.0.0.1,::1" },
             tool_approval_model: null,
@@ -114,9 +117,14 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
         return new Response(JSON.stringify({ workers: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (url === "/desktop/v1/local-node/config") {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        savedConfigPayloads.push(body);
         return new Response(
-          JSON.stringify({ detail: "Only http:// and https:// proxies are supported; socks:// is not supported" }),
-          { status: 400, headers: { "Content-Type": "application/json" } },
+          JSON.stringify({
+            error: "invalid_proxy_scheme",
+            detail: "Only http:// and https:// proxies are supported; socks:// is not supported",
+          }),
+          { status: 422, headers: { "Content-Type": "application/json" } },
         );
       }
       if (url === "/im/v1/nodes") {
@@ -147,12 +155,17 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
     await waitFor(() => expect(autostartSwitch).toHaveAttribute("aria-checked", "false"));
 
     await user.click(within(localCard).getByText(/本机运行配置/));
+    expect(within(localCard).getByText(/Antigravity/)).toBeInTheDocument();
     const proxyInput = within(localCard).getByLabelText("代理地址");
     expect(proxyInput).toBeEnabled();
     await user.clear(proxyInput);
     await user.type(proxyInput, "socks5://127.0.0.1:1080");
     await user.click(within(localCard).getByRole("button", { name: "保存并重启本机节点" }));
-    expect(await within(localCard).findByRole("alert")).toHaveTextContent(/socks:\/\//);
+    // Active tasks > 0 requires explicit confirmation before restarting the local node!
+    expect(savedConfigPayloads).toHaveLength(0);
+    await user.click(within(localCard).getByRole("button", { name: "确认立即保存并重启" }));
+    expect(await within(localCard).findByRole("alert")).toHaveTextContent(/不支持 socks:\/\//);
+    expect(savedConfigPayloads[0]).toMatchObject({ confirm_restart: true });
     expect(proxyInput).toHaveValue("socks5://127.0.0.1:1080");
 
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -163,10 +176,39 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
         element: (
           <WorkspaceAgentContext.Provider value="local-agent">
             <div data-testid="md-card">
-              <ToolDetailBody call={{ id: "1", name: "write", status: "completed", input: {}, detail: { path: "reports/audit.md", content: "ok" } }} />
+              <ToolDetailBody
+                call={{
+                  id: "1",
+                  name: "read",
+                  status: "completed",
+                  input: {},
+                  detail: {
+                    native_view: {
+                      card: "read",
+                      path: "reports/audit.md",
+                      totalLines: 1,
+                      offset: 1,
+                      lines: [{ number: 1, text: "# Audit" }],
+                    },
+                  },
+                }}
+              />
             </div>
             <div data-testid="sh-card">
-              <ToolDetailBody call={{ id: "2", name: "edit", status: "completed", input: {}, detail: { path: "scripts/run.sh", diff: "+echo hi" } }} />
+              <ToolDetailBody
+                call={{
+                  id: "2",
+                  name: "edit",
+                  status: "completed",
+                  input: {},
+                  detail: {
+                    native_view: {
+                      card: "diff",
+                      diffs: [{ path: "scripts/run.sh", oldText: "echo old", newText: "echo hi" }],
+                    },
+                  },
+                }}
+              />
             </div>
           </WorkspaceAgentContext.Provider>
         ),

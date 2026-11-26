@@ -69,6 +69,7 @@ export interface DesktopLocalInspectResponse {
   connected?: boolean;
   pid?: number;
   runtime_pid?: number;
+  active_tasks?: number;
   version?: string;
   autostart?: boolean;
   worker_runtime?: WorkerRuntime;
@@ -86,6 +87,7 @@ export interface DesktopLocalConfigInput {
   proxy: DesktopProxySettings;
   tool_approval_model: string | null;
   environment: { key: string; value: string }[];
+  confirm_restart?: boolean;
 }
 
 export interface DesktopTrajectoryAuthorizeResponse {

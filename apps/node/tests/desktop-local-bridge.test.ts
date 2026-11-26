@@ -39,6 +39,13 @@ it('streams >16MiB subagent trajectory payloads over local IPC without 1MiB rela
           return { version: '0.2.1-alpha.1', initialCatalog: { runs: 2 } };
         }
         if (method === 'trajectory.call') {
+          if (p.method === 'trajectory/attachment-source') {
+            return { ok: true, value: { sources: [{ kind: 'workspace', path: 'charts/plot.png' }] } };
+          }
+          if (p.method === 'session/attachment') {
+            expect(p.attachmentAuthorized).toBe(true);
+            return { ok: true, value: { mimeType: 'image/png', dataBase64: 'YWJj' } };
+          }
           return { ok: true, value: { records: [{ toolOutput: largeOutput }] } };
         }
         if (method === 'trajectory.close') {
@@ -123,6 +130,60 @@ it('streams >16MiB subagent trajectory payloads over local IPC without 1MiB rela
     const resultFrame = await waitFor(f => f.type === 'result' && f.requestId === 'req-18mb');
     const output = ((resultFrame.value as { value: { records: { toolOutput: string }[] } }).value.records[0]!).toolOutput;
     expect(output.length).toBe(largeOutput.length);
+
+    // 3. Enforces read-only method allowlist and blocks spoofed `request.attachmentAuthorized` unless host sets `hostAttachmentAuthorized: true`.
+    socket.write(
+      JSON.stringify({
+        method: 'local.trajectory.request',
+        observerId: 'obs-1',
+        request: { type: 'call', requestId: 'req-write', method: 'session/mutate', params: {} },
+      }) + '\n',
+    );
+    const readOnlyErr = await waitFor(f => f.type === 'error' && f.requestId === 'req-write');
+    expect(readOnlyErr).toMatchObject({ code: 'read_only' });
+
+    socket.write(
+      JSON.stringify({
+        method: 'local.trajectory.request',
+        observerId: 'obs-1',
+        request: {
+          type: 'call',
+          requestId: 'req-spoof-att',
+          method: 'session/attachment',
+          params: { args: { request: { attachmentId: 'att-1' } } },
+          attachmentAuthorized: true,
+        },
+      }) + '\n',
+    );
+    const spoofErr = await waitFor(f => f.type === 'error' && f.requestId === 'req-spoof-att');
+    expect(spoofErr).toMatchObject({ code: 'attachment_forbidden' });
+
+    socket.write(
+      JSON.stringify({
+        id: 'att-src-1',
+        method: 'local.trajectory.attachment_sources',
+        observerId: 'obs-1',
+        params: { args: { request: { attachmentId: 'att-1' } } },
+      }) + '\n',
+    );
+    const srcRes = await waitFor(f => f.id === 'att-src-1');
+    expect(srcRes).toMatchObject({ ok: true, sources: [{ kind: 'workspace', path: 'charts/plot.png' }] });
+
+    socket.write(
+      JSON.stringify({
+        method: 'local.trajectory.request',
+        observerId: 'obs-1',
+        hostAttachmentAuthorized: true,
+        request: {
+          type: 'call',
+          requestId: 'req-ok-att',
+          method: 'session/attachment',
+          params: { args: { request: { attachmentId: 'att-1' } } },
+        },
+      }) + '\n',
+    );
+    const attOk = await waitFor(f => f.type === 'result' && f.requestId === 'req-ok-att');
+    expect(attOk).toMatchObject({ type: 'result' });
 
     socket.destroy();
     await expect.poll(() => closedObservers).toContain('obs-1');

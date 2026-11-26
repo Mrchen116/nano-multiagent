@@ -73,6 +73,7 @@ const inbox = new InboxStore(join(home, 'global.sqlite3'));
 let agentLifecycle: NodeAgentLifecycle;
 let lifecycleSync: Promise<void> = Promise.resolve();
 const supervisors = new Map<string, RuntimeSupervisor>();
+const runningSessionsByPartition = new Map<string, Set<string>>();
 let product: SingleThread;
 let tasks:TaskExecution;
 const productCalls=new Map<string,{sessionId:string;promise:Promise<unknown>}>();
@@ -215,11 +216,23 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
       },
       onError: reportError,
       onUnavailable: async () => {
+        runningSessionsByPartition.get(partition.key)?.clear();
         globalProduct?.runtimeUnavailable(partition.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
         await reportPersonalAvailability(partition,false);
         for (const observer of runtime.unavailable(partition)) trajectory?.close(observer);
         if (partition.key === 'ordinary') { await rm(updatePath(configPath, '.node-update-handoff.json'), {force:true}); await lifecycle.unavailable(); }
       },
+    });
+    const partitionRunning = new Set<string>();
+    runningSessionsByPartition.set(partition.key, partitionRunning);
+    supervisor.onNotification((method, value) => {
+      if (method === 'session.status') {
+        const s = value as { sessionId?: string; status?: string };
+        if (typeof s.sessionId === 'string' && s.sessionId) {
+          if (s.status === 'running') partitionRunning.add(s.sessionId);
+          else partitionRunning.delete(s.sessionId);
+        }
+      }
     });
     supervisors.set(partition.key, supervisor);
     return { get available() { return supervisor.available; },
@@ -718,7 +731,19 @@ const localBridge = new LocalNodeBridge({
   connected: () => relay.ready,
   bindings: () => store.bindings(),
   runtime,
-  activeTasks: () => productCalls.size,
+  activeTasks: () => {
+    let runningSessions = 0;
+    for (const set of runningSessionsByPartition.values()) runningSessions += set.size;
+    return Math.max(
+      runningSessions,
+      productCalls.size +
+        (admissions > 0 ? 1 : 0) +
+        (product?.busy ? 1 : 0) +
+        (globalProduct?.busy ? 1 : 0) +
+        (heartbeat?.busy ? 1 : 0) +
+        (workflows.busy ? 1 : 0),
+    );
+  },
 });
 await localBridge.start();
 await updater.start();

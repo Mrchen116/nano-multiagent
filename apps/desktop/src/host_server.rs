@@ -250,6 +250,8 @@ fn build_router(state: Arc<HostSharedState>) -> Router {
             post(handle_internal_activate_notification),
         )
         .route("/desktop/internal/deep-link", post(handle_internal_deep_link))
+        .route("/desktop/internal/popup-banner", get(handle_internal_popup_banner))
+        .route("/desktop/internal/popup-action", post(handle_internal_popup_action))
         .route("/desktop/internal/window-attention", post(handle_internal_attention))
         .route("/desktop/internal/shutdown", post(handle_internal_shutdown))
         .route("/desktop/v1/context", get(handle_get_context))
@@ -445,6 +447,7 @@ async fn handle_internal_status(
         "context_epoch": cfg.context_epoch,
         "ws_connected": state.notification_center.is_ws_connected(),
         "unread_total": state.notification_center.unread(),
+        "popup_count": state.ui_bridge.popup_count(),
         "window_focused": attn.visible_and_focused,
         "current_route": attn.current_route,
         "active_ui_version": bundle.as_ref().map(|b| &b.version),
@@ -523,9 +526,186 @@ async fn handle_internal_deep_link(
             state.ui_bridge.activate_route("/chat");
             return Json(json!({ "ok": true, "im_origin": new_origin })).into_response();
         }
+        if let Ok(Some(route)) = crate::config::parse_deep_link_route(raw_url) {
+            state.ui_bridge.activate_route(&route);
+            return Json(json!({ "ok": true, "route": route })).into_response();
+        }
     }
     let target = body.route.as_deref().unwrap_or("/chat");
     state.ui_bridge.activate_route(target);
+    Json(json!({ "ok": true })).into_response()
+}
+
+#[derive(Deserialize)]
+struct PopupBannerQuery {
+    nonce: Option<String>,
+    title: Option<String>,
+    body: Option<String>,
+    kind: Option<String>,
+    route: Option<String>,
+}
+
+async fn handle_internal_popup_banner(
+    State(state): State<Arc<HostSharedState>>,
+    Query(query): Query<PopupBannerQuery>,
+) -> Response {
+    if query.nonce.as_deref() != Some(state.boot_nonce.as_str()) {
+        return json_error(StatusCode::FORBIDDEN, "Invalid popup nonce");
+    }
+    let initial = json!({
+        "nonce": state.boot_nonce,
+        "title": query.title.unwrap_or_default(),
+        "body": query.body.unwrap_or_default(),
+        "kind": query.kind.unwrap_or_else(|| "human_message".to_string()),
+        "route": query.route.unwrap_or_else(|| "/chat".to_string()),
+    });
+    let html = format!(
+        r##"<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<style>
+  * {{ box-sizing: border-box; user-select: none; -webkit-user-select: none; }}
+  html, body {{
+    margin: 0; width: 100%; height: 100%; overflow: hidden;
+    background: transparent !important;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    color: #231836;
+  }}
+  body {{
+    padding: 8px 14px 20px 14px;
+  }}
+  @keyframes popupEnter {{
+    from {{ opacity: 0; transform: translateY(-5px) scale(0.985); }}
+    to {{ opacity: 1; transform: translateY(0) scale(1); }}
+  }}
+  .card {{
+    width: 100%; height: 100%; padding: 12px 15px;
+    display: flex; align-items: center; gap: 12px;
+    background: rgba(255, 255, 255, 0.97);
+    border: 1px solid rgba(48, 32, 73, 0.07);
+    border-radius: 22px;
+    box-shadow: 0 10px 24px -6px rgba(35, 24, 54, 0.16), 0 2px 6px rgba(35, 24, 54, 0.05);
+    cursor: pointer;
+    position: relative;
+    animation: popupEnter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition: background 140ms ease, transform 140ms ease;
+  }}
+  .card:hover {{ background: #FFFFFF; }}
+  .card:active {{ transform: scale(0.992); }}
+  .avatar {{
+    width: 42px; height: 42px; flex-shrink: 0; border-radius: 13px;
+    background: #FFF0B5;
+    color: #6B43D8;
+    display: grid; place-items: center;
+  }}
+  .avatar svg {{ width: 24px; height: 24px; }}
+  .main {{ flex: 1; min-width: 0; padding-right: 18px; }}
+  .meta {{ display: flex; align-items: center; gap: 5px; margin-bottom: 2px; }}
+  .brand {{ font-size: 11px; font-weight: 700; color: #6B43D8; letter-spacing: -0.15px; }}
+  .sep, .time {{ font-size: 11px; color: #968FA6; font-weight: 500; }}
+  .title {{
+    font-size: 13.5px; font-weight: 650; line-height: 1.28; color: #231836;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;
+  }}
+  .body {{
+    font-size: 12px; line-height: 1.36; color: #665E78;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }}
+  .close {{
+    position: absolute; top: 10px; right: 11px; width: 22px; height: 22px;
+    border: 0; border-radius: 999px; background: transparent; color: #968FA6;
+    font-size: 15px; line-height: 1; cursor: pointer; display: grid; place-items: center;
+    opacity: 0.65; transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  }}
+  .card:hover .close {{ opacity: 1; }}
+  .close:hover {{ background: #F1EEF8; color: #231836; }}
+</style>
+</head>
+<body>
+  <div class="card" id="card" role="button" tabindex="0">
+    <div class="avatar" aria-hidden="true">
+      <svg viewBox="0 0 64 64" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+        <path fill-rule="evenodd" d="M23 8H41C51.5 8 58 14.5 58 25V37C58 47.5 51.5 54 41 54H29L18.9 60.7C17.7 61.5 16 60.6 16 59.1V52.7C9.7 50.4 6 45.1 6 37V25C6 14.5 12.5 8 23 8ZM23 14C15.8 14 12 17.8 12 25V37C12 43.6 15 47 22 48.3V51.6L27 48H41C48.2 48 52 44.2 52 37V25C52 17.8 48.2 14 41 14H23Z"/>
+        <rect x="21" y="24" width="7" height="12" rx="3.5"/>
+        <rect x="36" y="24" width="7" height="12" rx="3.5"/>
+      </svg>
+    </div>
+    <div class="main">
+      <div class="meta">
+        <span class="brand">crewden</span>
+        <span class="sep" aria-hidden="true">·</span>
+        <span class="time" id="time">现在</span>
+      </div>
+      <div class="title" id="title"></div>
+      <div class="body" id="body"></div>
+    </div>
+    <button type="button" class="close" id="close" aria-label="关闭通知">×</button>
+  </div>
+<script>
+  const state = {initial};
+  function cleanPreviewText(raw) {{
+    return String(raw || "").replace(/`([^`]+)`/g, "$1").trim();
+  }}
+  function render(next) {{
+    Object.assign(state, next);
+    document.getElementById("title").textContent = cleanPreviewText(state.title) || "Crewden";
+    document.getElementById("body").textContent = cleanPreviewText(state.body);
+  }}
+  window.__updateCrewdenPopup = render;
+  render(state);
+
+  document.getElementById("close").addEventListener("click", (e) => {{
+    e.stopPropagation();
+    fetch("/desktop/internal/popup-action", {{
+      method: "POST",
+      headers: {{ "Content-Type": "application/json" }},
+      body: JSON.stringify({{ nonce: state.nonce, action: "dismiss" }}),
+    }});
+  }});
+  document.getElementById("card").addEventListener("click", () => {{
+    fetch("/desktop/internal/popup-action", {{
+      method: "POST",
+      headers: {{ "Content-Type": "application/json" }},
+      body: JSON.stringify({{ nonce: state.nonce, action: "open", route: state.route }}),
+    }});
+  }});
+</script>
+</body>
+</html>"##,
+        initial = initial
+    );
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/html; charset=utf-8")
+        .header("cache-control", "no-store")
+        .body(Body::from(html))
+        .unwrap()
+}
+
+#[derive(Deserialize)]
+struct PopupActionBody {
+    nonce: String,
+    action: String,
+    route: Option<String>,
+}
+
+async fn handle_internal_popup_action(
+    State(state): State<Arc<HostSharedState>>,
+    Json(body): Json<PopupActionBody>,
+) -> Response {
+    if body.nonce != state.boot_nonce {
+        return json_error(StatusCode::FORBIDDEN, "Invalid popup nonce");
+    }
+    state.ui_bridge.dismiss_notification_popup();
+    if body.action == "open" {
+        let target = body
+            .route
+            .as_deref()
+            .filter(|r| r.starts_with('/') && !r.starts_with("//"))
+            .unwrap_or("/chat");
+        state.ui_bridge.activate_route(target);
+    }
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -1001,9 +1181,9 @@ async fn handle_workspace_open(
     };
     let im_origin = state.host_config.read().unwrap().im_origin.clone();
 
-    // Also verify IM-level space / Personal Agent access for this agent_id
+    // Verify IM-level space / Personal Agent / deletion access for both `global` and `single_thread` Agents
     let auth_url = format!(
-        "{}/im/v1/agents/{}/trajectory/authorize",
+        "{}/im/v1/agents/{}/workspace/authorize",
         im_origin,
         urlencoding_segment(&body.agent_id)
     );
@@ -1011,11 +1191,20 @@ async fn handle_workspace_open(
         .http_client
         .post(&auth_url)
         .bearer_auth(&access_token)
-        .json(&json!({ "session_id": "workspace-open-check" }))
+        .json(&json!({}))
         .send()
         .await
     {
-        if auth_res.status() == reqwest::StatusCode::FORBIDDEN
+        if auth_res.status() == reqwest::StatusCode::GONE {
+            let bytes = auth_res.bytes().await.unwrap_or_default();
+            return Response::builder()
+                .status(StatusCode::GONE)
+                .header("content-type", "application/json")
+                .body(Body::from(bytes))
+                .unwrap();
+        }
+        if auth_res.status() == reqwest::StatusCode::UNAUTHORIZED
+            || auth_res.status() == reqwest::StatusCode::FORBIDDEN
             || auth_res.status() == reqwest::StatusCode::NOT_FOUND
         {
             return json_error(StatusCode::FORBIDDEN, "Not authorized to access this Agent workspace");
@@ -1307,6 +1496,9 @@ async fn run_local_trajectory_ws_bridge(
     }
 
     let mut ipc_lines = BufReader::new(ipc_read).lines();
+    let mut pending_attachments: HashMap<String, Value> = HashMap::new();
+    let mut attachment_seq: u64 = 0;
+
     loop {
         tokio::select! {
             _ = epoch_rx.changed() => {
@@ -1330,6 +1522,43 @@ async fn run_local_trajectory_ws_bridge(
                                 let _ = ws_socket.send(AxumWsMessage::Text(json!({ "type": "failed", "message": msg }).to_string())).await;
                                 break;
                             }
+                            if let Some(rpc_id) = parsed["id"].as_str() {
+                                if let Some(orig_req) = pending_attachments.remove(rpc_id) {
+                                    let req_id = orig_req["requestId"].as_str().unwrap_or("").to_string();
+                                    let sources = parsed["sources"].clone();
+                                    let non_empty_sources = sources
+                                        .as_array()
+                                        .map(|arr| !arr.is_empty())
+                                        .unwrap_or(false);
+                                    let allowed = if parsed["ok"].as_bool() == Some(true) && non_empty_sources {
+                                        authorize_chat_attachment(&state, &ticket, &sources).await
+                                    } else {
+                                        false
+                                    };
+                                    if allowed {
+                                        let rpc = json!({
+                                            "method": "local.trajectory.request",
+                                            "observerId": observer_id,
+                                            "hostAttachmentAuthorized": true,
+                                            "request": orig_req,
+                                        });
+                                        if ipc_write.write_all(format!("{}\n", rpc).as_bytes()).await.is_err() {
+                                            break;
+                                        }
+                                    } else {
+                                        let err_frame = json!({
+                                            "type": "error",
+                                            "requestId": req_id,
+                                            "code": "attachment_forbidden",
+                                            "message": "无法验证附件访问权限",
+                                        });
+                                        if ws_socket.send(AxumWsMessage::Text(err_frame.to_string())).await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                    continue;
+                                }
+                            }
                         }
                         if ws_socket.send(AxumWsMessage::Text(line)).await.is_err() {
                             break;
@@ -1344,19 +1573,25 @@ async fn run_local_trajectory_ws_bridge(
                         let Ok(mut req_val) = serde_json::from_str::<Value>(&text) else {
                             continue;
                         };
-                        // Check chat-sourced attachments against IM server while allowing workspace attachments locally
+                        if let Some(obj) = req_val.as_object_mut() {
+                            obj.remove("attachmentAuthorized");
+                        }
+                        // Resolve authoritative attachment provenance from DSH (`trajectory/attachment-source`)
+                        // and verify against IM server fail-closed; never trust client-supplied `params.sources`.
                         if req_val["method"].as_str() == Some("session/attachment") {
-                            let sources = req_val["params"]["sources"].clone();
-                            let has_chat_source = sources
-                                .as_array()
-                                .map(|arr| arr.iter().any(|s| s["kind"].as_str() == Some("chat")))
-                                .unwrap_or(false);
-                            let allowed = if has_chat_source {
-                                authorize_chat_attachment(&state, &ticket, &sources).await
-                            } else {
-                                true
-                            };
-                            req_val["attachmentAuthorized"] = json!(allowed);
+                            attachment_seq += 1;
+                            let src_rpc_id = format!("att-src-{}", attachment_seq);
+                            let src_rpc = json!({
+                                "id": src_rpc_id,
+                                "method": "local.trajectory.attachment_sources",
+                                "observerId": observer_id,
+                                "params": req_val["params"],
+                            });
+                            pending_attachments.insert(src_rpc_id, req_val);
+                            if ipc_write.write_all(format!("{}\n", src_rpc).as_bytes()).await.is_err() {
+                                break;
+                            }
+                            continue;
                         }
                         let rpc = json!({
                             "method": "local.trajectory.request",

@@ -13,6 +13,7 @@ pub struct DesktopCliOptions {
     pub stop: bool,
     pub headless_host: bool,
     pub im_origin: Option<String>,
+    pub initial_route: Option<String>,
     pub deep_link_url: Option<String>,
     pub seed_archives_dir: Option<PathBuf>,
     pub dev_repo_root: Option<PathBuf>,
@@ -71,6 +72,9 @@ impl DesktopCliOptions {
                     if let Some(origin) = parse_deep_link_origin(other)? {
                         opts.im_origin = Some(origin);
                         opts.deep_link_url = Some(other.to_string());
+                    } else if let Some(route) = parse_deep_link_route(other)? {
+                        opts.initial_route = Some(route);
+                        opts.deep_link_url = Some(other.to_string());
                     }
                 }
                 _ => {}
@@ -124,6 +128,28 @@ pub fn parse_deep_link_origin(raw: &str) -> Result<Option<String>, String> {
                 return Err("Deep-link origin must use https:// (or loopback http://)".to_string());
             }
             return Ok(Some(origin));
+        }
+    }
+    Ok(None)
+}
+
+/// Parse `crewden-desktop://open?route=<encoded>` safely for OS notification click routing.
+pub fn parse_deep_link_route(raw: &str) -> Result<Option<String>, String> {
+    let parsed = Url::parse(raw.trim()).map_err(|_| "Malformed crewden-desktop:// URL".to_string())?;
+    if parsed.scheme() != "crewden-desktop" {
+        return Ok(None);
+    }
+    let action = parsed.host_str().unwrap_or("");
+    if action != "open" && parsed.path().trim_matches('/') != "open" {
+        return Ok(None);
+    }
+    for (k, v) in parsed.query_pairs() {
+        if k == "route" {
+            let trimmed = v.trim();
+            if !trimmed.starts_with('/') || trimmed.starts_with("//") || trimmed.chars().any(|c| c.is_control()) {
+                return Err("Deep-link route must be a safe app-relative path".to_string());
+            }
+            return Ok(Some(trimmed.to_string()));
         }
     }
     Ok(None)
@@ -399,5 +425,13 @@ mod tests {
             "crewden-desktop://connect?origin=https%3A%2F%2Fuser%3Apass%40im.example"
         )
         .is_err());
+
+        let route = parse_deep_link_route(
+            "crewden-desktop://open?route=%2Fsettings%2Fagents%2Feng-1%3Fview%3Dwork",
+        )
+        .unwrap();
+        assert_eq!(route.as_deref(), Some("/settings/agents/eng-1?view=work"));
+        assert!(parse_deep_link_route("crewden-desktop://open?route=%2F%2Fevil.example").is_err());
+        assert!(parse_deep_link_route("crewden-desktop://open?route=https%3A%2F%2Fevil.example").is_err());
     }
 }

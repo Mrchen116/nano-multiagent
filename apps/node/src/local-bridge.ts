@@ -203,6 +203,38 @@ export class LocalNodeBridge {
       return;
     }
 
+    if (method === 'local.trajectory.attachment_sources') {
+      const observerId = String(msg.observerId ?? '');
+      if (!observerId || !activeObservers.has(observerId)) {
+        await sendFrame({ id: rpcId, ok: false, code: 'invalid_observer', message: 'Observer not active' });
+        return;
+      }
+      try {
+        const raw = await this.options.runtime.request(
+          'trajectory.call' as Parameters<PartitionRuntime['request']>[0],
+          {
+            observerId,
+            method: 'trajectory/attachment-source',
+            params: msg.params,
+          } as never,
+        );
+        const sources = (raw as { value?: { sources?: unknown[] } } | null)?.value?.sources ?? [];
+        await sendFrame({
+          id: rpcId,
+          ok: true,
+          sources: Array.isArray(sources) ? sources : [],
+        });
+      } catch (error) {
+        await sendFrame({
+          id: rpcId,
+          ok: false,
+          code: 'attachment_source_failed',
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
+
     if (method === 'local.trajectory.request') {
       const observerId = String(msg.observerId ?? '');
       const request = msg.request as Record<string, unknown> | undefined;
@@ -211,6 +243,38 @@ export class LocalNodeBridge {
       }
       const reqType = String(request.type ?? '');
       if (!['call', 'open', 'next', 'abort'].includes(reqType)) return;
+      const reqMethod = typeof request.method === 'string' ? request.method : '';
+      if (
+        ['call', 'open'].includes(reqType) &&
+        ![
+          'trajectory/runs',
+          'session/list',
+          'session/page',
+          'session/projections',
+          'session/attachment',
+          'session/control',
+          'session/follow',
+        ].includes(reqMethod)
+      ) {
+        await sendChunked({
+          type: 'error',
+          observerId,
+          requestId: request.requestId,
+          code: 'read_only',
+          message: '只允许读取原生轨迹',
+        });
+        return;
+      }
+      if (reqType === 'call' && reqMethod === 'session/attachment' && msg.hostAttachmentAuthorized !== true) {
+        await sendChunked({
+          type: 'error',
+          observerId,
+          requestId: request.requestId,
+          code: 'attachment_forbidden',
+          message: '无法验证附件访问权限',
+        });
+        return;
+      }
       try {
         const value = await this.options.runtime.request(
           `trajectory.${reqType}` as Parameters<PartitionRuntime['request']>[0],
@@ -220,7 +284,9 @@ export class LocalNodeBridge {
             params: request.params,
             streamId: request.streamId,
             ...(reqType === 'open' && request.initialBatch === true ? { initialBatch: true } : {}),
-            ...(request.attachmentAuthorized === true ? { attachmentAuthorized: true } : {}),
+            ...(reqMethod === 'session/attachment' && msg.hostAttachmentAuthorized === true
+              ? { attachmentAuthorized: true }
+              : {}),
           } as never,
         );
         await sendChunked({

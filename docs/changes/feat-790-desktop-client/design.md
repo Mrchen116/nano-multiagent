@@ -5,6 +5,7 @@
 ## Changelog
 
 - **Gate 2 Round 1 修订**：收敛为 Rust 常驻宿主独立维护后台 `/im/ws/user` 通知与角标守护（覆盖新消息、`@提及`、聊天与 Work 待决工具权限并支持点击跳转 `/chat/<conversationId>` 或 `/settings/agents/<agentId>?view=work`）；补齐跨账号 `owner_id` 归属隔离与 `inAppAccessToken` / `confirmTransfer` 拆分；引入 `shell_protocol: 1` 动态静态资源挂载与独立 `.desktop-active.json` 消除版本撕裂及 Windows `feat-781` 指针冲突；改为中心 Agent 级轨迹授权 + 本机 `parentSession` 链直读；固定回环端口并按 `imOrigin` 隔离前端存储命名空间；补齐代理 9 键归一、空节点审批模型校验、macOS 免中断 `autostart` 切换、`--isolated-root` 宿主隔离、官方 Node `24.22.1` 归档拉取、`SPEC.md` 范围及原型对齐修正。
+- **Stage 4 审查收敛与体验打磨**：图标收敛为与 Web/iOS 同源的极简双色扁平几何 `CrewdenMark`（`#FFF0B5` 圆角底 + `#6B43D8` 对话气泡双圆点，macOS 菜单栏采用单色 `Template` 图标）；桌面通知升级为全透明无外框 `22px` 圆角悬浮通知卡（macOS `NSStatusWindowLevel` 不抢焦点右上角弹出 + 原生 `NSUserNotificationCenter` 不篡改 `NSBundle`，Windows `work.crewden.desktop` AUMID 原生 Toast + `crewden-desktop://open?route=...` 深链激活与悬浮弹窗兜底，并严格过滤 `permission.request` 免打扰会话与非本人 `owner_id` 的 `waiting_permission`）；补齐 `single_thread` PA 工作区打开鉴权、本机轨迹附件默认拒绝（fail-closed）核验、完整 4 类一级委派 Worker（含 `antigravity`）配置与 DSH `session.status = running` 实时在途任务重启二次确认。
 
 ## 现状分析
 
