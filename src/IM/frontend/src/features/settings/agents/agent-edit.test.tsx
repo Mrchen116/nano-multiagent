@@ -150,6 +150,7 @@ it("loads settings and saves edited profile, allowlists and the explicit model e
   fireEvent.change(input, {target: {value: "Core Planner X"}});
   await user.click(screen.getByRole("button", {name: /^playwright$/i}));
   await user.click(screen.getByRole("button", {name: /^plan$/i}));
+  await user.click(screen.getByTestId("pill-selector-tools-toggle"));
   await user.click(screen.getByRole("button", {name: /^bash$/i}));
   await user.click(screen.getByRole("button", {name: /^Save Agent$/}));
   await waitFor(() => expect(screen.getByLabelText("Profile Version")).toHaveValue("v13"));
@@ -317,6 +318,7 @@ it("retains missing catalog selections and requires explicit correction before s
   config.tool_allowlist = ["retired-tool"]; config.skills = ["retired-skill"]; config.skills_selection_mode = "explicit_allowlist";
   const user = userEvent.setup(); open();
   fireEvent.change(await screen.findByLabelText("Display Name"), {target: {value: "Kept draft"}});
+  await user.click(screen.getByTestId("pill-selector-tools-toggle"));
   expect(screen.getByRole("button", {name: "retired-tool"})).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByRole("button", {name: "retired-skill"})).toHaveAttribute("aria-pressed", "true");
   expect(screen.getAllByText(/No longer available/i)).toHaveLength(3);

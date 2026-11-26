@@ -4,7 +4,7 @@
 
 - 本次问题与需求/设计位置：[`spec.md`](spec.md)、[`design.md`](design.md)、[`design-review.md`](design-review.md)、[`prototype.html`](prototype.html)、[`specs/im/desktop-client.md`](specs/im/desktop-client.md)、[`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)、[`specs/im/agent-work.md`](specs/im/agent-work.md)、[`specs/gateway/service-lifecycle.md`](specs/gateway/service-lifecycle.md)、[`M1/verification.md`](M1/verification.md)、[`M2/verification.md`](M2/verification.md)
 - 实际 `executed_base` / `validated_at`：`db7167c9d13a5e09fc23224359442a49582a8025` (`origin/develop`) → Round 1 `2d7606a7670219e2279a36166bd45843d409c7ce` → Round 2 `810ff89c872ffb4a64b1768f58915e760b24274d` → Round 3 `abb2d3ff618b5da21eab128f21605e594eb8f519`
-- 最终 `effective_base` / `effective_through` 与保留依据：同步最新 `origin/develop`（`6e23f90a9224e660f0b568a8c925405dc410c08f`，期间合入 `#550` `feat-787` DSH `0.2.2-rc.5` 升级、`#553` 身份头像一致性、`#554` `bugfix-792` worker Work 记录修复）并完成全量构建、类型检查、契约测试、前端与 Rust 宿主测试复验后保持全部独立审查结论有效（`retained`）。
+- 最终 `effective_base` / `effective_through` 与保留依据：同步最新 `origin/develop`（`73f20d6ea43e6c9d3dcc422a2036fec0f627afeb`，期间合入 `#550` `feat-787` DSH `0.2.2-rc.5` 升级、`#553` 身份头像一致性、`#554` `bugfix-792` worker Work 记录修复与 `#555` `feat-791` 插件/工具权限统一模型）并完成全量构建、类型检查、契约测试、前端与 Rust 宿主测试复验后保持全部独立审查结论有效（`retained`）。
 
 ## 审查结果
 

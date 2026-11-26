@@ -41,7 +41,11 @@ export class ConfigurationScopes extends Service {
     super(ctx, 'nanoConfiguration'); this.host = ctx; this.configurations = options.configurations;
     trackForkCreation(ctx);
     this.extensions = new WorkspaceExtensions(ctx, (id, catalogChanged) => {this.tools.update(id); if (catalogChanged) options.changed(id);});
-    this.tools = new ToolSelection(ctx, config => this.extensions.tools(config.agentId));
+    this.tools = new ToolSelection(
+      ctx,
+      config => this.extensions.tools(config.agentId),
+      config => this.extensions.toolMetadata(config.agentId),
+    );
   }
   /** Configure the trusted Node package invocation before any workspace is mounted.
    *

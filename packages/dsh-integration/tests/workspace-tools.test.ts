@@ -115,10 +115,11 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await capabilities('tools-a')).toContain('workspace_echo');
     expect(await capabilities('tools-a')).not.toContain('read');
     expect(await capabilities('tools-a2')).toContain('workspace_echo');
-    const catalog = await client!.rpc.request('configuration.catalog', {agentId: 'a', cwd: a}) as {tools: {name: string; source_group?: string; enabled?: boolean}[]};
-    expect(catalog.tools.find(tool => tool.name === 'workspace_echo')).toMatchObject({source_group: 'workspace', enabled: true});
+    const catalog = await client!.rpc.request('configuration.catalog', {agentId: 'a', cwd: a}) as {tools: {name: string; source_group?: string; enabled?: boolean; plugin_bundle?: string; plugin_title?: unknown}[]};
+    expect(catalog.tools.find(tool => tool.name === 'workspace_echo')).toMatchObject({source_group: 'workspace', enabled: true, plugin_bundle: 'workspace-echo', plugin_title: 'workspace-echo'});
+    expect(catalog.tools.find(tool => tool.name === 'notes')).toMatchObject({source_group: 'workspace', plugin_bundle: 'dsh-agent-context'});
     const emptyCatalog = await client!.rpc.request('configuration.catalog', {agentId: 'empty', cwd: a}) as typeof catalog;
-    expect(emptyCatalog.tools.find(tool => tool.name === 'workspace_echo')).toMatchObject({source_group: 'workspace', enabled: false});
+    expect(emptyCatalog.tools.find(tool => tool.name === 'workspace_echo')).toMatchObject({source_group: 'workspace', enabled: false, plugin_bundle: 'workspace-echo'});
     const refreshedCatalog = await client!.rpc.request('configuration.catalog', {agentId: 'a', cwd: a}) as typeof catalog;
     expect(refreshedCatalog.tools.filter(tool => tool.source_group === 'workspace').map(tool => tool.name).sort()).toEqual(['get_context_remaining', 'history', 'new_context', 'notes', 'workspace_echo']);
     expect(await capabilities('tools-a')).not.toContain('schedule_create');
@@ -268,6 +269,8 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await capabilities('tools-a')).not.toContain('workspace_total');
     expect(await capabilities('tools-a')).not.toContain('workspace_counter_status');
     expect((await manage({action:'set_bundle',target:'dsh-agent-context',enabled:false})).text).toContain('applied');
+    const afterContextDisabled = await client!.rpc.request('configuration.catalog', {agentId: 'a', cwd: a}) as {tools: {name: string}[]};
+    expect(afterContextDisabled.tools.map(tool => tool.name)).not.toContain('notes');
     const engine = join(a, 'scoped-compaction'); await mkdir(engine);
     const marker = join(a, 'compaction-owner');
     await writeFile(join(engine, 'package.json'), JSON.stringify({name:'scoped-compaction',version:'1.0.0',type:'module',peerDependencies:{'@deepseek-ai/dsh-compaction-basic':'*'},dsh:{bundle:{patch:'./cordis.patch.yml'}}}));

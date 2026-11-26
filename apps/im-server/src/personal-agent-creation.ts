@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {sortedJsonUtf8} from '@nano/product-contracts/serialization';
-import {featureClosure, featureDependencies} from '@nano/product-contracts/capabilities';
+import {featureClosure, featureDependencies, sanitizeStaticToolAllowlist} from '@nano/product-contracts/capabilities';
 import {all, one, fail, now, type Row} from './context.js';
 import type {PersonalAgents} from './personal-agent.js';
 import {createAgent, readNodeCreationCapabilities, requireOwnedNode} from './agent-creation.js';
@@ -52,7 +52,12 @@ export class PersonalAgentCreation {
         model_fallbacks:[],reasoning_effort:null,approval_mode:null,workspace_root:null,features,
         skills_selection_mode:'explicit_allowlist',
         skills:[...new Set([...capabilities.skills.filter((s:Row)=>s.default_on).map((s:Row)=>s.name),...dependencies.flatMap(feature=>feature.requires.skills)])],
-        tool_allowlist:[...new Set([...capabilities.tools.filter((t:Row)=>t.default_on).map((t:Row)=>t.name),...dependencies.flatMap(feature=>feature.requires.tools)])]};
+        tool_allowlist:sanitizeStaticToolAllowlist(
+          [...capabilities.tools.filter((t:Row)=>t.default_on && t.source_group!=='workspace').map((t:Row)=>t.name),...dependencies.flatMap(feature=>feature.requires.tools)],
+          'global',
+          'root',
+          capabilities.tools.filter((t:Row)=>t.source_group==='workspace').map((t:Row)=>t.name),
+        )};
       return {node_id:id,recommended_node_id:binding.node_id,nodes,capabilities,configuration_fields:fields,defaults};
     }
     if(!['create','status'].includes(args.action))fail(422,'invalid_creation_action');

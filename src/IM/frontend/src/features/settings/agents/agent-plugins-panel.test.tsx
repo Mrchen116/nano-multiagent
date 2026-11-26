@@ -9,8 +9,31 @@ import { AgentPluginsPanel } from './agent-plugins-panel';
 
 const entry={name:'report-style',display_name:'Report style',description:'Format expense reports',version:'1.0.0',enabled:true,state:'enabled',rows:[],removable:true,diagnostics:[]};
 const view={workspace:'/workspace',entries:[entry]};
-function mount(){return render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})}><AgentPluginsPanel agentId="a"/></QueryClientProvider>);}
+function mount(client = new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}})){
+  return {client, ...render(<QueryClientProvider client={client}><AgentPluginsPanel agentId="a"/></QueryClientProvider>)};
+}
 beforeEach(()=>{setLanguage('en');vi.resetAllMocks();api.listAgentPlugins.mockResolvedValue(view);});
+it('invalidates agent detail and capabilities caches on immediate apply and after pending settles', async()=>{
+  const client = new QueryClient({defaultOptions:{queries:{retry:false},mutations:{retry:false}}});
+  const spy = vi.spyOn(client, 'invalidateQueries');
+  api.manageAgentPlugin.mockResolvedValueOnce({...view,entries:[{...entry,enabled:false,state:'disabled'}]});
+  mount(client);
+  const toggle=await screen.findByRole('switch',{name:'Report style'});
+  await userEvent.click(toggle);
+  await waitFor(()=>expect(spy).toHaveBeenCalledWith({queryKey:['settings','agents','a','detail-state']}));
+  expect(spy).toHaveBeenCalledWith({queryKey:['agent-capabilities']});
+
+  spy.mockClear();
+  const pendingView={...view,pending:{action:'set_bundle',target:'report-style',enabled:false,phase:'waiting' as const}};
+  api.manageAgentPlugin.mockImplementationOnce(async()=>{api.listAgentPlugins.mockResolvedValue(pendingView);return pendingView;});
+  await userEvent.click(await screen.findByRole('switch',{name:'Report style'}));
+  await waitFor(()=>expect(screen.getByRole('status')).toHaveTextContent(/Waiting/i));
+  expect(spy).not.toHaveBeenCalledWith({queryKey:['settings','agents','a','detail-state']});
+
+  api.listAgentPlugins.mockResolvedValue({...view,entries:[{...entry,enabled:false,state:'disabled'}]});
+  await userEvent.click(screen.getByRole('button',{name:'Refresh plugins'}));
+  await waitFor(()=>expect(spy).toHaveBeenCalledWith({queryKey:['settings','agents','a','detail-state']}));
+});
 it('lists zero-tool plugins and retains actual state while a switch waits', async()=>{
   api.manageAgentPlugin.mockImplementation(async()=>{const pending={...view,pending:{action:'set_bundle',target:'report-style',enabled:false,phase:'waiting'}}; api.listAgentPlugins.mockResolvedValue(pending); return pending;});
   mount();

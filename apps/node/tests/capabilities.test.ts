@@ -84,10 +84,20 @@ it('reports dependency resources independently from the selected allowlist', () 
   expect(available.fixed_tools).toContain('delegate_worker');
 });
 
-it('hides retired memory controls without changing stored legacy tool choices', () => {
+it('hides retired memory controls without changing stored legacy tool choices and exposes plugin_management plus inspect tools', () => {
   const node = {llm:{default_model:'test',providers:[]}} as unknown as NodeConfigurationFile;
   const agent = {agentId:'a',revision:'1',provider:'test',model:'test',toolAllowlist:['memory','read']};
-  const catalog = {tools:['memory','read','memory_maintenance'].map(name=>({name,description:name})),skills:[]};
-  expect(projectCapabilities(catalog,node,agent).tools.map(tool=>tool.name)).toEqual(['read','memory_maintenance']);
+  const catalog = {
+    tools:[
+      ...['memory','read','memory_maintenance','plugin_manager','cordis_inspect_list','cordis_inspect_query'].map(name=>({name,description:name})),
+      {name:'notes',description:'Notes',source_group:'workspace' as const,enabled:true,plugin_bundle:'dsh-agent-context',plugin_title:{zh:'上下文整理',en:'Context management'}},
+    ],
+    skills:[{name:'nano-plugin-development',description:'Plugin dev'}],
+  };
+  const projected = projectCapabilities(catalog,node,agent);
+  expect(projected.tools.map(tool=>tool.name)).toEqual(['read','memory_maintenance','plugin_manager','cordis_inspect_list','cordis_inspect_query','notes']);
+  expect(projected.tools.find(tool=>tool.name==='cordis_inspect_list')?.default_on).toBe(true);
+  expect(projected.tools.find(tool=>tool.name==='notes')).toMatchObject({source_group:'workspace',plugin_bundle:'dsh-agent-context',plugin_title:{zh:'上下文整理',en:'Context management'}});
+  expect(projected.features.find(feature=>feature.key==='plugin_management')).toMatchObject({default_on:true,available:true});
   expect(agent.toolAllowlist).toEqual(['memory','read']);
 });

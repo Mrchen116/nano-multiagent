@@ -1,4 +1,4 @@
-import { effectiveFeatures, fixedTools, featureDependencies, validateCapabilities, type CapabilityBlock, type CapabilityCatalog, type CapabilityTarget } from '@nano/product-contracts/capabilities';
+import { effectiveCapabilityFeatures, fixedTools, featureDependencies, validateCapabilities, type CapabilityBlock, type CapabilityCatalog, type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import { cordisInspectTools } from './capabilities.js';
 import type { AgentConfiguration } from './index.js';
 
@@ -29,8 +29,7 @@ export class CapabilityState {
   /** Track every call, exempting independent worker tools only from root selection holds. */
   begin(key: string, agentId: string, target: CapabilityTarget, independentTool = false): boolean {
     const selectionHeld = !(independentTool && target.kind === 'tool') && this.held(agentId, target);
-    const pluginManagerHeld = !independentTool && target.kind === 'tool' && (cordisInspectTools as readonly string[]).includes(target.name) && this.held(agentId, {kind: 'tool', name: 'plugin_manager'});
-    if (selectionHeld || pluginManagerHeld || target.kind === 'tool' && ['schedule_create', 'schedule_update', 'schedule_run'].includes(target.name) && this.held(agentId, {kind: 'feature', name: 'cron_scheduling'})) return false;
+    if (selectionHeld || target.kind === 'tool' && ['schedule_create', 'schedule_update', 'schedule_run'].includes(target.name) && this.held(agentId, {kind: 'feature', name: 'cron_scheduling'})) return false;
     this.calls.set(key, {agentId, target, independentTool}); return true;
   }
   end(key: string): void { this.calls.delete(key); }
@@ -58,7 +57,8 @@ export class CapabilityState {
     if (previous) {
       if (previous.knowledge?.memoryMode === 'legacy' && previous.knowledge.legacyMemory?.enabled !== false
         && (config.knowledge?.memoryMode !== 'legacy' || config.knowledge.legacyMemory?.enabled === false)) targets.push({kind:'feature',name:'memory_curation'});
-      const before = effectiveFeatures(previous.features), after = effectiveFeatures(config.features);
+      const before = effectiveCapabilityFeatures(capabilityDraft(previous), featureDependencies, catalog);
+      const after = effectiveCapabilityFeatures(capabilityDraft(config), featureDependencies, catalog);
       for (const name of Object.keys(before)) if (before[name] && !after[name]) targets.push({kind: 'feature', name});
       const fixed = fixedTools(config.mode, config.personal ? 'personal' : 'root');
       const inspectableTools = [...new Set([...(catalog.tools ?? []), ...cordisInspectTools])];

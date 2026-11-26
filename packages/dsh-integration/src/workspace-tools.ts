@@ -1,9 +1,9 @@
 /** Workspace ownership around native DSH package installation and scoped plugin trees. */
 import { randomUUID } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { readFile, realpath, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import ContextRolloverEngine from 'dsh-agent-context';
-import { agentContextBundle, initializeContextProfile } from './agent-context.js';
+import { agentContextBundle, contextTools, initializeContextProfile } from './agent-context.js';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import { Loader, EntryTree, type EntryOptions } from '@deepseek-ai/cordis-plugin-loader';
@@ -18,10 +18,10 @@ import { describePluginApi, pluginApiTopics, type PluginApiTopic } from './plugi
 
 const anchor = fileURLToPath(new URL('../package.json', import.meta.url));
 const inside = (root: string, path: string) => { const value = relative(root, path); return value !== '..' && !value.startsWith(`..${sep}`) && !isAbsolute(value); };
-interface Mount { ctx: Context; config: AgentConfiguration; tree: EntryTree; namespace: string; baseline: Set<string>; tools: string[] }
+export type PluginText = string | Record<string, string>;
+export interface WorkspaceToolMetadata { plugin_bundle: string; plugin_title: PluginText }
+interface Mount { ctx: Context; config: AgentConfiguration; tree: EntryTree; namespace: string; baseline: Set<string>; tools: string[]; toolMetadata: Map<string, WorkspaceToolMetadata> }
 export interface PluginCommand { action: 'list_bundles' | 'describe_api' | 'install_bundle' | 'set_bundle' | 'remove_bundle'; topic?: PluginApiTopic; target?: string; enabled?: boolean; approvedBuilds?: string[]; registry?: string }
-
-type PluginText = string | Record<string, string>;
 export interface PluginView {
   workspace: string;
   entries: {name: string; display_name: PluginText; description: PluginText; version?: string; enabled: boolean; state: string;
@@ -86,7 +86,7 @@ export class WorkspaceExtensions {
     });
     const baseline = new Set(ctx.tools.schemas(scopeOf(ctx)).map(tool => tool.name));
     const tree = new WorkspaceTree(ctx);
-    const mount = { ctx, config, tree, namespace: randomUUID(), baseline, tools: [] as string[] };
+    const mount: Mount = { ctx, config, tree, namespace: randomUUID(), baseline, tools: [], toolMetadata: new Map() };
     this.mounts.add(mount); owner.mounts.add(mount);
     ctx.effect(() => () => { tree.root.stop(); this.mounts.delete(mount); owner.mounts.delete(mount); });
     // A broken persisted bundle must not prevent access to the management tool needed to repair it.
@@ -110,6 +110,16 @@ export class WorkspaceExtensions {
   tools(agentId: string): string[] {
     return [...new Set([...this.mounts].filter(mount => mount.config.agentId === agentId).flatMap(mount => mount.tools))];
   }
+  /** Return owning bundle metadata for active workspace tools on the Agent's mounts. */
+  toolMetadata(agentId: string): ReadonlyMap<string, WorkspaceToolMetadata> {
+    const result = new Map<string, WorkspaceToolMetadata>();
+    for (const mount of this.mounts) {
+      if (mount.config.agentId === agentId) {
+        for (const [name, meta] of mount.toolMetadata) result.set(name, meta);
+      }
+    }
+    return result;
+  }
 }
 
 class WorkspaceOwner {
@@ -121,6 +131,7 @@ class WorkspaceOwner {
   private error?: string;
   private readonly watches: (() => Promise<void>)[] = [];
   private diagnostics: string[] = [];
+  private readonly toolOwners = new Map<string, string>();
   private constructor(private readonly host: Context, readonly workspace: string, readonly dir: string, private readonly managerRoot: Context, private readonly resolver: Context, private resolution: RuntimeResolution, private readonly changed: (agentId: string, catalogChanged: boolean) => void) {}
   static async create(host: Context, workspace: string, changed: (agentId: string, catalogChanged: boolean) => void, packageManager = host.profileContext.packageManager): Promise<WorkspaceOwner> {
     const dir = join(workspace, '.nanoassistant', 'dsh-plugins');
@@ -137,11 +148,27 @@ class WorkspaceOwner {
     await managerRoot.plugin(Loader).await();
     await managerRoot.plugin(PluginManager, {}).await();
     const owner = new WorkspaceOwner(host, workspace, dir, managerRoot, resolver, resolution, changed);
+    await owner.loadToolOwners();
     for (const file of ['package.json', 'cordis.patch.yml']) owner.watches.push(await host.hmr.watchConfig(join(dir, file), async () => {
       // Management refreshes explicitly after the native package transaction; its intermediate writes are not activations.
       if (!owner.changing) await owner.refresh();
     }));
     return owner;
+  }
+  private async loadToolOwners(): Promise<void> {
+    try {
+      const raw = JSON.parse(await readFile(join(this.dir, 'nano-tool-owners.json'), 'utf8')) as unknown;
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        for (const [tool, bundle] of Object.entries(raw)) {
+          if (typeof bundle === 'string' && bundle) this.toolOwners.set(tool, bundle);
+        }
+      }
+    } catch { /* Sidecar attribution index is optional and rebuilt on installations/toggles. */ }
+  }
+  private async saveToolOwners(): Promise<void> {
+    try {
+      await writeFile(join(this.dir, 'nano-tool-owners.json'), JSON.stringify(Object.fromEntries(this.toolOwners)), 'utf8');
+    } catch { /* Never block plugin activation on attribution metadata persistence. */ }
   }
   private rows(): EntryOptions[] {
     const profile = loadProfileDirectory('nano', this.dir, anchor);
@@ -212,12 +239,35 @@ class WorkspaceOwner {
       const active = new Set([...mount.tree.entries()].filter(entry => !entry.disabled).map(entry => entry.fiber));
       await Promise.all([...retired].filter(fiber => !active.has(fiber)).map(fiber => fiber.inertia));
       mount.tools = mount.ctx.tools.schemas(scopeOf(mount.ctx)).map(tool => tool.name).filter(name => !mount.baseline.has(name));
+      await this.assignToolMetadata(mount);
       this.changed(mount.config.agentId, false);
     }
     // The removed plugins have drained; their dependency mappings can now leave the native table.
     this.resolver.pluginPackages.replace(next);
     this.resolution = next;
     this.diagnostics = [...new Set(diagnostics)];
+  }
+  private async assignToolMetadata(mount: Mount): Promise<void> {
+    const enabledBundles = (await this.managerRoot.pluginManager.listBundles())
+      .filter(bundle => (bundle.installed || bundle.name === agentContextBundle) && bundle.enabled);
+    const byBundle = new Map<string, WorkspaceToolMetadata>(
+      enabledBundles.map(bundle => [bundle.name, { plugin_bundle: bundle.name, plugin_title: bundle.meta?.title ?? bundle.name }]),
+    );
+    const customBundles = enabledBundles.filter(bundle => bundle.name !== agentContextBundle);
+    const nextMeta = new Map<string, WorkspaceToolMetadata>();
+    for (const tool of mount.tools) {
+      if (contextTools.has(tool) && byBundle.has(agentContextBundle)) {
+        nextMeta.set(tool, byBundle.get(agentContextBundle)!);
+      } else if (customBundles.length === 1) {
+        const single = customBundles[0]!;
+        this.toolOwners.set(tool, single.name);
+        nextMeta.set(tool, byBundle.get(single.name)!);
+      } else {
+        const owner = this.toolOwners.get(tool);
+        if (owner && byBundle.has(owner)) nextMeta.set(tool, byBundle.get(owner)!);
+      }
+    }
+    mount.toolMetadata = nextMeta;
   }
   private async localSource(target: string): Promise<string | undefined> {
     if (!(isAbsolute(target) || target.startsWith('.') || target.startsWith('file:') || target.startsWith('link:'))) return;
@@ -269,6 +319,7 @@ class WorkspaceOwner {
       const requestId = callId as PluginInstallRequestId;
       if (!args.target) throw new Error('target is required');
       const previousDiagnostics = new Set(this.diagnostics);
+      const previousTools = new Set([...this.mounts].flatMap(mount => mount.tools));
       const previousBundles = await manager.listBundles();
       const previousPackages = new Set(Object.keys(readProfileManifest('nano', this.dir).dependencies ?? {}));
       this.changing = true;
@@ -306,13 +357,32 @@ class WorkspaceOwner {
         }
         signal.throwIfAborted();
         if (result.error || result.application === 'cancelled') return result;
-        // Only completed native mutations advance catalog generations. Mounts and
-        // duplicate filesystem watch events still refresh tool selection locally.
-        for (const mount of this.mounts) this.changed(mount.config.agentId, true);
         // Native manager owns no execution tree. Only this scoped activation can report that a tool is actually live.
         if (args.action === 'install_bundle' && result.application === 'restart-required'
-          && result.bundle && previousPackages.has(result.bundle)) return result;
+          && result.bundle && previousPackages.has(result.bundle)) {
+          for (const mount of this.mounts) this.changed(mount.config.agentId, true);
+          return result;
+        }
+        const resolvedBundle = result.bundle ?? args.target;
+        if (args.action === 'remove_bundle' || (args.action === 'set_bundle' && args.enabled === false)) {
+          for (const [tool, owner] of this.toolOwners) if (owner === resolvedBundle) this.toolOwners.delete(tool);
+        }
         await this.host.hmr.runExclusive(() => this.refresh());
+        if (args.action === 'install_bundle' || (args.action === 'set_bundle' && args.enabled === true)) {
+          let added = false;
+          for (const mount of this.mounts) {
+            for (const tool of mount.tools) {
+              if (!previousTools.has(tool) && !contextTools.has(tool)) {
+                this.toolOwners.set(tool, resolvedBundle);
+                added = true;
+              }
+            }
+          }
+          if (added) for (const mount of this.mounts) await this.assignToolMetadata(mount);
+        }
+        await this.saveToolOwners();
+        // Publish catalog invalidation only after mount.tools and attribution metadata reflect the settled runtime.
+        for (const mount of this.mounts) this.changed(mount.config.agentId, true);
         const target = (await manager.listBundles()).find(bundle => bundle.name === (result.bundle ?? args.target));
         const failures = this.diagnostics.filter(diagnostic => !previousDiagnostics.has(diagnostic)
           || args.action !== 'remove_bundle' && args.enabled !== false && target?.rows.some(row => diagnostic.startsWith(`${row.rowId} (`)));

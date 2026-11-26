@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from '../../../i18n';
 import { getAgentSettingsSection, type AgentPlugins, manageAgentPlugin, type PluginCommand, type PluginText } from './im-agent-config-api';
 
@@ -11,13 +11,35 @@ export function AgentPluginsPanel({agentId, readOnly = false}: {agentId: string;
   const client = useQueryClient();
   const key = ['settings', 'agents', agentId, 'plugins'];
   const [confirm, setConfirm] = useState<string>();
+  const hadPendingRef = useRef(false);
+  const invalidateAgentCapabilities = () => {
+    void client.invalidateQueries({queryKey: ['settings', 'agents', agentId, 'detail-state']});
+    void client.invalidateQueries({queryKey: ['settings', 'nodes']});
+    void client.invalidateQueries({queryKey: ['agent-capabilities']});
+    void client.invalidateQueries({queryKey: ['chat', 'slash-candidates']});
+  };
   const query = useQuery({queryKey: key, queryFn: ({signal}) => getAgentSettingsSection<AgentPlugins>(agentId, "plugins", signal), retry: false,
     refetchInterval: state => state.state.data?.data?.pending ? 1000 : false});
+  useEffect(() => {
+    const hasPending = Boolean(query.data?.data?.pending);
+    if (hasPending) {
+      hadPendingRef.current = true;
+      return;
+    }
+    if (hadPendingRef.current && query.data?.source === 'current') {
+      hadPendingRef.current = false;
+      invalidateAgentCapabilities();
+    }
+  }, [query.data]);
   const mutation = useMutation({mutationFn: (command: PluginCommand) => {
       if (readOnly || query.isFetching || query.isError || query.data?.source !== 'current' || query.data.data?.pending) throw new Error(t('agents.settings.refreshing'));
       return manageAgentPlugin(agentId, command);
     },
-    onSuccess: () => {setConfirm(undefined);},
+    onSuccess: (result) => {
+      setConfirm(undefined);
+      if (result.pending) hadPendingRef.current = true;
+      else invalidateAgentCapabilities();
+    },
     onSettled: () => {void client.invalidateQueries({queryKey:key});},
   });
   const data = query.data?.data;

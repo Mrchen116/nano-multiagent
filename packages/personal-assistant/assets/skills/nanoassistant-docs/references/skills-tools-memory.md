@@ -48,7 +48,7 @@ Skill 是按需加载的专业知识或工作流，不会因为处于启用状�
 
 ## 自建插件与工具
 
-Agent 启用 `plugin_manager` 后，可以创建、安装、更新和停用当前 workspace 的标准 DSH 插件。插件可提供工具、提示词、私有服务、受支持局部监听和高级压缩引擎；新增独立工具名自动可用，原有工具禁用、显式空集合及子任务限制保持。
+Agent 默认开启「插件开发与管理」（`plugin_management`）运行特性，联动启用 `plugin_manager`、`cordis_inspect_list`、`cordis_inspect_query` 工具与 `nano-plugin-development` Skill；启用 `plugin_manager` 后可以创建、安装、更新和停用当前 workspace 的标准 DSH 插件，启用只读检查工具时可查看宿主服务、事件与配置 Schema。关闭该运行特性后，高阶用户也可在全量工具列表中单独启用某项只读检查工具而不反向开启特性。插件可提供工具、提示词、私有服务、受支持局部监听和高级压缩引擎；新增独立工具名自动可用并实时展示在配置页展开的全量工具列表中，原有工具禁用、显式空集合及子任务限制保持。
 
 创建、配置或排障时，加载可用的 `nano-plugin-development` Skill；完整开发说明、当前 API 查询与模板集中在该 Skill，本手册只说明产品用法。用户明确禁用该 Skill 时尊重选择，不强制加载。开发入口见 [插件开发 Skill](../../nano-plugin-development/SKILL.md)。
 
