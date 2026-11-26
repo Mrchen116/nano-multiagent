@@ -159,7 +159,7 @@ export function PeopleDirectoryPage() {
         </div>
       )}
 
-      {!isActiveMember && (
+      {!isActiveMember ? (
         <div className="im-people-personal-banner" data-testid="people-personal-space-guide">
           <h2>{t("people.personalSpaceTitle")}</h2>
           <p>{t("people.personalSpaceBody")}</p>
@@ -167,76 +167,76 @@ export function PeopleDirectoryPage() {
             {t("people.openTeamAccess")}
           </Link>
         </div>
-      )}
-
-      <div className="im-directory-content">
-        {filteredHumans.length === 0 ? (
-          <p className="im-settings-empty">{t("people.noSearchResults")}</p>
-        ) : (
-          <ul className="im-people-grid">
-            {filteredHumans.map((person) => {
-              const isSelf = person.user_id === selfId;
-              const linked = agentsByOwner.get(person.user_id);
-              const hasLinkedAgents = Boolean(linked?.pa || linked?.specialists.length);
-              return (
-                <li key={person.user_id} className="im-people-row" data-testid={`person-row-${person.user_id}`}>
-                  <div className="im-people-row-main">
-                    <Avatar id={person.user_id} size={40} />
-                    <div className="im-people-identity">
-                      <div className="im-people-name-line">
-                        <strong className="im-people-name">{person.display_name}</strong>
-                        {isSelf && <span className="im-people-self-badge">{t("people.you")}</span>}
+      ) : (
+        <div className="im-directory-content">
+          {filteredHumans.length === 0 ? (
+            <p className="im-settings-empty">{t("people.noSearchResults")}</p>
+          ) : (
+            <ul className="im-people-grid">
+              {filteredHumans.map((person) => {
+                const isSelf = person.user_id === selfId;
+                const linked = agentsByOwner.get(person.user_id);
+                const hasLinkedAgents = Boolean(linked?.pa || linked?.specialists.length);
+                return (
+                  <li key={person.user_id} className="im-people-row" data-testid={`person-row-${person.user_id}`}>
+                    <div className="im-people-row-main">
+                      <Avatar id={person.user_id} size={40} />
+                      <div className="im-people-identity">
+                        <div className="im-people-name-line">
+                          <strong className="im-people-name">{person.display_name}</strong>
+                          {isSelf && <span className="im-people-self-badge">{t("people.you")}</span>}
+                        </div>
+                        {person.username && <span className="im-people-username">@{person.username}</span>}
                       </div>
-                      {person.username && <span className="im-people-username">@{person.username}</span>}
-                    </div>
-                    {isSelf ? (
-                      <Link className="im-settings-action" to="/settings/account">
-                        {t("people.accountLink")}
-                      </Link>
-                    ) : (
-                      <button
-                        type="button"
-                        className="im-settings-action"
-                        disabled={pendingId !== null}
-                        onClick={() => void openDirectChat(person)}
-                      >
-                        {t("people.message")}
-                      </button>
-                    )}
-                  </div>
-                  {hasLinkedAgents && (
-                    <div className="im-people-agents">
-                      {linked?.pa && (
+                      {isSelf ? (
+                        <Link className="im-settings-action" to="/settings/account">
+                          {t("people.accountLink")}
+                        </Link>
+                      ) : (
                         <button
                           type="button"
-                          className="im-people-agent-chip im-people-agent-chip--pa"
+                          className="im-settings-action"
                           disabled={pendingId !== null}
-                          onClick={() => void openDirectChat(linked.pa!)}
+                          onClick={() => void openDirectChat(person)}
                         >
-                          <Avatar id={linked.pa.user_id} size={20} status={linked.pa.status} />
-                          <span>{linked.pa.display_name}</span>
-                          <small>· {t("people.personalAssistant")}</small>
+                          {t("people.message")}
                         </button>
                       )}
-                      {linked?.specialists.map((agent) => (
-                        <Link
-                          key={agent.user_id}
-                          to={`/settings/agents/${encodeURIComponent(agent.agent_id!)}`}
-                          className="im-people-agent-chip"
-                        >
-                          <Avatar id={agent.user_id} size={20} status={agent.status} />
-                          <span>{agent.display_name}</span>
-                          <ArrowUpRight size={13} aria-hidden="true" />
-                        </Link>
-                      ))}
                     </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+                    {hasLinkedAgents && (
+                      <div className="im-people-agents">
+                        {linked?.pa && (
+                          <button
+                            type="button"
+                            className="im-people-agent-chip im-people-agent-chip--pa"
+                            disabled={pendingId !== null}
+                            onClick={() => void openDirectChat(linked.pa!)}
+                          >
+                            <Avatar id={linked.pa.user_id} size={20} status={linked.pa.status} />
+                            <span>{linked.pa.display_name}</span>
+                            <small>· {t(isSelf ? "pa.label" : "people.personalAssistant")}</small>
+                          </button>
+                        )}
+                        {linked?.specialists.map((agent) => (
+                          <Link
+                            key={agent.user_id}
+                            to={`/settings/agents/${encodeURIComponent(agent.agent_id!)}`}
+                            className="im-people-agent-chip"
+                          >
+                            <Avatar id={agent.user_id} size={20} status={agent.status} />
+                            <span>{agent.display_name}</span>
+                            <ArrowUpRight size={13} aria-hidden="true" />
+                          </Link>
+                        ))}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   );
 }

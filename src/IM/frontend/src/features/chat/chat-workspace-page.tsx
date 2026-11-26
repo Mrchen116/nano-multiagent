@@ -1727,7 +1727,12 @@ export function ChatWorkspacePage() {
               displayName: contact.display_name
             });
           }}
-          onClose={() => setGroupPersonAnchor(null)}
+          onClose={() => {
+            setGroupPersonAnchor(cur => {
+              if (cur?.element.isConnected) cur.element.focus({ preventScroll: true });
+              return null;
+            });
+          }}
         />
       )}
     </div>

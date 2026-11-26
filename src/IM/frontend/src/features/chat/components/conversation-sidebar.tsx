@@ -209,7 +209,7 @@ export function ConversationSidebar({
     const matchedDirectHumans = new Set<string>();
     const matchedDirectAgents = new Set<string>();
     for (const c of filtered) {
-      if (c.type !== "direct" || c.external_source) continue;
+      if (c.type !== "direct" || c.external_source || c.direct_kind === "agent-agent" || c.is_observer) continue;
       for (const p of c.participants) {
         if (p.type === "user") {
           const uid = p.user_id ?? p.id;
@@ -246,7 +246,7 @@ export function ConversationSidebar({
     }
     const existingDirectHumans = new Set<string>();
     for (const c of searchConversations) {
-      if (c.type !== "direct" || c.external_source) continue;
+      if (c.type !== "direct" || c.external_source || c.direct_kind === "agent-agent" || c.is_observer) continue;
       for (const p of c.participants) {
         if (p.type === "user") {
           const uid = p.user_id ?? p.id;

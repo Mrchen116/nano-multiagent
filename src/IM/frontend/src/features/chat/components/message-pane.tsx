@@ -83,6 +83,7 @@ import {
   isComposerSending,
   markComposerSending,
   subscribeComposerStore,
+  threadDraftKey,
   writeComposerSnapshot,
   composerStoreFor,
   type ComposerUpload,
@@ -445,6 +446,33 @@ export function MessagePane({
     setDraftMentions((prev) => [...prev, { label, type: "user", target_id: userId }]);
     setSlashDismissed(false);
   }, []);
+
+  const insertThreadPersonMention = useCallback((rootId: string, userId: string, displayName: string) => {
+    const store = composerStoreFor(selfUserId ?? null);
+    const tKey = threadDraftKey(conversation.id, rootId);
+    const base = store.get(tKey) ?? EMPTY_COMPOSER_SNAPSHOT;
+    const label = `@${displayName}`;
+    const prefix = base.draft.length > 0 && !/\s$/.test(base.draft) ? `${base.draft} ` : base.draft;
+    const nextDraft = `${prefix}${label} `;
+    writeComposerSnapshot(
+      store,
+      tKey,
+      {
+        ...base,
+        revision: crypto.randomUUID(),
+        draft: nextDraft,
+        draftMentions: [...base.draftMentions, { label, type: "user", target_id: userId }]
+      },
+      conversation.id
+    );
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLTextAreaElement>(".chat-thread-column textarea");
+      if (el) {
+        el.focus();
+        el.setSelectionRange(nextDraft.length, nextDraft.length);
+      }
+    });
+  }, [conversation.id, selfUserId]);
 
   useEffect(() => {
     if (!mentionSeed || mentionSeed.conversationId !== conversation.id) return;
@@ -1512,25 +1540,32 @@ export function MessagePane({
 
       {activityAnchor && globalAgentIds.includes(activityAnchor.agentId) && <AgentActivityPopover
         key={activityAnchor.agentId} anchor={activityAnchor} nodeName={agentNodeNames[activityAnchor.agentId] ?? (activityAnchor.agentId === directAgent?.id ? nodeName : null)} canConfigure={manageableWorkAgentIds.includes(activityAnchor.agentId)} onClose={closeActivity} />}
-      {personAnchor && visibleHumansById.has(personAnchor.userId) && onStartDirectChat && (
-        <PersonPopover
-          key={personAnchor.userId}
-          anchor={personAnchor}
-          contact={visibleHumansById.get(personAnchor.userId)!}
-          contacts={contacts ?? []}
-          canMention={
-            isGroup
-            && !conversation.external_source
-            && conversation.can_write !== false
-            && !conversation.dissolved_at
-            && !composerBusy
-            && conversation.participants.some(p => !p.is_deleted && p.type === "user" && (p.user_id ?? p.id) === personAnchor.userId)
-          }
-          onMessage={onStartDirectChat}
-          onMention={contact => insertPersonMention(contact.user_id, contact.display_name)}
-          onClose={closePersonPopover}
-        />
-      )}
+      {personAnchor && visibleHumansById.has(personAnchor.userId) && onStartDirectChat && (() => {
+        const fromThread = Boolean(personAnchor.element.closest(".chat-thread-column"));
+        return (
+          <PersonPopover
+            key={personAnchor.userId}
+            anchor={personAnchor}
+            contact={visibleHumansById.get(personAnchor.userId)!}
+            contacts={contacts ?? []}
+            canMention={
+              isGroup
+              && !conversation.external_source
+              && conversation.can_write !== false
+              && !conversation.dissolved_at
+              && (fromThread ? Boolean(openThreadId) : !composerBusy)
+              && conversation.participants.some(p => !p.is_deleted && p.type === "user" && (p.user_id ?? p.id) === personAnchor.userId)
+            }
+            onMessage={onStartDirectChat}
+            onMention={contact =>
+              fromThread && openThreadId
+                ? insertThreadPersonMention(openThreadId, contact.user_id, contact.display_name)
+                : insertPersonMention(contact.user_id, contact.display_name)
+            }
+            onClose={closePersonPopover}
+          />
+        );
+      })()}
       {/* feat-484-M1: single pane-level copy snackbar / live region. */}
       {copyNotice && (
         <div

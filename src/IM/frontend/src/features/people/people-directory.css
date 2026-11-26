@@ -22,6 +22,10 @@
   gap: 10px;
 }
 
+.im-people-toolbar .im-settings-search {
+  width: 276px;
+}
+
 .im-people-toolbar a {
   text-decoration: none;
 }

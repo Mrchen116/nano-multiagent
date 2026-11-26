@@ -400,9 +400,18 @@ describe("ConversationSidebar", () => {
       external_source: { provider: "feishu", chat_id: "oc_1" } as unknown as Conversation["external_source"],
       participants: [{ type: "user", id: "u1" }, { type: "user", id: "u-lin", display_name: "Lin Xia" }]
     });
+    const observedAgentChat = conv({
+      id: "obs-agents",
+      title: "Atlas ↔ Lin Ops",
+      type: "direct",
+      direct_kind: "agent-agent",
+      is_observer: true,
+      can_write: false,
+      participants: [{ type: "agent", id: "atlas" }, { type: "agent", id: "lin-ops", display_name: "Lin Ops" }]
+    });
     render(
       <ConversationSidebar
-        conversations={[...CONVS, externalShadow]}
+        conversations={[...CONVS, externalShadow, observedAgentChat]}
         selfUserId="u1"
         activeConversationId={null}
         onSelect={() => {}}
@@ -425,6 +434,12 @@ describe("ConversationSidebar", () => {
     expect(linBtn).toBeVisible();
     await user.keyboard("{Enter}");
     expect(startDirect).toHaveBeenCalledWith(expect.objectContaining({ user_id: "u-lin", username: "linxia" }));
+
+    await user.clear(input);
+    await user.type(input, "Lin Ops");
+    expect(screen.getByRole("button", { name: /Atlas ↔ Lin Ops/ })).toBeVisible();
+    // Agent-to-agent observer stream must not suppress direct 1:1 contact recall for Lin Ops.
+    expect(screen.getByRole("button", { name: /Lin Ops.*Lin Xia/i })).toBeVisible();
   });
 
   it("lists unchatted colleagues under the People tab in browse mode", async () => {

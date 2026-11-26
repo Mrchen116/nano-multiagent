@@ -177,5 +177,8 @@ describe("PeopleDirectoryPage", () => {
     const guide = await screen.findByTestId("people-personal-space-guide");
     expect(within(guide).getByText("You’re in your personal space")).toBeVisible();
     expect(within(guide).getByRole("link", { name: "View team membership" })).toHaveAttribute("href", "/settings/account");
+    expect(screen.queryByTestId("person-row-u-solo")).toBeNull();
+    expect(screen.queryByText(/Public PA/i)).toBeNull();
+    expect(screen.queryByText(/No matching teammates/i)).toBeNull();
   });
 });

@@ -188,4 +188,61 @@ describe("PersonPopover in MessagePane", () => {
 
     expect(screen.queryByRole("button", { name: /View .* card/i })).toBeNull();
   });
+
+  it("inserts @mention into the thread composer rather than the main timeline when opened inside ThreadColumn", async () => {
+    const user = userEvent.setup();
+    const rootMsg = msg({ id: "m-root", content: 'Thread root mentioning <mention type="user" target_id="u-lin"/>' });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/threads/m-root")) {
+          return new Response(
+            JSON.stringify({ root: rootMsg, following: true, items: [] }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response(null, { status: 404 });
+      })
+    );
+
+    try {
+      const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const { container } = render(
+        <QueryClientProvider client={client}>
+          <MemoryRouter>
+            <MessagePane
+              conversation={GROUP_CONV}
+              messages={[rootMsg]}
+              initialThreadId="m-root"
+              selfUserId="u-self-thread"
+              contacts={CONTACTS}
+              onStartDirectChat={vi.fn()}
+              mentionCandidates={[
+                { user_id: "u-lin", display_name: "Lin Xia", initials: "LX", status: "online" }
+              ]}
+              onSend={vi.fn()}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>
+      );
+
+      const threadCol = await waitFor(() => {
+        const el = container.querySelector(".chat-thread-column");
+        expect(el).not.toBeNull();
+        return el as HTMLElement;
+      });
+      const mentionChip = await within(threadCol).findByRole("button", { name: "@Lin Xia" });
+      await user.click(mentionChip);
+
+      const dialog = await screen.findByRole("dialog", { name: "Lin Xia" });
+      await user.click(within(dialog).getByRole("button", { name: "@ Mention" }));
+
+      const mainComposer = screen.getByPlaceholderText(/Message Product Daily/);
+      const threadComposer = within(threadCol).getByPlaceholderText(/Reply in thread/);
+      expect(mainComposer).toHaveValue("");
+      expect(threadComposer).toHaveValue("@Lin Xia ");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
