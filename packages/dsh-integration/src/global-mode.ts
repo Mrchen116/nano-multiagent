@@ -30,7 +30,7 @@ export function apply(ctx: Context, config: { mode?: string; personal?: boolean;
         return {worker_id:row.workerId,runtime:row.runtime,state:row.state};
       }
       if(worker_id && (action==='stop' || action==='send' && message?.trim()))
-        return ctx.nanoWorkers.control(root,worker_id,action,message??'',exec.signal);
+        return ctx.nanoWorkers.control(root,worker_id,action,message??'',exec.signal,exec.callId);
       throw new Error('start requires label and message; send requires worker_id and message; stop requires worker_id');
     },
   });

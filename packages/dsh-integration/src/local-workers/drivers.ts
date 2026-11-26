@@ -2,9 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import type { WorkerRuntime, RuntimeWorkerDetail, WorkUsage } from '@nano/product-contracts';
 import { WorkerTurnDetails, codexItem, type CodexItem } from './work-details.js';
 import { CliProcess, acknowledged } from './cli-process.js';
+import {
+  identifyHostedAcpTool,
+  hostedWorkerMcp,
+  WorkerPermissions,
+  type WorkerMcpLaunch,
+  type WorkerPermissionHandler,
+} from './worker-permissions.js';
 
 export type CliEndState = 'completed' | 'failed' | 'interrupted';
 export interface CliWorkerOptions {
@@ -12,7 +20,8 @@ export interface CliWorkerOptions {
   cwd: string;
   sessionId?: string;
   instructions: string;
-  mcp: { command: string; args: string[]; env: Record<string, string> };
+  mcp: WorkerMcpLaunch;
+  onPermission?: WorkerPermissionHandler;
   onReport(id: string, message: string): Promise<void>;
   onDetail(id: string, detail: RuntimeWorkerDetail): Promise<void>;
   onEnd(id: string, state: CliEndState, text: string): Promise<void>;
@@ -24,12 +33,15 @@ class TurnEvents {
   private delivery = Promise.resolve();
   private terminal = Promise.withResolvers<void>();
   readonly details: WorkerTurnDetails;
+  readonly permissions: WorkerPermissions;
   constructor(private readonly options: CliWorkerOptions) {
+    this.permissions = new WorkerPermissions(options.onPermission);
     this.details = new WorkerTurnDetails((id, detail) => this.deliver(() => options.onDetail(id, detail)));
   }
 
   begin(id: string, model?: string) {
     if (!this.active) this.terminal = Promise.withResolvers<void>();
+    if (this.active !== id) this.permissions.begin();
     this.active = id;
     this.details.begin(id, model);
   }
@@ -41,6 +53,7 @@ class TurnEvents {
 
   end(id: string, state: CliEndState, text: string, tokens: number | WorkUsage | null = null) {
     if (!this.active) return;
+    this.permissions.stop();
     this.details.end(state, tokens, text);
     this.active = undefined;
     const terminal = this.terminal;
@@ -123,7 +136,27 @@ function actionTarget(input: Record<string, unknown> = {}) {
     'resource',
     'target',
   ];
-  return Object.fromEntries(keys.filter((key) => input[key] !== undefined).map((key) => [key, input[key]]));
+  return Object.fromEntries(
+    keys.flatMap((key): [string, unknown][] => {
+      const value = input[key];
+      if (
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        (Array.isArray(value) && value.every((item) => typeof item === 'string'))
+      )
+        return [[key, value]];
+      // Structured permissions use native Codex schemas; other nested tool inputs (including file bodies) stay private.
+      if (key === 'permissions' && value && typeof value === 'object') {
+        const { network, fileSystem } = value as Record<string, unknown>;
+        return [[key, { network, fileSystem }]];
+      }
+      if (key === 'target' && value && typeof value === 'object') {
+        const { host, protocol, port } = value as Record<string, unknown>;
+        return [[key, { host, protocol, port }]];
+      }
+      return [];
+    }),
+  );
 }
 
 async function codex(options: CliWorkerOptions) {
@@ -145,8 +178,8 @@ async function codex(options: CliWorkerOptions) {
   let stopping = false;
   let previousTotal = options.sessionId ? undefined : 0;
   let usage: { turnId: string; baseline?: number } | undefined;
-  const fileTargets = new Map<string, string[]>();
-  const commands = new Map<string, string>();
+  const items = new Map<string, CodexItem>();
+  const deniedItems = new Set<string>();
   const request = <T>(method: string, params: unknown) => {
     const id = ++nextId;
     return proc.request<T>(id, { id, method, params }, method);
@@ -161,39 +194,112 @@ async function codex(options: CliWorkerOptions) {
       return;
     }
     if (id !== undefined) {
-      let reply: unknown;
       const p = params ?? {};
-      if (method === 'item/commandExecution/requestApproval' || method === 'item/fileChange/requestApproval')
-        reply = { decision: 'decline' };
-      if (method === 'item/permissions/requestApproval') reply = { permissions: {}, scope: 'turn' };
-      if (method === 'item/tool/requestUserInput') reply = { answers: {} };
-      if (method === 'mcpServer/elicitation/request')
-        reply = { action: 'decline', content: null, _meta: null };
-      if (method === 'execCommandApproval' || method === 'applyPatchApproval') reply = { decision: 'abort' };
-      const response = reply
-        ? { id, result: reply }
-        : { id, error: { code: -32601, message: 'Unsupported worker host request' } };
-      void proc.write(response).catch(console.error);
-      if (reply && threadId && (!p.threadId || p.threadId === threadId)) {
-        events.report(
-          `request:${p.turnId ?? ''}:${p.itemId ?? id}:${id}`,
-          details(`Codex declined ${method}.`, {
-            command: p.command ?? commands.get(p.itemId),
-            cwd: p.cwd,
-            reason: p.reason,
-            target: p.grantRoot ?? p.networkApprovalContext,
-            files: fileTargets.get(p.itemId) ?? (p.fileChanges && Object.keys(p.fileChanges)),
-            permissions: p.permissions ?? p.additionalPermissions,
-            questions: p.questions?.map((q: { question: string }) => q.question),
-            server: p.serverName,
-            message: p.message,
-            url: p.url,
-          }),
-        );
+      const legacy = method === 'execCommandApproval' || method === 'applyPatchApproval';
+      const call = legacy ? p.callId : p.itemId;
+      const bound =
+        threadId &&
+        (legacy ? p.conversationId : p.threadId) === threadId &&
+        events.active &&
+        (legacy ? p.turnId === undefined || p.turnId === events.active : p.turnId === events.active);
+      const reply = (result: unknown) => {
+        if (!proc.ended) void proc.write({ id, result }).catch(console.error);
+      };
+      const report = (text: string) =>
+        events.report(`request:${events.active ?? ''}:${call ?? id}:${id}`, text);
+      const commandRequest =
+        method === 'item/commandExecution/requestApproval' || method === 'execCommandApproval';
+      const fileRequest = method === 'item/fileChange/requestApproval' || method === 'applyPatchApproval';
+      if (commandRequest || fileRequest) {
+        const item = bound ? items.get(call) : undefined;
+        const command =
+          p.command ?? (!p.approvalId && item?.type === 'commandExecution' ? item.command : undefined);
+        const changes = item?.type === 'fileChange' ? item.changes : undefined;
+        const files = legacy
+          ? Object.keys(p.fileChanges ?? {}).flatMap((path) =>
+              [path, p.fileChanges[path]?.move_path].filter(Boolean),
+            )
+          : changes?.flatMap((change) =>
+              [change.path, (change as { kind?: { move_path?: string } }).kind?.move_path].filter(Boolean),
+            );
+        const summary = actionTarget({
+          command,
+          cwd: p.cwd ?? item?.cwd,
+          files,
+          reason: p.reason,
+          target: p.networkApprovalContext ?? p.grantRoot,
+          permissions: p.additionalPermissions,
+        });
+        const eligible =
+          bound &&
+          typeof call === 'string' &&
+          call &&
+          !deniedItems.has(call) &&
+          !p.grantRoot &&
+          (p.availableDecisions == null ||
+            (Array.isArray(p.availableDecisions) && p.availableDecisions.includes('accept'))) &&
+          (commandRequest
+            ? (!p.kind || p.kind === 'command' || p.kind === 'humanCommand') &&
+              (typeof command === 'string'
+                ? !!command.trim()
+                : legacy &&
+                  Array.isArray(command) &&
+                  command.length > 0 &&
+                  command.every((arg) => typeof arg === 'string'))
+            : files?.length);
+        const decline = legacy ? 'abort' : 'decline';
+        if (eligible) {
+          events.permissions.request(
+            id,
+            call,
+            { name: method, input: { ...p, command, changes }, summary },
+            (decision) => {
+              reply({ decision: decision.allow ? (legacy ? 'approved' : 'accept') : decline });
+              if (!decision.allow || decision.report)
+                report(
+                  details(`Codex ${decision.allow ? 'allowed' : 'declined'} ${method}.`, {
+                    ...summary,
+                    decision: decision.reason,
+                  }),
+                );
+            },
+          );
+        } else {
+          reply({ decision: decline });
+          if (bound) report(details(`Codex declined ${method}; no identifiable single-use action.`, summary));
+        }
+      } else if (method === 'item/permissions/requestApproval') {
+        reply({ permissions: {}, scope: 'turn' });
+        if (bound)
+          report(
+            details('Codex declined a broader grant. Request a specific command or file change.', {
+              permissions: p.permissions,
+              reason: p.reason,
+            }),
+          );
+      } else if (method === 'item/tool/requestUserInput') {
+        reply({ answers: {} });
+        if (bound) report(details('Codex requested user input.', { questions: p.questions }));
+      } else if (method === 'mcpServer/elicitation/request') {
+        reply({ action: 'decline', content: null, _meta: null });
+        if (threadId && p.threadId === threadId && events.active && (!p.turnId || p.turnId === events.active))
+          report(
+            details('Codex requested user input.', {
+              server: p.serverName,
+              message: p.message,
+              url: p.url,
+              schema: p.requestedSchema,
+            }),
+          );
+      } else {
+        void proc
+          .write({ id, error: { code: -32601, message: 'Unsupported worker host request' } })
+          .catch(console.error);
       }
       return;
     }
     if (!threadId || params?.threadId !== threadId) return;
+    if (method === 'serverRequest/resolved') events.permissions.cancel(params.requestId);
     if (method === 'thread/tokenUsage/updated') {
       const total = params.tokenUsage.total.totalTokens;
       if (!tokenCount(total)) return;
@@ -219,19 +325,28 @@ async function codex(options: CliWorkerOptions) {
       if (method === 'error' && params.error?.message)
         events.details.message(`error:${++errorCount}`, 'system', params.error.message);
     }
-    if (method === 'item/started' && params.item.type === 'commandExecution')
-      commands.set(params.item.id, params.item.command);
-    if (method === 'item/started' && params.item.type === 'fileChange')
-      fileTargets.set(params.item.id, (params.item as CodexItem).changes?.map((change) => change.path) ?? []);
-    if (method === 'item/completed') {
-      if (finalMessage(params.item)) finalText = params.item.text;
-      fileTargets.delete(params.item.id);
-      commands.delete(params.item.id);
+    if (params.turnId && params.turnId === events.active) {
+      if (method === 'item/started' && ['commandExecution', 'fileChange'].includes(params.item.type))
+        items.set(params.item.id, params.item);
+      if (method === 'item/fileChange/patchUpdated') {
+        events.permissions.cancelCall(params.itemId);
+        items.set(params.itemId, { id: params.itemId, type: 'fileChange', changes: params.changes });
+      }
+      if (method === 'item/completed') {
+        if (finalMessage(params.item)) finalText = params.item.text;
+        events.permissions.cancelCall(params.item.id);
+        items.delete(params.item.id);
+      }
     }
     if (
       method === 'item/autoApprovalReview/completed' &&
+      params.turnId === events.active &&
       ['denied', 'timedOut', 'aborted'].includes(params.review.status)
     ) {
+      if (params.targetItemId) {
+        deniedItems.add(params.targetItemId);
+        events.permissions.cancelCall(params.targetItemId);
+      }
       events.report(
         `review:${params.reviewId}`,
         details(`Codex Auto review ${params.review.status}.`, {
@@ -257,8 +372,8 @@ async function codex(options: CliWorkerOptions) {
         tokenCount(tokens) ? tokens : null,
       );
       finalText = '';
-      fileTargets.clear();
-      commands.clear();
+      items.clear();
+      deniedItems.clear();
     }
   };
   try {
@@ -273,7 +388,16 @@ async function codex(options: CliWorkerOptions) {
       sandbox: 'workspace-write',
       approvalPolicy: 'on-request',
       approvalsReviewer: 'auto_review',
-      config: { 'mcp_servers.nano-parent': { ...options.mcp, required: true } },
+      config: Object.fromEntries(
+        hostedWorkerMcp(options.mcp).map(({ server, launch, tools }) => [
+          `mcp_servers.${server}`,
+          {
+            ...launch,
+            required: true,
+            tools: Object.fromEntries(tools.map((tool) => [tool, { approval_mode: 'approve' }])),
+          },
+        ]),
+      ),
     };
     const response = await request<{ thread: { id: string }; model?: string }>(
       threadId ? 'thread/resume' : 'thread/start',
@@ -311,6 +435,7 @@ async function codex(options: CliWorkerOptions) {
       }
     },
     async stop() {
+      events.permissions.stop();
       const turnId = events.active;
       const finished = events.finished;
       if (turnId) {
@@ -324,6 +449,7 @@ async function codex(options: CliWorkerOptions) {
       } else await finished;
     },
     async close() {
+      events.permissions.stop();
       await proc.close();
       if (events.active) events.end(events.active, 'interrupted', 'Worker session closed');
       await events.finished;
@@ -333,6 +459,7 @@ async function codex(options: CliWorkerOptions) {
 
 async function claude(options: CliWorkerOptions) {
   const sessionId = options.sessionId ?? randomUUID();
+  const hosted = hostedWorkerMcp(options.mcp);
   const args = [
     '--print',
     '--verbose',
@@ -348,9 +475,9 @@ async function claude(options: CliWorkerOptions) {
     '--append-system-prompt',
     options.instructions,
     '--allowedTools',
-    'mcp__nano-parent__send_message',
+    ...hosted.flatMap(({ server, tools }) => tools.map((tool) => `mcp__${server}__${tool}`)),
     '--mcp-config',
-    JSON.stringify({ mcpServers: { 'nano-parent': options.mcp } }),
+    JSON.stringify({ mcpServers: Object.fromEntries(hosted.map(({ server, launch }) => [server, launch])) }),
     options.sessionId ? '--resume' : '--session-id',
     sessionId,
   ];
@@ -387,37 +514,95 @@ async function claude(options: CliWorkerOptions) {
       );
       return;
     }
+    if (message.type === 'control_cancel_request') {
+      if (!message.session_id || message.session_id === sessionId)
+        events.permissions.cancel(message.request_id);
+      return;
+    }
     if (message.type === 'control_request') {
       const request = message.request;
       const id = message.request_id;
-      let response: unknown;
-      let report: string | undefined;
+      const reply = (response: unknown) => {
+        if (!proc.ended)
+          void proc
+            .write({ type: 'control_response', response: { request_id: id, subtype: 'success', response } })
+            .catch(console.error);
+      };
+      const bound = events.active && (!message.session_id || message.session_id === sessionId);
+      const report = (text: string) => events.report(`request:${request.tool_use_id ?? id}`, text);
       if (request.subtype === 'can_use_tool') {
-        response = {
-          behavior: 'deny',
-          message: 'This action has no approval. Contact the parent for clarification.',
-        };
-        reportedDenials.add(request.tool_use_id);
-        report = details(`Claude declined ${request.tool_name}.`, {
-          input: actionTarget(request.input),
-          target: request.blocked_path,
-          reason: request.decision_reason ?? request.description,
-        });
+        const deny = (message: string) => reply({ behavior: 'deny', message });
+        if (!bound || !events.permissions.open) {
+          deny('No matching live worker turn.');
+        } else if (request.tool_name === 'AskUserQuestion') {
+          deny('Question forwarded to the parent.');
+          reportedDenials.add(request.tool_use_id);
+          report(details('Claude requested user input.', { questions: request.input?.questions }));
+        } else {
+          const input = request.input;
+          const target = actionTarget(input ?? {});
+          const summary = {
+            ...target,
+            ...(request.blocked_path ? { target: request.blocked_path } : {}),
+            ...(request.decision_reason || request.description
+              ? { reason: request.decision_reason ?? request.description }
+              : {}),
+          };
+          const hasTarget =
+            request.blocked_path ||
+            Object.keys(target).some((key) => !['reason', 'type', 'toolSummary'].includes(key));
+          if (
+            !id ||
+            !request.tool_use_id ||
+            !request.tool_name ||
+            !input ||
+            !hasTarget ||
+            typeof input !== 'object' ||
+            Array.isArray(input)
+          ) {
+            deny('Incomplete worker tool request.');
+            report(details('Claude declined an incomplete tool request.', summary));
+          } else {
+            events.permissions.request(
+              id,
+              request.tool_use_id,
+              { name: request.tool_name, input, summary },
+              (decision) => {
+                if (decision.allow) reply({ behavior: 'allow', updatedInput: input });
+                else {
+                  reportedDenials.add(request.tool_use_id);
+                  deny(decision.reason);
+                }
+                if (!decision.allow || decision.report)
+                  report(
+                    details(`Claude ${decision.allow ? 'allowed' : 'declined'} ${request.tool_name}.`, {
+                      ...summary,
+                      decision: decision.reason,
+                    }),
+                  );
+              },
+            );
+          }
+        }
       } else if (request.subtype === 'elicitation') {
-        response = { action: 'decline' };
-        report = details('Claude declined a request for input.', {
-          server: request.mcp_server_name,
-          message: request.message,
-          url: request.url,
-        });
+        reply({ action: 'decline' });
+        if (bound)
+          report(
+            details('Claude requested user input.', {
+              server: request.mcp_server_name,
+              message: request.message,
+              url: request.url,
+              schema: request.requested_schema,
+            }),
+          );
+      } else {
+        void proc
+          .write({
+            type: 'control_response',
+            response: { request_id: id, subtype: 'error', error: 'Unsupported worker host request' },
+          })
+          .catch(console.error);
       }
-      const reply = response
-        ? { subtype: 'success', response }
-        : { subtype: 'error', error: 'Unsupported worker host request' };
-      void proc
-        .write({ type: 'control_response', response: { request_id: id, ...reply } })
-        .catch(console.error);
-      if (report) events.report(`request:${request.tool_use_id ?? id}`, report);
       return;
     }
     if (message.session_id && message.session_id !== sessionId)
@@ -437,12 +622,15 @@ async function claude(options: CliWorkerOptions) {
           events.details.message(`${message.uuid ?? message.message.id}:${i}`, 'assistant', block.text);
         if (message.type === 'assistant' && block.type === 'tool_use')
           events.details.toolStart(block.id, block.name, block.input);
-        if (message.type === 'user' && block.type === 'tool_result')
+        if (message.type === 'user' && block.type === 'tool_result') {
+          events.permissions.cancelCall(block.tool_use_id);
           events.details.toolEnd(block.tool_use_id, undefined, block.content, !!block.is_error);
+        }
       }
     }
     if (message.type !== 'result' || (message.uuid && lastResultId === message.uuid)) return;
     lastResultId = message.uuid;
+    events.permissions.stop();
     const tokens = claudeResultTokens(message.usage);
     const state = message.subtype === 'success' && !message.is_error ? 'completed' : 'failed';
     const text = (message.errors ?? []).join('\n') || message.result || `Claude turn ${message.subtype}`;
@@ -502,6 +690,7 @@ async function claude(options: CliWorkerOptions) {
       });
     },
     async stop() {
+      events.permissions.stop();
       if (!events.active) {
         await events.finished;
         return;
@@ -518,6 +707,7 @@ async function claude(options: CliWorkerOptions) {
       }
     },
     async close() {
+      events.permissions.stop();
       await proc.close();
       if (events.active) events.end(events.active, 'interrupted', 'Worker session closed');
       await events.finished;
@@ -527,8 +717,6 @@ async function claude(options: CliWorkerOptions) {
 
 const ANTIGRAVITY_MAX_INPUT_BYTES = 185_000;
 const ANTIGRAVITY_MAX_TOOL_TEXT = 16_000;
-const ANTIGRAVITY_DIRECT_PARENT_MCP = /^Run mcp_nano-parent_send_message\??$/;
-const ANTIGRAVITY_PROXIED_PARENT_MCP = /^MCP Tool send_message\??$/;
 
 function normalizeAcpToolName(title?: string, kind?: string) {
   const trimmed = title?.trim();
@@ -587,6 +775,7 @@ interface AcpPromptResult {
 
 interface TrackedAcpTool {
   name: string;
+  explicitName?: string;
   title?: string;
   kind?: string;
   rawInput?: Record<string, unknown>;
@@ -623,6 +812,7 @@ async function antigravity(options: CliWorkerOptions) {
   let inFlightPrompts = 0;
   let assistantDraft = '';
   let lastAssistantText = '';
+  const hosted = hostedWorkerMcp(options.mcp);
   const trackedTools = new Map<string, TrackedAcpTool>();
   const settledToolIds = new Set<string>();
 
@@ -733,80 +923,118 @@ async function antigravity(options: CliWorkerOptions) {
           rawInput?: unknown;
           locations?: { path?: string }[];
         };
-        const cached = rawCall.toolCallId ? trackedTools.get(rawCall.toolCallId) : undefined;
-        const explicitName =
-          (typeof rawCall.name === 'string' && rawCall.name.trim() ? rawCall.name.trim() : undefined) ??
-          (typeof rawCall.toolName === 'string' && rawCall.toolName.trim() ? rawCall.toolName.trim() : undefined) ??
-          cached?.name;
-        const title = (rawCall.title ?? cached?.title ?? '').trim();
-        const kind = rawCall.kind ?? cached?.kind;
-        const rawInput = (
-          rawCall.rawInput && typeof rawCall.rawInput === 'object' && !Array.isArray(rawCall.rawInput)
-            ? rawCall.rawInput
-            : cached?.rawInput
-        ) as Record<string, unknown> | undefined;
-        const locations = rawCall.locations ?? cached?.locations;
         const opts = (Array.isArray(params?.options) ? params.options : []) as {
           optionId?: string;
           kind?: string;
           name?: string;
         }[];
-        const hasCommandField = ['CommandLine', 'command_line', 'commandLine', 'command'].some(
-          (key) => rawInput !== undefined && key in rawInput,
-        );
-        const isParentSend =
-          kind !== 'execute' &&
-          !hasCommandField &&
-          (ANTIGRAVITY_DIRECT_PARENT_MCP.test(title) ||
-            (explicitName === 'mcp_nano-parent_send_message' &&
-              (!title || ANTIGRAVITY_DIRECT_PARENT_MCP.test(title))) ||
-            ((explicitName === 'invoke_mcp_tool' || ANTIGRAVITY_PROXIED_PARENT_MCP.test(title)) &&
-              rawInput?.ServerName === 'nano-parent' &&
-              rawInput?.ToolName === 'send_message'));
-
-        let outcome: unknown;
-        if (isParentSend) {
-          const allow = opts.find((o) => o.kind === 'allow_once') ?? opts.find((o) => o.kind === 'allow_always');
-          outcome = allow?.optionId ? { outcome: 'selected', optionId: allow.optionId } : { outcome: 'cancelled' };
-        } else if (typeof rawCall.toolCallId === 'string' && rawCall.toolCallId.startsWith('interaction_')) {
-          outcome = { outcome: 'cancelled' };
+        const optionId = (kind: string) => {
+          const id = opts.find((option) => option.kind === kind)?.optionId;
+          return id && opts.filter((option) => option.optionId === id).length === 1 ? id : undefined;
+        };
+        const allow = optionId('allow_once');
+        const reject = optionId('reject_once');
+        const reply = (optionId?: string) => {
+          const outcome = optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' };
+          if (!proc.ended) void proc.write({ jsonrpc: '2.0', id, result: { outcome } }).catch(console.error);
+        };
+        const call = rawCall.toolCallId;
+        if (
+          !sessionId ||
+          params?.sessionId !== sessionId ||
+          !events.active ||
+          !events.permissions.open ||
+          !call ||
+          settledToolIds.has(call)
+        ) {
+          reply(reject);
+          return;
+        }
+        const cached = trackedTools.get(call);
+        const title = rawCall.title ?? cached?.title;
+        if (call.startsWith('interaction_')) {
+          reply();
           events.report(
-            `question:${rawCall.toolCallId}:${id}`,
+            `question:${call}:${id}`,
             details('Antigravity requested user input.', {
               question: title || 'Choose an option',
-              options: opts.map((o) => o.name || o.optionId).filter(Boolean),
+              options: opts.map((o) => o.name || o.optionId),
             }),
           );
-        } else {
-          const reject = opts.find((o) => o.kind === 'reject_once');
-          outcome = reject?.optionId ? { outcome: 'selected', optionId: reject.optionId } : { outcome: 'cancelled' };
-          const declinedName = explicitName ?? normalizeAcpToolName(title, kind) ?? 'action';
-          const target = actionTarget(rawInput);
-          const locationPaths = Array.isArray(locations)
-            ? locations.map((loc) => loc?.path).filter((p): p is string => typeof p === 'string' && p.length > 0)
-            : [];
-          const primaryPath =
-            target && typeof target === 'object' && !Array.isArray(target)
-              ? ((target as Record<string, unknown>).Path ??
-                (target as Record<string, unknown>).path ??
-                (target as Record<string, unknown>).file_path)
-              : undefined;
-          const distinctLocations =
-            locationPaths.length === 1 && locationPaths[0] === primaryPath
-              ? undefined
-              : locationPaths.length > 0
-                ? locationPaths
-                : undefined;
-          events.report(
-            `request:${rawCall.toolCallId ?? id}:${id}`,
-            details(`Antigravity declined ${declinedName}.`, {
-              kind: typeof kind === 'string' && kind ? kind : undefined,
-              input: target,
-              locations: distinctLocations,
-            }),
-          );
+          return;
         }
-        void proc.write({ jsonrpc: '2.0', id, result: { outcome } }).catch(console.error);
+        const kind = rawCall.kind ?? cached?.kind;
+        const names = [rawCall.name, rawCall.toolName, cached?.explicitName].filter((v): v is string => !!v);
+        const name = names[0] ?? normalizeAcpToolName(title, kind);
+        const fromRequest = rawCall.rawInput;
+        const rawInput = {
+          ...cached?.rawInput,
+          ...(fromRequest && typeof fromRequest === 'object' && !Array.isArray(fromRequest)
+            ? fromRequest
+            : {}),
+        };
+        const locations = (rawCall.locations ?? cached?.locations ?? [])
+          .map((loc) => loc.path)
+          .filter(Boolean);
+        const target = actionTarget(rawInput);
+        const path = target.Path ?? target.path ?? target.file_path;
+        const summary = {
+          kind,
+          input: target,
+          ...(locations.length && !(locations.length === 1 && locations[0] === path) ? { locations } : {}),
+        };
+        const report = (allowed: boolean, reason: string) =>
+          events.report(
+            `request:${call}:${id}`,
+            details(`Antigravity ${allowed ? 'allowed' : 'declined'} ${name ?? 'action'}.`, {
+              ...summary,
+              decision: reason,
+            }),
+          );
+        const titles = [rawCall.title, cached?.title]
+          .filter((v): v is string => !!v)
+          .map((t) => t.replace(/\?$/, ''));
+        const conflicting =
+          names.some((n) => n !== name) ||
+          (rawCall.kind && cached?.kind && rawCall.kind !== cached.kind) ||
+          (fromRequest != null && (typeof fromRequest !== 'object' || Array.isArray(fromRequest))) ||
+          (cached?.rawInput &&
+            fromRequest &&
+            Object.entries(fromRequest).some(
+              ([key, value]) => key in cached.rawInput! && !isDeepStrictEqual(cached.rawInput![key], value),
+            ));
+        if (!allow || !name || conflicting) {
+          reply(reject);
+          report(false, 'Missing single-use decision or unambiguous tool identity.');
+          return;
+        }
+        const hostedTool = identifyHostedAcpTool(hosted, names, titles, kind, rawInput);
+        if (hostedTool !== 'ordinary') {
+          reply(hostedTool === 'bound' ? allow : reject);
+          if (hostedTool === 'conflict') report(false, 'Conflicting host tool identity.');
+          return;
+        }
+        const hasTarget =
+          locations.length ||
+          Object.keys(target).some((key) => !['reason', 'type', 'toolSummary'].includes(key));
+        if (!Object.keys(rawInput).length || !hasTarget) {
+          reply(reject);
+          report(false, 'Missing target or tool arguments.');
+          return;
+        }
+        events.permissions.request(
+          id,
+          call,
+          {
+            name,
+            input: { ...rawCall, title, kind, rawInput, locations },
+            summary,
+          },
+          (decision) => {
+            reply(decision.allow ? allow : reject);
+            if (!decision.allow || decision.report) report(decision.allow, decision.reason);
+          },
+        );
         return;
       }
       void proc
@@ -814,6 +1042,8 @@ async function antigravity(options: CliWorkerOptions) {
         .catch(console.error);
       return;
     }
+    if (method === '$/cancelRequest' && (!params?.sessionId || params.sessionId === sessionId))
+      events.permissions.cancel(params.id);
     if (method !== 'session/update' || !sessionId || params?.sessionId !== sessionId) return;
     const upd = params?.update;
     if (!upd || typeof upd !== 'object') return;
@@ -851,15 +1081,24 @@ async function antigravity(options: CliWorkerOptions) {
           'tool';
         const rawInput =
           upd.rawInput !== undefined && typeof upd.rawInput === 'object' && upd.rawInput !== null
-            ? (upd.rawInput as Record<string, unknown>)
+            ? { ...prev?.rawInput, ...upd.rawInput }
             : prev?.rawInput;
         const entry: TrackedAcpTool = {
           name,
+          explicitName: upd.name ?? upd.toolName ?? prev?.explicitName,
           title: typeof upd.title === 'string' ? upd.title : prev?.title,
           kind: typeof upd.kind === 'string' ? upd.kind : prev?.kind,
           rawInput,
           locations: Array.isArray(upd.locations) ? upd.locations : prev?.locations,
         };
+        if (
+          (upd.rawInput && !isDeepStrictEqual(prev?.rawInput, rawInput)) ||
+          ((upd.name || upd.toolName) && (upd.name ?? upd.toolName) !== prev?.explicitName) ||
+          (upd.kind && upd.kind !== prev?.kind) ||
+          (upd.title && upd.title !== prev?.title) ||
+          (upd.locations && !isDeepStrictEqual(prev?.locations, upd.locations))
+        )
+          events.permissions.cancelCall(callId);
         trackedTools.set(callId, entry);
         if (!prev) events.details.toolStart(callId, name, rawInput);
         if (upd.status === 'completed' || upd.status === 'failed' || upd.status === 'cancelled') {
@@ -868,6 +1107,7 @@ async function antigravity(options: CliWorkerOptions) {
             reason: upd.status === 'cancelled' ? 'interrupted' : undefined,
             args: rawInput,
           });
+          events.permissions.cancelCall(callId);
           trackedTools.delete(callId);
           settledToolIds.add(callId);
         }
@@ -896,14 +1136,12 @@ async function antigravity(options: CliWorkerOptions) {
       },
     });
     supportsAppend = initialized?.agentCapabilities?._meta?.antigravity?.systemPrompt?.append === true;
-    const mcpServers = [
-      {
-        name: 'nano-parent',
-        command: options.mcp.command,
-        args: options.mcp.args,
-        env: Object.entries(options.mcp.env).map(([name, value]) => ({ name, value })),
-      },
-    ];
+    const mcpServers = hosted.map(({ server: name, launch }) => ({
+      name,
+      command: launch.command,
+      args: launch.args,
+      env: Object.entries(launch.env).map(([name, value]) => ({ name, value })),
+    }));
     const meta = supportsAppend
       ? { _meta: { antigravity: { systemPrompt: { append: options.instructions } } } }
       : {};
@@ -1041,6 +1279,7 @@ async function antigravity(options: CliWorkerOptions) {
       }
     },
     async stop() {
+      events.permissions.stop();
       if (!events.active) {
         await events.finished;
         return;
@@ -1055,6 +1294,7 @@ async function antigravity(options: CliWorkerOptions) {
       }
     },
     async close() {
+      events.permissions.stop();
       await proc.close();
       if (events.active) {
         if (inFlightPrompts > 0) {

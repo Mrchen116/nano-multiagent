@@ -7,7 +7,7 @@ import type { ToolRunContext } from '@deepseek-ai/dsh-tools';
 import { workerRuntimes, type ModelRunProjection, type RuntimeWorkerChange, type RuntimeWorkerDetail } from '@nano/product-contracts';
 import { z } from 'zod';
 import { jsonBytes, workPageBytes } from '../work-page.js';
-import { openCliWorker } from './drivers.js';
+import { openCliWorker, type CliWorkerOptions } from './drivers.js';
 import { workerReportBridge } from './report-bridge.js';
 
 const recordSchema = z.object({
@@ -74,6 +74,7 @@ export class LocalWorkers {
     private readonly report: Report,
     private readonly bound: (id: string) => boolean,
     private readonly workChanged: (rootId: string) => void,
+    private readonly bindPermissions?: (root: Agent, worker: WorkerRecord, assignment: string, callId: string) => Promise<CliWorkerOptions['onPermission']>,
   ) {
     this.domain = ctx.storageDomain.open(workerDomain);
     this.cold = this.domain.then(
@@ -287,7 +288,7 @@ export class LocalWorkers {
             maxDepth: this.ctx.subagents.resolveMaxDepth(),
           });
         } else {
-          const cli = await this.activate(root, row);
+          const cli = await this.activate(root, row, text, exec.callId);
           exec.signal.throwIfAborted();
           await this.change(row, { state: 'running', sessionId: cli.sessionId });
           await cli.send(text);
@@ -325,7 +326,7 @@ export class LocalWorkers {
       if (item.rootId === rootId) await this.deliver(key, item);
   }
 
-  private async activate(root: Agent, row: WorkerRecord): Promise<Cli> {
+  private async activate(root: Agent, row: WorkerRecord, assignment: string, callId: string): Promise<Cli> {
     const live = this.active.get(row.workerId);
     if (live) return live.cli;
     if (row.runtime === 'dsh') throw new Error('Expected a CLI worker');
@@ -344,6 +345,7 @@ export class LocalWorkers {
         sessionId: row.sessionId,
         instructions,
         mcp: bridge.mcp,
+        onPermission: await this.bindPermissions?.(root, row, assignment, callId),
         onReport: notify,
         onDetail: (id, detail) => this.serialize(this.changes, row.workerId, async () => {
           const table = (await this.domain).table('workers');
@@ -380,7 +382,7 @@ export class LocalWorkers {
     }
   }
 
-  async control(root: Agent, id: string, action: 'send' | 'stop', text: string, signal: AbortSignal) {
+  async control(root: Agent, id: string, action: 'send' | 'stop', text: string, signal: AbortSignal, dispatchCallId?: string) {
     if (!this.bound(root.id)) throw new Error('Worker controls require the bound Global root');
     return this.serialize(this.commands, root.id, async () => {
       const row = (await this.domain).table('workers').get(id);
@@ -402,7 +404,7 @@ export class LocalWorkers {
         return { workerId: id, state: (await this.domain).table('workers').get(id)?.state };
       }
       if (!row.sessionId) throw new Error('The original CLI session was never established');
-      const cli = await this.activate(root, row);
+      const cli = await this.activate(root, row, text, dispatchCallId ?? row.callId);
       await this.change(row, { state: 'running' });
       try {
         await cli.send(text);

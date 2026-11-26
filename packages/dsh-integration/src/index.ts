@@ -189,7 +189,16 @@ export default class NanoRuntime {
       const receipt=await this.submit({sessionId:root,inputId:messageId,mode:'steer',content:[{type:'text',text}],
         source:{kind:'system',channel:'worker-report',actorId:binding.agentId,senderSessionId:worker,messageId}});
       if(!receipt.accepted)throw new Error('Parent did not accept the worker report');
-    },id=>this.bindings.has(id),root=>this.peer.notify('session.work.changed',{sessionId:root,rootSessionId:root}));
+    },id=>this.bindings.has(id),root=>this.peer.notify('session.work.changed',{sessionId:root,rootSessionId:root}),
+    async (root, row, assignment, dispatchCallId) => (await approval).bindWorker(root, row, assignment, dispatchCallId,
+      async (callId, toolName, summary, signal, timeout) => {
+        if (disabled(root.id) || !this.bindings.has(root.id)) return {allow:false, reason:'Worker root is unavailable.'};
+        const worker = {workerId:row.workerId, label:row.label, runtime:row.runtime};
+        const reason = `${JSON.stringify(worker.label)} (${worker.runtime}, ${worker.workerId}) · ${toolName}\n${JSON.stringify(summary)}`;
+        const result = await this.waitForApproval({sessionId:root.id, callId, toolName, worker, reason,
+          toolInput:{arguments:summary}}, signal, timeout);
+        return {allow:result.outcome === 'allowed-once', reason:result.reason || result.outcome};
+      }));
     let configurationService: ConfigurationScopes;
     this.capabilities = new CapabilityState((config, names) => configurationService.selection(config, names));
     const history = new NativeHistory(ctx, process.env.DSH_HOME!);
@@ -476,30 +485,13 @@ export default class NanoRuntime {
       if (request.agent.session.header.origin === 'subagent' || config?.mode === 'global' || !human&&!taskTurn) return 'rejected';
       const approvalSessionId = request.agent.id;
       if(!this.bindings.has(approvalSessionId)) return 'rejected';
-      const requestId = randomUUID();
-      return new Promise<ApprovalOutcome>(resolve => {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const finish = (answer: ApprovalOutcome, reason?: string) => {
-          if (!this.approvals.has(requestId)) return;
-          if (timer) clearTimeout(timer);
-          this.approvals.delete(requestId);
-          request.signal?.removeEventListener('abort', cancel);
-          if (answer === 'rejected' && reason?.trim()) request.agent.inject(freezeMessage({ id: MessageId(randomUUID()), role: 'user' as const, content: [{ type: 'text', text: `The human rejected ${request.toolName} (${request.callId ?? requestId}). Their reason: ${reason}` }],
-            source: { kind: 'user-approval', form: 'notice', summary: 'The human rejected this tool call with a reason.' } }));
-          resolve(answer);
-          this.peer.notify('approval.resolved', { requestId, sessionId: approvalSessionId, outcome: answer });
-        };
-        const cancel = () => finish('cancelled');
-        this.approvals.set(requestId, finish);
-        if (request.signal?.aborted) return cancel();
-        timer = setTimeout(() => finish('unavailable'), Math.max(0, (config?.approval?.askTimeoutSec ?? 600) * 1000));
-        request.signal?.addEventListener('abort', cancel, { once: true });
-        this.peer.notify('approval.request', {
-          requestId, sessionId: approvalSessionId, toolName: request.toolName,
-          toolInput: history.findLast(event=>event.type==='tool/call'&&event.data.callId===request.callId)?.data,
-          callId: request.callId, reason: request.reason,
-        });
-      });
+      const {outcome, reason, requestId} = await this.waitForApproval({
+        sessionId:approvalSessionId, toolName:request.toolName, callId:request.callId, reason:request.reason,
+        toolInput:history.findLast(event=>event.type==='tool/call'&&event.data.callId===request.callId)?.data,
+      }, request.signal, config?.approval?.askTimeoutSec ?? 600);
+      if (outcome === 'rejected' && reason?.trim()) request.agent.inject(freezeMessage({ id: MessageId(randomUUID()), role: 'user' as const, content: [{ type: 'text', text: `The human rejected ${request.toolName} (${request.callId ?? requestId}). Their reason: ${reason}` }],
+        source: { kind: 'user-approval', form: 'notice', summary: 'The human rejected this tool call with a reason.' } }));
+      return outcome;
     });
     handle('runtime.health', async () => { await stat(process.cwd()); return {healthy:true}; });
     handle('initialize', async value => {
@@ -1418,6 +1410,29 @@ export default class NanoRuntime {
       await this.controller.dispose();
       for (const unregister of this.unregisterPresets) await unregister();
       return { stopped: true };
+    });
+  }
+
+  private waitForApproval(request: {sessionId:string; toolName:string; callId?:string; reason?:string; toolInput?:unknown;
+    worker?:{workerId:string; label:string; runtime:string}}, signal: AbortSignal | undefined, timeoutSec: number) {
+    const requestId = randomUUID();
+    const expiresAt = Date.now() + Math.max(0, timeoutSec * 1000);
+    return new Promise<{outcome:ApprovalOutcome; reason?:string; requestId:string}>(resolve => {
+      const finish = (answer: ApprovalOutcome, reason?: string) => {
+        if (!this.approvals.delete(requestId)) return;
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', cancel);
+        const expired = !!request.worker && Date.now() >= expiresAt;
+        const outcome = expired ? 'unavailable' : answer;
+        resolve({outcome, requestId, reason:expired ? 'Worker approval timed out.' : reason});
+        this.peer.notify('approval.resolved', {requestId, sessionId:request.sessionId, outcome:expired ? 'timed_out' : outcome});
+      };
+      const cancel = () => finish('cancelled');
+      const timer = setTimeout(() => finish('unavailable'), Math.max(0, expiresAt - Date.now()));
+      this.approvals.set(requestId, finish);
+      if (signal?.aborted) return cancel();
+      signal?.addEventListener('abort', cancel, {once:true});
+      this.peer.notify('approval.request', {...request, requestId, ...(request.worker ? {expiresAt} : {})});
     });
   }
 
