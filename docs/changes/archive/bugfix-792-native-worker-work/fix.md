@@ -21,4 +21,4 @@ PA 和普通 Global Agent 派出的 DSH worker 有轮次及 Token，用户从派
 
 ## 修复和验证
 
-详见[事后设计](design.md)。快修处于用户验收阶段。
+详见[事后设计](design.md)。用户已确认并授权合入，见[审查与验证](review.md)。
