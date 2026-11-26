@@ -73,7 +73,9 @@ import { TokenChip } from "./token-chip";
 import { formatDuration, ToolCallsPanel } from "./tool-calls-panel";
 import { remarkMention } from "./remark-mention";
 import { formatSystemNotice } from "../system-notice";
+import type { Contact } from "../contacts-api";
 import { MessageImage, messageImageUrlTransform } from "./message-image";
+import { PersonPopover, type PersonPopoverAnchor } from "./person-popover";
 import {
   cloneComposerSnapshot,
   clearComposerSending,
@@ -81,6 +83,7 @@ import {
   isComposerSending,
   markComposerSending,
   subscribeComposerStore,
+  threadDraftKey,
   writeComposerSnapshot,
   composerStoreFor,
   type ComposerUpload,
@@ -125,6 +128,10 @@ export interface MessagePaneProps {
   mentionCandidates: MentionCandidate[];
   onComposeMessage?(target: string, text: string): Promise<void>;
   draftSeed?: { id: string; conversationId?: string; text: string; replace?: boolean; focusOnly?: boolean } | null;
+  mentionSeed?: { id: string; conversationId: string; userId: string; displayName: string } | null;
+  onMentionSeedConsumed?: () => void;
+  contacts?: Contact[];
+  onStartDirectChat?(contact: Contact): Promise<void> | void;
   /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
   slashSkills?: SlashSkillCandidate[];
   /** feat-517: authoritative dynamic commands supplied by the active Agent runtime. */
@@ -243,6 +250,10 @@ export function MessagePane({
   messages: messagesProp,
   mentionCandidates,
   draftSeed = null,
+  mentionSeed = null,
+  onMentionSeedConsumed,
+  contacts,
+  onStartDirectChat,
   onComposeMessage,
   slashSkills = [],
   slashCommands = [],
@@ -415,6 +426,59 @@ export function MessagePane({
 
   const onDraftSeedConsumedRef = useRef(onDraftSeedConsumed);
   onDraftSeedConsumedRef.current = onDraftSeedConsumed;
+  const onMentionSeedConsumedRef = useRef(onMentionSeedConsumed);
+  onMentionSeedConsumedRef.current = onMentionSeedConsumed;
+
+  const insertPersonMention = useCallback((userId: string, displayName: string) => {
+    const label = `@${displayName}`;
+    setDraft((prev) => {
+      const prefix = prev.length > 0 && !/\s$/.test(prev) ? `${prev} ` : prev;
+      const next = `${prefix}${label} `;
+      requestAnimationFrame(() => {
+        const el = composerRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(next.length, next.length);
+        }
+      });
+      return next;
+    });
+    setDraftMentions((prev) => [...prev, { label, type: "user", target_id: userId }]);
+    setSlashDismissed(false);
+  }, []);
+
+  const insertThreadPersonMention = useCallback((rootId: string, userId: string, displayName: string) => {
+    const store = composerStoreFor(selfUserId ?? null);
+    const tKey = threadDraftKey(conversation.id, rootId);
+    const base = store.get(tKey) ?? EMPTY_COMPOSER_SNAPSHOT;
+    const label = `@${displayName}`;
+    const prefix = base.draft.length > 0 && !/\s$/.test(base.draft) ? `${base.draft} ` : base.draft;
+    const nextDraft = `${prefix}${label} `;
+    writeComposerSnapshot(
+      store,
+      tKey,
+      {
+        ...base,
+        revision: crypto.randomUUID(),
+        draft: nextDraft,
+        draftMentions: [...base.draftMentions, { label, type: "user", target_id: userId }]
+      },
+      conversation.id
+    );
+    requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLTextAreaElement>(".chat-thread-column textarea");
+      if (el) {
+        el.focus();
+        el.setSelectionRange(nextDraft.length, nextDraft.length);
+      }
+    });
+  }, [conversation.id, selfUserId]);
+
+  useEffect(() => {
+    if (!mentionSeed || mentionSeed.conversationId !== conversation.id) return;
+    insertPersonMention(mentionSeed.userId, mentionSeed.displayName);
+    onMentionSeedConsumedRef.current?.();
+  }, [mentionSeed?.id, mentionSeed?.conversationId, conversation.id, insertPersonMention]);
 
   useEffect(() => {
     if (!draftSeed) return;
@@ -1166,16 +1230,53 @@ export function MessagePane({
   }, [slashOpen]);
 
   const [activityAnchor, setActivityAnchor] = useState<AgentActivityAnchor | null>(null);
+  const [personAnchor, setPersonAnchor] = useState<PersonPopoverAnchor | null>(null);
+  const visibleHumansById = useMemo(
+    () => new Map((contacts ?? []).filter(c => c.kind === "human" && c.user_id !== selfUserId).map(c => [c.user_id, c])),
+    [contacts, selfUserId]
+  );
+  const interactiveMentionIds = useMemo(
+    () => (conversation.external_source || !onStartDirectChat ? undefined : new Set(visibleHumansById.keys())),
+    [conversation.external_source, onStartDirectChat, visibleHumansById]
+  );
   const closeActivity = useCallback(() => {
     setActivityAnchor(current => {
       current?.element.focus({preventScroll: true});
       return null;
     });
   }, []);
-  useEffect(() => { setActivityAnchor(null); }, [conversation.id]);
+  const closePersonPopover = useCallback(() => {
+    setPersonAnchor(current => {
+      if (current?.element.isConnected) current.element.focus({preventScroll: true});
+      return null;
+    });
+  }, []);
+  useEffect(() => {
+    setActivityAnchor(null);
+    setPersonAnchor(null);
+  }, [conversation.id]);
   const openActivity = useCallback((next: AgentActivityAnchor) => {
+    setPersonAnchor(null);
     setActivityAnchor(current => current?.element === next.element ? null : next);
   }, []);
+  const openPersonPopover = useCallback((next: PersonPopoverAnchor) => {
+    setActivityAnchor(null);
+    setPersonAnchor(current => current?.element === next.element ? null : next);
+  }, []);
+  const handleMentionChipClick = useCallback((targetId: string, element: HTMLElement) => {
+    if (!visibleHumansById.has(targetId)) return;
+    openPersonPopover({ userId: targetId, element });
+  }, [visibleHumansById, openPersonPopover]);
+
+  function eligibleHumanSenderId(m: Message): string | null {
+    if (conversation.external_source || !onStartDirectChat) return null;
+    if (!(isGroup || conversation.is_observer)) return null;
+    if (m.sender.type !== "user") return null;
+    if (m.sender.avatar_id?.startsWith("external:")) return null;
+    const uid = m.sender_user_id || m.sender.user_id || m.sender.id;
+    if (!uid || uid === selfUserId || !visibleHumansById.has(uid)) return null;
+    return uid;
+  }
   const directAgent = conversation.type === "direct" ? conversation.participants.find(participant =>
     participant.type === "agent" && !participant.is_deleted && globalAgentIds.includes(participant.id)) : undefined;
   const chatActors = useMemo(() => [
@@ -1308,6 +1409,11 @@ export function MessagePane({
                     workHref={workHrefFor(m)}
                     onActivity={m.sender.type === "agent" && !m.work_record_deleted && globalAgentIds.includes(m.sender.id) ? openActivity : undefined}
                     activityExpanded={activityAnchor?.element.dataset.activityAnchor === m.id}
+                    personUserId={eligibleHumanSenderId(m)}
+                    onPerson={openPersonPopover}
+                    personExpanded={personAnchor?.element.dataset.personAnchor === m.id}
+                    interactiveMentionIds={interactiveMentionIds}
+                    onMentionClick={conversation.external_source || !onStartDirectChat ? undefined : handleMentionChipClick}
                     conversationId={conversation.id}
                     readOnly={conversation.can_write === false}
                     isMobile={isMobile}
@@ -1434,6 +1540,32 @@ export function MessagePane({
 
       {activityAnchor && globalAgentIds.includes(activityAnchor.agentId) && <AgentActivityPopover
         key={activityAnchor.agentId} anchor={activityAnchor} nodeName={agentNodeNames[activityAnchor.agentId] ?? (activityAnchor.agentId === directAgent?.id ? nodeName : null)} canConfigure={manageableWorkAgentIds.includes(activityAnchor.agentId)} onClose={closeActivity} />}
+      {personAnchor && visibleHumansById.has(personAnchor.userId) && onStartDirectChat && (() => {
+        const fromThread = Boolean(personAnchor.element.closest(".chat-thread-column"));
+        return (
+          <PersonPopover
+            key={personAnchor.userId}
+            anchor={personAnchor}
+            contact={visibleHumansById.get(personAnchor.userId)!}
+            contacts={contacts ?? []}
+            canMention={
+              isGroup
+              && !conversation.external_source
+              && conversation.can_write !== false
+              && !conversation.dissolved_at
+              && (fromThread ? Boolean(openThreadId) : !composerBusy)
+              && conversation.participants.some(p => !p.is_deleted && p.type === "user" && (p.user_id ?? p.id) === personAnchor.userId)
+            }
+            onMessage={onStartDirectChat}
+            onMention={contact =>
+              fromThread && openThreadId
+                ? insertThreadPersonMention(openThreadId, contact.user_id, contact.display_name)
+                : insertPersonMention(contact.user_id, contact.display_name)
+            }
+            onClose={closePersonPopover}
+          />
+        );
+      })()}
       {/* feat-484-M1: single pane-level copy snackbar / live region. */}
       {copyNotice && (
         <div
@@ -1544,7 +1676,9 @@ export function MessagePane({
             participants={conversation.participants} readOnly={conversation.can_write===false} isGroup={isGroup}
             interactiveReadOnly={conversation.can_write===false || Boolean(message.interactive?.read_only || message.interactive?.superseded_by)}
             submittedMessageId={submittedMessageId} onSend={sendCard} historyProcess={historyProcess}
-            onComposeMessage={onComposeMessage} onNavigateMessage={locate} />}
+            onComposeMessage={onComposeMessage} onNavigateMessage={locate}
+            interactiveMentionIds={interactiveMentionIds}
+            onMentionClick={conversation.external_source || !onStartDirectChat ? undefined : handleMentionChipClick} />}
           renderReceipt={message => message.sender_user_id === selfUserId && Boolean(message.receipts?.length) &&
               <MessageReceipt receipts={message.receipts ?? []} load={historyProcess && (signal => historyProcess.load(message.id,signal))} />}
           onClose={() => {
@@ -1917,6 +2051,11 @@ function MessageBubble({
   workHref,
   onActivity,
   activityExpanded,
+  personUserId,
+  onPerson,
+  personExpanded,
+  interactiveMentionIds,
+  onMentionClick,
   availableMessageIds,
   conversationId,
   isMobile,
@@ -1947,6 +2086,11 @@ function MessageBubble({
   workHref?: string;
   onActivity?(anchor: AgentActivityAnchor): void;
   activityExpanded?: boolean;
+  personUserId?: string | null;
+  onPerson?(anchor: PersonPopoverAnchor): void;
+  personExpanded?: boolean;
+  interactiveMentionIds?: ReadonlySet<string>;
+  onMentionClick?(targetId: string, element: HTMLElement): void;
   availableMessageIds?: ReadonlySet<string>;
   conversationId: string;
   isMobile?: boolean;
@@ -2162,6 +2306,14 @@ function MessageBubble({
         aria-expanded={Boolean(activityExpanded)}
         data-activity-anchor={message.id}
         onClick={event => onActivity({agentId: message.sender.id, name: message.sender.display_name ?? message.sender.id, element: event.currentTarget})}
+      >{messageAvatar}</button> : personUserId && onPerson ? <button
+        type="button"
+        className="chat-person-popover-trigger"
+        aria-label={t("chat.personPopover.trigger", {name: message.sender.display_name ?? message.sender.id})}
+        aria-haspopup="dialog"
+        aria-expanded={Boolean(personExpanded)}
+        data-person-anchor={message.id}
+        onClick={event => onPerson({userId: personUserId, element: event.currentTarget})}
       >{messageAvatar}</button> : messageAvatar}
       <div className="chat-bubble-column flex flex-col min-w-0">
         {(!isUser || message.pa_agent_id) && (showSender || message.pa_agent_id || message.delegation) && (
@@ -2204,6 +2356,7 @@ function MessageBubble({
             participants={participants} readOnly={readOnly} isGroup={isGroup} interactiveReadOnly={interactiveReadOnly}
             submittedMessageId={interactiveSubmissionId} onSend={onInteractionSend} onComposeMessage={onComposeMessage}
             historyProcess={historyProcess} availableMessageIds={availableMessageIds}
+            interactiveMentionIds={interactiveMentionIds} onMentionClick={onMentionClick}
             onNavigateMessage={id => document.getElementById(`chat-message-${id}`)?.scrollIntoView({block:"center",behavior:"smooth"})} />
 
           {/* Desktop fine-pointer / keyboard toolbar. */}
@@ -2303,10 +2456,14 @@ const MarkdownContent = React.memo(function MarkdownContent({
   content,
   participants,
   onCopyCode,
+  interactiveMentionIds,
+  onMentionClick,
 }: {
   content: string;
   participants?: Actor[];
   onCopyCode?(codeElement: HTMLElement): void;
+  interactiveMentionIds?: ReadonlySet<string>;
+  onMentionClick?(targetId: string, element: HTMLElement): void;
 }) {
   const { t } = useTranslation();
   // CR-3: participantMap 和 components 用 useMemo，仅 participants 变化时重建，
@@ -2329,6 +2486,21 @@ const MarkdownContent = React.memo(function MarkdownContent({
 
       const displayName = mentionDisplayName(targetId, participantMap);
       if (displayName !== "unknown") {
+        if (onMentionClick && interactiveMentionIds?.has(targetId)) {
+          return (
+            <button
+              type="button"
+              className="chat-mention-chip chat-mention-chip--interactive"
+              data-target-id={targetId}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMentionClick(targetId, e.currentTarget);
+              }}
+            >
+              @{displayName}
+            </button>
+          );
+        }
         return (
           <span className="chat-mention-chip" data-target-id={targetId}>
             @{displayName}
@@ -2398,7 +2570,7 @@ const MarkdownContent = React.memo(function MarkdownContent({
         </div>
       );
     },
-  }), [participantMap, onCopyCode, t]);
+  }), [participantMap, onCopyCode, interactiveMentionIds, onMentionClick, t]);
 
   return (
     <div className="im-md">
@@ -2421,6 +2593,8 @@ const MarkdownContent = React.memo(function MarkdownContent({
 function renderInlineContent(
   text: string,
   participants?: Actor[],
+  interactiveMentionIds?: ReadonlySet<string>,
+  onMentionClick?: (targetId: string, element: HTMLElement) => void
 ): React.ReactNode {
   const participantMap = mentionNameMap(participants);
 
@@ -2434,6 +2608,22 @@ function renderInlineContent(
     if (seg.kind === "mention") {
       const displayName = mentionDisplayName(seg.target_id, participantMap);
       if (displayName !== "unknown") {
+        if (onMentionClick && interactiveMentionIds?.has(seg.target_id)) {
+          return (
+            <button
+              key={idx}
+              type="button"
+              className="chat-mention-chip chat-mention-chip--interactive"
+              data-target-id={seg.target_id}
+              onClick={(e) => {
+                e.stopPropagation();
+                onMentionClick(seg.target_id, e.currentTarget);
+              }}
+            >
+              @{displayName}
+            </button>
+          );
+        }
         return (
           <span key={idx} className="chat-mention-chip" data-target-id={seg.target_id}>
             @{displayName}
@@ -2487,7 +2677,8 @@ function timelineTimeDividers(items: TimelineItem[], locale: string): Map<string
 
 /** Both reading surfaces preserve card actions, attachments, process history and approvals. */
 function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, isGroup, interactiveReadOnly,
-  submittedMessageId, onSend, onComposeMessage, historyProcess, availableMessageIds, onNavigateMessage}: {
+  submittedMessageId, onSend, onComposeMessage, historyProcess, availableMessageIds, onNavigateMessage,
+  interactiveMentionIds, onMentionClick}: {
   message: Message;
   participants?: Actor[];
   bodyRef?: React.Ref<HTMLDivElement>;
@@ -2501,6 +2692,8 @@ function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, 
   historyProcess?: MessagePaneProps["historyProcess"];
   availableMessageIds?:ReadonlySet<string>;
   onNavigateMessage(id:string):void;
+  interactiveMentionIds?:ReadonlySet<string>;
+  onMentionClick?(targetId:string,element:HTMLElement):void;
 }) {
   const {t} = useTranslation();
   const isHuman = message.sender.type === "user";
@@ -2527,8 +2720,8 @@ function MessageContents({message, participants, bodyRef, onCopyCode, readOnly, 
         className={`chat-message-body${isHuman && !message.pa_agent_id ? " chat-bubble-content" : ""}`}
       >
         {isHuman && !message.pa_agent_id
-          ? renderInlineContent(message.content, participants)
-          : <MarkdownContent content={message.content} participants={participants} onCopyCode={onCopyCode} />}
+          ? renderInlineContent(message.content, participants, interactiveMentionIds, onMentionClick)
+          : <MarkdownContent content={message.content} participants={participants} onCopyCode={onCopyCode} interactiveMentionIds={interactiveMentionIds} onMentionClick={onMentionClick} />}
       </div>
     )}
     {message.interactive && <React.Suspense fallback={null}><InteractiveCard message={message} readOnly={interactiveReadOnly} isGroup={isGroup} submittedMessageId={submittedMessageId}

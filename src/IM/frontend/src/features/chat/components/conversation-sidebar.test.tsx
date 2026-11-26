@@ -388,6 +388,129 @@ describe("ConversationSidebar", () => {
     const row = screen.getByRole("button", { name: /Assistant/ });
     expect(within(row).getByText("2")).toBeInTheDocument();
   });
+
+  it("focuses search via Cmd/Ctrl+K unless a dialog or distill mode is active, and recalls unchatted contacts", async () => {
+    const user = userEvent.setup();
+    const startDirect = vi.fn();
+    const externalShadow = conv({
+      id: "ext-dm",
+      title: "Lin Xia (Feishu)",
+      type: "direct",
+      direct_kind: "user-user",
+      external_source: { provider: "feishu", chat_id: "oc_1" } as unknown as Conversation["external_source"],
+      participants: [{ type: "user", id: "u1" }, { type: "user", id: "u-lin", display_name: "Lin Xia" }]
+    });
+    const observedAgentChat = conv({
+      id: "obs-agents",
+      title: "Atlas ↔ Lin Ops",
+      type: "direct",
+      direct_kind: "agent-agent",
+      is_observer: true,
+      can_write: false,
+      participants: [{ type: "agent", id: "atlas" }, { type: "agent", id: "lin-ops", display_name: "Lin Ops" }]
+    });
+    render(
+      <ConversationSidebar
+        conversations={[...CONVS, externalShadow, observedAgentChat]}
+        selfUserId="u1"
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        searchMessages={async () => ({ messages: [] })}
+        contacts={[
+          { user_id: "u1", kind: "human", display_name: "Me", username: "me" },
+          { user_id: "a-ops", kind: "agent", agent_id: "lin-ops", display_name: "Lin Ops", owner_display_name: "Lin Xia" },
+          { user_id: "u-lin", kind: "human", display_name: "Lin Xia", username: "linxia" }
+        ]}
+        onStartDirectChat={startDirect}
+      />
+    );
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    const input = screen.getByRole("searchbox");
+    expect(input).toHaveFocus();
+    await user.type(input, "@linxia");
+    expect(screen.getByText("Contacts")).toBeVisible();
+    const linBtn = screen.getByRole("button", { name: /Lin Xia.*@linxia/i });
+    expect(linBtn).toBeVisible();
+    await user.keyboard("{Enter}");
+    expect(startDirect).toHaveBeenCalledWith(expect.objectContaining({ user_id: "u-lin", username: "linxia" }));
+
+    await user.clear(input);
+    await user.type(input, "Lin Ops");
+    expect(screen.getByRole("button", { name: /Atlas ↔ Lin Ops/ })).toBeVisible();
+    // Agent-to-agent observer stream must not suppress direct 1:1 contact recall for Lin Ops.
+    expect(screen.getByRole("button", { name: /Lin Ops.*Lin Xia/i })).toBeVisible();
+  });
+
+  it("lists unchatted colleagues under the People tab in browse mode", async () => {
+    const user = userEvent.setup();
+    const startDirect = vi.fn();
+    render(
+      <ConversationSidebar
+        conversations={CONVS}
+        selfUserId="u1"
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        contacts={[
+          { user_id: "u1", kind: "human", display_name: "Me", username: "me" },
+          { user_id: "u-chen", kind: "human", display_name: "Chen Ming", username: "chenming" },
+          { user_id: "pa-chen", kind: "agent", role: "personal", agent_id: "pa-c", owner_id: "o-chen", owner_user_id: "u-chen", display_name: "Ming PA" }
+        ]}
+        onStartDirectChat={startDirect}
+      />
+    );
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    expect(screen.queryByText("No conversations")).toBeNull();
+    expect(screen.getByText("Teammates")).toBeVisible();
+    const row = screen.getByRole("button", { name: /Chen Ming/ });
+    expect(row).toHaveTextContent("@chenming");
+    expect(row).toHaveTextContent("PA: Ming PA");
+    await user.click(row);
+    expect(startDirect).toHaveBeenCalledWith(expect.objectContaining({ user_id: "u-chen" }));
+  });
+
+  it("caps search contact matches to top 5 with inline expand and caps People tab unchatted colleagues with directory link", async () => {
+    const user = userEvent.setup();
+    const openDirectory = vi.fn();
+    const contacts = [
+      { user_id: "u1", kind: "human" as const, display_name: "Me", username: "me" },
+      ...Array.from({ length: 8 }, (_, idx) => ({
+        user_id: `u-team-${idx + 1}`,
+        kind: "human" as const,
+        display_name: `Teammate ${idx + 1}`,
+        username: `mate${idx + 1}`
+      }))
+    ];
+    render(
+      <ConversationSidebar
+        conversations={CONVS}
+        selfUserId="u1"
+        activeConversationId={null}
+        onSelect={() => {}}
+        onNewGroup={() => {}}
+        contacts={contacts}
+        onStartDirectChat={vi.fn()}
+        onOpenPeopleDirectory={openDirectory}
+        searchMessages={async () => ({ messages: [] })}
+      />
+    );
+
+    // 1. Browse mode under People tab caps unchatted teammates to 6 and shows People directory jump.
+    await user.click(screen.getByRole("tab", { name: "People" }));
+    expect(screen.getByRole("button", { name: /Teammate 6/ })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Teammate 7/ })).toBeNull();
+    const dirBtn = screen.getByRole("button", { name: /View all in People \(8\)/ });
+    await user.click(dirBtn);
+    expect(openDirectory).toHaveBeenCalledTimes(1);
+
+    // 2. Search mode caps matched contacts to 5 until expanded in place.
+    await user.type(screen.getByRole("searchbox"), "Teammate");
+    expect(screen.getByRole("button", { name: /Teammate 5/ })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /Teammate 6/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Show all 8 contacts" }));
+    expect(screen.getByRole("button", { name: /Teammate 8/ })).toBeVisible();
+  });
 });
 
 it.each([false, true])("resolves agent/user mentions in preview and search (distill=%s)", async (distillMode) => {

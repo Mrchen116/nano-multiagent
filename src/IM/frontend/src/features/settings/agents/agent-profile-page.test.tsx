@@ -146,3 +146,54 @@ it("keeps showing the accepted deletion as the lifecycle and contact disappear",
   expect(await screen.findByRole("heading", { name:"Agent list" })).toBeVisible();
   expect(client.getQueryData(["public-agents", visitor.id])).toEqual([]);
 });
+
+it("lets a teammate message an Agent's human owner via owner_user_id and hides Work/Device on another user's public PA", async () => {
+  const bodies: unknown[] = [];
+  const specialistWithSeparateOwnerId = {
+    ...contact,
+    owner_id: "legacy-owner-o2",
+    owner_user_id: "u-colleague",
+    owner_display_name: "Lin Xia"
+  };
+  const colleagueHuman = { user_id: "u-colleague", kind: "human", display_name: "Lin Xia", username: "linxia" };
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes("kind=agent")) return response({ items: [specialistWithSeparateOwnerId], next_cursor: null });
+    if (url.includes("kind=human")) return response({ items: [colleagueHuman], next_cursor: null });
+    if (url.endsWith("/conversations") && init?.method === "POST") {
+      bodies.push(JSON.parse(String(init.body)));
+      return response({ id: "owner-dm" });
+    }
+    return response({ items: [] });
+  }));
+  const first = view(<AgentProfilePage />);
+  const ownerBtn = await screen.findByRole("button", { name: "Message Lin Xia" });
+  expect(screen.getByText(/Lin Xia \(@linxia\)/)).toBeVisible();
+  await userEvent.click(ownerBtn);
+  expect(await screen.findByText("New private chat")).toBeVisible();
+  expect(bodies).toEqual([{ title: "Lin Xia", type: "direct", participants: [{ type: "user", id: "visitor" }, { type: "user", id: "u-colleague" }] }]);
+  first.unmount();
+
+  const publicPa = {
+    user_id: "pa-user",
+    kind: "agent",
+    role: "personal",
+    agent_id: "colleague-pa",
+    owner_id: "legacy-owner-o2",
+    owner_user_id: "u-colleague",
+    owner_display_name: "Lin Xia",
+    display_name: "Lin PA",
+    status: "online",
+    work_mode: "global"
+  };
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("kind=agent")) return response({ items: [publicPa], next_cursor: null });
+    if (url.includes("kind=human")) return response({ items: [colleagueHuman], next_cursor: null });
+    return response({ items: [] });
+  }));
+  view(<AgentProfilePage />, "/settings/agents/colleague-pa");
+  expect(await screen.findByRole("heading", { name: "Lin PA" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
+  expect(screen.queryByText("Device")).toBeNull();
+});

@@ -36,7 +36,14 @@ it('paginates visible contacts without gaps across hidden candidates and keeps U
   expect((await get('/im/v1/contacts/p001')).statusCode).toBe(404);
   expect((await get('/im/v1/contacts/absent')).statusCode).toBe(404);
   const humans = (await get('/im/v1/contacts?kind=human')).json();
-  expect(humans.items.map((r:any)=>r.user_id)).toEqual(['u1','u2']);
+  expect(humans.items).toEqual([
+    {user_id:'u1',kind:'human',display_name:'u1',username:'alice'},
+    {user_id:'u2',kind:'human',display_name:'u2',username:'bob'},
+  ]);
+  expect((await get('/im/v1/contacts?kind=human&q=bob')).json().items.map((r:any)=>r.user_id)).toEqual(['u2']);
+  expect((await get('/im/v1/contacts?kind=human&q=%40bob')).json().items.map((r:any)=>r.user_id)).toEqual(['u2']);
+  expect((await get('/im/v1/contacts/u2')).json()).toEqual({user_id:'u2',kind:'human',display_name:'u2',username:'bob'});
+  expect((await get('/im/v1/contacts/a1')).json()).toMatchObject({user_id:'a1',agent_id:'a',owner_id:'o1',owner_user_id:'u1',owner_display_name:'u1'});
   expect((await get('/im/v1/contacts?kind=invalid')).statusCode).toBe(400);
 });
 

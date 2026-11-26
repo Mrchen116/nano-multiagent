@@ -69,6 +69,7 @@
     "appName": "Crewden",
     "tabs": {
       "chat": "聊天",
+      "people": "同事",
       "agents": "智能体",
       "me": "我",
       "tasks": "任务"
@@ -83,6 +84,24 @@
       "signOut": "退出登录"
     },
     "home": "Crewden 工作空间"
+  },
+  "people": {
+    "title": "同事",
+    "subtitle": "查看团队成员、公开个人助手与负责的数字员工，直接发起沟通。",
+    "search": "按姓名或 @用户名搜索同事…",
+    "count": "{{count}} 位成员",
+    "you": "你",
+    "accountLink": "个人资料",
+    "manageMembers": "成员与审批",
+    "message": "发消息",
+    "personalAssistant": "公开个人助手",
+    "managedAgents": "负责的数字员工",
+    "noSearchResults": "没有找到匹配的同事",
+    "loadError": "暂时无法加载团队成员列表。",
+    "retry": "重试",
+    "personalSpaceTitle": "你当前处于个人空间",
+    "personalSpaceBody": "加入团队并通过管理员批准后，可在这里看到团队同事、他们的公开个人助手与共享数字员工，并直接发起协作。",
+    "openTeamAccess": "查看团队资格"
   },
   "me": {
     "title": "我",
@@ -947,6 +966,7 @@
     },
     "publicProfile": "资料",
     "managedBy": "管理员",
+    "messageOwner": "给 {{name}} 发消息",
     "device": "设备",
     "mode": "工作模式",
     "globalMode": "全局模式",
@@ -1054,6 +1074,11 @@
       "searchHint": "搜索会话和聊天记录",
       "noSearchResults": "没有找到相关结果",
       "conversationResults": "会话",
+      "contactResults": "联系人",
+      "showAllContacts": "查看全部 {{count}} 位联系人",
+      "teamColleagues": "可直接联系的同事",
+      "openPeopleDirectory": "去同事目录查看全部 ({{count}}) →",
+      "startChat": "发消息",
       "noConversationResults": "没有匹配的会话",
       "messageResults": "聊天记录",
       "searchLoading": "正在搜索…",
@@ -1087,6 +1112,8 @@
       "title": "新建群聊",
       "subtitle": "选择其他人和自己管理的 Agent",
       "sectionAgents": "人和我的 Agent",
+      "sectionPeople": "同事",
+      "sectionMyAgents": "我的 Agent",
       "groupName": "群名(可选)",
       "groupNamePlaceholder": "默认按参与者名字拼接",
       "create": "创建群聊",
@@ -1304,7 +1331,7 @@
       "manageTitle": "管理成员",
       "done": "完成",
       "addMembers": "添加成员",
-      "addMembersTitle": "选择要加入的 Agent",
+      "addMembersTitle": "选择要加入的成员",
       "add": "添加",
       "addCount": "添加 ({{count}})",
       "addCountMobile": "添加 {{count}} 名成员",
@@ -1355,10 +1382,26 @@
     "contacts": {
       "title": "新聊天",
       "search": "查找人或 Agent",
+      "filterAll": "全部",
+      "filterPeople": "同事",
+      "filterAgents": "助手",
+      "sectionPeople": "同事",
+      "sectionAgents": "助手与数字员工",
+      "hasAssistant": "个人助手：{{name}}",
       "empty": "没有找到联系人",
       "person": "人",
       "message": "发消息",
       "failed": "操作失败，请重试"
+    },
+    "personPopover": {
+      "trigger": "查看{{name}}的名片",
+      "colleague": "团队同事",
+      "close": "关闭",
+      "message": "发消息",
+      "mention": "@ 提及",
+      "personalAssistant": "公开个人助手",
+      "managedAgents": "负责的数字员工",
+      "failed": "无法打开私聊，请重试"
     },
     "preferences": {
       "title": "聊天设置",

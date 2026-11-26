@@ -36,10 +36,11 @@
 .im-user-menu-signout { margin-top: 3px; color: var(--im-danger); }
 .im-user-menu-signout svg { color: inherit; }
 .im-shell-bottombar { display: flex; justify-content: space-around; align-items: center; height: 60px; border-top: 1px solid var(--im-border); background: white; }
-.im-shell-bottomtab { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; width: 78px; height: 52px; color: var(--im-text-muted); text-decoration: none; font-size: 11px; font-weight: 500; }
+.im-shell-bottomtab { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; flex: 1; min-width: 0; max-width: 88px; height: 52px; color: var(--im-text-muted); text-decoration: none; font-size: 11px; font-weight: 500; }
+.im-shell-bottomtab-icon-wrap { position: relative; display: inline-flex; }
 .im-shell-bottomtab-icon { display: grid; place-items: center; width: 42px; height: 28px; border-radius: 10px; }
 .im-shell-bottomtab-icon svg { width: 22px; height: 22px; }
 .im-shell-bottomtab.active { color: var(--im-text); font-weight: 650; }
 .im-shell-bottomtab.active .im-shell-bottomtab-icon { background: var(--im-butter); color: var(--im-text); }
-.im-shell-unread-badge { position: absolute; top: 0; right: 10px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--im-accent); color: white; font-size: 10px; line-height: 16px; text-align: center; }
+.im-shell-unread-badge { position: absolute; top: -3px; right: -4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--im-accent); color: white; font-size: 10px; line-height: 16px; text-align: center; }
 @media(max-width:767px) { .im-shell { flex-direction: column; } }

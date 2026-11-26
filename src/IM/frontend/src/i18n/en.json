@@ -69,6 +69,7 @@
     "appName": "Crewden",
     "tabs": {
       "chat": "Chat",
+      "people": "People",
       "agents": "Agents",
       "me": "Me",
       "tasks": "Tasks"
@@ -83,6 +84,24 @@
       "signOut": "Sign out"
     },
     "home": "Crewden workspace"
+  },
+  "people": {
+    "title": "People",
+    "subtitle": "Browse teammates, their public personal assistants, and managed Agents.",
+    "search": "Search teammates by name or @username…",
+    "count": "{{count}} members",
+    "you": "You",
+    "accountLink": "Your profile",
+    "manageMembers": "Manage members",
+    "message": "Message",
+    "personalAssistant": "Public PA",
+    "managedAgents": "Managed Agents",
+    "noSearchResults": "No matching teammates found",
+    "loadError": "Could not load teammates right now.",
+    "retry": "Retry",
+    "personalSpaceTitle": "You’re in your personal space",
+    "personalSpaceBody": "Once your team membership is approved, teammates, their public personal assistants, and shared Agents appear here.",
+    "openTeamAccess": "View team membership"
   },
   "me": {
     "title": "Me",
@@ -955,6 +974,7 @@
     },
     "publicProfile": "Profile",
     "managedBy": "Managed by",
+    "messageOwner": "Message {{name}}",
     "device": "Device",
     "mode": "Work mode",
     "globalMode": "Global mode",
@@ -1062,6 +1082,11 @@
       "searchHint": "Search conversations and messages",
       "noSearchResults": "No results found",
       "conversationResults": "Conversations",
+      "contactResults": "Contacts",
+      "showAllContacts": "Show all {{count}} contacts",
+      "teamColleagues": "Teammates",
+      "openPeopleDirectory": "View all in People ({{count}}) →",
+      "startChat": "Message",
       "noConversationResults": "No matching conversations",
       "messageResults": "Messages",
       "searchLoading": "Searching…",
@@ -1095,6 +1120,8 @@
       "subtitle": "Choose people and Agents you manage",
       "personalScope": "Groups with a personal assistant stay private in your personal space.",
       "sectionAgents": "People and my Agents",
+      "sectionPeople": "People",
+      "sectionMyAgents": "My Agents",
       "groupName": "Group name (optional)",
       "groupNamePlaceholder": "Auto-generated from participants",
       "create": "Create group",
@@ -1319,7 +1346,7 @@
       "manageTitle": "Manage members",
       "done": "Done",
       "addMembers": "Add members",
-      "addMembersTitle": "Select agents to add",
+      "addMembersTitle": "Select members to add",
       "add": "Add",
       "addCount": "Add ({{count}})",
       "addCountMobile": "Add {{count}} member(s)",
@@ -1370,10 +1397,26 @@
     "contacts": {
       "title": "New chat",
       "search": "Find people or Agents",
+      "filterAll": "All",
+      "filterPeople": "People",
+      "filterAgents": "Agents",
+      "sectionPeople": "People",
+      "sectionAgents": "Agents",
+      "hasAssistant": "PA: {{name}}",
       "empty": "No contacts found",
       "person": "Person",
       "message": "Message",
       "failed": "Could not complete this action. Try again."
+    },
+    "personPopover": {
+      "trigger": "View {{name}}’s card",
+      "colleague": "Teammate",
+      "close": "Close",
+      "message": "Message",
+      "mention": "@ Mention",
+      "personalAssistant": "Public PA",
+      "managedAgents": "Managed Agents",
+      "failed": "Could not open direct chat. Try again."
     },
     "preferences": {
       "title": "Chat preferences",
