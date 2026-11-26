@@ -79,3 +79,14 @@
 ### Round 3 resolution
 
 普通 Global 从 Inbox 真实读到的 RelayInput 判断实际主人与目标；PA 额外核实 participant。M1 分别验证真实 Global 入口和 PA。
+
+## Round 4
+
+- Reviewer 为独立复审者 `/root/gate2_inbox`，审查版本为 `a50ee64cb`。
+- `review_mode: closure`。本次变更只修订 R3-W1 涉及的 Global 来源判据及其 M1 验证入口，其余结论沿用 Round 3。
+- `started_at: 2026-11-27T01:12:48+09:00`，`completed_at: 2026-11-27T01:13:00+09:00`，`duration: 12s`。
+- **Approved**，0 CRITICAL，0 WARNING。
+
+### 历史问题闭环
+
+- **R3-W1 · closed**。修订后的 `design.md:29` 要求从本轮普通 Global Inbox 完整读到的原始消息核对主人、发送者类型及交办对象。实际产品入口 `global-agent.ts:947` 将 agent、session 与 call 交给 Inbox。`inbox.ts:766–802,839` 从持久化的 RelayInput 取出本页所选片段，并按 session/call 保存。IM 的 `messaging.ts:757–766` 按实际聊天和明确提及的 Agent 产生投递事实，宿主可据此核对直聊或定向群消息。`global-agent.ts:1466–1480` 在读取成功提交后记录真实消息 ID、会话目标和完整标记，可将资格限定于对应交办。PA 的 `personal-assistant.ts:60–69` 从服务端来源核准取得 participant/observer，可执行额外的 participant 检查。M1 已列入从普通 Global 的真实 Inbox 投递主人与协作者相同原话的对照。此次确认设计可实施，运行时读取次数由 M1 验证。
