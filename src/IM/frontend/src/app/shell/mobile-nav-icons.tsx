@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 type MobileNavIconProps = {
-  name: "chat" | "agents" | "me" | "tasks";
+  name: "chat" | "people" | "agents" | "me" | "tasks";
   children: ReactNode;
 };
 
@@ -67,6 +67,29 @@ export function MeNavIcon() {
       <circle cx="12" cy="8" r="3" stroke="currentColor" strokeWidth="1.8" />
       <path
         d="M5.75 19.25v-1.1C5.75 15.15 8.55 13 12 13s6.25 2.15 6.25 5.15v1.1"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+    </MobileNavIcon>
+  );
+}
+
+export function PeopleNavIcon() {
+  return (
+    <MobileNavIcon name="people">
+      <circle cx="9.25" cy="8.25" r="2.75" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M4 18.75v-.85C4 15.35 6.35 13.5 9.25 13.5s5.25 1.85 5.25 4.4v.85"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <circle cx="16.25" cy="9" r="2.25" stroke="currentColor" strokeWidth="1.8" />
+      <path
+        d="M16.5 13.75c2 .15 3.5 1.65 3.5 3.8v1.2"
         stroke="currentColor"
         strokeLinecap="round"
         strokeLinejoin="round"

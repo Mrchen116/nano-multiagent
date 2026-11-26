@@ -257,17 +257,19 @@ export class Dreaming {
     const config = this.configuration(agentId);
     const active = this.active.get(agentId);
     if (active) {
-      if (this.options.held?.(agentId) || config?.knowledge?.memoryMode === 'legacy' || active.automatic && config?.features?.dreaming === false) active.controller.abort();
+      if (this.options.held?.(agentId) || config?.knowledge?.enabled === false || config?.knowledge?.memoryMode === 'legacy' || active.automatic && config?.features?.dreaming === false) active.controller.abort();
       return;
     }
-    if (this.stopped || !config || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false || this.options.held?.(agentId)) return;
+    if (this.stopped || !config || config.knowledge?.enabled === false || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false || this.options.held?.(agentId)) return;
+    const agentBindings = [...this.options.bindings.values()].filter(binding => binding.agentId === agentId);
+    let parent = agentBindings.map(binding => this.ctx.agents.get(SessionId(binding.sessionId))).find(Boolean);
+    // Keep cold unactivated Agents zero-I/O on periodic ticks; only inspect persisted owners or live sessions.
+    if (!parent && !this.owners.has(agentId) && !(await this.domain).table('owners').get(key(agentId))) return;
     const timing = this.automaticTiming(config, await this.owner(config), now);
     if (now < timing.dueAt) return;
     const quiet = now >= timing.quietAt;
     if (this.foregroundRequests > 0) return;
     if (!timing.explicitInterval && !quiet) return;
-    const agentBindings = [...this.options.bindings.values()].filter(binding => binding.agentId === agentId);
-    let parent = agentBindings.map(binding => this.ctx.agents.get(SessionId(binding.sessionId))).find(Boolean);
     if (!parent && this.options.resolveSession) {
       for (const binding of agentBindings) {
         if (!await this.ctx.sessionPersistence.stat(SessionId(binding.sessionId))) continue;

@@ -80,6 +80,7 @@ import {
   type GroupSettingsAgentOption,
   type GroupSettingsMember
 } from "./components/group-settings";
+import { PersonPopover, type PersonPopoverAnchor } from "./components/person-popover";
 import { PendingConversationPane } from "./components/pending-conversation-pane";
 import { MessagePane } from "./components/message-pane";
 import { listContacts, contactActor, type Contact } from "./contacts-api";
@@ -355,9 +356,12 @@ export function ChatWorkspacePage() {
   const [distillNotice, setDistillNotice] = useState<string | null>(null);
   const [distillSubmitting, setDistillSubmitting] = useState(false);
   const [draftSeed, setDraftSeed] = useState<{ id: string; conversationId: string; text: string; replace?: boolean; focusOnly?: boolean } | null>(null);
+  const [mentionSeed, setMentionSeed] = useState<{ id: string; conversationId: string; userId: string; displayName: string } | null>(null);
+  const [groupPersonAnchor, setGroupPersonAnchor] = useState<PersonPopoverAnchor | null>(null);
   // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
+  const membershipStatus = useAuthStore((s) => s.user?.membership_status);
   const readingPositions = readingPositionStoreFor(selfUserId);
   const personalAgent = useQuery({queryKey:['personal-agent',selfUserId],queryFn:getPersonalAgent,enabled:!!selfUserId,retry:false,refetchInterval:()=>document.visibilityState==='visible'?5000:false});
   const personalBinding = personalAgent.data?.binding;
@@ -465,7 +469,11 @@ export function ChatWorkspacePage() {
 
   const contactsQuery = useQuery({ queryKey: ["contacts", selfUserId], queryFn: () => listContacts(), refetchInterval: 3000 });
   const publicAgents = (contactsQuery.data ?? []).filter(c => c.kind === "agent");
-  const distillAgentIds = new Set(publicAgents.filter(a => a.owner_id === selfUserId && a.work_mode === "single_thread").map(a => a.agent_id));
+  const visibleHumansById = useMemo(
+    () => new Map((contactsQuery.data ?? []).filter(c => c.kind === "human").map(c => [c.user_id, c])),
+    [contactsQuery.data]
+  );
+  const distillAgentIds = new Set(publicAgents.filter(a => (a.owner_user_id ?? a.owner_id) === selfUserId && a.work_mode === "single_thread").map(a => a.agent_id));
   const workspaceActors = useMemo(() => (conversationsQuery.data ?? []).flatMap(chat => chat.participants),
     [conversationsQuery.data]);
   const sidebarConversations = localConversations.map(c => distillAgentIds.has(c.source_agent_id ?? "") ? c : { ...c, source_agent_id: null, source_node_id: null });
@@ -550,7 +558,7 @@ export function ChatWorkspacePage() {
   }, [activeConversation, contactsQuery.data, agentsQuery.data, nodesQuery.data]);
 
   const ownedDirectAgent = activeConversation?.type === "direct"
-    && publicAgents.find(agent => agent.agent_id === headerAgentContext.agentId && agent.owner_id === selfUserId && agent.work_mode === "global");
+    && publicAgents.find(agent => agent.agent_id === headerAgentContext.agentId && (agent.owner_user_id ?? agent.owner_id) === selfUserId && agent.work_mode === "global");
   const cooperationAgent = isPersonalConversation && personalBinding ? {
     id: personalBinding.agent_id, name: personalBinding.display_name, personal: true,
     online: headerAgentContext.nodeStatus === "online",
@@ -584,25 +592,27 @@ export function ChatWorkspacePage() {
         userId,
         type: p.type,
         displayName: p.display_name ?? p.id,
+        username: p.type === "user" && userId ? visibleHumansById.get(userId)?.username ?? null : null,
         isSelf: p.type === "user" && userId === selfUserId,
         isCreator: userId != null && userId === activeConversation.creator_id,
         status,
         isStale: p.is_deleted || p.is_stale || null
       };
     });
-  }, [activeConversation, contactsQuery.data, selfUserId]);
+  }, [activeConversation, contactsQuery.data, visibleHumansById, selfUserId]);
 
   const addableAgents = useMemo<GroupSettingsAgentOption[]>(() => {
     if (!activeConversation) return [];
     const members = new Set(activeConversation.participants.map(p => p.user_id ?? p.id));
-    return (contactsQuery.data ?? []).filter(c => !members.has(c.user_id) && (c.kind === "human" || c.owner_id === selfUserId)).map(c => ({
-      agentId: c.agent_id ?? c.user_id, type: c.kind === "human" ? "user" : "agent", displayName: c.display_name, status: c.status
+    return (contactsQuery.data ?? []).filter(c => !members.has(c.user_id) && (c.kind === "human" || (c.owner_user_id ?? c.owner_id) === selfUserId)).map(c => ({
+      agentId: c.agent_id ?? c.user_id, type: c.kind === "human" ? "user" : "agent", displayName: c.display_name, username: c.username ?? null, status: c.status
     }));
   }, [activeConversation, contactsQuery.data, selfUserId]);
 
   // Switching conversations closes any open settings surface.
   useEffect(() => {
     setShowGroupSettings(false);
+    setGroupPersonAnchor(null);
   }, [conversationId]);
 
   const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
@@ -1357,11 +1367,24 @@ export function ChatWorkspacePage() {
 
   const showList = !isMobile || !conversationId;
   const showDetail = !isMobile || Boolean(conversationId);
-  const showFirstUseWelcome = !conversationId && personalSpace && personalAgent.isSuccess && !personalBinding
+  const showFirstUseWelcome = !conversationId && membershipStatus !== "active" && personalSpace && personalAgent.isSuccess && !personalBinding
     && conversationsQuery.isSuccess && localConversations.length === 0;
   const visibleWorkspaceError = workspaceError?.conversationId === (conversationId ?? "")
     ? workspaceError
     : null;
+
+  const openDirectChatWithContact = useCallback(async (contact: Contact) => {
+    const chat = await createConversation({
+      title: contact.display_name,
+      type: "direct",
+      participants: [contactActor(contact)]
+    });
+    await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
+    setShowNewChat(false);
+    setShowGroupSettings(false);
+    setGroupPersonAnchor(null);
+    navigate(`/chat/${chat.id}`);
+  }, [navigate, queryClient]);
 
   async function handleComposeMessage(target: string, text: string) {
     const account = selfUserId;
@@ -1438,6 +1461,9 @@ export function ChatWorkspacePage() {
           onNewChat={() => setShowNewChat(true)}
           onDiscover={() => setShowPublicGroups(true)}
           onNewGroup={() => setShowNewGroup(true)}
+          contacts={contactsQuery.data}
+          onStartDirectChat={openDirectChatWithContact}
+          onOpenPeopleDirectory={() => navigate("/people")}
           distillMode={distillMode}
           selectedDistillConversationIds={selectedDistillConversationIds}
           selectedDistillSourceNodeId={selectedDistillSourceNodeId}
@@ -1510,15 +1536,19 @@ export function ChatWorkspacePage() {
               return queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
             })}
             agentNodeNames={Object.fromEntries(publicAgents.filter(a => a.node_name).map(a => [a.agent_id!, a.node_name!]))}
-            globalAgentIds={publicAgents.filter(a => a.work_mode === "global" && (a.role!=='personal'||a.owner_id===selfUserId)).map(a => a.agent_id!)}
-            manageableWorkAgentIds={publicAgents.filter(a => a.work_mode === "global" && a.owner_id === selfUserId).map(a => a.agent_id!)}
+            globalAgentIds={publicAgents.filter(a => a.work_mode === "global" && (a.role!=='personal'||(a.owner_user_id ?? a.owner_id)===selfUserId)).map(a => a.agent_id!)}
+            manageableWorkAgentIds={publicAgents.filter(a => a.work_mode === "global" && (a.owner_user_id ?? a.owner_id) === selfUserId).map(a => a.agent_id!)}
             mentionCandidates={mentionCandidates}
             composerStore={composerStoreFor(selfUserId)}
             draftSeed={draftSeed}
+            mentionSeed={mentionSeed}
+            onMentionSeedConsumed={() => setMentionSeed(null)}
+            contacts={contactsQuery.data}
+            onStartDirectChat={openDirectChatWithContact}
             onComposeMessage={handleComposeMessage}
             slashSkills={slashSkills}
             slashCommands={slashCommands}
-            configLabel={isPersonalConversation ? undefined : headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && a.owner_id === selfUserId) ? t("agents.publicProfile") : undefined}
+            configLabel={isPersonalConversation ? undefined : headerAgentContext.agentId && !publicAgents.some(a => a.agent_id === headerAgentContext.agentId && (a.owner_user_id ?? a.owner_id) === selfUserId) ? t("agents.publicProfile") : undefined}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
             nodeId={headerAgentContext.nodeId}
@@ -1582,17 +1612,13 @@ export function ChatWorkspacePage() {
       {showPersonalAgentSetup && personalAgent.data && <PersonalAgentDialog state={personalAgent.data} nodes={nodesQuery.data??[]} onClose={()=>setShowPersonalAgentSetup(false)} onCreated={id=>{setShowPersonalAgentSetup(false);navigate(`/chat/${id}`);}}/>}
       {showTasks && activeConversation && isGroupKind && <GroupTaskPanel key={`tasks:${activeConversation.id}`} conversationId={activeConversation.id} canCreate={activeConversation.can_write} onClose={() => setShowTasks(false)} />}
       {showPublicGroups && <PublicGroupsModal groups={publicGroupsQuery.data} pending={publicGroupsQuery.isPending} error={publicGroupsQuery.isError} onRetry={() => void publicGroupsQuery.refetch()} onClose={closePublicGroups} onSelect={chat => { setShowPublicGroups(false); navigate(`/chat/${chat.id}`); }} />}
-      {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onSelect={async contact => {
-        const chat = await createConversation({ title: contact.display_name, type: "direct", participants: [contactActor(contact)] });
-        await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
-        setShowNewChat(false); navigate(`/chat/${chat.id}`);
-      }} />}
+      {showNewChat && <NewChatModal onClose={() => setShowNewChat(false)} onSelect={openDirectChatWithContact} />}
       {showNewGroup && (
         <NewGroupModal
           isBusy={createGroupMutation.isPending}
           error={createGroupMutation.isError}
-          agents={(contactsQuery.data ?? []).filter(c => c.user_id !== selfUserId && (c.kind === "human" || c.owner_id === selfUserId)).map(c => ({
-            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id
+          agents={(contactsQuery.data ?? []).filter(c => c.user_id !== selfUserId && (c.kind === "human" || (c.owner_user_id ?? c.owner_id) === selfUserId)).map(c => ({
+            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, username: c.username, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id
           }))}
           onClose={() => setShowNewGroup(false)}
           onCreate={(payload) => createGroupMutation.mutate(payload)}
@@ -1694,13 +1720,49 @@ export function ChatWorkspacePage() {
           addableAgents={addableAgents}
           isMobile={isMobile}
           isBusy={groupSettingsBusy}
-          onClose={() => setShowGroupSettings(false)}
+          onClose={() => { setGroupPersonAnchor(null); setShowGroupSettings(false); }}
           onRename={isPersonalConversation ? async title=>{await renamePersonalAgent(title);await Promise.all([queryClient.invalidateQueries({queryKey:['personal-agent']}),queryClient.invalidateQueries({queryKey:['chat']})]);} : title=>renameMutation.mutateAsync(title)}
           onAddParticipants={(agentIds) => addParticipantsMutation.mutateAsync(agentIds)}
           onRemoveParticipant={(userId) => removeParticipantMutation.mutateAsync(userId)}
           onLeave={async () => { await removeParticipant(activeConversation.id, selfUserId!); await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate("/chat"); }}
           onDissolve={() => dissolveMutation.mutateAsync()}
           onOpenAgentConfig={(agentId) => navigate(`/settings/agents/${agentId}`)}
+          onSelectHumanMember={(uid, element) => {
+            if (uid !== selfUserId && visibleHumansById.has(uid)) {
+              setGroupPersonAnchor(cur => cur?.element === element ? null : { userId: uid, element });
+            }
+          }}
+        />
+      )}
+      {showGroupSettings && activeConversation && groupPersonAnchor && visibleHumansById.get(groupPersonAnchor.userId) && (
+        <PersonPopover
+          key={`group:${groupPersonAnchor.userId}`}
+          anchor={groupPersonAnchor}
+          contact={visibleHumansById.get(groupPersonAnchor.userId)!}
+          contacts={contactsQuery.data ?? []}
+          canMention={
+            !activeConversation.external_source
+            && activeConversation.can_write !== false
+            && !activeConversation.dissolved_at
+            && activeConversation.participants.some(p => !p.is_deleted && p.type === "user" && (p.user_id ?? p.id) === groupPersonAnchor.userId)
+          }
+          onMessage={openDirectChatWithContact}
+          onMention={contact => {
+            setGroupPersonAnchor(null);
+            setShowGroupSettings(false);
+            setMentionSeed({
+              id: crypto.randomUUID(),
+              conversationId: activeConversation.id,
+              userId: contact.user_id,
+              displayName: contact.display_name
+            });
+          }}
+          onClose={() => {
+            setGroupPersonAnchor(cur => {
+              if (cur?.element.isConnected) cur.element.focus({ preventScroll: true });
+              return null;
+            });
+          }}
         />
       )}
     </div>

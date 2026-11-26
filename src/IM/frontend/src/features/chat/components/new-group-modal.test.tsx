@@ -82,4 +82,25 @@ describe("NewGroupModal", () => {
     await user.click(screen.getByRole("button", { name: /Cancel/ }));
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("groups human colleagues first and displays @username instead of internal UUIDs", async () => {
+    const user = userEvent.setup();
+    render(
+      <NewGroupModal
+        agents={[
+          { agent_id: "agent-a", display_name: "Assistant", kind: "agent", node_name: "mac-mini", status: "online" },
+          { agent_id: "uuid-9999-hidden", display_name: "Lin Xia", username: "linxia", kind: "human" }
+        ]}
+        onClose={() => {}}
+        onCreate={() => {}}
+      />
+    );
+    expect(screen.getByText("People")).toBeVisible();
+    expect(screen.getByText("My Agents")).toBeVisible();
+    expect(screen.getByText("@linxia")).toBeVisible();
+    expect(screen.queryByText("uuid-9999-hidden")).toBeNull();
+    await user.type(screen.getByRole("searchbox"), "@linxia");
+    expect(screen.getByLabelText("Lin Xia")).toBeVisible();
+    expect(screen.queryByLabelText("Assistant")).toBeNull();
+  });
 });
