@@ -16,7 +16,7 @@ import type { InteractionReplyInput } from "../interactive/types";
 import { MentionPicker } from "./mention-picker";
 import { MENTION_RE, reconstructWireContent } from "./mention-parser";
 
-import { Avatar, colorForAgentSeed, initialsOf } from "./avatar";
+import { Avatar, AvatarIdentities } from "./avatar";
 
 interface ThreadPage {
   root: Message;
@@ -209,11 +209,9 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
     const sender = message.sender;
     const name = sender.display_name || sender.id;
 
-    const agent = sender.type === "agent" && !message.pa_agent_id;
     return <div key={message.id} id={`thread-message-${message.id}`} tabIndex={-1}
       className={`chat-thread-message${highlight === message.id ? " im-work-message-target" : ""}`}>
-      <Avatar initials={initialsOf(name)} color={colorForAgentSeed(name)} size={30} agentId={agent ? sender.id : undefined}
-        personal={agent && sender.role === "personal"} avatarVariant={sender.avatar_variant} />
+      <Avatar id={message.sender.avatar_id ?? message.sender_user_id} size={30} />
       <div className="chat-thread-message-body">
         <div className="chat-thread-byline">
           <strong>{name}</strong>
@@ -236,7 +234,9 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
       </div>
     </div>;
   }
-  return <aside className="chat-thread-column" onKeyDown={event => {
+  const actors = data ? [data.root, ...data.items.map(item => item.message)]
+    .map(message => ({ ...message.sender, user_id: message.sender_user_id })) : [];
+  return <AvatarIdentities actors={actors}><aside className="chat-thread-column" onKeyDown={event => {
     if (event.key === "Escape" && !event.defaultPrevented && !event.nativeEvent.isComposing) {
       event.preventDefault();
       onClose();
@@ -299,5 +299,5 @@ export function ThreadColumn({ conversation, rootId, targetId, selfUserId, menti
           <ArrowUp size={18}/></button>
       </div></div></AttachmentDropzone>
     </form>}
-  </aside>;
+  </aside></AvatarIdentities>;
 }

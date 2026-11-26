@@ -18,7 +18,8 @@ export class NativeModelSetup {
   /** Current explicit provider metadata for a temporary native inspection. */
   get inspectionProviders(): Profiles | undefined {return this.configured ? structuredClone(this.providers) : undefined;}
   private transaction?: Transaction;
-  constructor(private readonly ctx: Context, private readonly peer: Pick<RpcPeer, 'handle' | 'notify'>) {
+  constructor(private readonly ctx: Context, private readonly peer: Pick<RpcPeer, 'handle' | 'notify'>,
+    private readonly onChanged?: (providers: Profiles) => Promise<void> | void) {
     peer.handle('model.setup.catalog', () => this.catalog());
     peer.handle('model.setup.snapshot', () => this.snapshot());
     peer.handle('model.setup.sync', value => this.sync(value as Awaited<ReturnType<NativeModelSetup['snapshot']>>));
@@ -46,6 +47,7 @@ export class NativeModelSetup {
     await this.ctx.settings.mutate('llm-pi-ai', [{ op: 'set', path: ['providers'], value: providers }]);
     this.providers = structuredClone(providers);
     this.configured = true;
+    await this.onChanged?.(this.providers);
   }
   /** Export only approved model routes and their credentials to a trusted sibling host. */
   async snapshot() {
@@ -173,11 +175,11 @@ export class NativeModelSetup {
     if (commit && !transaction.tested) throw new Error('Model verification has not completed');
     try {
       if (!commit) {
-        await this.apply(transaction.previous);
         if (transaction.keyWritten) {
           if (transaction.record) await this.ctx.credentials.modifyRecord(recordKeyFor(transaction.candidate.provider), async () => transaction.record);
           else await this.ctx.credentials.deleteRecord(recordKeyFor(transaction.candidate.provider));
         }
+        await this.apply(transaction.previous);
       }
     } finally { this.transaction = undefined; }
   }

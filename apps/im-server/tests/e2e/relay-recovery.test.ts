@@ -107,6 +107,13 @@ it.each(['direct', 'group'] as const)('confirms %s delivery from each real recip
     }
     expect((await readMessage('alice')).receipts.map((receipt: any) => receipt.status).sort()).toEqual(['read','read','received']);
   }
+  if (g) {
+    const global = conversation.body.participants.find((actor: any) => actor.id === 'global');
+    expect((await f.http('DELETE', `${base}/participants/${global.user_id}`, undefined, f.tokens.alice)).status).toBeLessThan(300);
+    expect((await readMessage('alice')).receipts).toContainEqual(expect.objectContaining({
+      recipient_id: global.user_id, recipient: expect.objectContaining({id:'global', type:'agent', user_id:global.user_id}),
+    }));
+  }
   expect((await f.http('POST', `${base}/read`, {last_read_message_id:sent.body.id}, f.tokens.bob)).status).toBe(200);
   await confirm('bob');
   expect((await readMessage('alice')).receipts.every((receipt: any) => receipt.status === 'read')).toBe(true);

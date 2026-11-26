@@ -13,12 +13,20 @@ import { contextTools } from './agent-context.js';
 import { isHumanSource } from './input-source.js';
 
 export const goalTools = ['create_goal', 'get_goal', 'update_goal'];
+export const cordisInspectTools = ['cordis_inspect_list', 'cordis_inspect_query'] as const;
+const cordisInspectSet = new Set<string>(cordisInspectTools);
 const defaultOff = [...goalTools, 'subagent_fork', 'exit_plan_mode'];
-const userEntryTools = new Set(['ask_user_question', 'present', 'enter_plan_mode', 'exit_plan_mode', 'plugin_manager', 'workflow']);
+const userEntryTools = new Set(['ask_user_question', 'present', 'enter_plan_mode', 'exit_plan_mode', 'plugin_manager', 'workflow', ...cordisInspectTools]);
+
+function allowsCordisInspect(config: AgentConfiguration, agent?: Agent): boolean {
+  if (!config.workspace) return false;
+  if (agent && (isOrdinaryChild(agent) || globalWorkRole(agent, config))) return false;
+  return config.toolAllowlist === undefined || config.toolAllowlist.includes('plugin_manager');
+}
 
 /** Filters the native callable view after preset contributions are assembled. */
 export class ToolSelection {
-  private readonly agents = new Map<Agent, { config: AgentConfiguration; isWorkWorker: boolean; dispose?: () => void; presentation?: () => void }>();
+  private readonly agents = new Map<Agent, { config: AgentConfiguration; isWorkWorker: boolean; dispose?: () => void }>();
   private changing = false;
   private nativeDefaults?: Set<string>;
   constructor(private readonly ctx: Context, private readonly installed: (config: AgentConfiguration) => string[] = () => []) {
@@ -38,10 +46,11 @@ export class ToolSelection {
   /** Resolve the same configured and workspace-installed collection for dispatch and selection previews. */
   selection(config: AgentConfiguration, names: string[], agent?: Agent): string[] {
     const allow = config.toolAllowlist;
-    if (allow === undefined) return names.filter(name => agent && this.independentTool(agent, config, name) || !defaultOff.includes(name));
+    const inspectAllowed = allowsCordisInspect(config, agent);
+    if (allow === undefined) return names.filter(name => cordisInspectSet.has(name) ? inspectAllowed : (agent && this.independentTool(agent, config, name) || !defaultOff.includes(name)));
     const installed = allow.includes('plugin_manager') ? this.installed(config) : [];
-    const selected = new Set([...allow, ...installed, ...contextTools]);
-    return names.filter(name => selected.has(name) || agent && this.independentTool(agent, config, name));
+    const selected = new Set([...allow, ...installed, ...contextTools, ...(inspectAllowed ? cordisInspectTools : [])]);
+    return names.filter(name => cordisInspectSet.has(name) ? inspectAllowed : (selected.has(name) || agent && this.independentTool(agent, config, name)));
   }
   attach(agent: Agent, config: AgentConfiguration, isWorkWorker: boolean) {
     const state = { config, isWorkWorker }; this.agents.set(agent, state);
@@ -53,7 +62,7 @@ export class ToolSelection {
     this.changing = true;
     try {
       state.dispose?.(); state.dispose = undefined;
-      const schemas = agent.ctx.tools.schemas(agent);
+      const schemas = agent.ctx.tools.schemas(agent).filter(tool => !cordisInspectSet.has(tool.name));
       const installed = new Set(this.installed(state.config));
       const selected = new Set(this.selection(state.config, schemas.map(tool => tool.name), agent));
       return schemas.map(tool => installed.has(tool.name)
@@ -66,14 +75,14 @@ export class ToolSelection {
     try { for (const [agent, state] of this.agents) if (state.config.agentId === agentId) this.refresh(agent, state); }
     finally { this.changing = false; }
   }
-  private refresh(agent: Agent, state: { config: AgentConfiguration; isWorkWorker: boolean; dispose?: () => void; presentation?: () => void }) {
+  private refresh(agent: Agent, state: { config: AgentConfiguration; isWorkWorker: boolean; dispose?: () => void }) {
     // Provider teardown publishes tools/change while sibling Agent scopes are
     // already unloading; rebuilding their restrictions would register new effects.
     if (agent.ctx.fiber.uid === null) return;
     state.dispose?.(); state.dispose = undefined;
-    state.presentation?.(); state.presentation = undefined;
     const disabled: string[] = [state.config.knowledge?.memoryMode === 'legacy' ? 'memory_maintenance' : 'memory'];
     if (state.isWorkWorker) disabled.push('memory', 'memory_maintenance');
+    if (!allowsCordisInspect(state.config, agent)) disabled.push(...cordisInspectTools);
     if (state.config.toolAllowlist === undefined) disabled.push(...goalTools, 'exit_plan_mode', ...(!globalWorkRole(agent, state.config) ? ['subagent_fork'] : []));
     // Explicit root forks inherit the root declarations, including its delegation boundary.
     if (state.config.mode === 'global' && (agent.session.header.origin !== 'subagent' ||
@@ -81,9 +90,6 @@ export class ToolSelection {
     if (globalWorkRole(agent, state.config)) disabled.push(...userEntryTools);
     if (isOrdinaryChild(agent) || globalWorkRole(agent, state.config)) disabled.push('conversations', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'personal_sources', 'agent_creation', 'schedule_run', 'schedule_history');
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
-    // The native PTC transport lives outside restriction layers. An empty
-    // product selection must also withdraw this executable transport.
-    if (state.config.toolAllowlist?.length === 0 && !globalWorkRole(agent, state.config)) state.presentation = agent.ctx.tools.presentAs('native');
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
     // Global root communication is part of the work mode, not an optional selection.
     const fixed = fixedTools(state.config.mode, isOrdinaryChild(agent) || globalWorkRole(agent, state.config) ? 'subagent' : state.config.personal ? 'personal' : 'root');

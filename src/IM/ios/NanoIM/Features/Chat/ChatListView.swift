@@ -69,12 +69,10 @@ struct ChatListView: View {
             }
             if showPersonalRow {
                 if let chat = store.conversations.first(where: { $0.id == personalID }) {
-                    personalRow(chat: chat, name: chat.title, agentID: chat.peerAgent?.id ?? personal?.binding?.agent_id,
-                                variant: chat.peerAgent?.avatar_variant ?? personal?.binding?.avatar_variant) { open(chat.id) }
+                    personalRow(chat: chat, name: chat.title, identity: .conversation(chat, selfID: store.user.id)) { open(chat.id) }
                         .modifier(ChatRowActions(chat: chat, patch: patch))
                 } else if let binding = personal?.binding, let id = personalID {
-                    personalRow(chat: nil, name: binding.display_name, agentID: binding.agent_id,
-                                variant: binding.avatar_variant) { open(id) }
+                    personalRow(chat: nil, name: binding.display_name, identity: .personal(binding)) { open(id) }
                 } else if personal != nil {
                     setupRow
                 }
@@ -169,13 +167,13 @@ struct ChatListView: View {
             .listRowSeparator(.hidden)
     }
 
-    private func personalRow(chat: Conversation?, name: String, agentID: String?, variant: Int?,
+    private func personalRow(chat: Conversation?, name: String, identity: AvatarIdentity,
                              open: @escaping () -> Void) -> some View {
         let emptyPrompt = chat != nil && chat?.last_message_at == nil
             ? L("开始第一次交办", "Start your first request") : L("打开聊天", "Open chat")
         return Button(action: open) {
             HStack(spacing: 12) {
-                AssistantPortrait(personal: true, seed: agentID ?? name, selected: variant, size: 55)
+                AvatarView(id: identity, size: 55)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(L("我的个人助手", "My personal assistant")).font(.caption2.weight(.semibold))
@@ -208,7 +206,7 @@ struct ChatListView: View {
     private var setupRow: some View {
         Button { setupAssistant = true } label: {
             HStack(spacing: 12) {
-                AssistantPortrait(personal: true, seed: store.user.id, selected: nil, size: 50)
+                PortraitPreview(personal: true, variant: 0, size: 50)
                 Text(personal?.creation == nil ? L("创建个人助手", "Create personal assistant") : L("继续设置个人助手", "Continue assistant setup"))
                     .font(.headline).foregroundStyle(NanoTheme.ink)
                 Spacer()
@@ -223,9 +221,7 @@ struct ChatListView: View {
     private func conversationRow(_ chat: Conversation) -> some View {
         Button { open(chat.id) } label: {
             HStack(spacing: 12) {
-                AvatarView(name: chat.avatarName(selfID: store.user.id),
-                           kind: chat.type == "group" ? "group" : chat.category == "agent" ? "agent" : "person",
-                           size: 42, agentID: chat.peerAgent?.id, role: chat.peerAgent?.role, variant: chat.peerAgent?.avatar_variant)
+                AvatarView(id: .conversation(chat, selfID: store.user.id), size: 42)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 5) {
                         Text(chat.title).font(.body.weight(chat.unread_count > 0 ? .bold : .semibold))

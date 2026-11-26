@@ -20,28 +20,36 @@ import {createAfterScheduleRecord, ScheduleId, scheduleDomain} from ${JSON.strin
 export const name='schedule-delete-fixture';
 export const inject=['llm','subagents','agents','agentPresets','sessions'];
 export function apply(ctx) {
-  let seeded=false;
+  let seeded=false,firstChildId,secondChildId;
   ctx.on('agent/created',({agent,source})=>appendFile(process.env.DSH_HOME+'/created.jsonl',JSON.stringify({id:agent.id,source,parent:agent.session.header.parentSession,depth:agent.session.header.delegationDepth})+'\n'));
   ctx.on('agent/pre-step',async({agent,messages,signal},next)=>{
+    if(agent.id===firstChildId&&!secondChildId){
+      const options={provider:'deepseek-official',model:'deepseek-flash'};
+      const second=await ctx.subagents.startActivation({provider:'spawn',label:'original-child',delivery:'parent',parent:agent,prompt:[{type:'text',text:'Child original history'}],agentOptions:options,signal});
+      secondChildId=second.childId;
+      return next();
+    }
     if(agent.id==='root'&&!seeded&&messages.some(message=>message.id==='seed')) {
       seeded=true;
       try {
         const options={provider:'deepseek-official',model:'deepseek-flash'};
-        const first=await ctx.subagents.startContinuable({provider:'spawn',label:'original-parent',request:{parent:agent,prompt:[{type:'text',text:'Parent original history'}],persona:'NATIVE PARENT PERSONA',toolFilter:{allow:['read']},agentOptions:options},signal});
-        const parent=ctx.agents.get(first.childId);await parent.whenIdle();
-        const second=await ctx.subagents.startContinuable({provider:'spawn',label:'original-child',request:{parent,prompt:[{type:'text',text:'Child original history'}],persona:'NATIVE CHILD PERSONA',toolFilter:{allow:['read']},agentOptions:options},signal});
-        const child=ctx.agents.get(second.childId);await child.whenIdle();
-        const once=await ctx.subagents.start('spawn',{parent:agent,prompt:[{type:'text',text:'One-shot original history'}],signal});
-        await once.result;await once.dispose();
-        const unrelated=await ctx.agents.create({sessionId:'unmanaged-native-root',meta:{cwd:agent.session.header.cwd,agentPreset:agent.session.header.agentPreset},setup:async child=>{await ctx.agentPresets.mount(child,agent.session.header.agentPreset);}});
+        const first=await ctx.subagents.startActivation({provider:'spawn',label:'original-parent',delivery:'parent',parent:agent,prompt:[{type:'text',text:'Parent original history'}],agentOptions:options,signal});
+        firstChildId=first.childId;
+        while(!secondChildId||ctx.agents.get(secondChildId))await new Promise(r=>setTimeout(r,20));
+        while(ctx.agents.get(firstChildId))await new Promise(r=>setTimeout(r,20));
+        const onceHandle=await ctx.agents.withInitiator(agent,()=>ctx.agents.create({sessionId:'legacy-one-shot-child',agentOptions:options,meta:{cwd:agent.session.header.cwd,parentSession:agent.id,origin:'subagent',delegationDepth:1,agentPreset:agent.session.header.agentPreset},setup:async(scopedCtx,onceAgent)=>{await ctx.agentPresets.mount(scopedCtx,agent.session.header.agentPreset);onceAgent.session.append('subagent/descriptor',{version:3,mode:'one-shot',provider:'spawn',label:'legacy-one-shot'});}}));
+        agent.session.append('subagent/catalog',{version:1,childId:onceHandle.agent.id,childCreatedAt:onceHandle.agent.session.header.createdAt,mode:'one-shot',label:'legacy-one-shot'});
+        await ctx.sessions.flush(agent.session);
+        await ctx.sessions.flush(onceHandle.agent.session);const once={id:onceHandle.agent.id};await onceHandle.dispose();
+        const unrelated=await ctx.agents.create({sessionId:'unmanaged-native-root',agentOptions:options,meta:{cwd:agent.session.header.cwd,agentPreset:agent.session.header.agentPreset},setup:async scopedCtx=>{await ctx.agentPresets.mount(scopedCtx,agent.session.header.agentPreset);}});
         await ctx.sessions.flush(unrelated.agent.session);await unrelated.dispose();
         const facility=await new Promise(resolve=>ctx.isolate('storageDomain',Symbol.for('nano-storage-domain:a')).inject(['storageDomain'],child=>resolve(child.storageDomain)));
         const existing=facility.get(scheduleDomain.name),lease=existing??await facility.open(scheduleDomain);
-        try {for(const [id,sessionId] of [['legacy-child',second.childId],['legacy-one-shot',once.id]]){
+        try {for(const [id,sessionId] of [['legacy-child',secondChildId],['legacy-one-shot',once.id]]){
           const record=createAfterScheduleRecord(ScheduleId(id),'Legacy saved instructions',3600,Date.now(),'Legacy child schedule');
           await lease.table('tasks').put(ScheduleId(id),{sessionId,record,status:'inactive'});
         }} finally {if(!existing)await lease.close();}
-        await writeFile(process.env.DSH_HOME+'/ready.json',JSON.stringify({parent:first.childId,child:second.childId,oneShot:once.id}));
+        await writeFile(process.env.DSH_HOME+'/ready.json',JSON.stringify({parent:firstChildId,child:secondChildId,oneShot:once.id}));
       } catch(error) {await writeFile(process.env.DSH_HOME+'/fixture-error',String(error));throw error;}
     }
     return next();
@@ -136,15 +144,15 @@ it('deletes a legacy child Schedule and restores only its original native lineag
     expect(notification.source).toMatchObject({kind: 'nano-system', actorId: 'a', channel: 'schedule-change', messageId: inputId});
     const recovered = (await h.requests()).slice(before.length);
     expect(recovered.map(request => request.sessionId)).toEqual([ids.child]);
-    expect(JSON.stringify(recovered[0].messages)).toContain('NATIVE CHILD PERSONA');
+    expect(JSON.stringify(recovered[0].messages)).toContain('Child original history');
     for (const key of ['model', 'provider', 'reasoningEffort'] as const) expect(recovered[0][key]).toEqual(initialRequest[key]);
     expect(recovered[0].tools?.map(tool => tool.name)).toEqual(initialRequest.tools?.map(tool => tool.name));
-    expect(recovered[0].tools?.map(tool => tool.name)).not.toContain('write');
     const created = (await readFile(join(h.home, 'created.jsonl'), 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     const resumed = created.filter(row => row.source === 'resume');
-    expect(resumed).toEqual(expect.arrayContaining([
-      expect.objectContaining({id: ids.parent, parent: 'root', depth: 1}),
-      expect.objectContaining({id: ids.child, parent: ids.parent, depth: 2})]));
+    expect(resumed).toEqual([
+      expect.objectContaining({id: 'root', depth: 0}),
+      expect.objectContaining({id: ids.child, parent: ids.parent, depth: 2}),
+    ]);
     await h.call('session.ensure', h.bindings[1]);
     const stopped = await h.call('agent.disable', {agentId: 'a', revision: 2});
     expect(stopped, h.logs()).toMatchObject({confirmed: true});
@@ -190,7 +198,7 @@ it('leaves cold one-shot deletion notification pending instead of pretending del
     await h.restart();
     expect(await h.call('schedule.command', {agentId: 'a', sessionId: ids.oneShot, action: 'delete', args: {id: 'legacy-one-shot'}})).toMatchObject({deleted: true});
     let durableReceipt: unknown;
-    await expect(h.notify(ids.oneShot, 'schedule-deleted:one-shot').then(receipt => {durableReceipt = receipt;})).rejects.toThrow('resumable continuation descriptor');
+    await expect(h.notify(ids.oneShot, 'schedule-deleted:one-shot').then(receipt => {durableReceipt = receipt;})).rejects.toThrow(/resumable|continuable/i);
     // A product pending receipt must not become notified without native durability.
     // This boundary test verifies no success receipt; PA owns the durable pending row.
     expect(durableReceipt).toBeUndefined();

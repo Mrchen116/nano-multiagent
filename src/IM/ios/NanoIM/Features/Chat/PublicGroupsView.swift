@@ -25,7 +25,7 @@ struct PublicGroupsView: View {
             ForEach(filtered) { chat in
                 Button { completed(chat) } label: {
                     HStack(spacing: 12) {
-                        AvatarView(name: chat.title, kind: "group", size: 44)
+                        AvatarView(id: .group(chat.id), size: 44)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(chat.title).font(.body.weight(.semibold)).foregroundStyle(NanoTheme.ink)
                             Text(chat.participants.isEmpty

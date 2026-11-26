@@ -29,7 +29,7 @@ it.each([[false,false],[true,false],[false,true],[true,true]])('reads cold histo
     const before = await readFile(join(home, 'created'), 'utf8');
     await start(disabled);
     const prepared = await client!.rpc.request('trajectory.prepare', scope) as any;
-    expect(prepared).toMatchObject({ version: '0.2.1-alpha.1', initialCatalog: { result: {ok:true,value:{items:[{sessionId:binding.sessionId}]}} } });
+    expect(prepared).toMatchObject({ version: '0.2.2-rc.5', initialCatalog: { result: {ok:true,value:{items:[{sessionId:binding.sessionId}]}} } });
     expect(prepared.initialCatalog.result).toEqual(await client!.rpc.request('trajectory.call',{observerId:'viewer',method:'session/list',params:{args:{request:{}}}}));
     expect(JSON.stringify(prepared.initialCatalog)).not.toContain(imageData);
     await expect(client!.rpc.request('trajectory.prepare', { ...scope, observerId: 'wrong', rootAgentId: 'other' })).rejects.toThrow(/scope/i);
@@ -43,11 +43,11 @@ it.each([[false,false],[true,false],[false,true],[true,true]])('reads cold histo
     const page = await client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'session/page', params: { args: { request: { throughSeq: cursor, maxMessages: 50, turnWindow: {minMessages: 50, minTurns: 2} } } } }) as any;
     expect(page.ok).toBe(true);
     expect(page.value.records.length).toBeGreaterThan(0);
-    const refs: string[] = [];
-    const collect = (value: any) => { if (value?.type === 'image' && value.attachment) refs.push(value.attachment.attachmentId); if (value && typeof value === 'object') Object.values(value).forEach(collect); };
+    const refs: any[] = [];
+    const collect = (value: any) => { if (value?.type === 'image' && value.attachment) refs.push(value.attachment); if (value && typeof value === 'object') Object.values(value).forEach(collect); };
     collect(page.value.records);
     expect(refs.length).toBeGreaterThan(0);
-    const params = { args: { request: { attachmentId: refs[0] } } };
+    const params = { args: { request: { attachment: refs[0] } } };
     const provenance = await client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'trajectory/attachment-source', params }) as any;
     expect(provenance.value.sources).toContainEqual(source);
     await expect(client!.rpc.request('trajectory.call', { observerId: 'viewer', method: 'session/attachment', params })).rejects.toThrow(/附件/);

@@ -14,6 +14,7 @@ export type ConversationKind =
 export type DeliveryStatus = "pending" | "sent" | "running" | "completed" | "failed";
 
 interface MessageReceipt {
+  recipient?: Actor;
   recipient_id: string;
   display_name: string;
   status: "sent" | "received" | "read";
@@ -22,6 +23,7 @@ interface MessageReceipt {
 export type ToolCallStatus = "running" | "completed" | "failed";
 
 export interface Actor {
+  avatar_id?: string;
   type: "user" | "agent" | "system";
   id: string;
   display_name?: string | null;

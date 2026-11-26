@@ -254,6 +254,7 @@ export class LocalNodeBridge {
           'session/attachment',
           'session/control',
           'session/follow',
+          'toolResults/watch',
         ].includes(reqMethod)
       ) {
         await sendChunked({

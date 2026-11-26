@@ -1,6 +1,6 @@
 /** Opaque, ephemeral carrier for a single authorized native execution. */
 export type TrajectoryJson = null | boolean | number | string | TrajectoryJson[] | { [key: string]: TrajectoryJson };
-export const TRAJECTORY_VERSION = '0.2.1-alpha.1';
+export const TRAJECTORY_VERSION = '0.2.2-rc.5';
 export const TRAJECTORY_MAX_BYTES = 1024 * 1024;
 export interface TrajectoryScope {
   observerId: string;

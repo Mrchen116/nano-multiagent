@@ -37,7 +37,7 @@ it('refreshes retained profile links and cold-recovers a durably accepted input'
     expect(await Promise.all(links.map(path => readlink(path)))).toEqual(targets);
     client = new RuntimeClient({ home, cwd: home, onLog: text => { logs += text; } });
     registerNoopTaskHosts(client);
-    expect(await client.rpc.request('initialize', config)).toMatchObject({ protocol: 1, version: '0.2.1-alpha.1' });
+    expect(await client.rpc.request('initialize', config)).toMatchObject({ protocol: 1, version: '0.2.2-rc.5' });
     await client.rpc.request('session.ensure', binding);
     const input = { sessionId: binding.sessionId, inputId: 'stable-input', mode: 'inject',
       content: [{ type: 'text', text: 'retained without waking' }],

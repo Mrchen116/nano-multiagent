@@ -89,8 +89,10 @@
   cursor: pointer;
 }
 
-.earlierHistory:hover {
-  opacity: 1;
+@media (hover: hover) {
+  .earlierHistory:hover {
+    opacity: 1;
+  }
 }
 
 .earlierHistory[aria-disabled='true'] {
@@ -327,5 +329,5 @@
 }
 
 .selectionEdges[data-open-end]::after {
-  background:repeating-linear-gradient(to bottom, var(--dsw-alias-state-business-primary) 0 4px, transparent 4px 8px);
+  background: repeating-linear-gradient(to bottom, var(--dsw-alias-state-business-primary) 0 4px, transparent 4px 8px);
 }

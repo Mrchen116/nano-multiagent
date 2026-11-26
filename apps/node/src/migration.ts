@@ -10,7 +10,7 @@ import type {NodeConfigurationFile} from './configuration.js';
 type Row = Record<string, any>;
 const json = (value: unknown) => JSON.stringify(value);
 const exists = async (path: string) => access(path).then(()=>true,()=>false);
-const toolMap: Record<string,string[]> = {agent:['subagent','subagent_fork','send_message','list_agents'],task_stop:['interrupt_agent','job_kill','job_list','job_output'],skill_view:['skill'],Workflow:['workflow'],cron:['schedule_create','schedule_list','schedule_update','schedule_delete','schedule_run','schedule_history']};
+const toolMap: Record<string,string[]> = {agent:['subagent','subagent_fork','send_message','list_agents','wait_agent'],task_stop:['interrupt_agent','job_kill','job_list','job_output'],skill_view:['skill'],Workflow:['workflow'],cron:['schedule_create','schedule_list','schedule_update','schedule_delete','schedule_run','schedule_history']};
 
 export async function migrateNode(sourceRoot: string, destination: string) {
   sourceRoot=resolve(sourceRoot); destination=resolve(destination);

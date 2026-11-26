@@ -6,7 +6,7 @@ import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('keeps tool-only schedules alive across restart and fences Cron shutdown against new schedules', async () => {
-  const home = await mkdtemp(join(tmpdir(), 'nano-cron-'));
+  const home = await mkdtemp(join(tmpdir(), 'nano-schedule-test-'));
   let client: RuntimeClient | undefined;
   const off = {intelligent_ui: false, task_graph: false, memory_curation: false, skill_creation: false, cron_scheduling: false, heartbeat: false};
   const agent = {knowledge:{memoryMode:'legacy'}, agentId: 'a', workspace: home, revision: '1', provider: 'deepseek-official', model: 'deepseek-flash', features: off, toolAllowlist: ['schedule_create', 'task_graph', 'skill_manage', 'memory']};

@@ -1,4 +1,4 @@
-import { cliWorkerRuntimes } from '@nano/product-contracts/worker-runtimes';
+import { workerRuntimes } from '@nano/product-contracts/worker-runtimes';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider, useLocation, useNavigate } from "react-router-dom";
@@ -889,7 +889,7 @@ it('replaces an in-flight first Work read when the Agent becomes ready at the sa
   } finally { release(); }
 });
 
-it.each(cliWorkerRuntimes)(
+it.each(workerRuntimes)(
   "opens %s worker records from the graph and updates its real tool in place", async (runtime) => {
     const framework = workerRuntimeNames[runtime];
     expect(framework).toMatch(/\S/);
@@ -924,8 +924,11 @@ it.each(cliWorkerRuntimes)(
     fireEvent.click(await screen.findByRole("button", {name: new RegExp(`核对账单.*${framework}.*最近调用.*${tool}`)}));
     const worker = (await screen.findByRole("heading", {name: "核对账单"})).closest("aside")!;
     expect(within(worker).getByText(framework)).toBeVisible();
-    expect(screen.queryByRole("tab", {name: "原生轨迹"})).toBeNull();
-    expect(screen.queryByRole("button", {name: "查看原生轨迹"})).toBeNull();
+    if (runtime === "dsh") expect(screen.getByRole("tab", {name: "原生轨迹"})).toBeVisible();
+    else {
+      expect(screen.queryByRole("tab", {name: "原生轨迹"})).toBeNull();
+      expect(screen.queryByRole("button", {name: "查看原生轨迹"})).toBeNull();
+    }
     const article = (await within(worker).findByRole("heading", {name: "任务执行"})).closest("article")!;
     reachEarlierPage(article);
     expect(await within(article).findByText("任务输入")).toBeVisible();
@@ -947,6 +950,10 @@ it.each(cliWorkerRuntimes)(
     fireEvent.click(screen.getByRole("button", {name: "← 返回派工关系"}));
     expect(await screen.findByRole("button", {name: /核对账单/})).toBeVisible();
     await act(() => router.navigate("/settings/agents/global?view=work&work_view=trajectory&execution=external"));
+    if (runtime === "dsh") {
+      expect(await screen.findByText("Native trajectory")).toBeVisible();
+      return;
+    }
     await waitFor(() => expect(router.state.location.search).toBe("?view=work&work_session=external"));
     expect(screen.queryByText("Native trajectory")).toBeNull();
   },

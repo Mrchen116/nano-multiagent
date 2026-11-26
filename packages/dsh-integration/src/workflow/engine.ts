@@ -202,6 +202,16 @@ export class NanoWorkflowEngine extends WorkflowEngine {
     const link = this.workChildren.get(id);
     return link?.parentSessionId === parentSessionId ? link.runId : undefined;
   }
+  /** Check whether a child session ID or catalog name belongs to a Workflow step. */
+  async isWorkChild(parentSessionId: string, childIdOrName: string, parent?: Agent): Promise<boolean> {
+    await this.ready;
+    if (this.workRelationship(parentSessionId, childIdOrName) !== undefined) return true;
+    if (!parent) return false;
+    const catalog = this.host.get("sessionProjections")?.snapshot(parent.session, ["subagentCatalog"])?.values.subagentCatalog ?? [];
+    const normalized = childIdOrName.replace(/^\/+/, "");
+    const matched = catalog.find(entry => entry.id === childIdOrName || ("name" in entry && (entry.name === childIdOrName || entry.name === normalized)));
+    return matched ? this.workRelationship(parentSessionId, matched.id) !== undefined : false;
+  }
   /** Release derived links for permanently deleted native sessions. */
   forgetWorkChildren(ids: Iterable<string>): void {
     for (const id of ids) this.workChildren.delete(id);
@@ -426,7 +436,9 @@ export class NanoWorkflowEngine extends WorkflowEngine {
           toolAllowlist: allowed,
         };
         const child = await this.creating.run({configuration:config,record}, () =>
-          this.host.subagents.start(request.subagentProvider ?? "fork", {
+          this.host.subagents.startActivation({
+            provider: request.subagentProvider ?? "fork",
+            delivery: "caller",
             parent: request.parent,
             prompt: [{ type: "text", text: prompt }],
             label: options.label ?? prompt.slice(0, 80),
@@ -437,35 +449,41 @@ export class NanoWorkflowEngine extends WorkflowEngine {
                 ? ReasoningEffortId(route.reasoningEffort)
                 : undefined,
             },
-            toolFilter: { allow: allowed },
             ...(options.schema
               ? { outputSchema: options.schema as ObjectJsonSchema }
               : {}),
           }),
         );
+        const onAbort = () => { void child.dispose().catch(() => {}); };
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+        const childAgent = this.host.agents.get(child.childId);
         const childInfo = {
           seq: ++eventSeq,
           label: options.label ?? prompt.slice(0, 80),
           phase: options.phase,
-          childId: child.id,
+          childId: child.childId,
         };
         this.emitWorkflowEvent(
           "workflow/agent-start",
           { id, meta: record.meta },
           childInfo,
         );
-        budget!.sources[child.id] = { output: 0 };
-        if (child.localAgent)
-          this.observeBudget(budget!, child.localAgent.session);
+        budget!.sources[child.childId] = { output: 0 };
+        if (childAgent)
+          this.observeBudget(budget!, childAgent.session);
         await this.saveBudget(budget!);
         return {
-          id: child.id,
+          id: child.childId,
           dispose: () => child.dispose(),
-          result: child.result.then(
+          result: child.result.finally(() => {
+            signal.removeEventListener("abort", onAbort);
+          }).then(
             async (result) => {
-              if (child.localAgent) {
-                await this.host.sessions.flush(child.localAgent.session);
-                this.observeBudget(budget!, child.localAgent.session);
+              const liveChild = this.host.agents.get(child.childId) ?? childAgent;
+              if (liveChild) {
+                await this.host.sessions.flush(liveChild.session).catch(() => {});
+                this.observeBudget(budget!, liveChild.session);
                 await this.saveBudget(budget!);
               }
               this.emitWorkflowEvent(

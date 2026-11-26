@@ -9,7 +9,7 @@ import { Context, Service } from '@deepseek-ai/cordis';
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller';
 import { ScheduleId } from '@deepseek-ai/dsh-schedule';
 import { SessionId, SessionLogOffset, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session';
-import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm';
+import { freezeMessage, MessageId, ReasoningEffortId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-agent-preset-registry';
@@ -30,8 +30,9 @@ import {workObject, type RuntimeEvent} from '@nano/product-contracts';
 import type { RuntimePublicationEvidence, RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
 import { jsonBytes, workPage, workPageBytes, workPageItems, WorkCatalogPages } from './work-page.js';
 import { type CapabilityTarget } from '@nano/product-contracts/capabilities';
-import { CronOwners } from './cron-owners.js';
+import { createSessionSchedule, CronOwners, deleteSessionSchedule, listSessionSchedules, updateSessionSchedule } from './cron-owners.js';
 import { ConfigurationScopes } from './agent-config.js';
+import { assembleAgentPrompt } from './prompt-assembly.js';
 import { TaskExecutionDriver } from './task-execution.js';
 import { TaskContextDriver } from './task-context.js';
 import { ProductBridge } from './product-bridge.js';
@@ -111,7 +112,7 @@ function exitInspection(status: number): never {
 
 /** Trusted node configuration is installed before any Session can be resumed. */
 export default class NanoRuntime {
-  static inject = ['jobs', 'agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', 'sessionPersistence', 'storageDomain', 'llm', 'settings', 'credentials', 'authorization', ...SessionController.inject];
+  static inject = ['jobs', 'agents', 'sessions', 'agentPresets', 'loader', 'tools', 'skills', 'systemPrompt', 'subagents', 'sessionQuery', 'sessionPersistence', 'storageDomain', 'llm', 'settings', 'credentials', 'authorization', 'sessionToolResults', ...SessionController.inject];
   private readonly peer = new RpcPeer(process.stdin, process.stdout, () => {
     if (process.env.NANO_CONFIGURATION_INSPECTION_ID && process.platform !== 'win32') exitInspection(1);
     process.kill(process.pid, 'SIGTERM');
@@ -233,7 +234,8 @@ export default class NanoRuntime {
         void captureWorkerTurns(session).catch(error=>ctx.logger.error(error));
       this.peer.notify('model.changed', { sessionId, rootSessionId, workChild:descendantReader.hasChild(sessionId) });
     } });
-    const webFiber = ctx.plugin(NanoWeb);
+    const webHandle: NanoWeb.NanoWebHandle = {};
+    const webFiber = ctx.plugin(NanoWeb, webHandle);
     const workflowFiber = ctx.plugin(NanoWorkflowEngine, { configuration: (agent: Agent) => configurationService.forAgent(agent)!, completed: (record: import('./workflow/state.js').WorkflowRecord) => this.peer.notify('workflow.completed', record) });
     const workflow = new Promise<NanoWorkflowEngine>(resolve => { ctx.inject(['workflowEngine', 'nanoApproval', 'nanoModels'], child => { const engine = child.workflowEngine as NanoWorkflowEngine; registerWorkflowTool(child, engine, agent => configurationService.forAgent(agent)!); resolve(engine); }); });
     const models = this.models = new Promise<ModelPolicy>(resolve => { ctx.inject(['nanoModels'], child => { resolve(child.nanoModels); }); });
@@ -270,7 +272,7 @@ export default class NanoRuntime {
         return await (deletion ? deletion.admit(owner, () => action(value)) : action(value));
       } finally { this.admissions--; }
     }, options);
-    const modelSetup = new NativeModelSetup(ctx, { handle, notify: (method, value) => this.peer.notify(method, value) });
+    const modelSetup = new NativeModelSetup(ctx, { handle, notify: (method, value) => this.peer.notify(method, value) }, providers => webHandle.refresh?.(providers));
     this.peer.handle('update.prepare', async value => {
       const operationId = (value as { operationId: string }).operationId;
       if (typeof operationId !== 'string' || !operationId) throw new RpcError(-32602, 'Update operation identity is required');
@@ -322,12 +324,15 @@ export default class NanoRuntime {
       };
       const projections = ctx.get('sessionProjections')?.snapshot(session, ['subagentCatalog']);
       const {interrupted, complete} = await descendantReader.interruptedChildren({header: session.header, projections});
+      const wf = await workflow;
+      await wf.ready;
       await subagentRecovery.record(binding.sessionId, interrupted.filter(child =>
+        wf.workRelationship(binding.sessionId, child.id) === undefined &&
         projections?.values.subagentCatalog?.find(entry => entry.id === child.id)?.mode !== 'continuable'), assertCurrent);
       if (!complete) throw new RpcError(-32005, 'Subagent recovery evidence is temporarily unavailable');
-    });
+    }, binding => this.configurations.get(`nano:${binding.agentId}:${binding.revision}`));
     ctx.provide('nanoSessions', this.owned);
-    this.interruptedWork = new InterruptedWork(ctx, descendantReader);
+    this.interruptedWork = new InterruptedWork(ctx, descendantReader, async (parentId, childId) => (await workflow).isWorkChild(parentId, childId));
     this.controller = ctx.plugin(OwnedSessionController, {nativeOpen: false});
     this.sessionController = new Promise(resolve => {
       ctx.inject(['sessionController'], child => { resolve(child.sessionController); });
@@ -335,6 +340,13 @@ export default class NanoRuntime {
     new TrajectoryAttachments(ctx);
     const trajectory = new NativeTrajectory(ctx, { controller: this.sessionController, bindings: this.bindings, configurations: this.configurations });
     trajectory.register(this.peer, (id, action) => deletion ? deletion.admit(id, action) : action());
+    const scheduleNotifyHolds = new Map<string, {gate: PromiseWithResolvers<void>; maintenance?: Promise<unknown>}>();
+    const scheduleNotifyPending = new Map<string, Promise<{durable: true}>>();
+    ctx.on('subagent/start', ({ id }) => {
+      const notifyHold = scheduleNotifyHolds.get(id);
+      const live = notifyHold && ctx.agents.get(id);
+      if (live && !notifyHold.maintenance) notifyHold.maintenance = live.runMaintenance(() => notifyHold.gate.promise);
+    }, { prepend: true });
     ctx.on('agent/created', async ({ agent, source }) => {
       const agentId = this.ownerOf(agent.id);
       if (agentId) { lifecycle.assertEnabled(agentId); await lifecycle.clean(agentId, agent, source === 'resume'); }
@@ -463,6 +475,7 @@ export default class NanoRuntime {
       configurationService.packageManager(config.packageManager);
       inspectionPackageManager = config.packageManager;
       if (config.providers !== undefined) await modelSetup.apply(config.providers);
+      else await webHandle.refresh?.();
       const personal = config.agents.filter(agent => agent.personal);
       if (personal.length && (config.agents.length !== 1 || config.bindings.some(binding => binding.agentId !== personal[0]!.agentId || binding.ownerId !== personal[0]!.personal!.ownerId))) throw new RpcError(-32002, 'Personal runtime must contain only its trusted binding');
       for (const agent of config.agents) {
@@ -488,11 +501,11 @@ export default class NanoRuntime {
       for (const pending of config.pendingConfigurations ?? []) if (!deletion?.retired(pending.config.agentId)) await prepare(pending,true);
       this.accepting = true;
       for (const agent of config.agents) if (!deletion?.retired(agent.agentId)) { await this.configureSchedules(agent); this.peer.notify('heartbeat.subscription', { agentId: agent.agentId, enabled: agent.features?.heartbeat === true }); }
-      return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.1-alpha.1', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
+      return { protocol: 1, runtime: '@deepseek-ai/dsh', version: '0.2.2-rc.5', agentDeletion: !!deletion && !config.observationOnly && !personal.length };
     });
     handle('session.capabilities', async value => {
       const agent = await this.agent((value as { sessionId: string }).sessionId);
-      return { tools: ctx.tools.schemas(agent).map(tool => tool.name).sort(), skills: await ctx.skills.list({ scope: agent, cwd: agent.session.header.cwd }), prompt: await ctx.systemPrompt.assemble({ scope: agent }) };
+      return { tools: ctx.tools.schemas(agent).map(tool => tool.name).sort(), skills: await ctx.skills.list({ scope: agent, cwd: agent.session.header.cwd }), prompt: await assembleAgentPrompt(ctx, agent) };
     });
     const preview = async (requested: AgentConfiguration, cwd: string, catalogOnly = false): Promise<unknown> => {
       assertPersonalConfiguration(requested);
@@ -517,6 +530,7 @@ export default class NanoRuntime {
         unregister = await ctx.agentPresets.register({ id: preset, plugins: [{ id: 'nano-agent-config', name: '@nano/dsh-integration/agent-config', config: { agentId: previewId } }] });
         await this.cron.setEnabled(previewId, true);
         handle = await ctx.agents.create({sessionId:SessionId(previewId),meta:{cwd,agentPreset:preset},signal:inspectionAbort.signal,
+          agentOptions:{provider:config.provider,model:config.model,...(config.reasoningEffort?{reasoningEffort:ReasoningEffortId(config.reasoningEffort)}:{}),...(config.maxTokens!==undefined?{maxTokens:config.maxTokens}:{})},
           setup:async agentCtx => {await ctx.agentPresets.mount(agentCtx,preset);}});
         inspectionAbort.signal.throwIfAborted();
         const scopes = await configuration; await scopes.ready(previewId); const scoped = scopes.forAgent(handle.agent)!;
@@ -526,7 +540,7 @@ export default class NanoRuntime {
         if (catalogOnly) return catalog;
         const invalid = configurationBlocks(requested, {tools:catalog.tools.map(tool=>tool.name),skills:catalog.skills.map(skill=>skill.name)});
         if (invalid.length) throw new RpcError(-32602, `Invalid capability dependencies: ${JSON.stringify(invalid)}`);
-        const assembly = await ctx.systemPrompt.assemble({scope:handle.agent});
+        const assembly = await assembleAgentPrompt(ctx, handle.agent, inspectionAbort.signal);
         return {prompt:[renderPrompt(assembly),renderContextSnapshot(assembly)].filter(Boolean).join('\n\n'),section_count:assembly.sections.length,
           tools:assembly.tools.map(tool=>tool.name),skills:await ctx.skills.list({scope:handle.agent,cwd}),catalog};
       } finally {
@@ -597,7 +611,7 @@ export default class NanoRuntime {
       if (entry.kind !== 'child') return {kind:'diagnostic',id:entry.id,parentId:entry.parentId,reason:entry.reason};
       const workflowRunId = engine.workRelationship(entry.parentId,entry.id);
       return {kind:'child',id:entry.id,parentId:entry.parentId,label:entry.label,throughSeq:entry.throughSeq,mode:entry.mode,
-        depth:entry.depth,activity:entry.activity,hasChildren:entry.hasChildren,modelVersion:policy.fallback.workVersion(entry.id),
+        ...(entry.nativeWorker && {nativeWorker:true}),depth:entry.depth,activity:entry.activity,hasChildren:entry.hasChildren,modelVersion:policy.fallback.workVersion(entry.id),
         ...(workflowRunId ? {workflowRunId} : {})};
     };
     const catalogs = new WorkCatalogPages();
@@ -631,7 +645,7 @@ export default class NanoRuntime {
       const {agentId,sessionId} = value as {agentId:string;sessionId:string};
       const {lineage,root}=await personalScopes(agentId,sessionId);
       const evidence = await Promise.all(lineage.map(async scope => {
-        const assembly = await ctx.systemPrompt.assemble({scope});
+        const assembly = await assembleAgentPrompt(ctx, scope);
         return {sessionId:scope.id,messages:personalEvidenceMessages(scope),system:renderPrompt(assembly),contexts:renderContextSnapshot(assembly)};
       }));
       return {...evidence[0],rootSessionId:root.id,ancestors:evidence.slice(1)};
@@ -725,21 +739,68 @@ export default class NanoRuntime {
     handle('schedule.deleted.notify',async value=>{
       const {agentId,sessionId,inputId,content}=value as {agentId:string;sessionId:string;inputId:string;content:Submit['content']};
       if(!inputId.startsWith('schedule-deleted:'))throw new RpcError(-32602,'Invalid Schedule change identity');
-      this.lifecycle.assertEnabled(agentId);
-      const {agent,root}=await this.owned.resolveManaged(sessionId,agentId);
-      if(root.sessionId===sessionId)return this.submit({sessionId,inputId,content,mode:this.tasks.passive(root.sessionId)?'inject':'followup',source:{kind:'system',actorId:agentId,channel:'schedule-change',messageId:inputId}});
-      // Preserve the native child's identity and composition; never redirect to root.
-      const revision=this.lifecycle.current(agentId).revision;
-      const admitted=await ctx.attachments.admitPromptContent(content);
-      const fallback=(await models).fallback;
-      this.lifecycle.assertEnabled(agentId);
-      if(this.lifecycle.current(agentId).revision!==revision)throw new Error('stale_lifecycle');
-      // The final evidence check and synchronous enqueue share one admission turn.
-      if(!fallback.nativeEvidence(agent,inputId).accepted){
+      const notifyKey = `${sessionId}\0${inputId}`;
+      const existingNotify = scheduleNotifyPending.get(notifyKey);
+      if (existingNotify) return existingNotify;
+      const runNotify = (async (): Promise<{durable: true}> => {
+        this.lifecycle.assertEnabled(agentId);
+        const {agent: initialAgent, root}=await this.owned.resolveManaged(sessionId,agentId);
+        if(root.sessionId===sessionId)return await this.submit({sessionId,inputId,content,mode:this.tasks.passive(root.sessionId)?'inject':'followup',source:{kind:'system',actorId:agentId,channel:'schedule-change',messageId:inputId}}) as {durable: true};
+        // Preserve the native child's identity and SubagentManager residency; never redirect to root.
+        const revision=this.lifecycle.current(agentId).revision;
+        const fallback=(await models).fallback;
+        const admitted=await ctx.attachments.admitPromptContent(content);
+        const passive=this.tasks.passive(root.sessionId);
         const message:UserMessage=freezeMessage({id:MessageId(inputId),role:'user' as const,content:admitted,source:{kind:'nano-system',actorId:agentId,channel:'schedule-change',messageId:inputId,lifecycle_revision:revision}});
-        if(this.tasks.passive(root.sessionId))agent.inject(message);else agent.followup(message);
-      }
-      await this.flush(agent);return {durable:true};
+        let agent = initialAgent;
+        let placed = false;
+        if (!agent) {
+          using coldView = await ctx.sessionQuery.observeSession(SessionId(sessionId));
+          const alreadyRecorded = coldView.events.slice(coldView.inheritedEventCount).some(event =>
+            (event.type === 'user/message' && event.data.id === inputId) ||
+            (event.type === 'agent/inbox/spliced' && event.data.inserted.some(item => item.id === inputId)));
+          if (alreadyRecorded) return {durable: true};
+          const hold: {gate: PromiseWithResolvers<void>; maintenance?: Promise<unknown>} = {gate: Promise.withResolvers<void>()};
+          scheduleNotifyHolds.set(sessionId, hold);
+          try {
+            const receipt = await ctx.subagents.prompt({
+              childSessionId: SessionId(sessionId),
+              requestId: `nano-runtime-schedule-change:${inputId}` as import('@deepseek-ai/dsh-subagent').SubagentPromptRequestId,
+              delivery: 'steer',
+              content,
+            }, AbortSignal.timeout(30_000));
+            agent = ctx.agents.get(SessionId(sessionId));
+            this.lifecycle.assertEnabled(agentId);
+            if(this.lifecycle.current(agentId).revision!==revision)throw new Error('stale_lifecycle');
+            if (agent && hold.maintenance) {
+              agent.inbox.remove(receipt.messageId);
+              if (!passive && !fallback.nativeEvidence(agent, inputId).accepted) {
+                agent.followup(message);
+                placed = true;
+              }
+              hold.gate.resolve();
+              await hold.maintenance;
+              if (passive && !fallback.nativeEvidence(agent, inputId).accepted) {
+                agent.inject(message);
+                placed = true;
+              }
+            }
+          } finally {
+            scheduleNotifyHolds.delete(sessionId);
+            hold.gate.resolve();
+          }
+        }
+        if (!agent) throw new Error('Child schedule notification failed to establish residency');
+        this.lifecycle.assertEnabled(agentId);
+        if(this.lifecycle.current(agentId).revision!==revision)throw new Error('stale_lifecycle');
+        if(!placed && !fallback.nativeEvidence(agent,inputId).accepted){
+          if(passive)agent.inject(message);else agent.followup(message);
+        }
+        if (!await ctx.sessions.flush(agent.session)) throw new RpcError(-32005, 'Session has no persistence barrier');
+        return {durable:true};
+      })().finally(() => { scheduleNotifyPending.delete(notifyKey); });
+      scheduleNotifyPending.set(notifyKey, runNotify);
+      return runNotify;
     });
     const scheduleOwner = (agentId: string, sessionId?: string) => {
       if (![...this.configurations.values()].some(config => config.agentId === agentId)) throw new RpcError(-32004, 'Unknown product Agent');
@@ -783,22 +844,21 @@ export default class NanoRuntime {
       create: input => {
         scheduleOwner(input.agentId, input.sessionId);
         return this.cron.withSchedule(input.agentId, input.action, service =>
-          service.create(SessionId(input.sessionId), input.args));
+          createSessionSchedule(service, input.sessionId, input.args));
       },
       list: input => {
         scheduleOwner(input.agentId, input.sessionId);
-        return this.cron.withSchedule(input.agentId, input.action, service => service.list({sessionId: SessionId(input.sessionId)}));
+        return this.cron.withSchedule(input.agentId, input.action, service => listSessionSchedules(service, input.sessionId));
       },
       update: input => {
         scheduleOwner(input.agentId, input.sessionId);
         return this.cron.withSchedule(input.agentId, input.action, service =>
-          service.update({...input.args, id: ScheduleId(input.args.id), sessionId: SessionId(input.sessionId),
-            expected:{...input.args.expected,id:ScheduleId(input.args.expected.id)}}));
+          updateSessionSchedule(service, input.sessionId, input.args));
       },
       delete: input => {
         scheduleOwner(input.agentId, input.sessionId);
         return this.cron.withSchedule(input.agentId, input.action, service =>
-          service.delete({sessionId: SessionId(input.sessionId), id: ScheduleId(input.args.id)}));
+          deleteSessionSchedule(service, input.sessionId, input.args.id));
       },
     } satisfies ScheduleHandlerMap;
     const productHandlers = {
@@ -1016,7 +1076,7 @@ export default class NanoRuntime {
           return await (await codex).reviewDisclosure({agent:lineage[0]!,config,action:personalReviewAction(evidence),images:await personalReviewImages(ctx,evidence),
             evidence:async()=>{
               const scopes=await Promise.all([...lineage].reverse().map(async scope=>{
-                const assembly=await ctx.systemPrompt.assemble({scope});
+                const assembly=await assembleAgentPrompt(ctx, scope);
                 const rows=await (await approval).sources.history(scope,scope.id===sessionId?callId:undefined,false,{toolResults:true,fullAssistant:true,privateContext:true});
                 return [{context:renderPrompt(assembly),origin:{kind:'runtime-system'},session_id:scope.id},
                   {context:renderContextSnapshot(assembly),origin:{kind:'runtime-context'},session_id:scope.id},
@@ -1165,7 +1225,7 @@ export default class NanoRuntime {
           ]);
           disposingScopes = true;
           await cleanup.run(errors, async () => {
-            await ctx.subagents.drainContinuableDescendants(agents);
+            await ctx.subagents.drainDescendants(agents);
             await this.owned.disposeAgent(agentId);
           });
           await lifecycle.prepare(agentId, () => cancelPersisted(agentId));

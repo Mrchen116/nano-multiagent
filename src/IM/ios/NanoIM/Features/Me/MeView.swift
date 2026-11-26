@@ -51,7 +51,7 @@ struct MeView: View {
 
     private var identity: some View {
         VStack(spacing: 10) {
-            AvatarView(name: user.display_name, size: 76)
+            AvatarView(id: .userID(user.id), size: 76)
             VStack(spacing: 3) {
                 Text(user.display_name).font(.system(.largeTitle, design: .rounded, weight: .bold)).foregroundStyle(NanoTheme.ink)
                 Text("@" + user.username).font(.subheadline).foregroundStyle(NanoTheme.muted)
@@ -67,7 +67,7 @@ struct MeView: View {
 
     private var assistantContact: some View {
         HStack(spacing: 12) {
-            AssistantPortrait(personal: true, seed: assistant?.agent_id ?? user.id, selected: assistant?.avatar_variant, size: 56)
+            if let assistant { AvatarView(id: .personal(assistant), size: 56) } else { PortraitPreview(size: 56) }
             VStack(alignment: .leading, spacing: 3) {
                 Text(L("个人助手", "Personal assistant")).font(.caption.weight(.medium)).foregroundStyle(NanoTheme.muted)
                 Text(assistant?.display_name ?? (personal?.creation != nil ? L("继续设置", "Continue setup") :

@@ -53,7 +53,7 @@ function screenshotProcess(call: RuntimeEvent, state: 'running' | 'completed' | 
 }
 
 /** Project durable tool events using their original names and stable call identity. */
-export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
+export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[], linkChildren = true) {
   const data = event.data;
   if (event.type === 'tool/call') return screenshotProcess(event, 'running') ?? {
     id: typeof data.callId === 'string' ? data.callId : undefined, name: typeof data.name === 'string' ? data.name : undefined, input: argumentsObject(data.arguments), status: 'running', output: toolSummary(data.name, argumentsObject(data.arguments), data.nanoToolView as NativeToolView | undefined), detail: {native_view: (data.nanoToolView as NativeToolView | undefined)?.call ?? {card: 'generic'}, native_call: (data.nanoToolView as NativeToolView | undefined)?.call}, ...workflowDetail(data.name,argumentsObject(data.arguments)),
@@ -74,6 +74,7 @@ export function toolPresentation(event: RuntimeEvent, events: RuntimeEvent[]) {
     const reason = error?.name === 'NanoApprovalDenied' ? 'denied' : ['ABORTED', 'ABORTED_BEFORE_DISPATCH'].includes(error?.code ?? '') ? 'interrupted' : undefined;
     if (view) detail = {content: output, ...detail, native_view: view.result ?? view.call, native_call: view.call, child_session_id: view.childSessionId, delegation_kind: view.delegationKind};
     else if (!detail) detail = {content: output, native_view: {card: 'generic', content: message.content}};
+    if (!linkChildren && detail) delete detail.child_session_id;
     return { id: typeof message.toolCallId === 'string' ? message.toolCallId : undefined, name: typeof call.data.name === 'string' ? call.data.name : undefined, input: argumentsObject(call.data.arguments),
       reason, status: message.isError ? 'failed' : 'completed', duration_ms: event.time - call.time,
       output: toolSummary(call.data.name, argumentsObject(call.data.arguments), view, output, message.isError), detail: {...detail, ...(error ? {error} : {})},

@@ -2,7 +2,7 @@ import { workDescendants } from './helpers/work-history.js';
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
@@ -73,9 +73,14 @@ export function apply(ctx){
       expect(JSON.stringify(results[1])).toContain('this goal operation requires a direct human turn on a top-level agent');
     }
     await ensure('parent'); await submit('parent', 'spawn');
-    const children = await workDescendants(client.rpc, { sessionId: 'parent' }) as any[];
-    expect(children).toHaveLength(1);
-    const child = children[0].events;
+    // The parent can finish before the child's last tool result reaches its durable Work page.
+    const child = await vi.waitFor(async () => {
+      const children = await workDescendants(client!.rpc, { sessionId: 'parent' });
+      expect(children).toHaveLength(1);
+      const events = children[0]!.events;
+      expect(events.some(event => event.type === 'turn/end')).toBe(true);
+      return events;
+    }, { timeout: 5000 });
     // Runtime snapshots now precede input: identify the child prompt, not the first user-role message.
     const childPrompts = child.filter((e: any) => e.type === 'user/message' && e.data.content.some((block: any) => block.type === 'text' && block.text === 'goal-child'));
     expect(childPrompts).toHaveLength(1);

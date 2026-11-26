@@ -133,8 +133,7 @@ struct ChatContactRow: View {
     var body: some View {
         Button(action: choose) {
             HStack(spacing: 12) {
-                AvatarView(name: contact.display_name, online: contact.status == "online", kind: contact.kind == "agent" ? "agent" : "person",
-                           size: 40, agentID: contact.agent_id, role: contact.role, variant: contact.avatar_variant)
+                AvatarView(id: .contact(contact), size: 40, online: contact.status == "online")
                 VStack(alignment: .leading, spacing: 3) {
                     Text(contact.display_name).font(.body.weight(.medium)).foregroundStyle(NanoTheme.ink)
                     if contact.kind == "agent" { Text(assistantRole).font(.caption).foregroundStyle(NanoTheme.muted) }

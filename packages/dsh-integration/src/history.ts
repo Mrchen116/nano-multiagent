@@ -113,7 +113,7 @@ export class NativeHistory {
     const creating = this.creating.getStore();
     if (
       creating &&
-      agent.session.header.parentSession === creating.fork.source &&
+      agent.session.header.isSeeded &&
       agent.session.header.origin !== "subagent"
     ) {
       creating.fork.sessionId = agent.id;

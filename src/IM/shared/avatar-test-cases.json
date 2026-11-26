@@ -1,0 +1,16 @@
+{
+  "agentSeeds": {
+    "agent-ada": 7,
+    "中文助理": 14,
+    "🧑‍💻 Agent": 10
+  },
+  "colors": {
+    "": "#ffccac",
+    "e2e-peer": "#e2d8ff",
+    "Personal Assistant": "#cadbff",
+    "My Assistant": "#ffccac",
+    "Code Reviewer": "#bfe8d9",
+    "中文助理": "#bfe8d9",
+    "🧑‍💻 Agent": "#ffccac"
+  }
+}

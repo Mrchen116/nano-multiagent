@@ -17,7 +17,7 @@ export function apply(ctx){
       const last=messages.findLast(m=>m.role==='user'&&m.source?.actorId==='owner');
       const text=last?.content.find(b=>b.type==='text')?.text;
       if(text==='launch-child'&&!child){
-        child=await ctx.subagents.startContinuable({provider:'fork',label:'travel-options',request:{parent:agent,prompt:[{type:'text',text:'Compare hotels using the inherited travel conditions; do not book.'}]},signal});
+        child=await ctx.subagents.startActivation({provider:'fork',label:'travel-options',delivery:'parent',parent:agent,prompt:[{type:'text',text:'Compare hotels using the inherited travel conditions; do not book.'}],signal});
         await writeFile(process.env.DSH_HOME+'/child-id',child.childId);
         await ctx.agents.get(child.childId)?.whenIdle();
       }else if(text==='withdraw-child'&&!withdrawn){
@@ -154,7 +154,7 @@ export function apply(ctx){
   if(agent.id==='root'&&!launched&&messages.some(m=>m.source?.messageId==='launch')){
    launched=true;
    for(let i=0;i<3;i++){
-    const child=await ctx.subagents.startContinuable({provider:'fork',label:'task-'+i,request:{parent:agent,prompt:[{type:'text',text:'TASK-'+i+': compare the supplied evidence.'}]},signal});
+    const child=await ctx.subagents.startActivation({provider:'fork',label:'task-'+i,delivery:'parent',parent:agent,prompt:[{type:'text',text:'TASK-'+i+': compare the supplied evidence.'}],signal});
     await ctx.agents.get(child.childId)?.whenIdle();
    }
   }

@@ -10,7 +10,7 @@ import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { listContacts, contactActor } from "../../chat/contacts-api";
 import { createConversation } from "../../chat/chat-api";
-import { Avatar, colorForAgent, initialsOf } from "../../chat/components/avatar";
+import { Avatar } from "../../chat/components/avatar";
 import { AgentDetailPage } from "./agent-detail-page";
 import { AgentsRailDesktop } from "./agents-rail-desktop";
 import { AgentWorkPanel } from "./agent-work-panel";
@@ -99,12 +99,7 @@ export function AgentProfilePage() {
               <span aria-hidden="true">‹</span>
             </Link>
           )}
-          <Avatar agentId={agent.agent_id ?? undefined} personal={agent.role === "personal"} avatarVariant={agent.avatar_variant}
-            initials={initialsOf(agent.display_name)}
-            color={colorForAgent(agent)}
-            status={agent.status}
-            size={32}
-          />
+          <Avatar id={agent.user_id} size={32} status={agent.status} />
           <div className="min-w-0 flex-1">
             <h2 className="im-agent-panel-title">{agent.display_name}</h2>
             <p className="im-agent-panel-subtitle im-agent-panel-node-line">

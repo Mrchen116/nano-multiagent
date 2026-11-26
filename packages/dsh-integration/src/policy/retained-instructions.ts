@@ -1,3 +1,4 @@
+import type {} from '@deepseek-ai/dsh-tool-executor-ptc/types';
 import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm';
 import { isHumanSource, scopedChatEvents } from '../input-source.js';

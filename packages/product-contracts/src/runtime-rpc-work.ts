@@ -55,7 +55,7 @@ const workPage: z.ZodType<RuntimeWorkPage> = z.object({
     ctx.addIssue({code: 'custom', path: ['throughSeq'], message: 'Cursor must match the last included event'});
 });
 const workCatalog: z.ZodType<RuntimeWorkCatalog> = z.object({
-  children: z.array(z.object({kind: z.enum(['child', 'diagnostic']), id, parentId: id, label: text.optional(),
+  children: z.array(z.object({nativeWorker: bool.optional(), kind: z.enum(['child', 'diagnostic']), id, parentId: id, label: text.optional(),
     reason: text.optional(), workflowRunId: id.optional(), mode: text.optional(), depth: count.optional(),
     activity: text.optional(), hasChildren: bool.optional(), throughSeq: cursor.optional(), modelVersion: text.optional()})),
   next: id.optional(),

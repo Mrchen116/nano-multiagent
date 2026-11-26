@@ -68,7 +68,7 @@ export class TrajectoryObservers {
     const personal=one(this.ctx.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",agentId);
     if(personal && personal.owner_user_id!==auth.user_id)throw new Error("该执行不可访问");
     const selected = this.ctx.gateway.work.session(agentId, sessionId);
-    if (selected.scope === 'worker') throw new Error('该执行没有原生 DSH 轨迹');
+    if (selected.scope === 'worker' && selected.runtime !== 'dsh') throw new Error('该执行没有原生 DSH 轨迹');
     let root = selected;
     while (root.parent_session_id) root = this.ctx.gateway.work.session(agentId, root.parent_session_id);
     if (root.scope !== 'global_main') throw new Error('该执行不可访问');
@@ -100,7 +100,7 @@ export class TrajectoryObservers {
         const input = JSON.parse(raw.toString()) as TrajectoryRequest;
         if (!observer.ready || !observer.node || !['call', 'open', 'next', 'abort'].includes(input.type)
           || typeof input.requestId !== 'string' || input.requestId.length > 128) throw new Error('invalid observer request');
-        if (['call', 'open'].includes(input.type) && !['trajectory/runs', 'session/list', 'session/page', 'session/projections', 'session/attachment', 'session/control', 'session/follow'].includes(input.method ?? '')) {
+        if (['call', 'open'].includes(input.type) && !['trajectory/runs', 'session/list', 'session/page', 'session/projections', 'session/attachment', 'session/control', 'session/follow', 'toolResults/watch'].includes(input.method ?? '')) {
           this.write(observer, socket, { type: 'error', requestId: input.requestId, code: 'read_only', message: '只允许读取原生轨迹' }); return;
         }
         if (input.type === 'call' && input.method === 'session/attachment') {

@@ -60,10 +60,10 @@ export class TrajectoryRuns extends Service {
       return index;
     });
     ctx.effect(() => async () => { try { await this.writes; } finally { await (await this.domain).close(); } });
-    ctx.on('agent/created', ({ agent }) => {
+    ctx.on('agent/created', ({ agent, source }) => {
       if (!agent.session.header.parentSession) return;
-      // Creation precedes descriptor/prompt writes, including for cold resumed epochs.
-      this.bounds.set(agent, agent.session.seq);
+      // Fresh creations record descriptor/policy events before announcement; cold resumes start at the current tail.
+      this.bounds.set(agent, source === 'startup' ? agent.session.inheritedEventCount : agent.session.seq);
       this.tails.set(agent.id, agent.session.seq - 1);
     }, { prepend: true });
     ctx.on('session/event', (session, event) => {
@@ -98,31 +98,31 @@ export class TrajectoryRuns extends Service {
     }, { prepend: true });
     const self = this;
     ctx.on('subagent/start', function (info) {
-      const parent = carrierKeyOf(this) as Agent | undefined;
-      if (!parent?.id) return;
+      const parentId = info.parentSessionId ?? (carrierKeyOf(this) as Agent | undefined)?.id;
+      if (!parentId) return;
       const child = ctx.agents.get(info.id);
       const source = launchContext.getStore();
-      const launch = source?.parentSessionId === parent.id ? source : undefined;
+      const launch = source?.parentSessionId === parentId ? source : undefined;
       const launchSeq = launch?.launchSeq?.();
       const descriptor = child?.session.ownEvents().find(event => event.type === 'subagent/descriptor');
       const label = launch?.label ?? (descriptor?.type === 'subagent/descriptor' ? descriptor.data.label : undefined);
       const startSeq = child && self.bounds.get(child);
       // Native omitted defaults follow the actual child mode, including configured tool instances.
-      const delegation = launch?.delegation === 'unknown' && ['subagent', 'subagent_fork'].includes(launch.toolName ?? '') && descriptor?.type === 'subagent/descriptor'
+      const delegation = launch?.kind === 'tool' && launch.delegation === 'unknown' && descriptor?.type === 'subagent/descriptor'
         ? descriptor.data.mode === 'continuable' ? 'background' : 'foreground' : launch?.delegation ?? 'unknown';
-      const run: TrajectoryRun = { runId: info.runId, parentSessionId: parent.id, sessionId: info.id, provider: info.provider,
+      const run: TrajectoryRun = { runId: info.runId, parentSessionId: parentId, sessionId: info.id, provider: info.provider,
         ...(label ? { label } : {}), kind: launch?.kind ?? 'unknown', delegation,
         ...(launchSeq !== undefined ? { launchSeq } : {}), ...(launch?.callId ? { callId: launch.callId } : {}),
         ...(startSeq !== undefined ? { startSeq } : {}), startedAt: Date.now(), state: 'running' };
       self.active.set(info.runId, run);
       // One-shot start can precede its descriptor; resolve omitted defaults when that fact arrives.
-      if (delegation === 'unknown' && ['subagent', 'subagent_fork'].includes(launch?.toolName ?? '')) self.pendingDefaults.set(info.id, info.runId);
+      if (delegation === 'unknown' && launch?.kind === 'tool') self.pendingDefaults.set(info.id, info.runId);
       self.persist(run);
     });
     ctx.on('subagent/end', function (info) {
-      const parent = carrierKeyOf(this) as Agent | undefined;
+      const parentId = info.parentSessionId ?? (carrierKeyOf(this) as Agent | undefined)?.id;
       const run = self.active.get(info.runId);
-      if (!run || run.parentSessionId !== parent?.id) return;
+      if (!run || run.parentSessionId !== parentId) return;
       const endSeq = self.tails.get(info.id);
       self.active.delete(info.runId);
       self.pendingDefaults.delete(info.id);
@@ -144,7 +144,8 @@ export class TrajectoryRuns extends Service {
    *   The same execution capability with an observed result promise.
    */
   knowledge(parent: Agent, kind: 'memory' | 'skills' | 'combined', label: string, launchSeq: number, run: SubagentRun): SubagentRun {
-    const startSeq = run.localAgent && this.bounds.get(run.localAgent);
+    const child = this.ctx.agents.get(run.id);
+    const startSeq = child && this.bounds.get(child);
     const record: TrajectoryRun = { runId: randomUUID(), parentSessionId: parent.id, sessionId: run.id, provider: 'fork',
       kind, label, delegation: 'background', launchSeq, ...(startSeq !== undefined ? { startSeq } : {}), startedAt: Date.now(), state: 'running' };
     this.active.set(record.runId, record); this.persist(record);

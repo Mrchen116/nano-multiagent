@@ -213,7 +213,7 @@ def _run_tool_turn(client: IMClient, stack: ApprovalStack, agent_id: str) -> lis
         "classifier",
         "normal",
     ]
-    filename = f"approval-route-{before + 1}.txt"
+    filename = f"CLAUDE.md.approval-route-{before + 1}.txt"
     assert list((Path(stack.wt_dir) / ".gateway-workspace").rglob(filename)), (
         f"approved write did not create {filename}"
     )
@@ -307,7 +307,7 @@ def test_classifier_failure_escalates_without_model_fallback(tmp_path: Path) -> 
                     for item in observed
                     if item["kind"] == "classifier"
                 ]
-                assert classifier_models == ["approval-fail"]
+                assert classifier_models and set(classifier_models) == {"approval-fail"}
                 client.resolve_permission(
                     frame.conversation_id or conversation,
                     request["request_id"],

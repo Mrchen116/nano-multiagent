@@ -17,6 +17,7 @@ on:
       - 'packages/personal-assistant/**'
       - 'packages/product-contracts/**'
       - 'src/IM/frontend/**'
+      - 'src/IM/shared/**'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'package.json'

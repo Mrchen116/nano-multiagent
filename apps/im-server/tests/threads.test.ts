@@ -56,8 +56,28 @@ it('keeps a topic off the main timeline and only unread-counts its followers', a
       expect.objectContaining({id: inside.json().id, sender_user_id: 'u2', preview: '留在话题里'}),
       expect.objectContaining({id: final.json().id, sender_user_id: 'u1', preview: '先验证这个方向'}),
     ]);
-    expect(rootView.thread.participants.map((person: {id: string}) => person.id)).toContain('u2');
+    expect(rootView.thread.participants).toContainEqual(expect.objectContaining({id:'u2', actor:expect.objectContaining({type:'user', user_id:'u2'})}));
   } finally { await app.close(); }
+});
+
+it('preserves agent and mirrored sender identities in the topic avatar cluster', () => {
+  const {ctx, db} = fixture();
+  ctx.gateway.broadcast = () => {};
+  const messaging = new Messaging(ctx);
+  const root = messaging.insertMessage('chat', 'u1', 'user', 'root');
+  db.prepare("UPDATE agent_profiles SET avatar_variant=7 WHERE agent_id='a'").run();
+  messaging.insertMessage('chat', 'a1', 'agent', 'reply', [], null, 'completed', {thread_root_id:root.id});
+  for (const source of ['one','two']) {
+    messaging.insertMessage('chat', 'u1', 'user', 'reply', [], null, 'completed', {
+      thread_root_id:root.id, sender_source_id:source, sender_display_name:'Same name',
+    });
+  }
+  const participants = messaging.message(root.id).thread!.participants!;
+  expect(participants).toHaveLength(3);
+  expect(participants[2].actor).toMatchObject({id:'a', type:'agent', user_id:'a1', avatar_variant:7});
+  expect(participants[0].id).toMatch(/^external:/);
+  expect(participants[1].id).not.toBe(participants[0].id);
+  expect(participants[0].actor?.avatar_id).toBe(participants[0].id);
 });
 
 it('does not relay a group topic to an Agent who is not following it', async () => {

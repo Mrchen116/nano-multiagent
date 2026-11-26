@@ -25,7 +25,7 @@ function message(frame: HTMLIFrameElement, data: unknown) {
 async function connect(frame: HTMLIFrameElement, index: number) {
   await waitFor(() => expect(Socket.instances.length).toBeGreaterThan(index));
   vi.spyOn(frame.contentWindow!, 'postMessage').mockImplementation(() => {});
-  act(() => Socket.instances[index].onmessage?.({ data: JSON.stringify({ type: 'ready', version: '0.2.1-alpha.1' }) }));
+  act(() => Socket.instances[index].onmessage?.({ data: JSON.stringify({ type: 'ready', version: '0.2.2-rc.5' }) }));
   message(frame, { type: 'nano-trajectory-ready' });
 }
 afterEach(() => vi.useRealTimers());
@@ -122,7 +122,7 @@ it('does not initialize a late iframe with catalog data after its read connectio
   const frame=container.querySelector('iframe')!;
   await waitFor(()=>expect(Socket.instances).toHaveLength(1));
   const delivered=vi.spyOn(frame.contentWindow!,'postMessage').mockImplementation(()=>{});
-  act(()=>Socket.instances[0].onmessage?.({data:JSON.stringify({type:'ready',version:'0.2.1-alpha.1',initialCatalog:{capturedAt:Date.now(),result:{ok:true,value:{items:[{sessionId:'main'}]}}}})}));
+  act(()=>Socket.instances[0].onmessage?.({data:JSON.stringify({type:'ready',version:'0.2.2-rc.5',initialCatalog:{capturedAt:Date.now(),result:{ok:true,value:{items:[{sessionId:'main'}]}}}})}));
   vi.useFakeTimers();
   act(()=>{Socket.instances[0].readyState=3;Socket.instances[0].onclose?.({code:1008,reason:'访问资格已失效'});});
   message(frame,{type:'nano-trajectory-ready'});

@@ -1,5 +1,4 @@
-import { AvatarPicker } from "../chat/components/avatar-picker";
-import { avatarVariantFor } from "../chat/components/assistant-portrait";
+import { AvatarPicker, avatarVariantFor } from "../chat/components/avatar-picker";
 import * as Dialog from '@radix-ui/react-dialog';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef, useState } from 'react';

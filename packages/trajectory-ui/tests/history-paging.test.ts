@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import * as Cordis from '@deepseek-ai/cordis'
 import * as React from 'react'
 import * as Store from '@deepseek-ai/dsh-client-store'
+import * as Zod from 'zod'
 import { it, expect } from 'vitest'
 import { registerTrajectoryMessageDefinitions } from '../src/client/trajectory-message-definitions'
 import { registerTrajectoryRequestHeaderDefinition } from '../src/client/trajectory-request-header-definition'
@@ -27,6 +28,7 @@ const modules: Record<string, unknown> = {
   '@deepseek-ai/dsh-client-ui-slots': {},
   'react/jsx-runtime': {},
   'react-dom': {},
+  zod: Zod,
 }
 const api = registration!.factory((id: string) => {
   if (!(id in modules)) throw new Error(`Unexpected browser dependency: ${id}`)

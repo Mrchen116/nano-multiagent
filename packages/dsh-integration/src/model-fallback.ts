@@ -342,8 +342,8 @@ export class ModelFallback {
     } else if (reason.kind === 'completed' && run.attempts.length > 1) {
       this.scheduleSuccess(agent, run, attempt.route, reason);
     } else {
-      this.host.select(agent, undefined);
       this.finish(run, reason);
+      this.host.select(agent, undefined);
     }
   }
   /** Check whether a stalled request can safely use the remaining configured backup chain. */

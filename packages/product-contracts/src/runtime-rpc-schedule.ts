@@ -14,6 +14,7 @@ const timing = z.discriminatedUnion('kind', [
   z.object({kind: z.literal('daily'), time: text, timeZone: text}),
   z.object({kind: z.literal('weekly'), time: text, timeZone: text, weekdays: z.array(z.int())}),
   z.object({kind: z.literal('cron'), expression: text, timeZone: text}),
+  z.object({kind: z.literal('rrule'), rrule: text}),
 ]);
 const schedule = z.intersection(z.object({scheduledAt: text}), timing);
 const record = z.intersection(z.object({id, title: text, prompt: text}), schedule);
@@ -26,7 +27,7 @@ const history = z.union([
 const updateChange = z.discriminatedUnion('kind', [
   z.object({kind: z.literal('at'), at}), z.object({kind: z.literal('every'), every_seconds: z.number()}),
   z.object({kind: z.literal('daily'), daily}), z.object({kind: z.literal('weekly'), weekly}),
-  z.object({kind: z.literal('cron'), cron}),
+  z.object({kind: z.literal('cron'), cron}), z.object({kind: z.literal('rrule'), rrule: text}),
 ]);
 const update = z.union([
   z.object({id, updated: bool, record}),
@@ -50,8 +51,8 @@ export const scheduleActions = {
   list: rpc(input({...common, action: z.literal('list')}), z.array(record)),
   create: rpc(input({...common, action: z.literal('create'), args: z.object({
     title: text, prompt: text, after_seconds: z.number().optional(), every_seconds: z.number().optional(),
-    at: at.optional(), daily: daily.optional(), weekly: weekly.optional(), cron: cron.optional(),
-  }).refine(args => [args.after_seconds, args.every_seconds, args.at, args.daily, args.weekly, args.cron]
+    at: at.optional(), daily: daily.optional(), weekly: weekly.optional(), cron: cron.optional(), rrule: text.optional(),
+  }).refine(args => [args.after_seconds, args.every_seconds, args.at, args.daily, args.weekly, args.cron, args.rrule]
     .filter(selector => selector !== undefined).length === 1, 'Expected one scheduling rule')}), record),
   update: rpc(input({...common, action: z.literal('update'), args: z.object({
     id, expected: record, title: text.optional(), prompt: text.optional(), change: updateChange.optional(),

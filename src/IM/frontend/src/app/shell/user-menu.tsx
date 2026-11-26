@@ -6,7 +6,7 @@ import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "..
 import { isDesktopClient } from "../../desktop/desktop-context";
 import { useAuthStore } from "../../features/auth/auth-store";
 import { listNodes } from "../../features/settings/im-settings-api";
-import { Avatar, colorForAgentSeed, initialsOf } from "../../features/chat/components/avatar";
+import { Avatar } from "../../features/chat/components/avatar";
 import { UserMenuIcon } from "./user-menu-icons";
 
 /** Keep account and workspace preferences in one place beside desktop navigation. */
@@ -41,7 +41,7 @@ export function UserMenu() {
 
   if (!user) return null;
   const name = user.display_name || user.username;
-  const avatar = <Avatar initials={initialsOf(name)} color={colorForAgentSeed(name)} size={36} />;
+  const avatar = <Avatar id={user.id} size={36} />;
   const handleLanguage = (next: Locale) => { setLanguage(next); setOpen(false); triggerRef.current?.focus(); };
   const close = () => setOpen(false);
 

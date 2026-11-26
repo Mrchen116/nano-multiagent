@@ -8,6 +8,7 @@ const creatingFork = new AsyncLocalStorage<string>();
 const forks = new WeakSet<Agent>();
 const workerForks = new WeakSet<Agent>();
 const scopedChildren = new WeakSet<Agent>();
+const roleAttached = new WeakSet<Agent>();
 
 /** Carry native tool creation intent until its durable descriptor exists. */
 export function trackForkCreation(ctx: Context): void {
@@ -17,7 +18,8 @@ export function trackForkCreation(ctx: Context): void {
 
 /** Capture the execution role before prompt and tool registration, including empty forks. */
 export function attachChildRole(agent: Agent, config?: AgentConfiguration): void {
-  if (agent.session.header.origin !== 'subagent') return;
+  if (agent.session.header.origin !== 'subagent' || roleAttached.has(agent)) return;
+  roleAttached.add(agent);
   // A root configuration update cannot promote a workflow's scoped child into a full worker.
   if (config?.modelRouteFrozen) scopedChildren.add(agent);
   const descriptor = agent.session.snapshotEvents().findLast(event =>

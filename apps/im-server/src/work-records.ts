@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { cliWorkerRuntimes, decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields, type WorkWorkerFields } from '@nano/product-contracts';
+import { decodeWorkEvent, workRedactedType, type DecodedWorkEvent, type WorkAppendBatch, type WorkAppendAck, type WorkSessionFields, type WorkWorkerFields } from '@nano/product-contracts';
 import { all, one, now, fail, transaction } from './context.js';
 import { agentAvailable } from './identity.js';
 import { updateWorkLifetimeUsage } from './work-lifetime-usage.js';
@@ -282,7 +282,9 @@ export class WorkRecords {
         else if (available || e.type === "session_linked") {
           const session = this.registeredSession(e.root_agent_id, e.session_id);
           if (session.scope === 'worker') {
-            if (session.node_id !== node || !(cliWorkerRuntimes as readonly string[]).includes(session.runtime ?? '') || !workerDetailEvents.has(e.type) || !e.turn_id)
+            const nativeControl = session.runtime === 'dsh' && e.type === 'control_result';
+            const nativeDetail = session.runtime === 'dsh' && (e.type === 'model_selected' || e.type === 'injection_consumed');
+            if (session.node_id !== node || !(nativeControl || (e.turn_id && (workerDetailEvents.has(e.type) || nativeDetail))))
               fail(403, 'scope_not_allowed');
             firstWorkerRecord = !session.has_work_records;
           }

@@ -1,11 +1,7 @@
 import { useState, type FormEvent } from "react";
 
 import { useTranslation } from "../../../i18n";
-import { Avatar, colorForAgent } from "./avatar";
-
-// Fixed (non-agent) avatar colour for the human "you" member — agents derive
-// their colour from colorForAgent (display_name seed).
-const SELF_AVATAR_COLOR = "oklch(0.55 0.14 255)";
+import { Avatar, agentAvatarId } from "./avatar";
 
 /** One row in the group member list, pre-resolved by the workspace. */
 export interface GroupSettingsMember {
@@ -19,15 +15,11 @@ export interface GroupSettingsMember {
   isCreator: boolean;
   status?: "online" | "offline" | null;
   isStale?: boolean | null;
-  role?: "personal";
-  avatarVariant?: number | null;
 }
 
 /** A candidate agent for the add-members picker (already filtered to non-members). */
 export interface GroupSettingsAgentOption {
   agentId: string;
-  role?: "personal";
-  avatarVariant?: number | null;
   type?: "user" | "agent";
   displayName: string;
   status?: "online" | "offline" | null;
@@ -172,12 +164,7 @@ export function GroupSettings(props: GroupSettingsProps) {
     return (
       <div className="group-settings-cluster">
         {shown.map((m) => (
-          <Avatar
-            key={m.id}
-            initials={m.displayName} agentId={m.type === "agent" ? m.id : undefined} personal={m.role === "personal"} avatarVariant={m.avatarVariant}
-            color={m.isSelf ? SELF_AVATAR_COLOR : colorForAgent({ display_name: m.displayName })}
-            size={size}
-          />
+          <Avatar key={m.id} id={m.userId ?? (m.type === "agent" ? agentAvatarId(m.id) : m.id)} size={size} />
         ))}
         {extra > 0 && (
           <span className="group-settings-cluster-more" style={{ width: size, height: size }}>
@@ -237,7 +224,7 @@ export function GroupSettings(props: GroupSettingsProps) {
         return (
           <label key={a.agentId} className={`group-settings-pick${on ? " group-settings-pick--on" : ""}`}>
             <input type="checkbox" checked={on} aria-label={a.displayName} onChange={() => toggleAgent(a.agentId)} />
-            <Avatar initials={a.displayName} agentId={a.type === "user" ? undefined : a.agentId} personal={a.role === "personal"} avatarVariant={a.avatarVariant} color={colorForAgent({ display_name: a.displayName })} size={30} />
+            <Avatar id={a.type === "user" ? a.agentId : agentAvatarId(a.agentId)} size={30} />
             <span className="group-settings-pick-name">{a.displayName}</span>
           </label>
         );
@@ -319,11 +306,7 @@ export function GroupSettings(props: GroupSettingsProps) {
           className={m.isStale ? "group-settings-av--stale" : undefined}
           title={m.isStale ? t("chat.groupSettings.stale") : undefined}
         >
-          <Avatar
-            initials={m.displayName} agentId={m.type === "agent" ? m.id : undefined} personal={m.role === "personal"} avatarVariant={m.avatarVariant}
-            color={m.isSelf ? SELF_AVATAR_COLOR : colorForAgent({ display_name: m.displayName })}
-            size={34}
-          />
+          <Avatar id={m.userId ?? (m.type === "agent" ? agentAvatarId(m.id) : m.id)} size={34} />
         </span>
         <span className="group-settings-member-text">
           <span className="group-settings-member-name">
