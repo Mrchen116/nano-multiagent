@@ -324,6 +324,36 @@ fn publish_seed_directory(stage: &Path, target: &Path) -> Result<(), String> {
     })
 }
 
+#[cfg(windows)]
+fn publish_seed_runtime(stage: &Path, target: &Path) -> Result<(), String> {
+    // Move only a junction into the content-addressed slot. Open files in the
+    // backing directory (including the Node used for layout) can stay open.
+    let link = stage.with_added_extension("junction");
+    match fs::remove_dir(&link) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("Remove stale runtime junction {}: {e}", link.display())),
+    }
+    let node = stage.join(standalone_node_rel_path());
+    let mut cmd = Command::new(&node);
+    configure_hidden_command(&mut cmd);
+    let output = cmd
+        .args(["-e", "require('node:fs').symlinkSync(process.argv[1], process.argv[2], 'junction')", "--"])
+        .arg(stage)
+        .arg(&link)
+        .output()
+        .map_err(|e| format!("Run {} to create runtime junction {}: {e}", node.display(), link.display()))?;
+    if !output.status.success() {
+        return Err(format!("Create runtime junction {} to {}: {}",
+            link.display(), stage.display(), String::from_utf8_lossy(&output.stderr)));
+    }
+    let result = publish_seed_directory(&link, target);
+    if result.is_err() {
+        let _ = fs::remove_dir(&link);
+    }
+    result
+}
+
 /// Unpack first-install seed archives into `<desktop_home>/{cache,runtimes,versions}` so
 /// managed Node 24.22.1 works with zero global PATH tools and future updates reuse `runtime`.
 pub fn ensure_seed_bundle_installed(
@@ -388,6 +418,9 @@ pub fn ensure_seed_bundle_installed(
 
     let final_runtime_root = runtimes_dir.join(runtime_sha);
     if !final_runtime_root.join(".ready").is_file() {
+        #[cfg(windows)]
+        let stage = runtimes_dir.join(format!(".seed-rt-{runtime_sha}-{}", std::process::id()));
+        #[cfg(not(windows))]
         let stage = runtimes_dir.join(format!(".seed-rt-{}", std::process::id()));
         let _ = fs::remove_dir_all(&stage);
         create_seed_directory(&stage)?;
@@ -423,6 +456,9 @@ pub fn ensure_seed_bundle_installed(
         if final_runtime_root.exists() {
             let _ = fs::remove_dir_all(&stage);
         } else {
+            #[cfg(windows)]
+            publish_seed_runtime(&stage, &final_runtime_root)?;
+            #[cfg(not(windows))]
             publish_seed_directory(&stage, &final_runtime_root)?;
         }
     }

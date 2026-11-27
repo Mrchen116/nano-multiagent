@@ -54,14 +54,7 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     #[cfg(unix)]
     fs::write(&node, "#!/bin/sh\nexec node \"$@\"\n").unwrap();
     #[cfg(windows)]
-    {
-        let found = Command::new("node")
-            .args(["-p", "process.execPath"])
-            .output()
-            .unwrap();
-        assert!(found.status.success());
-        fs::copy(String::from_utf8(found.stdout).unwrap().trim(), &node).unwrap();
-    }
+    copy_test_node(&node);
     fs::write(
         runtime.join("layout.mjs"),
         include_bytes!("../../../../packaging/desktop/layout.mjs"),
@@ -224,6 +217,40 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     assert_eq!(fs::read(older.join(".ready")).unwrap(), b"older");
     assert_eq!(fs::read(paths.sessions_path()).unwrap(), session_bytes);
     assert_eq!(fs::read(workspace_file).unwrap(), b"saved note");
+}
+
+#[cfg(windows)]
+fn copy_test_node(destination: &Path) {
+    let found = Command::new("node")
+        .args(["-p", "process.execPath"])
+        .output()
+        .unwrap();
+    assert!(found.status.success());
+    fs::copy(String::from_utf8(found.stdout).unwrap().trim(), destination).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_publishes_ready_runtime_while_backing_file_remains_open() {
+    use std::os::windows::fs::OpenOptionsExt;
+    let tmp = tempfile::tempdir().unwrap();
+    let stage = tmp.path().join("runtime backing");
+    let target = tmp.path().join("published-runtime");
+    fs::create_dir(&stage).unwrap();
+    copy_test_node(&stage.join("node.exe"));
+    fs::write(stage.join(".ready"), b"complete").unwrap();
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1)
+        .open(stage.join(".ready"))
+        .unwrap();
+    assert_eq!(
+        fs::rename(&stage, &target).unwrap_err().raw_os_error(),
+        Some(5)
+    );
+    publish_seed_runtime(&stage, &target).unwrap();
+    assert_eq!(fs::read(target.join(".ready")).unwrap(), b"complete");
+    drop(held);
 }
 
 #[cfg(windows)]
