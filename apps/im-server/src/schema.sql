@@ -167,6 +167,13 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (thread_root_id) REFERENCES messages(id)
 );
+CREATE TABLE IF NOT EXISTS worker_permission_cards (
+    agent_id TEXT NOT NULL, request_id TEXT NOT NULL,
+    message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,
+    pending_until INTEGER,
+    PRIMARY KEY (agent_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS worker_permission_deadlines ON worker_permission_cards(pending_until) WHERE pending_until IS NOT NULL;
 CREATE TABLE IF NOT EXISTS thread_follows (
     conversation_id TEXT NOT NULL,
     root_message_id TEXT NOT NULL,
@@ -513,6 +520,10 @@ CREATE TABLE IF NOT EXISTS personal_agent_bindings (
  conversation_id TEXT NOT NULL UNIQUE, display_name TEXT NOT NULL, request_key TEXT NOT NULL,
  status TEXT NOT NULL DEFAULT 'pending', initial_goal TEXT, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pa_binding_scopes (
+ binding_id TEXT PRIMARY KEY REFERENCES personal_agent_bindings(binding_id) ON DELETE CASCADE,
+ collaboration_scope TEXT NOT NULL DEFAULT 'team' CHECK (collaboration_scope IN ('team','owner_only'))
+);
 CREATE TABLE IF NOT EXISTS pa_policies (
  binding_id TEXT PRIMARY KEY REFERENCES personal_agent_bindings(binding_id),
  revision INTEGER NOT NULL DEFAULT 1,
@@ -572,9 +583,8 @@ BEGIN
  FROM personal_agent_bindings b JOIN pa_policies p ON p.binding_id=b.binding_id
  JOIN agent_profiles a ON a.agent_id=b.agent_id
  WHERE b.status='active' AND NEW.conversation_id!=b.conversation_id
- AND (NEW.event_type NOT IN ('message.created','message.completed') OR (
-   (a.collaboration_scope='team' OR EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.agent_id=a.agent_id AND d.message_id=NEW.message_id))
-   AND NOT EXISTS (SELECT 1 FROM provider_message_facts f WHERE f.message_id=NEW.message_id AND json_extract(f.facts_json,'$.scope_skipped')=1)))
+ AND (NEW.event_type NOT IN ('message.created','message.completed') OR
+   NOT EXISTS (SELECT 1 FROM provider_message_facts f WHERE f.message_id=NEW.message_id AND json_extract(f.facts_json,'$.scope_skipped')=1))
  AND EXISTS(SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id=NEW.conversation_id AND cp.user_id=b.owner_user_id)
  AND NOT EXISTS(SELECT 1 FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=NEW.message_id AND u.username='agent:'||b.agent_id)
  AND NOT EXISTS(SELECT 1 FROM messages sm WHERE sm.id=NEW.message_id AND sm.sender_type='system' AND json_extract(sm.system_notice_json,'$.kind')='thread_unfollowed')

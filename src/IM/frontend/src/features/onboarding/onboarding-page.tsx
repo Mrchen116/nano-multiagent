@@ -49,6 +49,7 @@ export function OnboardingPage() {
   const [nodeId, setNodeId] = useState<string>(draft.nodeId ?? '');
   const [name, setName] = useState<string>(draft.name ?? text('小助理', 'My assistant'));
   const [avatar, setAvatar] = useState<number>(draft.avatar ?? avatarVariantFor(user.id));
+  const [scope, setScope] = useState<'team' | 'owner_only'>(draft.collaborationScope === 'owner_only' ? 'owner_only' : 'team');
   const [viewStep, setViewStep] = useState<number | null>(null);
   const [installMethod, setInstallMethod] = useState<'agent' | 'manual'>('manual');
   const [copied, setCopied] = useState(false), [copyError, setCopyError] = useState(false);
@@ -79,14 +80,24 @@ export function OnboardingPage() {
     mutationFn: () => {
       const displayName = existingAgent?.display_name ?? name.trim();
       if (!node || !displayName) throw new Error('not ready');
-      return createPersonalAgent({request_key:personal.data?.creation?.request_key ?? requestKey,node_id:existingAgent?.node_id ?? node.node_id,display_name:displayName,...(!existingAgent || personal.data?.creation?.request_key === requestKey ? {avatar_variant:avatar} : {})});
+      const samePendingDraft = personal.data?.creation?.request_key === requestKey;
+      const effectiveScope = existingAgent
+        ? (existingAgent.collaboration_scope ?? personal.data?.creation?.collaboration_scope ?? (samePendingDraft && draft.collaborationScope ? scope : undefined))
+        : scope;
+      return createPersonalAgent({
+        request_key: personal.data?.creation?.request_key ?? requestKey,
+        node_id: existingAgent?.node_id ?? node.node_id,
+        display_name: displayName,
+        ...(effectiveScope ? { collaboration_scope: effectiveScope } : {}),
+        ...(!existingAgent || samePendingDraft ? { avatar_variant: avatar } : {}),
+      });
     },
     onSuccess: async result => {
-      await Promise.all([cache.invalidateQueries({queryKey:['personal-agent']}),cache.invalidateQueries({queryKey:['onboarding',user.id]}),cache.invalidateQueries({queryKey:['chat']})]);
+      await Promise.all([cache.invalidateQueries({queryKey:['personal-agent']}),cache.invalidateQueries({queryKey:['onboarding',user.id]}),cache.invalidateQueries({queryKey:['chat']}),cache.invalidateQueries({queryKey:['contacts']})]);
       if (result.binding?.status === 'active') navigate(`/chat/${result.binding.conversation_id}`);
     },
   });
-  useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({requestKey,nodeId:currentNodeId??'',name,started,avatar})); }, [draftKey,requestKey,currentNodeId,name,started,avatar]);
+  useEffect(() => { localStorage.setItem(draftKey, JSON.stringify({requestKey,nodeId:currentNodeId??'',name,started,avatar,collaborationScope:scope})); }, [draftKey,requestKey,currentNodeId,name,started,avatar,scope]);
   const install = state.data?.install;
   const dualDesktopAware = hasDesktopInstallAwareness(install);
   const windows = !dualDesktopAware && platform === 'windows' && install?.windows_x64 !== undefined;
@@ -199,6 +210,17 @@ export function OnboardingPage() {
             <div className="onboarding-identity-preview"><AvatarPreview value={avatar} size={44} /><div><strong>{name.trim() || text('你的个人助手', 'Your personal assistant')}</strong><small>{text('为你服务的长期助手', 'Your long-term personal assistant')}</small></div></div>
             <label htmlFor="onboarding-name">{text('给助手起个名字', 'Name your assistant')}</label><input id="onboarding-name" value={name} onChange={e => setName(e.target.value)} maxLength={80} />
             <AvatarPicker personal value={avatar} onChange={setAvatar} disabled={create.isPending} />
+            <div className="onboarding-scope-field">
+              <span className="onboarding-scope-label">{text('协作范围', 'Collaboration scope')}</span>
+              <div className="onboarding-scope-segment" role="group" aria-label={text('协作范围', 'Collaboration scope')}>
+                {(['team', 'owner_only'] as const).map(option => <button key={option} type="button" aria-pressed={scope === option} disabled={create.isPending} onClick={() => setScope(option)}>
+                  {option === 'team' ? text('团队公开', 'Team public') : text('私有（仅自己与名下助手）', 'Private (you & your assistants)')}
+                </button>)}
+              </div>
+              <p className="onboarding-scope-help">{scope === 'owner_only'
+                ? text('对团队同事隐藏且不对外发言；仍静默观察你允许查看的聊天。', 'Hidden from teammates and never messages externally; still silently observes allowed chats.')
+                : text('团队同事可见并可发起协作；创建后随时可在设置中调整。', 'Visible to teammates for collaboration; change anytime in settings.')}</p>
+            </div>
             <div className="onboarding-ready-summary"><span>✓ {node?.alias || node?.node_name}</span><span>{configured && !setup.isError ? '✓ ' : ''}{setup.data?.models.find(model => model.model === setup.data?.default_model)?.display_name || setup.data?.default_model || text('等待模型确认', 'Waiting for model confirmation')}</span></div>
             <details className="onboarding-privacy"><summary>{text('它可以看到什么？', 'What can your assistant see?')}</summary><p>{text('助手可按需查询你有权查看的已参与聊天，相关资料由你配置的模型处理。你随时可以排除聊天；助手看过不代表你已读。','Your assistant can look up conversations you participated in and can still access. Your configured model processes relevant information. Exclude chats anytime; your assistant does not mark messages read for you.')}</p></details>
             <p className="onboarding-detail">{text('创建后进入你与助手的私人对话，由你发送第一条消息。', 'Creation opens your private assistant conversation. You choose the first message to send.')}</p>

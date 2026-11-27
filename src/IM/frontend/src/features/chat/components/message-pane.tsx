@@ -1406,9 +1406,9 @@ export function MessagePane({
           </div>}
           {kind === "direct-agent" && nodeUpdateLabel(nodeUpdate) && <NodeChip nodeName={nodeName} status={nodeStatus} nodeId={nodeId} update={nodeUpdate} />}
         </div>
-        {conversation.type === "direct" && conversation.can_write !== false && onRename ? (
+        {conversation.type === "direct" && !conversation.is_observer && ((conversation.can_write !== false && Boolean(onRename)) || (conversation.can_write === false && Boolean(onPreferenceChange))) ? (
           <DirectConversationMenu key={conversation.id} title={conversation.title}
-            onRename={onRename} onOpenConfig={onOpenConfig} configLabel={configLabel}
+            onRename={conversation.can_write === false ? undefined : onRename} onOpenConfig={onOpenConfig} configLabel={configLabel}
             isPinned={conversation.is_pinned} isMuted={conversation.is_muted} onPreferenceChange={onPreferenceChange} />
         ) : !conversation.is_observer && onOpenConfig && (
           <button
@@ -1430,7 +1430,7 @@ export function MessagePane({
       </header>
       {returnNavigation && <div className="pa-source-return">{returnNavigation}</div>}
 
-      {conversation.can_write === false && !conversation.is_observer && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
+      {conversation.can_write === false && !conversation.is_observer && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : conversation.write_blocked_reason === "agent_private" ? "chat.messagePane.agentPrivateNotice" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         <div ref={messageListRef} className="chat-pane-message-list">
@@ -1667,6 +1667,7 @@ export function MessagePane({
             onReply={conversation.can_write !== false && !composerBusy && canReply(activeMessage) ? ()=>replyToMessage(activeMessage) : undefined}
             onOpenThread={canStartThread(activeMessage) ? () => { openThread(activeMessage.id); dismissActionSurface(); } : undefined}
             copyAvailable={activeSurface.bodyElement !== null}
+            readOnly={conversation.can_write === false}
             isDirectChat={isDirectChat}
             agentOnline={agentOnline}
             forkPending={forkPending}
@@ -1821,6 +1822,7 @@ function getReactNodeText(node: React.ReactNode): string {
 function MessageActionList({
   message,
   copyAvailable = true,
+  readOnly = false,
   isDirectChat = false,
   agentOnline = false,
   forkPending = false,
@@ -1834,6 +1836,7 @@ function MessageActionList({
 }: {
   message: Message;
   copyAvailable?: boolean;
+  readOnly?: boolean;
   isDirectChat?: boolean;
   agentOnline?: boolean;
   forkPending?: boolean;
@@ -1848,6 +1851,7 @@ function MessageActionList({
   const { t } = useTranslation();
   const isAgent = message.sender.type === "agent";
   const forkEligible =
+    !readOnly &&
     isAgent &&
     message.delivery_status === "completed" &&
     isDirectChat &&
@@ -2211,6 +2215,7 @@ function MessageBubble({
   const deliveryStatus = message.delivery_status;
 
   const forkEligible =
+    !readOnly &&
     isAgent &&
     deliveryStatus === "completed" &&
     isDirectChat &&
@@ -2478,6 +2483,7 @@ function MessageBubble({
               <MessageActionList
                 message={message}
                 copyAvailable={hasCopyableBody}
+                readOnly={readOnly}
                 isDirectChat={isDirectChat}
                 agentOnline={agentOnline}
                 forkPending={forkPending}

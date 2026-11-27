@@ -19,6 +19,8 @@ struct NewChatView: View {
             .sorted { $0.display_name.localizedStandardCompare($1.display_name) == .orderedAscending }
     }
     private var selectedContacts: [Contact] { contacts.filter { selection.contains($0.id) } }
+    private var hasPrivateAgentSelected: Bool { selectedContacts.contains { $0.kind == "agent" && $0.collaboration_scope == "owner_only" } }
+    private var hasHumanSelected: Bool { selectedContacts.contains { $0.kind != "agent" } }
 
     var body: some View {
         NavigationStack {
@@ -35,10 +37,14 @@ struct NewChatView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "person.2.fill").foregroundStyle(Color("GroupAvatarInk"))
                             TextField(L("群名称（可选）", "Group name (optional)"), text: $title).font(.headline)
-                            Picker(L("可见范围", "Visibility"), selection: $visibility) {
+                            Picker(L("可见范围", "Visibility"), selection: Binding(get: { hasPrivateAgentSelected ? "private" : visibility }, set: { visibility = $0 })) {
                                 Text(L("公开", "Public")).tag("public")
                                 Text(L("私密", "Private")).tag("private")
-                            }.pickerStyle(.menu).tint(NanoTheme.ink).font(.footnote)
+                            }.pickerStyle(.menu).tint(NanoTheme.ink).font(.footnote).disabled(hasPrivateAgentSelected)
+                        }
+                        if hasPrivateAgentSelected {
+                            Text(L("已选私有助手，群聊仅你与名下助手可参与，固定为私密群。", "Groups with a private assistant stay private for you and your own assistants only."))
+                                .font(.caption2).foregroundStyle(NanoTheme.muted)
                         }
                         if !selectedContacts.isEmpty {
                             SelectedChatContacts(contacts: selectedContacts) { selection.remove($0.id) }
@@ -89,11 +95,14 @@ struct NewChatView: View {
         if !members.isEmpty {
             Section {
                 ForEach(members) { contact in
-                    ChatContactRow(contact: contact, selected: group ? selection.contains(contact.id) : nil) {
+                    let isSelected = selection.contains(contact.id)
+                    let incompatible = group && !isSelected && ((contact.kind != "agent" && hasPrivateAgentSelected) || (contact.kind == "agent" && contact.collaboration_scope == "owner_only" && hasHumanSelected))
+                    ChatContactRow(contact: contact, selected: group ? isSelected : nil, disabledReason: incompatible ? (contact.kind != "agent" ? L("已选私有助手，暂不可与外部同事同群", "Unavailable while a private assistant is selected") : L("已选外部同事，暂不可加入私有助手", "Unavailable while a teammate is selected")) : nil) {
+                        guard !incompatible else { return }
                         if !group { Task { await create(with: [contact]) } }
-                        else if selection.contains(contact.id) { selection.remove(contact.id) }
+                        else if isSelected { selection.remove(contact.id) }
                         else { selection.insert(contact.id) }
-                    }
+                    }.disabled(incompatible).opacity(incompatible ? 0.55 : 1)
                 }
             } header: {
                 Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(NanoTheme.muted).textCase(nil)
@@ -109,7 +118,8 @@ struct NewChatView: View {
         guard !busy, !selected.isEmpty else { return }
         busy = true; error = nil; defer { busy = false }
         let groupTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? selected.map(\.display_name).joined(separator: "、") : title
-        do { let chat = try await client.createConversation(title: group ? groupTitle : selected.first?.display_name ?? "", type: group ? "group" : "direct", participants: selected.map(\.actor), userID: userID, visibility: visibility); completed(chat) }
+        let effectiveVisibility = hasPrivateAgentSelected ? "private" : visibility
+        do { let chat = try await client.createConversation(title: group ? groupTitle : selected.first?.display_name ?? "", type: group ? "group" : "direct", participants: selected.map(\.actor), userID: userID, visibility: effectiveVisibility); completed(chat) }
         catch { self.error = error.localizedDescription }
     }
 }
@@ -124,11 +134,17 @@ extension Contact {
 struct ChatContactRow: View {
     let contact: Contact
     let selected: Bool?
+    var disabledReason: String? = nil
     let choose: () -> Void
     private var assistantRole: String {
         let role = contact.role == "personal" ? L("个人助手", "Personal assistant") : L("助手", "Assistant")
-        guard let owner = contact.owner_display_name, !owner.isEmpty else { return role }
-        return L("\(owner) 的\(role)", "\(role) for \(owner)")
+        let base: String
+        if let owner = contact.owner_display_name, !owner.isEmpty {
+            base = L("\(owner) 的\(role)", "\(role) for \(owner)")
+        } else {
+            base = role
+        }
+        return contact.collaboration_scope == "owner_only" ? base + " · " + L("私有", "Private") : base
     }
     var body: some View {
         Button(action: choose) {
@@ -136,7 +152,8 @@ struct ChatContactRow: View {
                 AvatarView(id: .contact(contact), size: 40, online: contact.status == "online")
                 VStack(alignment: .leading, spacing: 3) {
                     Text(contact.display_name).font(.body.weight(.medium)).foregroundStyle(NanoTheme.ink)
-                    if contact.kind == "agent" { Text(assistantRole).font(.caption).foregroundStyle(NanoTheme.muted) }
+                    if let disabledReason { Text(disabledReason).font(.caption).foregroundStyle(NanoTheme.muted) }
+                    else if contact.kind == "agent" { Text(assistantRole).font(.caption).foregroundStyle(NanoTheme.muted) }
                 }
                 Spacer(minLength: 4)
                 if let selected {

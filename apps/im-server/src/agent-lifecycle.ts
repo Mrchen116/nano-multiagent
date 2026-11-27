@@ -3,7 +3,7 @@ import { captureTaskContextAccess, revokeLostTaskContextAccess } from './task-co
 import type { FastifyInstance } from 'fastify';
 import type { AgentLifecycleSnapshot } from '@nano/product-contracts';
 import { all, body, fail, now, one, params, transaction, type ImContext, type Row } from './context.js';
-import { agentAvailable, canAccessSpace, canContactPersonalAgent } from './identity.js';
+import { agentAvailable, canAccessSpace, canTeamContactAgent } from './identity.js';
 
 /** Read the persistent execution intent without consulting runtime availability.
  * Args:
@@ -50,7 +50,8 @@ export class AgentLifecycles {
   /** Publish state only to existing readers, redacting private diagnostics. */
   publish(state:AgentLifecycleSnapshot):void {
     const profile=one(this.ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=?',state.agent_id)!;
-    const users=all(this.ctx.db,"SELECT * FROM users WHERE username NOT LIKE 'agent:%'").filter(user=>canAccessSpace(user,profile.space_id)||canContactPersonalAgent(this.ctx.db,user,profile));
+    const users=all(this.ctx.db,"SELECT * FROM users WHERE username NOT LIKE 'agent:%'").filter(user=>
+      (user.owner_id===profile.owner_id && canAccessSpace(user,profile.space_id)) || canTeamContactAgent(this.ctx.db,user,profile));
     for(const user of users)this.ctx.gateway.broadcast([user.id],{op:'event',event_type:'agent.lifecycle.changed',data:user.owner_id===profile.owner_id?state:{...state,error_detail:null,process_instance_id:null}});
   }
   /** Deliver control directly, independently of ordinary RPC and work queues. */
@@ -114,6 +115,10 @@ export class AgentLifecycles {
   private interruptMessages(agentId:string):void {
     const messages=all(this.ctx.db,"SELECT m.* FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE u.username=? AND (m.delivery_status='running' OR m.awaiting_permission_at IS NOT NULL)",`agent:${agentId}`);
     for(const message of messages) {
+      if(JSON.parse(message.permission_request_json??'[]')[0]?.worker) {
+        this.ctx.messaging.workerPermissions.finish(this.ctx.messaging.message(message.id),'cancelled');
+        continue;
+      }
       const permissions=JSON.parse(message.permission_request_json??'[]').map((permission:Row)=>['pending','submitted'].includes(permission.status)?{...permission,status:'invalidated',reason:'agent_disabled'}:permission);
       this.ctx.db.prepare("UPDATE messages SET delivery_status='failed',awaiting_permission_at=NULL,permission_request_json=? WHERE id=?").run(JSON.stringify(permissions),message.id);
       this.ctx.messaging.event(message.conversation_id,message.id,'message.completed',{...this.ctx.messaging.message(message.id),interruption_reason:'agent_disabled'},'failed');
@@ -148,7 +153,8 @@ export function registerAgentLifecycleRoutes(app:FastifyInstance,ctx:ImContext):
   const service=new AgentLifecycles(ctx);
   const authorize=(req:any,write:boolean)=>{
     const user=ctx.identity.authenticateRequest(req),profile=one(ctx.db,'SELECT * FROM agent_profiles WHERE agent_id=?',params(req).agent_id);
-    if(!profile||!agentAvailable(ctx.db,profile)||!(canAccessSpace(user,profile.space_id)||canContactPersonalAgent(ctx.db,user,profile)))fail(404,'agent_not_found');
+    const canRead=!!profile&&agentAvailable(ctx.db,profile)&&((user.owner_id===profile.owner_id&&canAccessSpace(user,profile.space_id))||canTeamContactAgent(ctx.db,user,profile));
+    if(!canRead)fail(404,'agent_not_found');
     if(write&&(user.username.startsWith('agent:')||user.owner_id!==profile.owner_id))fail(403,'agent_owner_required');
     return {user,profile};
   };

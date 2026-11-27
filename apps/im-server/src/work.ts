@@ -1,7 +1,8 @@
 import {rejectDeletedExecution} from './agent-deletion.js';
 import { isRasterImageMime } from '@nano/product-contracts';
 import { requireLifecycle } from './agent-lifecycle.js';
-import { canAccessSpace, agentAvailable, ownerAccount } from "./identity.js";
+import { canAccessSpace, canTeamContactAgent, canViewAgentWork, agentAvailable, ownerAccount } from "./identity.js";
+import { isOwnerInternalConversation } from "./collaboration.js";
 import { createHash, randomUUID } from "node:crypto";
 import { searchMessages } from "./message-search.js";
 import type { FastifyInstance } from "fastify";
@@ -181,8 +182,7 @@ export class Work {
       WHERE ap.agent_id=?
     `, agentId);
     if (!peer || !agentAvailable(this.db, peer)) return;
-    if (peer.owner_id !== viewer?.owner_id &&
-      (peer.personal || peer.space_id !== "company:default" || !canAccessSpace(viewer, peer.space_id))) {
+    if (peer.owner_id !== viewer?.owner_id && (peer.personal || !canTeamContactAgent(this.db, viewer, peer))) {
       return;
     }
     const name = peer.alias?.trim() || peer.node_name?.trim();
@@ -241,9 +241,51 @@ export class Work {
     if (p.action === "resolve_target") {
       if (typeof p.target !== "string" || !p.target.trim()) fail(400, "invalid_arguments");
       if(personal) {
-        const target=p.target.replace(/^(conversation|user|agent):/, "");
+        const rawTarget = p.target.trim();
+        const target = rawTarget.replace(/^(conversation|user|agent):/, "");
+        const isPrivatePa = (agent.collaboration_scope ?? "team") === "owner_only";
+        if ([personal.owner_id, personal.owner_user_id, personal.conversation_id].includes(target)) {
+          return { target: personal.conversation_id };
+        }
+        const sameOwnerAgent = one(
+          this.db,
+          `SELECT ap.agent_id, u.id AS user_id FROM agent_profiles ap JOIN users u ON u.username='agent:'||ap.agent_id
+           WHERE ap.owner_id=? AND ap.is_stale=0 AND ap.agent_id!=?
+             AND (ap.agent_id=? OR u.id=? OR ap.display_name=?)`,
+          personal.owner_id,
+          personal.agent_id,
+          target,
+          target,
+          target,
+        );
+        if (sameOwnerAgent && agentAvailable(this.db, one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=?", sameOwnerAgent.agent_id))) {
+          return { target: s.resolveTarget(p.agent_id, `agent:${sameOwnerAgent.agent_id}`) };
+        }
         const matches=conversations().filter(r=>r.id===target || r.title===target || (r.type==="direct" && s.members(r.id).some(u=>u.id===target || u.display_name===target || u.username===`agent:${target}`)));
-        return {target:matches.length===1?matches[0]!.id:null};
+        if (matches.length === 1) {
+          const matchedId = matches[0]!.id;
+          if (isPrivatePa && !this.ctx.personal!.ownerOrInternalDestination(personal, matchedId)) {
+            fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and cannot send messages or represent the owner in external conversations. Report to the owner in your private conversation instead." });
+          }
+          return { target: matchedId };
+        }
+        if (isPrivatePa) {
+          const externalChat = one(this.db, "SELECT id FROM conversations WHERE id=?", target);
+          const externalUser = one(
+            this.db,
+            `SELECT u.id, u.owner_id, ap.owner_id AS agent_owner_id FROM users u
+             LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id
+             WHERE (u.id=? OR u.display_name=? OR u.username=? OR ap.agent_id=?)`,
+            target,
+            target,
+            target,
+            target,
+          );
+          if (externalChat || (externalUser && (externalUser.agent_owner_id ?? externalUser.owner_id) !== personal.owner_id)) {
+            fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and cannot send messages or represent the owner in external conversations. Report to the owner in your private conversation instead." });
+          }
+        }
+        return {target:null};
       }
       return { target: s.resolveTarget(p.agent_id, p.target, false) ?? null };
     }
@@ -582,9 +624,7 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
       "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'",
       id,
     );
-    const personal=one(db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",id);
-    if (!p || (owner && p.owner_id !== user.owner_id) || (personal && personal.owner_user_id!==user.id)) fail(404, "agent_not_accessible");
-    ctx.identity.requireSpace(user, p.space_id);
+    if (!p || (owner && p.owner_id !== user.owner_id) || !canViewAgentWork(db, user, p)) fail(404, "agent_not_accessible");
     if (one(db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',id)) fail(409,'agent_deletion_requested');
     return p;
   }
@@ -671,6 +711,8 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     const a = profile(req, true),
       id = params(req).request_id,
       b = body(req);
+    if (one(db, 'SELECT 1 FROM worker_permission_cards WHERE agent_id=? AND request_id=?', a.agent_id, id))
+      fail(409, 'worker_owner_chat_required');
     const item = all(
       db,
       "SELECT i.*,s.node_id FROM agent_work_items i JOIN agent_work_sessions s USING(session_id) WHERE s.root_agent_id=? AND i.item_id=?",

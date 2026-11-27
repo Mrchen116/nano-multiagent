@@ -29,7 +29,7 @@ export const delegation = {name:'nano-global-delegation',inject:['tools','nanoWo
         return {worker_id:row.workerId,runtime:row.runtime,state:row.state};
       }
       if(worker_id && (action==='stop' || action==='send' && message?.trim()))
-        return ctx.nanoWorkers.control(root,worker_id,action,message??'',exec.signal);
+        return ctx.nanoWorkers.control(root,worker_id,action,message??'',exec.signal,exec.callId);
       throw new Error('start requires label and message; send requires worker_id and message; stop requires worker_id');
     },
   });
@@ -45,7 +45,7 @@ export function apply(ctx: Context, config: { mode?: string; personal?: boolean;
 Internal coordination
 Handle everyday conversation and small direct actions yourself. Delegate each complete matter that requires investigation and produces an analysis, document or implementation to one background, continuable worker using delegate_worker(action="start", label, message). Send a correction to the same worker with action="send" and its worker_id. Use action="stop" when asked to stop that matter.
 
-Ordinary subagents work in your workspace by default and receive its repository instructions. They do not inherit your conversations or memory and cannot query product chats, read your Inbox, or send public product messages. For user requests and follow-ups, quote the relevant original words verbatim and include the context and usable materials the executor needs. Identify the speaker in plain language when it matters. Keep IM conversation, user and message IDs in your own routing records. Omit the default workspace, repository instructions and tool restrictions from the handoff. State the goal, task-specific constraints and expected deliverable.
+Ordinary subagents work in your workspace by default and receive its repository instructions. They do not inherit your conversations or memory and cannot query product chats, read your Inbox, or send public product messages. For user requests and follow-ups, quote the relevant original words verbatim and include the context and usable materials the executor needs. Identify the speaker in plain language when it matters. Keep IM conversation, user and message IDs in your own routing records. Omit the default workspace, repository instructions and tool restrictions from the handoff. Make clear the worker itself is executing the delegated matter, and do not pre-restrict user-requested actions to default sandbox paths or forbid runtime permission requests—the host handles worker tool approvals (including owner approval cards for external workers) while you cannot grant tool permissions yourself. State the goal, task-specific constraints and expected deliverable.
 
 For work you initiate, state the standing responsibility and authority it relies on. For a chat image or file, pass the actual readable path provided by the runtime, a downloaded local_path from download_attachment, or an existing workspace copy the executor can open. Say which material is missing if you cannot pass it.
 
@@ -80,7 +80,7 @@ An acknowledgment, progress update, successful tool action or private draft is n
 Persistence and blocked actions
 Continue work you undertake within your responsibilities and authority until its intended outcome is delivered or a concrete blocker has been communicated. A failed tool call or denied action is not completion. Inspect execution failures, correct recoverable errors and take a useful permitted next step.
 
-Respect denials; do not repeat the rejected action through another tool, channel or identity. If human input is required, report the blocked action and reason in the originating conversation. A denied message does not prohibit a separate clarification or blocker report under the usual delivery checks; exclude the denied content.` });
+Respect denials; do not repeat the rejected action through another tool, channel or identity. Treat an explicit host or owner permission denial (denied or declined) as final; if a worker only notes a default sandbox boundary without having attempted the native tool or permission request for an authorized user task, instruct it to attempt the action directly rather than declaring it blocked. If human input is required, report the blocked action and reason in the originating conversation. A denied message does not prohibit a separate clarification or blocker report under the usual delivery checks; exclude the denied content.` });
   else ctx.systemPrompt.section({ name: 'nano-communication', order: 800, text: ({agent}) => isOrdinaryChild(agent) ? '' : `Your final prose is delivered to the current conversation (or the current thread when woken in a thread). Use send_message with an explicit target and message content for public delivery: target="current" means this conversation's main timeline, and target="current:<root_message_id>" (or "<chat_id>:<root_message_id>") replies inside a thread. Use read_messages and search_messages to inspect chat or thread history, conversations to discover/inspect chats, and threads to manage group thread subscriptions. Use agent/message only for native internal child or parent communication. After confirmed card, image, or file delivery via send_message, end with the exact non-empty final text NO_REPLY so the host suppresses a duplicate final reply.` });
   const groupTarget = config.mode === 'global' ? 'Use the source target from Inbox.' : 'Use target="current" for this group.';
   const nodeLookup = ` To look up a peer's execution node, use action="info" for a Nano IM group you belong to. ${groupTarget} Compare the latest execution_node.id with your own node ID. Device names can repeat. A missing ID or failed lookup means the peer's node is unknown. Confirm the origin of a path from earlier work separately.`;
@@ -120,7 +120,7 @@ Respect denials; do not repeat the rejected action through another tool, channel
         if ((args as { interactive?: unknown }).interactive !== undefined || (args as { task_cards?: unknown }).task_cards !== undefined || (args as {reply_to_message_id?:unknown}).reply_to_message_id !== undefined || (args as {local_images?:unknown}).local_images !== undefined || (args as {local_files?:unknown}).local_files !== undefined || (args as {receipt_of?:unknown}).receipt_of !== undefined) throw new Error('Interactive, task_cards, quoted replies, and local attachments require a public target');
         const message = (args as { message: string }).message;
         if(config.mode==='global' && exec.agent && await ctx.nanoWorkers.isWorker(internalAgent))
-          return ctx.nanoWorkers.control(exec.agent,internalAgent,'send',message,exec.signal);
+          return ctx.nanoWorkers.control(exec.agent,internalAgent,'send',message,exec.signal,exec.callId);
         const wf = ctx.get('workflowEngine') as { isWorkChild?: (parentId: string, target: string, parent?: unknown) => Promise<boolean> } | undefined;
         if (exec.agent && await wf?.isWorkChild?.(exec.agent.id, internalAgent, exec.agent))
           throw new Error('Workflow step executions are managed by workflow(action="resume"), not send_message');

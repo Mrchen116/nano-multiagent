@@ -171,6 +171,8 @@ function formatUpdatedAt(value?: string | null) {
 // and the same collapsible pattern as tool-calls-panel.tsx (aria-expanded + ▸/▾ + class toggle).
 interface BehaviorCardProps {
   readOnly: boolean;
+  personal?: boolean;
+  savedScope?: "team" | "owner_only";
   unknownFeatures?: string[];
   capabilitiesKnown: boolean;
   agentId: string;
@@ -186,6 +188,8 @@ interface BehaviorCardProps {
 
 function BehaviorCard({
   readOnly,
+  personal = false,
+  savedScope,
   unknownFeatures = [],
   capabilitiesKnown,
   agentId,
@@ -322,7 +326,14 @@ function BehaviorCard({
           <option value="team">{t("agents.form.behavior.team")}</option>
           <option value="owner_only">{t("agents.form.behavior.ownerOnly")}</option>
         </select>
-        <p className="im-settings-feature-help">{t(draft.collaboration_scope === "owner_only" ? "agents.form.behavior.ownerOnlyHelp" : "agents.form.behavior.teamHelp")}</p>
+        <p className="im-settings-feature-help">{t(
+          draft.collaboration_scope === "owner_only"
+            ? (personal ? "agents.form.behavior.ownerOnlyPaHelp" : "agents.form.behavior.ownerOnlyHelp")
+            : "agents.form.behavior.teamHelp",
+        )}</p>
+        {savedScope === "team" && draft.collaboration_scope === "owner_only" && (
+          <p className="im-settings-feature-help" role="status">{t("agents.form.behavior.tightenScopeNotice")}</p>
+        )}
       </div>
 
       {/* Collapsible preview — mirrors tool-calls-panel aria-expanded + ▸/▾ pattern */}
@@ -1926,6 +1937,8 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
         {capabilityEditor.toast}
         <BehaviorCard
           agentId={agentId}
+          personal={personal}
+          savedScope={detailQuery.data?.config.collaboration_scope === "owner_only" ? "owner_only" : "team"}
           draft={draft}
           catalog={catalog}
           roleEditor={canManageRole && <AgentRoleEditor editor={roleEditor} />}

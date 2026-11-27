@@ -362,6 +362,7 @@
     "title": "Agents",
     "newButton": "创建 Agent",
     "loadError": "无法加载 Agent 列表。",
+    "unavailablePrivate": "该助手不存在或当前未对外开放。",
     "retry": "重试",
     "openNodes": "前往节点",
     "empty": {
@@ -572,10 +573,13 @@
         "previewLoading": "加载预览中…",
         "previewError": "无法加载预览。",
         "scope": "协作范围",
-        "team": "团队协作",
-        "ownerOnly": "仅限本人",
-        "teamHelp": "团队成员的私聊、群里 @ 或回复 Agent 的消息会及时提醒，普通群消息合并提醒。",
-        "ownerOnlyHelp": "仅接收你与 Agent 的私聊。尚未递送的团队消息会跳过，切回后也不会补发。",
+        "team": "团队公开",
+        "ownerOnly": "私有（仅自己与名下助手）",
+        "ownerOnlyShort": "私有",
+        "teamHelp": "团队同事可发现并私聊该助手，也可拉入协作群；私聊、@ 或回复会及时提醒，普通群消息合并提醒。",
+        "ownerOnlyHelp": "对团队同事隐藏，仅可与你及你名下的其他助手通信或组建内部私密群。",
+        "ownerOnlyPaHelp": "对团队同事隐藏且不对外发言或代发消息；仍按聊天访问范围静默观察你参与的聊天，并向你汇报。",
+        "tightenScopeNotice": "保存后将自动退出含外部同事的群聊，并将与同事的历史私聊冻结为只读。",
         "approvalMode": "审批策略",
         "approvalInherit": "跟随节点（{{strategy}}）",
         "approvalUnknown": "策略未确认",
@@ -1109,6 +1113,9 @@
     },
     "newGroup": {
       "personalScope": "包含私人助手的群聊保留在个人空间，仅成员可见。",
+      "privateAgentScope": "已选私有助手，群聊仅允许你与名下助手参与，已自动锁定为私密群。",
+      "disabledHumanForPrivateAgent": "已选私有助手，暂不可与外部同事同群",
+      "disabledPrivateAgentForHuman": "已选外部同事，暂不可加入私有助手",
       "title": "新建群聊",
       "subtitle": "选择其他人和自己管理的 Agent",
       "sectionAgents": "人和我的 Agent",
@@ -1169,6 +1176,7 @@
       "accessErrorDismiss": "关闭提示",
       "observerTitle": "Agent 协作 · 只读",
       "observerDescription": "你可以查看双方往来，不能发送消息。",
+      "agentPrivateNotice": "该助手当前设为私有，暂不对外接收或发送消息",
       "systemNotice": {
         "direct": {
           "skills": "· 后台自进化：技能已更新",
@@ -1351,7 +1359,8 @@
       "dissolveConfirm": "群聊和聊天记录将被永久删除，无法恢复。",
       "actionError": "操作失败，请重试。",
       "leave": "退出群聊",
-      "memberCount": "{{count}} 位成员"
+      "memberCount": "{{count}} 位成员",
+      "privateAgentVisibilityLocked": "群内包含私有助手，可见范围固定为私密，且暂不可添加外部同事。"
     },
     "mention": {
       "header": "选择成员",

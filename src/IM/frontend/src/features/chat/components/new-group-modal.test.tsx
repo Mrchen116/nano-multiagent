@@ -103,4 +103,43 @@ describe("NewGroupModal", () => {
     expect(screen.getByLabelText("Lin Xia")).toBeVisible();
     expect(screen.queryByLabelText("Assistant")).toBeNull();
   });
+
+  it("enforces mutual exclusion between private (owner_only) agents and human teammates and locks visibility to private", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn();
+    render(
+      <NewGroupModal
+        agents={[
+          { agent_id: "u-colleague", display_name: "Lin Xia", username: "linxia", kind: "human" },
+          { agent_id: "priv-agent", display_name: "Secret Writer", kind: "agent", collaboration_scope: "owner_only" },
+          { agent_id: "team-agent", display_name: "Public Planner", kind: "agent", collaboration_scope: "team" }
+        ]}
+        onClose={() => {}}
+        onCreate={onCreate}
+      />
+    );
+    expect(screen.getByText("Private")).toBeVisible();
+    // Selecting a private agent locks visibility to private and disables human teammates, while allowing same-owner team agents.
+    await user.click(screen.getByLabelText("Secret Writer"));
+    expect(screen.getByLabelText("Visibility")).toHaveValue("private");
+    expect(screen.getByLabelText("Visibility")).toBeDisabled();
+    expect(screen.getByLabelText("Lin Xia")).toBeDisabled();
+    expect(screen.getByText("Unavailable while a private assistant is selected")).toBeVisible();
+    expect(screen.getByLabelText("Public Planner")).toBeEnabled();
+
+    // Unselecting the private agent and selecting a human teammate disables the private agent.
+    await user.click(screen.getByLabelText("Secret Writer"));
+    expect(screen.getByLabelText("Lin Xia")).toBeEnabled();
+    await user.click(screen.getByLabelText("Lin Xia"));
+    expect(screen.getByLabelText("Secret Writer")).toBeDisabled();
+    expect(screen.getByText("Unavailable while a teammate is selected")).toBeVisible();
+    await user.click(screen.getByLabelText("Public Planner"));
+    await user.click(screen.getByRole("button", { name: /Create group/ }));
+    expect(onCreate).toHaveBeenCalledWith({
+      agentIds: ["team-agent"],
+      userIds: ["u-colleague"],
+      visibility: "public",
+      name: "Lin Xia, Public Planner"
+    });
+  });
 });

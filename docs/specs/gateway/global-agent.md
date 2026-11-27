@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Global Agent Specification
 
-> 对齐: feat-788
+> 对齐: feat-796
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 
 ## Purpose
@@ -38,11 +38,11 @@
 
 #### Scenario: 普通群聊更新遵循各 Agent 配置
 - **WHEN** 群内有未提及某个全局 Agent 的普通更新
-- **THEN** 团队协作下立即可读，遇到下一条高优消息或自首条积压起十分钟，先到者触发一次合并提醒。无新增不唤醒，持续来信不延后期限。仅限本人时不收群消息
-- **AND** PA 自己参与的群聊同样遵守该规则。
+- **THEN** 「团队公开」下立即可读，遇到下一条高优消息或自首条积压起十分钟，先到者触发一次合并提醒。无新增不唤醒，持续来信不延后期限。「私有」（`owner_only`）下仅接收同主人私密专属群（仅含主人本人及同主人名下 Agent）的更新，不接收含外部成员群聊的消息
+- **AND** PA 自己作为成员参与的群聊同样遵守该规则。
 
 #### Scenario: PA 通过主人观察未参与聊天
-- **WHEN** PA 通过主人权限接收自己未参与聊天的更新
+- **WHEN** PA（无论处于「团队公开」还是「私有」）通过主人权限接收自己未参与且未被排除聊天的更新
 - **THEN** 它们按 [personal-agent](personal-agent.md) 的主人目标和背景规则保存和通知，保留旁观身份；主人直接请求仍及时通知且可读取相关背景。
 
 ### Requirement: 全局模式向目标群或私聊发言前复核应处理的新消息

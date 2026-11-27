@@ -66,7 +66,14 @@ export class PersonalActions {
     const op=one(this.db,'SELECT * FROM pa_operations WHERE operation_id=? AND binding_id=?',id,b.binding_id);
     if(!op)fail(404,'proposal_not_found');return op;
   }
+  private requireWritableScope(b:Row,cid:string):void {
+    const profile=one(this.db,'SELECT collaboration_scope FROM agent_profiles WHERE agent_id=?',b.agent_id);
+    if((profile?.collaboration_scope ?? 'team')==='owner_only' && !this.pa.ownerOrInternalDestination(b,cid)) {
+      fail(403,{code:'collaboration_scope_restricted',message:'This assistant is set to Private and cannot send messages or represent the owner in external conversations. Report to the owner in your private conversation instead.'});
+    }
+  }
   private destination(b:Row,cid:string,payload:Row):void {
+    this.requireWritableScope(b,cid);
     if(!this.pa.sourceAllowed(b,cid,'write'))fail(403,'destination_not_accessible');
     if(payload.representation==='owner') {
       const chat=one(this.db,'SELECT external_source FROM conversations WHERE id=?',cid);
@@ -81,6 +88,7 @@ export class PersonalActions {
   /** Look up the original PA commit and optionally preflight a new screenshot destination. */
   status(b:Row,args:Row) {
     const id = args.conversation_id;
+    if (args.check_scope) this.requireWritableScope(b, id);
     if (!this.pa.sourceAllowed(b,id)) fail(403,'destination_not_accessible');
     if (args.prepare_screenshot || args.prepare_attachment) {
       this.destination(b,id,{representation:'self'});
@@ -144,6 +152,7 @@ export class PersonalActions {
       if(!['create','apply','delete'].includes(command.action)||!command.arguments||typeof command.arguments!=='object')fail(422,'invalid_task_proposal');
       const graph=command.action==='create'?undefined:one(this.db,'SELECT * FROM task_graphs WHERE graph_id=?',command.arguments.graph_id);
       const destination=command.action==='create'?command.arguments.conversation_id:graph?.conversation_id;
+      if(destination)this.requireWritableScope(b,destination);
       if(!destination||!this.pa.sourceAllowed(b,destination,'write'))fail(403,'destination_not_accessible');
       if(command.arguments.conversation_id&&command.arguments.conversation_id!==destination)fail(422,'task_conversation_mismatch');
       if(destination===b.conversation_id)return {owner_private:true,conversation_id:destination};
@@ -160,6 +169,7 @@ export class PersonalActions {
       }
     }
     if(typeof args.request_key!=='string'||!args.request_key||typeof args.content!=='string'||!args.content.trim()&&args.interactive===undefined&&!taskCards?.length)fail(422,'concrete_proposal_required');
+    this.requireWritableScope(b,args.conversation_id);
     if(!this.pa.sourceAllowed(b,args.conversation_id,'write'))fail(403,'destination_not_accessible');
     if(args.transport&&!args.content.trim()&&!taskCards?.length)fail(422,'external_text_required');
     if(args.transport&&args.attachments?.length)fail(409,'external_attachment_adapter_unavailable');

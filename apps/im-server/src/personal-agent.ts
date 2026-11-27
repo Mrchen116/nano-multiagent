@@ -1,5 +1,6 @@
 import { externalAvatarId } from "./identity.js";
-import { chatAllowed, ownerDirect, storedProviderFacts } from './collaboration.js';
+import { isCollaborationScope } from '@nano/product-contracts';
+import { chatAllowed, isOwnerInternalConversation, ownerDirect, storedProviderFacts } from './collaboration.js';
 import { conversationName } from './conversation-name.js';
 import {parseAvatarVariant} from './configuration-input.js';
 import {configurationOperations} from './configuration-assembly.js';
@@ -29,7 +30,12 @@ export class PersonalAgents {
   readonly actions: PersonalActions;
   constructor(readonly ctx: ImContext) { this.actions = new PersonalActions(this); }
   get db() { return this.ctx.db; }
-  binding(owner: string) { return one(this.db, 'SELECT * FROM personal_agent_bindings WHERE owner_id=?', owner); }
+  binding(owner: string) {
+    return one(this.db, `SELECT b.*, COALESCE(s.collaboration_scope, 'team') AS collaboration_scope
+      FROM personal_agent_bindings b
+      LEFT JOIN pa_binding_scopes s ON s.binding_id=b.binding_id
+      WHERE b.owner_id=?`, owner);
+  }
   policy(bindingId: string): Row {
     const p = one(this.db, 'SELECT * FROM pa_policies WHERE binding_id=?', bindingId)!;
     return { revision: p.revision, excluded_conversation_ids: JSON.parse(p.excluded_json) };
@@ -37,8 +43,9 @@ export class PersonalAgents {
   state(owner: string) {
     const binding = this.binding(owner), node=binding?one(this.db,'SELECT status FROM nodes WHERE node_id=?',binding.node_id):undefined;
     const runtime=binding?one(this.db,'SELECT available FROM pa_runtime_status WHERE binding_id=? AND node_epoch=?',binding.binding_id,binding.node_epoch):undefined;
-    return {binding:binding?{...binding,avatar_variant:readAgentProfile(this.db,binding.agent_id)?.avatar_variant ?? null,status:binding.status==='active'&&(node?.status!=='online'||runtime?.available===0)?'unavailable':binding.status}:null,
-      policy:binding?this.policy(binding.binding_id):null,creation:binding?.status!=="active"&&binding?{request_key:binding.request_key}:null};
+    const profile=binding?readAgentProfile(this.db,binding.agent_id):undefined;
+    return {binding:binding?{...binding,avatar_variant:profile?.avatar_variant ?? null,collaboration_scope:profile?.collaboration_scope ?? binding.collaboration_scope ?? 'team',status:binding.status==='active'&&(node?.status!=='online'||runtime?.available===0)?'unavailable':binding.status}:null,
+      policy:binding?this.policy(binding.binding_id):null,creation:binding?.status!=="active"&&binding?{request_key:binding.request_key,collaboration_scope:binding.collaboration_scope ?? 'team'}:null};
   }
   private activeBinding(principal: Row): Row | undefined {
     const binding=one(this.db, `SELECT b.* FROM personal_agent_bindings b JOIN node_binding_state n ON n.node_id=b.node_id
@@ -128,6 +135,10 @@ export class PersonalAgents {
     const owner=channel && channel.node_id===b.node_id && JSON.parse(channel.provider_runtime_json).owner_open_id;
     return !!owner && chat.type==='direct' && chat.external_chat_id.endsWith(`:dm:${owner}`);
   }
+  /** Check whether a destination belongs to the owner's private chat or an owner-internal conversation. */
+  ownerOrInternalDestination(b: Row, conversationId: string): boolean {
+    return this.ownerConversation(b, conversationId) || isOwnerInternalConversation(this.db, conversationId, b.owner_id);
+  }
   /** Resolve identity and participation from persisted origin facts.
    *
    * Args:
@@ -169,7 +180,7 @@ export class PersonalAgents {
       && sysNotice?.actor?.id===b.owner_user_id
       && message.sender_user_id===b.owner_user_id;
     return {is_owner:isOwner&&!this.representedBy(message.id),...(trustedOwnerTaskNotice?{trusted_owner_task_notice:true}:{}),delivery:participant?'participant':'observer',conversation_type:chat.type,channel:message.sender_type==='user' && !sourceId ? 'web' : chat.external_source??'web',
-      owner_direct:direct,addressed_to_owner:addressedOwner,addressed_to_agent:addressedAgent,explicit_mentioned_agent_ids:explicit,
+      owner_direct:direct,owner_internal:isOwnerInternalConversation(this.db,message.conversation_id,b.owner_id),addressed_to_owner:addressedOwner,addressed_to_agent:addressedAgent,explicit_mentioned_agent_ids:explicit,
       ...(provider||sourceId?{provider_source_time:provider?.source_time??null,context_only:provider?.context_only===true}:{})};
   }
   private addressedAgents(message:Row):string[] {
@@ -271,10 +282,13 @@ export class PersonalAgents {
     const b=this.authority(principal,args),m=one(this.db,'SELECT * FROM messages WHERE id=? AND conversation_id=?',args.source_message_id,args.conversation_id);
     if(!m || this.representedBy(m.id)===b.agent_id || (m.sender_type==='agent' && m.sender_user_id===this.ctx.messaging.agentUser(b.agent_id).id) || !this.messageAllowed(b,m))
       return {allowed:false};
-    if(!chatAllowed(this.db,b.agent_id,m.id) || one(this.db,"SELECT 1 FROM pa_source_events WHERE binding_id=? AND message_id=? AND state='scope_skipped'",b.binding_id,m.id))
+    const facts=this.sourceFacts(b,m);
+    const providerSkipped=storedProviderFacts(this.db,m.id)?.scope_skipped===true;
+    const eventSkipped=!!one(this.db,"SELECT 1 FROM pa_source_events WHERE binding_id=? AND message_id=? AND state='scope_skipped'",b.binding_id,m.id);
+    if(providerSkipped || eventSkipped || (facts.delivery==='participant' && !chatAllowed(this.db,b.agent_id,m.id)))
       return {allowed:false,scope_skipped:true};
     this.db.prepare('INSERT OR REPLACE INTO pa_source_reads VALUES(?,?,?,?)').run(b.binding_id,m.id,m.conversation_id,this.policy(b.binding_id).revision);
-    return {allowed:true,...this.sourceFacts(b,m),...(m.sender_source_id?{}:{agent_user_id:this.ctx.messaging.agentUser(b.agent_id).id}),...threadRelayMetadata(this.db,m.id,b.agent_id),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
+    return {allowed:true,...facts,...(m.sender_source_id?{}:{agent_user_id:this.ctx.messaging.agentUser(b.agent_id).id}),...threadRelayMetadata(this.db,m.id,b.agent_id),policy_revision:this.policy(b.binding_id).revision,actor_risk:this.actorRisk(b,this.sourceActor(m))};
   }
   updatePolicy(owner: string, input: Row) {
     const b = this.binding(owner); if (!b) fail(404, 'personal_agent_not_found');
@@ -303,16 +317,14 @@ export class PersonalAgents {
     const sourceAccess=new Map<string,boolean>(excludedIds.map(id=>[id,false]));
     const ids:number[]=[];
     // Missing generations belong to the first lifecycle. SQLite also extracts booleans as integers.
-    const restricted=readAgentProfile(this.db,b.agent_id)?.collaboration_scope==='owner_only';
     const candidates=this.db.prepare(`SELECT e.event_id,e.conversation_id FROM pa_source_events e
       WHERE e.binding_id=? AND e.state IN ('pending','received')
-      ${restricted?"AND (e.kind NOT IN ('message.created','message.completed') OR EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.agent_id=? AND d.message_id=e.message_id))":''}
       AND COALESCE(json_extract(e.payload_json,'$.lifecycle_revision'),1)=?
       AND COALESCE(json_type(e.payload_json,'$.lifecycle_revision'),'null') IN ('integer','real','null')
       AND (e.message_id IS NULL OR EXISTS (SELECT 1 FROM messages m JOIN conversations c ON c.id=m.conversation_id
         WHERE m.id=e.message_id AND m.conversation_id=e.conversation_id AND ${contactReadable}))
       ORDER BY e.event_id`);
-    for(const row of candidates.iterate(b.binding_id,...(restricted?[b.agent_id]:[]),state.revision,b.binding_id)) {
+    for(const row of candidates.iterate(b.binding_id,state.revision,b.binding_id)) {
       const cid=row.conversation_id as string|null;
       if(cid) {
         if(!sourceAccess.has(cid))sourceAccess.set(cid,!!this.sourceAccess(b,cid));
@@ -517,17 +529,23 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
   app.post('/im/v1/personal-agent',async(req,reply)=>{
     const u=user(req),input=body(req);
     const avatar=parseAvatarVariant(input.avatar_variant);
+    if(input.collaboration_scope!==undefined && !isCollaborationScope(input.collaboration_scope)) fail(422,'invalid_collaboration_scope');
     if(typeof input.request_key!=='string'||!input.request_key||typeof input.display_name!=='string'||!input.display_name.trim()) fail(422,'name_and_request_key_required');
     const node=one(ctx.db,'SELECT n.*,b.node_epoch FROM nodes n JOIN node_binding_state b ON b.node_id=n.node_id WHERE n.node_id=? AND n.owner_id=?',input.node_id,u.owner_id);
     if(!node) fail(404,'node_not_found');
     return ops.serialized(`personal:${u.owner_id}`,async()=>{
       let b=pa.binding(u.owner_id);
       if(b && b.request_key!==input.request_key) return pa.state(u.owner_id);
+      if(b && input.collaboration_scope!==undefined && input.collaboration_scope!==(b.collaboration_scope ?? 'team')) {
+        fail(409,'collaboration_scope_conflict');
+      }
       if(!b) {
+        const requestedScope = input.collaboration_scope ?? 'team';
         const id=randomUUID(),agent=`pa_${id.replaceAll('-','').slice(0,12)}`,conversation=chatId('c_');
         transaction(ctx.db,()=>{
           ctx.db.prepare("UPDATE users SET personal_space_enabled=1 WHERE id=?").run(u.id);
           ctx.db.prepare('INSERT INTO personal_agent_bindings VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(id,u.owner_id,u.id,agent,node.node_id,node.node_epoch,conversation,input.display_name.trim(),input.request_key,'pending',null,now());
+          ctx.db.prepare('INSERT OR REPLACE INTO pa_binding_scopes(binding_id,collaboration_scope) VALUES(?,?)').run(id,requestedScope);
           ctx.db.prepare('INSERT INTO pa_policies(binding_id) VALUES(?)').run(id);
           ctx.db.prepare('INSERT OR IGNORE INTO pa_node_residencies VALUES(?,?)').run(node.node_id,u.owner_id);
         });
@@ -542,8 +560,9 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
         const workspaceTools=catalog.tools.filter(isRecord).filter(tool=>tool.source_group==='workspace').map(tool=>tool.name).filter((name):name is string=>typeof name==='string');
         const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.source_group!=='workspace' && (tool.default_on||tool.name==='send_message')).map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'agent_creation'])];
+        const bindingScope: 'team' | 'owner_only' = b.collaboration_scope === 'owner_only' ? 'owner_only' : 'team';
         const paFeatures=definitionsForRole(true);
-        let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(paFeatures.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:'team' as const,default_model:null,model_fallbacks:[],workspace_root:null};
+        let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(paFeatures.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:bindingScope,default_model:null,model_fallbacks:[],workspace_root:null};
         for(const feature of paFeatures) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
         candidate.tool_allowlist=sanitizeStaticToolAllowlist(candidate.tool_allowlist,'global','personal',workspaceTools);
         await ops.create(candidate,u.owner_id,b.node_id);

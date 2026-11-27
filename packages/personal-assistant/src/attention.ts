@@ -9,18 +9,32 @@ export function needsAttention(input: RelayInput, config: Pick<AgentConfiguratio
     || meta.reply_to_agent_id === config.agentId;
 }
 
+/** Check whether an input represents a 1:1 direct message from the human owner (or bound Feishu owner DM). */
+export function isOwnerDirectMessage(input: RelayInput, ownerId: string): boolean {
+  const meta = input.metadata;
+  const direct = meta.conversation_type === 'direct' && meta.personal_delivery !== 'observer' && !meta.pa_observation;
+  return typeof meta.owner_direct === 'boolean' ? meta.owner_direct
+    : direct && input.message.sender_type === 'user' && !input.message.pa_agent_id
+      && (meta.channel === 'feishu' ? meta.owner_user_id === ownerId : input.message.sender_user_id === ownerId);
+}
+
 /** Select a chat's admission and timing independently from command or publication authority. */
 export function chatDelivery(input: RelayInput, config: AgentConfiguration, ownerId: string) {
   const meta = input.metadata;
   const direct = meta.conversation_type === 'direct' && meta.personal_delivery !== 'observer' && !meta.pa_observation;
-  const ownerDirect = typeof meta.owner_direct === 'boolean' ? meta.owner_direct
-    : direct && input.message.sender_type === 'user' && !input.message.pa_agent_id
-      && (meta.channel==='feishu' ? meta.owner_user_id===ownerId : input.message.sender_user_id===ownerId);
+  const ownerDirect = isOwnerDirectMessage(input, ownerId);
+  const ownerInternal = meta.owner_internal === true;
+  const ownerObserved = !!config.personal && meta.personal_delivery === 'observer';
   // A followed topic can wake an observer without turning observed text into an instruction.
   const addressedTopic = typeof meta.thread_root_message_id === 'string' && meta.addressed_to_agent === true;
   return classifyChatDelivery(config.collaborationScope, {
-    ownerDirect, directToAgent: direct, addressedToAgent: addressedTopic || needsAttention(input, config),
-    addressedToOwner: !!config.personal && meta.addressed_to_owner === true, contextOnly: !!meta.context_only && !addressedTopic,
+    ownerDirect,
+    ownerInternal,
+    ownerObserved,
+    directToAgent: direct,
+    addressedToAgent: addressedTopic || needsAttention(input, config),
+    addressedToOwner: !!config.personal && meta.addressed_to_owner === true,
+    contextOnly: !!meta.context_only && !addressedTopic,
   });
 }
 

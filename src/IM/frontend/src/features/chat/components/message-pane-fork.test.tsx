@@ -128,4 +128,24 @@ describe("MessageBubble fork button gating", () => {
     fireEvent.click(btn);
     expect(onFork).not.toHaveBeenCalled();
   });
+
+  it("shows private-assistant read-only banner, hides Branch and composer, and keeps pin/mute menu on agent_private chats", () => {
+    const onPref = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MessagePane
+        conversation={{ ...conv(), can_write: false, write_blocked_reason: "agent_private", is_member: true }}
+        messages={[msg({ id: "ro1", kernel_message_id: "kmsg-ro1" })]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+        isDirectChat
+        agentOnline
+        onFork={vi.fn()}
+        onPreferenceChange={onPref}
+      />,
+    );
+    expect(screen.getByText("This assistant is currently private and unavailable for external messages.")).toBeTruthy();
+    expect(screen.queryByTestId("message-branch-ro1")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.getByRole("button", { name: "Conversation menu" })).toBeTruthy();
+  });
 });

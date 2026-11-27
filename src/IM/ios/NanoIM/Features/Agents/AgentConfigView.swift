@@ -100,7 +100,7 @@ struct AgentConfigView: View {
                                 Text(L("Skills 选择模式", "Skill selection mode") + ": " + (currentConfig.skills_selection_mode ?? "default_discovery"))
                                 Text(L("推理强度", "Reasoning effort") + ": " + (currentConfig.reasoning_effort ?? L("默认", "Default")))
                                 LabeledContent(L("审批模式", "Approval mode"), value: currentConfig.approval_mode ?? L("继承", "Inherited"))
-                                Text(L("协作范围", "Collaboration scope") + ": " + (currentConfig.collaboration_scope == "owner_only" ? L("仅限本人", "Owner only") : L("团队协作", "Team")))
+                                Text(L("协作范围", "Collaboration scope") + ": " + (currentConfig.collaboration_scope == "owner_only" ? L("私有（仅自己与名下助手）", "Private (you & your assistants)") : L("团队公开", "Team public")))
                                 ForEach(currentConfig.features.keys.filter { !["memory_curation", "skill_creation"].contains($0) }.sorted(), id: \.self) { key in
                                     LabeledContent(agentFeatureName(key), value: currentConfig.features[key] == true ? L("启用", "Enabled") : L("关闭", "Disabled"))
                                 }
@@ -289,12 +289,14 @@ struct AgentEditorFields: View {
                 TextField(L("描述", "Description"), text: $draft.description, axis: .vertical).lineLimit(2...6)
             }.padding(.vertical, 4)
             Picker(L("协作范围", "Collaboration scope"), selection: $draft.collaboration_scope) {
-                Text(L("团队协作", "Team")).tag("team")
-                Text(L("仅限本人", "Owner only")).tag("owner_only")
+                Text(L("团队公开", "Team public")).tag("team")
+                Text(L("私有（仅自己与名下助手）", "Private (you & your assistants)")).tag("owner_only")
             }
             Text(draft.collaboration_scope == "owner_only"
-                 ? L("仅接收你与 Agent 的私聊。尚未递送的团队消息会跳过，切回后也不会补发。", "Only your private messages arrive. Pending team messages are skipped, including after switching back.")
-                 : L("团队成员的私聊、群里 @ 或回复 Agent 的消息会及时提醒，普通群消息合并提醒。", "Team members can message this Agent privately. Direct messages, mentions and replies arrive promptly. Other group messages arrive in batches."))
+                 ? (personal
+                    ? L("对团队同事隐藏且不对外发言；仍按聊天访问范围静默观察你参与的聊天并向你汇报。切为私有时自动退出外部群并冻结同事历史私聊。", "Hidden from teammates and never messages externally; still silently observes chats you allow. Switching to Private exits external groups and makes teammate direct chats read-only.")
+                    : L("对团队同事隐藏，仅与你及名下助手通信或组建内部私密群。切为私有时自动退出外部群并冻结同事历史私聊。", "Hidden from teammates; collaborates only with you and your own assistants. Switching to Private exits external groups and makes teammate direct chats read-only."))
+                 : L("团队同事可发现并私聊该助手，也可拉入协作群；私聊、@ 或回复会及时提醒，普通群消息合并提醒。", "Teammates can find and message this assistant or add it to groups. Direct messages, mentions and replies arrive promptly; other group messages arrive in batches."))
                 .font(.caption).foregroundStyle(NanoTheme.muted)
         } }
         if showModels { Section(L("审批模式", "Approval mode")) {

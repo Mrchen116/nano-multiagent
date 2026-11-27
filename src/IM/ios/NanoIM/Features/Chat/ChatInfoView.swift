@@ -24,10 +24,29 @@ struct ChatInfoView: View {
     @State private var showingMembers = false
     @State private var rosterQuery = ""
     private var dirtyTitle: Bool { chat != nil && title != chat?.title }
+    private var groupHasPrivateAgent: Bool {
+        guard let chat, chat.type == "group" else { return false }
+        return chat.participants.contains { actor in
+            actor.type == "agent" && contacts.contains { $0.agent_id == actor.id && $0.collaboration_scope == "owner_only" }
+        }
+    }
+    private var groupHasExternalOrPublic: Bool {
+        guard let chat, chat.type == "group" else { return false }
+        if chat.visibility == "public" { return true }
+        return chat.participants.contains { actor in
+            if actor.type == "system" { return false }
+            if actor.type == "user" { return (actor.user_id ?? actor.id) != store.user.id }
+            return !contacts.contains { $0.agent_id == actor.id && ($0.owner_id == store.user.id || $0.owner_id == store.user.owner_id) }
+        }
+    }
     private var availableContacts: [Contact] {
         contacts.filter { item in
-            !(chat?.participants.contains { ($0.user_id ?? $0.id) == item.user_id || ($0.type == "agent" && $0.id == item.agent_id) } ?? false)
-            && item.matchesConversationSearch(memberSearch)
+            if item.user_id == store.user.id { return false }
+            if chat?.participants.contains(where: { ($0.user_id ?? $0.id) == item.user_id || ($0.type == "agent" && $0.id == item.agent_id) }) == true { return false }
+            if item.kind != "agent" { return !groupHasPrivateAgent && item.matchesConversationSearch(memberSearch) }
+            guard item.owner_id == store.user.id || item.owner_id == store.user.owner_id else { return false }
+            if item.collaboration_scope == "owner_only" && groupHasExternalOrPublic { return false }
+            return item.matchesConversationSearch(memberSearch)
         }.sorted { $0.display_name.localizedStandardCompare($1.display_name) == .orderedAscending }
     }
     private func canManageMembers(_ chat: Conversation) -> Bool {
@@ -72,7 +91,7 @@ struct ChatInfoView: View {
                             Toggle(isOn: Binding(get: { chat.is_muted }, set: { mutate(["is_muted": .bool($0)]) })) {
                                 Label(L("消息免打扰", "Mute notifications"), systemImage: "bell.slash")
                             }.padding(.vertical, 11)
-                        }.disabled(chat.can_write == false || busy).tint(NanoTheme.accent)
+                        }.disabled((chat.can_write == false && chat.write_blocked_reason != "agent_private") || busy).tint(NanoTheme.accent)
                     }
                     if let error { ErrorNotice(message: error) }
                 }.padding(.horizontal, 22).padding(.vertical, 16)
