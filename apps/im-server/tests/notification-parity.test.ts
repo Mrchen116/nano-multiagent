@@ -190,32 +190,19 @@ describe('im-server cross-platform notification_hint and unread parity', () => {
         is_muted: true,
       });
 
-      // 4) Group message with @mention to muted owner vs unmentioned unmuted carol (per-recipient independent hints, bounded SQL)
+      // 4) Group message with @mention to muted owner vs unmentioned unmuted carol (per-recipient independent hints)
       ownerStream.frames.length = 0;
       bobStream.frames.length = 0;
       carolStream.frames.length = 0;
-
-      let prepareCount = 0;
-      const origPrepare = db.prepare.bind(db);
-      db.prepare = ((sql: string) => {
-        prepareCount += 1;
-        return origPrepare(sql);
-      }) as typeof db.prepare;
-      try {
-        app.im.messaging.insertMessage(
-          'team-grp',
-          'bob',
-          'user',
-          '请看一下 <mention type="user" target_id="owner" /> 这个指标',
-          [],
-          'msg-bob-mention',
-          'completed',
-        );
-      } finally {
-        db.prepare = origPrepare;
-      }
-      // Constant-bounded SQL even with 3 connected recipients
-      expect(prepareCount).toBeLessThanOrEqual(25);
+      app.im.messaging.insertMessage(
+        'team-grp',
+        'bob',
+        'user',
+        '请看一下 <mention type="user" target_id="owner" /> 这个指标',
+        [],
+        'msg-bob-mention',
+        'completed',
+      );
 
       const ownerMention = ownerStream.frames.find(f => f.event_type === 'message.created')!;
       const bobSelf = bobStream.frames.find(f => f.event_type === 'message.created')!;
@@ -355,6 +342,34 @@ describe('im-server cross-platform notification_hint and unread parity', () => {
       });
       // Colleague Bob can view team agent Work, so receives the frame, but eligible MUST be false (not owner!)
       expect(bobStream.frames[0]?.notification_hint?.eligible).toBe(false);
+
+      // 9) Strict O(1) SQLite statement invariance across R = 3 vs R = 25 recipients & replay
+      const countSql = (fn: () => void): number => {
+        let count = 0;
+        const orig = db.prepare.bind(db);
+        db.prepare = ((sql: string) => { count += 1; return orig(sql); }) as typeof db.prepare;
+        try { fn(); } finally { db.prepare = orig; }
+        return count;
+      };
+      const deltaFrameObj = { op: 'event', conversation_id: 'team-grp', event_type: 'message.delta', data: { delta: 'x' } };
+      const chatFrameObj = { op: 'event', conversation_id: 'team-grp', event_type: 'message.created', data: { conversation_id: 'team-grp', message_id: 'msg-bob-mention', sender_type: 'user', sender_user_id: 'bob', content: 'hi' } };
+      const deltaAt3 = countSql(() => app.im.gateway.broadcast('conversation-readers', deltaFrameObj));
+      const chatAt3 = countSql(() => app.im.gateway.broadcast('conversation-readers', chatFrameObj));
+      const workAt3 = countSql(() => app.im.gateway.broadcast(['owner', 'bob', 'carol'], { op: 'event', event_type: 'agent.work.updated', data: { agent_id: 'team_bot', revision: 3 } }));
+      const extraAudience = ['owner', 'bob', 'carol'];
+      for (let i = 0; i < 22; i++) {
+        const uid = `u-extra-${i}`;
+        db.prepare("INSERT INTO users(id,username,display_name,owner_id,password_hash,created_at,membership_status,personal_space_enabled,auth_epoch) VALUES(?,?,?,?,'h',?,'active',1,1)").run(uid, uid, uid, uid, now);
+        db.prepare("INSERT INTO auth_sessions(session_id,user_id,epoch,refresh_hash,expires_at,revoked) VALUES(?,?,1,'rh',?,0)").run(`sess-${uid}`, uid, expiresAt);
+        db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES('team-grp',?)").run(uid);
+        attachFakeBrowser(app, uid, `sess-${uid}`);
+        extraAudience.push(uid);
+      }
+      expect(countSql(() => app.im.gateway.broadcast('conversation-readers', deltaFrameObj))).toBe(deltaAt3);
+      expect(countSql(() => app.im.gateway.broadcast('conversation-readers', chatFrameObj))).toBe(chatAt3);
+      expect(countSql(() => app.im.gateway.broadcast(extraAudience, { op: 'event', event_type: 'agent.work.updated', data: { agent_id: 'team_bot', revision: 4 } }))).toBe(workAt3);
+      const replayBrowser = { socket: { readyState: 1, bufferedAmount: 0, send() {}, close() {} } as unknown as WebSocket, userId: 'owner', sessionId: 'sess-owner', ready: false, cursor: 0 };
+      expect(countSql(() => app.im.gateway.replay(replayBrowser, 0))).toBeLessThanOrEqual(16);
     } finally {
       await app.close();
       await rm(dir, { recursive: true, force: true });

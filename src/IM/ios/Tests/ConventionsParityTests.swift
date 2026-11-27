@@ -235,4 +235,61 @@ final class ConventionsParityTests: XCTestCase {
         await store.consume(try JSONDecoder().decode(UserEvent.self, from: readFrame))
         XCTAssertEqual(Conversation.totalUnreadBadge(store.conversations), 0)
     }
+
+    func testPendingThreadTargetScopesToConversationAndDecodesMessageDetailEnvelope() async throws {
+        let pair = try JSONEncoder().encode(TokenPair(access_token: "tok", refresh_token: "ref", user: user))
+        let transport = ThreadDetailMockTransport(pair: pair)
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let session = Session(
+            baseURL: URL(string: "https://im.example.test")!,
+            transport: transport,
+            credentials: EmptyCredentials(),
+            sendAttempts: SendAttemptStore(directory: dir)
+        )
+        _ = try await session.login(username: "owner", password: "pw")
+        let store = ChatStore(client: IMClient(baseURL: session.baseURL, session: session), user: user)
+        defer { store.resetProjection() }
+
+        store.pendingThreadTarget = .init(conversationID: "chat-muted", rootMessageID: "root-88")
+
+        // Opening another conversation neither fetches nor clears `chat-muted`'s target
+        let wrongChat = await store.resolvePendingThreadRoot(conversationID: "chat-open")
+        XCTAssertNil(wrongChat)
+        XCTAssertEqual(store.pendingThreadTarget, .init(conversationID: "chat-muted", rootMessageID: "root-88"))
+        let pathsBefore = await transport.requestedPaths
+        XCTAssertTrue(pathsBefore.isEmpty)
+
+        // Opening `chat-muted` fetches `/im/v1/conversations/chat-muted/messages/root-88`,
+        // decodes `{ message, execution_cleanup_revision }`, and clears `pendingThreadTarget`
+        let resolved = await store.resolvePendingThreadRoot(conversationID: "chat-muted")
+        XCTAssertEqual(resolved?.id, "root-88")
+        XCTAssertEqual(resolved?.content, "Older thread root outside latest 50")
+        XCTAssertNil(store.pendingThreadTarget)
+        let pathsAfter = await transport.requestedPaths
+        XCTAssertEqual(pathsAfter, ["/im/v1/conversations/chat-muted/messages/root-88"])
+    }
+}
+
+private struct EmptyCredentials: CredentialStore {
+    func load() throws -> StoredSession? { nil }
+    func save(_ value: StoredSession) throws {}
+    func remove() throws {}
+}
+
+private actor ThreadDetailMockTransport: HTTPTransport {
+    let pair: Data
+    var requestedPaths: [String] = []
+    init(pair: Data) { self.pair = pair }
+    func data(for request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let url = request.url!
+        if url.path.contains("/auth/") {
+            return (pair, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [:])!)
+        }
+        requestedPaths.append(url.path)
+        let envelope = Data(#"""
+        {"message":{"id":"root-88","conversation_id":"chat-muted","sender_type":"user","sender_user_id":"bob","sender":{"type":"user","id":"bob","display_name":"Bob"},"content":"Older thread root outside latest 50","attachments":[],"delivery_status":"completed","created_at":"2026-04-17T08:00:00.000Z"},"execution_cleanup_revision":3}
+        """#.utf8)
+        return (envelope, HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [:])!)
+    }
 }

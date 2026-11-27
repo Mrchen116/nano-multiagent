@@ -136,6 +136,36 @@ impl Default for NotificationCenterState {
     }
 }
 
+pub(crate) fn apply_hint_conversation_unread(
+    center: &NotificationCenterState,
+    ui: &dyn DesktopUiBridge,
+    attention: &WindowAttentionState,
+    payload: &Value,
+    hint: &UserStreamNotificationHint,
+) {
+    let cid = non_empty_str(&payload["conversation_id"])
+        .or(hint.conversation_id.as_deref())
+        .unwrap_or("");
+    if cid.is_empty() {
+        return;
+    }
+    let focused_here =
+        attention.visible_and_focused && is_viewing_conversation_route(&attention.current_route, cid);
+    if !focused_here {
+        if let Some(unread) = hint.conversation_unread {
+            center.upsert_conversation(
+                &json!({
+                    "conversation_id": cid,
+                    "unread_count": unread,
+                    "is_muted": hint.is_muted,
+                    "title": hint.conversation_title.as_deref().unwrap_or(""),
+                }),
+                ui,
+            );
+        }
+    }
+}
+
 impl NotificationCenterState {
     pub fn record(&self, paths: &DesktopPaths, item: DesktopNotificationRecord) {
         append_private_jsonl(&paths.notifications_log_path(), &item);
@@ -1595,19 +1625,13 @@ async fn run_single_session_stream(
                         let focused_here = attention_now.visible_and_focused
                             && is_viewing_conversation_route(&attention_now.current_route, cid);
                         if let Some(ref hint) = frame_hint {
-                            if !focused_here && !cid.is_empty() {
-                                if let Some(unread) = hint.conversation_unread {
-                                    center.upsert_conversation(
-                                        &json!({
-                                            "conversation_id": cid,
-                                            "unread_count": unread,
-                                            "is_muted": hint.is_muted,
-                                            "title": hint.conversation_title.as_deref().unwrap_or(""),
-                                        }),
-                                        ui.as_ref(),
-                                    );
-                                }
-                            }
+                            apply_hint_conversation_unread(
+                                center,
+                                ui.as_ref(),
+                                &attention_now,
+                                &payload,
+                                hint,
+                            );
                         } else {
                             let allowed_in_thread = is_thread_audience_allowed(&payload, &self_user_id);
                             let is_self_author = !sender_uid.is_empty()
@@ -1631,6 +1655,18 @@ async fn run_single_session_stream(
                                     ui.as_ref(),
                                 );
                             }
+                        }
+                    }
+                    "message.completed" | "permission.request" => {
+                        if let Some(ref hint) = frame_hint {
+                            let attention_now = ui.window_attention();
+                            apply_hint_conversation_unread(
+                                center,
+                                ui.as_ref(),
+                                &attention_now,
+                                &payload,
+                                hint,
+                            );
                         }
                     }
                     _ => {}
@@ -2151,6 +2187,71 @@ mod tests {
         );
         assert_eq!(center.unread(), 0);
         assert_eq!(*ui.badge_count.lock().unwrap(), 0);
+
+        // Verify `message.completed` (e.g. streaming Agent @mention in a group thread) and
+        // `permission.request` materialize `conversation_unread` on the Desktop badge unless focused
+        let unfocused = WindowAttentionState {
+            visible_and_focused: false,
+            current_route: "/chat/other".to_string(),
+        };
+        let completed_hint = parse_frame_notification_hint(&json!({
+            "notification_hint": {
+                "eligible": true,
+                "kind": "mention",
+                "dedupe_key": "message:m-stream-men",
+                "is_muted": false,
+                "mentions_viewer": true,
+                "conversation_id": "c-agent",
+                "conversation_title": "Agent Thread",
+                "conversation_unread": 1,
+                "target_route": "/chat/c-agent?thread=root-1"
+            }
+        }))
+        .unwrap();
+        apply_hint_conversation_unread(
+            &center,
+            &ui,
+            &unfocused,
+            &json!({ "conversation_id": "c-agent" }),
+            &completed_hint,
+        );
+        assert_eq!(center.unread(), 1);
+        assert_eq!(*ui.badge_count.lock().unwrap(), 1);
+
+        let focused_same_chat = WindowAttentionState {
+            visible_and_focused: true,
+            current_route: "/chat/c-agent?thread=root-1".to_string(),
+        };
+        let perm_hint = parse_frame_notification_hint(&json!({
+            "notification_hint": {
+                "eligible": true,
+                "kind": "chat_permission",
+                "dedupe_key": "perm:req-1",
+                "is_muted": false,
+                "mentions_viewer": false,
+                "conversation_id": "c-agent",
+                "conversation_unread": 3,
+                "target_route": "/chat/c-agent?thread=root-1"
+            }
+        }))
+        .unwrap();
+        apply_hint_conversation_unread(
+            &center,
+            &ui,
+            &focused_same_chat,
+            &json!({ "conversation_id": "c-agent" }),
+            &perm_hint,
+        );
+        assert_eq!(center.unread(), 1, "focused active chat must not inflate badge");
+        apply_hint_conversation_unread(
+            &center,
+            &ui,
+            &unfocused,
+            &json!({}),
+            &perm_hint,
+        );
+        assert_eq!(center.unread(), 3);
+        assert_eq!(*ui.badge_count.lock().unwrap(), 3);
     }
 
     #[test]

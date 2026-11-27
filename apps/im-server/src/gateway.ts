@@ -8,10 +8,10 @@ import { settingsConnection } from './agent-settings.js';
 import { isRecord } from './node-rpc-values.js';
 import {reportAgentDeletion, requireDeletionOperation, resumableAgentDeletions} from './agent-deletion.js';
 import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
-import { conversationAccess, conversationReaderIds, qualifiedUser, readableConversationIds } from './conversation-access.js';
+import { conversationAccess, conversationReaderIds, conversationRowAccess, directAgentOwners, qualifiedUser, readableConversationIds } from './conversation-access.js';
 import { captureTaskContextAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import type { ChatMessage } from '@nano/product-contracts';
-import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, canViewAgentWork, ownerAccount, agentAvailable } from "./identity.js";
+import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, currentActorCanAccess, ownerAccount, agentAvailable } from "./identity.js";
 import { ChatStreaming } from './chat-streaming.js';
 import type { ChatStreamReceipt } from '@nano/product-contracts';
 import { randomBytes, randomUUID } from "node:crypto";
@@ -202,36 +202,112 @@ export class Gateway {
   broadcast(audience: string[] | 'conversation-readers', frame: Row) {
     const ready = Array.from(this.browsers).filter(b => b.ready && !(frame.event_id && frame.event_id <= b.cursor));
     if (!ready.length) return;
+    const db = this.ctx.db;
     const chat = audience === 'conversation-readers';
     const readers = new Set(chat
-      ? conversationReaderIds(this.ctx.db,frame.conversation_id,new Set(ready.map(b => b.userId)))
+      ? conversationReaderIds(db, frame.conversation_id, new Set(ready.map(b => b.userId)))
       : audience);
     const recipients = ready.filter(b => readers.has(b.userId));
     if (!recipients.length) return;
+
+    const validSessions = this.validBrowserSessionIds([...new Set(recipients.map(b => b.sessionId))]);
     // Membership removal/deletion notices can reach former members. Only those
     // data-only frames need a separate space check beyond conversation access.
     const space = !chat && !frame.conversation_id && frame.data?.conversation_id
-      ? one(this.ctx.db,"SELECT space_id FROM conversations WHERE id=?",frame.data.conversation_id)?.space_id
+      ? one(db, "SELECT space_id FROM conversations WHERE id=?", frame.data.conversation_id)?.space_id
       : undefined;
-    const workProfile = frame.event_type === "agent.work.updated"
-      ? one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", frame.data?.agent_id)
+    const isWorkEvent = frame.event_type === "agent.work.updated";
+    const workProfile = isWorkEvent
+      ? one(db, "SELECT * FROM agent_profiles WHERE agent_id=?", frame.data?.agent_id)
       : undefined;
+    const workOwner = isWorkEvent && workProfile ? ownerAccount(db, workProfile.owner_id) : undefined;
+    const workProfileAvailable = isWorkEvent
+      ? !!workProfile && !workProfile.is_stale && canAccessSpace(workOwner, workProfile.space_id)
+      : false;
+    if (isWorkEvent && !workProfileAvailable) {
+      for (const b of recipients) {
+        if (!validSessions.has(b.sessionId)) b.socket.close(1008);
+      }
+      return;
+    }
+    const workPersonalBinding = isWorkEvent && workProfile
+      ? one(db, "SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?", workProfile.agent_id)
+      : undefined;
+
+    const targetConversation = !chat && frame.conversation_id
+      ? one(db, "SELECT * FROM conversations WHERE id=?", frame.conversation_id)
+      : undefined;
+    if (!chat && frame.conversation_id && !targetConversation) {
+      for (const b of recipients) {
+        if (!validSessions.has(b.sessionId)) b.socket.close(1008);
+      }
+      return;
+    }
+
+    const needUsers = space !== undefined || isWorkEvent || !!targetConversation;
+    const uniqueRecipientUserIds = [...new Set(recipients.map(b => b.userId))];
+    const usersById = new Map<string, Row>();
+    if (needUsers && uniqueRecipientUserIds.length) {
+      for (const row of all(
+        db,
+        "SELECT * FROM users WHERE id IN (SELECT value FROM json_each(?))",
+        JSON.stringify(uniqueRecipientUserIds),
+      )) {
+        usersById.set(String(row.id), row);
+      }
+    }
+    const targetParticipantIds = targetConversation && uniqueRecipientUserIds.length
+      ? new Set(
+          all(
+            db,
+            "SELECT user_id FROM conversation_participants WHERE conversation_id=? AND user_id IN (SELECT value FROM json_each(?))",
+            targetConversation.id,
+            JSON.stringify(uniqueRecipientUserIds),
+          ).map(r => String(r.user_id)),
+        )
+      : undefined;
+    const targetObserverOwnerIds = targetConversation
+      ? new Set(directAgentOwners(db, targetConversation))
+      : undefined;
+
     const eligibleBrowsers: Browser[] = [];
     for (const b of recipients) {
-      if (!this.browserValid(b)) {
+      if (!validSessions.has(b.sessionId)) {
         b.socket.close(1008);
         continue;
       }
-      if (space !== undefined && !canActorAccess(this.ctx.db,b.userId,space)) continue;
-      if (frame.event_type === "agent.work.updated") {
-        if (!canViewAgentWork(this.ctx.db, this.ctx.identity.user(b.userId), workProfile)) continue;
+      const viewer = needUsers ? usersById.get(b.userId) : undefined;
+      if (space !== undefined && !currentActorCanAccess(db, viewer, space)) continue;
+      if (isWorkEvent) {
+        if (!viewer || viewer.username?.startsWith('agent:') || !workProfile) continue;
+        if (workPersonalBinding) {
+          if (workPersonalBinding.owner_user_id !== viewer.id || !canAccessSpace(viewer, workProfile.space_id)) continue;
+        } else if (viewer.owner_id === workProfile.owner_id) {
+          if (!canAccessSpace(viewer, workProfile.space_id)) continue;
+        } else if (
+          (workProfile.collaboration_scope ?? 'team') !== 'team'
+          || viewer.membership_status !== 'active'
+          || workOwner?.membership_status !== 'active'
+        ) {
+          continue;
+        }
       }
-      if (!chat && frame.conversation_id && !conversationAccess(this.ctx.db,frame.conversation_id,b.userId)) continue;
+      if (targetConversation) {
+        if (!viewer) continue;
+        if (viewer.username?.startsWith('agent:')) {
+          if (!conversationRowAccess(db, targetConversation, b.userId)) continue;
+        } else {
+          const readable = targetParticipantIds!.has(b.userId)
+            || targetObserverOwnerIds!.has(b.userId)
+            || (targetConversation.type === 'group' && targetConversation.visibility === 'public');
+          if (!readable || !canAccessSpace(viewer, targetConversation.space_id)) continue;
+        }
+      }
       eligibleBrowsers.push(b);
     }
     if (!eligibleBrowsers.length) return;
     const hints = projectBroadcastNotificationHints(
-      this.ctx.db,
+      db,
       [...new Set(eligibleBrowsers.map(b => b.userId))],
       frame,
       { isNodeOnline: nodeId => this.isOnline(nodeId) },
@@ -242,13 +318,19 @@ export class Gateway {
       b.cursor = Math.max(b.cursor, frame.event_id ?? 0);
     }
   }
-  browserValid(b: Pick<Browser, 'sessionId'>) {
-    return !!one(
-      this.ctx.db,
-      "SELECT 1 FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.session_id=? AND s.revoked=0 AND s.epoch=u.auth_epoch AND s.expires_at>? AND (u.personal_space_enabled=1 OR u.membership_status='active')",
-      b.sessionId,
-      Math.floor(Date.now() / 1000),
+  validBrowserSessionIds(sessionIds: string[]): Set<string> {
+    if (!sessionIds.length) return new Set();
+    return new Set(
+      all(
+        this.ctx.db,
+        "SELECT s.session_id FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.session_id IN (SELECT value FROM json_each(?)) AND s.revoked=0 AND s.epoch=u.auth_epoch AND s.expires_at>? AND (u.personal_space_enabled=1 OR u.membership_status='active')",
+        JSON.stringify(sessionIds),
+        Math.floor(Date.now() / 1000),
+      ).map(r => String(r.session_id)),
     );
+  }
+  browserValid(b: Pick<Browser, 'sessionId'>) {
+    return this.validBrowserSessionIds([b.sessionId]).has(b.sessionId);
   }
   replay(b: Browser, cursor: number) {
     const db = this.ctx.db;

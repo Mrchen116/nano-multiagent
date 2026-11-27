@@ -11,10 +11,15 @@ import os
 final class ChatStore {
     let client: IMClient
     let user: AuthUser
+    struct PendingThreadTarget: Equatable, Sendable {
+        let conversationID: String
+        let rootMessageID: String
+    }
+
     var conversations: [Conversation] = []
     var inspectedConversation: Conversation?
     var openThreadRoot: String?
-    var pendingThreadRootID: String?
+    var pendingThreadTarget: PendingThreadTarget?
     var threadRevision = 0
     private var notifiedDedupeKeys: [String] = []
     var taskCardsRevision = 0
@@ -548,7 +553,7 @@ final class ChatStore {
         inspectedConversation = nil; before = [:]; olderNeedsNetwork = []; receivedTimelineResults = []
         interactionPending = [:]; interactionConversations = [:]; interactionSending = []; sending = []
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; interactionDrafts.clear(); composeRequest = nil; banner = nil
-        pendingThreadRootID = nil; notifiedDedupeKeys = []
+        pendingThreadTarget = nil; notifiedDedupeKeys = []
         listPhase = .loadingFirst; connection = .starting; pendingCount = 0; lastFullAt = nil; listError = nil
         cursor = nil; needsList = false; dirtyChats = []
         errors = [:]; preferenceOwners = [:]
@@ -557,6 +562,23 @@ final class ChatStore {
         cancelContinuityDeadline()
         executionCleanupRevisions = [:]; knownDeletedActorIDs = []; readingPositions = [:]; pendingReadingPositions = [:]; restoreReadingPositions = [:]
         taskCardsRevision = 0
+    }
+
+    /// Resolve a pending thread jump scoped strictly to `conversationID`, decoding the
+    /// `{ message, execution_cleanup_revision }` detail envelope when outside the loaded window.
+    func resolvePendingThreadRoot(conversationID: String) async -> ChatMessage? {
+        guard let target = pendingThreadTarget, target.conversationID == conversationID else { return nil }
+        if let found = timelines[conversationID]?.compactMap(\.message).first(where: { $0.id == target.rootMessageID }) {
+            pendingThreadTarget = nil
+            return found
+        }
+        struct MessageDetailEnvelope: Decodable, Sendable { let message: ChatMessage }
+        let path = "/im/v1/conversations/\(conversationID.pathComponent)/messages/\(target.rootMessageID.pathComponent)"
+        let loaded = (try? await client.get(path) as MessageDetailEnvelope)?.message
+        if pendingThreadTarget == target {
+            pendingThreadTarget = nil
+        }
+        return loaded
     }
 
     func run() async {

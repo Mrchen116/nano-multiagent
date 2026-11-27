@@ -286,16 +286,9 @@ struct ConversationView: View {
                 try? await Task.sleep(for: .seconds(3))
             }
         }
-        .task(id: "\(conversationID)-\(store.pendingThreadRootID ?? "")-\(items.count)") {
-            guard let targetRootID = store.pendingThreadRootID else { return }
-            if let found = items.compactMap(\.message).first(where: { $0.id == targetRootID }) {
-                store.pendingThreadRootID = nil
-                threadRoot = found
-            } else if let loaded: ChatMessage = try? await store.client.get("/im/v1/conversations/\(conversationID.pathComponent)/messages/\(targetRootID.pathComponent)") {
-                if store.pendingThreadRootID == targetRootID {
-                    store.pendingThreadRootID = nil
-                    threadRoot = loaded
-                }
+        .task(id: "\(conversationID)-\(store.pendingThreadTarget?.conversationID ?? "")-\(store.pendingThreadTarget?.rootMessageID ?? "")-\(items.count)") {
+            if let resolved = await store.resolvePendingThreadRoot(conversationID: conversationID) {
+                threadRoot = resolved
             }
         }
         .task(id: store.composeRequest?.id) {

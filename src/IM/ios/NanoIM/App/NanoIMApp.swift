@@ -284,9 +284,14 @@ private struct RootTabs: View {
             let parts = url.path.split(separator: "/").map(String.init)
             if parts.count == 2, parts[0] == "chat" {
                 let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-                chat.pendingThreadRootID = query.first { $0.name == "thread" }?.value
+                let convID = parts[1]
+                if let rootID = query.first(where: { $0.name == "thread" })?.value, !rootID.isEmpty {
+                    chat.pendingThreadTarget = .init(conversationID: convID, rootMessageID: rootID)
+                } else {
+                    chat.pendingThreadTarget = nil
+                }
                 chat.messageLocation = ChatMessageLocation.from(url, origin: client.baseURL)
-                openChat(parts[1])
+                openChat(convID)
                 return .handled
             }
             if parts.count == 2, parts[0] == "tasks" {
@@ -332,7 +337,11 @@ private struct RootTabs: View {
                     chat.banner = nil
                     switch banner.destination {
                     case .conversation(let id, let threadRootID):
-                        chat.pendingThreadRootID = threadRootID
+                        if let rootID = threadRootID, !rootID.isEmpty {
+                            chat.pendingThreadTarget = .init(conversationID: id, rootMessageID: rootID)
+                        } else {
+                            chat.pendingThreadTarget = nil
+                        }
                         openChat(id)
                     case .agentWork(let agentID, let title):
                         agentWorkLink = NativeAgentWorkLink(id: agentID, title: title)
@@ -375,9 +384,14 @@ private struct RootTabs: View {
             let parts = url.path.split(separator: "/")
             if parts.count == 2, parts[0] == "chat" {
                 let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-                chat.pendingThreadRootID = query.first { $0.name == "thread" }?.value
+                let convID = String(parts[1])
+                if let rootID = query.first(where: { $0.name == "thread" })?.value, !rootID.isEmpty {
+                    chat.pendingThreadTarget = .init(conversationID: convID, rootMessageID: rootID)
+                } else {
+                    chat.pendingThreadTarget = nil
+                }
                 chat.messageLocation = ChatMessageLocation.from(url, origin: client.baseURL)
-                openChat(String(parts[1]))
+                openChat(convID)
             }
         }
     }
