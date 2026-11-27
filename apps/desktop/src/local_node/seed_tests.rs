@@ -1,6 +1,6 @@
 use super::*;
 use crate::config::{sha256_hex, DesktopCliOptions};
-use crate::host_server::start_host_server_full;
+use crate::host_server::{start_host_server_full, RunningHostServer};
 use crate::notifications::NoopUiBridge;
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,6 +26,20 @@ fn isolated_paths(root: &Path) -> DesktopPaths {
         ..Default::default()
     })
     .unwrap()
+}
+
+async fn wait_for_seed_error(host: &RunningHostServer) -> String {
+    tokio::time::timeout(Duration::from_secs(60), async {
+        loop {
+            if let Some(error) = host.state.seed_error() {
+                return error;
+            }
+            assert!(!host.state.is_seed_ready(), "seed unexpectedly ready");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("seed worker did not report a failure")
 }
 
 #[tokio::test]
@@ -97,6 +111,12 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     let older = paths.desktop_home.join("versions/older");
     fs::create_dir_all(&older).unwrap();
     fs::write(older.join(".ready"), "older").unwrap();
+    let active = paths
+        .desktop_active_path("https://im.crewden.work")
+        .unwrap();
+    let previous = json!({ "managed_by": "crewden-desktop", "version_root": older, "sha256": "older", "user_stopped": true });
+    write_private_json(&active, &previous).unwrap();
+
     let session_bytes = br#"{"by_origin":{}}"#;
     fs::write(paths.sessions_path(), session_bytes).unwrap();
     let workspace_file = paths.nano_install_root.join("workspace-note.txt");
@@ -113,14 +133,7 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     )
     .await
     .unwrap();
-    tokio::time::timeout(Duration::from_secs(60), async {
-        while host.state.seed_error().is_none() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .unwrap();
-    let error = host.state.seed_error().unwrap();
+    let error = wait_for_seed_error(&host).await;
     assert!(
         error.contains("app.tar.gz") && error.contains("SHA-256 mismatch"),
         "{error}"
@@ -141,17 +154,53 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
         .split(';')
         .next()
         .unwrap();
-    client
-        .post(format!(
-            "http://127.0.0.1:{}/desktop/v1/seed/retry",
-            host.port
-        ))
-        .header("Cookie", cookie)
-        .send()
-        .await
-        .unwrap()
-        .error_for_status()
-        .unwrap();
+    let retry = || async {
+        client
+            .post(format!(
+                "http://127.0.0.1:{}/desktop/v1/seed/retry",
+                host.port
+            ))
+            .header("Cookie", cookie)
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap();
+    };
+    #[cfg(windows)]
+    {
+        let runtimes = paths.desktop_home.join("runtimes");
+        // Inherit DELETE denial on the stage and deny DELETE_CHILD on its parent.
+        // Extraction and layout can finish, but publishing the staged runtime cannot.
+        set_test_acl(&runtimes, "/deny", "*S-1-1-0:(CI)(D,DC)");
+        retry().await;
+        let error = wait_for_seed_error(&host).await;
+        set_test_acl(&runtimes, "/remove:d", "*S-1-1-0");
+        assert!(
+            error.contains("Rename seed directory") && error.contains("os error 5"),
+            "{error}"
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(&active).unwrap()).unwrap(),
+            previous
+        );
+        let page = client
+            .get(format!("http://127.0.0.1:{}/chat", host.port))
+            .header("Cookie", cookie)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(page.contains("Rename seed directory"));
+        assert!(!paths.seed_marker_path().exists());
+        assert!(!paths.desktop_home.join("versions").join(&target).exists());
+        assert_eq!(fs::read(older.join(".ready")).unwrap(), b"older");
+        assert_eq!(fs::read(paths.sessions_path()).unwrap(), session_bytes);
+        assert_eq!(fs::read(&workspace_file).unwrap(), b"saved note");
+    }
+    retry().await;
     tokio::time::timeout(Duration::from_secs(60), async {
         while !host.state.is_seed_ready() {
             assert!(
@@ -167,6 +216,9 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     let version = paths.desktop_home.join("versions").join(&target);
     assert!(version.join("runtime/layout.mjs").is_file());
     assert_eq!(fs::read(version.join("workspaces.json")).unwrap(), b"{}");
+    let current: Value = serde_json::from_slice(&fs::read(active).unwrap()).unwrap();
+    assert_eq!(current["sha256"], target);
+    assert_eq!(current["user_stopped"], true);
     assert_eq!(fs::read(cached_desc).unwrap(), raw);
     assert_eq!(fs::read(cached_archive("app")).unwrap(), app_bytes);
     assert_eq!(fs::read(older.join(".ready")).unwrap(), b"older");
@@ -208,6 +260,16 @@ fn windows_seed_directory_rename_recovers_after_child_handle_closes() {
 }
 
 #[cfg(windows)]
+fn set_test_acl(path: &Path, action: &str, ace: &str) {
+    assert!(Command::new("icacls.exe")
+        .arg(path)
+        .args([action, ace])
+        .status()
+        .unwrap()
+        .success());
+}
+
+#[cfg(windows)]
 #[test]
 fn windows_seed_directory_rename_reports_real_acl_denial() {
     let tmp = tempfile::tempdir().unwrap();
@@ -216,19 +278,11 @@ fn windows_seed_directory_rename_reports_real_acl_denial() {
     fs::create_dir(&stage).unwrap();
     fs::write(stage.join(".ready"), "pending").unwrap();
     // NTFS grants rename through DELETE on the object or DELETE_CHILD on its parent.
-    let acl = |path: &Path, action: &str, ace: &str| {
-        assert!(Command::new("icacls.exe")
-            .arg(path)
-            .args([action, ace])
-            .status()
-            .unwrap()
-            .success());
-    };
-    acl(tmp.path(), "/deny", "*S-1-1-0:(DC)");
-    acl(&stage, "/deny", "*S-1-1-0:(D)");
+    set_test_acl(tmp.path(), "/deny", "*S-1-1-0:(DC)");
+    set_test_acl(&stage, "/deny", "*S-1-1-0:(D)");
     let result = publish_seed_directory(&stage, &target);
-    acl(&stage, "/remove:d", "*S-1-1-0");
-    acl(tmp.path(), "/remove:d", "*S-1-1-0");
+    set_test_acl(&stage, "/remove:d", "*S-1-1-0");
+    set_test_acl(tmp.path(), "/remove:d", "*S-1-1-0");
     let error = result.unwrap_err();
     assert!(error.contains("os error 5"), "{error}");
     assert!(error.contains(&*stage.to_string_lossy()), "{error}");
