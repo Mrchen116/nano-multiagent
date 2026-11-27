@@ -12,13 +12,14 @@ import "./agent-activity-popover.css";
 export interface AgentActivityAnchor {
   agentId: string;
   name: string;
-  element: HTMLButtonElement;
+  element: HTMLElement;
 }
 
-export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: {
+export function AgentActivityPopover({anchor, nodeName, canConfigure, fallbackRuntimeState, onClose}: {
   anchor: AgentActivityAnchor;
   nodeName?: string | null;
   canConfigure: boolean;
+  fallbackRuntimeState?: "running" | "idle" | "offline" | "unknown";
   onClose(): void;
 }) {
   const {t} = useTranslation();
@@ -93,17 +94,18 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
     const dismissKeyboard = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         onClose();
       }
     };
     document.addEventListener("pointerdown", dismissOutside);
-    document.addEventListener("keydown", dismissKeyboard);
+    document.addEventListener("keydown", dismissKeyboard, true);
     window.addEventListener("resize", position);
     window.addEventListener("scroll", position, true);
     return () => {
       resize.disconnect();
       document.removeEventListener("pointerdown", dismissOutside);
-      document.removeEventListener("keydown", dismissKeyboard);
+      document.removeEventListener("keydown", dismissKeyboard, true);
       window.removeEventListener("resize", position);
       window.removeEventListener("scroll", position, true);
     };
@@ -128,7 +130,10 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
       <header className="chat-agent-activity-header">
         <div>
           <h3 id="chat-agent-activity-title">{anchor.name}</h3>
-          <span>{label("title")}</span>
+          <div className="chat-agent-activity-sub">
+            <span>{label("title")}</span>
+            <code className="chat-agent-activity-id">{anchor.agentId}</code>
+          </div>
         </div>
         {canConfigure && data && !activity.isError && <Link to={`${profile}?view=config`} className="chat-agent-activity-icon"
           aria-label={label("config")} title={label("config")}><Settings size={17} /></Link>}
@@ -136,9 +141,20 @@ export function AgentActivityPopover({anchor, nodeName, canConfigure, onClose}: 
           aria-label={label("close")}><X size={17} /></button>
       </header>
       {nodeName && <dl className="chat-agent-activity-computer"><dt>{label("computer")}</dt><dd>{nodeName}</dd></dl>}
-      {activity.isError ? <div className="chat-agent-activity-error" role="alert">
-        {label("unavailable")} <button type="button" onClick={() => void refresh()}>{label("retry")}</button>
-      </div> : <>
+      {activity.isError ? (
+        fallbackRuntimeState ? (
+          <div className="chat-agent-activity-state">
+            <div>
+              <span>{label("main")}</span>
+              <strong>{t(`tasks.runtime.${fallbackRuntimeState}`)}</strong>
+            </div>
+          </div>
+        ) : (
+          <div className="chat-agent-activity-error" role="alert">
+            {label("unavailable")} <button type="button" onClick={() => void refresh()}>{label("retry")}</button>
+          </div>
+        )
+      ) : <>
         <div className="chat-agent-activity-state">
           <div><span>{label("main")}</span>{mainSyncing ? spinner : <strong>{label(mainStatus)}</strong>}</div>
           {online && ["running", "waiting_permission"].includes(mainStatus) && data.latest_tool && <p className="chat-agent-activity-tool">

@@ -82,11 +82,11 @@ import {
 } from "./components/group-settings";
 import { PersonPopover, type PersonPopoverAnchor } from "./components/person-popover";
 import { PendingConversationPane } from "./components/pending-conversation-pane";
-import { MessagePane, type ReadingPosition } from "./components/message-pane";
+import { MessagePane } from "./components/message-pane";
 import { listContacts, contactActor, type Contact } from "./contacts-api";
 import { PublicGroupsModal } from "./components/public-groups-modal";
 import { NewChatModal } from "./components/new-chat-modal";
-import { composerStoreFor, writeComposerSnapshot, EMPTY_COMPOSER_SNAPSHOT, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
+import { composerStoreFor, readingPositionStoreFor, writeComposerSnapshot, EMPTY_COMPOSER_SNAPSHOT, forgetComposerConversation, restoreComposerMembership } from "./components/composer-draft-store";
 import { NewGroupModal } from "./components/new-group-modal";
 
 import { InteractionSubmissionError } from "./interactive/submission-error";
@@ -326,8 +326,8 @@ export function ChatWorkspacePage() {
   const location = useLocation();
   const explicitLocator = new URLSearchParams(location.search).get("message_id");
   const threadLocator = new URLSearchParams(location.search).get("thread");
+  const stateReturnAnchor = typeof location.state?.returnAnchorMessageId === "string" ? location.state.returnAnchorMessageId : null;
   const [cleanupAnchor, setCleanupAnchor] = useState<{conversationId: string; messageId: string} | null>(null);
-  const locatorMessageId = threadLocator ? null : explicitLocator ?? (cleanupAnchor?.conversationId === conversationId ? cleanupAnchor?.messageId ?? null : null);
   const workReturnUrl = typeof location.state?.workReturnUrl === "string" ? location.state.workReturnUrl : null;
   const [locatorNotice, setLocatorNotice] = useState("");
   const locatedRef = useRef("");
@@ -362,7 +362,7 @@ export function ChatWorkspacePage() {
   const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
   const membershipStatus = useAuthStore((s) => s.user?.membership_status);
-  const readingPositions = useMemo(() => new Map<string, ReadingPosition>(), [selfUserId]);
+  const readingPositions = readingPositionStoreFor(selfUserId);
   const personalAgent = useQuery({queryKey:['personal-agent',selfUserId],queryFn:getPersonalAgent,enabled:!!selfUserId,retry:false,refetchInterval:()=>document.visibilityState==='visible'?5000:false});
   const personalBinding = personalAgent.data?.binding;
   const isPersonalConversation = Boolean(personalBinding && conversationId===personalBinding.conversation_id);
@@ -634,6 +634,19 @@ export function ChatWorkspacePage() {
   }, [conversationId]);
 
   const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
+  const savedReadingPos = conversationId ? readingPositions.get(conversationId) : undefined;
+  const canUseSavedReadingPos = Boolean(
+    savedReadingPos &&
+      (streamState.messages.length === 0 || streamState.messages.at(-1)?.id === savedReadingPos.latestId),
+  );
+  const locatorMessageId = threadLocator
+    ? null
+    : explicitLocator ??
+      (cleanupAnchor?.conversationId === conversationId
+        ? cleanupAnchor?.messageId ?? null
+        : !canUseSavedReadingPos
+          ? stateReturnAnchor
+          : null);
 
   messagesQueryFetchingRef.current = messagesQuery.isFetching;
 
@@ -833,6 +846,13 @@ export function ChatWorkspacePage() {
       } else {
         setLocatorNotice("");
         setCleanupAnchor(null);
+        if (stateReturnAnchor && location.state) {
+          const { returnAnchorMessageId: _, ...rest } = location.state as Record<string, unknown>;
+          navigate(location.pathname + location.search, {
+            replace: true,
+            state: Object.keys(rest).length ? rest : undefined,
+          });
+        }
       }
     });
     return () => cancelAnimationFrame(frame);
@@ -972,6 +992,15 @@ export function ChatWorkspacePage() {
           return;
         }
         if (event.eventType === "agent.config.changed") void queryClient.invalidateQueries({ queryKey: ["chat", "slash-candidates"] });
+        if (
+          event.eventType === "task_graph.changed"
+          || (event.eventType === "message.created"
+            && typeof event.payload.system_notice === "object"
+            && event.payload.system_notice !== null
+            && (event.payload.system_notice as { kind?: unknown }).kind === "task_graph")
+        ) {
+          void queryClient.invalidateQueries({ queryKey: ["task-graphs"] });
+        }
         if (event.eventType === 'node.update_changed') void queryClient.invalidateQueries({queryKey:['chat','nodes']});
         if ((['node.update_wait_changed', 'relay.delivery_receipt', 'message.receipts_changed'].includes(event.eventType)) && event.payload.conversation_id === conversationIdRef.current) {
           void queryClient.invalidateQueries({queryKey:['chat','messages',conversationIdRef.current]});

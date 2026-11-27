@@ -43,7 +43,7 @@ ctx.on('llm/stream',async function*(o){
     await prepareProfile(home, [{ insert: [childProbe, { id: 'global-child-tools-fixture', name: join(home, 'fixture.mjs') }] }]);
     const start = async () => {
       client = new RuntimeClient({ home, cwd: home, onLog: value => { logs += value; } });registerNoopTaskContext(client);
-      client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [], repair_task_ids: [] }));
+      client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [] }));
       client.rpc.handle('product.call', value => { calls.push(value as any); throw new Error('Internal coordination must not use product messaging'); });
       await client.rpc.request('initialize', { protocol: 1, agents: [config], bindings: [] });
       await client.rpc.request('session.ensure', binding);
@@ -185,7 +185,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o,next){const age
     await prepareProfile(home,[{id:'llm-pi-ai',config:{providers:{fixture:{api:'anthropic-messages',baseURL:`http://127.0.0.1:${(server.address() as any).port}`,apiKeyEnv:'NANO_TEST_KEY',models:[{id:'fixture',contextWindow:200000},{id:'replacement',contextWindow:200000}],retryPolicy:{mode:'normal',maxRetries:0}}}}},{insert:[childProbe,{id:'work-defaults',name:join(home,'fixture.mjs')}]}]);
     const start=async()=>{
       client=new RuntimeClient({home,cwd:home,env:{NANO_TEST_KEY:'fixture'},onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
-      client.rpc.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[],repair_task_ids:[]}));
+      client.rpc.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[]}));
       client.rpc.handle('product.call',()=>{throw Error('Internal coordination must not use product messaging');});
       await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
       await client.rpc.request('session.ensure',{sessionId:'root',agentId:config.agentId,revision:'1',ownerId:'owner',cwd:home});
@@ -363,7 +363,7 @@ if(calls.length){for(const[index,[name,args]]of calls.entries())yield{type:'bloc
 yield{type:'block-end',index:0,block:{type:'text',text:'done'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home,[{insert:[childProbe,{id:'worker-selection',name:join(home,'fixture.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
-    client.rpc.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[],repair_task_ids:[]}));
+    client.rpc.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[]}));
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'root',agentId:'a',revision:'1',ownerId:'owner',cwd:home});
     const submit=(inputId:string,text:string)=>client!.rpc.request('session.submit',{sessionId:'root',inputId,mode:'followup',content:[{type:'text',text}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId}});

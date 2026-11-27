@@ -101,10 +101,10 @@ it.each([
     expect(visible).toContain('Messages and public delivery');
     for (const term of ['inbox_result', 'observation=live', 'observation=restored', 'external-user mapping', 'send_message_result', 'send_user_message_result']) expect(visible).not.toContain(term);
     expect(visible).toContain('WIRE_IDENTITY_' + cell);
-    expect(visible).toContain('Task ownership and changes');
-    expect(visible).toContain('Automatic continuation does not grant authority');
+    expect(visible).toContain('Task ownership, progressive goal graphs, and changes');
+    expect(visible).toContain('it grants no new human authority');
     expect(visible).toContain(taskTitle);
-    expect(visible).toContain('cron_disabled');
+    expect(visible).toContain('NORTH_STAR_' + cell);
     expect(visible).toContain('verified errors or missing steps');
     expect(visible).toContain('unverified workarounds');
     expect(visible).toContain('<available_skills>');
@@ -167,12 +167,13 @@ it.each([
     const connect = async () => {
       const runtime = new RuntimeClient({ home, cwd: home, env: { NANO_TEST_KEY: 'fixture' }, onLog: text => { logs += text; } });
       client = runtime;
+      let wakeRevision = 0;
       runtime.rpc.handle('product.task_context.prepare', request => {
         identity(request); prepareCalls++;
         const messages = [...originals.values()].filter(item => !consumed.has(item.inputId));
         // Activate the fixture Task inside the submitted turn. session.ensure's
         // asynchronous idle check must not race the human input into a prior turn.
-        if (messages.length) armed = true;
+        if (messages.length && !armed) { armed = true; wakeRevision++; }
         return { messages, revoked: [] };
       });
       runtime.rpc.handle('product.task_context.commit', request => {
@@ -185,13 +186,15 @@ it.each([
           inputId:item.inputId,consumedSeq:item.consumedSeq,status:'consumed',
         }))};
       });
+      runtime.rpc.handle('product.task_execution.ack', () => null);
       runtime.rpc.handle('product.task_execution.snapshot', request => {
         identity(request); snapshotCalls++;
-        return (armed ? { kind: 'continue', tasks: [{ graph_id: 'wire-graph', node_id: 'wire-node', title: taskTitle, status: 'waiting', revision: 1,
-          updated_at: '2026-10-30T12:00:00Z', conversation: { id: 'wire-fixed-task-chat' }, relative_url: '/tasks/wire-graph' }],
-          repair_task_ids: ['wire-graph/wire-node'], reason: 'cron_disabled', repairs: [{ graph_id: 'wire-graph', node_id: 'wire-node',
-            schedule_id: 'missing-schedule', checked_at: '2026-10-30T12:00:00Z', reason_code: 'missing', reason: 'The linked Schedule could not be found.' }] }
-          : { kind: 'quiescent', tasks: [], repair_task_ids: [] }) satisfies TaskExecutionSnapshot;
+        return (armed ? { kind: 'continue', tasks: [{ graph_id: 'wire-graph', node_id: 'wire-node', title: taskTitle, status: 'doing', revision: wakeRevision,
+          updated_at: '2026-10-30T12:00:00Z', unwoken_doing: true,
+          doing_wake: { revision: wakeRevision, at: '2026-10-30T12:00:00Z', actor: { type: 'user', id: 'wire-owner' }, assignee_id: binding.agentId },
+          root_node_id: 'wire-root', root_title: 'NORTH_STAR_' + cell, root_goal_summary: 'NORTH_STAR_' + cell,
+          conversation: { id: 'wire-fixed-task-chat' }, relative_url: '/tasks/wire-graph' }] }
+          : { kind: 'quiescent', tasks: [] }) satisfies TaskExecutionSnapshot;
       });
       const config = { agentId: binding.agentId, revision: '1', mode: 'global', workspace: home, provider: 'wire', model: 'fixture',
         displayName: 'WIRE_IDENTITY_' + cell, approval: { enabled: false },

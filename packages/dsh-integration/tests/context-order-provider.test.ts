@@ -65,7 +65,7 @@ it('orders native environment updates on Anthropic HTTP wire without rewriting r
     // These are intentional no-op product hosts, not MethodNotFound fallbacks.
     client.rpc.handle('product.task_context.prepare', () => { prepareCalls++; return { messages: [], revoked: [] }; });
     client.rpc.handle('product.task_context.commit', () => { commitCalls++; return { confirmed: [] }; });
-    client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [], repair_task_ids: [] }));
+    client.rpc.handle('product.task_execution.snapshot', () => ({ kind: 'quiescent', tasks: [] }));
     await client.rpc.request('initialize', { protocol: 1, agents: [current], bindings: [binding] });
     await client.rpc.request('session.ensure', binding);
   };

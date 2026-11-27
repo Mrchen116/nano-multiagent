@@ -1,8 +1,8 @@
 import { Graph, layout, type Point } from "@dagrejs/dagre";
 import type { TaskDependency, TaskGraph, TaskNode } from "./task-graphs-api";
 
-const CARD_WIDTH = 204;
-const CARD_HEIGHT = 136;
+const CARD_WIDTH = 228;
+const CARD_HEIGHT = 164;
 
 /** Round only the bends chosen by the layout, keeping each edge in its own corridor. */
 function roundedPath(points: Point[]) {

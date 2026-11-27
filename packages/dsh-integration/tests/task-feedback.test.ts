@@ -25,8 +25,9 @@ export function apply(ctx){let step=0;ctx.on('llm/stream',async function*(o){
     client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
     let applied=0,finished=false;
     const sent:unknown[]=[];
-    const task={graph_id:'graph',node_id:'child',title:'Child',status:'doing',updated_at:'2026-10-23T15:00:00Z',revision:1,conversation:{id:'original-chat'},relative_url:'/tasks/graph'};
-    client.rpc.handle('product.task_execution.snapshot',()=>finished?{kind:'quiescent',tasks:[],repair_task_ids:[]}:{kind:'continue',tasks:[task],repair_task_ids:[]});
+    const task={graph_id:'graph',node_id:'child',title:'Child',status:'doing' as const,updated_at:'2026-10-23T15:00:00Z',revision:1,unwoken_doing:true,doing_wake:{revision:1,at:'2026-10-23T15:00:00Z',actor:{type:'user' as const,id:'owner'},assignee_id:'a'},conversation:{id:'original-chat'},relative_url:'/tasks/graph'};
+    client.rpc.handle('product.task_execution.ack',()=>null);
+    client.rpc.handle('product.task_execution.snapshot',()=>finished?{kind:'quiescent',tasks:[]}:{kind:'continue',tasks:[task]});
     client.rpc.handle('product.call',value=>{
       const call=value as {method:string;args:Record<string,unknown>};
       if(call.method==='task_graph'){

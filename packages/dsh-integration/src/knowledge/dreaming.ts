@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DREAMING_SCHEDULE } from '@nano/product-contracts';
-import { mkdir, readFile, writeFile, readdir, chmod, rm } from 'node:fs/promises';
+import { lstat, mkdir, readFile, writeFile, readdir, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent';
@@ -12,7 +12,7 @@ import { assembleAgentPrompt } from '../prompt-assembly.js';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import type { DocumentMemory } from './document-memory.js';
 import { MemorySources, commitSourceRange, selectChildMaterial, renderSessionMaterials, type ChildMaterial, type CycleTarget, type FrozenBatch } from './memory-sources.js';
-import { dreamingDomain, dreamingStageTitles, type DreamingOwner, type DreamingRun, type TaskSummary } from './dreaming-state.js';
+import { dreamingDomain, dreamingStageTitles, type DreamingOwner, type DreamingPendingTaskContext, type DreamingRun, type TaskSummary } from './dreaming-state.js';
 import type { MemoryDocuments } from './memory-documents.js';
 import { atomicWrite } from './files.js';
 import { runDreamingAgent, memoryDigest } from './dreaming-agent.js';
@@ -26,11 +26,55 @@ interface Options {
   childConfiguration(sessionId: string): Promise<AgentConfiguration | undefined>;
   configOf(agent: Agent): AgentConfiguration | undefined; configs: Map<string, AgentConfiguration>; bindings: Map<string, SessionBinding>;
   held?(agentId: string): boolean; notify(): void;
+  timeZone?(): string;
+  resolveSession?(sessionId: string): Promise<Agent>;
 }
 interface Active { automatic: boolean; controller: AbortController; promise: Promise<unknown>; handle?: AgentHandle }
 const key = (id: string) => Buffer.from(id).toString('base64url');
 const retryDelays = [300000, 1800000, 7200000];
 const summaryKey = (agentId: string, sessionId: string) => key(`${agentId}:${sessionId}`);
+
+function canonicalTimeZone(raw?: string): string {
+  for (const candidate of [raw, Intl.DateTimeFormat().resolvedOptions().timeZone, 'UTC']) {
+    if (!candidate) continue;
+    try { return new Intl.DateTimeFormat('en-US', { timeZone: candidate }).resolvedOptions().timeZone; }
+    catch { /* Ignore malformed zone strings and fall back to host timezone. */ }
+  }
+  return 'UTC';
+}
+
+function localCalendarParts(ms: number, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(ms));
+  const get = (type: string) => Number(parts.find(part => part.type === type)?.value ?? '0');
+  const hour = get('hour');
+  return { year: get('year'), month: get('month'), day: get('day'), hour: hour === 24 ? 0 : hour, minute: get('minute'), second: get('second') };
+}
+
+function zonedOffsetMs(ms: number, timeZone: string): number {
+  const p = localCalendarParts(ms, timeZone);
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(ms / 1000) * 1000;
+}
+
+function zonedLocalToUtcMs(dateKey: string, hour: number, timeZone: string): number {
+  const [year, month, day] = dateKey.split('-').map(Number) as [number, number, number];
+  const naive = Date.UTC(year, month - 1, day, hour, 0, 0);
+  const first = naive - zonedOffsetMs(naive, timeZone);
+  return naive - zonedOffsetMs(first, timeZone);
+}
+
+function shiftDateKey(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split('-').map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+function cycleSlotKey(ms: number, timeZone: string, anchorHour: number): string {
+  const p = localCalendarParts(ms, timeZone);
+  const dayShift = p.hour < anchorHour ? -1 : 0;
+  return new Date(Date.UTC(p.year, p.month - 1, p.day + dayShift)).toISOString().slice(0, 10);
+}
 
 /** Runs low-priority memory maintenance in a native empty-context execution. */
 export class Dreaming {
@@ -103,18 +147,62 @@ export class Dreaming {
   async nextAutomaticAt(agentId: string): Promise<number | undefined> {
     const config = this.configuration(agentId);
     if (this.stopped || !config || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false || this.options.held?.(agentId)) return;
-    const timing = this.automaticTiming(config, await this.owner(config));
+    const timing = this.automaticTiming(config, await this.owner(config), this.now());
     return Math.max(timing.dueAt, timing.quietAt);
   }
 
   /** Wait only for work already admitted; never start an additional maintenance cycle. */
   async whenIdle(agentId: string): Promise<unknown> { return this.active.get(agentId)?.promise; }
 
-  private automaticTiming(config: AgentConfiguration, owner: DreamingOwner) {
-    const settings = config.knowledge?.dreaming;
+  /** Report whether the current 03:00 nightly slot has completed, plus retry bounds for proactive_nightly gating. */
+  async nightlyStatus(agentId: string, now = this.now()): Promise<{ completed: boolean; failures: number; retryAt?: number; nightWindowEndAt: number }> {
+    const tz = this.effectiveTimeZone();
+    const config = this.configuration(agentId);
+    const anchorHour = config?.knowledge?.dreaming?.nightlyHour ?? DEFAULT_DREAMING_SCHEDULE.nightlyHour;
+    const currentSlot = cycleSlotKey(now, tz, anchorHour);
+    const nightWindowEndAt = zonedLocalToUtcMs(currentSlot, 6, tz);
+    if (!config || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false) {
+      return { completed: true, failures: 0, nightWindowEndAt };
+    }
+    const owner = await this.owner(config);
     return {
-      dueAt: Math.max(owner.retryAt ?? 0, (owner.lastSuccessAutomatic ?? owner.activationAt) + (settings?.intervalMs ?? DEFAULT_DREAMING_SCHEDULE.intervalMs)),
-      quietAt: (this.lastActivity.get(config.agentId) ?? owner.activationAt) + (settings?.quietMs ?? DEFAULT_DREAMING_SCHEDULE.quietMs),
+      completed: !this.active.has(agentId) && owner.lastCompletedCycle === currentSlot,
+      failures: owner.failures,
+      retryAt: owner.retryAt,
+      nightWindowEndAt,
+    };
+  }
+
+  private effectiveTimeZone(): string {
+    return canonicalTimeZone(this.options.timeZone?.());
+  }
+
+  private automaticTiming(config: AgentConfiguration, owner: DreamingOwner, now = this.now()) {
+    const settings = config.knowledge?.dreaming;
+    const quietAt = (this.lastActivity.get(config.agentId) ?? owner.activationAt) + (settings?.quietMs ?? DEFAULT_DREAMING_SCHEDULE.quietMs);
+    if (settings?.intervalMs !== undefined) {
+      return {
+        dueAt: Math.max(owner.retryAt ?? 0, (owner.lastSuccessAutomatic ?? owner.activationAt) + settings.intervalMs),
+        quietAt,
+        explicitInterval: true,
+      };
+    }
+    const tz = this.effectiveTimeZone();
+    const anchorHour = settings?.nightlyHour ?? DEFAULT_DREAMING_SCHEDULE.nightlyHour;
+    const currentSlot = cycleSlotKey(now, tz, anchorHour);
+    const completedSlot = owner.lastCompletedCycle ?? cycleSlotKey(owner.lastSuccessAutomatic ?? owner.activationAt, tz, anchorHour);
+    let targetSlot: string;
+    if (completedSlot >= currentSlot) {
+      targetSlot = shiftDateKey(completedSlot, 1);
+    } else {
+      const nextUnfinished = shiftDateKey(completedSlot, 1);
+      // In evaluation step-wise progression now sits inside completedSlot; on real wake-from-sleep now is already in currentSlot.
+      targetSlot = now >= zonedLocalToUtcMs(currentSlot, anchorHour, tz) ? currentSlot : nextUnfinished;
+    }
+    return {
+      dueAt: Math.max(owner.retryAt ?? 0, zonedLocalToUtcMs(targetSlot, anchorHour, tz)),
+      quietAt,
+      explicitInterval: false,
     };
   }
 
@@ -123,44 +211,91 @@ export class Dreaming {
   private async owner(config: AgentConfiguration): Promise<DreamingOwner> {
     const existing = this.owners.get(config.agentId); if (existing) return existing;
     const promise = (async () => {
+      const tz = this.effectiveTimeZone();
+      const anchorHour = config.knowledge?.dreaming?.nightlyHour ?? DEFAULT_DREAMING_SCHEDULE.nightlyHour;
       const table = (await this.domain).table('owners'); const saved = table.get(key(config.agentId)); if (saved) {
         if (saved.protocol !== 2) throw new Error('Dreaming state needs the offline protocol-2 migration before maintenance can run.');
+        if (saved.lastCompletedCycle === undefined) {
+          saved.lastCompletedCycle = cycleSlotKey(saved.lastSuccessAutomatic ?? saved.activationAt, tz, anchorHour);
+          await table.put(key(config.agentId), saved);
+        }
         return saved;
       }
       const library = await this.documents.forConfig(config);
       let imported: Partial<DreamingOwner> | undefined;
       try { imported = JSON.parse(await readFile(join(library.workspace, '.nanoassistant/maintenance/dreaming-state.json'), 'utf8')) as DreamingOwner; }
       catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-      const owner: DreamingOwner = { protocol: 2, integrated: {}, activationAt: imported?.activationAt ?? this.now(), streams: imported?.streams ?? await this.sources.baseline(config.agentId), rotation: 0, failures: 0 };
+      const activationAt = imported?.activationAt ?? this.now();
+      const lastCompletedCycle = imported?.lastCompletedCycle ?? cycleSlotKey(imported?.lastSuccessAutomatic ?? activationAt, tz, anchorHour);
+      const owner: DreamingOwner = {
+        protocol: 2,
+        integrated: {},
+        ...(Array.isArray(imported?.integratedTaskContextIds) ? { integratedTaskContextIds: imported.integratedTaskContextIds } : {}),
+        activationAt,
+        ...(imported?.lastSuccessAutomatic !== undefined ? { lastSuccessAutomatic: imported.lastSuccessAutomatic } : {}),
+        lastCompletedCycle,
+        streams: imported?.streams ?? await this.sources.baseline(config.agentId),
+        rotation: 0,
+        failures: 0,
+      };
       await table.put(key(config.agentId), owner); return owner;
     })();
     this.owners.set(config.agentId, promise);
     try { return await promise; } catch (error) { this.owners.delete(config.agentId); throw error; }
   }
   private async saveOwner(agentId: string, owner: DreamingOwner) { await (await this.domain).table('owners').put(key(agentId), owner); }
-  private async saveRun(run: DreamingRun) { await (await this.domain).table('runs').put(run.id, { ...run, batch: { ...run.batch, units: run.batch.units.map(unit => ({ ...unit, events: [] })) } }); this.options.notify(); }
+  private async saveRun(run: DreamingRun) {
+    await (await this.domain).table('runs').put(run.id, {
+      ...run,
+      ...(run.pendingTaskContext ? { pendingTaskContext: run.pendingTaskContext.map(item => ({ ...item, text: '' })) } : {}),
+      batch: { ...run.batch, units: run.batch.units.map(unit => ({ ...unit, events: [] })) },
+    });
+    this.options.notify();
+  }
   /** Automatic admission never reserves the root Agent for the model call. */
   async tick(agentId: string, now = this.now()): Promise<unknown> {
     const config = this.configuration(agentId);
     const active = this.active.get(agentId);
     if (active) {
-      if (this.options.held?.(agentId) || config?.knowledge?.memoryMode === 'legacy' || active.automatic && config?.features?.dreaming === false) active.controller.abort();
+      if (this.options.held?.(agentId) || config?.knowledge?.enabled === false || config?.knowledge?.memoryMode === 'legacy' || active.automatic && config?.features?.dreaming === false) active.controller.abort();
       return;
     }
-    if (this.stopped || !config || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false || this.options.held?.(agentId)) return;
-    const parent = [...this.options.bindings.values()].filter(binding => binding.agentId === agentId).map(binding => this.ctx.agents.get(SessionId(binding.sessionId))).find(Boolean);
-    if (!parent) return;
-    const timing = this.automaticTiming(config, await this.owner(config));
+    if (this.stopped || !config || config.knowledge?.enabled === false || config.knowledge?.memoryMode === 'legacy' || config.features?.dreaming === false || this.options.held?.(agentId)) return;
+    const agentBindings = [...this.options.bindings.values()].filter(binding => binding.agentId === agentId);
+    let parent = agentBindings.map(binding => this.ctx.agents.get(SessionId(binding.sessionId))).find(Boolean);
+    // Keep cold unactivated Agents zero-I/O on periodic ticks; only inspect persisted owners or live sessions.
+    if (!parent && !this.owners.has(agentId) && !(await this.domain).table('owners').get(key(agentId))) return;
+    const timing = this.automaticTiming(config, await this.owner(config), now);
     if (now < timing.dueAt) return;
     const quiet = now >= timing.quietAt;
-    // A completed-step callback can admit work during a continuous turn, but only with spare provider capacity.
-    if (this.foregroundRequests > 0 || !quiet && parent.status === 'idle') return;
+    if (this.foregroundRequests > 0) return;
+    if (!timing.explicitInterval && !quiet) return;
+    if (!parent && this.options.resolveSession) {
+      for (const binding of agentBindings) {
+        if (!await this.ctx.sessionPersistence.stat(SessionId(binding.sessionId))) continue;
+        parent = await this.options.resolveSession(binding.sessionId);
+        break;
+      }
+    }
+    if (!parent) return;
+    if (timing.explicitInterval && !quiet && parent.status === 'idle') return;
     return this.start(parent, true);
   }
-  private async refreshSources(parent: Agent, config: AgentConfiguration, signal: AbortSignal) {
-    if (!config.personal) return;
+  private async refreshSources(parent: Agent, config: AgentConfiguration, signal: AbortSignal, includePendingTaskContext = false): Promise<DreamingPendingTaskContext[]> {
+    if (!config.personal) return [];
     await this.documents.sourcesPending(config.agentId);
-    await this.ctx.nanoProduct.call('memory.sources.refresh', {}, { agent: parent, signal, callId: ToolCallId(`dreaming-policy-${randomUUID()}`) });
+    const response = await this.ctx.nanoProduct.call(
+      'memory.sources.refresh',
+      includePendingTaskContext ? { includePendingTaskContext: true } : {},
+      { agent: parent, signal, callId: ToolCallId(`dreaming-policy-${randomUUID()}`) },
+    ) as { pendingTaskContext?: unknown } | undefined;
+    if (!includePendingTaskContext || !Array.isArray(response?.pendingTaskContext)) return [];
+    return response.pendingTaskContext.filter((item): item is DreamingPendingTaskContext =>
+      !!item && typeof item === 'object'
+      && typeof (item as DreamingPendingTaskContext).messageId === 'string'
+      && typeof (item as DreamingPendingTaskContext).conversationId === 'string'
+      && typeof (item as DreamingPendingTaskContext).timeMs === 'number'
+      && typeof (item as DreamingPendingTaskContext).text === 'string');
   }
   /** Manually requested work bypasses automatic timing, not scope, budgets or lifecycle. */
   start(parent: Agent, automatic: boolean, _requestRef?: string, importLegacy = false): Promise<unknown> {
@@ -180,11 +315,12 @@ export class Dreaming {
     owner.lastAttempt=this.now();await this.saveOwner(config.agentId,owner);
     const completed:string[]=[];let run:DreamingRun|undefined;
     try{
-      await this.refreshSources(parent,config,signal);
+      let pendingTaskPool=await this.refreshSources(parent,config,signal,true);
       const eligibility=await library.status();
       if(eligibility.sourcesPending)throw new Error('Source eligibility has not been refreshed.');
       const baselines=await this.sources.baseline(config.agentId);
       for(const [id,progress] of Object.entries(baselines))owner.streams[id]??=progress;
+      owner.streams[parent.id]??={baseline:-1,cursor:-1};
       await this.saveOwner(config.agentId,owner);
       const target=await this.sources.freezeTarget(config.agentId,owner.streams,owner.activationAt,{generation:eligibility.generation});
       const cycleId=randomUUID();const limit=await dreamingInputLimit(this.ctx,config,signal);
@@ -193,28 +329,63 @@ export class Dreaming {
       let importPending=importLegacy;
       while(true){
         signal.throwIfAborted();await assertDreamingSources(library,target.generation);
-        const options={maxInputTokens:budget,rotation:owner.rotation++,target};
+        const integratedTaskIds=new Set(owner.integratedTaskContextIds??[]);
+        const options={maxInputTokens:budget,rotation:owner.rotation++,target,excludeTaskContextIds:integratedTaskIds};
         let batch=deferred ? {...deferred.batch,id:randomUUID(),units:[],text:'',inputTokens:0} : await this.sources.freeze(config.agentId,owner.streams,options);
+        const batchTaskIds=new Set<string>();
+        for(const unit of batch.units){
+          for(const item of unit.events as Array<Record<string,unknown>>){
+            const record=item.type==='source_text_continuation'?(item.source as Record<string,unknown>|undefined):item;
+            const src=record?.source as {kind?:string;channel?:string;messageId?:string}|undefined;
+            if(src?.kind==='nano-system'&&src.channel==='task-context'){
+              batchTaskIds.add(String(src.messageId??record?.messageId??''));
+            }
+          }
+        }
+        pendingTaskPool=pendingTaskPool.filter(item=>!integratedTaskIds.has(item.messageId)&&!batchTaskIds.has(item.messageId));
+        let selectedPending=deferred?[]:[...pendingTaskPool];
         let materials=deferred ? [] : await this.sources.children(config.agentId,target,batch,options);
-        const includeConversations=()=>{batch.conversations=[...new Set([...(batch.conversations??[]),...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents]))])];};
+        const baseConversations=[...(batch.conversations??[])];
+        const baseCutoff=batch.cutoffs?.[parent.id]??target.roots[parent.id]?.time??0;
+        const includeConversations=()=>{
+          batch.conversations=[...new Set([
+            ...baseConversations,
+            ...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents])),
+            ...selectedPending.map(item=>item.conversationId),
+          ])];
+          if(selectedPending.length){
+            batch.cutoffs??={};
+            batch.cutoffs[parent.id]=Math.max(baseCutoff,owner.activationAt,...selectedPending.map(item=>item.timeMs));
+          }else if(batch.cutoffs){
+            batch.cutoffs[parent.id]=baseCutoff;
+          }
+        };
         includeConversations();
         const cache=(await this.domain).table('summaries');
         const pendingMaterial=materials.some(material=>owner.integrated[material.sessionId]!==material.sourceVersion);
         const check=(await library.repositoryIssues()).length>0;
         const hasProgress=batch.ranges.some(range=>range.through>range.start||range.continuation);
-        if(!batch.units.length&&!pendingMaterial&&!deferred?.summaries.length&&!check&&!importPending){
+        if(!batch.units.length&&!selectedPending.length&&!pendingMaterial&&!deferred?.summaries.length&&!check&&!importPending){
           // Filtered system events can advance without a model; genuine blocked prefixes cannot.
           for(const range of batch.ranges)commitSourceRange(owner.streams[range.sessionId]!,range);
           await this.saveOwner(config.agentId,owner);
           const rootPending=Object.entries(target.roots).some(([id,cut])=>owner.streams[id]!.cursor<cut.through||owner.streams[id]!.continuation);
           if(target.blocked.length||batch.blocked.length&&(!hasProgress||rootPending))throw new Error(`Source ranges remain blocked: ${JSON.stringify([...target.blocked,...batch.blocked])}`);
           if(rootPending)throw new Error('No safe progress towards the frozen source boundary.');
-          owner.failures=0;delete owner.retryAt;if(work.automatic)owner.lastSuccessAutomatic=this.now();
+          owner.failures=0;delete owner.retryAt;
+          if(work.automatic){
+            const finishedAt=this.now();
+            owner.lastSuccessAutomatic=finishedAt;
+            if(config.knowledge?.dreaming?.intervalMs===undefined){
+              owner.lastCompletedCycle=cycleSlotKey(finishedAt,this.effectiveTimeZone(),config.knowledge?.dreaming?.nightlyHour??DEFAULT_DREAMING_SCHEDULE.nightlyHour);
+            }
+          }
           await this.saveOwner(config.agentId,owner);
           return completed.length ? {accepted:true,state:'completed',runIds:completed} : {accepted:false,completed:false,reason:'no_eligible_increment'};
         }
         run=this.newRun(parent,config,work,library,target,cycleId,batch,'consolidate');
         run.importLegacy=importPending;
+        if(selectedPending.length)run.pendingTaskContext=selectedPending;
         await this.prepare(run,library);
         await this.saveRun(run);
         const current=run;
@@ -238,14 +409,25 @@ export class Dreaming {
           let input=await render();
           let measured=await capacity.measure(input);
           while(measured>capacity.limit){
-            const excess=measured-capacity.limit;
-            materialBudget=Math.min(materialBudget-1,current.batch.inputTokens-excess-512);
-            if(materialBudget<=0||!current.batch.units.length)throw new Error('Dreaming fixed input leaves no capacity for source material.');
-            const id=current.batch.id;
-            current.batch=await this.sources.freeze(config.agentId,owner.streams,{...options,maxInputTokens:materialBudget});
-            current.batch.id=id;
-            batch=current.batch;
-            materials=await this.sources.children(config.agentId,target,batch,options);
+            if(current.batch.units.length>0){
+              const excess=measured-capacity.limit;
+              materialBudget=Math.min(materialBudget-1,current.batch.inputTokens-excess-512);
+              if(materialBudget<=0){
+                if(!selectedPending.length)throw new Error('Dreaming fixed input leaves no capacity for source material.');
+                current.batch={...current.batch,units:[],text:'',inputTokens:0,ranges:current.batch.ranges.map(r=>({...r,through:r.start,continuation:undefined}))};
+              }else{
+                const id=current.batch.id;
+                current.batch=await this.sources.freeze(config.agentId,owner.streams,{...options,maxInputTokens:materialBudget});
+                current.batch.id=id;
+              }
+              batch=current.batch;
+              materials=await this.sources.children(config.agentId,target,batch,options);
+            }else if(selectedPending.length>1){
+              selectedPending=selectedPending.slice(0,Math.max(1,Math.floor(selectedPending.length/2)));
+              current.pendingTaskContext=selectedPending;
+            }else{
+              throw new Error('Dreaming fixed input leaves no capacity for source material.');
+            }
             includeConversations();
             input=await render();
             measured=await capacity.measure(input);
@@ -278,7 +460,7 @@ export class Dreaming {
             if(materialSize<=budget&&await capacity.measure(candidate)<=capacity.limit){input=candidate;usedMaterial=materialSize;}
             else{current.summaries.pop();remaining.push(summary);}
           }
-          if(remaining.length&&!batch.units.length&&!current.summaries.length)throw new Error('A task summary does not fit the available input capacity; it remains unintegrated.');
+          if(remaining.length&&!batch.units.length&&!selectedPending.length&&!current.summaries.length)throw new Error('A task summary does not fit the available input capacity; it remains unintegrated.');
           return input;
         });
         signal.throwIfAborted();await assertDreamingSources(library,run.generation);
@@ -351,6 +533,15 @@ export class Dreaming {
     else{
       inputs.push('# Batch materials (evidence included below)');
       for(const material of renderSessionMaterials(run.batch.units))inputs.push(`## Main Agent trajectory\n${material.text}`);
+      if(run.pendingTaskContext?.length){
+        const renderedPending=run.pendingTaskContext.map(item=>[
+          `[task context] · ${item.timeMs>0?new Date(item.timeMs).toISOString():'unknown-time'}`,
+          `messageId: ${item.messageId}`,
+          `conversationId: ${item.conversationId}`,
+          item.text,
+        ].join('\n')).join('\n\n');
+        inputs.push(`## Unconsumed task context updates\n${renderedPending}`);
+      }
       for(const summary of run.summaries){
         const text=await readFile(summary.path,'utf8');if(memoryDigest(text)!==summary.hash)throw new Error('Task summary changed before snapshot.');
         inputs.push(`## ${summary.noSignal?'Subagent trajectory summary with no signal; old summary retired':owner.integrated[summary.sessionId]?'Updated subagent trajectory summary; replaces the same source':'New subagent trajectory summary'}\nSource session_id: ${summary.sessionId}\n\n${text}`);
@@ -358,6 +549,16 @@ export class Dreaming {
       const entryIssue=await library.entryIssue();
       const entry=entryIssue?undefined:(await library.context()).entry;
       inputs.push(`Contents of ${join(library.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${entryIssue?`${entryIssue}. Restore a concise regular file from the current pages and this batch before completing.`:entry??'Read the complete entry at this path.'}\n</memory_content>`);
+      if(library.role==='personal'){
+        const signalsPath=join(library.root,'knowledge/proactivity-signals.md');
+        const signalsBody=await lstat(signalsPath).then(
+          info=>info.isFile()?readFile(signalsPath,'utf8'):undefined,
+          error=>(error as NodeJS.ErrnoException).code==='ENOENT'?undefined:Promise.reject(error),
+        );
+        if(signalsBody!==undefined){
+          inputs.push(`Contents of ${signalsPath} — background single-signal observation pool (Dreaming-only; never link from MEMORY.md):\n<proactivity_signals>\n${signalsBody||'(empty)'}\n</proactivity_signals>`);
+        }
+      }
     }
     if(run.importLegacy){
       const {legacy}=JSON.parse(await readFile(join(run.directory,'manifest.json'),'utf8'));
@@ -397,6 +598,10 @@ export class Dreaming {
   private async commitProgress(run:DreamingRun,owner:DreamingOwner){
     for(const range of run.batch.ranges)if(owner.streams[range.sessionId])commitSourceRange(owner.streams[range.sessionId]!,range);
     for(const summary of run.summaries)owner.integrated[summary.sessionId]=summary.sourceVersion;
+    if(run.pendingTaskContext?.length){
+      const merged=[...(owner.integratedTaskContextIds??[]),...run.pendingTaskContext.map(item=>item.messageId)];
+      owner.integratedTaskContextIds=[...new Set(merged)].slice(-512);
+    }
     await this.saveOwner(run.agentId,owner);
   }
   private async disposeHandle(work:Active){
@@ -433,7 +638,7 @@ export class Dreaming {
     try{limit=await dreamingInputLimit(this.ctx,config);}
     catch(error){return {active:this.active.has(agentId),backlog:{state:'model_capacity_unavailable',scope:'unavailable',reason:String(error)}};}
     const target=await this.sources.freezeTarget(agentId,owner.streams,owner.activationAt,{generation:policy.generation});
-    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),rotation:owner.rotation,target};
+    const options={maxInputTokens:Math.min(limit,config.knowledge?.dreaming?.maxInputTokens??limit),rotation:owner.rotation,target,excludeTaskContextIds:new Set(owner.integratedTaskContextIds??[])};
     const batch=await this.sources.freeze(agentId,owner.streams,options);
     const materials=await this.sources.children(agentId,target,{...batch,ranges:[],cutoffs:{}},options);
     const summaries=(await this.domain).table('summaries');

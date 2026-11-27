@@ -141,6 +141,7 @@ CREATE TABLE IF NOT EXISTS messages (
     lifecycle_revision INTEGER,
     content TEXT NOT NULL,
     attachments_json TEXT NOT NULL DEFAULT '[]',
+    task_cards_json TEXT,
     delivery_status TEXT NOT NULL,
     created_at TEXT NOT NULL,
     tool_calls_json TEXT,

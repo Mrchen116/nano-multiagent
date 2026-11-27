@@ -65,6 +65,11 @@ extension AgentDraft {
         for (key, value) in features where result[key] == nil && !["memory_curation", "skill_creation"].contains(key) {
             result[key] = value
         }
+        if definitions.contains(where: { $0.key == "proactive_planning" }),
+           features["proactive_planning"] == nil,
+           (result["task_graph"] == false || !tool_allowlist.contains("task_graph")) {
+            result["proactive_planning"] = false
+        }
         if let pluginFeature = definitions.first(where: { $0.key == "plugin_management" }), features["plugin_management"] == nil {
             let hasManager = tool_allowlist.contains("plugin_manager")
             let hasSkills = pluginFeature.requires.skills.allSatisfy { skillSelected($0) }

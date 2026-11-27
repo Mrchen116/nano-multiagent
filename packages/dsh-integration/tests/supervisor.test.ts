@@ -75,7 +75,7 @@ it('recycles a live process with stalled asynchronous FS and retains old and new
     onReady:async()=>{generations++;},onError:error=>errors.push(String(error))});
   supervisor.handle('product.task_context.prepare',()=>({messages:[],revoked:[]}));
   supervisor.handle('product.task_context.commit',()=>null);
-  supervisor.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[],repair_task_ids:[]}));
+  supervisor.handle('product.task_execution.snapshot',()=>({kind:'quiescent',tasks:[]}));
   try {
     // Patch only the test subprocess's public builtin. The second process can
     // read normally; stdio and JavaScript remain responsive in the stalled one.

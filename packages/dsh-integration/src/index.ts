@@ -25,12 +25,13 @@ import { RpcError, RpcPeer } from './rpc.js';
 import { recordToolPresentations } from './tool-presentation.js';
 import { scheduleEvidence } from './schedule-evidence.js';
 import { isHumanSource } from './input-source.js';
-import { CapabilityState, needsSchedules, configurationBlocks } from './capability-state.js';
-import {workObject, type RuntimeEvent} from '@nano/product-contracts';
+import { CapabilityState, capabilityDraft, needsSchedules, configurationBlocks } from './capability-state.js';
+import {workObject, type ProactiveSyncObservationsResult, type RuntimeEvent} from '@nano/product-contracts';
 import type { RuntimePublicationEvidence, RuntimeWorkCatalog, RuntimeWorkChild, RuntimeWorkPage } from '@nano/product-contracts';
 import { jsonBytes, workPage, workPageBytes, workPageItems, WorkCatalogPages } from './work-page.js';
-import { type CapabilityTarget } from '@nano/product-contracts/capabilities';
+import { definitionsForRole, effectiveFeatures, type CapabilityTarget } from '@nano/product-contracts/capabilities';
 import { createSessionSchedule, CronOwners, deleteSessionSchedule, listSessionSchedules, updateSessionSchedule } from './cron-owners.js';
+import { LogicalCronClock } from './features/cron.js';
 import { ConfigurationScopes } from './agent-config.js';
 import { assembleAgentPrompt } from './prompt-assembly.js';
 import { TaskExecutionDriver } from './task-execution.js';
@@ -131,10 +132,15 @@ export default class NanoRuntime {
   private readonly controller;
   private readonly chatScope: ChatScope;
   private readonly models: Promise<ModelPolicy>;
+  private readonly knowledgeRuntime: Promise<KnowledgeRuntime>;
   private readonly cron: CronOwners;
   private readonly capabilities: CapabilityState;
   private tasks!: TaskExecutionDriver;
   private readonly sessionController: Promise<SessionController>;
+  private ownerTimezone?: string;
+  private logicalNowMs?: number;
+  private readonly clockNow = () => this.logicalNowMs ?? Date.now();
+  private readonly syncedScheduleTurns = new Map<string, number>();
 
   constructor(private readonly ctx: Context, config?: {agentDeletion?: boolean}) {
     const inspection = process.env.NANO_CONFIGURATION_INSPECTION_ID;
@@ -188,6 +194,18 @@ export default class NanoRuntime {
     this.capabilities = new CapabilityState((config, names) => configurationService.selection(config, names));
     const history = new NativeHistory(ctx, process.env.DSH_HOME!);
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!, (agentId, action) => !['catalog', 'history', 'list', 'delete'].includes(action) && (this.capabilities.held(agentId, {kind: 'feature', name: 'cron_scheduling'}) || this.capabilities.held(agentId, {kind: 'tool', name: `schedule_${action}`})));
+    const self = this;
+    new LogicalCronClock(ctx, {
+      get enabled() { return self.cron.isLogicalClock; },
+      now: () => self.clockNow(),
+      createSchedule: (agentId, sessionId, args, signal) => self.cron.createAtLogicalClock(agentId, sessionId, args, signal),
+      listSchedules: (agentId, sessionId) => self.cron.listAtLogicalClock(agentId, sessionId),
+      alignSchedule: (agentId, scheduleId) => self.cron.alignToLogicalClock(agentId, scheduleId, self.clockNow()),
+    });
+    const activeSubagents = new Set<string>();
+    let wakeSubagentIdle: (() => void) | undefined;
+    ctx.on('subagent/start', ({ runId }) => { activeSubagents.add(runId); });
+    ctx.on('subagent/end', ({ runId }) => { activeSubagents.delete(runId); wakeSubagentIdle?.(); });
     ctx.plugin(ConfigurationScopes, {configurations:this.configurations, changed:agentId => this.peer.notify('configuration.catalog.changed', {agentId})});
     const descendantReader = new DescendantReader(ctx);
     const boundRoot = (id: string): string | undefined => {
@@ -246,8 +264,11 @@ export default class NanoRuntime {
     const knowledgeFiber = ctx.plugin(KnowledgeRuntime, { configOf: (agent: Agent) => configurationService.forAgent(agent), configs: this.configurations, bindings: this.bindings,
       childConfiguration: (sessionId: string) => history.childConfiguration(sessionId),
       roleWorkspace: async (agentId: string) => (await this.peer.request('knowledge.role.workspace', {agentId}) as {workspace: string | null}).workspace,
-      notify: () => this.peer.notify('knowledge.changed', {}), held: (agentId: string, kind: 'memory' | 'skills') => lifecycle.current(agentId).disabled === true || this.capabilities.held(agentId, {kind: 'feature', name: kind === 'memory' ? 'memory_curation' : 'skill_creation'}) });
-    const knowledge = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
+      notify: () => this.peer.notify('knowledge.changed', {}),
+      held: (agentId: string, kind: 'memory' | 'skills') => lifecycle.current(agentId).disabled === true || this.capabilities.held(agentId, {kind: 'feature', name: kind === 'memory' ? 'memory_curation' : 'skill_creation'}),
+      timeZone: () => this.ownerTimezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+      resolveSession: (sessionId: string) => this.owned.resolve(sessionId, false) });
+    const knowledge = this.knowledgeRuntime = new Promise<KnowledgeRuntime>(resolve => { ctx.inject(['nanoKnowledge'], child => { resolve(child.nanoKnowledge); }); });
     let updateServices: { models: ModelPolicy; knowledge: KnowledgeRuntime; workflow: NanoWorkflowEngine } | undefined;
     const update = new UpdateBarrier({
       agents: () => ctx.agents.list(),
@@ -303,7 +324,47 @@ export default class NanoRuntime {
     }, {prepend: true});
     ctx.on('tools/result', exec => { if (exec.agent) { this.capabilities.end(`${exec.agent.id}:${exec.callId}`); this.capabilities.end(`${exec.agent.id}:${exec.callId}:skill`); } });
     ctx.plugin(ProductBridge, { peer: this.peer, bindings: this.bindings });
-    this.tasks=new TaskExecutionDriver(ctx,{peer:this.peer,bindings:this.bindings,configuration:agent=>configurationService.forAgent(agent),lifecycleRevision:agentId=>lifecycle.current(agentId).revision,allowed:agentId=>!lifecycle.current(agentId).disabled});
+    this.tasks=new TaskExecutionDriver(ctx,{peer:this.peer,bindings:this.bindings,configuration:agent=>configurationService.forAgent(agent),lifecycleRevision:agentId=>lifecycle.current(agentId).revision,allowed:agentId=>!lifecycle.current(agentId).disabled,clockNow:this.clockNow});
+    ctx.on('agent/disposed', ({ agent }) => { this.syncedScheduleTurns.delete(agent.id); });
+    ctx.on('agent/pre-step', async ({ agent, messages, turn }, next) => {
+      const binding = this.bindings.get(agent.id);
+      const config = binding && configurationService.forAgent(agent);
+      if (binding && config?.personal && messages.some(m => m.source.kind === 'schedule') && this.syncedScheduleTurns.get(agent.id) !== turn) {
+        this.syncedScheduleTurns.set(agent.id, turn);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const synced = await Promise.race([
+            this.peer.request('product.proactive.sync_observations', {
+              sessionId: agent.id, agentId: binding.agentId, ownerId: binding.ownerId,
+            }) as Promise<ProactiveSyncObservationsResult>,
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('sync_observations_timeout')), 5000); timer.unref(); }),
+          ]);
+          if (synced?.unread_conversations?.length) {
+            const msgId = MessageId(`schedule-observation-sync:${agent.id}:${turn}`);
+            messages.push(freezeMessage({
+              id: msgId,
+              role: 'user',
+              source: {
+                kind: 'nano-system',
+                actorId: binding.agentId,
+                channel: 'schedule-observation-sync',
+                messageId: msgId,
+                lifecycle_revision: lifecycle.current(binding.agentId).revision,
+              },
+              content: [{
+                type: 'text',
+                text: `Fresh observation sync completed before this scheduled check. Unread conversations in your Inbox (read relevant targets with inbox(action="read", target=...) before sending any reminder or follow-up):\n${JSON.stringify(synced.unread_conversations)}`,
+              }],
+            }));
+          }
+        } catch {
+          // Offline center or 5s timeout degrades gracefully without failing the scheduled turn.
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      }
+      return next();
+    }, { prepend: true });
     // Both hooks prepend: register catch-up last so its authority cut precedes Task decisions.
     const taskContext = new TaskContextDriver(ctx,{bindings:this.bindings,peer:this.peer,availability:(agent,available,inputs)=>this.tasks.contextAvailability(agent,available,inputs),lifecycleRevision:agentId=>this.lifecycle.current(agentId).revision});
     ctx.on('agent/pre-step', async ({agent}, next) => disabled(agent.id) ? {kind: 'reject'} : next(), {prepend: true});
@@ -443,7 +504,8 @@ export default class NanoRuntime {
     handle('runtime.health', async () => { await stat(process.cwd()); return {healthy:true}; });
     handle('initialize', async value => {
       if (this.accepting) throw new RpcError(-32002, 'Runtime is already initialized');
-      const config = value as { recoveryMarkers?: boolean; observationOnly?: boolean; lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; taskStopFences?: (string|{sessionId:string;stoppedAt?:string})[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
+      const config = value as { recoveryMarkers?: boolean; observationOnly?: boolean; ownerTimezone?: string; initialLogicalNowMs?: number; lifecycle?: Record<string, RuntimeLifecycle>; blockedScheduleIds?: string[]; protocol: number; pendingConfigurations?: {operationId: string; fingerprint: string; config: AgentConfiguration}[]; taskStops?: string[]; taskStopFences?: (string|{sessionId:string;stoppedAt?:string})[]; packageManager?: ProfilePnpmInvocation; agents: AgentConfiguration[]; bindings: SessionBinding[]; providers?: Parameters<NativeModelSetup['apply']>[0] };
+      if (config.ownerTimezone) this.ownerTimezone = config.ownerTimezone;
       await deletion?.restore();
       for (const binding of config.bindings) this.bindings.set(binding.sessionId, binding);
       for (const agent of config.agents) {
@@ -463,6 +525,11 @@ export default class NanoRuntime {
       await workflowFiber.await();
       await workflow;
       await knowledgeFiber.await();
+      if (typeof config.initialLogicalNowMs === 'number' && Number.isSafeInteger(config.initialLogicalNowMs)) {
+        this.logicalNowMs = config.initialLogicalNowMs;
+        (await knowledge).dreaming.useClock(this.clockNow);
+        this.cron.useClock(this.clockNow);
+      }
       // Archive readers must not replay recovery jobs whose saved paths point outside the copy.
       if (config.observationOnly && config.agents.some(agent => !config.lifecycle?.[agent.agentId]?.disabled)) throw new RpcError(-32002, 'Observation-only initialization requires disabled agents');
       if (!config.observationOnly) await (await knowledge).recover(agentId => deletion?.retired(agentId) === true);
@@ -661,8 +728,9 @@ export default class NanoRuntime {
         const events = agent.session.snapshotEvents();
         const lastEnd = events.findLast(event => event.type === 'turn/end')?.seq ?? -1;
         if ([...agent.inbox.nextTurn, ...agent.inbox.nextStep].some(message => message.source.kind === 'nano-system' && message.source.channel === 'heartbeat') || events.some(event => event.seq > lastEnd && event.type === 'user/message' && event.data.source.kind === 'nano-system' && event.data.source.channel === 'heartbeat')) busy.push({kind: 'feature', name: 'heartbeat'});
+        if ([...agent.inbox.nextTurn, ...agent.inbox.nextStep].some(message => message.source.kind === 'nano-system' && ['proactive_review', 'proactive_nightly'].includes(String(message.source.channel))) || events.some(event => event.seq > lastEnd && event.type === 'user/message' && event.data.source.kind === 'nano-system' && ['proactive_review', 'proactive_nightly'].includes(String(event.data.source.channel)))) busy.push({kind: 'feature', name: 'proactive_planning'});
       }
-      return {checked_at: new Date().toISOString(), active_schedules: schedules.filter(task => task.status === 'active').length, busy};
+      return {checked_at: new Date(this.clockNow()).toISOString(), active_schedules: schedules.filter(task => task.status === 'active').length, busy};
     };
     const prepare = async (input: {operationId: string; fingerprint: string; config: AgentConfiguration; initialRole?: string}, protectChat = false) => {
       if (!input.operationId || !input.fingerprint) throw new RpcError(-32602, 'Configuration operation identity is required');
@@ -712,6 +780,27 @@ export default class NanoRuntime {
       const metadataOnly = previous && scopes.applyRevisionOnly(next);
       if (metadataOnly) await modelPolicy.advanceRevision(next);
       if (previous && !metadataOnly) {
+        if (next.personal) {
+          const nextEffective = effectiveFeatures(next.features, definitionsForRole(true), capabilityDraft(next));
+          if (nextEffective.proactive_planning !== true) {
+            for (const binding of this.bindings.values()) {
+              if (binding.agentId !== next.agentId) continue;
+              const boundAgent = ctx.agents.get(SessionId(binding.sessionId));
+              if (!boundAgent) continue;
+              for (const pending of [...boundAgent.inbox.nextTurn, ...boundAgent.inbox.nextStep]) {
+                if (pending.source.kind === 'nano-system' && ['proactive_review', 'proactive_nightly'].includes(String(pending.source.channel))) {
+                  boundAgent.inbox.remove(pending.id);
+                }
+              }
+              const events = boundAgent.session.snapshotEvents();
+              const lastEnd = events.findLast(event => event.type === 'turn/end')?.seq ?? -1;
+              const openInputs = events.filter(event => event.seq > lastEnd && event.type === 'user/message');
+              if (openInputs.length > 0 && openInputs.every(event => event.type === 'user/message' && event.data.source.kind === 'nano-system' && ['proactive_review', 'proactive_nightly'].includes(String(event.data.source.channel)))) {
+                boundAgent.cancel({ kind: 'user' }, { keepInbox: true });
+              }
+            }
+          }
+        }
         await (await knowledge).dreaming.configurationChanging(next);
         (await configuration).restrictSelection(next);
         const restricted = { ...previous.features };
@@ -841,13 +930,19 @@ export default class NanoRuntime {
         scheduleOwner(input.agentId, input.sessionId);
         return this.cron.history(input.agentId, input.sessionId, input.args.id, input.args.limit);
       },
-      create: input => {
+      create: async input => {
         scheduleOwner(input.agentId, input.sessionId);
+        if (this.cron.isLogicalClock) {
+          const created = await this.cron.createAtLogicalClock(input.agentId, input.sessionId, input.args as unknown as Record<string, unknown>);
+          if ('code' in created) throw new RpcError(-32602, created.message);
+          return created;
+        }
         return this.cron.withSchedule(input.agentId, input.action, service =>
           createSessionSchedule(service, input.sessionId, input.args));
       },
       list: input => {
         scheduleOwner(input.agentId, input.sessionId);
+        if (this.cron.isLogicalClock) return this.cron.listAtLogicalClock(input.agentId, input.sessionId);
         return this.cron.withSchedule(input.agentId, input.action, service => listSessionSchedules(service, input.sessionId));
       },
       update: input => {
@@ -1094,15 +1189,57 @@ export default class NanoRuntime {
         for(const message of messages)await this.submit({sessionId,inputId:message.inputId,content:message.content,mode:'inject',source:{kind:'system',channel:'task-context',actorId:agentId,messageId:message.inputId,conversationId:message.conversationId,...(message.humanControl?{humanTaskControl:message.humanControl}:{})}});
         await this.ctx.sessions.flush(agent.session);return {durable:true};
       },
-      'task.wait.repair': async value=>{
-        const {agentId,sessionId,inputId}=value;
-        if(this.bindings.get(sessionId)?.agentId!==agentId||!inputId.startsWith('task-wait-repair:'))throw new RpcError(-32602,'Invalid Task repair identity');
-        this.lifecycle.assertEnabled(agentId);await this.tasks.repair(await this.agent(sessionId),inputId);return {durable:true};
+      'runtime.timezone': value => {
+        this.ownerTimezone = value.timezone;
+        return { ok: true };
+      },
+      'runtime.clock.advance': async value => {
+        if (!this.cron.isLogicalClock) throw new RpcError(-32002, 'Logical clock is not enabled on this runtime');
+        if (value.nowMs < (this.logicalNowMs ?? 0)) throw new RpcError(-32602, 'Logical clock cannot move backwards');
+        this.logicalNowMs = value.nowMs;
+        const activeAgentIds = [...new Set([...this.configurations.values()].map(item => item.agentId))]
+          .filter(agentId => !lifecycle.current(agentId).disabled && deletion?.retired(agentId) !== true);
+        const settleRuntime = async () => {
+          for (;;) {
+            const live = [...this.bindings.keys()]
+              .map(id => ctx.agents.get(SessionId(id)))
+              .filter((agent): agent is Agent => !!agent);
+            await Promise.all(live.map(agent => agent.whenIdle()));
+            for (const agentId of activeAgentIds) await (await knowledge).dreaming.whenIdle(agentId);
+            const workerPending = (await Promise.all([...this.bindings.keys()].map(id => workers.hasPendingWork(id)))).some(Boolean);
+            if (!activeSubagents.size && !workerPending && live.every(agent => agent.status === 'idle' && !agent.inbox.nextTurn.length && !agent.inbox.nextStep.length)) {
+              await Promise.all(live.map(agent => this.flush(agent)));
+              break;
+            }
+            if (activeSubagents.size) {
+              await new Promise<void>(resolve => { wakeSubagentIdle = resolve; setTimeout(resolve, 100).unref(); });
+            } else {
+              await new Promise<void>(resolve => { setTimeout(resolve, 50).unref(); });
+            }
+          }
+        };
+        await this.cron.advanceClock(activeAgentIds, value.nowMs, async (agentId, sessionId, msg) => {
+          const agent = await this.agent(sessionId);
+          const stamped = freezeMessage({
+            ...msg,
+            source: { ...msg.source, lifecycle_revision: lifecycle.current(agentId).revision },
+          });
+          agent.followup(stamped);
+          await this.flush(agent);
+        });
+        if (value.settle) await settleRuntime();
+        for (const agentId of activeAgentIds) {
+          await (await knowledge).dreaming.tick(agentId, value.nowMs);
+          await (await knowledge).dreaming.whenIdle(agentId);
+        }
+        if (value.settle) await settleRuntime();
+        return { nowMs: value.nowMs };
       },
       'schedule.wait.inspect': async value=>{
         const {agentId,sessionId,scheduleId}=value;
         const config=[...this.configurations.values()].find(config=>config.agentId===agentId);
-        const checked_at=new Date().toISOString();
+        const nowMs=this.clockNow();
+        const checked_at=new Date(nowMs).toISOString();
         if(!config||this.bindings.get(sessionId)?.agentId!==agentId)return {valid:false,checked_at,reason_code:'owner_or_session_mismatch'};
         const catalog=await this.cron.catalog(agentId);
         const task=catalog.find(t=>t.id===scheduleId);
@@ -1110,7 +1247,7 @@ export default class NanoRuntime {
         const agent=await this.agent(sessionId);await this.flush(agent);
         const pending=scheduleEvidence(agent.session.snapshotEvents()).find(item=>item.scheduleId===scheduleId&&item.trigger==='timed'&&item.pending&&item.consumedSeq===undefined);
         if(pending)return {valid:true,checked_at,owner_agent_id:agentId,session_id:sessionId,next_check_at:pending.scheduledAt,pending_occurrence_id:pending.messageId};
-        const reason_code=!task?'missing':task.status!=='active'?'inactive':!(Date.parse(task.scheduledAt)>Date.now())?'expired':undefined;
+        const reason_code=!task?'missing':task.status!=='active'?'inactive':!(Date.parse(task.scheduledAt)>nowMs)?'expired':undefined;
         return {valid:!reason_code,checked_at,owner_agent_id:agentId,session_id:sessionId,next_check_at:task?.scheduledAt,...(reason_code?{reason_code}:{})};
       },
       'schedule.evidence': async value => {
@@ -1327,15 +1464,43 @@ export default class NanoRuntime {
     const fallback = (await this.models).fallback;
     if (!fallback.nativeEvidence(agent, input.inputId).accepted) {
       if (!['human', 'system'].includes(input.source.kind)) throw new RpcError(-32602, 'Invalid input source');
-      const content = await this.ctx.attachments.admitPromptContent(input.content);
+      let content = await this.ctx.attachments.admitPromptContent(input.content);
       if (input.attachmentSources) await this.ctx.nanoTrajectoryAttachments.record(input.sessionId, content, input.attachmentSources);
       const config = this.configurations.get(agent.session.header.agentPreset!);
       if (input.source.channel === 'heartbeat' && config && this.capabilities.held(config.agentId, {kind: 'feature', name: 'heartbeat'})) return {accepted: false, busy: true};
+      const isProactiveWake = input.source.kind === 'system' && (input.source.channel === 'proactive_review' || input.source.channel === 'proactive_nightly');
+      if (isProactiveWake && config) {
+        const eff = effectiveFeatures(config.features, definitionsForRole(Boolean(config.personal)), capabilityDraft(config));
+        if (!config.personal || eff.proactive_planning !== true || eff.task_graph === false) {
+          return { accepted: false, withdrawn: true, durable: true };
+        }
+        if (this.capabilities.held(config.agentId, { kind: 'feature', name: 'proactive_planning' })) {
+          return { accepted: false, busy: true };
+        }
+      }
       if (input.onlyIfIdle && (agent.status !== 'idle' || agent.inbox.nextTurn.length || agent.inbox.nextStep.length)) return { accepted: false, busy: true };
+      if (isProactiveWake && config && input.source.channel === 'proactive_nightly') {
+        const knowledgeSvc = await this.knowledgeRuntime;
+        const ds = await knowledgeSvc.dreaming.nightlyStatus(config.agentId, this.clockNow());
+        if (!ds.completed && ds.failures < 3 && (ds.retryAt ?? 0) < ds.nightWindowEndAt) {
+          void knowledgeSvc.dreaming.tick(config.agentId, this.clockNow()).catch(() => {});
+          return { accepted: false, busy: true };
+        }
+        const updatedMemory = await knowledgeSvc.documents.updatedEntrySinceWindowStart(agent);
+        if (updatedMemory && content.length > 0 && content[0]?.type === 'text') {
+          const firstText = content[0].text;
+          const newlineIdx = firstText.indexOf('\n');
+          const memTag = `<updated-formal-memory complete="${updatedMemory.complete ? 'true' : 'preview'}">\n${updatedMemory.body}\n</updated-formal-memory>`;
+          const injected = newlineIdx >= 0
+            ? `${firstText.slice(0, newlineIdx + 1)}${memTag}\n${firstText.slice(newlineIdx + 1)}`
+            : `${firstText}\n${memTag}`;
+          content = [{ type: 'text', text: injected }, ...content.slice(1)];
+        }
+      }
       fallback.interrupt(agent);
       this.lifecycle.assertEnabled(agentId);
       if (this.lifecycle.current(agentId).revision !== revision) throw new Error('stale_lifecycle');
-      const source = {...input.source, admittedAt:Date.now(), lifecycle_revision: input.source.lifecycle_revision ?? input.lifecycle_revision ?? revision};
+      const source = {...input.source, admittedAt:this.clockNow(), lifecycle_revision: input.source.lifecycle_revision ?? input.lifecycle_revision ?? revision};
       const original = freezeMessage({ id: MessageId(input.inputId), role: 'user' as const, content,
         source: input.source.kind === 'human' ? { ...source, kind: 'user' as const } : { ...source, kind: 'nano-system' as const } });
       const [message] = this.chatScope.queued(input.sessionId,original);

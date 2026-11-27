@@ -37,16 +37,20 @@ function renderEditor(target: Parameters<typeof TaskEditor>[0]["target"]) {
 it("keeps the draft after a revision conflict and retries only after reading and explicit confirmation", async () => {
   rejectFirst=true;
   const saved=renderEditor({graph,node:root});
-  await userEvent.clear(screen.getByLabelText("Purpose and description"));
-  await userEvent.type(screen.getByLabelText("Purpose and description"),"My draft");
+  expect(screen.queryByLabelText("Rework reason (required)")).not.toBeInTheDocument();
+  expect(screen.queryByText(/Assign only to current conversation members/i)).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Assignee rules" }));
+  expect(screen.getByRole("tooltip")).toHaveTextContent("Assign only to current conversation members");
+  await userEvent.clear(screen.getByLabelText("Goal description"));
+  await userEvent.type(screen.getByLabelText("Goal description"),"My draft");
   await userEvent.click(screen.getByRole("button",{name:"Save"}));
   expect(await screen.findByRole("alert")).toHaveTextContent("draft is kept");
-  expect(screen.getByLabelText("Purpose and description")).toHaveValue("My draft");
+  expect(screen.getByLabelText("Goal description")).toHaveValue("My draft");
   expect(screen.getByRole("button",{name:"Save"})).toBeDisabled();
   expect(writes).toHaveLength(1);
   await userEvent.click(screen.getByRole("button",{name:"Read latest record"}));
   await screen.findByText("A teammate changed this");
-  expect(screen.getByLabelText("Purpose and description")).toHaveValue("My draft");
+  expect(screen.getByLabelText("Goal description")).toHaveValue("My draft");
   expect(writes).toHaveLength(1);
   await userEvent.click(screen.getByRole("button",{name:"Confirm and retry"}));
   await waitFor(()=>expect(saved).toHaveBeenCalledWith("tg_test"));
@@ -55,8 +59,12 @@ it("keeps the draft after a revision conflict and retries only after reading and
   expect(writes[1].request_key).not.toBe(writes[0].request_key);
   expect(writes[1].operations).toContainEqual({op:"update_task",node_id:"n1",patch:expect.objectContaining({description:"My draft"})});
 });
-it("creates a child unassigned without inheriting its parent's owner and only offers current members", async () => {
+it("creates a child unassigned without inheriting its parent's owner and expands result on demand", async () => {
   const saved=renderEditor({graph,parent:root});
+  expect(screen.getByLabelText("Task description")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Progress & result")).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "+ Add progress or result" }));
+  await userEvent.type(screen.getByLabelText("Progress & result"), "Initial spike done");
   await userEvent.type(screen.getByLabelText("Title"),"Check deployment");
   await screen.findByRole("option",{name:"Human"});
   const owners=screen.getByLabelText("Assignee");
@@ -64,7 +72,7 @@ it("creates a child unassigned without inheriting its parent's owner and only of
   expect(within(owners).queryByRole("option",{name:"Stale"})).not.toBeInTheDocument();
   await userEvent.click(screen.getByRole("button",{name:"Save"}));
   await waitFor(()=>expect(saved).toHaveBeenCalled());
-  expect(writes[0].operations).toContainEqual(expect.objectContaining({op:"add_task",container_id:"n1",assignee:null,title:"Check deployment"}));
+  expect(writes[0].operations).toContainEqual(expect.objectContaining({op:"add_task",container_id:"n1",assignee:null,title:"Check deployment",result:"Initial spike done"}));
 });
 it("offers only writable conversations for a root and sends its fixed ownership and member assignment", async () => {
   renderEditor({});
@@ -83,7 +91,7 @@ it("requires a rework reason when claiming completed work", async () => {
   await userEvent.click(screen.getByRole("button",{name:"Save"}));
   expect(await screen.findByRole("alert")).toHaveTextContent("rework reason");
   expect(writes).toHaveLength(0);
-  await userEvent.type(screen.getByLabelText("Latest change"),"Validation failed");
+  await userEvent.type(screen.getByLabelText("Rework reason (required)"),"Validation failed");
   await userEvent.click(screen.getByRole("button",{name:"Save"}));
   await waitFor(()=>expect(writes).toHaveLength(1));
   expect(writes[0]).toMatchObject({change_note:"Validation failed",operations:expect.arrayContaining([{op:"claim_task",node_id:"n1"}])});
@@ -103,4 +111,17 @@ it("preserves an existing wait when saving other fields without offering a new w
 it("does not offer waiting for a new task", async () => {
   renderEditor({graph,parent:root});
   expect(within(screen.getByLabelText("Status")).queryByRole("option",{name:"Waiting"})).not.toBeInTheDocument();
+});
+it("supports creating a single-card root with mode 'none' and exposes all 8 non-waiting statuses", async () => {
+  renderEditor({ defaultMode: "none", initialTitle: "Quick errand" });
+  expect(screen.getByLabelText("Title")).toHaveValue("Quick errand");
+  const statusSelect = screen.getByLabelText("Status");
+  for (const label of ["Proposed", "To do", "Advancing", "In review", "Stashed", "Paused", "Done", "Closed"]) {
+    expect(within(statusSelect).getByRole("option", { name: label })).toBeInTheDocument();
+  }
+  await screen.findByRole("option", { name: "Team" });
+  await userEvent.selectOptions(screen.getByLabelText("Owning conversation"), "group");
+  await userEvent.click(screen.getByRole("button", { name: "Save" }));
+  await waitFor(() => expect(writes).toHaveLength(1));
+  expect(writes[0]).toMatchObject({ conversation_id: "group", title: "Quick errand", mode: "none", status: "todo" });
 });

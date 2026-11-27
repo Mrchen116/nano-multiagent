@@ -17,7 +17,9 @@ it.each(['schedule', 'task'] as const)('discovers a durable native %s admission 
   const fault = join(home, 'fixture.mjs');
   const match = source === 'schedule' ? "message.source?.kind==='schedule'" : "message.source?.channel==='task-execution'";
   const taskSnapshot: TaskExecutionSnapshot = {kind: 'continue', tasks: [{graph_id: 'g', node_id: 't', title: 'Native Task fixture',
-    status: 'doing', revision: 1, updated_at: '2026-10-23T15:00:00Z', conversation: {id: root.conversationId}, relative_url: '/tasks/g'}], repair_task_ids: []};
+    status: 'doing', revision: 1, updated_at: '2026-10-23T15:00:00Z', unwoken_doing: true,
+    doing_wake: {revision: 1, at: '2026-10-23T15:00:00Z', actor: {type: 'user', id: 'owner'}, assignee_id: 'a'},
+    conversation: {id: root.conversationId}, relative_url: '/tasks/g'}]};
   const calls: Array<{method: string; sessionId?: string}> = [];
   const marks: Array<{sessionId: string; boot: string}> = [];
   const errors: unknown[] = [];
@@ -71,7 +73,8 @@ it.each(['schedule', 'task'] as const)('discovers a durable native %s admission 
     });
     client.rpc.handle('product.task_context.prepare', () => ({messages: [], revoked: []}));
     client.rpc.handle('product.task_context.commit', () => null);
-    client.rpc.handle('product.task_execution.snapshot', () => taskActive ? taskSnapshot : {kind: 'quiescent', tasks: [], repair_task_ids: []});
+    client.rpc.handle('product.task_execution.ack', () => null);
+    client.rpc.handle('product.task_execution.snapshot', () => taskActive ? taskSnapshot : {kind: 'quiescent', tasks: []});
     client.rpc.handle('model.check', () => ({published: false}));
     await client.rpc.request('initialize', {protocol: 1, recoveryMarkers: true, agents: [agent],
       bindings: [root, idle, absent].map(forRuntime)});

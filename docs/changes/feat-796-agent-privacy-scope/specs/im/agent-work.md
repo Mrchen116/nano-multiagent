@@ -31,7 +31,7 @@
 
 ### Requirement: Work 提供工作记录与原生轨迹两种查看方式
 
-此双视图要求适用于 Web 与 Desktop 客户端（iPhone 提供原生 Crewden 工作记录与派工查阅，遵循原生 [iOS 客户端](ios-client.md)契约）。
+此双视图要求适用于 Web 与 [Desktop 客户端](../../../../specs/im/desktop-client.md)（iPhone 提供原生 Crewden 工作记录与派工查阅，遵循原生 [iOS 客户端](ios-client.md)契约）。
 
 #### Scenario: 查看当前主执行或关联执行的原生轨迹
 - **GIVEN** 全局 Agent 的 Work 已有主执行或关联执行

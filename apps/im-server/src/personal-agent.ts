@@ -10,7 +10,7 @@ import {readAgentProfile, type AgentProfileRecord} from './configuration-records
 import {isRecord} from './node-rpc-values.js';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { requireSettingsNodeOnline } from './agent-settings.js';
-import { changeCapability, featureDependencies, sanitizeStaticToolAllowlist } from '@nano/product-contracts/capabilities';
+import { changeCapability, definitionsForRole, sanitizeStaticToolAllowlist } from '@nano/product-contracts/capabilities';
 import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { all, one, now, chatId, fail, body, params, transaction, type Row, type ImContext } from './context.js';
@@ -170,7 +170,16 @@ export class PersonalAgents {
     const threadRoot = message.thread_root_id ?? message.thread_root_message_id;
     const followedThread = !!threadRoot && chat.type==='group' && !!one(this.db, 'SELECT 1 FROM thread_follows WHERE conversation_id=? AND root_message_id=? AND user_id=? AND following=1', message.conversation_id, threadRoot, this.ctx.messaging.agentUser(b.agent_id).id);
     const addressedAgent=followedThread || participant && (chat.type==='direct' || (provider ? provider.mentioned_bot||provider.replied_to_bot : this.addressedAgents(message).includes(b.agent_id)));
-    return {is_owner:isOwner&&!this.representedBy(message.id),delivery:participant?'participant':'observer',conversation_type:chat.type,channel:message.sender_type==='user' && !sourceId ? 'web' : chat.external_source??'web',
+    const sysNotice = message.system_notice_json ? JSON.parse(message.system_notice_json) : message.system_notice;
+    const trustedOwnerTaskNotice = message.sender_type==='system'
+      && !sourceId
+      && !this.representedBy(message.id)
+      && this.ownerConversation(b, message.conversation_id)
+      && sysNotice?.kind==='task_graph'
+      && sysNotice?.actor?.type==='user'
+      && sysNotice?.actor?.id===b.owner_user_id
+      && message.sender_user_id===b.owner_user_id;
+    return {is_owner:isOwner&&!this.representedBy(message.id),...(trustedOwnerTaskNotice?{trusted_owner_task_notice:true}:{}),delivery:participant?'participant':'observer',conversation_type:chat.type,channel:message.sender_type==='user' && !sourceId ? 'web' : chat.external_source??'web',
       owner_direct:direct,owner_internal:isOwnerInternalConversation(this.db,message.conversation_id,b.owner_id),addressed_to_owner:addressedOwner,addressed_to_agent:addressedAgent,explicit_mentioned_agent_ids:explicit,
       ...(provider||sourceId?{provider_source_time:provider?.source_time??null,context_only:provider?.context_only===true}:{})};
   }
@@ -181,6 +190,7 @@ export class PersonalAgents {
   }
   private representedBy(id:string):string|undefined {return one(this.db,'SELECT agent_id FROM pa_delegated_messages WHERE message_id=? AND representation_operation_id IS NOT NULL',id)?.agent_id;}
   private directOwnerMessage(b:Row,message:Row):boolean {
+    if(message.sender_type!=='user')return false;
     const facts=this.sourceFacts(b,message);
     return !this.representedBy(message.id) && facts.is_owner && facts.delivery==='participant' && (facts.conversation_type==='direct' && this.ownerConversation(b,message.conversation_id)
       || facts.conversation_type==='group' && facts.addressed_to_agent);
@@ -551,8 +561,9 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         const workspaceTools=catalog.tools.filter(isRecord).filter(tool=>tool.source_group==='workspace').map(tool=>tool.name).filter((name):name is string=>typeof name==='string');
         const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.source_group!=='workspace' && (tool.default_on||tool.name==='send_message')).map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'agent_creation'])];
         const bindingScope: 'team' | 'owner_only' = b.collaboration_scope === 'owner_only' ? 'owner_only' : 'team';
-        let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(featureDependencies.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:bindingScope,default_model:null,model_fallbacks:[],workspace_root:null};
-        for(const feature of featureDependencies) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
+        const paFeatures=definitionsForRole(true);
+        let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(paFeatures.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:bindingScope,default_model:null,model_fallbacks:[],workspace_root:null};
+        for(const feature of paFeatures) candidate=changeCapability(candidate,{kind:'feature',name:feature.key,enabled:true},{}).draft;
         candidate.tool_allowlist=sanitizeStaticToolAllowlist(candidate.tool_allowlist,'global','personal',workspaceTools);
         await ops.create(candidate,u.owner_id,b.node_id);
       }

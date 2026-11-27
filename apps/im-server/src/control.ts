@@ -3,7 +3,7 @@ import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import {createHash, randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
 import {parseAgentConfigurationFields, type AgentConfigurationFields, type ConfigurationResult} from '@nano/product-contracts';
-import {effectiveFeatures, featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
+import {definitionsForRole, effectiveFeatures, validateCapabilities} from '@nano/product-contracts/capabilities';
 import {chatId, fail, now, transaction} from './context.js';
 import {defaultSpace, accountEnabled, canAccessSpace, ownerAccount} from './identity.js';
 import {activeTaskCount, withdrawsTask} from './task-graphs.js';
@@ -215,9 +215,10 @@ export class ConfigOperations {
       candidate={...candidate,personal_agent:{bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch}};
       if(previous)previous={...previous,personal_agent:candidate.personal_agent};
     } else {candidate={...candidate};delete candidate.personal_agent;}
+    const roleFeatures = definitionsForRole(Boolean(candidate.personal_agent));
     const unchangedDreaming = !!previous && previous.features?.dreaming !== false && candidate.features?.dreaming !== false
       && validateCapabilities(previous).some(block => block.required_by?.includes('dreaming'));
-    const blocks = validateCapabilities(candidate, {features:featureDependencies.filter(feature => feature.key !== 'dreaming' || !unchangedDreaming)});
+    const blocks = validateCapabilities(candidate, {features:roleFeatures.filter(feature => feature.key !== 'dreaming' || !unchangedDreaming)});
     if (blocks.length) fail(422, {code:'invalid_capability_dependencies', message:'Configuration is missing required capabilities', blocks});
     if (previous && withdrawsTask(previous, candidate) && activeTaskCount(this.dependencies.db, candidate.agent_id)) {
       const kind = effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph ? 'feature' : 'tool';

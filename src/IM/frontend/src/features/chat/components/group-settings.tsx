@@ -427,6 +427,7 @@ export function GroupSettings(props: GroupSettingsProps) {
           <span className="group-settings-nav-spacer" />
         </div>
         {errorBanner}
+        {props.privateAgentLocked && <p className="group-settings-meta" style={{ padding: "8px 16px 0", margin: 0 }}>{t("chat.groupSettings.privateAgentVisibilityLocked")}</p>}
         <div className="group-settings-mobile-scroll">
           <div className="group-settings-pick-list">{pickerRows}</div>
         </div>

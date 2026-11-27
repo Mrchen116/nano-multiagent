@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import type { ChatActor, ChatAttachment, ChatEvent, ChatHistoryMessage, ChatMessage, ChatPermission, ChatProcessItem, ChatProcessSummary, ChatStreamFact, ChatThinking, ChatToolCall, InteractionSnapshot, MessageInteractive } from '@nano/product-contracts';
+import type { ChatActor, ChatAttachment, ChatEvent, ChatHistoryMessage, ChatMessage, ChatPermission, ChatProcessItem, ChatProcessSummary, ChatStreamFact, ChatThinking, ChatToolCall, InteractionSnapshot, MessageInteractive, TaskCardRef } from '@nano/product-contracts';
 import { externalAvatarId } from './identity.js';
 import { lifecycle } from './agent-lifecycle.js';
 import { fail, now, transaction } from './context.js';
@@ -11,7 +11,7 @@ import { discardThreadUnread, listUnread, recordThreadDelivery, threadAddressesA
 /** Fixed SQLite columns are distinct from the public JSON projection. */
 export interface MessageRecord {
   id:string; conversation_id:string; sender_user_id:string; sender_type:string; lifecycle_revision:number|null;
-  content:string; attachments_json:string; delivery_status:string; created_at:string; caller_idempotency_key:string|null;
+  content:string; attachments_json:string; task_cards_json:string|null; delivery_status:string; created_at:string; caller_idempotency_key:string|null;
   caller_payload_json:string|null; sender_display_name:string|null; sender_source_id:string|null; timezone:string|null;
   tool_calls_json:string|null; thinking_json:string|null; background_returns_json:string|null; reply_process_json:string|null;
   permission_request_json:string|null; token_usage_json:string|null; system_notice_json:string|null; interaction_reply_json:string|null;
@@ -25,6 +25,7 @@ export interface PublicationRecord {dispatch_request_key:string;source_agent_id:
 interface MessageUser {id:string; username:string; display_name:string; is_stale?:number}
 export interface MessageMetadata {
   reply_to?:ChatMessage['reply_to'];
+  task_cards?:TaskCardRef[];
   thread_root_id?:string;
   skipThreadDelivery?: boolean;
   trackReceipts?: boolean;
@@ -206,7 +207,7 @@ export class MessageRecords {
         SELECT *,sender_type='agent' AND delivery_status IN ('completed','failed') AS summarized
         FROM messages WHERE conversation_id=? AND id=?
       )
-      SELECT id,conversation_id,sender_user_id,sender_type,lifecycle_revision,content,attachments_json,
+      SELECT id,conversation_id,sender_user_id,sender_type,lifecycle_revision,content,attachments_json,task_cards_json,
         delivery_status,created_at,sender_display_name,sender_source_id,timezone,
         token_usage_json,system_notice_json,interaction_reply_json,reply_to_json,thread_root_id,elapsed_ms,kernel_message_id,
         awaiting_permission_at,
@@ -307,6 +308,7 @@ export class MessageRecords {
       ...(m.thread_root_id?{thread_root_message_id:m.thread_root_id}:{}),
       ...(!m.thread_root_id ? this.threadSummary(m.id) : {}),
       attachments:JSON.parse(m.attachments_json??'[]'),
+      ...(m.task_cards_json ? {task_cards:JSON.parse(m.task_cards_json)} : {}),
       tool_calls:(JSON.parse(m.tool_calls_json??'[]') as ChatToolCall[]).map(call=>withHumanApproval(call,permissions)),
       thinking:JSON.parse(m.thinking_json??'[]'),background_returns:JSON.parse(m.background_returns_json??'[]'),
       reply_process:JSON.parse(m.reply_process_json??'[]'),permission_requests:permissions,
@@ -368,7 +370,10 @@ export class MessageRecords {
     if (!extra.thread_root_id) {
       this.db
         .prepare("UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?")
-        .run(content.trim().slice(0, 120) || attachments[0]?.file_name || "", at, cId);
+        .run(content.trim().slice(0, 120) || attachments[0]?.file_name || (extra.task_cards?.length ? "[任务卡片]" : ""), at, cId);
+    }
+    if (extra.task_cards?.length) {
+      this.db.prepare("UPDATE messages SET task_cards_json=? WHERE id=?").run(JSON.stringify(extra.task_cards), id);
     }
     if (!groupedThread && !extra.skipThreadDelivery) {
       this.db

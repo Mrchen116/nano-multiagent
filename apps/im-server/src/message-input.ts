@@ -1,4 +1,4 @@
-import { chatAttachments, type ChatAttachment } from '@nano/product-contracts';
+import { chatAttachments, chatTaskCards, type ChatAttachment, type TaskCardRef } from '@nano/product-contracts';
 import { fail } from './context.js';
 import type { MessageMetadata } from './message-records.js';
 
@@ -9,6 +9,7 @@ export interface MessageInput {
   in_thread_of?:string;
   content?:string;
   attachments?:ChatAttachment[]|null;
+  task_cards?:TaskCardRef[]|null;
   sender?:{id?:string;type?:string};
   sender_user_id?:string;sender_type?:string;
   lifecycle_revision?:number|null;timezone?:string|null;suppress_relay?:boolean;
@@ -31,6 +32,7 @@ export function messageInput(value:unknown):MessageInput {
   if(row.lifecycle_revision!=null&&(typeof row.lifecycle_revision!=='number'||!Number.isFinite(row.lifecycle_revision)))fail(422,'invalid lifecycle_revision');
   if(row.suppress_relay!==undefined&&typeof row.suppress_relay!=='boolean')fail(422,'invalid suppress_relay');
   if(row.attachments!=null)try{chatAttachments(row.attachments);}catch(error){fail(422,(error as Error).message);}
+  if(row.task_cards!=null)try{chatTaskCards(row.task_cards);}catch(error){fail(422,(error as Error).message);}
   if(row.sender!==undefined){const sender=object(row.sender);for(const key of ['id','type'])if(sender[key]!==undefined&&typeof sender[key]!=='string')fail(422,`invalid sender ${key}`);}
   if(row.interaction_reply!==undefined)object(row.interaction_reply);
   if(row.personal_source!==undefined) {
@@ -43,7 +45,8 @@ export function messageInput(value:unknown):MessageInput {
 /** Select insert metadata explicitly, keeping transport/routing fields out of persistence inputs. */
 export function messageMetadata(input:MessageInput):MessageMetadata {
   return {created_at:input.created_at,sender_display_name:input.sender_display_name,sender_source_id:input.sender_source_id,
-    system_notice:input.system_notice,interactive:input.interactive,personal_source:input.personal_source};
+    system_notice:input.system_notice,interactive:input.interactive,personal_source:input.personal_source,
+    ...(input.task_cards?.length ? {task_cards:input.task_cards} : {})};
 }
 
 /** Retain the authenticated object identity used by the response revocation gate. */

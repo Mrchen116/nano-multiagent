@@ -1,6 +1,6 @@
 import type { FeishuConfiguration, FeishuMessage, ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
-import { decodeAgentPublication, decodeChatStream, type ChatStreamFact, type RelayInput } from '@nano/product-contracts';
+import { decodeAgentPublication, decodeChatStream, type ChatStreamFact, type RelayInput, type TaskCardRef } from '@nano/product-contracts';
 
 import { formatLocalTime } from '@nano/product-contracts';
 import { NodeStore } from './store.js';
@@ -18,7 +18,7 @@ interface Connection {
 }
 export interface ExternalDelivery {
   agentId:string; target:string; shadowId?:string; appId:string; sourceId:string; chatId:string;
-  text:string; card?:Record<string,unknown>; operationId:string; incidentRef?:string;
+  text:string; card?:Record<string,unknown>; taskCards?:TaskCardRef[]; operationId:string; incidentRef?:string;
   dispatch(text:string,card?:Record<string,unknown>):Promise<string>;
 }
 interface Options {
@@ -294,7 +294,7 @@ export class ExternalChannels {
         const output = this.state.prepare(chat.id, String(publication.from_session_id), 'explicit',Number(publication.lifecycle_revision??1));
         this.state.frame(output.id, { lifecycle_revision:output.lifecycle_revision,kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
         const complete: CompletedMessage = { lifecycle_revision:output.lifecycle_revision,kind: 'message_completed', message_id: output.id, final_content: publication.text, pa_incident_ref:publication.pa_incident_ref, delivery_status: 'completed' };
-        await this.finish(output, complete);
+        await this.finish(output, complete, publication.task_cards);
         void this.flush().catch(this.options.onError); return ack(type, { message_id: output.platformId ?? this.state.output(output.id)!.platformId, conversation_id: chat.id });
       }
       if (target.startsWith('external:')) {
@@ -348,9 +348,9 @@ export class ExternalChannels {
   private forwardStream(payload: ChatStreamFact): Promise<ProtocolFrame> {
     return this.options.relay.request('node.streaming_delta', {...payload});
   }
-  private async finish(output: ExternalOutput, payload: CompletedMessage): Promise<void> {
+  private async finish(output: ExternalOutput, payload: CompletedMessage, taskCards?: TaskCardRef[]): Promise<void> {
     try {
-      if (output.reply && String(payload.final_content ?? '').trim()) await this.publish(output, String(payload.final_content), payload);
+      if (output.reply && String(payload.final_content ?? '').trim()) await this.publish(output, String(payload.final_content), payload, taskCards);
       this.state.frame(output.id, payload);
     } catch (error) {
       if (error instanceof RelayDeliveryError && error.delivery === 'unknown') {
@@ -361,11 +361,11 @@ export class ExternalChannels {
       throw error;
     }
   }
-  private async publish(output: ExternalOutput, text: string, metadata?: CompletedMessage): Promise<void> {
+  private async publish(output: ExternalOutput, text: string, metadata?: CompletedMessage, taskCards?: TaskCardRef[]): Promise<void> {
     const agentId=this.state.chat(output.chatId)!.agentId;
-    return this.options.store.lifecycle.run(agentId,output.lifecycle_revision,()=>this.publishAdmitted(output,text,metadata));
+    return this.options.store.lifecycle.run(agentId,output.lifecycle_revision,()=>this.publishAdmitted(output,text,metadata,taskCards));
   }
-  private async publishAdmitted(output: ExternalOutput, text:string, metadata?:CompletedMessage):Promise<void> {
+  private async publishAdmitted(output: ExternalOutput, text:string, metadata?:CompletedMessage, taskCards?:TaskCardRef[]):Promise<void> {
     const active = this.dispatches.get(output.id); if (active) return active;
     const task = (async () => {
       const current = this.state.output(output.id)!;
@@ -383,7 +383,7 @@ export class ExternalChannels {
       if(this.options.personalAgent?.(chat.agentId)) {
         if(!this.options.personalDelivery)throw new Error('Personal delivery adapter unavailable');
         const id=await this.options.personalDelivery({agentId:chat.agentId,target:chat.id,shadowId:chat.shadowId,appId:chat.appId,sourceId:chat.sourceId,chatId:chat.chatId,
-          text,card,operationId:output.operationId,incidentRef:typeof metadata?.pa_incident_ref==='string'?metadata.pa_incident_ref:undefined,dispatch});
+          text,card,...(taskCards?.length?{taskCards}:{}),operationId:output.operationId,incidentRef:typeof metadata?.pa_incident_ref==='string'?metadata.pa_incident_ref:undefined,dispatch});
         if(!id)throw new Error('Personal delivery has no provider receipt');
         this.state.settle(output.id,'confirmed',id);
       } else await dispatch(text,card);

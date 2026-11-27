@@ -1,12 +1,13 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { PersonalAssistant } from './personal-assistant.js';
+import type { TaskContext } from './task-context.js';
 import { prepareLocalAttachments, unknownScreenshotReceipt, type AttachmentDownloader, type AttachmentUploader, type ScreenshotUploader } from './screenshot-delivery.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { randomUUID } from 'node:crypto';
 import { setImmediate as yieldToIO } from 'node:timers/promises';
-import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimePublicationEvidence, RuntimeWorkPage, RuntimeWorkCatalog, MessageApprovalContext } from '@nano/product-contracts';
-import { chatAttachments, interactiveResponse } from '@nano/product-contracts';
+import type { AgentPublication, WorkFact, WorkDraft, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection, RuntimePublicationEvidence, RuntimeWorkPage, RuntimeWorkCatalog, MessageApprovalContext, TaskCardRef } from '@nano/product-contracts';
+import { chatAttachments, chatTaskCards, interactiveResponse, TASK_STATUS_BADGE_LABELS, type TaskStatus } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import { needsAttention, controlText, chatDelivery } from './attention.js';
 import { NodeStore } from './store.js';
@@ -23,6 +24,8 @@ interface Options {
   downloadAttachment?: AttachmentDownloader;
   onError(error: unknown): void;
   onWork?(): void;
+  onProactiveActivity?(agentId: string): void;
+  clockNow?(): number;
   authorityEpoch?(): number | undefined;
   taskStop?:(binding:SessionBinding,input:RelayInput)=>Promise<{wasRunning:boolean;paused:number}>;
 }
@@ -37,7 +40,9 @@ const callPosition = (event: RuntimeEvent | undefined): PublicationPosition | un
 
 /** Cross-chat cognition and delivery. The runtime alone schedules model turns. */
 export class GlobalAgent {
-  private readonly sourceRefreshes = new Map<string, Promise<void>>();
+  private readonly sourceRefreshes = new Map<string, Promise<ReadonlySet<string>>>();
+  private readonly personalAllowedSources = new Map<string, ReadonlySet<string>>();
+  private taskContext?: TaskContext;
   private readonly controls: SessionControls;
   private readonly personal: PersonalAssistant;
   private observations?: Promise<void>;
@@ -108,6 +113,10 @@ export class GlobalAgent {
         this.reconcileRoot(binding).catch(options.onError);
       }
     });
+  }
+  /** Wire the process-wide singleton TaskContext so Dreaming pre-fetch shares its sync lock. */
+  attachTaskContext(taskContext: TaskContext): void {
+    this.taskContext = taskContext;
   }
   /** Require each affected root to reconcile durable input before its next wake. */
   runtimeUnavailable(agentIds: readonly string[]): void {
@@ -303,9 +312,9 @@ export class GlobalAgent {
     const command = controlText(input);
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command);
     const notice = input.message.system_notice as { kind?: string; attention_actor_ids?: string[] } | undefined;
-    const taskContext = notice?.kind === 'task_graph' && notice.attention_actor_ids?.includes(config.agentId) === true;
-    const attention = !unaddressedControl && !taskContext && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
-    const high = !unaddressedControl && !taskContext && chatDelivery(input, config, this.options.ownerId) === 'high';
+    const isTaskNotice = notice?.kind === 'task_graph';
+    const attention = !unaddressedControl && !isTaskNotice && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
+    const high = !unaddressedControl && !isTaskNotice && chatDelivery(input, config, this.options.ownerId) === 'high';
     return { attention, high };
   }
   private resolveReviewConversation(agentId: string, rawTarget: string | undefined): string | undefined {
@@ -434,17 +443,19 @@ export class GlobalAgent {
       const pending = this.controls.run(this.binding(config), input, control.action, control.argument); await this.main(config); await pending; return;
     }
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command);
-    const attention = !unaddressedControl && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
     const notice=input.message.system_notice as {kind?:string;attention_actor_ids?:string[]}|undefined;
-    const taskContext=notice?.kind==='task_graph'&&notice.attention_actor_ids?.includes(config.agentId)===true;
+    const isTaskNotice=notice?.kind==='task_graph';
+    const taskContext=isTaskNotice&&notice.attention_actor_ids?.includes(config.agentId)===true;
+    const attention = !unaddressedControl && !isTaskNotice && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
     if(taskContext)input={...input,metadata:{...input.metadata,task_context:true}};
-    if(this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
-    const high=!unaddressedControl && !taskContext && chatDelivery(input,config,this.options.ownerId)==='high';
-    if (config.personal && input.metadata.personal_is_owner !== true && input.metadata.personal_delivery === 'participant') {
+    if((isTaskNotice && !taskContext) || this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
+    const high=!unaddressedControl && !isTaskNotice && chatDelivery(input,config,this.options.ownerId)==='high';
+    const nowMs = this.options.clockNow?.() ?? Date.now();
+    if (config.personal && input.metadata.personal_is_owner !== true && input.metadata.personal_trusted_task_notice !== true && input.metadata.personal_delivery === 'participant') {
       const currentState = this.options.inbox.reviews.get(config.agentId, input.message.id)?.state;
       if (currentState !== 'admitted') {
-        const dueAt = input.metadata.context_only || taskContext ? null : (high ? 0 : Date.now() + 600_000);
-        input = this.options.inbox.stagePersonal(input, attention && !taskContext, dueAt);
+        const dueAt = input.metadata.context_only || isTaskNotice ? null : (high ? 0 : nowMs + 600_000);
+        input = this.options.inbox.stagePersonal(input, attention, dueAt);
         if (input.message.attachments.length > 0) {
           this.personal.failAttachmentInput(config, input);
           this.options.inbox.settleMessageRelays(config.agentId, input.message.id, 'completed');
@@ -467,8 +478,16 @@ export class GlobalAgent {
     } else if (config.personal) {
       if (!this.personal.admitTrusted(config, binding, input)) return;
     }
-    this.options.inbox.receive(input, attention&&!taskContext,Date.now(),high);
-    if (config.personal) this.options.inbox.classify(input,attention&&!taskContext,high);
+    this.options.inbox.receive(input, attention, nowMs, high);
+    if (config.personal) {
+      this.options.inbox.classify(input,attention,high);
+      const isOwnerPrivateHuman = input.message.sender_type === 'user' && !isTaskNotice && !unaddressedControl
+        && input.metadata.personal_is_owner === true && input.conversation_id === config.personal.conversationId && !input.metadata.context_only;
+      const isRelevantObservation = input.message.sender_type === 'user' && !isTaskNotice
+        && (input.metadata.pa_observation === true || input.metadata.personal_delivery === 'observer')
+        && (input.metadata.personal_is_owner === true || input.metadata.addressed_to_owner === true || input.metadata.replied_to_owner === true || input.metadata.mentioned_owner === true || !input.metadata.context_only);
+      if (isOwnerPrivateHuman || isRelevantObservation) this.options.onProactiveActivity?.(config.agentId);
+    }
     void this.receipt(input, 'accepted');
     this.armBackground();
     if (high && !deferWake) {
@@ -538,6 +557,12 @@ export class GlobalAgent {
       }
     }
     return this.options.inbox.check(config.agentId, !!config.personal,this.options.store.ownerTimezone);
+  }
+  /** Synchronize pending server observations and refresh unread source titles before a scheduled PA step. */
+  async syncProactiveObservations(config: AgentConfiguration, binding: SessionBinding): Promise<void> {
+    await this.recoverPersonalObservations();
+    await this.flushPendingReviews(config, binding);
+    await this.checkInbox(config, binding);
   }
   private renderNotice(config:AgentConfiguration,{sources}:ReturnType<InboxStore['check']>):string {
     const snapshot=this.options.store.toolReferences.result(config.agentId,'inbox',{sources:sources.map(({requires_attention,...source})=>source)});
@@ -613,9 +638,24 @@ export class GlobalAgent {
     const config=this.options.agents.find(agent=>agent.agentId===agentId);
     if(config?.personal)await this.refreshPersonalSources(config);
   }
-  private refreshPersonalSources(config: AgentConfiguration): Promise<void> {
-    const previous = this.sourceRefreshes.get(config.agentId) ?? Promise.resolve();
-    const task = previous.catch(() => {}).then(async () => {
+  /** Authenticate and review personal Task-context notices fetched ahead of live relay delivery. */
+  async settleSyncedTaskContext(agentId:string,sessionId:string):Promise<void> {
+    const config=this.options.agents.find(agent=>agent.agentId===agentId && agent.personal);
+    if(!config)return;
+    const binding=this.options.store.bindingForSession(sessionId)??await this.main(config);
+    let hasFailure=false;
+    for(const input of this.options.inbox.reviews.unclassified(config.agentId)) {
+      const result=await this.personal.admit(config,binding,input);
+      if(result.kind==='failed')hasFailure=true;
+    }
+    if(hasFailure)await this.deliverReviewFailures(config);
+    if(this.options.inbox.reviews.pendingConversations(config.agentId).length>0) {
+      await this.flushPendingReviews(config,binding);
+    }
+  }
+  private refreshPersonalSources(config: AgentConfiguration): Promise<ReadonlySet<string>> {
+    const previous = this.sourceRefreshes.get(config.agentId) ?? Promise.resolve(new Set<string>());
+    const task = previous.catch(() => new Set<string>()).then(async () => {
       await this.options.runtime.request('knowledge.sources.pending', { agentId: config.agentId });
       const sources = await this.personal.request(config, 'pa.sources', { action: 'list' });
       const items = sources.items as { id: string; excluded: boolean }[];
@@ -625,6 +665,8 @@ export class GlobalAgent {
         revision: String((sources.policy as {revision:number}).revision), allowed: [...allowed], excluded: items.filter(item => item.excluded).map(item => item.id),
       } });
       this.options.inbox.revokeUnavailableSources(config.agentId, allowed);
+      this.personalAllowedSources.set(config.agentId, allowed);
+      return allowed;
     });
     this.sourceRefreshes.set(config.agentId, task);
     void task.finally(() => { if (this.sourceRefreshes.get(config.agentId) === task) this.sourceRefreshes.delete(config.agentId); }).catch(() => {});
@@ -868,6 +910,22 @@ export class GlobalAgent {
       const personalConfig = this.options.agents.find(agent=>agent.agentId===binding.agentId && agent.personal);
       if (call.method === 'memory.sources.refresh') {
         if (!personalConfig) throw new Error('Trusted personal identity required');
+        if (call.args.includePendingTaskContext === true && this.taskContext) {
+          if (this.options.inbox.reviews.pendingConversations(personalConfig.agentId).length > 0) {
+            await this.flushPendingReviews(personalConfig, binding);
+          }
+          const items = await this.taskContext.peekPendingForDreaming({
+            agentId: personalConfig.agentId,
+            sessionId: binding.sessionId,
+            ownerId: this.options.ownerId,
+          });
+          const allowed = this.personalAllowedSources.get(personalConfig.agentId)
+            ?? await this.refreshPersonalSources(personalConfig);
+          return {
+            synchronized: true,
+            pendingTaskContext: items.filter(item => allowed.has(item.conversationId)),
+          };
+        }
         await this.refreshPersonalSources(personalConfig); return { synchronized: true };
       }
       if(call.method==='pa.authorization') {
@@ -1087,17 +1145,18 @@ export class GlobalAgent {
     const target = String(call.args.target ?? ''); const text = String(call.args.text ?? '');
     const { base: targetBase, root: targetThreadRoot } = this.options.store.toolReferences.splitResolvedTarget(binding.agentId, target);
     const interactive = interactiveResponse(call.args.interactive);
+    const taskCards = chatTaskCards(call.args.task_cards);
     const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
     const inThread = targetThreadRoot;
     const paths = call.args.local_images as string[] | undefined;
     const filePaths = call.args.local_files as string[] | undefined;
     const hasLocalMedia = !!(paths?.length || filePaths?.length);
     const publicationBody = () => {
-      const quote = {...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})};
+      const quote = {...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {}), ...(taskCards?.length ? {task_cards:taskCards} : {})};
       if (hasLocalMedia || call.args.attachments) return sortedJsonAscii({text, interactive, ...(paths ? {local_images:paths} : {}), ...(filePaths ? {local_files:filePaths} : {}), attachments:call.args.attachments ?? [], ...quote});
-      return interactive || replyTo || inThread ? sortedJsonAscii({text, interactive, ...quote}) : text;
+      return interactive || replyTo || inThread || taskCards?.length ? sortedJsonAscii({text, interactive, ...quote}) : text;
     };
-    if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
+    if (!target || !text.trim() && !interactive && !taskCards?.length) throw new Error('Sending requires a target and text, interactive content, or task_cards');
     const savedCall = () => callPosition(store.toolCall(call.sessionId,call.callId));
     const confirm = (payload:Record<string,unknown>, position: PublicationPosition | undefined) => this.confirmPublication(binding,call,target,text,payload,position);
     const previous = inbox.publication(call.operationId);
@@ -1126,7 +1185,12 @@ export class GlobalAgent {
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
     if((replyTo || inThread) && info?.channel && info.channel!=='web')throw new Error('Quoted replies and topics require a Nano IM destination');
     if (hasLocalMedia && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local attachments require a writable Nano IM conversation');
-    if ((info?.channel === 'feishu' || info?.channel === 'external') && !text.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
+    const isExternalChannel = info?.channel === 'feishu' || info?.channel === 'external' || targetBase.startsWith('external:');
+    let outboundText = text;
+    if (isExternalChannel && taskCards?.length) {
+      outboundText = await this.appendExternalTaskCardsSummary(binding.agentId, text, taskCards);
+    }
+    if (isExternalChannel && !outboundText.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const baseTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
     const reviewTargets = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web'
       ? [...new Set(baseTargets)].filter((id): id is string => typeof id === 'string').map(id => joinThreadTarget(id, inThread)) : [];
@@ -1179,10 +1243,11 @@ export class GlobalAgent {
     }
     inbox.settlePublication(call.operationId, 'sending');
     try {
-      const response = await this.publishMessage({ node_id: this.options.nodeId, text, ...(attachments ? {attachments} : {}),
+      const response = await this.publishMessage({ node_id: this.options.nodeId, text: outboundText, ...(attachments ? {attachments} : {}),
         ...(replyTo?{reply_to_message_id:replyTo}:{}),
         ...(inThread?{in_thread_of:inThread}:{}),
-        ...(interactive && info?.channel !== 'feishu' && info?.channel !== 'external' ? {interactive} : {}),
+        ...(interactive && !isExternalChannel ? {interactive} : {}),
+        ...(taskCards?.length && !isExternalChannel ? {task_cards:taskCards} : {}),
         to: conversation ? `conversation:${conversation}` : targetBase, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
       return confirm(response.payload,source);
     } catch (error) {
@@ -1261,6 +1326,27 @@ export class GlobalAgent {
     const response = await this.options.relay.request('agent.message', {...publication});
     if (typeof response.payload.message_id !== 'string' || !response.payload.message_id) throw new Error('Agent publication has no message identity');
     return {...response, payload: {...response.payload, message_id: response.payload.message_id}};
+  }
+  private async appendExternalTaskCardsSummary(agentId: string, baseText: string, taskCards: TaskCardRef[]): Promise<string> {
+    const refs = taskCards.map(card => `${card.graph_id}:${card.node_id}`).join(',');
+    let lines: string[];
+    try {
+      const res = await this.options.relay.request('task_graph.command', {
+        node_id: this.options.nodeId, agent_id: agentId, request_id: randomUUID(), action: 'nodes', source_message_id: null, args: { refs },
+      });
+      const items = res.payload.ok ? ((res.payload.result as { items?: { graph_id: string; node_id: string; title: string; status: string }[] })?.items ?? []) : [];
+      const byKey = new Map(items.map(item => [`${item.graph_id}:${item.node_id}`, item]));
+      lines = taskCards.map(card => {
+        const hit = byKey.get(`${card.graph_id}:${card.node_id}`);
+        if (!hit) return `- ${card.graph_id}/${card.node_id}`;
+        const label = TASK_STATUS_BADGE_LABELS[hit.status as TaskStatus] ?? hit.status;
+        return `- [${label}] ${hit.title}`;
+      });
+    } catch {
+      lines = taskCards.map(card => `- ${card.graph_id}/${card.node_id}`);
+    }
+    const summary = `关联事项：\n${lines.join('\n')}`;
+    return baseText.trim() ? `${baseText.trimEnd()}\n\n${summary}` : summary;
   }
   private confirmPublication(binding: SessionBinding,call: Pick<ProductCall,'operationId'|'callId'>,target:string,text:string,payload:Record<string,unknown>,position?:PublicationPosition) {
     const {inbox, store} = this.options;

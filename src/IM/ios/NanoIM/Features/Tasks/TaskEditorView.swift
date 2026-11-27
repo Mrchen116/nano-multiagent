@@ -33,16 +33,23 @@ struct TaskEditorView: View {
     @FocusState private var focusedField: String?
     @Environment(\.dismiss) private var dismiss
 
-    init(client: IMClient, graph: TaskGraph?, node: TaskNode?, parentID: String?, conversationID: String? = nil, completed: @escaping () -> Void) {
+    init(client: IMClient, graph: TaskGraph?, node: TaskNode?, parentID: String?,
+         conversationID: String? = nil, initialMode: String? = nil, completed: @escaping () -> Void) {
         self.client = client; self.node = node; self.parentID = parentID; self.completed = completed
-        initialDraft = TaskDraft(node: node)
+        initialDraft = TaskDraft(node: node, defaultMode: initialMode ?? "none")
         initialConversationID = graph?.conversation.id ?? conversationID ?? ""
         _graph = State(initialValue: graph); _baseline = State(initialValue: node)
         _draft = State(initialValue: initialDraft)
         _conversationID = State(initialValue: initialConversationID)
     }
+
     private var dirty: Bool { draft != initialDraft || conversationID != initialConversationID || parentMode != "dag" }
     private var reworking: Bool { baseline?.status == "done" && draft.status == "doing" }
+    private var proposalIncomplete: Bool {
+        guard draft.status == "proposed" else { return false }
+        return draft.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
@@ -88,7 +95,11 @@ struct TaskEditorView: View {
                     }.padding(.vertical, 4)
                         .overlay(alignment: .top) { Divider() }
                         .overlay(alignment: .bottom) { Divider() }
-                    field(L("任务说明", "Description"), prompt: L("补充目标与必要背景", "Add the goal and useful context"), text: $draft.description, key: "description")
+
+                    field(draft.status == "proposed" ? L("任务说明 · 必填", "Task description · required") : L("任务说明", "Task description"),
+                          prompt: draft.status == "proposed" ? L("说明提议原因与批准后具体执行的动作", "State why this matters and what runs once approved") : L("补充背景要求与具体做法", "Add context and instructions"),
+                          text: $draft.description,
+                          key: "description")
                     if node != nil || addingResult || !draft.result.isEmpty || draft.status == "done" {
                         field(L("当前结果", "Result"), prompt: L("记录进展或交付结果", "Record progress or the outcome"), text: $draft.result, key: "result")
                     } else {
@@ -97,16 +108,20 @@ struct TaskEditorView: View {
                         }
                     }
                     if node == nil {
-                        DisclosureGroup(L("子任务结构", "Subtask structure")) {
-                            Picker(L("子任务结构", "Subtask structure"), selection: $draft.mode) {
-                                Text(L("计划", "Plan")).tag("dag"); Text(L("探索", "Exploration")).tag("explore")
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(L("任务结构", "Task structure")).font(.subheadline).foregroundStyle(NanoTheme.muted)
+                            Picker(L("任务结构", "Task structure"), selection: $draft.mode) {
+                                Text(L("单卡", "Single")).tag("none")
+                                Text(L("阶段计划", "Plan")).tag("dag")
+                                Text(L("探索选型", "Exploration")).tag("explore")
                             }.pickerStyle(.segmented)
                         }
                         if let graph, let parentID, graph.nodes.first(where: { $0.id == parentID })?.mode == "none" {
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(L("父任务的拆分方式", "How to organize the parent task")).font(.subheadline).foregroundStyle(NanoTheme.muted)
                                 Picker(L("本层结构", "Parent structure"), selection: $parentMode) {
-                                    Text(L("计划", "Plan")).tag("dag"); Text(L("探索", "Exploration")).tag("explore")
+                                    Text(L("阶段计划", "Plan")).tag("dag")
+                                    Text(L("探索选型", "Exploration")).tag("explore")
                                 }.pickerStyle(.segmented)
                             }
                         }
@@ -126,7 +141,7 @@ struct TaskEditorView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button { focusedField = nil; Task { await save() } } label: {
                         if busy { ProgressView() } else { Text(L("保存", "Save")).fontWeight(.semibold) }
-                    }.disabled(busy || needsRefresh || cannotSave || comparison != nil || draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || conversationID.isEmpty)
+                    }.disabled(busy || needsRefresh || cannotSave || comparison != nil || proposalIncomplete || draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || conversationID.isEmpty)
                 }
                 ToolbarItemGroup(placement: .keyboard) { Spacer(); Button(L("收起键盘", "Hide keyboard")) { focusedField = nil } }
             }
@@ -148,12 +163,21 @@ struct TaskEditorView: View {
             }
             .task {
                 if graph == nil {
-                    do { let page: ItemsPage<Conversation> = try await client.get("/im/v1/conversations"); conversations = page.items.filter { $0.can_write == true } }
-                    catch { self.error = error.localizedDescription }
+                    do {
+                        let page: ItemsPage<Conversation> = try await client.get("/im/v1/conversations")
+                        let writable = page.items.filter { $0.can_write == true }
+                        conversations = writable
+                        if conversationID.isEmpty {
+                            conversationID = writable.first(where: { $0.category == "agent" })?.id ?? writable.first?.id ?? ""
+                        }
+                    } catch { self.error = error.localizedDescription }
                 }
                 await loadMembers()
             }
-            .onChange(of: conversationID) { _, _ in draft.assignee = nil; Task { await loadMembers() } }
+            .onChange(of: conversationID) { old, next in
+                if !old.isEmpty && old != next { draft.assignee = nil }
+                Task { await loadMembers() }
+            }
     }
 
     private func field(_ label: String, prompt: String, text: Binding<String>, key: String, title: Bool = false) -> some View {
@@ -217,11 +241,25 @@ struct TaskEditorView: View {
         let path: String
         if let graph {
             var operations = draft.operations(node: baseline, parentID: parentID)
-            if node == nil, let parentID, graph.nodes.first(where: { $0.id == parentID })?.mode == "none" { operations.insert(.object(["op": .string("update_task"), "node_id": .string(parentID), "patch": .object(["mode": .string(parentMode)])]), at: 0) }
+            if node == nil, let parentID, graph.nodes.first(where: { $0.id == parentID })?.mode == "none" {
+                operations.insert(.object(["op": .string("update_task"), "node_id": .string(parentID), "patch": .object(["mode": .string(parentMode)])]), at: 0)
+            }
             body = ["base_revision": .number(Double(graph.revision)), "operations": .array(operations), "change_note": .string(draft.changeNote)]
             path = "/im/v1/task-graphs/\(graph.graph_id.pathComponent)/apply"
         } else {
-            body = ["conversation_id": .string(conversationID), "title": .string(draft.title), "description": .string(draft.description), "mode": .string(draft.mode), "status": .string(draft.status), "result": .string(draft.result), "assignee": draft.assignee?.taskValue ?? .null]
+            var createBody: [String: JSONValue] = [
+                "conversation_id": .string(conversationID),
+                "title": .string(draft.title),
+                "description": .string(draft.description),
+                "mode": .string(draft.mode),
+                "status": .string(draft.status),
+                "result": .string(draft.result),
+                "assignee": draft.assignee?.taskValue ?? .null
+            ]
+            if let uid = draft.proposed_for_user_id, !uid.isEmpty {
+                createBody["proposed_for_user_id"] = .string(uid)
+            }
+            body = createBody
             path = "/im/v1/task-graphs"
         }
         // Preserve the key for an uncertain identical submission; edited drafts are new requests.
@@ -229,7 +267,10 @@ struct TaskEditorView: View {
         submittedBody = body; body["request_key"] = .string(requestKey)
         do {
             let receipt: JSONValue = try await client.send(path, body: body)
-            if let id = graph?.graph_id ?? receipt["graph_id"].stringValue { _ = try await client.taskGraph(id) }
+            if let id = graph?.graph_id ?? receipt["graph_id"].stringValue {
+                _ = try await client.taskGraph(id)
+                client.notifyTaskGraphChanged(id)
+            }
             busy = false; completed()
         } catch {
             self.error = error.localizedDescription

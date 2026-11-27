@@ -62,6 +62,7 @@ export interface RelayInput {
     timezone?: string;
     sender?: {display_name?: string};
     attachments: { url: string; content_type: string; file_name?: string }[];
+    task_cards?: import('./task-graphs.js').TaskCardRef[];
   };
 }
 export interface RuntimeEvent {
@@ -109,6 +110,7 @@ export * from './interactive.js';
 export { interactiveCatalog } from './interactive-catalog.js';
 
 export * from './work-sync.js';
+export * from './task-graphs.js';
 export * from './task-execution.js';
 
 export interface RuntimeWorkerDetail {
@@ -181,6 +183,7 @@ export * from './chat.js';
 export * from './chat-codec.js';
 
 export { intelligentUICatalog, interactiveTools } from './intelligent-ui-catalog.js';
+export { definitionsForRole, effectiveFeatures } from './capabilities.js';
 export {normalizeKnowledge, DEFAULT_DREAMING_SCHEDULE, type KnowledgeConfiguration} from './knowledge.js';
 
 export type * from './memory-evaluation.js';

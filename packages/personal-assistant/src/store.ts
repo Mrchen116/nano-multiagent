@@ -102,6 +102,18 @@ export class NodeStore {
       CREATE INDEX IF NOT EXISTS pending_controls ON control_intents(json_extract(intent,'$.binding.agentId')) WHERE coalesce(json_extract(intent,'$.delivered'),0)=0;
       CREATE TABLE IF NOT EXISTS command_results (id TEXT PRIMARY KEY, result TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS input_receipts (input_id TEXT PRIMARY KEY REFERENCES inputs(input_id), status TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS task_doing_watermarks (
+        agent_id TEXT NOT NULL, graph_id TEXT NOT NULL, node_id TEXT NOT NULL,
+        revision INTEGER NOT NULL, PRIMARY KEY(agent_id, graph_id, node_id)
+      );
+      CREATE TABLE IF NOT EXISTS proactive_state (
+        agent_id TEXT PRIMARY KEY,
+        last_activity_seq INTEGER NOT NULL DEFAULT 0,
+        last_activity_at INTEGER NOT NULL DEFAULT 0,
+        last_reviewed_seq INTEGER NOT NULL DEFAULT 0,
+        last_nightly_seq INTEGER NOT NULL DEFAULT 0,
+        last_nightly_cycle TEXT
+      );
     `);
     this.db.prepare('INSERT INTO node_owner(owner_id) SELECT ? WHERE NOT EXISTS(SELECT 1 FROM node_owner)').run(ownerId);
     const owner = this.db.prepare('SELECT owner_id FROM node_owner').get() as { owner_id: string };
@@ -251,6 +263,7 @@ export class NodeStore {
       this.db.prepare('DELETE FROM recovery_delivery_inputs WHERE session_id IN (SELECT session_id FROM sessions WHERE agent_id=?)').run(agentId);
       this.db.prepare('UPDATE group_background SET cancelled=1 WHERE agent_id=?').run(agentId);
       this.db.prepare("UPDATE control_intents SET intent=json_set(intent,'$.delivered',json('true'),'$.text','cancelled_by_disable') WHERE json_extract(intent,'$.binding.agentId')=? AND coalesce(json_extract(intent,'$.delivered'),0)=0").run(agentId);
+      this.db.prepare('UPDATE proactive_state SET last_reviewed_seq=last_activity_seq,last_nightly_seq=last_activity_seq WHERE agent_id=?').run(agentId);
       this.db.exec('COMMIT');
     } catch(error) {this.db.exec('ROLLBACK');throw error;}
   }
@@ -259,7 +272,7 @@ export class NodeStore {
   purgeAgent(agentId: string, sessionIds: readonly string[]): void {
     this.db.exec('BEGIN IMMEDIATE');
     try {
-      for (const table of ['conversation_aliases','input_lifecycles','group_background','schedule_runs','canonical_sessions','task_context_cursors','system_context_inputs'])
+      for (const table of ['conversation_aliases','input_lifecycles','group_background','schedule_runs','canonical_sessions','task_context_cursors','system_context_inputs','task_doing_watermarks','proactive_state'])
         this.db.prepare(`DELETE FROM ${table} WHERE agent_id=?`).run(agentId);
       this.db.prepare("DELETE FROM control_intents WHERE json_extract(intent,'$.binding.agentId')=?").run(agentId);
       this.db.prepare("DELETE FROM schedule_deletions WHERE json_extract(intent,'$.agentId')=?").run(agentId);
@@ -287,6 +300,49 @@ export class NodeStore {
   /** Cache an IM-confirmed owner timezone without changing message snapshots. */
   setOwnerTimezone(timezone: string): void {
     this.db.prepare('INSERT INTO owner_timezone VALUES(?,?) ON CONFLICT(owner_id) DO UPDATE SET timezone=excluded.timezone WHERE timezone!=excluded.timezone').run(this.ownerId, timezone);
+  }
+  /** Read the highest doing_wake revision already consumed for one owned Task node. */
+  doingWatermark(agentId: string, graphId: string, nodeId: string): number {
+    return (this.db.prepare('SELECT revision FROM task_doing_watermarks WHERE agent_id=? AND graph_id=? AND node_id=?')
+      .get(agentId, graphId, nodeId) as { revision: number } | undefined)?.revision ?? 0;
+  }
+  /** Advance the consumed doing_wake revision monotonically after self-start or completed wake turn. */
+  advanceDoingWatermark(agentId: string, graphId: string, nodeId: string, revision: number): void {
+    if (!Number.isSafeInteger(revision) || revision <= 0) return;
+    this.db.prepare(`INSERT INTO task_doing_watermarks(agent_id,graph_id,node_id,revision) VALUES(?,?,?,?)
+      ON CONFLICT(agent_id,graph_id,node_id) DO UPDATE SET revision=max(revision,excluded.revision)`).run(agentId, graphId, nodeId, revision);
+  }
+  /** Read durable three-watermark proactive coordination state for one PA. */
+  proactiveState(agentId: string): ProactiveStateRecord {
+    const row = this.db.prepare(`SELECT last_activity_seq AS lastActivitySeq, last_activity_at AS lastActivityAt,
+      last_reviewed_seq AS lastReviewedSeq, last_nightly_seq AS lastNightlySeq, last_nightly_cycle AS lastNightlyCycle
+      FROM proactive_state WHERE agent_id=?`).get(agentId) as ProactiveStateRecord | undefined;
+    return row ?? { lastActivitySeq: 0, lastActivityAt: 0, lastReviewedSeq: 0, lastNightlySeq: 0, lastNightlyCycle: null };
+  }
+  /** Advance proactive activity watermark when a human owner DM or admitted owner-relevant observation arrives. */
+  recordProactiveActivity(agentId: string, atMs: number): number {
+    const stamp = Math.max(0, Math.trunc(atMs));
+    this.db.prepare(`INSERT INTO proactive_state(agent_id,last_activity_seq,last_activity_at,last_reviewed_seq,last_nightly_seq,last_nightly_cycle)
+      VALUES(?,1,?,0,0,NULL)
+      ON CONFLICT(agent_id) DO UPDATE SET
+        last_activity_seq=proactive_state.last_activity_seq+1,
+        last_activity_at=max(proactive_state.last_activity_at,excluded.last_activity_at)`).run(agentId, stamp);
+    return this.proactiveState(agentId).lastActivitySeq;
+  }
+  /** Advance lightweight review watermark once the root session admits proactive_review. */
+  advanceProactiveReviewed(agentId: string, seq: number): void {
+    this.db.prepare(`INSERT INTO proactive_state(agent_id,last_activity_seq,last_activity_at,last_reviewed_seq,last_nightly_seq,last_nightly_cycle)
+      VALUES(?,?,0,?,0,NULL)
+      ON CONFLICT(agent_id) DO UPDATE SET last_reviewed_seq=max(proactive_state.last_reviewed_seq,excluded.last_reviewed_seq)`).run(agentId, seq, seq);
+  }
+  /** Record completed admission of nightly deep planning for the current 03:00 cycle slot. */
+  advanceProactiveNightly(agentId: string, seq: number, cycleKey: string): void {
+    this.db.prepare(`INSERT INTO proactive_state(agent_id,last_activity_seq,last_activity_at,last_reviewed_seq,last_nightly_seq,last_nightly_cycle)
+      VALUES(?,?,0,?,?,?)
+      ON CONFLICT(agent_id) DO UPDATE SET
+        last_reviewed_seq=max(proactive_state.last_reviewed_seq,excluded.last_reviewed_seq),
+        last_nightly_seq=max(proactive_state.last_nightly_seq,excluded.last_nightly_seq),
+        last_nightly_cycle=excluded.last_nightly_cycle`).run(agentId, seq, seq, seq, cycleKey);
   }
   /** Preserve the old relay deduplication window without replaying retired execution. */
   priorRelay(key: string): boolean { return !!this.db.prepare('SELECT 1 FROM migration_relay_keys WHERE idempotency_key=? AND expires_at>?').get(key, Date.now()/1000); }
@@ -714,5 +770,12 @@ export class NodeStore {
   close(): void { this.db.close(); }
 }
 export interface Delivery { operationId: string; state: DeliveryState; messageId: string | null; content: string }
+export interface ProactiveStateRecord {
+  lastActivitySeq: number;
+  lastActivityAt: number;
+  lastReviewedSeq: number;
+  lastNightlySeq: number;
+  lastNightlyCycle: string | null;
+}
 
 interface RuntimeInput { id: string; content: { type: string; text?: string }[]; source?: { kind: string; channel?: string; lifecycle_revision?:number } }

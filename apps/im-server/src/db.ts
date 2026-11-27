@@ -30,6 +30,8 @@ export function openDatabase(path: string): DatabaseSync {
     db.exec('ALTER TABLE messages ADD COLUMN lifecycle_revision INTEGER');
   if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'reply_to_json'))
     db.exec('ALTER TABLE messages ADD COLUMN reply_to_json TEXT');
+  if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'task_cards_json'))
+    db.exec('ALTER TABLE messages ADD COLUMN task_cards_json TEXT');
   if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'thread_root_id'))
     db.exec('ALTER TABLE messages ADD COLUMN thread_root_id TEXT REFERENCES messages(id)');
   if (!db.prepare('PRAGMA table_info(thread_follows)').all().some(column => column.name === 'followed_at'))

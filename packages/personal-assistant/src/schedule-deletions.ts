@@ -3,13 +3,14 @@ import type {NodeStore} from './store.js';
 export interface ScheduleDeletionIntent {
  operationId:string;agentId:string;sessionId:string;scheduleId:string;title:string;
  actor:{kind:'user'|'agent';id:string};phase:'pending'|'deleted';deletedAt?:string;
- changeInputId:string;repairInputId:string;changeNotified:boolean;repairNotified:boolean;
+ changeInputId:string;changeNotified:boolean;
+ repairInputId:string;repairNotified:boolean;
 }
 interface Identity {operationId:string;agentId:string;scheduleId:string;actor:ScheduleDeletionIntent['actor'];sessionId?:string}
 interface Options {
  ownerId:string;agents:AgentConfiguration[];store:NodeStore;runtime:RuntimePort;
- repair(intent:ScheduleDeletionIntent):Promise<void>;
  notify(intent:ScheduleDeletionIntent):Promise<void>;
+ repair?(intent:ScheduleDeletionIntent):Promise<void>;
  onError(error:unknown):void;
 }
 /** Durable intent for one authorized native deletion, not another Schedule catalog. */
@@ -31,7 +32,12 @@ export class ScheduleDeletions {
     const catalog=await this.options.runtime.request('schedule.command',{agentId:input.agentId,action:'jobs'});
     const schedule=catalog.find(item=>item.id===input.scheduleId&&(input.sessionId===undefined||item.sessionId===input.sessionId));
     if(!schedule)return {id:input.scheduleId,deleted:false,code:'schedule_not_found'};
-    intent={operationId:input.operationId,agentId:input.agentId,sessionId:schedule.sessionId,scheduleId:schedule.id,title:schedule.name,actor:input.actor,phase:'pending',changeInputId:'schedule-deleted:'+input.operationId,repairInputId:'task-wait-repair:'+input.operationId,changeNotified:input.actor.kind!=='user',repairNotified:false};
+    intent={
+     operationId:input.operationId,agentId:input.agentId,sessionId:schedule.sessionId,scheduleId:schedule.id,title:schedule.name,
+     actor:input.actor,phase:'pending',
+     changeInputId:'schedule-deleted:'+input.operationId,changeNotified:input.actor.kind!=='user',
+     repairInputId:'schedule-repair:'+input.operationId,repairNotified:!this.options.repair,
+    };
     if(!this.options.store.createScheduleDeletion(intent))throw new Error('Schedule deletion identity conflict');
    }
    await this.execute(intent);
@@ -50,11 +56,13 @@ export class ScheduleDeletions {
    }
    intent.phase='deleted';intent.deletedAt=new Date().toISOString();this.options.store.saveScheduleDeletion(intent);
   }
-  // The two receipts are independent. A crash retries their stable native IDs.
   if(!intent.changeNotified)try{await this.options.notify(intent);this.options.store.saveScheduleDeletion({...intent,changeNotified:true});intent.changeNotified=true;}catch(error){this.options.onError(error);}
-  if(!intent.repairNotified)try{await this.options.repair(intent);this.options.store.saveScheduleDeletion({...intent,repairNotified:true});intent.repairNotified=true;}catch(error){this.options.onError(error);}
+  if(!intent.repairNotified){
+   if(!this.options.repair){this.options.store.saveScheduleDeletion({...intent,repairNotified:true});intent.repairNotified=true;}
+   else try{await this.options.repair(intent);this.options.store.saveScheduleDeletion({...intent,repairNotified:true});intent.repairNotified=true;}catch(error){this.options.onError(error);}
+  }
  }
- /** Reconcile pending deletion and each unfinished notification after runtime recovery. */
+ /** Reconcile pending deletion and unfinished change/repair receipts after runtime recovery. */
  async recover(agentIds:string[]):Promise<void>{
   await Promise.all(agentIds.map(agentId=>this.exclusive(agentId,async()=>{
    let incomplete=false;

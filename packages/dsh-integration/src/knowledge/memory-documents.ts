@@ -8,6 +8,38 @@ import { fromMarkdown } from 'mdast-util-from-markdown';
 import { atomicWrite } from './files.js';
 
 export const memoryEntryLimit = 8000;
+export const proactivitySignalsLimit = 4000;
+export const proactivitySignalsMaxItems = 20;
+
+const personalTopDirectories = new Set(['entities', 'knowledge', 'workstreams', 'timeline']);
+const expertTopDirectories = new Set(['entities', 'knowledge', 'projects', 'work-history']);
+const proactiveSectionTitles = new Set(['主动性与介入偏好', 'Proactive & Intervention Preferences']);
+const canonicalProactiveBucketKey: Record<string, string> = {
+  '积极盯紧与提前备料': 'follow_through',
+  'Proactive Follow-Through & Preparation': 'follow_through',
+  '低打扰挂卡与静默跟进': 'low_intrusion',
+  'Low-Intrusion Proposals & Silent Tracking': 'low_intrusion',
+  '免打扰禁区': 'no_intrusion',
+  'No-Intrusion Boundaries': 'no_intrusion',
+  '触达时机与汇总方式': 'timing_cadence',
+  'Timing & Delivery Cadence': 'timing_cadence',
+};
+
+function astText(node: unknown): string {
+  if (!node || typeof node !== 'object') return '';
+  const record = node as { value?: unknown; children?: unknown[] };
+  if (typeof record.value === 'string') return record.value;
+  if (Array.isArray(record.children)) return record.children.map(astText).join('');
+  return '';
+}
+
+function collectAstLinks(node: unknown, urls: string[] = []): string[] {
+  if (!node || typeof node !== 'object') return urls;
+  const record = node as { type?: unknown; url?: unknown; children?: unknown[] };
+  if (record.type === 'link' && typeof record.url === 'string') urls.push(record.url);
+  if (Array.isArray(record.children)) for (const child of record.children) collectAstLinks(child, urls);
+  return urls;
+}
 export type DocumentVersions = Record<string, string>;
 export interface DocumentGitChange { path: string; status: string; supported: boolean }
 export interface DocumentBatchStart { head: string; untracked: string[] }
@@ -88,7 +120,7 @@ export class MemoryDocuments {
     const entry = await fs.resolve(join(owner.root, 'MEMORY.md'));
     if (!await fs.stat(entry)) {
       await fs.writeText(entry, role === 'personal'
-        ? '# Personal memory\n\nDurable understanding of the owner, their relationships, preferences and workstreams.\n\n## Topics\n\nNo topics saved yet.\n'
+        ? '# Personal memory\n\nDurable understanding of the owner, their relationships, preferences and workstreams.\n\n## 主动性与介入偏好\n\n暂无已确认的主动性偏好。\n\n## Topics\n\nNo topics saved yet.\n'
         : '# Expert memory\n\nDomain knowledge, environments, collaboration by audience, and verified work experience. No requester is implicitly the owner.\n\n## Topics\n\nNo topics saved yet.\n', { kind: 'createIfAbsent' }, undefined, owner.writePolicy());
     }
     // Exclude the entire private tree from an enclosing repository before initializing ours.
@@ -260,6 +292,185 @@ export class MemoryDocuments {
       }
     };
     await walk('');
+    return issues;
+  }
+
+  /** Validate structure, proactive calibration layout, observation-pool caps, and relative Markdown links at consolidation completion. */
+  async consolidationIssues(): Promise<Array<{ path: string; reason: string }>> {
+    const issues: Array<{ path: string; reason: string }> = [];
+    const allowedTop = this.role === 'personal' ? personalTopDirectories : expertTopDirectories;
+    for (const item of await readdir(this.root, { withFileTypes: true })) {
+      if (item.name === '.git') continue;
+      if (item.isDirectory() && !allowedTop.has(item.name)) {
+        issues.push({
+          path: item.name,
+          reason: `Top-level directory "${item.name}" is outside the allowed ${this.role} layout (${[...allowedTop].join(', ')})`,
+        });
+      }
+    }
+
+    const regularMarkdownPaths: string[] = [];
+    const collectMarkdown = async (directory: string) => {
+      for (const item of await readdir(join(this.root, directory), { withFileTypes: true })) {
+        if (item.name.startsWith('.')) continue;
+        const rel = directory ? `${directory}/${item.name}` : item.name;
+        const abs = join(this.root, rel);
+        if (item.isDirectory()) {
+          await collectMarkdown(rel);
+        } else if (item.isFile() && rel.endsWith('.md')) {
+          const isReal = await realpath(abs).then(real => real === abs, () => false);
+          if (isReal) regularMarkdownPaths.push(rel);
+        }
+      }
+    };
+    await collectMarkdown('');
+
+    let entryForbidsSignalsReported = false;
+    if (this.role === 'personal' && !await this.entryIssue()) {
+      const entryText = await readFile(join(this.root, 'MEMORY.md'), 'utf8');
+      if (entryText.includes('proactivity-signals.md')) {
+        entryForbidsSignalsReported = true;
+        issues.push({ path: 'MEMORY.md', reason: 'MEMORY.md must never link to or reference knowledge/proactivity-signals.md' });
+      }
+      const tree = fromMarkdown(entryText);
+      const matchingDepthOther = tree.children.filter(node => node.type === 'heading' && node.depth !== 2 && proactiveSectionTitles.has(astText(node).trim()));
+      const matchingH2Indices = tree.children.flatMap((node, index) =>
+        node.type === 'heading' && node.depth === 2 && proactiveSectionTitles.has(astText(node).trim()) ? [index] : []);
+      if (matchingDepthOther.length > 0 && matchingH2Indices.length === 0) {
+        issues.push({ path: 'MEMORY.md', reason: 'The proactive calibration section in MEMORY.md must be an H2 ("## 主动性与介入偏好") heading' });
+      } else if (matchingH2Indices.length === 0) {
+        issues.push({ path: 'MEMORY.md', reason: 'Personal MEMORY.md must include the "## 主动性与介入偏好" (or "## Proactive & Intervention Preferences") section' });
+      } else if (matchingH2Indices.length > 1) {
+        issues.push({ path: 'MEMORY.md', reason: 'Personal MEMORY.md must contain only one "## 主动性与介入偏好" section' });
+      } else {
+        const startIdx = matchingH2Indices[0]!;
+        let endIdx = tree.children.length;
+        for (let i = startIdx + 1; i < tree.children.length; i++) {
+          const child = tree.children[i]!;
+          if (child.type === 'heading' && child.depth <= 2) {
+            endIdx = i;
+            break;
+          }
+        }
+        const seenBuckets = new Set<string>();
+        for (let i = startIdx + 1; i < endIdx; i++) {
+          const sub = tree.children[i]!;
+          if (sub.type !== 'heading') continue;
+          const title = astText(sub).trim();
+          if (sub.depth !== 3) {
+            issues.push({ path: 'MEMORY.md', reason: `Proactive section only allows H3 ("###") bucket headings; found H${sub.depth} "${title}"` });
+          } else if (!(title in canonicalProactiveBucketKey)) {
+            issues.push({
+              path: 'MEMORY.md',
+              reason: `Unsupported proactive H3 bucket "${title}"; use only 积极盯紧与提前备料, 低打扰挂卡与静默跟进, 免打扰禁区, 触达时机与汇总方式`,
+            });
+          } else {
+            const bucketKey = canonicalProactiveBucketKey[title]!;
+            if (seenBuckets.has(bucketKey)) {
+              issues.push({ path: 'MEMORY.md', reason: `Duplicate proactive H3 bucket "${title}" in MEMORY.md` });
+            }
+            seenBuckets.add(bucketKey);
+          }
+        }
+      }
+    }
+
+    if (regularMarkdownPaths.includes('knowledge/proactivity-signals.md')) {
+      const signalsRel = 'knowledge/proactivity-signals.md';
+      if (this.role !== 'personal') {
+        issues.push({ path: signalsRel, reason: 'knowledge/proactivity-signals.md is only supported for personal assistant memory repositories' });
+      } else {
+        const signalsText = await readFile(join(this.root, signalsRel), 'utf8');
+        if (signalsText.length > proactivitySignalsLimit) {
+          issues.push({
+            path: signalsRel,
+            reason: `knowledge/proactivity-signals.md has ${signalsText.length} UTF-16 code units; limit is ${proactivitySignalsLimit}`,
+          });
+        }
+        const signalsTree = fromMarkdown(signalsText);
+        let listItems = 0;
+        let paragraphs = 0;
+        let seenList = false;
+        let proseViolation = false;
+        for (const block of signalsTree.children) {
+          if (block.type === 'heading') {
+            if (block.depth >= 3) {
+              issues.push({ path: signalsRel, reason: 'knowledge/proactivity-signals.md must record observations as top-level list items without H3+ subheadings' });
+            }
+          } else if (block.type === 'list') {
+            seenList = true;
+            listItems += block.children.length;
+          } else if (block.type === 'html' || block.type === 'thematicBreak') {
+            continue;
+          } else if (block.type === 'paragraph') {
+            paragraphs++;
+            const pText = astText(block).trim();
+            if (paragraphs > 1 || seenList || pText.length > 120 || pText.includes('\n')) {
+              proseViolation = true;
+            }
+          } else {
+            proseViolation = true;
+          }
+        }
+        if (proseViolation) {
+          issues.push({
+            path: signalsRel,
+            reason: 'knowledge/proactivity-signals.md must express observations as top-level list items (with at most one brief header/empty-state line), not prose or code blocks',
+          });
+        }
+        if (listItems > proactivitySignalsMaxItems) {
+          issues.push({
+            path: signalsRel,
+            reason: `knowledge/proactivity-signals.md has ${listItems} top-level list items; limit is ${proactivitySignalsMaxItems}`,
+          });
+        }
+      }
+    }
+
+    for (const relPath of regularMarkdownPaths.sort()) {
+      const content = await readFile(join(this.root, relPath), 'utf8');
+      const links = collectAstLinks(fromMarkdown(content));
+      for (const rawLink of links) {
+        const rawUrl = rawLink.trim();
+        if (!rawUrl || rawUrl.startsWith('#')) continue;
+        if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(rawUrl)) continue;
+        if (rawUrl === '/tasks' || rawUrl.startsWith('/tasks/') || rawUrl === '/im/v1' || rawUrl.startsWith('/im/v1/')) continue;
+        const cleanPart = rawUrl.split('#')[0]!.split('?')[0]!;
+        if (!cleanPart) continue;
+        if (cleanPart.startsWith('/')) {
+          issues.push({ path: relPath, reason: `Unsupported root-relative link "${rawUrl}"; use relative Markdown paths inside the memory repository` });
+          continue;
+        }
+        let decoded: string;
+        try {
+          decoded = decodeURIComponent(cleanPart);
+        } catch {
+          issues.push({ path: relPath, reason: `Malformed percent-encoded link "${rawUrl}"` });
+          continue;
+        }
+        const targetAbs = resolve(dirname(join(this.root, relPath)), decoded);
+        const targetRel = relative(this.root, targetAbs).split('\\').join('/');
+        if (!targetRel || targetRel.startsWith('..') || isAbsolute(targetRel) || targetRel.split('/').some(part => part.startsWith('.'))) {
+          issues.push({ path: relPath, reason: `Link "${rawUrl}" escapes the formal memory repository` });
+          continue;
+        }
+        if (!targetRel.endsWith('.md')) {
+          issues.push({ path: relPath, reason: `Relative memory link "${rawUrl}" must point to a .md document` });
+          continue;
+        }
+        if (relPath === 'MEMORY.md' && targetRel === 'knowledge/proactivity-signals.md') {
+          if (!entryForbidsSignalsReported) {
+            entryForbidsSignalsReported = true;
+            issues.push({ path: 'MEMORY.md', reason: 'MEMORY.md must never link to or reference knowledge/proactivity-signals.md' });
+          }
+          continue;
+        }
+        const exists = await lstat(targetAbs).then(info => info.isFile() && realpath(targetAbs).then(real => real === targetAbs), () => false);
+        if (!exists) {
+          issues.push({ path: relPath, reason: `Broken relative link "${rawUrl}" -> missing "${targetRel}"` });
+        }
+      }
+    }
     return issues;
   }
   private gitHead(): Promise<string> {
