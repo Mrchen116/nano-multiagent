@@ -539,11 +539,11 @@ export function GroupSettings(props: GroupSettingsProps) {
             <div className="group-settings-addbox">
               <div className="group-settings-addbox-head">{t("chat.groupSettings.addMembersTitle")}</div>
               {props.foreignProjectAgentMemberLocked && (
-                <p className="group-settings-meta" style={{ margin: "4px 0 8px" }}>{t("chat.groupSettings.foreignProjectAgentMemberLocked")}</p>
+                <p className="group-settings-meta" style={{ margin: "0 0 6px", padding: "6px 13px 0" }}>{t("chat.groupSettings.foreignProjectAgentMemberLocked")}</p>
               )}
               <div className="group-settings-pick-list">{pickerRows}</div>
-              {addableAgents.length > 0 && (
-                <div className="group-settings-addbox-foot">
+              <div className="group-settings-addbox-foot">
+                {addableAgents.length > 0 && (
                   <button
                     type="button"
                     className="chat-modal-btn-primary"
@@ -552,11 +552,11 @@ export function GroupSettings(props: GroupSettingsProps) {
                   >
                     {t("chat.groupSettings.addCount", { count: selectedAgentIds.length })}
                   </button>
-                  <button type="button" className="chat-modal-btn-ghost" onClick={closeAdd}>
-                    {t("chat.groupSettings.cancel")}
-                  </button>
-                </div>
-              )}
+                )}
+                <button type="button" className="chat-modal-btn-ghost" onClick={closeAdd}>
+                  {t("chat.groupSettings.cancel")}
+                </button>
+              </div>
             </div>
           )}
 

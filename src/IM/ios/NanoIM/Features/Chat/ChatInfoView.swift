@@ -193,6 +193,13 @@ struct ChatInfoView: View {
                             ErrorNotice(message: contactsError)
                             Button(L("重试", "Retry")) { Task { await loadContacts() } }
                         } else if !contactsLoaded { ProgressView() }
+                        if groupHasPrivateAgent {
+                            Text(L("包含私有助手，不可添加其他团队成员。", "Contains a private assistant: external teammates cannot be added."))
+                                .font(.caption).foregroundStyle(NanoTheme.muted)
+                        } else if groupHasForeignProjectAgent {
+                            Text(L("包含他人管理的项目级助手，仅该助手主人可邀请新的外部同事入群。", "Contains a project assistant owned by another member: only its owner can invite external teammates."))
+                                .font(.caption).foregroundStyle(NanoTheme.muted)
+                        }
                         let chosen = contacts.filter { selected.contains($0.id) }
                         if !chosen.isEmpty {
                             SelectedChatContacts(contacts: chosen) { selected.remove($0.id) }

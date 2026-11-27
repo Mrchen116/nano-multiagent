@@ -979,8 +979,8 @@ export class Messaging {
     const explicit=provider ? (provider.mentioned_bot?[agentId]:[]) : this.mentionedAgents(message.conversation_id,message.content);
     return {owner_direct:ownerDirect(this.db,agentId,message.id),
       owner_internal:!!profile && isOwnerInternalConversation(this.db,message.conversation_id,profile.owner_id),
-      ...(profile && (profile.collaboration_scope ?? 'team')==='project' && !chat.external_source
-        ? {project_allowed:canAgentAccessConversation(this.db,profile,chat)}
+      ...(profile && !chat.external_source
+        ? {project_allowed:canAgentAccessConversation(this.db,{...profile,collaboration_scope:'project'},chat)}
         : {}),
       addressed_to_agent:chat.type==='direct'||explicit.includes(agentId)||provider?.replied_to_bot===true||message.reply_to?.sender.id===agentId||message.interaction_reply?.agent_id===agentId,
       addressed_to_owner:false,explicit_mentioned_agent_ids:explicit,

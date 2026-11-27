@@ -526,6 +526,7 @@ async function im(path: string, options?: ImRequestOptions): Promise<unknown> {
 
 external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, store, relay,
   agentName: id => agents.find(agent => agent.agentId === id)?.displayName,
+  collaborationScope: id => agents.find(agent => agent.agentId === id)?.collaborationScope ?? 'team',
   ownerOnly: id => (agents.find(agent => agent.agentId === id)?.collaborationScope ?? 'team') !== 'team',
   personalAgent: id => !!agents.find(agent => agent.agentId === id)?.personal,
   globalAgent: id => agents.some(agent => agent.agentId === id && agent.mode === 'global' && !agent.personal),

@@ -609,7 +609,7 @@
         "ownerOnly": "Private (you & your assistants)",
         "ownerOnlyShort": "Private",
         "teamHelp": "Teammates can find and message this assistant or add it to groups. Direct messages, mentions and replies arrive promptly; other group messages arrive in batches.",
-        "projectHelp": "Visible and open for direct chat and Global Work only to teammates sharing an active private group with this assistant; freezes automatically when no private group is shared.",
+        "projectHelp": "Visible and open for direct chat (and Global Work in global mode) only to teammates sharing an active private group with this assistant; freezes automatically when no private group is shared.",
         "ownerOnlyHelp": "Hidden from teammates; collaborates only with you and your own assistants in direct chats or internal private groups.",
         "ownerOnlyPaHelp": "Hidden from teammates and never sends or delegates messages externally; still silently observes chats you allow and reports back to you.",
         "tightenScopeNotice": "Saving removes this assistant from groups with teammates and makes existing teammate direct chats read-only.",

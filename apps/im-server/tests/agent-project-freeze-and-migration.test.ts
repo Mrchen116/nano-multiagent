@@ -276,6 +276,26 @@ it('atomically freezes and unfreezes lost external 1:1 DMs on group membership c
   expect(charlieDm.can_write).toBe(true);
 
   sentFrames.length = 0;
+  // Enqueue messages in famGroup and bobDm while still in 'team' scope (and inject a legacy relay_task lacking project_allowed)
+  const preTightenGroupMsg = (await request(bob.access_token, 'POST', `/im/v1/conversations/${famGroup.id}/messages`, {
+    sender_user_id: bob.user.id,
+    content: 'Before team->project tighten in group',
+  })).json();
+  expect(sentFrames.find(f => f.type === 'relay.message' && f.payload.message?.id === preTightenGroupMsg.id)?.payload.metadata?.project_allowed).toBe(true);
+  const preTightenDmMsg = (await request(bob.access_token, 'POST', `/im/v1/conversations/${bobDm.id}/messages`, {
+    sender_user_id: bob.user.id,
+    content: 'Before team->project tighten in DM',
+  })).json();
+  // Simulate an undelivered legacy relay_task enqueued without metadata.project_allowed before tightening to 'project'
+  const legacyRelay = db.prepare('SELECT * FROM relay_tasks WHERE message_id=?').get(preTightenDmMsg.id) as { relay_task_id: string; payload_json: string };
+  const strippedPayload = JSON.parse(legacyRelay.payload_json);
+  delete strippedPayload.metadata.project_allowed;
+  db.prepare("UPDATE relay_tasks SET status='queued',receipt_status=NULL,payload_json=? WHERE relay_task_id=?").run(
+    JSON.stringify(strippedPayload),
+    legacyRelay.relay_task_id,
+  );
+
+  sentFrames.length = 0;
   expect((await request(alice.access_token, 'PATCH', '/im/v1/agents/family-health/config', {
     profile_version: 2,
     display_name: '家庭健康助手',
@@ -284,6 +304,12 @@ it('atomically freezes and unfreezes lost external 1:1 DMs on group membership c
     tool_allowlist: taskTools,
     features: taskFeatures,
   })).statusCode).toBe(200);
+
+  const delivery = (app.im.messaging as unknown as { delivery: { disconnect: (node: string) => void; drain: (node?: string) => boolean } }).delivery;
+  delivery.disconnect('node-alice');
+  delivery.drain('node-alice');
+  const redrainedDmFrame = sentFrames.find(f => f.type === 'relay.message' && f.payload.message?.id === preTightenDmMsg.id);
+  expect(redrainedDmFrame?.payload.metadata?.project_allowed).toBe(true);
 
   expect(db.prepare('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?').get(pubTownhall.id, familyUserId)).toBeUndefined();
   expect(db.prepare('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?').get(famGroup.id, familyUserId)).toBeTruthy();

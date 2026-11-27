@@ -317,7 +317,7 @@ struct AgentEditorFields: View {
                     ? L("对团队同事隐藏且不对外发言；仍按聊天访问范围静默观察你参与的聊天并向你汇报。切为私有时自动退出外部群并冻结同事历史私聊。", "Hidden from teammates and never messages externally; still silently observes chats you allow. Switching to Private exits external groups and makes teammate direct chats read-only.")
                     : L("对团队同事隐藏，仅与你及名下助手通信或组建内部私密群。切为私有时自动退出外部群并冻结同事历史私聊。", "Hidden from teammates; collaborates only with you and your own assistants. Switching to Private exits external groups and makes teammate direct chats read-only."))
                  : draft.collaboration_scope == "project"
-                   ? L("仅面向与该助手共处同一私密群的项目同事开放发现、单聊与全局工作记录；离开全部共用私密群后自动冻结。", "Visible and open for direct chat and Global Work only to teammates sharing an active private group with this assistant; freezes automatically when no private group is shared.")
+                   ? L("仅面向与该助手共处同一私密群的项目同事开放发现与单聊（全局模式下含工作记录）；离开全部共用私密群后自动冻结。", "Visible and open for direct chat (and Global Work in global mode) only to teammates sharing an active private group with this assistant; freezes automatically when no private group is shared.")
                    : L("团队同事可发现并私聊该助手，也可拉入协作群；私聊、@ 或回复会及时提醒，普通群消息合并提醒。", "Teammates can find and message this assistant or add it to groups. Direct messages, mentions and replies arrive promptly; other group messages arrive in batches."))
                 .font(.caption).foregroundStyle(NanoTheme.muted)
         } }

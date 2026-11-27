@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import type { AgentConfiguration } from '@nano/product-contracts';
+import { ExternalChannels } from '../src/external.js';
 import { SingleThread } from '../src/single-thread.js';
 import { NodeStore } from '../src/store.js';
 import { prepareLocalAttachments } from '../src/screenshot-delivery.js';
@@ -109,6 +110,44 @@ it('admits project_allowed SingleThread chats while isolating revokeConversation
     ]);
   } finally {
     await product.stop();
+    store.close();
+  }
+});
+
+it('surfaces Project scope rather than Private in ExternalChannels outbound restriction errors', async () => {
+  const store = new NodeStore(':memory:', 'owner');
+  let scope: 'team' | 'project' | 'owner_only' = 'project';
+  const external = new ExternalChannels(':memory:', {
+    nodeId: 'n',
+    ownerId: 'owner',
+    store,
+    collaborationScope: () => scope,
+    relay: { ready: true, request: async () => ({ type: 'ack', payload: {} } as never) },
+    im: async () => ({}),
+    receive: async () => {},
+    permission: async () => {},
+    onError: () => {},
+  });
+  try {
+    await expect(
+      external.request('agent.message', {
+        node_id: 'n',
+        from_session_id: 'proj|tool_call:op-ext-1',
+        to: 'external:proj:app1:oc_group',
+        text: 'hello external group',
+      }),
+    ).rejects.toThrow(/Project scope/);
+    scope = 'owner_only';
+    await expect(
+      external.request('agent.message', {
+        node_id: 'n',
+        from_session_id: 'proj|tool_call:op-ext-2',
+        to: 'external:proj:app1:oc_group',
+        text: 'hello external group',
+      }),
+    ).rejects.toThrow(/set to Private/);
+  } finally {
+    await external.stop();
     store.close();
   }
 });
