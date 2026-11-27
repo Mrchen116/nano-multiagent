@@ -90,3 +90,9 @@
 
 .pa-waiting { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
 .pa-waiting svg { flex: none; }
+.pa-scope-field { display: grid; gap: 6px; margin: 12px 0; }
+.pa-scope-label { font-size: 13px; font-weight: 600; color: var(--im-text); }
+.pa-scope-segment { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px; border: 1px solid var(--im-border); border-radius: 8px; background: var(--im-surface-2); }
+.pa-scope-segment button { min-height: 34px; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--im-text-muted); font-size: 12px; font-weight: 600; cursor: pointer; line-height: 1.25; }
+.pa-scope-segment button[aria-pressed="true"] { background: var(--im-surface); color: var(--im-accent); box-shadow: 0 1px 3px #0001; }
+.pa-dialog p.pa-scope-help { margin: 0; font-size: 12px; line-height: 1.5; color: var(--im-text-muted); }

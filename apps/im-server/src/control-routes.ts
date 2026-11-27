@@ -208,6 +208,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
           "display_name",
           "avatar_variant",
           "description",
+          "collaboration_scope",
           "profile_version",
           "default_model",
           "workspace_root",

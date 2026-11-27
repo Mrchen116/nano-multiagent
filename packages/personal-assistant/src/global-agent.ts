@@ -286,6 +286,24 @@ export class GlobalAgent {
   confirmRestricted(agentId:string,withdrawn:Parameters<InboxStore['confirmRestricted']>[1]):void {
     this.options.inbox.confirmRestricted(agentId,withdrawn);this.scheduleReceipts();
   }
+  /** Withdraw unread participant inputs for conversations exited or frozen on the center. */
+  revokeConversations(agentId:string, conversationIds:readonly string[]) {
+    const config=this.options.agents.find(agent=>agent.agentId===agentId);
+    if(!config || !conversationIds.length)return [];
+    const revoked=new Set(conversationIds.map(cid=>splitThreadTarget(cid).base));
+    const edits=this.options.inbox.restrict(agentId,input=>{
+      if(input.message.sender_type==='system' && input.message.system_notice?.kind==='task_graph')return true;
+      const base=splitThreadTarget(input.conversation_id).base;
+      if(!revoked.has(base))return true;
+      return !!config.personal && input.metadata.personal_delivery==='observer';
+    },!!config.personal,this.options.store.ownerTimezone,(snapshot,notice)=>notice?this.renderNotice(config,snapshot)
+      :JSON.stringify(this.options.store.toolReferences.result(agentId,'inbox',snapshot)));
+    this.armBackground();this.scheduleReceipts();return edits;
+  }
+  /** Clear stale `owner_internal` snapshot metadata when an external member joins a group. */
+  externalizeConversation(agentId:string, conversationId:string):void {
+    this.options.inbox.markConversationExternal(agentId,conversationId);
+  }
   private outsideScope(input:RelayInput,config:AgentConfiguration):boolean {
     if(input.message.sender_type==='system' && input.message.system_notice?.kind==='task_graph')return false;
     return this.options.inbox.skipped(input) || input.metadata.scope_skipped===true || chatDelivery(input,config,this.options.ownerId)==='skip';
@@ -320,7 +338,8 @@ export class GlobalAgent {
   private async ingestAdmitted(input: RelayInput, deferWake = false): Promise<void> {
     const config = this.options.agents.find(agent => agent.agentId === input.agent_id && agent.mode === 'global');
     if (!config) throw new Error('No global Agent for input');
-    if(this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
+    const pendingObservationClassification = !!config.personal && input.metadata.pa_observation === true && input.metadata.personal_delivery === undefined;
+    if(!pendingObservationClassification && this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
     const stopping=input.message.sender_type==='user'&&controlText(input)==='/stop'&&!!this.options.taskStop;
     let binding=stopping?this.binding(config):await this.main(config);
     let stored: RelayInput | undefined;
@@ -340,6 +359,12 @@ export class GlobalAgent {
           this.options.inbox.revokeSource(config.agentId, input.conversation_id);
           this.options.inbox.settleMessageRelays(config.agentId, input.message.id, 'completed');
           await this.receipt(input, 'completed');
+          return;
+        }
+        if (this.outsideScope(input, config)) {
+          this.personal.settleSourceUnavailable(config, input);
+          this.options.inbox.skip(input);
+          this.scheduleReceipts();
           return;
         }
         if (stopping && (input.metadata.personal_is_owner !== true || input.metadata.personal_delivery !== 'participant')) {
@@ -420,7 +445,7 @@ export class GlobalAgent {
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command);
     const notice=input.message.system_notice as {kind?:string;attention_actor_ids?:string[]}|undefined;
     const isTaskNotice=notice?.kind==='task_graph';
-    const taskContext=isTaskNotice&&notice.attention_actor_ids?.includes(config.agentId)===true;
+    const taskContext=isTaskNotice&&(input.metadata.task_context===true||notice.attention_actor_ids?.includes(config.agentId)===true);
     const attention = !unaddressedControl && !isTaskNotice && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
     if(taskContext)input={...input,metadata:{...input.metadata,task_context:true}};
     if((isTaskNotice && !taskContext) || this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}
@@ -800,7 +825,10 @@ export class GlobalAgent {
               }
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
-                metadata:{pa_observation:true,owner_direct:event.owner_direct,addressed_to_owner:event.addressed_to_owner,addressed_to_agent:event.addressed_to_agent,
+                metadata:{pa_observation:true,owner_direct:event.owner_direct,
+                  ...(typeof event.owner_internal==='boolean'?{owner_internal:event.owner_internal}:{}),
+                  ...(typeof event.delivery==='string'?{personal_delivery:event.delivery}:{}),
+                  addressed_to_owner:event.addressed_to_owner,addressed_to_agent:event.addressed_to_agent,
                   ...(typeof event.agent_user_id==='string'?{agent_user_id:event.agent_user_id}:{}),
                   ...(typeof message.thread_root_message_id==='string'?{thread_root_message_id:message.thread_root_message_id,thread_root_sender:event.thread_root_sender,thread_root_excerpt:event.thread_root_excerpt,thread_earlier:event.thread_earlier,thread_history_truncated:event.thread_history_truncated,...(event.thread_follow_reactivated?{thread_follow_reactivated:true}:{})}:{}),
                   ...('provider_source_time' in event?{provider_source_time:event.provider_source_time}:{}),context_only:event.context_only,conversation_type:event.conversation_type,channel:event.channel,mentioned_agent_ids:event.mentioned_agent_ids,explicit_mentioned_agent_ids:event.explicit_mentioned_agent_ids,source_policy_revision:event.policy_revision},
@@ -1227,6 +1255,11 @@ export class GlobalAgent {
         const result = {status:'not_sent',target,reason:error.message};
         inbox.settlePublication(call.operationId, 'rejected', result);
         return result;
+      }
+      if (error instanceof RelayDeliveryError && error.delivery === 'rejected'
+        && ((error.detail as {code?:string}|undefined)?.code === 'collaboration_scope_restricted' || error.code === 'collaboration_scope_restricted')) {
+        inbox.settlePublication(call.operationId, 'rejected');
+        throw new Error("This assistant is set to Private and can only communicate with its owner and the owner's own assistants.");
       }
       if ((interactive || hasLocalMedia) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
         inbox.settlePublication(call.operationId, 'rejected');

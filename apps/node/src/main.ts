@@ -285,6 +285,27 @@ const relay = new WebRelayConnection({
       await agentLifecycle.waitFor(payload.agent_id);
     else await lifecycleSync;
     if (frame.type === 'pa.observations.available') { await globalProduct.recoverPersonalObservations(); return; }
+    if (frame.type === 'agent.conversation.externalized') {
+      const agentId = String(payload.agent_id), cid = String(payload.conversation_id);
+      globalProduct.externalizeConversation(agentId, cid);
+      product.externalizeConversation(agentId, cid);
+      return;
+    }
+    if (frame.type === 'agent.scope.revoked') {
+      const agentId = String(payload.agent_id);
+      const conversationIds = Array.isArray(payload.conversation_ids) ? payload.conversation_ids.map(String) : [];
+      const operationId = typeof payload.operation_id === 'string' && payload.operation_id ? payload.operation_id : randomUUID();
+      const changes = [...globalProduct.revokeConversations(agentId, conversationIds), ...product.revokeConversations(agentId, conversationIds)];
+      if (changes.length && runtime.availableFor(agentId)) {
+        const {withdrawn} = await runtime.request('configuration.restrictChat', {agentId, operationId, changes}) as {withdrawn:Array<{sessionId:string;inputId?:string;toolCallId?:string}>};
+        globalProduct.confirmRestricted(agentId, withdrawn);
+        product.confirmRestricted(withdrawn.filter((row): row is {sessionId:string;inputId:string} => !!row.inputId));
+      } else {
+        globalProduct.confirmRestricted(agentId, changes);
+        product.confirmRestricted(changes.filter((row): row is {sessionId:string;inputId:string} => !!row.inputId));
+      }
+      return;
+    }
     if (frame.type === 'user.timezone') {
       store.setOwnerTimezone(String(payload.timezone));
       void syncRuntimeTimeZone();

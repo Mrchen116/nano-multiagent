@@ -1,6 +1,15 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, one, type Row } from './context.js';
-import { accountEnabled, agentAvailable, canAccessSpace, canActorAccess, currentActorCanAccess } from './identity.js';
+import {
+  accountEnabled,
+  agentAvailable,
+  canAccessSpace,
+  canActorAccess,
+  canOwnerObservePersonalAgentDirect,
+  canTeamContactAgent,
+  currentActorCanAccess,
+} from './identity.js';
+import { canAgentAccessConversation, groupHasPrivateAgent, isOwnerInternalConversation } from './collaboration.js';
 
 /** Resolve account eligibility without treating personal access as company approval. */
 export function qualifiedUser(db: DatabaseSync, userId: string): Row | undefined {
@@ -12,22 +21,27 @@ export function qualifiedUser(db: DatabaseSync, userId: string): Row | undefined
   return user;
 }
 
-const observerParticipants = `SELECT p.conversation_id,c.space_id conversation_space,u.id user_id,u.username,a.owner_id,a.space_id,b.owner_user_id pa_owner
+const observerParticipants = `SELECT p.conversation_id,c.space_id conversation_space,u.id user_id,u.username,
+    a.agent_id,a.owner_id,a.space_id,a.collaboration_scope,a.is_stale,b.owner_user_id pa_owner
   FROM conversation_participants p JOIN conversations c ON c.id=p.conversation_id JOIN users u ON u.id=p.user_id
   LEFT JOIN agent_profiles a ON u.username GLOB 'agent:*' AND a.agent_id=substr(u.username,7)
   LEFT JOIN personal_agent_bindings b ON b.agent_id=a.agent_id AND b.owner_id=a.owner_id`;
 
-function observerOwners(participants: Row[], space: string, canRead: (id: string, space: string) => boolean): string[] {
+function observerOwners(db: DatabaseSync, participants: Row[], space: string): string[] {
   if (participants.length !== 2) return [];
-  if (participants.every(p => p.owner_id && p.space_id === space)) return [...new Set(participants.map(p => p.owner_id))];
+  if (participants.every(p => p.owner_id && (p.space_id === space || space === `personal:${p.owner_id}`))) {
+    return [...new Set(participants.map(p => p.owner_id))];
+  }
   if (participants.filter(p => !p.username.startsWith('agent:')).length !== 1) return [];
-  return participants.filter(p => p.pa_owner && canRead(p.user_id, space)).map(p => p.pa_owner);
+  return participants
+    .filter(p => p.pa_owner && agentAvailable(db, p) && (p.space_id === space || (space === 'company:default' && canOwnerObservePersonalAgentDirect(db, p))))
+    .map(p => p.pa_owner);
 }
 
 function directAgentOwners(db: DatabaseSync, conversation: Row): string[] {
   if (conversation.type !== 'direct') return [];
   const participants = all(db, `${observerParticipants} WHERE p.conversation_id=?`, conversation.id);
-  return observerOwners(participants, conversation.space_id, (id, space) => canActorAccess(db, id, space));
+  return observerOwners(db, participants, conversation.space_id);
 }
 
 /** Find chats readable by a signed-in user, including dissolved history.
@@ -40,9 +54,21 @@ function directAgentOwners(db: DatabaseSync, conversation: Row): string[] {
  */
 export function readableConversationIds(db: DatabaseSync, user: Row): Set<string> {
   const agent = user.username.startsWith('agent:');
+  const agentProfile = agent ? one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', user.username.slice(6)) : undefined;
+  if (agent) {
+    if (!agentProfile || !agentAvailable(db, agentProfile)) return new Set();
+    if ((agentProfile.collaboration_scope ?? 'team') === 'owner_only') {
+      const joined = all(db, `SELECT c.* FROM conversations c
+        JOIN conversation_participants p ON p.conversation_id=c.id
+        WHERE p.user_id=?`, user.id)
+        .filter(c => canAgentAccessConversation(db, agentProfile, c))
+        .map(c => c.id);
+      return new Set<string>(joined);
+    }
+  }
   const spaces = agent
-    ? ['company:default', one(db, 'SELECT space_id FROM agent_profiles WHERE agent_id=?', user.username.slice(6))?.space_id]
-        .filter(space => space && canActorAccess(db, user.id, space))
+    ? [...new Set(['company:default', agentProfile?.space_id, `personal:${agentProfile?.owner_id}`])]
+        .filter((space): space is string => !!space && canActorAccess(db, user.id, space))
     : ['company:default', `personal:${user.owner_id}`].filter(space => canAccessSpace(user, space));
   const spaceList = JSON.stringify(spaces);
   const readable = new Set<string>(all(db, `SELECT c.id FROM conversations c
@@ -59,12 +85,6 @@ export function readableConversationIds(db: DatabaseSync, user: Row): Set<string
       SELECT id FROM users WHERE username IN (
         SELECT 'agent:'||agent_id FROM agent_profiles WHERE owner_id=?
         UNION ALL SELECT 'agent:'||agent_id FROM personal_agent_bindings WHERE owner_user_id=?)))`, spaceList, user.id, user.id);
-  const accessByActor = new Map<string, boolean>();
-  const canRead = (id: string, space: string) => {
-    const key = JSON.stringify([id, space]);
-    if (!accessByActor.has(key)) accessByActor.set(key, canActorAccess(db, id, space));
-    return accessByActor.get(key)!;
-  };
   const directs = new Map<string, Row[]>();
   for (const participant of participants) {
     if (readable.has(participant.conversation_id)) continue;
@@ -73,7 +93,7 @@ export function readableConversationIds(db: DatabaseSync, user: Row): Set<string
     else directs.set(participant.conversation_id, [participant]);
   }
   for (const [id, members] of directs) {
-    if (observerOwners(members, members[0]!.conversation_space, canRead).includes(user.id)) readable.add(id);
+    if (observerOwners(db, members, members[0]!.conversation_space).includes(user.id)) readable.add(id);
   }
   return readable;
 }
@@ -87,17 +107,46 @@ export function conversationAccess(db: DatabaseSync, id: string, userId: string)
 /** Evaluate access using the conversation row read for this operation. */
 export function conversationRowAccess(db: DatabaseSync, c: Row, userId: string): Row | undefined {
   const user = one(db, 'SELECT * FROM users WHERE id=?', userId);
-  if (!user || !currentActorCanAccess(db,user,c.space_id)) return;
+  if (!user) return;
+  const isAgent = user.username.startsWith('agent:');
   const member = !!one(db, 'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?', c.id, userId);
-  const observer = !member && !user.username.startsWith('agent:') && directAgentOwners(db,c).includes(userId);
+  if (isAgent) {
+    const profile = one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', user.username.slice(6));
+    if (!canAgentAccessConversation(db, profile, c)) return;
+    if (!member && !(c.type === 'group' && c.visibility === 'public' && (profile!.collaboration_scope ?? 'team') === 'team')) return;
+    return {
+      ...c,
+      is_member: member,
+      is_observer: false,
+      can_write: member && !c.dissolved_at,
+      write_blocked_reason: null,
+      can_join: !member && c.type === 'group' && c.visibility === 'public' && !c.dissolved_at && (profile!.collaboration_scope ?? 'team') === 'team',
+      can_change_visibility: false,
+    };
+  }
+  if (!currentActorCanAccess(db,user,c.space_id)) return;
+  const observer = !member && directAgentOwners(db,c).includes(userId);
   if (!member && !observer && !(c.type === 'group' && c.visibility === 'public')) return;
+  let canWrite = member && !c.dissolved_at;
+  let writeBlockedReason: string | null = null;
+  if (canWrite && c.type === 'direct' && !c.external_source) {
+    const peer = one(db, `SELECT ap.* FROM conversation_participants cp
+      JOIN users u ON u.id=cp.user_id
+      JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id
+      WHERE cp.conversation_id=? AND cp.user_id!=? LIMIT 1`, c.id, userId);
+    if (peer && peer.owner_id !== user.owner_id && (peer.collaboration_scope ?? 'team') === 'owner_only') {
+      canWrite = false;
+      writeBlockedReason = 'agent_private';
+    }
+  }
   return {
     ...c,
     is_member: member,
     is_observer: observer,
-    can_write: member && !c.dissolved_at,
+    can_write: canWrite,
+    write_blocked_reason: writeBlockedReason,
     can_join: !member && c.type === 'group' && c.visibility === 'public' && !c.dissolved_at,
-    can_change_visibility: c.space_id === 'company:default' && member && !c.dissolved_at && c.type === 'group' && !user.username.startsWith('agent:') && !!user.is_company_admin,
+    can_change_visibility: c.space_id === 'company:default' && member && !c.dissolved_at && c.type === 'group' && !!user.is_company_admin && !groupHasPrivateAgent(db, c.id),
   };
 }
 
@@ -119,12 +168,17 @@ export function conversationReaderIds(db: DatabaseSync, id: string, candidates?:
   const readers = new Set<string>();
   for (const member of members) {
     if (candidates && !candidates.has(member.id)) continue;
-    if (currentActorCanAccess(db,member,c.space_id)) readers.add(member.id);
+    if (member.username.startsWith('agent:')) {
+      const profile = one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', member.username.slice(6));
+      if (canAgentAccessConversation(db, profile, c)) readers.add(member.id);
+    } else if (currentActorCanAccess(db,member,c.space_id)) {
+      readers.add(member.id);
+    }
   }
-  for (const id of directAgentOwners(db,c)) {
-    if (readers.has(id) || (candidates && !candidates.has(id))) continue;
-    const owner = one(db,'SELECT username,owner_id,membership_status,personal_space_enabled FROM users WHERE id=?',id);
-    if (owner && !owner.username.startsWith('agent:') && canAccessSpace(owner,c.space_id)) readers.add(id);
+  for (const uid of directAgentOwners(db,c)) {
+    if (readers.has(uid) || (candidates && !candidates.has(uid))) continue;
+    const owner = one(db,'SELECT username,owner_id,membership_status,personal_space_enabled FROM users WHERE id=?',uid);
+    if (owner && !owner.username.startsWith('agent:') && canAccessSpace(owner,c.space_id)) readers.add(uid);
   }
   return [...readers];
 }

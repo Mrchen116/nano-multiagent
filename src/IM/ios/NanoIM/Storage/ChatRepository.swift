@@ -186,11 +186,17 @@ actor ChatRepository {
                     updated_at TEXT NOT NULL);
                 """)
         }
+        migrator.registerMigration("v8_write_blocked_reason") { db in
+            let columns = try db.columns(in: "conversations").map(\.name)
+            if !columns.contains("write_blocked_reason") {
+                try db.execute(sql: "ALTER TABLE conversations ADD COLUMN write_blocked_reason TEXT")
+            }
+        }
         try migrator.migrate(queue)
         let policy = try persistence.policy()
         let handoffs = try persistence.loadHandoffs()
         try queue.write { db in
-            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '7')")
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '8')")
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.origin', ?)", arguments: [partition.origin.absoluteString])
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.user_id', ?)", arguments: [partition.userID])
             try applyPolicy(policy, db: db)
@@ -948,9 +954,9 @@ actor ChatRepository {
         try db.execute(sql: """
             INSERT INTO conversations(id, title, type, direct_kind, owner_id, creator_id, is_pinned, is_muted,
                 unread_count, last_message_preview, last_message_at, created_at, run_state, source_agent_id, source_node_id,
-                external_source, external_chat_id, visibility, dissolved_at, is_member, can_write, is_observer,
+                external_source, external_chat_id, visibility, dissolved_at, is_member, can_write, write_blocked_reason, is_observer,
                 can_change_visibility, participant_ids_json, sort_at, refreshed_at, trimmed_at, last_message_sender_name, last_message_card_json, last_message_notice_json)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 title=excluded.title, type=excluded.type, direct_kind=excluded.direct_kind,
                 owner_id=excluded.owner_id, creator_id=excluded.creator_id, is_pinned=excluded.is_pinned,
@@ -960,7 +966,7 @@ actor ChatRepository {
                 source_agent_id=excluded.source_agent_id, source_node_id=excluded.source_node_id,
                 external_source=excluded.external_source, external_chat_id=excluded.external_chat_id,
                 visibility=excluded.visibility, dissolved_at=excluded.dissolved_at,
-                is_member=excluded.is_member, can_write=excluded.can_write, is_observer=excluded.is_observer,
+                is_member=excluded.is_member, can_write=excluded.can_write, write_blocked_reason=excluded.write_blocked_reason, is_observer=excluded.is_observer,
                 can_change_visibility=excluded.can_change_visibility,
                 participant_ids_json=excluded.participant_ids_json,
                 sort_at=MAX(conversations.sort_at, excluded.sort_at),
@@ -971,7 +977,7 @@ actor ChatRepository {
                              item.last_message_preview, item.last_message_at, item.created_at, item.run_state,
                              item.source_agent_id, item.source_node_id, item.external_source, item.external_chat_id,
                              item.visibility, item.dissolved_at, item.is_member.map { $0 ? 1 : 0 },
-                             item.can_write.map { $0 ? 1 : 0 }, item.is_observer.map { $0 ? 1 : 0 },
+                             item.can_write.map { $0 ? 1 : 0 }, item.write_blocked_reason, item.is_observer.map { $0 ? 1 : 0 },
                              item.can_change_visibility.map { $0 ? 1 : 0 }, participantIDs,
                              item.last_message_at ?? item.created_at, iso(Date()), item.last_message_sender_name, card, notice])
         // A server list/detail refresh supplies time and preview but no identity; do not
@@ -1188,7 +1194,7 @@ actor ChatRepository {
                                 source_node_id: row["source_node_id"], external_source: row["external_source"],
                                 external_chat_id: row["external_chat_id"], visibility: row["visibility"],
                                 dissolved_at: row["dissolved_at"], is_member: flag("is_member"),
-                                can_write: flag("can_write"), is_observer: flag("is_observer"),
+                                can_write: flag("can_write"), write_blocked_reason: row["write_blocked_reason"], is_observer: flag("is_observer"),
                                 can_change_visibility: flag("can_change_visibility"),
                                  execution_cleanup_revision: try executionCleanupRevision(chatID, db: db))
         }

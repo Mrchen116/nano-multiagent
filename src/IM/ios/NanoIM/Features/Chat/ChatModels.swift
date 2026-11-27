@@ -55,6 +55,7 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
     var dissolved_at: String?
     var is_member: Bool?
     var can_write: Bool?
+    var write_blocked_reason: String? = nil
     var is_observer: Bool?
     var can_change_visibility: Bool?
     var execution_cleanup_revision: Int?

@@ -411,8 +411,12 @@ export class MessageRecords {
       JOIN users u ON u.id=p.user_id
       LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
       WHERE c.id=? AND p.user_id<>? AND c.external_source IS NULL
-        AND (a.agent_id IS NULL OR a.collaboration_scope='team' OR EXISTS (
-          SELECT 1 FROM owner_direct_agent_messages d WHERE d.message_id=? AND d.agent_id=a.agent_id))
+        AND (a.agent_id IS NULL OR a.collaboration_scope='team'
+          OR EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.message_id=? AND d.agent_id=a.agent_id)
+          OR (c.visibility!='public' AND NOT EXISTS (
+            SELECT 1 FROM conversation_participants cp2 JOIN users u2 ON u2.id=cp2.user_id
+            LEFT JOIN agent_profiles a2 ON u2.username='agent:'||a2.agent_id
+            WHERE cp2.conversation_id=c.id AND COALESCE(a2.owner_id, u2.owner_id)!=a.owner_id)))
         AND (? IS NULL OR c.type<>'group' OR EXISTS (
           SELECT 1 FROM thread_follows f WHERE f.conversation_id=c.id AND f.root_message_id=? AND f.user_id=p.user_id AND f.following=1))
         AND

@@ -11,7 +11,7 @@ import {
 import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
 import { definitionsForRole, effectiveFeatures } from '@nano/product-contracts/capabilities';
-import { canAccessSpace, canActorAccess } from "./identity.js";
+import { agentAvailable, canAccessSpace, canActorAccess, ownerAccount } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance } from "fastify";
@@ -443,6 +443,12 @@ export class TaskGraphService {
     const c = this.chat(id, user);
     if (!c?.is_member) forbidden();
     if (c.dissolved_at) fail("conversation_dissolved", "This conversation is read-only after dissolution");
+    if (!c.can_write) {
+      if (c.write_blocked_reason === "agent_private") {
+        fail("agent_private", "This assistant is currently private and unavailable for external messages.");
+      }
+      forbidden();
+    }
     return c;
   }
   private identity(ref: Obj | null): Obj | null {
@@ -1188,9 +1194,14 @@ export class TaskGraphService {
   }
   private accessibleSpaces(user: string, actor: Obj): string[] {
     const account = this.row("SELECT * FROM users WHERE id=?", user)!;
-    return (actor.type === "agent" && !this.personalRead
-      ? [this.row("SELECT space_id FROM agent_profiles WHERE agent_id=?", actor.id)!.space_id]
-      : ["company:default", `personal:${account.owner_id}`]).filter(space=>canActorAccess(this.db,user,space));
+    if (actor.type === "agent" && !this.personalRead) {
+      const profile = this.row("SELECT * FROM agent_profiles WHERE agent_id=?", actor.id);
+      if (!profile || !agentAvailable(this.db, profile)) return [];
+      const owner = ownerAccount(this.db, profile.owner_id);
+      return [...new Set(["company:default", profile.space_id, `personal:${profile.owner_id}`])]
+        .filter((space): space is string => !!space && (space === profile.space_id || canAccessSpace(owner, space)));
+    }
+    return ["company:default", `personal:${account.owner_id}`].filter(space=>canActorAccess(this.db,user,space));
   }
   private projectNodeCard(d: Obj, n: Obj, user: string, actor: Obj, conversation = this.projection(d, user, actor)): Obj {
     const root = d.nodes.find((x: Obj) => x.id === d.root_node_id)!;
@@ -1259,7 +1270,7 @@ export class TaskGraphService {
       AND ${filtered ? "json_extract(n.value,'$.assignee.type')=? AND json_extract(n.value,'$.assignee.id')=?" : "json_extract(n.value,'$.id')=json_extract(g.document_json,'$.root_node_id')"}
       AND ${statuses ? "json_extract(n.value,'$.status') IN ("+statuses.map(()=>"?").join(",")+")" : "1=1"}
       AND INSTR(LOWER(json_extract(n.value,'$.title')),LOWER(?))>0`, ...spaces, user, this.personalRead?.agentUserId ?? user, ...(conversationId ? [conversationId] : []), ...(assignee ? [assignee.type,assignee.id] : []), ...(statuses ?? []), query);
-    const items = rows.filter(r=>!this.personalRead || !!this.chat(JSON.parse(r.document_json).conversation_id,user)).map((r): Obj => {
+    const items = rows.filter(r=>!!this.chat(JSON.parse(r.document_json).conversation_id,user)).map((r): Obj => {
       const d = JSON.parse(r.document_json), n = JSON.parse(r.node_json);
       return this.projectNodeCard(d, n, user, actor);
     }).sort((a,b)=> b.updated_at.localeCompare(a.updated_at) || b.graph_id.localeCompare(a.graph_id) || b.node_id.localeCompare(a.node_id));
@@ -1338,7 +1349,7 @@ export class TaskGraphService {
 
     for (const row of graphRows) {
       const d = JSON.parse(row.document_json);
-      if (this.personalRead && !this.chat(d.conversation_id, user)) continue;
+      if (!this.chat(d.conversation_id, user)) continue;
       const conversation = this.projection(d, user, actor);
       const isPersonalChat = row.space_id === personalSpace;
       const root = d.nodes.find((x: Obj) => x.id === d.root_node_id)!;
@@ -1629,7 +1640,7 @@ export function registerTaskGraphRoutes(app: FastifyInstance, ctx: ImContext) {
       } catch (e) {
         if (e instanceof TaskGraphError)
           return reply
-            .code(e.code === "not_found_or_forbidden" ? 404 : e.code === "version_conflict" ? 409 : 400)
+            .code(e.code === "not_found_or_forbidden" ? 404 : e.code === "agent_private" ? 403 : e.code === "version_conflict" ? 409 : 400)
             .send({ detail: e.asDict() });
         if ((e as Obj)?.code?.startsWith?.("ERR_SQLITE"))
           return reply.code(503).send({

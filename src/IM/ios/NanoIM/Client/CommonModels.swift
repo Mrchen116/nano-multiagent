@@ -25,6 +25,7 @@ struct Contact: Codable, Identifiable, Sendable, Hashable {
     var node_name: String?
     var status: String?
     var work_mode: String?
+    var collaboration_scope: String?
     var role: String?
     var avatar_variant: Int?
     var id: String { user_id }

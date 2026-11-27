@@ -11,8 +11,8 @@ function setup() {
   registerMessagingRoutes(app, f.ctx);
   f.db.exec("UPDATE users SET password_hash='registered',personal_space_enabled=1 WHERE username NOT LIKE 'agent:%'");
   const get = async (url: string) => app.inject({method:'GET',url,headers:{'x-user':'u1'}});
-  const agent = (id: string, space = 'company:default', owner = 'o2') => {
-    f.db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,space_id,created_at,updated_at) VALUES(?,?,'n',?,?, '2026-01-01','2026-01-01')").run(id, owner, `Älpha ${id}`, space);
+  const agent = (id: string, space = 'company:default', owner = 'o2', scope: 'team' | 'owner_only' = 'team') => {
+    f.db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,space_id,collaboration_scope,created_at,updated_at) VALUES(?,?,'n',?,?,?, '2026-01-01','2026-01-01')").run(id, owner, `Älpha ${id}`, space, scope);
     f.db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES(?,?,?,?, '2026-01-01')").run(id, `agent:${id}`, id, owner);
   };
   return {...f,app,get,agent};
@@ -23,8 +23,9 @@ it('paginates visible contacts without gaps across hidden candidates and keeps U
   const expected: string[] = [];
   for (let i = 0; i < 180; i++) {
     const id = `p${String(i).padStart(3,'0')}`;
-    agent(id, i % 3 === 0 ? 'company:default' : 'personal:o2');
-    if (i % 3 === 0) expected.push(id);
+    const visibleToTeam = i % 3 === 0;
+    agent(id, i % 2 === 0 ? 'company:default' : 'personal:o2', 'o2', visibleToTeam ? 'team' : 'owner_only');
+    if (visibleToTeam) expected.push(id);
   }
   const first = (await get('/im/v1/contacts?kind=agent&q=%C3%A4LPHA')).json();
   expect(first.items.map((r:any)=>r.user_id)).toEqual(expected.slice(0,50));

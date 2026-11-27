@@ -4,7 +4,7 @@ import { useTranslation } from "../../../i18n";
 
 type Props = {
   title: string;
-  onRename(title: string): Promise<unknown>;
+  onRename?(title: string): Promise<unknown>;
   onOpenConfig?(): void;
   configLabel?: string;
   isPinned?: boolean;
@@ -50,7 +50,7 @@ export function DirectConversationMenu({ title, onRename, onOpenConfig, configLa
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (!draft.trim() || saving) return;
+    if (!onRename || !draft.trim() || saving) return;
     setSaving(true);
     setError(null);
     try {
@@ -84,9 +84,9 @@ export function DirectConversationMenu({ title, onRename, onOpenConfig, configLa
           onBlur={(event) => {
             if (!root.current?.contains(event.relatedTarget as Node)) setOpen(false);
           }}>
-          <button type="button" role="menuitem" onClick={() => {
+          {onRename && <button type="button" role="menuitem" onClick={() => {
             setDraft(title); setError(null); setOpen(false); setRenaming(true);
-          }}>{t("chat.conversationMenu.rename")}</button>
+          }}>{t("chat.conversationMenu.rename")}</button>}
           {onPreferenceChange && <>
             <button role="menuitemcheckbox" aria-checked={!!isPinned} onClick={() => void onPreferenceChange({is_pinned:!isPinned}).catch(() => setError(t("chat.contacts.failed")))}>{t("chat.preferences.pin")} {isPinned ? "✓" : ""}</button>
             <button role="menuitemcheckbox" aria-checked={!!isMuted} onClick={() => void onPreferenceChange({is_muted:!isMuted}).catch(() => setError(t("chat.contacts.failed")))}>{t("chat.preferences.mute")} {isMuted ? "✓" : ""}</button>

@@ -94,7 +94,8 @@ export function AgentProfilePage() {
     </section>;
   }
   if (query.isPending || (query.isSuccess && !agent && (historical.isFetching || deletion.query.isFetching))) return <section className="im-agent-panel im-agent-settings im-create-state"><p>{t("common.loading")}</p></section>;
-  if (query.isError || !agent) return <section className="im-agent-panel im-agent-settings im-create-state"><p role="alert">{t("agents.loadError")}</p><button className="im-settings-action" onClick={() => void query.refetch()}>{t("agents.retry")}</button></section>;
+  if (query.isError) return <section className="im-agent-panel im-agent-settings im-create-state"><p role="alert">{t("agents.loadError")}</p><button className="im-settings-action" onClick={() => void query.refetch()}>{t("agents.retry")}</button></section>;
+  if (!agent) return <section className="im-agent-panel im-agent-settings im-create-state"><p role="status">{t("agents.unavailablePrivate")}</p><Link className="im-settings-action" to="/settings/agents">{t("agents.title")}</Link></section>;
   const canViewWork = agent.work_mode === "global" && (agent.role !== "personal" || isOwner);
   const work = canViewWork && workRequested;
   return <>

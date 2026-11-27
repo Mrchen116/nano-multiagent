@@ -20,7 +20,7 @@ export function openDatabase(path: string): DatabaseSync {
   if (tables.has('pa_delegated_messages') && !db.prepare('PRAGMA table_info(pa_delegated_messages)').all().some(column => column.name === 'representation_operation_id')) {
     db.close(); throw Error('PA representation migration required; run migrate-pa-representation dry-run/apply/verify before starting IM');
   }
-  db.exec("DROP TRIGGER IF EXISTS personal_observation_event; DROP TRIGGER IF EXISTS personal_membership_revoked");
+  db.exec("DROP TRIGGER IF EXISTS personal_observation_event; DROP TRIGGER IF EXISTS personal_membership_revoked; DROP VIEW IF EXISTS owner_direct_agent_messages");
   db.exec(readFileSync(new URL("./schema.sql", import.meta.url), "utf8"));
   if (!db.prepare("PRAGMA table_info(pa_operations)").all().some(column => column.name === "result_json"))
     db.exec("ALTER TABLE pa_operations ADD COLUMN result_json TEXT");
@@ -136,6 +136,14 @@ export function openDatabase(path: string): DatabaseSync {
     if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='work-lifetime-usage-v1'").get()) {
       initializeWorkLifetimeUsage(db);
       db.prepare("INSERT INTO schema_migrations VALUES('work-lifetime-usage-v1')").run();
+    }
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='pa-binding-collaboration-scope-v1'").get()) {
+      db.exec(`INSERT OR IGNORE INTO pa_binding_scopes(binding_id, collaboration_scope)
+        SELECT b.binding_id, COALESCE(a.collaboration_scope, 'team')
+        FROM personal_agent_bindings b
+        LEFT JOIN agent_profiles a ON a.agent_id = b.agent_id
+        WHERE COALESCE(a.collaboration_scope, 'team') IN ('team', 'owner_only')`);
+      db.prepare("INSERT INTO schema_migrations VALUES('pa-binding-collaboration-scope-v1')").run();
     }
     db.exec("COMMIT");
   } catch (error) {

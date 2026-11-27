@@ -107,13 +107,16 @@ it.each(['global', 'personal'])('lets a %s Agent create its own peer group using
  expect(()=>work.query(principal,{...args,action:'create',title:'Revoked',participant_ids:['u2']})).toThrow();
 });
 
-it('does not give an ordinary personal-space Agent company contact authority',()=>{
+it('denies company contact authority to owner_only or unapproved-owner personal-space Agents',()=>{
  const {ctx,db,principal,args}=personalFixture();
  db.prepare('DELETE FROM pa_policies').run();db.prepare('DELETE FROM personal_agent_bindings').run();
  db.prepare("UPDATE users SET personal_space_enabled=1 WHERE id='u1'").run();
  db.prepare("UPDATE users SET membership_status='pending' WHERE id='a1'").run();
- db.prepare("UPDATE agent_profiles SET space_id='personal:o1'").run();
- expect(()=>new Work(ctx).query(principal,{...args,action:'create',title:'Forbidden',participant_ids:['u2']})).toThrow('participant not found');
+ db.prepare("UPDATE agent_profiles SET space_id='personal:o1',collaboration_scope='owner_only'").run();
+ expect(()=>new Work(ctx).query(principal,{...args,action:'create',title:'Forbidden private',participant_ids:['u2']})).toThrow(/Private|collaboration_scope_restricted/);
+ db.prepare("UPDATE agent_profiles SET collaboration_scope='team'").run();
+ db.prepare("UPDATE users SET membership_status='pending' WHERE id='u1'").run();
+ expect(()=>new Work(ctx).query(principal,{...args,action:'create',title:'Forbidden unapproved',participant_ids:['u2']})).toThrow('participant not found');
 });
 
 it('uses current PA membership and existing group addressing for source control and authorization guards',()=>{
