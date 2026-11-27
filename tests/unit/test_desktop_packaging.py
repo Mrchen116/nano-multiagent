@@ -118,3 +118,15 @@ def test_inno_setup_manifest_defines_default_checked_desktop_shortcut_and_close_
     assert "unchecked" not in task_lines[0].lower()
     assert 'Name: "{userdesktop}\\Crewden Desktop"' in iss_text
     assert "Tasks: desktopicon" in iss_text
+
+
+def test_desktop_smoke_scripts_wait_for_seed_ready_flag_in_host_state() -> None:
+    mac_wf = (ROOT / ".github/workflows/desktop-candidate.yml").read_text(
+        encoding="utf-8"
+    )
+    win_smoke = (ROOT / "packaging/desktop/windows/smoke.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert 'data.get("ready") is True' in mac_wf
+    assert 'if [ -f "$ISO_ROOT/desktop/host-state.json" ]; then break; fi' not in mac_wf
+    assert "$candidate.ready -and $candidate.port" in win_smoke
