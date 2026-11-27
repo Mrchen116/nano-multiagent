@@ -257,3 +257,7 @@
 ### Author Resolutions (Round 2)
 
 - **`R2-R1`**: `accepted` — 采纳该实施保真细化：与 `design.md` §接口与数据流 2 表格既有“同时携带最新 `conversation_unread`”一致，M1 实施 `packages/product-contracts/src/client-parity.ts` 的 `UserStreamNotificationHint` 时直接包含可选字段 `conversation_unread?: number`，并让 `apps/desktop/src/notifications.rs` 在收到携带该快照的实时事件时直接对齐本地会话未读；本条不改变受审设计结构，其余受审设计产物相对 `749ac9f44` 保持零实质变更。
+
+### Baseline Sync Retention (`3b4c0f022` → `513b9be07`)
+
+- **变更原因与 diff 核查**：同步最新合入 `origin/develop` 的 PR #564（`feat-799`，`513b9be07`）。核实 `apps/desktop/src/config.rs` 的 `local_node_bridge_endpoint`、`notifications.rs` 分类器与 `apps/node/src/lifecycle.ts` 平台边界均与本方案无冲突；仅在 `specs/im/desktop-client.md` 的 `MODIFIED` 块中原样保留 `feat-799` 新增的 `Scenario: 官方与公网严格保持 HTTPS...`，本方案自身架构、接口与验收条款零实质变更，按 `review-loop.md` 保留 Round 2 `Approved` 结论，不重开审查轮次。
