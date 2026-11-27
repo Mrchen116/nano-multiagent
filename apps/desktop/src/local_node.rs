@@ -855,3 +855,6 @@ mod tests {
         assert_eq!(updated_ptr["user_stopped"], json!(true));
     }
 }
+
+#[cfg(test)]
+mod seed_tests;
