@@ -13,7 +13,6 @@ pub struct DesktopCliOptions {
     pub stop: bool,
     pub headless_host: bool,
     pub im_origin: Option<String>,
-    pub initial_route: Option<String>,
     pub deep_link_url: Option<String>,
     pub seed_archives_dir: Option<PathBuf>,
     pub dev_repo_root: Option<PathBuf>,
@@ -70,9 +69,6 @@ impl DesktopCliOptions {
                 }
                 other if other.starts_with("crewden-desktop://") => {
                     opts.deep_link_url = Some(other.to_string());
-                    if let Ok(Some(route)) = parse_deep_link_route(other) {
-                        opts.initial_route = Some(route);
-                    }
                 }
                 _ => {}
             }
