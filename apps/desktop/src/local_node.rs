@@ -1,8 +1,9 @@
 use crate::config::{append_private_jsonl, write_private_json, DesktopPaths, StoredSessionsFile};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -260,6 +261,33 @@ pub fn has_pending_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Option<&
         .is_file()
 }
 
+fn file_sha256(path: &Path) -> io::Result<String> {
+    let mut hasher = Sha256::new();
+    io::copy(&mut fs::File::open(path)?, &mut hasher)?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+fn cache_seed_asset(source: &Path, cached: &Path, expected_sha: &str) -> Result<(), String> {
+    if file_sha256(cached).is_ok_and(|sha| sha == expected_sha) {
+        return Ok(());
+    }
+
+    // The single seed worker reuses this sibling after interruption. OTA readers
+    // only see the final name once all bytes have passed verification.
+    let stage = cached.with_added_extension("seed-part");
+    let replace = || -> io::Result<()> {
+        io::copy(&mut fs::File::open(source)?, &mut fs::File::create(&stage)?)?;
+        if file_sha256(&stage)? != expected_sha {
+            return Err(io::Error::new(io::ErrorKind::InvalidData, "SHA-256 mismatch"));
+        }
+        fs::rename(&stage, cached)
+    };
+    replace().map_err(|err| {
+        let _ = fs::remove_file(&stage);
+        format!("Failed to cache bundled seed {}: {err}", source.display())
+    })
+}
+
 /// Unpack first-install seed archives into `<desktop_home>/{cache,runtimes,versions}` so
 /// managed Node 24.22.1 works with zero global PATH tools and future updates reuse `runtime`.
 pub fn ensure_seed_bundle_installed(
@@ -291,8 +319,11 @@ pub fn ensure_seed_bundle_installed(
         return Ok(Some(final_version_root));
     }
 
-    let descriptor_src = seed_dir.join(pkg_name);
-    let descriptor_raw = fs::read_to_string(&descriptor_src).map_err(|e| e.to_string())?;
+    let cache_dir = paths.desktop_home.join("cache");
+    fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+    let cached_desc = cache_dir.join(format!("descriptor-{}.json", target_sha));
+    cache_seed_asset(&seed_dir.join(pkg_name), &cached_desc, target_sha)?;
+    let descriptor_raw = fs::read_to_string(&cached_desc).map_err(|e| e.to_string())?;
     let descriptor: Value = serde_json::from_str(&descriptor_raw).map_err(|e| e.to_string())?;
     let runtime_name = descriptor["runtime"]["name"]
         .as_str()
@@ -307,26 +338,15 @@ pub fn ensure_seed_bundle_installed(
         .as_str()
         .ok_or_else(|| "Seed descriptor missing app.sha256".to_string())?;
 
-    let cache_dir = paths.desktop_home.join("cache");
     let runtimes_dir = paths.desktop_home.join("runtimes");
     let versions_dir = paths.desktop_home.join("versions");
-    fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&runtimes_dir).map_err(|e| e.to_string())?;
     fs::create_dir_all(&versions_dir).map_err(|e| e.to_string())?;
 
-    // Populate cache/ so update-worker.ts sees verified cached runtime & descriptor archives.
-    let cached_desc = cache_dir.join(format!("descriptor-{}.json", target_sha));
     let cached_rt = cache_dir.join(format!("{}-{}", runtime_sha, runtime_name));
     let cached_app = cache_dir.join(format!("{}-{}", app_sha, app_name));
-    if !cached_desc.is_file() {
-        let _ = fs::copy(&descriptor_src, &cached_desc);
-    }
-    if !cached_rt.is_file() {
-        fs::copy(seed_dir.join(runtime_name), &cached_rt).map_err(|e| e.to_string())?;
-    }
-    if !cached_app.is_file() {
-        fs::copy(seed_dir.join(app_name), &cached_app).map_err(|e| e.to_string())?;
-    }
+    cache_seed_asset(&seed_dir.join(runtime_name), &cached_rt, runtime_sha)?;
+    cache_seed_asset(&seed_dir.join(app_name), &cached_app, app_sha)?;
 
     let final_runtime_root = runtimes_dir.join(runtime_sha);
     if !final_runtime_root.join(".ready").is_file() {

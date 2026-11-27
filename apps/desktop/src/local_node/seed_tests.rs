@@ -97,7 +97,10 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     let older = paths.desktop_home.join("versions/older");
     fs::create_dir_all(&older).unwrap();
     fs::write(older.join(".ready"), "older").unwrap();
-    fs::write(paths.sessions_path(), "{}").unwrap();
+    let session_bytes = br#"{"by_origin":{}}"#;
+    fs::write(paths.sessions_path(), session_bytes).unwrap();
+    let workspace_file = paths.nano_install_root.join("workspace-note.txt");
+    fs::write(&workspace_file, "saved note").unwrap();
     fs::write(&app_archive, b"damaged installer").unwrap();
 
     let host = start_host_server_full(
@@ -117,6 +120,11 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     })
     .await
     .unwrap();
+    let error = host.state.seed_error().unwrap();
+    assert!(
+        error.contains("app.tar.gz") && error.contains("SHA-256 mismatch"),
+        "{error}"
+    );
     assert!(!paths.seed_marker_path().exists());
     assert!(!paths.desktop_home.join("versions").join(&target).exists());
     assert_eq!(fs::read(older.join(".ready")).unwrap(), b"older");
@@ -162,5 +170,6 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     assert_eq!(fs::read(cached_desc).unwrap(), raw);
     assert_eq!(fs::read(cached_archive("app")).unwrap(), app_bytes);
     assert_eq!(fs::read(older.join(".ready")).unwrap(), b"older");
-    assert_eq!(fs::read(paths.sessions_path()).unwrap(), b"{}");
+    assert_eq!(fs::read(paths.sessions_path()).unwrap(), session_bytes);
+    assert_eq!(fs::read(workspace_file).unwrap(), b"saved note");
 }
