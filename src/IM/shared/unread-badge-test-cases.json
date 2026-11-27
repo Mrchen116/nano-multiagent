@@ -1,0 +1,56 @@
+{
+  "cases": [
+    {
+      "id": "unmuted-sum",
+      "conversations": [
+        { "id": "conv-direct", "unread_count": 2, "is_muted": false, "local_unseen": false },
+        { "id": "conv-group", "unread_count": 5, "is_muted": false, "local_unseen": false }
+      ],
+      "expected_row_unread": {
+        "conv-direct": 2,
+        "conv-group": 5
+      },
+      "expected_badge_total": 7
+    },
+    {
+      "id": "muted-excluded-from-global-badge-but-kept-on-row",
+      "conversations": [
+        { "id": "conv-active", "unread_count": 3, "is_muted": false, "local_unseen": false },
+        { "id": "conv-muted-group", "unread_count": 8, "is_muted": true, "local_unseen": false },
+        { "id": "conv-muted-external", "unread_count": 4, "is_muted": true, "local_unseen": true }
+      ],
+      "expected_row_unread": {
+        "conv-active": 3,
+        "conv-muted-group": 8,
+        "conv-muted-external": 4
+      },
+      "expected_badge_total": 3
+    },
+    {
+      "id": "local-unseen-floors-row-to-one",
+      "conversations": [
+        { "id": "conv-unmuted-unseen", "unread_count": 0, "is_muted": false, "local_unseen": true },
+        { "id": "conv-muted-unseen", "unread_count": 0, "is_muted": true, "local_unseen": true },
+        { "id": "conv-unmuted-higher", "unread_count": 4, "is_muted": false, "local_unseen": true }
+      ],
+      "expected_row_unread": {
+        "conv-unmuted-unseen": 1,
+        "conv-muted-unseen": 1,
+        "conv-unmuted-higher": 4
+      },
+      "expected_badge_total": 5
+    },
+    {
+      "id": "null-and-negative-defensive",
+      "conversations": [
+        { "id": "conv-null", "unread_count": null, "is_muted": null, "local_unseen": null },
+        { "id": "conv-negative", "unread_count": -3, "is_muted": false, "local_unseen": false }
+      ],
+      "expected_row_unread": {
+        "conv-null": 0,
+        "conv-negative": 0
+      },
+      "expected_badge_total": 0
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -105,6 +106,7 @@ it('streams authorized attachments to managed workspace dir, sanitizes traversal
     expect(result.file_name).toBe('report 2026.zip');
     expect(result.content_type).toBe('application/zip');
     expect(result.byte_size).toBe(payload.length);
+    expect(result.sha256).toBe(createHash('sha256').update(payload).digest('hex'));
     expect(await readFile(result.local_path)).toEqual(payload);
 
     // Repeat download overwrites idempotently without leaving temp files.
@@ -212,6 +214,7 @@ it('streams authorized attachments to managed workspace dir, sanitizes traversal
     });
     expect(basename(extSaved.local_path)).toBe('a_wxpdf1-Spec Review.pdf');
     expect(extSaved.content_type).toBe('application/pdf');
+    expect(extSaved.sha256).toBe(createHash('sha256').update('%PDF-1.4 offline wechat doc\n').digest('hex'));
     expect((await readFile(extSaved.local_path, 'utf8'))).toBe('%PDF-1.4 offline wechat doc\n');
     expect(((await stat(extSaved.local_path)).mode & 0o777)).toBe(0o600);
 

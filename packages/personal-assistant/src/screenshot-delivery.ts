@@ -16,6 +16,7 @@ export type AttachmentDownloader = (input: {
   file_name: string;
   content_type: string;
   byte_size: number;
+  sha256: string;
 }>;
 
 /** Prepare ordered local images and files while uploading each distinct path once.
@@ -30,7 +31,8 @@ export async function prepareLocalAttachments(
   imagePaths: string[] | undefined,
   filePaths: string[] | undefined,
   existing: unknown,
-): Promise<ChatAttachment[]> {
+  options?: { includeLocalPath?: boolean },
+): Promise<Array<ChatAttachment & { local_path?: string }>> {
   const images = imagePaths ?? [];
   const files = filePaths ?? [];
   const attachments = existing === undefined ? [] : chatAttachments(existing);
@@ -41,24 +43,30 @@ export async function prepareLocalAttachments(
       || files.some(path => typeof path !== 'string' || !path)) {
     throw new Error('Use at most five attachments with absolute local paths');
   }
-  const prepared = [...attachments];
-  const uploadedImages = new Map<string, ChatAttachment>();
+  const prepared: Array<ChatAttachment & { local_path?: string }> = [...attachments];
+  const uploadedImages = new Map<string, ChatAttachment & { local_path?: string }>();
   for (const [index, path] of images.entries()) {
     request.signal.throwIfAborted();
     let image = uploadedImages.get(path);
     if (!image) {
-      try { image = await uploadImage!({ ...request, path, index }); }
+      try {
+        const uploaded = await uploadImage!({ ...request, path, index });
+        image = options?.includeLocalPath ? { ...uploaded, local_path: path } : uploaded;
+      }
       catch (error) { throw new Error(`Screenshot ${index + 1} (${path}) was not uploaded: ${(error as Error).message}`); }
       uploadedImages.set(path, image);
     }
     prepared.push(image);
   }
-  const uploadedFiles = new Map<string, ChatAttachment>();
+  const uploadedFiles = new Map<string, ChatAttachment & { local_path?: string }>();
   for (const [index, path] of files.entries()) {
     request.signal.throwIfAborted();
     let file = uploadedFiles.get(path);
     if (!file) {
-      try { file = await uploadFile!({ ...request, path, index }); }
+      try {
+        const uploaded = await uploadFile!({ ...request, path, index });
+        file = options?.includeLocalPath ? { ...uploaded, local_path: path } : uploaded;
+      }
       catch (error) { throw new Error(`File ${index + 1} (${path}) was not uploaded: ${(error as Error).message}`); }
       uploadedFiles.set(path, file);
     }

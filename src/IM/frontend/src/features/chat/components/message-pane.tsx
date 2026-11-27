@@ -1,4 +1,5 @@
 import { ComposerAttachmentButton, useComposerHeight } from "./composer-controls";
+import { timelineDividerMessageIds } from "@nano/product-contracts/client-parity";
 import { formatHM } from "../message-time";
 import { ThreadColumn } from "./thread-column";
 import { CooperationGuide, type CooperationGuideAgent } from "./cooperation-guide";
@@ -1430,7 +1431,7 @@ export function MessagePane({
       </header>
       {returnNavigation && <div className="pa-source-return">{returnNavigation}</div>}
 
-      {conversation.can_write === false && !conversation.is_observer && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : conversation.write_blocked_reason === "agent_private" ? "chat.messagePane.agentPrivateNotice" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
+      {conversation.can_write === false && !conversation.is_observer && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : conversation.write_blocked_reason === "agent_private" ? "chat.messagePane.agentPrivateNotice" : conversation.write_blocked_reason === "agent_project_restricted" ? "chat.messagePane.agentProjectRestrictedNotice" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         <div ref={messageListRef} className="chat-pane-message-list">
@@ -1441,7 +1442,7 @@ export function MessagePane({
             <div className="chat-pane-empty">
               <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
               <p className="chat-pane-empty-title">{t('chat.messagePane.emptyTitle')}</p>
-              <p className="chat-pane-empty-sub">{t('chat.messagePane.emptySubtitle')}</p>
+              {conversation.can_write !== false && <p className="chat-pane-empty-sub">{t('chat.messagePane.emptySubtitle')}</p>}
             </div>
           ))) : (
             <>
@@ -2876,22 +2877,57 @@ function renderInlineMarkdown(text: string) {
   });
 }
 
-function timelineTimeDividers(items: TimelineItem[], locale: string): Map<string, string> {
+export function timelineTimeDividers(
+  items: TimelineItem[],
+  locale: string,
+  timeZone?: string
+): Map<string, string> {
   const labels = new Map<string, string>();
-  const today = new Date().toDateString();
-  const timeOptions: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit", hour12: false };
+  const dividerIds = new Set(
+    timelineDividerMessageIds(
+      items.map((item) =>
+        item.type === "message"
+          ? {
+              type: "message",
+              id: item.message.id,
+              created_at: item.message.created_at,
+              has_system_notice: Boolean(item.message.system_notice)
+            }
+          : { type: item.type, id: item.id }
+      ),
+      timeZone
+    )
+  );
+  if (dividerIds.size === 0) return labels;
+
+  const dayKeyFormat = new Intl.DateTimeFormat("en-CA", {
+    ...(timeZone ? { timeZone } : {}),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+  const todayKey = dayKeyFormat.format(new Date());
+  const timeOptions: Intl.DateTimeFormatOptions = {
+    ...(timeZone ? { timeZone } : {}),
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  };
   const timeFormat = new Intl.DateTimeFormat(locale, timeOptions);
-  const dateFormat = new Intl.DateTimeFormat(locale, { ...timeOptions, year: "numeric", month: "numeric", day: "numeric" });
-  let previous: Date | undefined;
+  const dateFormat = new Intl.DateTimeFormat(locale, {
+    ...timeOptions,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric"
+  });
   for (const item of items) {
-    if (item.type !== "message" || item.message.system_notice) continue;
+    if (item.type !== "message" || !dividerIds.has(item.message.id)) continue;
     const date = new Date(item.message.created_at);
     if (Number.isNaN(date.getTime())) continue;
-    // Match iOS: notices do not reset the gap between ordinary messages.
-    if (!previous || date.toDateString() !== previous.toDateString() || date.getTime() - previous.getTime() >= 300_000) {
-      labels.set(item.message.id, (date.toDateString() === today ? timeFormat : dateFormat).format(date));
-    }
-    previous = date;
+    labels.set(
+      item.message.id,
+      (dayKeyFormat.format(date) === todayKey ? timeFormat : dateFormat).format(date)
+    );
   }
   return labels;
 }

@@ -17,6 +17,7 @@ export function AgentOverviewPanel({config, model, nodeName, nodeState, personal
     <dl className="im-settings-metadata">
       <div><dt>{t("agents.form.identity.agentId")}</dt><dd><code>{config.agent_id}</code></dd></div>
       <div><dt>{t("agents.mode")}</dt><dd>{t(personal ? "pa.label" : config.work_mode === "global" ? "agents.globalMode" : "agents.threadMode")}</dd></div>
+      <div><dt>{t("agents.form.behavior.scope")}</dt><dd>{t(config.collaboration_scope === "owner_only" ? "agents.form.behavior.ownerOnlyShort" : config.collaboration_scope === "project" ? "agents.form.behavior.projectShort" : "agents.form.behavior.team")}</dd></div>
       <div><dt>{t("agents.redesign.savedModel")}</dt><dd>{config.default_model || model || t("agents.form.access.modelPlatformDefaultPlain")}</dd></div>
       <div><dt>{t("agents.form.access.reasoning.label")}</dt><dd>{config.reasoning_effort || t("agents.redesign.modelDefault")}</dd></div>
     </dl>

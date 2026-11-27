@@ -19,7 +19,7 @@ function required(value: Record<string, unknown>, key: string): void {
 /** Validate attachment fields at transport entry without copying or normalizing extensions. */
 export function chatAttachments(value: unknown): ChatAttachment[] {
   if (!Array.isArray(value)) throw new Error('invalid chat attachments');
-  for (const item of value) { const row = object(item); required(row, 'url'); fields(row, ['content_type', 'file_name'], 'string'); }
+  for (const item of value) { const row = object(item); required(row, 'url'); fields(row, ['content_type', 'file_name', 'local_path'], 'string'); }
   return value as ChatAttachment[];
 }
 /** Validate top-level task_cards references at transport entry. */

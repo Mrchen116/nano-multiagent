@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { classifyChatDelivery, type ChatMessage } from '@nano/product-contracts';
 import { all, fail, now, one, type ImContext, type Row } from './context.js';
-import { agentAvailable, ownerAccount } from './identity.js';
+import { agentAvailable, canCollaborateWithAgent, ownerAccount } from './identity.js';
 import { captureTaskContextAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import { discardThreadUnread } from './threads.js';
 
@@ -83,17 +83,75 @@ export function isFeishuBoundOwnerShadow(db:DatabaseSync,conversation:Row|undefi
   return false;
 }
 
+/** Check whether a native IM conversation contains exclusively the given owner and that owner's `owner_only` Agents.
+ *
+ * Args:
+ *   db: Center business database.
+ *   conversationId: Native conversation ID to evaluate.
+ *   ownerId: Owner identity (`users.owner_id` / `agent_profiles.owner_id`).
+ *   senderAgentId: Optional authenticated PA `agent_id` whose own membership does not widen exposure.
+ * Returns:
+ *   True when the conversation is native, non-public, has at least one participant,
+ *   and every participant is either the owner, `senderAgentId`, or a non-stale `owner_only` Agent of `ownerId`.
+ */
+export function isPureOwnerPrivateConversation(
+  db:DatabaseSync,
+  conversationId:string,
+  ownerId:string,
+  senderAgentId?:string,
+):boolean {
+  const chat=one(db,'SELECT id,external_source,visibility FROM conversations WHERE id=?',conversationId);
+  if(!chat || chat.external_source || chat.visibility==='public')return false;
+  const participants=all(db,`SELECT u.id,u.username,u.owner_id AS user_owner_id,a.agent_id,a.owner_id AS agent_owner_id,a.collaboration_scope,a.is_stale
+    FROM conversation_participants p
+    JOIN users u ON u.id=p.user_id
+    LEFT JOIN agent_profiles a ON u.username GLOB 'agent:*' AND a.agent_id=substr(u.username,7)
+    WHERE p.conversation_id=?`,conversationId);
+  if(!participants.length)return false;
+  return participants.every(member=>{
+    if(member.username.startsWith('agent:')) {
+      return !!member.agent_id && !member.is_stale && member.agent_owner_id===ownerId
+        && (member.agent_id===senderAgentId || (member.collaboration_scope ?? 'team')==='owner_only');
+    }
+    if(member.username.startsWith('shadow:') || member.username==='system')return false;
+    return member.user_owner_id===ownerId;
+  });
+}
+
 /** Check whether an Agent may read or write a conversation under its current collaboration scope and space rules. */
 export function canAgentAccessConversation(db:DatabaseSync,profile:Row|undefined,conversation:Row|undefined):boolean {
   if(!profile || profile.is_stale || !agentAvailable(db,profile) || !conversation)return false;
-  if((profile.collaboration_scope ?? 'team')==='owner_only') {
+  const scope = profile.collaboration_scope ?? 'team';
+  if(scope==='owner_only') {
     return isOwnerInternalConversation(db,conversation.id,profile.owner_id) || isFeishuBoundOwnerShadow(db,conversation,profile);
   }
-  if(profile.space_id===conversation.space_id)return true;
   const owner=ownerAccount(db,profile.owner_id);
-  if(conversation.space_id==='company:default')return owner?.membership_status==='active';
-  if(conversation.space_id===`personal:${profile.owner_id}`)return !!owner?.personal_space_enabled;
-  return false;
+  const spaceOk = profile.space_id===conversation.space_id
+    || (conversation.space_id==='company:default' && owner?.membership_status==='active')
+    || (conversation.space_id===`personal:${profile.owner_id}` && !!owner?.personal_space_enabled);
+  if(!spaceOk)return false;
+  if(scope==='project') {
+    if(conversation.external_source)return isFeishuBoundOwnerShadow(db,conversation,profile);
+    if(conversation.visibility==='public')return false;
+    if(isOwnerInternalConversation(db,conversation.id,profile.owner_id))return true;
+    const agentUser=one(db,'SELECT * FROM users WHERE username=?',`agent:${profile.agent_id}`);
+    if(!agentUser || !one(db,'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',conversation.id,agentUser.id))return false;
+    if(conversation.type==='group')return conversation.visibility==='private';
+    if(conversation.type==='direct') {
+      const peer=one(db,`SELECT u.* FROM conversation_participants cp JOIN users u ON u.id=cp.user_id
+        WHERE cp.conversation_id=? AND cp.user_id!=? LIMIT 1`,conversation.id,agentUser.id);
+      if(!peer)return false;
+      const peerProfile=peer.username.startsWith('agent:')
+        ? one(db,'SELECT * FROM agent_profiles WHERE agent_id=?',peer.username.slice(6))
+        : undefined;
+      const peerOwnerId=peerProfile ? peerProfile.owner_id : peer.owner_id;
+      if(peerOwnerId===profile.owner_id)return peerProfile ? !peerProfile.is_stale && agentAvailable(db,peerProfile) : true;
+      if(peerProfile)return canCollaborateWithAgent(db,peer,profile) && canCollaborateWithAgent(db,agentUser,peerProfile);
+      return canCollaborateWithAgent(db,peer,profile);
+    }
+    return false;
+  }
+  return true;
 }
 
 /** Check whether a group conversation currently contains any `owner_only` Agent participant. */
@@ -104,14 +162,26 @@ export function groupHasPrivateAgent(db:DatabaseSync,conversationId:string):bool
     WHERE p.conversation_id=? AND a.is_stale=0 AND a.collaboration_scope='owner_only' LIMIT 1`,conversationId);
 }
 
+/** Check whether a group conversation currently contains any `project` Agent participant. */
+export function groupHasProjectAgent(db:DatabaseSync,conversationId:string):boolean {
+  return !!one(db,`SELECT 1 FROM conversation_participants p
+    JOIN users u ON u.id=p.user_id
+    JOIN agent_profiles a ON u.username='agent:'||a.agent_id
+    WHERE p.conversation_id=? AND a.is_stale=0 AND a.collaboration_scope='project' LIMIT 1`,conversationId);
+}
+
 /** Apply the current chat boundary while preserving a provider's earlier terminal skip. */
 export function chatAllowed(db:DatabaseSync,agentId:string,messageId:string):boolean {
-  const profile=one(db,'SELECT collaboration_scope,owner_id FROM agent_profiles WHERE agent_id=?',agentId);
+  const profile=one(db,'SELECT * FROM agent_profiles WHERE agent_id=?',agentId);
   if(!profile || storedProviderFacts(db,messageId)?.scope_skipped)return false;
-  const message=profile.collaboration_scope==='owner_only'?one(db,'SELECT conversation_id FROM messages WHERE id=?',messageId):undefined;
-  return classifyChatDelivery(profile.collaboration_scope,{
-    ownerDirect:profile.collaboration_scope==='owner_only' && ownerDirect(db,agentId,messageId),
-    ownerInternal:profile.collaboration_scope==='owner_only' && !!message && isOwnerInternalConversation(db,message.conversation_id,profile.owner_id),
+  const scope = profile.collaboration_scope ?? 'team';
+  if(scope==='team')return true;
+  const message=one(db,'SELECT conversation_id FROM messages WHERE id=?',messageId);
+  const chat=message ? one(db,'SELECT * FROM conversations WHERE id=?',message.conversation_id) : undefined;
+  return classifyChatDelivery(scope,{
+    ownerDirect:ownerDirect(db,agentId,messageId),
+    ownerInternal:!!message && isOwnerInternalConversation(db,message.conversation_id,profile.owner_id),
+    projectAllowed:scope==='project' && !!chat && !chat.external_source && canAgentAccessConversation(db,profile,chat),
     directToAgent:false,addressedToAgent:false,addressedToOwner:false,
   })!=='skip';
 }
@@ -158,7 +228,54 @@ export interface ScopeTransitionEffects {
   discardedEvents: Array<{ conversationId: string; messageId: string; kind: 'discarded' | 'completed'; payload: Row }>;
 }
 
-/** Execute transactional cleanup when an Agent's collaboration scope changes (`team <-> owner_only`). */
+function cleanupRevokedConversationsInTx(
+  db: DatabaseSync,
+  agentId: string,
+  agentUserId: string,
+  cleanupConvIds: readonly string[],
+  effects: ScopeTransitionEffects,
+): void {
+  for (const cid of cleanupConvIds) {
+    const inFlight = all(db, `SELECT * FROM messages WHERE conversation_id=? AND sender_user_id=?
+      AND (delivery_status='running' OR awaiting_permission_at IS NOT NULL)`, cid, agentUserId);
+    for (const msg of inFlight) {
+      const permissions = JSON.parse(msg.permission_request_json ?? '[]').map((perm: Row) =>
+        ['pending', 'submitted'].includes(perm.status) ? { ...perm, status: 'invalidated', reason: 'collaboration_scope_restricted' } : perm);
+      const hasVisibleContent = Boolean(String(msg.content ?? '').trim()) || JSON.parse(msg.attachments_json ?? '[]').length > 0;
+      if (!hasVisibleContent && msg.delivery_status === 'running') {
+        if (msg.thread_root_id) {
+          discardThreadUnread(db, cid, msg.thread_root_id, msg.id);
+          db.prepare('DELETE FROM messages WHERE id=?').run(msg.id);
+        } else {
+          db.prepare('DELETE FROM messages WHERE id=?').run(msg.id);
+          const latest = one(db, 'SELECT content,attachments_json,created_at FROM messages WHERE conversation_id=? AND thread_root_id IS NULL ORDER BY rowid DESC LIMIT 1', cid);
+          const preview = latest ? String(latest.content ?? '').trim().slice(0, 120) || JSON.parse(latest.attachments_json ?? '[]')[0]?.file_name || '' : null;
+          db.prepare('UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?').run(preview, latest?.created_at ?? null, cid);
+        }
+        effects.discardedEvents.push({
+          conversationId: cid,
+          messageId: msg.id,
+          kind: 'discarded',
+          payload: { message_id: msg.id, reason: 'collaboration_scope_restricted', ...(msg.thread_root_id ? { thread_root_message_id: msg.thread_root_id } : {}) },
+        });
+      } else {
+        db.prepare("UPDATE messages SET delivery_status='failed',awaiting_permission_at=NULL,permission_request_json=? WHERE id=?")
+          .run(JSON.stringify(permissions), msg.id);
+        effects.discardedEvents.push({ conversationId: cid, messageId: msg.id, kind: 'completed', payload: { interruption_reason: 'collaboration_scope_restricted' } });
+      }
+    }
+    for (const relay of all(db, `SELECT r.* FROM relay_tasks r WHERE r.conversation_id=?
+      AND json_extract(r.payload_json,'$.agent_id')=?
+      AND r.status IN ('queued','sent','accepted')
+      AND NOT EXISTS (SELECT 1 FROM task_context_index t WHERE t.agent_id=? AND t.message_id=r.message_id)
+      AND NOT EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.agent_id=? AND d.message_id=r.message_id)`,
+      cid, agentId, agentId, agentId)) {
+      cancelChatRelay(db, relay, agentId);
+    }
+  }
+}
+
+/** Execute transactional cleanup when an Agent's collaboration scope changes (`team <-> project <-> owner_only`). */
 export function applyCollaborationScopeTransitionInTx(
   db: DatabaseSync,
   agentId: string,
@@ -171,20 +288,23 @@ export function applyCollaborationScopeTransitionInTx(
   const next = nextScope ?? 'team';
   const effects: ScopeTransitionEffects = { notices: [], membershipBroadcasts: [], revokedConversationIds: [], discardedEvents: [] };
   if (prev === next) return effects;
-  const profile = one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', agentId);
+  let profile = one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', agentId);
   const agentUser = one(db, 'SELECT * FROM users WHERE username=?', `agent:${agentId}`);
   if (!profile || !agentUser) return effects;
 
-  if (next === 'owner_only') {
+  if (next === 'owner_only' || (prev === 'team' && next === 'project')) {
     const before = beforeTaskAccess ?? captureTaskContextAccess(db, { agentIds: [agentId] });
-    if (profile.collaboration_scope !== 'owner_only') {
-      db.prepare("UPDATE agent_profiles SET collaboration_scope='owner_only' WHERE agent_id=?").run(agentId);
+    if (profile.collaboration_scope !== next) {
+      db.prepare('UPDATE agent_profiles SET collaboration_scope=? WHERE agent_id=?').run(next, agentId);
+      profile = one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', agentId)!;
     }
     const joined = all(db, `SELECT c.* FROM conversations c
       JOIN conversation_participants p ON p.conversation_id=c.id
       WHERE p.user_id=? AND c.dissolved_at IS NULL`, agentUser.id);
-    const exitGroups = joined.filter(c => c.type === 'group' && !c.external_source && !isOwnerInternalConversation(db, c.id, profile.owner_id));
-    const frozenDirects = joined.filter(c => c.type === 'direct' && !c.external_source && !isOwnerInternalConversation(db, c.id, profile.owner_id));
+    const exitGroups = joined.filter(c => c.type === 'group' && !c.external_source && !isOwnerInternalConversation(db, c.id, profile!.owner_id)
+      && (next === 'owner_only' || c.visibility === 'public'));
+    const frozenDirects = joined.filter(c => c.type === 'direct' && !c.external_source && !isOwnerInternalConversation(db, c.id, profile!.owner_id)
+      && (next === 'owner_only' || !canAgentAccessConversation(db, profile, c)));
     const externalShadows = all(db, `SELECT * FROM conversations WHERE external_source IS NOT NULL AND config_agent_id=?`, agentId)
       .filter(c => !isFeishuBoundOwnerShadow(db, c, profile));
 
@@ -211,44 +331,20 @@ export function applyCollaborationScopeTransitionInTx(
 
     const cleanupConvIds = [...new Set([...exitGroups.map(c => c.id), ...frozenDirects.map(c => c.id), ...externalShadows.map(c => c.id)])];
     effects.revokedConversationIds.push(...cleanupConvIds);
+    cleanupRevokedConversationsInTx(db, agentId, agentUser.id, cleanupConvIds, effects);
 
-    for (const cid of cleanupConvIds) {
-      const inFlight = all(db, `SELECT * FROM messages WHERE conversation_id=? AND sender_user_id=?
-        AND (delivery_status='running' OR awaiting_permission_at IS NOT NULL)`, cid, agentUser.id);
-      for (const msg of inFlight) {
-        const permissions = JSON.parse(msg.permission_request_json ?? '[]').map((perm: Row) =>
-          ['pending', 'submitted'].includes(perm.status) ? { ...perm, status: 'invalidated', reason: 'collaboration_scope_restricted' } : perm);
-        const hasVisibleContent = Boolean(String(msg.content ?? '').trim()) || JSON.parse(msg.attachments_json ?? '[]').length > 0;
-        if (!hasVisibleContent && msg.delivery_status === 'running') {
-          if (msg.thread_root_id) {
-            discardThreadUnread(db, cid, msg.thread_root_id, msg.id);
-            db.prepare('DELETE FROM messages WHERE id=?').run(msg.id);
-          } else {
-            db.prepare('DELETE FROM messages WHERE id=?').run(msg.id);
-            const latest = one(db, 'SELECT content,attachments_json,created_at FROM messages WHERE conversation_id=? AND thread_root_id IS NULL ORDER BY rowid DESC LIMIT 1', cid);
-            const preview = latest ? String(latest.content ?? '').trim().slice(0, 120) || JSON.parse(latest.attachments_json ?? '[]')[0]?.file_name || '' : null;
-            db.prepare('UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?').run(preview, latest?.created_at ?? null, cid);
-          }
-          effects.discardedEvents.push({
-            conversationId: cid,
-            messageId: msg.id,
-            kind: 'discarded',
-            payload: { message_id: msg.id, reason: 'collaboration_scope_restricted', ...(msg.thread_root_id ? { thread_root_message_id: msg.thread_root_id } : {}) },
-          });
-        } else {
-          db.prepare("UPDATE messages SET delivery_status='failed',awaiting_permission_at=NULL,permission_request_json=? WHERE id=?")
-            .run(JSON.stringify(permissions), msg.id);
-          effects.discardedEvents.push({ conversationId: cid, messageId: msg.id, kind: 'completed', payload: { interruption_reason: 'collaboration_scope_restricted' } });
-        }
-      }
+    if (next === 'owner_only') {
+      retireTeamBacklog(db, agentId);
     }
-
-    retireTeamBacklog(db, agentId);
-  } else if (prev === 'owner_only' && next === 'team') {
-    const restoredDirects = all(db, `SELECT c.id FROM conversations c
+  } else if (next === 'team' || (prev === 'owner_only' && next === 'project')) {
+    if (profile.collaboration_scope !== next) {
+      db.prepare('UPDATE agent_profiles SET collaboration_scope=? WHERE agent_id=?').run(next, agentId);
+      profile = one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', agentId)!;
+    }
+    const restoredDirects = all(db, `SELECT c.* FROM conversations c
       JOIN conversation_participants p ON p.conversation_id=c.id
       WHERE p.user_id=? AND c.type='direct' AND c.external_source IS NULL AND c.dissolved_at IS NULL`, agentUser.id)
-      .filter(c => !isOwnerInternalConversation(db, c.id, profile.owner_id));
+      .filter(c => !isOwnerInternalConversation(db, c.id, profile!.owner_id) && canAgentAccessConversation(db, profile, c));
     for (const d of restoredDirects) {
       const recipients = all(db, 'SELECT user_id FROM conversation_participants WHERE conversation_id=?', d.id).map(r => r.user_id);
       effects.membershipBroadcasts.push({ conversationId: d.id, recipients });
@@ -256,6 +352,78 @@ export function applyCollaborationScopeTransitionInTx(
   }
 
   return effects;
+}
+
+/** Snapshot currently accessible external 1:1 directs for `project` Agents in a private group before removing a member or dissolving the group. */
+export function snapshotProjectGroupDirects(db: DatabaseSync, groupId: string): {
+  projectAgentIds: string[];
+  accessibleDirectsByAgent: Map<string, string[]>;
+  allDirectConversationIds: string[];
+} {
+  const projectAgents = all(db, `SELECT ap.*, u.id AS agent_user_id FROM conversation_participants cp
+    JOIN users u ON u.id=cp.user_id
+    JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id
+    WHERE cp.conversation_id=? AND ap.is_stale=0 AND ap.collaboration_scope='project'`, groupId);
+  const accessibleDirectsByAgent = new Map<string, string[]>();
+  const allDirectSet = new Set<string>();
+  for (const agent of projectAgents) {
+    const directs = all(db, `SELECT c.* FROM conversations c
+      JOIN conversation_participants p ON p.conversation_id=c.id
+      WHERE p.user_id=? AND c.type='direct' AND c.external_source IS NULL AND c.dissolved_at IS NULL`, agent.agent_user_id)
+      .filter(c => !isOwnerInternalConversation(db, c.id, agent.owner_id) && canAgentAccessConversation(db, agent, c));
+    accessibleDirectsByAgent.set(agent.agent_id, directs.map(d => d.id));
+    for (const d of directs) allDirectSet.add(d.id);
+  }
+  return {
+    projectAgentIds: projectAgents.map(a => a.agent_id),
+    accessibleDirectsByAgent,
+    allDirectConversationIds: [...allDirectSet],
+  };
+}
+
+/** Reconcile newly frozen 1:1 directs and exited group state for `project` Agents after a private-group participant removal or dissolution. */
+export function reconcileProjectGroupLossInTx(
+  db: DatabaseSync,
+  groupId: string,
+  snapshot: ReturnType<typeof snapshotProjectGroupDirects>,
+  removedAgentId?: string,
+): Map<string, ScopeTransitionEffects> {
+  const byAgent = new Map<string, ScopeTransitionEffects>();
+  const ensureEffects = (agentId: string): ScopeTransitionEffects => {
+    let eff = byAgent.get(agentId);
+    if (!eff) {
+      eff = { notices: [], membershipBroadcasts: [], revokedConversationIds: [], discardedEvents: [] };
+      byAgent.set(agentId, eff);
+    }
+    return eff;
+  };
+  for (const agentId of snapshot.projectAgentIds) {
+    const profile = one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', agentId);
+    const agentUser = one(db, 'SELECT * FROM users WHERE username=?', `agent:${agentId}`);
+    if (!profile || !agentUser) continue;
+    const lostDirectIds = (snapshot.accessibleDirectsByAgent.get(agentId) ?? []).filter(cid => {
+      const conv = one(db, 'SELECT * FROM conversations WHERE id=?', cid);
+      return !canAgentAccessConversation(db, profile, conv);
+    });
+    const cleanupIds = [...lostDirectIds, ...(removedAgentId === agentId ? [groupId] : [])];
+    if (!cleanupIds.length) continue;
+    const eff = ensureEffects(agentId);
+    for (const cid of lostDirectIds) {
+      const recipients = all(db, 'SELECT user_id FROM conversation_participants WHERE conversation_id=?', cid).map(r => r.user_id);
+      eff.membershipBroadcasts.push({ conversationId: cid, recipients });
+    }
+    eff.revokedConversationIds.push(...cleanupIds);
+    cleanupRevokedConversationsInTx(db, agentId, agentUser.id, cleanupIds, eff);
+  }
+  if (removedAgentId && !byAgent.has(removedAgentId)) {
+    const agentUser = one(db, 'SELECT * FROM users WHERE username=?', `agent:${removedAgentId}`);
+    if (agentUser) {
+      const eff = ensureEffects(removedAgentId);
+      eff.revokedConversationIds.push(groupId);
+      cleanupRevokedConversationsInTx(db, removedAgentId, agentUser.id, [groupId], eff);
+    }
+  }
+  return byAgent;
 }
 
 /** Publish post-commit notifications and node scope revocations after `applyCollaborationScopeTransitionInTx`. */

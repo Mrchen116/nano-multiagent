@@ -24,6 +24,7 @@ import { NodeConfiguration, type NodeConfigurationFile } from './configuration.j
 import { bindDevice } from './device-binding.js';
 import { applyGatewayEnvironment, atomicPrivate, browserPairingFile, gatewayState, manageGateway, processBirth } from './lifecycle.js';
 import { localNodeBridgeEndpoint } from './local-bridge.js';
+import { isPathWithinRoot } from './platform-io.js';
 import { windowsHost } from './windows-platform.js';
 import net from 'node:net';
 
@@ -509,9 +510,7 @@ export async function updateLocalNodeConfig(input: {
 }
 
 function isWithinWorkspace(target: string, root: string): boolean {
-  const normTarget = process.platform === 'win32' ? target.toLowerCase() : target;
-  const normRoot = process.platform === 'win32' ? root.toLowerCase() : root;
-  return normTarget === normRoot || normTarget.startsWith(normRoot + sep);
+  return isPathWithinRoot(target, root);
 }
 
 /** Validate and canonicalize a local Agent workspace file/directory target for Finder/Explorer reveal or open. */

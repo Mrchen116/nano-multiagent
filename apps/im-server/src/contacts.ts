@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, type Row } from './context.js';
-import { canAccessSpace, canTeamContactAgent } from './identity.js';
+import { canAccessSpace, canCollaborateWithAgent } from './identity.js';
 
 const batchSize = 100;
 
@@ -39,7 +39,7 @@ function visible(db: DatabaseSync, viewer: Row, rows: Row[]): Row[] {
     const owner = owners.get(row.owner_id);
     if (!canAccessSpace(owner, row.space_id)) return false;
     if (row.owner_id === viewer.owner_id) return canAccessSpace(viewer, row.space_id);
-    return canTeamContactAgent(db, viewer, row);
+    return canCollaborateWithAgent(db, viewer, row);
   }).map(row => {
     const {membership_status: _membership, binding_id, personal_status: _personal, is_stale: _stale, username, ...contact} = row;
     if (row.kind === 'human') return {user_id:row.user_id,kind:row.kind,display_name:row.display_name,username};

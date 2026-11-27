@@ -280,7 +280,7 @@ private struct ChatRowActions: ViewModifier {
     let chat: Conversation
     let patch: (Conversation, String, Bool) -> Void
     func body(content: Content) -> some View {
-        if chat.can_write == false && chat.write_blocked_reason != "agent_private" { content }
+        if chat.can_write == false && !["agent_private", "agent_project_restricted"].contains(chat.write_blocked_reason ?? "") { content }
         else {
             content.contextMenu {
                 pinButton

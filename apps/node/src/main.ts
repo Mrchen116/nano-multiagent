@@ -25,6 +25,7 @@ import { ModelSetup } from './model-setup.js';
 import {CapabilityRequests} from './capability-requests.js';
 import { NodeTrajectory } from './trajectory.js';
 import { LocalNodeBridge } from './local-bridge.js';
+import { readMachineBootToken } from './platform-io.js';
 import { WebRelayConnection, FeishuConnection, WeChatConnection, WeChatLoginCoordinator, isWeChatChannelRevokedOnDisk, purgeWeChatChannelState, ChannelKey } from '@nano/channels';
 import { WorkSync, NodeStore, TaskExecution, TaskContext, ScheduleDeletions, SingleThread, WorkerApprovals, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ProactiveCoordinator, isProactivePlanningEnabled, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
 import type { AgentConfiguration, AgentDeletionIntent, AgentLifecycleSnapshot, ProactiveSyncObservationsInput, RelayInput } from '@nano/product-contracts';
@@ -62,7 +63,7 @@ Object.assign(env, parseEnv(modelEnvironment));
 const inspector = new ConfigurationInspector({root:join(home,'.configuration-inspections'),env,onLog:text=>process.stderr.write(text)});
 // Failed inspection recovery must not prevent durable conversation runtimes from starting.
 await inspector.initialize().catch(error => process.stderr.write(`${String(error)}\n`));
-const machineBoot = process.platform === 'win32' ? await windowsHost('boot') : process.platform === 'darwin' ? execFileSync('/usr/sbin/sysctl', ['-n', 'kern.boottime'], {encoding:'utf8'}).trim() : (await readFile('/proc/sys/kernel/random/boot_id','utf8')).trim();
+const machineBoot = await readMachineBootToken();
 await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
 for (const agent of config.agents) {
   // Persisted explicit tool restrictions may leave new Dreaming or legacy proactive_planning unavailable after upgrade.
@@ -528,7 +529,8 @@ async function im(path: string, options?: ImRequestOptions): Promise<unknown> {
 
 external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, store, relay,
   agentName: id => agents.find(agent => agent.agentId === id)?.displayName,
-  ownerOnly: id => agents.find(agent => agent.agentId === id)?.collaborationScope === 'owner_only',
+  collaborationScope: id => agents.find(agent => agent.agentId === id)?.collaborationScope ?? 'team',
+  ownerOnly: id => (agents.find(agent => agent.agentId === id)?.collaborationScope ?? 'team') !== 'team',
   personalAgent: id => !!agents.find(agent => agent.agentId === id)?.personal,
   globalAgent: id => agents.some(agent => agent.agentId === id && agent.mode === 'global' && !agent.personal),
   personalDelivery: delivery => globalProduct.externalDelivery(delivery),
@@ -730,6 +732,9 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
       const {withdrawn} = await runtime.request('configuration.restrictChat', {agentId:next.agentId, operationId:intent.operation_id, changes}) as {withdrawn:Array<{sessionId:string;inputId?:string}>};
       globalProduct.confirmRestricted(next.agentId,withdrawn);
       product.confirmRestricted(withdrawn.filter((row): row is {sessionId:string;inputId:string} => !!row.inputId));
+    } else if (previous && (previous.collaborationScope ?? 'team') === 'team' && next.collaborationScope === 'project') {
+      previous.collaborationScope = 'project';
+      external.restrictToOwner(next.agentId);
     }
     const applied = await runtime.request('configuration.apply', {...next, operationId: intent.operation_id, fingerprint: intent.candidate_fingerprint}) as {effective: boolean; message?: string};
     if (!applied.effective) throw new Error(applied.message ?? 'Configuration was not applied');

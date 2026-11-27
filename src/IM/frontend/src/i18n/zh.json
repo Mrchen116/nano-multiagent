@@ -603,12 +603,22 @@
         "previewError": "无法加载预览。",
         "scope": "协作范围",
         "team": "团队公开",
+        "project": "项目级（共处私密群成员）",
+        "projectShort": "项目级",
         "ownerOnly": "私有（仅自己与名下助手）",
         "ownerOnlyShort": "私有",
         "teamHelp": "团队同事可发现并私聊该助手，也可拉入协作群；私聊、@ 或回复会及时提醒，普通群消息合并提醒。",
+        "projectHelp": "仅面向与该助手共处同一私密群的项目同事开放发现与单聊（全局模式下含工作记录）；离开全部共用私密群后自动冻结。",
         "ownerOnlyHelp": "对团队同事隐藏，仅可与你及你名下的其他助手通信或组建内部私密群。",
         "ownerOnlyPaHelp": "对团队同事隐藏且不对外发言或代发消息；仍按聊天访问范围静默观察你参与的聊天，并向你汇报。",
         "tightenScopeNotice": "保存后将自动退出含外部同事的群聊，并将与同事的历史私聊冻结为只读。",
+        "tightenToProjectNotice": "保存后将自动退出公开群，并将未与该助手共处私密群的同事历史私聊冻结为只读。",
+        "widenScopeTitle": "确认放宽协作范围？",
+        "widenScopePaBody": "确认将个人助手切换为「团队公开」？切换后团队同事可发现并与该助手对话；你的私人会话与个人助手工作记录仍仅你本人可见。",
+        "widenScopeGlobalToProjectBody": "确认将该全局助手切换为「项目级」？切换后与该助手共处同一私密群的项目同事可发现并私聊该助手，且可查看其完整全局工作记录（Work 与执行轨迹），此前的私有任务记录也将对同项目成员透明。",
+        "widenScopeGlobalToTeamBody": "确认将该全局助手切换为「团队公开」？切换后全体团队成员可发现并私聊该助手，且可查看其完整全局工作记录（Work 与执行轨迹），此前的私有任务记录也将对团队可见。",
+        "widenScopeThreadBody": "确认放宽该助手的协作范围？放宽后授权范围内的同事可发现并向该助手发起会话；你此前的私有单聊历史不会向其他成员公开。",
+        "widenScopeConfirm": "确认放宽并保存",
         "approvalMode": "审批策略",
         "approvalInherit": "跟随节点（{{strategy}}）",
         "approvalUnknown": "策略未确认",
@@ -1143,6 +1153,10 @@
     "newGroup": {
       "personalScope": "包含私人助手的群聊保留在个人空间，仅成员可见。",
       "privateAgentScope": "已选私有助手，群聊仅允许你与名下助手参与，已自动锁定为私密群。",
+      "projectAgentScope": "已选项目级助手，群聊固定为私密群；同群同事可发现并私聊该助手及查看其工作记录。",
+      "crossGroupShareTitle": "跨私密群共享项目上下文确认",
+      "crossGroupShareBody": "全局项目级助手跨会话共享记忆与工作区，加入成员不完全一致的多个私密群可能使不同群的项目背景互通，是否继续？",
+      "crossGroupShareConfirm": "继续加入",
       "disabledHumanForPrivateAgent": "已选私有助手，暂不可与外部同事同群",
       "disabledPrivateAgentForHuman": "已选外部同事，暂不可加入私有助手",
       "title": "新建群聊",
@@ -1206,6 +1220,7 @@
       "observerTitle": "Agent 协作 · 只读",
       "observerDescription": "你可以查看双方往来，不能发送消息。",
       "agentPrivateNotice": "该助手当前设为私有，暂不对外接收或发送消息",
+      "agentProjectRestrictedNotice": "该助手仅面向同项目私密群成员开放，当前无法继续发送消息",
       "systemNotice": {
         "direct": {
           "skills": "· 后台自进化：技能已更新",
@@ -1389,7 +1404,9 @@
       "actionError": "操作失败，请重试。",
       "leave": "退出群聊",
       "memberCount": "{{count}} 位成员",
-      "privateAgentVisibilityLocked": "群内包含私有助手，可见范围固定为私密，且暂不可添加外部同事。"
+      "privateAgentVisibilityLocked": "群内包含私有助手，可见范围固定为私密，且暂不可添加外部同事。",
+      "projectAgentVisibilityLocked": "群内包含项目级助手，可见范围固定为私密群。",
+      "foreignProjectAgentMemberLocked": "群内包含他人管理的项目级助手，仅该助手主人可邀请新的外部同事入群。"
     },
     "mention": {
       "header": "选择成员",

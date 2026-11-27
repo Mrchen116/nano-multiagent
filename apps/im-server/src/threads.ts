@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, fail, now, one } from './context.js';
 import { isOwnerInternalConversation } from './collaboration.js';
+import { isExternalPeerInboundMessage, resolveConversationExternalOwnerSourceId } from './notification-projector.js';
 
 const EXCERPT_LIMIT = 1200;
 const EARLIER_REPLY_LIMIT = 10;
@@ -15,7 +16,9 @@ export function threadAddressesAgent(db: DatabaseSync, messageId: string, agentI
 
 /** Freeze the audience when a reply arrives, including newly named recipients of completed streamed text. */
 export function recordThreadDelivery(db: DatabaseSync, messageId: string): void {
-  const m = one(db, `SELECT m.*, root.sender_user_id AS root_author FROM messages m
+  const m = one(db, `SELECT m.*, root.sender_user_id AS root_author,
+      c.type, c.external_source, c.config_agent_id, c.owner_id, c.external_chat_id
+    FROM messages m
     JOIN messages root ON root.id=m.thread_root_id JOIN conversations c ON c.id=m.conversation_id
     WHERE m.id=? AND c.type='group'`, messageId);
   if (!m) return;
@@ -47,13 +50,17 @@ export function recordThreadDelivery(db: DatabaseSync, messageId: string): void 
       const isPaObserver = !!one(db, 'SELECT 1 FROM personal_agent_bindings b JOIN conversation_participants p ON p.user_id=b.owner_user_id WHERE b.agent_id=? AND b.status=\'active\' AND p.conversation_id=?', targetUser.agent_id, m.conversation_id);
       if (!isOwnerInternalConversation(db, m.conversation_id, targetUser.owner_id) && !isPaObserver) continue;
     }
+    if (targetUser?.agent_id && (targetUser.collaboration_scope ?? 'team') === 'project') {
+      if (one(db, 'SELECT visibility FROM conversations WHERE id=?', m.conversation_id)?.visibility === 'public') continue;
+    }
     const reactivate = named.has(id) ? 1 : 0;
     add.run(m.conversation_id, m.thread_root_id, at, id, m.conversation_id, m.conversation_id, reactivate, messageId, reactivate, reactivate);
   }
+  const externalPeer = isExternalPeerInboundMessage(db, m, m.sender_type, m.sender_source_id, false, messageId) ? 1 : 0;
   const added=all(db,`INSERT OR IGNORE INTO thread_deliveries(message_id,user_id)
     SELECT ?,f.user_id FROM thread_follows f JOIN conversation_participants p
       ON p.conversation_id=f.conversation_id AND p.user_id=f.user_id
-    WHERE f.root_message_id=? AND f.following=1 AND f.user_id!=? RETURNING user_id`, messageId,m.thread_root_id,m.sender_user_id);
+    WHERE f.root_message_id=? AND f.following=1 AND (f.user_id!=? OR ?=1) RETURNING user_id`, messageId,m.thread_root_id,m.sender_user_id,externalPeer);
   for(const {user_id} of added) adjustUnread(db,m.conversation_id,m.thread_root_id,user_id,1);
 }
 
@@ -70,8 +77,34 @@ export function discardThreadUnread(db:DatabaseSync,cid:string,root:string,id:st
 
 /** Compute unread after a main-timeline watermark. Direct chats share one watermark. */
 export function listUnread(db: DatabaseSync, conversationId: string, userId: string, mainWatermark: number): number {
-  const grouped = one(db, 'SELECT type FROM conversations WHERE id=?', conversationId)?.type === 'group';
-  const main = one(db, `SELECT count(*) AS n FROM messages WHERE conversation_id=? AND rowid>? AND sender_user_id!=?${grouped ? ' AND thread_root_id IS NULL' : ''}`, conversationId, mainWatermark, userId)!.n;
+  const conv = one(db, 'SELECT * FROM conversations WHERE id=?', conversationId);
+  const grouped = conv?.type === 'group';
+  let main: number;
+  if (conv?.external_source) {
+    const ownerSourceId = resolveConversationExternalOwnerSourceId(db, conv) ?? null;
+    main = one(
+      db,
+      `SELECT count(*) AS n FROM messages
+       WHERE conversation_id=? AND rowid>?
+         AND (
+           sender_user_id!=?
+           OR (
+             sender_type='user'
+             AND COALESCE(sender_source_id,'')!=''
+             AND (? IS NULL OR sender_source_id!=?)
+             AND NOT EXISTS (SELECT 1 FROM owner_direct_agent_messages od WHERE od.message_id=messages.id)
+             AND NOT EXISTS (SELECT 1 FROM provider_message_facts pf WHERE pf.message_id=messages.id AND coalesce(json_extract(pf.facts_json,'$.context_only'),0)=1)
+           )
+         )${grouped ? ' AND thread_root_id IS NULL' : ''}`,
+      conversationId,
+      mainWatermark,
+      userId,
+      ownerSourceId,
+      ownerSourceId,
+    )!.n;
+  } else {
+    main = one(db, `SELECT count(*) AS n FROM messages WHERE conversation_id=? AND rowid>? AND sender_user_id!=?${grouped ? ' AND thread_root_id IS NULL' : ''}`, conversationId, mainWatermark, userId)!.n;
+  }
   const topics = grouped ? one(db, 'SELECT sum(unread_count) AS n FROM thread_follows WHERE conversation_id=? AND user_id=?', conversationId,userId)?.n : 0;
   return main+(topics??0);
 }

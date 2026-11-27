@@ -218,11 +218,20 @@ it('supports same-owner mixed-space internal groups and agent-agent 1:1, enforce
     request_id: 'req-status-1',
   })).resolves.toBeDefined();
 
-  // Reopening agent-y -> 'team' automatically restores Bob's 1:1 write access!
+  // Reopening agent-y -> 'team' requires explicit confirm_scope_widen, then automatically restores Bob's 1:1 write access!
+  const unconfirmedReopenY = await request(alice.access_token, 'PATCH', '/im/v1/agents/agent-y/config', {
+    profile_version: 2,
+    display_name: 'Agent Y',
+    collaboration_scope: 'team',
+  });
+  expect(unconfirmedReopenY.statusCode).toBe(409);
+  expect(unconfirmedReopenY.json()).toMatchObject({ detail: { code: 'scope_widen_confirmation_required' } });
+
   const reopenY = await request(alice.access_token, 'PATCH', '/im/v1/agents/agent-y/config', {
     profile_version: 2,
     display_name: 'Agent Y',
     collaboration_scope: 'team',
+    confirm_scope_widen: true,
   });
   expect(reopenY.statusCode).toBe(200);
   expect((await request(bob.access_token, 'GET', `/im/v1/conversations/${bobDm.id}`)).json()).toMatchObject({

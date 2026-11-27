@@ -87,7 +87,7 @@ struct AgentDraft: Equatable, Sendable {
     func effectiveTools(capabilities: AgentCapabilities?, personal: Bool) -> [String] {
         Array(Set(effectiveSelectedTools(capabilities: capabilities) + fixed_tools + AgentCapabilities.modeFixedTools(mode: work_mode, personal: personal))).sorted()
     }
-    func payload(version: Int? = nil, creating: Bool = false, customWorkspace: Bool = false, confirmed: Bool = false, personal: Bool = false, capabilities: AgentCapabilities? = nil) -> [String: JSONValue] {
+    func payload(version: Int? = nil, creating: Bool = false, customWorkspace: Bool = false, confirmed: Bool = false, confirmScopeWiden: Bool = false, personal: Bool = false, capabilities: AgentCapabilities? = nil) -> [String: JSONValue] {
         var body: [String: JSONValue] = [
             "display_name": .string(display_name.trimmingCharacters(in: .whitespacesAndNewlines)),
             "description": .string(description), "default_model": default_model.isEmpty ? .null : .string(default_model),
@@ -99,6 +99,7 @@ struct AgentDraft: Equatable, Sendable {
             "features": .object(features.mapValues(JSONValue.bool)),
             "collaboration_scope": .string(collaboration_scope)
         ]
+        if confirmScopeWiden { body["confirm_scope_widen"] = .bool(true) }
         if let version { body["profile_version"] = .number(Double(version)) }
         if let data = try? JSONEncoder().encode(heartbeat), let value = try? JSONDecoder().decode(JSONValue.self, from: data) { body["heartbeat"] = value }
         if creating {

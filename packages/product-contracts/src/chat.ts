@@ -3,7 +3,7 @@ import type { WorkerRuntime } from './worker-runtimes.js';
 import type { TaskCardRef } from './task-graphs.js';
 
 /** Stable chat presentation fields; provider/tool-specific contents remain opaque. */
-export interface ChatAttachment {url?: string; content_type?: string; file_name?: string; attachment_id?: string; [field: string]: unknown}
+export interface ChatAttachment {url?: string; content_type?: string; file_name?: string; attachment_id?: string; local_path?: string; [field: string]: unknown}
 
 /** Safe raster image MIME types eligible for inline preview and vision decoding. */
 export const RASTER_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
@@ -141,11 +141,14 @@ export function projectChatReplyContext(reply: ChatReplyReference) {
 }
 
 /** The sender's view of one recipient's confirmed message progress. */
+export const MESSAGE_RECEIPT_STATUSES = ['sent', 'received', 'read'] as const;
+export type MessageReceiptStatus = (typeof MESSAGE_RECEIPT_STATUSES)[number];
+
 export interface MessageReceipt {
   recipient?: ChatActor;
   recipient_id: string;
   display_name: string;
-  status: 'sent' | 'received' | 'read';
+  status: MessageReceiptStatus;
 }
 
 export interface ChatMessage {

@@ -6,7 +6,7 @@ import type {DatabaseSync} from 'node:sqlite';
 import {parseAgentConfigurationFields, type AgentConfigurationFields, type ConfigurationResult} from '@nano/product-contracts';
 import {definitionsForRole, effectiveFeatures, validateCapabilities} from '@nano/product-contracts/capabilities';
 import {chatId, fail, now, transaction} from './context.js';
-import {defaultSpace, accountEnabled, canAccessSpace, ownerAccount} from './identity.js';
+import {defaultSpace, accountEnabled, canAccessSpace, isPersonalAgent, ownerAccount} from './identity.js';
 import {activeTaskCount, withdrawsTask} from './task-graphs.js';
 import type {ConfigurationRequest} from '@nano/product-contracts/node-rpc';
 import {decodeNodeResult} from './node-rpc-values.js';
@@ -212,6 +212,9 @@ export class ConfigOperations {
     this.authorize(owner, node, candidate.agent_id);
     if (this.dependencies.db.prepare('SELECT 1 FROM agent_deletions WHERE agent_id=?').get(candidate.agent_id)) fail(409,'agent_deletion_requested');
     const binding=configurationPersonalBinding(this.dependencies.db,candidate.agent_id,owner,node);
+    if((binding || isPersonalAgent(this.dependencies.db,candidate.agent_id)) && (candidate.collaboration_scope ?? 'team')==='project') {
+      fail(422, {code:'invalid_collaboration_scope', message:'Personal Assistant supports only team or owner_only collaboration scopes.'});
+    }
     if(binding) {
       candidate={...candidate,personal_agent:{bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch}};
       if(previous)previous={...previous,personal_agent:candidate.personal_agent};
@@ -516,7 +519,8 @@ export class ConfigOperations {
       // All configuration entry points and delayed recovery commit the same PA identity.
       const nextDisplayName = c.display_name || op.agent_id;
       db.prepare("UPDATE personal_agent_bindings SET display_name=? WHERE agent_id=? AND owner_id=?").run(nextDisplayName, op.agent_id, op.owner_id);
-      db.prepare("INSERT OR REPLACE INTO pa_binding_scopes(binding_id,collaboration_scope) SELECT binding_id,? FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?").run(c.collaboration_scope ?? "team", op.agent_id, op.owner_id);
+      const paScope = c.collaboration_scope === "owner_only" ? "owner_only" : "team";
+      db.prepare("INSERT OR REPLACE INTO pa_binding_scopes(binding_id,collaboration_scope) SELECT binding_id,? FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?").run(paScope, op.agent_id, op.owner_id);
       db.prepare("UPDATE conversations SET title=? WHERE title_is_custom=0 AND id IN (SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?)").run(nextDisplayName, op.agent_id, op.owner_id);
       for (const prevName of new Set([op.agent_id, existing?.display_name].filter((v): v is string => typeof v === 'string' && v.length > 0 && v !== nextDisplayName))) {
         const oldLead = `${prevName} · `;

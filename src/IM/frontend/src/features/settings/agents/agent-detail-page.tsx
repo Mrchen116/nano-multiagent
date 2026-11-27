@@ -172,7 +172,7 @@ function formatUpdatedAt(value?: string | null) {
 interface BehaviorCardProps {
   readOnly: boolean;
   personal?: boolean;
-  savedScope?: "team" | "owner_only";
+  savedScope?: "team" | "project" | "owner_only";
   unknownFeatures?: string[];
   capabilitiesKnown: boolean;
   agentId: string;
@@ -183,7 +183,7 @@ interface BehaviorCardProps {
   onApprovalModeChange: (value: ApprovalMode) => void;
   roleEditor: ReactNode;
   onFeatureToggle: (key: string, value: boolean) => void;
-  onScopeChange: (value: "team" | "owner_only") => void;
+  onScopeChange: (value: "team" | "project" | "owner_only") => void;
 }
 
 function BehaviorCard({
@@ -319,20 +319,33 @@ function BehaviorCard({
           disabled={readOnly}
           id="collaboration-scope"
           className="im-input"
-
-          value={draft.collaboration_scope}
-          onChange={(e) => onScopeChange(e.target.value === "owner_only" ? "owner_only" : "team")}
+          value={personal && draft.collaboration_scope === "project" ? "team" : draft.collaboration_scope}
+          onChange={(e) =>
+            onScopeChange(
+              e.target.value === "owner_only"
+                ? "owner_only"
+                : !personal && e.target.value === "project"
+                  ? "project"
+                  : "team",
+            )
+          }
         >
           <option value="team">{t("agents.form.behavior.team")}</option>
+          {!personal && <option value="project">{t("agents.form.behavior.project")}</option>}
           <option value="owner_only">{t("agents.form.behavior.ownerOnly")}</option>
         </select>
         <p className="im-settings-feature-help">{t(
           draft.collaboration_scope === "owner_only"
             ? (personal ? "agents.form.behavior.ownerOnlyPaHelp" : "agents.form.behavior.ownerOnlyHelp")
-            : "agents.form.behavior.teamHelp",
+            : draft.collaboration_scope === "project"
+              ? "agents.form.behavior.projectHelp"
+              : "agents.form.behavior.teamHelp",
         )}</p>
-        {savedScope === "team" && draft.collaboration_scope === "owner_only" && (
+        {savedScope && savedScope !== "owner_only" && draft.collaboration_scope === "owner_only" && (
           <p className="im-settings-feature-help" role="status">{t("agents.form.behavior.tightenScopeNotice")}</p>
+        )}
+        {savedScope === "team" && draft.collaboration_scope === "project" && (
+          <p className="im-settings-feature-help" role="status">{t("agents.form.behavior.tightenToProjectNotice")}</p>
         )}
       </div>
 
@@ -1449,9 +1462,10 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
     }, 1800);
   }
 
+  const [confirmingScopeWiden, setConfirmingScopeWiden] = useState(false);
   const configSaveBlocked = readOnly || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict || catalogInvalid || hasStaleReasoning;
   const mutation = useMutation({
-    mutationFn: (next: AgentConfigFormState) => {
+    mutationFn: (next: AgentConfigFormState & { confirm_scope_widen?: boolean }) => {
       if (settings.readOnly || confirmationPending || deleting || detailQuery.isError || !detailQuery.data?.ready || detailQuery.isFetching || versionConflict) throw new Error(t("agents.settings.refreshing"));
       const {
         updated_at: _updatedAt,
@@ -1467,6 +1481,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
       return updateAgentConfig(agentId, payload);
     },
     onSuccess: async (updated) => {
+      setConfirmingScopeWiden(false);
       setApplyPending(false);
       setErrorMessage(null);
       markSaved();
@@ -1495,6 +1510,12 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
       if (isConfigApplyPendingError(error)) {
         setApplyPending(true);
         setErrorMessage(null);
+        return;
+      }
+      if (error instanceof AgentConfigRequestError && error.code === "scope_widen_confirmation_required") {
+        setApplyPending(false);
+        setErrorMessage(null);
+        setConfirmingScopeWiden(true);
         return;
       }
       setApplyPending(!(error instanceof AgentConfigRequestError));
@@ -1681,6 +1702,11 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
     if (roleEditor.dirty) {
       try { await roleEditor.save(); }
       catch { return; } // The role field retains its draft and reports the failure.
+    }
+    const currentSavedScope = detailQuery.data?.config.collaboration_scope ?? "team";
+    if (configDirty && currentSavedScope === "owner_only" && normalizedDraft.collaboration_scope !== "owner_only") {
+      setConfirmingScopeWiden(true);
+      return;
     }
     if (configDirty) mutation.mutate(normalizedDraft);
     else markSaved();
@@ -1938,7 +1964,7 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
         <BehaviorCard
           agentId={agentId}
           personal={personal}
-          savedScope={detailQuery.data?.config.collaboration_scope === "owner_only" ? "owner_only" : "team"}
+          savedScope={detailQuery.data?.config.collaboration_scope ?? "team"}
           draft={draft}
           catalog={catalog}
           roleEditor={canManageRole && <AgentRoleEditor editor={roleEditor} />}
@@ -2185,6 +2211,46 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
           </div>
         </footer>
       ) : null}
+      {confirmingScopeWiden && normalizedDraft && (
+        <div className="chat-modal-backdrop" role="presentation">
+          <section className="chat-modal" role="dialog" aria-modal="true" aria-labelledby="agent-scope-widen-title">
+            <header className="chat-modal-header bg-white">
+              <h2 id="agent-scope-widen-title">{t("agents.form.behavior.widenScopeTitle")}</h2>
+            </header>
+            <div className="chat-modal-body">
+              <p className="m-0 text-sm text-slate-600">
+                {t(
+                  personal
+                    ? "agents.form.behavior.widenScopePaBody"
+                    : normalizedDraft.work_mode === "global"
+                      ? (normalizedDraft.collaboration_scope === "project"
+                        ? "agents.form.behavior.widenScopeGlobalToProjectBody"
+                        : "agents.form.behavior.widenScopeGlobalToTeamBody")
+                      : "agents.form.behavior.widenScopeThreadBody",
+                )}
+              </p>
+            </div>
+            <footer className="chat-modal-footer bg-white">
+              <button
+                className="chat-modal-btn-ghost"
+                type="button"
+                disabled={mutation.isPending}
+                onClick={() => setConfirmingScopeWiden(false)}
+              >
+                {t("common.cancel")}
+              </button>
+              <button
+                className="chat-modal-btn-primary"
+                type="button"
+                disabled={mutation.isPending}
+                onClick={() => mutation.mutate({ ...normalizedDraft, confirm_scope_widen: true })}
+              >
+                {t("agents.form.behavior.widenScopeConfirm")}
+              </button>
+            </footer>
+          </section>
+        </div>
+      )}
       {pendingAgent && (
         <div className="chat-modal-backdrop" role="presentation">
           <section className="chat-modal" role="dialog" aria-modal="true" aria-labelledby="agent-detail-unsaved-title">

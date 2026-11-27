@@ -1,4 +1,17 @@
-import { chatAllowed, canAgentAccessConversation, groupHasPrivateAgent, isFeishuBoundOwnerShadow, isOwnerInternalConversation, ownerDirect, providerFacts, storedProviderFacts } from './collaboration.js';
+import {
+  chatAllowed,
+  canAgentAccessConversation,
+  groupHasPrivateAgent,
+  groupHasProjectAgent,
+  isFeishuBoundOwnerShadow,
+  isOwnerInternalConversation,
+  ownerDirect,
+  providerFacts,
+  publishCollaborationScopeTransitionEffects,
+  reconcileProjectGroupLossInTx,
+  snapshotProjectGroupDirects,
+  storedProviderFacts,
+} from './collaboration.js';
 import { matchesExternalChannel } from './channels.js';
 import { conversationName } from './conversation-name.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
@@ -12,7 +25,18 @@ import { captureTaskContextAccess, revokeLostTaskContextAccess, taskContextEligi
 import {RelayDelivery} from './relay-delivery.js';
 import { assertMessageAttempt, messageAttemptPayload } from './message-attempts.js';
 import { executionCleanupRevision } from './agent-deletion.js';
-import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable, canContactPersonalAgent, canTeamContactAgent, ownerAccount } from "./identity.js";
+import {
+  defaultSpace,
+  canAccessSpace,
+  canActorAccess,
+  agentAvailable,
+  canAgentUseCompanySpace,
+  canCollaborateWithAgent,
+  canContactPersonalAgent,
+  canTeamContactAgent,
+  ownerAccount,
+  sharesActivePrivateGroupWithAgent,
+} from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
@@ -40,6 +64,96 @@ function readableMentions(content: string, members: Row[]): string {
   const names = new Map(members.map(user => [user.id, user.display_name || user.id]));
   return content.replace(/<mention\s+type="user"\s+target_id="([^"]+)"\s*\/>/g,
     (_tag, targetId: string) => `@${names.get(targetId) || 'unknown'}`);
+}
+
+function assertProjectAgentCrossGroupShare(
+  db: ImContext['db'],
+  callerOwnerId: string,
+  targetGroupId: string | null,
+  finalMemberRows: Row[],
+  confirmed: boolean,
+): void {
+  const globalProjectAgents = finalMemberRows.filter(
+    m => m.agent_id && !m.is_stale && (m.collaboration_scope ?? 'team') === 'project' && m.work_mode === 'global',
+  );
+  if (!globalProjectAgents.length) return;
+  const conflictingAgentIds: string[] = [];
+  for (const projAgent of globalProjectAgents) {
+    const targetExt = new Set(
+      finalMemberRows
+        .filter(
+          m =>
+            !m.agent_id &&
+            !String(m.username).startsWith('agent:') &&
+            !String(m.username).startsWith('shadow:') &&
+            m.username !== 'system' &&
+            m.user_owner_id !== projAgent.agent_owner_id,
+        )
+        .map(m => String(m.id)),
+    );
+    if (!targetExt.size) continue;
+    const otherGroups = all(
+      db,
+      `SELECT c.id FROM conversations c
+       JOIN conversation_participants cp ON cp.conversation_id=c.id
+       JOIN users ua ON ua.id=cp.user_id
+       WHERE ua.username=? AND c.id!=? AND c.type='group' AND c.visibility='private'
+         AND c.external_source IS NULL AND c.dissolved_at IS NULL`,
+      `agent:${projAgent.agent_id}`,
+      targetGroupId ?? '',
+    );
+    const hasDifferentExternalGroup = otherGroups.some(og => {
+      const otherExt = new Set(
+        all(
+          db,
+          `SELECT u.id FROM conversation_participants cp
+           JOIN users u ON u.id=cp.user_id
+           WHERE cp.conversation_id=? AND u.username NOT LIKE 'agent:%' AND u.username NOT LIKE 'shadow:%'
+             AND u.username!='system' AND u.owner_id!=?`,
+          og.id,
+          projAgent.agent_owner_id,
+        ).map(r => String(r.id)),
+      );
+      if (!otherExt.size) return false;
+      return otherExt.size !== targetExt.size || [...targetExt].some(uid => !otherExt.has(uid));
+    });
+    if (hasDifferentExternalGroup) {
+      if (projAgent.agent_owner_id !== callerOwnerId || !confirmed) {
+        conflictingAgentIds.push(String(projAgent.agent_id));
+      }
+    }
+  }
+  if (conflictingAgentIds.length) {
+    fail(409, {
+      code: 'project_agent_cross_group_confirmation_required',
+      agent_ids: [...new Set(conflictingAgentIds)],
+      message:
+        'This global project assistant already participates in another private group with different external members. Confirm sharing its global memory and workspace context across groups.',
+    });
+  }
+}
+
+function broadcastRestoredProjectDirects(db: ImContext['db'], groupId: string, s: Messaging): void {
+  const projectAgents = all(
+    db,
+    `SELECT ap.*, u.id AS agent_user_id FROM conversation_participants cp
+     JOIN users u ON u.id=cp.user_id
+     JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id
+     WHERE cp.conversation_id=? AND ap.is_stale=0 AND ap.collaboration_scope='project'`,
+    groupId,
+  );
+  for (const agent of projectAgents) {
+    const directs = all(
+      db,
+      `SELECT c.* FROM conversations c
+       JOIN conversation_participants p ON p.conversation_id=c.id
+       WHERE p.user_id=? AND c.type='direct' AND c.external_source IS NULL AND c.dissolved_at IS NULL`,
+      agent.agent_user_id,
+    ).filter(c => !isOwnerInternalConversation(db, c.id, agent.owner_id) && canAgentAccessConversation(db, agent, c));
+    for (const d of directs) {
+      s.membership(d.id, s.members(d.id).map(u => u.id));
+    }
+  }
 }
 export class Messaging {
   readonly records: MessageRecords;
@@ -132,7 +246,12 @@ export class Messaging {
         if (mode === "write") fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
         fail(404, "conversation_id not found");
       }
-      if (!canAgentAccessConversation(this.db, agent, c)) fail(404, "conversation_id not found");
+      if (!canAgentAccessConversation(this.db, agent, c)) {
+        if (mode === "write" && (agent.collaboration_scope ?? "team") === "project") {
+          fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Project scope and can only communicate within shared private groups and active project members." });
+        }
+        fail(404, "conversation_id not found");
+      }
       uid = this.agentUser(agentId!).id;
     }
     if (principal.kind !== "gateway") this.ctx.identity.requireSpace(principal, c.space_id);
@@ -142,6 +261,9 @@ export class Messaging {
     if (mode === "write" && !access.can_write) {
       if (access.write_blocked_reason === "agent_private") {
         fail(403, { code: "agent_private", message: "This assistant is currently private and unavailable for external messages." });
+      }
+      if (access.write_blocked_reason === "agent_project_restricted") {
+        fail(403, { code: "agent_project_restricted", message: "This assistant is only available to members sharing an active private group with it." });
       }
       fail(404, "conversation_id not found");
     }
@@ -262,6 +384,7 @@ export class Messaging {
     let result = ids.map((id) =>
       id.startsWith("agent:") ? this.agentUser(id.slice(6)).id : id.replace(/^user:/, ""),
     );
+    const actorAccount = principal.kind === "agent" ? ownerAccount(this.db, principal.owner_id) : principal;
     for (const a of actors) {
       if (a.type === "agent") {
         const profile = one(
@@ -269,8 +392,13 @@ export class Messaging {
           "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0",
           a.id,
         );
-        if (!profile || (group && profile.owner_id !== principal.owner_id))
+        if (!profile) fail(404, "agent not accessible");
+        if (group && profile.owner_id !== principal.owner_id) {
+          if (canCollaborateWithAgent(this.db, actorAccount, profile)) {
+            fail(403, { code: "agent_owner_required", message: "Only the assistant owner can add this assistant to a group (agent not accessible)." });
+          }
           fail(404, "agent not accessible");
+        }
         result.push(this.agentUser(a.id).id);
       } else if (a.type === "user") result.push(a.id);
       else fail(400, "invalid actor type");
@@ -284,23 +412,33 @@ export class Messaging {
       if (!u) fail(404, "participant not found");
       const profile = u.username.startsWith("agent:")
         ? one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=?", u.username.slice(6)) : undefined;
-      const actorAccount = principal.kind === "agent" ? ownerAccount(this.db, principal.owner_id) : principal;
-      if (callerAgentProfile && (callerAgentProfile.collaboration_scope ?? "team") === "owner_only" && (profile ? profile.owner_id : u.owner_id) !== principal.owner_id) {
-        const ownerCouldSee = profile
-          ? canTeamContactAgent(this.db, actorAccount, profile)
-          : canAccessSpace(actorAccount, "company:default") && u.membership_status === "active";
-        if (ownerCouldSee) {
-          fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
+      const callerScope = callerAgentProfile?.collaboration_scope ?? "team";
+      if (callerAgentProfile && (profile ? profile.owner_id : u.owner_id) !== principal.owner_id) {
+        if (callerScope === "owner_only") {
+          const ownerCouldSee = profile
+            ? canCollaborateWithAgent(this.db, actorAccount, profile)
+            : canAccessSpace(actorAccount, "company:default") && u.membership_status === "active";
+          if (ownerCouldSee) {
+            fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
+          }
+        } else if (callerScope === "project" && !sharesActivePrivateGroupWithAgent(this.db, id, callerAgentProfile.agent_id)) {
+          const ownerCouldSee = profile
+            ? canCollaborateWithAgent(this.db, actorAccount, profile)
+            : canAccessSpace(actorAccount, "company:default") && u.membership_status === "active";
+          if (ownerCouldSee) {
+            fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Project scope and can only communicate with members sharing an active private group with it." });
+          }
         }
       }
       const sameOwnerAgent = !!profile && profile.owner_id === principal.owner_id && agentAvailable(this.db, profile);
       const visible = profile
-        ? (sameOwnerAgent && (canAccessSpace(actorAccount, profile.space_id) || principal.kind === "agent")) || canTeamContactAgent(this.db, actorAccount, profile)
+        ? (sameOwnerAgent && (canAccessSpace(actorAccount, profile.space_id) || principal.kind === "agent")) || canCollaborateWithAgent(this.db, actorAccount, profile)
         : u.id === principal.id || u.owner_id === principal.owner_id || (canActorAccess(this.db, principal.id, "company:default") && u.membership_status === "active");
       if (!visible || (space && !canActorAccess(this.db, id, space))) fail(404, "participant not found");
       if (group && u.username.startsWith("agent:") && !one(this.db,
-        "SELECT 1 FROM agent_profiles WHERE agent_id=? AND owner_id=? AND is_stale=0", u.username.slice(6), principal.owner_id))
-        fail(404, "agent not accessible");
+        "SELECT 1 FROM agent_profiles WHERE agent_id=? AND owner_id=? AND is_stale=0", u.username.slice(6), principal.owner_id)) {
+        fail(403, { code: "agent_owner_required", message: "Only the assistant owner can add this assistant to a group (agent not accessible)." });
+      }
     }
     return result;
   }
@@ -322,14 +460,18 @@ export class Messaging {
       if(canonical)return this.conversation(canonical.conversation_id,p.id);
     }
     const fullIds = ids.includes(p.id) ? [...ids] : [p.id, ...ids];
-    const memberRows = fullIds.map(id => one(this.db, `SELECT u.id,u.username,u.owner_id AS user_owner_id,ap.agent_id,ap.owner_id,ap.owner_id AS agent_owner_id,ap.space_id,ap.collaboration_scope,ap.profile_version,ap.is_stale
+    const memberRows = fullIds.map(id => one(this.db, `SELECT u.id,u.username,u.owner_id AS user_owner_id,ap.agent_id,ap.owner_id,ap.owner_id AS agent_owner_id,ap.space_id,ap.collaboration_scope,ap.work_mode,ap.profile_version,ap.is_stale
       FROM users u LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id WHERE u.id=?`, id)).filter(Boolean) as Row[];
     const profiles = memberRows.filter(row => !!row.agent_id);
     const callerProfile = p.kind === "agent" ? profiles.find(row => row.id === p.id) : undefined;
     const hasPrivateAgent = profiles.some(row => (row.collaboration_scope ?? "team") === "owner_only");
+    const hasProjectAgent = profiles.some(row => (row.collaboration_scope ?? "team") === "project");
     const allSameOwner = memberRows.every(row => (row.agent_id ? row.agent_owner_id : row.user_owner_id) === p.owner_id);
     if (callerProfile && (callerProfile.collaboration_scope ?? "team") === "owner_only" && (!allSameOwner || b.visibility === "public")) {
       fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
+    }
+    if (callerProfile && (callerProfile.collaboration_scope ?? "team") === "project" && b.visibility === "public") {
+      fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Project scope and cannot create public groups." });
     }
     if (b.type === "group" && hasPrivateAgent) {
       if (!allSameOwner) {
@@ -339,15 +481,21 @@ export class Messaging {
         fail(409, { code: "private_agent_in_group", message: "Groups containing a private assistant must be private." });
       }
     }
+    if (b.type === "group" && hasProjectAgent && b.visibility === "public") {
+      fail(409, { code: "project_agent_requires_private_group", message: "Groups containing a project assistant must be private." });
+    }
+    if (b.type === "group" && hasProjectAgent) {
+      assertProjectAgentCrossGroupShare(this.db, p.owner_id, null, memberRows, b.confirm_project_context_share === true && p.kind !== "agent");
+    }
     const actorAccount = p.kind === "agent" ? ownerAccount(this.db, p.owner_id) : p;
-    const contactingTeamAgent = profiles.some(profile => profile.agent_owner_id !== p.owner_id && canTeamContactAgent(this.db, actorAccount, profile));
-    const sharedTeamGroup = b.type === "group" && !allSameOwner && profiles.some(profile => canTeamContactAgent(this.db, actorAccount, profile)
+    const contactingTeamAgent = profiles.some(profile => profile.agent_owner_id !== p.owner_id && canCollaborateWithAgent(this.db, actorAccount, profile));
+    const sharedTeamGroup = b.type === "group" && !allSameOwner && profiles.some(profile => canAgentUseCompanySpace(this.db, profile)
       && fullIds.some(id => !canActorAccess(this.db, id, profile.space_id)));
     const mixedOwnerSpaces = allSameOwner && profiles.length > 0 && (
       new Set(profiles.map(profile => profile.space_id)).size > 1
-      || (b.type === "group" && hasPrivateAgent && !!ownerAccount(this.db, p.owner_id)?.personal_space_enabled)
+      || (b.type === "group" && (hasPrivateAgent || hasProjectAgent) && !!ownerAccount(this.db, p.owner_id)?.personal_space_enabled)
     );
-    const explicitPublicCompanyGroup = b.type === "group" && b.visibility === "public" && !hasPrivateAgent && !profiles.length && canAccessSpace(actorAccount, "company:default");
+    const explicitPublicCompanyGroup = b.type === "group" && b.visibility === "public" && !hasPrivateAgent && !hasProjectAgent && !profiles.length && canAccessSpace(actorAccount, "company:default");
     const ownerDefaultSpace = defaultSpace(ownerAccount(this.db, p.owner_id) ?? p);
     const space = inheritedSpace ?? (
       contactingTeamAgent || sharedTeamGroup || explicitPublicCompanyGroup
@@ -376,7 +524,7 @@ export class Messaging {
       }
     }
     const id = chatId("c_");
-    const effectiveVisibility = b.type === "group" && space === "company:default" && !hasPrivateAgent ? b.visibility ?? "public" : "private";
+    const effectiveVisibility = b.type === "group" && space === "company:default" && !hasPrivateAgent && !hasProjectAgent ? b.visibility ?? "public" : "private";
     transaction(this.db, () => {
       this.db
         .prepare(
@@ -402,6 +550,9 @@ export class Messaging {
           .run(profiles[0]!.agent_id, profiles[0]!.profile_version, id);
     });
     this.membership(id, ids);
+    if (b.type === "group" && effectiveVisibility === "private" && hasProjectAgent) {
+      broadcastRestoredProjectDirects(this.db, id, this);
+    }
     return this.conversation(id, p.id);
   }
   membership(id: string, recipients: string[]) {
@@ -823,11 +974,14 @@ export class Messaging {
     const b=one(this.db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',agentId);
     if(b && this.ctx.personal)return this.ctx.personal.sourceFacts(b,message);
     const provider=storedProviderFacts(this.db,message.id);
-    const chat=one(this.db,'SELECT type FROM conversations WHERE id=?',message.conversation_id)!;
-    const profile=one(this.db,'SELECT owner_id FROM agent_profiles WHERE agent_id=?',agentId);
+    const chat=one(this.db,'SELECT * FROM conversations WHERE id=?',message.conversation_id)!;
+    const profile=one(this.db,'SELECT * FROM agent_profiles WHERE agent_id=?',agentId);
     const explicit=provider ? (provider.mentioned_bot?[agentId]:[]) : this.mentionedAgents(message.conversation_id,message.content);
     return {owner_direct:ownerDirect(this.db,agentId,message.id),
       owner_internal:!!profile && isOwnerInternalConversation(this.db,message.conversation_id,profile.owner_id),
+      ...(profile && !chat.external_source
+        ? {project_allowed:canAgentAccessConversation(this.db,{...profile,collaboration_scope:'project'},chat)}
+        : {}),
       addressed_to_agent:chat.type==='direct'||explicit.includes(agentId)||provider?.replied_to_bot===true||message.reply_to?.sender.id===agentId||message.interaction_reply?.agent_id===agentId,
       addressed_to_owner:false,explicit_mentioned_agent_ids:explicit,
       ...(provider||message.sender_source_id?{provider_source_time:provider?.source_time??null,context_only:provider?.context_only===true}:{})};
@@ -865,8 +1019,8 @@ export class Messaging {
     const actor = one(this.db, "SELECT username FROM users WHERE id=?", userId);
     if (actor?.username.startsWith("agent:")) {
       const profile = one(this.db, "SELECT collaboration_scope FROM agent_profiles WHERE agent_id=?", actor.username.slice(6));
-      if ((profile?.collaboration_scope ?? "team") === "owner_only") {
-        fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and cannot join public groups." });
+      if (["owner_only", "project"].includes(profile?.collaboration_scope ?? "team")) {
+        fail(403, { code: "collaboration_scope_restricted", message: "This assistant cannot join public groups under its current collaboration scope." });
       }
     }
     const c = conversationAccess(this.db,id,userId);
@@ -879,7 +1033,7 @@ export class Messaging {
   /** Delete Direct history while retaining the new minimal withdrawal originals. */
   deleteDirectConversation(userId:string,id:string):void {
     const c=conversationAccess(this.db,id,userId);
-    if(!c || (!c.can_write && !(c.is_member && c.write_blocked_reason === 'agent_private')) || c.type!=='direct')fail(404,'conversation_id not found');
+    if(!c || (!c.can_write && !(c.is_member && ['agent_private','agent_project_restricted'].includes(String(c.write_blocked_reason)))) || c.type!=='direct')fail(404,'conversation_id not found');
     transaction(this.db,()=>{
       const before=captureTaskContextAccess(this.db,{conversationIds:[id]});
       this.db.prepare('DELETE FROM conversations WHERE id=?').run(id);
@@ -891,16 +1045,27 @@ export class Messaging {
     const c = conversationAccess(this.db,id,userId);
     if (!c?.can_write) fail(404,"conversation_id not found");
     if (c.creator_id !== userId) fail(403,"only creator can delete group");
+    let notices: ChatMessage[] = [];
+    let projectEffects = new Map<string, import('./collaboration.js').ScopeTransitionEffects>();
     const graphIds = transaction(this.db,()=>{
-      const before=captureTaskContextAccess(this.db,{conversationIds:[id]});
+      const projSnap = c.visibility === 'private' ? snapshotProjectGroupDirects(this.db, id) : undefined;
+      const before=captureTaskContextAccess(this.db,{conversationIds:[id, ...(projSnap?.allDirectConversationIds ?? [])]});
       const at = now();
       this.db.prepare("UPDATE conversations SET dissolved_at=? WHERE id=?").run(at,id);
       const graphIds = this.ctx.gateway.tasks.closeForConversationDissolution(id,userId,at);
       this.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE conversation_id=? AND status IN ('queued','sent','accepted')").run(at,id);
-      revokeLostTaskContextAccess(this.db,before,userId);
+      if (projSnap) {
+        projectEffects = reconcileProjectGroupLossInTx(this.db, id, projSnap);
+      }
+      notices = revokeLostTaskContextAccess(this.db,before,userId);
       return graphIds;
     });
     for (const graphId of graphIds) this.ctx.gateway.tasks.notifyChange(undefined,graphId);
+    if (notices.length) this.publishMessages(notices);
+    for (const [agentId, effects] of projectEffects) {
+      publishCollaborationScopeTransitionEffects(this.ctx, agentId, `dissolve:${id}:${agentId}`, effects);
+    }
+    this.ctx.gateway?.trajectory?.check();
     this.membership(id,this.members(id).map(u=>u.id));
   }
   /** Resolve an authorized send target.
@@ -922,7 +1087,9 @@ export class Messaging {
     const a = this.agentUser(agentId);
     const agentProfile = one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0", agentId);
     if (!agentProfile || !agentAvailable(this.db, agentProfile)) fail(404, "target not accessible");
-    const isPrivateAgent = (agentProfile.collaboration_scope ?? "team") === "owner_only";
+    const callerScope = agentProfile.collaboration_scope ?? "team";
+    const isPrivateAgent = callerScope === "owner_only";
+    const isProjectAgent = callerScope === "project";
     const personal=one(this.db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',agentId);
     if(personal && [personal.owner_id,personal.owner_user_id,`user:${personal.owner_user_id}`,`user:${personal.owner_id}`,personal.conversation_id,`conversation:${personal.conversation_id}`].includes(target))return personal.conversation_id;
     const c = one(
@@ -940,6 +1107,12 @@ export class Messaging {
       if (isPrivateAgent && !isOwnerInternalConversation(this.db, c.id, agentProfile.owner_id) && !isFeishuBoundOwnerShadow(this.db, c, agentProfile)) {
         fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
       }
+      if (isProjectAgent && !canAgentAccessConversation(this.db, agentProfile, c)) {
+        if (isParticipant || c.visibility === "public") {
+          fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Project scope and can only communicate within shared private groups and active project members." });
+        }
+        fail(404, "target not accessible");
+      }
       if (!isParticipant || !canAgentAccessConversation(this.db, agentProfile, c)) fail(404, "target not accessible");
       return c.id;
     }
@@ -955,7 +1128,10 @@ export class Messaging {
       if (isPrivateAgent) {
         fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
       }
-      if (targetProfile && (targetProfile.collaboration_scope ?? "team") === "owner_only") {
+      if (isProjectAgent && !sharesActivePrivateGroupWithAgent(this.db, u.id, agentProfile.agent_id)) {
+        fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Project scope and can only communicate with members sharing an active private group with it." });
+      }
+      if (targetProfile && !canCollaborateWithAgent(this.db, a, targetProfile)) {
         fail(404, "target not accessible");
       }
       const space = "company:default";
@@ -1106,6 +1282,9 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       if (b.visibility === "public" && groupHasPrivateAgent(db, id)) {
         fail(409, { code: "private_agent_in_group", message: "Groups containing a private assistant cannot be made public." });
       }
+      if (b.visibility === "public" && groupHasProjectAgent(db, id)) {
+        fail(409, { code: "project_agent_requires_private_group", message: "Groups containing a project assistant cannot be made public." });
+      }
       if (!c.can_change_visibility) fail(403,"Only a joined company administrator can change visibility");
     }
     if (b.title !== undefined) {
@@ -1120,6 +1299,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       db.prepare("UPDATE conversations SET visibility=? WHERE id=?").run(b.visibility,id);
       revokeLostTaskContextAccess(db,before,p.id);
     });
+    const prefChanged = b.is_pinned !== undefined || b.is_muted !== undefined;
     for (const key of ["is_pinned", "is_muted"])
       if (b[key] !== undefined)
         db.prepare(
@@ -1129,13 +1309,27 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       id,
       s.members(id).map((u) => u.id),
     );
-    return s.conversation(id, p.id);
+    const updated = s.conversation(id, p.id);
+    if (prefChanged) {
+      ctx.gateway.broadcast([p.id], {
+        op: "event",
+        event_type: "conversation.preference_updated",
+        conversation_id: id,
+        data: {
+          conversation_id: id,
+          unread_count: updated.unread_count,
+          is_muted: updated.is_muted,
+          is_pinned: updated.is_pinned,
+        },
+      });
+    }
+    return updated;
   });
   app.delete("/im/v1/conversations/:conversation_id", (req, reply) => {
     const p = ctx.identity.authenticateRequest(req),
       id = params(req).conversation_id;
     const readable = s.access(p, id, undefined, "read");
-    const c = readable.type === "direct" && readable.is_member && readable.write_blocked_reason === "agent_private"
+    const c = readable.type === "direct" && readable.is_member && ["agent_private", "agent_project_restricted"].includes(String(readable.write_blocked_reason))
       ? readable
       : s.access(p, id, undefined, "write");
     if (c.type === "group" && c.creator_id !== p.id) fail(403, "only creator can delete group");
@@ -1148,17 +1342,20 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   app.post("/im/v1/conversations/:conversation_id/participants", (req) => {
     const p = ctx.identity.authenticateRequest(req),
       id = params(req).conversation_id,
+      reqBody = body(req),
       c = s.access(p, id, undefined, "write");
     if (c.type !== "group") fail(400, "group required");
-    const ids = s.resolveParticipants(p, body(req).participants ?? [], [], true);
+    const ids = s.resolveParticipants(p, reqBody.participants ?? [], [], true);
     if (!ids.length) fail(400, "participants required");
-    const currentMembers = all(db, `SELECT u.id,u.username,u.owner_id AS user_owner_id,ap.agent_id,ap.owner_id AS agent_owner_id,ap.node_id,ap.collaboration_scope
+    const currentMembers = all(db, `SELECT u.id,u.username,u.owner_id AS user_owner_id,ap.agent_id,ap.owner_id AS agent_owner_id,ap.node_id,ap.collaboration_scope,ap.work_mode,ap.is_stale
       FROM conversation_participants cp JOIN users u ON u.id=cp.user_id
       LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id AND ap.is_stale=0
       WHERE cp.conversation_id=?`, id);
-    const incomingMembers = ids.map(uid => one(db, `SELECT u.id,u.username,u.owner_id AS user_owner_id,ap.agent_id,ap.owner_id AS agent_owner_id,ap.collaboration_scope
+    const currentMemberIds = new Set(currentMembers.map(m => String(m.id)));
+    const incomingMembers = ids.map(uid => one(db, `SELECT u.id,u.username,u.owner_id AS user_owner_id,ap.agent_id,ap.owner_id AS agent_owner_id,ap.collaboration_scope,ap.work_mode,ap.is_stale
       FROM users u LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id AND ap.is_stale=0
       WHERE u.id=?`, uid)).filter(Boolean) as Row[];
+    const newlyAddedMembers = incomingMembers.filter(m => !currentMemberIds.has(String(m.id)));
     const existingPrivateOwners = [...new Set(currentMembers.filter(m => m.agent_id && (m.collaboration_scope ?? "team") === "owner_only").map(m => m.agent_owner_id))];
     if (existingPrivateOwners.length > 0) {
       const allowedOwner = existingPrivateOwners[0]!;
@@ -1174,6 +1371,26 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       if (hasExternal) {
         fail(409, { code: "private_agent_group_external_members", message: "Private assistants cannot be added to public groups or groups with external members." });
       }
+    }
+    const incomingProjectAgents = incomingMembers.filter(m => m.agent_id && (m.collaboration_scope ?? "team") === "project");
+    if (incomingProjectAgents.length > 0 && c.visibility === "public") {
+      fail(409, { code: "project_agent_requires_private_group", message: "Project assistants can only be added to private groups." });
+    }
+    const existingProjectAgents = currentMembers.filter(m => m.agent_id && (m.collaboration_scope ?? "team") === "project");
+    for (const projAgent of existingProjectAgents) {
+      const addsExternalHuman = newlyAddedMembers.some(
+        m => !m.agent_id && !String(m.username).startsWith("agent:") && m.user_owner_id !== projAgent.agent_owner_id,
+      );
+      if (addsExternalHuman && p.owner_id !== projAgent.agent_owner_id) {
+        fail(403, {
+          code: "project_agent_owner_required",
+          message: "Only the project assistant owner can add external members to a private group containing it.",
+        });
+      }
+    }
+    if (c.visibility === "private" && newlyAddedMembers.length > 0) {
+      const finalMembers = [...currentMembers, ...newlyAddedMembers];
+      assertProjectAgentCrossGroupShare(db, p.owner_id, id, finalMembers, reqBody.confirm_project_context_share === true);
     }
     const allOwnerExclusive = c.visibility !== "public"
       && [...currentMembers, ...incomingMembers].every(m => (m.agent_id ? m.agent_owner_id : m.user_owner_id) === p.owner_id);
@@ -1200,6 +1417,9 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       id,
       s.members(id).map((u) => u.id),
     );
+    if (c.visibility === "private" && newlyAddedMembers.length > 0 && (existingProjectAgents.length > 0 || incomingProjectAgents.length > 0)) {
+      broadcastRestoredProjectDirects(db, id, s);
+    }
     return s.conversation(id, p.id);
   });
   app.delete("/im/v1/conversations/:conversation_id/participants/:user_id", (req, reply) => {
@@ -1208,12 +1428,29 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       c = s.access(p, id, undefined, "write");
     if (c.type !== "group" || uid === c.creator_id) fail(403, "creator cannot be removed");
     const recipients = s.members(id).map((u) => u.id);
-    const notices=transaction(db,()=>{
-      const before=captureTaskContextAccess(db,{conversationIds:[id]});
-      db.prepare("DELETE FROM conversation_participants WHERE conversation_id=? AND user_id=?").run(id,uid);
-      return revokeLostTaskContextAccess(db,before,p.id);
+    const removedUser = one(db, "SELECT username FROM users WHERE id=?", uid);
+    const removedAgentId = removedUser?.username?.startsWith("agent:") ? String(removedUser.username).slice(6) : undefined;
+    let projectEffects = new Map<string, import('./collaboration.js').ScopeTransitionEffects>();
+    const notices = transaction(db, () => {
+      const projSnap = c.visibility === "private" ? snapshotProjectGroupDirects(db, id) : undefined;
+      const before = captureTaskContextAccess(db, { conversationIds: [id, ...(projSnap?.allDirectConversationIds ?? [])] });
+      db.prepare("DELETE FROM conversation_participants WHERE conversation_id=? AND user_id=?").run(id, uid);
+      db.prepare("DELETE FROM thread_follows WHERE conversation_id=? AND user_id=?").run(id, uid);
+      if (projSnap || removedAgentId) {
+        projectEffects = reconcileProjectGroupLossInTx(
+          db,
+          id,
+          projSnap ?? { projectAgentIds: [], accessibleDirectsByAgent: new Map(), allDirectConversationIds: [] },
+          removedAgentId,
+        );
+      }
+      return revokeLostTaskContextAccess(db, before, p.id);
     });
     s.publishMessages(notices);
+    for (const [agentId, effects] of projectEffects) {
+      publishCollaborationScopeTransitionEffects(ctx, agentId, `participant-removed:${id}:${uid}:${agentId}`, effects);
+    }
+    ctx.gateway?.trajectory?.check();
     s.membership(id, recipients);
     reply.code(204).send();
   });
@@ -1240,7 +1477,20 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         .run(p.id,id,m.rowid,...(grouped ? [topic] : [])).changes;
     });
     if(changed) s.event(id,null,'message.receipts_changed',{});
-    return s.conversation(id, p.id);
+    const updated = s.conversation(id, p.id);
+    ctx.gateway.broadcast([p.id], {
+      op: "event",
+      event_type: "conversation.read",
+      conversation_id: id,
+      data: {
+        conversation_id: id,
+        unread_count: updated.unread_count,
+        is_muted: updated.is_muted,
+        is_pinned: updated.is_pinned,
+        last_read_message_id: lastRead,
+      },
+    });
+    return updated;
   });
   app.post('/im/v1/message-receipts', req => {
     const p = ctx.identity.authenticateRequest(req);

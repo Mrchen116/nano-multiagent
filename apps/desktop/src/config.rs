@@ -424,25 +424,41 @@ impl DesktopPaths {
     }
 }
 
-/// Exact counterpart to `localNodeBridgeEndpoint` in `apps/node/src/local-bridge.ts`.
-pub fn local_node_bridge_endpoint(config_path: &Path) -> String {
-    let config_str = config_path.to_string_lossy().to_string();
-    if cfg!(target_os = "windows") {
+/// Platform-parameterized local IPC endpoint resolver verified against `src/IM/shared/local-ipc-endpoint-test-cases.json`.
+pub fn local_node_bridge_endpoint_for_platform(
+    config_str: &str,
+    is_windows: bool,
+    tmpdir: &str,
+) -> String {
+    if is_windows {
         let digest = &sha256_hex(config_str.to_lowercase().as_bytes())[..24];
         return format!(r"\\.\pipe\crewden-desktop-node-{}", digest);
     }
     let digest = &sha256_hex(config_str.as_bytes())[..20];
-    let parent = config_path.parent().unwrap_or_else(|| Path::new("/tmp"));
-    let candidate = parent.join(".desktop-node.sock");
-    let candidate_str = candidate.to_string_lossy().to_string();
-    if candidate_str.as_bytes().len() <= 96 {
-        return candidate_str;
+    let parent = config_str
+        .rsplit_once('/')
+        .map(|(dir, _)| if dir.is_empty() { "/" } else { dir })
+        .unwrap_or("/tmp");
+    let candidate = if parent == "/" {
+        "/.desktop-node.sock".to_string()
+    } else {
+        format!("{}/.desktop-node.sock", parent)
+    };
+    if candidate.as_bytes().len() <= 96 {
+        return candidate;
     }
+    format!(
+        "{}/crewden-node-{}.sock",
+        tmpdir.trim_end_matches('/'),
+        digest
+    )
+}
+
+/// Exact counterpart to `localNodeBridgeEndpoint` in `apps/node/src/platform-io.ts`.
+pub fn local_node_bridge_endpoint(config_path: &Path) -> String {
+    let config_str = config_path.to_string_lossy();
     let tmp = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(tmp)
-        .join(format!("crewden-node-{}.sock", digest))
-        .to_string_lossy()
-        .to_string()
+    local_node_bridge_endpoint_for_platform(&config_str, cfg!(target_os = "windows"), &tmp)
 }
 
 pub fn home_dir() -> Option<PathBuf> {
@@ -790,5 +806,32 @@ mod tests {
         assert_eq!(route.as_deref(), Some("/settings/agents/eng-1?view=work"));
         assert!(parse_deep_link_route("crewden-desktop://open?route=%2F%2Fevil.example").is_err());
         assert!(parse_deep_link_route("crewden-desktop://open?route=https%3A%2F%2Fevil.example").is_err());
+    }
+
+    #[test]
+    fn matches_shared_local_ipc_endpoint_golden_vectors() {
+        #[derive(Deserialize)]
+        struct VectorFile {
+            cases: Vec<VectorCase>,
+        }
+        #[derive(Deserialize)]
+        struct VectorCase {
+            id: String,
+            platform: String,
+            config_path: String,
+            tmpdir: String,
+            expected_endpoint: String,
+        }
+        let raw = include_str!("../../../src/IM/shared/local-ipc-endpoint-test-cases.json");
+        let parsed: VectorFile = serde_json::from_str(raw).expect("valid ipc vector json");
+        assert!(parsed.cases.len() >= 6);
+        for case in parsed.cases {
+            let actual = local_node_bridge_endpoint_for_platform(
+                &case.config_path,
+                case.platform == "win32",
+                &case.tmpdir,
+            );
+            assert_eq!(actual, case.expected_endpoint, "case {}", case.id);
+        }
     }
 }

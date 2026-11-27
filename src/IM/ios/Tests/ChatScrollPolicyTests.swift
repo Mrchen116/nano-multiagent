@@ -155,6 +155,33 @@ final class ChatScrollPolicyTests: XCTestCase {
     }
 
     @MainActor
+    func testExpandingViewportRealignsAnAlreadyVisibleTail() async {
+        let coordinator = ChatScrollCoordinator()
+        let surface = ScrollSurface(adapter: coordinator.physicalGeometry)
+        surface.addRow("last", y: 1771)
+        surface.viewport.frame.size.height = 300
+        surface.scroll.contentInset.bottom = 300
+        surface.scroll.contentOffset.y = 1700
+        coordinator.attachMessageScroller { _, _ in XCTFail("The visible tail can be aligned directly") }
+        defer { coordinator.disappeared() }
+        coordinator.viewportChanged(surface.viewport.frame)
+        coordinator.geometryChanged(geometry(offset: 1700))
+        coordinator.contentChanged(orderedMessageIDs: ["last"])
+        XCTAssertFalse(coordinator.showLatest)
+
+        // The viewport and inset have settled, but the scroll offset still reflects
+        // the keyboard layout. The final row remains visible 329pt above the bottom.
+        surface.viewport.frame.size.height = 600
+        surface.scroll.contentInset.bottom = 0
+        surface.scroll.contentOffset.y = 1700
+        coordinator.viewportChanged(surface.viewport.frame)
+        coordinator.geometryChanged(geometry(offset: 1700))
+        XCTAssertFalse(coordinator.showLatest, "The tail is visible throughout the expansion")
+        await eventually { surface.scroll.contentOffset.y == 1400 }
+        XCTAssertEqual(surface.rows["last"]!.convert(surface.rows["last"]!.bounds, to: surface.window).maxY, 571)
+    }
+
+    @MainActor
     func testFinalMessageBottomIsAuthoritativeEvenForTallRows() {
         let coordinator = ChatScrollCoordinator()
         coordinator.viewportChanged(CGRect(x: 0, y: 116, width: 402, height: 664))

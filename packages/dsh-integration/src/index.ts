@@ -89,7 +89,7 @@ export interface AgentConfiguration {
   extensions?: { global?: string; workspace?: string };
   knowledge?: import('@nano/product-contracts').AgentConfiguration['knowledge'];
   approval?: import('@nano/product-contracts').ApprovalConfiguration;
-  collaborationScope?: 'team' | 'owner_only';
+  collaborationScope?: 'team' | 'project' | 'owner_only';
   mode?: 'single_thread' | 'global';
 }
 export interface SessionBinding {
@@ -750,7 +750,10 @@ export default class NanoRuntime {
             : 'Initial ROLE could not be saved'};
         }
       }
-      if (protectChat && previous && prepared.ready && input.config.collaborationScope==='owner_only')
+      const prevScope = previous?.collaborationScope ?? 'team';
+      const nextScope = input.config.collaborationScope ?? 'team';
+      const tightening = (prevScope === 'team' && nextScope !== 'team') || (prevScope === 'project' && nextScope === 'owner_only');
+      if (protectChat && previous && prepared.ready && tightening)
         this.chatScope.reserve(input.config.agentId,input.operationId);
       return prepared;
     };

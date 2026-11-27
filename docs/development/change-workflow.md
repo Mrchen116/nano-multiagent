@@ -16,6 +16,20 @@
 
 从 [当前包契约](../specs/README.md) 核对行为并按 [Nano 契约约定](../specs/CONTRIBUTING.md) 组织 delta。界面和原型按 [Nano 前端体验与验收](frontend-experience.md) 对齐平台与资源。有一次性部署迁移时按 [Nano 迁移提示词](../changes/README.md#一次性部署提示词) 记录设计。
 
+### 五端对齐矩阵
+
+所有新建 Full unit 的 `design.md` 必须包含二级标题 `## 五端对齐矩阵`，逐行明确以下 5 个平台的处置方式与验证投影（由 `scripts/docs_check.py` 与 `scripts/check_platform_parity.py` 自动核验）：
+
+| 平台名称（精确匹配） | 允许的 `处置方式` | 适用条件 |
+|---|---|---|
+| `Web` | `shared` \| `native-sync` \| `platform-exempt` | `src/IM/frontend` 浏览器端体验与协议消费 |
+| `Desktop (macOS)` | `shared` \| `native-sync` \| `platform-exempt` | 主窗口 WebView 共享时填 `shared`；涉及原生宿主/通知/托盘/自动更新/本地 IPC 时填 `native-sync` |
+| `Desktop (Windows)` | `shared` \| `native-sync` \| `platform-exempt` | 同上，涉及 Windows 命名管道、路径、安装器或自启动差异时填 `native-sync` |
+| `iOS` | `shared` \| `native-sync` \| `platform-exempt` | 原生 SwiftUI 客户端非 WebView 复用，凡触及用户可见协议/状态/提醒须 `native-sync` 或给出明确 `platform-exempt` 边界理由 |
+| `Node (macOS / Windows / Linux)` | `shared` \| `native-sync` \| `platform-exempt` | `apps/node` 跨三系统运行与 CLI 生命周期；Linux 沿用后台 Node + Web IM 边界 |
+
+PR 触及共享契约（`packages/product-contracts`）、共享向量（`src/IM/shared`）、`apps/im-server` 客户端接口/事件或 `src/IM/frontend/src` 时，各受影响端须同步修改或由关联 unit 的《五端对齐矩阵》声明 `shared` / `platform-exempt`；符合“不建 unit”的小修或 Bugfix lite 若无需多端同步，须在提交说明或 PR 正文中声明 `Platform-Parity-Exempt: <具体理由>`。
+
 ## 阶段 4：selected validation gates
 
 按 [通用审查阶段](https://github.com/Mrchen116/dev-workflow-skills/blob/main/docs/development/change-workflow.md#阶段-4selected-validation-gates) 和本次风险选择证据。涉及真实产品时遵循 [运行隔离和回收](worktree-runtime.md)。需要真实团队旅程时，复用 [固定日常验收模板](worktree-runtime.md#固定日常验收模板) 的 P/E/Q + PA 阵容，通过 `--profile daily` 按需求独立起栈。给审查者交接版本、`.e2e-daily.json` 和本次场景增量。

@@ -13,8 +13,8 @@ it('commits owner-only with retired backlog, preserves public history and other 
   ctx.gateway.request=async (_node,_command,payload)=>({status:'applied',operation_id:payload.operation_id,candidate_fingerprint:payload.candidate_fingerprint,agent:payload.agent});
   db.exec("UPDATE conversations SET type='group' WHERE id='peer'; INSERT INTO conversation_participants(conversation_id,user_id) VALUES('peer','a1')");
   const send=(chat:string,sender:string,text:string)=>ctx.messaging.sendMessage({params:{conversation_id:chat},query:{},headers:{'x-user':sender},body:{sender_user_id:sender,content:text}} as any);
-  const configure=(version:number,scope?:string)=>app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{
-    profile_version:version,display_name:'Agent',...(scope?{collaboration_scope:scope}:{})}});
+  const configure=(version:number,scope?:string,confirmWiden=false)=>app.inject({method:'PATCH',url:'/im/v1/agents/a/config',payload:{
+    profile_version:version,display_name:'Agent',...(scope?{collaboration_scope:scope}:{}),...(confirmWiden?{confirm_scope_widen:true}:{})}});
   const admit=(message:{id:string;conversation_id:string})=>service.admitSource(principal,{...args,source_message_id:message.id,conversation_id:message.conversation_id});
   const relays=(id:string)=>db.prepare('SELECT status FROM relay_tasks WHERE message_id=?').all(id);
   const recipients=(id:string)=>db.prepare('SELECT recipient_id FROM message_receipts WHERE message_id=? ORDER BY recipient_id').all(id).map(r=>r.recipient_id);
@@ -48,7 +48,8 @@ it('commits owner-only with retired backlog, preserves public history and other 
     const preFreeze=ctx.messaging.insertMessage('colleague-dm','u2','user','Pre-freeze DM',[],null,'completed');
     expect(admit(preFreeze)).toMatchObject({allowed:false});
     await expect(send('colleague-dm','u2','Third party direct')).rejects.toMatchObject({statusCode:403,detail:{code:'agent_private'}});
-    expect((await configure(3,'team')).json().collaboration_scope).toBe('team');
+    expect((await configure(3,'team')).statusCode).toBe(409);
+    expect((await configure(3,'team',true)).json().collaboration_scope).toBe('team');
     expect(service.observations(principal,args).items.find(e=>e.message_id===before.id)).toMatchObject({delivery:'observer',addressed_to_owner:true,addressed_to_agent:false});
     expect(admit(before)).toMatchObject({allowed:true,delivery:'observer',addressed_to_owner:true,addressed_to_agent:false});
     service.acknowledge(principal,{...args,event_ids:[obs.event_id],stage:'processed'});

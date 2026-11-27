@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS agent_profiles (
     skills_json TEXT NOT NULL DEFAULT '[]',
     skills_selection_mode TEXT,
     tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
-    collaboration_scope TEXT NOT NULL DEFAULT 'team' CHECK(collaboration_scope IN ('team','owner_only')),
+    collaboration_scope TEXT NOT NULL DEFAULT 'team' CHECK(collaboration_scope IN ('team','project','owner_only')),
     default_model TEXT,
     model_fallbacks_json TEXT NOT NULL DEFAULT '[]',
     reasoning_effort TEXT,

@@ -4,8 +4,10 @@ struct UserEvent: Decodable, Sendable {
     var op: String
     var event_type: String?
     var event_id: Int?
+    var conversation_id: String?
     var data: JSONValue?
     var reason: String?
+    var notification_hint: UserStreamNotificationHint?
 }
 
 /// The socket seam exercises the actual resume/ping ordering without opening a server.

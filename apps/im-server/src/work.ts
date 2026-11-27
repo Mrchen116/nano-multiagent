@@ -1,7 +1,7 @@
 import {rejectDeletedExecution} from './agent-deletion.js';
 import { isRasterImageMime } from '@nano/product-contracts';
 import { requireLifecycle } from './agent-lifecycle.js';
-import { canAccessSpace, canTeamContactAgent, canViewAgentWork, agentAvailable, ownerAccount } from "./identity.js";
+import { canCollaborateWithAgent, canViewAgentWork, agentAvailable, ownerAccount } from "./identity.js";
 import { isOwnerInternalConversation } from "./collaboration.js";
 import { createHash, randomUUID } from "node:crypto";
 import { searchMessages } from "./message-search.js";
@@ -129,13 +129,13 @@ export class Work {
   private notifyUpdated(root: string, node: string, readinessChanged = false) {
     const connected = Array.from(this.ctx.gateway.browsers, browser => browser.userId);
     if (!connected.length) return;
-    const profile = one(this.db, "SELECT space_id FROM agent_profiles WHERE agent_id=? AND node_id=? AND is_stale=0", root, node);
+    const profile = one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=? AND is_stale=0", root, node);
     if (!profile) return;
-    const personal = one(this.db, "SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?", root);
     const users = all(this.db,
-      `SELECT id,owner_id,personal_space_enabled,membership_status FROM users WHERE id IN (SELECT value FROM json_each(?))
+      `SELECT * FROM users WHERE id IN (SELECT value FROM json_each(?))
+       AND username NOT LIKE 'agent:%'
        AND (personal_space_enabled=1 OR membership_status='active') AND password_hash IS NOT NULL`, JSON.stringify(connected),
-    ).filter(u => (!personal || personal.owner_user_id === u.id) && canAccessSpace(u, profile.space_id)).map(u => u.id);
+    ).filter(u => canViewAgentWork(this.db, u, profile)).map(u => u.id);
     this.ctx.gateway.broadcast(users, {
       op: "event", event_type: "agent.work.updated",
       data: { agent_id: root, revision: this.revision(root), ...(readinessChanged && {readiness_changed: true}) },
@@ -182,7 +182,7 @@ export class Work {
       WHERE ap.agent_id=?
     `, agentId);
     if (!peer || !agentAvailable(this.db, peer)) return;
-    if (peer.owner_id !== viewer?.owner_id && (peer.personal || !canTeamContactAgent(this.db, viewer, peer))) {
+    if (peer.owner_id !== viewer?.owner_id && (peer.personal || !canCollaborateWithAgent(this.db, viewer, peer))) {
       return;
     }
     const name = peer.alias?.trim() || peer.node_name?.trim();
