@@ -14,7 +14,7 @@ import { reviewEnvelope, tokenCost } from './codex-context.js';
 import { retainedEnvelope, type RetainedInstructions } from './retained-instructions.js';
 
 export interface ReviewPlan<T> {
-  purpose: 'tool' | 'disclosure'; parent: Agent; signal?: AbortSignal;
+  purpose: 'tool' | 'disclosure' | 'worker'; parent: Agent; signal?: AbortSignal;
   config: AgentConfiguration; reviewer: {provider:string;model:string};
   system: () => string | Promise<string>; evidence: () => Promise<Record<string, unknown>[]>;
   retained: () => RetainedInstructions; action: unknown; images?: readonly ImageBlock[];
@@ -51,7 +51,7 @@ export class ReviewSession {
 
   /** Discard reusable sessions; busy callers cannot publish into a removed trunk. */
   async release(sessionId:string):Promise<void>{
-    for(const purpose of ['tool','disclosure']) {
+    for(const purpose of ['tool','disclosure','worker']) {
       const key=`${purpose}:${sessionId}`,trunk=this.trunks.get(key);this.trunks.delete(key);
       if(trunk&&!trunk.busy&&trunk.reviewer)await this.discard(trunk.reviewer);
     }

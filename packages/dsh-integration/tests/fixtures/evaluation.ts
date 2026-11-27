@@ -65,7 +65,7 @@ export function apply(ctx){
         ['history',{action:'list_windows'}],
         ['read',{file_path:stage+'/MEMORY.md'}],['read',{file_path:stage+'/knowledge/city.md'}],
         cities.has(o.sessionId)?['write',{file_path:stage+'/knowledge/city.md',content:'You live in '+cities.get(o.sessionId)+'. Former city: Berlin.'}]:undefined,
-        cities.has(o.sessionId)?['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n[Current city: '+cities.get(o.sessionId)+'](knowledge/city.md)'}]:undefined,
+        cities.has(o.sessionId)?['write',{file_path:stage+'/MEMORY.md',content:'# Personal memory\\n\\n## Proactive & Intervention Preferences\\n\\nNo confirmed proactive preferences yet.\\n\\n## Topics\\n\\n[Current city: '+cities.get(o.sessionId)+'](knowledge/city.md)'}]:undefined,
         ['conversations',{action:'search',target:chat,query:'LONG_MESSAGE_END'}],
         ['conversations',{action:'search',target:chat,query:'UNTRIGGERED_LAST_UPDATE'}],
         needsCommit?['bash',{description:'Commit the verified city memory batch',command:'git add -- . && git -c user.name=Nano -c user.email=memory@localhost commit -m city'}]:undefined

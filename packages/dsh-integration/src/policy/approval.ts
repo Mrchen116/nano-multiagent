@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Service, type Context } from '@deepseek-ai/cordis';
 import type { Agent } from '@deepseek-ai/dsh-agent';
-import type { UserMessage } from '@deepseek-ai/dsh-llm';
+import { ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm';
 import type { PreToolDecision, ToolExecution } from '@deepseek-ai/dsh-tools';
 import { setApprovalPolicy } from '@deepseek-ai/dsh-user-approval';
 import type {} from '@deepseek-ai/dsh-permission-presets';
@@ -14,13 +14,15 @@ import { approvalDomain, type ApprovalAudit } from './audit.js';
 import type { Domain } from '@deepseek-ai/dsh-storage-domain';
 import { ApprovalSources } from './sources.js';
 import { retainInstructions } from './retained-instructions.js';
-import type { ApprovalReviewResult } from './types.js';
+import type { ApprovalReviewResult, ReviewAction } from './types.js';
 import { codexFileAllowed } from './file-approval.js';
 import { classify } from './classifier.js';
 import type {} from './cc.js';
 import type {} from './codex.js';
 import { contextTools } from '../agent-context.js';
 import { normalizeMessageArguments } from '../message-arguments.js';
+import type { CliWorkerOptions } from '../local-workers/drivers.js';
+import type { WorkerRecord } from '../local-workers/manager.js';
 import { isHumanSource } from '../input-source.js';
 
 declare module '@deepseek-ai/cordis' { interface Context { nanoApproval: NanoApproval } }
@@ -84,11 +86,11 @@ export class NanoApproval extends Service {
     if (agent.session.header.origin === 'subagent') return 'return_to_agent';
     const events = agent.session.snapshotEvents(); const start = events.findLast(event => event.type === 'turn/start')?.seq ?? -1;
     const inputs = events.filter(event => event.seq > start && event.type === 'user/message').map(event => event.data as UserMessage);
-    if (inputs.some(input => input.source?.kind === 'schedule' || input.source?.kind === 'nano-system' && input.source.channel === 'heartbeat')) return 'unattended';
+    if (inputs.some(input => input.source?.kind === 'schedule' || input.source?.kind === 'nano-system' && ['heartbeat', 'proactive_review', 'proactive_nightly'].includes(String(input.source.channel)))) return 'unattended';
     if (config.mode === 'global') return 'return_to_agent';
     return inputs.some(input => isHumanSource(input.source) || input.source?.kind==='nano-system' && ['task-execution','task-change'].includes(String(input.source.channel))) ? 'interactive' : 'unattended';
   }
-  private async record(exec: ToolExecution, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata'>> = {}, superseded?: number) {
+  private async record(exec: ReviewAction, source: string, decision: string, reason: string, config: ApprovalConfiguration, details: Partial<Pick<ApprovalAudit, 'reviewer' | 'elapsedMs' | 'usage' | 'metadata'>> = {}, superseded?: number) {
     let reached = { consecutive: 0, total: 0 };
     let index = 0;
     await (await this.audit).table('sessions').update(exec.agent!.id, entries => {
@@ -158,18 +160,79 @@ export class NanoApproval extends Service {
       const nativeTool = this.ctx.tools.get(exec.name);
       if (nativeTool && this.ctx.tools.get(exec.name, agent) === nativeTool) return allow('workspace_file');
     }
+    return this.classifyAction(exec, config, messageContext, (reason, source) => this.escalate(exec, config, reason, source));
+  }
+
+  /** Bind an external process to its dispatch evidence and attendance, even after the root goes idle. */
+  bindWorker(agent: Agent, row: WorkerRecord, assignment: string, dispatchCallId: string,
+    ask: (callId: string, tool: string, summary: Record<string, unknown>, reason: string, signal: AbortSignal, timeout: number) => Promise<{allow:boolean; reason:string}>,
+  ): NonNullable<CliWorkerOptions['onPermission']> {
+    const config = this.config(agent);
+    const policy = config?.approval;
+    const events = agent.session.snapshotEvents();
+    const dispatch = events.findLast(event => event.type === 'turn/start');
+    const inputs = events.slice(dispatch ? events.lastIndexOf(dispatch) + 1 : events.length)
+      .flatMap(event => event.type === 'user/message' ? [event.data.source] : []);
+    const unattended = inputs.some(source => source.kind === 'schedule' || source.kind === 'nano-system'
+      && ['heartbeat', 'proactive_review', 'proactive_nightly'].includes(source.channel));
+    const interactive = !unattended && inputs.some(source => isHumanSource(source) ||
+      source.kind === 'nano-system' && ['inbox', 'task-execution', 'task-change'].includes(source.channel));
+    const owner = config?.personal?.ownerId;
+    const delegation = row.runtime === 'antigravity' && dispatch ? {
+      root: agent.id, turn: dispatch.data.turn, dispatchCallId, assignment,
+      humanEvidence: retainInstructions(agent, [], owner, dispatch.seq),
+    } : undefined;
+
+    return async (action, signal) => {
+      signal.throwIfAborted();
+      if (!config || !policy || !dispatch) return {allow:false, reason:'Worker approval has no bound dispatch or policy.'};
+      const callId = ToolCallId(randomUUID());
+      const exec: ReviewAction = {agent, callId, signal, name:'external_worker_action', arguments:{
+        worker:{workerId:row.workerId, label:row.label, runtime:row.runtime}, delegation, tool:action.name, input:action.input,
+      }};
+      let decision: PreToolDecision = {kind:'ask', reason:'Worker requested permission.'};
+      if (row.runtime === 'antigravity') {
+        if (policy.dangerouslySkipPermissions) decision = {kind:'allow'};
+        else if (policy.enabled) {
+          const before = JSON.stringify(retainInstructions(agent, [], owner));
+          decision = await this.classifyAction(exec, config, undefined, async (reason, source) =>
+            source === 'worker_evidence_changed' && !interactive ? {kind:'deny', reason} : {kind:'ask', reason}, () => {
+            if (JSON.stringify(retainInstructions(agent, [], owner)) !== before)
+              throw new Error('Root human evidence changed during worker review');
+          });
+        }
+      }
+      signal.throwIfAborted();
+      if (decision.kind === 'ask') {
+        if (interactive) return ask(callId, action.name, action.summary, decision.reason ?? 'Permission required', signal, policy.askTimeoutSec);
+        const allow = policy.unattendedFallback === 'allow';
+        await this.record(exec, 'unattended', allow ? 'allow' : 'deny', decision.reason ?? '', policy);
+        return {allow, reason:`Unattended fallback: ${allow ? 'allowed once' : 'denied'}.`, report:true};
+      }
+      return {allow:decision.kind === 'allow', reason:decision.kind === 'deny' ? decision.reason ?? 'Worker action denied.' : decision.kind,
+        report:!interactive};
+    };
+  }
+
+  private async classifyAction(exec: ReviewAction, config: AgentConfiguration, messageContext: MessageApprovalContext | undefined,
+    escalate: (reason:string, source:string) => Promise<PreToolDecision>, checkWorkerEvidence?: () => void): Promise<PreToolDecision> {
+    const agent = exec.agent!;
+    const policy = config.approval!;
     const header = agent.session.requestHeader();
     const reviewer = policy.reviewer ?? { provider: header?.config.provider ?? config.provider, model: header?.config.model ?? config.model };
     const started = Date.now();
-    const unavailable = async (error: unknown, superseded?: number): Promise<PreToolDecision> => {
+    const unavailable = async (error: unknown, superseded?: number, source = 'classifier_unavailable'): Promise<PreToolDecision> => {
       if (exec.signal.aborted) return { kind: 'cancel' };
       const reason = `Automatic reviewer unavailable: ${String(error)}`;
       await this.record(exec, 'classifier_unavailable', 'no_verdict', reason, policy, { reviewer, elapsedMs: Date.now() - started }, superseded);
-      return this.escalate(exec, config, reason, 'classifier_unavailable');
+      // Provider errors can contain the request body. Only the audit needs that diagnostic.
+      const cardReason = source === 'worker_evidence_changed' ? 'Root human evidence changed during worker review.'
+        : checkWorkerEvidence ? 'The automatic reviewer could not decide this Worker request.' : reason;
+      return escalate(cardReason, source);
     };
     let result: ApprovalReviewResult;
     try {
-      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, reviewer };
+      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, reviewer, worker: !!checkWorkerEvidence };
       result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
         : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
     } catch (error) { return unavailable(error); }
@@ -179,9 +242,10 @@ export class NanoApproval extends Service {
       { reviewer, metadata, elapsedMs: Date.now() - started, ...(usage ? { usage } : {}) });
     if (exec.signal.aborted) return { kind: 'cancel' };
     // The audit write yields. Revalidate before publishing the gate result to native dispatch.
+    try { checkWorkerEvidence?.(); } catch (error) { return unavailable(error, counts.index, 'worker_evidence_changed'); }
     try { result.assertCurrent?.(); } catch (error) { return unavailable(error, counts.index); }
     if (verdict.behavior === 'allow') return { kind: 'allow' };
-    if (!['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return this.escalate(exec, config, verdict.reason, 'classifier_block');
+    if (!checkWorkerEvidence && !['high', 'critical'].includes(verdict.risk ?? '') && (counts.consecutive >= policy.denyLimit || counts.total >= policy.totalDenyLimit)) return escalate(verdict.reason, 'classifier_block');
     return { kind: 'deny', reason: verdict.reason, info: { name: 'NanoApprovalDenied', code: 'classifier_block', reason: verdict.reason } };
   }
 }

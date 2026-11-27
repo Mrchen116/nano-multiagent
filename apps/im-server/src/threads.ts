@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, fail, now, one } from './context.js';
+import { isOwnerInternalConversation } from './collaboration.js';
 
 const EXCERPT_LIMIT = 1200;
 const EARLIER_REPLY_LIMIT = 10;
@@ -32,7 +33,7 @@ export function recordThreadDelivery(db: DatabaseSync, messageId: string): void 
   // unless explicitly re-mentioned or quoted, which reactivates follow and records the trigger message.
   const add = db.prepare(`INSERT INTO thread_follows(conversation_id,root_message_id,user_id,following,followed_at)
     SELECT ?,?,u.id,1,? FROM users u LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
-    WHERE u.id=? AND coalesce(a.collaboration_scope,'team')='team' AND (
+    WHERE u.id=? AND (
       EXISTS (SELECT 1 FROM conversation_participants p WHERE p.conversation_id=? AND p.user_id=u.id)
       OR EXISTS (SELECT 1 FROM personal_agent_bindings b JOIN conversation_participants p ON p.user_id=b.owner_user_id
         WHERE b.agent_id=a.agent_id AND b.status='active' AND p.conversation_id=?))
@@ -41,6 +42,11 @@ export function recordThreadDelivery(db: DatabaseSync, messageId: string): void 
       followed_at=CASE WHEN thread_follows.following=0 AND ? THEN excluded.followed_at ELSE coalesce(thread_follows.followed_at, excluded.followed_at) END,
       following=CASE WHEN ? THEN 1 ELSE thread_follows.following END`);
   for (const id of new Set([m.root_author, ...named])) {
+    const targetUser = one(db, 'SELECT u.id,u.username,a.agent_id,a.owner_id,a.collaboration_scope FROM users u LEFT JOIN agent_profiles a ON u.username=\'agent:\'||a.agent_id WHERE u.id=?', id);
+    if (targetUser?.agent_id && (targetUser.collaboration_scope ?? 'team') === 'owner_only') {
+      const isPaObserver = !!one(db, 'SELECT 1 FROM personal_agent_bindings b JOIN conversation_participants p ON p.user_id=b.owner_user_id WHERE b.agent_id=? AND b.status=\'active\' AND p.conversation_id=?', targetUser.agent_id, m.conversation_id);
+      if (!isOwnerInternalConversation(db, m.conversation_id, targetUser.owner_id) && !isPaObserver) continue;
+    }
     const reactivate = named.has(id) ? 1 : 0;
     add.run(m.conversation_id, m.thread_root_id, at, id, m.conversation_id, m.conversation_id, reactivate, messageId, reactivate, reactivate);
   }

@@ -4,6 +4,7 @@ import type { ChatMessage } from '@nano/product-contracts';
 import { all, now, one, type Row } from './context.js';
 import { conversationAccess } from './conversation-access.js';
 import { agentAvailable } from './identity.js';
+import { isFeishuBoundOwnerShadow, isOwnerInternalConversation } from './collaboration.js';
 
 interface TaskSource {agent_id:string;conversation_id:string}
 interface Scope {agentIds?:readonly string[];conversationIds?:readonly string[]}
@@ -20,6 +21,15 @@ const escape = (value:string) => value.replaceAll('&','&amp;').replaceAll('<','&
  *   One currently authorized route, or undefined if both routes have lost access.
  */
 export function personalSourceAccess(db:DatabaseSync,binding:Row,conversationId:string,mode:'read'|'write'='read'):Row|undefined {
+  if (mode === 'write') {
+    const profile = one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', binding.agent_id);
+    if ((profile?.collaboration_scope ?? 'team') === 'owner_only') {
+      const chat = one(db, 'SELECT * FROM conversations WHERE id=?', conversationId);
+      if (conversationId !== binding.conversation_id && !isOwnerInternalConversation(db, conversationId, binding.owner_id) && !isFeishuBoundOwnerShadow(db, chat, profile)) {
+        return undefined;
+      }
+    }
+  }
   const owner=conversationAccess(db,conversationId,binding.owner_user_id);
   const agentUser=one(db,"SELECT id FROM users WHERE username='agent:'||?",binding.agent_id);
   const agent=agentUser&&conversationAccess(db,conversationId,agentUser.id);

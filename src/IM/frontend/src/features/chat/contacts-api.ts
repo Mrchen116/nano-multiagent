@@ -5,17 +5,20 @@ import type { Actor } from "./chat-types";
 export interface Contact {
   user_id: string;
   kind: "human" | "agent";
+  username?: string;
   role?: "personal";
   lifecycle_disabled?: boolean;
   avatar_variant?: number | null;
   display_name: string;
   agent_id?: string;
   owner_id?: string;
+  owner_user_id?: string;
   space_id?: string;
   owner_display_name?: string;
   node_name?: string;
   status?: "online" | "offline";
   work_mode?: "global" | "single_thread";
+  collaboration_scope?: "team" | "owner_only";
 }
 
 export function contactActor(contact: Contact): Actor {

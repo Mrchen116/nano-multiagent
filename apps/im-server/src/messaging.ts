@@ -1,8 +1,8 @@
-import { chatAllowed, ownerDirect, providerFacts, storedProviderFacts } from './collaboration.js';
+import { chatAllowed, canAgentAccessConversation, groupHasPrivateAgent, isFeishuBoundOwnerShadow, isOwnerInternalConversation, ownerDirect, providerFacts, storedProviderFacts } from './collaboration.js';
 import { matchesExternalChannel } from './channels.js';
 import { conversationName } from './conversation-name.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
-import { interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt } from '@nano/product-contracts';
+import { chatTaskCards, interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt, type TaskCardRef } from '@nano/product-contracts';
 import { messageInput, messageMetadata, sendPrincipal, type MessageInput, type SendPrincipal, type SendMessageCommand } from './message-input.js';
 import { MessageRecords, type MessageMetadata, type MessageEventFrame, type MessageRelayRecord } from './message-records.js';
 import type { ChatAttachment, ChatMessage } from '@nano/product-contracts';
@@ -12,7 +12,7 @@ import { captureTaskContextAccess, revokeLostTaskContextAccess, taskContextEligi
 import {RelayDelivery} from './relay-delivery.js';
 import { assertMessageAttempt, messageAttemptPayload } from './message-attempts.js';
 import { executionCleanupRevision } from './agent-deletion.js';
-import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable, canContactPersonalAgent } from "./identity.js";
+import { defaultSpace, canAccessSpace, canActorAccess, agentAvailable, canContactPersonalAgent, canTeamContactAgent, ownerAccount } from "./identity.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
@@ -33,6 +33,7 @@ import { searchMessages } from './message-search.js';
 import { assertThreadQuote, listUnread, markThreadRead, threadAddressesAgent, threadRelayMetadata, threadRootOrFail } from './threads.js';
 import { validateTimeZone, type InteractionContext } from "@nano/product-contracts";
 import { Interactions } from './interactions.js';
+import { WorkerPermissionCards } from './worker-permission-cards.js';
 import { InteractionBackground } from './interaction-background.js';
 
 function readableMentions(content: string, members: Row[]): string {
@@ -42,10 +43,12 @@ function readableMentions(content: string, members: Row[]): string {
 }
 export class Messaging {
   readonly records: MessageRecords;
+  readonly workerPermissions: WorkerPermissionCards;
   readonly interactions: Interactions;
   readonly background: InteractionBackground;
   readonly delivery:RelayDelivery;
   constructor(readonly ctx: ImContext) {
+    this.workerPermissions=new WorkerPermissionCards(ctx);
     this.interactions=new Interactions(ctx);this.delivery=new RelayDelivery(ctx);
     this.background=new InteractionBackground(ctx.db, this.interactions);
     this.records=new MessageRecords(ctx.db,{interactions:this.interactions,agentUserId:id=>this.agentUser(id).id,
@@ -124,13 +127,24 @@ export class Messaging {
         if(!this.ctx.personal!.sourceAllowed(personal,id,mode))fail(404,"conversation_id not found");
         return this.ctx.personal!.sourceAccess(personal,id,mode)!;
       }
-      if (!agent || agent.space_id !== c.space_id || !agentAvailable(this.db, agent)) fail(404, "conversation_id not found");
+      if (!agent || !agentAvailable(this.db, agent)) fail(404, "conversation_id not found");
+      if ((agent.collaboration_scope ?? "team") === "owner_only" && !isOwnerInternalConversation(this.db, c.id, agent.owner_id) && !isFeishuBoundOwnerShadow(this.db, c, agent)) {
+        if (mode === "write") fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
+        fail(404, "conversation_id not found");
+      }
+      if (!canAgentAccessConversation(this.db, agent, c)) fail(404, "conversation_id not found");
       uid = this.agentUser(agentId!).id;
     }
     if (principal.kind !== "gateway") this.ctx.identity.requireSpace(principal, c.space_id);
     const access = conversationRowAccess(this.db,c,uid);
     if (!access || (mode === "write" && !access.is_member)) fail(404,"conversation_id not found");
     if (mode === "write" && access.dissolved_at) fail(409,{code:"conversation_dissolved",message:"This conversation is read-only after dissolution"});
+    if (mode === "write" && !access.can_write) {
+      if (access.write_blocked_reason === "agent_private") {
+        fail(403, { code: "agent_private", message: "This assistant is currently private and unavailable for external messages." });
+      }
+      fail(404, "conversation_id not found");
+    }
     return access;
   }
 
@@ -193,7 +207,7 @@ export class Messaging {
       ),
       title: conversationName(c, members, readerId),
       visibility:c.visibility, dissolved_at:c.dissolved_at,
-      is_member:access.is_member,is_observer:access.is_observer,can_write:access.can_write,can_join:access.can_join,can_change_visibility:access.can_change_visibility,
+      is_member:access.is_member,is_observer:access.is_observer,can_write:access.can_write,write_blocked_reason:access.write_blocked_reason ?? null,can_join:access.can_join,can_change_visibility:access.can_change_visibility,
       execution_cleanup_revision: executionCleanupRevision(this.ctx,id),
       participants: members.map((u) => this.actor(u)),
       participant_ids: members.map((u) => u.id),
@@ -262,13 +276,27 @@ export class Messaging {
       else fail(400, "invalid actor type");
     }
     result = [...new Set(result)];
+    const callerAgentProfile = principal.kind === "agent" && principal.username?.startsWith("agent:")
+      ? one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=?", principal.username.slice(6))
+      : undefined;
     for (const id of result) {
       const u = one(this.db, "SELECT * FROM users WHERE id=?", id);
       if (!u) fail(404, "participant not found");
       const profile = u.username.startsWith("agent:")
         ? one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=?", u.username.slice(6)) : undefined;
-      const visible = profile ? (canAccessSpace(principal, profile.space_id) || canContactPersonalAgent(this.db,principal,profile)) && agentAvailable(this.db, profile)
-        : u.id === principal.id || (canActorAccess(this.db, principal.id, "company:default") && u.membership_status === "active");
+      const actorAccount = principal.kind === "agent" ? ownerAccount(this.db, principal.owner_id) : principal;
+      if (callerAgentProfile && (callerAgentProfile.collaboration_scope ?? "team") === "owner_only" && (profile ? profile.owner_id : u.owner_id) !== principal.owner_id) {
+        const ownerCouldSee = profile
+          ? canTeamContactAgent(this.db, actorAccount, profile)
+          : canAccessSpace(actorAccount, "company:default") && u.membership_status === "active";
+        if (ownerCouldSee) {
+          fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
+        }
+      }
+      const sameOwnerAgent = !!profile && profile.owner_id === principal.owner_id && agentAvailable(this.db, profile);
+      const visible = profile
+        ? (sameOwnerAgent && (canAccessSpace(actorAccount, profile.space_id) || principal.kind === "agent")) || canTeamContactAgent(this.db, actorAccount, profile)
+        : u.id === principal.id || u.owner_id === principal.owner_id || (canActorAccess(this.db, principal.id, "company:default") && u.membership_status === "active");
       if (!visible || (space && !canActorAccess(this.db, id, space))) fail(404, "participant not found");
       if (group && u.username.startsWith("agent:") && !one(this.db,
         "SELECT 1 FROM agent_profiles WHERE agent_id=? AND owner_id=? AND is_stale=0", u.username.slice(6), principal.owner_id))
@@ -293,12 +321,41 @@ export class Messaging {
       const canonical=one(this.db,"SELECT b.* FROM personal_agent_bindings b JOIN users u ON u.username='agent:'||b.agent_id WHERE b.owner_user_id=? AND u.id=? AND b.status='active'",p.id,ids.find(id=>id!==p.id)!);
       if(canonical)return this.conversation(canonical.conversation_id,p.id);
     }
-    const profiles = ids.map(id => one(this.db, "SELECT ap.* FROM agent_profiles ap JOIN users u ON u.username='agent:'||ap.agent_id WHERE u.id=?", id)).filter(Boolean);
-    const contactingPersonal=profiles.some(profile=>!!profile && profile.owner_id!==p.owner_id && canContactPersonalAgent(this.db,p,profile));
-    // An owner may invite their PA into a colleague group without moving its private assets into that group.
-    const sharedPersonalGroup=b.type==='group' && profiles.some(profile=>!!profile && canContactPersonalAgent(this.db,p,profile)
-      && ids.some(id=>!canActorAccess(this.db,id,profile.space_id)));
-    const space = inheritedSpace ?? (contactingPersonal || sharedPersonalGroup ? "company:default" : profiles[0]?.space_id ?? (ids.some(id => id !== p.id) && !profiles.length ? "company:default" : defaultSpace(p)));
+    const fullIds = ids.includes(p.id) ? [...ids] : [p.id, ...ids];
+    const memberRows = fullIds.map(id => one(this.db, `SELECT u.id,u.username,u.owner_id AS user_owner_id,ap.agent_id,ap.owner_id,ap.owner_id AS agent_owner_id,ap.space_id,ap.collaboration_scope,ap.profile_version,ap.is_stale
+      FROM users u LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id WHERE u.id=?`, id)).filter(Boolean) as Row[];
+    const profiles = memberRows.filter(row => !!row.agent_id);
+    const callerProfile = p.kind === "agent" ? profiles.find(row => row.id === p.id) : undefined;
+    const hasPrivateAgent = profiles.some(row => (row.collaboration_scope ?? "team") === "owner_only");
+    const allSameOwner = memberRows.every(row => (row.agent_id ? row.agent_owner_id : row.user_owner_id) === p.owner_id);
+    if (callerProfile && (callerProfile.collaboration_scope ?? "team") === "owner_only" && (!allSameOwner || b.visibility === "public")) {
+      fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
+    }
+    if (b.type === "group" && hasPrivateAgent) {
+      if (!allSameOwner) {
+        fail(409, { code: "private_agent_in_group", message: "Private assistants can only share groups with their owner and same-owner assistants." });
+      }
+      if (b.visibility === "public") {
+        fail(409, { code: "private_agent_in_group", message: "Groups containing a private assistant must be private." });
+      }
+    }
+    const actorAccount = p.kind === "agent" ? ownerAccount(this.db, p.owner_id) : p;
+    const contactingTeamAgent = profiles.some(profile => profile.agent_owner_id !== p.owner_id && canTeamContactAgent(this.db, actorAccount, profile));
+    const sharedTeamGroup = b.type === "group" && !allSameOwner && profiles.some(profile => canTeamContactAgent(this.db, actorAccount, profile)
+      && fullIds.some(id => !canActorAccess(this.db, id, profile.space_id)));
+    const mixedOwnerSpaces = allSameOwner && profiles.length > 0 && (
+      new Set(profiles.map(profile => profile.space_id)).size > 1
+      || (b.type === "group" && hasPrivateAgent && !!ownerAccount(this.db, p.owner_id)?.personal_space_enabled)
+    );
+    const explicitPublicCompanyGroup = b.type === "group" && b.visibility === "public" && !hasPrivateAgent && !profiles.length && canAccessSpace(actorAccount, "company:default");
+    const ownerDefaultSpace = defaultSpace(ownerAccount(this.db, p.owner_id) ?? p);
+    const space = inheritedSpace ?? (
+      contactingTeamAgent || sharedTeamGroup || explicitPublicCompanyGroup
+        ? "company:default"
+        : mixedOwnerSpaces
+          ? ownerDefaultSpace
+          : profiles[0]?.space_id ?? (ids.some(id => id !== p.id) && !profiles.length && !allSameOwner ? "company:default" : ownerDefaultSpace)
+    );
     // Runtime users carry no human membership; their live profile and owner confer scope.
     if (p.kind === "agent") {
       if (!canActorAccess(this.db, p.id, space)) fail(404, "resource not accessible");
@@ -307,18 +364,25 @@ export class Messaging {
     if (!ids.includes(p.id)) ids.unshift(p.id);
     if (b.type === "direct" && ids.length !== 2)
       fail(400, "direct conversation requires two participants");
-    const key = b.type === "direct" && !force ? `${space}|${[...ids].sort().join("|")}` : null;
-    const existing = key
-      ? one(this.db, "SELECT id FROM conversations WHERE space_id=? AND (direct_key=? OR direct_key=?)", space, key, [...ids].sort().join("|"))
-      : null;
-    if (existing) return this.conversation(existing.id, p.id);
+    const pairKey = [...ids].sort().join("|");
+    const key = b.type === "direct" && !force ? `${space}|${pairKey}` : null;
+    if (key) {
+      const candidateSpaces = allSameOwner
+        ? [...new Set([space, `personal:${p.owner_id}`, "company:default"])]
+        : [space];
+      for (const candidateSpace of candidateSpaces) {
+        const existing = one(this.db, "SELECT id FROM conversations WHERE space_id=? AND (direct_key=? OR direct_key=?)", candidateSpace, `${candidateSpace}|${pairKey}`, pairKey);
+        if (existing && conversationAccess(this.db, existing.id, p.id)) return this.conversation(existing.id, p.id);
+      }
+    }
     const id = chatId("c_");
+    const effectiveVisibility = b.type === "group" && space === "company:default" && !hasPrivateAgent ? b.visibility ?? "public" : "private";
     transaction(this.db, () => {
       this.db
         .prepare(
           "INSERT INTO conversations(id,title,type,owner_id,creator_id,direct_key,created_at,space_id,visibility) VALUES(?,?,?,?,?,?,?,?,?)",
         )
-        .run(id, b.title.trim(), b.type, p.owner_id, p.id, key, now(), space, b.type === "group" && space === "company:default" ? b.visibility ?? "public" : "private");
+        .run(id, b.title.trim(), b.type, p.owner_id, p.id, key, now(), space, effectiveVisibility);
       for (const uid of ids)
         this.db
           .prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)")
@@ -472,6 +536,22 @@ export class Messaging {
     });
   }
 
+  private validateTaskCardRefs(principal: Row, agentId: string | undefined, refs: TaskCardRef[] | null | undefined): TaskCardRef[] | undefined {
+    if (!refs?.length) return undefined;
+    let validated: TaskCardRef[];
+    try { validated = chatTaskCards(refs); } catch (error) { fail(422, (error as Error).message); }
+    for (const ref of validated!) {
+      const row = one(this.db, 'SELECT conversation_id, document_json FROM task_graphs WHERE graph_id=?', ref.graph_id);
+      if (!row) fail(404, 'task card target not found');
+      this.access(principal, row.conversation_id, agentId, 'read');
+      const doc = JSON.parse(row.document_json);
+      if (!Array.isArray(doc.nodes) || !doc.nodes.some((n: Row) => n.id === ref.node_id)) {
+        fail(404, 'task card node not found');
+      }
+    }
+    return validated!;
+  }
+
   /** Commit a validated explicit publication under its existing dispatch identity. */
   publishAgent(principal:Extract<SendPrincipal,{kind:'gateway'}>,agentId:string,operationId:string|undefined,p:AgentPublication):ChatPublicationReceipt {
     const db=this.db;
@@ -486,6 +566,7 @@ export class Messaging {
       const saved = this.message(previous.message_id);
       const savedInteractive = this.interactions.publication(previous.message_id);
       if (saved.reply_to?.message_id !== p.reply_to_message_id || saved.thread_root_message_id !== p.in_thread_of || saved.content !== p.text.trim() || sortedJsonAscii(saved.attachments.map(item => item.url)) !== sortedJsonAscii((p.attachments ?? []).map(item => item.url))
+        || sortedJsonAscii(saved.task_cards ?? []) !== sortedJsonAscii(p.task_cards ?? [])
         || sortedJsonAscii(savedInteractive ?? null) !== sortedJsonAscii(interactive ?? null)
         || this.resolveTarget(agentId, p.to) !== previous.conversation_id) fail(409, 'Agent publication identity conflict');
       return {
@@ -501,6 +582,7 @@ export class Messaging {
     if(personal && id!==personal.conversation_id) fail(403,"personal_reviewed_delivery_required");
     this.access(principal, id, agentId, "write");
     const attachments = this.publicationAttachments(id, p.attachments);
+    const taskCards = this.validateTaskCardRefs(principal, agentId, p.task_cards);
     const threadRoot=threadRootOrFail(db,id,p.in_thread_of);
     const replyTo=this.replyReference(id,p.reply_to_message_id);
     assertThreadQuote(db,id,threadRoot,replyTo?.message_id);
@@ -527,7 +609,7 @@ export class Messaging {
       attachments,
       key,
       'completed',
-      { interactive, reply_to:replyTo, thread_root_id:threadRoot, publish: false },
+      { interactive, ...(taskCards ? { task_cards: taskCards } : {}), reply_to:replyTo, thread_root_id:threadRoot, publish: false },
     );
     if (p.background_returns)
       this.records.background(created.id,p.background_returns);
@@ -583,8 +665,9 @@ export class Messaging {
     if (b.interactive !== undefined && (p.kind !== 'gateway' || type !== 'agent')) fail(403, 'Only Agent messages may contain interactive replies');
     const attachments = b.attachments ?? [];
     if (attachments.length > 5) fail(400, "too many attachments");
-    if (!b.content?.trim() && !attachments.length && !b.interactive)
+    if (!b.content?.trim() && !attachments.length && !b.interactive && !b.task_cards?.length)
       fail(400, "message content, attachments or interactive reply required");
+    const taskCards = this.validateTaskCardRefs(p, agentId, b.task_cards);
     b.content = this.validateReferences(p, id, b.content ?? "", agentId);
     for (const a of attachments) a.url = this.validateReferences(p, id, a.url!, agentId);
     const old=key?this.records.attempt(id,key):undefined;
@@ -606,7 +689,7 @@ export class Messaging {
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, thread_root_id:threadRoot, publish:false, trackReceipts:type==='user' && (p.kind!=='gateway' || Boolean(origin)) });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), ...(taskCards ? { task_cards: taskCards } : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, thread_root_id:threadRoot, publish:false, trackReceipts:type==='user' && (p.kind!=='gateway' || Boolean(origin)) });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });
@@ -741,8 +824,10 @@ export class Messaging {
     if(b && this.ctx.personal)return this.ctx.personal.sourceFacts(b,message);
     const provider=storedProviderFacts(this.db,message.id);
     const chat=one(this.db,'SELECT type FROM conversations WHERE id=?',message.conversation_id)!;
+    const profile=one(this.db,'SELECT owner_id FROM agent_profiles WHERE agent_id=?',agentId);
     const explicit=provider ? (provider.mentioned_bot?[agentId]:[]) : this.mentionedAgents(message.conversation_id,message.content);
     return {owner_direct:ownerDirect(this.db,agentId,message.id),
+      owner_internal:!!profile && isOwnerInternalConversation(this.db,message.conversation_id,profile.owner_id),
       addressed_to_agent:chat.type==='direct'||explicit.includes(agentId)||provider?.replied_to_bot===true||message.reply_to?.sender.id===agentId||message.interaction_reply?.agent_id===agentId,
       addressed_to_owner:false,explicit_mentioned_agent_ids:explicit,
       ...(provider||message.sender_source_id?{provider_source_time:provider?.source_time??null,context_only:provider?.context_only===true}:{})};
@@ -777,6 +862,13 @@ export class Messaging {
   }
   /** Join only the caller, without changing invitation authority for other Agents. */
   joinConversation(userId: string, id: string): Row {
+    const actor = one(this.db, "SELECT username FROM users WHERE id=?", userId);
+    if (actor?.username.startsWith("agent:")) {
+      const profile = one(this.db, "SELECT collaboration_scope FROM agent_profiles WHERE agent_id=?", actor.username.slice(6));
+      if ((profile?.collaboration_scope ?? "team") === "owner_only") {
+        fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and cannot join public groups." });
+      }
+    }
     const c = conversationAccess(this.db,id,userId);
     if (!c || c.type !== "group" || c.visibility !== "public") fail(404,"conversation_id not found");
     if (c.dissolved_at) fail(409,{code:"conversation_dissolved",message:"This conversation has been dissolved"});
@@ -787,7 +879,7 @@ export class Messaging {
   /** Delete Direct history while retaining the new minimal withdrawal originals. */
   deleteDirectConversation(userId:string,id:string):void {
     const c=conversationAccess(this.db,id,userId);
-    if(!c?.can_write||c.type!=='direct')fail(404,'conversation_id not found');
+    if(!c || (!c.can_write && !(c.is_member && c.write_blocked_reason === 'agent_private')) || c.type!=='direct')fail(404,'conversation_id not found');
     transaction(this.db,()=>{
       const before=captureTaskContextAccess(this.db,{conversationIds:[id]});
       this.db.prepare('DELETE FROM conversations WHERE id=?').run(id);
@@ -828,41 +920,90 @@ export class Messaging {
   resolveTarget(agentId: string, target: string, create: false): string | undefined;
   resolveTarget(agentId: string, target: string, create = true): string | undefined {
     const a = this.agentUser(agentId);
+    const agentProfile = one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0", agentId);
+    if (!agentProfile || !agentAvailable(this.db, agentProfile)) fail(404, "target not accessible");
+    const isPrivateAgent = (agentProfile.collaboration_scope ?? "team") === "owner_only";
     const personal=one(this.db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',agentId);
     if(personal && [personal.owner_id,personal.owner_user_id,`user:${personal.owner_user_id}`,`user:${personal.owner_id}`,personal.conversation_id,`conversation:${personal.conversation_id}`].includes(target))return personal.conversation_id;
     const c = one(
       this.db,
-      "SELECT id FROM conversations WHERE id=?",
+      "SELECT * FROM conversations WHERE id=?",
       target.replace(/^conversation:/, ""),
     );
     if (c) {
-      if (
-        !one(
-          this.db,
-          "SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?",
-          c.id,
-          a.id,
-        )
-      )
-        fail(404, "target not accessible");
-      if (!canActorAccess(this.db, a.id, one(this.db, "SELECT space_id FROM conversations WHERE id=?", c.id)!.space_id)) fail(404, "target not accessible");
+      const isParticipant = !!one(
+        this.db,
+        "SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?",
+        c.id,
+        a.id,
+      );
+      if (isPrivateAgent && !isOwnerInternalConversation(this.db, c.id, agentProfile.owner_id) && !isFeishuBoundOwnerShadow(this.db, c, agentProfile)) {
+        fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
+      }
+      if (!isParticipant || !canAgentAccessConversation(this.db, agentProfile, c)) fail(404, "target not accessible");
       return c.id;
     }
     const uid = target.replace(/^(?:user|agent):/, "");
     const u = one(this.db, "SELECT * FROM users WHERE id=? OR username=?", uid, `agent:${uid}`);
-    if (!u || !canActorAccess(this.db, a.id, a.space_id) || !canActorAccess(this.db, u.id, a.space_id))
+    if (!u || u.username.startsWith("shadow:") || u.username === "system") fail(404, "target not accessible");
+    const targetProfile = u.username.startsWith("agent:")
+      ? one(this.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0", u.username.slice(6))
+      : undefined;
+    const targetOwnerId = targetProfile ? targetProfile.owner_id : u.owner_id;
+    const sameOwner = targetOwnerId === agentProfile.owner_id;
+    if (!sameOwner) {
+      if (isPrivateAgent) {
+        fail(403, { code: "collaboration_scope_restricted", message: "This assistant is set to Private and can only communicate with its owner and the owner's own assistants." });
+      }
+      if (targetProfile && (targetProfile.collaboration_scope ?? "team") === "owner_only") {
+        fail(404, "target not accessible");
+      }
+      const space = "company:default";
+      if (!canActorAccess(this.db, a.id, space) || !canActorAccess(this.db, u.id, space)) {
+        fail(404, "target not accessible");
+      }
+      const pairKey = [a.id, u.id].sort().join("|");
+      const key = `${space}|${pairKey}`;
+      const old = one(this.db, "SELECT id FROM conversations WHERE space_id=? AND (direct_key=? OR direct_key=?)", space, key, pairKey);
+      if (old) return old.id;
+      if (!create) return;
+      const id = chatId("c_");
+      this.db
+        .prepare("INSERT INTO conversations(id,title,type,owner_id,creator_id,direct_key,created_at,space_id) VALUES(?,?,?,?,?,?,?,?)")
+        .run(id, u.display_name, "direct", a.owner_id, a.id, key, now(), space);
+      for (const member of [a.id, u.id])
+        this.db.prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)").run(id, member);
+      return id;
+    }
+    const owner = ownerAccount(this.db, agentProfile.owner_id);
+    if (targetProfile ? !agentAvailable(this.db, targetProfile) : !owner || (u.membership_status !== "active" && !u.personal_space_enabled)) {
       fail(404, "target not accessible");
+    }
     const pairKey = [a.id, u.id].sort().join("|");
-    const key = `${a.space_id}|${pairKey}`;
-    const old = one(this.db, "SELECT id FROM conversations WHERE space_id=? AND (direct_key=? OR direct_key=?)", a.space_id, key, pairKey);
-    if (old) return old.id;
+    const candidateSpaces = [...new Set([
+      agentProfile.space_id,
+      targetProfile?.space_id,
+      owner?.personal_space_enabled ? `personal:${agentProfile.owner_id}` : undefined,
+      "company:default",
+    ].filter((s): s is string => !!s))];
+    for (const candidateSpace of candidateSpaces) {
+      const old = one(this.db, "SELECT id FROM conversations WHERE space_id=? AND (direct_key=? OR direct_key=?)", candidateSpace, `${candidateSpace}|${pairKey}`, pairKey);
+      if (old) return old.id;
+    }
     if (!create) return;
+    const space = targetProfile && targetProfile.space_id !== agentProfile.space_id
+      ? defaultSpace(owner!)
+      : agentProfile.space_id;
+    if (!canActorAccess(this.db, a.id, space) || !canActorAccess(this.db, u.id, space)) {
+      fail(404, "target not accessible");
+    }
+    const key = `${space}|${pairKey}`;
     const id = chatId("c_");
     this.db
       .prepare(
         "INSERT INTO conversations(id,title,type,owner_id,creator_id,direct_key,created_at,space_id) VALUES(?,?,?,?,?,?,?,?)",
       )
-      .run(id, u.display_name, "direct", a.owner_id, a.id, key, now(), a.space_id);
+      .run(id, u.display_name, "direct", a.owner_id, a.id, key, now(), space);
     for (const member of [a.id, u.id])
       this.db
         .prepare("INSERT INTO conversation_participants(conversation_id,user_id) VALUES(?,?)")
@@ -957,10 +1098,15 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
     const p = ctx.identity.authenticateRequest(req),
       id = params(req).conversation_id,
       b = body(req);
-    const c = s.access(p, id, undefined, "write");
+    const prefsOnly = b.title === undefined && b.visibility === undefined;
+    const c = s.access(p, id, undefined, prefsOnly ? "read" : "write");
+    if (prefsOnly && (!c.is_member || c.dissolved_at)) fail(404, "conversation_id not found");
     if (b.visibility !== undefined) {
-      if (!c.can_change_visibility) fail(403,"Only a joined company administrator can change visibility");
       if (!["public","private"].includes(b.visibility)) fail(400,"invalid visibility");
+      if (b.visibility === "public" && groupHasPrivateAgent(db, id)) {
+        fail(409, { code: "private_agent_in_group", message: "Groups containing a private assistant cannot be made public." });
+      }
+      if (!c.can_change_visibility) fail(403,"Only a joined company administrator can change visibility");
     }
     if (b.title !== undefined) {
       if (!b.title.trim()) fail(400, "title must be non-empty");
@@ -987,8 +1133,11 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
   });
   app.delete("/im/v1/conversations/:conversation_id", (req, reply) => {
     const p = ctx.identity.authenticateRequest(req),
-      id = params(req).conversation_id,
-      c = s.access(p, id, undefined, "write");
+      id = params(req).conversation_id;
+    const readable = s.access(p, id, undefined, "read");
+    const c = readable.type === "direct" && readable.is_member && readable.write_blocked_reason === "agent_private"
+      ? readable
+      : s.access(p, id, undefined, "write");
     if (c.type === "group" && c.creator_id !== p.id) fail(403, "only creator can delete group");
     const recipients = s.members(id).map((u) => u.id);
     if (c.type === "group") s.dissolveConversation(p.id,id);
@@ -1001,12 +1150,52 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       id = params(req).conversation_id,
       c = s.access(p, id, undefined, "write");
     if (c.type !== "group") fail(400, "group required");
-    const ids = s.resolveParticipants(p, body(req).participants ?? [], [], true, c.space_id);
+    const ids = s.resolveParticipants(p, body(req).participants ?? [], [], true);
     if (!ids.length) fail(400, "participants required");
+    const currentMembers = all(db, `SELECT u.id,u.username,u.owner_id AS user_owner_id,ap.agent_id,ap.owner_id AS agent_owner_id,ap.node_id,ap.collaboration_scope
+      FROM conversation_participants cp JOIN users u ON u.id=cp.user_id
+      LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id AND ap.is_stale=0
+      WHERE cp.conversation_id=?`, id);
+    const incomingMembers = ids.map(uid => one(db, `SELECT u.id,u.username,u.owner_id AS user_owner_id,ap.agent_id,ap.owner_id AS agent_owner_id,ap.collaboration_scope
+      FROM users u LEFT JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id AND ap.is_stale=0
+      WHERE u.id=?`, uid)).filter(Boolean) as Row[];
+    const existingPrivateOwners = [...new Set(currentMembers.filter(m => m.agent_id && (m.collaboration_scope ?? "team") === "owner_only").map(m => m.agent_owner_id))];
+    if (existingPrivateOwners.length > 0) {
+      const allowedOwner = existingPrivateOwners[0]!;
+      if (incomingMembers.some(m => (m.agent_id ? m.agent_owner_id : m.user_owner_id) !== allowedOwner)) {
+        fail(409, { code: "private_agent_in_group", message: "Cannot add external members to a group containing a private assistant." });
+      }
+    }
+    const incomingPrivateAgents = incomingMembers.filter(m => m.agent_id && (m.collaboration_scope ?? "team") === "owner_only");
+    if (incomingPrivateAgents.length > 0) {
+      const privateOwner = incomingPrivateAgents[0]!.agent_owner_id;
+      const hasExternal = c.visibility === "public"
+        || [...currentMembers, ...incomingMembers].some(m => (m.agent_id ? m.agent_owner_id : m.user_owner_id) !== privateOwner);
+      if (hasExternal) {
+        fail(409, { code: "private_agent_group_external_members", message: "Private assistants cannot be added to public groups or groups with external members." });
+      }
+    }
+    const allOwnerExclusive = c.visibility !== "public"
+      && [...currentMembers, ...incomingMembers].every(m => (m.agent_id ? m.agent_owner_id : m.user_owner_id) === p.owner_id);
+    for (const m of incomingMembers) {
+      const allowedInSpace = m.agent_id
+        ? (allOwnerExclusive || canActorAccess(db, m.id, c.space_id))
+        : canActorAccess(db, m.id, c.space_id);
+      if (!allowedInSpace) fail(404, "participant not found");
+    }
+    const internalAgentsBefore = currentMembers.filter(m => m.agent_id && isOwnerInternalConversation(db, id, m.agent_owner_id));
     for (const uid of ids)
       db.prepare(
         "INSERT OR IGNORE INTO conversation_participants(conversation_id,user_id) VALUES(?,?)",
       ).run(id, uid);
+    for (const agentMember of internalAgentsBefore) {
+      if (!isOwnerInternalConversation(db, id, agentMember.agent_owner_id) && agentMember.node_id) {
+        ctx.gateway.send(agentMember.node_id, {
+          type: "agent.conversation.externalized",
+          payload: { agent_id: agentMember.agent_id, conversation_id: id },
+        });
+      }
+    }
     s.membership(
       id,
       s.members(id).map((u) => u.id),

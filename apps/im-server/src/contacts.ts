@@ -1,13 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, type Row } from './context.js';
-import { canAccessSpace } from './identity.js';
+import { canAccessSpace, canTeamContactAgent } from './identity.js';
 
 const batchSize = 100;
 
 function candidates(db: DatabaseSync, where: string, args: string[]): Row[] {
-  return all(db, `SELECT u.id AS user_id,u.membership_status AS membership_status,
+  return all(db, `SELECT u.id AS user_id,u.username AS username,u.membership_status AS membership_status,
       CASE WHEN ap.agent_id IS NULL THEN 'human' ELSE 'agent' END AS kind,
       COALESCE(ap.display_name,u.display_name) AS display_name,ap.avatar_variant,ap.agent_id,ap.owner_id,ap.space_id,
+      ap.collaboration_scope,ap.is_stale,
       owner.display_name AS owner_display_name,COALESCE(NULLIF(n.alias,''),n.node_name) AS node_name,
       COALESCE(n.status,'offline') AS status,ap.work_mode,pb.binding_id,pb.status AS personal_status,
       l.desired='disabled' AND l.observed='disabled' AND l.applied_revision=l.revision AS lifecycle_disabled
@@ -27,7 +28,7 @@ function visible(db: DatabaseSync, viewer: Row, rows: Row[]): Row[] {
   const owners = new Map<string, Row>();
   if (ownerIds.length) {
     // Match ownerAccount's first human row, including installations where owner_id differs from id.
-    for (const owner of all(db, `SELECT owner_id,membership_status,personal_space_enabled FROM users
+    for (const owner of all(db, `SELECT id,owner_id,display_name,membership_status,personal_space_enabled FROM users
       WHERE owner_id IN (${ownerIds.map(() => '?').join(',')})
       AND username NOT LIKE 'agent:%' AND username NOT LIKE 'shadow:%' AND username!='system' ORDER BY rowid`, ...ownerIds)) {
       if (!owners.has(owner.owner_id)) owners.set(owner.owner_id, owner);
@@ -36,14 +37,20 @@ function visible(db: DatabaseSync, viewer: Row, rows: Row[]): Row[] {
   return rows.filter(row => {
     if (row.kind === 'human') return row.user_id === viewer.id || viewer.membership_status === 'active' && row.membership_status === 'active';
     const owner = owners.get(row.owner_id);
-    return canAccessSpace(owner, row.space_id) && (canAccessSpace(viewer, row.space_id)
-      || viewer.membership_status === 'active' && owner?.membership_status === 'active' && row.personal_status === 'active');
+    if (!canAccessSpace(owner, row.space_id)) return false;
+    if (row.owner_id === viewer.owner_id) return canAccessSpace(viewer, row.space_id);
+    return canTeamContactAgent(db, viewer, row);
   }).map(row => {
-    const {membership_status: _membership, binding_id, personal_status: _personal, ...contact} = row;
-    if (row.kind === 'human') return {user_id:row.user_id,kind:row.kind,display_name:row.display_name};
+    const {membership_status: _membership, binding_id, personal_status: _personal, is_stale: _stale, username, ...contact} = row;
+    if (row.kind === 'human') return {user_id:row.user_id,kind:row.kind,display_name:row.display_name,username};
+    const owner = owners.get(row.owner_id);
+    const owner_display_name = row.owner_display_name ?? owner?.display_name ?? null;
+    const owner_user_id = owner?.id;
+    const collaboration_scope = row.collaboration_scope ?? 'team';
     if (binding_id) return {user_id:row.user_id,kind:row.kind,display_name:row.display_name,agent_id:row.agent_id,
-      owner_id:row.owner_id,owner_display_name:row.owner_display_name,avatar_variant:row.avatar_variant,role:'personal',status:row.status,work_mode:row.work_mode,lifecycle_disabled:!!row.lifecycle_disabled};
-    return {...contact,lifecycle_disabled:!!row.lifecycle_disabled};
+      owner_id:row.owner_id,...(owner_user_id ? {owner_user_id} : {}),owner_display_name,avatar_variant:row.avatar_variant,role:'personal',
+      collaboration_scope,status:row.status,work_mode:row.work_mode,lifecycle_disabled:!!row.lifecycle_disabled};
+    return {...contact,collaboration_scope,...(owner_user_id ? {owner_user_id} : {}),owner_display_name,lifecycle_disabled:!!row.lifecycle_disabled};
   });
 }
 
@@ -71,6 +78,7 @@ export function contactDetail(db: DatabaseSync, viewer: Row, id: string): Row | 
  */
 export function contactPage(db: DatabaseSync, viewer: Row, options: {cursor?: string; kind?: string; q?: string}): Row {
   const result: Row[] = [], search = options.q?.trim().toLowerCase();
+  const usernameSearch = search?.startsWith('@') ? search.slice(1) : search;
   let cursor = options.cursor;
   while (result.length < 51) {
     const where: string[] = [], args: string[] = [];
@@ -79,7 +87,11 @@ export function contactPage(db: DatabaseSync, viewer: Row, options: {cursor?: st
     const batch = candidates(db, where.join(' AND ') || '1', args);
     for (const row of visible(db, viewer, batch)) {
       // SQLite lower() is ASCII-only; retain the directory's existing Unicode matching semantics.
-      if (search && ![row.display_name,row.user_id,row.agent_id ?? ''].some(value => value.toLowerCase().includes(search))) continue;
+      if (search) {
+        const matched = [row.display_name,row.user_id,row.agent_id ?? ''].some(value => value.toLowerCase().includes(search))
+          || (typeof row.username === 'string' && Boolean(usernameSearch) && (row.username.toLowerCase().includes(search) || row.username.toLowerCase().includes(usernameSearch!)));
+        if (!matched) continue;
+      }
       result.push(row);
       if (result.length === 51) break;
     }

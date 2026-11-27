@@ -19,6 +19,34 @@ private struct PersonalSettings: Decodable, Sendable {
     let policy: PersonalAgentPolicy?
 }
 
+private struct PersonalSavedRuntimeSettings: Decodable, Sendable {
+    struct NodeState: Decodable, Sendable {
+        let state: String?
+    }
+    let config: AgentConfig
+    let node: NodeState?
+    let pending_operation: JSONValue?
+
+    var proactiveEnabled: Bool {
+        if let explicit = config.features["proactive_planning"] { return explicit }
+        if config.features["task_graph"] == false || !config.tool_allowlist.contains("task_graph") {
+            return false
+        }
+        return true
+    }
+
+    var statusText: String {
+        if pending_operation != nil {
+            return L("待电脑确认", "Pending confirmation")
+        }
+        let base = proactiveEnabled ? L("已开启", "On") : L("已关闭", "Off")
+        if node?.state == "offline" {
+            return base + L(" · 离线只读", " · Offline")
+        }
+        return base
+    }
+}
+
 private struct PersonalIncident: Identifiable, Decodable, Sendable {
     let id, actor_name, conversation_id, source_message_id, reason, status: String
     let count: Int
@@ -42,6 +70,7 @@ struct PersonalAgentManagementView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
     @State private var state: PersonalSettings?
+    @State private var savedRuntime: PersonalSavedRuntimeSettings?
     @State private var chats: [Conversation] = []
     @State private var incidents: [PersonalIncident] = []
     @State private var blocked: [PersonalBlockedContact] = []
@@ -115,7 +144,28 @@ struct PersonalAgentManagementView: View {
     }
 
     private var runtimeSettings: some View {
-        Section(L("工作设置", "Work settings")) {
+        Section {
+            NavigationLink {
+                AgentConfigView(client: client, agentID: agentID, personal: true)
+            } label: {
+                HStack(spacing: 12) {
+                    Label {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(L("主动筹划", "Proactive planning")).foregroundStyle(NanoTheme.ink)
+                            Text(L("进入运行设置调整开关与任务图依赖", "Open runtime settings to toggle and save"))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "wand.and.stars")
+                    }
+                    Spacer(minLength: 8)
+                    Text(savedRuntime?.statusText ?? L("查看", "Inspect"))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .accessibilityIdentifier("pa-proactive-planning-row")
+
             NavigationLink {
                 AgentConfigView(client: client, agentID: agentID, personal: true)
             } label: { Label(L("模型、技能和运行设置", "Model, skills and runtime"), systemImage: "slider.horizontal.3") }
@@ -125,6 +175,8 @@ struct PersonalAgentManagementView: View {
             NavigationLink {
                 AgentSkillsView(client: client, agentID: agentID, canManage: true, global: true, onOpenChat: openChat)
             } label: { Label(L("技能使用情况", "Skill usage"), systemImage: "sparkles") }
+        } header: {
+            Text(L("工作设置", "Work settings"))
         }
     }
 
@@ -241,22 +293,25 @@ struct PersonalAgentManagementView: View {
             let latest: PersonalSettings = try await client.get(base)
             try Task.checkCancellation()
             guard readGeneration == generation else { return }
-            guard let binding = latest.binding, binding.status == "active", binding.agent_id == agentID, let policy = latest.policy else {
+            guard let binding = latest.binding, ["active", "unavailable"].contains(binding.status), binding.agent_id == agentID, let policy = latest.policy else {
                 clear(); ready = true; error = L("此个人助手已无法管理。", "This personal assistant is no longer available."); return
             }
             if binding.binding_id != state?.binding?.binding_id { clear() }
             async let conversationList: ItemsPage<Conversation> = client.get("/im/v1/conversations")
             async let incidentList: ItemsPage<PersonalIncident> = client.get(base + "/incidents")
             async let blockedList: ItemsPage<PersonalBlockedContact> = client.get(base + "/blocked-contacts")
+            async let runtimeSnapshot: PersonalSavedRuntimeSettings? = try? client.get(agentPath(agentID) + "/settings", query: [.init(name: "view", value: "saved")])
             let lists = try await (conversationList, incidentList, blockedList)
+            let savedSettings = await runtimeSnapshot
             try Task.checkCancellation()
             guard readGeneration == generation else { return }
             if let previous = state?.policy, selection != Set(previous.excluded_conversation_ids) {
                 selection = policy.rebasing(selection, from: previous)
             } else { selection = Set(policy.excluded_conversation_ids) }
             if state == nil || name == state?.binding?.display_name { name = binding.display_name }
-            state = latest; chats = lists.0.items; incidents = lists.1.items; blocked = lists.2.items
-            current = true; ready = true; error = nil
+            state = latest; savedRuntime = savedSettings; chats = lists.0.items; incidents = lists.1.items; blocked = lists.2.items
+            let nodeOnline = binding.status == "active" && savedSettings?.node?.state != "offline"
+            current = nodeOnline; ready = true; error = nil
         } catch {
             guard !Task.isCancelled, readGeneration == generation else { return }
             if let api = error as? APIError, [401, 403, 404].contains(api.status) { clear() }
@@ -265,6 +320,6 @@ struct PersonalAgentManagementView: View {
     }
 
     private func clear() {
-        state = nil; selection = []; chats = []; incidents = []; blocked = []; name = ""; current = false; notice = nil
+        state = nil; savedRuntime = nil; selection = []; chats = []; incidents = []; blocked = []; name = ""; current = false; notice = nil
     }
 }

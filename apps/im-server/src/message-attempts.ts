@@ -16,9 +16,9 @@ import { fail, one, params, type ImContext, type Row } from './context.js';
  * Returns:
  *   Canonical JSON used by the message creation transaction and retry comparison.
  */
-export function messageAttemptPayload(input: Pick<MessageInput,'content'|'attachments'|'reply_to_message_id'|'thread_root_message_id'|'in_thread_of'>): string {
+export function messageAttemptPayload(input: Pick<MessageInput,'content'|'attachments'|'task_cards'|'reply_to_message_id'|'thread_root_message_id'|'in_thread_of'>): string {
   const thread = input.thread_root_message_id ?? input.in_thread_of;
-  return sortedJsonAscii({...(input.reply_to_message_id !== undefined ? {reply_to_message_id:input.reply_to_message_id} : {}),...(thread !== undefined ? {thread_root_message_id:thread} : {}),content:input.content ?? '', attachments:input.attachments ?? []});
+  return sortedJsonAscii({...(input.reply_to_message_id !== undefined ? {reply_to_message_id:input.reply_to_message_id} : {}),...(thread !== undefined ? {thread_root_message_id:thread} : {}),...(input.task_cards?.length ? {task_cards:input.task_cards} : {}),content:input.content ?? '', attachments:input.attachments ?? []});
 }
 
 /** Reduce a stored payload to the content-deciding fields, whatever else it froze.
@@ -28,7 +28,7 @@ export function messageAttemptPayload(input: Pick<MessageInput,'content'|'attach
  */
 function contentFields(payload: string): string {
   const parsed = JSON.parse(payload) as Row;
-  return messageAttemptPayload({...(parsed.reply_to_message_id !== undefined ? {reply_to_message_id:parsed.reply_to_message_id} : {}),...(parsed.thread_root_message_id !== undefined ? {thread_root_message_id:String(parsed.thread_root_message_id)} : {}),content:parsed.content ?? '', attachments:parsed.attachments ?? []});
+  return messageAttemptPayload({...(parsed.reply_to_message_id !== undefined ? {reply_to_message_id:parsed.reply_to_message_id} : {}),...(parsed.thread_root_message_id !== undefined ? {thread_root_message_id:String(parsed.thread_root_message_id)} : {}),...(parsed.task_cards?.length ? {task_cards:parsed.task_cards} : {}),content:parsed.content ?? '', attachments:parsed.attachments ?? []});
 }
 
 /** Reject key reuse by another sender or with different immutable message data.
@@ -43,7 +43,7 @@ function contentFields(payload: string): string {
  */
 export function assertMessageAttempt(existing: MessageRecord, senderId: string, senderType: string, payload: string): void {
   const saved = existing.caller_payload_json ? contentFields(existing.caller_payload_json)
-    : messageAttemptPayload({content:existing.content,attachments:JSON.parse(existing.attachments_json ?? '[]')});
+    : messageAttemptPayload({content:existing.content,attachments:JSON.parse(existing.attachments_json ?? '[]'),...(existing.task_cards_json ? {task_cards:JSON.parse(existing.task_cards_json)} : {})});
   if (existing.sender_user_id !== senderId || existing.sender_type !== senderType || saved !== payload) {
     fail(409, {code:'message_attempt_conflict', message:'This request key was already used with different message data'});
   }

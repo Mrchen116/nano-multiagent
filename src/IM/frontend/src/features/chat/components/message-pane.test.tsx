@@ -2281,6 +2281,34 @@ describe("MessagePane", () => {
       permission_requests: [PERM_REQUEST],
     };
 
+    it("answers a Worker card in the owner chat and shows the actual terminal body after reopening", async () => {
+      const question = "Reviewer (codex, w12) requests chmod +x /tmp/check";
+      const card = {
+        ...PERM_REQUEST, request_id: "worker-approval", agent_id: "a-planner", call_id: "call-12",
+        worker: {workerId: "w12", label: "Reviewer", runtime: "codex"}, tool_name: "command",
+        question, tool_input: {command: "chmod +x /tmp/check"}, expires_at: Date.now() + 60_000,
+      };
+      const message: Message = {...AGENT_MSG_WITH_PERM, content: question, delivery_status: "completed", permission_requests: [card]};
+      const props = {conversation: DIRECT_CONV, mentionCandidates: [], onSend: () => {}};
+      const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({status: "submitted", decision: "allow_once"}));
+      try {
+        const view = render(<MessagePane {...props} messages={[message]} />);
+        const region = within(screen.getByRole("region", {name: /command/i}));
+        expect(region.getByText(question)).toBeVisible();
+        expect(region.getByTestId("permission-tool-input")).toHaveTextContent("chmod +x /tmp/check");
+        await userEvent.click(region.getByRole("button", {name: /allow once/i}));
+        expect(fetch).toHaveBeenCalledWith(expect.stringContaining("/c1/permissions/worker-approval"), expect.objectContaining({
+          method: "POST", body: JSON.stringify({message_id: message.id, decision: "allow_once"}),
+        }));
+        view.unmount();
+        render(<MessagePane {...props} messages={[{...message, content: question + "\n\n已取消",
+          permission_requests: [{...card, status: "resolved", decision: "cancelled"}]}]} />);
+        expect(screen.getByText(question)).toBeVisible();
+        expect(screen.getByText("已取消")).toBeVisible();
+        expect(screen.queryByRole("button", {name: /allow once/i})).not.toBeInTheDocument();
+      } finally { fetch.mockRestore(); }
+    });
+
     it("renders the pending PermissionCard INSIDE the bubble (feat-434 合一气泡)", () => {
       const { container } = render(
         <MessagePane

@@ -35,7 +35,7 @@ it('creates without a task and retries the same operation after an uncertain res
  expect(screen.queryByRole('textbox',{name:/work on/})).not.toBeInTheDocument();
  await userEvent.click(screen.getByRole('button',{name:'Create personal assistant'}));await screen.findByRole('alert');
  const first=vi.mocked(api.createPersonalAgent).mock.calls[0][0];
- expect(first).toMatchObject({display_name:'Aster',node_id:'n1'});
+ expect(first).toMatchObject({display_name:'Aster',node_id:'n1',collaboration_scope:'team'});
  expect(first).not.toHaveProperty('initial_goal');
  expect(first).not.toHaveProperty('history_days');
  expect(first).not.toHaveProperty('observation_enabled');
@@ -43,6 +43,18 @@ it('creates without a task and retries the same operation after an uncertain res
  expect(done).not.toHaveBeenCalled();
  await userEvent.click(screen.getByRole('button',{name:'Create personal assistant'}));await waitFor(()=>expect(done).toHaveBeenCalledWith('pa-chat'));
  expect(vi.mocked(api.createPersonalAgent).mock.calls[1][0].request_key).toBe(first.request_key);
+});
+it('allows selecting Private (you & your assistants) directly when creating a personal assistant',async()=>{
+ const done=vi.fn();
+ vi.mocked(api.createPersonalAgent).mockResolvedValue({...state,binding:{...state.binding!,collaboration_scope:'owner_only'}});
+ mount(<PersonalAgentDialog state={{binding:null,policy:null}} nodes={[{node_id:'n1',node_name:'Computer',status:'online'}]} onClose={()=>{}} onCreated={done}/>);
+ expect(screen.getByRole('button',{name:'Team public'})).toHaveAttribute('aria-pressed','true');
+ await userEvent.click(screen.getByRole('button',{name:'Private (you & your assistants)'}));
+ expect(screen.getByRole('button',{name:'Private (you & your assistants)'})).toHaveAttribute('aria-pressed','true');
+ expect(screen.getByText(/silently observes chats you allow/)).toBeInTheDocument();
+ await userEvent.click(screen.getByRole('button',{name:'Create personal assistant'}));
+ await waitFor(()=>expect(done).toHaveBeenCalledWith('pa-chat'));
+ expect(vi.mocked(api.createPersonalAgent).mock.calls[0][0]).toMatchObject({collaboration_scope:'owner_only'});
 });
 it('offers source exclusions and ordinary configuration without retired observation or cleanup controls',async()=>{
  vi.mocked(api.updatePersonalAgentPolicy).mockResolvedValue({...state.policy!,revision:5});

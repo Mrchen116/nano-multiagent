@@ -1,9 +1,17 @@
-import type { ChatMessage } from '@nano/product-contracts';
+import {
+  MAX_PROPOSED_TASKS_PER_CONVERSATION,
+  MAX_TASK_WAIT_MS,
+  isTaskMode,
+  isTaskStatus,
+  type ChatMessage,
+  type TaskExecutionChange,
+  type TaskExecutionState,
+  type TaskWaitInspection,
+} from '@nano/product-contracts';
 import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
-import type { TaskWaitInspection, TaskExecutionChange, TaskExecutionState } from '@nano/product-contracts';
-import { effectiveFeatures } from '@nano/product-contracts/capabilities';
-import { canAccessSpace, canActorAccess } from "./identity.js";
+import { definitionsForRole, effectiveFeatures } from '@nano/product-contracts/capabilities';
+import { agentAvailable, canAccessSpace, canActorAccess, ownerAccount } from "./identity.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import type { FastifyInstance } from "fastify";
@@ -20,7 +28,8 @@ export function activeTaskCount(db: DatabaseSync, agentId: string): number {
 
 /** A pending configuration may withdraw Task behavior, its tool, or both. */
 export function withdrawsTask(previous: Obj, candidate: Obj): boolean {
-  return effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph
+  return effectiveFeatures(previous.features, definitionsForRole(Boolean(previous.personal_agent)), previous).task_graph
+      && !effectiveFeatures(candidate.features, definitionsForRole(Boolean(candidate.personal_agent)), candidate).task_graph
     || (previous.tool_allowlist === undefined || previous.tool_allowlist.includes('task_graph'))
       && candidate.tool_allowlist !== undefined && !candidate.tool_allowlist.includes('task_graph');
 }
@@ -121,24 +130,28 @@ export function validateDocument(doc: Obj) {
     by = new Map(nodes.map((n) => [n.id, n]));
   const root = by.get(doc.root_node_id);
   if (by.size !== nodes.length || !root) invalid("Node IDs must be unique and include the root");
-  if (root.container_id !== null || !["dag", "explore"].includes(root.mode))
-    invalid("The root must be a plan or exploration scope with no container");
+  if (root.container_id !== null || !isTaskMode(root.mode))
+    invalid("The root must have no container and a valid mode");
   const derivations: Obj[] = [];
   for (const n of nodes) {
     text(n.title, "title", 240);
     actorRef(n.created_by);
     if (n.assignee !== null) actorRef(n.assignee);
-    for (const key of ["description", "result"]) text(n[key], key, 32000, true);
+    text(n.description, "description", 32000, n.status !== "proposed");
+    text(n.result, "result", 32000, true);
     text(n.selection_reason, "selection_reason", 8000, true);
-    if (
-      !["none", "dag", "explore"].includes(n.mode) ||
-      !["todo", "doing", "waiting", "in_review", "done", "paused", "closed"].includes(n.status)
-    )
+    if (!isTaskMode(n.mode) || !isTaskStatus(n.status))
       invalid("Unknown node mode or record status");
+    if (n.proposed_for_user_id != null) {
+      text(n.proposed_for_user_id, "proposed_for_user_id", 128);
+    }
     if (n.status === 'waiting') {
-      if (!n.wait || typeof n.wait !== 'object') invalid('Waiting requires a schedule and reason');
+      if (!n.wait || typeof n.wait !== 'object' || Array.isArray(n.wait)) invalid('Waiting requires a reason');
+      const waitKeys = ['reason', 'schedule_id', 'owner_agent_id', 'session_id', 'next_check_at', 'asked_user_id'];
+      if (Object.keys(n.wait).some(k => !waitKeys.includes(k))) fail('invalid_arguments', 'Unknown fields in wait');
       text(n.wait.reason, 'wait.reason', 8000);
-      text(n.wait.schedule_id, 'wait.schedule_id', 256);
+      if (n.wait.schedule_id != null) text(n.wait.schedule_id, 'wait.schedule_id', 256);
+      if (n.wait.asked_user_id != null) text(n.wait.asked_user_id, 'wait.asked_user_id', 128);
     }
     if (!Number.isInteger(n.order)) invalid("order must be an integer");
     if (!Array.isArray(n.links) || n.links.length > 20)
@@ -197,7 +210,7 @@ export function validateDocument(doc: Obj) {
   acyclic([...by.keys()], doc.dependencies);
   acyclic([...by.keys()], derivations);
 }
-const editable = ["title", "description", "mode", "status", "result", "links", "order", "wait"];
+const editable = ["title", "description", "mode", "status", "result", "links", "order", "wait", "proposed_for_user_id"];
 export function applyOperations(
   document: Obj,
   operations: any,
@@ -215,6 +228,7 @@ export function applyOperations(
   const allowed: Obj = {
     add_task: ["op", "client_ref", "container_id", "derived_from_id", "assignee", ...editable],
     update_task: ["op", "node_id", "patch"],
+    approve_task: ["op", "node_id", "assignee"],
     set_assignee: ["op", "node_id", "assignee"],
     claim_task: ["op", "node_id"],
     add_dependency: ["op", "from", "to"],
@@ -260,6 +274,18 @@ export function applyOperations(
         refs[ref] = id;
         changed.add(id);
         changed.add(parent);
+      } else if (op.op === "approve_task") {
+        const id = resolve(op.node_id),
+          n = nodes.get(id)!;
+        if (n.status !== "proposed") invalid("Only a proposed task can be approved");
+        if (op.assignee !== undefined)
+          n.assignee = op.assignee === null ? null : actorRef(op.assignee);
+        const parent = n.container_id ? nodes.get(n.container_id) : null;
+        const blockedByDag =
+          parent?.mode === "dag" &&
+          doc.dependencies.some((e: Obj) => e.to === id && nodes.get(e.from)?.status !== "done");
+        n.status = n.assignee?.type === "agent" && !blockedByDag ? "doing" : "todo";
+        changed.add(id);
       } else if (op.op === "set_assignee" || op.op === "claim_task") {
         const id = resolve(op.node_id), n = nodes.get(id)!;
         if (op.op === "claim_task") {
@@ -318,7 +344,10 @@ export function applyOperations(
       throw e;
     }
   }
-  for (const n of doc.nodes) if (n.status !== "waiting") delete n.wait;
+  for (const n of doc.nodes) {
+    if (n.status !== "waiting") delete n.wait;
+    if (n.proposed_for_user_id === null) delete n.proposed_for_user_id;
+  }
   validateDocument(doc);
   for (const id of changed)
     Object.assign(nodes.get(id)!, {
@@ -343,9 +372,12 @@ function sameActor(a: Obj | null, b: Obj | null): boolean {
   return a?.type === b?.type && a?.id === b?.id;
 }
 function directCounts(doc: Obj, id: string): Obj {
-  const counts: Obj = {todo:0,doing:0,waiting:0,in_review:0,done:0,paused:0,closed:0,total:0};
-  for (const n of doc.nodes) if (n.container_id === id) { counts[n.status]++; counts.total++; }
+  const counts: Obj = {proposed:0,todo:0,doing:0,waiting:0,in_review:0,done:0,paused:0,backlog:0,closed:0,total:0};
+  for (const n of doc.nodes) if (n.container_id === id) { counts[n.status] = (counts[n.status] ?? 0) + 1; counts.total++; }
   return counts;
+}
+function rootGoalSummary(root: Obj): string {
+  return String(root.description ?? "").trim().slice(0, 400);
 }
 function summary(d: Obj): Obj {
   const root = d.nodes.find((n: Obj) => n.id === d.root_node_id);
@@ -356,9 +388,13 @@ function summary(d: Obj): Obj {
       ),
     ),
     title: root.title,
+    root_title: root.title,
+    root_goal_summary: rootGoalSummary(root),
     mode: root.mode,
     status: root.status,
+    ...(root.proposed_for_user_id ? {proposed_for_user_id: root.proposed_for_user_id} : {}),
     ...(root.wait ? {wait:root.wait} : {}),
+    ...(root.doing_wake ? {doing_wake: root.doing_wake} : {}),
     created_by: root.created_by,
     assignee: root.assignee,
     direct_counts: directCounts(d, root.id),
@@ -366,10 +402,12 @@ function summary(d: Obj): Obj {
   };
 }
 const fields: Obj = {
-  list: ["query", "cursor", "limit", "assignee_type", "assignee_id", "statuses"],
+  list: ["query", "cursor", "limit", "assignee_type", "assignee_id", "statuses", "conversation_id"],
+  focus: ["query", "limit", "cursor", "section", "scope", "assignee_type", "assignee_id", "conversation_id"],
+  nodes: ["refs"],
   activity: ["conversation_id"],
   get: ["graph_id", "scope_id", "view"],
-  create: ["conversation_id", "title", "description", "mode", "request_key", "assignee", "status", "result"],
+  create: ["conversation_id", "title", "description", "mode", "request_key", "assignee", "status", "result", "proposed_for_user_id", "wait", "operations"],
   apply: [
     "graph_id",
     "base_revision",
@@ -405,6 +443,12 @@ export class TaskGraphService {
     const c = this.chat(id, user);
     if (!c?.is_member) forbidden();
     if (c.dissolved_at) fail("conversation_dissolved", "This conversation is read-only after dissolution");
+    if (!c.can_write) {
+      if (c.write_blocked_reason === "agent_private") {
+        fail("agent_private", "This assistant is currently private and unavailable for external messages.");
+      }
+      forbidden();
+    }
     return c;
   }
   private identity(ref: Obj | null): Obj | null {
@@ -504,29 +548,64 @@ export class TaskGraphService {
   /** Prepare short-lived schedule evidence for an original, optionally PA-reviewed command. */
   async prepareWaits(actor:TaskGraphActor,action:string,args:Obj,personal?:{ownerUserId:string;sourceAllowed:(id:string)=>boolean}):Promise<CheckedWait[]> {
     this.validateCommand(action,args);
-    if (action!=='apply') return [];
+    if (!['apply','create'].includes(action)) return [];
     // The transaction remains responsible for receipt identity and authorization checks.
     if (this.row('SELECT 1 FROM task_graph_mutation_receipts WHERE actor_key=? AND request_key=?',`${actor.kind}:${actor.id}`,args.request_key)) return [];
-    if (personal) this.readPersonal(actor,personal.ownerUserId,'get',{graph_id:args.graph_id,view:'all'},personal.sourceAllowed);
-    else this.execute(actor,'get',{graph_id:args.graph_id,view:'all'});
-    const before=JSON.parse(this.row('SELECT document_json FROM task_graphs WHERE graph_id=?',args.graph_id)!.document_json);
-    if (before.revision!==args.base_revision) throw new TaskGraphError('version_conflict','Read the current graph before adjusting this change',{current_revision:before.revision});
-    const next=applyOperations(before,args.operations,actor.id,new Date().toISOString(),text(args.change_note,'change_note',8000,true),{type:actor.kind,id:actor.id}).document;
+    let before: Obj | null = null;
+    let next: Obj;
+    const nowIso = new Date().toISOString();
+    const identity = {type:actor.kind,id:actor.id};
+    if (action === 'apply') {
+      if (personal) this.readPersonal(actor,personal.ownerUserId,'get',{graph_id:args.graph_id,view:'all'},personal.sourceAllowed);
+      else this.execute(actor,'get',{graph_id:args.graph_id,view:'all'});
+      before=JSON.parse(this.row('SELECT document_json FROM task_graphs WHERE graph_id=?',args.graph_id)!.document_json);
+      if (before!.revision!==args.base_revision) throw new TaskGraphError('version_conflict','Read the current graph before adjusting this change',{current_revision:before!.revision});
+      next=applyOperations(before!,args.operations,actor.id,nowIso,text(args.change_note,'change_note',8000,true),identity).document;
+    } else {
+      const chat = text(args.conversation_id, 'conversation_id');
+      const defaultMode = Array.isArray(args.operations) && args.operations.some((op: any) => op?.op === 'add_task' && op?.container_id === 'n1') ? 'dag' : 'none';
+      const draft: Obj = {
+        schema_version: 2,
+        graph_id: 'tg_preview',
+        conversation_id: chat,
+        root_node_id: 'n1',
+        revision: 1,
+        nodes: [
+          newNode('n1', null, text(args.title, 'title', 240), actor.id, nowIso, {
+            description: text(args.description ?? '', 'description', 32000, true),
+            status: args.status ?? 'todo',
+            result: text(args.result ?? '', 'result', 32000, true),
+            mode: args.mode ?? defaultMode,
+            created_by: identity,
+            updated_by_actor: identity,
+            assignee: args.assignee == null ? null : actorRef(args.assignee),
+            ...(args.proposed_for_user_id != null ? {proposed_for_user_id: args.proposed_for_user_id} : {}),
+            ...(args.wait ? {wait: args.wait} : {}),
+          }),
+        ],
+        dependencies: [],
+        created_at: nowIso,
+        updated_at: nowIso,
+        updated_by: actor.id,
+      };
+      next = args.operations !== undefined ? applyOperations(draft, args.operations, actor.id, nowIso, '', identity).document : (validateDocument(draft), draft);
+    }
     const checked:CheckedWait[]=[];
     for (const n of next.nodes) {
-      const old=before.nodes.find((x:Obj)=>x.id===n.id);
+      const old=before?.nodes.find((x:Obj)=>x.id===n.id);
       if (n.status!=='waiting' || (old?.status==='waiting' && sortedJsonUtf8(old.wait)===sortedJsonUtf8(n.wait))) continue;
-      if (Object.keys(n.wait).some(k=>!['reason','schedule_id'].includes(k)) || n.assignee?.type!=='agent')
-        fail('task_wait_schedule_invalid','Waiting requires an Agent assignee and a schedule reference');
+      if (n.wait?.schedule_id == null) continue;
+      if (n.assignee?.type!=='agent')
+        fail('task_wait_schedule_invalid','Scheduled waiting requires an Agent assignee');
       if (!this.execution) fail('task_wait_schedule_unavailable','Native schedule verification is unavailable');
       let proof:TaskWaitInspection;
-      try { proof=await this.execution.inspect({agent_id:n.assignee.id,conversation_id:before.conversation_id,graph_id:before.graph_id,node_id:n.id,schedule_id:n.wait.schedule_id}); }
+      try { proof=await this.execution.inspect({agent_id:n.assignee.id,conversation_id:next.conversation_id,graph_id:before?.graph_id ?? next.graph_id,node_id:n.id,schedule_id:n.wait.schedule_id}); }
       catch { fail('task_wait_schedule_unavailable','Native schedule verification is unavailable'); }
       if (!proof!.valid || proof!.owner_agent_id!==n.assignee.id || !proof!.session_id || !proof!.next_check_at || !(Date.parse(proof!.next_check_at)>Date.now()))
         fail('task_wait_schedule_invalid','Waiting requires an active future schedule for this task owner');
-      if (Date.parse(proof!.next_check_at!) > Date.now() + 3_600_000)
-        fail('task_wait_schedule_too_late','Task waiting must be checked again within one hour');
-      checked.push({node_id:n.id,wait:{reason:n.wait.reason,schedule_id:n.wait.schedule_id,owner_agent_id:proof!.owner_agent_id,session_id:proof!.session_id,next_check_at:proof!.next_check_at}});
+      if (Date.parse(proof!.next_check_at!) > Date.now() + MAX_TASK_WAIT_MS)
+        fail('task_wait_schedule_too_late','Task waiting schedule must be within 180 days');
+      checked.push({node_id:n.id,wait:{...n.wait,reason:n.wait.reason,schedule_id:n.wait.schedule_id,owner_agent_id:proof!.owner_agent_id,session_id:proof!.session_id,next_check_at:proof!.next_check_at}});
     }
     return checked;
   }
@@ -540,7 +619,7 @@ export class TaskGraphService {
    *   sourceAllowed: Current personal source policy, also applied to linked provenance.
    */
   readPersonal(actor:TaskGraphActor,ownerUserId:string,action:string,args:Obj,sourceAllowed:(id:string)=>boolean):Obj {
-    if(!['get','list','activity'].includes(action)) forbidden();
+    if(!['get','list','activity','focus','nodes'].includes(action)) forbidden();
     return new TaskGraphService(this.db,this.messaging,{ownerUserId,agentUserId:this.messaging.agentUser(actor.id).id,sourceAllowed},this.execution).execute(actor,action,args);
   }
   /** Execute the original reviewed task command, preserving native validation and PA attribution.
@@ -598,6 +677,8 @@ export class TaskGraphService {
       return {items};
     }
     if (action === "list") return this.list(user, identity, args);
+    if (action === "focus") return this.focus(user, identity, args);
+    if (action === "nodes") return this.batchNodes(user, identity, args);
     if (action === "activity") {
       const chat = text(args.conversation_id, "conversation_id");
       if (!this.chat(chat, user)) forbidden();
@@ -680,7 +761,7 @@ export class TaskGraphService {
       source_chat_id: source?.conversation_id ?? null,
     };
     const persistNotices = () => {
-      for (const notice of taskNotices(doc, before, actorName, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid)))
+      for (const notice of taskNotices(doc, before, p.display_name, ref => this.identity(ref), uid => !!this.row("SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?", doc.conversation_id, uid) && !!qualifiedUser(this.db, uid), { kind: actor.kind, id: actor.id }))
         notices.push(this.messaging.persistTaskNotice(doc.conversation_id, p.id, notice.content, {...notice.metadata,actor:{type:actor.kind,id:actor.id},
           ...(actor.kind==='user'&&doc.nodes.some((n:Obj)=>n.id===notice.metadata.node_id&&before?.nodes.find((p:Obj)=>p.id===n.id)?.status!==n.status&&(n.status==='paused'||n.status==='doing'&&n.resume_request?.revision===doc.revision))
             ?{human_control:{action:doc.nodes.find((n:Obj)=>n.id===notice.metadata.node_id).status==='paused'?'pause':'resume',actor:{type:'user',id:actor.id},task_refs:notice.metadata.task_refs,revision:doc.revision,event_time:doc.updated_at}}:{}),
@@ -692,8 +773,14 @@ export class TaskGraphService {
     if (action === "create") {
       const title = text(args.title, "title", 240),
         description = text(args.description ?? "", "description", 32000, true);
-      if (!["dag", "explore"].includes(args.mode))
-        fail("invalid_arguments", "Root mode must be dag or explore");
+      const defaultMode =
+        Array.isArray(args.operations) &&
+        args.operations.some((op: any) => op?.op === "add_task" && op?.container_id === "n1")
+          ? "dag"
+          : "none";
+      const rootMode = args.mode ?? defaultMode;
+      if (!isTaskMode(rootMode))
+        fail("invalid_arguments", "Root mode must be none, dag or explore");
       let graphId: string;
       do {
         graphId = `tg_${randomUUID().replaceAll("-", "").slice(0, 8)}`;
@@ -708,11 +795,14 @@ export class TaskGraphService {
         nodes: [
           newNode("n1", null, title, actorName, now, {
             description,
-            status:args.status ?? "todo",result:args.result ?? "",
-            mode: args.mode,
+            status: args.status ?? "todo",
+            result: text(args.result ?? "", "result", 32000, true),
+            mode: rootMode,
             created_by: identity,
             updated_by_actor: identity,
             assignee: args.assignee == null ? null : actorRef(args.assignee),
+            ...(args.proposed_for_user_id != null ? { proposed_for_user_id: args.proposed_for_user_id } : {}),
+            ...(args.wait ? { wait: args.wait } : {}),
             last_chat_id: chat,
           }),
         ],
@@ -721,9 +811,18 @@ export class TaskGraphService {
         updated_at: now,
         updated_by: actorName,
       };
-      validateDocument(doc);
-      changed = ["n1"];
-      result = summary(doc);
+      if (args.operations !== undefined) {
+        const applied = applyOperations(doc, args.operations, actorName, now, "", identity);
+        doc = { ...applied.document, revision: 1 };
+        for (const n of doc.nodes) n.last_chat_id = chat;
+        changed = [...new Set(["n1", ...applied.changed])].sort();
+        result = { ...summary(doc), client_refs: applied.refs };
+      } else {
+        for (const n of doc.nodes) if (n.status !== "waiting") delete n.wait;
+        validateDocument(doc);
+        changed = ["n1"];
+        result = summary(doc);
+      }
     } else {
       if (!Number.isInteger(args.base_revision) || args.base_revision < 1)
         fail("invalid_arguments", "base_revision must be a positive integer");
@@ -809,6 +908,22 @@ export class TaskGraphService {
       n.provenance = provenance;
       if(delegatedOwner)n.updated_by_actor={...identity,authorized_by:delegatedOwner};
     }
+    const prevProposed = (before?.nodes ?? []).filter((x: Obj) => x.status === "proposed").length;
+    const nextProposed = doc.nodes.filter((x: Obj) => x.status === "proposed").length;
+    if (nextProposed > prevProposed) {
+      const otherProposed = Number(
+        this.row(
+          "SELECT count(*) AS count FROM task_graphs g, json_each(g.document_json,'$.nodes') n WHERE g.conversation_id=? AND g.graph_id!=? AND json_extract(n.value,'$.status')='proposed'",
+          doc.conversation_id,
+          doc.graph_id,
+        )?.count ?? 0,
+      );
+      if (otherProposed + nextProposed > MAX_PROPOSED_TASKS_PER_CONVERSATION)
+        fail(
+          "proposed_limit_exceeded",
+          `At most ${MAX_PROPOSED_TASKS_PER_CONVERSATION} proposed tasks may remain open in one conversation`,
+        );
+    }
     for (const n of doc.nodes) {
       const old = before?.nodes.find((x:Obj) => x.id === n.id);
       if (!old || !sameActor(old.assignee,n.assignee)) this.assignee(n.assignee, doc.conversation_id);
@@ -825,16 +940,42 @@ export class TaskGraphService {
       // delegated writes and later metadata edits cannot manufacture this fact.
       if(actor.kind==='user'&&(old?.status==='paused'||frozen)&&n.status==='doing')n.resume_request={actor_id:actor.id,at:now,revision:doc.revision};
       else if(!['doing','waiting'].includes(n.status)||old&&!sameActor(old.assignee,n.assignee))delete n.resume_request;
+      if (n.status !== 'doing') {
+        delete n.doing_wake;
+      } else if (!old || old.status !== 'doing' || !sameActor(old.assignee, n.assignee)) {
+        n.doing_wake = {
+          revision: doc.revision,
+          assignee_id: n.assignee?.type === 'agent' ? n.assignee.id : null,
+          actor: identity,
+          at: now,
+        };
+      }
     }
     for (const n of doc.nodes) if (n.status === 'waiting') {
       const old = before?.nodes.find((x:Obj)=>x.id===n.id);
       if (old?.status === 'waiting' && sortedJsonUtf8(old.wait) === sortedJsonUtf8(n.wait)) continue;
-      const checked = waits.find(item=>item.node_id===n.id);
-      if (!checked || checked.wait.schedule_id!==n.wait.schedule_id || checked.wait.owner_agent_id!==n.assignee?.id || !(Date.parse(checked.wait.next_check_at)>Date.now()))
-        fail('task_wait_schedule_invalid','Waiting requires a verified active schedule for the assignee');
-      if (Date.parse(checked.wait.next_check_at) > Date.now() + 3_600_000)
-        fail('task_wait_schedule_too_late','Task waiting must be checked again within one hour');
-      n.wait={...n.wait,...checked.wait};
+      if (n.wait.asked_user_id != null) {
+        const member = this.row(
+          "SELECT u.id FROM conversation_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=? AND u.id=? AND u.username NOT LIKE 'agent:%' AND u.username!='system'",
+          doc.conversation_id,
+          n.wait.asked_user_id,
+        );
+        if (!member || !qualifiedUser(this.db, member.id))
+          fail('invalid_arguments', 'asked_user_id must be a human member of the task conversation');
+      }
+      if (n.wait.schedule_id != null) {
+        const checked = waits.find(item=>item.node_id===n.id);
+        if (!checked || checked.wait.schedule_id!==n.wait.schedule_id || checked.wait.owner_agent_id!==n.assignee?.id || !(Date.parse(checked.wait.next_check_at)>Date.now()))
+          fail('task_wait_schedule_invalid','Waiting requires a verified active schedule for the assignee');
+        if (Date.parse(checked.wait.next_check_at) > Date.now() + MAX_TASK_WAIT_MS)
+          fail('task_wait_schedule_too_late','Task waiting schedule must be within 180 days');
+        n.wait={...n.wait,...checked.wait};
+      } else {
+        delete n.wait.schedule_id;
+        delete n.wait.owner_agent_id;
+        delete n.wait.session_id;
+        delete n.wait.next_check_at;
+      }
     }
     result={...result,...summary(doc)};
     if (action==='apply') {
@@ -912,7 +1053,8 @@ export class TaskGraphService {
             this.pauseNode(node,stopActor,now);
           }
           this.save({...next,owner_id:row.owner_id});
-          for(const notice of taskNotices(next,before,actor.id,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',next.conversation_id,uid)))
+          const stopActorLabel=this.identity(stopActor)?.display_name??stopActor.id;
+          for(const notice of taskNotices(next,before,stopActorLabel,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',next.conversation_id,uid)))
             notices.push(this.messaging.persistTaskNotice(next.conversation_id,this.messaging.agentUser(actor.id).id,notice.content,{...notice.metadata,actor:stopActor,...(original?{human_control:{action:'pause',actor:stopActor,original_user_message_id:original.id,original_user_message_time:original.created_at,task_refs:notice.metadata.task_refs,revision:next.revision,event_time:now,scope:{agent_id:actor.id,conversation_id:conversationId??null}}}:{})},actor.id));
         }
         result={paused:items.length};
@@ -941,7 +1083,7 @@ export class TaskGraphService {
     for (const row of this.rows('SELECT * FROM task_graphs WHERE conversation_id=?',conversationId)) {
       const doc = JSON.parse(row.document_json), changed = new Set<string>();
       for (const node of doc.nodes) if (!['done','closed'].includes(node.status)) {
-        node.status='closed'; delete node.wait; delete node.resume_request;
+        node.status='closed'; delete node.wait; delete node.resume_request; delete node.doing_wake;
         changed.add(node.id);
       }
       const closed = new Set(doc.nodes.filter((node:Obj)=>node.status==='closed').map((node:Obj)=>node.id));
@@ -962,7 +1104,7 @@ export class TaskGraphService {
     return graphIds;
   }
   private pauseNode(node:Obj,actor:Obj,at:string):void {
-    node.status='paused';delete node.wait;delete node.resume_request;
+    node.status='paused';delete node.wait;delete node.resume_request;delete node.doing_wake;
     node.updated_at=at;node.updated_by=actor.id;node.updated_by_actor=actor;
   }
   /** Project an already committed Agent barrier across all old unfinished work.
@@ -986,8 +1128,9 @@ export class TaskGraphService {
         }
         if(changed) {
           const next={...doc,owner_id:row.owner_id,revision:doc.revision+1,updated_at:at,updated_by:userId};this.save(next);
-          for(const notice of taskNotices(next,JSON.parse(row.document_json),userId,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',doc.conversation_id,uid)))
-            notices.push(this.messaging.persistTaskNotice(doc.conversation_id,userId,notice.content,notice.metadata));
+          const freezeActorLabel=this.identity({type:'user',id:userId})?.display_name??userId;
+          for(const notice of taskNotices(next,JSON.parse(row.document_json),freezeActorLabel,ref=>this.identity(ref),uid=>!!this.row('SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',doc.conversation_id,uid)))
+            notices.push(this.messaging.persistTaskNotice(doc.conversation_id,userId,notice.content,{...notice.metadata,actor:{type:'user',id:userId}}));
         }
       }
       this.db.exec('COMMIT');
@@ -1009,7 +1152,7 @@ export class TaskGraphService {
   private async waitHealth(result:Obj):Promise<void> {
     const nodes:Obj[]=result.nodes??[result.root,result.scope,...(result.children??[])].filter(Boolean);
     const checks=new Map<string,Promise<Obj>>();
-    for(const node of nodes) if(node.status==='waiting') {
+    for(const node of nodes) if(node.status==='waiting' && node.assignee?.type==='agent' && node.wait?.schedule_id) {
       let check=checks.get(node.id);
       if(!check) {
         check=(async()=>{
@@ -1062,19 +1205,67 @@ export class TaskGraphService {
       .prepare("INSERT INTO task_graph_mutation_receipts(actor_key,request_key,operation_hash,graph_id,result_json,created_at,conversation_id,space_id) VALUES(?,?,?,?,?,?,?,?)")
       .run(actor, key, hash, doc.graph_id, JSON.stringify(result), doc.updated_at, doc.conversation_id, this.row("SELECT space_id FROM conversations WHERE id=?", doc.conversation_id)!.space_id);
   }
-  private list(user: string, actor: Obj, args: Obj, all=false) {
+  private accessibleSpaces(user: string, actor: Obj): string[] {
     const account = this.row("SELECT * FROM users WHERE id=?", user)!;
-    const spaces = (actor.type === "agent" && !this.personalRead
-      ? [this.row("SELECT space_id FROM agent_profiles WHERE agent_id=?", actor.id)!.space_id]
-      : ["company:default", `personal:${account.owner_id}`]).filter(space=>canActorAccess(this.db,user,space));
+    if (actor.type === "agent" && !this.personalRead) {
+      const profile = this.row("SELECT * FROM agent_profiles WHERE agent_id=?", actor.id);
+      if (!profile || !agentAvailable(this.db, profile)) return [];
+      const owner = ownerAccount(this.db, profile.owner_id);
+      return [...new Set(["company:default", profile.space_id, `personal:${profile.owner_id}`])]
+        .filter((space): space is string => !!space && (space === profile.space_id || canAccessSpace(owner, space)));
+    }
+    return ["company:default", `personal:${account.owner_id}`].filter(space=>canActorAccess(this.db,user,space));
+  }
+  private projectNodeCard(d: Obj, n: Obj, user: string, actor: Obj, conversation = this.projection(d, user, actor)): Obj {
+    const root = d.nodes.find((x: Obj) => x.id === d.root_node_id)!;
+    const path: Obj[] = [];
+    for (let p = d.nodes.find((x: Obj) => x.id === n.container_id); p; p = d.nodes.find((x: Obj) => x.id === p.container_id)) {
+      path.unshift({ id: p.id, title: p.title, mode: p.mode });
+    }
+    const parent = n.container_id ? d.nodes.find((x: Obj) => x.id === n.container_id) : null;
+    const blockedByDag =
+      parent?.mode === "dag" &&
+      d.dependencies.some((e: Obj) => e.to === n.id && d.nodes.find((x: Obj) => x.id === e.from)?.status !== "done");
+    return {
+      ...summary(d),
+      node_id: n.id,
+      scope_id: n.container_id,
+      title: n.title,
+      description: n.description,
+      result: n.result,
+      mode: n.mode,
+      status: n.status,
+      ...(n.proposed_for_user_id ? { proposed_for_user_id: n.proposed_for_user_id } : {}),
+      wait: n.wait,
+      doing_wake: n.doing_wake,
+      resume_request: n.resume_request,
+      blocked_by_dag: Boolean(blockedByDag),
+      updated_at: n.updated_at,
+      created_by: this.identity(n.created_by),
+      assignee: this.identity(n.assignee),
+      direct_counts: directCounts(d, n.id),
+      conversation,
+      parent_path: path,
+      can_edit: conversation.can_write,
+      can_delete: conversation.can_write && this.canDelete(n, actor, user),
+      can_claim: conversation.can_write && (!n.assignee || sameActor(n.assignee, actor)),
+      relative_url: `/tasks/${d.graph_id}?scope=${n.container_id ?? d.root_node_id}&node=${n.id}`,
+      root_node_id: d.root_node_id,
+      root_title: root.title,
+      root_goal_summary: rootGoalSummary(root),
+    };
+  }
+  private list(user: string, actor: Obj, args: Obj, all=false) {
+    const spaces = this.accessibleSpaces(user, actor);
     if (!spaces.length) return {items:[],total:0,next_cursor:null};
     const query = text(args.query ?? "", "query", 240, true).trim(), limit = args.limit ?? 20;
     if (!Number.isInteger(limit) || limit < 1 || limit > 50) fail("invalid_arguments", "limit must be an integer from 1 to 50");
+    const conversationId = args.conversation_id === undefined ? null : text(args.conversation_id, "conversation_id");
     const filtered = args.assignee_type !== undefined || args.assignee_id !== undefined;
     const assignee = filtered ? actorRef({type:args.assignee_type,id:args.assignee_id}) : null;
     const statuses = args.statuses === undefined ? null : [...new Set(text(args.statuses,"statuses",128).split(",").map(value=>value.trim()))].sort();
-    if (statuses?.some(status=>!["todo","doing","waiting","in_review","done","paused","closed"].includes(status))) fail("invalid_arguments","statuses must contain task status values separated by commas");
-    const identity = {user,query,assignee,...(statuses ? {statuses} : {})};
+    if (statuses?.some(status=>!isTaskStatus(status))) fail("invalid_arguments","statuses must contain task status values separated by commas");
+    const identity = {user,query,assignee,...(statuses ? {statuses} : {}),...(conversationId ? {conversationId} : {})};
     let after: Obj | undefined;
     if (args.cursor != null) {
       try {
@@ -1088,25 +1279,298 @@ export class TaskGraphService {
     const rows = this.rows(`SELECT g.document_json,n.value AS node_json FROM task_graphs g
       JOIN conversations c ON c.id=g.conversation_id JOIN json_each(g.document_json,'$.nodes') n
       WHERE c.space_id IN (${spaces.map(()=>"?").join(",")}) AND (EXISTS(SELECT 1 FROM conversation_participants p WHERE p.conversation_id=c.id AND p.user_id IN (?,?)) OR (c.type='group' AND c.visibility='public'))
+      AND ${conversationId ? "g.conversation_id=?" : "1=1"}
       AND ${filtered ? "json_extract(n.value,'$.assignee.type')=? AND json_extract(n.value,'$.assignee.id')=?" : "json_extract(n.value,'$.id')=json_extract(g.document_json,'$.root_node_id')"}
       AND ${statuses ? "json_extract(n.value,'$.status') IN ("+statuses.map(()=>"?").join(",")+")" : "1=1"}
-      AND INSTR(LOWER(json_extract(n.value,'$.title')),LOWER(?))>0`, ...spaces, user, this.personalRead?.agentUserId ?? user, ...(assignee ? [assignee.type,assignee.id] : []), ...(statuses ?? []), query);
-    const items = rows.filter(r=>!this.personalRead || !!this.chat(JSON.parse(r.document_json).conversation_id,user)).map((r): Obj => {
+      AND INSTR(LOWER(json_extract(n.value,'$.title')),LOWER(?))>0`, ...spaces, user, this.personalRead?.agentUserId ?? user, ...(conversationId ? [conversationId] : []), ...(assignee ? [assignee.type,assignee.id] : []), ...(statuses ?? []), query);
+    const items = rows.filter(r=>!!this.chat(JSON.parse(r.document_json).conversation_id,user)).map((r): Obj => {
       const d = JSON.parse(r.document_json), n = JSON.parse(r.node_json);
-      const path: Obj[] = [];
-      for (let p = d.nodes.find((x:Obj)=>x.id===n.container_id); p; p=d.nodes.find((x:Obj)=>x.id===p.container_id)) path.unshift({id:p.id,title:p.title});
-      const conversation = this.projection(d,user,actor);
-      return {...summary(d), node_id:n.id,scope_id:n.container_id,title:n.title,mode:n.mode,status:n.status,wait:n.wait,resume_request:n.resume_request,
-        updated_at:n.updated_at,created_by:this.identity(n.created_by),assignee:this.identity(n.assignee),
-        direct_counts:directCounts(d,n.id),conversation,parent_path:path,
-        can_edit:conversation.can_write,can_delete:conversation.can_write && this.canDelete(n,actor,user),
-        can_claim:conversation.can_write && (!n.assignee || sameActor(n.assignee,actor)),
-        relative_url:`/tasks/${d.graph_id}?scope=${n.container_id ?? d.root_node_id}&node=${n.id}`};
+      return this.projectNodeCard(d, n, user, actor);
     }).sort((a,b)=> b.updated_at.localeCompare(a.updated_at) || b.graph_id.localeCompare(a.graph_id) || b.node_id.localeCompare(a.node_id));
     if(all) return {items,total:items.length,next_cursor:null};
     const eligible = after ? items.filter(n => n.updated_at < after!.updated_at || (n.updated_at===after!.updated_at && (n.graph_id<after!.graph_id || (n.graph_id===after!.graph_id && n.node_id<after!.node_id)))) : items;
     const page = eligible.slice(0,limit), last = page.at(-1);
     return {items:page,total:items.length,next_cursor:eligible.length>limit ? Buffer.from(JSON.stringify({identity,after:{updated_at:last!.updated_at,graph_id:last!.graph_id,node_id:last!.node_id}})).toString('base64url') : null};
+  }
+  private focus(user: string, actor: Obj, args: Obj): Obj {
+    const account = this.row("SELECT * FROM users WHERE id=?", user)!;
+    const spaces = this.accessibleSpaces(user, actor);
+    const empty = {
+      needs_you: [],
+      stashed: [],
+      active: [],
+      goals: [],
+      completed: [],
+      completed_count: 0,
+      counts: { needs_you: 0, stashed: 0, active: 0, goals: 0, completed: 0 },
+      next_cursors: { needs_you: null, stashed: null, active: null, goals: null, completed: null },
+    };
+    if (!spaces.length) return empty;
+    const query = text(args.query ?? "", "query", 240, true).trim().toLowerCase();
+    const limit = args.limit ?? 30;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 50)
+      fail("invalid_arguments", "limit must be an integer from 1 to 50");
+    const scope = text(args.scope ?? "mine", "scope", 32);
+    if (!["mine", "assignee", "all"].includes(scope))
+      fail("invalid_arguments", "scope must be mine, assignee or all");
+    const targetAssignee =
+      scope === "assignee" ? actorRef({ type: args.assignee_type, id: args.assignee_id }) : null;
+    const conversationId =
+      args.conversation_id === undefined ? null : text(args.conversation_id, "conversation_id");
+    const sectionFilter =
+      args.section === undefined ? null : text(args.section, "section", 32);
+    if (sectionFilter && !["needs_you", "stashed", "active", "goals", "completed"].includes(sectionFilter))
+      fail("invalid_arguments", "section must be needs_you, stashed, active, goals or completed");
+    let cursorAfter: Obj | undefined;
+    const cursorIdentity = { user, query, scope, targetAssignee, conversationId, section: sectionFilter };
+    if (args.cursor != null) {
+      if (!sectionFilter) fail("invalid_arguments", "section is required when cursor is provided");
+      try {
+        const saved = JSON.parse(Buffer.from(text(args.cursor, "cursor", 2048), "base64url").toString());
+        if (sortedJsonUtf8(saved.identity) !== sortedJsonUtf8(cursorIdentity)) throw Error();
+        cursorAfter = saved.after;
+        text(cursorAfter!.updated_at, "cursor time");
+        text(cursorAfter!.graph_id, "cursor graph");
+        text(cursorAfter!.node_id, "cursor node");
+      } catch {
+        fail("invalid_arguments", "Invalid cursor for focus query");
+      }
+    }
+    const personalSpace = `personal:${account.owner_id}`;
+    const userActor = { type: "user", id: user };
+    const graphRows = this.rows(
+      `SELECT g.document_json, c.space_id FROM task_graphs g
+       JOIN conversations c ON c.id=g.conversation_id
+       WHERE c.space_id IN (${spaces.map(() => "?").join(",")})
+       AND (EXISTS(SELECT 1 FROM conversation_participants p WHERE p.conversation_id=c.id AND p.user_id IN (?,?)) OR (c.type='group' AND c.visibility='public'))
+       AND ${conversationId ? "g.conversation_id=?" : "1=1"}`,
+      ...spaces,
+      user,
+      this.personalRead?.agentUserId ?? user,
+      ...(conversationId ? [conversationId] : []),
+    );
+    const needsYou: Obj[] = [];
+    const stashed: Obj[] = [];
+    const active: Obj[] = [];
+    const goals: Obj[] = [];
+    const completed: Obj[] = [];
+    const matchesQuery = (d: Obj, n: Obj, root: Obj) =>
+      !query ||
+      String(n.title ?? "").toLowerCase().includes(query) ||
+      String(n.description ?? "").toLowerCase().includes(query) ||
+      String(root.title ?? "").toLowerCase().includes(query);
+
+    for (const row of graphRows) {
+      const d = JSON.parse(row.document_json);
+      if (!this.chat(d.conversation_id, user)) continue;
+      const conversation = this.projection(d, user, actor);
+      const isPersonalChat = row.space_id === personalSpace;
+      const root = d.nodes.find((x: Obj) => x.id === d.root_node_id)!;
+      const isGoalGraph = root.mode !== "none" || d.nodes.length > 1;
+      const nodesById = new Map<string, Obj>(d.nodes.map((x: Obj) => [x.id, x]));
+
+      if (!["done", "closed"].includes(root.status) && isGoalGraph && matchesQuery(d, root, root)) {
+        const goalInScope =
+          scope === "all"
+            ? true
+            : scope === "assignee"
+              ? sameActor(root.assignee, targetAssignee) || d.nodes.some((c: Obj) => sameActor(c.assignee, targetAssignee))
+              : isPersonalChat ||
+                sameActor(root.created_by, userActor) ||
+                sameActor(root.assignee, userActor) ||
+                d.nodes.some((c: Obj) => sameActor(c.assignee, userActor));
+        if (goalInScope) {
+          const directChildren = d.nodes
+            .filter((c: Obj) => c.container_id === root.id)
+            .sort((a: Obj, b: Obj) => a.order - b.order || a.id.localeCompare(b.id));
+          const leafOrDirect = directChildren.length ? directChildren : [root];
+          const doneStages = leafOrDirect.filter((c: Obj) => c.status === "done").length;
+          const totalStages = leafOrDirect.filter((c: Obj) => c.status !== "closed").length || leafOrDirect.length;
+          goals.push({
+            ...this.projectNodeCard(d, root, user, actor, conversation),
+            relative_url: `/tasks/${d.graph_id}`,
+            progress: { done: doneStages, total: totalStages },
+            stage_nodes: directChildren.slice(0, 12).map((c: Obj) => ({
+              id: c.id,
+              title: c.title,
+              status: c.status,
+              mode: c.mode,
+              child_count: d.nodes.filter((sub: Obj) => sub.container_id === c.id).length,
+            })),
+          });
+        }
+      }
+
+      for (const n of d.nodes as Obj[]) {
+        const hasChildren = n.mode !== "none" && d.nodes.some((c: Obj) => c.container_id === n.id);
+        const parent = n.container_id ? nodesById.get(n.container_id) : null;
+        if (["done", "closed"].includes(n.status)) {
+          const completedInScope =
+            scope === "all"
+              ? true
+              : scope === "assignee"
+                ? sameActor(n.assignee, targetAssignee)
+                : isPersonalChat || sameActor(n.assignee, userActor) || sameActor(n.created_by, userActor);
+          if (completedInScope && matchesQuery(d, n, root)) {
+            completed.push(this.projectNodeCard(d, n, user, actor, conversation));
+          }
+          continue;
+        }
+        if (!matchesQuery(d, n, root)) continue;
+
+        let inNeedsYou = false;
+        if (scope === "mine") {
+          inNeedsYou =
+            (n.status === "proposed" &&
+              (isPersonalChat ||
+                n.proposed_for_user_id === user ||
+                (!n.proposed_for_user_id &&
+                  (sameActor(n.assignee, userActor) ||
+                    sameActor(parent?.assignee ?? null, userActor) ||
+                    sameActor(root.created_by, userActor) ||
+                    sameActor(root.assignee, userActor))))) ||
+            (n.status === "waiting" && n.wait?.asked_user_id === user) ||
+            (n.status === "in_review" &&
+              (isPersonalChat ||
+                sameActor(n.created_by, userActor) ||
+                sameActor(parent?.assignee ?? null, userActor) ||
+                sameActor(root.assignee, userActor)));
+        } else if (scope === "assignee") {
+          inNeedsYou =
+            sameActor(n.assignee, targetAssignee) &&
+            (n.status === "proposed" || n.status === "in_review" || (n.status === "waiting" && Boolean(n.wait?.asked_user_id)));
+        } else {
+          inNeedsYou =
+            n.status === "proposed" || n.status === "in_review" || (n.status === "waiting" && Boolean(n.wait?.asked_user_id));
+        }
+
+        if (inNeedsYou) {
+          needsYou.push(this.projectNodeCard(d, n, user, actor, conversation));
+          continue;
+        }
+
+        if (n.status === "backlog" || n.status === "paused") {
+          const stashInScope =
+            scope === "all"
+              ? true
+              : scope === "assignee"
+                ? sameActor(n.assignee, targetAssignee)
+                : isPersonalChat || sameActor(n.assignee, userActor) || (!n.assignee && sameActor(n.created_by, userActor));
+          if (stashInScope) stashed.push(this.projectNodeCard(d, n, user, actor, conversation));
+          continue;
+        }
+
+        if (["doing", "waiting", "todo"].includes(n.status) && !hasChildren) {
+          const activeInScope =
+            scope === "all"
+              ? true
+              : scope === "assignee"
+                ? sameActor(n.assignee, targetAssignee)
+                : isPersonalChat || sameActor(n.assignee, userActor) || (!n.assignee && sameActor(n.created_by, userActor));
+          if (activeInScope) active.push(this.projectNodeCard(d, n, user, actor, conversation));
+        }
+      }
+    }
+
+    const sortCards = (arr: Obj[]) =>
+      arr.sort(
+        (a, b) =>
+          b.updated_at.localeCompare(a.updated_at) ||
+          b.graph_id.localeCompare(a.graph_id) ||
+          b.node_id.localeCompare(a.node_id),
+      );
+    sortCards(needsYou);
+    sortCards(stashed);
+    sortCards(active);
+    sortCards(goals);
+    sortCards(completed);
+    const completedCount = completed.length;
+
+    const paginate = (sectionName: string, arr: Obj[]) => {
+      const filteredArr =
+        sectionFilter === sectionName && cursorAfter
+          ? arr.filter(
+              (n) =>
+                n.updated_at < cursorAfter!.updated_at ||
+                (n.updated_at === cursorAfter!.updated_at &&
+                  (n.graph_id < cursorAfter!.graph_id ||
+                    (n.graph_id === cursorAfter!.graph_id && n.node_id < cursorAfter!.node_id))),
+            )
+          : arr;
+      const page = filteredArr.slice(0, limit);
+      const last = page.at(-1);
+      const next =
+        filteredArr.length > limit && last
+          ? Buffer.from(
+              JSON.stringify({
+                identity: { user, query, scope, targetAssignee, conversationId, section: sectionName },
+                after: { updated_at: last.updated_at, graph_id: last.graph_id, node_id: last.node_id },
+              }),
+            ).toString("base64url")
+          : null;
+      return { page, next };
+    };
+
+    const pNeeds = paginate("needs_you", needsYou);
+    const pStashed = paginate("stashed", stashed);
+    const pActive = paginate("active", active);
+    const pGoals = paginate("goals", goals);
+    const pCompleted = sectionFilter === "completed" ? paginate("completed", completed) : { page: [], next: null };
+
+    return {
+      needs_you: pNeeds.page,
+      stashed: pStashed.page,
+      active: pActive.page,
+      goals: pGoals.page,
+      completed: pCompleted.page,
+      completed_count: completedCount,
+      counts: {
+        needs_you: needsYou.length,
+        stashed: stashed.length,
+        active: active.length,
+        goals: goals.length,
+        completed: completedCount,
+      },
+      next_cursors: {
+        needs_you: pNeeds.next,
+        stashed: pStashed.next,
+        active: pActive.next,
+        goals: pGoals.next,
+        completed: pCompleted.next,
+      },
+    };
+  }
+  private batchNodes(user: string, actor: Obj, args: Obj): Obj {
+    const raw = text(args.refs ?? "", "refs", 4096, true).trim();
+    if (!raw) return { items: [] };
+    const pairs = raw
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    if (pairs.length > 50) fail("invalid_arguments", "At most 50 node refs can be queried at once");
+    const docs = new Map<string, Obj | null>();
+    const items: Obj[] = [];
+    for (const pair of pairs) {
+      const sep = pair.indexOf(":");
+      if (sep <= 0 || sep === pair.length - 1) fail("invalid_arguments", "Each ref must be graph_id:node_id");
+      const graphId = pair.slice(0, sep);
+      const nodeId = pair.slice(sep + 1);
+      if (!docs.has(graphId)) {
+        const row = this.row("SELECT * FROM task_graphs WHERE graph_id=?", graphId);
+        if (!row) {
+          docs.set(graphId, null);
+        } else {
+          const parsed = { ...JSON.parse(row.document_json), owner_id: row.owner_id };
+          docs.set(graphId, this.chat(parsed.conversation_id, user) ? parsed : null);
+        }
+      }
+      const d = docs.get(graphId);
+      if (!d) continue;
+      const n = d.nodes.find((x: Obj) => x.id === nodeId);
+      if (!n) continue;
+      items.push(this.projectNodeCard(d, n, user, actor));
+    }
+    return { items };
   }
   private get(doc: Obj, args: Obj, user: string, actor: Obj) {
     const { owner_id: _owner, ...projected } = doc;
@@ -1171,6 +1635,8 @@ export class TaskGraphService {
 export function registerTaskGraphRoutes(app: FastifyInstance, ctx: ImContext) {
   const service = ctx.gateway.tasks ?? new TaskGraphService(ctx.db,ctx.messaging);
   for (const [method,path,action] of [
+    ["GET","/im/v1/task-graphs/focus","focus"],
+    ["GET","/im/v1/task-graphs/nodes","nodes"],
     ["GET","/im/v1/task-graphs/:graph_id/runtime","runtime"],
     ["GET","/im/v1/task-graphs","list"], ["GET","/im/v1/task-graphs/:graph_id","get"],
     ["GET","/im/v1/conversations/:conversation_id/task-activity","activity"],
@@ -1187,7 +1653,7 @@ export function registerTaskGraphRoutes(app: FastifyInstance, ctx: ImContext) {
       } catch (e) {
         if (e instanceof TaskGraphError)
           return reply
-            .code(e.code === "not_found_or_forbidden" ? 404 : e.code === "version_conflict" ? 409 : 400)
+            .code(e.code === "not_found_or_forbidden" ? 404 : e.code === "agent_private" ? 403 : e.code === "version_conflict" ? 409 : 400)
             .send({ detail: e.asDict() });
         if ((e as Obj)?.code?.startsWith?.("ERR_SQLITE"))
           return reply.code(503).send({

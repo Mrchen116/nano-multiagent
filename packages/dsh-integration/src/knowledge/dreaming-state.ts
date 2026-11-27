@@ -4,11 +4,19 @@ import type { DreamingWorkMetrics, DreamingWorkStage } from '@nano/product-contr
 import type { StreamProgress, FrozenBatch, CycleTarget } from './memory-sources.js';
 import type { DocumentReceipt } from './memory-documents.js';
 
+export interface DreamingPendingTaskContext {
+  messageId: string;
+  conversationId: string;
+  timeMs: number;
+  text: string;
+}
+
 export interface DreamingOwner {
   protocol: 2;
   activationAt: number; streams: Record<string, StreamProgress>; rotation: number;
   integrated: Record<string, string>;
-  lastAttempt?: number; lastSuccessAutomatic?: number; retryAt?: number; failures: number;
+  integratedTaskContextIds?: string[];
+  lastAttempt?: number; lastSuccessAutomatic?: number; lastCompletedCycle?: string; retryAt?: number; failures: number;
 }
 export interface DreamingRun {
   id: string; agentId: string; rootSessionId: string; childSessionId?: string;
@@ -19,6 +27,7 @@ export interface DreamingRun {
   mode: 'automatic' | 'manual'; state: 'prepared' | 'running' | 'applying' | 'completed' | 'partial' | 'failed' | 'cancelled';
   at: number; endedAt?: number; generation: number; directory: string; batch: FrozenBatch;
   target: CycleTarget; summaries: TaskSummary[];
+  pendingTaskContext?: DreamingPendingTaskContext[];
   importLegacy?: boolean;
   receipts: DocumentReceipt[]; summary?: string; error?: string;
 }

@@ -186,6 +186,23 @@ struct AgentContractsTests {
         #expect(result[2].payload["reasoning_content"] == .string("First"))
     }
 
+    @Test func contactAndConversationDecodePrivacyFieldsAndCreationScopes() throws {
+        let contactJSON = #"{"user_id":"u-a","kind":"agent","display_name":"Private Helper","agent_id":"helper","owner_id":"o1","collaboration_scope":"owner_only","status":"online"}"#
+        let contact = try JSONDecoder().decode(Contact.self, from: Data(contactJSON.utf8))
+        #expect(contact.collaboration_scope == "owner_only")
+
+        let convJSON = #"{"id":"c1","title":"Frozen DM","participants":[],"participant_ids":["u2","u-a"],"type":"direct","direct_kind":"user-agent","owner_id":"o1","creator_id":"u2","is_pinned":true,"is_muted":false,"unread_count":0,"created_at":"2026-11-26T00:00:00Z","can_write":false,"write_blocked_reason":"agent_private"}"#
+        let conv = try JSONDecoder().decode(Conversation.self, from: Data(convJSON.utf8))
+        #expect(conv.can_write == false)
+        #expect(conv.write_blocked_reason == "agent_private")
+
+        var draft = AgentDraft()
+        draft.agent_id = "helper"; draft.display_name = "Helper"
+        #expect(draft.payload(creating: true)["collaboration_scope"] == .string("team"))
+        draft.collaboration_scope = "owner_only"
+        #expect(draft.payload(creating: true)["collaboration_scope"] == .string("owner_only"))
+    }
+
 }
 
 @Test func previewUsesUnsavedHeartbeatAndCronSwitches() {

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import { useTranslation } from "../../../i18n";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
@@ -7,11 +7,13 @@ import { Avatar, agentAvatarId } from "./avatar";
 interface AgentRow {
   agent_id: string;
   display_name: string;
+  username?: string;
   description?: string;
   node_name?: string;
   status?: "online" | "offline";
   kind?: "human" | "agent";
   space_id?: string;
+  collaboration_scope?: "team" | "owner_only";
 }
 
 export interface NewGroupModalProps {
@@ -32,6 +34,43 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
   const [name, setName] = useState("");
   const [search, setSearch] = useState("");
   const personalGroup = agents.some(a => selected.includes(a.agent_id) && a.space_id?.startsWith("personal:"));
+  const hasPrivateAgentSelected = agents.some(a => selected.includes(a.agent_id) && a.kind !== "human" && a.collaboration_scope === "owner_only");
+  const hasHumanSelected = agents.some(a => selected.includes(a.agent_id) && a.kind === "human");
+  const lockPrivate = personalGroup || hasPrivateAgentSelected;
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const { humanCandidates, agentCandidates } = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const userQ = q.startsWith("@") ? q.slice(1) : q;
+    const matched = agents.filter((a) => {
+      if (!q) return true;
+      if (a.display_name.toLowerCase().includes(q)) return true;
+      if (a.kind === "human") {
+        if (!a.username || !userQ) return false;
+        const uname = a.username.toLowerCase();
+        return uname.includes(q) || uname.includes(userQ);
+      }
+      return `${a.agent_id} ${a.node_name ?? ""}`.toLowerCase().includes(q);
+    });
+    return {
+      humanCandidates: matched.filter((a) => a.kind === "human"),
+      agentCandidates: matched.filter((a) => a.kind !== "human")
+    };
+  }, [agents, search]);
+  const orderedAgents = useMemo(
+    () => [...agents.filter((a) => a.kind === "human"), ...agents.filter((a) => a.kind !== "human")],
+    [agents]
+  );
 
   function toggle(id: string) {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -40,13 +79,96 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
   function handleCreate() {
     if (selected.length === 0) return;
     const trimmed = name.trim();
-    onCreate({ visibility: personalGroup ? "private" : visibility, agentIds: agents.filter(a => selected.includes(a.agent_id) && a.kind !== "human").map(a => a.agent_id), userIds: agents.filter(a => selected.includes(a.agent_id) && a.kind === "human").map(a => a.agent_id), name: trimmed || selectedNames });
+    onCreate({ visibility: lockPrivate ? "private" : visibility, agentIds: orderedAgents.filter(a => selected.includes(a.agent_id) && a.kind !== "human").map(a => a.agent_id), userIds: orderedAgents.filter(a => selected.includes(a.agent_id) && a.kind === "human").map(a => a.agent_id), name: trimmed || selectedNames });
   }
 
-  const selectedNames = agents
+  const selectedNames = orderedAgents
     .filter((a) => selected.includes(a.agent_id))
     .map((a) => a.display_name)
     .join(", ");
+
+  function renderCandidateRow(a: AgentRow) {
+    const on = selected.includes(a.agent_id);
+    const isHuman = a.kind === "human";
+    const isPrivateAgent = !isHuman && a.collaboration_scope === "owner_only";
+    const disabled = !on && ((isHuman && hasPrivateAgentSelected) || (isPrivateAgent && hasHumanSelected));
+    return (
+      <li key={a.agent_id}>
+        <label
+          className={`chat-modal-agent${on ? " chat-modal-agent--on" : ""}`}
+          style={{
+            padding: "11px 12px",
+            minHeight: 52,
+            borderRadius: 12,
+            opacity: disabled ? 0.55 : 1,
+            cursor: disabled ? "not-allowed" : "pointer",
+            background: on ? "var(--im-accent-soft)" : "var(--im-surface)",
+            border: on ? "1px solid var(--im-accent-border)" : "1px solid var(--im-border)"
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={on}
+            disabled={disabled}
+            onChange={() => { if (!disabled) toggle(a.agent_id); }}
+            aria-label={a.display_name}
+            style={{ width: 16, height: 16, accentColor: "var(--im-accent)", flexShrink: 0 }}
+          />
+          <Avatar id={isHuman ? a.agent_id : agentAvatarId(a.agent_id)} size={30} status={a.status} />
+          <span className="chat-modal-agent-body">
+            <span className="chat-modal-agent-topline">
+              <span className="chat-modal-agent-name">{a.display_name}</span>
+              {isPrivateAgent && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    padding: "1px 7px",
+                    borderRadius: 99,
+                    flexShrink: 0,
+                    background: "var(--im-surface-2)",
+                    color: "var(--im-text-muted)",
+                    border: "1px solid var(--im-border)"
+                  }}
+                >
+                  {t("agents.form.behavior.ownerOnlyShort")}
+                </span>
+              )}
+              {!isHuman && a.status && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 99,
+                    flexShrink: 0,
+                    background: a.status === "online" ? "var(--im-success-soft)" : "var(--im-surface-2)",
+                    color: a.status === "online" ? "var(--im-success-text)" : "var(--im-text-muted)"
+                  }}
+                >
+                  {t(`chat.newGroup.${a.status}`)}
+                </span>
+              )}
+            </span>
+            <span className="chat-modal-agent-meta">
+              {disabled ? (
+                <span className="chat-modal-agent-id">
+                  {isHuman ? t("chat.newGroup.disabledHumanForPrivateAgent") : t("chat.newGroup.disabledPrivateAgentForHuman")}
+                </span>
+              ) : isHuman ? (
+                <span className="chat-modal-agent-id">{a.username ? `@${a.username}` : t("chat.contacts.person")}</span>
+              ) : (
+                <>
+                  <span className="chat-modal-agent-id" title={a.agent_id}>{a.agent_id}</span>
+                  {a.node_name && <span className="chat-modal-agent-node" title={a.node_name}>{a.node_name}</span>}
+                </>
+              )}
+            </span>
+          </span>
+        </label>
+      </li>
+    );
+  }
 
   const inner = (
     <>
@@ -88,62 +210,24 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
       </header>
       <div className="chat-modal-body">
         {error && <p role="alert">{t("chat.contacts.failed")}</p>}
-        <label className="chat-modal-section-label">{t("tasks.visibility")}<select value={personalGroup ? "private" : visibility} disabled={personalGroup} onChange={e => setVisibility(e.target.value as "public" | "private")}><option value="public">{t("tasks.public")}</option><option value="private">{t("tasks.private")}</option></select></label>
-        {personalGroup && <p className="chat-modal-section-label">{t("chat.newGroup.personalScope")}</p>}
+        <label className="chat-modal-section-label">{t("tasks.visibility")}<select value={lockPrivate ? "private" : visibility} disabled={lockPrivate} onChange={e => setVisibility(e.target.value as "public" | "private")}><option value="public">{t("tasks.public")}</option><option value="private">{t("tasks.private")}</option></select></label>
+        {hasPrivateAgentSelected
+          ? <p className="chat-modal-section-label">{t("chat.newGroup.privateAgentScope")}</p>
+          : personalGroup && <p className="chat-modal-section-label">{t("chat.newGroup.personalScope")}</p>}
         <p className="chat-modal-section-label">{t("chat.newGroup.sectionAgents")}</p>
         <input type="search" className="chat-sidebar-search" aria-label={t("chat.contacts.search")} placeholder={t("chat.contacts.search")} value={search} onChange={e => setSearch(e.target.value)} />
-        <ul className="chat-modal-agents">
-          {agents.filter(a => `${a.display_name} ${a.agent_id}`.toLowerCase().includes(search.toLowerCase())).map((a) => {
-            const on = selected.includes(a.agent_id);
-            return (
-              <li key={a.agent_id}>
-                <label
-                  className={`chat-modal-agent${on ? " chat-modal-agent--on" : ""}`}
-                  style={{
-                    padding: "11px 12px",
-                    minHeight: 52,
-                    borderRadius: 12,
-                    background: on ? "var(--im-accent-soft)" : "var(--im-surface)",
-                    border: on ? "1px solid var(--im-accent-border)" : "1px solid var(--im-border)"
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => toggle(a.agent_id)}
-                    aria-label={a.display_name}
-                    style={{ width: 16, height: 16, accentColor: "var(--im-accent)", flexShrink: 0 }}
-                  />
-                  <Avatar id={a.kind === "human" ? a.agent_id : agentAvatarId(a.agent_id)} size={30} status={a.status} />
-                  <span className="chat-modal-agent-body">
-                    <span className="chat-modal-agent-topline">
-                      <span className="chat-modal-agent-name">{a.display_name}</span>
-                      {a.status && (
-                        <span
-                          style={{
-                            fontSize: 11,
-                            fontWeight: 700,
-                            padding: "2px 8px",
-                            borderRadius: 99,
-                            flexShrink: 0,
-                            background: a.status === "online" ? "var(--im-success-soft)" : "var(--im-surface-2)",
-                            color: a.status === "online" ? "var(--im-success-text)" : "var(--im-text-muted)"
-                          }}
-                        >
-                          {t(`chat.newGroup.${a.status}`)}
-                        </span>
-                      )}
-                    </span>
-                    <span className="chat-modal-agent-meta">
-                      <span className="chat-modal-agent-id" title={a.agent_id}>{a.agent_id}</span>
-                      {a.node_name && <span className="chat-modal-agent-node" title={a.node_name}>{a.node_name}</span>}
-                    </span>
-                  </span>
-                </label>
-              </li>
-            );
-          })}
-        </ul>
+        {humanCandidates.length > 0 && (
+          <div className="chat-modal-section">
+            {agentCandidates.length > 0 && <p className="chat-modal-section-label">{t("chat.newGroup.sectionPeople")}</p>}
+            <ul className="chat-modal-agents">{humanCandidates.map(renderCandidateRow)}</ul>
+          </div>
+        )}
+        {agentCandidates.length > 0 && (
+          <div className="chat-modal-section">
+            {humanCandidates.length > 0 && <p className="chat-modal-section-label">{t("chat.newGroup.sectionMyAgents")}</p>}
+            <ul className="chat-modal-agents">{agentCandidates.map(renderCandidateRow)}</ul>
+          </div>
+        )}
         <label htmlFor={nameInputId} className="chat-modal-section-label">
           {t("chat.newGroup.groupName")}
         </label>

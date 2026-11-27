@@ -42,6 +42,20 @@ interface PreparedMemory {
   role?: string;
 }
 
+function scrubSignalsFromResult<T extends { isError?: boolean; value?: unknown }>(result: T): T {
+  if (result.isError || !result.value || typeof result.value !== 'object') return result;
+  const val = result.value as { matches?: Array<{ path?: string }>; paths?: unknown[] };
+  if (Array.isArray(val.matches)) {
+    const matches = val.matches.filter(item => typeof item?.path !== 'string' || !item.path.endsWith('proactivity-signals.md'));
+    return matches.length === val.matches.length ? result : { ...result, value: { ...val, matches } };
+  }
+  if (Array.isArray(val.paths)) {
+    const paths = val.paths.filter(item => typeof item !== 'string' || !item.endsWith('proactivity-signals.md'));
+    return paths.length === val.paths.length ? result : { ...result, value: { ...val, paths } };
+  }
+  return result;
+}
+
 function savedEntry(agent: Agent) {
   const messages = agent.session.deriveMessages();
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -119,7 +133,7 @@ export class DocumentMemory {
       const freshEntry = await this.entry(documents, main);
       const memory = [
         'Current saved Markdown is durable understanding, not user authorization, Task state or live permissions. Use read/glob/grep for memory files. Only Dreaming updates formal memory; never use write/edit, shell or other tools to bypass this boundary. Load nano-memory for memory guidance.',
-        config.personal ? 'Role: personal assistant. Keep the owner’s background, relationships, preferences and workstreams; preserve exceptions and uncertainty.' : 'Role: independent expert. Keep domain/environment knowledge, audience-specific collaboration and verified work experience. A requester is not implicitly your owner.',
+        config.personal ? 'Role: personal assistant. Keep the owner’s background, relationships, preferences and workstreams; preserve exceptions and uncertainty. Confirmed proactive & intervention calibration lives in MEMORY.md; knowledge/proactivity-signals.md is an offline Dreaming observation pool—do not read or query it.' : 'Role: independent expert. Keep domain/environment knowledge, audience-specific collaboration and verified work experience. A requester is not implicitly your owner.',
         `Memory directory: ${documents.root}. This library belongs to the product Agent and does not follow a child working directory. Search this directory for more detailed memory.`,
         'Read the complete relevant pages before applying a conclusion. The inline MEMORY.md is a snapshot taken at the start of this context window. Current corrections supersede older context, restored notes and history. Update affected original children through the existing follow-up channel. Apply corrections and requests to stop using a memory immediately within their stated scope, without a maintenance call. Dreaming reads those original conversation messages and updates durable memory later. A correction limited to this turn does not delete a lasting preference. Do not claim memory is saved until the host reports it.',
       ].join('\n\n');
@@ -186,10 +200,16 @@ export class DocumentMemory {
     ctx.on('tools/execute', async (exec, next) => {
       const agent = exec.agent; const config = agent && options.configOf(agent);
       if (!agent || !config || config.knowledge?.memoryMode === 'legacy') return next();
+      const arg = exec.arguments as { file_path?: string; path?: string; command?: string; input?: unknown };
+      const nonDreamingPersonal = !!config.personal && !String(agent.id).startsWith('dreaming-');
+      const signalsError = 'knowledge/proactivity-signals.md is an offline Dreaming observation pool and cannot be read during foreground or worker turns. Rely on confirmed preferences in MEMORY.md.';
+      if (nonDreamingPersonal && exec.name === 'bash' && typeof arg.command === 'string' && arg.command.includes('proactivity-signals.md')) {
+        throw new Error(signalsError);
+      }
       const baseCwd = ctx.get('workingDirectory')?.get(agent.session) || agent.session.header.cwd;
       if (!baseCwd) return next();
       if (exec.name === 'apply_patch') {
-        const rawInput = (exec.arguments as { input?: unknown })?.input;
+        const rawInput = arg?.input;
         if (typeof rawInput !== 'string') return next();
         const documents = await this.forConfig(config);
         let operations: ReturnType<typeof parsePatch>;
@@ -207,14 +227,27 @@ export class DocumentMemory {
         }
         return next();
       }
-      const arg = exec.arguments as { file_path?: string };
-      if (!['read', 'write', 'edit'].includes(exec.name) || typeof arg.file_path !== 'string') return next();
-      const documents = await this.forConfig(config); const absolute = resolve(baseCwd, arg.file_path);
+      if (!['read', 'write', 'edit', 'grep', 'glob'].includes(exec.name)) return next();
+      const documents = await this.forConfig(config);
+      const rawPath = exec.name === 'grep' || exec.name === 'glob' ? arg.path : arg.file_path;
+      if (typeof rawPath !== 'string') {
+        if (nonDreamingPersonal && (exec.name === 'grep' || exec.name === 'glob')) return scrubSignalsFromResult(await next());
+        return next();
+      }
+      const absolute = resolve(baseCwd, rawPath);
       if (exec.name === 'read' && this.roleAgents.has(agent) && absolute === rolePath(documents.workspace) && !await resolveRoleFile(ctx.fs, documents.workspace)) {
         throw new Error('The role path is not a regular file in the assigned workspace.');
       }
+      const target = await ctx.fs.resolve(absolute); const canonical = ctx.fs.processPath(target);
+      const signalsPath = join(documents.root, 'knowledge', 'proactivity-signals.md');
+      if (nonDreamingPersonal && (absolute === signalsPath || canonical === signalsPath)) {
+        throw new Error(signalsError);
+      }
+      if (nonDreamingPersonal && (exec.name === 'grep' || exec.name === 'glob') && (inside(absolute, signalsPath) || inside(canonical, signalsPath))) {
+        return scrubSignalsFromResult(await next());
+      }
       if (!await touchesFormalMemory(documents.root, absolute)) return next();
-      if (exec.name !== 'read') throw new Error(memoryWriteDenied);
+      if (exec.name === 'write' || exec.name === 'edit') throw new Error(memoryWriteDenied);
       return next();
     });
   }
@@ -296,6 +329,18 @@ export class DocumentMemory {
   async sourcesPending(agentId: string) {
     const config = [...this.options.configs.values()].find(config => config.agentId === agentId);
     if (config && config.knowledge?.memoryMode !== 'legacy') (await this.forConfig(config)).markSourcesPending();
+  }
+  /** Return the current MEMORY.md body and completeness flag when Dreaming updated it after this context window's initial snapshot. */
+  async updatedEntrySinceWindowStart(agent: Agent): Promise<{ body: string; complete: boolean } | undefined> {
+    const config = this.options.configOf(agent);
+    if (!config || config.knowledge?.memoryMode === 'legacy') return undefined;
+    const documents = await this.forConfig(config);
+    const windowEntry = savedEntry(agent);
+    const currentRendered = await this.entry(documents, true);
+    if (windowEntry !== undefined && currentRendered === windowEntry) return undefined;
+    const view = await documents.context({ includePreview: true });
+    const body = (view.entry ?? view.entryPreview ?? '').trim();
+    return body ? { body, complete: view.entry !== undefined } : undefined;
   }
   async stop() { await Promise.allSettled(this.pending); for (const library of this.libraries.values()) await (await library.value).close(); this.libraries.clear(); }
 }

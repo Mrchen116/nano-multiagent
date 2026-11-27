@@ -1,4 +1,6 @@
 import { act, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { i18n } from "../../../i18n";
@@ -49,13 +51,16 @@ function notice(overrides: Partial<Message> = {}): Message {
 
 function renderNotice(message: Message, isDirectChat = false) {
   return render(
-    <MessagePane
-      conversation={conversation}
-      messages={[message]}
-      mentionCandidates={[]}
-      onSend={() => {}}
-      isDirectChat={isDirectChat}
-    />,
+    <MemoryRouter>
+      <MessagePane
+        conversation={conversation}
+        messages={[message]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+        isDirectChat={isDirectChat}
+        selfUserId="user-1"
+      />
+    </MemoryRouter>,
   );
 }
 
@@ -154,5 +159,54 @@ describe("structured system notice", () => {
     );
 
     expect(screen.getByText("legacy fallback")).toBeTruthy();
+  });
+
+  it("hides raw actor IDs in task_graph notices and opens a profile card on actor or mention click", async () => {
+    await changeLanguage("zh");
+    const richConversation: Conversation = {
+      ...conversation,
+      participants: [
+        { type: "user", id: "u_5mguhd", user_id: "u_5mguhd", display_name: "Test User" },
+        { type: "agent", id: "pa_75ec7e281fe6", user_id: "u_pa", display_name: "PA · 个人助手", role: "personal" },
+      ],
+    };
+    const view = render(
+      <MemoryRouter>
+        <MessagePane
+          conversation={richConversation}
+          messages={[
+            notice({
+              id: "task-notice-1",
+              content:
+                'Test User \\(u\\_5mguhd\\)：[起草速查表](/tasks/tg_1?scope=n1&node=n1)，待办。<mention type="user" target_id="u_pa"/>',
+              system_notice: {
+                kind: "task_graph",
+                actor: { type: "user", id: "u_5mguhd" },
+                graph_id: "tg_1",
+                node_id: "n1",
+                scope_id: "n1",
+              },
+            }),
+          ]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+          selfUserId="u_5mguhd"
+        />
+      </MemoryRouter>,
+    );
+
+    const sysText = view.container.querySelector(".chat-bubble-system")?.textContent ?? "";
+    expect(sysText).not.toContain("u_5mguhd");
+    expect(sysText).not.toContain("pa_75ec7e281fe6");
+
+    // Click operator name -> opens human profile card with disambiguating ID
+    await userEvent.click(screen.getByRole("button", { name: "查看Test User的名片" }));
+    const userDialog = await screen.findByRole("dialog", { name: /Test User/ });
+    expect(userDialog.textContent).toContain("u_5mguhd");
+
+    // Click @mention chip -> switches to PA profile card with disambiguating agent ID
+    await userEvent.click(screen.getByText("@PA · 个人助手"));
+    const agentDialog = await screen.findByRole("dialog", { name: /PA · 个人助手/ });
+    expect(agentDialog.textContent).toContain("pa_75ec7e281fe6");
   });
 });

@@ -1,4 +1,6 @@
 import type { InteractionSnapshot, MessageInteractive } from './interactive-types.js';
+import type { WorkerRuntime } from './worker-runtimes.js';
+import type { TaskCardRef } from './task-graphs.js';
 
 /** Stable chat presentation fields; provider/tool-specific contents remain opaque. */
 export interface ChatAttachment {url?: string; content_type?: string; file_name?: string; attachment_id?: string; [field: string]: unknown}
@@ -62,7 +64,18 @@ export interface ChatTurnStart extends StreamCommon {
   external_reply?: string;
   reply_process_transition?: {predecessor_message_id?: string | null; run_id?: string; include_handoff?: boolean; source_messages?: unknown[]};
 }
-export type ChatStreamFact = ChatTurnStart
+export interface WorkerPermissionRequest extends StreamCommon {
+  kind: 'worker_permission_request';
+  agent_id: string;
+  session_id: string;
+  run_id: string;
+  expires_at: number;
+  worker: {workerId: string; label: string; runtime: Exclude<WorkerRuntime, 'dsh'>};
+  permission_request: ChatPermission & {
+    request_id: string; call_id: string; tool_name: string; question: string; tool_input: Record<string, unknown>;
+  };
+}
+export type ChatStreamFact = ChatTurnStart | WorkerPermissionRequest
   | (StreamCommon & {kind: 'run_terminal_reconcile'})
   | (MessageStream & {kind: 'message_delta'; delta_text?: string; idempotency_key?: string})
   | (Omit<MessageStream, 'delivery_status'> & {kind: 'message_completed'; external_reply?: string | null; idempotency_key?: string; resolved_model?: string; delivery_status?: 'completed' | 'failed'; final_content?: string; attachments?: ChatAttachment[]; token_usage?: ChatUsage | null; elapsed_ms?: number | null; kernel_message_id?: string | null; pa_incident_ref?: unknown; external_delivery_status?: string})
@@ -83,6 +96,7 @@ export interface AgentPublication {
   to: string;
   text: string;
   attachments?: ChatAttachment[];
+  task_cards?: TaskCardRef[];
   background_returns?: unknown[];
   interactive?: unknown;
   pa_incident_ref?: unknown;
@@ -148,7 +162,7 @@ export interface ChatMessage {
     latest_at?: string;
     participants?: {id: string; display_name: string; actor?: ChatActor}[];
   };
-  attachments: ChatAttachment[]; tool_calls: ChatToolCall[]; thinking: ChatThinking[]; background_returns: unknown[];
+  attachments: ChatAttachment[]; task_cards?: TaskCardRef[]; tool_calls: ChatToolCall[]; thinking: ChatThinking[]; background_returns: unknown[];
   reply_process: ChatProcessItem[]; permission_requests: ChatPermission[]; token_usage: ChatUsage | null;
   system_notice: unknown; interaction_reply: InteractionSnapshot | null; interactive?: MessageInteractive;
   update_wait?: 'updating' | 'recovery_required' | null;

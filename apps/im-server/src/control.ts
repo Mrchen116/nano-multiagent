@@ -1,9 +1,10 @@
-import { retireTeamBacklog } from './collaboration.js';
+import { applyCollaborationScopeTransitionInTx, type ScopeTransitionEffects } from './collaboration.js';
+import { captureTaskContextAccess } from './task-context-access.js';
 import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import {createHash, randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
 import {parseAgentConfigurationFields, type AgentConfigurationFields, type ConfigurationResult} from '@nano/product-contracts';
-import {effectiveFeatures, featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
+import {definitionsForRole, effectiveFeatures, validateCapabilities} from '@nano/product-contracts/capabilities';
 import {chatId, fail, now, transaction} from './context.js';
 import {defaultSpace, accountEnabled, canAccessSpace, ownerAccount} from './identity.js';
 import {activeTaskCount, withdrawsTask} from './task-graphs.js';
@@ -18,6 +19,7 @@ export interface ConfigurationDependencies {
   db: DatabaseSync;
   request: ConfigurationRequest;
   deliverLifecycle(agentId: string): void;
+  publishScopeTransition?(agentId: string, operationId: string, effects: ScopeTransitionEffects): void;
 }
 export const optionalText = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
 export const stringList = (v: unknown) =>
@@ -214,9 +216,10 @@ export class ConfigOperations {
       candidate={...candidate,personal_agent:{bindingId:binding.binding_id,ownerId:binding.owner_id,conversationId:binding.conversation_id,epoch:binding.node_epoch}};
       if(previous)previous={...previous,personal_agent:candidate.personal_agent};
     } else {candidate={...candidate};delete candidate.personal_agent;}
+    const roleFeatures = definitionsForRole(Boolean(candidate.personal_agent));
     const unchangedDreaming = !!previous && previous.features?.dreaming !== false && candidate.features?.dreaming !== false
       && validateCapabilities(previous).some(block => block.required_by?.includes('dreaming'));
-    const blocks = validateCapabilities(candidate, {features:featureDependencies.filter(feature => feature.key !== 'dreaming' || !unchangedDreaming)});
+    const blocks = validateCapabilities(candidate, {features:roleFeatures.filter(feature => feature.key !== 'dreaming' || !unchangedDreaming)});
     if (blocks.length) fail(422, {code:'invalid_capability_dependencies', message:'Configuration is missing required capabilities', blocks});
     if (previous && withdrawsTask(previous, candidate) && activeTaskCount(this.dependencies.db, candidate.agent_id)) {
       const kind = effectiveFeatures(previous.features).task_graph && !effectiveFeatures(candidate.features).task_graph ? 'feature' : 'tool';
@@ -450,6 +453,7 @@ export class ConfigOperations {
         return profileResponse(existing);
       }
     }
+    let scopeEffects: ScopeTransitionEffects | undefined;
     transaction(db, () => {
       if(op.operation_kind==='restore') {
         db.prepare("UPDATE personal_agent_bindings SET status='active' WHERE agent_id=? AND node_id=?").run(op.agent_id,op.node_id);
@@ -474,13 +478,25 @@ export class ConfigOperations {
         c.heartbeat_json ?? null,
       ];
       if (existing) {
+        const scopeChanged = (existing.collaboration_scope ?? "team") !== (c.collaboration_scope ?? "team");
+        const beforeTaskAccess = scopeChanged ? captureTaskContextAccess(db, { agentIds: [op.agent_id] }) : undefined;
         const changed = db
           .prepare(
             "UPDATE agent_profiles SET display_name=?,description=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,collaboration_scope=?,default_model=?,model_fallbacks_json=?,reasoning_effort=?,approval_mode=?,work_mode=?,workspace_root=?,workspace_is_default=?,features_json=?,heartbeat_json=?,profile_version=profile_version+1,registration_seed=0,pending_create_operation_id=NULL,updated_at=? WHERE agent_id=? AND profile_version=?",
           )
           .run(...vals, now(), op.agent_id, existing.profile_version);
         if (!changed.changes) fail(409, "profile_version conflict");
-        if(existing.collaboration_scope!=='owner_only' && c.collaboration_scope==='owner_only') retireTeamBacklog(db,op.agent_id);
+        if (scopeChanged) {
+          const actorUserId = ownerAccount(db, op.owner_id)?.id ?? op.owner_id;
+          scopeEffects = applyCollaborationScopeTransitionInTx(
+            db,
+            op.agent_id,
+            existing.collaboration_scope,
+            c.collaboration_scope,
+            actorUserId,
+            beforeTaskAccess,
+          );
+        }
       } else
         db.prepare(
           "INSERT INTO agent_profiles(display_name,description,skills_json,skills_selection_mode,tool_allowlist_json,collaboration_scope,default_model,model_fallbacks_json,reasoning_effort,approval_mode,work_mode,workspace_root,workspace_is_default,features_json,heartbeat_json,agent_id,owner_id,node_id,profile_version,created_at,updated_at,space_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1,?,?,?)",
@@ -497,6 +513,7 @@ export class ConfigOperations {
       // All configuration entry points and delayed recovery commit the same PA identity.
       const nextDisplayName = c.display_name || op.agent_id;
       db.prepare("UPDATE personal_agent_bindings SET display_name=? WHERE agent_id=? AND owner_id=?").run(nextDisplayName, op.agent_id, op.owner_id);
+      db.prepare("INSERT OR REPLACE INTO pa_binding_scopes(binding_id,collaboration_scope) SELECT binding_id,? FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?").run(c.collaboration_scope ?? "team", op.agent_id, op.owner_id);
       db.prepare("UPDATE conversations SET title=? WHERE title_is_custom=0 AND id IN (SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?)").run(nextDisplayName, op.agent_id, op.owner_id);
       for (const prevName of new Set([op.agent_id, existing?.display_name].filter((v): v is string => typeof v === 'string' && v.length > 0 && v !== nextDisplayName))) {
         const oldLead = `${prevName} · `;
@@ -510,6 +527,7 @@ export class ConfigOperations {
         "UPDATE agent_config_operations SET status='committed',updated_at=? WHERE operation_id=?",
       ).run(now(), op.operation_id);
     });
+    if (scopeEffects) this.dependencies.publishScopeTransition?.(op.agent_id, op.operation_id, scopeEffects);
     this.dependencies.deliverLifecycle(op.agent_id);
     return profileResponse(readAgentProfile(db, op.agent_id)!);
   }

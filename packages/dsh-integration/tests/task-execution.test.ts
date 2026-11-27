@@ -7,6 +7,8 @@ import {stripContextItemId} from 'dsh-agent-context';
 import {prepareProfile,RuntimeClient} from '../lib/client.js';
 import type {TaskExecutionSnapshot} from '@nano/product-contracts';
 
+const doingWake=(revision=1)=>({revision,at:'2026-10-23T15:00:00Z',actor:{type:'user' as const,id:'o'},assignee_id:'a'});
+
 it('admits fresh native Task continuations, yields to competing inputs, and holds after cancellation',async()=>{
   const home=await mkdtemp(join(tmpdir(),'nano-task-execution-'));let client:RuntimeClient|undefined;let logs='';
   try {
@@ -20,24 +22,25 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){
 });}`);
     await prepareProfile(home,[{insert:[{id:'task-execution-probe',name:join(home,'probe.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home,onLog:text=>{logs+=text;}});registerNoopTaskContext(client);
-    let task:TaskExecutionSnapshot={kind:'quiescent',tasks:[],repair_task_ids:[]};
+    client.rpc.handle('product.task_execution.ack',()=>null);
+    let task:TaskExecutionSnapshot={kind:'quiescent',tasks:[]};
     let reads=0,blockRead:undefined|(()=>Promise<void>);
     const calls=async()=>{const text=await readFile(join(home,'calls.jsonl'),'utf8').catch(()=>'');return text.trim()?text.trim().split('\n').map(line=>JSON.parse(line)):[];};
-    const active=(title:string):TaskExecutionSnapshot=>({kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title,status:'doing',revision:2,updated_at:'2026-10-23T15:00:00Z',resume_request:{actor_id:'o',at:'2026-10-22T06:00:00Z',revision:2},conversation:{id:'c'},relative_url:'/tasks/g'}],repair_task_ids:[]});
+    const active=(title:string,revision=2):TaskExecutionSnapshot=>({kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title,status:'doing',revision,updated_at:'2026-10-23T15:00:00Z',unwoken_doing:true,doing_wake:doingWake(revision),resume_request:{actor_id:'o',at:'2026-10-22T06:00:00Z',revision},conversation:{id:'c'},relative_url:'/tasks/g'}]});
     // Change between idle discovery and admission must replace the queued body.
     let discovered=0;
     client.rpc.handle('product.task_execution.snapshot',async()=>{
       reads++;
       if(blockRead){const block=blockRead;blockRead=undefined;await block();}
-      if(task.kind==='continue'&&discovered++===0)return active('OLD_DISCOVERY');
+      if(task.kind==='continue'&&discovered++===0)return active('OLD_DISCOVERY',2);
       return task;
     });
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['task_graph']}],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
-    task=active('LATEST_TASK');
+    task=active('LATEST_TASK',2);
     await client.rpc.request('task.execution.changed',{agentId:'a'});
     await expect.poll(async()=>(await calls()).length).toBeGreaterThanOrEqual(1);
-    task={kind:'quiescent',tasks:[],repair_task_ids:[]};
+    task={kind:'quiescent',tasks:[]};
     await expect.poll(async()=>(await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
     const first=(await calls())[0];expect(first.messages.filter((message:{source?:{channel?:string}})=>message.source?.channel==='task-human-control')).toHaveLength(0);expect(JSON.stringify(first.messages).match(/Current Task context:/g)).toHaveLength(1);expect(JSON.stringify(first.messages)).toContain('LATEST_TASK');expect(JSON.stringify(first.messages)).not.toContain('OLD_DISCOVERY');
     const count=(await calls()).length;
@@ -46,7 +49,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){
 
     // A real human arriving during the asynchronous idle read keeps native priority.
     let release!:()=>void;let entered!:()=>void;const waiting=new Promise<void>(r=>{entered=r;});
-    blockRead=async()=>{entered();await new Promise<void>(r=>{release=r;});};task=active('RACE_TASK');
+    blockRead=async()=>{entered();await new Promise<void>(r=>{release=r;});};task=active('RACE_TASK',3);
     await client.rpc.request('task.execution.changed',{agentId:'a'});await waiting;
     await client.rpc.request('session.submit',{sessionId:'s',inputId:'human-hold',mode:'followup',content:[{type:'text',text:'hold'}],source:{kind:'human',actorId:'o',channel:'test',messageId:'human-hold'}});
     release();
@@ -56,7 +59,7 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){
     const cancelledCount=(await calls()).length;const before=reads;
     await client.rpc.request('task.execution.changed',{agentId:'a'});
     await new Promise(resolve=>setTimeout(resolve,100));expect(reads).toBeGreaterThan(before);expect((await calls()).length).toBe(cancelledCount);
-    task={kind:'quiescent',tasks:[],repair_task_ids:[]};
+    task={kind:'quiescent',tasks:[]};
   }catch(error){throw new Error(String(error)+'\n'+logs,{cause:error});}
   finally{await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
@@ -78,32 +81,32 @@ export function apply(ctx){
   return {kind:'allow'};
  },{prepend:true});
  ctx.on('llm/stream',async function*(o){
-  const isResult=++step%2===0;
-  await appendFile(process.env.DSH_HOME+'/calls.jsonl',JSON.stringify({isResult,messages:o.messages})+'\\n');
-  const trigger=o.messages.findLast(m=>m.role==='user'&&['task-execution','heartbeat'].includes(m.source?.channel));
-  const readOnly=step>2;
-  const block=isResult?{type:'text',text:'RESULT_OR_BLOCKER_VISIBLE'}:{type:'tool-call',id:'effect-'+Date.now(),name:'fixture_effect',arguments:JSON.stringify({readOnly})};
-  yield{type:'block-end',index:0,block};yield{type:'finish',reason:{kind:isResult?'stop':'tool-calls'}};
+  step++;
+  await appendFile(process.env.DSH_HOME+'/calls.jsonl',JSON.stringify({step,messages:o.messages})+'\\n');
+  const block=step===1?{type:'tool-call',id:'effect-1',name:'fixture_effect',arguments:JSON.stringify({readOnly:false})}
+   :step===2?{type:'tool-call',id:'effect-2',name:'fixture_effect',arguments:JSON.stringify({readOnly:true})}
+   :{type:'text',text:'RESULT_OR_BLOCKER_VISIBLE'};
+  yield{type:'block-end',index:0,block};yield{type:'finish',reason:{kind:step<3?'tool-calls':'stop'}};
  });
 }`);
     await prepareProfile(home, [{insert: [{id: 'task-policy-probe', name: join(home, 'probe.mjs')}]}]);
     client = new RuntimeClient({home, cwd: home, onLog: text => {logs += text;}});registerNoopTaskContext(client);
+    client.rpc.handle('product.task_execution.ack',()=>null);
     client.rpc.onNotification((method,payload)=>{if(method==='approval.request')void client!.rpc.request('approval.answer',{requestId:(payload as {requestId:string}).requestId,decision:'rejected'});});
-    let revision = 1, updated = '2026-10-23T15:00:00Z';
+    const revision = 1, updated = '2026-10-23T15:00:00Z';
     client.rpc.handle('product.task_execution.snapshot', async () => {
       const completed = await readFile(join(home, 'completed'), 'utf8').catch(() => '');
-      return completed ? {kind:'quiescent',tasks:[],repair_task_ids:[]} : {
-        kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Task',status:'doing',revision,updated_at:updated,conversation:{id:'c'},relative_url:'/tasks/g'}],repair_task_ids:[],
+      return completed ? {kind:'quiescent',tasks:[]} : {
+        kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Task',status:'doing',revision,updated_at:updated,unwoken_doing:true,doing_wake:doingWake(revision),conversation:{id:'c'},relative_url:'/tasks/g'}],
       };
     });
-    const calls = async () => (await readFile(join(home, 'calls.jsonl'), 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
     await client.rpc.request('initialize', {protocol:1,agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'}],bindings:[]});
     await client.rpc.request('session.ensure', {sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
     await expect.poll(() => readFile(join(home,'completed'),'utf8').catch(()=>null)).toBe('yes');
     await expect.poll(async () => (await client!.rpc.request('session.observe',{sessionId:'s'}) as {status:string}).status).toBe('idle');
     expect(await readFile(join(home,'forbidden'),'utf8').catch(()=>null)).toBeNull();
     const observed = await client.rpc.request('session.observe',{sessionId:'s'}) as {events:{type:string;data:Record<string,unknown>}[]};
-    expect(observed.events.filter(e=>e.type==='assistant/message').map(e=>JSON.stringify(e.data)).filter(s=>s.includes('RESULT_OR_BLOCKER_VISIBLE'))).toHaveLength(2);
+    expect(observed.events.filter(e=>e.type==='assistant/message').map(e=>JSON.stringify(e.data)).filter(s=>s.includes('RESULT_OR_BLOCKER_VISIBLE'))).toHaveLength(1);
   } catch(error) {throw new Error(String(error)+'\n'+logs,{cause:error});}
   finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
@@ -127,9 +130,10 @@ export function apply(ctx){ctx.on('llm/stream',async function*(){
 });}`);
     await prepareProfile(home, [{insert:[{id:'task-model-recovery',name:join(home,'probe.mjs')}]}]);
     client = new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
+    client.rpc.handle('product.task_execution.ack',()=>null);
     client.rpc.handle('product.task_execution.snapshot', async () => await readFile(join(home,'completed'),'utf8').catch(()=>null)
-      ? {kind:'quiescent',tasks:[],repair_task_ids:[]}
-      : {kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Task',status:'doing',revision:1,updated_at:'2026-10-23T15:00:00Z',conversation:{id:'c'},relative_url:'/tasks/g'}],repair_task_ids:[]});
+      ? {kind:'quiescent',tasks:[]}
+      : {kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Task',status:'doing',revision:1,updated_at:'2026-10-23T15:00:00Z',unwoken_doing:true,doing_wake:doingWake(1),conversation:{id:'c'},relative_url:'/tasks/g'}]});
     const config = {features:{intelligent_ui:false,cron_scheduling:true},agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'};
     await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
@@ -170,16 +174,17 @@ export function apply(ctx){let step=0,denied=false;
  },{prepend:true});
  ctx.on('llm/stream',async function*(o){
   step++;await appendFile(process.env.DSH_HOME+'/calls',JSON.stringify(o.messages)+'\\n');
-  const node=step===3?'B':'A';
+  const node=step===2?'B':'A';
   const args=step===1&&${JSON.stringify(scope)}==='dependency'?{action:'apply',graph_id:'g',base_revision:1,request_key:'edge',change_note:'Order A after remote',operations:[{op:'add_dependency',from:'remote',to:'A'}]}:step===1&&${JSON.stringify(scope)}==='subtree'?{action:'delete',graph_id:'g',node_id:'parent',base_revision:1,request_key:'delete'}:{action:'apply',graph_id:node==='B'&&${JSON.stringify(scope)}==='subtree'?'other':'g',base_revision:1,request_key:'finish-'+node,change_note:'Verified result',operations:[{op:'update_task',node_id:node,patch:{status:'done',result:'Verified '+node}}]};
-  const block=step%2?{type:'tool-call',id:'effect-'+step,name:'task_graph',arguments:JSON.stringify(args)}:{type:'text',text:'The result or blocker has been handled.'};
-  yield{type:'block-end',index:0,block};yield{type:'finish',reason:{kind:step%2?'tool-calls':'stop'}};
+  const block=step<4?{type:'tool-call',id:'effect-'+step,name:'task_graph',arguments:JSON.stringify(args)}:{type:'text',text:'The result or blocker has been handled.'};
+  yield{type:'block-end',index:0,block};yield{type:'finish',reason:{kind:step<4?'tool-calls':'stop'}};
  });
 }`);
     await prepareProfile(home,[{insert:[{id:'task-scope-probe',name:join(home,'probe.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
-    let revision=1,updated='2026-10-23T15:00:00Z';const completed:string[]=[];
-    client.rpc.handle('product.task_execution.snapshot',()=>({kind:completed.length===2?'quiescent':'continue',tasks:['A','B'].filter(id=>!completed.includes(id)).map(id=>({graph_id:id==='B'&&scope==='subtree'?'other':'g',node_id:id,title:id,status:'doing',revision,updated_at:updated,conversation:{id:'c'},relative_url:'/tasks/g'})),repair_task_ids:[]}));
+    client.rpc.handle('product.task_execution.ack',()=>null);
+    let revision=1;const updated='2026-10-23T15:00:00Z';const completed:string[]=[];
+    client.rpc.handle('product.task_execution.snapshot',()=>({kind:completed.length===2?'quiescent':'continue',tasks:['A','B'].filter(id=>!completed.includes(id)).map(id=>({graph_id:id==='B'&&scope==='subtree'?'other':'g',node_id:id,title:id,status:'doing',revision,updated_at:updated,unwoken_doing:true,doing_wake:doingWake(1),conversation:{id:'c'},relative_url:'/tasks/g'}))}));
     client.rpc.handle('product.call',value=>{
       const call=value as {method:string;args:{operations:{node_id:string}[]}};
       expect(call.method).toBe('task_graph');completed.push(call.args.operations[0]!.node_id);revision++;
@@ -189,7 +194,7 @@ export function apply(ctx){let step=0,denied=false;
     await client.rpc.request('session.ensure',{sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
     await expect.poll(()=>completed).toEqual(['B','A']);
     const calls=()=>readFile(join(home,'calls'),'utf8').then(text=>text.trim().split('\n').map(line=>JSON.parse(line)));
-    await expect.poll(async()=>(await calls()).length).toBe(6);
+    await expect.poll(async()=>(await calls()).length).toBe(4);
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },20_000);
 
@@ -213,13 +218,14 @@ export function apply(ctx){let call=0;
 }`);
     await prepareProfile(home,[{insert:[{id:'task-steer-probe',name:join(home,'probe.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home});
+    client.rpc.handle('product.task_execution.ack',()=>null);
     let withdrawn=false;
     const original={inputId:'withdraw-A-original',conversationId:'c',content:[{type:'text',text:'ORIGINAL_WITHDRAW_A: Task g/n1 was reassigned; g/n2 remains doing.'}]};
     client.rpc.handle('product.task_context.prepare',()=>({messages:withdrawn?[original]:[],revoked:[]}));
     client.rpc.handle('product.task_context.commit',()=>null);
     client.rpc.handle('product.task_execution.snapshot',async()=>{
-      if(await readFile(join(home,'completed'),'utf8').catch(()=>null))return {kind:'quiescent',tasks:[],repair_task_ids:[]};
-      return {kind:'continue',tasks:(withdrawn?['B']:['A','B']).map(task=>({graph_id:'g',node_id:task==='A'?'n1':'n2',title:task,status:'doing',revision:withdrawn?2:1,conversation:{id:'c'},relative_url:'/tasks/g'})),repair_task_ids:[]};
+      if(await readFile(join(home,'completed'),'utf8').catch(()=>null))return {kind:'quiescent',tasks:[]};
+      return {kind:'continue',tasks:(withdrawn?['B']:['A','B']).map(task=>({graph_id:'g',node_id:task==='A'?'n1':'n2',title:task,status:'doing',revision:withdrawn?2:1,unwoken_doing:true,doing_wake:doingWake(1),conversation:{id:'c'},relative_url:'/tasks/g'}))};
     });
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash'}],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
@@ -253,8 +259,9 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     await prepareProfile(home,[{insert:[{id:'task-stop-probe',name:join(home,'probe.mjs')}]}]);
     const agent={agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{cron_scheduling:true}};
     const binding={sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home};
-    const empty={kind:'quiescent',tasks:[],repair_task_ids:[]};
+    const empty={kind:'quiescent' as const,tasks:[]};
     client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
+    client.rpc.handle('product.task_execution.ack',()=>null);
     client.rpc.handle('product.task_execution.snapshot',()=>empty);
     await client.rpc.request('initialize',{protocol:1,agents:[agent],bindings:[]});
     await client.rpc.request('session.ensure',binding);
@@ -262,8 +269,9 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     await client.rpc.request('schedule.command',{agentId:'a',sessionId:'s',action:'create',args:{title:'STOP_OLD_SCHEDULE',prompt:'STOP_OLD_SCHEDULE: read current Task before considering any action.',after_seconds:2}});
     await client.shutdown();
     client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
+    client.rpc.handle('product.task_execution.ack',()=>null);
     let pending=true;
-    client.rpc.handle('product.task_execution.snapshot',()=>pending?{kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Unconfirmed stop',status:'doing',revision:1,updated_at:'2026-10-23T15:00:00Z',conversation:{id:'c'},relative_url:'/tasks/g'}],repair_task_ids:[]}:empty);
+    client.rpc.handle('product.task_execution.snapshot',()=>pending?{kind:'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Unconfirmed stop',status:'doing',revision:1,updated_at:'2026-10-23T15:00:00Z',unwoken_doing:true,doing_wake:doingWake(1),conversation:{id:'c'},relative_url:'/tasks/g'}]}:empty);
     await client.rpc.request('initialize',{protocol:1,agents:[agent],bindings:[binding],taskStops:['s']});
     // A due Schedule also resolves the cold session while product recovery ensures it.
     await Promise.all([client.rpc.request('session.observe',{sessionId:'s'}),client.rpc.request('session.ensure',binding)]);
@@ -276,8 +284,6 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     expect(await readFile(join(home,'calls'),'utf8').catch(()=>null)).toBeNull();
     await client.rpc.request('session.submit',{sessionId:'s',inputId:'stop-notice',mode:'inject',content:[{type:'text',text:'HOST_STOP_NOTICE: prior queued replies cannot resume paused Tasks.'}],source:{kind:'system',actorId:'o',channel:'task-human-control',messageId:'stop'}});
     await client.rpc.request('session.submit',{sessionId:'s',inputId:'concurrent-wake',mode:'followup',content:[{type:'text',text:'Another queued input'}],source:{kind:'human',actorId:'o',channel:'test',messageId:'concurrent-wake'}});
-    // Native batching may leave the injected notice queued without reinserting it.
-    // Wait for the stopped turn to settle; the next real request below proves retention.
     await expect.poll(async()=>((await client!.rpc.request('session.observe',{sessionId:'s'})) as {status:string}).status).toBe('idle');
     expect(await readFile(join(home,'calls'),'utf8').catch(()=>null)).toBeNull();
     pending=false;
@@ -290,14 +296,13 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     await expect.poll(async()=>((await client!.rpc.request('session.observe',{sessionId:'s'})) as {status:string}).status).toBe('idle');
     const calls=await readFile(join(home,'calls'),'utf8');
     expect(calls).toContain('STOP_OLD_SCHEDULE');
-    // Native inbox classes may admit the held human and Schedule in separate turns.
     expect(calls.trim().split('\n')[0]).toContain('HOST_STOP_NOTICE');
     expect(calls).toContain('Another queued input');
     expect(calls).not.toContain('Unconfirmed stop');
   } finally {await client?.shutdown();await rm(home,{recursive:true,force:true});}
 },30_000);
 
-it('rechecks a consumed native Schedule and becomes quiet after a valid replacement', async () => {
+it('delivers scheduled check context for a waiting Task and stays quiet after replacement', async () => {
   const home=await mkdtemp(join(tmpdir(),'nano-task-schedule-'));
   let client:RuntimeClient|undefined;
   try {
@@ -306,12 +311,16 @@ export const name='task-schedule-probe';export const inject=['llm'];
 export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFile(process.env.DSH_HOME+'/calls',JSON.stringify(o.messages)+'\\n');while(!await readFile(process.env.DSH_HOME+'/release','utf8').catch(()=>''))await new Promise(r=>setTimeout(r,20));yield{type:'block-end',index:0,block:{type:'text',text:'NO_REPLY'}};yield{type:'finish',reason:{kind:'stop'}};});}`);
     await prepareProfile(home,[{insert:[{id:'task-schedule-probe',name:join(home,'probe.mjs')}]}]);
     client=new RuntimeClient({home,cwd:home});registerNoopTaskContext(client);
+    client.rpc.handle('product.task_execution.ack',()=>null);
     let scheduleId:string|undefined;
-    client.rpc.handle('product.task_execution.snapshot',async()=>{
-      if(!scheduleId)return {kind:'quiescent',tasks:[],repair_task_ids:[]};
-      const proof=await client!.rpc.request('schedule.wait.inspect',{agentId:'a',sessionId:'s',scheduleId}) as {valid:boolean};
-      return {kind:proof.valid?'quiescent':'continue',tasks:[{graph_id:'g',node_id:'n1',title:'Wait for answer',status:'waiting',revision:1,updated_at:'2026-10-23T15:00:00Z',conversation:{id:'c'},relative_url:'/tasks/g'}],repair_task_ids:proof.valid?[]:['g/n1']};
-    });
+    client.rpc.handle('product.task_execution.snapshot',async()=>({
+      kind:'quiescent',
+      tasks:scheduleId?[{
+        graph_id:'g',node_id:'n1',title:'Wait for answer',status:'waiting',revision:1,updated_at:'2026-10-23T15:00:00Z',
+        conversation:{id:'c'},relative_url:'/tasks/g',
+        wait:{reason:'Await answer',schedule_id:scheduleId,owner_agent_id:'a',session_id:'s',next_check_at:'2026-10-23T16:00:00Z'},
+      }]:[],
+    }));
     await client.rpc.request('initialize',{protocol:1,agents:[{agentId:'a',revision:'1',provider:'deepseek-official',model:'deepseek-flash',features:{cron_scheduling:true}}],bindings:[]});
     await client.rpc.request('session.ensure',{sessionId:'s',agentId:'a',ownerId:'o',revision:'1',cwd:home});
     scheduleId=(await client.rpc.request('schedule.command',{agentId:'a',sessionId:'s',action:'create',args:{title:'Task check',prompt:'Read Task g/n1 before deciding.',after_seconds:1}}) as {id:string}).id;
@@ -327,7 +336,6 @@ export function apply(ctx){ctx.on('llm/stream',async function*(o){await appendFi
     await client.rpc.request('task.execution.changed',{agentId:'a',reset:false});
     await new Promise(resolve=>setTimeout(resolve,100));
     const calls=(await readFile(join(home,'calls'),'utf8')).trim().split('\n');
-    // A valid replacement quiets the driver; it is not a fabricated second wake.
     expect(calls).toHaveLength(1);
     expect(calls[0]).toContain('Current Task context:');
     expect(calls[0]).toContain(oldScheduleId);

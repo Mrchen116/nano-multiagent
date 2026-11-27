@@ -1,4 +1,6 @@
 import type { AgentPublication, ChatAttachment, ChatPermission, ChatProcessItem, ChatStreamFact, ChatToolCall } from './chat.js';
+import { cliWorkerRuntimes } from './worker-runtimes.js';
+import { validateTaskCards, type TaskCardRef } from './task-graphs.js';
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('chat field must be an object');
@@ -19,6 +21,13 @@ export function chatAttachments(value: unknown): ChatAttachment[] {
   if (!Array.isArray(value)) throw new Error('invalid chat attachments');
   for (const item of value) { const row = object(item); required(row, 'url'); fields(row, ['content_type', 'file_name'], 'string'); }
   return value as ChatAttachment[];
+}
+/** Validate top-level task_cards references at transport entry. */
+export function chatTaskCards(value: TaskCardRef[]): TaskCardRef[];
+export function chatTaskCards(value: unknown): TaskCardRef[] | undefined;
+export function chatTaskCards(value: unknown): TaskCardRef[] | undefined {
+  if (value === undefined) return undefined;
+  return validateTaskCards(value);
 }
 function tool(value: unknown): ChatToolCall {
   const row = object(value); required(row, 'id'); fields(row, ['name', 'status', 'approval', 'reason'], 'string'); fields(row, ['seq'], 'number');
@@ -57,6 +66,15 @@ export function decodeChatStream(value: unknown): ChatStreamFact {
       const transition = object(row.reply_process_transition); fields(transition, ['predecessor_message_id'], 'string', true); fields(transition, ['run_id'], 'string'); fields(transition, ['include_handoff'], 'boolean');
       if (transition.source_messages !== undefined && !Array.isArray(transition.source_messages)) throw new Error('invalid chat source_messages');
     }
+  } else if (row.kind === 'worker_permission_request') {
+    for (const key of ['agent_id', 'session_id', 'run_id']) required(row, key);
+    if (!Number.isSafeInteger(row.expires_at)) throw new Error('invalid chat expires_at');
+    const worker = object(row.worker);
+    for (const key of ['workerId', 'label']) required(worker, key);
+    if (!cliWorkerRuntimes.some(runtime => runtime === worker.runtime)) throw new Error('invalid chat worker runtime');
+    const request = object(row.permission_request);
+    for (const key of ['request_id', 'call_id', 'tool_name', 'question']) required(request, key);
+    object(request.tool_input);
   } else if (row.kind !== 'run_terminal_reconcile') {
     required(row, 'message_id'); fields(row, ['delivery_status'], 'string');
     switch (row.kind) {
@@ -90,8 +108,9 @@ export function decodeAgentPublication(value: unknown): AgentPublication {
   fields(row, ['node_id','reply_to_message_id','in_thread_of'], 'string'); fields(row, ['lifecycle_revision'], 'number', true);
   fields(row, ['internal_shadow_only'], 'boolean');
   if (row.attachments != null) chatAttachments(row.attachments);
+  if (row.task_cards != null) chatTaskCards(row.task_cards);
   if (row.background_returns != null && !Array.isArray(row.background_returns)) throw new Error('invalid chat background_returns');
-  if (!row.text.trim() && row.interactive === undefined && !(row.attachments as unknown[] | undefined)?.length && !(row.background_returns as unknown[] | undefined)?.length) throw new Error('invalid_agent_message');
+  if (!row.text.trim() && row.interactive === undefined && !(row.attachments as unknown[] | undefined)?.length && !(row.background_returns as unknown[] | undefined)?.length && !(row.task_cards as unknown[] | undefined)?.length) throw new Error('invalid_agent_message');
   if (row.reply_draft !== undefined) throw new Error('reply_draft is retired; use ComposeMessage');
   return row as unknown as AgentPublication;
 }

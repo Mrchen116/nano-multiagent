@@ -1,7 +1,7 @@
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import type { ExternalDelivery } from './external.js';
 import { randomUUID } from 'node:crypto';
-import { interactiveResponse, workObject, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding } from '@nano/product-contracts';
+import { chatTaskCards, interactiveResponse, TASK_STATUS_BADGE_LABELS, workObject, type AgentConfiguration, type RelayInput, type RuntimePort, type SessionBinding, type TaskCardRef, type TaskStatus } from '@nano/product-contracts';
 import { RelayDeliveryError, type ProtocolFrame } from '@nano/channels';
 import type { ProductCall } from './global-agent.js';
 import { prepareLocalAttachments, unknownScreenshotReceipt, type AttachmentUploader, type ScreenshotUploader } from './screenshot-delivery.js';
@@ -63,11 +63,13 @@ export class PersonalAssistant {
     if(source.allowed!==true){if(source.scope_skipped===true)input.metadata.scope_skipped=true;return false;}
     if (typeof source.is_owner !== 'boolean' || !['participant','observer'].includes(String(source.delivery))) throw new Error('Missing trusted personal source facts');
     delete input.metadata.personal_source_role;
+    delete input.metadata.personal_trusted_task_notice;
     input.metadata.personal_is_owner = source.is_owner;
+    if (source.trusted_owner_task_notice === true) input.metadata.personal_trusted_task_notice = true;
     input.metadata.personal_delivery = source.delivery;
     input.metadata.conversation_type = source.conversation_type;
     input.metadata.channel = source.channel;
-    for (const key of ['owner_direct', 'addressed_to_owner', 'addressed_to_agent'] as const) {
+    for (const key of ['owner_direct', 'owner_internal', 'addressed_to_owner', 'addressed_to_agent'] as const) {
       if (typeof source[key] === 'boolean') input.metadata[key] = source[key];
     }
     for (const key of ['thread_root_message_id','thread_root_sender','thread_root_excerpt','thread_earlier','thread_history_truncated','thread_follow_reactivated']) {
@@ -103,7 +105,7 @@ export class PersonalAssistant {
       }
       // Save authenticated provenance before a crash; this does not itself admit the text.
       inbox.classify(input,false);
-      if(input.metadata.personal_is_owner!==true && input.metadata.personal_delivery==='participant') {
+      if(input.metadata.personal_is_owner!==true && input.metadata.personal_trusted_task_notice!==true && input.metadata.personal_delivery==='participant') {
         const context=await this.request(config,'pa.input.context',{source_message_id:input.message.id});
         const verdict=await this.review(config,'input',{...context,source:{conversation_id:input.conversation_id,message_id:input.message.id,
           actor:input.message.sender_user_id,kind:input.message.sender_type,actor_risk:input.metadata.personal_actor_risk}});
@@ -413,6 +415,22 @@ export class PersonalAssistant {
     return this.request(config, 'pa.action.status', {request_key:operationId,conversation_id:conversation});
   }
 
+  private isScopeRestricted(error: unknown): boolean {
+    const e = error as { code?: unknown; detail?: { code?: unknown }; message?: string } | undefined;
+    return e?.detail?.code === 'collaboration_scope_restricted'
+      || e?.code === 'collaboration_scope_restricted'
+      || (typeof e?.message === 'string' && e.message.includes('collaboration_scope_restricted'));
+  }
+
+  private scopeRestrictedResult(target: string): Data {
+    return {
+      status: 'not_sent',
+      target,
+      changed_reason: 'collaboration_scope_restricted',
+      message: 'This assistant is set to Private and cannot send messages or represent the owner in external conversations. Report to the owner in your private conversation instead.',
+    };
+  }
+
   /** Freeze, independently review, and commit one exact message with a durable receipt. */
   async send(config: AgentConfiguration, binding: SessionBinding, call: ProductCall, signal = new AbortController().signal): Promise<unknown> {
     const {inbox} = this.options;
@@ -421,13 +439,14 @@ export class PersonalAssistant {
     const text = String(call.args.text ?? '');
     if(call.args.reply_draft!==undefined)throw new Error('reply_draft is retired; use an interactive ComposeMessage action');
     const interactive = interactiveResponse(call.args.interactive);
-    if (!target || !text.trim() && !interactive) throw new Error('Sending requires a target and text or interactive content');
+    const taskCards = chatTaskCards(call.args.task_cards);
+    if (!target || !text.trim() && !interactive && !taskCards?.length) throw new Error('Sending requires a target and text, interactive content, or task_cards');
     const paths = call.args.local_images as string[] | undefined;
     const filePaths = call.args.local_files as string[] | undefined;
     const hasLocalMedia = !!(paths?.length || filePaths?.length);
     const replyTo=typeof call.args.reply_to_message_id==='string'?call.args.reply_to_message_id:undefined;
     const incident=typeof call.args.incident_ref==='string'?call.args.incident_ref:undefined;
-    if(incident&&(call.sessionId!==binding.sessionId||call.method!=='send_message'||interactive||(call.args.attachments as unknown[]|undefined)?.length))throw new Error('Incident communication belongs to the main PA and must be plain self-authored text');
+    if(incident&&(call.sessionId!==binding.sessionId||call.method!=='send_message'||interactive||(call.args.attachments as unknown[]|undefined)?.length||taskCards?.length))throw new Error('Incident communication belongs to the main PA and must be plain self-authored text');
     const representation=call.method==='send_user_message'?'owner':'self';
     if (hasLocalMedia && (incident || representation !== 'self')) throw new Error('Local attachments require a regular self-authored message');
     if(representation==='owner' && (call.sessionId!==binding.sessionId || !config.personal))throw new Error('Only the bound main PA may represent its owner');
@@ -438,7 +457,19 @@ export class PersonalAssistant {
     if (hasLocalMedia && deliveryTarget.startsWith('external:') && !allowsExternalImages) throw new Error('Local attachments require a writable Nano IM conversation');
     if(deliveryTarget.startsWith('external:')&&representation==='owner')throw new Error('Owner representation requires a native IM conversation');
     if((replyTo || inThread) && deliveryTarget.startsWith('external:'))throw new Error('Quotes and topics require a Nano IM destination');
-    const conversation = deliveryTarget.startsWith('external:')?targetBase.replace(/^conversation:/,''):await this.resolve(config,targetBase);
+    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation, ...(paths ? {local_images:paths} : {}), ...(filePaths ? {local_files:filePaths} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {}), ...(taskCards?.length ? {task_cards:taskCards} : {})});
+    let conversation: string;
+    try {
+      conversation = deliveryTarget.startsWith('external:') ? targetBase.replace(/^conversation:/, '') : await this.resolve(config, targetBase);
+    } catch (error) {
+      if (this.isScopeRestricted(error)) {
+        const restricted = this.scopeRestrictedResult(target);
+        inbox.preparePublication(call.operationId, target, publicationBody, binding.agentId);
+        inbox.settlePublication(call.operationId, 'rejected', restricted);
+        return restricted;
+      }
+      throw error;
+    }
     const reviewTarget = joinThreadTarget(conversation, inThread);
     if(incident) {
       const event=await this.request(config,'pa.incident.read',{incident_ref:incident,conversation_id:conversation});
@@ -447,7 +478,6 @@ export class PersonalAssistant {
     }
     const incidentKey=incident?`pa-incident:${incident}:${conversation===config.personal!.conversationId?'owner':'peer'}`:undefined;
     let operationId=incidentKey??call.operationId;
-    const publicationBody = sortedJsonAscii({text, attachments:call.args.attachments ?? [], interactive:interactive ?? null, representation, ...(paths ? {local_images:paths} : {}), ...(filePaths ? {local_files:filePaths} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})});
     const incidentPrevious=incidentKey?inbox.incidentPublication(incidentKey):undefined;
     let previous = incidentPrevious??inbox.publication(operationId);
     if(incidentKey&&incidentPrevious&&previous) {
@@ -497,25 +527,30 @@ export class PersonalAssistant {
         && !!shadowId
         && inbox.latestHumanTriggerIsInternalIm(config.agentId, shadowId, deliveryTarget);
       inbox.preparePublication(operationId, target, publicationBody, binding.agentId);
-      const extAttachments = hasLocalMedia
-        ? await prepareLocalAttachments(this.options.stageExternalImage, undefined, {
-            agentId: config.agentId, conversationId: deliveryTarget, operationId,
-            lifecycleRevision: this.options.store.lifecycle.assert(config.agentId), signal,
-          }, paths, undefined, call.args.attachments)
-        : undefined;
-      if (hasLocalMedia) {
-        signal.throwIfAborted();
-        await this.options.flushConversation?.(config, binding, shadowId);
-        if (shadowId && inbox.blocking(config.agentId, joinThreadTarget(shadowId, inThread))) {
-          const held = {status:'held_for_revalidation',target,message:'Read the new messages before sending this draft.'};
-          inbox.settlePublication(operationId, 'held', held);
-          return held;
-        }
-      }
-      inbox.settlePublication(operationId, 'sending');
       try {
-        const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text,
+        if (config.collaborationScope === 'owner_only' && shadowId) {
+          await this.request(config, 'pa.action.status', { request_key: operationId, conversation_id: shadowId, check_scope: true });
+        }
+        const extAttachments = hasLocalMedia
+          ? await prepareLocalAttachments(this.options.stageExternalImage, undefined, {
+              agentId: config.agentId, conversationId: deliveryTarget, operationId,
+              lifecycleRevision: this.options.store.lifecycle.assert(config.agentId), signal,
+            }, paths, undefined, call.args.attachments)
+          : undefined;
+        if (hasLocalMedia) {
+          signal.throwIfAborted();
+          await this.options.flushConversation?.(config, binding, shadowId);
+          if (shadowId && inbox.blocking(config.agentId, joinThreadTarget(shadowId, inThread))) {
+            const held = {status:'held_for_revalidation',target,message:'Read the new messages before sending this draft.'};
+            inbox.settlePublication(operationId, 'held', held);
+            return held;
+          }
+        }
+        const externalText = taskCards?.length ? await this.formatExternalTaskCardsText(config.agentId, text, taskCards) : text;
+        inbox.settlePublication(operationId, 'sending');
+        const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${deliveryTarget}`,text:externalText,
           ...(extAttachments?.length ? {attachments: extAttachments} : {}),
+          ...(taskCards?.length ? {task_cards: taskCards} : {}),
           ...(internalShadowOnly ? {internal_shadow_only: true} : {}),
           ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
         if(typeof response.payload.message_id!=='string')throw new Error('External provider has no delivery receipt');
@@ -523,6 +558,11 @@ export class PersonalAssistant {
         inbox.settlePublication(operationId,'confirmed',result);
         return result;
       } catch (error) {
+        if (this.isScopeRestricted(error)) {
+          const restricted = this.scopeRestrictedResult(target);
+          inbox.settlePublication(operationId, 'rejected', restricted);
+          return restricted;
+        }
         if (hasLocalMedia && error instanceof RelayDeliveryError && error.delivery === 'not-sent') {
           const rejected = {status:'not_sent',target,reason:error.message};
           inbox.settlePublication(operationId,'rejected',rejected);
@@ -551,8 +591,18 @@ export class PersonalAssistant {
     inbox.preparePublication(operationId,target,publicationBody,binding.agentId);
     let attachments = call.args.attachments ?? [];
     if (hasLocalMedia) {
-      if (conversation !== config.personal!.conversationId)
-        await this.request(config, 'pa.action.status', {request_key:operationId,conversation_id:conversation,prepare_screenshot:!!paths?.length,prepare_attachment:true});
+      if (conversation !== config.personal!.conversationId) {
+        try {
+          await this.request(config, 'pa.action.status', {request_key:operationId,conversation_id:conversation,prepare_screenshot:!!paths?.length,prepare_attachment:true});
+        } catch (error) {
+          if (this.isScopeRestricted(error)) {
+            const restricted = this.scopeRestrictedResult(target);
+            inbox.settlePublication(operationId, 'rejected', restricted);
+            return restricted;
+          }
+          throw error;
+        }
+      }
       attachments = await prepareLocalAttachments(this.options.uploadScreenshot, this.options.uploadAttachment, {
         agentId:config.agentId, conversationId:config.personal!.conversationId, operationId,
         lifecycleRevision:this.options.store.lifecycle.assert(config.agentId), signal,
@@ -571,7 +621,7 @@ export class PersonalAssistant {
       inbox.settlePublication(operationId,'sending');
       try {
         const response=await this.options.relay.request('agent.message',{node_id:this.options.nodeId,to:`conversation:${conversation}`,text,
-          attachments,...(interactive ? {interactive} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {}),
+          attachments,...(interactive ? {interactive} : {}), ...(taskCards?.length ? {task_cards:taskCards} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {}),
           ...(incident?{pa_incident_ref:incident}:{}),from_session_id:`${config.agentId}|tool_call:${operationId}`});
         if(typeof response.payload.message_id !== 'string') throw new Error('Missing actual delivery receipt');
         const result={status:'sent',target,message_id:response.payload.message_id,conversation_id:response.payload.conversation_id};
@@ -584,7 +634,7 @@ export class PersonalAssistant {
           inbox.settlePublication(operationId,'rejected',result);
           return result;
         }
-        if ((interactive || hasLocalMedia) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
+        if ((interactive || hasLocalMedia || taskCards?.length) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
           inbox.settlePublication(operationId,'rejected');
           throw new Error(error.detail ? JSON.stringify(error.detail) : error.code ?? error.message);
         }
@@ -593,8 +643,18 @@ export class PersonalAssistant {
         throw error;
       }
     }
-    const proposal = await this.request(config,'pa.action.prepare',{request_key:operationId,representation,conversation_id:conversation,
-      ...(incident?{incident_ref:incident}:{}),content:text,attachments,...(interactive ? {interactive} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})});
+    let proposal: Data;
+    try {
+      proposal = await this.request(config,'pa.action.prepare',{request_key:operationId,representation,conversation_id:conversation,
+        ...(incident?{incident_ref:incident}:{}),content:text,attachments,...(interactive ? {interactive} : {}), ...(taskCards?.length ? {task_cards:taskCards} : {}), ...(replyTo ? {reply_to_message_id:replyTo} : {}), ...(inThread ? {in_thread_of:inThread} : {})});
+    } catch (error) {
+      if (this.isScopeRestricted(error)) {
+        const restricted = this.scopeRestrictedResult(target);
+        inbox.settlePublication(operationId, 'rejected', restricted);
+        return restricted;
+      }
+      throw error;
+    }
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string') {
       const result={status:'sent',target,message_id:proposal.message_id,conversation_id:proposal.conversation_id};
       inbox.settlePublication(operationId,'confirmed',result); return result;
@@ -619,6 +679,11 @@ export class PersonalAssistant {
       inbox.settlePublication(operationId,'confirmed',result);
       return result;
     } catch(error) {
+      if (this.isScopeRestricted(error)) {
+        const restricted = this.scopeRestrictedResult(target);
+        inbox.settlePublication(operationId, 'rejected', restricted);
+        return restricted;
+      }
       const rejected=interactive && (error as {detail?:{code?:string}}).detail?.code==='invalid_interactive_source';
       if (hasLocalMedia && !rejected && error instanceof Error
         && (error instanceof RelayDeliveryError ? error.delivery !== 'unknown' : 'detail' in error)) {
@@ -641,7 +706,7 @@ export class PersonalAssistant {
       ? {bot_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId}
       : {app_id:delivery.appId,chat_id:delivery.chatId,source_id:delivery.sourceId};
     const proposal=await this.request(config,'pa.action.prepare',{request_key:delivery.operationId,incident_ref:delivery.incidentRef,
-      conversation_id:delivery.shadowId,content:delivery.text,...(delivery.attachments?.length?{attachments:delivery.attachments}:{}),transport:{kind,destination,card:delivery.card}});
+      conversation_id:delivery.shadowId,content:delivery.text,...(delivery.attachments?.length?{attachments:delivery.attachments}:{}),...(delivery.taskCards?.length?{task_cards:delivery.taskCards}:{}),transport:{kind,destination,card:delivery.card}});
     if(proposal.owner_private===true)return delivery.dispatch(delivery.text,delivery.card);
     if(proposal.state==='confirmed' && typeof proposal.message_id==='string')return proposal.message_id;
     if(['sending','unknown'].includes(String(proposal.state)))throw new Error('External outcome unknown; no automatic resend');
@@ -666,10 +731,42 @@ export class PersonalAssistant {
     if(id.startsWith('c_'))return id;
     const result=await this.options.relay.request('conversation.query',{node_id:this.options.nodeId,agent_id:config.agentId,
       request_id:randomUUID(),action:'resolve_target',target});
-    if(!result.payload.ok)throw new Error('Recipient is unavailable');
+    if(!result.payload.ok) {
+      const err = result.payload.error as { code?: string; message?: string } | string | undefined;
+      if ((typeof err === 'object' && err?.code === 'collaboration_scope_restricted') || err === 'collaboration_scope_restricted') {
+        throw Object.assign(new Error(typeof err === 'object' && err?.message ? err.message : 'collaboration_scope_restricted'), { code: 'collaboration_scope_restricted', detail: err });
+      }
+      throw new Error('Recipient is unavailable');
+    }
     const resolved=(result.payload.result as Data).target;
-    if(typeof resolved!=='string')throw new Error('Recipient is not a resolved conversation');
+    if(typeof resolved!=='string') {
+      if (config.collaborationScope === 'owner_only') {
+        throw Object.assign(new Error('collaboration_scope_restricted'), { code: 'collaboration_scope_restricted' });
+      }
+      throw new Error('Recipient is not a resolved conversation');
+    }
     return resolved.replace(/^conversation:/,'');
+  }
+  private async formatExternalTaskCardsText(agentId: string, baseText: string, taskCards: TaskCardRef[]): Promise<string> {
+    const refs = taskCards.map(card => `${card.graph_id}:${card.node_id}`).join(',');
+    let lines: string[];
+    try {
+      const res = await this.options.relay.request('task_graph.command', {
+        node_id: this.options.nodeId, agent_id: agentId, request_id: randomUUID(), action: 'nodes', source_message_id: null, args: { refs },
+      });
+      const items = res.payload.ok ? ((res.payload.result as { items?: { graph_id: string; node_id: string; title: string; status: string }[] })?.items ?? []) : [];
+      const byKey = new Map(items.map(item => [`${item.graph_id}:${item.node_id}`, item]));
+      lines = taskCards.map(card => {
+        const hit = byKey.get(`${card.graph_id}:${card.node_id}`);
+        if (!hit) return `- ${card.graph_id}/${card.node_id}`;
+        const label = TASK_STATUS_BADGE_LABELS[hit.status as TaskStatus] ?? hit.status;
+        return `- [${label}] ${hit.title}`;
+      });
+    } catch {
+      lines = taskCards.map(card => `- ${card.graph_id}/${card.node_id}`);
+    }
+    const summary = `关联事项：\n${lines.join('\n')}`;
+    return baseText.trim() ? `${baseText.trimEnd()}\n\n${summary}` : summary;
   }
 
 }

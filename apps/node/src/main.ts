@@ -1,7 +1,7 @@
 import { typedRuntimeRequest } from '@nano/product-contracts/runtime-rpc';
 import {isCurrentSkillUsage,isNodeCommand,nodeCommands,type NodeHandlers,type NodeParams,type NodeReply} from '@nano/product-contracts/node-rpc';
 import {dispatchNodeCommand} from './node-rpc.js';
-import {featureDependencies, validateCapabilities} from '@nano/product-contracts/capabilities';
+import {definitionsForRole, effectiveFeatures, validateCapabilities} from '@nano/product-contracts/capabilities';
 import { parseEnv } from 'node:util';
 import { windowsHost } from './windows-platform.js';
 import { createInterface } from 'node:readline';
@@ -25,9 +25,10 @@ import {CapabilityRequests} from './capability-requests.js';
 import { NodeTrajectory } from './trajectory.js';
 import { LocalNodeBridge } from './local-bridge.js';
 import { WebRelayConnection, FeishuConnection, WeChatConnection, WeChatLoginCoordinator, isWeChatChannelRevokedOnDisk, purgeWeChatChannelState, ChannelKey } from '@nano/channels';
-import { WorkSync, NodeStore, TaskExecution, TaskContext, ScheduleDeletions, SingleThread, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
-import type { AgentConfiguration, AgentDeletionIntent, AgentLifecycleSnapshot, RelayInput } from '@nano/product-contracts';
+import { WorkSync, NodeStore, TaskExecution, TaskContext, ScheduleDeletions, SingleThread, WorkerApprovals, GlobalAgent, InboxStore, ConfigurationOperations, Heartbeat, ProactiveCoordinator, isProactivePlanningEnabled, ExternalChannels, ManagedChannels, KnowledgeUpdates, WorkflowResults, ConversationHistory, installBuiltinSkills, needsAttention, type HeartbeatSettings, type ProductCall } from '@nano/personal-assistant';
+import type { AgentConfiguration, AgentDeletionIntent, AgentLifecycleSnapshot, ProactiveSyncObservationsInput, RelayInput } from '@nano/product-contracts';
 import { prepareProfile, RuntimeSupervisor, ConfigurationInspector } from '@nano/dsh-integration/client';
+import { LogicalClockController } from './logical-clock.js';
 
 const configIndex = process.argv.indexOf('--config');
 if (configIndex < 0 || !process.argv[configIndex + 1]) throw new Error('Usage: node apps/node/lib/main.js --config <gateway.yaml>');
@@ -63,8 +64,11 @@ await inspector.initialize().catch(error => process.stderr.write(`${String(error
 const machineBoot = process.platform === 'win32' ? await windowsHost('boot') : process.platform === 'darwin' ? execFileSync('/usr/sbin/sysctl', ['-n', 'kern.boottime'], {encoding:'utf8'}).trim() : (await readFile('/proc/sys/kernel/random/boot_id','utf8')).trim();
 await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
 for (const agent of config.agents) {
-  // Persisted explicit tool restrictions may leave new Dreaming unavailable after upgrade.
-  const invalid = validateCapabilities(agent, {features:featureDependencies.filter(feature => feature.key !== 'dreaming')});
+  // Persisted explicit tool restrictions may leave new Dreaming or legacy PA proactive_planning unavailable after upgrade.
+  const roleFeatures = definitionsForRole(Boolean(agent.personal_agent)).filter(
+    feature => feature.key !== 'dreaming' && (feature.key !== 'proactive_planning' || agent.features?.proactive_planning !== undefined),
+  );
+  const invalid = validateCapabilities(agent, {features: roleFeatures});
   if (invalid.length) throw new Error(`Invalid capability dependencies for ${agent.agent_id}: ${JSON.stringify(invalid)}`);
 }
 const agents: AgentConfiguration[] = config.agents.map(agent => configuration.runtime(agent));
@@ -80,6 +84,8 @@ const productCalls=new Map<string,{sessionId:string;promise:Promise<unknown>}>()
 let globalProduct: GlobalAgent;
 let operations: ConfigurationOperations;
 let heartbeat: Heartbeat;
+let proactiveCoordinator: ProactiveCoordinator;
+let logicalClock: LogicalClockController | undefined;
 let external: ExternalChannels;
 let managed: ManagedChannels;
 const knowledgeByPartition = new Map<string, KnowledgeUpdates>();
@@ -190,7 +196,10 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
           return [agent.agentId, {revision:state.revision, disabled:state.desired==='disabled', disabledThroughRevision:state.disabled_through_revision}];
         }));
         const stops = store.controls().filter(intent => intent.action === 'task-stop' && partition.agents.some(agent => agent.agentId === intent.binding.agentId));
-        await rpc.request('initialize', { protocol: 1, recoveryMarkers: true, blockedScheduleIds: frozen.flatMap(frame => frame.payload.schedule_ids ?? []), lifecycle: states, taskStopFences:stops.map(i=>({sessionId:i.binding.sessionId,stoppedAt:i.stoppedAt??i.input.message.created_at})), taskStops:stops.filter(i=>!i.text).map(i=>i.binding.sessionId), packageManager: installedPackageManager(release), agents: partition.agents,
+        await rpc.request('initialize', { protocol: 1, recoveryMarkers: true,
+          ownerTimezone: proactiveCoordinator.effectiveTimeZone(),
+          ...(logicalClock ? { initialLogicalNowMs: logicalClock.now() } : {}),
+          blockedScheduleIds: frozen.flatMap(frame => frame.payload.schedule_ids ?? []), lifecycle: states, taskStopFences:stops.map(i=>({sessionId:i.binding.sessionId,stoppedAt:i.stoppedAt??i.input.message.created_at})), taskStops:stops.filter(i=>!i.text).map(i=>i.binding.sessionId), packageManager: installedPackageManager(release), agents: partition.agents,
           providers: providerProfiles(config.llm).providers,
           pendingConfigurations: operations?.pending().filter(item => partition.agents.some(agent => agent.agentId === item.candidate.agent_id)).map(item => ({operationId: item.intent.operation_id, fingerprint: item.intent.candidate_fingerprint, config: configuration.runtime(item.candidate)})) ?? [],
           bindings: store.bindings().filter(binding => partition.agents.some(agent => agent.agentId === binding.agentId)).map(({ conversationId: _, ...binding }) => binding) });
@@ -217,6 +226,7 @@ const runtime = new RuntimePartitions({ agents, bindings: () => store.bindings()
       onError: reportError,
       onUnavailable: async () => {
         runningSessionsByPartition.get(partition.key)?.clear();
+        for (const agent of partition.agents) workerApprovals.cancelAgent(agent.agentId, 'unavailable');
         globalProduct?.runtimeUnavailable(partition.agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId));
         await reportPersonalAvailability(partition,false);
         for (const observer of runtime.unavailable(partition)) trajectory?.close(observer);
@@ -277,7 +287,32 @@ const relay = new WebRelayConnection({
       await agentLifecycle.waitFor(payload.agent_id);
     else await lifecycleSync;
     if (frame.type === 'pa.observations.available') { await globalProduct.recoverPersonalObservations(); return; }
-    if (frame.type === 'user.timezone') { store.setOwnerTimezone(String(payload.timezone)); return; }
+    if (frame.type === 'agent.conversation.externalized') {
+      const agentId = String(payload.agent_id), cid = String(payload.conversation_id);
+      globalProduct.externalizeConversation(agentId, cid);
+      product.externalizeConversation(agentId, cid);
+      return;
+    }
+    if (frame.type === 'agent.scope.revoked') {
+      const agentId = String(payload.agent_id);
+      const conversationIds = Array.isArray(payload.conversation_ids) ? payload.conversation_ids.map(String) : [];
+      const operationId = typeof payload.operation_id === 'string' && payload.operation_id ? payload.operation_id : randomUUID();
+      const changes = [...globalProduct.revokeConversations(agentId, conversationIds), ...product.revokeConversations(agentId, conversationIds)];
+      if (changes.length && runtime.availableFor(agentId)) {
+        const {withdrawn} = await runtime.request('configuration.restrictChat', {agentId, operationId, changes}) as {withdrawn:Array<{sessionId:string;inputId?:string;toolCallId?:string}>};
+        globalProduct.confirmRestricted(agentId, withdrawn);
+        product.confirmRestricted(withdrawn.filter((row): row is {sessionId:string;inputId:string} => !!row.inputId));
+      } else {
+        globalProduct.confirmRestricted(agentId, changes);
+        product.confirmRestricted(changes.filter((row): row is {sessionId:string;inputId:string} => !!row.inputId));
+      }
+      return;
+    }
+    if (frame.type === 'user.timezone') {
+      store.setOwnerTimezone(String(payload.timezone));
+      void syncRuntimeTimeZone();
+      return;
+    }
     if (frame.type === 'node.update.request') { await updater.request(String(payload.operation_id)); return; }
     const permission = frame.type === 'node.streaming_delta' && payload.kind === 'permission_response';
     if (updateHolding && !permission) return; // Unacknowledged relays remain in IM and are replayed after release.
@@ -296,7 +331,7 @@ const relay = new WebRelayConnection({
       if (agents.find(agent => agent.agentId === input.agent_id)?.mode === 'global') await globalProduct.receive(input);
       else await product.receive(input);
     }
-    if (frame.type === 'node.streaming_delta' && frame.payload.kind === 'permission_response') await product.permission(frame.payload);
+    if (permission && !(await workerApprovals.answer(payload))) await product.permission(payload);
     } finally { admissions--; }
   },
   onState: async state => {
@@ -336,7 +371,10 @@ const relay = new WebRelayConnection({
           if (!current()) return;
           for (const intent of (registration.agent_deletions ?? []) as AgentDeletionIntent[])
             void deletions.apply(intent).catch(reportError);
-          if (typeof registration.owner_timezone === 'string') store.setOwnerTimezone(registration.owner_timezone);
+          if (typeof registration.owner_timezone === 'string') {
+            store.setOwnerTimezone(registration.owner_timezone);
+            await syncRuntimeTimeZone();
+          }
           initialized = true;
         }
         recoverAfterReady('relay-registration',String(generation),current,async()=>{
@@ -400,6 +438,7 @@ const handlers:NodeHandlers = {
     try {
       const usage = await runtime.request('configuration.usage',{agentId:input.agent_id}) as NonNullable<NodeReply<'agent.capability-usage.request'>['usage']>;
       if (heartbeat.busyFor(input.agent_id)) usage.busy.push({kind:'feature',name:'heartbeat'});
+      if (proactiveCoordinator.busyFor(input.agent_id)) usage.busy.push({kind:'feature',name:'proactive_planning'});
       return {agent_id:input.agent_id,usage};
     } catch {return {agent_id:input.agent_id,error:{code:'capability_usage_unavailable',message:'Unable to confirm capability usage'}};}
   },
@@ -553,6 +592,7 @@ managed.seed((config.channels ?? []).filter(channel => channel.name.startsWith('
 tasks=new TaskExecution({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,runtime: runtime.product,relay:external,context:binding=>taskContext.prepare({sessionId:binding.sessionId,agentId:binding.agentId,ownerId:binding.ownerId}),
   drain:async sessionId=>{await Promise.allSettled([...productCalls.values()].filter(c=>c.sessionId===sessionId).map(c=>c.promise));},
 });
+const workerApprovals = new WorkerApprovals({nodeId: config.node.node_id, agents, store, runtime: runtime.product, relay, onError: reportError});
 product = new SingleThread({
   nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, runtime: runtime.product, relay: external, onError: reportError,
   image: downloadImage, taskStop:(binding,input)=>tasks.stop(binding,input),
@@ -581,7 +621,15 @@ const workSync=new WorkSync({nodeId:config.node.node_id,inbox,url:config.im_serv
   readyAgents: () => inbox.readyWorkAgents(agents.filter(agent => agent.mode === 'global').map(agent => agent.agentId),
     session => store.bindingForSession(session)?.agentId),
 });
-globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime: runtime.product, relay: external, image: downloadImage, uploadScreenshot: input => uploadScreenshot(im, input), stageExternalImage: input => external.stageOutboundImage(input), uploadAttachment: input => uploadAttachment(im, input), downloadAttachment: input => downloadAttachment({ baseUrl: config.im_service.url, token: () => relay.registration?.gateway_access_token ?? config.im_service.token, nodeHome: home, resolveExternalAttachment: (url, agentId) => external.attachment(url, agentId) }, input), onError: reportError, onWork:()=>workSync.signal(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
+globalProduct = new GlobalAgent({ nodeId: config.node.node_id, ownerId: config.node.user_id, agents, store, inbox, runtime: runtime.product, relay: external, image: downloadImage, uploadScreenshot: input => uploadScreenshot(im, input), stageExternalImage: input => external.stageOutboundImage(input), uploadAttachment: input => uploadAttachment(im, input), downloadAttachment: input => downloadAttachment({ baseUrl: config.im_service.url, token: () => relay.registration?.gateway_access_token ?? config.im_service.token, nodeHome: home, resolveExternalAttachment: (url, agentId) => external.attachment(url, agentId) }, input), onError: reportError, onWork:()=>workSync.signal(), onProactiveActivity: agentId => proactiveCoordinator?.recordActivity(agentId), clockNow: () => logicalClock ? logicalClock.now() : Date.now(), authorityEpoch:()=>relay.registration?.node_epoch,taskStop:(binding,input)=>tasks.stop(binding,input) });
+async function syncRuntimeTimeZone(): Promise<void> {
+  const timezone = proactiveCoordinator.effectiveTimeZone();
+  await settlePartitions(
+    [...runtime.partitions.values()]
+      .filter(partition => partition.runtime.available)
+      .map(partition => partition.runtime.request('runtime.timezone', { timezone })),
+  );
+}
 runtime.handle('configuration.workflow', async value => {
   const {agentId, guideline} = value as {agentId: string; guideline: string};
   const next = await configuration.setWorkflowGuideline(agentId, guideline);
@@ -593,14 +641,17 @@ runtime.handle('model.check', value => product.modelCheck(value as { sessionId: 
 runtime.handle('knowledge.role.workspace', async value => ({
   workspace: await configuration.roleWorkspace((value as {agentId: string}).agentId),
 }));
-const scheduleDeletions=new ScheduleDeletions({ownerId:config.node.user_id,agents,store,runtime: runtime.product,onError:reportError,repair:intent=>tasks.scheduleDeleted(intent),
+const scheduleDeletions=new ScheduleDeletions({ownerId:config.node.user_id,agents,store,runtime: runtime.product,onError:reportError,
  notify:async intent=>{
   await runtime.request('schedule.deleted.notify',{agentId:intent.agentId,sessionId:intent.sessionId,inputId:intent.changeInputId,content:[{type:'text',text:'The user deleted the Schedule identified below. It will no longer wake you as planned. Account for this change when checking your existing arrangements. This is a Schedule change, not a new task or permission, and it does not resume paused work.\n'+JSON.stringify({schedule_id:intent.scheduleId,title:intent.title,agent_id:intent.agentId,session_id:intent.sessionId,deleted_at:intent.deletedAt,actor:intent.actor})}]});
  }});
-const taskContext=new TaskContext({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,inbox,runtime: runtime.product,relay,refreshSources:agentId=>globalProduct.prepareSystemContext(agentId)});
+const taskContext=new TaskContext({nodeId:config.node.node_id,ownerId:config.node.user_id,agents,store,inbox,runtime: runtime.product,relay,refreshSources:agentId=>globalProduct.prepareSystemContext(agentId),settlePersonalInputs:(agentId,sessionId)=>globalProduct.settleSyncedTaskContext(agentId,sessionId)});
+globalProduct.attachTaskContext(taskContext);
 runtime.handle('product.task_context.prepare',value=>taskContext.prepare(value as Parameters<TaskContext['prepare']>[0]));
 runtime.handle('product.task_context.commit',value=>taskContext.commit(value as Parameters<TaskContext['commit']>[0]));
 runtime.handle('product.task_execution.snapshot', value=>tasks.snapshot(value as Parameters<TaskExecution['snapshot']>[0]));
+runtime.handle('product.task_execution.ack', value=>tasks.ackDoing(value as Parameters<TaskExecution['ackDoing']>[0]));
+runtime.handle('product.proactive.sync_observations', value=>proactiveCoordinator.syncObservations(value as ProactiveSyncObservationsInput));
 runtime.handle('product.call', value=>{
   const call=value as ProductCall;
   const promise=call.method==='schedule.delete'?(async()=>{
@@ -626,17 +677,26 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
       heartbeat.release(candidate.agent_id, intent.operation_id);
       return {ready: false, error_code: 'capability_in_use', message: 'Heartbeat is active', blocks: [{code: 'capability_busy', target: {kind: 'feature', name: 'heartbeat'}}]};
     }
+    const candidateProactive = effectiveFeatures(candidate.features, definitionsForRole(Boolean(candidate.personal_agent)), candidate).proactive_planning === true;
+    const withdrawProactive = Boolean(previous && isProactivePlanningEnabled(previous) && !candidateProactive);
+    if (withdrawProactive && !proactiveCoordinator.hold(candidate.agent_id, intent.operation_id)) {
+      heartbeat.release(candidate.agent_id, intent.operation_id);
+      proactiveCoordinator.release(candidate.agent_id, intent.operation_id);
+      return {ready: false, error_code: 'capability_in_use', message: 'Proactive planning is active', blocks: [{code: 'capability_busy', target: {kind: 'feature', name: 'proactive_planning'}}]};
+    }
     // A persisted creation may already have a later user edit: only initialize before the first config write.
     const initialRole = configuration.current(candidate.agent_id) ? undefined : intent.initial_role;
     try {
       if (initialRole !== undefined && !await configuration.creationRoleWorkspace(candidate)) {
         heartbeat.release(candidate.agent_id, intent.operation_id);
+        proactiveCoordinator.release(candidate.agent_id, intent.operation_id);
         return {ready:false, error_code:'role_unavailable', message:'Initial role requires an exclusive document workspace'};
       }
       return await runtime.request('configuration.prepare', {operationId: intent.operation_id, fingerprint: intent.candidate_fingerprint,
         config: configuration.runtime(candidate), ...(initialRole === undefined ? {} : {initialRole})}) as import('@nano/personal-assistant').ConfigurationPreparation;
     } catch (error) {
       heartbeat.release(candidate.agent_id, intent.operation_id);
+      proactiveCoordinator.release(candidate.agent_id, intent.operation_id);
       // Initial ROLE may already be on disk when the runtime reply is lost. Keep the creation pending for the same intent.
       if (initialRole !== undefined) throw error;
       return {ready: false, error_code: 'capability_usage_unavailable', message: 'Unable to confirm capability usage'};
@@ -644,6 +704,7 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
   },
   release: async (candidate, intent) => {
     heartbeat.release(candidate.agent_id, intent.operation_id);
+    proactiveCoordinator.release(candidate.agent_id, intent.operation_id);
     configuration.releaseWorkspace(candidate.agent_id);
     if (runtime.availableFor(candidate.agent_id)) await runtime.request('configuration.release', {agentId: candidate.agent_id, operationId: intent.operation_id});
   },
@@ -675,15 +736,46 @@ for (const partition of runtime.partitions.values()) installPartitionConsumers(p
 heartbeat = new Heartbeat(join(home, 'heartbeat.sqlite3'), { agents, runtime: runtime.product, lifecycle: store.lifecycle, onError: reportError,
   settings: agentId => ({ ...(config.agents.find(agent => agent.agent_id === agentId)?.heartbeat ?? {}), timezone: store.ownerTimezone }) as HeartbeatSettings,
   binding: agent => agent.mode === 'global' ? globalProduct.heartbeatBinding(agent) : product.heartbeatBinding(agent),
+  beforeAdmit: (agent, binding) => globalProduct.syncProactiveObservations(agent, binding),
   available: agentId => !updateHolding && runtime.availableFor(agentId) && (relay.ready || external.available(agentId) && (agents.find(agent => agent.agentId === agentId)?.mode === 'global' || store.canonical(agentId)?.conversationId.startsWith('external:') === true)),
 });
+proactiveCoordinator = new ProactiveCoordinator({
+  ownerId: config.node.user_id,
+  agents,
+  store,
+  inbox,
+  runtime: runtime.product,
+  binding: agent => globalProduct.heartbeatBinding(agent),
+  available: agentId => !updateHolding && runtime.availableFor(agentId) && relay.ready,
+  syncObservations: (agent, binding) => globalProduct.syncProactiveObservations(agent, binding),
+  onError: reportError,
+});
+logicalClock = LogicalClockController.fromEnvironment({
+  advancePartitions: async (nowMs, settle) => {
+    await settlePartitions(
+      [...runtime.partitions.values()]
+        .filter(partition => partition.runtime.available)
+        .map(partition => partition.runtime.request('runtime.clock.advance', { nowMs, settle })),
+    );
+  },
+  tickNode: async nowMs => {
+    await heartbeat.tick(undefined, false, nowMs);
+    await proactiveCoordinator.tick(nowMs);
+  },
+  isNodeBusy: () => admissions > 0 || product.busy || globalProduct.busy || heartbeat.busy || proactiveCoordinator.busy || knowledge.busy || workflows.busy,
+});
+if (logicalClock) {
+  const readLogicalNow = () => logicalClock!.now();
+  heartbeat.useClock(readLogicalNow);
+  proactiveCoordinator.useClock(readLogicalNow);
+}
 runtime.onNotification((method, value) => { if (method === 'configuration.catalog.changed' || method === 'knowledge.changed') publishCatalogChange(); if (method === 'heartbeat.subscription') { const data = value as { agentId: string; enabled: boolean }; heartbeat.subscription(data.agentId, data.enabled); } });
 const updater = new NodeUpdater(configuration, {
   onError: reportError,
   prepare: async operationId => {
     if (updateHolding && updateHolding !== operationId) return false;
     updateHolding = operationId;
-    const busy = () => admissions > 0 || inspector.metrics().preview_active > 0 || modelSetup.busy || wechatLogin?.busy || product.busy || globalProduct.busy || heartbeat.busy || operations.busy || knowledge.busy || workflows.busy;
+    const busy = () => admissions > 0 || inspector.metrics().preview_active > 0 || modelSetup.busy || wechatLogin?.busy || product.busy || globalProduct.busy || heartbeat.busy || proactiveCoordinator.busy || operations.busy || knowledge.busy || workflows.busy;
     if (!runtime.available || busy()) return false;
     const result = await runtime.request('update.prepare', {operationId}) as {ready: boolean};
     return result.ready && !busy();
@@ -777,7 +869,7 @@ agentLifecycle = new NodeAgentLifecycle({
     });
     await agentLifecycle.ready(agentId, supervisor.processInstanceId!);
   },
-  cancel: agentId => { store.cancelAgent(agentId); inbox.cancelAgent(agentId); external.cancelAgent(agentId); product.cancelAgent(agentId); globalProduct.cancelAgent(agentId); },
+  cancel: agentId => { store.cancelAgent(agentId); inbox.cancelAgent(agentId); external.cancelAgent(agentId); workerApprovals.cancelAgent(agentId); product.cancelAgent(agentId); globalProduct.cancelAgent(agentId); },
   resetHeartbeat: agentId => heartbeat.resetAgent(agentId),
   report: async report => { await relay.request('agent.lifecycle.report', {...report}, {priority:'control'}); },
 });
@@ -811,8 +903,10 @@ workSync.start();
 // Empty nodes have no execution intent to reconcile, but still expose the
 // management host while the center is unreachable.
 if (!agents.length) await runtime.start();
+if (logicalClock) await logicalClock.start();
 void relay.start().catch(reportError);
 heartbeat.start();
+proactiveCoordinator.start();
 const taskWatch=setInterval(()=>{
   if(relay.ready&&!updateHolding)void tasks.watch().catch(reportError);
 },60_000);taskWatch.unref();
@@ -825,7 +919,7 @@ async function stop() {
   clearInterval(taskWatch);
   trajectory.closeAll();
   await localBridge.close().catch(reportError);
-  try { capabilityRequests.cancelAll(); await deletions.close(); await inspector.close(); await workSync.stop(); await updater.close(); await wechatLogin?.stop(); await modelSetup.stop(); await managed.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await relay.stop(); await product.stop(); await globalProduct.stop(); await Promise.allSettled(readyRecoveryTasks); await operations.close(); await external.stop(); inbox.close(); store.close(); }
+  try { await logicalClock?.close(); capabilityRequests.cancelAll(); await deletions.close(); await inspector.close(); await workSync.stop(); await updater.close(); await wechatLogin?.stop(); await modelSetup.stop(); await managed.stop(); await proactiveCoordinator.stop(); await heartbeat.stop(); await knowledge.stop(); await workflows.stop(); await runtime.shutdown(); await workerApprovals.stop(); for (const agent of agents) agentLifecycle.recordStopped(agent.agentId); await relay.stop(); await product.stop(); await globalProduct.stop(); await Promise.allSettled(readyRecoveryTasks); await operations.close(); await external.stop(); inbox.close(); store.close(); }
   catch (error) { reportError(error); process.exitCode = 1; }
   finally {await lifecycle.close();}
 }

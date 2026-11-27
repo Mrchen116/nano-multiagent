@@ -4,9 +4,12 @@ import type { AgentConfiguration } from '../index.js';
 import type { ApprovalSources } from './sources.js';
 import type { ReviewDecision } from './rules.js';
 
+export type ReviewAction = Pick<ToolExecution, 'agent' | 'callId' | 'arguments' | 'name' | 'signal'>;
+
 /** Frozen inputs shared by the independently installed approval strategies. */
 export interface ApprovalReviewRequest {
-  exec: ToolExecution;
+  exec: ReviewAction;
+  worker?: boolean;
   config: AgentConfiguration;
   sources: ApprovalSources;
   inherited: unknown[];

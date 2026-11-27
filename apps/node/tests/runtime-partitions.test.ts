@@ -49,6 +49,20 @@ it('keeps sessions, child callbacks and configuration in their trusted host',asy
   await expect(Promise.resolve().then(()=>ordinary.handlers.get('product.call')!({agentId:'pa',sessionId:'root-pa'}))).rejects.toThrow('forged');
   await expect(runtime.request('configuration.apply',{...config('pa',true),personal:undefined})).rejects.toThrow('immutable');
 });
+it('answers only the originating Worker host when a different root reports the same approval ID', async () => {
+  const {runtime, ordinary, pa, errors} = fixture();
+  pa.result['approval.answer'] = {answered: true};
+  const approval = {sessionId:'root-pa', requestId:'call', worker:{workerId:'w1', runtime:'codex', label:'reviewer'}};
+  pa.emit('approval.request', approval);
+  ordinary.emit('approval.request', {...approval, sessionId:'root-ordinary'});
+  ordinary.emit('approval.resolved', {requestId:'call', sessionId:'root-ordinary', outcome:'cancelled'});
+  expect(errors.map(String)).toEqual([expect.stringContaining('Conflicting approval'), expect.stringContaining('Conflicting approval')]);
+  await runtime.product.request('approval.answer', {requestId:'call', decision:'allowed-once'});
+  expect(pa.calls).toEqual([{method:'approval.answer', params:{requestId:'call', decision:'allowed-once'}}]);
+  expect(ordinary.calls).toEqual([]);
+  runtime.unavailable(runtime.forAgent('pa'));
+  await expect(runtime.product.request('approval.answer', {requestId:'call', decision:'allowed-once'})).rejects.toThrow('Unknown approval');
+});
 it('keeps native collection ACKs scoped even when identifiers collide and another host is offline',async()=>{
   const {runtime,ordinary,pa}=fixture();const partition=runtime.forAgent('pa');
   const port=runtime.scoped(partition);

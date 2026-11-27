@@ -1,4 +1,4 @@
-import {featureDependencies, featureClosure, fixedTools} from '@nano/product-contracts/capabilities';
+import {definitionsForRole, featureClosure, fixedTools} from '@nano/product-contracts/capabilities';
 import type { AgentConfiguration } from "@nano/product-contracts";
 import type { NodeConfigurationFile } from "./configuration.js";
 
@@ -78,16 +78,20 @@ export function projectCapabilities(
     })),
     fixed_tools: fixedTools(agent?.mode, agent?.personal ? 'personal' : 'root', catalog.tools.some(tool => tool.name === 'new_context')),
     memory_mode: agent?.knowledge?.memoryMode ?? 'document',
-    features: featureDependencies.filter(feature => feature.key !== 'dreaming' || agent?.knowledge?.memoryMode !== 'legacy').map((feature) => {
-      const closure = featureClosure(Object.fromEntries(featureDependencies.map(item => [item.key, item.key === feature.key])));
-      const available = featureDependencies.filter(item => closure[item.key]).every(item =>
-        item.requires.tools.every(name => catalog.tools.some(tool => tool.name === name)) && item.requires.skills.every(name => catalog.skills.some(skill => skill.name === name)));
-      return {
-      ...feature,
-      label_i18n: `feature.${feature.key}.label`,
-      help_i18n: `feature.${feature.key}.help`,
-      available,
-    }; }),
+    features: (() => {
+      const roleFeatures = definitionsForRole(Boolean(agent?.personal));
+      return roleFeatures.filter(feature => feature.key !== 'dreaming' || agent?.knowledge?.memoryMode !== 'legacy').map((feature) => {
+        const closure = featureClosure(Object.fromEntries(roleFeatures.map(item => [item.key, item.key === feature.key])), roleFeatures);
+        const available = roleFeatures.filter(item => closure[item.key]).every(item =>
+          item.requires.tools.every(name => catalog.tools.some(tool => tool.name === name)) && item.requires.skills.every(name => catalog.skills.some(skill => skill.name === name)));
+        return {
+          ...feature,
+          label_i18n: `feature.${feature.key}.label`,
+          help_i18n: `feature.${feature.key}.help`,
+          available,
+        };
+      });
+    })(),
     commands: [
       { name: "new", description: "Start a new conversation context" },
       { name: "stop", description: "Stop the active response" },

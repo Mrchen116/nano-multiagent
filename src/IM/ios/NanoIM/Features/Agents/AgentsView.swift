@@ -156,7 +156,7 @@ struct NativePersonalAgentState: Decodable, Sendable {
     var creation: JSONValue?
     struct Binding: Decodable, Sendable, PersonalAvatarBinding {
         var agent_id: String; var display_name: String; var status: String
-        var node_id: String?; var conversation_id: String?; var avatar_variant: Int?
+        var node_id: String?; var conversation_id: String?; var avatar_variant: Int?; var collaboration_scope: String?
     }
 }
 
@@ -343,6 +343,14 @@ struct AgentCreateView: View {
                         TextField(L("说明目标或偏好，可稍后调整", "Describe goals or preferences; edit later"), text: $draft.initial_role, axis: .vertical).lineLimit(2...5).accessibilityLabel(L("初始角色约定", "Initial role agreement"))
                         if !draft.initialRoleIsValid { Text(L("初始角色约定超过 2,000 个 UTF-16 码元上限。", "The initial role exceeds the 2,000 UTF-16 unit limit.")).font(.caption).foregroundStyle(.red) }
                     }
+                    Picker(L("协作范围", "Collaboration scope"), selection: $draft.collaboration_scope) {
+                        Text(L("团队公开", "Team public")).tag("team")
+                        Text(L("私有（仅自己与名下助手）", "Private (you & your assistants)")).tag("owner_only")
+                    }
+                    Text(draft.collaboration_scope == "owner_only"
+                         ? L("对团队同事隐藏，仅可与你及你名下的其他助手通信或组建内部私密群。", "Hidden from teammates; collaborates only with you and your own assistants.")
+                         : L("团队同事可发现并私聊该助手，也可拉入协作群。", "Teammates can find and message this assistant or add it to groups."))
+                        .font(.caption).foregroundStyle(NanoTheme.muted)
                 } header: { Text(L("让它帮你做什么？", "What should it help with?")) }
                 Section(L("运行位置", "Run on")) {
                     Picker(L("电脑", "Computer"), selection: $selectedNode) {

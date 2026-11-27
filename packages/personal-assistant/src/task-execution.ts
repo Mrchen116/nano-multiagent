@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import type { AgentConfiguration, RelayInput, RuntimePort, SessionBinding, TaskExecutionSnapshot, TaskResponsibility, TaskWaitInspection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import type { NodeStore } from './store.js';
-import type {ScheduleDeletionIntent} from './schedule-deletions.js';
 
 interface Options {
   nodeId:string;ownerId:string;agents:AgentConfiguration[];store:NodeStore;runtime:RuntimePort;
@@ -11,7 +10,7 @@ interface Options {
   drain(sessionId:string):Promise<void>;
   context(binding:SessionBinding):Promise<{messages:{inputId:string;conversationId:string;content:{type:'text';text:string}[]}[];revoked:string[];unavailable?:boolean}>;
 }
-/** Resolve product scope and native waiting evidence without scheduling model execution. */
+/** Resolve product scope and edge-triggered doing watermarks without scheduling a polling loop. */
 export class TaskExecution {
   private readonly waitingAgents=new Set<string>();
   constructor(private readonly options:Options) {
@@ -27,14 +26,14 @@ export class TaskExecution {
   private scope(binding:SessionBinding):string|undefined {
     return this.options.agents.find(a=>a.agentId===binding.agentId)?.mode==='global'?undefined:this.options.store.imConversation(binding.agentId,binding.conversationId);
   }
-  /** Read current full responsibility; missing runtime evidence is never valid waiting. */
+  /** Read current full responsibility and compute unconsumed doing_wake transitions. */
   async snapshot(identity:{sessionId:string;agentId:string;ownerId:string}):Promise<TaskExecutionSnapshot> {
-    if(!this.options.store.lifecycle.allowed(identity.agentId))return {kind:'quiescent',tasks:[],repair_task_ids:[],reason:'agent_disabled'};
+    if(!this.options.store.lifecycle.allowed(identity.agentId))return {kind:'quiescent',tasks:[],reason:'agent_disabled'};
     return this.options.store.lifecycle.run(identity.agentId,undefined,()=>this.snapshotAdmitted(identity));
   }
   private async snapshotAdmitted(identity:{sessionId:string;agentId:string;ownerId:string}):Promise<TaskExecutionSnapshot> {
     const binding=this.binding(identity),config=this.options.agents.find(a=>a.agentId===binding.agentId)!;
-    const empty={tasks:[],repair_task_ids:[]};
+    const empty={tasks:[] as TaskResponsibility[]};
     if(!this.options.store.lifecycle.allowed(binding.agentId))return {kind:'quiescent',...empty,reason:'agent_disabled'};
     if(this.options.store.bindingFor(binding.agentId,binding.conversationId)?.sessionId!==binding.sessionId)return {kind:'quiescent',...empty,reason:'session_superseded'};
     if(config.features?.task_graph===false||config.toolAllowlist&&!config.toolAllowlist.includes('task_graph'))return {kind:'quiescent',...empty};
@@ -46,33 +45,38 @@ export class TaskExecution {
       this.options.store.lifecycle.assert(binding.agentId);
       if(!frame.payload.ok)throw new Error('Task source unavailable');
       const items=(frame.payload.result as {items:TaskResponsibility[]}).items;
-      const tasks=items.map(({graph_id,node_id,title,status,revision,updated_at,conversation,relative_url,wait,resume_request})=>({graph_id,node_id,title,status,revision,updated_at,conversation:{id:conversation.id},relative_url,wait,resume_request}));
-      if(tasks.some(t=>t.status==='waiting'))this.waitingAgents.add(binding.agentId);else this.waitingAgents.delete(binding.agentId);
-      const repair:string[]=[],repairs:NonNullable<TaskExecutionSnapshot['repairs']>=[];let unavailable=false;
-      for(const task of tasks)if(task.status==='waiting') {
-        try {
-          const proof=await this.inspect({agent_id:binding.agentId,conversation_id:task.conversation.id,schedule_id:task.wait?.schedule_id??''});
-          if(proof.reason_code==='unavailable'){unavailable=true;continue;}
-          if(!proof.valid||proof.session_id!==task.wait?.session_id||proof.owner_agent_id!==task.wait?.owner_agent_id) {
-            const reason_code=proof.valid?'owner_or_session_mismatch':proof.reason_code??'missing';
-            const reasons={missing:'The linked Schedule could not be found.',inactive:'The linked Schedule is inactive.',expired:'The linked Schedule has no valid future occurrence.',owner_or_session_mismatch:'The linked Schedule does not belong to the required Task owner and current session.'};
-            repair.push(`${task.graph_id}/${task.node_id}`);
-            repairs.push({graph_id:task.graph_id,node_id:task.node_id,schedule_id:task.wait?.schedule_id??'',checked_at:proof.checked_at,reason_code,reason:reason_code==='missing'&&this.options.store.scheduleDeletions().some(intent=>intent.agentId===binding.agentId&&intent.scheduleId===task.wait?.schedule_id&&intent.phase==='deleted')?'The linked Schedule was deleted and no longer exists.':reasons[reason_code]});
+      const tasks:TaskResponsibility[]=items.map(item=>{
+        let unwoken_doing=false;
+        if(item.status==='doing'&&item.doing_wake?.assignee_id===binding.agentId){
+          if(item.doing_wake.actor.type==='agent'&&item.doing_wake.actor.id===binding.agentId){
+            this.options.store.advanceDoingWatermark(binding.agentId,item.graph_id,item.node_id,item.doing_wake.revision);
+          }else{
+            unwoken_doing=item.doing_wake.revision>this.options.store.doingWatermark(binding.agentId,item.graph_id,item.node_id);
           }
-        } catch {unavailable=true;}
-      }
-      return {kind:tasks.some(t=>t.status==='doing')||repair.length?'continue':unavailable?'unavailable':'quiescent',tasks,repair_task_ids:repair,repairs,...(repair.length&&config.features?.cron_scheduling!==true?{reason:'cron_disabled'}:{})};
+        }
+        return {
+          graph_id:item.graph_id,node_id:item.node_id,title:item.title,status:item.status,
+          revision:item.revision,updated_at:item.updated_at,conversation:{id:item.conversation.id},
+          relative_url:item.relative_url,
+          ...(item.root_node_id?{root_node_id:item.root_node_id}:{}),
+          ...(item.root_title?{root_title:item.root_title}:{}),
+          ...(item.root_goal_summary!==undefined?{root_goal_summary:item.root_goal_summary}:{}),
+          ...(item.parent_path?{parent_path:item.parent_path}:{}),
+          ...(item.doing_wake!==undefined?{doing_wake:item.doing_wake}:{}),
+          ...(unwoken_doing?{unwoken_doing:true}:{}),
+          ...(item.wait?{wait:item.wait}:{}),
+          ...(item.resume_request?{resume_request:item.resume_request}:{}),
+        };
+      });
+      if(tasks.some(t=>t.status==='waiting'&&t.wait?.schedule_id))this.waitingAgents.add(binding.agentId);else this.waitingAgents.delete(binding.agentId);
+      return {kind:tasks.some(t=>t.unwoken_doing)?'continue':'quiescent',tasks};
     } catch {return {kind:'unavailable',...empty,reason:'task_source_unavailable'};}
   }
-  /** Re-read current own waiting references; deletion alone is not repair authority. */
-  async scheduleDeleted(intent:ScheduleDeletionIntent):Promise<void>{
-    for(const binding of this.options.store.bindings().filter(item=>item.agentId===intent.agentId&&this.options.store.bindingFor(item.agentId,item.conversationId)?.sessionId===item.sessionId)){
-      const snapshot=await this.snapshot({agentId:binding.agentId,ownerId:binding.ownerId,sessionId:binding.sessionId});
-      if(snapshot.kind==='unavailable')throw new Error('Current Task waiting references are unavailable');
-      if(!snapshot.repairs?.some(repair=>repair.schedule_id===intent.scheduleId))continue;
-      await this.options.runtime.request('session.ensure',binding);
-      await this.options.runtime.request('task.wait.repair',{agentId:binding.agentId,sessionId:binding.sessionId,inputId:intent.repairInputId+':'+binding.sessionId});
-    }
+  /** Persist consumed doing_wake watermarks after the runtime completes the corresponding wake turn. */
+  ackDoing(input:{sessionId:string;agentId:string;ownerId:string;items:{graph_id:string;node_id:string;revision:number}[]}):{ok:true} {
+    const binding=this.binding(input);
+    for(const item of input.items)this.options.store.advanceDoingWatermark(binding.agentId,item.graph_id,item.node_id,item.revision);
+    return {ok:true};
   }
   /** Resolve a Schedule only within the assignee's current product session scope. */
   async inspect(input:{agent_id:string;conversation_id:string;schedule_id:string}):Promise<TaskWaitInspection> {

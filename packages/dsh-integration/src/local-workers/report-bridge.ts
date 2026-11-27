@@ -48,7 +48,8 @@ async function serveStdio(path: string) {
   const tools = [
     {
       name: 'send_message',
-      description: 'Send a question or material update to the Global Agent that assigned this work.',
+      description:
+        'Send a task question or material update to the Global Agent that assigned this work. Does not grant tool or sandbox permissions; invoke your native tool or permission request directly when an assigned action needs host approval.',
       inputSchema: {
         type: 'object',
         properties: { message: { type: 'string' } },

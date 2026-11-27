@@ -171,11 +171,32 @@ actor ChatRepository {
                       AND m.conversation_id=c.id AND m.created_at=c.last_message_at);
                 """)
         }
+        migrator.registerMigration("v7_message_task_cards") { db in
+            let columns = try db.columns(in: "messages").map(\.name)
+            if !columns.contains("task_cards_json") {
+                try db.execute(sql: "ALTER TABLE messages ADD COLUMN task_cards_json TEXT")
+            }
+            try db.execute(sql: """
+                UPDATE messages
+                SET task_cards_json = json_extract(payload_json, '$.task_cards')
+                WHERE task_cards_json IS NULL AND json_type(payload_json, '$.task_cards') = 'array';
+                CREATE TABLE IF NOT EXISTS task_card_cache(
+                    card_key TEXT PRIMARY KEY,
+                    summary_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL);
+                """)
+        }
+        migrator.registerMigration("v8_write_blocked_reason") { db in
+            let columns = try db.columns(in: "conversations").map(\.name)
+            if !columns.contains("write_blocked_reason") {
+                try db.execute(sql: "ALTER TABLE conversations ADD COLUMN write_blocked_reason TEXT")
+            }
+        }
         try migrator.migrate(queue)
         let policy = try persistence.policy()
         let handoffs = try persistence.loadHandoffs()
         try queue.write { db in
-            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '6')")
+            try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('schema.version', '8')")
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.origin', ?)", arguments: [partition.origin.absoluteString])
             try db.execute(sql: "INSERT OR REPLACE INTO cache_meta(key, value) VALUES('partition.user_id', ?)", arguments: [partition.userID])
             try applyPolicy(policy, db: db)
@@ -394,6 +415,33 @@ actor ChatRepository {
     /// window both retain the honest network-needed boundary across process death.
     func timeline(_ id: String, limit: Int = ChatRepository.retentionLimit) throws -> ChatTimelinePage {
         try read { db in try Self.timelinePage(db, id: id, limit: limit) }
+    }
+
+    func cachedTaskCards(_ refs: [TaskCardRef]) throws -> [String: TaskCardNodeSummary] {
+        guard !refs.isEmpty else { return [:] }
+        let keys = Array(Set(refs.map(\.cardKey)))
+        return try read { db in
+            var result: [String: TaskCardNodeSummary] = [:]
+            for row in try Row.fetchAll(db, sql: "SELECT card_key, summary_json FROM task_card_cache WHERE card_key IN (\(Self.placeholders(keys.count)))", arguments: StatementArguments(keys)) {
+                let key: String = row["card_key"]
+                if let raw: String = row["summary_json"], let summary = try? Self.decode(TaskCardNodeSummary.self, from: raw) {
+                    result[key] = summary
+                }
+            }
+            return result
+        }
+    }
+
+    func cacheTaskCards(_ items: [TaskCardNodeSummary]) throws {
+        guard !items.isEmpty else { return }
+        try write { db in
+            let now = Self.iso(Date())
+            for item in items {
+                let encoded = String(decoding: try Self.encode(item), as: UTF8.self)
+                try db.execute(sql: "INSERT OR REPLACE INTO task_card_cache(card_key, summary_json, updated_at) VALUES(?,?,?)",
+                               arguments: [item.cardKey, encoded, now])
+            }
+        }
     }
 
     // MARK: - Snapshot
@@ -736,7 +784,7 @@ actor ChatRepository {
     func reset() throws {
         try queue.write { db in
             for table in ["messages", "conversation_boundaries", "conversation_members", "actors", "drafts",
-                          "read_state", "pending_sends", "revoked_conversations", "discarded_messages", "migration_report", "conversations"] {
+                          "read_state", "pending_sends", "revoked_conversations", "discarded_messages", "migration_report", "task_card_cache", "conversations"] {
                 try db.execute(sql: "DELETE FROM \(table)")
             }
             try db.execute(sql: "UPDATE sync_cursor SET max_event_id=0, snapshot_seq=0, updated_at=NULL WHERE id=1")
@@ -800,7 +848,7 @@ actor ChatRepository {
 
     private static func clearRows(_ db: Database) throws {
         for table in ["messages", "conversation_boundaries", "conversation_members", "actors", "drafts",
-                      "read_state", "pending_sends", "revoked_conversations", "discarded_messages", "migration_report", "conversations"] {
+                      "read_state", "pending_sends", "revoked_conversations", "discarded_messages", "migration_report", "task_card_cache", "conversations"] {
             try db.execute(sql: "DELETE FROM \(table)")
         }
         try db.execute(sql: "UPDATE sync_cursor SET max_event_id=0,snapshot_seq=snapshot_seq+1,updated_at=NULL WHERE id=1")
@@ -906,9 +954,9 @@ actor ChatRepository {
         try db.execute(sql: """
             INSERT INTO conversations(id, title, type, direct_kind, owner_id, creator_id, is_pinned, is_muted,
                 unread_count, last_message_preview, last_message_at, created_at, run_state, source_agent_id, source_node_id,
-                external_source, external_chat_id, visibility, dissolved_at, is_member, can_write, is_observer,
+                external_source, external_chat_id, visibility, dissolved_at, is_member, can_write, write_blocked_reason, is_observer,
                 can_change_visibility, participant_ids_json, sort_at, refreshed_at, trimmed_at, last_message_sender_name, last_message_card_json, last_message_notice_json)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,?,?,?)
             ON CONFLICT(id) DO UPDATE SET
                 title=excluded.title, type=excluded.type, direct_kind=excluded.direct_kind,
                 owner_id=excluded.owner_id, creator_id=excluded.creator_id, is_pinned=excluded.is_pinned,
@@ -918,7 +966,7 @@ actor ChatRepository {
                 source_agent_id=excluded.source_agent_id, source_node_id=excluded.source_node_id,
                 external_source=excluded.external_source, external_chat_id=excluded.external_chat_id,
                 visibility=excluded.visibility, dissolved_at=excluded.dissolved_at,
-                is_member=excluded.is_member, can_write=excluded.can_write, is_observer=excluded.is_observer,
+                is_member=excluded.is_member, can_write=excluded.can_write, write_blocked_reason=excluded.write_blocked_reason, is_observer=excluded.is_observer,
                 can_change_visibility=excluded.can_change_visibility,
                 participant_ids_json=excluded.participant_ids_json,
                 sort_at=MAX(conversations.sort_at, excluded.sort_at),
@@ -929,7 +977,7 @@ actor ChatRepository {
                              item.last_message_preview, item.last_message_at, item.created_at, item.run_state,
                              item.source_agent_id, item.source_node_id, item.external_source, item.external_chat_id,
                              item.visibility, item.dissolved_at, item.is_member.map { $0 ? 1 : 0 },
-                             item.can_write.map { $0 ? 1 : 0 }, item.is_observer.map { $0 ? 1 : 0 },
+                             item.can_write.map { $0 ? 1 : 0 }, item.write_blocked_reason, item.is_observer.map { $0 ? 1 : 0 },
                              item.can_change_visibility.map { $0 ? 1 : 0 }, participantIDs,
                              item.last_message_at ?? item.created_at, iso(Date()), item.last_message_sender_name, card, notice])
         // A server list/detail refresh supplies time and preview but no identity; do not
@@ -981,15 +1029,25 @@ actor ChatRepository {
     private static func upsertMessage(_ message: ChatMessage, writtenAt: String, db: Database) throws {
         let payload = (try? encode(message)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
         let attachments = (try? encode(message.attachments)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+        let taskCards: String?
+        if let cards = message.task_cards {
+            if !cards.isEmpty, let encoded = try? encode(cards) {
+                taskCards = String(decoding: encoded, as: UTF8.self)
+            } else {
+                taskCards = nil
+            }
+        } else {
+            taskCards = try String.fetchOne(db, sql: "SELECT task_cards_json FROM messages WHERE id=?", arguments: [message.id])
+        }
         try db.execute(sql: """
             INSERT OR REPLACE INTO messages(id, conversation_id, created_at, sort_key, sender_type, sender_actor_id,
                 sender_user_id, sender_display_name, delivery_status, kernel_message_id, pa_agent_id, content,
-                attachments_json, payload_json, written_at)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                attachments_json, task_cards_json, payload_json, written_at)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, arguments: [message.id, message.conversation_id, message.created_at, sortKey(createdAt: message.created_at, id: message.id),
                              message.sender_type, message.sender.id, message.sender_user_id, message.sender.display_name,
                              message.delivery_status, message.kernel_message_id, message.pa_agent_id, message.content,
-                             attachments, payload, writtenAt])
+                             attachments, taskCards, payload, writtenAt])
     }
 
     /// Keeps the list row consistent with a freshly loaded page without inventing unread state.
@@ -1021,8 +1079,11 @@ actor ChatRepository {
     private static func preview(of message: ChatMessage) -> String? {
         let text = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.isEmpty { return text }
-        guard let first = message.attachments.first else { return nil }
-        return first.file_name ?? first.content_type ?? "attachment"
+        if let first = message.attachments.first {
+            return first.file_name ?? first.content_type ?? "attachment"
+        }
+        if !(message.task_cards ?? []).isEmpty { return L("[任务卡片]", "[Task card]") }
+        return nil
     }
 
     private static func trim(_ id: String, protecting incoming: Set<String>, db: Database) throws {
@@ -1061,9 +1122,16 @@ actor ChatRepository {
     }
 
     private static func timelinePage(_ db: Database, id: String, limit: Int) throws -> ChatTimelinePage {
-        let rows = try Row.fetchAll(db, sql: "SELECT payload_json FROM messages WHERE conversation_id=? ORDER BY sort_key DESC LIMIT ?",
+        let rows = try Row.fetchAll(db, sql: "SELECT payload_json, task_cards_json FROM messages WHERE conversation_id=? ORDER BY sort_key DESC LIMIT ?",
                                     arguments: [id, limit])
-        let messages = rows.reversed().compactMap { row in (try? decode(ChatMessage.self, from: row["payload_json"] as String)) }
+        let messages = rows.reversed().compactMap { row -> ChatMessage? in
+            guard var message = try? decode(ChatMessage.self, from: row["payload_json"] as String) else { return nil }
+            if message.task_cards == nil, let rawCards: String = row["task_cards_json"],
+               let cards = try? decode([TaskCardRef].self, from: rawCards), !cards.isEmpty {
+                message.task_cards = cards
+            }
+            return message
+        }
         let ids = messages.map(\.id)
         var boundaries: [String: [TimelineItem]] = [:]
         if !ids.isEmpty {
@@ -1126,7 +1194,7 @@ actor ChatRepository {
                                 source_node_id: row["source_node_id"], external_source: row["external_source"],
                                 external_chat_id: row["external_chat_id"], visibility: row["visibility"],
                                 dissolved_at: row["dissolved_at"], is_member: flag("is_member"),
-                                can_write: flag("can_write"), is_observer: flag("is_observer"),
+                                can_write: flag("can_write"), write_blocked_reason: row["write_blocked_reason"], is_observer: flag("is_observer"),
                                 can_change_visibility: flag("can_change_visibility"),
                                  execution_cleanup_revision: try executionCleanupRevision(chatID, db: db))
         }

@@ -20,7 +20,7 @@ export function openDatabase(path: string): DatabaseSync {
   if (tables.has('pa_delegated_messages') && !db.prepare('PRAGMA table_info(pa_delegated_messages)').all().some(column => column.name === 'representation_operation_id')) {
     db.close(); throw Error('PA representation migration required; run migrate-pa-representation dry-run/apply/verify before starting IM');
   }
-  db.exec("DROP TRIGGER IF EXISTS personal_observation_event; DROP TRIGGER IF EXISTS personal_membership_revoked");
+  db.exec("DROP TRIGGER IF EXISTS personal_observation_event; DROP TRIGGER IF EXISTS personal_membership_revoked; DROP VIEW IF EXISTS owner_direct_agent_messages");
   db.exec(readFileSync(new URL("./schema.sql", import.meta.url), "utf8"));
   if (!db.prepare("PRAGMA table_info(pa_operations)").all().some(column => column.name === "result_json"))
     db.exec("ALTER TABLE pa_operations ADD COLUMN result_json TEXT");
@@ -30,6 +30,8 @@ export function openDatabase(path: string): DatabaseSync {
     db.exec('ALTER TABLE messages ADD COLUMN lifecycle_revision INTEGER');
   if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'reply_to_json'))
     db.exec('ALTER TABLE messages ADD COLUMN reply_to_json TEXT');
+  if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'task_cards_json'))
+    db.exec('ALTER TABLE messages ADD COLUMN task_cards_json TEXT');
   if (!db.prepare('PRAGMA table_info(messages)').all().some(column => column.name === 'thread_root_id'))
     db.exec('ALTER TABLE messages ADD COLUMN thread_root_id TEXT REFERENCES messages(id)');
   if (!db.prepare('PRAGMA table_info(thread_follows)').all().some(column => column.name === 'followed_at'))
@@ -158,6 +160,14 @@ export function openDatabase(path: string): DatabaseSync {
               AND ch.owner_id=a.owner_id AND ch.node_id=a.node_id AND m.sender_source_id=json_extract(ch.config_json,'$.owner_user_id')
               AND c.external_chat_id='wechat:'||json_extract(ch.config_json,'$.bot_id')||':dm:'||m.sender_source_id)));`);
       db.prepare("INSERT INTO schema_migrations VALUES('owner-direct-wechat-view-v1')").run();
+    }
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='pa-binding-collaboration-scope-v1'").get()) {
+      db.exec(`INSERT OR IGNORE INTO pa_binding_scopes(binding_id, collaboration_scope)
+        SELECT b.binding_id, COALESCE(a.collaboration_scope, 'team')
+        FROM personal_agent_bindings b
+        LEFT JOIN agent_profiles a ON a.agent_id = b.agent_id
+        WHERE COALESCE(a.collaboration_scope, 'team') IN ('team', 'owner_only')`);
+      db.prepare("INSERT INTO schema_migrations VALUES('pa-binding-collaboration-scope-v1')").run();
     }
     db.exec("COMMIT");
   } catch (error) {

@@ -1,0 +1,219 @@
+.chat-person-popover-trigger {
+  display: inline-flex;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.chat-person-popover-trigger:focus-visible,
+.chat-person-popover-trigger[aria-expanded="true"] {
+  outline: 2px solid var(--im-accent);
+  outline-offset: 3px;
+}
+
+.chat-mention-chip--interactive {
+  display: inline;
+  border: 0;
+  padding: 0 2px;
+  margin: 0 -2px;
+  border-radius: 4px;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.chat-mention-chip--interactive:hover,
+.chat-mention-chip--interactive:focus-visible {
+  background: color-mix(in srgb, var(--im-accent) 12%, transparent);
+  text-decoration: underline;
+  outline: none;
+}
+
+.chat-person-popover {
+  position: fixed;
+  z-index: 110;
+  width: min(312px, calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  border: 1px solid var(--im-border);
+  border-radius: 14px;
+  background: var(--im-surface);
+  color: var(--im-text);
+  box-shadow: 0 12px 32px #102e3826, 0 2px 6px #102e3810;
+  outline: none;
+  font-size: 13px;
+}
+
+.chat-person-popover-header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 15px 14px 13px 16px;
+}
+
+.chat-person-popover-identity {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-person-popover-identity h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.chat-person-popover-identity span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--im-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.chat-person-popover-close {
+  display: grid;
+  place-items: center;
+  align-self: flex-start;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--im-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chat-person-popover-close:hover,
+.chat-person-popover-close:focus-visible {
+  background: var(--im-surface-2);
+  color: var(--im-text);
+}
+
+.chat-person-popover-section {
+  margin-inline: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--im-border);
+}
+
+.chat-person-popover-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--im-text-muted);
+}
+
+.chat-person-popover-agents {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.chat-person-popover-agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--im-border);
+  border-radius: 8px;
+  background: var(--im-surface-2);
+  color: var(--im-text);
+  text-decoration: none;
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chat-person-popover-agent:hover:not(:disabled) {
+  border-color: var(--im-border-strong);
+  background: var(--im-hover);
+}
+
+.chat-person-popover-agent:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.chat-person-popover-agent-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 550;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-person-popover-agent-action {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--im-accent);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.chat-person-popover-error {
+  margin: 0 16px 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: oklch(0.96 0.03 25);
+  color: var(--im-danger);
+  font-size: 12px;
+}
+
+.chat-person-popover-actions {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px 13px;
+  border-top: 1px solid var(--im-border);
+}
+
+.chat-person-popover-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 5px 12px;
+  border: 1px solid var(--im-border);
+  border-radius: 8px;
+  background: var(--im-surface);
+  color: var(--im-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chat-person-popover-btn:hover:not(:disabled) {
+  background: var(--im-surface-2);
+}
+
+.chat-person-popover-btn--primary {
+  background: var(--im-accent);
+  border-color: var(--im-accent);
+  color: var(--im-accent-fg, #fff);
+}
+
+.chat-person-popover-btn--primary:hover:not(:disabled) {
+  filter: brightness(0.96);
+  background: var(--im-accent);
+}
+
+.chat-person-popover-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

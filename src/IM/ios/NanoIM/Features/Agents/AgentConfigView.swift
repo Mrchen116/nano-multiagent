@@ -100,7 +100,7 @@ struct AgentConfigView: View {
                                 Text(L("Skills 选择模式", "Skill selection mode") + ": " + (currentConfig.skills_selection_mode ?? "default_discovery"))
                                 Text(L("推理强度", "Reasoning effort") + ": " + (currentConfig.reasoning_effort ?? L("默认", "Default")))
                                 LabeledContent(L("审批模式", "Approval mode"), value: currentConfig.approval_mode ?? L("继承", "Inherited"))
-                                Text(L("协作范围", "Collaboration scope") + ": " + (currentConfig.collaboration_scope == "owner_only" ? L("仅限本人", "Owner only") : L("团队协作", "Team")))
+                                Text(L("协作范围", "Collaboration scope") + ": " + (currentConfig.collaboration_scope == "owner_only" ? L("私有（仅自己与名下助手）", "Private (you & your assistants)") : L("团队公开", "Team public")))
                                 ForEach(currentConfig.features.keys.filter { !["memory_curation", "skill_creation"].contains($0) }.sorted(), id: \.self) { key in
                                     LabeledContent(agentFeatureName(key), value: currentConfig.features[key] == true ? L("启用", "Enabled") : L("关闭", "Disabled"))
                                 }
@@ -289,12 +289,14 @@ struct AgentEditorFields: View {
                 TextField(L("描述", "Description"), text: $draft.description, axis: .vertical).lineLimit(2...6)
             }.padding(.vertical, 4)
             Picker(L("协作范围", "Collaboration scope"), selection: $draft.collaboration_scope) {
-                Text(L("团队协作", "Team")).tag("team")
-                Text(L("仅限本人", "Owner only")).tag("owner_only")
+                Text(L("团队公开", "Team public")).tag("team")
+                Text(L("私有（仅自己与名下助手）", "Private (you & your assistants)")).tag("owner_only")
             }
             Text(draft.collaboration_scope == "owner_only"
-                 ? L("仅接收你与 Agent 的私聊。尚未递送的团队消息会跳过，切回后也不会补发。", "Only your private messages arrive. Pending team messages are skipped, including after switching back.")
-                 : L("团队成员的私聊、群里 @ 或回复 Agent 的消息会及时提醒，普通群消息合并提醒。", "Team members can message this Agent privately. Direct messages, mentions and replies arrive promptly. Other group messages arrive in batches."))
+                 ? (personal
+                    ? L("对团队同事隐藏且不对外发言；仍按聊天访问范围静默观察你参与的聊天并向你汇报。切为私有时自动退出外部群并冻结同事历史私聊。", "Hidden from teammates and never messages externally; still silently observes chats you allow. Switching to Private exits external groups and makes teammate direct chats read-only.")
+                    : L("对团队同事隐藏，仅与你及名下助手通信或组建内部私密群。切为私有时自动退出外部群并冻结同事历史私聊。", "Hidden from teammates; collaborates only with you and your own assistants. Switching to Private exits external groups and makes teammate direct chats read-only."))
+                 : L("团队同事可发现并私聊该助手，也可拉入协作群；私聊、@ 或回复会及时提醒，普通群消息合并提醒。", "Teammates can find and message this assistant or add it to groups. Direct messages, mentions and replies arrive promptly; other group messages arrive in batches."))
                 .font(.caption).foregroundStyle(NanoTheme.muted)
         } }
         if showModels { Section(L("审批模式", "Approval mode")) {
@@ -410,10 +412,15 @@ struct AgentEditorFields: View {
         Section {
             let resolvedFeatures = draft.effectiveFeatures(capabilities: capabilities)
             DisclosureGroup(L("运行特性", "Runtime features")) {
-                ForEach((capabilities?.features ?? []).filter { !["memory_curation", "skill_creation"].contains($0.key) }) { feature in
-                    if feature.key == "dreaming" { Text(L("定期更新长期记忆。关闭后仍可读取已有记忆，也可请求手动整理。", "Periodically update long-term memory. When off, existing memories remain readable and you can request manual organization.")).font(.caption).foregroundStyle(.secondary) }
-                    Toggle(agentFeatureName(feature.key), isOn: Binding(get: { resolvedFeatures[feature.key] ?? feature.default_on }, set: { change(.init(kind: "feature", name: feature.key, enabled: $0)) }))
-                        .capabilityAnchor("feature:" + feature.key)
+                ForEach((capabilities?.features ?? []).filter { !["memory_curation", "skill_creation"].contains($0.key) && (personal || $0.key != "proactive_planning") }) { feature in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Toggle(agentFeatureName(feature.key), isOn: Binding(get: { resolvedFeatures[feature.key] ?? draft.isFeatureEnabled(feature) }, set: { change(.init(kind: "feature", name: feature.key, enabled: $0)) }))
+                            .capabilityAnchor("feature:" + feature.key)
+                        if let subtitle = agentFeatureSubtitle(feature.key, personal: personal) {
+                            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
                 }
             }
         }
@@ -439,10 +446,27 @@ func agentFeatureName(_ key: String) -> String {
     case "intelligent_ui": return L("交互式回复", "Intelligent UI")
     case "plugin_management": return L("插件开发与管理", "Plugin development & management")
     case "task_graph": return L("任务图", "Task graphs")
+    case "proactive_planning": return L("主动筹划", "Proactive planning")
     case "dreaming": return L("Dreaming · 自动整理记忆", "Dreaming · Automatic memory organization")
     case "cron_scheduling": return L("定时任务", "Scheduled jobs")
     case "heartbeat": return L("心跳", "Heartbeat")
     default: return key
+    }
+}
+
+func agentFeatureSubtitle(_ key: String, personal: Bool = false) -> String? {
+    switch key {
+    case "proactive_planning":
+        return L("在对话安静后静默复盘目标进展、建立「待拍板」提议卡，并在合适时机按需提供准备要点。关闭后停止自动复盘与提议立卡；你明确交办的任务与自行设定的定时提醒照常运行。",
+                 "Silently reviews goal progress after quiet periods, proposes candidate cards, and prepares notes when helpful. Turning this off stops automatic quiet reviews and proposals; tasks and reminders you explicitly set continue to run.")
+    case "task_graph" where personal:
+        return L("承载单卡事项与长线目标脉络（主动筹划开启时需保持启用）。",
+                 "Powers single-card tasks and multi-stage goal graphs (required while Proactive planning is on).")
+    case "dreaming":
+        return L("定期更新长期记忆。关闭后仍可读取已有记忆，也可请求手动整理。",
+                 "Periodically update long-term memory. When off, existing memories remain readable and you can request manual organization.")
+    default:
+        return nil
     }
 }
 

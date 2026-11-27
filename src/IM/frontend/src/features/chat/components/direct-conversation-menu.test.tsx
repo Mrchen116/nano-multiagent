@@ -77,4 +77,15 @@ describe("private conversation menu", () => {
     expect(rename).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("supports personal pin/mute preferences without rename or config on read-only private-agent chats", async () => {
+    const updatePref = vi.fn().mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<DirectConversationMenu title="Private Colleague Agent" isPinned={false} isMuted={true} onPreferenceChange={updatePref} />);
+    await user.click(screen.getByRole("button", { name: "Conversation menu" }));
+    expect(screen.queryByRole("menuitem", { name: "Rename" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Agent configuration" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("menuitemcheckbox", { name: /Pin chat/ }));
+    expect(updatePref).toHaveBeenCalledWith({ is_pinned: true });
+  });
 });

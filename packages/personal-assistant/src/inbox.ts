@@ -94,6 +94,19 @@ export class InboxStore {
   skipped(input:RelayInput):boolean {
     return !!this.db.prepare('SELECT 1 FROM scope_cancelled WHERE agent_id=? AND message_id=?').get(input.agent_id,input.message.id);
   }
+  /** Clear stale `owner_internal` snapshot metadata on unconsumed entries when an external member joins a group. */
+  markConversationExternal(agent:string,conversationId:string):void {
+    const base=splitThreadTarget(conversationId).base;
+    const rows=this.db.prepare('SELECT seq,payload FROM inbox WHERE agent_id=? AND consumed=0 AND (target=? OR target LIKE ?)').all(agent,base,`${base}:%`) as {seq:number;payload:string}[];
+    const update=this.db.prepare('UPDATE inbox SET payload=? WHERE seq=?');
+    for(const row of rows) {
+      const parsed=JSON.parse(row.payload) as RelayInput;
+      if(parsed.metadata?.owner_internal===true) {
+        parsed.metadata.owner_internal=false;
+        update.run(JSON.stringify(parsed),row.seq);
+      }
+    }
+  }
   /** Complete a scope-filtered relay without creating an Inbox item or a delivery badge. */
   skip(input:RelayInput):void {
     this.db.prepare('INSERT OR IGNORE INTO scope_cancelled VALUES(?,?)').run(input.agent_id,input.message.id);
@@ -131,7 +144,11 @@ export class InboxStore {
         const input=JSON.parse(row.payload) as RelayInput;
         if(allowed(input)){keep.set(row.seq,row);continue;}
         this.db.prepare('INSERT OR IGNORE INTO scope_cancelled VALUES(?,?)').run(agent,input.message.id);
-        this.db.prepare('UPDATE inbox SET consumed=1,review_event_delivered=1 WHERE seq=?').run(row.seq);
+        this.db.prepare(`UPDATE inbox SET consumed=1,review_event_delivered=1,
+          review_state=CASE WHEN review_state IN ('pending','reviewing') THEN 'rejected' ELSE review_state END,
+          review_error_code=CASE WHEN review_state IN ('pending','reviewing') THEN 'collaboration_scope_restricted' ELSE review_error_code END,
+          review_reason=CASE WHEN review_state IN ('pending','reviewing') THEN 'Retired by collaboration scope' ELSE review_reason END
+          WHERE seq=?`).run(row.seq);
         this.finishControl(input);
       }
       const save=(key:string,edit:InboxRestriction,coverage:unknown)=>this.db.prepare(
@@ -615,6 +632,10 @@ export class InboxStore {
   private entries(agent: string, target?: string): Entry[] {
     return this.db.prepare("SELECT * FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND (? IS NULL OR target=?) ORDER BY seq").all(agent, target ?? null, target ?? null) as unknown as Entry[];
   }
+  /** Count unread admitted conversational Inbox entries (excluding passive task_graph system notices) for sync deltas. */
+  unreadEntryCount(agent: string): number {
+    return Number((this.db.prepare("SELECT count(*) AS n FROM inbox WHERE agent_id=? AND consumed=0 AND review_state='admitted' AND coalesce(json_extract(payload,'$.metadata.personal_unclassified'),0)=0 AND coalesce(json_extract(payload,'$.message.system_notice.kind'),'')!='task_graph'").get(agent) as { n: number } | undefined)?.n ?? 0);
+  }
   /** Select full original Task notices for direct native context, not a duplicate private snapshot. */
   prepareSystemContext(agentId:string,sessionId:string):{inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[] {
     return this.entries(agentId).flatMap(row=>this.systemContextEntry(agentId,row));
@@ -666,6 +687,7 @@ export class InboxStore {
     const instants = new Map<string,number>();
     for (const row of entries) {
       const input = JSON.parse(row.payload) as RelayInput;
+      if ((input.message.system_notice as { kind?: string } | undefined)?.kind === 'task_graph') continue;
       const meta=input.metadata;
       const { base, root } = splitThreadTarget(row.target);
       const source:Source = sources.get(row.target) ?? { target: row.target, ...(root ? { parent_target: base } : {}), name: this.targetName(agent,row.target,input), unread: 0, mentions: 0,

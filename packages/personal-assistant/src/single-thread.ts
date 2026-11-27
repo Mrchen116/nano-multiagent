@@ -3,7 +3,7 @@ import type { RuntimeInput } from '@nano/product-contracts/runtime-rpc';
 import type { ChatStreamFact, ChatStreamReceipt, ChatTurnStart, AgentConfiguration, RelayInput, RuntimeEvent, RuntimePort, SessionBinding, ModelRunProjection } from '@nano/product-contracts';
 import type { ProtocolFrame } from '@nano/channels';
 import { RelayDeliveryError } from '@nano/channels';
-import { chatDelivery, controlText, needsAttention } from './attention.js';
+import { chatDelivery, controlText, isOwnerDirectMessage, needsAttention } from './attention.js';
 import { SessionControls, sessionControl } from './session-controls.js';
 import { NodeStore } from './store.js';
 import { CHAT_BACKGROUND_DELAY_MS, formatLocalTime, isRasterImageMime, projectChatReplyContext, withInteractionContext } from '@nano/product-contracts';
@@ -78,7 +78,7 @@ export class SingleThread {
       const binding = options.store.bindingForSession(data.sessionId);
       if (!binding || options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') return;
       if ((method === 'session.event' && data.event) || method === 'model.changed') this.reconcile(data.sessionId).catch(options.onError);
-      if (method === 'approval.request') this.approval(value as Approval).catch(options.onError);
+      if (method === 'approval.request' && !('worker' in data)) this.approval(value as Approval).catch(options.onError);
       if (method === 'approval.resolved') this.resolveApproval(value as { requestId: string; outcome: string }).catch(options.onError);
       if (method === 'session.liveness') Promise.all(options.store.activeDeliveries(data.sessionId).flatMap(delivery => delivery.messageId ? [this.delta({kind: 'run_heartbeat', message_id: delivery.messageId, source: 'dsh-agent'})] : [])).catch(options.onError);
       if (method === 'session.stream') this.stream(value as Stream);
@@ -106,7 +106,34 @@ export class SingleThread {
     const blocked = (input:RelayInput) => !input.metadata.runtime_input_id && !input.metadata.origin &&
       chatDelivery(input, {...config, collaborationScope:'owner_only'}, this.options.ownerId) === 'skip';
     this.options.store.restrictControls(agentId,blocked);
-    return config.mode === 'single_thread' ? this.options.store.restrictChat(agentId,blocked) : [];
+    const changes = config.mode === 'single_thread' ? this.options.store.restrictChat(agentId,blocked) : [];
+    if (config.mode === 'single_thread') this.schedule({...config, collaborationScope:'owner_only'});
+    return changes;
+  }
+
+  /** Withdraw queued inputs belonging to specific conversations whose participant access was revoked. */
+  revokeConversations(agentId: string, conversationIds: readonly string[]) {
+    if (!conversationIds.length) return [];
+    const revokedSet = new Set(conversationIds.flatMap(cid => [cid, this.options.store.canonicalConversation(agentId, cid)]));
+    this.scopeChanges.set(agentId, (this.scopeChanges.get(agentId) ?? 0) + 1);
+    const config = this.options.agents.find(agent => agent.agentId === agentId);
+    for (const cid of revokedSet) {
+      const key = JSON.stringify([agentId, cid]);
+      clearTimeout(this.timers.get(key)?.timer);
+      this.timers.delete(key);
+    }
+    const blocked = (input: RelayInput) =>
+      !input.metadata.runtime_input_id && !input.metadata.origin &&
+      (revokedSet.has(input.conversation_id) || revokedSet.has(this.options.store.canonicalConversation(agentId, input.conversation_id)));
+    this.options.store.restrictControls(agentId, blocked);
+    const changes = config?.mode === 'single_thread' ? this.options.store.restrictChat(agentId, blocked) : [];
+    if (config?.mode === 'single_thread') this.schedule(config);
+    return changes;
+  }
+
+  /** Clear stale `owner_internal` metadata when an external member joins a group. */
+  externalizeConversation(agentId: string, conversationId: string): void {
+    this.options.store.markConversationExternal(agentId, conversationId);
   }
 
   /** Settle pending team inputs whose provider handoff was prevented. */
@@ -132,7 +159,7 @@ export class SingleThread {
   }
 
   private schedule(config:AgentConfiguration, externalOnly = false, chatId?:string) {
-    if (this.stopping || config.collaborationScope === 'owner_only' || !this.options.store.lifecycle.allowed(config.agentId)) return;
+    if (this.stopping || !this.options.store.lifecycle.allowed(config.agentId)) return;
     for (const {conversationId,dueAt} of this.options.store.groupDeadlines(config.agentId,chatId)) {
       if (externalOnly && !conversationId.startsWith('external:')) continue;
       const key = JSON.stringify([config.agentId,conversationId]);
@@ -143,7 +170,12 @@ export class SingleThread {
         void this.serializeChat(config.agentId, conversationId, async () => {
           const {store} = this.options;
           const current = this.options.agents.find(agent => agent.agentId === config.agentId);
-          if (this.stopping || current?.mode !== 'single_thread' || current.collaborationScope === 'owner_only' || !store.lifecycle.allowed(config.agentId)) return;
+          if (this.stopping || current?.mode !== 'single_thread' || !store.lifecycle.allowed(config.agentId)) return;
+          if (current.collaborationScope === 'owner_only') {
+            store.restrictChat(current.agentId, item =>
+              store.canonicalConversation(current.agentId, item.conversation_id) === store.canonicalConversation(current.agentId, conversationId)
+              && chatDelivery(item, current, this.options.ownerId) === 'skip');
+          }
           const canonical = store.canonicalConversation(config.agentId,conversationId);
           const due = store.groupDeadlines(config.agentId,canonical)[0];
           if (!due || due.dueAt > Date.now()) return;
@@ -209,7 +241,7 @@ export class SingleThread {
       await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: 'sent' });
       return;
     }
-    const ownerDirect = chatDelivery(input,{...config,collaborationScope:'owner_only'},this.options.ownerId) !== 'skip';
+    const ownerDirect = isOwnerDirectMessage(input, this.options.ownerId);
     const binding = this.chatBinding(config,input.conversation_id,ownerDirect);
     if (chatCommand) {
       const commandId = `${input.agent_id}:${input.message.id}`;
@@ -654,19 +686,29 @@ export class SingleThread {
         store.advanceTopicDelivery(delivery.operationId,successor);
         delivery = store.delivery(sessionId,turn)!;
       }
-      if (!delivery.messageId) {
-        store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
-        // A replacement and its predecessor have distinct stable IM identities.
-        const baseKey = store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId;
-        const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
-          ...(threadRoot ? {thread_root_message_id:threadRoot} : {}),
-          agent_id: binding.agentId, idempotency_key: !wakeRoot && joinedRequest ? `${baseKey}:topic` : baseKey,
-          background_returns: Array.isArray(input.input.metadata.background_returns) ? input.input.metadata.background_returns : undefined,
-          external_reply: externalReply ?? undefined });
-        const messageId = ack.payload.message_id;
-        if (binding.conversationId.startsWith('owner:') && typeof ack.payload.conversation_id === 'string') Object.assign(binding, store.adoptConversation(binding, ack.payload.conversation_id));
-        store.updateDelivery(delivery.operationId, 'sending', messageId, delivery.content);
-        delivery = store.delivery(sessionId, turn)!;
+      try {
+        if (!delivery.messageId) {
+          store.updateDelivery(delivery.operationId, 'sending', null, delivery.content);
+          // A replacement and its predecessor have distinct stable IM identities.
+          const baseKey = store.command(`model-placeholder:${run?.id}`) ? `${delivery.operationId}:fallback` : delivery.operationId;
+          const ack = await this.delta({ kind: 'turn_start', ...(binding.conversationId.startsWith('owner:') ? { to_user_id: binding.ownerId } : { conversation_id: binding.conversationId }),
+            ...(threadRoot ? {thread_root_message_id:threadRoot} : {}),
+            agent_id: binding.agentId, idempotency_key: !wakeRoot && joinedRequest ? `${baseKey}:topic` : baseKey,
+            background_returns: Array.isArray(input.input.metadata.background_returns) ? input.input.metadata.background_returns : undefined,
+            external_reply: externalReply ?? undefined });
+          const messageId = ack.payload.message_id;
+          if (binding.conversationId.startsWith('owner:') && typeof ack.payload.conversation_id === 'string') Object.assign(binding, store.adoptConversation(binding, ack.payload.conversation_id));
+          store.updateDelivery(delivery.operationId, 'sending', messageId, delivery.content);
+          delivery = store.delivery(sessionId, turn)!;
+        }
+      } catch (error) {
+        if (error instanceof RelayDeliveryError && error.delivery === 'rejected'
+          && /collaboration_scope_restricted|agent_private|conversation_id not found/.test(`${error.code ?? ''} ${error.message}`)) {
+          store.updateDelivery(delivery.operationId, 'failed', null, '');
+          await this.receipt(input.input, 'failed');
+          continue;
+        }
+        throw error;
       }
       const messageId = delivery.messageId;
       if (!messageId) throw new Error('Output delivery has no message identity');
@@ -723,6 +765,12 @@ export class SingleThread {
         elapsed_ms: end.time - (events.find(event => event.type === 'turn/start' && event.data.turn === turn)?.time ?? end.time),
         resolved_model: modelAt(events, end.seq),
       }); } catch (error) {
+        if (error instanceof RelayDeliveryError && error.delivery === 'rejected'
+          && /collaboration_scope_restricted|agent_private|conversation_id not found/.test(`${error.code ?? ''} ${error.message}`)) {
+          store.updateDelivery(delivery.operationId, 'failed', delivery.messageId ?? null, '');
+          await this.receipt(input.input, 'failed');
+          continue;
+        }
         // The external adapter has already persisted and projected its uncertain platform result.
         if (delivery.messageId?.startsWith('external:') && error instanceof RelayDeliveryError && error.delivery === 'unknown') store.updateDelivery(delivery.operationId, 'unknown', delivery.messageId, text);
         throw error;

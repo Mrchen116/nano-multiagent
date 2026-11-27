@@ -24,6 +24,7 @@ struct PersonalAssistantSetup: View {
     @State private var nodeID = ""
     @State private var name = L("小助理", "My assistant")
     @State private var variant = 0
+    @State private var collaborationScope = "team"
     @State private var setup: ModelState?
     @State private var error: String?
     @State private var creationError: String?
@@ -111,6 +112,7 @@ struct PersonalAssistantSetup: View {
         .onAppear { restoreDraft() }
         .onChange(of: name) { saveDraft() }
         .onChange(of: variant) { saveDraft() }
+        .onChange(of: collaborationScope) { saveDraft() }
         .onChange(of: nodeID) { saveDraft() }
         .task(id: nodeID) { setup = nil; await readModel() }
         .task(id: phase) {
@@ -141,6 +143,18 @@ struct PersonalAssistantSetup: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(L("助手名称", "Assistant name")).font(.caption.weight(.medium)).foregroundStyle(NanoTheme.muted)
                     TextField(L("助手名称", "Assistant name"), text: $name).font(.title3.bold()).submitLabel(.done)
+                }.padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L("协作范围", "Collaboration scope")).font(.caption.weight(.medium)).foregroundStyle(NanoTheme.muted)
+                    Picker(L("协作范围", "Collaboration scope"), selection: $collaborationScope) {
+                        Text(L("团队公开", "Team public")).tag("team")
+                        Text(L("私有（仅自己与名下助手）", "Private")).tag("owner_only")
+                    }.pickerStyle(.segmented)
+                    Text(collaborationScope == "owner_only"
+                         ? L("对团队同事隐藏且不对外发言；仍静默观察你允许查看的聊天。", "Hidden from teammates; still silently observes allowed chats.")
+                         : L("团队同事可见并可发起协作；随时可在设置中改为私有。", "Visible to teammates; change to Private anytime in settings."))
+                        .font(.caption2).foregroundStyle(NanoTheme.muted).fixedSize(horizontal: false, vertical: true)
                 }.padding(.horizontal, 14).padding(.vertical, 10)
                     .background(NanoTheme.surface, in: RoundedRectangle(cornerRadius: 12))
             }
@@ -222,16 +236,21 @@ struct PersonalAssistantSetup: View {
         requestKey = saved?["key"] as? String ?? requestKey
         nodeID = saved?["node"] as? String ?? nodeID
         variant = saved?["variant"] as? Int ?? PortraitPreview.defaultVariant(for: user.id)
+        if let scope = saved?["scope"] as? String, ["team", "owner_only"].contains(scope) { collaborationScope = scope }
     }
     private func saveDraft() {
         guard boundChat == nil else { return }
-        UserDefaults.standard.set(["key": requestKey, "name": name, "node": nodeID, "variant": variant], forKey: draftKey)
+        UserDefaults.standard.set(["key": requestKey, "name": name, "node": nodeID, "variant": variant, "scope": collaborationScope], forKey: draftKey)
     }
     private func refresh() async {
         do {
             let state: NativePersonalAgentState = try await client.get("/im/v1/personal-agent")
             try Task.checkCancellation()
             personal = state
+            if let existingScope = state.binding?.collaboration_scope ?? state.creation?["collaboration_scope"].stringValue,
+               ["team", "owner_only"].contains(existingScope) {
+                collaborationScope = existingScope
+            }
             if boundChat != nil { error = nil; UserDefaults.standard.removeObject(forKey: draftKey); return }
             let devices: AssistantOnboarding = try await client.get("/im/v1/onboarding")
             try Task.checkCancellation()
@@ -256,10 +275,12 @@ struct PersonalAssistantSetup: View {
         defer { busy = false }
         let binding = personal?.binding
         let key = personal?.creation?["request_key"].stringValue ?? requestKey
+        let effectiveScope = binding?.collaboration_scope ?? personal?.creation?["collaboration_scope"].stringValue ?? collaborationScope
         var payload: [String: JSONValue] = [
             "node_id": .string(binding?.node_id ?? nodeID),
             "display_name": .string(binding?.display_name ?? name.trimmingCharacters(in: .whitespacesAndNewlines)),
-            "request_key": .string(key)
+            "request_key": .string(key),
+            "collaboration_scope": .string(effectiveScope)
         ]
         if binding == nil || key == requestKey { payload["avatar_variant"] = .number(Double(variant)) }
         do {
