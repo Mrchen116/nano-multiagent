@@ -11,7 +11,7 @@ use crate::local_node::{
     run_local_admin_sync, stop_all_managed_local_nodes, sync_seed_desktop_defaults,
 };
 use crate::notifications::{
-    clear_delivered_notifications, spawn_notification_daemon, ActiveDaemonSession, DesktopUiBridge, NotificationCenterState,
+    clear_stale_notifications, spawn_notification_daemon, ActiveDaemonSession, DesktopUiBridge, NotificationCenterState,
 };
 use axum::body::Body;
 use axum::extract::ws::{Message as AxumWsMessage, WebSocket, WebSocketUpgrade};
@@ -104,7 +104,7 @@ impl HostSharedState {
                 _ => true,
             };
             if changed {
-                clear_delivered_notifications(&self.paths);
+                clear_stale_notifications(&self.paths, None);
                 self.ui_bridge.clear_session_navigation();
                 self.notification_center.clear_conversations(self.ui_bridge.as_ref());
                 self.notification_center.set_ws_connected(false);
@@ -285,16 +285,9 @@ pub fn handle_deep_link_url(state: &HostSharedState, raw_url: &str) {
             state.ui_bridge.notify_host_context_updated();
         }
         DeepLinkConnectOutcome::NotConnectUrl => {
-            if let Ok(Some(route)) = crate::config::parse_deep_link_route(raw_url) {
-                let scope = url::Url::parse(raw_url).ok().and_then(|url| {
-                    url.query_pairs().find(|(k, _)| k == "notification_scope").map(|(_, v)| v.into_owned())
-                });
-                if let Some(scope) = scope {
-                    let active = state.session_tx.borrow();
-                    if active.as_ref().is_some_and(|session| session.notification_scope() == scope) {
-                        state.ui_bridge.activate_route(&route);
-                    }
-                } else {
+            if let Ok(Some((scope, route))) = crate::config::parse_notification_link(raw_url) {
+                let active = state.session_tx.borrow();
+                if active.as_ref().is_some_and(|session| session.notification_scope() == scope) {
                     state.ui_bridge.activate_route(&route);
                 }
             } else {
@@ -353,7 +346,7 @@ pub async fn start_host_server_full(
 
     // The retired diagnostic log contains private previews and has no product reader.
     match fs::remove_file(paths.notifications_log_path()) {
-        Ok(()) => clear_delivered_notifications(&paths),
+        Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(format!("Cannot remove legacy desktop notification previews: {e}")),
     }
@@ -367,6 +360,7 @@ pub async fn start_host_server_full(
             session: s,
         });
 
+    clear_stale_notifications(&paths, initial_daemon_session.as_ref());
     let (session_tx, session_rx) = watch::channel(initial_daemon_session);
     let (session_epoch_tx, _) = watch::channel(host_cfg.context_epoch);
     let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -2034,9 +2028,9 @@ async fn handle_im_http_proxy(
         && (method == Method::POST || method == Method::PATCH)
         && uri.path().starts_with("/im/v1/conversations/")
     {
-        let session = notification_session.borrow();
-        if session.is_some() && !session.has_changed() {
-            if let Ok(parsed) = serde_json::from_slice::<Value>(&bytes) {
+        if let Ok(parsed) = serde_json::from_slice::<Value>(&bytes) {
+            let session = notification_session.borrow();
+            if session.is_some() && !session.has_changed() {
                 state.notification_center.upsert_conversation(&parsed, state.ui_bridge.as_ref());
             }
         }
@@ -2545,6 +2539,7 @@ mod tests {
 
         persist_auth_session_from_im(&host.state, origin, &login("B"), None).unwrap();
         handle_deep_link_url(&host.state, link.as_str());
+        handle_deep_link_url(&host.state, "crewden-desktop://open?route=%2Fchat%2Flegacy-A");
         host.state.with_notification_session(&a, || panic!("late A notification"));
         assert!(ui.pending_route.lock().unwrap().is_none());
         assert!(host.state.notification_center.snapshot_maps().1.is_empty());

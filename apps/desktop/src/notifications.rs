@@ -915,9 +915,10 @@ pub(crate) mod macos_notify {
     use crate::host_server::{handle_deep_link_url, HostSharedState};
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, ProtocolObject};
-    use objc2::{define_class, msg_send, ClassType};
+    use objc2::{define_class, msg_send, sel, ClassType};
+    use objc2_app_kit::{NSApplicationDidFinishLaunchingNotification, NSApplicationLaunchUserNotificationKey};
     use objc2_foundation::{
-        NSBundle, NSDictionary, NSObject, NSObjectProtocol, NSString, NSUserNotification,
+        NSBundle, NSDictionary, NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol, NSString, NSUserNotification,
         NSUserNotificationCenter, NSUserNotificationCenterDelegate,
     };
     use std::sync::{OnceLock, RwLock, Weak};
@@ -930,6 +931,20 @@ pub(crate) mod macos_notify {
         #[name = "CrewdenDesktopNotificationDelegate"]
         struct CrewdenNotificationDelegate;
 
+        impl CrewdenNotificationDelegate {
+            // AppKit supplies cold clicks in the launch notification before regular activations.
+            #[unsafe(method(applicationLaunched:))]
+            fn application_launched(&self, launch: &NSNotification) {
+                if let Some(info) = launch.userInfo() {
+                    if let Some(value) = info.objectForKey(unsafe { NSApplicationLaunchUserNotificationKey }) {
+                        if let Some(notification) = value.downcast_ref::<NSUserNotification>() {
+                            activate(notification);
+                        }
+                    }
+                }
+            }
+        }
+
         unsafe impl NSObjectProtocol for CrewdenNotificationDelegate {}
 
         unsafe impl NSUserNotificationCenterDelegate for CrewdenNotificationDelegate {
@@ -939,16 +954,7 @@ pub(crate) mod macos_notify {
                 center: &NSUserNotificationCenter,
                 notification: &NSUserNotification,
             ) {
-                if let Some(info) = notification.userInfo() {
-                    let key = NSString::from_str("notification_link");
-                    if let Some(value) = info.objectForKey(&key) {
-                        if let Some(link) = value.downcast_ref::<NSString>() {
-                            if let Some(host) = HOST.get().and_then(|h| h.read().unwrap().upgrade()) {
-                                handle_deep_link_url(&host, &link.to_string());
-                            }
-                        }
-                    }
-                }
+                activate(notification);
                 center.removeDeliveredNotification(notification);
             }
         }
@@ -960,9 +966,35 @@ pub(crate) mod macos_notify {
         }
     }
 
-    pub fn clear_delivered() {
-        if NSBundle::mainBundle().bundleIdentifier().is_some() {
-            NSUserNotificationCenter::defaultUserNotificationCenter().removeAllDeliveredNotifications();
+    fn notification_link(notification: &NSUserNotification) -> Option<String> {
+        let value = notification.userInfo()?.objectForKey(&NSString::from_str("notification_link"))?;
+        Some(value.downcast_ref::<NSString>()?.to_string())
+    }
+
+    fn activate(notification: &NSUserNotification) {
+        if let (Some(link), Some(host)) = (
+            notification_link(notification),
+            HOST.get().and_then(|h| h.read().unwrap().upgrade()),
+        ) {
+            handle_deep_link_url(&host, &link);
+        }
+    }
+
+    pub fn clear_stale(scope: Option<&str>) {
+        if NSBundle::mainBundle().bundleIdentifier().is_none() {
+            return;
+        }
+        let center = NSUserNotificationCenter::defaultUserNotificationCenter();
+        if scope.is_none() {
+            center.removeAllDeliveredNotifications();
+            return;
+        }
+        let delivered = center.deliveredNotifications();
+        for i in 0..delivered.count() {
+            let notification = delivered.objectAtIndex(i);
+            if !super::matches_notification_scope(notification_link(&notification).as_deref(), scope) {
+                center.removeDeliveredNotification(&notification);
+            }
         }
     }
 
@@ -976,6 +1008,11 @@ pub(crate) mod macos_notify {
         *HOST.get_or_init(RwLock::default).write().unwrap() = host;
         MAC_DELEGATE_INIT.get_or_init(|| {
             let delegate = CrewdenNotificationDelegate::new();
+            unsafe {
+                NSNotificationCenter::defaultCenter().addObserver_selector_name_object(
+                    &delegate, sel!(applicationLaunched:), Some(NSApplicationDidFinishLaunchingNotification), None,
+                );
+            }
             let proto = ProtocolObject::from_retained(delegate);
             let center = NSUserNotificationCenter::defaultUserNotificationCenter();
             unsafe {
@@ -1067,10 +1104,26 @@ mod windows_notify {
         });
     }
 
-    pub fn clear_delivered() {
-        if let Ok(history) = ToastNotificationManager::History() {
-            let _ = history.ClearWithId(&HSTRING::from(WINDOWS_AUMID));
+    pub fn clear_stale(scope: Option<&str>) -> windows::core::Result<()> {
+        let id = HSTRING::from(WINDOWS_AUMID);
+        let history = ToastNotificationManager::History()?;
+        if scope.is_some() {
+            let delivered = history.GetHistoryWithId(&id)?;
+            let mut stale = false;
+            for i in 0..delivered.Size()? {
+                let toast = delivered.GetAt(i)?;
+                let link = toast.Content()?.DocumentElement()?.GetAttribute(&HSTRING::from("launch"))?;
+                if !super::matches_notification_scope(Some(&link.to_string_lossy()), scope) {
+                    stale = true;
+                    break;
+                }
+            }
+            if !stale {
+                return Ok(());
+            }
         }
+        // Legacy toasts have no tag. Windows can only withdraw them by clearing this app's history.
+        history.ClearWithId(&id)
     }
 
     pub fn send_native_toast(paths: &DesktopPaths, title: &str, body: &str, link: &str) -> bool {
@@ -1099,15 +1152,23 @@ mod windows_notify {
     }
 }
 
-pub(crate) fn clear_delivered_notifications(paths: &DesktopPaths) {
+fn matches_notification_scope(link: Option<&str>, expected: Option<&str>) -> bool {
+    link.and_then(|raw| crate::config::parse_notification_link(raw).ok().flatten())
+        .is_some_and(|(scope, _)| Some(scope.as_str()) == expected)
+}
+
+pub(crate) fn clear_stale_notifications(paths: &DesktopPaths, current: Option<&ActiveDaemonSession>) {
     // Isolated hosts must not modify the installed application's Notification Center.
     if paths.is_isolated_autostart() {
         return;
     }
+    let scope = current.map(ActiveDaemonSession::notification_scope);
     #[cfg(target_os = "macos")]
-    macos_notify::clear_delivered();
+    macos_notify::clear_stale(scope.as_deref());
     #[cfg(target_os = "windows")]
-    windows_notify::clear_delivered();
+    if let Err(e) = windows_notify::clear_stale(scope.as_deref()) {
+        crate::config::append_host_log(Some(paths), "WARN", &format!("Could not clear desktop toast history: {e}"));
+    }
 }
 
 fn deliver_os_notification(

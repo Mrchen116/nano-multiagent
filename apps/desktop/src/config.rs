@@ -251,8 +251,8 @@ pub fn parse_deep_link_origin(raw: &str) -> Result<Option<String>, String> {
     }
 }
 
-/// Parse `crewden-desktop://open?route=<encoded>` safely for OS notification click routing.
-pub fn parse_deep_link_route(raw: &str) -> Result<Option<String>, String> {
+/// Extract the account/service scope and app-relative destination of a native notification.
+pub(crate) fn parse_notification_link(raw: &str) -> Result<Option<(String, String)>, String> {
     let parsed = Url::parse(raw.trim()).map_err(|_| "Malformed crewden-desktop:// URL".to_string())?;
     if parsed.scheme() != "crewden-desktop" {
         return Ok(None);
@@ -261,16 +261,23 @@ pub fn parse_deep_link_route(raw: &str) -> Result<Option<String>, String> {
     if action != "open" && parsed.path().trim_matches('/') != "open" {
         return Ok(None);
     }
-    for (k, v) in parsed.query_pairs() {
-        if k == "route" {
-            let trimmed = v.trim();
-            if !trimmed.starts_with('/') || trimmed.starts_with("//") || trimmed.chars().any(|c| c.is_control()) {
-                return Err("Deep-link route must be a safe app-relative path".to_string());
+    let mut scope = None;
+    let mut route = None;
+    for (key, value) in parsed.query_pairs() {
+        match key.as_ref() {
+            "notification_scope" => scope = Some(value.into_owned()),
+            "route" => {
+                let path = value.trim();
+                if !path.starts_with('/') || path.starts_with("//") || path.contains('\\') || path.chars().any(char::is_control) {
+                    return Err("Deep-link route must be a safe app-relative path".to_string());
+                }
+                route = Some(path.to_owned());
             }
-            return Ok(Some(trimmed.to_string()));
+            _ => {}
         }
     }
-    Ok(None)
+    // Legacy Windows toasts carried a bare route. Its original account cannot be recovered.
+    Ok(scope.zip(route))
 }
 
 pub fn current_desktop_platform_id() -> &'static str {
@@ -795,13 +802,14 @@ mod tests {
         )
         .is_err());
 
-        let route = parse_deep_link_route(
-            "crewden-desktop://open?route=%2Fsettings%2Fagents%2Feng-1%3Fview%3Dwork",
+        let target = parse_notification_link(
+            "crewden-desktop://open?notification_scope=test&route=%2Fsettings%2Fagents%2Feng-1%3Fview%3Dwork",
         )
         .unwrap();
-        assert_eq!(route.as_deref(), Some("/settings/agents/eng-1?view=work"));
-        assert!(parse_deep_link_route("crewden-desktop://open?route=%2F%2Fevil.example").is_err());
-        assert!(parse_deep_link_route("crewden-desktop://open?route=https%3A%2F%2Fevil.example").is_err());
+        assert_eq!(target, Some(("test".to_owned(), "/settings/agents/eng-1?view=work".to_owned())));
+        assert_eq!(parse_notification_link("crewden-desktop://open?route=%2Fchat%2Fold").unwrap(), None);
+        assert!(parse_notification_link("crewden-desktop://open?route=%2F%2Fevil.example").is_err());
+        assert!(parse_notification_link("crewden-desktop://open?route=https%3A%2F%2Fevil.example").is_err());
     }
 
     #[test]
