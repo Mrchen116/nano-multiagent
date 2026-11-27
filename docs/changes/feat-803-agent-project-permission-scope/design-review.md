@@ -200,3 +200,73 @@
 - **`R1-W5`**: `accepted` — 已在 `design.md` `UX Grounding`、`specs/im/agents-nodes.md`、`specs/im/personal-agent.md` 与 `specs/im/ios-client.md` 按 `PA`、`global` 普通助手、`single_thread` 普通助手三类精确区分放宽确认文案，并补齐 iOS `AgentConfigView.swift`、`NewChatView.swift` 与 `ChatInfoView.swift`（含 `409` 跨群互通确认重试与 L94 `agent_project_restricted` 置顶/免打扰豁免）。
 - **`R1-R1`**: `accepted` — 已纳入 `design.md` 关键决策 1 与风险章节：在 `BEGIN IMMEDIATE` 外先设 `PRAGMA foreign_keys=OFF`，在独占事务内重建表并同步重建依赖视图 `owner_direct_agent_messages` 与触发器 `agent_lifecycle_created`，校验 `PRAGMA foreign_key_check` 后提交并恢复 `PRAGMA foreign_keys=ON`。
 - **`R1-R2`**: `accepted` — 已在 `design.md` `Runbook for Reviewer` 说明三角色（主人 A + 同项目成员 B + 圈外同事 C）验证选型及与 `--profile daily` 的配合方式。
+
+
+## Round 2
+
+### Metadata
+
+- `started_at`: 2026-11-27T20:38:41+09:00
+- `completed_at`: 2026-11-27T21:03:00+09:00
+- `duration`: ~24m (wall clock incl. tool wait; active review ~5m)
+- `reviewer`: Gate 2 `change-design-reviewer` (independent subagent, combined with `agent-context-review` & `frontend-experience-review` design-mode checks)
+- `target`: `feat-803-agent-project-permission-scope` (`unit/feat-803-agent-project-permission-scope` @ `fb43ca6be`, diff `08c9df59d..fb43ca6be`)
+- `review_mode`: `delta`
+- `mode_reason`: `08c9df59d..fb43ca6be` 为围绕 Round 1 问题闭环的有界设计与契约增量（补齐 Agent 侧 `project` 访问谓词、纯私有域 `args.task` 与跳过 `decodePersonalImages` 快路径、按会话撤销代数 `revokedConversations`、非主人私密群扩圈 `403 project_agent_owner_required`、新增 `specs/gateway/external-channels.md` 及修复其余 delta-spec），核心架构边界、职责划分与单里程碑拓扑未变。
+- `retained_from`: `Round 1`（未变更的 `specs/im/{spec,auth-tenancy}.md`、`specs/gateway/global-agent.md`、披露审核只读工具面与多租户空间不变量沿用 Round 1 核查证据）
+
+### Verdict
+
+**Approved**（`0 CRITICAL / 0 WARNING`，另有 `1` 条可选实施提示 `Recommendation`）
+
+### Coverage & Evidence (Delta `08c9df59d..fb43ca6be`)
+
+- **变更范围与波及面核查**：
+  - 逐行审阅了 `git diff 08c9df59d..fb43ca6be`（涉及 `spec.md`、`design.md`、新增 `specs/gateway/external-channels.md` 及更新 9 份既有 delta-spec），并对照 `packages/dsh-integration/src/{index.ts,chat-scope.ts}`、`apps/node/src/main.ts`、`apps/im-server/src/{control.ts,collaboration.ts,messaging.ts,personal-actions.ts}` 与 `docs/specs/**` 复核了新增决策的上下游影响。
+  - 运行 `./scripts/docs-check` 通过（`257 maintained Markdown sources, 74 required routes`），并全量脚本比对全部 **12 份** `specs/**` delta-spec 与 `docs/specs/**` canonical Requirement/Scenario 标题与正文，确认无遗漏或误删既有 Scenario、无跨文档契约冲突。
+- **Agent Context 与前端/原生体验增量复核**：
+  - `agent-context-review`：`personal-security.ts` 主提示词、`global-mode.ts` `download_attachment` 描述、`nano-agent-creation/SKILL.md` 与 `personal-agent-creation.ts` `options` 说明在 Before/After 清单与退出标准中已全部闭合，静态定义不影响会话内缓存前缀。
+  - `frontend-experience-review`：从 `owner_only` 放宽至 `project`/`team` 的确认提示已按 `PA`、`global` 普通助手、`single_thread` 普通助手准确拆分，Web 与 iOS 的建群锁私密提示、非主人扩圈禁用提示、`409 project_agent_cross_group_confirmation_required` 二次确认重试及 `ChatInfoView.swift` 置顶/免打扰豁免均已完整对齐。
+
+### Historical Issue Closure
+
+- **`R1-C1` (`CRITICAL`)**: **closed**
+  - *Author Resolution*: `accepted` — 补齐 `collaboration_scope === 'project'` 的 Agent 侧 `canAgentAccessConversation` 及 `conversationRowAccess(isAgent)`, `Messaging.access`, `joinConversation`, `createConversation`, `resolveParticipants`, `resolveTarget` 与 `task-context-access.ts` 锚点。
+  - *Round 2 Evidence*: 核实 `design.md`（L15、L85–L89、L133）：当外部成员退出最后一个共同私密群后，`canAgentAccessConversation` 变为 `false`，`conversationRowAccess(isAgent)` 返回 `undefined`，`Messaging.access` 写模式及主动建聊/寻址/加公开群统一返回 `403 collaboration_scope_restricted`，同时 `task-context-access.ts:taskContextEligible` 随之变为 `false`，自动触发 `revokeLostTaskContextAccess` 撤回失权私聊任务上下文。
+- **`R1-C2` (`CRITICAL`)**: **closed**
+  - *Author Resolution*: `accepted` — 在 `PersonalActions.prepareChecked` 入口先判定 `pureOwnerPrivateDestination`（含 `args.task` 目标），命中时跳过 `decodePersonalImages` 并直接落库返回 `state='confirmed'`。
+  - *Round 2 Evidence*: 核实 `design.md`（L19、L36、L106–L107、L137）与 `specs/gateway/personal-agent.md`（L10–L11）：免审分支跳过面向多模态审核模型的 `decodePersonalImages`，对非 `b.conversation_id` 纯私有会话直接在 `prepareChecked` 幂等完成 `executeDelegated`（返回 `{ state: 'confirmed', conversation_id, result }`）或消息落库（返回 `{ state: 'confirmed', message_id, conversation_id }`），与 `PersonalAssistant.task / send` 既有 `confirmed` 分支闭合且无需放宽 `gateway.ts:531`。
+- **`R1-C3` (`CRITICAL`)**: **closed**
+  - *Author Resolution*: `accepted` — 恢复 `specs/im/agent-work.md` 完整 Scenario，更新 `specs/gateway/routing-delivery.md` 含 `sha256`，新增 `specs/gateway/external-channels.md`，补齐统一权限矩阵互链。
+  - *Round 2 Evidence*: 核实 `specs/im/agent-work.md`（L49–L56）、`specs/gateway/routing-delivery.md`（L116–L128）、`specs/gateway/external-channels.md`（L1–L65）及 `conversations-messages.md`（L7）、`agent-work.md`（L13）、`gateway/personal-agent.md`（L7）、`design.md`（L117、L199），与 `docs/specs/**` 逐条一致且 `./scripts/docs-check` 通过。
+- **`R1-W1` (`WARNING`)**: **closed**
+  - *Author Resolution*: `accepted` — 纳入 `work.ts:notifyUpdated / memberExecutionNode`、`agent-lifecycle.ts`、`task-graphs.ts`、`conversation-actions.ts`。
+  - *Round 2 Evidence*: 核实 `design.md`（L12、L16、L84、L89、L127、L133）：`notifyUpdated` 改用 `canViewAgentWork` 覆盖个人空间全局助手实时事件，`agent-lifecycle.ts` 与 `memberExecutionNode` 改用 `canCollaborateWithAgent`，`task-graphs.ts` 与 `conversation-actions.ts` 统一将 `agent_project_restricted` 映射为 `403`。
+- **`R1-W2` (`WARNING`)**: **closed**
+  - *Author Resolution*: `accepted` — `main.ts:529` 外部渠道门禁改为 `collaborationScope !== 'team'`，收紧跃迁预留 `chatScope` 并清退外部渠道积压，`single-thread.ts` 改用按会话维度的 `revokedConversations`。
+  - *Round 2 Evidence*: 核实 `design.md`（L23、L99–L102、L214）与 `chat-scope.ts` / `dsh-integration/src/index.ts:817`（`configuration.apply` 的 `finally` 块自动释放 `chatScope.release` 不会死锁；按会话撤销代数消除了跨私密群误杀并发在途消息的竞态）。
+- **`R1-W3` (`WARNING`)**: **closed**
+  - *Author Resolution*: `accepted` — 向含他人 `project` 助手的私密群添加外部真人成员要求该助手管理者本人操作（否则返回 `403 project_agent_owner_required`），`confirm_project_context_share` 仅对助手主人有效，统一“外部真人成员集合不完全相同”表述。
+  - *Round 2 Evidence*: 核实 `spec.md`（L126–L130）、`design.md`（L17、L92–L93、L131–L132、L186）与 `specs/im/{conversations-messages,web-chat-ux,ios-client}.md`，即使同一私密群含两位不同主人的 `project` 助手，操作者 `p.owner_id` 校验也能防止任一方单方面向新外部成员扩大对方助手的暴露圈。
+- **`R1-W4` (`WARNING`)**: **closed**
+  - *Author Resolution*: `accepted` — 补入 `nano-agent-creation/SKILL.md`、`personal-agent-creation.ts`、`global-mode.ts` 与 `personal-security.ts` 提示词改写。
+  - *Round 2 Evidence*: 核实 `design.md`（L13、L22–L24、L126、L169–L177、L238）与 `specs/gateway/personal-agent.md`（L56），PA 创建与外发两条 Context 链路均已完整覆盖。
+- **`R1-W5` (`WARNING`)**: **closed**
+  - *Author Resolution*: `accepted` — 按助手类型拆分放宽确认文案，补齐 iOS `AgentConfigView.swift`、`NewChatView.swift`、`ChatInfoView.swift` 确认弹窗与置顶/免打扰豁免。
+  - *Round 2 Evidence*: 核实 `design.md`（L25、L94、L185–L187）与 `specs/im/{agents-nodes,personal-agent,ios-client}.md`，文案与双端交互闭环一致。
+- **`R1-R1` / `R1-R2` (`Recommendations`)**: **incorporated**（见 `design.md` L79、L213、L230）。
+
+### Issues
+
+None（`0 CRITICAL / 0 WARNING`）。
+
+### Recommendations
+
+- **`R2-R1` 实施 `dsh-integration/src/index.ts:1524` 与 `team -> project` 收紧边界时的细部守卫提示**：
+  1. 在 `packages/dsh-integration/src/index.ts:1524`（`config?.collaborationScope === 'owner_only' && input.source.nanoTeamChat`）中，`nanoTeamChat`（由 `single-thread.ts:341` 生成）对所有含外部成员的私密群同样为 `true`，实施时该行应继续仅拦截 `'owner_only'`（切勿误改为 `!== 'team'`，否则会拦截 `project` SingleThread 助手在合法私密群内的输入），`project` 档位的失权会话拦截由 `revokedConversations` 与 `chatScope.restrict` 承担。
+  2. `configuration.apply`（`dsh-integration/src/index.ts:817`）返回时会立即 `chatScope.release`，早于中心 `control.ts:530` 事务提交后异步下发 `agent.scope.revoked`；若希望连 `apply` 返回至 `agent.scope.revoked` 抵达之间的极窄窗口也零漏放，实施时可在 `control.ts` 预计算或由 `main.ts:apply` 在 `'team' -> 'project'` 分支一并向 `configuration.restrictChat` 提交已知失权会话变更后再释放 `chatScope`。
+
+
+### Author Resolutions
+
+- **`R2-R1`**: `accepted` — 在实施阶段严格保持 `packages/dsh-integration/src/index.ts:1524` 仅对 `collaborationScope === 'owner_only'` 拦截 `nanoTeamChat`（不误伤 `project` 共享私密群），并在收紧流中先完成外部渠道与失权会话清退再释放 `chatScope`。
