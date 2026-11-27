@@ -235,6 +235,11 @@ pub fn run_from_env() -> Result<(), String> {
     let cli = DesktopCliOptions::parse_from(std::env::args())?;
     let paths = DesktopPaths::resolve(&cli)?;
 
+    if cli.prepare_seed {
+        local_node::ensure_seed_bundle_installed(&paths, cli.seed_archives_dir.as_deref())?
+            .ok_or_else(|| "Installer seed bundle missing".to_string())?;
+        return Ok(());
+    }
     let Some(_instance_lock) = acquire_instance_or_forward(&paths, &cli)? else {
         return Ok(());
     };

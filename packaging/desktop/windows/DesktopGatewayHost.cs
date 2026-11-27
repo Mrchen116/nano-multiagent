@@ -32,6 +32,8 @@ internal static class DesktopGatewayHost {
         Console.SetError(new StreamWriter(Console.OpenStandardError(), Utf8) {AutoFlush = true});
         try {
             switch (args[0]) {
+                case "prepare-overwrite":
+                case "uninstall": StopInstallation(args[1], args[2], args[0] == "uninstall"); return 0;
                 case "birth": Console.Write(Birth(Int32.Parse(args[1]))); return 0;
                 case "boot":
                 case "boot-filetime":
@@ -134,6 +136,79 @@ internal static class DesktopGatewayHost {
     static string TaskKey(string config) { return "CrewdenDesktop-" + Hash24(config); }
     static string PipeKey(string config) { return "crewden-desktop-host-" + Hash24(config); }
     static string StandaloneKey(string config) { return "Crewden-Gateway-" + Hash24(config); }
+
+    // Uninstall cannot depend on an active session or a current version pointer:
+    // an old version can still own the registered action after logout or an upgrade.
+    static List<string> InstalledTasks(dynamic folder, string versions, bool updates) {
+        var names = new List<string>();
+        foreach (dynamic task in folder.GetTasks(0)) {
+            string name = task.Name;
+            if (!Regex.IsMatch(name, updates ? @"^CrewdenDesktop-[0-9A-F]{24}-Update$" : @"^CrewdenDesktop-[0-9A-F]{24}$")) continue;
+            dynamic actions = task.Definition.Actions;
+            if (actions.Count != 1) continue;
+            dynamic action = actions[1];
+            if (action.Type != 0) continue;
+            string path = action.Path;
+            if (!Regex.IsMatch(path, "^" + Regex.Escape(versions) + @"\\[a-f0-9]{64}\\apps\\node\\lib\\DesktopGatewayHost\.exe$", RegexOptions.IgnoreCase)) continue;
+            Match args = Regex.Match((string)action.Arguments, updates ? "^worker \"([^\"]+)\" " : "^serve \"([^\"]+)\" ");
+            if (args.Success && name == TaskKey(args.Groups[1].Value) + (updates ? "-Update" : "")) names.Add(name);
+        }
+        return names;
+    }
+
+    static void StopInstallation(string shell, string desktopHome, bool uninstall) {
+        string versions = Path.Combine(desktopHome, "versions");
+        dynamic service = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service"));
+        service.Connect();
+        dynamic folder = service.GetFolder("\\");
+        foreach (string update in InstalledTasks(folder, versions, true)) {
+            dynamic task = FindTask(folder, update);
+            if (task != null && task.GetInstances(0).Count != 0) throw new IOException("Desktop update still running");
+        }
+        // Stop the tray supervisor first so it cannot recreate a gateway task.
+        foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(shell))) {
+            using (process) {
+                try {
+                    if (!String.Equals(process.MainModule.FileName, shell, StringComparison.OrdinalIgnoreCase)) continue;
+                } catch (InvalidOperationException) { if (process.HasExited) continue; throw; }
+                catch (Win32Exception ex) { if (ex.NativeErrorCode == 5) continue; throw; } // Inaccessible foreign process.
+                process.Kill();
+                if (!process.WaitForExit(10000)) throw new IOException("Desktop shell did not stop");
+            }
+        }
+        foreach (string name in InstalledTasks(folder, versions, false)) {
+            dynamic task = folder.GetTask(name);
+            if (uninstall) task.Enabled = false;
+            if (task.GetInstances(0).Count != 0) {
+                try { Request("crewden-desktop-host-" + name.Substring("CrewdenDesktop-".Length), "stop 0 "); }
+                catch (TimeoutException) { } // A host still starting has no pipe yet.
+                task.Stop(0); // Closing the host's job handle also terminates remaining children.
+                for (int i = 0; i < 100 && task.GetInstances(0).Count != 0; i++) Thread.Sleep(100);
+                if (task.GetInstances(0).Count != 0) throw new IOException("Desktop gateway did not stop");
+            }
+            if (uninstall) folder.DeleteTask(name, 0);
+        }
+        if (!uninstall) return;
+        foreach (string name in InstalledTasks(folder, versions, true)) {
+            dynamic task = FindTask(folder, name);
+            if (task == null) continue; // A finishing update removes its own task.
+            if (task.GetInstances(0).Count != 0) throw new IOException("Desktop update still running");
+            folder.DeleteTask(name, 0);
+        }
+
+        string install = Environment.GetEnvironmentVariable("NANO_INSTALL_ROOT") ??
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nanoassistant");
+        string connections = Path.Combine(install, "connections");
+        if (!Directory.Exists(connections)) return;
+        foreach (string connection in Directory.GetDirectories(connections)) {
+            var active = Read(connection, ".desktop-active.json");
+            object owner, root;
+            if (active != null && active.TryGetValue("managed_by", out owner) && Equals(owner, "crewden-desktop") &&
+                active.TryGetValue("version_root", out root) && root is string &&
+                String.Equals(Path.GetDirectoryName((string)root), versions, StringComparison.OrdinalIgnoreCase))
+                File.Delete(Path.Combine(connection, ".desktop-active.json"));
+        }
+    }
 
     static void RetireStandalone(dynamic folder, string config) {
         string legacyKey = StandaloneKey(config);

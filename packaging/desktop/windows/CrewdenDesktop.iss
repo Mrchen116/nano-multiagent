@@ -28,12 +28,18 @@ SolidCompression=no
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式(&D)"; GroupDescription: "附加快捷方式:"
 
+[InstallDelete]
+Type: files; Name: "{app}\seed-archives\desktop-defaults.json"
+Type: files; Name: "{code:DesktopHome}\desktop-defaults.json"
+
 [Files]
+Source: "..\..\..\dist\desktop-windows-build\DesktopGatewayHost.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\..\dist\desktop-windows-build\CrewdenDesktop.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\..\apps\desktop\icons\128x128.png"; DestDir: "{app}"; DestName: "crewden-toast-icon.png"; Flags: ignoreversion
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\manifest.desktop-win32-x64.json"; DestDir: "{app}\seed-archives"; Flags: ignoreversion
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-win32-x64.json"; DestDir: "{app}\seed-archives"; Flags: ignoreversion
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-defaults.json"; DestDir: "{app}\seed-archives"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-defaults.json"; DestDir: "{code:DesktopHome}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-runtime-win32-x64.tar.gz"; DestDir: "{app}\seed-archives"; Flags: ignoreversion nocompression
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-app-win32-x64.tar.gz"; DestDir: "{app}\seed-archives"; Flags: ignoreversion nocompression
 Source: "..\..\..\dist\desktop-windows-build\MicrosoftEdgeWebView2Setup.exe"; Flags: dontcopy
@@ -55,6 +61,37 @@ Root: HKCU; Subkey: "Software\Classes\crewden-desktop\shell\open\command"; Value
 Filename: "{app}\CrewdenDesktop.exe"; Description: "立即启动 Crewden Desktop"; Flags: nowait postinstall skipifsilent
 
 [Code]
+var
+  ReplacePrivateSeed: Boolean;
+
+function DesktopHome(Param: String): String;
+begin
+  Result := GetEnv('CREWDEN_DESKTOP_HOME');
+  if Result = '' then Result := ExpandConstant('{localappdata}\CrewdenDesktop');
+end;
+
+procedure CurUninstallStepChanged(Step: TUninstallStep);
+var
+  ExitCode: Integer;
+  RunKey, RunValue, AppExe: String;
+begin
+  if Step <> usUninstall then Exit;
+  AppExe := ExpandConstant('{app}\CrewdenDesktop.exe');
+  if not Exec(ExpandConstant('{app}\DesktopGatewayHost.exe'),
+      'uninstall "' + AppExe + '" "' + DesktopHome('') + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode)
+      or (ExitCode <> 0) then begin
+    SuppressibleMsgBox('未能停止桌面后台服务。请等待电脑端更新结束后重试卸载。', mbError, MB_OK, IDOK);
+    Abort;
+  end;
+  RunKey := 'Software\Microsoft\Windows\CurrentVersion\Run';
+  if RegQueryStringValue(HKCU, RunKey, 'CrewdenDesktop', RunValue) and
+      (CompareText(RunValue, '"' + AppExe + '" --background') = 0) then
+    if not RegDeleteValue(HKCU, RunKey, 'CrewdenDesktop') then begin
+      SuppressibleMsgBox('未能移除 Crewden Desktop 登录启动项。', mbError, MB_OK, IDOK);
+      Abort;
+    end;
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   InstalledExe: String;
@@ -62,8 +99,18 @@ var
 begin
   Result := '';
   InstalledExe := ExpandConstant('{app}\CrewdenDesktop.exe');
+  ReplacePrivateSeed := FileExists(ExpandConstant('{app}\seed-archives\desktop-defaults.json')) and
+      FileExists(DesktopHome('') + '\seed-current.json');
   if FileExists(InstalledExe) then begin
-    Exec(InstalledExe, '--stop', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ExitCode);
+    if not Exec(InstalledExe, '--stop', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ExitCode)
+        or (ExitCode <> 0) then begin
+      Result := '未能停止已安装的桌面客户端。';
+      Exit;
+    end;
+    ExtractTemporaryFile('DesktopGatewayHost.exe');
+    if not Exec(ExpandConstant('{tmp}\DesktopGatewayHost.exe'),
+        'prepare-overwrite "' + InstalledExe + '" "' + DesktopHome('') + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode)
+        or (ExitCode <> 0) then Result := '未能停止桌面后台服务。请等待电脑端更新结束后重试。';
   end;
 end;
 
@@ -81,6 +128,10 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ExitCode: Integer;
 begin
+  if (CurStep = ssPostInstall) and ReplacePrivateSeed then begin
+    if not Exec(ExpandConstant('{app}\CrewdenDesktop.exe'), '--prepare-seed', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ExitCode)
+        or (ExitCode <> 0) then RaiseException('未能切换到新安装包内置的发布源。');
+  end;
   if (CurStep = ssPostInstall) and (not IsWebView2Installed()) then begin
     ExtractTemporaryFile('MicrosoftEdgeWebView2Setup.exe');
     if not Exec(ExpandConstant('{tmp}\MicrosoftEdgeWebView2Setup.exe'), '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
