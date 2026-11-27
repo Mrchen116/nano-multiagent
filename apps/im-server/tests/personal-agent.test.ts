@@ -197,6 +197,96 @@ it('creates one private PA through the existing configuration operation and reco
  }finally{await app.close();}
 });
 
+it('reuses warmed CatalogReads without a second cold resolve and maps pre-persistence offline/timeout errors cleanly', async () => {
+ const {default: Fastify} = await import('fastify');
+ const {Gateway} = await import('../src/gateway.js');
+ const {registerPersonalAgentRoutes} = await import('../src/personal-agent.js');
+ const {registerControlRoutes} = await import('../src/control-routes.js');
+ const {connectFixtureGateway} = await import('./control-fixture.js');
+ const {ctx, db} = fixture();
+ const connection = connectFixtureGateway({ctx, db});
+ const gateway = new Gateway(ctx);
+ gateway.nodes.set('n', connection);
+ ctx.messaging = new Messaging(ctx);
+ ctx.personal = new PersonalAgents(ctx);
+ let capResolveCalls = 0;
+ ctx.gateway.request = async (_node, method, payload) => {
+   if (method === 'node.capabilities.resolve') {
+     capResolveCalls++;
+     return {capabilities: {tools: [{name: 'read', default_on: true}], skills: [{name: 'memo', default_on: true}]}};
+   }
+   return {status: 'applied', operation_id: payload.operation_id, candidate_fingerprint: payload.candidate_fingerprint, agent: {...payload.agent, workspace_root: '/private/pa', workspace_is_default: true}};
+ };
+ const app = Fastify();
+ app.setErrorHandler((error: any, _req, reply) => reply.code(error.statusCode ?? 500).send({detail: error.detail ?? error.message}));
+ registerControlRoutes(app, ctx);
+ registerPersonalAgentRoutes(app, ctx);
+ await app.ready();
+ try {
+   // Simulate background warmup via node.capabilities.changed, then create PA + ordinary agent with omitted skills:
+   // ALL THREE must share the single CatalogReads cache entry (1 resolve call total!).
+   await (gateway as any).handleFrame(connection, 'node.capabilities.changed', {node_id: 'n'});
+   await new Promise(resolve => setImmediate(resolve));
+   expect(capResolveCalls).toBe(1);
+
+   const paRes = await app.inject({method: 'POST', url: '/im/v1/personal-agent', payload: {request_key: 'warm-pa', node_id: 'n', display_name: '小暖'}});
+   expect(paRes.statusCode, paRes.body).toBe(201);
+   expect(capResolveCalls).toBe(1);
+
+   const agentRes = await app.inject({method: 'POST', url: '/im/v1/nodes/n/agents', payload: {agent_id: 'warm-helper', display_name: '助手'}});
+   expect(agentRes.statusCode, agentRes.body).toBe(201);
+   expect(agentRes.json().skills).toContain('memo');
+   expect(capResolveCalls).toBe(1);
+
+   // Online node capability inspection failure (`catalog_failed` -> 503 on NodeRpc) must NOT be misreported as `node_offline`,
+   // nor silently drop default_on skills on ordinary agent creation.
+   db.prepare('DELETE FROM pa_policies').run();
+   db.prepare('DELETE FROM pa_binding_scopes').run();
+   db.prepare('DELETE FROM personal_agent_bindings').run();
+   await (gateway as any).handleFrame(connection, 'node.capabilities.changed', {node_id: 'n'});
+   ctx.gateway.request = async (_node, method) => {
+     if (method === 'node.capabilities.resolve') {
+       throw Object.assign(new Error('Catalog inspection unavailable'), {statusCode: 503, code: 'catalog_failed'});
+     }
+     return {status: 'pending'};
+   };
+   const capFailPaRes = await app.inject({method: 'POST', url: '/im/v1/personal-agent', payload: {request_key: 'cap-fail-pa', node_id: 'n', display_name: '小检'}});
+   expect(capFailPaRes.statusCode).toBe(502);
+   expect(capFailPaRes.json().detail).toMatchObject({code: 'node_capabilities_unavailable'});
+
+   const capFailAgentRes = await app.inject({method: 'POST', url: '/im/v1/nodes/n/agents', payload: {agent_id: 'cap-fail-agent', display_name: '防漏挂'}});
+   expect(capFailAgentRes.statusCode).toBe(503);
+   expect(db.prepare("SELECT COUNT(*) AS n FROM agent_profiles WHERE agent_id='cap-fail-agent'").get()).toEqual({n: 0});
+ } finally {
+   await app.close();
+ }
+
+ // Verify pre-persistence structured error codes (503 node_offline & 504 node_capabilities_timeout) leave no partial binding row.
+ const {ctx: ctx2, db: db2} = fixture();
+ ctx2.messaging = new Messaging(ctx2);
+ ctx2.personal = new PersonalAgents(ctx2);
+ db2.prepare("INSERT INTO node_binding_state(node_id,owner_id,node_epoch) VALUES('n','o1',1)").run();
+ const app2 = Fastify();
+ app2.setErrorHandler((error: any, _req, reply) => reply.code(error.statusCode ?? 500).send({detail: error.detail ?? error.message}));
+ registerPersonalAgentRoutes(app2, ctx2);
+ await app2.ready();
+ try {
+   ctx2.gateway.request = async () => { throw Object.assign(new Error('node offline'), {statusCode: 503}); };
+   const offlineRes = await app2.inject({method: 'POST', url: '/im/v1/personal-agent', payload: {request_key: 'rk-1', node_id: 'n', display_name: '小航'}});
+   expect(offlineRes.statusCode).toBe(503);
+   expect(offlineRes.json().detail).toMatchObject({code: 'node_offline'});
+   expect(db2.prepare('SELECT COUNT(*) AS n FROM personal_agent_bindings').get()).toEqual({n: 0});
+
+   ctx2.gateway.request = async () => { throw Object.assign(new Error('node response timeout'), {statusCode: 504}); };
+   const timeoutRes = await app2.inject({method: 'POST', url: '/im/v1/personal-agent', payload: {request_key: 'rk-1', node_id: 'n', display_name: '小航'}});
+   expect(timeoutRes.statusCode).toBe(504);
+   expect(timeoutRes.json().detail).toMatchObject({code: 'node_capabilities_timeout'});
+   expect(db2.prepare('SELECT COUNT(*) AS n FROM personal_agent_bindings').get()).toEqual({n: 0});
+ } finally {
+   await app2.close();
+ }
+});
+
 it.each([false,true])('recovers a delayed PA rename while preserving a custom chat title (%s)',async(customTitle)=>{
  const {ConfigOperations,profileResponse}=await import('../src/control.js');
  const {ctx,db}=personalFixture();

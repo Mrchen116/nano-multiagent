@@ -167,3 +167,36 @@ it("applies configured proxy routing to initialized HTTP clients and inherited t
     await rm(home, {recursive:true,force:true});
   }
 }, 30000);
+
+it("fails fast within seconds and surfaces gateway.log reason when foreground process crashes on startup", async () => {
+  const home = await mkdtemp(join(tmpdir(), "nano-fastfail-"));
+  const config = join(home, "config.yaml");
+  try {
+    // Setting NODE_OPTIONS in gateway.environment leaves the parent CLI intact while making the spawned foreground child crash immediately.
+    await writeFile(
+      config,
+      JSON.stringify({
+        node: { node_id: "crash-node", user_id: "owner" },
+        im_service: { url: "http://127.0.0.1:9", token: "device-test" },
+        agents: [],
+        gateway: {
+          autostart: false,
+          startup_timeout_seconds: 60,
+          environment: { NODE_OPTIONS: "--require /nonexistent-fastfail-fixture.cjs" },
+        },
+        llm: { default_model: "", providers: [] },
+      }),
+    );
+    const startedAt = Date.now();
+    await expect(
+      exec(
+        process.execPath,
+        [resolve("apps/node/lib/cli.js"), "start", "--config", config],
+        { env: { ...process.env, NANO_OWNER_CONFIG_ROOT: home }, timeout: 15000 },
+      ),
+    ).rejects.toThrow(/Gateway exited before becoming ready.*nonexistent-fastfail-fixture/);
+    expect(Date.now() - startedAt).toBeLessThan(8000);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

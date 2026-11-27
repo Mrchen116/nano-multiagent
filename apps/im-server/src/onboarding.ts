@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { all, body, fail, one, params, type ImContext, type Row } from './context.js';
 import { installMaterials } from './install.js';
 import { catalogReads } from './catalog-reads.js';
+import { readNodeCreationCapabilities } from './agent-creation.js';
+import { settingsConnection } from './agent-settings.js';
 
 const fields = (row: Row, names: string[]) => Object.fromEntries(names.filter(name => row[name] !== undefined).map(name => [name, row[name]]));
 /** Keep setup credentials confined to the request; only public status crosses back. */
@@ -26,7 +28,10 @@ export function registerOnboardingRoutes(app: FastifyInstance, ctx: ImContext, r
     return {
       nodes: all(ctx.db, 'SELECT node_id,node_name,alias,status FROM nodes WHERE owner_id=? ORDER BY rowid', user.owner_id),
       agents: all(ctx.db, 'SELECT agent_id,display_name,node_id,default_model,workspace_root,work_mode FROM agent_profiles WHERE owner_id=? AND is_stale=0 ORDER BY rowid', user.owner_id),
-      install: installMaterials(ctx.publicUrl, releaseDirectory, iosDownloadUrl),
+      install: installMaterials(ctx.publicUrl, releaseDirectory, iosDownloadUrl, {
+        allowPrivateHttp: ctx.allowPrivateHttp,
+        releaseBaseUrl: ctx.releaseBaseUrl,
+      }),
     };
   });
   app.post('/im/v1/nodes/:node_id/setup', async req => {
@@ -57,7 +62,19 @@ export function registerOnboardingRoutes(app: FastifyInstance, ctx: ImContext, r
       if (revisions.get(connection) !== result.revision) catalogReads(ctx).invalidateNode(nodeId);
       revisions.set(connection,result.revision);
     }
-    if (['save','remove'].includes(input.action) && !result.error && !result.error_code) catalogReads(ctx).invalidateNode(nodeId);
+    if (['save','remove'].includes(input.action) && !result.error && !result.error_code) {
+      catalogReads(ctx).invalidateNode(nodeId);
+      if (input.action === 'save' && (!result.operation || result.operation.state === 'succeeded')) {
+        setImmediate(() => {
+          try {
+            if (!ctx.db.isOpen) return;
+            if (settingsConnection(ctx, { owner_id: user.owner_id, node_id: nodeId })) {
+              void readNodeCreationCapabilities(ctx, nodeId, user.owner_id).catch(() => {});
+            }
+          } catch { /* Server may have closed during test teardown. */ }
+        });
+      }
+    }
     owned();
     if (result.error_code) fail(503, 'Computer setup is unavailable. Reconnect your computer and retry.');
     return setupStatus(result);

@@ -17,6 +17,8 @@ export interface ImContext {
   messaging: Messaging;
   updates?: NodeUpdates;
   personal?: import("./personal-agent.js").PersonalAgents;
+  allowPrivateHttp?: boolean;
+  releaseBaseUrl?: string;
 }
 export function fail(statusCode: number, detail: string | Row): never {
   throw Object.assign(

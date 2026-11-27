@@ -10,7 +10,8 @@ import { threadRelayMetadata } from './threads.js';
 import {readAgentProfile, type AgentProfileRecord} from './configuration-records.js';
 import {isRecord} from './node-rpc-values.js';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
-import { requireSettingsNodeOnline } from './agent-settings.js';
+import { requireSettingsNodeOnline, settingsConnection } from './agent-settings.js';
+import { readNodeCapabilitiesRaw } from './agent-creation.js';
 import { changeCapability, definitionsForRole, sanitizeStaticToolAllowlist } from '@nano/product-contracts/capabilities';
 import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
@@ -540,6 +541,31 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
       if(b && input.collaboration_scope!==undefined && input.collaboration_scope!==(b.collaboration_scope ?? 'team')) {
         fail(409,'collaboration_scope_conflict');
       }
+      if(b?.status==='active') return pa.state(u.owner_id);
+      const recovered=b ? await ops.recover(b.agent_id,u.owner_id) : null;
+      let catalog: Awaited<ReturnType<typeof readNodeCapabilitiesRaw>> | undefined;
+      if(!recovered) {
+        const targetNodeId=b ? b.node_id : node.node_id;
+        try {
+          catalog=await readNodeCapabilitiesRaw(ctx,targetNodeId,u.owner_id,{allowUnboundRequestFallback:true});
+        } catch(error) {
+          const errObj=error as {statusCode?:number;code?:string;detail?:unknown;message?:string}|null;
+          const status=Number(errObj?.statusCode ?? 0);
+          const msg=typeof errObj?.detail==='string' ? errObj.detail : String(errObj?.message ?? '');
+          const hasLiveNodesMap=ctx.gateway?.nodes instanceof Map;
+          const isNodeOffline=
+            errObj?.code==='node_offline' ||
+            /offline|not connected/i.test(msg) ||
+            (status===503 && (!hasLiveNodesMap ? msg==='' : !settingsConnection(ctx,{owner_id:u.owner_id,node_id:targetNodeId})));
+          if(status===504 || errObj?.code==='catalog_timeout') fail(504,{code:'node_capabilities_timeout',message:'Reading computer capabilities timed out. Retry in a few seconds.'});
+          if(isNodeOffline) fail(503,{code:'node_offline',message:'Target computer is offline. Reconnect Crewden Desktop and retry.'});
+          if(status===502 || status===503) fail(502,{code:'node_capabilities_unavailable',message:'Computer capabilities are temporarily unavailable. Retry shortly.'});
+          throw error;
+        }
+        if(!catalog||!Array.isArray(catalog.tools)) {
+          fail(502,{code:'node_capabilities_unavailable',message:'Computer capabilities are temporarily unavailable. Retry shortly.'});
+        }
+      }
       if(!b) {
         const requestedScope = input.collaboration_scope ?? 'team';
         const id=randomUUID(),agent=`pa_${id.replaceAll('-','').slice(0,12)}`,conversation=chatId('c_');
@@ -552,15 +578,10 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
         });
         b=pa.binding(u.owner_id)!;
       }
-      if(b.status==='active') return pa.state(u.owner_id);
-      const personal={bindingId:b.binding_id,ownerId:b.owner_id,conversationId:b.conversation_id,epoch:b.node_epoch};
-      const recovered=await ops.recover(b.agent_id,u.owner_id);
       if(!recovered) {
-        const resolved=await ctx.gateway.request(b.node_id,'node.capabilities.resolve',{});
-        const catalog=resolved?.capabilities;
-        if(!catalog||!Array.isArray(catalog.tools))fail(503,'node_capabilities_unavailable');
-        const workspaceTools=catalog.tools.filter(isRecord).filter(tool=>tool.source_group==='workspace').map(tool=>tool.name).filter((name):name is string=>typeof name==='string');
-        const tools=[...new Set([...catalog.tools.filter(isRecord).filter(tool=>tool.source_group!=='workspace' && (tool.default_on||tool.name==='send_message')).map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'agent_creation'])];
+        const personal={bindingId:b.binding_id,ownerId:b.owner_id,conversationId:b.conversation_id,epoch:b.node_epoch};
+        const workspaceTools=catalog!.tools!.filter(isRecord).filter(tool=>tool.source_group==='workspace').map(tool=>tool.name).filter((name):name is string=>typeof name==='string');
+        const tools=[...new Set([...catalog!.tools!.filter(isRecord).filter(tool=>tool.source_group!=='workspace' && (tool.default_on||tool.name==='send_message')).map(tool=>tool.name).filter((name):name is string=>typeof name==='string'),'agent_creation'])];
         const bindingScope: 'team' | 'owner_only' = b.collaboration_scope === 'owner_only' ? 'owner_only' : 'team';
         const paFeatures=definitionsForRole(true);
         let candidate={agent_id:b.agent_id,...(avatar === undefined ? {} : {avatar_variant:avatar}),display_name:b.display_name,owner_id:u.owner_id,work_mode:'global',personal_agent:personal,features:Object.fromEntries(paFeatures.map(feature=>[feature.key,false])),skills:[] as string[],skills_selection_mode:'default_discovery',tool_allowlist:tools,collaboration_scope:bindingScope,default_model:null,model_fallbacks:[],workspace_root:null};

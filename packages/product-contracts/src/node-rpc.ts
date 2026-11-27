@@ -183,7 +183,7 @@ export const nodeCommands = {
 export type NodeCommand = keyof typeof nodeCommands;
 type Spec<K extends NodeCommand> = (typeof nodeCommands)[K];
 export type NodeParams<K extends NodeCommand> = z.output<Spec<K>['input']>;
-export type NodeInput<K extends NodeCommand> = NodeParams<K> & {request_id?:string};
+export type NodeInput<K extends NodeCommand> = NodeParams<K> & {request_id?:string; deadline_at?:number};
 export type NodeOutput<K extends NodeCommand> = z.output<Spec<K>['read']>;
 export type NodeReply<K extends NodeCommand> = z.output<Spec<K>['result']>;
 export type NodeRequest = <K extends NodeCommand>(nodeId:string,command:K,payload:NodeInput<NoInfer<K>>,signal?:AbortSignal)=>Promise<NodeOutput<K>>;

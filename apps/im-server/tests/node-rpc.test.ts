@@ -90,14 +90,27 @@ it('maps inspection error codes and cancels active inspections on disconnect and
   expect(sent.at(-1)).toEqual({type:'node.request.cancel',payload:{target_request_id:'closed'}});
 });
 
-it('waits for a cold Windows catalog beyond the ordinary nine-second deadline',async()=>{
+it('waits for a cold Windows catalog beyond the ordinary nine-second deadline and attaches 60s deadline_at to Windows mutations',async()=>{
   vi.useFakeTimers();
   const {rpc,transport,connection,sent}=fixture();
   transport.windows=()=>true;
   const result=rpc.request('node','node.capabilities.resolve',{request_id:'windows-catalog'});
-  expect(sent[0]).toMatchObject({payload:{deadline_at:Date.now()+35_000}});
-  await vi.advanceTimersByTimeAsync(12_000);
+  expect(sent[0]).toMatchObject({payload:{deadline_at:Date.now()+130_000}});
+  await vi.advanceTimersByTimeAsync(35_000);
   expect(sent).toHaveLength(1);
   expect(rpc.accept(connection,'node.capabilities',{request_id:'windows-catalog',capabilities:{tools:[]}})).toBe(true);
   expect(await result).toMatchObject({capabilities:{tools:[]}});
+
+  const create=rpc.request('node','agent.create',{
+    request_id:'win-create',
+    operation_id:'op-win',
+    candidate_fingerprint:'fp-win',
+    expected_previous_fingerprint:null,
+    agent:{agent_id:'pa_1'},
+  });
+  expect(sent[1]).toMatchObject({type:'agent.create',payload:{request_id:'win-create',deadline_at:Date.now()+60_000}});
+  await vi.advanceTimersByTimeAsync(25_000);
+  expect(rpc.accept(connection,'agent.created',{request_id:'win-create',operation_id:'op-win',status:'applied'})).toBe(true);
+  expect(await create).toMatchObject({status:'applied'});
+  rpc.close();
 });

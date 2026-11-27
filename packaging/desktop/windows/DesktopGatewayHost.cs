@@ -362,13 +362,17 @@ internal static class DesktopGatewayHost {
             });
             control.IsBackground = true;
             control.Start();
+            int[] crashBackoffMs = new int[] { 1000, 2000, 5000, 15000 };
+            int rapidCrashStreak = 0;
             while (true) {
+                var runTimer = Stopwatch.StartNew();
                 lock (gate) {
                     if (graceful.WaitOne(0)) break;
                     child = new GatewayJob(node, args, package, Path.Combine(Path.GetDirectoryName(config), "gateway.log"));
                 }
                 try { child.Wait(); }
                 finally { lock (gate) { child.Dispose(); child = null; } }
+                runTimer.Stop();
                 if (graceful.WaitOne(0)) break;
                 dynamic scheduler = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service"));
                 scheduler.Connect();
@@ -376,8 +380,15 @@ internal static class DesktopGatewayHost {
                 dynamic task = FindTask(folder, taskKey);
                 if (task == null) return 1;
                 if (!Enabled(task)) return 0;
-                // claimGateway retries .gateway-runtime.lock up to 12s after abnormal exit.
-                if (graceful.WaitOne(2000)) break;
+                int waitMs = 2000;
+                if (runTimer.ElapsedMilliseconds < 5000) {
+                    waitMs = crashBackoffMs[Math.Min(rapidCrashStreak, crashBackoffMs.Length - 1)];
+                    rapidCrashStreak++;
+                } else {
+                    rapidCrashStreak = 0;
+                }
+                // Back off rapid deterministic startup crashes while preserving recovery after transient exits.
+                if (graceful.WaitOne(waitMs)) break;
                 if (!Enabled(FindTask(folder, taskKey))) return 0;
             }
             control.Join();

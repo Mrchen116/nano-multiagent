@@ -101,3 +101,61 @@ it.each(['', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'v1.2.3', '01.2.3', '1.
     expect(await readFile(join(f.directory, 'manifest.json'), 'utf8')).toBe('previous verified manifest');
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
+
+it('loads self-hosted managed release manifests deterministically from desktop-defaults.json or .nano-release.json', async () => {
+  const { loadNodeRelease } = await import('../src/release.js');
+  const root = await mkdtemp(join(tmpdir(), 'nano-self-hosted-rel-'));
+  const desktopHome = join(root, 'desktop');
+  const sha = '9'.repeat(64);
+  const versionRoot = join(desktopHome, 'versions', sha);
+  const privateBase = 'http://10.24.8.15:9000/releases/v1.5.0/';
+  try {
+    await mkdir(versionRoot, { recursive: true });
+    const manifest = {
+      version: '1.5.0',
+      source_commit: 'a'.repeat(40),
+      release_base_url: privateBase,
+      sha256: sha,
+      package: 'desktop-win32-x64.json',
+      platform: 'desktop-win32-x64',
+      size: 512,
+      shell_protocol: 1,
+      node_major: 24,
+      pnpm_version: '11.7.0',
+      updater_protocol: 1,
+      data_epoch: 1,
+      download_url: privateBase + 'desktop-win32-x64.json',
+      installer: {
+        download_url: privateBase + 'Crewden-Desktop-Setup-x64.exe',
+        sha256: 'b'.repeat(64),
+        size: 10240,
+      },
+    };
+    await writeFile(join(versionRoot, '.release-manifest.json'), JSON.stringify(manifest));
+    await writeFile(
+      join(versionRoot, '.nano-release.json'),
+      JSON.stringify({ source_commit: 'a'.repeat(40), updater_protocol: 1, data_epoch: 1, shell_protocol: 1 }),
+    );
+    // Without desktop-defaults.json or trusted_release_base_url, self-hosted manifest is rejected.
+    await expect(loadNodeRelease(versionRoot)).rejects.toThrow('Invalid installed release manifest');
+
+    // Writing <desktopHome>/desktop-defaults.json deterministically authorizes the private HTTP base via path layout.
+    await writeFile(
+      join(desktopHome, 'desktop-defaults.json'),
+      JSON.stringify({
+        default_im_origin: 'http://10.24.8.15:8011',
+        trusted_release_base_url: 'http://10.24.8.15:9000/releases',
+        allow_private_http_release_base: true,
+      }),
+    );
+    expect(await loadNodeRelease(versionRoot)).toMatchObject({
+      kind: 'managed',
+      platform: 'desktop-win32-x64',
+      version: '1.5.0',
+      sha256: sha,
+      shell_protocol: 1,
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

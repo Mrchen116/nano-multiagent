@@ -6,11 +6,21 @@ import { chmod, mkdir, mkdtemp, readFile, rename, rm, access } from 'node:fs/pro
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import lockfile from 'proper-lockfile';
-import { parseReleaseManifest, nodeUpdateTerminal, type DesktopPlatform, type NodeRelease, type NodeUpdateReport, type ReleaseManifest } from '@nano/product-contracts';
+import {
+  classifyOriginSecurity,
+  normalizeReleaseBaseUrl,
+  parseReleaseManifest,
+  nodeUpdateTerminal,
+  type DesktopPlatform,
+  type NodeRelease,
+  type NodeUpdateReport,
+  type ParseReleaseManifestOptions,
+  type ReleaseManifest,
+} from '@nano/product-contracts';
 import { NodeConfiguration } from './configuration.js';
 import { applyGatewayEnvironment, atomicPrivate, defaultGatewayStartupSeconds, gatewayState, processBirth, type GatewayState } from './lifecycle.js';
 import { readUpdateFile, reportUpdate, updatePath, validLease, type UpdateLease, type UpdateHandoff } from './node-updater.js';
-import { loadNodeRelease, verifyReleaseMetadata } from './release.js';
+import { loadNodeRelease, loadTrustedReleaseOptions, verifyReleaseMetadata } from './release.js';
 
 const exec = promisify(execFile);
 const CURL_BIN = process.platform === 'win32' && existsSync('C:\\Windows\\System32\\curl.exe')
@@ -42,17 +52,33 @@ function resolveDownloadUrl(url: string): string {
   return url;
 }
 
-function curlProtoArgs(url: string): string[] {
+function curlProtoArgs(url: string, trustedOptions?: ParseReleaseManifestOptions): string[] {
   if (process.env.NANO_ALLOW_LOOPBACK_UPDATE_HTTP === '1' || process.env.NANO_LOOPBACK_RELEASE_ORIGIN) {
     const parsed = new URL(url);
     if (parsed.protocol === 'http:' && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost')) {
       return ['--proto', '=http,https', '--proto-redir', '=http,https'];
     }
   }
+  const allowPrivateHttp = Boolean(trustedOptions?.allowPrivateHttpReleaseBase);
+  for (const rawBase of trustedOptions?.trustedReleaseBaseUrls ?? []) {
+    const normalizedBase = normalizeReleaseBaseUrl(rawBase, allowPrivateHttp);
+    if (!normalizedBase || !url.startsWith(normalizedBase)) continue;
+    const security = classifyOriginSecurity(normalizedBase);
+    if (security.kind === 'loopback_http' || (allowPrivateHttp && security.kind === 'private_http')) {
+      // Cleartext loopback/private self-hosted release feeds forbid cross-host/protocol redirects.
+      return ['--proto', '=http,https', '--max-redirs', '0'];
+    }
+  }
   return ['--proto', '=https', '--proto-redir', '=https'];
 }
 
-async function downloadVerifiedAsset(rawUrl: string, dest: string, expectedSha256: string, signal?: AbortSignal): Promise<boolean> {
+async function downloadVerifiedAsset(
+  rawUrl: string,
+  dest: string,
+  expectedSha256: string,
+  signal?: AbortSignal,
+  trustedOptions?: ParseReleaseManifestOptions,
+): Promise<boolean> {
   const url = resolveDownloadUrl(rawUrl);
   if (existsSync(dest)) {
     const cachedDigest = createHash('sha256').update(await readFile(dest)).digest('hex');
@@ -63,7 +89,7 @@ async function downloadVerifiedAsset(rawUrl: string, dest: string, expectedSha25
   try {
     await exec(
       CURL_BIN,
-      ['--disable', '--fail', '--location', '--silent', '--show-error', '--retry', '2', ...curlProtoArgs(url), url, '-o', tmp],
+      ['--disable', '--fail', '--location', '--silent', '--show-error', '--retry', '2', ...curlProtoArgs(url, trustedOptions), url, '-o', tmp],
       { signal, timeout: 300000, windowsHide: true },
     );
     const actualDigest = createHash('sha256').update(await readFile(tmp)).digest('hex');
@@ -95,8 +121,15 @@ interface DesktopDescriptor {
 }
 
 /** Download and install a validated immutable Unix package without touching the running installation. */
-export async function installRelease(target: ReleaseManifest, root: string, onInstalling: () => Promise<void>, signal?: AbortSignal): Promise<string> {
-  if (target.package !== 'nano-node.tgz' || !parseReleaseManifest(target) || target.updater_protocol !== 1 || target.data_epoch !== 1) throw new Error('Incompatible release');
+export async function installRelease(
+  target: ReleaseManifest,
+  root: string,
+  onInstalling: () => Promise<void>,
+  signal?: AbortSignal,
+  trustedOptions?: ParseReleaseManifestOptions,
+): Promise<string> {
+  const opts = trustedOptions ?? await loadTrustedReleaseOptions(root);
+  if (target.package !== 'nano-node.tgz' || !parseReleaseManifest(target, opts) || target.updater_protocol !== 1 || target.data_epoch !== 1) throw new Error('Incompatible release');
   await mkdir(join(root, 'releases'), {recursive: true});
   const release = join(root, 'releases', target.sha256);
   try { await access(join(release, '.installed')); await verifyReleaseMetadata(release, target); await onInstalling(); return release; }
@@ -104,7 +137,7 @@ export async function installRelease(target: ReleaseManifest, root: string, onIn
   const stage = await mkdtemp(join(root, 'releases', '.update-'));
   try {
     const archive = join(stage, 'package.tgz');
-    await exec('curl', ['--disable', '--fail', '--location', '--silent', '--show-error', '--retry', '2', ...curlProtoArgs(target.download_url), target.download_url, '-o', archive], {signal, timeout: 300000});
+    await exec('curl', ['--disable', '--fail', '--location', '--silent', '--show-error', '--retry', '2', ...curlProtoArgs(target.download_url, opts), target.download_url, '-o', archive], {signal, timeout: 300000});
     if (createHash('sha256').update(await readFile(archive)).digest('hex') !== target.sha256) throw new Error('Package checksum mismatch');
     const payload = join(stage, 'payload'); await mkdir(payload);
     await exec('tar', ['-xzf', archive, '-C', payload], {signal});
@@ -142,11 +175,13 @@ export async function prepareDesktopUpdate(
   oldEntry: string,
   onInstalling: () => Promise<void>,
   signal?: AbortSignal,
+  trustedOptions?: ParseReleaseManifestOptions,
 ): Promise<{ versionRoot: string; runtimeReused: boolean }> {
   if (!isDesktopPlatform(target.platform) || target.shell_protocol !== 1) {
     throw new Error('Incompatible desktop release');
   }
   const oldVersionRoot = resolve(dirname(oldEntry), '../../..');
+  const opts = trustedOptions ?? await loadTrustedReleaseOptions(oldVersionRoot);
   const desktopHome = resolve(process.env.CREWDEN_DESKTOP_HOME ?? resolve(oldVersionRoot, '../..'));
   const cacheDir = join(desktopHome, 'cache');
   const runtimesDir = join(desktopHome, 'runtimes');
@@ -165,7 +200,7 @@ export async function prepareDesktopUpdate(
   }
 
   const descriptorPath = join(cacheDir, `descriptor-${target.sha256}.json`);
-  await downloadVerifiedAsset(target.download_url, descriptorPath, target.sha256, signal);
+  await downloadVerifiedAsset(target.download_url, descriptorPath, target.sha256, signal, opts);
   const desc = JSON.parse(await readFile(descriptorPath, 'utf8')) as DesktopDescriptor;
   const base = target.download_url.slice(0, target.download_url.lastIndexOf('/') + 1);
   if (
@@ -186,7 +221,7 @@ export async function prepareDesktopUpdate(
   let runtimeReused = existsSync(join(finalRuntimeRoot, '.ready'));
   if (!runtimeReused) {
     const runtimeArchive = join(cacheDir, `${desc.runtime.sha256}-${desc.runtime.name}`);
-    runtimeReused = await downloadVerifiedAsset(desc.runtime.download_url, runtimeArchive, desc.runtime.sha256, signal);
+    runtimeReused = await downloadVerifiedAsset(desc.runtime.download_url, runtimeArchive, desc.runtime.sha256, signal, opts);
     const runtimeStage = await mkdtemp(join(runtimesDir, '.runtime-stage-'));
     try {
       await exec(TAR_BIN, ['-xzf', runtimeArchive, '-C', runtimeStage], { signal, windowsHide: true });
@@ -209,7 +244,7 @@ export async function prepareDesktopUpdate(
   }
 
   const appArchive = join(cacheDir, `${desc.app.sha256}-${desc.app.name}`);
-  await downloadVerifiedAsset(desc.app.download_url, appArchive, desc.app.sha256, signal);
+  await downloadVerifiedAsset(desc.app.download_url, appArchive, desc.app.sha256, signal, opts);
   await onInstalling();
 
   const versionStage = await mkdtemp(join(versionsDir, '.version-stage-'));
@@ -322,7 +357,8 @@ export async function runUpdate(configPath: string, operationId: string): Promis
     old = await gatewayState(config.path);
     if (!old?.entry || !old.node_exec || old.release?.kind !== 'managed' || old.release.updater_protocol !== 1
         || await processBirth(old.pid) !== old.process_start) throw new Error('Running Node does not support safe updates');
-    const target = parseReleaseManifest(report.operation.target);
+    const trustedOptions = await loadTrustedReleaseOptions(resolve(dirname(old.entry), '../../..'));
+    const target = parseReleaseManifest(report.operation.target, trustedOptions);
     const desktop = isDesktopPlatform(target?.platform);
     const windows = target?.platform === 'win32-x64';
     const expectedWinHost = windows || target?.platform === 'desktop-win32-x64';
@@ -344,14 +380,14 @@ export async function runUpdate(configPath: string, operationId: string): Promis
     let targetRoot: string;
     let runtimeReused = false;
     if (desktop) {
-      const prepared = await prepareDesktopUpdate(target, old.entry, () => phase('installing'), abort.signal);
+      const prepared = await prepareDesktopUpdate(target, old.entry, () => phase('installing'), abort.signal, trustedOptions);
       targetRoot = prepared.versionRoot;
       runtimeReused = prepared.runtimeReused;
     } else if (windows) {
       targetRoot = await prepareWindowsUpdate(target, old.entry, config.value.im_service.url, abort.signal);
       await phase('installing');
     } else {
-      targetRoot = await installRelease(target, resolve(dirname(old.entry), '../../../../..'), () => phase('installing'), abort.signal);
+      targetRoot = await installRelease(target, resolve(dirname(old.entry), '../../../../..'), () => phase('installing'), abort.signal, trustedOptions);
     }
     await phase('waiting');
     for (;;) {

@@ -83,6 +83,6 @@ export function parseAgentConfigurationFields(value: unknown): AgentConfiguratio
 /** Let cold Windows inspection workers initialize while keeping cancellation bounded. */
 export function inspectionTimeouts(windows: boolean) {
   return windows
-    ? {workerMs: 30_000, nodeMs: 32_000, rpcMs: 35_000}
+    ? {workerMs: 120_000, nodeMs: 125_000, rpcMs: 130_000}
     : {workerMs: 7_000, nodeMs: 8_000, rpcMs: 9_000};
 }

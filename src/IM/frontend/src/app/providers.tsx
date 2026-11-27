@@ -4,7 +4,8 @@ import type { Actor } from "../features/chat/chat-types";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { PropsWithChildren, useEffect, useMemo, useState } from "react";
 import { openDesktopExternal } from "../desktop/desktop-api";
-import { desktopScopedKey, isDesktopClient } from "../desktop/desktop-context";
+import { desktopScopedKey, isDesktopClient, syncDesktopDocumentAttribute } from "../desktop/desktop-context";
+import { DesktopServerSwitchModal } from "../desktop/desktop-server-switch-modal";
 import { useMobileViewport } from "../hooks/use-mobile-viewport";
 import { accountEnabled, useAuthStore } from "../features/auth/auth-store";
 
@@ -57,6 +58,7 @@ export function AppProviders({ children }: PropsWithChildren) {
   }, [queryClient]);
 
   useEffect(() => {
+    syncDesktopDocumentAttribute();
     if (!isDesktopClient()) return;
     const onDocClick = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -78,5 +80,12 @@ export function AppProviders({ children }: PropsWithChildren) {
     return () => document.removeEventListener("click", onDocClick);
   }, []);
 
-  return <QueryClientProvider client={queryClient}><AccountAvatarDirectory>{children}</AccountAvatarDirectory></QueryClientProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AccountAvatarDirectory>
+        {children}
+        <DesktopServerSwitchModal />
+      </AccountAvatarDirectory>
+    </QueryClientProvider>
+  );
 }

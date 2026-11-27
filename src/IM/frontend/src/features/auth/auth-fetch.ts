@@ -48,11 +48,12 @@ export async function authFetchJson<T>(
 ): Promise<T> {
   const res = await authFetch(path, init);
   if (!res.ok) {
-    const { detail } = await readHttpError(res);
+    const { detail, code } = await readHttpError(res);
+    const meta = { status: res.status, ...(code ? { code } : {}) };
     if (operationLabel) {
-      throw Object.assign(new Error(`${operationLabel} failed: ${res.status} ${detail}`), { status: res.status });
+      throw Object.assign(new Error(`${operationLabel} failed: ${res.status} ${detail}`), meta);
     }
-    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status} (${detail})`);
+    throw Object.assign(new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status} (${detail})`), meta);
   }
   return (await res.json()) as T;
 }

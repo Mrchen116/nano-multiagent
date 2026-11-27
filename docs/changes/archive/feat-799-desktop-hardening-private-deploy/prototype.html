@@ -1,0 +1,1478 @@
+<!doctype html>
+<html lang="zh-CN" data-crewden-desktop="true">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>feat-799 Crewden Desktop Prototype</title>
+  <style>
+    :root {
+      --home-ink: #302049;
+      --home-muted: #756886;
+      --home-green: #6b43d8;
+      --home-line: #e2d9ed;
+      --im-bg: #f6f3fc;
+      --im-surface: #ffffff;
+      --im-surface-2: #f4f0fa;
+      --im-text: #302049;
+      --im-text-muted: #756886;
+      --im-accent: #6b43d8;
+      --im-accent-2: #5732bf;
+      --im-accent-soft: #ebe3fb;
+      --im-border: #e2d9ed;
+      --im-border-strong: #c9bcde;
+      --im-danger: #b43636;
+      --im-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+      color: var(--im-text);
+      background: var(--im-bg);
+    }
+    button, input, select { font: inherit; }
+    .scene { display: none; width: 100%; height: 100%; overflow: hidden; }
+    .scene.active { display: flex; flex-direction: column; }
+
+    /* Brand mark */
+    .brand-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 9px;
+      font-weight: 700;
+      font-size: 21px;
+      letter-spacing: -0.03em;
+      color: var(--home-ink);
+      text-decoration: none;
+    }
+    .brand-icon {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: #fff0b5;
+      color: #6b43d8;
+      display: grid;
+      place-items: center;
+      border: 1px solid #ead892;
+      flex-shrink: 0;
+    }
+    .brand-icon svg { width: 18px; height: 18px; }
+
+    /* Compact Desktop Top Header (52px) - matches real ProductHeader */
+    .desktop-top-header {
+      width: min(1080px, calc(100% - 48px));
+      height: 52px;
+      min-height: 52px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex: none;
+    }
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-size: 12.5px;
+      color: var(--im-text-muted);
+    }
+    .lang-pill {
+      padding: 4px 10px;
+      border-radius: 7px;
+      border: 1px solid var(--im-border);
+      background: #fff;
+      font-size: 12px;
+      color: var(--im-text);
+    }
+
+    /* Scene 1: First-Launch Runtime Preparation Window */
+    .splash-wrap {
+      flex: 1;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: radial-gradient(circle at 50% 24%, #fff8df 0%, #f6f3fc 58%);
+    }
+    .splash-card {
+      width: min(460px, 100%);
+      background: #fff;
+      border: 1px solid var(--im-border);
+      border-radius: 22px;
+      padding: 32px 34px;
+      box-shadow: 0 24px 56px -34px rgba(48, 32, 73, 0.28);
+      text-align: center;
+    }
+    .splash-logo {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 16px;
+      border-radius: 16px;
+      background: #fff0b5;
+      border: 1px solid #ead892;
+      display: grid;
+      place-items: center;
+      color: #6b43d8;
+    }
+    .splash-logo svg { width: 32px; height: 32px; }
+    .splash-card h1 { margin: 0 0 8px; font-size: 21px; font-weight: 650; letter-spacing: -0.02em; }
+    .splash-card p { margin: 0 0 20px; font-size: 13.5px; line-height: 1.65; color: var(--im-text-muted); }
+    .progress-track {
+      height: 7px;
+      border-radius: 999px;
+      background: #ede7f8;
+      overflow: hidden;
+      margin-bottom: 12px;
+    }
+    .progress-bar {
+      width: 62%;
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #6b43d8, #8c65ec);
+    }
+    .splash-meta {
+      display: flex;
+      justify-content: center;
+      font-size: 12px;
+      color: var(--im-text-muted);
+    }
+    .splash-error-box {
+      margin-top: 14px;
+      text-align: left;
+      background: #fff4f4;
+      border: 1px solid #ecc6c6;
+      color: #8f2929;
+      border-radius: 12px;
+      padding: 12px 14px;
+      font-size: 12.5px;
+      line-height: 1.55;
+      display: none;
+    }
+    .splash-error-box.visible { display: block; }
+    .splash-error-box code {
+      display: block;
+      margin: 6px 0 10px;
+      font-family: var(--im-mono);
+      font-size: 11.5px;
+      color: #6e1f1f;
+      overflow-wrap: anywhere;
+    }
+
+    /* Scene 2 & 4: Auth Frame (Login & Register) */
+    .auth-main {
+      flex: 1;
+      min-height: 0;
+      width: min(1040px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 4px 0 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .auth-shell {
+      width: 100%;
+      max-height: 100%;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+      background: #fff;
+      border: 1px solid #ded4ed;
+      border-radius: 20px;
+      box-shadow: 0 24px 55px -40px rgba(56, 38, 80, 0.34);
+      overflow: hidden;
+    }
+    .auth-story {
+      padding: 24px 28px;
+      background: linear-gradient(180deg, #faf7ff 0%, #fffdf6 100%);
+      border-right: 1px solid #ece5f6;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      min-width: 0;
+    }
+    .auth-story h2 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      line-height: 1.28;
+      letter-spacing: -0.03em;
+      font-weight: 600;
+    }
+    .auth-story-lead {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--im-text-muted);
+    }
+    .story-visual {
+      margin: 14px 0;
+      display: grid;
+      gap: 10px;
+    }
+    .story-note {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 12px 14px;
+      background: #fff;
+      border: 1px solid #e6dcf3;
+      border-radius: 12px 12px 12px 4px;
+      font-size: 12.5px;
+      line-height: 1.5;
+      box-shadow: 0 10px 22px -18px rgba(56, 38, 80, 0.35);
+    }
+    .story-avatar {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      background: #f1e4ce;
+      color: #866941;
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex: none;
+    }
+    .story-result {
+      padding: 12px 14px;
+      background: #fff;
+      border: 1px solid #d9cce8;
+      border-radius: 12px;
+      box-shadow: 5px 5px 0 #ebe2f8;
+      font-size: 12px;
+    }
+    .story-result strong { display: block; font-size: 12.5px; margin-bottom: 4px; }
+    .story-result p { margin: 0 0 8px; color: var(--im-text-muted); line-height: 1.5; }
+    .story-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 5px;
+      background: #e3f2ec;
+      color: #2f6c56;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .story-caption { margin: 0; font-size: 11px; color: #867294; }
+
+    .auth-form-pane {
+      padding: 24px 32px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      min-height: 0;
+      overflow-y: auto;
+    }
+    /* DesktopServerBar: collapsed vs in-place expanded editor */
+    .server-bar {
+      background: var(--im-surface-2);
+      border: 1px solid var(--im-border);
+      border-radius: 10px;
+      padding: 7px 11px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .server-bar.hidden { display: none; }
+    .server-bar code {
+      font-family: var(--im-mono);
+      font-size: 11.5px;
+      color: var(--im-text);
+    }
+    .server-editor {
+      display: none;
+      background: #faf7ff;
+      border: 1px solid #d1bff3;
+      border-radius: 11px;
+      padding: 11px 13px;
+      margin-bottom: 12px;
+      font-size: 12px;
+    }
+    .server-editor.open { display: block; }
+    .server-editor-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 7px;
+    }
+    .server-editor-row { display: flex; gap: 8px; }
+    .server-editor input {
+      flex: 1;
+      height: 34px;
+      padding: 0 10px;
+      border: 1px solid var(--im-border-strong);
+      border-radius: 7px;
+      font-size: 12.5px;
+      background: #fff;
+    }
+    .server-private-http-hint {
+      margin-top: 7px;
+      padding: 6px 9px;
+      border-radius: 7px;
+      background: #fff8eb;
+      border: 1px solid #edd3a1;
+      color: #88510d;
+      font-size: 11.5px;
+      line-height: 1.45;
+    }
+    .server-error {
+      margin-top: 6px;
+      font-size: 11.5px;
+      color: var(--im-danger);
+      display: none;
+    }
+    .server-error.visible { display: block; }
+
+    .auth-heading { margin: 0 0 14px; }
+    .auth-heading h1 { margin: 0 0 4px; font-size: 25px; font-weight: 600; letter-spacing: -0.03em; }
+    .auth-heading p { margin: 0; font-size: 13px; color: var(--im-text-muted); line-height: 1.5; }
+
+    .auth-fields { display: grid; gap: 11px; }
+    .field { display: grid; gap: 5px; }
+    .field-label { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 600; }
+    .field-label span { color: var(--im-text-muted); font-weight: 400; font-size: 11.5px; }
+    .field input, .field select {
+      height: 40px;
+      padding: 8px 12px;
+      border: 1px solid #d6cbe3;
+      border-radius: 8px;
+      font-size: 14px;
+      background: #fff;
+      color: var(--im-text);
+    }
+    .submit-btn {
+      margin-top: 6px;
+      height: 42px;
+      border: 0;
+      border-radius: 9px;
+      background: #302049;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .auth-foot {
+      margin-top: 12px;
+      font-size: 12.5px;
+      color: var(--im-text-muted);
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .link-btn {
+      border: 0;
+      background: none;
+      padding: 0;
+      color: var(--im-accent);
+      font-weight: 600;
+      cursor: pointer;
+      font-size: inherit;
+    }
+    .btn {
+      height: 34px;
+      padding: 0 12px;
+      border-radius: 8px;
+      border: 1px solid var(--im-border-strong);
+      background: #fff;
+      color: var(--im-text);
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .btn.primary {
+      background: var(--im-accent);
+      border-color: var(--im-accent);
+      color: #fff;
+    }
+    .btn.subtle {
+      height: 26px;
+      padding: 0 8px;
+      border-color: transparent;
+      background: transparent;
+      color: var(--im-accent);
+      font-size: 12px;
+    }
+
+    /* Scene 3: Deep-Link Server Switch Confirmation / Rejection Modal */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 40;
+      background: rgba(28, 19, 43, 0.46);
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+    .switch-modal {
+      width: min(480px, 100%);
+      background: #fff;
+      border: 1px solid #ded4ed;
+      border-radius: 20px;
+      padding: 24px 26px;
+      box-shadow: 0 28px 64px -24px rgba(30, 18, 48, 0.42);
+    }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 650;
+      background: var(--im-accent-soft);
+      color: var(--im-accent);
+    }
+    .chip.warn { background: #fff4df; color: #945910; border: 1px solid #f0d5a4; }
+    .chip.danger { background: #fff0f0; color: #9e2a2a; border: 1px solid #efb9b9; }
+    .switch-modal h2 { margin: 10px 0 6px; font-size: 19px; letter-spacing: -0.02em; }
+    .switch-modal p { margin: 0 0 14px; font-size: 13px; line-height: 1.6; color: var(--im-text-muted); }
+    .origin-compare {
+      border: 1px solid var(--im-border);
+      border-radius: 12px;
+      background: #faf8fe;
+      padding: 12px 14px;
+      display: grid;
+      gap: 9px;
+      margin-bottom: 12px;
+      font-size: 12.5px;
+    }
+    .origin-row { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .origin-row span { color: var(--im-text-muted); font-size: 12px; }
+    .origin-row code { font-family: var(--im-mono); font-weight: 600; color: var(--im-text); }
+    .http-risk-banner {
+      background: #fff8eb;
+      border: 1px solid #ecd09c;
+      color: #88510d;
+      border-radius: 11px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.55;
+      margin-bottom: 16px;
+    }
+    .http-risk-banner strong { display: block; margin-bottom: 2px; color: #704006; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+    /* Scene 5: Onboarding Welcome (Non-Scrolling) */
+    .welcome-main {
+      flex: 1;
+      min-height: 0;
+      width: min(1060px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 4px 0 18px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
+      gap: 44px;
+      align-items: center;
+    }
+    .welcome-copy h1 {
+      font-size: 31px;
+      line-height: 1.28;
+      letter-spacing: -0.035em;
+      margin: 8px 0 12px;
+    }
+    .welcome-lead { margin: 0; font-size: 14px; line-height: 1.7; color: var(--im-text-muted); }
+    .welcome-prep {
+      margin: 16px 0;
+      padding-top: 14px;
+      border-top: 1px solid var(--im-border);
+      display: grid;
+      gap: 11px;
+    }
+    .welcome-prep-item { display: flex; gap: 12px; align-items: flex-start; }
+    .welcome-prep-num {
+      width: 24px;
+      height: 24px;
+      border-radius: 7px;
+      background: var(--im-accent-soft);
+      color: var(--im-accent);
+      display: grid;
+      place-items: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex: none;
+      margin-top: 1px;
+    }
+    .welcome-prep-item strong { display: block; font-size: 13px; }
+    .welcome-prep-item small { display: block; font-size: 12px; color: var(--im-text-muted); line-height: 1.5; margin-top: 2px; }
+    .welcome-cta-row { display: flex; align-items: center; gap: 18px; margin-top: 14px; }
+    .primary-cta {
+      height: 42px;
+      padding: 0 20px;
+      border: 0;
+      border-radius: 10px;
+      background: #6b43d8;
+      box-shadow: 0 3px 0 #4b2a9d;
+      color: #fff;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .primary-cta:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+    .welcome-preview-card {
+      background: #fff0ba;
+      border: 1px solid #ead99a;
+      border-radius: 22px;
+      padding: 22px 24px;
+    }
+    .pa-card {
+      background: #fff;
+      border: 1px solid var(--im-border);
+      border-radius: 15px;
+      padding: 16px 18px;
+      transform: rotate(-1.5deg);
+      box-shadow: 6px 6px 0 #ecd88f;
+    }
+    .pa-card-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--im-border);
+    }
+    .pa-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      background: var(--im-accent-soft);
+      color: var(--im-accent);
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+    }
+    .pa-bubble-user {
+      background: var(--im-accent-soft);
+      border-radius: 11px 11px 3px 11px;
+      padding: 10px 13px;
+      margin: 12px 0 12px 20px;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .pa-bubble-reply { font-size: 12px; line-height: 1.6; color: var(--im-text); }
+    .welcome-role-note { margin-top: 16px; font-size: 12px; line-height: 1.6; color: #5b4c6e; }
+
+    /* Scene 6: 3-Step Onboarding Wizard (Viewport-Locked + Inner Body Scroll + Pinned Footer) */
+    .wizard-main {
+      flex: 1;
+      min-height: 0;
+      width: min(1080px, calc(100% - 48px));
+      margin: 0 auto;
+      padding: 2px 0 16px;
+      display: flex;
+      flex-direction: column;
+    }
+    .wizard-top-bar {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+      flex: none;
+    }
+    .wizard-top-bar h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+    }
+    .wizard-top-bar p { margin: 0; font-size: 12.5px; color: var(--im-text-muted); }
+
+    .wizard-layout {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 256px minmax(0, 1fr);
+      background: #fff;
+      border: 1px solid #e5deee;
+      border-radius: 20px;
+      box-shadow: 0 22px 58px -44px rgba(68, 48, 91, 0.42);
+      overflow: hidden;
+    }
+    .wizard-rail {
+      background: #fff7df;
+      border-right: 1px solid #efe3be;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .rail-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+    .rail-step {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      cursor: pointer;
+      padding: 7px 8px;
+      border-radius: 10px;
+    }
+    .rail-num {
+      width: 25px;
+      height: 25px;
+      border-radius: 50%;
+      border: 1px solid var(--im-border-strong);
+      background: #fff;
+      display: grid;
+      place-items: center;
+      font-size: 11.5px;
+      font-weight: 700;
+      flex: none;
+    }
+    .rail-step.active .rail-num, .rail-step.done .rail-num {
+      background: var(--im-accent);
+      border-color: var(--im-accent);
+      color: #fff;
+    }
+    .rail-step strong { display: block; font-size: 13px; }
+    .rail-step.active strong { color: var(--im-accent); }
+    .rail-step small { display: block; font-size: 11px; color: var(--im-text-muted); margin-top: 2px; line-height: 1.4; }
+    .rail-footer {
+      margin-top: auto;
+      padding-top: 14px;
+      border-top: 1px solid #e9ddbd;
+      font-size: 11.5px;
+      color: #7d6d8b;
+      line-height: 1.6;
+    }
+
+    .wizard-card {
+      padding: 20px 28px;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .wizard-card-body {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+    .wizard-card h2 { margin: 0 0 4px; font-size: 21px; font-weight: 600; letter-spacing: -0.02em; }
+    .wizard-sub { margin: 0 0 14px; font-size: 13px; color: var(--im-text-muted); }
+
+    .local-bind-panel {
+      border: 1px solid #d7c8f3;
+      background: #faf8ff;
+      border-radius: 14px;
+      padding: 18px 20px;
+    }
+    .crash-fastfail-box {
+      margin-top: 12px;
+      background: #fff4f4;
+      border: 1px solid #eabcbc;
+      border-radius: 10px;
+      padding: 11px 13px;
+      font-size: 12px;
+      color: #8f2929;
+      display: none;
+    }
+    .crash-fastfail-box.visible { display: block; }
+
+    .pa-compact-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+    .avatar-picker-compact {
+      border: 1px solid var(--im-border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: #fcfbfe;
+    }
+    .avatar-live-preview {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      background: var(--im-accent-soft);
+      color: var(--im-accent);
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 18px;
+      flex: none;
+    }
+    .avatar-strip {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .avatar-dot {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      border: 2px solid transparent;
+      background: var(--im-surface-2);
+      color: var(--im-accent);
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .avatar-dot.selected {
+      border-color: var(--im-accent);
+      background: var(--im-accent-soft);
+    }
+    .scope-segment {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px;
+      padding: 3px;
+      background: var(--im-surface-2);
+      border: 1px solid var(--im-border);
+      border-radius: 9px;
+    }
+    .scope-segment button {
+      height: 34px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--im-text-muted);
+      cursor: pointer;
+    }
+    .scope-segment button.selected {
+      background: #fff;
+      color: var(--im-accent);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    .ready-strip {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      padding: 9px 12px;
+      border-radius: 9px;
+      background: #f7f4fc;
+      font-size: 12px;
+      color: var(--im-accent);
+      margin-top: 12px;
+    }
+    .error-banner {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 9px;
+      background: #fff4f4;
+      border: 1px solid #ecc6c6;
+      color: #962d2d;
+      font-size: 12.5px;
+      display: none;
+    }
+    .error-banner.visible { display: block; }
+
+    .wizard-footer {
+      flex: none;
+      padding-top: 13px;
+      margin-top: 10px;
+      border-top: 1px solid var(--im-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    /* Scene 7: FirstUseWelcome inside Chat Shell (1280x720 zero outer scroll) */
+    .app-shell-mock {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 248px minmax(0, 1fr);
+      background: var(--im-bg);
+    }
+    .app-sidebar-mock {
+      background: #efeaf9;
+      border-right: 1px solid var(--im-border);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .sidebar-empty-note {
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.65);
+      font-size: 12px;
+      color: var(--im-text-muted);
+      line-height: 1.6;
+    }
+    .first-use-pane {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 32px;
+    }
+    .first-use-inner {
+      width: min(920px, 100%);
+    }
+    .first-use-head {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+    .first-use-portrait {
+      width: 52px;
+      height: 52px;
+      border-radius: 16px;
+      background: #fff0b5;
+      color: #6b43d8;
+      border: 1px solid #ead892;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      font-size: 20px;
+      flex: none;
+    }
+    .first-use-head h1 { margin: 2px 0 4px; font-size: 24px; letter-spacing: -0.03em; }
+    .first-use-head p { margin: 0; font-size: 13.5px; color: var(--im-text-muted); }
+    .first-use-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 28px;
+      align-items: start;
+    }
+    .first-use-card {
+      background: #fff;
+      border: 1px solid var(--im-border);
+      border-radius: 18px;
+      padding: 20px 22px;
+      box-shadow: 0 12px 32px -24px rgba(48, 32, 73, 0.28);
+    }
+    .first-use-steps { list-style: none; margin: 14px 0; padding: 0; }
+    .first-use-steps li {
+      display: flex;
+      gap: 12px;
+      padding: 10px 0;
+      border-top: 1px solid var(--im-border);
+      font-size: 12.5px;
+    }
+    .first-use-steps li:first-child { border-top: 0; }
+    .first-use-ideas { padding-top: 4px; }
+    .first-use-example {
+      display: flex;
+      gap: 12px;
+      padding: 11px 0;
+      border-top: 1px solid var(--im-border);
+      font-size: 12.5px;
+    }
+    .first-use-foot {
+      margin-top: 14px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--im-text-muted);
+    }
+
+    /* Floating Prototype Switcher (completely hidden in ?clean=1) */
+    .proto-switcher {
+      position: fixed;
+      right: 14px;
+      bottom: 12px;
+      z-index: 99;
+      display: flex;
+      gap: 5px;
+      flex-wrap: wrap;
+      padding: 6px;
+      border-radius: 12px;
+      background: rgba(36, 24, 56, 0.92);
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.24);
+    }
+    body.clean-mode .proto-switcher { display: none !important; }
+    .proto-switcher button {
+      border: 0;
+      border-radius: 7px;
+      padding: 5px 9px;
+      font-size: 11.5px;
+      color: #e8dff7;
+      background: transparent;
+      cursor: pointer;
+    }
+    .proto-switcher button.active {
+      background: #fff0b5;
+      color: #302049;
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Scene 1: First-Launch Runtime Preparation Window -->
+  <div class="scene active" id="scene-splash">
+    <div class="splash-wrap">
+      <div class="splash-card">
+        <div class="splash-logo" aria-hidden="true">
+          <svg viewBox="0 0 100 100"><path fill="currentColor" d="M33 12h34c15.5 0 24 8.5 24 24v16c0 15.5-8.5 24-24 24H44L23.5 90.5c-2.9 2-6.5-.1-6.5-3.6V73.2C11.2 68.8 9 61.5 9 52V36c0-15.5 8.5-24 24-24z"/></svg>
+        </div>
+        <h1>正在准备运行环境…</h1>
+        <p>首次启动正在校验并解包内置 Node 运行时与助手组件（无需命令行或额外安装），完成后将自动进入 Crewden。</p>
+        <div class="progress-track" role="progressbar" aria-valuenow="62" aria-valuemin="0" aria-valuemax="100">
+          <div class="progress-bar"></div>
+        </div>
+        <div class="splash-meta">
+          <span>正在配置内置工具与 Web 能力…</span>
+        </div>
+        <div class="splash-error-box" id="splash-err">
+          <strong>运行环境准备失败：磁盘空间不足或归档校验不匹配</strong>
+          详细诊断已写入本机宿主日志，清理磁盘空间后可点击重试：
+          <code>%LOCALAPPDATA%\CrewdenDesktop\desktop-host.log</code>
+          <button type="button" class="btn primary">重试准备运行环境</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scene 2: Desktop Non-Scrolling Login -->
+  <div class="scene" id="scene-login">
+    <header class="desktop-top-header">
+      <span class="brand-row">
+        <span class="brand-icon"><svg viewBox="0 0 100 100"><path fill="currentColor" d="M33 12h34c15.5 0 24 8.5 24 24v16c0 15.5-8.5 24-24 24H44L23.5 90.5c-2.9 2-6.5-.1-6.5-3.6V73.2C11.2 68.8 9 61.5 9 52V36c0-15.5 8.5-24 24-24z"/></svg></span>
+        crewden
+      </span>
+      <div class="header-right">
+        <span class="lang-pill">简体中文</span>
+      </div>
+    </header>
+    <main class="auth-main">
+      <div class="auth-shell">
+        <aside class="auth-story">
+          <div>
+            <h2>和你的个人助手，<br />从一件小事开始协作</h2>
+            <p class="auth-story-lead">登录当前 IM 服务后即可在应用内一键绑定这台电脑，无需安装终端工具。</p>
+          </div>
+          <div class="story-visual">
+            <div class="story-note">
+              <span class="story-avatar">林</span>
+              <div>“帮我整理今天桌面上的部署记录，发给工程助手跟进。”</div>
+            </div>
+            <div class="story-result">
+              <strong>部署复盘与回归清单.md</strong>
+              <p>已汇总 8 项反馈分类并同步至研发群，等待你确认发布窗口。</p>
+              <span class="story-badge">本机工作区直达</span>
+            </div>
+          </div>
+          <p class="story-caption">不同 IM 服务的登录会话、草稿与本地电脑连接彼此独立隔离。</p>
+        </aside>
+        <section class="auth-form-pane">
+          <!-- Collapsed server bar (replaced in-place when editing) -->
+          <div class="server-bar" id="server-bar-collapsed">
+            <span>当前连接服务：<code>https://im.crewden.work</code></span>
+            <button type="button" class="btn subtle" onclick="setServerEditing(true)">切换服务</button>
+          </div>
+          <!-- In-place expanded server editor -->
+          <div class="server-editor" id="server-editor">
+            <div class="server-editor-head">
+              <strong>切换连接的 IM 服务地址</strong>
+              <button type="button" class="btn subtle" onclick="setServerEditing(false)">取消</button>
+            </div>
+            <div class="server-editor-row">
+              <input id="server-input" value="http://10.24.8.15:8011" aria-label="IM 服务地址" oninput="validateServerInput()" />
+              <button type="button" class="btn primary" onclick="validateServerInput()">保存切换</button>
+            </div>
+            <div class="server-private-http-hint" id="server-private-hint">
+              未加密内网连接（HTTP）：仅限受信任局域网私网 IP 或 .local 主机使用。
+            </div>
+            <div class="server-error" id="server-err">官方及公网服务必须使用加密 https://（仅本机回环或 RFC1918 私网允许 http://）。</div>
+          </div>
+          <div class="auth-heading">
+            <h1>登录账号</h1>
+            <p>使用当前连接服务上的账号继续，重开客户端将自动保持登录。</p>
+          </div>
+          <form class="auth-fields" onsubmit="event.preventDefault(); showScene('onboarding-welcome')">
+            <div class="field">
+              <div class="field-label"><label for="login-user">用户名</label></div>
+              <input id="login-user" value="xiaolin" autocomplete="username" />
+            </div>
+            <div class="field">
+              <div class="field-label"><label for="login-pass">密码</label></div>
+              <input id="login-pass" type="password" value="password123" autocomplete="current-password" />
+            </div>
+            <button type="submit" class="submit-btn">登录并进入工作台</button>
+          </form>
+          <div class="auth-foot">
+            <span>还没有账号？</span>
+            <button type="button" class="link-btn" onclick="showScene('register')">创建新账号</button>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Scene 3: Deep-Link Cross-Origin Server Switch Confirmation / Public HTTP Rejection -->
+  <div class="scene" id="scene-switch-confirm">
+    <header class="desktop-top-header">
+      <span class="brand-row">
+        <span class="brand-icon"><svg viewBox="0 0 100 100"><path fill="currentColor" d="M33 12h34c15.5 0 24 8.5 24 24v16c0 15.5-8.5 24-24 24H44L23.5 90.5c-2.9 2-6.5-.1-6.5-3.6V73.2C11.2 68.8 9 61.5 9 52V36c0-15.5 8.5-24 24-24z"/></svg></span>
+        crewden
+      </span>
+      <div class="header-right">
+        <span class="lang-pill">简体中文</span>
+      </div>
+    </header>
+    <main class="auth-main" aria-hidden="true" style="filter: blur(1px); opacity: 0.6;">
+      <div class="auth-shell">
+        <aside class="auth-story"><h2>和你的个人助手，<br />从一件小事开始协作</h2></aside>
+        <section class="auth-form-pane"><div class="auth-heading"><h1>登录账号</h1></div></section>
+      </div>
+    </main>
+    <div class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="switch-modal-title">
+      <div class="switch-modal" id="switch-modal-confirm">
+        <span class="chip warn">外部链接请求切换服务</span>
+        <h2 id="switch-modal-title">确认切换到新的 IM 服务地址？</h2>
+        <p>外部页面请求将 Crewden Desktop 切换到另一个 IM 服务。切换后界面将按新服务隔离账号与本地会话，原服务的登录状态会保留在原地址下。</p>
+        <div class="origin-compare">
+          <div class="origin-row"><span>当前连接服务</span><code>https://im.crewden.work</code></div>
+          <div class="origin-row"><span>请求切换目标</span><code>http://10.24.8.15:8011</code></div>
+        </div>
+        <div class="http-risk-banner">
+          <strong>未加密内网连接（HTTP）风险提示</strong>
+          目标地址未使用 HTTPS 加密，账号凭据与聊天内容在网络传输中可能被嗅探或篡改。请仅在受信任的企业内部局域网中确认切换。
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn" onclick="showScene('login')">保留原服务</button>
+          <button type="button" class="btn primary" onclick="showScene('login')">确认切换到该服务</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scene 4: Desktop Non-Scrolling Register -->
+  <div class="scene" id="scene-register">
+    <header class="desktop-top-header">
+      <span class="brand-row">
+        <span class="brand-icon"><svg viewBox="0 0 100 100"><path fill="currentColor" d="M33 12h34c15.5 0 24 8.5 24 24v16c0 15.5-8.5 24-24 24H44L23.5 90.5c-2.9 2-6.5-.1-6.5-3.6V73.2C11.2 68.8 9 61.5 9 52V36c0-15.5 8.5-24 24-24z"/></svg></span>
+        crewden
+      </span>
+      <div class="header-right">
+        <span class="lang-pill">简体中文</span>
+      </div>
+    </header>
+    <main class="auth-main">
+      <div class="auth-shell">
+        <aside class="auth-story">
+          <div>
+            <h2>创建你的私人空间，<br />连接这台电脑即可开工</h2>
+            <p class="auth-story-lead">注册后立即拥有独立的个人空间；如需加入公司团队，可稍后提交加入申请。</p>
+          </div>
+          <div class="story-visual">
+            <div class="story-note">
+              <span class="story-avatar">你</span>
+              <div>注册仅需设置账号与密码；模型密钥保存在你自己的电脑上。</div>
+            </div>
+            <div class="story-result">
+              <strong>三步完成首次引导</strong>
+              <p>1. 绑定当前电脑 → 2. 连接模型服务 → 3. 命名你的个人助手。</p>
+              <span class="story-badge">全程零命令行</span>
+            </div>
+          </div>
+          <p class="story-caption">内置运行环境已就绪，无需预装 Node.js、Python 或 WSL。</p>
+        </aside>
+        <section class="auth-form-pane">
+          <div class="server-bar">
+            <span>当前连接服务：<code>http://10.24.8.15:8011</code> <em style="color:#945910;font-style:normal;margin-left:4px;">(未加密内网)</em></span>
+            <button type="button" class="btn subtle" onclick="showScene('login')">切换服务</button>
+          </div>
+          <div class="auth-heading">
+            <h1>创建账号</h1>
+            <p>创建成功后将直接进入本机首次连接设置。</p>
+          </div>
+          <form class="auth-fields" onsubmit="event.preventDefault(); showScene('onboarding-welcome')">
+            <div class="field">
+              <div class="field-label"><label for="reg-user">用户名</label><span>必填</span></div>
+              <input id="reg-user" placeholder="例如 xiaolin" />
+            </div>
+            <div class="field">
+              <div class="field-label"><label for="reg-name">显示名称</label><span>选填</span></div>
+              <input id="reg-name" placeholder="同事和助手看到的称呼" />
+            </div>
+            <div class="field">
+              <div class="field-label"><label for="reg-pass">密码</label><span>至少 8 位字符</span></div>
+              <input id="reg-pass" type="password" placeholder="请输入至少 8 位密码" />
+            </div>
+            <button type="submit" class="submit-btn">创建账号并开始设置</button>
+          </form>
+          <div class="auth-foot">
+            <span>已有账号？</span>
+            <button type="button" class="link-btn" onclick="showScene('login')">直接登录</button>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Scene 5: Onboarding Welcome (Non-Scrolling) -->
+  <div class="scene" id="scene-onboarding-welcome">
+    <header class="desktop-top-header">
+      <span class="brand-row">
+        <span class="brand-icon"><svg viewBox="0 0 100 100"><path fill="currentColor" d="M33 12h34c15.5 0 24 8.5 24 24v16c0 15.5-8.5 24-24 24H44L23.5 90.5c-2.9 2-6.5-.1-6.5-3.6V73.2C11.2 68.8 9 61.5 9 52V36c0-15.5 8.5-24 24-24z"/></svg></span>
+        crewden
+      </span>
+      <div class="header-right">
+        <span class="lang-pill">简体中文</span>
+        <span>小林</span>
+      </div>
+    </header>
+    <main class="welcome-main">
+      <div class="welcome-copy">
+        <span class="chip">首次设置 · 约 2 分钟</span>
+        <h1>在这台电脑上准备好你的个人助手</h1>
+        <p class="welcome-lead">个人助手运行在你自己的电脑上，可直接整理本地文件、调用工具并跨群聊帮你协调事项。</p>
+        <div class="welcome-prep">
+          <div class="welcome-prep-item">
+            <span class="welcome-prep-num">1</span>
+            <div><strong>确认绑定这台电脑</strong><small>内置运行环境已就绪，应用内一键绑定并自动开启托盘常驻。</small></div>
+          </div>
+          <div class="welcome-prep-item">
+            <span class="welcome-prep-num">2</span>
+            <div><strong>连接可用的模型服务</strong><small>填入服务商 API 密钥并验证连通，系统将自动后台预热运行能力。</small></div>
+          </div>
+          <div class="welcome-prep-item">
+            <span class="welcome-prep-num">3</span>
+            <div><strong>为个人助手起个名字</strong><small>创建专属工作目录并立即进入第一次私聊。</small></div>
+          </div>
+        </div>
+        <div class="welcome-cta-row">
+          <button type="button" class="primary-cta" onclick="showScene('onboarding-wizard')">开始三步设置 →</button>
+          <button type="button" class="link-btn" onclick="showScene('first-use')">先进入聊天，稍后设置</button>
+        </div>
+      </div>
+      <div class="welcome-preview-card">
+        <div class="pa-card">
+          <div class="pa-card-head">
+            <span class="pa-avatar">助</span>
+            <div><strong style="font-size:13px;display:block;">小林的个人助手</strong><small style="font-size:11px;color:var(--im-text-muted);">运行在这台 Windows 电脑 · 仅你可管理</small></div>
+          </div>
+          <div class="pa-bubble-user">帮我检查下 Downloads 里刚收到的部署清单，把阻塞项列出来。</div>
+          <div class="pa-bubble-reply">已读取清单并核对了 8 个条目：其中 3 项为通用阻断问题，4 项属于内网独立 IM 预设配置，我已整理好修复顺序供你确认。</div>
+        </div>
+        <div class="welcome-role-note">
+          <strong>进度随时自动保存：</strong>任意步骤中断或重开客户端都会自动恢复到当前进度。
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Scene 6: 3-Step Onboarding Wizard (Viewport-Locked + Inner Scroll + Pinned Footer) -->
+  <div class="scene" id="scene-onboarding-wizard">
+    <header class="desktop-top-header">
+      <span class="brand-row">
+        <span class="brand-icon"><svg viewBox="0 0 100 100"><path fill="currentColor" d="M33 12h34c15.5 0 24 8.5 24 24v16c0 15.5-8.5 24-24 24H44L23.5 90.5c-2.9 2-6.5-.1-6.5-3.6V73.2C11.2 68.8 9 61.5 9 52V36c0-15.5 8.5-24 24-24z"/></svg></span>
+        crewden
+      </span>
+      <div class="header-right">
+        <span class="lang-pill">简体中文</span>
+        <span>小林</span>
+      </div>
+    </header>
+    <main class="wizard-main">
+      <div class="wizard-top-bar">
+        <h1>设置你的个人助手</h1>
+        <p>电脑绑定、模型连接与助手资料都在同一面板内完成，主操作始终固定可见。</p>
+      </div>
+      <div class="wizard-layout">
+        <aside class="wizard-rail">
+          <ol class="rail-steps">
+            <li class="rail-step" id="rail-1" onclick="setWizardStep(1)">
+              <span class="rail-num" id="rail-num-1">1</span>
+              <div><strong>连接这台电脑</strong><small id="rail-sub-1">绑定并启动本机后台节点</small></div>
+            </li>
+            <li class="rail-step" id="rail-2" onclick="setWizardStep(2)">
+              <span class="rail-num" id="rail-num-2">2</span>
+              <div><strong>连接模型服务</strong><small id="rail-sub-2">配置可用的 API 模型</small></div>
+            </li>
+            <li class="rail-step" id="rail-3" onclick="setWizardStep(3)">
+              <span class="rail-num" id="rail-num-3">3</span>
+              <div><strong>创建个人助手</strong><small>确认名称、形象与公开范围</small></div>
+            </li>
+          </ol>
+          <div class="rail-footer">
+            完成本步后将直接进入与个人助手的一对一对话。<br />
+            <button type="button" class="link-btn" style="margin-top:8px;" onclick="showScene('first-use')">先进入聊天</button>
+          </div>
+        </aside>
+
+        <!-- Step 1: Unbound initial state (consistent with disabled Continue until bound) -->
+        <section class="wizard-card" id="wiz-step-1" style="display:none;">
+          <div class="wizard-card-body">
+            <h2>绑定并启动这台电脑</h2>
+            <p class="wizard-sub">无需打开终端或配置环境变量，点击下方按钮即可将当前电脑接入账号。</p>
+            <div class="local-bind-panel">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                <div>
+                  <span class="chip">待绑定当前电脑</span>
+                  <strong style="display:block;font-size:15px;margin-top:6px;">DESKTOP-WIN11 (Windows 11 x64)</strong>
+                  <span style="font-size:12.5px;color:var(--im-text-muted);">内置 Node 24.22.1 与受管工具环境已准备就绪</span>
+                </div>
+                <button type="button" class="btn primary" onclick="setWizardStep(2)">一键绑定并启动这台电脑</button>
+              </div>
+              <div class="crash-fastfail-box" id="crash-box">
+                <strong>本机后台节点启动失败（已停止重试）：Invalid installed release manifest</strong><br />
+                无需等待超时——请前往「电脑与运行设置 → 本机日志」查看完整诊断信息。
+              </div>
+            </div>
+          </div>
+          <div class="wizard-footer">
+            <span style="font-size:12.5px;color:var(--im-text-muted);">○ 等待确认绑定当前电脑后进入下一步</span>
+            <button type="button" class="primary-cta" disabled>继续</button>
+          </div>
+        </section>
+
+        <!-- Step 2: Custom API form inside scrollable body, while primary "验证并继续" CTA stays pinned in wizard-footer! -->
+        <section class="wizard-card" id="wiz-step-2" style="display:none;">
+          <div class="wizard-card-body" id="wiz-step-2-body">
+            <h2>连接模型服务</h2>
+            <p class="wizard-sub">验证通过后将自动在后台预热本机运行能力目录，确保下一步创建助手顺畅完成。</p>
+            <form id="onboarding-model-form" class="auth-fields" onsubmit="event.preventDefault(); setWizardStep(3)">
+              <div class="pa-compact-row">
+                <div class="field">
+                  <div class="field-label"><label>接入来源</label></div>
+                  <select><option>自定义 API 服务</option><option>内置服务商目录</option></select>
+                </div>
+                <div class="field">
+                  <div class="field-label"><label>接口协议</label></div>
+                  <select><option>OpenAI Chat Completions 兼容</option><option>Anthropic Messages</option></select>
+                </div>
+              </div>
+              <div class="pa-compact-row">
+                <div class="field">
+                  <div class="field-label"><label>服务显示名</label></div>
+                  <input value="企业内网模型网关" />
+                </div>
+                <div class="field">
+                  <div class="field-label"><label>API 地址 (Base URL)</label></div>
+                  <input value="http://10.24.8.20:31943/v1" />
+                </div>
+              </div>
+              <div class="pa-compact-row">
+                <div class="field">
+                  <div class="field-label"><label>API 密钥</label><span>仅保存在本机</span></div>
+                  <input type="password" value="sk-private-gateway-key" />
+                </div>
+                <div class="field">
+                  <div class="field-label"><label>模型 ID</label></div>
+                  <input value="deepseek-v3" />
+                </div>
+              </div>
+              <div id="step2-extra-models" style="display:none;" class="auth-fields">
+                <div class="pa-compact-row">
+                  <div class="field"><div class="field-label"><label>模型 2 ID</label></div><input value="qwen-2.5-coder-32b" /></div>
+                  <div class="field"><div class="field-label"><label>上下文窗口上限</label></div><input value="128000" /></div>
+                </div>
+                <div class="pa-compact-row">
+                  <div class="field"><div class="field-label"><label>模型 3 ID</label></div><input value="deepseek-r1" /></div>
+                  <div class="field"><div class="field-label"><label>最大输出 Token</label></div><input value="16384" /></div>
+                </div>
+                <div class="pa-compact-row">
+                  <div class="field"><div class="field-label"><label>模型 4 ID</label></div><input value="glm-4.5-air" /></div>
+                  <div class="field"><div class="field-label"><label>上下文窗口上限</label></div><input value="128000" /></div>
+                </div>
+                <div class="pa-compact-row">
+                  <div class="field"><div class="field-label"><label>模型 5 ID</label></div><input value="claude-sonnet-4" /></div>
+                  <div class="field"><div class="field-label"><label>最大输出 Token</label></div><input value="16384" /></div>
+                </div>
+                <div class="pa-compact-row">
+                  <div class="field"><div class="field-label"><label>模型 6 ID</label></div><input value="gpt-5.2" /></div>
+                  <div class="field"><div class="field-label"><label>最大输出 Token</label></div><input value="32768" /></div>
+                </div>
+              </div>
+            </form>
+          </div>
+          <div class="wizard-footer">
+            <button type="button" class="btn" onclick="setWizardStep(1)">← 返回</button>
+            <button type="submit" form="onboarding-model-form" class="primary-cta">验证并继续</button>
+          </div>
+        </section>
+
+        <!-- Step 3: De-duplicated compact layout (fits 1280x720 with zero inner/outer scroll) -->
+        <section class="wizard-card" id="wiz-step-3">
+          <div class="wizard-card-body">
+            <h2>创建你的个人助手</h2>
+            <p class="wizard-sub">个人助手与你一对一固定绑定，创建后即可直接开始交办日常事务。</p>
+            <div class="pa-compact-row">
+              <div class="field">
+                <div class="field-label"><label for="pa-name">助手名称</label></div>
+                <input id="pa-name" value="小林的助手" />
+              </div>
+              <div class="field">
+                <div class="field-label"><label>默认协作范围</label></div>
+                <div class="scope-segment">
+                  <button type="button" class="selected">团队公开（同事可协作）</button>
+                  <button type="button">私有（仅自己可见）</button>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <div class="field-label"><label>角色形象</label><span>创建后仍可随时更换</span></div>
+              <div class="avatar-picker-compact">
+                <div class="avatar-live-preview">01</div>
+                <div class="avatar-strip">
+                  <button type="button" class="avatar-dot selected">01</button>
+                  <button type="button" class="avatar-dot">02</button>
+                  <button type="button" class="avatar-dot">03</button>
+                  <button type="button" class="avatar-dot">04</button>
+                  <button type="button" class="avatar-dot">05</button>
+                  <button type="button" class="avatar-dot">06</button>
+                  <button type="button" class="avatar-dot">07</button>
+                  <button type="button" class="avatar-dot">08</button>
+                  <button type="button" class="avatar-dot">09</button>
+                  <button type="button" class="avatar-dot">10</button>
+                </div>
+              </div>
+            </div>
+            <div class="ready-strip">
+              <span>运行电脑：DESKTOP-WIN11</span>
+              <span>主模型：DeepSeek V3</span>
+              <span>工作目录：~/.nanoassistant/workspaces/pa-xiaolin</span>
+            </div>
+            <div class="error-banner" id="step3-err"></div>
+          </div>
+          <div class="wizard-footer">
+            <button type="button" class="btn" onclick="setWizardStep(2)">← 返回</button>
+            <button type="button" class="primary-cta" onclick="showScene('first-use')">创建个人助手</button>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Scene 7: FirstUseWelcome inside Chat Workspace (1280x720 zero outer scroll) -->
+  <div class="scene" id="scene-first-use">
+    <div class="app-shell-mock">
+      <aside class="app-sidebar-mock">
+        <span class="brand-row">
+          <span class="brand-icon"><svg viewBox="0 0 100 100"><path fill="currentColor" d="M33 12h34c15.5 0 24 8.5 24 24v16c0 15.5-8.5 24-24 24H44L23.5 90.5c-2.9 2-6.5-.1-6.5-3.6V73.2C11.2 68.8 9 61.5 9 52V36c0-15.5 8.5-24 24-24z"/></svg></span>
+          crewden
+        </span>
+        <div class="sidebar-empty-note">
+          当前还没有会话。完成右侧三步设置创建个人助手，或从通讯录向团队成员发起对话。
+        </div>
+      </aside>
+      <main class="first-use-pane">
+        <div class="first-use-inner">
+          <div class="first-use-head">
+            <div class="first-use-portrait">助</div>
+            <div>
+              <span class="chip">欢迎使用 Crewden</span>
+              <h1>连接这台电脑，开启你的第一个个人助手</h1>
+              <p>随时从上次进度继续设置，或先在团队空间与同事直接沟通。</p>
+            </div>
+          </div>
+          <div class="first-use-grid">
+            <section class="first-use-card">
+              <strong style="font-size:16px;">首次设置进度（已完成 1 / 3）</strong>
+              <ol class="first-use-steps">
+                <li><span class="welcome-prep-num">✓</span><div><strong>连接工作电脑</strong><br /><span style="color:var(--im-text-muted);">DESKTOP-WIN11 已在线</span></div></li>
+                <li><span class="welcome-prep-num">2</span><div><strong>连接模型服务</strong><br /><span style="color:var(--im-text-muted);">选择内置服务商或自定义 API 并验证</span></div></li>
+                <li><span class="welcome-prep-num">3</span><div><strong>命名个人助手</strong><br /><span style="color:var(--im-text-muted);">建立专属工作目录并开始对话</span></div></li>
+              </ol>
+              <button type="button" class="primary-cta" style="width:100%;" onclick="showScene('onboarding-wizard')">继续完成助手设置 →</button>
+            </section>
+            <section class="first-use-ideas">
+              <strong style="font-size:16px;display:block;margin-bottom:8px;">设置完成后可以交办的小事</strong>
+              <div class="first-use-example">
+                <span class="welcome-prep-num">01</span>
+                <div><strong>整理本机项目资料</strong><br /><span style="color:var(--im-text-muted);">汇总本地目录文档并生成待办摘要，结果可一键在资源管理器定位。</span></div>
+              </div>
+              <div class="first-use-example">
+                <span class="welcome-prep-num">02</span>
+                <div><strong>跨群跟进团队协作</strong><br /><span style="color:var(--im-text-muted);">让个人助手联系专职数字员工收集进展，整理后交还你确认。</span></div>
+              </div>
+              <div class="first-use-example">
+                <span class="welcome-prep-num">03</span>
+                <div><strong>定时巡检与早报提醒</strong><br /><span style="color:var(--im-text-muted);">电脑常驻托盘在线，重要消息与待审批操作即时提醒直达。</span></div>
+              </div>
+            </section>
+          </div>
+          <div class="first-use-foot">也可以先在左侧浏览通讯录，或前往「设置 → 电脑管理」查看本机运行状态。</div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <nav class="proto-switcher" aria-label="原型场景切换">
+    <button type="button" class="active" data-target="splash" onclick="showScene('splash')">1. 首次准备</button>
+    <button type="button" data-target="login" onclick="showScene('login')">2. 登录</button>
+    <button type="button" data-target="switch-confirm" onclick="showScene('switch-confirm')">3. 切服确认</button>
+    <button type="button" data-target="register" onclick="showScene('register')">4. 注册</button>
+    <button type="button" data-target="onboarding-welcome" onclick="showScene('onboarding-welcome')">5. 引导欢迎</button>
+    <button type="button" data-target="onboarding-wizard" onclick="showScene('onboarding-wizard')">6. 三步向导</button>
+    <button type="button" data-target="first-use" onclick="showScene('first-use')">7. 聊天空态</button>
+  </nav>
+
+  <script>
+    function isAllowedCleartextHttpUrl(raw) {
+      try {
+        const u = new URL(raw);
+        if (u.protocol === 'https:') return { ok: true, privateHttp: false };
+        if (u.protocol !== 'http:') return { ok: false, privateHttp: false };
+        const h = u.hostname.toLowerCase();
+        if (h === 'crewden.work' || h.endsWith('.crewden.work')) return { ok: false, privateHttp: false };
+        if (h === 'localhost' || h === '[::1]' || h === '::1') return { ok: true, privateHttp: false };
+        const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+        if (ipv4) {
+          const octets = ipv4.slice(1).map(Number);
+          if (octets.some(n => n > 255)) return { ok: false, privateHttp: false };
+          if (octets[0] === 127) return { ok: true, privateHttp: false };
+          if (octets[0] === 10 || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31) || (octets[0] === 192 && octets[1] === 168)) {
+            return { ok: true, privateHttp: true };
+          }
+          return { ok: false, privateHttp: false };
+        }
+        if (h.endsWith('.local') && h.length > 6) return { ok: true, privateHttp: true };
+        return { ok: false, privateHttp: false };
+      } catch {
+        return { ok: false, privateHttp: false };
+      }
+    }
+    function showScene(id) {
+      document.querySelectorAll('.scene').forEach(el => el.classList.remove('active'));
+      const target = document.getElementById('scene-' + id);
+      if (target) target.classList.add('active');
+      document.querySelectorAll('.proto-switcher button').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.target === id);
+      });
+    }
+    function setServerEditing(open) {
+      document.getElementById('server-bar-collapsed').classList.toggle('hidden', open);
+      document.getElementById('server-editor').classList.toggle('open', open);
+      if (open) validateServerInput();
+    }
+    function validateServerInput() {
+      const val = document.getElementById('server-input').value.trim();
+      const res = isAllowedCleartextHttpUrl(val);
+      document.getElementById('server-err').classList.toggle('visible', !res.ok);
+      document.getElementById('server-private-hint').style.display = res.ok && res.privateHttp ? 'block' : 'none';
+    }
+    function setWizardStep(step) {
+      [1, 2, 3].forEach(n => {
+        document.getElementById('wiz-step-' + n).style.display = n === step ? 'flex' : 'none';
+        const rail = document.getElementById('rail-' + n);
+        rail.classList.toggle('active', n === step);
+        rail.classList.toggle('done', n < step);
+        document.getElementById('rail-num-' + n).textContent = n < step ? '✓' : String(n);
+      });
+      document.getElementById('rail-sub-1').textContent = step > 1 ? 'DESKTOP-WIN11 已在线' : '绑定并启动本机后台节点';
+      document.getElementById('rail-sub-2').textContent = step > 2 ? '企业内网模型网关 · 已预热' : '配置可用的 API 模型';
+    }
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('clean') === '1') document.body.classList.add('clean-mode');
+    if (params.get('scene')) showScene(params.get('scene'));
+    setWizardStep(Number(params.get('step') || '3'));
+    if (params.get('editServer') === '1') setServerEditing(true);
+    if (params.get('splashError') === '1') document.getElementById('splash-err').classList.add('visible');
+    if (params.get('expandModels') === '1') document.getElementById('step2-extra-models').style.display = 'grid';
+  </script>
+</body>
+</html>

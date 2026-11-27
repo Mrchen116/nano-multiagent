@@ -32,6 +32,8 @@ pub trait DesktopUiBridge: Send + Sync {
     fn update_current_route(&self, route: &str) -> Option<String>;
     fn update_unread_badge(&self, total_unread: u64);
     fn activate_route(&self, target_route: &str);
+    fn focus_window(&self) {}
+    fn notify_host_context_updated(&self) {}
     fn reload_webview(&self, target_route: Option<&str>);
     fn set_locale(&self, _locale: &str) {}
     fn present_notification_popup(&self, _item: &DesktopNotificationRecord) {}
@@ -45,6 +47,8 @@ pub trait DesktopUiBridge: Send + Sync {
 pub struct NoopUiBridge {
     pub badge_count: Mutex<u64>,
     pub activated_routes: Mutex<Vec<String>>,
+    pub focus_count: Mutex<u64>,
+    pub context_update_count: Mutex<u64>,
     pub attention: RwLock<WindowAttentionState>,
     pub pending_route: Mutex<Option<String>>,
     pub popped_count: Mutex<u64>,
@@ -77,6 +81,14 @@ impl DesktopUiBridge for NoopUiBridge {
             .lock()
             .unwrap()
             .push(target_route.to_string());
+    }
+
+    fn focus_window(&self) {
+        *self.focus_count.lock().unwrap() += 1;
+    }
+
+    fn notify_host_context_updated(&self) {
+        *self.context_update_count.lock().unwrap() += 1;
     }
 
     fn reload_webview(&self, _target_route: Option<&str>) {}

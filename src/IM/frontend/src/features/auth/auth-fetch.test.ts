@@ -150,4 +150,14 @@ describe("authFetch", () => {
       await i18n.changeLanguage("en");
     }
   });
+
+  it("attaches structured HTTP status and error code on authFetchJson failures", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      makeResponse(504, { code: "node_capabilities_timeout", message: "Reading capabilities timed out." }),
+    );
+    const err = await authFetchJson("/im/v1/personal-agent", { method: "POST", body: "{}" }).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as { status?: number; code?: string }).status).toBe(504);
+    expect((err as { status?: number; code?: string }).code).toBe("node_capabilities_timeout");
+  });
 });

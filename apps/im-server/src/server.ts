@@ -32,6 +32,8 @@ export interface ServerOptions {
   trajectoryDistDir?: string;
   nodeReleaseDir?: string;
   iosDownloadUrl?: string;
+  allowPrivateHttp?: boolean;
+  releaseBaseUrl?: string;
 }
 export function resolveSecret() {
   const secret = process.env.IM_JWT_SECRET?.trim();
@@ -80,12 +82,16 @@ export async function createServer(options: ServerOptions = {}) {
     keepAliveTimeout: 5000,
     trustProxy: false,
   });
+  const allowPrivateHttp = options.allowPrivateHttp ?? (process.env.IM_ALLOW_PRIVATE_HTTP === "1");
+  const releaseBaseUrl = options.releaseBaseUrl ?? process.env.IM_RELEASE_BASE_URL?.trim();
   const ctx = {
     db,
     dbPath,
     uploadDir,
     publicUrl: publicUrl!,
     jwtSecret: secret,
+    allowPrivateHttp,
+    releaseBaseUrl,
     identity: createIdentity(db, secret, messages => { ctx.messaging.publishMessages(messages, {deferDelivery:true}); }),
   } as ImContext;
   ctx.messaging = new Messaging(ctx);
@@ -342,7 +348,7 @@ export async function createServer(options: ServerOptions = {}) {
       const index = join(dist, "index.html");
       if (existsSync(index)) {
         reply.header('Cache-Control','private, no-store').header('Vary','Cookie');
-        const publicInstallJson = JSON.stringify(installMaterials(ctx.publicUrl, releaseDirectory, iosDownloadUrl)).replace(/</g, '\\u003c');
+        const publicInstallJson = JSON.stringify(installMaterials(ctx.publicUrl, releaseDirectory, iosDownloadUrl, { allowPrivateHttp: ctx.allowPrivateHttp, releaseBaseUrl: ctx.releaseBaseUrl })).replace(/</g, '\\u003c');
         const publicInstallScript = `<script id="nano-public-install" type="application/json">${publicInstallJson}</script>`;
         const agentPage = /^\/settings\/agents\/([^/]+)$/.exec(path);
         const cookiePrefix = `${browserSessionCookieName(publicUrl!)}=`;

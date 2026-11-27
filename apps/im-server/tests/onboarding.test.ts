@@ -209,6 +209,68 @@ it('projects nested model metadata and dependency errors without returning crede
   expect((await app.inject({method: 'POST', url: '/im/v1/nodes/mine/setup', headers, payload: {action: 'save', models: [{id: 'm', context_window: -1}]}})).statusCode).toBe(422);
 });
 
+it('enforces strict HTTPS by default and enables self-contained Desktop materials only under IM_ALLOW_PRIVATE_HTTP', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'nano-private-install-'));
+  const privateBase = 'http://10.24.8.15:9000/releases/v0.2.0/';
+  const selfHostedWinDesktop = {
+    ...manifest,
+    release_base_url: privateBase,
+    platform: 'desktop-win32-x64',
+    package: 'desktop-win32-x64.json',
+    download_url: privateBase + 'desktop-win32-x64.json',
+    size: 1024,
+    updater_protocol: 1,
+    data_epoch: 1,
+    shell_protocol: 1,
+    installer: { download_url: privateBase + 'Crewden-Desktop-Setup-x64.exe', size: 24576, sha256: 'e'.repeat(64) },
+  };
+  writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest));
+  writeFileSync(join(dir, 'manifest.desktop-win32-x64.json'), JSON.stringify(selfHostedWinDesktop));
+
+  // 1) Default (allowPrivateHttp=false): private HTTP IM hides desktop_* and unix script.
+  const closedApp = await createServer({
+    dbPath: join(dir, 'closed.sqlite3'),
+    publicUrl: 'http://10.24.8.15:8011',
+    nodeReleaseDir: dir,
+    allowPrivateHttp: false,
+  });
+  closers.push(async () => { await closedApp.close(); rmSync(dir, { recursive: true, force: true }); });
+  const closedInstall = (await closedApp.inject('/im/v1/public/install')).json();
+  expect(closedInstall.available).toBe(false);
+  expect(closedInstall.desktop_win32_x64).toBeNull();
+  expect((await closedApp.inject('/install.sh')).statusCode).toBe(503);
+
+  // 2) Private HTTP enabled + trusted self-hosted release base: lights up desktop_win32_x64 while keeping available=false & windows_x64=null.
+  const privateApp = await createServer({
+    dbPath: join(dir, 'private.sqlite3'),
+    publicUrl: 'http://10.24.8.15:8011',
+    nodeReleaseDir: dir,
+    allowPrivateHttp: true,
+    releaseBaseUrl: 'http://10.24.8.15:9000/releases',
+  });
+  closers.push(async () => { await privateApp.close(); });
+  const privateInstall = (await privateApp.inject('/im/v1/public/install')).json();
+  expect(privateInstall.available).toBe(false);
+  expect(privateInstall.windows_x64).toBeNull();
+  expect(privateInstall.desktop_win32_x64).toEqual({
+    download_url: selfHostedWinDesktop.installer.download_url,
+    connect_url: 'crewden-desktop://connect?origin=http%3A%2F%2F10.24.8.15%3A8011',
+    version,
+  });
+  expect((await privateApp.inject('/install.sh')).statusCode).toBe(503);
+
+  // 3) Public/official cleartext HTTP is ALWAYS blocked even if allowPrivateHttp=true!
+  const publicHttpApp = await createServer({
+    dbPath: join(dir, 'public-http.sqlite3'),
+    publicUrl: 'http://im.crewden.work',
+    nodeReleaseDir: dir,
+    allowPrivateHttp: true,
+    releaseBaseUrl: 'http://10.24.8.15:9000/releases',
+  });
+  closers.push(async () => { await publicHttpApp.close(); });
+  expect((await publicHttpApp.inject('/im/v1/public/install')).json().desktop_win32_x64).toBeNull();
+});
+
 it('transiently bridges Web Daily Chrome pairing only to owned nodes with Cache-Control no-store and strips unexpected fields', async () => {
   const { app, headers, owner } = await fixture();
   app.im.db
