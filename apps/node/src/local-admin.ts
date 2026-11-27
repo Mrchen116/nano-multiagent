@@ -222,13 +222,18 @@ export async function inspectLocalNode(input: {
       ? 'managed_online'
       : 'managed_stopped';
 
+  // A Windows gateway task may still start this connection independently of the desktop Run item.
+  const scheduledAtLogin = desktopManaged && process.platform === 'win32'
+    ? (await manageGateway(config.path, value, 'autostart-status')).text === 'enabled'
+    : false;
   const status = {
     ownership,
     node_name: nodeName,
     version: rawState?.release?.version ?? 'source',
     autostart: value.gateway?.autostart !== false,
   } satisfies DesktopLocalInspectResponse;
-  if (input.supervisionOnly) return status;
+  const loginStatus = { ...status, scheduled_at_login: scheduledAtLogin };
+  if (input.supervisionOnly) return loginStatus;
   const activeTasks = live ? await pingBridgeActiveTasks(configPath) : 0;
   const { proxy, userEnvironment } = extractDesktopProxySettings(value.gateway?.environment);
   const [workers, browser, logs] = await Promise.all([
@@ -237,7 +242,7 @@ export async function inspectLocalNode(input: {
     readLogTail(configPath, input.logQuery),
   ]);
   return {
-    ...status,
+    ...loginStatus,
     node_id: value.node.node_id,
     owner_id: value.node.user_id,
     desktop_managed: desktopManaged,
@@ -364,11 +369,17 @@ export async function controlLocalNodeLifecycle(input: {
       ...config.value,
       gateway: { ...(config.value.gateway ?? {}), autostart: enabled },
     };
-    await manageGateway(config.path, next, input.action);
-    await config.persistNodeSettings(next);
+    const previous = { ...config.value };
     const rawState = await gatewayState(config.path);
     const running = Boolean(rawState && (await processBirth(rawState.pid)) === rawState.process_start);
     const activeTasks = running ? await pingBridgeActiveTasks(config.path) : 0;
+    await config.persistNodeSettings(next);
+    try {
+      await manageGateway(config.path, next, input.action);
+    } catch (error) {
+      await config.persistNodeSettings(previous);
+      throw error;
+    }
     return { ok: true, autostart: enabled, running, active_tasks: activeTasks };
   }
 

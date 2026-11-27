@@ -1105,16 +1105,6 @@ fn require_seed_ready(state: &HostSharedState) -> Result<(), Response> {
     Ok(())
 }
 
-fn inspect_for_settings(
-    paths: &DesktopPaths, bundle: &ActiveBundlePaths, origin: &str, owner: Option<&str>, query: Option<&str>,
-) -> Result<LocalAdminResult, String> {
-    let mut out = run_local_admin_sync(paths, bundle, origin, "inspect", owner, query, None)?;
-    if out.ok && out.body["desktop_managed"] == true {
-        out.body["autostart"] = json!(get_desktop_login_autostart(paths));
-    }
-    Ok(out)
-}
-
 pub(crate) fn register_login(state: &HostSharedState, enabled: bool) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     set_desktop_login_autostart(&state.paths, &exe, enabled)
@@ -1128,28 +1118,56 @@ pub(crate) fn set_managed_login(
     bundle: &ActiveBundlePaths,
     origin: &str,
     owner: &str,
-    enabled: bool,
+    requested: Option<bool>,
 ) -> Result<LocalAdminResult, String> {
     let paths = &state.paths;
-    let inspect = run_local_admin_sync(paths, bundle, origin, "supervise", Some(owner), None, None)?;
-    if !inspect.ok { return Ok(inspect); }
+    let inspect =
+        run_local_admin_sync(paths, bundle, origin, "supervise", Some(owner), None, None)?;
+    if !inspect.ok {
+        return Ok(inspect);
+    }
     match inspect.body["ownership"].as_str() {
         Some("managed_online" | "managed_stopped") => {}
         ownership => {
+            state.ui_bridge.login_autostart_changed(get_desktop_login_autostart(paths));
             let (status, code, detail) = if ownership == Some("foreign_owner") {
                 (403, "foreign_owner", "请使用本机节点所属账号更新登录自启")
             } else {
                 (409, "not_managed", "请先连接这台电脑")
             };
-            return Ok(LocalAdminResult { status, ok: false, body: json!({ "code": code, "detail": detail }) });
+            return Ok(LocalAdminResult {
+                status,
+                ok: false,
+                body: json!({ "code": code, "detail": detail }),
+            });
         }
     }
+    let effective = inspect.body["autostart"] == true;
+    let enabled = requested.unwrap_or(!effective);
     let previous = get_desktop_login_autostart(paths);
-    register_login(state, enabled)?;
-    let action = if enabled { "autostart-on" } else { "autostart-off" };
-    let result = run_local_admin_sync(paths, bundle, origin, "lifecycle", Some(owner), None, Some(&json!({ "action": action })));
+    if let Err(error) = register_login(state, enabled) {
+        state.ui_bridge.login_autostart_changed(effective);
+        return Err(error);
+    }
+    let action = if enabled {
+        "autostart-on"
+    } else {
+        "autostart-off"
+    };
+    let result = run_local_admin_sync(
+        paths,
+        bundle,
+        origin,
+        "lifecycle",
+        Some(owner),
+        None,
+        Some(&json!({ "action": action })),
+    );
     if !matches!(&result, Ok(out) if out.ok) {
         register_login(state, previous)?;
+        state.ui_bridge.login_autostart_changed(effective);
+    } else {
+        state.ui_bridge.login_autostart_changed(enabled);
     }
     result
 }
@@ -1169,9 +1187,6 @@ async fn invoke_local_admin(
     let dev_root = state.dev_repo_root.clone();
     let res = tokio::task::spawn_blocking(move || {
         let bundle = resolve_active_bundle(&paths, &im_origin, dev_root.as_deref())?;
-        if subcommand == "inspect" {
-            return inspect_for_settings(&paths, &bundle, &im_origin, owner_id.as_deref(), log_query.as_deref());
-        }
         run_local_admin_sync(
             &paths,
             &bundle,
@@ -1373,9 +1388,7 @@ async fn handle_local_lifecycle(
         let _guard = state.node_lifecycle.lock().unwrap();
         let bundle = resolve_active_bundle(&paths, &im_origin, dev_root.as_deref())?;
         let out = if body.action == "autostart" {
-            let result = set_managed_login(&state, &bundle, &im_origin, &owner_id, body.enabled.unwrap_or(true));
-            state.ui_bridge.login_autostart_changed(get_desktop_login_autostart(&paths));
-            result?
+            set_managed_login(&state, &bundle, &im_origin, &owner_id, Some(body.enabled.unwrap_or(true)))?
         } else {
             if !matches!(body.action.as_str(), "start" | "stop" | "restart") {
                 return Ok(LocalAdminResult { status: 400, ok: false, body: json!({ "code": "invalid_action", "detail": "Unsupported lifecycle action" }) });
@@ -1384,7 +1397,7 @@ async fn handle_local_lifecycle(
                 Some(&json!({ "action": body.action })))?
         };
         if !out.ok { return Ok(out); }
-        inspect_for_settings(&paths, &bundle, &im_origin, Some(&owner_id), None)
+        run_local_admin_sync(&paths, &bundle, &im_origin, "inspect", Some(&owner_id), None, None)
     })
     .await;
 
@@ -1419,6 +1432,7 @@ async fn handle_local_config(
     let owner_id = caller.owner_id.clone();
 
     let res = tokio::task::spawn_blocking(move || {
+        let _guard = state.node_lifecycle.lock().unwrap();
         let bundle = resolve_active_bundle(&paths, &im_origin, dev_root.as_deref())?;
         let cfg_res = run_local_admin_sync(
             &paths,
@@ -1432,7 +1446,7 @@ async fn handle_local_config(
         if !cfg_res.ok {
             return Ok(cfg_res);
         }
-        inspect_for_settings(&paths, &bundle, &im_origin, Some(&owner_id), None)
+        run_local_admin_sync(&paths, &bundle, &im_origin, "inspect", Some(&owner_id), None, None)
     })
     .await;
 

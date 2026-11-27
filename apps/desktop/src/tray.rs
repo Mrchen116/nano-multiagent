@@ -696,23 +696,42 @@ fn spawn_tray_lifecycle_action(
 
 fn spawn_tray_login_toggle(state: Arc<HostSharedState>) {
     let origin = state.host_config.read().unwrap().im_origin.clone();
-    let owner = state.sessions.read().unwrap().by_origin.get(&origin).map(|s| s.owner_id.clone());
+    let owner = state
+        .sessions
+        .read()
+        .unwrap()
+        .by_origin
+        .get(&origin)
+        .map(|s| s.owner_id.clone());
     std::thread::spawn(move || {
         let result = {
             let _guard = state.node_lifecycle.lock().unwrap();
             let enabled = !get_desktop_login_autostart(&state.paths);
-            let result = (|| {
+            (|| {
                 if !state.paths.desktop_active_path(&origin)?.is_file() {
-                    return register_login(&state, enabled);
+                    let result = register_login(&state, enabled);
+                    state.ui_bridge.login_autostart_changed(get_desktop_login_autostart(&state.paths));
+                    return result;
                 }
-                let owner = owner.as_deref().ok_or("请先登录本机节点所属账号")?;
-                let bundle = resolve_active_bundle(&state.paths, &origin, state.dev_repo_root.as_deref())?;
-                let out = set_managed_login(&state, &bundle, &origin, owner, enabled)?;
-                if out.ok { Ok(()) } else { Err(out.body["detail"].as_str().unwrap_or("本机设置失败").to_owned()) }
-            })();
-            state.ui_bridge.login_autostart_changed(get_desktop_login_autostart(&state.paths));
-            result
+                let Some(owner) = owner.as_deref() else {
+                    state.ui_bridge.login_autostart_changed(!enabled);
+                    return Err("请先登录本机节点所属账号".into());
+                };
+                let bundle =
+                    resolve_active_bundle(&state.paths, &origin, state.dev_repo_root.as_deref())?;
+                let out = set_managed_login(&state, &bundle, &origin, owner, None)?;
+                if out.ok {
+                    Ok(())
+                } else {
+                    Err(out.body["detail"]
+                        .as_str()
+                        .unwrap_or("本机设置失败")
+                        .to_owned())
+                }
+            })()
         };
-        if let Err(error) = result { show_error_dialog(&error); }
+        if let Err(error) = result {
+            show_error_dialog(&error);
+        }
     });
 }

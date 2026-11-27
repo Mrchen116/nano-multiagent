@@ -97,7 +97,7 @@ it('enforces owner_id isolation, probes workers with candidate PATH, validates e
     ]);
 
     const supervision = await inspectLocalNode({ origin: 'https://im.example.com', ownerId: 'owner-alice', configPath, supervisionOnly: true });
-    expect(supervision).toEqual({ ownership: 'takeover_available', node_name: 'Air-Studio', version: 'source', autostart: true });
+    expect(supervision).toEqual({ ownership: 'takeover_available', node_name: 'Air-Studio', version: 'source', autostart: true, scheduled_at_login: false });
 
     const probed = await probeDesktopWorkers(customBin);
     expect(probed.find(w => w.runtime === 'claude')?.resolved_path).toBe(join(customBin, 'claude'));

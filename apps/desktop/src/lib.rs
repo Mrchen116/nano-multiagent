@@ -87,22 +87,57 @@ fn spawn_managed_node_supervisor(
 ) {
     let runtime = tokio::runtime::Handle::current();
     let login_origin = state.host_config.read().unwrap().im_origin.clone();
-    let login_owner = state.sessions.read().unwrap().by_origin.get(&login_origin).map(|s| s.owner_id.clone());
+    let login_owner = state
+        .sessions
+        .read()
+        .unwrap()
+        .by_origin
+        .get(&login_origin)
+        .map(|s| s.owner_id.clone());
     std::thread::spawn(move || {
         let mut first_check = true;
-        let mut expected_running = None;
+        let mut context = None;
+        let mut expected_running = false;
+        let mut login_pending = background_login;
         loop {
             let mut delay = Duration::from_secs(3);
             {
                 let _guard = state.node_lifecycle.lock().unwrap();
-                if state.shutdown_tx.lock().unwrap().is_none() { return; }
+                if state.shutdown_tx.lock().unwrap().is_none() {
+                    return;
+                }
                 if state.is_seed_ready() {
                     let origin = state.host_config.read().unwrap().im_origin.clone();
-                    let owner = state.sessions.read().unwrap().by_origin.get(&origin).map(|s| s.owner_id.clone());
+                    let owner = state
+                        .sessions
+                        .read()
+                        .unwrap()
+                        .by_origin
+                        .get(&origin)
+                        .map(|s| s.owner_id.clone());
+                    let next = (origin.clone(), owner.clone());
+                    if context.as_ref() != Some(&next) {
+                        if context.is_some() { login_pending = false; }
+                        context = Some(next);
+                        expected_running = false;
+                        first_check = true;
+                        state.ui_bridge.login_autostart_changed(autostart::get_desktop_login_autostart(&state.paths));
+                    }
                     if let Some(owner) = owner {
-                        let login = background_login && first_check && origin == login_origin && Some(&owner) == login_owner.as_ref();
-                        match supervise_node(&state, &runtime, &origin, &owner, first_check, login, &mut expected_running) {
-                            Ok(true) => first_check = false,
+                        let login = login_pending
+                            && first_check
+                            && origin == login_origin
+                            && Some(&owner) == login_owner.as_ref();
+                        match supervise_node(
+                            &state,
+                            &runtime,
+                            &origin,
+                            &owner,
+                            first_check,
+                            login,
+                            &mut expected_running,
+                        ) {
+                            Ok(true) => { first_check = false; login_pending = false; }
                             Ok(false) => {}
                             Err(error) => {
                                 append_host_log(Some(&state.paths), "WARN", &error);
@@ -126,26 +161,28 @@ fn supervise_node(
     owner: &str,
     first_check: bool,
     login: bool,
-    expected_running: &mut Option<(String, String)>,
+    expected_running: &mut bool,
 ) -> Result<bool, String> {
     let paths = &state.paths;
     let dir = paths.connection_dir(origin)?;
     let pointer = dir.join(".desktop-active.json");
-    if !pointer.is_file() || dir.join(".desktop-switch.json").exists() || dir.join(".gateway-lifecycle.lock").exists() {
+    if !pointer.is_file()
+        || dir.join(".desktop-switch.json").exists()
+        || dir.join(".gateway-lifecycle.lock").exists()
+    {
         return Ok(false);
     }
-    let mut active: serde_json::Value = serde_json::from_slice(&fs::read(&pointer).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    let mut active: serde_json::Value =
+        serde_json::from_slice(&fs::read(&pointer).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
     let stopped = active["user_stopped"].as_bool() == Some(true);
-    let resume = login && autostart::get_desktop_login_autostart(paths);
-    let was_running = expected_running.as_ref().is_some_and(|(o, id)| o == origin && id == owner);
-    if stopped && !resume {
-        *expected_running = None;
+    if stopped && !first_check {
+        *expected_running = false;
         return Ok(true);
     }
     let has_state = dir.join(".gateway-state.json").is_file();
     if !first_check {
-        if !has_state && !was_running {
+        if !has_state && !*expected_running {
             return Ok(true);
         }
         let config = dir.join("config.yaml");
@@ -153,21 +190,24 @@ fn supervise_node(
         let config = config.canonicalize().unwrap_or(config);
         let endpoint = local_node_bridge_endpoint(&config);
         if let Some(ping) = runtime.block_on(ping_local_bridge(&endpoint)) {
-            if !was_running && ping["owner_id"] == owner {
-                *expected_running = Some((origin.to_owned(), owner.to_owned()));
-            }
+            *expected_running = ping["owner_id"] == owner;
             return Ok(true);
         }
     }
     let bundle = resolve_active_bundle(paths, origin, state.dev_repo_root.as_deref())?;
-    let inspect = run_local_admin_sync(paths, &bundle, origin, "supervise", Some(owner), None, None)?;
+    let inspect =
+        run_local_admin_sync(paths, &bundle, origin, "supervise", Some(owner), None, None)?;
     if !inspect.ok {
         return Err(inspect.body["detail"].to_string());
     }
     let enabled = inspect.body["autostart"].as_bool() == Some(true);
     let online = inspect.body["ownership"] == "managed_online";
     let offline = inspect.body["ownership"] == "managed_stopped";
-    if stopped && (!enabled || !(online || offline)) {
+    if first_check && (online || offline) {
+        state.ui_bridge.login_autostart_changed(enabled);
+    }
+    if stopped && (!login || !enabled || !(online || offline)) {
+        *expected_running = false;
         return Ok(true);
     }
     if stopped && online {
@@ -175,17 +215,30 @@ fn supervise_node(
         active["user_stopped"] = json!(false);
         write_private_json(&pointer, &active)?;
     }
-    if online || (offline && (was_running || has_state || (first_check && enabled))) {
-        *expected_running = Some((origin.to_owned(), owner.to_owned()));
+    let start = offline && (*expected_running || (enabled && (has_state || first_check)));
+    if online || start {
+        *expected_running = true;
     }
-    let action = if first_check && online && bundle.version != "source" && inspect.body["version"] != bundle.version {
+    let action = if first_check
+        && online
+        && bundle.version != "source"
+        && inspect.body["version"] != bundle.version
+    {
         "restart"
-    } else if offline && (was_running || has_state || (first_check && enabled)) {
+    } else if start {
         "start"
     } else {
         return Ok(true);
     };
-    let result = run_local_admin_sync(paths, &bundle, origin, "lifecycle", Some(owner), None, Some(&json!({ "action": action })))?;
+    let result = run_local_admin_sync(
+        paths,
+        &bundle,
+        origin,
+        "lifecycle",
+        Some(owner),
+        None,
+        Some(&json!({ "action": action })),
+    )?;
     if !result.ok {
         return Err(result.body["detail"].to_string());
     }
