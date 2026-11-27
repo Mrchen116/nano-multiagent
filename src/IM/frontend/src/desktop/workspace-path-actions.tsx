@@ -29,20 +29,6 @@ function localizeWorkspaceError(err: unknown, zh: boolean): string {
   return raw || (zh ? "无法打开本地路径" : "Could not open local path");
 }
 
-function normalizeFileUrlToPath(fileUrl: string): string | null {
-  try {
-    const parsed = new URL(fileUrl);
-    if (parsed.protocol !== "file:") return null;
-    const decoded = decodeURIComponent(parsed.pathname);
-    if (/^\/[a-zA-Z]:\//.test(decoded)) {
-      return decoded.slice(1);
-    }
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-
 /** Render compact Open / Reveal buttons next to a workspace file path when authorized on this local node. */
 export function WorkspacePathActions({
   path,
@@ -60,9 +46,11 @@ export function WorkspacePathActions({
 function WorkspacePathActionsInner({
   path,
   explicitAgentId,
+  blocked = isBlockedDesktopOpenPath(path),
 }: {
   path: string;
   explicitAgentId?: string | null;
+  blocked?: boolean;
 }) {
   const { i18n } = useTranslation();
   const zh = i18n.language.startsWith("zh");
@@ -82,7 +70,6 @@ function WorkspacePathActionsInner({
     boot?.platform === "win32-x64"
       ? text("在资源管理器中显示", "Show in Explorer")
       : text("在 Finder 中显示", "Show in Finder");
-  const blocked = isBlockedDesktopOpenPath(path);
 
   async function trigger(action: "open" | "reveal") {
     if (!agentId) return;
@@ -145,20 +132,28 @@ export function DesktopWorkspaceFileLink({
   href: string;
   children: React.ReactNode;
 }) {
-  const localPath = normalizeFileUrlToPath(href);
-  if (!isDesktopClient() || !localPath) {
-    return <span className="im-md-link-unsupported">{children}</span>;
+  if (isDesktopClient()) {
+    try {
+      const url = new URL(href);
+      if (url.protocol === "file:" && url.pathname) {
+        // Decode only for the button policy. The host resolves the complete URL on its own OS.
+        const blocked = isBlockedDesktopOpenPath(decodeURIComponent(url.pathname));
+        return <DesktopWorkspaceFileLinkInner href={href} blocked={blocked}>{children}</DesktopWorkspaceFileLinkInner>;
+      }
+    } catch {
+      // Malformed file links render as plain text.
+    }
   }
-  return <DesktopWorkspaceFileLinkInner href={href} localPath={localPath}>{children}</DesktopWorkspaceFileLinkInner>;
+  return <span className="im-md-link-unsupported">{children}</span>;
 }
 
 function DesktopWorkspaceFileLinkInner({
   href,
-  localPath,
+  blocked,
   children,
 }: {
   href: string;
-  localPath: string;
+  blocked: boolean;
   children: React.ReactNode;
 }) {
   const { i18n } = useTranslation();
@@ -172,7 +167,6 @@ function DesktopWorkspaceFileLinkInner({
     return <span className="im-md-link-unsupported">{children}</span>;
   }
 
-  const blocked = isBlockedDesktopOpenPath(localPath);
   const action: "open" | "reveal" = blocked ? "reveal" : "open";
 
   return (
@@ -183,14 +177,14 @@ function DesktopWorkspaceFileLinkInner({
         onClick={(event) => {
           event.preventDefault();
           setError(null);
-          void openDesktopWorkspacePath({ agent_id: agentId, path: localPath, action }).catch((err) => {
+          void openDesktopWorkspacePath({ agent_id: agentId, path: href, action }).catch((err) => {
             setError(localizeWorkspaceError(err, zh));
           });
         }}
       >
         {children}
       </a>
-      <WorkspacePathActions path={localPath} agentId={agentId} />
+      <WorkspacePathActionsInner path={href} explicitAgentId={agentId} blocked={blocked} />
       {error && (
         <span className="desktop-path-feedback" role="alert">
           {error}

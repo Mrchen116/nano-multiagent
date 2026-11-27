@@ -142,6 +142,9 @@ jobs:
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           pnpm exec vitest run apps/node/tests/platform-conformance.test.ts
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:CREWDEN_TEST_UNC_PARENT = '\\127.0.0.1\' + $env:RUNNER_TEMP.Replace(':', '$')
+          pnpm exec vitest run apps/node/tests/desktop-local-admin.test.ts -t 'resolves workspace file URLs'
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm.cmd --prefix src/IM/frontend ci
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           npm.cmd --prefix src/IM/frontend run build

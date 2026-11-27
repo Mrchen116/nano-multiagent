@@ -2,6 +2,7 @@ import { access, constants, lstat, readFile, realpath } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir, hostname } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import {
   extractDesktopProxySettings,
@@ -534,9 +535,14 @@ export async function resolveLocalWorkspaceTarget(input: {
   if (!agent) {
     throw new LocalAdminHttpError(404, 'agent_not_local', 'Agent does not belong to this computer');
   }
-  const rawTarget = input.targetPath.startsWith('file://')
-    ? decodeURIComponent(new URL(input.targetPath).pathname).replace(/^\/([A-Za-z]:[\\/])/, '$1')
-    : input.targetPath;
+  let rawTarget = input.targetPath;
+  if (/^file:\/\//i.test(rawTarget)) {
+    try {
+      rawTarget = fileURLToPath(rawTarget);
+    } catch {
+      throw new LocalAdminHttpError(400, 'invalid_file_url', 'Invalid workspace file URL for this computer');
+    }
+  }
   const workspaceRoot = await realpath(agent.workspace_root).catch(() => null);
   if (!workspaceRoot) {
     throw new LocalAdminHttpError(404, 'workspace_missing', 'Local workspace directory does not exist');
