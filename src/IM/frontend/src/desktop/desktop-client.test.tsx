@@ -186,4 +186,142 @@ describe("Crewden Desktop session isolation, onboarding picker, and foreign-owne
     await user.click(within(foreignCard).getByRole("button", { name: "确认转移并接管" }));
     await waitFor(() => expect(connectBodies).toEqual([{ confirm_transfer: true }]));
   });
+
+  it("guides Daily Chrome extension install, auto-opens token page once installed, and pairs with pasted line", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      "nano_im_auth_v1",
+      JSON.stringify({
+        accessToken: "tok-alice",
+        user: { id: "owner-alice", username: "alice", display_name: "Alice" },
+      }),
+    );
+    setDesktopBootContextForTest({
+      imOrigin: "https://im.example",
+      contextEpoch: 1,
+      platform: "darwin-arm64",
+    });
+
+    let extensionInstalled = false;
+    let pairedState: "not_paired" | "paired" = "not_paired";
+    const browserActions: Record<string, unknown>[] = [];
+
+    const makeBrowserStatus = () => ({
+      supported: true,
+      state: pairedState,
+      chrome_installed: true,
+      chrome_running: true,
+      chrome_version_ok: true,
+      ...(pairedState === "paired" ? { paired_profile: "Default" } : {}),
+      selected_profile: "Default",
+      extension_installed: extensionInstalled,
+      profiles: [{ profile: "Default", extension_installed: extensionInstalled }],
+    });
+
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/desktop/v1/local-node/inspect")) {
+        return new Response(
+          JSON.stringify({
+            ownership: "managed_online",
+            node_id: "node-1",
+            node_name: "Air-Studio",
+            owner_id: "owner-alice",
+            desktop_managed: true,
+            running: true,
+            ready: true,
+            connected: true,
+            autostart: true,
+            worker_runtime: "dsh",
+            workers: [],
+            browser: makeBrowserStatus(),
+            proxy: { enabled: false, url: "", no_proxy: "localhost,127.0.0.1,::1" },
+            tool_approval_model: null,
+            registered_models: [],
+            environment: [],
+            agents: [],
+            logs: [],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url === "/desktop/v1/local-node/browser") {
+        const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+        browserActions.push(body);
+        if (body.action === "open-guide") {
+          const opened = body.target === "token" || extensionInstalled ? "token" : "store";
+          if (opened === "store") {
+            // Simulate user installing the extension right after store opens so next poll sees it
+            extensionInstalled = true;
+          }
+          return new Response(JSON.stringify({ browser: makeBrowserStatus(), opened }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (body.action === "status") {
+          return new Response(JSON.stringify({ browser: makeBrowserStatus() }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (body.action === "pair") {
+          pairedState = "paired";
+          return new Response(JSON.stringify({ browser: makeBrowserStatus() }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (body.action === "disconnect") {
+          pairedState = "not_paired";
+          return new Response(JSON.stringify({ browser: makeBrowserStatus() }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+      }
+      if (url === "/im/v1/nodes") {
+        return new Response(JSON.stringify([]), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ items: [], max_event_id: 0 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes"] });
+
+    const strip = await screen.findByTestId("desktop-browser-strip");
+    expect(within(strip).getByText("日常 Chrome 浏览器")).toBeInTheDocument();
+    expect(within(strip).getByText("未配对")).toBeInTheDocument();
+
+    // Open inline guided setup
+    await user.click(within(strip).getByRole("button", { name: "连接 Chrome…" }));
+    const setup = screen.getByTestId("desktop-browser-setup");
+
+    // Step 1: click install -> opens store -> poll detects install -> auto-opens token page!
+    await user.click(within(setup).getByRole("button", { name: "1. 去 Chrome 安装扩展" }));
+    await waitFor(
+      () =>
+        expect(browserActions).toContainEqual({
+          action: "open-guide",
+          profile: "Default",
+          target: "token",
+        }),
+      { timeout: 4000 },
+    );
+    expect(within(setup).getByText("✓ 已安装 Playwright 扩展")).toBeInTheDocument();
+
+    // Step 2: user pastes full PLAYWRIGHT_MCP_EXTENSION_TOKEN=... line and saves
+    const tokenInput = within(setup).getByLabelText("Playwright 扩展 Token");
+    await user.type(tokenInput, "PLAYWRIGHT_MCP_EXTENSION_TOKEN=pw_token_1234567890abcdefghij");
+    await user.click(within(setup).getByRole("button", { name: "保存配对" }));
+
+    await waitFor(() => expect(within(strip).getByText("已配对 · Default")).toBeInTheDocument());
+    expect(screen.queryByTestId("desktop-browser-setup")).not.toBeInTheDocument();
+
+    // Disconnect returns to unpaired
+    await user.click(within(strip).getByRole("button", { name: "断开" }));
+    await waitFor(() => expect(within(strip).getByText("未配对")).toBeInTheDocument());
+  });
 });

@@ -1,7 +1,7 @@
 import { DEFAULT_DESKTOP_NO_PROXY, type DesktopLocalInspectResponse, type DesktopWorkerProbeItem } from "@nano/product-contracts/desktop-local";
 import { workerRuntimes, type WorkerRuntime } from "@nano/product-contracts/worker-runtimes";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuthStore } from "../features/auth/auth-store";
 import type { NodeSettingsProfile } from "../features/settings/im-settings-api";
@@ -12,6 +12,7 @@ import {
   controlDesktopLocalNode,
   DesktopApiError,
   inspectDesktopLocalNode,
+  manageDesktopLocalBrowser,
   probeDesktopWorkers,
   saveDesktopLocalNodeConfig,
 } from "./desktop-api";
@@ -48,6 +49,32 @@ function localizeConfigSaveError(err: unknown, zh: boolean): string {
       : "Restart failed under the new settings; automatically rolled back to the previous working configuration.";
   }
   return raw || (zh ? "保存配置失败，已保留原可用配置。" : "Failed to apply settings; previous configuration preserved.");
+}
+
+function localizeBrowserError(err: unknown, zh: boolean): string {
+  const code = err instanceof DesktopApiError ? err.code : undefined;
+  const raw = err instanceof Error ? err.message : "";
+  if (code === "invalid_browser_token") {
+    return zh
+      ? "请粘贴官方 Playwright 扩展显示的合法 Token（支持直接粘贴 PLAYWRIGHT_MCP_EXTENSION_TOKEN=… 整行）。"
+      : "Paste a valid token from the official Playwright Extension (the full PLAYWRIGHT_MCP_EXTENSION_TOKEN=… line also works).";
+  }
+  if (code === "browser_extension_missing") {
+    return zh
+      ? "所选 Chrome 配置尚未安装 Playwright Extension (0.5.0+)，请先点击上方按钮在 Chrome 中完成安装。"
+      : "Playwright Extension (0.5.0+) is not installed in the selected Chrome profile yet.";
+  }
+  if (code === "chrome_not_installed") {
+    return zh
+      ? "未在本机检测到 Google Chrome，请先安装 Chrome 158+。"
+      : "Google Chrome was not found on this computer. Install Chrome 158+ first.";
+  }
+  if (code === "invalid_browser_profile") {
+    return zh
+      ? "请选择合法的 Chrome 配置目录（如 Default 或 Profile 1）。"
+      : "Choose a valid Chrome profile directory name (such as Default or Profile 1).";
+  }
+  return raw || (zh ? "浏览器配对操作失败。" : "Browser pairing action failed.");
 }
 
 const WORKER_LABELS: Record<WorkerRuntime, { zh: string; en: string }> = {
@@ -107,6 +134,14 @@ export function DesktopLocalComputerCard({
 
   const [logQuery, setLogQuery] = useState("");
   const [logCopied, setLogCopied] = useState(false);
+
+  const [browserSetupOpen, setBrowserSetupOpen] = useState(false);
+  const [browserProfile, setBrowserProfile] = useState("Default");
+  const [browserToken, setBrowserToken] = useState("");
+  const [browserError, setBrowserError] = useState<string | null>(null);
+  const [waitingExtension, setWaitingExtension] = useState(false);
+  const [tokenPageOpened, setTokenPageOpened] = useState(false);
+  const tokenInputRef = useRef<HTMLInputElement | null>(null);
 
   function syncDraftFromInspect(data: DesktopLocalInspectResponse) {
     setWorkerRuntime(data.worker_runtime ?? "dsh");
@@ -175,6 +210,71 @@ export function DesktopLocalComputerCard({
       }
       setConfirmBusyCount(null);
       setSaveError(localizeConfigSaveError(err, zh));
+    },
+  });
+
+  useEffect(() => {
+    if (!browserSetupOpen && inspect?.browser?.selected_profile) {
+      setBrowserProfile(inspect.browser.selected_profile);
+    }
+  }, [browserSetupOpen, inspect?.browser?.selected_profile]);
+
+  useEffect(() => {
+    if (!browserSetupOpen || !waitingExtension) return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      void manageDesktopLocalBrowser({ action: "status", profile: browserProfile })
+        .then(async (res) => {
+          if (cancelled) return;
+          client.setQueryData<DesktopLocalInspectResponse>(
+            ["desktop", "local-node", userId],
+            (prev) => (prev ? { ...prev, browser: res.browser } : prev),
+          );
+          if (res.browser.extension_installed) {
+            setWaitingExtension(false);
+            setTokenPageOpened(true);
+            await manageDesktopLocalBrowser({ action: "open-guide", profile: browserProfile, target: "token" }).catch(() => {});
+            if (!cancelled) tokenInputRef.current?.focus();
+          }
+        })
+        .catch(() => {});
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [browserProfile, browserSetupOpen, client, userId, waitingExtension]);
+
+  const browserMutation = useMutation({
+    mutationFn: manageDesktopLocalBrowser,
+    onSuccess: (res, vars) => {
+      setBrowserError(null);
+      client.setQueryData<DesktopLocalInspectResponse>(
+        ["desktop", "local-node", userId],
+        (prev) => (prev ? { ...prev, browser: res.browser } : prev),
+      );
+      if (vars.action === "open-guide") {
+        if (res.opened === "store") {
+          setWaitingExtension(true);
+          setTokenPageOpened(false);
+        } else {
+          setWaitingExtension(false);
+          setTokenPageOpened(true);
+          window.setTimeout(() => tokenInputRef.current?.focus(), 0);
+        }
+      } else if (vars.action === "pair") {
+        setBrowserToken("");
+        setWaitingExtension(false);
+        setTokenPageOpened(false);
+        setBrowserSetupOpen(false);
+      } else if (vars.action === "disconnect") {
+        setBrowserToken("");
+        setWaitingExtension(false);
+        setTokenPageOpened(false);
+      }
+    },
+    onError: (err) => {
+      setBrowserError(localizeBrowserError(err, zh));
     },
   });
 
@@ -381,6 +481,251 @@ export function DesktopLocalComputerCard({
           <i />
         </button>
       </div>
+
+      {inspect.browser?.supported && (() => {
+        const browser = inspect.browser;
+        const selectedInstalled =
+          browser.profiles.find((p) => p.profile === browserProfile)?.extension_installed ?? browser.extension_installed;
+        const isConnected = browser.state === "paired" || browser.state === "verified";
+        const chipClass = isConnected ? "online" : browser.state === "reconnect" ? "warn" : "muted";
+        const chipLabel =
+          browser.state === "verified"
+            ? text(`已验证 · ${browser.paired_profile ?? "Default"}`, `Verified · ${browser.paired_profile ?? "Default"}`)
+            : browser.state === "paired"
+              ? text(`已配对 · ${browser.paired_profile ?? "Default"}`, `Paired · ${browser.paired_profile ?? "Default"}`)
+              : browser.state === "reconnect"
+                ? text(
+                    `需重新配对${browser.paired_profile ? ` · ${browser.paired_profile}` : ""}`,
+                    `Reconnect needed${browser.paired_profile ? ` · ${browser.paired_profile}` : ""}`,
+                  )
+                : text("未配对", "Not paired");
+        const summaryNote =
+          browser.state === "verified"
+            ? text("助手可在后台独立标签页复用已登录账号", "Assistants can reuse signed-in sessions in background tabs")
+            : browser.state === "paired"
+              ? text("将在首次执行日常网页任务时验证连接（免重启生效）", "Verified automatically on the first daily browser task")
+              : browser.state === "reconnect"
+                ? text("扩展缺失或 Token 已变更，请重新配对", "Extension missing or token changed; pair again")
+                : text("配对一次后，助手可在后台标签页复用已登录状态（免重启生效）", "Pair once so assistants reuse your Chrome sign-ins in background tabs");
+
+        return (
+          <div className="local-browser-strip" data-testid="desktop-browser-strip">
+            <div className="local-browser-strip-head">
+              <div className="local-browser-title">
+                <strong style={{ fontSize: 13 }}>{text("日常 Chrome 浏览器", "Daily Chrome")}</strong>
+                <span className={`desktop-chip ${chipClass}`}>{chipLabel}</span>
+                <span style={{ fontSize: 12, color: "var(--im-text-muted)" }}>{summaryNote}</span>
+              </div>
+              <div className="desktop-action-row">
+                {browserSetupOpen ? (
+                  <button
+                    type="button"
+                    className="desktop-btn compact"
+                    disabled={browserMutation.isPending}
+                    onClick={() => {
+                      setBrowserSetupOpen(false);
+                      setWaitingExtension(false);
+                      setTokenPageOpened(false);
+                      setBrowserError(null);
+                      setBrowserToken("");
+                    }}
+                  >
+                    {text("收起", "Close")}
+                  </button>
+                ) : isConnected ? (
+                  <>
+                    <button
+                      type="button"
+                      className="desktop-btn compact"
+                      disabled={browserMutation.isPending}
+                      onClick={() => {
+                        setBrowserProfile(browser.paired_profile ?? browser.selected_profile);
+                        setBrowserError(null);
+                        setBrowserToken("");
+                        setWaitingExtension(false);
+                        setTokenPageOpened(false);
+                        setBrowserSetupOpen(true);
+                      }}
+                    >
+                      {text("更换 Token", "Update token")}
+                    </button>
+                    <button
+                      type="button"
+                      className="desktop-btn subtle compact"
+                      disabled={browserMutation.isPending}
+                      onClick={() => browserMutation.mutate({ action: "disconnect" })}
+                    >
+                      {text("断开", "Disconnect")}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="desktop-btn compact"
+                    disabled={browserMutation.isPending}
+                    onClick={() => {
+                      setBrowserProfile(browser.paired_profile ?? browser.selected_profile);
+                      setBrowserError(null);
+                      setBrowserToken("");
+                      setWaitingExtension(false);
+                      setTokenPageOpened(false);
+                      setBrowserSetupOpen(true);
+                    }}
+                  >
+                    {browser.state === "reconnect" ? text("重新配对…", "Re-pair…") : text("连接 Chrome…", "Connect Chrome…")}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {browserSetupOpen && (
+              <div className="local-browser-setup" data-testid="desktop-browser-setup">
+                {browser.profiles.length > 1 && (
+                  <div className="local-field" style={{ marginBottom: 0 }}>
+                    <label htmlFor="desktop-browser-profile">{text("Chrome 配置目录", "Chrome profile")}</label>
+                    <select
+                      id="desktop-browser-profile"
+                      className="desktop-select-input"
+                      style={{ maxWidth: 280 }}
+                      value={browserProfile}
+                      disabled={browserMutation.isPending}
+                      onChange={(e) => {
+                        const nextProfile = e.target.value;
+                        setBrowserProfile(nextProfile);
+                        setWaitingExtension(false);
+                        setTokenPageOpened(false);
+                        setBrowserError(null);
+                        browserMutation.mutate({ action: "status", profile: nextProfile });
+                      }}
+                    >
+                      {browser.profiles.map((item) => (
+                        <option key={item.profile} value={item.profile}>
+                          {item.profile}（{item.extension_installed ? text("已装扩展", "Extension installed") : text("未装扩展", "Not installed")}）
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {!browser.chrome_installed ? (
+                  <p style={{ margin: 0, fontSize: 12.5, color: "#95601a" }}>
+                    {text(
+                      "未检测到 Google Chrome。日常登录态复用需要 Chrome 158+；不连接时助手仍可使用独立隔离浏览器。",
+                      "Google Chrome was not detected. Install Chrome 158+ to attach your signed-in profile, or keep using the isolated browser.",
+                    )}
+                  </p>
+                ) : (
+                  <>
+                    <div className="local-browser-step-row">
+                      <div style={{ fontSize: 12.5, minWidth: 0, flex: "1 1 240px" }}>
+                        {selectedInstalled ? (
+                          <span style={{ display: "inline-flex", flexWrap: "wrap", alignItems: "center", gap: 6 }}>
+                            <span className="desktop-chip online">{text("✓ 已安装 Playwright 扩展", "✓ Playwright Extension installed")}</span>
+                            <span style={{ color: "var(--im-text-muted)" }}>
+                              {tokenPageOpened
+                                ? text("已在 Chrome 打开 Token 页面，复制后粘贴到下方即可。", "Opened the token page in Chrome — copy and paste it below.")
+                                : text("点击右侧打开扩展 Token 页并复制。", "Open the extension token page in Chrome and copy the token.")}
+                            </span>
+                          </span>
+                        ) : waitingExtension ? (
+                          <span style={{ color: "#95601a" }}>
+                            {text(
+                              "已在 Chrome 打开官方商店页：请点击「添加至 Chrome → 添加扩展程序」，安装完成后将自动为你弹出 Token 页面…",
+                              "Opened Chrome Web Store: click 'Add to Chrome → Add extension'; the token page will open automatically once installed…",
+                            )}
+                          </span>
+                        ) : (
+                          <span>
+                            {text(
+                              "第 1 步：在日常 Chrome 中安装微软官方 Playwright 扩展（装好后自动跳转 Token 页）",
+                              "Step 1: Install the official Playwright Extension in Chrome (opens token page automatically once installed)",
+                            )}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className={`desktop-btn compact ${!selectedInstalled && !waitingExtension ? "primary" : ""}`}
+                        disabled={browserMutation.isPending}
+                        onClick={() =>
+                          browserMutation.mutate({
+                            action: "open-guide",
+                            profile: browserProfile,
+                            target: selectedInstalled ? "token" : "store",
+                          })
+                        }
+                      >
+                        {selectedInstalled
+                          ? tokenPageOpened
+                            ? text("重新打开 Token 页", "Reopen token page")
+                            : text("1. 打开 Chrome 复制 Token", "1. Open Chrome token page")
+                          : waitingExtension
+                            ? text("重新打开商店页", "Reopen Web Store")
+                            : text("1. 去 Chrome 安装扩展", "1. Install in Chrome")}
+                      </button>
+                    </div>
+
+                    <form
+                      className="local-browser-token-form"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!browserToken.trim()) return;
+                        browserMutation.mutate({
+                          action: "pair",
+                          profile: browserProfile,
+                          token: browserToken.trim(),
+                        });
+                      }}
+                    >
+                      <input
+                        ref={tokenInputRef}
+                        id="desktop-browser-token-input"
+                        type="password"
+                        autoComplete="off"
+                        spellCheck={false}
+                        className="desktop-text-input"
+                        aria-label={text("Playwright 扩展 Token", "Playwright Extension token")}
+                        placeholder={text(
+                          "第 2 步：粘贴 Token（支持整行 PLAYWRIGHT_MCP_EXTENSION_TOKEN=…）",
+                          "Step 2: Paste token (or PLAYWRIGHT_MCP_EXTENSION_TOKEN=… line)",
+                        )}
+                        value={browserToken}
+                        disabled={browserMutation.isPending}
+                        onChange={(e) => {
+                          setBrowserToken(e.target.value);
+                          setBrowserError(null);
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        className="desktop-btn primary compact"
+                        disabled={browserMutation.isPending || !browserToken.trim()}
+                      >
+                        {browserMutation.isPending ? text("保存中…", "Saving…") : text("保存配对", "Save pairing")}
+                      </button>
+                    </form>
+
+                    {browser.chrome_running && !browser.chrome_version_ok && (
+                      <p style={{ margin: 0, fontSize: 12, color: "#95601a" }}>
+                        {text(
+                          "提示：建议将 Chrome 升级至 158.0.8127.2 或更高版本，以支持连接页完全后台静默打开。",
+                          "Tip: Update Chrome to 158.0.8127.2+ so extension connections open silently in the background.",
+                        )}
+                      </p>
+                    )}
+                  </>
+                )}
+
+                {browserError && (
+                  <p className="node-form-error" role="alert" style={{ margin: 0 }}>
+                    {browserError}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <details className="local-section-disclosure">
         <summary>

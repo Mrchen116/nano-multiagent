@@ -263,6 +263,7 @@ fn build_router(state: Arc<HostSharedState>) -> Router {
             "/desktop/v1/local-node/probe-workers",
             post(handle_local_probe_workers),
         )
+        .route("/desktop/v1/local-node/browser", post(handle_local_browser))
         .route("/desktop/v1/local-node/connect", post(handle_local_connect))
         .route("/desktop/v1/local-node/lifecycle", post(handle_local_lifecycle))
         .route("/desktop/v1/local-node/config", put(handle_local_config))
@@ -976,6 +977,21 @@ async fn handle_local_probe_workers(
         Some(json!({ "path": candidate })),
     )
     .await
+}
+
+async fn handle_local_browser(
+    State(state): State<Arc<HostSharedState>>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    let (_, caller) = match authenticate_caller(&state, &headers).await {
+        Ok(v) => v,
+        Err(err) => return err,
+    };
+    invoke_local_admin(state, "browser", Some(caller.owner_id), None, Some(body)).await
 }
 
 #[derive(Deserialize)]

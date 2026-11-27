@@ -10,7 +10,7 @@ Node 负责本机配对和工具安装；DSH integration 负责任务归属、�
 
 ## 任务与连接
 
-节点本机 CLI 增加 browser pair/status/disconnect，token 仅从隐藏输入或 stdin 获取，原子写入当前用户私有节点配置目录。状态区分配置存在、连接已验证、失效和平台不可用；探测结果不得包含 token。Gateway 启动只交付私有路径，token 仅交给当前任务的扩展子进程。隔离轨显式选择，按任务创建临时 profile。固定浏览器后端依赖进入 release 的依赖清单，隔离轨使用本机 Chrome 或 Chromium。
+节点本机 CLI 增加 browser pair/status/disconnect，并在 Crewden Desktop「这台电脑」（经 `apps/desktop` 本地回环与 `local-admin browser` 按 `owner_id` 门禁桥接）提供可视化配对栏。引导流不读取系统剪贴板、不让模型接触凭据：触发引导时按选定 Profile 检查官方扩展（0.5.0+），未安装则打开官方商店页并在检测到扩展落盘后自动打开扩展 `status.html` Token 页，已安装则直接打开 Token 页；用户手动填入 Token（兼容整行 `PLAYWRIGHT_MCP_EXTENSION_TOKEN=…` 与裸值），在 CLI 仅经隐藏输入或 stdin、在 Desktop 仅经本机回环提交，原子写入当前用户 `0600` 私有节点配置目录，免重启即时生效。状态区分配置存在、连接已验证、失效和平台不可用；探测结果不得包含 token。Gateway 启动只交付私有路径，token 仅交给当前任务的扩展子进程。隔离轨显式选择，按任务创建临时 profile。固定浏览器后端依赖进入 release 的依赖清单，隔离轨使用本机 Chrome 或 Chromium。
 
 宿主维护 root 当前交办或 CLI activation 的 seat。每个 seat 懒启动独立 Playwright MCP 客户端，只暴露该客户端拥有的标签页。扩展轨要求支持独立 tab group 与后台连接的官方扩展版本；缺少能力时返回升级引导。连接日常 Chrome 前从当前进程与安装元数据核实浏览器已运行、Chrome 至少 158.0.8127.2、选定 Profile 的官方扩展至少 0.5.0；缺任一项直接给升级或启动引导。这样才可同时后台打开连接页与任务页。连接日常 Chrome 前验证浏览器运行状态，避免冷启动把窗口带到前台。后台动作验收观察前台应用及后台页面的实际输入和更新；锁定版本必要的焦点模拟只作用于本 seat 自己的页面。关闭只释放本客户端与其创建的标签；隔离轨还释放浏览器进程与临时 profile。取消中的写操作不重放；等待当前发送者退出后再释放 seat。运行中断后的重复启动只清理由节点创建且可核实所属实例的资源。
 

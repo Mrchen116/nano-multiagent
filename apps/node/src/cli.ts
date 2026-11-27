@@ -54,6 +54,7 @@ if (values.help) {
         connectLocalNode,
         controlLocalNodeLifecycle,
         inspectLocalNode,
+        manageLocalNodeBrowser,
         probeDesktopWorkers,
         resolveLocalWorkspaceTarget,
         updateLocalNodeConfig,
@@ -81,6 +82,14 @@ if (values.help) {
             throw new LocalAdminHttpError(403, "foreign_owner", "This computer belongs to another account");
           }
           payload = { workers: await probeDesktopWorkers(typeof input.path === "string" ? input.path : undefined) };
+        } else if (subcommand === "browser") {
+          const input = await readStdinJson();
+          payload = await manageLocalNodeBrowser({
+            origin,
+            ownerId: values["owner-id"] ?? "",
+            actionInput: input as unknown as import("@nano/product-contracts").DesktopBrowserActionInput,
+            configPath: values.config,
+          });
         } else if (subcommand === "connect") {
           const input = await readStdinJson();
           payload = await connectLocalNode({

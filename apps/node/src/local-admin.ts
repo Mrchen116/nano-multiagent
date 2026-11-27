@@ -7,14 +7,25 @@ import {
   extractDesktopProxySettings,
   isBlockedDesktopOpenPath,
   mergeDesktopEnvironment,
+  type DesktopBrowserActionInput,
+  type DesktopBrowserActionResponse,
   type DesktopLocalConfigInput,
   type DesktopLocalInspectResponse,
   type DesktopWorkerProbeItem,
 } from '@nano/product-contracts';
 import { bootstrapNode } from './bootstrap.js';
+import {
+  browserCommand,
+  inspectDailyBrowserStatus,
+  isValidChromeProfileName,
+  normalizeExtensionToken,
+  openDailyBrowserGuide,
+  saveBrowserPairing,
+  type BrowserPairingDeps,
+} from './browser-pairing.js';
 import { NodeConfiguration, type NodeConfigurationFile } from './configuration.js';
 import { bindDevice } from './device-binding.js';
-import { applyGatewayEnvironment, atomicPrivate, gatewayState, manageGateway, processBirth } from './lifecycle.js';
+import { applyGatewayEnvironment, atomicPrivate, browserPairingFile, gatewayState, manageGateway, processBirth } from './lifecycle.js';
 import { localNodeBridgeEndpoint } from './local-bridge.js';
 import { windowsHost } from './windows-platform.js';
 import net from 'node:net';
@@ -175,6 +186,7 @@ export async function inspectLocalNode(input: {
   ownerId?: string;
   configPath?: string;
   logQuery?: string;
+  browserDeps?: BrowserPairingDeps;
 }): Promise<DesktopLocalInspectResponse> {
   const configPath = connectionConfigPathForOrigin(input.origin, input.configPath);
   if (!existsSync(configPath)) {
@@ -204,8 +216,11 @@ export async function inspectLocalNode(input: {
   const live = Boolean(rawState && (await processBirth(rawState.pid)) === rawState.process_start);
   const activeTasks = live ? await pingBridgeActiveTasks(configPath) : 0;
   const { proxy, userEnvironment } = extractDesktopProxySettings(value.gateway?.environment);
-  const workers = await probeDesktopWorkers(value.gateway?.environment?.PATH);
-  const logs = await readLogTail(configPath, input.logQuery);
+  const [workers, browser, logs] = await Promise.all([
+    probeDesktopWorkers(value.gateway?.environment?.PATH),
+    inspectDailyBrowserStatus(browserPairingFile(configPath, value.node), undefined, input.browserDeps),
+    readLogTail(configPath, input.logQuery),
+  ]);
   const ownership = !desktopManaged
     ? 'takeover_available'
     : live
@@ -227,6 +242,7 @@ export async function inspectLocalNode(input: {
     autostart: value.gateway?.autostart !== false,
     worker_runtime: value.gateway?.worker_runtime ?? 'dsh',
     workers,
+    browser,
     proxy,
     tool_approval_model: value.llm.tool_approval_model ?? null,
     registered_models: value.llm.providers.flatMap(provider =>
@@ -307,7 +323,7 @@ export async function connectLocalNode(input: {
     ui_root: input.activeMetadata?.ui_root ?? null,
     updated_at: new Date().toISOString(),
   });
-  applyGatewayEnvironment(refreshed.value);
+  applyGatewayEnvironment(refreshed.value, refreshed.path);
   const started = await manageGateway(refreshed.path, refreshed.value, 'start');
   return {
     ok: true,
@@ -549,4 +565,114 @@ export async function resolveLocalWorkspaceTarget(input: {
     );
   }
   return { ok: true, resolved_path: resolvedTarget, is_directory: isDirectory };
+}
+
+/** Inspect, open guided setup pages, pair, or disconnect the owner's local daily Chrome extension. */
+export async function manageLocalNodeBrowser(input: {
+  origin: string;
+  ownerId: string;
+  actionInput: DesktopBrowserActionInput;
+  configPath?: string;
+  deps?: BrowserPairingDeps;
+}): Promise<DesktopBrowserActionResponse> {
+  const configPath = connectionConfigPathForOrigin(input.origin, input.configPath);
+  if (!existsSync(configPath)) {
+    throw new LocalAdminHttpError(404, 'not_bound', 'This computer is not connected yet');
+  }
+  const config = await NodeConfiguration.read(configPath);
+  if (!input.ownerId || config.value.node.user_id !== input.ownerId) {
+    throw new LocalAdminHttpError(403, 'foreign_owner', 'This computer belongs to another account');
+  }
+  const pairingFile = browserPairingFile(config.path, config.value.node);
+  const action = input.actionInput?.action;
+
+  if (action === 'status') {
+    const requested = input.actionInput.profile;
+    if (requested !== undefined && !isValidChromeProfileName(requested)) {
+      throw new LocalAdminHttpError(
+        400,
+        'invalid_browser_profile',
+        'Use a valid Chrome profile directory name such as Default or Profile 1',
+      );
+    }
+    return { browser: await inspectDailyBrowserStatus(pairingFile, requested, input.deps) };
+  }
+
+  if (action === 'disconnect') {
+    await browserCommand('disconnect', pairingFile, 'Default', input.deps);
+    return { browser: await inspectDailyBrowserStatus(pairingFile, undefined, input.deps) };
+  }
+
+  if (action === 'open-guide') {
+    const current = await inspectDailyBrowserStatus(pairingFile, input.actionInput.profile, input.deps);
+    if (!current.supported) {
+      throw new LocalAdminHttpError(
+        422,
+        'browser_unsupported',
+        'Daily Chrome pairing is supported on macOS and Windows only',
+      );
+    }
+    const profile = input.actionInput.profile ?? current.selected_profile;
+    if (!isValidChromeProfileName(profile)) {
+      throw new LocalAdminHttpError(
+        400,
+        'invalid_browser_profile',
+        'Use a valid Chrome profile directory name such as Default or Profile 1',
+      );
+    }
+    if (!current.chrome_installed) {
+      throw new LocalAdminHttpError(
+        422,
+        'chrome_not_installed',
+        'Google Chrome is not installed on this computer',
+      );
+    }
+    return openDailyBrowserGuide(pairingFile, profile, input.actionInput.target ?? 'auto', input.deps);
+  }
+
+  if (action === 'pair') {
+    const current = await inspectDailyBrowserStatus(pairingFile, input.actionInput.profile, input.deps);
+    if (!current.supported) {
+      throw new LocalAdminHttpError(
+        422,
+        'browser_unsupported',
+        'Daily Chrome pairing is supported on macOS and Windows only',
+      );
+    }
+    const profile = input.actionInput.profile ?? current.selected_profile;
+    if (!isValidChromeProfileName(profile)) {
+      throw new LocalAdminHttpError(
+        400,
+        'invalid_browser_profile',
+        'Use a valid Chrome profile directory name such as Default or Profile 1',
+      );
+    }
+    if (!current.chrome_installed) {
+      throw new LocalAdminHttpError(
+        422,
+        'chrome_not_installed',
+        'Google Chrome is not installed on this computer',
+      );
+    }
+    const token = normalizeExtensionToken(String(input.actionInput.token ?? ''));
+    if (!token) {
+      throw new LocalAdminHttpError(
+        422,
+        'invalid_browser_token',
+        'Paste the valid token shown by the official Playwright Extension',
+      );
+    }
+    const profileCheck = await inspectDailyBrowserStatus(pairingFile, profile, input.deps);
+    if (!profileCheck.extension_installed) {
+      throw new LocalAdminHttpError(
+        422,
+        'browser_extension_missing',
+        `Install Playwright Extension (0.5.0+) in Chrome profile "${profile}" before saving the token`,
+      );
+    }
+    await saveBrowserPairing(pairingFile, profile, token);
+    return { browser: await inspectDailyBrowserStatus(pairingFile, profile, input.deps) };
+  }
+
+  throw new LocalAdminHttpError(400, 'invalid_browser_action', 'Unsupported browser pairing action');
 }
