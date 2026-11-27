@@ -28,6 +28,7 @@ import {
 import { fallbacksAfterPrimaryChange, ModelFallbackField } from "./model-fallback-field";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
+import { BrowserPairingSection } from "../nodes/browser-pairing-section";
 import {
   AgentFeature,
   AgentSummary,
@@ -1074,6 +1075,14 @@ export function AgentCreatePage() {
                 capabilityEditor.tools(toolAllowlist);
               }}
             />
+            {effectiveSelectedTools(normalizedDraft, catalog).includes("computer_use") && selectedNodeId && (
+              <BrowserPairingSection
+                variant="agent-callout"
+                nodeId={selectedNodeId}
+                computerName={nodeLabel || undefined}
+                online={isNodeOnline}
+              />
+            )}
           </div>
 
         </section>

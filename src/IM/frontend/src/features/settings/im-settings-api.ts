@@ -1,4 +1,9 @@
+import type {
+  DesktopBrowserActionInput,
+  DesktopBrowserActionResponse,
+} from "@nano/product-contracts/desktop-local";
 import { authFetch } from "../auth/auth-fetch";
+import { readHttpError } from "../auth/http-error";
 
 export interface NodeUpdateView {
   installation: 'managed' | 'legacy' | 'source';
@@ -81,6 +86,32 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new SettingsRequestError({ status: response.status, detail, method, path });
   }
   return (await response.json()) as T;
+}
+
+export class NodeBrowserRequestError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  constructor(status: number, message: string, code?: string | null) {
+    super(message);
+    this.name = "NodeBrowserRequestError";
+    this.status = status;
+    this.code = code ?? undefined;
+  }
+}
+
+export async function manageNodeBrowser(
+  nodeId: string,
+  input: DesktopBrowserActionInput,
+): Promise<DesktopBrowserActionResponse> {
+  const response = await authFetch(`/im/v1/nodes/${encodeURIComponent(nodeId)}/browser`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    const err = await readHttpError(response);
+    throw new NodeBrowserRequestError(response.status, err.detail, err.code);
+  }
+  return (await response.json()) as DesktopBrowserActionResponse;
 }
 
 export async function listNodes() {

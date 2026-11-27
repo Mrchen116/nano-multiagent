@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { authFetch } from "../../auth/auth-fetch";
 import { useAuthStore } from "../../auth/auth-store";
 import { useTranslation } from "../../../i18n";
@@ -33,7 +34,12 @@ export function AttachmentLink({
     window.addEventListener("im:conversation-invalidated", cancel);
     return () => { cancel(); window.removeEventListener("im:conversation-invalidated", cancel); };
   }, [self, href]);
-  if (!url) return <a className={className} href={href} target="_blank" rel="noreferrer" title={title} aria-label={ariaLabel}>{children}</a>;
+  if (!url) {
+    if (href.startsWith("/settings/")) {
+      return <Link className={className} to={href} title={title} aria-label={ariaLabel}>{children}</Link>;
+    }
+    return <a className={className} href={href} target="_blank" rel="noreferrer" title={title} aria-label={ariaLabel}>{children}</a>;
+  }
   async function download() {
     if (!self || !url || busy) return;
     const controller = new AbortController(); request.current = controller;

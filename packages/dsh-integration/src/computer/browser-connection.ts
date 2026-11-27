@@ -29,7 +29,7 @@ export async function pairing(): Promise<Pairing | undefined> {
     return { id: data.id, profile: data.profile, token: data.token };
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-    throw new Error('Invalid pairing record. Run browser pair on the node.');
+    throw new Error('Invalid pairing record. Re-pair Daily Chrome in Settings -> Computers (/settings/nodes?pair_browser=1).');
   }
 }
 

@@ -18,7 +18,8 @@ import { RuntimePartitions, type RuntimePartition } from './runtime-partitions.j
 import { NodeConfiguration } from './configuration.js';
 import { installedPackageManager, loadNodeRelease } from './release.js';
 import { NodeUpdater, updatePath } from './node-updater.js';
-import {claimGateway,applyGatewayEnvironment} from './lifecycle.js';
+import {claimGateway,applyGatewayEnvironment,browserPairingFile} from './lifecycle.js';
+import {BrowserPairingRequestError,handleNodeBrowserRequest} from './browser-pairing.js';
 import { providerProfiles } from './providers.js';
 import { ModelSetup } from './model-setup.js';
 import {CapabilityRequests} from './capability-requests.js';
@@ -440,6 +441,14 @@ const handlers:NodeHandlers = {
     return {deleted:result?.deleted===true};
   },
   'node.setup.request':input=>modelSetup.handle(input).catch(()=>({error_code:'setup_invalid',message:'Model setup is unavailable'})),
+  'node.browser.request':async input=>{
+    try {
+      return await handleNodeBrowserRequest(browserPairingFile(configPath,config.node),input);
+    } catch (err) {
+      if (err instanceof BrowserPairingRequestError) return {error:{code:err.code,message:err.message}};
+      return {error_code:'browser_unavailable',message:'Browser pairing is unavailable'};
+    }
+  },
   'node.distill.prompt.request':input=>history.distill(input).catch(error=>({error_code:'runtime_unavailable',message:String(error)})),
   'session.fork.request':input=>history.fork(input),
   'agent.work.permission':()=>({ok:false,error:'request_ended'}),

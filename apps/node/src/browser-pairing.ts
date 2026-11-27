@@ -7,12 +7,24 @@ import { createInterface } from 'node:readline/promises';
 import { Writable } from 'node:stream';
 import { promisify } from 'node:util';
 import type {
+  DesktopBrowserActionInput,
   DesktopBrowserActionResponse,
   DesktopBrowserPairingState,
   DesktopBrowserProfileItem,
   DesktopBrowserStatus,
 } from '@nano/product-contracts/desktop-local';
 import { atomicPrivate } from './lifecycle.js';
+
+export class BrowserPairingRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'BrowserPairingRequestError';
+  }
+}
 
 const exec = promisify(execFile);
 
@@ -396,6 +408,106 @@ export async function saveBrowserPairing(
   await atomicPrivate(file, { id: randomUUID(), profile, token });
   await rm(file + '.status', { force: true });
   return { state: 'paired', profile };
+}
+
+/** Execute a structured browser pairing action for Desktop local-admin or IM node-rpc without leaking credentials. */
+export async function handleNodeBrowserRequest(
+  pairingFile: string,
+  actionInput: DesktopBrowserActionInput,
+  deps?: BrowserPairingDeps,
+): Promise<DesktopBrowserActionResponse> {
+  const action = actionInput?.action;
+
+  if (action === 'status') {
+    const requested = actionInput.profile;
+    if (requested !== undefined && !isValidChromeProfileName(requested)) {
+      throw new BrowserPairingRequestError(
+        400,
+        'invalid_browser_profile',
+        'Use a valid Chrome profile directory name such as Default or Profile 1',
+      );
+    }
+    return { browser: await inspectDailyBrowserStatus(pairingFile, requested, deps) };
+  }
+
+  if (action === 'disconnect') {
+    await rm(pairingFile, { force: true });
+    await rm(pairingFile + '.status', { force: true });
+    return { browser: await inspectDailyBrowserStatus(pairingFile, undefined, deps) };
+  }
+
+  if (action === 'open-guide') {
+    const current = await inspectDailyBrowserStatus(pairingFile, actionInput.profile, deps);
+    if (!current.supported) {
+      throw new BrowserPairingRequestError(
+        422,
+        'browser_unsupported',
+        'Daily Chrome pairing is supported on macOS and Windows only',
+      );
+    }
+    const profile = actionInput.profile ?? current.selected_profile;
+    if (!isValidChromeProfileName(profile)) {
+      throw new BrowserPairingRequestError(
+        400,
+        'invalid_browser_profile',
+        'Use a valid Chrome profile directory name such as Default or Profile 1',
+      );
+    }
+    if (!current.chrome_installed) {
+      throw new BrowserPairingRequestError(
+        422,
+        'chrome_not_installed',
+        'Google Chrome is not installed on this computer',
+      );
+    }
+    return openDailyBrowserGuide(pairingFile, profile, actionInput.target ?? 'auto', deps);
+  }
+
+  if (action === 'pair') {
+    const current = await inspectDailyBrowserStatus(pairingFile, actionInput.profile, deps);
+    if (!current.supported) {
+      throw new BrowserPairingRequestError(
+        422,
+        'browser_unsupported',
+        'Daily Chrome pairing is supported on macOS and Windows only',
+      );
+    }
+    const profile = actionInput.profile ?? current.selected_profile;
+    if (!isValidChromeProfileName(profile)) {
+      throw new BrowserPairingRequestError(
+        400,
+        'invalid_browser_profile',
+        'Use a valid Chrome profile directory name such as Default or Profile 1',
+      );
+    }
+    if (!current.chrome_installed) {
+      throw new BrowserPairingRequestError(
+        422,
+        'chrome_not_installed',
+        'Google Chrome is not installed on this computer',
+      );
+    }
+    const token = normalizeExtensionToken(String(actionInput.token ?? ''));
+    if (!token) {
+      throw new BrowserPairingRequestError(
+        422,
+        'invalid_browser_token',
+        'Paste the valid token shown by the official Playwright Extension',
+      );
+    }
+    const profileCheck = await inspectDailyBrowserStatus(pairingFile, profile, deps);
+    if (!profileCheck.extension_installed) {
+      throw new BrowserPairingRequestError(
+        422,
+        'browser_extension_missing',
+        `Install Playwright Extension (0.5.0+) in Chrome profile "${profile}" before saving the token`,
+      );
+    }
+    await saveBrowserPairing(pairingFile, profile, token);
+    return { browser: await inspectDailyBrowserStatus(pairingFile, profile, deps) };
+  }
+
+  throw new BrowserPairingRequestError(400, 'invalid_browser_action', 'Unsupported browser pairing action');
 }
 
 async function promptToken(deps?: BrowserPairingDeps): Promise<string> {

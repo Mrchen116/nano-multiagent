@@ -33,6 +33,7 @@ import {
 } from "./model-reasoning-field";
 import { fallbacksAfterPrimaryChange, ModelFallbackField } from "./model-fallback-field";
 import { AgentPluginsPanel } from "./agent-plugins-panel";
+import { BrowserPairingSection } from "../nodes/browser-pairing-section";
 import { AgentRoleEditor, useAgentRoleEditor } from "./agent-role-editor";
 import { PillSelector } from "./pill-selector";
 import { SkillSourceSelector } from "./skill-source-selector";
@@ -2086,6 +2087,14 @@ function AgentDetailPageContent({ agentId, personal, inactive }: { agentId: stri
                 capabilityEditor.tools([...toolAllowlist, ...draft.tool_allowlist.filter(name => name === 'memory')]);
               }}
             />
+            {effectiveTools.includes("computer_use") && displayedNodeId && (
+              <BrowserPairingSection
+                variant="agent-callout"
+                nodeId={displayedNodeId}
+                computerName={displayedNodeName || undefined}
+                online={displayedNodeStatus === "online"}
+              />
+            )}
           </div>
           {catalogCurrent && missingTools.length > 0 && <p className="im-agent-field-error">{t("agents.settings.catalogUnavailable", {names: missingTools.join(", ")})}</p>}
 

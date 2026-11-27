@@ -15,12 +15,9 @@ import {
 } from '@nano/product-contracts';
 import { bootstrapNode } from './bootstrap.js';
 import {
-  browserCommand,
+  BrowserPairingRequestError,
+  handleNodeBrowserRequest,
   inspectDailyBrowserStatus,
-  isValidChromeProfileName,
-  normalizeExtensionToken,
-  openDailyBrowserGuide,
-  saveBrowserPairing,
   type BrowserPairingDeps,
 } from './browser-pairing.js';
 import { NodeConfiguration, type NodeConfigurationFile } from './configuration.js';
@@ -584,95 +581,12 @@ export async function manageLocalNodeBrowser(input: {
     throw new LocalAdminHttpError(403, 'foreign_owner', 'This computer belongs to another account');
   }
   const pairingFile = browserPairingFile(config.path, config.value.node);
-  const action = input.actionInput?.action;
-
-  if (action === 'status') {
-    const requested = input.actionInput.profile;
-    if (requested !== undefined && !isValidChromeProfileName(requested)) {
-      throw new LocalAdminHttpError(
-        400,
-        'invalid_browser_profile',
-        'Use a valid Chrome profile directory name such as Default or Profile 1',
-      );
+  try {
+    return await handleNodeBrowserRequest(pairingFile, input.actionInput, input.deps);
+  } catch (err) {
+    if (err instanceof BrowserPairingRequestError) {
+      throw new LocalAdminHttpError(err.status, err.code, err.message);
     }
-    return { browser: await inspectDailyBrowserStatus(pairingFile, requested, input.deps) };
+    throw err;
   }
-
-  if (action === 'disconnect') {
-    await browserCommand('disconnect', pairingFile, 'Default', input.deps);
-    return { browser: await inspectDailyBrowserStatus(pairingFile, undefined, input.deps) };
-  }
-
-  if (action === 'open-guide') {
-    const current = await inspectDailyBrowserStatus(pairingFile, input.actionInput.profile, input.deps);
-    if (!current.supported) {
-      throw new LocalAdminHttpError(
-        422,
-        'browser_unsupported',
-        'Daily Chrome pairing is supported on macOS and Windows only',
-      );
-    }
-    const profile = input.actionInput.profile ?? current.selected_profile;
-    if (!isValidChromeProfileName(profile)) {
-      throw new LocalAdminHttpError(
-        400,
-        'invalid_browser_profile',
-        'Use a valid Chrome profile directory name such as Default or Profile 1',
-      );
-    }
-    if (!current.chrome_installed) {
-      throw new LocalAdminHttpError(
-        422,
-        'chrome_not_installed',
-        'Google Chrome is not installed on this computer',
-      );
-    }
-    return openDailyBrowserGuide(pairingFile, profile, input.actionInput.target ?? 'auto', input.deps);
-  }
-
-  if (action === 'pair') {
-    const current = await inspectDailyBrowserStatus(pairingFile, input.actionInput.profile, input.deps);
-    if (!current.supported) {
-      throw new LocalAdminHttpError(
-        422,
-        'browser_unsupported',
-        'Daily Chrome pairing is supported on macOS and Windows only',
-      );
-    }
-    const profile = input.actionInput.profile ?? current.selected_profile;
-    if (!isValidChromeProfileName(profile)) {
-      throw new LocalAdminHttpError(
-        400,
-        'invalid_browser_profile',
-        'Use a valid Chrome profile directory name such as Default or Profile 1',
-      );
-    }
-    if (!current.chrome_installed) {
-      throw new LocalAdminHttpError(
-        422,
-        'chrome_not_installed',
-        'Google Chrome is not installed on this computer',
-      );
-    }
-    const token = normalizeExtensionToken(String(input.actionInput.token ?? ''));
-    if (!token) {
-      throw new LocalAdminHttpError(
-        422,
-        'invalid_browser_token',
-        'Paste the valid token shown by the official Playwright Extension',
-      );
-    }
-    const profileCheck = await inspectDailyBrowserStatus(pairingFile, profile, input.deps);
-    if (!profileCheck.extension_installed) {
-      throw new LocalAdminHttpError(
-        422,
-        'browser_extension_missing',
-        `Install Playwright Extension (0.5.0+) in Chrome profile "${profile}" before saving the token`,
-      );
-    }
-    await saveBrowserPairing(pairingFile, profile, token);
-    return { browser: await inspectDailyBrowserStatus(pairingFile, profile, input.deps) };
-  }
-
-  throw new LocalAdminHttpError(400, 'invalid_browser_action', 'Unsupported browser pairing action');
 }

@@ -270,13 +270,14 @@ export class BrowserBackend implements ComputerBackend {
                 JSON.stringify(operations),
             );
           const saved = await pairing();
-          let daily = 'not_paired: Install the Playwright Extension and run browser pair on the node.';
+          let daily =
+            'not_paired: Ask the owner to connect Daily Chrome in Settings -> Computers (/settings/nodes?pair_browser=1), or choose isolated mode.';
           if (!['darwin', 'win32'].includes(process.platform)) daily = 'unsupported: choose isolated mode.';
           else if (saved) {
             try {
               await dailyPrerequisites(saved.profile);
               daily = (await requiresRepair(saved.id))
-                ? 'reconnect: run browser pair on the node.'
+                ? 'reconnect: Ask the owner to re-pair Daily Chrome in Settings -> Computers (/settings/nodes?pair_browser=1).'
                 : this.connection?.id === saved.id
                   ? 'connected'
                   : 'paired; verified on open';
@@ -295,11 +296,13 @@ export class BrowserBackend implements ComputerBackend {
       const saved = mode === 'daily' ? await pairing() : undefined;
       if (mode === 'daily' && !saved)
         throw new Error(
-          'Daily Chrome is not paired. Install the Playwright Extension and run browser pair on the node.',
+          'Daily Chrome is not paired. Ask the owner to connect Daily Chrome in Settings -> Computers (/settings/nodes?pair_browser=1), or choose isolated mode.',
         );
       if (saved) {
         if (await requiresRepair(saved.id))
-          throw new Error('Daily Chrome needs a new pairing. Run browser pair on the node.');
+          throw new Error(
+            'Daily Chrome needs re-pairing in Settings -> Computers (/settings/nodes?pair_browser=1).',
+          );
         await dailyPrerequisites(saved.profile);
       }
       return {

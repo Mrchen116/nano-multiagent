@@ -41,8 +41,8 @@
 - **THEN** 两个任务分别取得自己标签页的结果，用户的前台应用保持可用；任务间不能选择彼此的标签页。结束任务后仍可使用日常 Chrome。
 
 #### Scenario: 日常轨引导配对、配对失效或选择隔离环境
-- **WHEN** 用户首次连接日常 Chrome，或日常轨缺少有效连接
-- **THEN** Crewden Desktop「这台电脑」与本机 `browser pair` 提供半自动引导：未装扩展时自动在所选 Chrome Profile 打开官方商店页并在检测到安装落盘后自动打开扩展 Token 页，已装扩展时直接打开 Token 页；用户手动粘贴 Token（支持粘贴整行 `PLAYWRIGHT_MCP_EXTENSION_TOKEN=…`）保存至本机私有配置，免重启生效且 Token 不进入聊天或模型上下文。需要登录态的任务等待恢复；用户选择隔离轨时能从干净的浏览器开始工作，结束后释放实例。
+- **WHEN** 用户首次连接日常 Chrome、在新建/编辑助手启用 `computer_use`，或日常轨缺少有效连接
+- **THEN** Web IM「设置 → 电脑 → 电脑详情」、助手 `computer_use` 工具开关下方、Crewden Desktop「这台电脑」以及本机 `browser pair` 均提供半自动引导：未装扩展时自动在所选 Chrome Profile 打开官方商店页并在检测到安装落盘后自动打开扩展 Token 页，已装扩展时直接打开 Token 页；用户手动粘贴 Token（支持粘贴整行 `PLAYWRIGHT_MCP_EXTENSION_TOKEN=…`）保存至节点本机 `0600` 私有配置，免重启生效，Token 不落 IM 库、不记日志、不进入聊天或模型上下文。聊天中遇到未配对时返回直达设置入口 `/settings/nodes?pair_browser=1`，需要登录态的任务等待恢复；用户选择隔离轨时能从干净的浏览器开始工作，结束后释放实例。
 
 ### Requirement: 使用被授权的桌面窗口
 #### Scenario: 后台读取、输入与目标切换
