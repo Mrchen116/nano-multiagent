@@ -277,3 +277,60 @@ Round 1 提出的 `R1-C1`–`R1-C3`、`R1-W1`–`R1-W4` 与 `R1-R1`–`R1-R2` �
 
 - **`R2-R1`**: `accepted` — 作为 M1 实施阶段的精确接线提示保留执行（不修改已通过 Round 2 审查的设计产物以保持冻结一致性）：实施 `M1` 时在服务端 `Gateway.broadcast`（`this.browsers`）与 `Gateway.replay` 两处统一调用 `attachHumanAvatars`，在 Web `useMembershipCache.onRecovery` 同步失效 `["contacts"]`，并在 iOS `ChatStore.run()` 完成断线重连 `GET /im/v1/sync` 后同步刷新/合并 `avatarContacts`。
 - **`R2-R2`**: `accepted` — 作为 M1 实施细节保留执行：实施 `ChatRepository.swift` `v9_actor_avatar_version` 迁移时同步将 `cache_meta('schema.version', ...)` 更新为 `'9'` 并在迁移单测中覆盖 `v8 -> v9` 升级校验。
+
+---
+
+## Round 3
+
+- **reviewer**: Independent Gate 2 Design Reviewer (`change-design-reviewer` + `frontend-experience-review` + `agent-context-review`)
+- **target**: `docs/changes/feat-804-human-user-avatars/{spec.md,design.md,prototype.html,specs/im/{spec,auth-tenancy,web-chat-ux,ios-client}.md,M1-human-user-avatars/}`
+- **commit**: `5c1ad766e` (`fe5e11464..5c1ad766e`, branch `unit/feat-804-human-user-avatars`)
+- **review_mode**: `delta`
+- **retained_from**: `Round 2`
+- **mode_reason**: 本轮由用户明确的体验收敛要求触发（移除引用消息内冗余头像，按商业科技产品克制标准精简界面噪音），有界修订了 `spec.md`、`design.md`、`prototype.html` 与 `specs/im/{web-chat-ux,ios-client}.md`，同时将 Round 2 的 `R2-R1`/`R2-R2` 实施接线建议正式合入 `design.md`；服务端存储互斥、鉴权模型、Agent Context 隔离与单里程碑 `M1` 架构未变，故采用 `delta` 模式重点核查次级结构头像边界、线上真实组件基线对齐、更新后的 2x Retina 多视口截图及跨文档契约一致性，未变部分沿用 Round 1–2 证据。
+- **started_at**: `2026-11-27T22:34:10+09:00`
+- **completed_at**: `2026-11-27T22:38:30+09:00`
+- **duration**: `5m`
+
+### Verdict
+
+**Approved** — `0 CRITICAL / 0 WARNING / 0 Recommendations`
+
+本轮修订准确兑现了用户提出的商业级信息层级克制要求：彻底剥离了消息引用块（`reply_to`）等次级内嵌文本结构的头像渲染与服务端投影，去除了账号页常驻相机贴纸、裁剪弹窗重复预览条与群聊气泡外堆叠小头像串等视觉噪音，并与仓库真实线上组件基线（`.chat-message-quote`、`ReceiptStatusPopover`、`ChatReplyLabel`、`MessageReceiptButton`）完全一致，无新增阻塞或警告问题，满足 Gate 2 准出条件。
+
+---
+
+### Coverage 与证据（`delta`，未变项沿用 `retained_from: Round 2`）
+
+1. **次级结构边界收敛与真实代码基线核实（`spec.md`、`design.md`、`specs/im/{web-chat-ux,ios-client}.md`）**：
+   - 对照当前代码仓核实：Web 端 `src/IM/frontend/src/features/chat/components/message-pane.tsx:2456-2467` 的 `.chat-message-quote` 与 iOS 端 `src/IM/ios/NanoIM/Features/Chat/ChatMessageSearch.swift:113-126` 的 `ChatReplyLabel` 原本即为「左强调竖线 + 粗体姓名 + 摘要」纯文本结构（不含头像）；iOS `PersonalAgentManagementView.swift:201-241` 的风险事件与受限联系人原本即为紧凑 `DisclosureGroup` 纯文本行（而 Web 端 `personal-agent-{blocked-contacts,incidents}.tsx` 原本即有 `28px` `<Avatar>` 槽位）。
+   - 本轮修订将规则精确收敛为「自定义头像仅赋能既有主身份槽位（`<Avatar>` / `AvatarView`），绝不在消息内引用块（`reply_to`）、输入框待引用预览条、气泡底栏双勾图标、正文 `@` 提及胶囊、系统通知行或紧凑纯文本折叠行中新增或内嵌头像」，并同步从服务端 `human-avatar-projection.ts`（`design.md` L50, L148）移除了对 `reply_to` 的 `avatar_version` 附着，前后端数据流与视觉层级高度统一，全文检索无残留冲突描述。
+2. **前端原型商业级减噪与多视口画面核验（`prototype.html` 及 `01`、`02`、`04`、`05`、`07`、`08` 截图）**：
+   - **账号页（`01-account-desktop-1120x780.png`）**：移除了遮挡人像且易与右下角在线圆点混淆的常驻相机角标，保留纯净可点击的 `56px` 圆形头像 + 姓名/`@username` + 右侧次级按钮「更换头像」与幽灵按钮「移除」，与下方显示名草稿及底部保存栏层次清爽。
+   - **圆形裁剪弹窗（`02` 桌面 `1120×780`、`07` 手机中文 `390×844`、`08` 手机英文 `390×844`）**：移除了重复的 `40px/24px` 小圆预览条与工程感 `1.2×` 倍率数值，聚焦单一圆形取景视口（桌面 `240×240`、窄屏 `208×208`）与简洁的 `−` 滑杆 `+` 控制；底栏「重新选择 / Choose another」与「取消 / Cancel」、「保存 / Save」在 `390×844` 中英文视口下均单行舒展排布、无挤压截断。
+   - **群聊混排、纯文本引用与按需回执浮层（`04-chat-mixed-popover-1160x780.png`、`05-chat-receipt-popover-1160x780.png`）**：移除了顶栏说明胶囊与气泡下方堆叠头像串，将演示台词替换为真实研发协作对话（符合 *Let the UI speak for itself*）；发出消息内的引用块呈现干净的左竖线 + 粗体姓名 + 单行摘要（无内嵌头像），气泡底栏还原与线上 `message-pane.tsx:2090-2120, 2505-2507` 及 `ChatMessageView.swift:221-266` 一致的轻量双勾 `✓✓` 触发器与按需展开的 `24px` 头像已读回执浮层。
+3. **契约完整性与文档门禁**：
+   - `specs/im/web-chat-ux.md`（L19-22）与 `specs/im/ios-client.md`（L27）已同步更新次级结构无头像约束，且完整保留原契约全部既有 Scenario；`design.md` 的 `must-match` / `may-adapt` 对齐表、审查编组、Runbook 与 `M1` 退出标准已全部同步；`python3 scripts/docs_check.py` 校验通过（249 个受管文档、74 条必检路由零错误）。
+4. **未受影响部分沿用说明（`retained_from: Round 2`）**：
+   - 服务端 `server.ts` `selfManagedAuth`、子插件 `5 MiB` 原始流读取、`perUserAvatarLock` 串行互斥、Agent Context 零污染机制、Web/Desktop 与 iOS 内存图像缓存及退出清理语义均未改变，沿用 Round 1–2 已核实的通过证据。
+
+---
+
+### 历史问题闭环
+
+| Item ID | Author Resolution | 本轮核查证据 | 状态 |
+|---|---|---|---|
+| `R2-R1` | `accepted` 并合入 `design.md` 正文：`Gateway.broadcast`（`this.browsers`）与 `Gateway.replay` 统一附着主身份 `avatar_version`，Web `useMembershipCache.onRecovery` 失效 `["contacts"]`，iOS `ChatStore.run()` 重连同步后刷新/合并 `avatarContacts` | `design.md` L50, L148, L186, L206, L303 已正式写入正文与 `M1` `[worker]` 测试退出标准 | **closed** |
+| `R2-R2` | `accepted` 并合入 `design.md` 正文：iOS `ChatRepository.swift` `v9_actor_avatar_version` 迁移同步更新 `cache_meta('schema.version', ...)` 为 `'9'` | `design.md` L197, L303 已正式写入正文与 `M1` `[worker]` 迁移单测标准 | **closed** |
+
+---
+
+### Issues
+
+无（`0 CRITICAL / 0 WARNING`）。
+
+---
+
+### Recommendations
+
+无。
