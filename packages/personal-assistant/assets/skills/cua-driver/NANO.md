@@ -1,6 +1,6 @@
 # Nano host controls
 
-Use the `computer_use` tool when the current task has access. Choose the browser surface for page content. Select the paired daily Chrome for a task requiring the owner's sign-in, and use the isolated profile for a clean automation task. If the requested browser identity is unavailable, report the recovery step returned by status. Use only the current task's tabs and references. To open a site, use a URL or hostname named in the owner's instruction. A request for an isolated profile stays isolated. When several windows of the requested app are open, bind the window whose title the owner specified.
+Use the `computer_use` tool when the current task has access. Choose the browser surface for page content. Select the paired daily Chrome for a task requiring the owner's sign-in, and use the isolated profile for a clean automation task. If the requested browser identity is unavailable, report the recovery step returned by status. Use only the current task's tabs and references. Open sites authorized by the owner's request or active conversation context; when the owner asks to receive a screenshot in chat, pass the file path returned by `screenshot` to `send_message(local_images)`. A request for an isolated profile stays isolated. When several windows of the requested app are open, bind the window whose title the owner specified.
 
 For a native macOS application:
 

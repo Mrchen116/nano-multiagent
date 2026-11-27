@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { ComputerBackend, ComputerContent, PreparedAction } from './backend.js';
@@ -273,7 +273,7 @@ export class BrowserBackend implements ComputerBackend {
         run: async () => {
           if (action === 'describe')
             return text(
-              'First open with url and optional mode (daily or isolated). Use snapshot before ref-based actions. tab is the ID returned by tabs. copy takes text seen on this page; paste uses only this task’s clipboard. Actions and fields: ' +
+              'First open with url and optional mode (daily or isolated). Use snapshot before ref-based actions; screenshot returns the image plus its saved local file path (for send_message local_images). tab is the ID returned by tabs. copy takes text seen on this page; paste uses only this task’s clipboard. Actions and fields: ' +
                 JSON.stringify(operations),
             );
           const saved = await pairing();
@@ -403,7 +403,23 @@ export class BrowserBackend implements ComputerBackend {
           }[action];
           const parts = await client.call(name, action === 'screenshot' ? { type: 'jpeg' } : {}, sig);
           if (!sameDocument(live, await this.current(sig))) throw new Error('Page changed while reading. Retry.');
-          if (action === 'screenshot') return parts.filter((p) => p.type === 'image');
+          if (action === 'screenshot') {
+            const images = parts.filter((p) => p.type === 'image');
+            const first = images[0];
+            if (!first) throw new Error('Page screenshot unavailable.');
+            const outDir = join(this.cwd, '.nano-screenshots');
+            await mkdir(outDir, { recursive: true, mode: 0o700 });
+            const ext = first.mimeType === 'image/png' ? 'png' : first.mimeType === 'image/webp' ? 'webp' : 'jpg';
+            const savedPath = join(outDir, `browser-${randomUUID()}.${ext}`);
+            await writeFile(savedPath, Buffer.from(first.data, 'base64'), { mode: 0o600 });
+            return [
+              {
+                type: 'text',
+                text: `Screenshot saved to ${savedPath} (pass in send_message local_images when delivering to chat).`,
+              },
+              ...images,
+            ];
+          }
           if (action === 'console')
             return text(
               body(parts).match(/Total messages: \d+ \(Errors: \d+, Warnings: \d+\)/)?.[0] ??

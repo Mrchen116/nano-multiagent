@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { z } from 'zod';
 import type { ComputerBackend, ComputerContent, PreparedAction } from './backend.js';
 import { cuaDriver, desktopStatus, verifyDesktopApp } from './desktop-status.js';
@@ -66,6 +69,8 @@ export class DesktopBackend implements ComputerBackend {
   private stopped = false;
   private bound?: BoundWindow;
   private navigation?: { window: BoundWindow; key: NavigationKey; until: number };
+
+  constructor(private readonly cwd?: string) {}
 
   private async client(signal: AbortSignal) {
     signal.throwIfAborted();
@@ -260,6 +265,20 @@ export class DesktopBackend implements ComputerBackend {
           if (!image)
             throw new Error('Window capture unavailable. Check Screen Recording permission on the node.');
           bound.pixels = true;
+          if (this.cwd) {
+            const outDir = join(this.cwd, '.nano-screenshots');
+            await mkdir(outDir, { recursive: true, mode: 0o700 });
+            const ext = image.mimeType === 'image/jpeg' ? 'jpg' : image.mimeType === 'image/webp' ? 'webp' : 'png';
+            const savedPath = join(outDir, `window-${randomUUID()}.${ext}`);
+            await writeFile(savedPath, Buffer.from(image.data, 'base64'), { mode: 0o600 });
+            return [
+              {
+                type: 'text',
+                text: `Screenshot saved to ${savedPath} (pass in send_message local_images when delivering to chat).`,
+              },
+              image,
+            ];
+          }
           return [image];
         },
       };

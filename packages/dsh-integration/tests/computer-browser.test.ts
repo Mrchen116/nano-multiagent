@@ -66,6 +66,9 @@ it.skipIf(!installed)(
       await (await other.prepare('close_tab', {}, signal)).run(signal);
       await (await other.prepare('open', { url, mode: 'isolated' }, signal)).run(signal);
       expect(JSON.stringify(await (await other.prepare('snapshot', {}, signal)).run(signal))).toContain('Test button');
+      const shotParts = await (await other.prepare('screenshot', {}, signal)).run(signal);
+      expect(shotParts.some((p) => p.type === 'image')).toBe(true);
+      expect(shotParts.find((p) => p.type === 'text')?.text).toContain('Screenshot saved to ');
     } finally {
       await Promise.all([seat.close(), other.close()]);
       server.close();

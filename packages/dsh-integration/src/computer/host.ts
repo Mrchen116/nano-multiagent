@@ -201,6 +201,27 @@ export class ComputerHost {
     return matches.values().next().value!;
   }
 
+  private sessionOwnerContext(root: Agent, currentText: string): string {
+    const owner = this.bindings.get(root.id)?.ownerId;
+    if (!owner) return currentText;
+    const minSeq = this.revokedAt.get(root.id) ?? -1;
+    const history: string[] = [];
+    for (const e of scopedChatEvents(root.session.snapshotEvents())) {
+      if (e.seq <= minSeq) continue;
+      if (
+        e.type === 'user/message' &&
+        isHumanSource(e.data.source) &&
+        e.data.source.actorId === owner &&
+        !e.data.source.pa_agent_id &&
+        e.data.source.directHumanText
+      ) {
+        history.push(e.data.source.directHumanText);
+      }
+    }
+    if (!history.includes(currentText)) history.push(currentText);
+    return history.join('\n');
+  }
+
   async bindWorker(root: Agent, id: string, ref: string, signal: AbortSignal): Promise<() => void> {
     if (!this.enabled(root) || this.workers.has(id)) throw new Error('Computer delegation is unavailable');
     const agentId = this.bindings.get(root.id)!.agentId;
@@ -209,9 +230,6 @@ export class ComputerHost {
     if (!this.enabled(root) || epoch !== this.grantEpoch.get(agentId))
       throw new Error('Computer assignment was revoked');
     signal.throwIfAborted();
-    const scope = computerScope(request.text, requestsClipboard(request.text));
-    if (!scope.browser && !scope.desktop && !scope.clipboard)
-      throw new Error('That owner instruction does not request a browser, desktop app or clipboard.');
     if ([...this.workers.values()].some((s) => s.root === root && s.request?.id === request.id))
       throw new Error('This computer task is already assigned');
     const seat: Seat = { root, request, controller: new AbortController() };
@@ -281,24 +299,33 @@ export class ComputerHost {
           throw new Error(
             args.action === 'read_clipboard'
               ? 'Reading the system clipboard requires a direct owner request.'
-              : 'This target is outside the original computer assignment. Use an owner instruction naming the website or application.',
+              : scope.isolatedOnly
+                ? 'The owner requested an isolated browser profile; set mode="isolated".'
+                : 'This computer operation is not permitted for a clipboard-only request.',
           );
         seat.request = request;
       }
       const backend =
         args.surface === 'browser'
           ? (seat.browser ??= new BrowserBackend(root.session.header.cwd!))
-          : (seat.desktop ??= new DesktopBackend());
+          : (seat.desktop ??= new DesktopBackend(root.session.header.cwd));
       const action = await backend.prepare(args.action, args.input ?? {}, signal);
-      if (action.window && (!request || !permitsWindow(request.text, action.window)))
-        throw new Error('Name the intended window title in the original owner request.');
+      const ownerContext = request ? this.sessionOwnerContext(root, request.text) : '';
+      if (action.window && (!request || !permitsWindow(ownerContext, action.window)))
+        throw new Error('Name the intended window title in the owner request.');
       if (action.access === 'system_clipboard' && (!request || !requestsClipboard(request.text)))
         throw new Error(
           'Reading the system clipboard requires a direct owner request such as “把我刚复制的内容整理一下”.',
         );
       signal.throwIfAborted();
       this.prepared.set(exec.token, { seat, action, signal, request });
-      return { access: action.access, target: action.evidence, ownerRequest: request?.text, source: request?.id };
+      return {
+        access: action.access,
+        target: action.evidence,
+        ownerRequest: request?.text,
+        ...(ownerContext && ownerContext !== request?.text ? { ownerContext } : {}),
+        source: request?.id,
+      };
     } catch (error) {
       delete seat.busy;
       throw error;

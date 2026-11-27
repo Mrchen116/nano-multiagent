@@ -207,31 +207,40 @@ export function apply(ctx){
   }
 }, 60_000);
 
-it('bounds a computer assignment by the original surface and target', async () => {
+it('enforces clipboard isolation, explicit isolated browser mode, and multi-window disambiguation while allowing conversational follow-ups to reach NanoApproval', async () => {
   const { computerScope, permitsWindow, scopeAllows } = await import('../src/computer/scope.js');
-  const request = '请打开 https://example.org 检查订单';
   expect(permitsWindow('请在 TextEdit 的「草稿 A」窗口输入', { title: '草稿 B', candidates: 1 })).toBe(false);
   expect(permitsWindow('请在 TextEdit 窗口输入', { title: '草稿 A', candidates: 2 })).toBe(false);
-  const bare = 'Use Chrome to check example.org in an isolated profile';
+  expect(permitsWindow('先看「草稿 A」窗口\n截个图发给我', { title: '草稿 A', candidates: 2 })).toBe(true);
+  const isolatedReq = 'Use Chrome to check example.org in an isolated profile';
   expect(
-    scopeAllows(bare, computerScope(bare, false), 'browser', 'open', { url: 'https://example.net/', mode: 'isolated' }),
+    scopeAllows(isolatedReq, computerScope(isolatedReq, false), 'browser', 'open', {
+      url: 'https://example.org/',
+      mode: 'daily',
+    }),
   ).toBe(false);
   expect(
-    scopeAllows(bare, computerScope(bare, false), 'browser', 'open', { url: 'https://example.org/', mode: 'daily' }),
-  ).toBe(false);
-  expect(
-    scopeAllows(bare, computerScope(bare, false), 'browser', 'open', { url: 'https://example.org/', mode: 'isolated' }),
+    scopeAllows(isolatedReq, computerScope(isolatedReq, false), 'browser', 'open', {
+      url: 'https://example.org/',
+      mode: 'isolated',
+    }),
   ).toBe(true);
-  const scope = computerScope(request, false);
-  expect(scopeAllows(request, scope, 'browser', 'open', { url: 'https://example.org/orders' })).toBe(true);
-  expect(scopeAllows(request, scope, 'browser', 'navigate', { url: 'https://example.net' })).toBe(false);
-  expect(scopeAllows(request, scope, 'desktop', 'bind', { app: 'com.apple.TextEdit' })).toBe(false);
+  // Conversational follow-ups and natural-language site names pass host structural checks and enter NanoApproval.
+  const followUp = '截个图发给我';
+  const followUpScope = computerScope(followUp, false);
+  expect(scopeAllows(followUp, followUpScope, 'browser', 'open', { url: 'https://example.com/' })).toBe(true);
+  expect(scopeAllows(followUp, followUpScope, 'desktop', 'read_clipboard', {})).toBe(false);
+  // Clipboard-only instructions cannot open browsers or bind desktop windows.
   expect(
-    scopeAllows('把我刚复制的内容整理一下', computerScope('', true), 'browser', 'open', { url: 'https://example.org' }),
+    scopeAllows('把我刚复制的内容整理一下', computerScope('把我刚复制的内容整理一下', true), 'browser', 'open', {
+      url: 'https://example.org',
+    }),
   ).toBe(false);
   expect(
-    scopeAllows('请在 TextEdit 窗口输入草稿', computerScope('请在 TextEdit 窗口输入草稿', false), 'desktop', 'bind', {
+    scopeAllows('把我刚复制的内容整理一下', computerScope('把我刚复制的内容整理一下', true), 'desktop', 'bind', {
       app: 'com.apple.Notes',
+      pid: 1,
+      window_id: 1,
     }),
   ).toBe(false);
 });
