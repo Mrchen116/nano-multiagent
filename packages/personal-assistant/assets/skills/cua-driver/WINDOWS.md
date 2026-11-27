@@ -701,32 +701,6 @@ To find an AUMID at runtime:
 Get-StartApps | Where-Object Name -like "*Calculator*"
 ```
 
-## Browsers and embedded webviews on Windows
-
-Use the typed, exact-binding workflow in `BROWSER.md` for Chrome and Edge page
-content. Windows has validated trusted background browser clicks when the
-driver runs in an interactive user desktop. A daemon in Session 0 cannot
-provide representative UIA, capture, focus, or browser evidence.
-
-Ref- and coordinate-targeted browser mutations also drive the declared
-session's agent cursor. The adapter converts the live CDP page point into the
-bound window's DPI-aware screen coordinates, pins the overlay above that
-window, and keeps only the selected tab's session cursor visible. This visual
-feedback never moves the physical pointer or changes browser input delivery.
-
-Keep browser chrome and native dialogs on the normal UIA/PX ladder in this
-file. This includes tabs, the address bar, menus, permission prompts,
-downloads, file pickers, and authentication windows. Avoid `Ctrl+L`, tab
-switching shortcuts, `Start-Process`, and shell activation paths when the user
-expects background operation.
-
-WebView2 inside a non-browser host is not automatically equivalent to a
-standalone Edge target. Use typed browser mutation only when
-`get_browser_state` returns an exact binding and `mutation_allowed:true` for
-the selected `(pid, window_id)`. Otherwise use the native UIA/PX route or
-accept the structured refusal. Firefox page mutation is not supported by the
-typed browser tools yet.
-
 ## Common failure modes (Windows-specific)
 
 - **`Session 0` daemon**: `cua-driver doctor` reports

@@ -59,22 +59,17 @@ build/Build/Products/Debug/MyApp.app`): resolve the
   every form of `open` goes through LaunchServices which
   activates, full stop).
 - **Keyboard shortcuts that semantically mean "focus here":
-  most notably Chrome / Safari / Arc's `⌘L` (focus omnibox) and
-  Finder's `⌘⇧G` (Go to Folder).** These aren't pure key events:
-  the receiving app interprets "user wants to type here" as
-  activation intent and raises its window to be key. Even when
-  delivered to a backgrounded pid via `hotkey`, the downstream app
-  pulls focus. For an exactly bound Chromium page, use
-  `browser_navigate`; otherwise use `launch_app({bundle_id, urls})`
-  to create a separately addressable window. Do not emulate navigation
-  by writing the omnibox and pressing Return in a background window.
-- **Tab-switching shortcuts in browsers (`⌘1..⌘9`, `⌘]`, `⌘[`,
-  `⌘⇧[`, `⌘⇧]`) are visibly disruptive even when delivered to a
-  backgrounded pid.** The app's key handler processes the shortcut,
-  the window re-renders the new tab's content, and the user sees their
-  tabs flipping. The typed browser route can inspect and mutate a returned
-  `tab_id` without driving this native shortcut. For unsupported browsers,
-  prefer separately addressable windows over visible tab switching.
+  most notably Finder's `⌘⇧G` (Go to Folder) or address-bar shortcuts (`⌘L`).**
+  These aren't pure key events: the receiving app interprets "user wants to
+  type here" as activation intent and raises its window to be key. Even when
+  delivered to a backgrounded pid via `hotkey`, the downstream app pulls focus.
+  Use `launch_app({bundle_id, urls})` or `invoke_menu` instead. For webpages,
+  use Nano's `computer_use` browser surface rather than CuaDriver.
+- **Tab-switching shortcuts (`⌘1..⌘9`, `⌘]`, `⌘[`, `⌘⇧[`, `⌘⇧]`) are visibly
+  disruptive even when delivered to a backgrounded pid.** The app's key handler
+  processes the shortcut, the window re-renders the new tab's content, and the
+  user sees tabs flipping. Prefer separately addressable windows over visible
+  tab switching.
 
 Reading frontmost state is fine (`osascript -e 'tell application
 "System Events" to get name of first application process whose
@@ -126,8 +121,8 @@ is safe even for apps that normally foreground on media-load
 | Move or resize one exact window       | `set_window_frame({pid, window_id, x, y, width, height})`                              | `osascript` position/size writes or title-bar dragging      |
 | Click / type / scroll / keys          | `click`, `type_text`, `scroll`, `press_key`, `hotkey`                                  | `osascript`, `cliclick`, raw `CGEvent`, `open <url>`        |
 | Loop, branch or retry over app actions | `run_script({script})` (sandboxed JavaScript over the `cua` API, one call); `run_steps` for a fixed list | an AppleScript or shell loop around `osascript` or `cua-driver` calls |
-| Drag / drag-and-drop / marquee select | `drag({pid, window_id, from_x, from_y, to_x, to_y})` in the background (pixel-only: macOS AX has no semantic drag). Verify with a screenshot; `delivery_mode:"foreground"` only if nothing changed. A bound browser tab: `browser_pointer` `action:"drag"` | `cliclick dd:`, `osascript drag`, refusing a drag-only step as "needs the window in front" |
-| Hover (reveal a hover-only control)   | Window-targeted `move_cursor`; its result says whether it hovered (AX alternate UI or an Electron page). A web page in Chrome, Edge or Brave: `browser_pointer` hover after `get_browser_state`. If not, look for the same command elsewhere (menu item, context menu, shortcut, help text in `get_window_state`); only `move_cursor({scope:"desktop", delivery_mode:"foreground"})` (moves the user's pointer) or `bring_to_front` reveals it, and only if the user allows it | assuming a window-targeted `move_cursor` hovered when its result says the app sees no hover; a desktop `move_cursor` over a background browser page |
+| Drag / drag-and-drop / marquee select | `drag({pid, window_id, from_x, from_y, to_x, to_y})` in the background (pixel-only: macOS AX has no semantic drag). Verify with a screenshot; `delivery_mode:"foreground"` only if nothing changed | `cliclick dd:`, `osascript drag`, refusing a drag-only step as "needs the window in front" |
+| Hover (reveal a hover-only control)   | Window-targeted `move_cursor`; its result says whether it hovered (AX alternate UI or an Electron page). If not, look for the same command elsewhere (menu item, context menu, shortcut, help text in `get_window_state`); only `move_cursor({scope:"desktop", delivery_mode:"foreground"})` (moves the user's pointer) or `bring_to_front` reveals it, and only if the user allows it | assuming a window-targeted `move_cursor` hovered when its result says the app sees no hover |
 | Screenshot                            | `get_window_state` (window) or authorized `get_desktop_state` (desktop)                | `screencapture`                                             |
 | Quit an app                           | ask the user first, then `hotkey({pid, keys:["cmd","q"]})`                             | `kill`, `killall`, `pkill`                                  |
 | Hand a file/URL to an app             | `launch_app({bundle_id, urls:[<path>]})`                                               | `open -a <App> <path>`, `open <url>`                        |
@@ -645,8 +640,8 @@ its account tree. No client can stop that. After a background
 action Cua Driver checks WindowServer's front process and, if the target
 made itself frontmost, re-activates the user's app and hands its window
 key focus back within a few tens of milliseconds. Prefer routes that do
-not ask the app to come forward: `set_value` on the address field or
-`browser_navigate` instead of `cmd+L`, and `AXOpen` through
+not ask the app to come forward: `set_value` on the address field instead
+of `cmd+L`, and `AXOpen` through
 `double_click` on an element instead of a pixel double-click.
 ### Hover in the background
 
@@ -668,14 +663,11 @@ and how:
   the app's main process, so page hover effects update. Native tooltips do
   not show.
 
-For a web page in Chrome, Edge or Brave use `browser_pointer` hover: a
-window-target `move_cursor` there says the page saw no hover and names
-`get_browser_state` as the next call. Otherwise `move_cursor` moves only the
-agent cursor and says so. Look for the same command elsewhere first: a menu
-item, a context menu, a keyboard shortcut, or the control's help text in
-`get_window_state` (toolbar tooltips are usually there as `help=`).
-Otherwise the step needs the user's pointer (`move_cursor` with
-`scope:"desktop"` and `delivery_mode:"foreground"`) or the app in front
+Elsewhere, `move_cursor` moves only the agent cursor and says so. Look for the
+same command elsewhere first: a menu item, a context menu, a keyboard shortcut,
+or the control's help text in `get_window_state` (toolbar tooltips are usually
+there as `help=`). Otherwise the step needs the user's pointer (`move_cursor`
+with `scope:"desktop"` and `delivery_mode:"foreground"`) or the app in front
 (`bring_to_front`); use either only if the user allows it, and say which.
 
 ### Desktop-target pointer input over a background app
@@ -683,9 +675,7 @@ Otherwise the step needs the user's pointer (`move_cursor` with
 `move_cursor`, `click`, `drag` and `scroll` with a desktop target move the
 user's real pointer. When the point lands on a window of an app that is not
 in front, they refuse with `background_unavailable` before sending anything,
-unless the call passes `delivery_mode:"foreground"`. Over a web browser the
-refusal names the browser tools (`get_browser_state`, then
-`browser_pointer`, `browser_click` or `browser_type`) instead of foreground.
+unless the call passes `delivery_mode:"foreground"`.
 Points over the app in front, or over no window, behave as before.
 
 ### `delivery_mode` on the pointer family (macOS)
@@ -704,17 +694,11 @@ and hold the no-foreground contract without the flag.
 `window_id`) makes the window key without raising it, posts the press, the
 interpolated drags and the release to that window's process, and hands focus
 back to the user's window. The real pointer does not move. It reaches
-controls that follow the drag events: native sliders and canvases, and
-pointer-event sliders, canvases and boards on web pages in Chrome. The
+controls that follow the drag events: native sliders and canvases. The
 result is not driver-verified: check the outcome with a screenshot or the
 tree. Only if nothing changed, retry with `delivery_mode:"foreground"`,
 which fronts the window, moves the physical pointer along the path, and
 restores the prior frontmost app.
-
-A native `<input type="range">` in Chrome does not follow a background drag
-(pointer-event widgets do). Use `set_value` on its slider element, or
-`browser_pointer` `action:"drag"` on a bound tab, which sends the drag
-through CDP `Input.dispatchMouseEvent` with the button held.
 
 A drag that starts a macOS drag-and-drop session (reordering a list by drag
 and drop, moving a file, HTML5 `draggable` content) cannot drop in the
@@ -913,49 +897,11 @@ but their presence is not a visibility guarantee. `invoke_menu` re-resolves the
 live path after every expansion, so it never carries a snapshot index across
 that mutation.
 
-## Browsers on macOS
-
-Use `BROWSER.md` for the typed browser capability workflow. Chrome and Edge
-support exact native-window binding, page refs, navigation, typing, and an
-explicit synthetic DOM click. Existing-profile preparation is separately
-approved and may automate the exact product-specific remote-debugging control;
-it does not depend on System Events or direct profile-file edits. When Chrome
-withholds the setup page's web AX subtree, the adapter uses only a temporary
-tab it created and navigated, proves the committed native URL and expected
-selected internal-tab title with no omnibox edit in progress, revalidates the
-window, and PID-routes its bounded checkbox-pixel fallback. The same control's
-state must verify after mutation; unsupported appearance, scale, zoom,
-window-size, or toolbar geometry refuses without a click.
-
-CDP's trusted pointer route (the `browser_click` and `browser_pointer`
-default) stays in the background on macOS Chrome: it delivers trusted events
-to the bound tab, even an inactive one, without activating or raising the
-browser window. Use `input_route:"dom_event"` only when synthetic events are
-acceptable; controls that check `event.isTrusted` ignore it. Embedded Electron has a separately bounded route;
-do not infer that route for arbitrary WKWebView or Tauri hosts.
-
-For a declared session, typed browser click, type, and pointer mutations animate
-the macOS agent-cursor overlay at the live main-page target. This is a
-recording/observation aid only: the physical pointer stays put and the overlay
-does not deliver input or foreground Chrome. Navigation itself has no pointer
-target and therefore does not synthesize cursor motion.
-
-Before drawing, the browser route checks the target page's live visibility
-without selecting it. An inactive tab's cursor stays hidden. For concurrent
-recordings, assign one session to each tab; the active tab's session color is
-the only browser cursor displayed in that Chrome window.
-
-Browser chrome, permission prompts, downloads, file pickers, Safari, Firefox,
-and unbound embedded webviews remain native surfaces. Inspect them with
-`get_window_state` and use the AX/PX ladder in this file. The legacy `page`
-tool and Apple Events JavaScript bridge remain compatibility surfaces, not the
-starting point for new browser workflows.
-
 ## macOS common error patterns
 
 | Error text                                                    | Meaning                                                                                                           | Fix                                                                                                                                                                                                                                 |
 | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS system-alert beep on `press_key` with no visible change | Target window is minimized; Return / Space / Tab commits don't establish real renderer focus on minimized windows | AX-click a clickable equivalent (Go button, Submit button, checkbox) instead of pressing the key; see "Keyboard commits on minimized windows" under the Browser section                                                             |
+| macOS system-alert beep on `press_key` with no visible change | Target window is minimized; Return / Space / Tab commits don't establish real renderer focus on minimized windows | AX-click a clickable equivalent (Go button, Submit button, checkbox) instead of pressing the key                                                                                                                                    |
 | `Accessibility permission not granted`                        | TCC not granted                                                                                                   | Stop. Follow [Install and approve permissions](#install-and-approve-permissions): approve it yourself only when the owner authorized that for this task, otherwise tell the user to grant it in System Settings                       |
 | `Screen Recording permission not granted`                     | TCC not granted for capture                                                                                       | Screenshots and pixel actions are unavailable. If the task is AX-completable, use `get_window_state({include_screenshot:false})` and `element_token` actions; otherwise stop and ask the user to run `cua-driver permissions grant` (see [Install and approve permissions](#install-and-approve-permissions)) |
 | `AX action failed: ... returned -25200` (or -25205, -25206)   | The app may have acted anyway: some AppKit controls return these after a press they performed                     | Re-read with `get_window_state` before retrying; a second press on a checkbox toggles it back. A radio button or checkbox whose AXValue settles on the pressed state is reported as performed, naming the error                     |
