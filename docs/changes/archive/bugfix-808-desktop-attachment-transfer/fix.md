@@ -8,7 +8,7 @@
 
 在 develop 基线 `1bdc4646c`，受保护的 `GET /im/v1/conversations/:id/attachments/:resource_id` 经 capability 校验后进入桌面通用 IM 代理。IM 从文件流返回正文，代理却一直等待 EOF。连接中断时，代理把读取错误转换成空字节，同时沿用上游成功状态。附件按钮随后把空 Blob 当作完整文件保存。
 
-[feat-790 的设计](../archive/feat-790-desktop-client/design.md) 要求桌面 WebView 从同源回环访问 IM，并同步桌面角标。引入该代理的 `c75e0415e` 为解析成功的会话写入响应并更新通知状态，统一缓冲了所有响应。现有宿主测试覆盖登录与会话生命周期，前端预览测试使用已完成的响应，未覆盖代理读正文时失败或客户端取消。
+[feat-790 的设计](../feat-790-desktop-client/design.md) 要求桌面 WebView 从同源回环访问 IM，并同步桌面角标。引入该代理的 `c75e0415e` 为解析成功的会话写入响应并更新通知状态，统一缓冲了所有响应。现有宿主测试覆盖登录与会话生命周期，前端预览测试使用已完成的响应，未覆盖代理读正文时失败或客户端取消。
 
 ## 本次审查安排
 
@@ -24,5 +24,5 @@ Platform-Parity-Exempt: 两个桌面平台共用受修复的回环代理。Web �
 
 - macOS arm64，隔离宿主、临时目录、随机回环端口。修前正常二进制通过，未结束的 chunked 文件被识别为完整正文，慢流的响应头超时，会话写入短正文返回 200。修后 `cargo test --manifest-path apps/desktop/Cargo.toml --locked` 通过 9 个原有用例与 4 个 HTTP 回归用例。慢流用例在读到 512 KiB + 1 字节后关闭客户端，并从 IM 端观察到连接关闭；断流用例在客户端读到 200 和首段后切断 IM，再确认正文读取失败。会话测试核对正常 JSON、角标与中断时的 502。
 - 前端 `vitest run src/features/chat/attachments/attachment-preview.test.tsx` 通过 11 个用例，覆盖附件按钮和弹窗下载失败时显示错误且没有触发保存。
-- macOS 系统 WKWebView 载入隔离宿主提供的实际 AttachmentChip、authFetch 与预览弹窗，通过 bootstrap cookie 访问受保护附件 fixture。观察下载动作携带的文件名及 Blob 字节，完整文件为 `ok.txt` / `intact`；断流后出现下载与预览错误，保存次数仍为 1；慢流在上游尚未完成时显示 512 KB 截断提示，上游观测到连接关闭。该检查拦截保存动作，未操作系统保存对话框。
+- macOS 系统 WKWebView 载入隔离宿主提供的实际 AttachmentChip、authFetch 与预览弹窗，通过 bootstrap cookie 访问受保护附件 fixture。观察下载动作携带的文件名及 Blob 字节，完整文件为 `ok.txt` / `intact`；断流后出现下载与预览错误，保存次数仍为 1；慢流在上游尚未完成时显示 512 KB 截断提示，上游观测到连接关闭并写入确认文件，WKWebView 进程读到确认后才退出。该检查拦截保存动作，未操作系统保存对话框。
 - Windows 原生宿主用例随现有 Desktop candidate 在 windows-2022 执行；本地未运行 WebView2 界面。
