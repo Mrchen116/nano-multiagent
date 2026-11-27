@@ -1,6 +1,6 @@
 # IM - Desktop Client Specification
 
-> 对齐: feat-790
+> 对齐: feat-798
 > 上级: [IM Specification](spec.md)
 
 ## Purpose
@@ -93,6 +93,10 @@ IM 与产品桌面发行包 SHALL 提供支持 macOS Apple Silicon（`arm64`）�
 #### Scenario: 图形化修改本机代理、一级委派 Worker、环境变量与专用审批模型并平滑重启生效
 - **WHEN** 用户在「这台电脑」管理区查看本机一级委派 Worker 可用探测状态（内置运行时、Codex、Claude Code、Antigravity），修改本机网络代理、一级 Worker 选择、运行环境变量或专用自动审批模型并保存
 - **THEN** 需要重启本机后台节点生效的变更明确提示影响范围（存在在途任务时提示等待或确认），并在确认后完成受管平滑重启，恢复上线后新配置实际作用于后续执行
+
+#### Scenario: 在「这台电脑」引导配对与断开日常 Chrome
+- **WHEN** 当前登录账号为本机已绑定节点的拥有者，并在 Desktop「这台电脑」管理区操作日常 Chrome 连接
+- **THEN** 客户端通过本机受控管理桥（校验当前 `owner_id`）展示 Chrome Profile 与配对状态、拉起扩展安装/Token 页面引导、保存手动粘贴的 Token 至本机私有配置或断开连接，无需重启后台节点即可生效；非本机拥有者账号不暴露或修改原账号的浏览器配对配置
 
 #### Scenario: 本机配置校验失败或重启未就绪时保留原可用状态
 - **WHEN** 用户提交非法代理/环境变量格式、选择了未注册的专用审批模型，或重启后新配置未能使节点正常就绪

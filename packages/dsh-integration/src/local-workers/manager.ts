@@ -351,7 +351,9 @@ export class LocalWorkers {
   ): Promise<Cli> {
     const live = this.active.get(row.workerId);
     if (live) {
-      if (computer && !live.hasComputer && !['running', 'starting'].includes(row.state)) {
+      if (computer && !live.hasComputer) {
+        if (['running', 'starting'].includes(row.state))
+          throw new Error('Wait for the current worker turn to finish or stop it before granting computer_use');
         await this.close(row.workerId);
       } else {
         if (computer && live.hasComputer) await live.rebindComputer(computer.ref, computer.signal);

@@ -23,10 +23,10 @@
 
 ## 调研依据
 
-- 当前产品通过 Skill 发现 CuaDriver，由已启用 Bash 的 Agent 经 Shell 审核调用。节点安装脚本校验 macOS 安装依赖，启动时补充应用内可执行目录。上述路径尚未提供任务级共享宿主 MCP。见[当前 Skill 契约](../../specs/gateway/agent-capabilities.md)、[节点启动](../../../apps/node/src/lifecycle.ts)和[安装脚本](../../../apps/im-server/assets/install.sh)。
-- 外部 Worker 已有任务专属的父级通信 MCP。三个客户端使用不同的配置和权限协议；应分别验证一次写操作以及一次拒绝在对应客户端中的实际结果。见[现有桥接](../../../packages/dsh-integration/src/local-workers/report-bridge.ts)、[驱动](../../../packages/dsh-integration/src/local-workers/drivers.ts)和[审批契约](../../specs/gateway/tool-approval.md)。
+- 当前产品通过 Skill 发现 CuaDriver，由已启用 Bash 的 Agent 经 Shell 审核调用。节点安装脚本校验 macOS 安装依赖，启动时补充应用内可执行目录。上述路径尚未提供任务级共享宿主 MCP。见[当前 Skill 契约](../../../specs/gateway/agent-capabilities.md)、[节点启动](../../../../apps/node/src/lifecycle.ts)和[安装脚本](../../../../apps/im-server/assets/install.sh)。
+- 外部 Worker 已有任务专属的父级通信 MCP。三个客户端使用不同的配置和权限协议；应分别验证一次写操作以及一次拒绝在对应客户端中的实际结果。见[现有桥接](../../../../packages/dsh-integration/src/local-workers/report-bridge.ts)、[驱动](../../../../packages/dsh-integration/src/local-workers/drivers.ts)和[审批契约](../../../specs/gateway/tool-approval.md)。
 - Chrome 136 起限制的是默认用户数据目录的调试开关。微软扩展支持按客户端拥有标签页；并发归属、连接时是否激活窗口、后台页面是否持续渲染是三个可分别观察的行为。Linger 的安装包额外处理了后台焦点，Nano 是否能在所选版本实现相同体验，须以真实双任务操作验证。[Chrome 公告](https://developer.chrome.com/blog/remote-debugging-port) · [微软扩展说明](https://github.com/microsoft/playwright/blob/main/packages/extension/README.md)
-- [#460](https://github.com/Mrchen116/nano-multiagent/issues/460) 的 18,701 tokens 是一次历史首轮请求的整体估算，其中 9,294 来自工具数组，4,284 来自系统正文。本单元应在同一基线、同一配置和同一任务输入下比较实际出站请求，并检查首次使用、任务结束和恢复后的工具可见性。[Context 取证入口](../../development/agent-context-engineering.md)
+- [#460](https://github.com/Mrchen116/nano-multiagent/issues/460) 的 18,701 tokens 是一次历史首轮请求的整体估算，其中 9,294 来自工具数组，4,284 来自系统正文。本单元应在同一基线、同一配置和同一任务输入下比较实际出站请求，并检查首次使用、任务结束和恢复后的工具可见性。[Context 取证入口](../../../development/agent-context-engineering.md)
 
 ## 剪贴板澄清
 
