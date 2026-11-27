@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuthStore } from "../features/auth/auth-store";
 import type { NodeSettingsProfile } from "../features/settings/im-settings-api";
+import { BrowserPairingSection } from "../features/settings/nodes/browser-pairing-section";
 import { computerName, computerVersion } from "../features/settings/nodes/node-display";
 import { NodeUpdatePanel, nodeUpdateNeedsRecovery, nodeUpdateSwitching } from "../features/settings/nodes/node-update-panel";
 import { useTranslation } from "../i18n";
@@ -65,6 +66,7 @@ export function DesktopLocalComputerCard({
   aliasError,
   onResetAliasError,
   onOpenRecovery,
+  defaultPairBrowserOpen,
 }: {
   nodes: NodeSettingsProfile[];
   onSaveAlias(node: NodeSettingsProfile, alias: string): Promise<unknown>;
@@ -72,6 +74,7 @@ export function DesktopLocalComputerCard({
   aliasError: boolean;
   onResetAliasError(): void;
   onOpenRecovery(nodeId: string): void;
+  defaultPairBrowserOpen?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const zh = i18n.language.startsWith("zh");
@@ -381,6 +384,16 @@ export function DesktopLocalComputerCard({
           <i />
         </button>
       </div>
+
+      {inspect.browser?.supported && (
+        <BrowserPairingSection
+          variant="desktop-strip"
+          nodeId={inspect.node_id}
+          initialBrowser={inspect.browser}
+          localDesktopTransport
+          defaultExpanded={defaultPairBrowserOpen}
+        />
+      )}
 
       <details className="local-section-disclosure">
         <summary>

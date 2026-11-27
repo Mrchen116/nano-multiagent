@@ -83,8 +83,10 @@ export class WorkerPermissions {
 export type WorkerMcpLaunch = { command: string; args: string[]; env: Record<string, string> };
 
 /** Only host-launched servers with their own authorization belong in this registration. */
-export function hostedWorkerMcp(parent: WorkerMcpLaunch) {
-  return [{ server: 'nano-parent', launch: parent, tools: ['send_message'] }];
+export function hostedWorkerMcp(parent: WorkerMcpLaunch, computer?: WorkerMcpLaunch) {
+  const servers = [{ server: 'nano-parent', launch: parent, tools: ['send_message'] }];
+  if (computer) servers.push({ server: 'nano-computer', launch: computer, tools: ['computer_use'] });
+  return servers;
 }
 
 /** ACP uses both native tool names and fixed direct/proxy titles, depending on the CLI build. */

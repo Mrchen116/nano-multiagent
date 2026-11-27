@@ -22,7 +22,7 @@ import { WorkspaceExtensions, type PluginCommand } from './workspace-tools.js';
 
 type Fiber = ReturnType<Context['plugin']>;
 interface PresetScope { agentId: string; ctx: Context; features: Map<string, Fiber> }
-interface AgentScope { agent: Agent; isWorkWorker: boolean; config: AgentConfiguration; workspace?: string; skills?: Fiber }
+interface AgentScope { agent: Agent; isWorkWorker: boolean; config: AgentConfiguration; workspace?: string; skills?: Fiber; delegation?: Fiber; delegationConfig?: string }
 declare module '@deepseek-ai/cordis' { interface Context { nanoConfiguration: ConfigurationScopes } }
 
 /** Keeps inherited tool contributions filterable and history configuration Agent-local. */
@@ -131,6 +131,7 @@ export class ConfigurationScopes extends Service {
       TaskGraphs.registerTool(child, agent => this.forAgent(agent)); MemoryCuration.registerTool(child); SkillCreation.registerTool(child); child.nanoKnowledge.documents.registerTool(child);
     }).await();
     await ctx.plugin(Cron, { agentId }).await();
+    this.host.nanoComputer.register(ctx);
     await this.features(scope);
     await this.extensions.attach(ctx, config);
     if (config.personal) await ctx.plugin(PersonalTools, config).await();
@@ -184,10 +185,24 @@ Other Agents in Nano IM may run on different nodes. A local path shared by anoth
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
     scope.skills = agent.ctx.plugin(Skills, {config, isWorkWorker}); await scope.skills.await();
     if (internal && role !== 'subagent') GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global', role === 'worker' || role === 'worker-fork', this.host.tools.get('send_message'));
-    else if (!internal && config.mode === 'global') await agent.ctx.plugin(GlobalMode, { mode: config.mode, personal: !!config.personal, workerRuntime:config.workerRuntime }).await();
+    else if (!internal && config.mode === 'global') {
+      await this.mountDelegation(scope);
+      await agent.ctx.plugin(GlobalMode,{mode:config.mode,personal:!!config.personal}).await();
+    }
     if (config.personal && !internal) await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config, isWorkWorker);
     await agent.ctx.plugin(ContextOrder).await();
+  }
+  private async mountDelegation(scope: AgentScope) {
+    const {config, agent} = scope;
+    const computerUse = config.toolAllowlist?.includes('computer_use') === true &&
+      !!config.workerRuntime && config.workerRuntime !== 'dsh';
+    const key = JSON.stringify([config.workerRuntime,computerUse]);
+    if (key === scope.delegationConfig) return;
+    await scope.delegation?.dispose();
+    scope.delegation = agent.ctx.plugin(GlobalMode.delegation, {workerRuntime:config.workerRuntime,computerUse});
+    await scope.delegation.await();
+    scope.delegationConfig = key;
   }
   async setFeatures(agentId: string, features: Record<string, boolean>): Promise<void> {
     for (const config of this.allConfigurations()) if (config.agentId === agentId) config.features = { ...features };
@@ -195,7 +210,8 @@ Other Agents in Nano IM may run on different nodes. A local path shared by anoth
     this.tools.update(agentId);
   }
   /** Withdraw choices now; additions and the rest of the configuration wait for idle. */
-  restrictSelection(next: AgentConfiguration): void {
+  async restrictSelection(next: AgentConfiguration): Promise<void> {
+    if (!next.toolAllowlist?.includes('computer_use')) this.host.nanoComputer.revokeAgent(next.agentId);
     for (const config of this.allConfigurations()) if (config.agentId === next.agentId) {
       if (next.toolAllowlist !== undefined) config.toolAllowlist = this.tools.selection(config, next.toolAllowlist);
       if (next.skillSelection?.mode === 'explicit_allowlist') config.skillSelection = { mode: 'explicit_allowlist', names: config.skillSelection?.mode === 'explicit_allowlist' ? config.skillSelection.names.filter(name => next.skillSelection!.names.includes(name)) : [...next.skillSelection.names] };
@@ -205,6 +221,10 @@ Other Agents in Nano IM may run on different nodes. A local path shared by anoth
       }
       Skills.invalidateSkills(config);
     }
+    if (!next.toolAllowlist?.includes('computer_use')) {
+      for (const scope of this.agents.values()) if (scope.delegation && scope.config.agentId === next.agentId)
+        await this.mountDelegation(scope);
+    }
     this.tools.update(next.agentId);
   }
   async setConfiguration(next: AgentConfiguration): Promise<void> {
@@ -213,6 +233,7 @@ Other Agents in Nano IM may run on different nodes. A local path shared by anoth
       Object.assign(config, next);
     }
     for (const scope of this.agents.values()) if (scope.config.agentId === next.agentId) {
+      if (scope.delegation) await this.mountDelegation(scope);
       await scope.skills?.dispose(); scope.skills = scope.agent.ctx.plugin(Skills, {config: scope.config, isWorkWorker: scope.isWorkWorker}); await scope.skills.await();
     }
     await this.setFeatures(next.agentId, next.features ?? {});

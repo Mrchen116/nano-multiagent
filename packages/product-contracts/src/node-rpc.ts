@@ -88,6 +88,30 @@ const setup = z.object({revision:text.optional(),catalog_error:text.optional(),d
   operation:z.object({id:text,state:z.enum(['waiting','testing','succeeded','failed','cancelled']),code:text.optional(),url:text.optional(),
     message:text.optional(),error:publicError.optional()}).optional(),error:publicError.optional(),...failure
 }).refine((value): value is WithField<typeof value, 'revision' | 'error_code' | 'error'> => value.revision !== undefined || !!value.error_code || !!value.error);
+const browserStatus = z.object({
+  supported:z.boolean(),
+  state:z.enum(['unsupported','not_paired','paired','verified','reconnect']),
+  chrome_installed:z.boolean(),
+  chrome_running:z.boolean(),
+  chrome_version_ok:z.boolean(),
+  paired_profile:text.optional(),
+  selected_profile:text,
+  extension_installed:z.boolean(),
+  profiles:z.array(z.object({profile:text,extension_installed:z.boolean()})),
+  last_checked_at:text.optional(),
+});
+const browserInput = z.discriminatedUnion('action',[
+  z.object({action:z.literal('status'),profile:text.optional()}),
+  z.object({action:z.literal('open-guide'),profile:text.optional(),target:z.enum(['auto','store','token']).optional()}),
+  z.object({action:z.literal('pair'),profile:text.optional(),token:text}),
+  z.object({action:z.literal('disconnect')}),
+]);
+const browserReply = z.object({
+  browser:browserStatus.optional(),
+  opened:z.enum(['store','token']).optional(),
+  error:publicError.optional(),
+  ...failure,
+}).refine((value): value is WithField<typeof value, 'browser' | 'error' | 'error_code'> => !!(value.browser || value.error || value.error_code));
 const wechatSetupInput = z.discriminatedUnion('action',[
   agent.extend({action:z.literal('start'),editing_channel_id:id.optional()}),
   agent.extend({action:z.literal('status'),setup_id:id}),
@@ -142,6 +166,7 @@ export const nodeCommands = {
   'node.cron.jobs.request':command('node.cron.jobs',workspaceTarget,z.object({jobs:z.array(job).optional(),...errorText}).refine((p): p is WithField<typeof p, 'jobs' | 'error'> =>!!p.jobs || !!p.error)),
   'node.cron.delete.request':command('node.cron.delete',target.extend({job_id:id,actor_user_id:id,operation_id:id}),z.object({deleted:z.boolean()})),
   'node.setup.request':command('node.setup',setupInput,setup,{error_code:'setup_invalid',message:'Model setup is unavailable'}),
+  'node.browser.request':command('node.browser',browserInput,browserReply,{error_code:'browser_invalid',message:'Browser pairing is unavailable'}),
   'node.wechat.setup.request':command('node.wechat.setup.result',wechatSetupInput,wechatSetupResult,{state:'failed',error_code:'setup_invalid',message:'WeChat setup is unavailable'}),
   'node.distill.prompt.request':command('node.distill.prompt',z.object({sources:z.array(z.object({conversation_id:id,source_agent_id:id,
     external_source:text.optional(),external_chat_id:text.optional()})).nonempty(),execution_agent_id:id,target_scope:z.enum(['agent','global'])}),

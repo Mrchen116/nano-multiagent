@@ -23,8 +23,11 @@ export async function fakeCli(
   runtime: CliWorkerOptions['runtime'],
   code: string,
   sessionId?: string,
-  onPermission?: CliWorkerOptions['onPermission'],
+  permissionOrComputer?: CliWorkerOptions['onPermission'] | CliWorkerOptions['computer'],
+  maybeComputer?: CliWorkerOptions['computer'],
 ) {
+  const onPermission = typeof permissionOrComputer === 'function' ? permissionOrComputer : undefined;
+  const computer = typeof permissionOrComputer === 'function' ? maybeComputer : permissionOrComputer;
   const script =
     `#!${process.execPath}\n` +
     `
@@ -43,6 +46,7 @@ export async function fakeCli(
     cwd,
     instructions: 'Help the parent',
     mcp,
+    computer,
     onReport,
     onPermission,
     onDetail,

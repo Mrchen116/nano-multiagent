@@ -22,9 +22,10 @@ export function NodesPage() {
   const userId = useAuthStore(s => s.user?.id);
   const desktopMode = isDesktopClient();
   const client = useQueryClient();
-  const { hash } = useLocation();
+  const { hash, search } = useLocation();
   const returnFocus = useRef<HTMLElement | null>(null);
-  const [panel, setPanel] = useState<{ kind: 'detail' | 'connect' | 'recovery'; id?: string } | null>(null);
+  const autoOpenedPairRef = useRef<string | null>(null);
+  const [panel, setPanel] = useState<{ kind: 'detail' | 'connect' | 'recovery'; id?: string; pairBrowser?: boolean } | null>(null);
   const query = useQuery({ queryKey: ['settings', 'nodes'], queryFn: listNodes,
     refetchInterval: query => query.state.data?.some(n => nodeUpdateActive(n.update)) ? 2000 : 60000 });
   const localInspectQuery = useQuery({
@@ -72,6 +73,29 @@ export function NodesPage() {
       }));
     }
   }), [client]);
+  const pairBrowserParam = new URLSearchParams(search).get('pair_browser');
+  const localDesktopPairOpen =
+    Boolean(desktopMode && localNodeId && (pairBrowserParam === '1' || pairBrowserParam === localNodeId));
+
+  useEffect(() => {
+    if (!pairBrowserParam || localDesktopPairOpen || !query.data?.length) return;
+    if (autoOpenedPairRef.current === pairBrowserParam) return;
+    const onlineVisible = visibleNodes.filter(n => n.status === 'online');
+    const onlineAll = query.data.filter(n => n.status === 'online');
+    const candidate =
+      pairBrowserParam !== '1'
+        ? query.data.find(n => n.node_id === pairBrowserParam)
+        : onlineVisible.length === 1
+          ? onlineVisible[0]
+          : !onlineVisible.length && onlineAll.length === 1
+            ? onlineAll[0]
+            : undefined;
+    autoOpenedPairRef.current = pairBrowserParam;
+    if (candidate) {
+      setPanel({ kind: 'detail', id: candidate.node_id, pairBrowser: true });
+    }
+  }, [localDesktopPairOpen, pairBrowserParam, query.data, visibleNodes]);
+
   useEffect(() => {
     if (hash) document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.({ block: 'start' });
   }, [hash, nodes.length]);
@@ -94,6 +118,7 @@ export function NodesPage() {
         aliasError={mutation.isError}
         onResetAliasError={mutation.reset}
         onOpenRecovery={id => open('recovery', id)}
+        defaultPairBrowserOpen={localDesktopPairOpen}
       />
     )}
     {query.isPending ? <div role="status" aria-label={t('settings.nodes.loading')}><div className="node-skeleton"/><div className="node-skeleton"/></div>
@@ -122,7 +147,7 @@ export function NodesPage() {
       </>}
     <p className="computers-help"><NodeIcon name="leaf"/>{t('computers.help')}</p>
     {panel && <NodeDrawer title={t(panel.kind === 'detail' ? 'computers.detailsTitle' : panel.kind === 'recovery' ? 'computers.recoveryTitle' : 'computers.connect')} returnFocus={returnFocus} onClose={() => setPanel(null)}>
-      {panel.kind === 'detail' && selected ? <NodeDetails key={selected.node_id} node={selected} pending={mutation.isPending} error={mutation.isError} save={alias => mutation.mutateAsync({ node: selected, alias })} resetError={mutation.reset}/>
+      {panel.kind === 'detail' && selected ? <NodeDetails key={selected.node_id} node={selected} pending={mutation.isPending} error={mutation.isError} save={alias => mutation.mutateAsync({ node: selected, alias })} resetError={mutation.reset} defaultPairBrowserOpen={panel.pairBrowser}/>
         : panel.kind !== 'detail' ? <NodeConnectGuide node={panel.kind === 'recovery' ? selected : undefined} onRefresh={() => { void query.refetch(); setPanel(null); }}/>
         : <p>{t('computers.notFound')}</p>}
     </NodeDrawer>}

@@ -32,6 +32,7 @@ export class WorkerTurnDetails {
   model?: string;
   private readonly sent = new Set<string>();
   private readonly openTools = new Map<string, string>();
+  private readonly privateResults = new Set<string>();
   private lastAssistant?: string;
 
   constructor(private readonly emit: Emit) {}
@@ -42,6 +43,7 @@ export class WorkerTurnDetails {
     this.model = model;
     this.sent.clear();
     this.openTools.clear();
+    this.privateResults.clear();
     this.lastAssistant = undefined;
     this.fact('', {
       type: 'turn_started',
@@ -69,6 +71,14 @@ export class WorkerTurnDetails {
 
   toolStart(id: string, name: string, args: unknown) {
     this.openTools.set(id, name);
+    const target = args as {ServerName?: unknown; ToolName?: unknown} | undefined;
+    if (['nano-computer.computer_use', 'mcp__nano-computer__computer_use', 'mcp_nano-computer_computer_use',
+      'MCP Tool computer_use'].includes(name) || target?.ServerName === 'nano-computer' && target.ToolName === 'computer_use') {
+      // Work receives the operation and outcome, never window images or system clipboard contents.
+      this.privateResults.add(id);
+      const call = args as {surface?: unknown; action?: unknown} | undefined;
+      args = {surface: call?.surface, action: call?.action};
+    }
     const summary = extractToolSummary(args);
     this.fact(id, {
       type: 'tool_start',
@@ -91,7 +101,8 @@ export class WorkerTurnDetails {
     name = this.openTools.get(id) ?? name;
     if (!name) return;
     this.openTools.delete(id);
-    const summary = extractToolSummary(options.args);
+    const privateResult = this.privateResults.delete(id);
+    const summary = privateResult ? undefined : extractToolSummary(options.args);
     this.fact(id, {
       type: 'tool_end',
       payload: {
@@ -100,8 +111,8 @@ export class WorkerTurnDetails {
         is_error: failed,
         reason_code: options.reason,
         duration_ms: options.duration,
-        arguments: options.args,
-        presentation: { ...(summary && { summary }), detail: { content: output } },
+        arguments: privateResult ? undefined : options.args,
+        presentation: privateResult ? undefined : { ...(summary && { summary }), detail: { content: output } },
       },
     });
   }

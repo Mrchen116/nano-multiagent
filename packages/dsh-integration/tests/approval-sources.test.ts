@@ -222,3 +222,11 @@ it('retains represented user provenance across live input, history reads and rec
   expect(reviewed).toContain('do not merge or deploy');
   expect(reviewed).toContain('\"pa_agent_id\":\"pa\"');
 });
+
+it('retains the outcome of computer actions without carrying clipboard content into reviewer history', async () => {
+  const agent=fixture([call('copy','computer_use',{surface:'desktop',action:'read_clipboard'}),result('copy','PRIVATE_CLIPBOARD_BODY')]);
+  const sources=new ApprovalSources();
+  const history=await sources.history(agent,undefined,true,{toolResults:true,fullAssistant:true});
+  expect(history).toContainEqual({outcome:'ok',id:'copy'});
+  expect(JSON.stringify(history)).not.toContain('PRIVATE_CLIPBOARD_BODY');
+});

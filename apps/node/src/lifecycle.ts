@@ -190,6 +190,12 @@ export function launchDefinition(
   ];
   return `<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>${xml(gatewayLabel(config))}</string><key>ProgramArguments</key><array>${argv.map((arg) => `<string>${xml(arg)}</string>`).join("")}</array><key>WorkingDirectory</key><string>${xml(root)}</string><key>EnvironmentVariables</key><dict><key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string></dict><key>StandardOutPath</key><string>${xml(join(dirname(config), "gateway.log"))}</string><key>StandardErrorPath</key><string>${xml(join(dirname(config), "gateway.log"))}</string><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ExitTimeOut</key><integer>${Math.ceil(grace)}</integer></dict></plist>`;
 }
+/** Keep Chrome pairing local to this configuration, physical node and bound owner. */
+export function browserPairingFile(configPath: string, node: NodeConfigurationFile['node']) {
+  const identity = createHash('sha256').update(JSON.stringify([node.node_id, node.user_id])).digest('hex');
+  return join(dirname(configPath), '.nano-browser', identity + '.json');
+}
+
 /** Runtime lease prevents duplicate foreground, background and launchd consumers. */
 export async function claimGateway(config: string) {
   const release = await lockfile.lock(config, {
@@ -246,7 +252,7 @@ export async function claimGateway(config: string) {
  * Args:
  *   config: Local node configuration owning the stable service environment.
  */
-export function applyGatewayEnvironment(config: NodeConfigurationFile) {
+export function applyGatewayEnvironment(config: NodeConfigurationFile, configPath?: string) {
   const environment = config.gateway?.environment ?? {};
   for (const [key, value] of Object.entries(environment)) {
     if (
@@ -261,6 +267,7 @@ export function applyGatewayEnvironment(config: NodeConfigurationFile) {
       );
     process.env[key] = value;
   }
+  if (configPath) process.env.NANO_BROWSER_PAIRING_FILE = browserPairingFile(configPath, config.node);
   // The official bundle is also available to a launchd Gateway without shell dotfiles.
   const cuaDriverBin = "/Applications/CuaDriver.app/Contents/MacOS";
   if (process.platform === "darwin" && existsSync(join(cuaDriverBin, "cua-driver"))) {

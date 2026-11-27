@@ -16,7 +16,7 @@ import type { WorkspaceToolMetadata } from './workspace-tools.js';
 export const goalTools = ['create_goal', 'get_goal', 'update_goal'];
 export const cordisInspectTools = ['cordis_inspect_list', 'cordis_inspect_query'] as const;
 const cordisInspectSet = new Set<string>(cordisInspectTools);
-const defaultOff = [...goalTools, 'subagent_fork', 'exit_plan_mode'];
+const defaultOff = ['computer_use', ...goalTools, 'subagent_fork', 'exit_plan_mode'];
 const userEntryTools = new Set(['ask_user_question', 'present', 'enter_plan_mode', 'exit_plan_mode', 'plugin_manager', 'workflow', ...cordisInspectTools]);
 
 function allowsCordisInspect(config: AgentConfiguration, agent?: Agent): boolean {
@@ -99,12 +99,12 @@ export class ToolSelection {
     const disabled: string[] = [state.config.knowledge?.memoryMode === 'legacy' ? 'memory_maintenance' : 'memory'];
     if (state.isWorkWorker) disabled.push('memory', 'memory_maintenance');
     if (!allowsCordisInspect(state.config, agent)) disabled.push(...cordisInspectTools);
-    if (state.config.toolAllowlist === undefined) disabled.push(...goalTools, 'exit_plan_mode', ...(!globalWorkRole(agent, state.config) ? ['subagent_fork'] : []));
+    if (state.config.toolAllowlist === undefined) disabled.push('computer_use', ...goalTools, 'exit_plan_mode', ...(!globalWorkRole(agent, state.config) ? ['subagent_fork'] : []));
     // Explicit root forks inherit the root declarations, including its delegation boundary.
     if (state.config.mode === 'global' && (agent.session.header.origin !== 'subagent' ||
       agent.session.header.delegationDepth === 1 && !isOrdinaryChild(agent))) disabled.push('subagent');
     if (globalWorkRole(agent, state.config)) disabled.push(...userEntryTools);
-    if (isOrdinaryChild(agent) || globalWorkRole(agent, state.config)) disabled.push('conversations', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'personal_sources', 'agent_creation', 'schedule_run', 'schedule_history');
+    if (isOrdinaryChild(agent) || globalWorkRole(agent, state.config)) disabled.push('computer_use', 'conversations', 'read_messages', 'search_messages', 'threads', 'download_attachment', 'personal_sources', 'agent_creation', 'schedule_run', 'schedule_history');
     if (state.config.toolAllowlist === undefined && !disabled.length) return;
     const known = new Set(agent.ctx.tools.schemas(agent).map(tool => tool.name));
     // Global root communication is part of the work mode, not an optional selection.

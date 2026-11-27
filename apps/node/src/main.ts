@@ -18,7 +18,8 @@ import { RuntimePartitions, type RuntimePartition } from './runtime-partitions.j
 import { NodeConfiguration } from './configuration.js';
 import { installedPackageManager, loadNodeRelease } from './release.js';
 import { NodeUpdater, updatePath } from './node-updater.js';
-import {claimGateway,applyGatewayEnvironment} from './lifecycle.js';
+import {claimGateway,applyGatewayEnvironment,browserPairingFile} from './lifecycle.js';
+import {BrowserPairingRequestError,handleNodeBrowserRequest} from './browser-pairing.js';
 import { providerProfiles } from './providers.js';
 import { ModelSetup } from './model-setup.js';
 import {CapabilityRequests} from './capability-requests.js';
@@ -49,7 +50,7 @@ async function admitted<T>(action: () => Promise<T>): Promise<T> {
   admissions++;
   try { return await action(); } finally { admissions--; }
 }
-applyGatewayEnvironment(config);
+applyGatewayEnvironment(config, configPath);
 const imOverride=process.argv.indexOf('--im-service-url');if(imOverride>=0)config.im_service.url=process.argv[imOverride+1]!;
 const lifecycle=await claimGateway(configPath);
 if (!config.node.user_id || !config.im_service.token) throw new Error('Bind this node before starting its runtime');
@@ -464,6 +465,14 @@ const handlers:NodeHandlers = {
     return {deleted:result?.deleted===true};
   },
   'node.setup.request':input=>modelSetup.handle(input).catch(()=>({error_code:'setup_invalid',message:'Model setup is unavailable'})),
+  'node.browser.request':async input=>{
+    try {
+      return await handleNodeBrowserRequest(browserPairingFile(configPath,config.node),input);
+    } catch (err) {
+      if (err instanceof BrowserPairingRequestError) return {error:{code:err.code,message:err.message}};
+      return {error_code:'browser_unavailable',message:'Browser pairing is unavailable'};
+    }
+  },
   'node.wechat.setup.request':async input=>{
     if (!agents.some(agent=>agent.agentId===input.agent_id)) {
       return {state:'failed' as const,error_code:'agent_not_found',message:'Agent does not exist on this node'};

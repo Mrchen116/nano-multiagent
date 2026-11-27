@@ -66,8 +66,6 @@ Use `--all-platforms` when the agent assists users across operating systems.
   and cleanup.
 - `MACOS.md`, `WINDOWS.md`, or `LINUX.md`: host-specific launch, capture,
   accessibility, input delivery, permissions, and refusal boundaries.
-- `BROWSER.md`: exact browser-window binding, explicit profile preparation,
-  page refs, trust-classified click/type/navigation, and native fallbacks.
 - `VISUAL.md`: optional model-neutral parsing of one retained screenshot into
   capture-bound text and icon regions.
 - `RECORDING.md`: trajectory evidence, MP4 capture, and replay.
@@ -76,21 +74,6 @@ Use `--all-platforms` when the agent assists users across operating systems.
 The agent loads `SKILL.md`, then only the linked guide needed for its next
 step. Every reference ships in the pack; no separate skill installation or
 repository checkout is required. The installer keeps the flat Markdown layout.
-
-## Browser model
-
-Browser work starts from the same native `(pid, window_id)` selection as every
-other app. `get_browser_state` binds that exact window to a session-scoped
-target and tab, then returns short-lived page refs for `browser_click`,
-`browser_type`, and `browser_navigate`.
-
-Setup is never a hidden read side effect. `browser_prepare` requires explicit
-approval before launching a driver-managed profile or attaching to an existing
-authenticated profile. Trusted pointer input and synthetic DOM clicks are
-reported as different routes; the driver refuses instead of silently changing
-trust class or foregrounding a standalone browser.
-
-See `BROWSER.md` for the supported surface and exact recovery rules.
 
 ## Recording
 

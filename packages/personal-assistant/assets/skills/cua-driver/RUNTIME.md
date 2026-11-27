@@ -106,7 +106,7 @@ Overlay operations need a suitable UI event loop. macOS direct SDK/MCP runtimes 
 
 ## Cleanup and evidence
 
-Finish the owned recording, inspect its result, then end the run. Existing-profile browser cleanup can restore settings Cua enabled; check `end_session` errors and follow [BROWSER.md](BROWSER.md) rather than abandoning cleanup silently.
+Finish the owned recording, inspect its result, then end the run; check `end_session` errors rather than abandoning cleanup silently.
 
 Do not stop a shared daemon or close the user's app merely because the task ended. Close an application only when requested, using its normal UI and handling unsaved-work prompts without discarding data.
 

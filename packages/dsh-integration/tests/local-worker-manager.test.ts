@@ -5,6 +5,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools';
 import { LocalWorkers } from '../src/local-workers/manager.js';
 import { openCliWorker } from '../src/local-workers/drivers.js';
+import { openMcp } from '../src/computer/mcp.js';
 
 vi.mock('../src/local-workers/drivers.js', () => ({ openCliWorker: vi.fn() }));
 
@@ -25,7 +26,11 @@ it.each(cliWorkerRuntimes)('%s binds follow-ups to the original session and repl
     close: vi.fn(),
   };
   const session = { header: { cwd: process.cwd() }, append: vi.fn() };
+  const revoke = vi.fn();
+  const bindWorker = vi.fn(async () => revoke);
+  const callWorker = vi.fn(async () => [{type:'text' as const,text:'fixture result'}]);
   const ctx = {
+    nanoComputer: {bindWorker, callWorker},
     provide: vi.fn(),
     on: vi.fn(),
     effect: vi.fn(),
@@ -51,7 +56,8 @@ it.each(cliWorkerRuntimes)('%s binds follow-ups to the original session and repl
     stop: async () => {},
   }));
   const exec = { callId: 'dispatch', signal: new AbortController().signal } as ToolRunContext;
-  const row = await manager.start(root, runtime, 'review', 'inspect A', exec);
+  const row = await manager.start(root, runtime, 'review', 'inspect A', exec, 'owner-message-A');
+  expect(bindWorker).toHaveBeenCalledWith(root, row.workerId, 'owner-message-A', exec.signal);
   expect(await manager.isWorker(row.workerId)).toBe(true);
   expect(await manager.start(root, 'dsh', 'review', 'inspect A', exec)).toMatchObject({
     workerId: row.workerId,
@@ -62,11 +68,19 @@ it.each(cliWorkerRuntimes)('%s binds follow-ups to the original session and repl
     /belong/,
   );
   const launch = vi.mocked(openCliWorker).mock.calls[0]![0];
+  const computer = launch.computer!;
+  const client = await openMcp(computer.command, computer.args, computer.env);
+  try {
+    const args = {surface:'desktop',action:'status'};
+    expect(await client.call('computer_use', args, exec.signal)).toEqual([{type:'text',text:'fixture result'}]);
+    expect(callWorker).toHaveBeenCalledWith(root, row.workerId, args, expect.any(AbortSignal));
+  } finally { await client.close(); }
   const end = {turnId:'turn-1', fact:{type:'turn_end' as const, payload:{status:'completed', usage:{total_tokens:18}}}};
   await launch.onDetail('end', end);
   await launch.onDetail('end', end);
   await expect(launch.onEnd('turn-1', 'completed', 'Which file should I inspect?')).rejects.toThrow('runtime busy');
   await expect.poll(() => close.mock.calls.length).toBe(1);
+  expect(revoke).toHaveBeenCalledTimes(1);
   online = true;
   const bindPermissions = vi.fn(async () => undefined);
   const restored = new LocalWorkers(ctx as unknown as Context, report, () => true, vi.fn(), bindPermissions);
@@ -84,6 +98,13 @@ it.each(cliWorkerRuntimes)('%s binds follow-ups to the original session and repl
     runtime,
     sessionId: 'original-session',
   });
+  expect(vi.mocked(openCliWorker).mock.calls.at(-1)![0].computer).toBeUndefined();
+  expect(bindWorker).toHaveBeenCalledTimes(1);
   expect(send).toHaveBeenLastCalledWith('inspect B');
+  await restored.stopRoot(root.id);
+  await restored.control(root, row.workerId, 'send', 'inspect C with computer', exec.signal, 'computer-followup', 'owner-message-C');
+  expect(bindWorker).toHaveBeenCalledTimes(2);
+  expect(bindWorker).toHaveBeenLastCalledWith(root, row.workerId, 'owner-message-C', exec.signal);
+  expect(vi.mocked(openCliWorker).mock.calls.at(-1)![0].computer).toBeDefined();
   await restored.stopRoot(root.id);
 });
