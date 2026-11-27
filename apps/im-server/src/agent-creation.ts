@@ -1,4 +1,4 @@
-import {changeCapability, effectiveFeatures, featureDependencies} from '@nano/product-contracts/capabilities';
+import {changeCapability, definitionsForRole, effectiveFeatures, featureDependencies} from '@nano/product-contracts/capabilities';
 import {one, fail, type ImContext, type Row} from './context.js';
 import {candidateFingerprint, profileResponse, optionalText, stringList} from './control.js';
 import {configurationOperations} from './configuration-assembly.js';
@@ -72,11 +72,14 @@ export function modelOptions(value: unknown): Row[] {
     ];
   });
 }
-export function featureOptions(value: unknown): Row[] {
+export function featureOptions(value: unknown, workMode?: string): Row[] {
   return (Array.isArray(value) ? value : [])
     .filter((x) => x && typeof x.key === "string" && x.key)
+    .filter((x) => !workMode || !Array.isArray(x.modes) || x.modes.includes(workMode))
     .map((x) => ({
       key: x.key,
+      ...(Array.isArray(x.roles) ? { roles: stringList(x.roles) } : {}),
+      ...(Array.isArray(x.modes) ? { modes: stringList(x.modes) } : {}),
       label_i18n: typeof x.label_i18n === "string" ? x.label_i18n : "",
       help_i18n: typeof x.help_i18n === "string" ? x.help_i18n : "",
       default_on: !!x.default_on,
@@ -240,6 +243,9 @@ export async function createAgent(ctx: ImContext, owner: string, id: string, b: 
       skills = capabilities
         ? (capabilities.skills ?? []).filter(isRecord).filter(s => s.default_on).map(s => s.name).filter((name): name is string => typeof name === 'string')
         : undefined;
+      if ((b.work_mode ?? 'global') === 'single_thread' && Array.isArray(skills)) {
+        skills = skills.filter(name => name !== 'nano-proactive-care');
+      }
     }
     const c: ConfigurationCandidate = {
       agent_id: b.agent_id,
@@ -265,9 +271,11 @@ export async function createAgent(ctx: ImContext, owner: string, id: string, b: 
       c.skills_selection_mode = b.skills_selection_mode ?? null;
     }
     if (b.features === undefined) {
-      const desired = effectiveFeatures();
-      c.features = Object.fromEntries(featureDependencies.map(feature => [feature.key,false]));
-      for (const feature of featureDependencies) if (desired[feature.key]) Object.assign(c, changeCapability(c,{kind:'feature',name:feature.key,enabled:true},{}).draft);
+      const mode = c.work_mode === 'single_thread' ? 'single_thread' : 'global';
+      const roleFeatures = definitionsForRole(false, featureDependencies, mode);
+      const desired = effectiveFeatures({}, roleFeatures);
+      c.features = Object.fromEntries(roleFeatures.map(feature => [feature.key,false]));
+      for (const feature of roleFeatures) if (desired[feature.key]) Object.assign(c, changeCapability(c,{kind:'feature',name:feature.key,enabled:true},{features:roleFeatures}).draft);
     }
     if (pending && stored) {
       if (candidateFingerprint(c) !== pending.candidate_fingerprint || c.description !== (stored.description ?? "") ||

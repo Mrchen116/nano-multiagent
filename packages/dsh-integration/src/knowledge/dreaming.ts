@@ -282,8 +282,8 @@ export class Dreaming {
     return this.start(parent, true);
   }
   private async refreshSources(parent: Agent, config: AgentConfiguration, signal: AbortSignal, includePendingTaskContext = false): Promise<DreamingPendingTaskContext[]> {
-    if (!config.personal) return [];
-    await this.documents.sourcesPending(config.agentId);
+    if (!config.personal && (config.mode !== 'global' || !includePendingTaskContext)) return [];
+    if (config.personal) await this.documents.sourcesPending(config.agentId);
     const response = await this.ctx.nanoProduct.call(
       'memory.sources.refresh',
       includePendingTaskContext ? { includePendingTaskContext: true } : {},
@@ -351,7 +351,7 @@ export class Dreaming {
           batch.conversations=[...new Set([
             ...baseConversations,
             ...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents])),
-            ...selectedPending.map(item=>item.conversationId),
+            ...selectedPending.map(item=>config.personal ? item.conversationId : (item.conversationRef ?? item.conversationId)),
           ])];
           if(selectedPending.length){
             batch.cutoffs??={};
@@ -394,9 +394,14 @@ export class Dreaming {
         const systemRole=renderPrompt({...parentPrompt,sections:parentPrompt.sections.filter(section=>
           ['nano-product-identity','nano-global-mode','nano-communication','nano-personal-agent'].includes(section.name))});
         const role=await this.readRole?.(currentConfig);
+        const parentBinding=this.options.bindings.get(parent.id);
+        const boundAdmin=!currentConfig.personal&&currentConfig.mode==='global'
+          ? ((parentBinding as {ownerRef?:string}|undefined)?.ownerRef ?? parentBinding?.ownerId)
+          : undefined;
         const roleContext=[
           '<main_agent_background>',
           `<system_role>\n${systemRole}\n</system_role>`,
+          ...(boundAdmin?[`<bound_administrator>${boundAdmin}</bound_administrator>`]:[]),
           `<role_content>\n${role || 'No confirmed role text is available in this batch.'}\n</role_content>`,
           '</main_agent_background>',
         ];
@@ -537,7 +542,7 @@ export class Dreaming {
         const renderedPending=run.pendingTaskContext.map(item=>[
           `[task context] · ${item.timeMs>0?new Date(item.timeMs).toISOString():'unknown-time'}`,
           `messageId: ${item.messageId}`,
-          `conversationId: ${item.conversationId}`,
+          `conversationId: ${item.conversationRef ?? item.conversationId}`,
           item.text,
         ].join('\n')).join('\n\n');
         inputs.push(`## Unconsumed task context updates\n${renderedPending}`);
@@ -549,7 +554,7 @@ export class Dreaming {
       const entryIssue=await library.entryIssue();
       const entry=entryIssue?undefined:(await library.context()).entry;
       inputs.push(`Contents of ${join(library.root,'MEMORY.md')} — current key memory:\n<memory_content>\n${entryIssue?`${entryIssue}. Restore a concise regular file from the current pages and this batch before completing.`:entry??'Read the complete entry at this path.'}\n</memory_content>`);
-      if(library.role==='personal'){
+      if(library.role==='personal' || library.role==='global_expert'){
         const signalsPath=join(library.root,'knowledge/proactivity-signals.md');
         const signalsBody=await lstat(signalsPath).then(
           info=>info.isFile()?readFile(signalsPath,'utf8'):undefined,

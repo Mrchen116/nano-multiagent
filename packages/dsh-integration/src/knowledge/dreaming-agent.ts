@@ -17,7 +17,8 @@ import { dreamingStageTitles, type DreamingOwner, type DreamingRun } from './dre
 import { memoryEntryLimit, type DocumentBatchStart, type MemoryDocuments } from './memory-documents.js';
 import type { MemorySources } from './memory-sources.js';
 import * as NativeBash from '@deepseek-ai/dsh-tool-bash';
-import { extractionPrompt, consolidationPrompt } from './dreaming-prompts.js';
+import { resolveMemoryConsolidationRole } from './document-memory.js';
+import { extractionPromptForRole, consolidationPrompt } from './dreaming-prompts.js';
 import { assertDreamingSources, registerDreamingHistory, sourceDirectory } from './dreaming-history.js';
 import type {} from '../trajectory-runs.js';
 
@@ -67,8 +68,9 @@ export async function runDreamingAgent(host: Context, options: Options): Promise
       if(recovery) await ctx.isolate('compaction',Symbol()).plugin(ContextRolloverEngine,{modelSurface:'always'}).await();
       if(!extraction) await ctx.plugin(NativeBash,{enableRunInBackground:false,promoteOnTimeout:false}).await();
       ctx.tools.restrict({allow:allowed.filter(name=>globalToolNames.has(name)&&!contextTools.has(name)&&!['bash','source_history','conversations'].includes(name))});
+      const memoryRole = resolveMemoryConsolidationRole(config);
       ctx.systemPrompt.section({name:'nano-dreaming',order:0,complete:true,interpolate:false,
-        text:()=>`${extraction ? extractionPrompt : consolidationPrompt(!!config.personal)}\n\nRole: ${config.personal ? 'personal assistant for the bound owner' : 'independent expert, with audience-specific collaboration'}.`});
+        text:()=>`${extraction ? extractionPromptForRole(memoryRole) : consolidationPrompt(memoryRole)}\n\nRole: ${config.personal ? 'personal assistant for the bound owner' : 'independent expert, with audience-specific collaboration'}.`});
       ctx.on('system-prompt/assemble',async(_assembly,_context,next)=>{
         await assertDreamingSources(library,run.generation);
         const assembly=await next();

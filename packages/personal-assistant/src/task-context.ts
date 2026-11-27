@@ -6,14 +6,16 @@ import type {InboxStore} from './inbox.js';
 const digest=(content:unknown)=>createHash('sha256').update(JSON.stringify(content)).digest('hex');
 interface Identity {agentId:string;sessionId:string;ownerId:string}
 interface Evidence {inputId:string;content:{type:string;text?:string}[];turn:number;consumedSeq:number}
-export interface PendingTaskContextItem {messageId:string;conversationId:string;timeMs:number;text:string}
+export interface PendingTaskContextItem {messageId:string;conversationId:string;conversationRef?:string;timeMs:number;text:string}
 interface Options {nodeId:string;ownerId:string;agents:AgentConfiguration[];store:NodeStore;inbox:InboxStore;runtime:RuntimePort;
   relay:{request(type:string,payload:Record<string,unknown>):Promise<ProtocolFrame>};refreshSources(agentId:string):Promise<void>;
   settlePersonalInputs?:(agentId:string,sessionId:string)=>Promise<void>}
 /** Product owner of original Task-message catch-up and native consumption receipts. */
 export class TaskContext {
   private readonly syncing=new Map<string,{started:boolean;done:Promise<void>}>();
-  constructor(private readonly options:Options){}
+  constructor(private readonly options:Options){
+    options.inbox.attachToolReferences(options.store.toolReferences);
+  }
   private binding(identity:Identity):SessionBinding {
     const binding=this.options.store.bindingForSession(identity.sessionId);
     if(!binding||binding.agentId!==identity.agentId||binding.ownerId!==identity.ownerId||binding.ownerId!==this.options.ownerId)throw new Error('Task context identity mismatch');
@@ -129,6 +131,7 @@ export class TaskContext {
         return {
           messageId:message.inputId,
           conversationId:message.conversationId,
+          conversationRef:message.conversationRef ?? store.toolReferences.conversationRef(agentId,message.conversationId),
           timeMs:Number.isFinite(parsed)?parsed:0,
           text:message.content.map(part=>part.text??'').join('\n'),
         };

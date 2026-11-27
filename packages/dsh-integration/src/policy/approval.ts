@@ -34,14 +34,29 @@ const isInternalSendArgs = (value: unknown): boolean =>
 
 const privateScreenshotApproval = 'Local attachment delivery needs approval with private evidence. Nothing was uploaded. Ask the owner to send the attachment directly or use an authorized approval mode.';
 
+export type NanoApprovalOptions =
+  | ((agent: Agent) => AgentConfiguration | undefined)
+  | {
+      configOf: (agent: Agent) => AgentConfiguration | undefined;
+      readRole?: (config: AgentConfiguration) => Promise<string | undefined>;
+    };
+
 /** One automatic reviewer; native dispatch, approval audit and cancellation stay native. */
 export class NanoApproval extends Service {
   static inject = ['tools', 'approval', 'permissionPresets', 'llm', 'agents', 'storageDomain', 'nanoProduct', 'ccApproval', 'codexApproval', 'workingDirectory'];
   private readonly audit: Promise<Domain<typeof approvalDomain>>;
   private readonly epoch = randomUUID();
+  private readonly configOf: (agent: Agent) => AgentConfiguration | undefined;
+  private readonly readRole?: (config: AgentConfiguration) => Promise<string | undefined>;
   readonly sources = new ApprovalSources();
-  constructor(ctx: Context, private readonly configOf: (agent: Agent) => AgentConfiguration | undefined) {
+  constructor(ctx: Context, options: NanoApprovalOptions) {
     super(ctx, 'nanoApproval');
+    if (typeof options === 'function') {
+      this.configOf = options;
+    } else {
+      this.configOf = options.configOf;
+      this.readRole = options.readRole;
+    }
     this.audit = ctx.storageDomain.open(approvalDomain);
     ctx.effect(() => async () => { await (await this.audit).close(); });
     ctx.permissionPresets.registerAuto(() => {});
@@ -248,7 +263,14 @@ export class NanoApproval extends Service {
     };
     let result: ApprovalReviewResult;
     try {
-      const request = { exec, config, sources: this.sources, inherited: await this.inherited(agent.id, policy.rules === 'codex'), messageContext, reviewer, worker: !!checkWorkerEvidence };
+      const baseInherited = await this.inherited(agent.id, policy.rules === 'codex');
+      const roleAgreement = agent.session.header.origin !== 'subagent' && !checkWorkerEvidence
+        ? await this.readRole?.(config)
+        : undefined;
+      const inherited = roleAgreement
+        ? [{ agent_instructions: { source: '.nanoassistant/ROLE.md', role_agreement: roleAgreement } }, ...baseInherited]
+        : baseInherited;
+      const request = { exec, config, sources: this.sources, inherited, messageContext, reviewer, worker: !!checkWorkerEvidence };
       result = policy.rules === 'codex' ? await this.ctx.codexApproval.review(request)
         : policy.rules === 'nano' ? await this.ctx.ccApproval.review(request) : await classify(this.ctx, request);
     } catch (error) { return unavailable(error); }

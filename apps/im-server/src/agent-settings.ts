@@ -59,9 +59,17 @@ export function configurationDisplay(profile: Row, capabilities: Row, derivedCur
   const skills: Row[] = capabilities.skills ?? [];
   const tools: Row[] = capabilities.tools ?? [];
   const models: Row[] = capabilities.models ?? [];
-  const features: Row = Object.fromEntries(Object.entries(JSON.parse(profile.features_json)).filter(([key]) => !['memory_curation', 'skill_creation'].includes(key) && (key !== 'dreaming' || capabilities.memory_mode !== 'legacy')));
-  const definitions: FeatureDependency[] = (capabilities.features ?? []).map((item: Row) => ({
+  const workMode: 'global' | 'single_thread' = profile.work_mode === 'global' ? 'global' : 'single_thread';
+  const rawFeatures = (capabilities.features ?? []).filter((item: Row) =>
+    !Array.isArray(item?.modes) || item.modes.includes(workMode));
+  const features: Row = Object.fromEntries(Object.entries(JSON.parse(profile.features_json)).filter(([key]) =>
+    !['memory_curation', 'skill_creation'].includes(key)
+    && (key !== 'dreaming' || capabilities.memory_mode !== 'legacy')
+    && (workMode === 'global' || key !== 'proactive_planning')));
+  const definitions: FeatureDependency[] = rawFeatures.map((item: Row) => ({
     key: String(item.key),
+    ...(Array.isArray(item.roles) ? {roles: item.roles.filter((r: unknown): r is 'root' | 'personal' => r === 'root' || r === 'personal')} : {}),
+    ...(Array.isArray(item.modes) ? {modes: item.modes.filter((m: unknown): m is 'global' | 'single_thread' => m === 'global' || m === 'single_thread')} : {}),
     default_on: !!item.default_on,
     requires: {
       features: Array.isArray(item.requires?.features) ? item.requires.features : [],
@@ -69,7 +77,7 @@ export function configurationDisplay(profile: Row, capabilities: Row, derivedCur
       skills: Array.isArray(item.requires?.skills) ? item.requires.skills : [],
     },
   }));
-  const draft = {features, tool_allowlist: configuredTools, skills: configuredSkills, skills_selection_mode: mode, work_mode: profile.work_mode};
+  const draft = {features, tool_allowlist: configuredTools, skills: configuredSkills, skills_selection_mode: mode, work_mode: workMode};
   const catalog = derivedCurrent ? {features: definitions, tools: tools.map(tool => String(tool.name)), skills: skills.map(skill => String(skill.name))} : undefined;
   const resolvedFeatures = derivedCurrent ? effectiveCapabilityFeatures(draft, definitions, catalog) : {};
   const resolvedTools = derivedCurrent ? effectiveSelectedTools(draft, catalog) : configuredTools;
@@ -83,8 +91,8 @@ export function configurationDisplay(profile: Row, capabilities: Row, derivedCur
     derived_current: derivedCurrent,
     models: modelNames.map(name => ({name, ...pick(models.find(model => model.name === name) ?? {}, ['display_name','provider','provider_display_name']), source: name === modelNames[0] && !profile.default_model ? 'inherited' : 'explicit'})),
     reasoning: level == null ? null : {value:level,source:profile.reasoning_effort == null ? 'inherited' : 'explicit'},
-    features: [...new Set([...(capabilities.features ?? []).map((feature: Row) => feature.key), ...Object.keys(features)])].filter(key => !['memory_curation','skill_creation'].includes(String(key)) && (key !== 'dreaming' || capabilities.memory_mode !== 'legacy')).map(key => {
-      const feature = (capabilities.features ?? []).find((item: Row) => item.key === key) ?? {};
+    features: [...new Set([...rawFeatures.map((feature: Row) => feature.key), ...Object.keys(features)])].filter(key => !['memory_curation','skill_creation'].includes(String(key)) && (key !== 'dreaming' || capabilities.memory_mode !== 'legacy') && (workMode === 'global' || key !== 'proactive_planning')).map(key => {
+      const feature = rawFeatures.find((item: Row) => item.key === key) ?? {};
       return {key,...pick(feature,['label_i18n','help_i18n']),enabled: key in features ? features[key] : derivedCurrent ? (resolvedFeatures[String(key)] ?? !!feature.default_on) : null,source:key in features?'explicit':'default'};
     }),
     tools: resolvedTools.map(name => ({name,description:tools.find(tool => tool.name === name)?.description ?? ''})),

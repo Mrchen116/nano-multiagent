@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { setLanguage } from "../../../i18n";
 import { TEST_ACCESS_TOKEN, TEST_AUTH_USER } from "../../../test/render-router";
 import { useAuthStore } from "../../auth/auth-store";
+import { AgentCreatePage } from "./agent-create-page";
 import { AgentDetailPage } from "./agent-detail-page";
 
 const SCHEDULE_TOOLS = [
@@ -20,12 +21,14 @@ const SCHEDULE_TOOLS = [
 ];
 
 let mockNodeStatus: "online" | "offline" = "online";
+let mockWorkMode: "global" | "single_thread" = "global";
 let mockConfigFeatures: Record<string, boolean> = {
   task_graph: true,
   cron_scheduling: true,
   proactive_planning: true,
 };
 const updateCalls: Array<{ agentId: string; payload: Record<string, unknown> }> = [];
+const createCalls: Array<{ nodeId: string; payload: Record<string, unknown> }> = [];
 
 vi.mock("../../../realtime/user-stream", () => ({
   subscribeUserStream: () => () => undefined,
@@ -37,6 +40,14 @@ vi.mock("./agents-rail-desktop", () => ({
 
 vi.mock("../../personal-agent/personal-agent-settings", () => ({
   PersonalAgentSettings: () => null,
+}));
+
+vi.mock("../nodes/browser-pairing-section", () => ({
+  BrowserPairingSection: () => null,
+}));
+
+vi.mock("../../chat/chat-api", () => ({
+  createConversation: vi.fn(async () => ({ id: "conv-1" })),
 }));
 
 vi.mock("./agent-lifecycle", () => ({
@@ -54,10 +65,53 @@ vi.mock("./agent-deletion", () => ({
   AgentDeletionStatus: () => null,
 }));
 
+function buildMockCapabilities() {
+  return {
+    node_id: "node-1",
+    node_name: "MacBook",
+    node_status: mockNodeStatus,
+    model_options: [],
+    platform_default_model: "gpt-5.4",
+    inherited_approval_rules: "codex" as const,
+    default_workspace_template: "/tmp/agents/{agent_id}",
+    skills: [{ name: "nano-proactive-care", description: "Proactive care", default_on: true }],
+    fixed_tools: [],
+    tools: ["task_graph", ...SCHEDULE_TOOLS].map(name => ({ name, default_on: true })),
+    features: featureDependencies
+      .filter(feat => ["task_graph", "cron_scheduling", "proactive_planning"].includes(feat.key))
+      .map(feat => ({
+        ...feat,
+        label_i18n: `feature.${feat.key}.label`,
+        help_i18n: `feature.${feat.key}.help`,
+      })),
+  };
+}
+
 vi.mock("./im-agent-config-api", async importOriginal => {
   const actual = await importOriginal<typeof import("./im-agent-config-api")>();
   return {
     ...actual,
+    listNodes: vi.fn(async () => [
+      { node_id: "node-1", node_name: "MacBook", status: mockNodeStatus },
+    ]),
+    getNodeCreateState: vi.fn(async () => ({
+      node: { node_id: "node-1", node_name: "MacBook", status: mockNodeStatus },
+      capabilities: buildMockCapabilities(),
+    })),
+    getNodeApprovalRules: vi.fn(async () => ({ inherited_approval_rules: "codex" })),
+    nodePromptPreview: vi.fn(async () => "preview"),
+    createNodeAgent: vi.fn(async (nodeId: string, payload: Record<string, unknown>) => {
+      createCalls.push({ nodeId, payload });
+      return {
+        ...payload,
+        agent_id: String(payload.agent_id ?? "agent-q"),
+        display_name: String(payload.display_name ?? "Agent Q"),
+        owner_id: TEST_AUTH_USER.id,
+        profile_version: 1,
+        node_id: nodeId,
+        updated_at: "2026-11-25T10:05:00Z",
+      };
+    }),
     getAgentCapabilityUsage: vi.fn(async () => ({ active_tasks: 0, active_schedules: 0, busy: [] })),
     getAgentRole: vi.fn(async () => ({ content: "照应日常安排", version: 1 })),
     getAgentSettingsSection: vi.fn(async () => ({
@@ -95,10 +149,10 @@ vi.mock("./im-agent-config-api", async importOriginal => {
         agent_id: agentId,
         owner_id: TEST_AUTH_USER.id,
         display_name: "小满",
-        description: "我的个人助手",
-        work_mode: "global",
+        description: "团队数字员工",
+        work_mode: mockWorkMode,
         approval_mode: "inherit",
-        collaboration_scope: "owner_only",
+        collaboration_scope: "team",
         default_model: null,
         model_fallbacks: [],
         reasoning_effort: null,
@@ -114,24 +168,7 @@ vi.mock("./im-agent-config-api", async importOriginal => {
         node_status: mockNodeStatus,
         updated_at: "2026-11-25T10:00:00Z",
       },
-      capabilities: {
-        node_id: "node-1",
-        node_name: "MacBook",
-        node_status: mockNodeStatus,
-        model_options: [],
-        platform_default_model: "gpt-5.4",
-        inherited_approval_rules: "codex",
-        skills: [],
-        fixed_tools: [],
-        tools: ["task_graph", ...SCHEDULE_TOOLS].map(name => ({ name })),
-        features: featureDependencies
-          .filter(feat => ["task_graph", "cron_scheduling", "proactive_planning"].includes(feat.key))
-          .map(feat => ({
-            ...feat,
-            label_i18n: `feature.${feat.key}.label`,
-            help_i18n: `feature.${feat.key}.help`,
-          })),
-      },
+      capabilities: buildMockCapabilities(),
     })),
   };
 });
@@ -149,12 +186,31 @@ function renderAgentConfig({ personal }: { personal: boolean }) {
   );
 }
 
-describe("PA proactive_planning toggle and task_graph dependency", () => {
+function renderAgentCreate() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+  const router = createMemoryRouter(
+    [
+      { path: "/settings/agents/new/:nodeId", element: <AgentCreatePage /> },
+      { path: "/chat/:conversationId", element: <div data-testid="chat-dest" /> },
+      { path: "/settings/agents/:agentId", element: <div data-testid="detail-dest" /> },
+    ],
+    { initialEntries: ["/settings/agents/new/node-1"] },
+  );
+  return render(
+    <QueryClientProvider client={client}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>,
+  );
+}
+
+describe("Global-mode proactive_planning toggle and task_graph dependency", () => {
   beforeEach(() => {
     setLanguage("zh");
     mockNodeStatus = "online";
+    mockWorkMode = "global";
     mockConfigFeatures = { task_graph: true, cron_scheduling: true, proactive_planning: true };
     updateCalls.length = 0;
+    createCalls.length = 0;
     useAuthStore.getState().setSession({ access_token: TEST_ACCESS_TOKEN, user: TEST_AUTH_USER });
   });
 
@@ -167,12 +223,10 @@ describe("PA proactive_planning toggle and task_graph dependency", () => {
     expect(taskGraphCheckbox).toBeChecked();
     expect(screen.getByText(/03:00/)).toBeInTheDocument();
 
-    // Attempting to turn off 任务图 while 主动筹划 is enabled keeps 任务图 checked and shows dependency toast
     await userEvent.click(taskGraphCheckbox);
     expect(taskGraphCheckbox).toBeChecked();
     expect(await screen.findByText("请先关闭「主动筹划」")).toBeInTheDocument();
 
-    // Turn off 主动筹划 and save
     await userEvent.click(proactiveCheckbox);
     await waitFor(() => expect(proactiveCheckbox).not.toBeChecked());
     expect(taskGraphCheckbox).toBeChecked();
@@ -186,16 +240,69 @@ describe("PA proactive_planning toggle and task_graph dependency", () => {
     expect(updateCalls[0]!.payload).not.toHaveProperty("personal_agent");
   });
 
-  it("hides proactive_planning on ordinary non-PA agents", async () => {
+  it("renders proactive_planning with role-scoped help on global non-PA digital employees and hides it on single_thread agents", async () => {
+    const view = renderAgentConfig({ personal: false });
+
+    const proactiveCheckbox = await screen.findByRole("checkbox", { name: "主动筹划" });
+    const taskGraphCheckbox = screen.getByRole("checkbox", { name: "任务图" });
+    expect(proactiveCheckbox).toBeChecked();
+    expect(screen.getByText(/各协作会话/)).toBeInTheDocument();
+
+    await userEvent.click(taskGraphCheckbox);
+    expect(taskGraphCheckbox).toBeChecked();
+    expect(await screen.findByText("请先关闭「主动筹划」")).toBeInTheDocument();
+
+    view.unmount();
+
+    mockWorkMode = "single_thread";
+    mockConfigFeatures = { task_graph: true, cron_scheduling: true };
     renderAgentConfig({ personal: false });
 
-    expect(await screen.findByRole("checkbox", { name: "任务图" })).toBeInTheDocument();
+    const singleTaskGraph = await screen.findByRole("checkbox", { name: "任务图" });
     expect(screen.queryByRole("checkbox", { name: "主动筹划" })).not.toBeInTheDocument();
+    await userEvent.click(singleTaskGraph);
+    await waitFor(() => expect(singleTaskGraph).not.toBeChecked());
   });
 
-  it("locks proactive_planning checkbox and Save button read-only when the PA node is offline", async () => {
+  it("strips proactive_planning when switching create mode to single_thread, restores default on return to global, and honors explicit disable", async () => {
+    renderAgentCreate();
+
+    const proactiveCheckbox = await screen.findByRole("checkbox", { name: "主动筹划" });
+    expect(proactiveCheckbox).toBeChecked();
+
+    const radios = screen.getAllByRole("radio");
+    const globalRadio = radios.find(el => (el as HTMLInputElement).value === "global")!;
+    const singleRadio = radios.find(el => (el as HTMLInputElement).value === "single_thread")!;
+
+    // Switch global -> single_thread -> global: hides in single_thread and restores default checked in global
+    await userEvent.click(singleRadio);
+    expect(screen.queryByRole("checkbox", { name: "主动筹划" })).not.toBeInTheDocument();
+
+    await userEvent.click(globalRadio);
+    const restoredProactive = await screen.findByRole("checkbox", { name: "主动筹划" });
+    expect(restoredProactive).toBeChecked();
+
+    // Explicitly uncheck in global, then switch global -> single_thread -> global: remains unchecked
+    await userEvent.click(restoredProactive);
+    await waitFor(() => expect(restoredProactive).not.toBeChecked());
+    await userEvent.click(singleRadio);
+    await userEvent.click(globalRadio);
+    expect(await screen.findByRole("checkbox", { name: "主动筹划" })).not.toBeChecked();
+
+    // Switch back to single_thread and submit creation: payload must not carry proactive_planning
+    await userEvent.click(singleRadio);
+    await userEvent.type(screen.getByLabelText(/Agent ID/), "single-helper");
+    await userEvent.type(screen.getByLabelText(/显示名/), "Single Helper");
+    await userEvent.click(screen.getByRole("button", { name: /创建 Agent/ }));
+
+    await waitFor(() => expect(createCalls).toHaveLength(1));
+    expect(createCalls[0]!.payload.work_mode).toBe("single_thread");
+    expect(createCalls[0]!.payload.features).not.toHaveProperty("proactive_planning");
+  });
+
+  it("locks proactive_planning checkbox and Save button read-only when the owning node is offline", async () => {
     mockNodeStatus = "offline";
-    renderAgentConfig({ personal: true });
+    renderAgentConfig({ personal: false });
 
     const proactiveCheckbox = await screen.findByRole("checkbox", { name: "主动筹划" });
     expect(proactiveCheckbox).toBeDisabled();

@@ -226,4 +226,102 @@ describe('ProactiveCoordinator', () => {
       store.close();
     }
   });
+
+  it('drives non-PA global digital employees with role-calibrated wakes, user-message watermarks, and stateless pendingTaskContext refresh', async () => {
+    const store = new NodeStore(':memory:', 'owner');
+    const inbox = new InboxStore(':memory:');
+    store.setOwnerTimezone('Asia/Shanghai');
+
+    const globalEmp: AgentConfiguration = { agentId: 'q', mode: 'global', workspace: '/tmp/q', revision: '1', provider: 'fixture', model: 'fixture', features: { task_graph: true } };
+    expect(isProactivePlanningEnabled(globalEmp)).toBe(true);
+    expect(isProactivePlanningEnabled({ ...globalEmp, features: { task_graph: false } })).toBe(false);
+    expect(isProactivePlanningEnabled({ ...globalEmp, toolAllowlist: ['read'] })).toBe(false);
+
+    const reviewText = renderProactiveReviewWake({ localTime: '2027-03-15T20:15:00+08:00', quietMinutes: 15, quietHours: false, personal: false });
+    const nightlyText = renderProactiveNightlyWake({ localTime: '2027-03-16T03:15:00+08:00', quietMinutes: 45, quietHours: true, personal: false });
+    expect(reviewText).toContain('ROLE.md');
+    expect(reviewText).toContain('originating conversation');
+    expect(nightlyText).toContain('[Pending Proactive Handoff: <target>]');
+    expect(nightlyText).toContain('0 morning greetings');
+    expect(nightlyText).toContain('proposed_for_user_id');
+    expect(nightlyText).not.toContain('[Pending Morning Brief]');
+
+    const binding = { agentId: 'q', sessionId: 'q-root', conversationId: 'global:q', ownerId: 'owner', cwd: '/tmp/q', revision: '1' };
+    store.bind(binding);
+    const coordinator = new ProactiveCoordinator({
+      ownerId: 'owner', agents: [globalEmp], store, inbox,
+      runtime: { onNotification: () => () => {}, request: async () => ({ accepted: true }) },
+      binding: async () => binding, available: () => true, syncObservations: async () => {}, onError: error => { throw error; },
+    });
+
+    const { GlobalAgent } = await import('../src/global-agent.js');
+    const { TaskContext } = await import('../src/task-context.js');
+    const rawConv = 'conv-bob-q-00000000000000000001';
+    const rawBob = '00000000-0000-4000-8000-000000000099';
+    const mockRelay = {
+      async request(type: string) {
+        if (type === 'task.context.sync') {
+          return {
+            type: 'result',
+            payload: {
+              ok: true,
+              result: {
+                through: 1, next: 1, revoked_message_ids: [],
+                items: [{
+                  message_id: 'msg-click-1', conversation_id: rawConv, allowed: true,
+                  input: {
+                    agent_id: 'q', conversation_id: rawConv, relay_task_id: 'rt-1', idempotency_key: 'rt-1',
+                    metadata: { conversation_type: 'direct', task_context: true },
+                    message: {
+                      id: 'msg-click-1', content: 'Bob rejected card', sender_type: 'system', created_at: '2027-03-15T18:00:00Z', attachments: [],
+                      system_notice: { kind: 'task_graph', conversation_id: rawConv, previous_status: 'proposed', status: 'closed', actor: { type: 'user', id: rawBob } },
+                    },
+                  },
+                }],
+              },
+            },
+          };
+        }
+        if (type === 'conversation.query') return { type: 'result', payload: { ok: true, result: { conversations: [] } } };
+        return { type: 'ack', payload: {} };
+      },
+    };
+    const mockRuntime = {
+      onNotification: () => () => {},
+      request: async (method: string) => method === 'session.work.children' ? { children: [] } : { events: [], durable: true, status: 'idle', accepted: true },
+    };
+    const product = new GlobalAgent({
+      nodeId: 'node-1', ownerId: 'owner', agents: [globalEmp], store, inbox,
+      onProactiveActivity: agentId => coordinator.recordActivity(agentId),
+      runtime: mockRuntime, relay: mockRelay, image: async () => '', onError: error => { throw error; },
+    });
+    product.attachTaskContext(new TaskContext({ nodeId: 'node-1', ownerId: 'owner', agents: [globalEmp], store, inbox, runtime: mockRuntime, relay: mockRelay, refreshSources: async () => {} }));
+
+    try {
+      await product.ingest({
+        agent_id: 'q', conversation_id: rawConv, relay_task_id: 'chat-1', idempotency_key: 'chat-1',
+        metadata: { conversation_type: 'direct' },
+        message: { id: 'chat-1', content: '帮我看下脚本超时', sender_type: 'user', sender_user_id: rawBob, attachments: [] },
+      });
+      expect(store.proactiveState('q').lastActivitySeq).toBe(1);
+
+      const refreshed = await product.call({
+        method: 'memory.sources.refresh', args: { includePendingTaskContext: true },
+        agentId: 'q', ownerId: 'owner', sessionId: 'q-root', rootSessionId: 'q-root', callId: 'ref-1', operationId: 'q-root:ref-1',
+      }) as { synchronized: boolean; pendingTaskContext?: Array<{ messageId: string; conversationId: string; conversationRef?: string; text: string }> };
+
+      expect(refreshed.synchronized).toBe(true);
+      expect(refreshed.pendingTaskContext).toHaveLength(1);
+      expect(refreshed.pendingTaskContext![0]!.messageId).toBe('msg-click-1');
+      expect(refreshed.pendingTaskContext![0]!.conversationId).toBe(rawConv);
+      expect(refreshed.pendingTaskContext![0]!.conversationRef).toMatch(/^c_[a-f0-9]{6}$/);
+      expect(refreshed.pendingTaskContext![0]!.text).toMatch(/"id":"u_[a-f0-9]{6}"/);
+      expect(refreshed.pendingTaskContext![0]!.text).not.toContain(rawBob);
+    } finally {
+      await coordinator.stop();
+      await product.stop();
+      inbox.close();
+      store.close();
+    }
+  });
 });

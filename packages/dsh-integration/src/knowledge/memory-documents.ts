@@ -10,6 +10,7 @@ import { atomicWrite } from './files.js';
 export const memoryEntryLimit = 8000;
 export const proactivitySignalsLimit = 4000;
 export const proactivitySignalsMaxItems = 20;
+export type MemoryConsolidationRole = 'personal' | 'global_expert' | 'single_thread_expert';
 
 const personalTopDirectories = new Set(['entities', 'knowledge', 'workstreams', 'timeline']);
 const expertTopDirectories = new Set(['entities', 'knowledge', 'projects', 'work-history']);
@@ -96,7 +97,7 @@ export class MemoryDocuments {
   private watcher?: FSWatcher;
   private tail: Promise<unknown> = Promise.resolve();
   private sourcesPending = false;
-  private constructor(readonly workspace: string, readonly role: 'personal' | 'expert', private readonly fs: FileSystem) {
+  private constructor(readonly workspace: string, readonly role: MemoryConsolidationRole, private readonly fs: FileSystem) {
     this.root = join(workspace, '.nanoassistant/memory');
     this.backupRoot = join(workspace, '.nanoassistant/memory-backups');
     this.statePath = join(workspace, '.nanoassistant/maintenance/documents.json');
@@ -105,11 +106,12 @@ export class MemoryDocuments {
    *
    * Args:
    *   workspace: Trusted business configuration root.
-   *   role: Trusted personal configuration, not the current requester.
+   *   role: Trusted three-state consolidation role (legacy 'expert' maps to 'single_thread_expert').
    *   fs: Native filesystem provider used for atomic publication.
    */
-  static async open(workspace: string, role: 'personal' | 'expert', fs: FileSystem): Promise<MemoryDocuments> {
-    const owner = new MemoryDocuments(await realpath(workspace), role, fs);
+  static async open(workspace: string, role: MemoryConsolidationRole | 'expert', fs: FileSystem): Promise<MemoryDocuments> {
+    const normalizedRole: MemoryConsolidationRole = role === 'expert' ? 'single_thread_expert' : role;
+    const owner = new MemoryDocuments(await realpath(workspace), normalizedRole, fs);
     await mkdir(owner.root, { recursive: true });
     if (await realpath(owner.root) !== owner.root) throw new Error('Memory root must not be a symbolic link.');
     try {
@@ -119,9 +121,12 @@ export class MemoryDocuments {
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
     const entry = await fs.resolve(join(owner.root, 'MEMORY.md'));
     if (!await fs.stat(entry)) {
-      await fs.writeText(entry, role === 'personal'
+      const seed = normalizedRole === 'personal'
         ? '# Personal memory\n\nDurable understanding of the owner, their relationships, preferences and workstreams.\n\n## 主动性与介入偏好\n\n暂无已确认的主动性偏好。\n\n## Topics\n\nNo topics saved yet.\n'
-        : '# Expert memory\n\nDomain knowledge, environments, collaboration by audience, and verified work experience. No requester is implicitly the owner.\n\n## Topics\n\nNo topics saved yet.\n', { kind: 'createIfAbsent' }, undefined, owner.writePolicy());
+        : normalizedRole === 'global_expert'
+          ? '# Expert memory\n\nDomain knowledge, environments, collaboration by audience, and verified work experience. No requester is implicitly the owner.\n\n## 主动性与介入偏好\n\n暂无已确认的主动性偏好。\n\n## Topics\n\nNo topics saved yet.\n'
+          : '# Expert memory\n\nDomain knowledge, environments, collaboration by audience, and verified work experience. No requester is implicitly the owner.\n\n## Topics\n\nNo topics saved yet.\n';
+      await fs.writeText(entry, seed, { kind: 'createIfAbsent' }, undefined, owner.writePolicy());
     }
     // Exclude the entire private tree from an enclosing repository before initializing ours.
     try {
@@ -304,7 +309,7 @@ export class MemoryDocuments {
       if (item.isDirectory() && !allowedTop.has(item.name)) {
         issues.push({
           path: item.name,
-          reason: `Top-level directory "${item.name}" is outside the allowed ${this.role} layout (${[...allowedTop].join(', ')})`,
+          reason: `Top-level directory "${item.name}" is outside the allowed ${this.role === 'personal' ? 'personal' : 'expert'} layout (${[...allowedTop].join(', ')})`,
         });
       }
     }
@@ -326,7 +331,8 @@ export class MemoryDocuments {
     await collectMarkdown('');
 
     let entryForbidsSignalsReported = false;
-    if (this.role === 'personal' && !await this.entryIssue()) {
+    const supportsProactiveCalibration = this.role === 'personal' || this.role === 'global_expert';
+    if (supportsProactiveCalibration && !await this.entryIssue()) {
       const entryText = await readFile(join(this.root, 'MEMORY.md'), 'utf8');
       if (entryText.includes('proactivity-signals.md')) {
         entryForbidsSignalsReported = true;
@@ -339,9 +345,9 @@ export class MemoryDocuments {
       if (matchingDepthOther.length > 0 && matchingH2Indices.length === 0) {
         issues.push({ path: 'MEMORY.md', reason: 'The proactive calibration section in MEMORY.md must be an H2 ("## 主动性与介入偏好") heading' });
       } else if (matchingH2Indices.length === 0) {
-        issues.push({ path: 'MEMORY.md', reason: 'Personal MEMORY.md must include the "## 主动性与介入偏好" (or "## Proactive & Intervention Preferences") section' });
+        issues.push({ path: 'MEMORY.md', reason: `${this.role === 'personal' ? 'Personal' : 'Global expert'} MEMORY.md must include the "## 主动性与介入偏好" (or "## Proactive & Intervention Preferences") section` });
       } else if (matchingH2Indices.length > 1) {
-        issues.push({ path: 'MEMORY.md', reason: 'Personal MEMORY.md must contain only one "## 主动性与介入偏好" section' });
+        issues.push({ path: 'MEMORY.md', reason: `${this.role === 'personal' ? 'Personal' : 'Global expert'} MEMORY.md must contain only one "## 主动性与介入偏好" section` });
       } else {
         const startIdx = matchingH2Indices[0]!;
         let endIdx = tree.children.length;
@@ -377,8 +383,8 @@ export class MemoryDocuments {
 
     if (regularMarkdownPaths.includes('knowledge/proactivity-signals.md')) {
       const signalsRel = 'knowledge/proactivity-signals.md';
-      if (this.role !== 'personal') {
-        issues.push({ path: signalsRel, reason: 'knowledge/proactivity-signals.md is only supported for personal assistant memory repositories' });
+      if (!supportsProactiveCalibration) {
+        issues.push({ path: signalsRel, reason: 'knowledge/proactivity-signals.md is only supported for personal assistant and global expert memory repositories' });
       } else {
         const signalsText = await readFile(join(this.root, signalsRel), 'utf8');
         if (signalsText.length > proactivitySignalsLimit) {

@@ -183,11 +183,11 @@ export class ConfigurationScopes extends Service {
 Other Agents in Nano IM may run on different nodes. A local path shared by another Agent belongs to the environment where the file was produced. Use the latest group info when you need to check where that Agent runs now. If the node differs, the file's origin is unclear, or a local read fails, ask for an attachment in the conversation or a link you can access. When sharing local images or files with peers who may run on another node, attach images via send_message(local_images) or files via send_message(local_files) instead of sending only a local path, and use download_attachment(attachment_id) to retrieve received attachments locally. Verify file access before working from a path known to be local.`;
     } });
     for (const preset of this.presets) if (preset.agentId === config.agentId) await this.features(preset);
-    scope.skills = agent.ctx.plugin(Skills, {config, isWorkWorker}); await scope.skills.await();
+    scope.skills = agent.ctx.plugin(Skills, {config, isWorkWorker, isInternalChild: internal}); await scope.skills.await();
     if (internal && role !== 'subagent') GlobalMode.registerChildGuidance(agent.ctx, config.mode !== 'global', role === 'worker' || role === 'worker-fork', this.host.tools.get('send_message'));
     else if (!internal && config.mode === 'global') {
       await this.mountDelegation(scope);
-      await agent.ctx.plugin(GlobalMode,{mode:config.mode,personal:!!config.personal}).await();
+      await agent.ctx.plugin(GlobalMode,{mode:config.mode,personal:!!config.personal,proactiveCare:Skills.allowsProactiveCareSkill(config, false)}).await();
     }
     if (config.personal && !internal) await agent.ctx.inject(['tools', 'nanoProduct'], child => GlobalMode.registerUserMessage(child)).await();
     this.tools.attach(agent, config, isWorkWorker);
@@ -234,7 +234,8 @@ Other Agents in Nano IM may run on different nodes. A local path shared by anoth
     }
     for (const scope of this.agents.values()) if (scope.config.agentId === next.agentId) {
       if (scope.delegation) await this.mountDelegation(scope);
-      await scope.skills?.dispose(); scope.skills = scope.agent.ctx.plugin(Skills, {config: scope.config, isWorkWorker: scope.isWorkWorker}); await scope.skills.await();
+      const isInternalChild = isOrdinaryChild(scope.agent) || globalWorkRole(scope.agent, scope.config) === 'worker-fork';
+      await scope.skills?.dispose(); scope.skills = scope.agent.ctx.plugin(Skills, {config: scope.config, isWorkWorker: scope.isWorkWorker, isInternalChild}); await scope.skills.await();
     }
     await this.setFeatures(next.agentId, next.features ?? {});
   }

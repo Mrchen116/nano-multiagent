@@ -42,10 +42,11 @@ function nodeResponse(n: Row) {
 function agentCapabilities(profile: Row, capabilities: NodeCapabilities | undefined): Row {
   if (!capabilities || !(['models','skills','tools'] as const).every(key => Array.isArray(capabilities[key])))
     fail(502, 'Agent capabilities are unavailable');
+  const workMode = profile.work_mode === 'global' ? 'global' : 'single_thread';
   return {agent_id:profile.agent_id,node_id:profile.node_id,workspace_root:profile.workspace_root,
     models:modelOptions(capabilities.models),skills:allowlistOptions(capabilities.skills),tools:allowlistOptions(capabilities.tools),
     inherited_approval_rules:capabilities.inherited_approval_rules ?? null,
-    commands:capabilities.commands ?? [],features:featureOptions(capabilities.features),fixed_tools:stringList(capabilities.fixed_tools),platform_default_model:capabilities.platform_default_model ?? null};
+    commands:capabilities.commands ?? [],features:featureOptions(capabilities.features, workMode),fixed_tools:stringList(capabilities.fixed_tools),platform_default_model:capabilities.platform_default_model ?? null};
 }
 function settingsError(code: string) {
   return {code,message:code === 'offline' ? 'The Agent computer is offline.' : code === 'timeout' ? 'The computer did not respond in time.' : 'Settings could not be confirmed. Refresh to try again.'};
@@ -413,7 +414,7 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
       skills: allowlistOptions(r.skills),
       tools: allowlistOptions(r.tools),
       commands: r.commands ?? [],
-      features: featureOptions(r.features),
+      features: featureOptions(r.features, p.work_mode === 'global' ? 'global' : 'single_thread'),
       fixed_tools: stringList(r.fixed_tools),
       inherited_approval_rules: r.inherited_approval_rules ?? null,
       platform_default_model: r.platform_default_model ?? null,

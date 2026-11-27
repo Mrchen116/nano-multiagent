@@ -28,8 +28,10 @@ export function activeTaskCount(db: DatabaseSync, agentId: string): number {
 
 /** A pending configuration may withdraw Task behavior, its tool, or both. */
 export function withdrawsTask(previous: Obj, candidate: Obj): boolean {
-  return effectiveFeatures(previous.features, definitionsForRole(Boolean(previous.personal_agent)), previous).task_graph
-      && !effectiveFeatures(candidate.features, definitionsForRole(Boolean(candidate.personal_agent)), candidate).task_graph
+  const prevDefs = definitionsForRole(Boolean(previous.personal_agent), undefined, previous.work_mode === 'global' ? 'global' : 'single_thread');
+  const nextDefs = definitionsForRole(Boolean(candidate.personal_agent), undefined, candidate.work_mode === 'global' ? 'global' : 'single_thread');
+  return effectiveFeatures(previous.features, prevDefs, previous).task_graph
+      && !effectiveFeatures(candidate.features, nextDefs, candidate).task_graph
     || (previous.tool_allowlist === undefined || previous.tool_allowlist.includes('task_graph'))
       && candidate.tool_allowlist !== undefined && !candidate.tool_allowlist.includes('task_graph');
 }
@@ -482,6 +484,23 @@ export class TaskGraphService {
       user,
       id,
     );
+  }
+
+  /** Return the sole eligible human peer ID when conversationId is a 1-on-1 direct chat with an Agent. */
+  private directHumanPeerWithAgent(conversationId: string): string | null {
+    const conv = this.row("SELECT type FROM conversations WHERE id=?", conversationId);
+    if (conv?.type !== "direct") return null;
+    const members = this.db
+      .prepare(
+        "SELECT u.id, u.username FROM conversation_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=? AND u.username!='system'",
+      )
+      .all(conversationId) as { id: string; username: string }[];
+    if (members.length !== 2) return null;
+    const humans = members.filter((m) => !m.username.startsWith("agent:"));
+    const agents = members.filter((m) => m.username.startsWith("agent:"));
+    if (humans.length !== 1 || agents.length !== 1) return null;
+    const humanId = humans[0]!.id;
+    return qualifiedUser(this.db, humanId) ? humanId : null;
   }
   private validateCommand(action:string,args:Obj):void {
     if (
@@ -951,6 +970,22 @@ export class TaskGraphService {
         };
       }
     }
+    for (const n of doc.nodes) if (n.status === 'proposed') {
+      const old = before?.nodes.find((x:Obj)=>x.id===n.id);
+      if (old?.status === 'proposed' && old.proposed_for_user_id === n.proposed_for_user_id) continue;
+      if (n.proposed_for_user_id != null) {
+        const member = this.row(
+          "SELECT u.id FROM conversation_participants p JOIN users u ON u.id=p.user_id WHERE p.conversation_id=? AND u.id=? AND u.username NOT LIKE 'agent:%' AND u.username!='system'",
+          doc.conversation_id,
+          n.proposed_for_user_id,
+        );
+        if (!member || !qualifiedUser(this.db, member.id))
+          fail('invalid_arguments', 'proposed_for_user_id must be a human member of the task conversation');
+      } else if (actor.kind === 'agent') {
+        const peer = this.directHumanPeerWithAgent(doc.conversation_id);
+        if (peer) n.proposed_for_user_id = peer;
+      }
+    }
     for (const n of doc.nodes) if (n.status === 'waiting') {
       const old = before?.nodes.find((x:Obj)=>x.id===n.id);
       if (old?.status === 'waiting' && sortedJsonUtf8(old.wait) === sortedJsonUtf8(n.wait)) continue;
@@ -1365,6 +1400,8 @@ export class TaskGraphService {
       if (!this.chat(d.conversation_id, user)) continue;
       const conversation = this.projection(d, user, actor);
       const isPersonalChat = row.space_id === personalSpace;
+      const isDirectAgentChatForUser = !isPersonalChat && this.directHumanPeerWithAgent(d.conversation_id) === user;
+      const isOwnPrivateOrAgentDirect = isPersonalChat || isDirectAgentChatForUser;
       const root = d.nodes.find((x: Obj) => x.id === d.root_node_id)!;
       const isGoalGraph = root.mode !== "none" || d.nodes.length > 1;
       const nodesById = new Map<string, Obj>(d.nodes.map((x: Obj) => [x.id, x]));
@@ -1375,7 +1412,7 @@ export class TaskGraphService {
             ? true
             : scope === "assignee"
               ? sameActor(root.assignee, targetAssignee) || d.nodes.some((c: Obj) => sameActor(c.assignee, targetAssignee))
-              : isPersonalChat ||
+              : isOwnPrivateOrAgentDirect ||
                 sameActor(root.created_by, userActor) ||
                 sameActor(root.assignee, userActor) ||
                 d.nodes.some((c: Obj) => sameActor(c.assignee, userActor));
@@ -1410,7 +1447,7 @@ export class TaskGraphService {
               ? true
               : scope === "assignee"
                 ? sameActor(n.assignee, targetAssignee)
-                : isPersonalChat || sameActor(n.assignee, userActor) || sameActor(n.created_by, userActor);
+                : isOwnPrivateOrAgentDirect || sameActor(n.assignee, userActor) || sameActor(n.created_by, userActor);
           if (completedInScope && matchesQuery(d, n, root)) {
             completed.push(this.projectNodeCard(d, n, user, actor, conversation));
           }
@@ -1422,7 +1459,7 @@ export class TaskGraphService {
         if (scope === "mine") {
           inNeedsYou =
             (n.status === "proposed" &&
-              (isPersonalChat ||
+              (isOwnPrivateOrAgentDirect ||
                 n.proposed_for_user_id === user ||
                 (!n.proposed_for_user_id &&
                   (sameActor(n.assignee, userActor) ||
@@ -1431,7 +1468,7 @@ export class TaskGraphService {
                     sameActor(root.assignee, userActor))))) ||
             (n.status === "waiting" && n.wait?.asked_user_id === user) ||
             (n.status === "in_review" &&
-              (isPersonalChat ||
+              (isOwnPrivateOrAgentDirect ||
                 sameActor(n.created_by, userActor) ||
                 sameActor(parent?.assignee ?? null, userActor) ||
                 sameActor(root.assignee, userActor)));
@@ -1455,7 +1492,7 @@ export class TaskGraphService {
               ? true
               : scope === "assignee"
                 ? sameActor(n.assignee, targetAssignee)
-                : isPersonalChat || sameActor(n.assignee, userActor) || (!n.assignee && sameActor(n.created_by, userActor));
+                : isOwnPrivateOrAgentDirect || sameActor(n.assignee, userActor) || (!n.assignee && sameActor(n.created_by, userActor));
           if (stashInScope) stashed.push(this.projectNodeCard(d, n, user, actor, conversation));
           continue;
         }
@@ -1466,7 +1503,7 @@ export class TaskGraphService {
               ? true
               : scope === "assignee"
                 ? sameActor(n.assignee, targetAssignee)
-                : isPersonalChat || sameActor(n.assignee, userActor) || (!n.assignee && sameActor(n.created_by, userActor));
+                : isOwnPrivateOrAgentDirect || sameActor(n.assignee, userActor) || (!n.assignee && sameActor(n.created_by, userActor));
           if (activeInScope) active.push(this.projectNodeCard(d, n, user, actor, conversation));
         }
       }

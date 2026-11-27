@@ -65,16 +65,18 @@ await inspector.initialize().catch(error => process.stderr.write(`${String(error
 const machineBoot = process.platform === 'win32' ? await windowsHost('boot') : process.platform === 'darwin' ? execFileSync('/usr/sbin/sysctl', ['-n', 'kern.boottime'], {encoding:'utf8'}).trim() : (await readFile('/proc/sys/kernel/random/boot_id','utf8')).trim();
 await installBuiltinSkills(join(configuration.ownerRoot, 'skills'));
 for (const agent of config.agents) {
-  // Persisted explicit tool restrictions may leave new Dreaming or legacy PA proactive_planning unavailable after upgrade.
-  const roleFeatures = definitionsForRole(Boolean(agent.personal_agent)).filter(
+  // Persisted explicit tool restrictions may leave new Dreaming or legacy proactive_planning unavailable after upgrade.
+  const workMode = agent.work_mode === 'global' ? 'global' : 'single_thread';
+  const roleFeatures = definitionsForRole(Boolean(agent.personal_agent), undefined, workMode).filter(
     feature => feature.key !== 'dreaming' && (feature.key !== 'proactive_planning' || agent.features?.proactive_planning !== undefined),
   );
-  const invalid = validateCapabilities(agent, {features: roleFeatures});
+  const invalid = validateCapabilities({...agent, work_mode: workMode}, {features: roleFeatures});
   if (invalid.length) throw new Error(`Invalid capability dependencies for ${agent.agent_id}: ${JSON.stringify(invalid)}`);
 }
 const agents: AgentConfiguration[] = config.agents.map(agent => configuration.runtime(agent));
 const store = new NodeStore(join(home, 'node.sqlite3'), config.node.user_id);
 const inbox = new InboxStore(join(home, 'global.sqlite3'));
+inbox.attachToolReferences(store.toolReferences);
 let agentLifecycle: NodeAgentLifecycle;
 let lifecycleSync: Promise<void> = Promise.resolve();
 const supervisors = new Map<string, RuntimeSupervisor>();
@@ -686,7 +688,8 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
       heartbeat.release(candidate.agent_id, intent.operation_id);
       return {ready: false, error_code: 'capability_in_use', message: 'Heartbeat is active', blocks: [{code: 'capability_busy', target: {kind: 'feature', name: 'heartbeat'}}]};
     }
-    const candidateProactive = effectiveFeatures(candidate.features, definitionsForRole(Boolean(candidate.personal_agent)), candidate).proactive_planning === true;
+    const candidateMode = candidate.work_mode === 'global' ? 'global' : 'single_thread';
+    const candidateProactive = effectiveFeatures(candidate.features, definitionsForRole(Boolean(candidate.personal_agent), undefined, candidateMode), candidate).proactive_planning === true;
     const withdrawProactive = Boolean(previous && isProactivePlanningEnabled(previous) && !candidateProactive);
     if (withdrawProactive && !proactiveCoordinator.hold(candidate.agent_id, intent.operation_id)) {
       heartbeat.release(candidate.agent_id, intent.operation_id);
