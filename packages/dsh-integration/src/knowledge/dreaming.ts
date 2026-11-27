@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { DEFAULT_DREAMING_SCHEDULE } from '@nano/product-contracts';
+import { definitionsForRole, effectiveCapabilityFeatures } from '@nano/product-contracts/capabilities';
 import { lstat, mkdir, readFile, writeFile, readdir, chmod, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
@@ -8,6 +9,7 @@ import { SessionId, SessionSeq, snapshotSessionEvent } from '@deepseek-ai/dsh-se
 import { SUBAGENT_DESCRIPTOR_VERSION, type OneShotSubagentDescriptorData } from '@deepseek-ai/dsh-subagent';
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm';
 import { renderPrompt } from '@deepseek-ai/dsh-system-prompt';
+import { capabilityDraft } from '../capability-state.js';
 import { assembleAgentPrompt } from '../prompt-assembly.js';
 import type { AgentConfiguration, SessionBinding } from '../index.js';
 import type { DocumentMemory } from './document-memory.js';
@@ -282,13 +284,28 @@ export class Dreaming {
     return this.start(parent, true);
   }
   private async refreshSources(parent: Agent, config: AgentConfiguration, signal: AbortSignal, includePendingTaskContext = false): Promise<DreamingPendingTaskContext[]> {
-    if (!config.personal && (config.mode !== 'global' || !includePendingTaskContext)) return [];
+    const effectiveFeatures = effectiveCapabilityFeatures(
+      capabilityDraft(config),
+      definitionsForRole(Boolean(config.personal), undefined, config.mode === 'global' ? 'global' : 'single_thread'),
+    );
+    const canPrefetchGlobalTaskContext = config.mode === 'global'
+      && includePendingTaskContext
+      && effectiveFeatures.task_graph === true
+      && (!config.toolAllowlist || config.toolAllowlist.includes('task_graph'));
+    if (!config.personal && !canPrefetchGlobalTaskContext) return [];
     if (config.personal) await this.documents.sourcesPending(config.agentId);
-    const response = await this.ctx.nanoProduct.call(
-      'memory.sources.refresh',
-      includePendingTaskContext ? { includePendingTaskContext: true } : {},
-      { agent: parent, signal, callId: ToolCallId(`dreaming-policy-${randomUUID()}`) },
-    ) as { pendingTaskContext?: unknown } | undefined;
+    let response: { pendingTaskContext?: unknown } | undefined;
+    try {
+      response = await this.ctx.nanoProduct.call(
+        'memory.sources.refresh',
+        includePendingTaskContext ? { includePendingTaskContext: true } : {},
+        { agent: parent, signal, callId: ToolCallId(`dreaming-policy-${randomUUID()}`) },
+      ) as { pendingTaskContext?: unknown } | undefined;
+    } catch (error) {
+      // PA source eligibility is fail-closed; non-PA Global has no source ACL table and only prefetches unconsumed task-context when the host exposes memory.sources.refresh.
+      if (config.personal || signal.aborted) throw error;
+      return [];
+    }
     if (!includePendingTaskContext || !Array.isArray(response?.pendingTaskContext)) return [];
     return response.pendingTaskContext.filter((item): item is DreamingPendingTaskContext =>
       !!item && typeof item === 'object'
