@@ -45,6 +45,16 @@
 - **`feat-795`**：新增一级「同事（`/people`）」目录、聊天侧栏同事筛选/搜索及群内 `PersonPopover` 个人名片，全部统一调用 `<Avatar id={user_id} />`。
 - **`feat-790` / `feat-799`**：落地 Crewden Desktop 多服务切换、按服务/账号隔离及一屏化注册与首次引导。
 
+## 五端对齐矩阵
+
+| 平台 | 处置方式 | 受影响范围与理由 | 下游验证投影 |
+|---|---|---|---|
+| `Web` | `native-sync` | `src/IM/frontend` 新增 `AvatarCropDialog`、`avatarBlobStore`、全站 `<Avatar>` 受保护图片渲染、账号页头像管理及 `user.profile_updated` 实时流同步 | 前端单测 + 隔离真栈桌面/移动走查 |
+| `Desktop (macOS)` | `shared` | 主窗口直接内嵌 `src/IM/frontend` 打包产物并通过 `apps/desktop` 既有 `/im/*` 与 `/im/ws/user` 本机反代透明承载受保护头像上传、裁剪与内存 `blob:` 渲染 | 同 Web 前端回归与反代契约 |
+| `Desktop (Windows)` | `shared` | 与 macOS 共享主窗口 `src/IM/frontend` 打包产物及 `/im/*` 本机反代链路 | 同 Web 前端回归与反代契约 |
+| `iOS` | `native-sync` | `src/IM/ios` 新增 `PhotosPicker` + `AvatarCropSheet`、`AvatarImageStore` 纯内存缓存、`ChatRepository` v9 `actors.avatar_version` 元数据迁移及 `user.profile_updated` 同步 | `NanoIMTests` + `NanoIMJourney` 真栈模拟器验证 |
+| `Node (macOS / Windows / Linux)` | `platform-exempt` | 真人自定义头像与 `avatar_version` 仅投影在人类客户端 HTTP/WS 出口，不进入节点或模型运行时（`packages/personal-assistant/src/tool-references.ts` 附带纵深防御剥离） | `tool-references.test.ts` + `user-avatar.test.ts` |
+
 ## 架构总览
 
 修改前，真人账号无持久头像资产，三端固定渲染首字母圆章；修改后，`im-server` 以每账号串行互斥方式管理单槽位 `256×256` 静态 WebP 文件与 12 位随机 hex `avatar_version`，**仅在面向人类客户端的 HTTP 响应与浏览器/iOS `user-stream` 出口**批量附着最新 `avatar_version`（内部 `messaging.message()`、PA 证据与 Gateway 通道保持纯净不变），三端经认证通道单飞拉取内存图像并在加载/离线时零抖动回退首字母圆章。
