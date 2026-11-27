@@ -70,9 +70,60 @@ jobs:
     with:
       commit: ${{ inputs.commit }}
       version: ${{ inputs.version }}
+  sign-macos:
+    needs: [source, desktop]
+    if: needs.source.outputs.desktop == 'true'
+    environment: macos-distribution
+    # Set this to a protected, pre-provisioned signing runner. On a repository
+    # without signing infrastructure the hosted runner fails with a diagnostic.
+    runs-on: ${{ vars.MACOS_SIGNING_RUNNER || 'macos-26' }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: unsigned-test-desktop-darwin-arm64-${{ inputs.commit }}
+          path: candidate
+      - name: Sign native code and notarize and staple the app and disk image
+        env:
+          MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+          MACOS_NOTARY_PROFILE: ${{ vars.MACOS_NOTARY_PROFILE }}
+        run: python3 packaging/desktop/macos/distribution.py sign candidate signed
+      - uses: actions/upload-artifact@v4
+        with:
+          name: signed-desktop-darwin-arm64-${{ inputs.commit }}
+          path: signed/
+          if-no-files-found: error
+          compression-level: 0
+  verify-macos:
+    needs: sign-macos
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-desktop-darwin-arm64-${{ inputs.commit }}
+          path: signed
+      - name: Check tickets, publisher, Gatekeeper, seed and first startup from the final DMG
+        env:
+          MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
+        run: python3 packaging/desktop/macos/distribution.py verify signed
   publish:
-    needs: [source, windows, desktop]
-    if: always() && needs.source.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped')
+    needs: [source, windows, desktop, verify-macos]
+    if: always() && needs.source.result == 'success' && (needs.windows.result == 'success' || needs.windows.result == 'skipped') && ((needs.desktop.result == 'success' && needs.verify-macos.result == 'success') || (needs.source.outputs.desktop == 'false' && needs.desktop.result == 'skipped'))
     runs-on: ubuntu-latest
     steps:
       # Keep publishing policy from this workflow revision, even for older source commits.
@@ -101,7 +152,7 @@ jobs:
       - uses: actions/download-artifact@v4
         if: needs.desktop.result == 'success'
         with:
-          name: desktop-darwin-arm64-${{ inputs.commit }}
+          name: signed-desktop-darwin-arm64-${{ inputs.commit }}
           path: dist/node-release/desktop-darwin-arm64
       - uses: actions/download-artifact@v4
         if: needs.desktop.result == 'success'

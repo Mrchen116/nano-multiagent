@@ -89,6 +89,7 @@ describe('PublicHomePage multi-platform client download entry', () => {
 
     const macCard = screen.getByTestId('download-card-macos');
     expect(within(macCard).getByText('当前设备')).toBeInTheDocument();
+    expect(within(macCard).getByText(/macOS 15\.0\+ · Apple Silicon/)).toBeInTheDocument();
     expect(within(macCard).getByRole('link', { name: '下载 macOS 版' })).toHaveAttribute(
       'href',
       SAMPLE_MATERIALS.desktop_darwin_arm64.download_url,

@@ -26,6 +26,25 @@ IM 提供 `/install.sh` 与 `/install/manifest.json`，旧 `/install/nano-node.t
 
 `IM_PUBLIC_URL` 必须是用户实际访问的 IM origin，安装材料从该地址生成；不要用请求 Host 代替部署配置。更新 IM 时按变更重建 Web 产物；Node 安装包按上面的独立授权流程发布。首次使用者可直接在网页注册、绑定空节点和配置模型；下文手工 config 启动仍用于开发与运维。
 
+### Mac 桌面包分发
+
+Crewden Desktop 支持 macOS 15.0 及以上的 Apple Silicon Mac。v2.2.0 的历史 DMG 使用 ad-hoc 应用签名，缺少公证票据。正式发布策略从包含此修复的工作流开始生效，历史资产保持原版本。
+
+PR 产生 `unsigned-test-desktop-darwin-arm64-<SHA>` 内测 artifact。验证器挂载 DMG、对照包内与 OTA 归档、检查原生 arm64 最低版本，并从磁盘映像拷出 app 验证离线首启和运行时。单独复验可在 Apple Silicon Mac 上用 Python 3.11+ 运行：
+
+```sh
+python3 packaging/desktop/macos/distribution.py verify candidate --unsigned-test
+```
+
+组织运维应为受保护的 `macos-distribution` 环境预配专用临时 macOS 签名 runner，只允许受信发布工作流使用。在仓库变量 `MACOS_SIGNING_RUNNER` 指定其标签，`MACOS_TEAM_ID` 指定预期开发团队。该环境的 `MACOS_SIGNING_IDENTITY` 指向已有的完整 Developer ID Application 身份名，`MACOS_NOTARY_PROFILE` 指向已有的 notarytool 钥匙串凭据配置。runner 需提供 Xcode 命令行工具并允许无交互签名。业务凭据由组织管理，脚本只引用现成身份和配置名。
+
+签名 runner 对已经测试的候选包内原生文件签名，重新计算种子和 OTA 校验值，依次公证并装订 app 和最终 DMG。独立的 GitHub macOS 15 runner 检查签名团队、两张票据与 Gatekeeper，再从最终包验证首次启动。发布只接收同一工作流中通过该检查的签名产物。需要在正式发布前独立验收时，在签名 runner 执行第一条命令，将完整输出目录交给干净的 Mac 执行第二条。两条命令都不会创建 GitHub Release。
+
+```sh
+python3 packaging/desktop/macos/distribution.py sign candidate signed
+MACOS_TEAM_ID="$expected_team" python3 packaging/desktop/macos/distribution.py verify signed
+```
+
 ### GitHub 发行说明格式
 
 每版 Release 的正文使用以下三个二级标题，按表中顺序排列。发布者为前两节提供 Markdown 正文，标题和最后一节由[发布脚本](../../scripts/publish-node-release.mjs)生成。

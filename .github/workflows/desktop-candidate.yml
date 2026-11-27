@@ -36,7 +36,7 @@ permissions:
 
 jobs:
   macos-arm64:
-    runs-on: macos-26
+    runs-on: macos-15
     env:
       RELEASE_VERSION: ${{ inputs.version }}
     steps:
@@ -56,6 +56,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: apps/desktop
+      - name: Use the product deployment target for native code
+        run: echo "MACOSX_DEPLOYMENT_TARGET=$(jq -r '.bundle.macOS.minimumSystemVersion' apps/desktop/tauri.conf.json)" >> "$GITHUB_ENV"
       - name: Build workspace, frontend, and Tauri host
         run: |
           pnpm install --frozen-lockfile
@@ -67,44 +69,11 @@ jobs:
           cargo build --manifest-path apps/desktop/Cargo.toml --release
       - name: Package Crewden-Desktop-arm64.dmg and split archives
         run: python3 scripts/package-macos-desktop.py --out-dir dist/desktop-macos-release
-      - name: Smoke-test packaged Crewden.app seed extraction and bundled Node 24.22.1
-        run: |
-          ISO_ROOT="$(mktemp -d "${RUNNER_TEMP:-/tmp}/crewden-mac-smoke.XXXXXX")"
-          HOST_PID=""
-          cleanup_smoke() {
-            if [ -n "$HOST_PID" ] && kill -0 "$HOST_PID" 2>/dev/null; then
-              dist/desktop/Crewden.app/Contents/MacOS/crewden-desktop --isolated-root "$ISO_ROOT" --stop 2>/dev/null || true
-              kill "$HOST_PID" 2>/dev/null || true
-              wait "$HOST_PID" 2>/dev/null || true
-            fi
-            rm -rf "$ISO_ROOT"
-          }
-          trap cleanup_smoke EXIT
-          PATH="/usr/bin:/bin:/usr/sbin:/sbin" dist/desktop/Crewden.app/Contents/MacOS/crewden-desktop --isolated-root "$ISO_ROOT" --headless-host &
-          HOST_PID=$!
-          HOST_READY=0
-          for _ in $(seq 1 300); do
-            if ! kill -0 "$HOST_PID" 2>/dev/null; then
-              echo "Crewden.app headless host exited prematurely" >&2
-              exit 1
-            fi
-            if python3 -c 'import json, pathlib, sys; p = pathlib.Path(sys.argv[1]); data = json.loads(p.read_text()) if p.is_file() else {}; raise SystemExit(0 if data.get("ready") is True and data.get("port") else 1)' "$ISO_ROOT/desktop/host-state.json" 2>/dev/null; then
-              HOST_READY=1
-              break
-            fi
-            sleep 0.5
-          done
-          test "$HOST_READY" = "1"
-          SHA="$(python3 -c 'import json; print(json.load(open("dist/desktop-macos-release/manifest.desktop-darwin-arm64.json"))["sha256"])')"
-          NODE_BIN="$ISO_ROOT/desktop/versions/$SHA/runtime/bin/node"
-          test "$("$NODE_BIN" -v)" = "v24.22.1"
-          "$NODE_BIN" "$ISO_ROOT/desktop/versions/$SHA/apps/node/lib/cli.js" --help >/dev/null
-          dist/desktop/Crewden.app/Contents/MacOS/crewden-desktop --isolated-root "$ISO_ROOT" --stop
-          wait "$HOST_PID" || true
-          HOST_PID=""
+      - name: Verify and start the app copied from the unsigned test DMG
+        run: python3 packaging/desktop/macos/distribution.py verify dist/desktop-macos-release --unsigned-test
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-darwin-arm64-${{ inputs.commit || github.sha }}
+          name: unsigned-test-desktop-darwin-arm64-${{ inputs.commit || github.sha }}
           path: dist/desktop-macos-release/
           if-no-files-found: error
           compression-level: 0

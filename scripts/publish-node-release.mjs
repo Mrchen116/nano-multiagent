@@ -108,6 +108,8 @@ for (const spec of desktopSpecs) {
   if (!dm && existsSync(join(root, spec.scriptGate)))
     throw new Error(`The selected source requires its matching Desktop build (${spec.platform})`);
   if (!dm) continue;
+  if (spec.platform === 'desktop-darwin-arm64' && dm.macos_distribution !== 'developer-id-notarized')
+    throw new Error('macOS release requires the verified Developer ID distribution artifact');
   if (dm.package !== spec.descriptorName || dm.platform !== spec.platform
       || dm.version !== version || dm.source_commit !== revision
       || dm.updater_protocol !== 1 || dm.data_epoch !== 1 || dm.shell_protocol !== 1
