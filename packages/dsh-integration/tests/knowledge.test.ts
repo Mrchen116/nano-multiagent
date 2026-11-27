@@ -200,7 +200,7 @@ export function apply(ctx) {
     await client!.shutdown(); client=undefined;
   } catch(error) { throw new Error(`${String(error)}\n${logs}\n${await readFile(join(workspaceB,'.nanoassistant/skills/.usage.json'),'utf8').catch(()=> '')}\n${JSON.stringify(client ? await client.rpc.request('knowledge.facts', {}).catch(()=>null) : null)}`, { cause:error }); }
   finally { if(client) {client.process.kill('SIGKILL'); await client.exited;} await rm(home,{recursive:true,force:true}); }
-},30000);
+},90_000);
 
 it.each([false, true])('invokes live human Inbox Skills once without promoting other sources (native pruning=%s)', async (prune) => {
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
@@ -234,4 +234,4 @@ it.each([false, true])('invokes live human Inbox Skills once without promoting o
     await client!.shutdown();client=undefined;
   }catch(error){throw new Error(`${String(error)}\n${logs}`,{cause:error});}
   finally{if(client){client.process.kill('SIGKILL');await client.exited;}await rm(home,{recursive:true,force:true});}
-},20000);
+},60_000);

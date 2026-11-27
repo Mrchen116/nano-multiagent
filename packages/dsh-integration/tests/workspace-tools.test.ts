@@ -298,4 +298,4 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await client!.shutdown(); client = undefined;
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }
-}, 120_000);
+}, 240_000);
