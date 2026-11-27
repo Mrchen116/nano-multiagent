@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { expect, it } from 'vitest';
 import {
   PLAYWRIGHT_EXTENSION_ID,
+  PLAYWRIGHT_EXTENSION_LEGACY_TOKEN_URL,
   PLAYWRIGHT_EXTENSION_STORE_URL,
   PLAYWRIGHT_EXTENSION_TOKEN_URL,
   browserCommand,
@@ -52,10 +53,11 @@ it('auto-opens Chrome Web Store, transitions to token page once extension lands 
       openChromeUrl: async (_exe, profile, url) => {
         openedUrls.push({ profile, url });
         if (url === PLAYWRIGHT_EXTENSION_STORE_URL) {
-          // Simulate user clicking "Add to Chrome -> Add extension" so manifest lands on disk.
-          const extVersionDir = join(userDataDir, 'Default', 'Extensions', PLAYWRIGHT_EXTENSION_ID, '0.5.2_0');
+          // Simulate user clicking "Add to Chrome -> Add extension" so manifest + manage.html (0.6.0+) land on disk.
+          const extVersionDir = join(userDataDir, 'Default', 'Extensions', PLAYWRIGHT_EXTENSION_ID, '0.6.0_0');
           await mkdir(extVersionDir, { recursive: true });
-          await writeFile(join(extVersionDir, 'manifest.json'), JSON.stringify({ version: '0.5.2' }));
+          await writeFile(join(extVersionDir, 'manifest.json'), JSON.stringify({ version: '0.6.0' }));
+          await writeFile(join(extVersionDir, 'manage.html'), '<!doctype html>');
         } else if (url === PLAYWRIGHT_EXTENSION_TOKEN_URL) {
           resolvePrompt(`PLAYWRIGHT_MCP_EXTENSION_TOKEN=${SAMPLE_TOKEN}`);
         }
@@ -204,6 +206,20 @@ it('enforces owner_id isolation and extension prerequisite in local-admin manage
     });
     expect(disconnected.browser.state).toBe('not_paired');
     await expect(stat(pairingPath)).rejects.toThrow();
+
+    // Legacy 0.5.x bundle with status.html falls back cleanly to status.html, while newer 0.6.0+ prefers manage.html.
+    const legacyDir = join(userDataDir, 'Profile 1', 'Extensions', PLAYWRIGHT_EXTENSION_ID, '0.5.0_0');
+    await writeFile(join(legacyDir, 'status.html'), '<!doctype html>');
+    const legacyOpened: string[] = [];
+    await openDailyBrowserGuide(pairingPath, 'Profile 1', 'token', {
+      platform: 'darwin',
+      chromeExecutable: fakeChrome,
+      userDataDir,
+      openChromeUrl: (_exe, _profile, url) => {
+        legacyOpened.push(url);
+      },
+    });
+    expect(legacyOpened).toEqual([PLAYWRIGHT_EXTENSION_LEGACY_TOKEN_URL]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

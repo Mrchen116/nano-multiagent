@@ -365,16 +365,22 @@ export function BrowserPairingSection({
                         {tokenPageOpened
                           ? targetHostLabel
                             ? text(
-                                `已在「${targetHostLabel}」的 Chrome 打开 Token 页，复制后粘贴到下方即可。`,
-                                `Opened the token page in Chrome on ${targetHostLabel} — copy and paste it below.`,
+                                `已在「${targetHostLabel}」的 Chrome 打开扩展 Token 管理页，复制下方 Token 粘贴即可。`,
+                                `Opened the extension token page in Chrome on ${targetHostLabel} — copy and paste the token below.`,
                               )
-                            : text("已在 Chrome 打开 Token 页面，复制后粘贴到下方即可。", "Opened the token page in Chrome — copy and paste it below.")
+                            : text(
+                                "已在 Chrome 打开扩展 Token 管理页（也可点击地址栏右侧 Playwright 图标），复制后粘贴到下方即可。",
+                                "Opened the extension token page in Chrome (or click the Playwright toolbar icon) — copy and paste it below.",
+                              )
                           : targetHostLabel
                             ? text(
-                                `点击右侧将在「${targetHostLabel}」屏幕上的 Chrome 打开 Token 页。`,
-                                `Opens the extension token page in Chrome on ${targetHostLabel}.`,
+                                `点击右侧将在「${targetHostLabel}」屏幕上的 Chrome 打开扩展 Token 管理页（或直接点地址栏右侧 Playwright 图标）。`,
+                                `Opens the extension token page in Chrome on ${targetHostLabel} (or click the Playwright toolbar icon).`,
                               )
-                            : text("点击右侧打开扩展 Token 页并复制。", "Open the extension token page in Chrome and copy the token.")}
+                            : text(
+                                "点击右侧打开扩展 Token 管理页（或点地址栏右侧 Playwright 图标）并复制。",
+                                "Open the extension token page in Chrome (or click the Playwright toolbar icon) and copy the token.",
+                              )}
                       </span>
                     </span>
                   ) : waitingExtension ? (

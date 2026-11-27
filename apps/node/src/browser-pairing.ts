@@ -32,6 +32,8 @@ export const PLAYWRIGHT_EXTENSION_ID = 'mmlmfjhmonkocbjadbfplnigmagldckm';
 export const PLAYWRIGHT_EXTENSION_STORE_URL =
   'https://chromewebstore.google.com/detail/playwright-extension/mmlmfjhmonkocbjadbfplnigmagldckm';
 export const PLAYWRIGHT_EXTENSION_TOKEN_URL =
+  'chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/manage.html';
+export const PLAYWRIGHT_EXTENSION_LEGACY_TOKEN_URL =
   'chrome-extension://mmlmfjhmonkocbjadbfplnigmagldckm/status.html';
 
 const PROFILE_PATTERN = /^(Default|Profile [0-9]+)$/;
@@ -122,19 +124,48 @@ function defaultChromeUserDataDir(platform: NodeJS.Platform): string | null {
   return null;
 }
 
-async function hasValidExtensionInProfile(userDataDir: string | null, profile: string): Promise<boolean> {
-  if (!userDataDir || !PROFILE_PATTERN.test(profile)) return false;
+function compareVersionsDesc(a: string, b: string): number {
+  const left = a.split('.').map(Number);
+  const right = b.split('.').map(Number);
+  const len = Math.max(left.length, right.length);
+  for (let i = 0; i < len; i += 1) {
+    const diff = (right[i] ?? 0) - (left[i] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
+
+async function listValidExtensionVersions(
+  userDataDir: string | null,
+  profile: string,
+): Promise<{ dir: string; version: string }[]> {
+  if (!userDataDir || !PROFILE_PATTERN.test(profile)) return [];
   const extDir = join(userDataDir, profile, 'Extensions', PLAYWRIGHT_EXTENSION_ID);
   const entries = await readdir(extDir).catch(() => []);
+  const matched: { dir: string; version: string }[] = [];
   for (const entry of entries) {
-    const manifest = await readFile(join(extDir, entry, 'manifest.json'), 'utf8')
+    const dir = join(extDir, entry);
+    const manifest = await readFile(join(dir, 'manifest.json'), 'utf8')
       .then(raw => JSON.parse(raw) as { version?: unknown })
       .catch(() => undefined);
     if (typeof manifest?.version === 'string' && versionAtLeast(manifest.version, [0, 5, 0])) {
-      return true;
+      matched.push({ dir, version: manifest.version });
     }
   }
-  return false;
+  return matched.sort((a, b) => compareVersionsDesc(a.version, b.version));
+}
+
+async function hasValidExtensionInProfile(userDataDir: string | null, profile: string): Promise<boolean> {
+  return (await listValidExtensionVersions(userDataDir, profile)).length > 0;
+}
+
+async function resolveExtensionTokenUrl(userDataDir: string | null, profile: string): Promise<string> {
+  const versions = await listValidExtensionVersions(userDataDir, profile);
+  for (const { dir } of versions) {
+    if (await pathExists(join(dir, 'manage.html'))) return PLAYWRIGHT_EXTENSION_TOKEN_URL;
+    if (await pathExists(join(dir, 'status.html'))) return PLAYWRIGHT_EXTENSION_LEGACY_TOKEN_URL;
+  }
+  return PLAYWRIGHT_EXTENSION_TOKEN_URL;
 }
 
 function profileSortRank(profile: string): number {
@@ -227,7 +258,11 @@ async function openChromeProfileUrl(
   if (!PROFILE_PATTERN.test(profile)) {
     throw new Error('Use the Chrome profile directory name, such as Default or Profile 1.');
   }
-  if (url !== PLAYWRIGHT_EXTENSION_STORE_URL && url !== PLAYWRIGHT_EXTENSION_TOKEN_URL) {
+  if (
+    url !== PLAYWRIGHT_EXTENSION_STORE_URL &&
+    url !== PLAYWRIGHT_EXTENSION_TOKEN_URL &&
+    url !== PLAYWRIGHT_EXTENSION_LEGACY_TOKEN_URL
+  ) {
     throw new Error('Refusing to open non-allowlisted browser setup URL.');
   }
   if (deps?.openChromeUrl) {
@@ -386,9 +421,14 @@ export async function openDailyBrowserGuide(
   if (!executable) {
     throw new Error('Install Google Chrome before connecting your daily browser.');
   }
+  const userDataDir =
+    deps?.userDataDir !== undefined ? deps.userDataDir : defaultChromeUserDataDir(platform);
   const opened: 'store' | 'token' =
     target === 'store' || (target === 'auto' && !status.extension_installed) ? 'store' : 'token';
-  const url = opened === 'store' ? PLAYWRIGHT_EXTENSION_STORE_URL : PLAYWRIGHT_EXTENSION_TOKEN_URL;
+  const url =
+    opened === 'store'
+      ? PLAYWRIGHT_EXTENSION_STORE_URL
+      : await resolveExtensionTokenUrl(userDataDir, profile);
   await openChromeProfileUrl(executable, profile, url, deps);
   return { browser: status, opened };
 }
@@ -586,7 +626,8 @@ export async function browserCommand(
       if ((platform === 'darwin' || platform === 'win32') && executable) {
         const installed = await hasValidExtensionInProfile(userDataDir, profile);
         if (installed) {
-          await openChromeProfileUrl(executable, profile, PLAYWRIGHT_EXTENSION_TOKEN_URL, deps);
+          const tokenUrl = await resolveExtensionTokenUrl(userDataDir, profile);
+          await openChromeProfileUrl(executable, profile, tokenUrl, deps);
           writeErr(`Opened Playwright Extension token page in Chrome (${profile}). Copy the token there.\n`);
         } else {
           await openChromeProfileUrl(executable, profile, PLAYWRIGHT_EXTENSION_STORE_URL, deps);
@@ -603,7 +644,8 @@ export async function browserCommand(
                 if (!ready || openedTokenPage) return;
                 openedTokenPage = true;
                 if (watcher) clearInterval(watcher);
-                await openChromeProfileUrl(executable, profile, PLAYWRIGHT_EXTENSION_TOKEN_URL, deps);
+                const tokenUrl = await resolveExtensionTokenUrl(userDataDir, profile);
+                await openChromeProfileUrl(executable, profile, tokenUrl, deps);
                 writeErr(
                   `\nDetected Playwright Extension in Chrome (${profile}) — opened token page. Copy and paste the token: `,
                 );
