@@ -3,7 +3,14 @@ import UIKit
 
 /// A fixed physical endpoint avoids asking the lazy layout to solve a complex final row.
 /// Completion still belongs to the coordinator's actual final-message geometry.
-enum ChatScrollEndpoint: Hashable { case latest }
+enum ChatScrollEndpoint: Hashable {
+    case latest
+
+    static let rowSpacing: CGFloat = 12
+    static let contentMargin: CGFloat = 16
+    static let markerHeight: CGFloat = 1
+    static let tailGap = rowSpacing + markerHeight + contentMargin
+}
 
 /// Reads one live UIKit coordinate tree rather than combining independently delivered frames.
 /// The persistent content marker identifies only this timeline's nearest scroll ancestor.

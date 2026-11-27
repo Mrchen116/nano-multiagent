@@ -80,7 +80,7 @@ final class ChatScrollCoordinator {
         let viewport: CGRect
         let latestID: String?
         let tail: CGRect
-        let anchorGeometry: ChatScrollGeometryAdapter.Snapshot?
+        let rowGeometry: ChatScrollGeometryAdapter.Snapshot?
     }
 
     var readingHistory: Bool { policy.intent == .history }
@@ -338,16 +338,24 @@ final class ChatScrollCoordinator {
     private func correctLayout() {
         guard messageScroller != nil, let geometry, !viewport.isEmpty else { return }
         updateButton()
-        let anchorGeometry = policy.anchor.flatMap { physicalGeometry.snapshot(for: $0.id) }
+        let rowID = policy.intent == .latest ? latestID : policy.anchor?.id
+        let rowGeometry = rowID.flatMap { physicalGeometry.snapshot(for: $0) }
         let key = CorrectionKey(revision: policy.revision, offset: geometry.contentOffset.y,
                                 height: geometry.contentSize.height, viewport: viewport, latestID: latestID, tail: tail,
-                                anchorGeometry: anchorGeometry)
+                                rowGeometry: rowGeometry)
         guard key != lastCorrection else { return }
         if policy.intent == .latest {
-            guard let latestID, !atBottom else { return }
-            if requestMessage(latestID, anchor: .bottom) { lastCorrection = key }
+            guard let latestID else { return }
+            if !atBottom {
+                if requestMessage(latestID, anchor: .bottom) { lastCorrection = key }
+            } else if let snapshot = rowGeometry, snapshot.bottomLimit - snapshot.topLimit > 1,
+                      snapshot.viewport.maxY - snapshot.row.maxY > ChatScrollEndpoint.tailGap + 2 {
+                // After a resize, the tail can be visible above a blank area in a scrollable chat.
+                let targetY = snapshot.viewport.height - snapshot.row.height - ChatScrollEndpoint.tailGap
+                if physicalGeometry.restore(snapshot, id: latestID, viewportY: targetY) { lastCorrection = key }
+            }
         } else if let anchor = policy.anchor {
-            if let snapshot = anchorGeometry {
+            if let snapshot = rowGeometry {
                 guard abs(snapshot.delta(to: anchor.viewportY)) > 1 else { pendingMessageGeometry = nil; return }
                 if let pending = pendingMessageGeometry,
                    pending.id == anchor.id, pending.revision == policy.revision,
