@@ -329,11 +329,6 @@ fn publish_seed_runtime(stage: &Path, target: &Path) -> Result<(), String> {
     // Move only a junction into the content-addressed slot. Open files in the
     // backing directory (including the Node used for layout) can stay open.
     let link = stage.with_added_extension("junction");
-    match fs::remove_dir(&link) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(format!("Remove stale runtime junction {}: {e}", link.display())),
-    }
     let node = stage.join(standalone_node_rel_path());
     let mut cmd = Command::new(&node);
     configure_hidden_command(&mut cmd);
@@ -418,13 +413,14 @@ pub fn ensure_seed_bundle_installed(
 
     let final_runtime_root = runtimes_dir.join(runtime_sha);
     if !final_runtime_root.join(".ready").is_file() {
-        #[cfg(windows)]
-        let stage = runtimes_dir.join(format!(".seed-rt-{runtime_sha}-{}", std::process::id()));
-        #[cfg(not(windows))]
-        let stage = runtimes_dir.join(format!(".seed-rt-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&stage);
-        create_seed_directory(&stage)?;
-        extract_tar_gz(&cached_rt, &stage)?;
+        // A published Windows junction owns this backing directory for the life of
+        // the runtime. A later install must never recycle it, even after PID reuse.
+        let backing = tempfile::Builder::new()
+            .prefix("seed-content-")
+            .tempdir_in(&runtimes_dir)
+            .map_err(|e| format!("Create runtime directory in {}: {e}", runtimes_dir.display()))?;
+        let stage = backing.path();
+        extract_tar_gz(&cached_rt, stage)?;
         let node_bin = stage.join(standalone_node_rel_path());
         #[cfg(unix)]
         {
@@ -440,26 +436,26 @@ pub fn ensure_seed_bundle_installed(
             let out = cmd
                 .arg(&layout)
                 .arg("runtime")
-                .arg(&stage)
+                .arg(stage)
                 .arg(&final_runtime_root)
                 .output()
                 .map_err(|e| format!("Run {} with {}: {e}", layout.display(), node_bin.display()))?;
             if !out.status.success() {
-                let _ = fs::remove_dir_all(&stage);
                 return Err(format!(
                     "runtime layout.mjs failed: {}",
                     String::from_utf8_lossy(&out.stderr)
                 ));
             }
         }
-        mark_seed_ready(&stage, b"")?;
-        if final_runtime_root.exists() {
-            let _ = fs::remove_dir_all(&stage);
-        } else {
+        mark_seed_ready(stage, b"")?;
+        if !final_runtime_root.join(".ready").is_file() {
             #[cfg(windows)]
-            publish_seed_runtime(&stage, &final_runtime_root)?;
+            {
+                publish_seed_runtime(stage, &final_runtime_root)?;
+                let _ = backing.keep();
+            }
             #[cfg(not(windows))]
-            publish_seed_directory(&stage, &final_runtime_root)?;
+            publish_seed_directory(stage, &final_runtime_root)?;
         }
     }
 
