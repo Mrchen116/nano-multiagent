@@ -765,6 +765,13 @@
       border-top: 1px solid var(--im-border);
     }
 
+    .crop-dialog-foot { flex-wrap: wrap; }
+    .crop-dialog-foot-main { display: flex; gap: 8px; margin-left: auto; }
+    @media (max-width: 420px) {
+      .crop-dialog { padding: 16px; }
+      .crop-viewport, .crop-viewport canvas { width: 208px; height: 208px; }
+      .crop-dialog-foot { gap: 10px; }
+    }
     @media (max-width: 720px) {
       .settings-frame { padding: 18px 14px 32px; }
       .settings-section {
@@ -1049,7 +1056,7 @@
           <span id="mobile-self-avatar"></span>
           <div style="flex:1;min-width:0">
             <strong id="mobile-self-name">林夏</strong>
-            <span>u_linxia_01</span>
+            <span>@linxia</span>
           </div>
           <span style="font-size:20px;color:var(--im-text-muted)">›</span>
         </div>
@@ -1100,7 +1107,7 @@
       </div>
       <div class="crop-dialog-foot" style="justify-content:space-between">
         <button type="button" class="im-btn" id="pick-local-in-modal">重新选图…</button>
-        <div style="display:flex;gap:8px">
+        <div class="crop-dialog-foot-main">
           <button type="button" class="im-btn" id="cancel-crop-btn">取消</button>
           <button type="button" class="im-btn im-btn-primary" id="confirm-crop-btn">保存头像</button>
         </div>
@@ -1384,6 +1391,25 @@
       document.getElementById("avatar-file-input").click();
     });
 
+    let pendingObjectUrl = null;
+    function revokePendingObjectUrl() {
+      if (pendingObjectUrl) {
+        URL.revokeObjectURL(pendingObjectUrl);
+        pendingObjectUrl = null;
+      }
+    }
+    function downscaleIfNeeded(img) {
+      const maxDim = 2048;
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      if (w <= maxDim && h <= maxDim) return img;
+      const scale = maxDim / Math.max(w, h);
+      const c = document.createElement("canvas");
+      c.width = Math.round(w * scale);
+      c.height = Math.round(h * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      return c;
+    }
     document.getElementById("avatar-file-input").addEventListener("change", (ev) => {
       const file = ev.target.files && ev.target.files[0];
       if (!file) return;
@@ -1394,9 +1420,13 @@
         renderAll();
         return;
       }
+      revokePendingObjectUrl();
+      const objectUrl = URL.createObjectURL(file);
+      pendingObjectUrl = objectUrl;
       const img = new Image();
       img.onload = () => {
-        state.cropSource = img;
+        state.cropSource = downscaleIfNeeded(img);
+        revokePendingObjectUrl();
         state.cropZoom = 1.15;
         state.cropPanX = 0;
         state.cropPanY = 0;
@@ -1404,7 +1434,11 @@
         state.scene = "crop";
         renderAll();
       };
-      img.src = URL.createObjectURL(file);
+      img.onerror = () => {
+        revokePendingObjectUrl();
+        showFeedback("error", "图片无法解码，请选择其他静态图片。");
+      };
+      img.src = objectUrl;
     });
 
     document.querySelectorAll("[data-sample]").forEach((btn) => {
@@ -1440,19 +1474,29 @@
     viewport.addEventListener("pointerup", () => { dragStart = null; });
 
     const closeCrop = () => {
+      revokePendingObjectUrl();
       state.cropOpen = false;
       state.scene = "account";
       renderAll();
+      document.getElementById("open-crop-btn").focus();
     };
     document.getElementById("close-crop-x").addEventListener("click", closeCrop);
     document.getElementById("cancel-crop-btn").addEventListener("click", closeCrop);
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && state.cropOpen) {
+        ev.preventDefault();
+        closeCrop();
+      }
+    });
 
     document.getElementById("confirm-crop-btn").addEventListener("click", () => {
       state.selfAvatarUrl = cropToDataUrl(state.cropSource, state.cropZoom, state.cropPanX, state.cropPanY);
+      revokePendingObjectUrl();
       state.cropOpen = false;
       state.scene = "account";
       showFeedback("ok", "个人头像已更新，全站聊天与导航栏已同步生效。");
       renderAll();
+      document.getElementById("open-crop-btn").focus();
     });
 
     document.getElementById("remove-avatar-btn").addEventListener("click", () => {
@@ -1517,6 +1561,14 @@
     if (params.get("popover") === "1") { document.getElementById("person-popover").hidden = false; }
     if (params.get("error") === "1") {
       showFeedback("error", "不支持动态 GIF 或超过 5 MB 的文件，请选择静态 PNG、JPEG 或 WebP 图片（原头像未受影响）。");
+    }
+    if (params.get("lang") === "en") {
+      document.getElementById("crop-dialog-title").textContent = "Crop profile photo";
+      document.querySelector(".crop-controls-bar > span").textContent = "Zoom";
+      document.querySelector(".crop-live-preview > span").textContent = "Drag to reposition · Preview";
+      document.getElementById("pick-local-in-modal").textContent = "Choose another…";
+      document.getElementById("cancel-crop-btn").textContent = "Cancel";
+      document.getElementById("confirm-crop-btn").textContent = "Save avatar";
     }
     const initialScene = params.get("scene");
     if (initialScene && ["account", "crop", "chat", "mobile-me"].includes(initialScene)) {
