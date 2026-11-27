@@ -91,104 +91,118 @@
       color: #ffd7c2;
     }
 
-    /* Product App Shell */
+    /* Product App Shell (matches src/IM/frontend/src/app/shell/app-shell.css: 88px left rail + bottom-left UserMenu) */
     .app-shell {
       display: flex;
-      flex-direction: column;
-      min-height: 620px;
+      flex-direction: row;
+      min-height: 680px;
       background: var(--im-bg);
     }
+    .shell-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
 
-    .topbar {
-      height: 54px;
-      background: var(--im-surface);
-      border-bottom: 1px solid var(--im-border);
+    .im-shell-rail {
+      width: 88px;
+      flex-shrink: 0;
       display: flex;
+      flex-direction: column;
       align-items: center;
-      justify-content: space-between;
-      padding: 0 18px;
-      gap: 12px;
+      gap: 32px;
+      padding: 24px 10px 16px;
+      background: #f7f5fc;
+      border-right: 1px solid var(--im-border);
+      z-index: 40;
     }
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 9px;
-      font-weight: 700;
-      font-size: 16px;
-      letter-spacing: -0.02em;
-    }
-    .brand-mark {
-      width: 26px;
-      height: 26px;
-      border-radius: 8px;
-      background: var(--im-accent);
-      color: #fff;
+    .im-shell-brand-link {
       display: grid;
       place-items: center;
-      font-size: 13px;
-      font-weight: 800;
+      width: 48px;
+      height: 48px;
+      border-radius: 17px 17px 17px 5px;
+      background: #fff0b5;
+      color: var(--im-accent);
+      border: 0;
+      cursor: pointer;
     }
-    .nav-tabs {
+    .im-shell-tabs {
       display: flex;
-      align-items: center;
-      gap: 4px;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      flex: 1;
     }
     .nav-tab {
       border: 0;
       background: transparent;
       color: var(--im-text-muted);
       font-family: inherit;
-      font-size: 13.5px;
+      font-size: 12px;
       font-weight: 600;
-      padding: 7px 12px;
-      border-radius: 9px;
+      line-height: 1.25;
+      min-height: 64px;
+      padding: 9px 2px;
+      border-radius: 14px;
       cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
       white-space: nowrap;
     }
+    .nav-tab svg { width: 24px; height: 24px; }
+    .nav-tab:hover { background: rgba(255, 255, 255, 0.55); }
     .nav-tab[aria-selected="true"] {
-      background: var(--im-accent-soft);
+      background: #ffffff;
       color: var(--im-accent);
+      box-shadow: 0 2px 4px rgba(41, 53, 47, 0.04);
     }
     .user-menu-wrap { position: relative; }
     .user-trigger {
-      border: 2px solid transparent;
+      border: 0;
       background: transparent;
-      padding: 2px;
-      border-radius: 999px;
+      padding: 6px 10px;
+      border-radius: 12px;
       cursor: pointer;
-      display: inline-flex;
+      display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 8px;
     }
-    .user-trigger:hover { border-color: var(--im-accent-border); }
+    .user-trigger:hover, .user-trigger[aria-expanded="true"] { background: rgba(255, 255, 255, 0.55); }
     .user-popover {
       position: absolute;
-      right: 0;
-      top: calc(100% + 8px);
-      width: 236px;
+      bottom: 0;
+      left: calc(100% + 18px);
+      width: 280px;
       background: var(--im-surface);
       border: 1px solid var(--im-border);
-      border-radius: 14px;
-      box-shadow: var(--im-shadow-strong);
+      border-radius: 18px;
+      box-shadow: 0 12px 44px rgba(41, 53, 47, 0.14);
       padding: 8px;
-      z-index: 30;
+      z-index: 50;
     }
     .user-popover-head {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 8px 8px 10px;
-      border-bottom: 1px solid var(--im-border);
-      margin-bottom: 4px;
+      gap: 12px;
+      padding: 14px 12px;
+      background: #fff7dc;
+      border-radius: 12px;
+      margin-bottom: 6px;
     }
-    .user-popover-head strong { display: block; font-size: 14px; }
-    .user-popover-head span { display: block; font-size: 12px; color: var(--im-text-muted); }
+    .user-popover-head strong { display: block; font-size: 15px; font-weight: 650; }
+    .user-popover-head span { display: block; font-size: 12px; color: var(--im-text-muted); margin-top: 2px; }
     .user-popover-item {
       width: 100%;
       border: 0;
       background: transparent;
-      padding: 8px 10px;
-      border-radius: 9px;
+      min-height: 40px;
+      padding: 9px 12px;
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -850,7 +864,9 @@
       .crop-controls-bar { max-width: 208px; }
       .crop-dialog-foot { gap: 10px; }
     }
-    @media (max-width: 720px) {
+    @media (max-width: 767px) {
+      .app-shell { flex-direction: column; min-height: 100vh; }
+      .im-shell-rail { display: none; }
       .settings-frame { padding: 18px 14px 32px; }
       .settings-section {
         grid-template-columns: 1fr;
@@ -866,8 +882,6 @@
       }
       .sidebar { display: none; }
       .person-popover { left: 16px; right: 16px; width: auto; }
-      .topbar { padding: 0 12px; }
-      .nav-tab { padding: 6px 8px; font-size: 12.5px; }
     }
   </style>
 </head>
@@ -878,7 +892,7 @@
       <span class="proto-tag proto-tag--new">本次新增 / 修改</span>
       <span>账号页头像上传/圆形裁剪/移除 + 全站圆照片渲染与圆章回退</span>
       <span class="proto-tag proto-tag--bg">现有界面背景</span>
-      <span>顶栏、显示名表单、群聊与个人名片</span>
+      <span>左侧导航栏（左下角个人菜单）、显示名表单、群聊与个人名片</span>
     </div>
     <div class="proto-controls">
       <span class="proto-tag proto-tag--demo">仅演示控制</span>
@@ -894,19 +908,34 @@
   </aside>
 
   <div class="app-shell">
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand-mark">C</span>
-        <span>Crewden</span>
-      </div>
-      <nav class="nav-tabs" role="tablist" aria-label="主导航">
-        <button type="button" class="nav-tab" role="tab" data-nav="chat" aria-selected="false">聊天</button>
-        <button type="button" class="nav-tab" role="tab" data-nav="account" aria-selected="true">账号设置</button>
-        <button type="button" class="nav-tab" role="tab" data-nav="mobile-me" aria-selected="false">手机「我的」</button>
+    <header class="im-shell-rail" role="banner">
+      <button type="button" class="im-shell-brand-link" id="brand-home-btn" aria-label="Crewden">
+        <svg width="32" height="32" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M23 8H41C51.5 8 58 14.5 58 25V37C58 47.5 51.5 54 41 54H29L18.9 60.7C17.7 61.5 16 60.6 16 59.1V52.7C9.7 50.4 6 45.1 6 37V25C6 14.5 12.5 8 23 8ZM23 14C15.8 14 12 17.8 12 25V37C12 43.6 15 47 22 48.3V51.6L27 48H41C48.2 48 52 44.2 52 37V25C52 17.8 48.2 14 41 14H23Z" />
+          <rect x="21" y="24" width="7" height="12" rx="3.5" /><rect x="36" y="24" width="7" height="12" rx="3.5" />
+        </svg>
+      </button>
+      <nav class="im-shell-tabs" role="tablist" aria-label="主导航">
+        <button type="button" class="nav-tab" role="tab" data-nav="chat" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.75 5.25h10.5A2.75 2.75 0 0 1 20 8v6a2.75 2.75 0 0 1-2.75 2.75h-5.4L7 20v-3.25h-.25A2.75 2.75 0 0 1 4 14V8a2.75 2.75 0 0 1 2.75-2.75Z" stroke="currentColor" stroke-linejoin="round" stroke-width="1.8"/><path d="M8.25 11h7.5" stroke="currentColor" stroke-linecap="round" stroke-width="1.8"/></svg>
+          <span>聊天</span>
+        </button>
+        <button type="button" class="nav-tab" role="tab" data-nav-static="people" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="9.25" cy="8.25" r="2.75" stroke="currentColor" stroke-width="1.8"/><path d="M4 18.75v-.85C4 15.35 6.35 13.5 9.25 13.5s5.25 1.85 5.25 4.4v.85" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/><circle cx="16.25" cy="9" r="2.25" stroke="currentColor" stroke-width="1.8"/><path d="M16.5 13.75c2 .15 3.5 1.65 3.5 3.8v1.2" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/></svg>
+          <span>同事</span>
+        </button>
+        <button type="button" class="nav-tab" role="tab" data-nav-static="tasks" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="6" height="5" rx="1" stroke="currentColor" stroke-width="1.8"/><rect x="15" y="15" width="6" height="5" rx="1" stroke="currentColor" stroke-width="1.8"/><path d="M9 6.5h5a4 4 0 0 1 4 4V15M6 9v8.5h9" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          <span>任务</span>
+        </button>
+        <button type="button" class="nav-tab" role="tab" data-nav-static="agents" aria-selected="false">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6.3 14.9V9.7A2.6 2.6 0 0 1 7.6 7.45l3.1-1.8a2.6 2.6 0 0 1 2.6 0l3.15 1.82" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/><path d="M17.7 9.1v5.2a2.6 2.6 0 0 1-1.3 2.25l-3.1 1.8a2.6 2.6 0 0 1-2.6 0l-3.15-1.82" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"/><path d="m12 8.7 2.85 1.65v3.3L12 15.3l-2.85-1.65v-3.3L12 8.7Z" fill="currentColor"/><circle cx="17.75" cy="7.55" r="1.45" fill="currentColor"/><circle cx="6.25" cy="16.45" r="1.45" fill="currentColor"/></svg>
+          <span>助手</span>
+        </button>
       </nav>
       <div class="user-menu-wrap">
-        <button type="button" class="user-trigger" id="user-menu-trigger" aria-label="个人菜单">
-          <span id="topbar-self-avatar"></span>
+        <button type="button" class="user-trigger" id="user-menu-trigger" aria-label="个人菜单" title="个人菜单">
+          <span id="rail-self-avatar"></span>
         </button>
         <div class="user-popover" id="user-popover" hidden>
           <div class="user-popover-head">
@@ -922,6 +951,8 @@
         </div>
       </div>
     </header>
+
+    <div class="shell-main">
 
     <!-- Scene 1: Account Settings Page -->
     <main id="scene-account" class="settings-frame">
@@ -1166,6 +1197,7 @@
         </div>
       </div>
     </section>
+    </div>
   </div>
 
   <!-- Circular Crop Dialog -->
@@ -1333,8 +1365,8 @@
 
     function renderAll() {
       const name = state.savedName;
-      document.getElementById("topbar-self-avatar").innerHTML = personAvatarHtml(name, state.selfAvatarUrl, 34, false);
-      document.getElementById("popover-self-avatar").innerHTML = personAvatarHtml(name, state.selfAvatarUrl, 38, false);
+      document.getElementById("rail-self-avatar").innerHTML = personAvatarHtml(name, state.selfAvatarUrl, 36, false);
+      document.getElementById("popover-self-avatar").innerHTML = personAvatarHtml(name, state.selfAvatarUrl, 36, false);
       document.getElementById("popover-self-name").textContent = name;
       document.getElementById("account-self-avatar").innerHTML = personAvatarHtml(name, state.selfAvatarUrl, 56, false);
       document.getElementById("account-display-title").textContent = name;
@@ -1439,6 +1471,7 @@
       tab.addEventListener("click", () => setScene(tab.dataset.nav));
     });
 
+    document.getElementById("brand-home-btn").addEventListener("click", () => setScene("chat"));
     document.getElementById("user-menu-trigger").addEventListener("click", () => {
       const pop = document.getElementById("user-popover");
       pop.hidden = !pop.hidden;
