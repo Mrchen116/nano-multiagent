@@ -226,6 +226,16 @@ it('enforces owner_id isolation, probes workers with candidate PATH, validates e
     await controlLocalNodeLifecycle({ origin: 'https://im.example.com', ownerId: 'owner-alice', action: 'autostart-off', configPath });
     await expect(readFile(gatewayPlist(configPath), 'utf8')).rejects.toThrow();
 
+    // A failed native registration must restore the last saved preference.
+    const brokenRegistration = gatewayPlist(configPath);
+    await mkdir(brokenRegistration, { recursive: true });
+    await expect(controlLocalNodeLifecycle({
+      origin: 'https://im.example.com', ownerId: 'owner-alice', action: 'autostart-on', configPath,
+    })).rejects.toThrow();
+    expect((await inspectLocalNode({
+      origin: 'https://im.example.com', ownerId: 'owner-alice', configPath, supervisionOnly: true,
+    })).autostart).toBe(false);
+
     // 6. Workspace open allows regular files, blocks symlink escape, and blocks direct open on .sh while allowing reveal.
     const openedDoc = await resolveLocalWorkspaceTarget({
       origin: 'https://im.example.com',
