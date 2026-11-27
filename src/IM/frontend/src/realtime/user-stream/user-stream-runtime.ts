@@ -1,3 +1,4 @@
+import type { UserStreamNotificationHint } from "@nano/product-contracts";
 import type { SessionReadiness } from "../../features/auth/auth-session";
 import {
   UserStreamRecoveryError,
@@ -10,6 +11,7 @@ export interface UserStreamEvent {
   eventType: string;
   payload: Record<string, unknown>;
   eventId?: number;
+  notificationHint?: UserStreamNotificationHint;
 }
 
 export type UserStreamConnectionStatus = { kind: "reconnecting" | "cooldown"; retryAt: number } | null;
@@ -224,7 +226,17 @@ export function createUserStreamRuntime(dependencies: UserStreamRuntimeDependenc
     const rawEventId = typeof frame.event_id === "number" ? frame.event_id : payload.event_id;
     const eventId =
       typeof rawEventId === "number" && Number.isFinite(rawEventId) && rawEventId > 0 ? rawEventId : undefined;
-    return { eventType: frame.event_type, payload, ...(eventId === undefined ? {} : { eventId }) };
+    const rawHint = frame.notification_hint;
+    const notificationHint =
+      rawHint && typeof rawHint === "object" && !Array.isArray(rawHint)
+        ? (rawHint as UserStreamNotificationHint)
+        : undefined;
+    return {
+      eventType: frame.event_type,
+      payload,
+      ...(eventId === undefined ? {} : { eventId }),
+      ...(notificationHint === undefined ? {} : { notificationHint })
+    };
   }
 
   function dispatchFrame(raw: string, currentGeneration: number, userId: string): void {

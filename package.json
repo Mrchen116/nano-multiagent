@@ -8,6 +8,7 @@
     "node": "^24.22.1 || ^26.12.1"
   },
   "scripts": {
+    "check:client-contracts": "tsx scripts/generate-client-contracts.ts --check",
     "check:ios-runtime": "tsx scripts/generate-ios-interactive.ts --check && tsc -p src/IM/ios/Runtime/tsconfig.json",
     "build": "pnpm -r --if-present build && node scripts/build-node-release.mjs",
     "test": "vitest run",

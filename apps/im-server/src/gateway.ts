@@ -21,6 +21,7 @@ import { all, chatId, one, now, fail, transaction, type Row, type ImContext } fr
 import { threadAddressesAgent, threadRelayMetadata } from "./threads.js";
 import { TaskGraphService, TaskGraphError } from "./task-graphs.js";
 import { Work } from "./work.js";
+import { projectBroadcastNotificationHints, projectReplayNotificationHints } from "./notification-projector.js";
 import {canonicalAgentConfiguration, interactiveResponse, decodeAgentPublication, type AgentPublication} from "@nano/product-contracts";
 import { TrajectoryObservers } from './trajectory.js';
 export type Connection = {
@@ -212,6 +213,10 @@ export class Gateway {
     const space = !chat && !frame.conversation_id && frame.data?.conversation_id
       ? one(this.ctx.db,"SELECT space_id FROM conversations WHERE id=?",frame.data.conversation_id)?.space_id
       : undefined;
+    const workProfile = frame.event_type === "agent.work.updated"
+      ? one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", frame.data?.agent_id)
+      : undefined;
+    const eligibleBrowsers: Browser[] = [];
     for (const b of recipients) {
       if (!this.browserValid(b)) {
         b.socket.close(1008);
@@ -219,11 +224,21 @@ export class Gateway {
       }
       if (space !== undefined && !canActorAccess(this.ctx.db,b.userId,space)) continue;
       if (frame.event_type === "agent.work.updated") {
-        const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", frame.data?.agent_id);
-        if (!canViewAgentWork(this.ctx.db, this.ctx.identity.user(b.userId), profile)) continue;
+        if (!canViewAgentWork(this.ctx.db, this.ctx.identity.user(b.userId), workProfile)) continue;
       }
       if (!chat && frame.conversation_id && !conversationAccess(this.ctx.db,frame.conversation_id,b.userId)) continue;
-      this.write(b.socket, frame);
+      eligibleBrowsers.push(b);
+    }
+    if (!eligibleBrowsers.length) return;
+    const hints = projectBroadcastNotificationHints(
+      this.ctx.db,
+      [...new Set(eligibleBrowsers.map(b => b.userId))],
+      frame,
+      { isNodeOnline: nodeId => this.isOnline(nodeId) },
+    );
+    for (const b of eligibleBrowsers) {
+      const hint = hints.get(b.userId);
+      this.write(b.socket, hint ? { ...frame, notification_hint: hint } : frame);
       b.cursor = Math.max(b.cursor, frame.event_id ?? 0);
     }
   }
@@ -250,14 +265,15 @@ export class Gateway {
         op: "resync_required",
         reason: heads.length > 2000 ? "gap_too_large" : "replay_window_expired",
       });
-    } else if (heads.length)
+    } else if (heads.length) {
+      const replayFrames: Row[] = [];
       for (const e of all(
         db,
         "SELECT * FROM conversation_events WHERE event_id IN (SELECT value FROM json_each(?)) ORDER BY event_id",
         JSON.stringify(heads.map(e => e.event_id)),
       )) {
         const data = JSON.parse(e.payload_json);
-        this.write(b.socket, {
+        replayFrames.push({
           op: "event",
           event_type: e.event_type,
           event_id: e.event_id,
@@ -272,6 +288,15 @@ export class Gateway {
           },
         });
       }
+      const hints = projectReplayNotificationHints(db, b.userId, replayFrames, {
+        isNodeOnline: nodeId => this.isOnline(nodeId),
+      });
+      for (let i = 0; i < replayFrames.length; i++) {
+        const frame = replayFrames[i]!;
+        const hint = hints[i];
+        this.write(b.socket, hint ? { ...frame, notification_hint: hint } : frame);
+      }
+    }
     b.cursor = top;
     b.ready = true;
     // Presence is transient: close the gap between the browser's HTTP snapshot

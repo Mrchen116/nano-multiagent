@@ -1,6 +1,7 @@
 import { PropsWithChildren, useEffect } from "react";
 import { Link, NavLink, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { computeUnreadBadgeTotal } from "@nano/product-contracts";
 
 import { isDesktopClient } from "../../desktop/desktop-context";
 import { DesktopNodeOnboardingBanner } from "../../desktop/desktop-node-onboarding-banner";
@@ -68,11 +69,11 @@ export function AppShell({ children }: PropsWithChildren) {
   const { data: conversations } = useQuery({
     queryKey: ["chat", "conversations"],
     queryFn: listConversations,
-    enabled: authed && isMobile,
+    enabled: authed,
     staleTime: 10_000
   });
   const conversationsWithLocalUnread = useLocalUnreadFeedback(conversations ?? []);
-  const totalUnread = conversationsWithLocalUnread.reduce((sum, c) => sum + (c.unread_count ?? 0), 0);
+  const totalUnread = computeUnreadBadgeTotal(conversationsWithLocalUnread);
 
   return (
     <div className={`im-shell${isMobileConversation ? " im-shell--conversation" : ""}`}>
@@ -81,7 +82,15 @@ export function AppShell({ children }: PropsWithChildren) {
           <Link to="/chat" className="im-shell-brand-link" aria-label={t("shell.home")}><NanoBrand className="im-shell-brand" /></Link>
           <nav aria-label="primary" className="im-shell-tabs">
             <NavLink to="/chat" end={false}>
-              <ChatNavIcon /><span>{t("shell.tabs.chat")}</span>
+              <span className="im-shell-rail-icon-wrap">
+                <ChatNavIcon />
+                {totalUnread > 0 && (
+                  <span data-testid="shell-chat-unread" className="im-shell-unread-badge">
+                    {totalUnread}
+                  </span>
+                )}
+              </span>
+              <span>{t("shell.tabs.chat")}</span>
             </NavLink>
             <NavLink to="/people"><PeopleNavIcon /><span>{t("shell.tabs.people")}</span></NavLink>
             <NavLink to="/tasks"><TasksNavIcon /><span>{t("shell.tabs.tasks")}</span></NavLink>
@@ -134,11 +143,6 @@ export function AppShell({ children }: PropsWithChildren) {
               <span aria-hidden className="im-shell-bottomtab-icon">
                 <MeNavIcon />
               </span>
-              {totalUnread > 0 && (
-                <span data-testid="shell-me-unread" className="im-shell-unread-badge">
-                  {totalUnread}
-                </span>
-              )}
             </span>
             <span>{t("shell.tabs.me")}</span>
           </NavLink>

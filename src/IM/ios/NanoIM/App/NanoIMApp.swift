@@ -243,6 +243,7 @@ private struct RootTabs: View {
     @State private var taskLink: NativeTaskLink?
     @State private var taskNavigationID = UUID()
     @State private var agentLink: Contact?
+    @State private var agentWorkLink: NativeAgentWorkLink?
     @Environment(\.scenePhase) private var scenePhase
     init(client: IMClient, user: AuthUser, chat: ChatStore, accountUpdated: @escaping () -> Void, signOut: @escaping () -> Void) {
         self.client = client; self.user = user; self.chat = chat
@@ -263,7 +264,7 @@ private struct RootTabs: View {
                         ConversationView(store: chat, conversationID: route.conversationID, openChat: openChat, openInbox: { chatPath = [] })
                     }
             }.tabItem { Label(L("聊天", "Chats"), image: selectedTab == 0 ? "TabChatsSelected" : "TabChats") }.tag(0)
-                .badge(chat.conversations.reduce(0) { $0 + $1.unread_count })
+                .badge(Conversation.totalUnreadBadge(chat.conversations))
             NavigationStack { TasksView(client: client, onReference: reference) }.id(taskNavigationID)
                 .tabItem { Label(L("任务", "Tasks"), image: selectedTab == 1 ? "TabTasksSelected" : "TabTasks") }.tag(1)
             NavigationStack { AgentsView(client: client, user: user, onOpenChat: openChat) }
@@ -282,6 +283,8 @@ private struct RootTabs: View {
             }
             let parts = url.path.split(separator: "/").map(String.init)
             if parts.count == 2, parts[0] == "chat" {
+                let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                chat.pendingThreadRootID = query.first { $0.name == "thread" }?.value
                 chat.messageLocation = ChatMessageLocation.from(url, origin: client.baseURL)
                 openChat(parts[1])
                 return .handled
@@ -292,9 +295,14 @@ private struct RootTabs: View {
                 return .handled
             }
             if parts.count == 3, parts[0] == "settings", parts[1] == "agents" {
-                Task {
-                    do { let contacts = try await client.contacts(kind: "agent"); agentLink = contacts.first { $0.agent_id == parts[2] } }
-                    catch { chat.listError = error.localizedDescription }
+                let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                if query.first(where: { $0.name == "view" })?.value == "work" {
+                    agentWorkLink = NativeAgentWorkLink(id: parts[2], title: nil)
+                } else {
+                    Task {
+                        do { let contacts = try await client.contacts(kind: "agent"); agentLink = contacts.first { $0.agent_id == parts[2] } }
+                        catch { chat.listError = error.localizedDescription }
+                    }
                 }
                 return .handled
             }
@@ -312,15 +320,33 @@ private struct RootTabs: View {
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button(L("完成", "Done")) { agentLink = nil } } }
             }
         }
+        .sheet(item: $agentWorkLink) { link in
+            NavigationStack {
+                AgentWorkView(client: client, agentID: link.id, canManage: true, onOpenChat: { id in agentWorkLink = nil; openChat(id) }, displayName: link.title)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button(L("完成", "Done")) { agentWorkLink = nil } } }
+            }
+        }
         .overlay(alignment: .top) {
             if let banner = chat.banner {
-                Button { chat.banner = nil; openChat(banner.conversationID) } label: {
+                Button {
+                    chat.banner = nil
+                    switch banner.destination {
+                    case .conversation(let id, let threadRootID):
+                        chat.pendingThreadRootID = threadRootID
+                        openChat(id)
+                    case .agentWork(let agentID, let title):
+                        agentWorkLink = NativeAgentWorkLink(id: agentID, title: title)
+                    }
+                } label: {
                     HStack(spacing: 10) {
-                        if let conversation = chat.conversations.first(where: { $0.id == banner.conversationID }) {
+                        if let cid = banner.conversationID,
+                           let conversation = chat.conversations.first(where: { $0.id == cid }) {
                             AvatarView(id: .conversation(conversation, selfID: user.id), size: 32)
                             Text(conversation.title).font(.callout.weight(.semibold)).lineLimit(1)
+                        } else if let title = banner.fallbackTitle, !title.isEmpty {
+                            Text(title).font(.callout.weight(.semibold)).lineLimit(1)
                         }
-                        Text(L("新消息", "New message")).font(.caption).foregroundStyle(NanoTheme.muted)
+                        Text(banner.summaryLabel).font(.caption).foregroundStyle(NanoTheme.muted)
                     }.padding(12).background(.regularMaterial, in: Capsule())
                 }
                     .padding(.top, 8).task(id: banner.id) { try? await Task.sleep(for: .seconds(3)); if !Task.isCancelled, chat.banner?.id == banner.id { chat.banner = nil } }
@@ -348,6 +374,8 @@ private struct RootTabs: View {
             guard ServerOrigin.same(client.baseURL, url) else { return }
             let parts = url.path.split(separator: "/")
             if parts.count == 2, parts[0] == "chat" {
+                let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                chat.pendingThreadRootID = query.first { $0.name == "thread" }?.value
                 chat.messageLocation = ChatMessageLocation.from(url, origin: client.baseURL)
                 openChat(String(parts[1]))
             }
@@ -356,6 +384,7 @@ private struct RootTabs: View {
     private func openChat(_ id: String) {
         taskLink = nil
         agentLink = nil
+        agentWorkLink = nil
         selectedTab = 0
         let requestID = chat.messageLocation.flatMap { $0.conversationID == id ? $0.id : nil }
         chatPath = [ChatRoute(conversationID: id, requestID: requestID)]
@@ -369,3 +398,4 @@ private struct RootTabs: View {
 }
 
 private struct NativeTaskLink: Identifiable { let id: String; let scope: String?; let node: String? }
+private struct NativeAgentWorkLink: Identifiable { let id: String; let title: String? }

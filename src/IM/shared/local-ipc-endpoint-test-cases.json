@@ -1,0 +1,46 @@
+{
+  "cases": [
+    {
+      "id": "win-mixed-case",
+      "platform": "win32",
+      "config_path": "C:\\Users\\Alice\\AppData\\Local\\CrewdenDesktop\\connections\\AbCdEf1234567890\\config.yaml",
+      "tmpdir": "C:\\Temp",
+      "expected_endpoint": "\\\\.\\pipe\\crewden-desktop-node-42949f8af58276d18a5f083f"
+    },
+    {
+      "id": "win-lowercase-same-hash",
+      "platform": "win32",
+      "config_path": "c:\\users\\alice\\appdata\\local\\crewdendesktop\\connections\\abcdef1234567890\\config.yaml",
+      "tmpdir": "C:\\Temp",
+      "expected_endpoint": "\\\\.\\pipe\\crewden-desktop-node-42949f8af58276d18a5f083f"
+    },
+    {
+      "id": "posix-short",
+      "platform": "darwin",
+      "config_path": "/Users/alice/.nanoassistant/connections/0123456789abcdef/config.yaml",
+      "tmpdir": "/var/folders/xx/tmp",
+      "expected_endpoint": "/Users/alice/.nanoassistant/connections/0123456789abcdef/.desktop-node.sock"
+    },
+    {
+      "id": "posix-boundary-96",
+      "platform": "linux",
+      "config_path": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/config.yaml",
+      "tmpdir": "/tmp",
+      "expected_endpoint": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/.desktop-node.sock"
+    },
+    {
+      "id": "posix-over-96-fallback",
+      "platform": "darwin",
+      "config_path": "/Users/alice/Library/Application Support/CrewdenDesktop/deeply/nested/workspace/connections/0123456789abcdef/config.yaml",
+      "tmpdir": "/var/folders/ab/cd1234/T",
+      "expected_endpoint": "/var/folders/ab/cd1234/T/crewden-node-b15efe1e86cff20d40ad.sock"
+    },
+    {
+      "id": "posix-utf8-multibyte-over-96",
+      "platform": "darwin",
+      "config_path": "/Users/测测测测测测测测测测测测测测测测测测测测测测测测测测测测/config.yaml",
+      "tmpdir": "/tmp",
+      "expected_endpoint": "/tmp/crewden-node-06bb487db5497af0eaee.sock"
+    }
+  ]
+}

@@ -1,4 +1,7 @@
 use crate::config::{append_private_jsonl, random_hex_token, DesktopPaths, StoredSessionEntry};
+use crate::generated_contracts::{
+    UserNotificationKindContract, UserStreamNotificationHint, WireEnum,
+};
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -183,12 +186,15 @@ impl NotificationCenterState {
         for item in items {
             if let Some(cid) = item["id"].as_str() {
                 let muted = item["is_muted"].as_bool().unwrap_or(false);
-                let unread = item["unread_count"].as_u64().unwrap_or(0);
+                let row_unread = compute_conversation_row_unread(
+                    item["unread_count"].as_i64(),
+                    item["local_unseen"].as_bool().unwrap_or(false),
+                );
                 let title = item["title"].as_str().unwrap_or("").to_string();
                 next.insert(
                     cid.to_string(),
                     ConvSummaryEntry {
-                        unread: if muted { 0 } else { unread },
+                        unread: if muted { 0 } else { row_unread },
                         muted,
                         title,
                     },
@@ -269,6 +275,203 @@ impl NotificationCenterState {
         }
         (muted, titles)
     }
+}
+
+pub fn compute_conversation_row_unread(unread_count: Option<i64>, local_unseen: bool) -> u64 {
+    let base = unread_count.filter(|v| *v > 0).map(|v| v as u64).unwrap_or(0);
+    if local_unseen {
+        base.max(1)
+    } else {
+        base
+    }
+}
+
+pub fn compute_unread_badge_total(items: &[Value]) -> u64 {
+    items
+        .iter()
+        .filter(|item| !item["is_muted"].as_bool().unwrap_or(false))
+        .map(|item| {
+            compute_conversation_row_unread(
+                item["unread_count"].as_i64(),
+                item["local_unseen"].as_bool().unwrap_or(false),
+            )
+        })
+        .sum()
+}
+
+pub fn parse_frame_notification_hint(frame: &Value) -> Option<UserStreamNotificationHint> {
+    let raw = frame.get("notification_hint")?;
+    serde_json::from_value(raw.clone()).ok()
+}
+
+fn resolve_hint_message_body(hint: &UserStreamNotificationHint, en: bool, fallback: &str) -> String {
+    if let Some(preview) = hint.preview_text.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        return preview.chars().take(90).collect();
+    }
+    if hint.has_interactive_card == Some(true) {
+        return if en {
+            "[Interactive card]".to_string()
+        } else {
+            "[交互卡片]".to_string()
+        };
+    }
+    if let Some(att) = hint.attachment_name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        return att.to_string();
+    }
+    fallback.to_string()
+}
+
+/// Pure classifier driven by server-projected `notification_hint` with exhaustive contract matching.
+pub fn classify_from_notification_hint(
+    hint: &UserStreamNotificationHint,
+    muted_conversations: &HashMap<String, bool>,
+    conv_titles: &HashMap<String, String>,
+    attention: &WindowAttentionState,
+    locale: &str,
+) -> Option<DesktopNotificationRecord> {
+    if !hint.eligible || hint.replayed == Some(true) {
+        return None;
+    }
+    let Some(WireEnum::Known(kind)) = hint.kind.as_ref() else {
+        return None;
+    };
+    let cid = hint.conversation_id.as_deref().unwrap_or("");
+    let is_muted = muted_conversations.get(cid).copied().unwrap_or(hint.is_muted);
+    if is_muted && !hint.mentions_viewer && *kind != UserNotificationKindContract::WorkPermission {
+        return None;
+    }
+
+    if *kind == UserNotificationKindContract::WorkPermission {
+        let aid = hint.agent_id.as_deref().unwrap_or("");
+        if attention.visible_and_focused
+            && !aid.is_empty()
+            && attention
+                .current_route
+                .contains(&format!("/settings/agents/{}", aid))
+            && attention.current_route.contains("view=work")
+        {
+            return None;
+        }
+    } else if attention.visible_and_focused
+        && !cid.is_empty()
+        && is_viewing_conversation_route(&attention.current_route, cid)
+    {
+        return None;
+    }
+
+    let en = locale.trim().to_ascii_lowercase().starts_with("en");
+    let sender = hint
+        .sender_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or_else(|| conv_titles.get(cid).map(String::as_str))
+        .or_else(|| hint.conversation_title.as_deref().filter(|s| !s.is_empty()));
+
+    let (title, body) = match *kind {
+        UserNotificationKindContract::HumanMessage => {
+            let s = sender.unwrap_or(if en { "New message" } else { "新消息" });
+            let b = resolve_hint_message_body(
+                hint,
+                en,
+                if en {
+                    "Sent a new message"
+                } else {
+                    "发来一条新消息"
+                },
+            );
+            (s.to_string(), b)
+        }
+        UserNotificationKindContract::Mention => {
+            let s = sender.unwrap_or(if en { "New message" } else { "新消息" });
+            let b = resolve_hint_message_body(
+                hint,
+                en,
+                if en {
+                    "Mentioned you"
+                } else {
+                    "在会话中 @提及了你"
+                },
+            );
+            let t = if en {
+                format!("{} mentioned you", s)
+            } else {
+                format!("{} 在会话中 @提及了你", s)
+            };
+            (t, b)
+        }
+        UserNotificationKindContract::MessageCompleted => {
+            let s = sender.unwrap_or(if en { "Assistant" } else { "助手" });
+            let fallback = if hint.has_interactive_card == Some(true) {
+                if en {
+                    "[Interactive card]"
+                } else {
+                    "[交互卡片]"
+                }
+            } else if en {
+                "Reply completed"
+            } else {
+                "已完成本轮回复"
+            };
+            let b = resolve_hint_message_body(hint, en, fallback);
+            let t = if en {
+                format!("{} · Reply ready", s)
+            } else {
+                format!("{} · 回复完成", s)
+            };
+            (t, b)
+        }
+        UserNotificationKindContract::ChatPermission => {
+            let tool = hint
+                .tool_name
+                .as_deref()
+                .unwrap_or(if en { "tool action" } else { "工具执行" });
+            let t = if en {
+                "Tool approval requested".to_string()
+            } else {
+                "工具权限待确认".to_string()
+            };
+            let b = hint
+                .preview_text
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| s.chars().take(90).collect())
+                .unwrap_or_else(|| {
+                    if en {
+                        format!("Conversation requested approval for {}", tool)
+                    } else {
+                        format!("会话请求授权执行 {}", tool)
+                    }
+                });
+            (t, b)
+        }
+        UserNotificationKindContract::WorkPermission => {
+            let agent_name = sender
+                .or(hint.agent_id.as_deref())
+                .unwrap_or(if en { "Assistant" } else { "助手" });
+            let t = if en {
+                format!("{} · Tool approval needed", agent_name)
+            } else {
+                format!("{} · 等待工具授权", agent_name)
+            };
+            let b = if en {
+                "Click to open Agent Work and review the pending permission".to_string()
+            } else {
+                "点击打开助手 Work 视图处理待决权限请求".to_string()
+            };
+            (t, b)
+        }
+    };
+
+    Some(DesktopNotificationRecord {
+        id: format!("notif-{}", random_hex_token(8)),
+        kind: kind.as_str().to_string(),
+        title,
+        body,
+        target_route: hint.target_route.clone(),
+        created_at: now_epoch_secs(),
+    })
 }
 
 fn now_epoch_secs() -> u64 {
@@ -943,6 +1146,7 @@ struct SessionCursorTracker {
     cursor: Option<u64>,
     notified_work_status: HashMap<String, String>,
     notified_completed_messages: VecDeque<String>,
+    notified_dedupe_keys: VecDeque<String>,
     owned_agents: std::collections::HashSet<String>,
     foreign_agents: std::collections::HashSet<String>,
 }
@@ -981,6 +1185,7 @@ pub fn spawn_notification_daemon(
                     cursor: None,
                     notified_work_status: HashMap::new(),
                     notified_completed_messages: VecDeque::with_capacity(64),
+                    notified_dedupe_keys: VecDeque::with_capacity(128),
                     owned_agents: std::collections::HashSet::new(),
                     foreign_agents: std::collections::HashSet::new(),
                 });
@@ -1324,6 +1529,7 @@ async fn run_single_session_stream(
                 let Some((event_type, mut payload, event_id)) = unwrap_user_stream_frame(&frame) else {
                     continue;
                 };
+                let frame_hint = parse_frame_notification_hint(&frame);
                 if let Some(eid) = event_id {
                     let prev = tracker.cursor.unwrap_or(0);
                     if eid <= prev {
@@ -1385,30 +1591,46 @@ async fn run_single_session_stream(
                                 }
                             }
                         }
-                        let allowed_in_thread = is_thread_audience_allowed(&payload, &self_user_id);
-                        let is_self_author =
-                            !sender_uid.is_empty() && normalize_user_id(sender_uid) == normalize_user_id(&self_user_id);
                         let attention_now = ui.window_attention();
                         let focused_here = attention_now.visible_and_focused
                             && is_viewing_conversation_route(&attention_now.current_route, cid);
-                        if non_empty_str(&payload["thread_root_message_id"]).is_some() {
-                            if allowed_in_thread && !is_self_author {
-                                let _ = sync_conversations_and_cursor(
-                                    http_client,
-                                    &active.im_origin,
-                                    &access_token,
-                                    center,
-                                    ui.as_ref(),
-                                )
-                                .await;
+                        if let Some(ref hint) = frame_hint {
+                            if !focused_here && !cid.is_empty() {
+                                if let Some(unread) = hint.conversation_unread {
+                                    center.upsert_conversation(
+                                        &json!({
+                                            "conversation_id": cid,
+                                            "unread_count": unread,
+                                            "is_muted": hint.is_muted,
+                                            "title": hint.conversation_title.as_deref().unwrap_or(""),
+                                        }),
+                                        ui.as_ref(),
+                                    );
+                                }
                             }
-                        } else if allowed_in_thread && !focused_here {
-                            center.on_message_created(
-                                cid,
-                                is_self_author,
-                                payload["unread_count"].as_u64(),
-                                ui.as_ref(),
-                            );
+                        } else {
+                            let allowed_in_thread = is_thread_audience_allowed(&payload, &self_user_id);
+                            let is_self_author = !sender_uid.is_empty()
+                                && normalize_user_id(sender_uid) == normalize_user_id(&self_user_id);
+                            if non_empty_str(&payload["thread_root_message_id"]).is_some() {
+                                if allowed_in_thread && !is_self_author {
+                                    let _ = sync_conversations_and_cursor(
+                                        http_client,
+                                        &active.im_origin,
+                                        &access_token,
+                                        center,
+                                        ui.as_ref(),
+                                    )
+                                    .await;
+                                }
+                            } else if allowed_in_thread && !focused_here {
+                                center.on_message_created(
+                                    cid,
+                                    is_self_author,
+                                    payload["unread_count"].as_u64(),
+                                    ui.as_ref(),
+                                );
+                            }
                         }
                     }
                     _ => {}
@@ -1424,6 +1646,36 @@ async fn run_single_session_stream(
                 ) {
                     tracker.owned_agents.clear();
                     tracker.foreign_agents.clear();
+                }
+
+                if let Some(ref hint) = frame_hint {
+                    if !hint.eligible || hint.replayed == Some(true) {
+                        continue;
+                    }
+                    if tracker
+                        .notified_dedupe_keys
+                        .iter()
+                        .any(|seen| seen == &hint.dedupe_key)
+                    {
+                        continue;
+                    }
+                    let (muted_by_conv, titles_by_conv) = center.snapshot_maps();
+                    let attention = ui.window_attention();
+                    if let Some(notif) = classify_from_notification_hint(
+                        hint,
+                        &muted_by_conv,
+                        &titles_by_conv,
+                        &attention,
+                        &tracker.locale,
+                    ) {
+                        if tracker.notified_dedupe_keys.len() >= 128 {
+                            tracker.notified_dedupe_keys.pop_front();
+                        }
+                        tracker.notified_dedupe_keys.push_back(hint.dedupe_key.clone());
+                        center.record(paths, notif.clone());
+                        deliver_os_notification(paths, &notif, ui.clone());
+                    }
+                    continue;
                 }
 
                 let is_terminal_agent_card_create = event_type == "message.created"
@@ -1830,5 +2082,179 @@ mod tests {
         assert_eq!(publish_card_created.title, "PA · Reply ready");
         assert_eq!(publish_card_created.body, "[Interactive card]");
         assert_eq!(publish_card_created.target_route, "/chat/c-group?thread=root-99");
+    }
+
+    #[test]
+    fn matches_shared_unread_badge_golden_vectors_and_syncs_read_and_mute_frames() {
+        #[derive(Deserialize)]
+        struct VectorFile {
+            cases: Vec<UnreadCase>,
+        }
+        #[derive(Deserialize)]
+        struct UnreadCase {
+            id: String,
+            conversations: Vec<Value>,
+            expected_row_unread: HashMap<String, u64>,
+            expected_badge_total: u64,
+        }
+
+        let raw = include_str!("../../../src/IM/shared/unread-badge-test-cases.json");
+        let parsed: VectorFile = serde_json::from_str(raw).expect("valid unread vector json");
+        let center = NotificationCenterState::default();
+        let ui = NoopUiBridge::default();
+
+        for case in parsed.cases {
+            for item in &case.conversations {
+                let cid = item["id"].as_str().unwrap();
+                let row = compute_conversation_row_unread(
+                    item["unread_count"].as_i64(),
+                    item["local_unseen"].as_bool().unwrap_or(false),
+                );
+                assert_eq!(row, case.expected_row_unread[cid], "{}:{}", case.id, cid);
+            }
+            assert_eq!(
+                compute_unread_badge_total(&case.conversations),
+                case.expected_badge_total,
+                "pure {}",
+                case.id
+            );
+            center.replace_conversations(&case.conversations, &ui);
+            assert_eq!(center.unread(), case.expected_badge_total, "center {}", case.id);
+            assert_eq!(
+                *ui.badge_count.lock().unwrap(),
+                case.expected_badge_total,
+                "badge {}",
+                case.id
+            );
+        }
+
+        // Verify live `conversation.read` and `conversation.preference_updated` badge sync
+        center.replace_conversations(
+            &[
+                json!({ "id": "c-agent", "unread_count": 4, "is_muted": false }),
+                json!({ "id": "c-team", "unread_count": 2, "is_muted": false }),
+            ],
+            &ui,
+        );
+        assert_eq!(center.unread(), 6);
+
+        center.upsert_conversation(
+            &json!({ "conversation_id": "c-agent", "unread_count": 0, "is_muted": false }),
+            &ui,
+        );
+        assert_eq!(center.unread(), 2);
+        assert_eq!(*ui.badge_count.lock().unwrap(), 2);
+
+        center.upsert_conversation(
+            &json!({ "conversation_id": "c-team", "unread_count": 2, "is_muted": true }),
+            &ui,
+        );
+        assert_eq!(center.unread(), 0);
+        assert_eq!(*ui.badge_count.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn consumes_notification_hint_for_external_shadow_work_short_circuit_and_mute_override() {
+        let mut muted = HashMap::new();
+        muted.insert("muted-grp".to_string(), true);
+        let titles = HashMap::new();
+        let hidden = WindowAttentionState {
+            visible_and_focused: false,
+            current_route: "/chat".to_string(),
+        };
+
+        // 1. Owner's own Feishu/WeChat mirror message (`eligible: false`) is suppressed
+        let self_mirror_frame = json!({
+            "op": "event",
+            "event_type": "message.created",
+            "notification_hint": {
+                "eligible": false,
+                "dedupe_key": "message:m-self-wx",
+                "is_muted": false,
+                "mentions_viewer": false,
+                "conversation_id": "wx-shadow",
+                "target_route": "/chat/wx-shadow"
+            }
+        });
+        let self_hint = parse_frame_notification_hint(&self_mirror_frame).unwrap();
+        assert!(classify_from_notification_hint(&self_hint, &muted, &titles, &hidden, "zh").is_none());
+
+        // 2. External peer inbound message (`eligible: true`) notifies even though `sender_user_id == owner`
+        let peer_frame = json!({
+            "op": "event",
+            "event_type": "message.created",
+            "notification_hint": {
+                "eligible": true,
+                "kind": "human_message",
+                "dedupe_key": "message:m-peer-wx",
+                "is_muted": false,
+                "mentions_viewer": false,
+                "conversation_id": "wx-shadow",
+                "conversation_title": "客户微信",
+                "sender_name": "张客户",
+                "preview_text": "合同已发你",
+                "target_route": "/chat/wx-shadow"
+            }
+        });
+        let peer_hint = parse_frame_notification_hint(&peer_frame).unwrap();
+        let peer_notif = classify_from_notification_hint(&peer_hint, &muted, &titles, &hidden, "zh").unwrap();
+        assert_eq!(peer_notif.kind, "human_message");
+        assert_eq!(peer_notif.title, "张客户");
+        assert_eq!(peer_notif.body, "合同已发你");
+        assert_eq!(peer_notif.target_route, "/chat/wx-shadow");
+
+        // 3. Muted @mention passes while ordinary muted message is suppressed
+        let muted_mention_hint = parse_frame_notification_hint(&json!({
+            "notification_hint": {
+                "eligible": true,
+                "kind": "mention",
+                "dedupe_key": "message:m-men",
+                "is_muted": true,
+                "mentions_viewer": true,
+                "conversation_id": "muted-grp",
+                "sender_name": "小林",
+                "preview_text": "@Owner 请确认",
+                "target_route": "/chat/muted-grp?thread=root-1"
+            }
+        }))
+        .unwrap();
+        let men_notif =
+            classify_from_notification_hint(&muted_mention_hint, &muted, &titles, &hidden, "zh").unwrap();
+        assert_eq!(men_notif.kind, "mention");
+        assert_eq!(men_notif.target_route, "/chat/muted-grp?thread=root-1");
+
+        // 4. Non-waiting `agent.work.updated` carries `eligible: false` (short-circuits HTTP polling!)
+        let work_idle_hint = parse_frame_notification_hint(&json!({
+            "notification_hint": {
+                "eligible": false,
+                "dedupe_key": "work:pa_main:3",
+                "is_muted": false,
+                "mentions_viewer": false,
+                "agent_id": "pa_main",
+                "target_route": "/settings/agents/pa_main?view=work"
+            }
+        }))
+        .unwrap();
+        assert!(classify_from_notification_hint(&work_idle_hint, &muted, &titles, &hidden, "en").is_none());
+
+        // 5. `waiting_permission` `agent.work.updated` fires `work_permission` without HTTP round-trips
+        let work_perm_hint = parse_frame_notification_hint(&json!({
+            "notification_hint": {
+                "eligible": true,
+                "kind": "work_permission",
+                "dedupe_key": "work-perm:pa_main:s1:t1",
+                "is_muted": false,
+                "mentions_viewer": false,
+                "agent_id": "pa_main",
+                "sender_name": "PA Main",
+                "target_route": "/settings/agents/pa_main?view=work"
+            }
+        }))
+        .unwrap();
+        let work_notif =
+            classify_from_notification_hint(&work_perm_hint, &muted, &titles, &hidden, "en").unwrap();
+        assert_eq!(work_notif.kind, "work_permission");
+        assert_eq!(work_notif.title, "PA Main · Tool approval needed");
+        assert_eq!(work_notif.target_route, "/settings/agents/pa_main?view=work");
     }
 }
