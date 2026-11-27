@@ -13,10 +13,14 @@ struct NanoIMApp: App {
                 // that could be mistaken for restoring a login.
                 if !model.ready { ProgressView() }
                 else if let user = model.user {
-                    if user.accountEnabled, let chat = model.chat {
-                        RootTabs(client: model.client, user: user, chat: chat, accountUpdated: { Task { await model.refreshUser() } }, signOut: { Task { await model.signOut() } })
+                    if user.accountEnabled, let chat = model.chat, let avatarImages = model.avatarImages {
+                        RootTabs(client: model.client, user: user, chat: chat, avatarImages: avatarImages, accountUpdated: { Task { await model.refreshUser() } }, signOut: { Task { await model.signOut() } })
                             .id("\(model.client.baseURL)-\(user.id)")
-                    } else { MembershipView(model: model, user: user) }
+                    } else {
+                        MembershipView(model: model, user: user)
+                            .environment(\.avatarDirectory, AvatarDirectory(user: user))
+                            .environment(\.avatarImageStore, model.ensureAvatarImages(for: user))
+                    }
                 } else { AuthView(model: model) }
             }
             .scrollContentBackground(.hidden).background(NanoTheme.canvas)
@@ -41,7 +45,9 @@ final class AppModel {
     var storage: ChatStorageController
     /// View reconstruction must not create or attach a second store to this account.
     private(set) var chat: ChatStore?
+    private(set) var avatarImages: AvatarImageStore?
     @ObservationIgnored private var chatPartition: ChatPartition?
+    @ObservationIgnored private var avatarPartition: ChatPartition?
     @ObservationIgnored private var observation: Task<Void, Never>?
     @ObservationIgnored private var clientGeneration = 0
     init(client: IMClient? = nil, storage: ChatStorageController? = nil) {
@@ -105,15 +111,31 @@ final class AppModel {
         UserDefaults.standard.set(user.locale.hasPrefix("zh") ? "zh" : "en", forKey: "nano.locale")
     }
 
+    func ensureAvatarImages(for user: AuthUser) -> AvatarImageStore {
+        let partition = ChatPartition(origin: client.baseURL, userID: user.id)
+        if let avatarImages, avatarPartition == partition {
+            return avatarImages
+        }
+        avatarImages?.clear()
+        let next = AvatarImageStore(client: client)
+        avatarPartition = partition
+        avatarImages = next
+        return next
+    }
+
     private func installChat(_ user: AuthUser) {
         let partition = ChatPartition(origin: client.baseURL, userID: user.id)
+        _ = ensureAvatarImages(for: user)
         guard chat == nil || chatPartition != partition else { return }
-        clearChat()
+        chat?.resetProjection()
         chatPartition = partition
         chat = ChatStore(client: client, user: user, controller: storage)
     }
 
     private func clearChat() {
+        avatarImages?.clear()
+        avatarImages = nil
+        avatarPartition = nil
         chat?.resetProjection()
         chat = nil
         chatPartition = nil
@@ -231,6 +253,7 @@ private struct RootTabs: View {
     let client: IMClient
     let user: AuthUser
     let chat: ChatStore
+    let avatarImages: AvatarImageStore
     let accountUpdated: () -> Void
     let signOut: () -> Void
     @State private var avatarContacts: [String:Contact] = [:]
@@ -244,8 +267,8 @@ private struct RootTabs: View {
     @State private var taskNavigationID = UUID()
     @State private var agentLink: Contact?
     @Environment(\.scenePhase) private var scenePhase
-    init(client: IMClient, user: AuthUser, chat: ChatStore, accountUpdated: @escaping () -> Void, signOut: @escaping () -> Void) {
-        self.client = client; self.user = user; self.chat = chat
+    init(client: IMClient, user: AuthUser, chat: ChatStore, avatarImages: AvatarImageStore, accountUpdated: @escaping () -> Void, signOut: @escaping () -> Void) {
+        self.client = client; self.user = user; self.chat = chat; self.avatarImages = avatarImages
         self.accountUpdated = accountUpdated; self.signOut = signOut
     }
     private var avatarDirectory: AvatarDirectory {
@@ -327,10 +350,23 @@ private struct RootTabs: View {
             }
         }
         .environment(\.avatarDirectory, avatarDirectory)
+        .environment(\.avatarImageStore, avatarImages)
         .onReceive(NotificationCenter.default.publisher(for: ContactDirectoryUpdate.notification)) { event in
             guard event.object as? IMClient === client, let update = event.userInfo?["update"] as? ContactDirectoryUpdate,
                   update.userID == user.id else { return }
+            avatarImages.resetFailures()
             update.apply(to: &avatarContacts)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UserProfileUpdate.notification)) { event in
+            guard event.object as? IMClient === client, let update = event.userInfo?["update"] as? UserProfileUpdate,
+                  update.viewerUserID == user.id else { return }
+            avatarImages.evict(userID: update.userID, keepingVersion: update.hasAvatarVersion ? update.avatarVersion : nil)
+            if var existing = avatarContacts[update.userID] {
+                if let nextName = update.displayName { existing.display_name = nextName }
+                if update.hasAvatarVersion { existing.avatar_version = update.avatarVersion }
+                avatarContacts[update.userID] = existing
+            }
+            if update.userID == user.id { accountUpdated() }
         }
         .task(id: scenePhase) {
             if scenePhase == .active { _ = try? await client.contacts() }

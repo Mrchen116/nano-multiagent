@@ -600,6 +600,7 @@ final class ChatStore {
                 guard !connection.requiresSignOut else { return }
                 // A content snapshot cannot prove that the real-time stream is usable.
                 fullSyncSucceeded(request)
+                Task { [client] in _ = try? await client.contacts() }
                 notificationFloor = sync.max_event_id
                 if cursor == nil { cursor = sync.max_event_id }
                 correctForegroundContent(epoch: token)
@@ -1104,6 +1105,43 @@ final class ChatStore {
             // The cursor-free frame also covers creation, rename and member addition, so the
             // event alone cannot tell "renamed" from "removed". Ask the server.
             if let chat { await verifyAccess(chat) } else { needsList = true; scheduleRefresh() }
+            return
+        }
+        if event.event_type == "user.profile_updated", let uid = data["user_id"].stringValue, !uid.isEmpty {
+            let nextName = data["display_name"].stringValue
+            let hasAvatarKey = event.data?.objectValue?.keys.contains("avatar_version") == true
+            let nextAvatar = data["avatar_version"].stringValue
+            if let repository {
+                if let updated = try? await repository.updateActorProfile(userID: uid, displayName: nextName, avatarVersion: nextAvatar, hasAvatarVersion: hasAvatarKey) {
+                    conversations = normalizingDeletedActors(updated)
+                }
+            } else {
+                conversations = conversations.map { item in
+                    var copy = item
+                    copy.participants = copy.participants.map { actor in
+                        guard actor.type == "user", (actor.user_id ?? actor.id) == uid else { return actor }
+                        var next = actor
+                        if let nextName { next.display_name = nextName }
+                        if hasAvatarKey { next.avatar_version = nextAvatar }
+                        return next
+                    }
+                    return copy
+                }
+            }
+            if let selectedID {
+                let inParticipants = conversations.first(where: { $0.id == selectedID })?.participants.contains(where: { ($0.user_id ?? $0.id) == uid }) == true
+                let inTimeline = (timelines[selectedID] ?? []).contains { item in
+                    guard let message = item.message else { return false }
+                    if message.sender_user_id == uid { return true }
+                    return (message.receipts ?? []).contains { $0.recipient_id == uid }
+                }
+                if inParticipants || inTimeline {
+                    dirtyChats.insert(selectedID)
+                    scheduleRefresh()
+                }
+            }
+            let update = UserProfileUpdate(viewerUserID: user.id, userID: uid, displayName: nextName, avatarVersion: nextAvatar, hasAvatarVersion: hasAvatarKey)
+            NotificationCenter.default.post(name: UserProfileUpdate.notification, object: client, userInfo: ["update": update])
             return
         }
         guard let eventID = event.event_id, eventID > (cursor ?? 0) else { return }

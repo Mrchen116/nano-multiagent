@@ -26,15 +26,18 @@ struct SettingsCompanyView: View {
                 if loaded && members.isEmpty { Text(L("没有成员", "No members")) }
                 ForEach(members) { member in
                     Section {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(member.name + (member.id == user.id ? L("（你）", " (you)") : "")).font(.headline)
-                            Text("@" + member.username).foregroundStyle(.secondary)
-                            HStack {
-                                Text(member.is_company_admin ? L("管理员", "Administrator") : L("成员", "Member"))
-                                Text("·")
-                                Text(settingsStatus(member.membership_status))
-                            }.font(.subheadline)
-                            Text(L("\(member.node_count) 台设备 · \(member.agent_count) 个 Agent", "\(member.node_count) devices · \(member.agent_count) agents")).font(.caption).foregroundStyle(.secondary)
+                        HStack(alignment: .top, spacing: 12) {
+                            AvatarView(id: .member(member), size: 36)
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(member.name + (member.id == user.id ? L("（你）", " (you)") : "")).font(.headline)
+                                Text("@" + member.username).foregroundStyle(.secondary)
+                                HStack {
+                                    Text(member.is_company_admin ? L("管理员", "Administrator") : L("成员", "Member"))
+                                    Text("·")
+                                    Text(settingsStatus(member.membership_status))
+                                }.font(.subheadline)
+                                Text(L("\(member.node_count) 台设备 · \(member.agent_count) 个 Agent", "\(member.node_count) devices · \(member.agent_count) agents")).font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                         if member.membership_status == "pending" {
                             Button(L("批准加入", "Approve membership")) { Task { await change(member, approve: true) } }.disabled(changing)

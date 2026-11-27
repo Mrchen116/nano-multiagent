@@ -13,6 +13,16 @@ struct ContactDirectoryUpdate: Sendable {
     }
 }
 
+/// Real-time profile updates keep open avatar caches and contact snapshots aligned across tabs.
+struct UserProfileUpdate: Sendable {
+    static let notification = Notification.Name("crewdenUserProfileUpdated")
+    let viewerUserID: String
+    let userID: String
+    let displayName: String?
+    let avatarVersion: String?
+    let hasAvatarVersion: Bool
+}
+
 /// Typed feature operations share this authenticated transport rather than managing tokens.
 actor IMClient {
     nonisolated let baseURL: URL
