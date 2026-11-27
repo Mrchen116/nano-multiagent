@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { KnowledgeFiles } from '../src/knowledge/files.js';
+import { trackTestPhases } from './helpers/test-phases.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 it('preserves memory assets, source comments, limits and concurrent updates in one workspace', async () => {
@@ -99,6 +100,7 @@ it('keeps fresh per-Agent totals and daily counts after evidence eviction and wi
 });
 
 it('keeps legacy maintenance independent from foreground Skill creation and selection', async () => {
+  const phase = trackTestPhases('prepare runtime and sessions');
   const { prepareProfile, RuntimeClient } = await import('../lib/client.js');
   const home = await mkdtemp(join(tmpdir(), 'nano-knowledge-profile-')); let client: InstanceType<typeof RuntimeClient> | undefined; let logs = '';
   const workspaceA = join(home, 'a'); const workspaceB = join(home, 'b');
@@ -141,6 +143,7 @@ export function apply(ctx) {
       for (const binding of bindings) await client.rpc.request('session.ensure', binding);
     };
     await start();
+    phase('submit foreground turns and await background review');
     const advertised:Promise<{reviews:{status:string;childSessionId?:string}[]}>[]=[];
     const unwatch=client!.rpc.onNotification(method=>{
       if(method==='knowledge.changed')advertised.push(client!.rpc.request('knowledge.facts',{}) as Promise<{reviews:{status:string;childSessionId?:string}[]}>);
@@ -151,6 +154,7 @@ export function apply(ctx) {
     await expect.poll(()=>advertised.length).toBeGreaterThan(0);unwatch();
     expect((await Promise.all(advertised)).some(state=>state.reviews.some(review=>review.status==='running'&&review.childSessionId))).toBe(true);
     expect(await client!.rpc.request('update.prepare',{operationId:'background-review'})).toEqual({ready:false});
+    phase('release review and verify saved knowledge');
     await writeFile(join(home,'release-review'),'continue');
     await expect.poll(async () => (await facts()).reviews.filter(review => review.status === 'completed').length, { timeout: 8000 }).toBe(1);
     for (const [index, binding] of bindings.entries()) {
@@ -171,17 +175,20 @@ export function apply(ctx) {
     expect(JSON.parse(await readFile(join(workspaceB,'.nanoassistant/skills/.usage.json'),'utf8'))['reviewed-workflow'].source).toBe('F1');
     expect(await client!.rpc.request('knowledge.usage', { agentId: 'b' })).toMatchObject({ health: { created_auto_total: 0, active_auto_total: 0, used_auto_total: 0 } });
     agents[0]!.knowledge.legacyMemory!.enabled = false; agents[0]!.features.memory_curation = false; agents[1]!.features.skill_creation = false;
+    phase('apply configuration and preview tools');
     for (const config of agents) await client!.rpc.request('configuration.apply', config);
     for (const binding of bindings) {
       const view = await client!.rpc.request('configuration.preview', { config: agents.find(config => config.agentId === binding.agentId), cwd: binding.cwd }) as { tools: string[] };
       expect(view.tools).toContain(binding.agentId === 'a' ? 'memory' : 'skill_manage');
     }
+    phase('restart and restore knowledge');
     await client!.shutdown(); client=undefined; await start();
     expect((await facts()).facts).toHaveLength(2); expect((await facts()).reviews.every(review=>review.status==='completed')).toBe(true);
     const invoke = async (inputId: string) => {
       await client!.rpc.request('session.submit', { sessionId:'knowledge-b',inputId,mode:'followup',content:[{type:'text',text:'/skill:reviewed-workflow'}],source:{kind:'human',actorId:'owner',channel:'test',messageId:inputId} });
       await expect.poll(async () => (await client!.rpc.request('session.lookup',{sessionId:'knowledge-b',inputId}) as {terminal?:unknown}).terminal).toBeTruthy();
     };
+    phase('invoke selected and excluded Skills');
     await invoke('invoke-selected');
     const invoked = await client!.rpc.request('session.observe',{sessionId:'knowledge-b'}) as {events:{type:string;data:{source?:{kind?:string}}}[]};
     expect(invoked.events.filter(event=>event.type==='user/message' && event.data.source?.kind==='skill-invocation')).toHaveLength(1);
@@ -190,13 +197,16 @@ export function apply(ctx) {
     const excluded = await client!.rpc.request('session.observe',{sessionId:'knowledge-b'}) as typeof invoked;
     expect(excluded.events.filter(event=>event.type==='user/message' && event.data.source?.kind==='skill-invocation')).toHaveLength(1);
     await client!.rpc.request('configuration.apply',{...agents[1],features:{intelligent_ui:false,task_graph:false,memory_curation:false,skill_creation:true},knowledge:{memoryMode:'legacy',skillInterval:100000}});
+    phase('repeat 19 Skill invocations');
     for(let i=0;i<19;i++) await invoke(`batch-use-${i}`);
     expect((await facts()).reviews.filter(review=>review.status==='completed')).toHaveLength(1);
     expect(await readFile(join(workspaceB,'.nanoassistant/skills/reviewed-workflow/SKILL.md'),'utf8')).toBe(content);
     expect((await facts()).facts).not.toContainEqual(expect.objectContaining({source:'F4'}));
+    phase('restore memory configuration');
     await client!.rpc.request('configuration.apply',{...agents[0],features:{intelligent_ui:false,task_graph:false,memory_curation:true,skill_creation:false}});
     const restored=await client!.rpc.request('configuration.preview',{config:{...agents[0],features:{intelligent_ui:false,task_graph:false,memory_curation:true,skill_creation:false}},cwd:workspaceA}) as {tools:string[];prompt:string};
     expect(restored.tools).toContain('memory'); expect(restored.prompt).toContain('evidence-backed');
+    phase('shutdown and cleanup');
     await client!.shutdown(); client=undefined;
   } catch(error) { throw new Error(`${String(error)}\n${logs}\n${await readFile(join(workspaceB,'.nanoassistant/skills/.usage.json'),'utf8').catch(()=> '')}\n${JSON.stringify(client ? await client.rpc.request('knowledge.facts', {}).catch(()=>null) : null)}`, { cause:error }); }
   finally { if(client) {client.process.kill('SIGKILL'); await client.exited;} await rm(home,{recursive:true,force:true}); }

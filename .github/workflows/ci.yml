@@ -9,6 +9,17 @@ on:
   pull_request:
 
 jobs:
+  archive:
+    name: Change unit is archived
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check change unit
+        env:
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+        run: python3 scripts/check_change_unit_archived.py --head-ref "$GITHUB_HEAD_REF"
+
   ios_changes:
     name: Detect iOS changes
     runs-on: ubuntu-latest
@@ -130,12 +141,6 @@ jobs:
 
       - name: ruff format check
         run: ruff format --check .
-
-      - name: Change unit is archived
-        if: github.event_name == 'pull_request'
-        env:
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
-        run: python scripts/check_change_unit_archived.py --head-ref "$GITHUB_HEAD_REF"
 
   frontend:
     name: Frontend checks

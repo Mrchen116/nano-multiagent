@@ -22,7 +22,7 @@
 
 ## 收尾
 
-本地 CI 以 [当前 CI 工作流](../../.github/workflows/ci.yml) 为准，按实际 job 命令执行。PR 的后端 job 检查符合 unit 分支格式的 change 已归档。CI 和 [文档检查](../../scripts/docs-check) 都在 Nano checkout 内运行。远端 CI 结束后交棒给人审查和合并。
+本地 CI 以 [当前 CI 工作流](../../.github/workflows/ci.yml) 为准，按实际 job 命令执行。PR 的独立 job `Change unit is archived` 与后端测试并行，检查符合 unit 分支格式的 change 已归档。CI 和 [文档检查](../../scripts/docs-check) 都在 Nano checkout 内运行。远端 CI 结束后交棒给人审查和合并。
 
 ### PR 合入后的 worktree 清理
 

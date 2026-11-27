@@ -6,10 +6,12 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { expect, it, onTestFailed } from 'vitest';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
+import { trackTestPhases } from './helpers/test-phases.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
 
 // Repeated installs/restarts also boot independent catalog/preview workers.
 it('installs workspace tools into existing chats, isolates dispatch, retries failed source and preserves restart choices', async () => {
+  const phase = trackTestPhases('prepare runtime and sessions');
   const home = await mkdtemp(join(tmpdir(), 'nano-workspace-tools-'));
   const pnpm = await realpath(process.env.PATH!.split(delimiter).map(dir => join(dir, 'pnpm')).find(path => existsSync(path))!);
   const packageManager = { command: pnpm, args: [], env: { PATH: process.env.PATH! } };
@@ -82,6 +84,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
       for (const binding of bindings) await client.rpc.request('session.ensure', binding);
     };
     await start();
+    phase('inspect initial capabilities and API');
     expect(await capabilities('tools-a')).toContain('plugin_manager');
     const defaultBundles = await manage({action:'list_bundles'});
     expect(defaultBundles.error, defaultBundles.text).toBe(false);
@@ -101,6 +104,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     }
     expect((await manage({ action: 'describe_api' })).error).toBe(true);
     expect((await manage({ action: 'describe_api', topic: 'client' })).error).toBe(true);
+    phase('install broken and repaired bundle');
     const bad = await manage({ action: 'install_bundle', target: source });
     expect(bad.text).toContain('BROKEN_WORKSPACE_SOURCE');
     expect(bad.text).toContain('failed');
@@ -109,6 +113,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     const installed = await manage({ action: 'install_bundle', target: source });
     expect(installed.error, installed.text).toBe(false);
     expect(installed.text).toContain('restart-required');
+    phase('restart and check workspace isolation');
     await client!.shutdown(); client = undefined; await start(true);
     expect(await capabilities('tools-a'), (await manage({action:'list_bundles'})).text).toContain('workspace_echo');
     expect((await call('tools-a', 'workspace_echo', {value:'REPAIRED_AFTER_RESTART'})).text).toContain('REPAIRED_AFTER_RESTART');
@@ -127,6 +132,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect((await capabilities('tools-empty')).sort()).toEqual(['get_context_remaining', 'history', 'new_context', 'notes']);
     expect((await call('tools-a2', 'workspace_echo', { value: 'LIVE_WORKSPACE_RESULT' })).text).toContain('LIVE_WORKSPACE_RESULT');
     expect((await call('tools-b', 'workspace_echo', { value: 'denied' })).error).toBe(true);
+    phase('update and toggle bundle');
     await writeFile(join(source, 'tool.mjs'), goodSource.replace('echo:args.value', "echo:'UPDATED:'+args.value"));
     const updated = await manage({action:'install_bundle',target:source});
     expect(updated.error, updated.text).toBe(false);
@@ -135,6 +141,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await manage({action:'set_bundle',target:'workspace-echo',enabled:false});
     await manage({action:'set_bundle',target:'workspace-echo',enabled:true});
     expect((await call('tools-a','workspace_echo',{value:'TOGGLE_IS_NOT_UPGRADE'})).text).not.toContain('UPDATED:');
+    phase('restart and verify upgrade');
     await client!.shutdown(); client = undefined; await start(true);
     expect((await call('tools-a','workspace_echo',{value:'AFTER_RESTART'})).text).toContain('UPDATED:AFTER_RESTART');
     expect((await call('tools-peer','workspace_echo',{value:'PEER_UPDATE'})).text).toContain('UPDATED:PEER_UPDATE');
@@ -146,6 +153,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await writeFile(join(other, 'tool.mjs'), 'throw new Error("UNRELATED_BROKEN_SOURCE");');
     expect((await manage({ action: 'install_bundle', target: other })).text).toContain('failed');
     expect((await call('tools-a', 'workspace_echo', { value: 'SURVIVES_OTHER_FAILURE' })).text).toContain('SURVIVES_OTHER_FAILURE');
+    phase('rebuild profile and restore choices');
     await client!.shutdown(); client = undefined;
     // Runtime boot preparation must leave workspace bundle manifests intact.
     await prepareProfile(home, [{ insert: [{ id: 'model', name: join(home, 'model.mjs') }] }]);
@@ -153,6 +161,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await capabilities('tools-a')).toContain('plugin_manager');
     expect((await call('tools-a', 'workspace_echo', { value: 'RESTART_RESULT' })).text).toContain('RESTART_RESULT');
     expect(await capabilities('tools-b')).not.toContain('workspace_echo');
+    phase('toggle bundle during an active turn');
     const held = call('tools-a', 'hold', {});
     await expect.poll(async () => (await client!.rpc.request('session.observe', {sessionId:'tools-a'}) as {status:string}).status).toBe('running');
     const control = (command: Record<string, unknown>) => client!.rpc.request('plugins.manage', {agentId:'a', ...command}) as Promise<{pending?: unknown; entries:{name:string;enabled:boolean}[]}>;
@@ -171,6 +180,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     const namedUpdate = await manage({action:'install_bundle',target:`workspace-echo@file:${source}`});
     expect(namedUpdate.error, namedUpdate.text).toBe(false);
     expect((await control({action:'list_bundles'})).entries.find(entry=>entry.name==='workspace-echo')?.enabled).toBe(false);
+    phase('recover interrupted configuration change');
     const interruptedId = randomUUID();
     await client!.rpc.request('session.submit', {sessionId:'tools-a',inputId:interruptedId,mode:'followup',content:[{type:'text',text:JSON.stringify({tool:'hold',args:{}})}],source:{kind:'human',actorId:'owner',channel:'test',messageId:interruptedId}});
     await expect.poll(async()=>(await client!.rpc.request('session.observe',{sessionId:'tools-a'}) as {status:string}).status).toBe('running');
@@ -181,6 +191,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await control({action:'set_bundle',target:'workspace-echo',enabled:true});
     await expect.poll(async()=> (await control({action:'list_bundles'})).pending, {timeout:10_000}).toBeUndefined();
     expect((await call('tools-a', 'workspace_echo', {value:'USER_ENABLED_AGAIN'})).text).toContain('USER_ENABLED_AGAIN');
+    phase('install isolated service');
     const style = join(a, 'report-style'); await mkdir(style);
     await writeFile(join(style, 'package.json'), JSON.stringify({name:'report-style',version:'1.0.0',type:'module',description:'Format expense reports',dsh:{bundle:{patch:'./cordis.patch.yml'}}}));
     await writeFile(join(style, 'provider.mjs'), `export function apply(ctx) {ctx.provide('reportStyle', 'STYLE_ISOLATED_610');}`);
@@ -204,6 +215,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await prompt('tools-peer')).toContain('STYLE_ISOLATED_610');
     expect(await prompt('tools-b')).not.toContain('STYLE_ISOLATED_610');
     expect((await control({action:'list_bundles'})).entries.find(entry=>entry.name==='report-style')).toMatchObject({enabled:true});
+    phase('remove service during async teardown');
     await writeFile(join(a,'hold-cleanup'),'yes');
     await control({action:'remove_bundle',target:'report-style'});
     await expect.poll(()=>existsSync(join(a,'cleanup-started'))).toBe(true);
@@ -224,6 +236,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await manage({ action: 'set_bundle', target: 'workspace-echo', enabled: false });
     expect(await capabilities('tools-a')).not.toContain('workspace_echo');
     expect((await call('tools-a', 'workspace_echo', { value: 'disabled' })).error).toBe(true);
+    phase('restart and remove disabled bundles');
     await client!.shutdown(); client = undefined; await start(true);
     expect(await capabilities('tools-a')).not.toContain('workspace_echo');
     expect((await manage({ action: 'set_bundle', target: 'workspace-echo', enabled: true })).text).toContain('applied');
@@ -233,6 +246,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect(await capabilities('tools-a2')).not.toContain('workspace_echo');
     // Shipped authoring templates must work through the real workspace installer,
     // not just parse as JavaScript or resemble the documentation examples.
+    phase('install and exercise authoring templates');
     const templates = fileURLToPath(new URL('../../personal-assistant/assets/skills/nano-plugin-development/templates/', import.meta.url));
     for (const template of ['tool', 'prompt', 'service']) {
       const dir = join(a, `template-${template}`);
@@ -271,6 +285,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     expect((await manage({action:'set_bundle',target:'dsh-agent-context',enabled:false})).text).toContain('applied');
     const afterContextDisabled = await client!.rpc.request('configuration.catalog', {agentId: 'a', cwd: a}) as {tools: {name: string}[]};
     expect(afterContextDisabled.tools.map(tool => tool.name)).not.toContain('notes');
+    phase('install and exercise scoped compaction');
     const engine = join(a, 'scoped-compaction'); await mkdir(engine);
     const marker = join(a, 'compaction-owner');
     await writeFile(join(engine, 'package.json'), JSON.stringify({name:'scoped-compaction',version:'1.0.0',type:'module',peerDependencies:{'@deepseek-ai/dsh-compaction-basic':'*'},dsh:{bundle:{patch:'./cordis.patch.yml'}}}));
@@ -295,6 +310,7 @@ it('installs workspace tools into existing chats, isolates dispatch, retries fai
     await manage({action:'set_bundle',target:'scoped-compaction',enabled:false});
     await compact('tools-a', 'fallback-compact');
     expect(await readFile(marker,'utf8')).toBe('preset\n');
+    phase('shutdown and cleanup');
     await client!.shutdown(); client = undefined;
   } catch (error) { throw new Error(`${String(error)}\n${logs}`, { cause: error }); }
   finally { if (client) { client.process.kill('SIGKILL'); await client.exited; } await rm(home, { recursive: true, force: true }); }
