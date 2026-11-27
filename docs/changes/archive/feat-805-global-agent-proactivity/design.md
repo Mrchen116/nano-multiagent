@@ -42,6 +42,16 @@
 - **`feat-793`（PA 主动性记忆偏好校准与反馈演化闭环）**：建立 `MEMORY.md` `## 主动性与介入偏好` 四分栏常驻结构、`knowledge/proactivity-signals.md` 两次成规抗噪观察池、纯点卡梦前预取与 AST 落盘门禁；本单元将其扩展到多人多会话协作的 Global 数字员工，并解决多人作用域隔离与两层记忆分工。
 - **`feat-774` / `feat-796`（话题一等 target、8 位短引用与协作范围档位）**：确立 `<chat_id>:<root_id>` 话题级收发复核、`u_xxxxxx` 短引用体系以及 `team` / `owner_only` 双向会话边界；本单元的原会话闭环与拍板人映射严格建立在该体系之上。
 
+## 五端对齐矩阵
+
+| 平台 | 处置方式 | 受影响范围与理由 | 下游验证投影 |
+| --- | --- | --- | --- |
+| `Web` | `native-sync` | `packages/product-contracts` 声明 `proactive_planning` 的 `modes: ['global']`，`src/IM/frontend` 在 Agent 新建与详情配置页接入全局模式默认开启/独立启停、`single_thread` 往返切换剥离恢复与 `nano-proactive-care` 模式过滤，任务焦点台展示 1v1 Agent 私聊与共享群待拍板/先存着事项 | `proactive-planning-toggle.test.tsx` + Web IM `tsc -b` & `vitest` + 隔离栈浏览器走查 |
+| `Desktop (macOS)` | `shared` | Tauri 桌面端主窗口直接复用 `src/IM/frontend` 前端包与中心 `/im/v1/*` 接口，无独立原生壳层逻辑变更 | 随 Web 前端构建、类型检查与 `pnpm check:client-contracts` 验证 |
+| `Desktop (Windows)` | `shared` | 与 macOS 一致复用 `src/IM/frontend` 主窗口前端包与中心接口，无独立原生壳层逻辑变更 | 随 Web 前端构建、类型检查与 `pnpm check:client-contracts` 验证 |
+| `iOS` | `native-sync` | `src/IM/ios/NanoIM/Features/Agents`（`AgentModels`、`CapabilitySelection`、`AgentsView`、`AgentConfigView`）同步接入 `modes: ['global']` 能力过滤、全局模式主动筹划开关与角色说明文案、`single_thread` 切换剥离与 `nano-proactive-care` 候选过滤（任务焦点台直接消费服务端 `/im/v1/tasks/focus` 投影） | Swift 代码核对与 macOS CI `iOS test` 门禁 |
+| `Node (macOS / Windows / Linux)` | `native-sync` | `apps/node`、`packages/personal-assistant` 与 `packages/dsh-integration` 全链路透传 `work_mode`、扩展 `ProactiveCoordinator` 至全局数字员工、补齐 `ToolReferences` 短引用双向映射、无状态预取未消费点卡上下文、将已校验 `ROLE.md` 纳入审批指令证据并升级三态 `Dreaming` 两层记忆校准 | `apps/node` / `personal-assistant` / `dsh-integration` 单测 + `verify_global_agent_proactivity_24h.py` 跨天真栈验收 |
+
 ## 架构总览
 
 下图展示普通 Global 数字员工在保持跨包单向依赖与单主会话模型下的完整主动性闭环（无新增常驻子进程或数据表）：
