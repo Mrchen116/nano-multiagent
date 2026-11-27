@@ -42,7 +42,7 @@ export const inject = ['tools', 'systemPrompt', 'nanoProduct'];
 export interface Config { agentId: string }
 export const scheduleRealm = (agentId: string) => Symbol.for(`nano-schedule:${agentId}`);
 
-const MANAGEMENT_AUTHORIZATION = "Only create or modify scheduled tasks at the user's explicit request; prior explicit user authorization for the running scheduled task remains valid.";
+const MANAGEMENT_AUTHORIZATION = "Only create or modify scheduled tasks at the user's explicit request or within a confirmed ROLE.md / proactive check-in rule; prior explicit user authorization for the running scheduled task remains valid.";
 const TITLE_HELP = `Task name of at most ${MAX_TITLE_LENGTH} characters in the user's language.`;
 
 const dailySchema = {

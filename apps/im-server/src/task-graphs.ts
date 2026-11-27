@@ -1447,7 +1447,10 @@ export class TaskGraphService {
               ? true
               : scope === "assignee"
                 ? sameActor(n.assignee, targetAssignee)
-                : isOwnPrivateOrAgentDirect || sameActor(n.assignee, userActor) || sameActor(n.created_by, userActor);
+                : isOwnPrivateOrAgentDirect ||
+                  n.proposed_for_user_id === user ||
+                  sameActor(n.assignee, userActor) ||
+                  sameActor(n.created_by, userActor);
           if (completedInScope && matchesQuery(d, n, root)) {
             completed.push(this.projectNodeCard(d, n, user, actor, conversation));
           }
@@ -1492,7 +1495,10 @@ export class TaskGraphService {
               ? true
               : scope === "assignee"
                 ? sameActor(n.assignee, targetAssignee)
-                : isOwnPrivateOrAgentDirect || sameActor(n.assignee, userActor) || (!n.assignee && sameActor(n.created_by, userActor));
+                : isOwnPrivateOrAgentDirect ||
+                  n.proposed_for_user_id === user ||
+                  sameActor(n.assignee, userActor) ||
+                  (!n.assignee && sameActor(n.created_by, userActor));
           if (stashInScope) stashed.push(this.projectNodeCard(d, n, user, actor, conversation));
           continue;
         }

@@ -201,6 +201,39 @@ it('auto-fills proposed_for_user_id and surfaces mine focus across 1v1 human-Age
   const grpFull = tasks.execute({ kind: 'user', id: 'u1' }, 'get', { graph_id: grpCard.graph_id, view: 'all' });
   expect(grpFull.nodes[0]?.proposed_for_user_id ?? null).toBeNull();
 
+  // Shared-group Agent-assigned card with explicit proposed_for_user_id stays in decider's Mine Stashed & Completed after Stash/Close
+  const grpTargeted = tasks.execute({ kind: 'agent', id: 'q', node_id: 'n' }, 'create', {
+    conversation_id: 'grp-rel',
+    title: '发版第二波回归清单',
+    description: '核查令牌轮换与会话吊销',
+    status: 'proposed',
+    assignee: { type: 'agent', id: 'q' },
+    proposed_for_user_id: 'u2',
+    request_key: 'grp-targeted-u2',
+  });
+  expect(tasks.execute({ kind: 'user', id: 'u2' }, 'focus', { scope: 'mine' }).needs_you.some((n: any) => n.graph_id === grpTargeted.graph_id)).toBe(true);
+
+  const afterStash = tasks.execute({ kind: 'user', id: 'u2' }, 'apply', {
+    graph_id: grpTargeted.graph_id,
+    base_revision: grpTargeted.revision,
+    request_key: 'stash-grp-u2',
+    change_note: 'Stash for later',
+    operations: [{ op: 'update_task', node_id: 'n1', patch: { status: 'backlog' } }],
+  });
+  const bobStashedFocus = tasks.execute({ kind: 'user', id: 'u2' }, 'focus', { scope: 'mine' });
+  expect(bobStashedFocus.stashed.some((n: any) => n.graph_id === grpTargeted.graph_id)).toBe(true);
+  expect(tasks.execute({ kind: 'user', id: 'u1' }, 'focus', { scope: 'mine' }).stashed.some((n: any) => n.graph_id === grpTargeted.graph_id)).toBe(false);
+
+  tasks.execute({ kind: 'user', id: 'u2' }, 'apply', {
+    graph_id: grpTargeted.graph_id,
+    base_revision: afterStash.revision,
+    request_key: 'close-grp-u2',
+    change_note: 'Dismiss proposal',
+    operations: [{ op: 'update_task', node_id: 'n1', patch: { status: 'closed' } }],
+  });
+  expect(tasks.execute({ kind: 'user', id: 'u2' }, 'focus', { scope: 'mine', section: 'completed' }).completed.some((n: any) => n.graph_id === grpTargeted.graph_id)).toBe(true);
+  expect(tasks.execute({ kind: 'user', id: 'u1' }, 'focus', { scope: 'mine', section: 'completed' }).completed.some((n: any) => n.graph_id === grpTargeted.graph_id)).toBe(false);
+
   expect(() =>
     tasks.execute({ kind: 'agent', id: 'q', node_id: 'n' }, 'create', {
       conversation_id: 'dm-bob-q',

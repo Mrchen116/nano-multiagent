@@ -666,9 +666,12 @@ export class GlobalAgent {
       const sources = await this.personal.request(config, 'pa.sources', { action: 'list' });
       const items = sources.items as { id: string; excluded: boolean }[];
       const allowed = new Set([...items.filter(item => !item.excluded).map(item => item.id), config.personal!.conversationId]);
+      const toRef = (id: string) => this.options.store.toolReferences.conversationRef(config.agentId, id);
       // The complete policy set covers already-consumed historical sources, not only unread Inbox rows.
       await this.options.runtime.request('knowledge.sources.sync', { agentId: config.agentId, snapshot: {
-        revision: String((sources.policy as {revision:number}).revision), allowed: [...allowed], excluded: items.filter(item => item.excluded).map(item => item.id),
+        revision: String((sources.policy as {revision:number}).revision),
+        allowed: [...allowed].map(toRef),
+        excluded: items.filter(item => item.excluded).map(item => toRef(item.id)),
       } });
       this.options.inbox.revokeUnavailableSources(config.agentId, allowed);
       this.personalAllowedSources.set(config.agentId, allowed);

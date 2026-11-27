@@ -1057,7 +1057,9 @@ export function AgentCreatePage() {
               label={t("agents.form.access.skills")}
               selected={draft.skills}
               selectionMode={draft.skills_selection_mode ?? "explicit_denylist"}
-              options={capabilities.skills}
+              options={capabilities.skills.filter(
+                (skill) => skill.name !== "nano-proactive-care" || (draft.work_mode ?? "global") === "global"
+              )}
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}

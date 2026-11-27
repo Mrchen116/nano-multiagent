@@ -388,17 +388,21 @@ struct AgentEditorFields: View {
             DisclosureGroup("Skills") {
                 Text(L("新技能默认启用；取消勾选的技能保持禁用。", "New skills are enabled by default; unchecked skills stay disabled.")).font(.caption).foregroundStyle(.secondary)
                 if let capabilities {
+                    let availableSkills = capabilities.skills.filter {
+                        $0.name != "skill-creator" && ($0.name != "nano-proactive-care" || personal || draft.work_mode == "global")
+                    }
+                    let candidateNames = availableSkills.map(\.name)
                     ForEach(["workspace", "global", "compatibility"], id: \.self) { group in
-                        let options = capabilities.skills.filter { $0.name != "skill-creator" && $0.skillGroup(workspaceRoot: draft.workspace_root) == group }
+                        let options = availableSkills.filter { $0.skillGroup(workspaceRoot: draft.workspace_root) == group }
                         if !options.isEmpty {
                             DisclosureGroup(agentSkillGroupName(group)) {
-                                let enabled = Set(draft.enabledSkills(candidates: capabilities.skills.map(\.name)))
+                                let enabled = Set(draft.enabledSkills(candidates: candidateNames))
                                 let enable = !options.allSatisfy { enabled.contains($0.name) }
                                 Button(enable ? L("启用本组全部", "Enable group") : L("禁用本组全部", "Disable group")) {
                                     onCapabilityChange?(options.filter { enabled.contains($0.name) != enable }.map { CapabilityAction(kind: "skill", name: $0.name, enabled: enable) })
                                 }
                                 ForEach(options) { option in
-                                    Toggle(isOn: Binding(get: { draft.enabledSkills(candidates: capabilities.skills.map(\.name)).contains(option.name) }, set: { change(.init(kind: "skill", name: option.name, enabled: $0)) })) {
+                                    Toggle(isOn: Binding(get: { draft.enabledSkills(candidates: candidateNames).contains(option.name) }, set: { change(.init(kind: "skill", name: option.name, enabled: $0)) })) {
                                         VStack(alignment: .leading) { Text(option.name); if let location = option.location { Text(location).font(.caption).foregroundStyle(.secondary) }; if let description = option.description { Text(description).font(.caption) } }
                                     }.capabilityAnchor("skill:" + option.name)
                                 }
@@ -406,7 +410,7 @@ struct AgentEditorFields: View {
                         }
                     }
                 }
-                ForEach(draft.skills.filter { skill in skill != "skill-creator" && !(capabilities?.skills.contains { $0.name == skill } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
+                ForEach(draft.skills.filter { skill in skill != "skill-creator" && (skill != "nano-proactive-care" || personal || draft.work_mode == "global") && !(capabilities?.skills.contains { $0.name == skill } ?? false) }, id: \.self) { Text($0 + L(" · 已保存，目录未报告", " · Stored; not reported in catalog")) }
             }
         }
         Section {

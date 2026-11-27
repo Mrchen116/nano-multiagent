@@ -1,33 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ProactiveCoordinator,
-  formatZonedIso,
-  isProactivePlanningEnabled,
-  nightlyCycleSlotKey,
-  renderProactiveNightlyWake,
-  renderProactiveReviewWake,
-  type AgentConfiguration,
-  type RuntimePort,
+  ProactiveCoordinator, formatZonedIso, isProactivePlanningEnabled,
+  nightlyCycleSlotKey, renderProactiveNightlyWake, renderProactiveReviewWake,
+  type AgentConfiguration, type RuntimePort,
 } from '../src/index.js';
 import { InboxStore } from '../src/inbox.js';
 import { NodeStore } from '../src/store.js';
+import { GlobalAgent } from '../src/global-agent.js';
+import { TaskContext } from '../src/task-context.js';
 
 function makePaConfig(overrides: Partial<AgentConfiguration> = {}): AgentConfiguration {
   return {
-    agentId: 'pa',
-    mode: 'global',
-    workspace: '/tmp/pa',
-    revision: '1',
-    provider: 'fixture',
-    model: 'fixture',
+    agentId: 'pa', mode: 'global', workspace: '/tmp/pa', revision: '1', provider: 'fixture', model: 'fixture',
     personal: { bindingId: 'b1', ownerId: 'owner', conversationId: 'dm-owner', epoch: 1 },
-    features: {
-      task_graph: true,
-      proactive_planning: true,
-      cron_scheduling: true,
-      dreaming: true,
-      memory_curation: true,
-    },
+    features: { task_graph: true, proactive_planning: true, cron_scheduling: true, dreaming: true, memory_curation: true },
     ...overrides,
   };
 }
@@ -49,12 +35,7 @@ describe('ProactiveCoordinator', () => {
     store.setOwnerTimezone('Asia/Shanghai');
     const pa = makePaConfig({ features: { task_graph: true, proactive_planning: true, dreaming: false } });
     const ordinary: AgentConfiguration = {
-      agentId: 'worker',
-      mode: 'single_thread',
-      workspace: '/tmp/worker',
-      revision: '1',
-      provider: 'fixture',
-      model: 'fixture',
+      agentId: 'worker', mode: 'single_thread', workspace: '/tmp/worker', revision: '1', provider: 'fixture', model: 'fixture',
       features: { task_graph: true, proactive_planning: true },
     };
     expect(isProactivePlanningEnabled(pa)).toBe(true);
@@ -68,12 +49,7 @@ describe('ProactiveCoordinator', () => {
         if (method === 'session.lookup') return { accepted: false };
         if (method === 'session.submit') {
           const input = value as { inputId: string; onlyIfIdle?: boolean; content: { text: string }[]; source: { channel: string } };
-          submissions.push({
-            inputId: input.inputId,
-            channel: input.source.channel,
-            onlyIfIdle: input.onlyIfIdle,
-            text: input.content[0]?.text ?? '',
-          });
+          submissions.push({ inputId: input.inputId, channel: input.source.channel, onlyIfIdle: input.onlyIfIdle, text: input.content[0]?.text ?? '' });
           return { accepted: acceptSubmit };
         }
         return {};
@@ -85,14 +61,8 @@ describe('ProactiveCoordinator', () => {
     store.bind(binding);
 
     const coordinator = new ProactiveCoordinator({
-      ownerId: 'owner',
-      agents: [pa, ordinary],
-      store,
-      inbox,
-      runtime,
-      binding: async () => binding,
-      available: () => true,
-      syncObservations: async () => {},
+      ownerId: 'owner', agents: [pa, ordinary], store, inbox, runtime,
+      binding: async () => binding, available: () => true, syncObservations: async () => {},
       onError: error => { throw error; },
     });
     coordinator.useClock(() => nowMs);
@@ -254,8 +224,6 @@ describe('ProactiveCoordinator', () => {
       binding: async () => binding, available: () => true, syncObservations: async () => {}, onError: error => { throw error; },
     });
 
-    const { GlobalAgent } = await import('../src/global-agent.js');
-    const { TaskContext } = await import('../src/task-context.js');
     const rawConv = 'conv-bob-q-00000000000000000001';
     const rawBob = '00000000-0000-4000-8000-000000000099';
     const mockRelay = {
@@ -319,6 +287,104 @@ describe('ProactiveCoordinator', () => {
       expect(refreshed.pendingTaskContext![0]!.text).not.toContain(rawBob);
     } finally {
       await coordinator.stop();
+      await product.stop();
+      inbox.close();
+      store.close();
+    }
+  });
+
+  it('projects PA knowledge.sources.sync allowed/excluded IDs to short c_xxxxxx refs matching pendingTaskContext', async () => {
+    const store = new NodeStore(':memory:', 'owner');
+    const inbox = new InboxStore(':memory:');
+    const rawOwnerDm = 'conv-personal-owner-long-id-000000001';
+    const rawAllowedGrp = 'conv-shared-group-long-id-00000000002';
+    const rawExcludedGrp = 'conv-excluded-group-long-id-000000003';
+    const paCfg: AgentConfiguration = {
+      agentId: 'pa', revision: '1', provider: 'test', model: 'test', mode: 'global',
+      personal: { bindingId: 'bind-1', ownerId: 'owner', conversationId: rawOwnerDm, epoch: 1 },
+    };
+    store.bind({ agentId: 'pa', sessionId: 'pa-root', ownerId: 'owner', conversationId: 'global:pa', cwd: '/tmp', revision: '1' });
+
+    const syncedSnapshots: Array<{ allowed: string[]; excluded: string[] }> = [];
+    const mockRuntime = {
+      onNotification: () => () => {},
+      request: async (method: string, args: any) => {
+        if (method === 'knowledge.sources.sync') syncedSnapshots.push(args.snapshot);
+        return method === 'session.work.children' ? { children: [] } : { events: [], durable: true, status: 'idle', accepted: true };
+      },
+    };
+    const mockRelay = {
+      ready: true,
+      async request(type: string) {
+        if (type === 'pa.source.admit') {
+          return { type: 'result', payload: { ok: true, result: { allowed: true, is_owner: true, delivery: 'participant', conversation_type: 'direct', channel: 'web' } } };
+        }
+        if (type === 'pa.sources') {
+          return {
+            type: 'result',
+            payload: {
+              ok: true,
+              result: {
+                policy: { revision: 2 },
+                items: [
+                  { id: rawAllowedGrp, excluded: false },
+                  { id: rawExcludedGrp, excluded: true },
+                ],
+              },
+            },
+          };
+        }
+        if (type === 'task.context.sync') {
+          return {
+            type: 'result',
+            payload: {
+              ok: true,
+              result: {
+                through: 1, next: 1, revoked_message_ids: [],
+                items: [{
+                  message_id: 'pa-click-1', conversation_id: rawOwnerDm, allowed: true,
+                  input: {
+                    agent_id: 'pa', conversation_id: rawOwnerDm, relay_task_id: 'rt-pa-1', idempotency_key: 'rt-pa-1',
+                    metadata: { conversation_type: 'direct', task_context: true },
+                    message: {
+                      id: 'pa-click-1', content: 'Owner closed proposed card', sender_type: 'system', created_at: '2027-03-15T19:00:00Z', attachments: [],
+                      system_notice: { kind: 'task_graph', conversation_id: rawOwnerDm, previous_status: 'proposed', status: 'closed', actor: { type: 'user', id: 'owner' } },
+                    },
+                  },
+                }],
+              },
+            },
+          };
+        }
+        return { type: 'result', payload: { ok: true, result: { items: [] } } };
+      },
+    };
+    const product = new GlobalAgent({
+      nodeId: 'node-1', ownerId: 'owner', agents: [paCfg], store, inbox,
+      runtime: mockRuntime, relay: mockRelay, image: async () => '', onError: error => { throw error; },
+    });
+    product.attachTaskContext(new TaskContext({
+      nodeId: 'node-1', ownerId: 'owner', agents: [paCfg], store, inbox, runtime: mockRuntime, relay: mockRelay,
+      refreshSources: agentId => product.prepareSystemContext(agentId),
+      settlePersonalInputs: (agentId, sessionId) => product.settleSyncedTaskContext(agentId, sessionId),
+    }));
+
+    try {
+      const res = await product.call({
+        method: 'memory.sources.refresh', args: { includePendingTaskContext: true },
+        agentId: 'pa', ownerId: 'owner', sessionId: 'pa-root', rootSessionId: 'pa-root', callId: 'ref-pa', operationId: 'pa-root:ref-pa',
+      }) as { synchronized: boolean; pendingTaskContext?: Array<{ conversationId: string; conversationRef?: string }> };
+
+      expect(syncedSnapshots.length).toBeGreaterThanOrEqual(1);
+      const snap = syncedSnapshots.at(-1)!;
+      const expectedOwnerRef = store.toolReferences.conversationRef('pa', rawOwnerDm);
+      const expectedGrpRef = store.toolReferences.conversationRef('pa', rawAllowedGrp);
+      const expectedExclRef = store.toolReferences.conversationRef('pa', rawExcludedGrp);
+      expect(snap.allowed).toEqual(expect.arrayContaining([expectedOwnerRef, expectedGrpRef]));
+      expect(snap.excluded).toEqual([expectedExclRef]);
+      expect(res.pendingTaskContext).toHaveLength(1);
+      expect(res.pendingTaskContext![0]!.conversationRef).toBe(expectedOwnerRef);
+    } finally {
       await product.stop();
       inbox.close();
       store.close();

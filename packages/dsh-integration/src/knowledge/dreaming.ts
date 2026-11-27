@@ -351,7 +351,7 @@ export class Dreaming {
           batch.conversations=[...new Set([
             ...baseConversations,
             ...materials.flatMap(material=>sourceConversations([...material.events,...material.inheritedEvents])),
-            ...selectedPending.map(item=>config.personal ? item.conversationId : (item.conversationRef ?? item.conversationId)),
+            ...selectedPending.map(item=>item.conversationRef ?? item.conversationId),
           ])];
           if(selectedPending.length){
             batch.cutoffs??={};

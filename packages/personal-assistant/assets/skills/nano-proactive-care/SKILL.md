@@ -33,7 +33,7 @@ Triggered after conversation activity settles (around 12 minutes of quiet):
 
 ## Role-Specific Nightly Planning & Next-Day Delivery (`<proactive-nightly-wake>`)
 
-Triggered at most once per night (`03:00–06:00` local time, after >= 30 minutes of quiet and after nightly `Dreaming` consolidates `MEMORY.md`). Read any attached `<updated-formal-memory>` alongside `MEMORY.md` and `ROLE.md` first, prune stale or resolved `proposed` cards (`status="closed"`), and **never call `send_message` during `<proactive-nightly-wake>`**.
+Triggered at most once per night (`03:00–06:00` local time, after >= 30 minutes of quiet and after nightly `Dreaming` consolidates `MEMORY.md`). When `<updated-formal-memory complete="true">` is attached, treat it as the current `MEMORY.md` without re-reading the file (read `MEMORY.md` directly only when `complete="preview"` or absent) alongside `ROLE.md`, prune stale or resolved `proposed` cards (`status="closed"`), and **never call `send_message` during `<proactive-nightly-wake>`**.
 
 ### A. Bound Main Personal Assistant (`personal === true`)
 

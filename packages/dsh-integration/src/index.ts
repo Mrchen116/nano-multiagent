@@ -1186,7 +1186,7 @@ export default class NanoRuntime {
         if(this.bindings.get(sessionId)?.agentId!==agentId)throw new RpcError(-32602,'Invalid Task context identity');
         this.lifecycle.assertEnabled(agentId);const agent=await this.agent(sessionId);
         for(const id of revoked)agent.inbox.remove(MessageId(id));
-        for(const message of messages)await this.submit({sessionId,inputId:message.inputId,content:message.content,mode:'inject',source:{kind:'system',channel:'task-context',actorId:agentId,messageId:message.inputId,conversationId:message.conversationId,...(message.humanControl?{humanTaskControl:message.humanControl}:{})}});
+        for(const message of messages)await this.submit({sessionId,inputId:message.inputId,content:message.content,mode:'inject',source:{kind:'system',channel:'task-context',actorId:agentId,messageId:message.inputId,conversationId:message.conversationRef??message.conversationId,...(message.humanControl?{humanTaskControl:message.humanControl}:{})}});
         await this.ctx.sessions.flush(agent.session);return {durable:true};
       },
       'runtime.timezone': value => {

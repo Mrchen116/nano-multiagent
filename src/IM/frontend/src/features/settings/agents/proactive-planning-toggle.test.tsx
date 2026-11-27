@@ -274,13 +274,16 @@ describe("Global-mode proactive_planning toggle and task_graph dependency", () =
     const globalRadio = radios.find(el => (el as HTMLInputElement).value === "global")!;
     const singleRadio = radios.find(el => (el as HTMLInputElement).value === "single_thread")!;
 
-    // Switch global -> single_thread -> global: hides in single_thread and restores default checked in global
+    // Switch global -> single_thread -> global: hides proactive_planning & nano-proactive-care in single_thread and restores in global
+    expect(screen.getByText(/nano-proactive-care/)).toBeInTheDocument();
     await userEvent.click(singleRadio);
     expect(screen.queryByRole("checkbox", { name: "主动筹划" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/nano-proactive-care/)).not.toBeInTheDocument();
 
     await userEvent.click(globalRadio);
     const restoredProactive = await screen.findByRole("checkbox", { name: "主动筹划" });
     expect(restoredProactive).toBeChecked();
+    expect(screen.getByText(/nano-proactive-care/)).toBeInTheDocument();
 
     // Explicitly uncheck in global, then switch global -> single_thread -> global: remains unchecked
     await userEvent.click(restoredProactive);

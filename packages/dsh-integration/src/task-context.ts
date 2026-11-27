@@ -11,7 +11,7 @@ import type {RpcPeer} from './rpc.js';
 interface Prepared {
   unavailable?: boolean;
   unavailableInputs?: {inputId:string;conversationId:string}[];
-  messages: {inputId:string;conversationId:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[];
+  messages: {inputId:string;conversationId:string;conversationRef?:string;humanControl?:Record<string,unknown>;content:{type:'text';text:string}[]}[];
   revoked: string[];
 }
 interface Evidence {
@@ -142,7 +142,7 @@ export class TaskContextDriver {
         agent.inbox.remove(MessageId(message.inputId));
         messages.push(freezeMessage({id:MessageId(message.inputId),role:'user',
           source:{kind:'nano-system',channel:'task-context',actorId:current.agentId,messageId:message.inputId,
-            conversationId:message.conversationId,...(message.humanControl?{humanTaskControl:message.humanControl}:{}),
+            conversationId:message.conversationRef??message.conversationId,...(message.humanControl?{humanTaskControl:message.humanControl}:{}),
             lifecycle_revision:options.lifecycleRevision(current.agentId)},content:message.content}));
       }
       await ctx.sessions.flush(agent.session);
