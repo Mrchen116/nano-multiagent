@@ -711,6 +711,8 @@ export function registerWorkRoutes(app: FastifyInstance, ctx: ImContext) {
     const a = profile(req, true),
       id = params(req).request_id,
       b = body(req);
+    if (one(db, 'SELECT 1 FROM worker_permission_cards WHERE agent_id=? AND request_id=?', a.agent_id, id))
+      fail(409, 'worker_owner_chat_required');
     const item = all(
       db,
       "SELECT i.*,s.node_id FROM agent_work_items i JOIN agent_work_sessions s USING(session_id) WHERE s.root_agent_id=? AND i.item_id=?",

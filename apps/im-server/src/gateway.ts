@@ -57,6 +57,7 @@ export class Gateway {
   channelInitialize?: (nodeId: string) => void;
   constructor(readonly ctx: ImContext) {
     this.chat=new ChatStreaming(ctx.db,ctx.messaging?.records,{
+      workerPermissions:ctx.messaging?.workerPermissions,
       requireAgent:(connection,id)=>{const agent=this.requireAgent(connection,id);return {agent_id:agent.agent_id,work_mode:agent.work_mode};},
       requirePersonalConversation:(agentId,cid)=>{
         const binding=one(ctx.db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',agentId);
@@ -107,14 +108,14 @@ export class Gateway {
   valid(c: Connection) {
     const r = one(
       this.ctx.db,
-      "SELECT b.owner_id,b.node_epoch,u.membership_status,u.personal_space_enabled FROM node_binding_state b JOIN users u ON u.id=b.owner_id WHERE b.node_id=?",
+      "SELECT owner_id,node_epoch FROM node_binding_state WHERE node_id=?",
       c.node_id,
     );
     return (
       !!r &&
       r.owner_id === c.owner_id &&
       r.node_epoch === c.node_epoch &&
-      accountEnabled(r)
+      accountEnabled(ownerAccount(this.ctx.db, r.owner_id))
     );
   }
   write(socket: WebSocket, frame: Row) {
@@ -889,11 +890,16 @@ export function registerSockets(app: FastifyInstance, ctx: ImContext) {
           if (frame.type === "node.register" && result.type === "ack") {
             ctx.updates?.reconnect(c);
             g.channelInitialize?.(c.node_id);
+            ctx.messaging.workerPermissions.expire();
             for (const row of all(
               ctx.db,
               "SELECT id,permission_request_json FROM messages WHERE permission_request_json LIKE '%submitted%'",
             )) {
               for (const permission of JSON.parse(row.permission_request_json)) {
+                if (permission.worker) {
+                  try { ctx.messaging.workerPermissions.authorize(ctx.messaging.message(row.id), permission, permission.decided_by); }
+                  catch { continue; }
+                }
                 if (
                   permission.status === "submitted" &&
                   permission.node_id === c.node_id &&

@@ -115,6 +115,10 @@ export class AgentLifecycles {
   private interruptMessages(agentId:string):void {
     const messages=all(this.ctx.db,"SELECT m.* FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE u.username=? AND (m.delivery_status='running' OR m.awaiting_permission_at IS NOT NULL)",`agent:${agentId}`);
     for(const message of messages) {
+      if(JSON.parse(message.permission_request_json??'[]')[0]?.worker) {
+        this.ctx.messaging.workerPermissions.finish(this.ctx.messaging.message(message.id),'cancelled');
+        continue;
+      }
       const permissions=JSON.parse(message.permission_request_json??'[]').map((permission:Row)=>['pending','submitted'].includes(permission.status)?{...permission,status:'invalidated',reason:'agent_disabled'}:permission);
       this.ctx.db.prepare("UPDATE messages SET delivery_status='failed',awaiting_permission_at=NULL,permission_request_json=? WHERE id=?").run(JSON.stringify(permissions),message.id);
       this.ctx.messaging.event(message.conversation_id,message.id,'message.completed',{...this.ctx.messaging.message(message.id),interruption_reason:'agent_disabled'},'failed');

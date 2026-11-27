@@ -310,7 +310,7 @@ export class ExternalChannels {
     }
     if (type !== 'node.streaming_delta') return this.options.relay.request(type, payload);
     const stream = decodeChatStream(payload);
-    if (stream.kind === 'run_terminal_reconcile') return this.forwardStream(stream);
+    if (stream.kind === 'run_terminal_reconcile' || stream.kind === 'worker_permission_request') return this.forwardStream(stream);
     if (stream.kind === 'turn_start') {
       const chat = this.state.chat(String(stream.conversation_id));
       if (!chat) return this.forwardStream(stream);

@@ -8,7 +8,7 @@
 
 | Area | Covers | Requirements |
 |---|---|---|
-| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、回执、卡片预览、受保护附件与累计容量、配置边界、outbox、群聊与私有助手成员互斥、外部历史私聊只读与可逆恢复、分页、fork、限定公网入口、私聊交互背景与群聊明确提交、通用草稿仅填入输入框 | 40 |
+| [Conversations and Messages](conversations-messages.md) | 会话/消息 CRUD、回执、卡片预览、受保护附件与累计容量、配置边界、outbox、群聊与私有助手成员互斥、外部历史私聊只读与可逆恢复、外部 Worker 主人私聊审批、分页、fork、限定公网入口、私聊交互背景与群聊明确提交、通用草稿仅填入输入框 | 41 |
 | [iOS Client](ios-client.md) | 原生业务与权限、通用交互与私人状态、本地聊天首绘与离线阅读、按账号和服务隔离、未确认发送迁移、持久发送恢复与退出隔离、媒体与提醒、安装维护、聊天阅读连续性与 Agent 停用、首次交办与助手公开/私有权限设置、引用定位、原生 Work 与助手管理 | 20 |
 | [Agent Work](agent-work.md) | 按团队公开/私有与主人权限控制的全局主工作轨迹、关联子执行、明细与持久回看、增量恢复、按 Agent 确认并刷新工作状态、只读原生轨迹及父子执行范围导航、独立 Dreaming 整理回执与历史复盘用途、卡片内关联入口、回复定位展开且保留完整列表、关联执行与轮次按需分页 | 20 |
 | [Agents and Nodes](agents-nodes.md) | 固定版本安装、主动更新电脑、电脑页按需管理与连接、首次助手引导与模型服务管理、Agent 配置与独立停用/重新启用、已停止 Agent 永久删除、创建工作模式与团队公开/私有权限档位、Feature依赖联动与轻提示、Dreaming 自动整理控制、能力选择、公开联系人与私有助手隐藏、停用摘要与管理入口、节点绑定、设备归属标注、Workflow tool pill、Goal 显式开启、workspace 插件管理及真实概览/关联会话、群成员执行节点身份 | 56 |

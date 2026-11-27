@@ -1,4 +1,5 @@
 export { NodeStore } from './store.js';
+export { WorkerApprovals } from './worker-approvals.js';
 export { SingleThread } from './single-thread.js';
 export { GlobalAgent, type ProductCall } from './global-agent.js';
 export { InboxStore } from './inbox.js';

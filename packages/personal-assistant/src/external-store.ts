@@ -4,12 +4,15 @@ import type { FeishuMessage } from '@nano/channels';
 import { decodeChatStream, type ChatStreamFact, type RelayInput } from '@nano/product-contracts';
 
 export type ExternalSystemNotice = {kind: 'system_notice'} & Record<string, unknown>;
-export type ExternalFrame = ChatStreamFact | ExternalSystemNotice;
+export type ExternalFrame = Exclude<ChatStreamFact, {kind: 'worker_permission_request'}> | ExternalSystemNotice;
 function isSystemNotice(value: unknown): value is ExternalSystemNotice {
   return value !== null && typeof value === 'object' && !Array.isArray(value) && 'kind' in value && value.kind === 'system_notice';
 }
 function decodeFrame(value: unknown): ExternalFrame {
-  return isSystemNotice(value) ? value : decodeChatStream(value);
+  if (isSystemNotice(value)) return value;
+  const stream = decodeChatStream(value);
+  if (stream.kind === 'worker_permission_request') throw new Error('Worker approvals belong to the owner private chat');
+  return stream;
 }
 
 export interface ExternalChat { id: string; agentId: string; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }

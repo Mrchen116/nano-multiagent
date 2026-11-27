@@ -274,7 +274,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     }
     const agent = c.participants.find((x: Row) => x.type === "agent"),
       a = one(db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0", agent.id)!;
-    const history = all(db, "SELECT * FROM messages WHERE conversation_id=? AND thread_root_id IS NULL ORDER BY rowid", id),
+    const history = all(db, "SELECT * FROM messages WHERE conversation_id=? AND thread_root_id IS NULL AND NOT EXISTS (SELECT 1 FROM worker_permission_cards WHERE message_id=messages.id) ORDER BY rowid", id),
       index = history.findIndex((m) => m.id === body(req).fork_message_id),
       anchor = history[index];
     if (
@@ -429,6 +429,10 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
         ?.node_epoch ?? 0;
     if ((card.node_epoch ?? 0) !== epoch)
       fail(409, "permission execution belongs to a revoked device session");
+    if (card.worker) {
+      s.workerPermissions.authorize(m,card,user.id);
+      if (b.decision!=='allow_once' && b.decision!=='deny') fail(409,'invalid_worker_decision');
+    }
     if (["submitted", "resolved"].includes(card.status ?? ""))
       return {
         status: card.status,
@@ -438,10 +442,11 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
       };
     const a = one(
       db,
-      "SELECT a.* FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id JOIN conversation_participants p ON p.user_id=u.id WHERE p.conversation_id=? AND a.agent_id=? AND a.node_id=? AND a.work_mode='single_thread' AND a.is_stale=0",
+      "SELECT a.* FROM agent_profiles a JOIN users u ON u.username='agent:'||a.agent_id JOIN conversation_participants p ON p.user_id=u.id WHERE p.conversation_id=? AND a.agent_id=? AND a.node_id=? AND (a.work_mode='single_thread' OR ?=1) AND a.is_stale=0",
       r.conversation_id,
       card.agent_id,
       card.node_id,
+      card.worker ? 1 : 0,
     );
     if (!a || card.status !== "pending" || !agentAvailable(db, a) || a.space_id !== one(db, "SELECT space_id FROM conversations WHERE id=?", r.conversation_id)!.space_id) fail(409, "permission participants unavailable");
     if (!card.options?.some((x: Row) => x.id === b.decision))
@@ -466,7 +471,7 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
         decision: b.decision,
         decided_by: user.id,
       },
-      "running",
+      card.worker ? "completed" : "running",
     );
     ctx.gateway.send(card.node_id, {
       type: "node.streaming_delta",

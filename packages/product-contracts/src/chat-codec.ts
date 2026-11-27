@@ -1,4 +1,5 @@
 import type { AgentPublication, ChatAttachment, ChatPermission, ChatProcessItem, ChatStreamFact, ChatToolCall } from './chat.js';
+import { cliWorkerRuntimes } from './worker-runtimes.js';
 import { validateTaskCards, type TaskCardRef } from './task-graphs.js';
 
 function object(value: unknown): Record<string, unknown> {
@@ -65,6 +66,15 @@ export function decodeChatStream(value: unknown): ChatStreamFact {
       const transition = object(row.reply_process_transition); fields(transition, ['predecessor_message_id'], 'string', true); fields(transition, ['run_id'], 'string'); fields(transition, ['include_handoff'], 'boolean');
       if (transition.source_messages !== undefined && !Array.isArray(transition.source_messages)) throw new Error('invalid chat source_messages');
     }
+  } else if (row.kind === 'worker_permission_request') {
+    for (const key of ['agent_id', 'session_id', 'run_id']) required(row, key);
+    if (!Number.isSafeInteger(row.expires_at)) throw new Error('invalid chat expires_at');
+    const worker = object(row.worker);
+    for (const key of ['workerId', 'label']) required(worker, key);
+    if (!cliWorkerRuntimes.some(runtime => runtime === worker.runtime)) throw new Error('invalid chat worker runtime');
+    const request = object(row.permission_request);
+    for (const key of ['request_id', 'call_id', 'tool_name', 'question']) required(request, key);
+    object(request.tool_input);
   } else if (row.kind !== 'run_terminal_reconcile') {
     required(row, 'message_id'); fields(row, ['delivery_status'], 'string');
     switch (row.kind) {

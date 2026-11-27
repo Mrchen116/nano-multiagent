@@ -9,9 +9,9 @@
   - Round 2 `validated_at`（同步 `origin/develop` 并关闭 Round 1 建议后）：`1fd7805360acb57ad172775d19a3ed19cd52fcda`
   - Round 3 `validated_at`（修复合并后 `TaskGraphService` 与 `task_context` 撤销增量后）：`332b707db97328734b5e64b3a80df885646882be`
 - **最终 `effective_base` / `effective_through` 与保留依据**：
-  - `effective_base`：`bf20e1da2d87fd3f8c35689beb20c719b1fa4147`（最新 `origin/develop`）
+  - `effective_base`：`22eb4879c`（同步 `feat-797` 后的最新 `origin/develop`，基于 Round 3 审查锚点 `bf20e1da2d87fd3f8c35689beb20c719b1fa4147` 仅解决 3 处无语义交集的 canonical spec 文档合并冲突）
   - `effective_through`：`332b707db97328734b5e64b3a80df885646882be`
-  - 保留依据：所有生产代码、测试修复与合并后增量审计均在 `332b707db97328734b5e64b3a80df885646882be` 收口并通过独立审查，其后仅执行 12 份已校对 `aligned` 的 delta-spec 向 `docs/specs/` 归并、本 `review.md` 落盘与 change unit 归档迁移。
+  - 保留依据：所有生产代码、测试修复与合并后增量审计均在 `332b707db97328734b5e64b3a80df885646882be` 收口并通过独立审查，`feat-797` 代码零冲突自动合入并通过回归测试，其后仅保留 12 份 `aligned` delta-spec 归并、`review.md` 与 change unit 归档。
 
 ---
 
@@ -20,7 +20,7 @@
 | 问题 / 要求 | 能力、执行者与模式 | 判断 | 决定性证据 / 限制 |
 |---|---|---|---|
 | 两档权限（`team` 默认 / `owner_only` 私有）在普通/全局 Agent 与 PA 全入口一致生效、个人空间有效成员 `team` Agent 跨空间协作/Work/轨迹开放、同主人跨空间内部专属群与 `agent-agent` 私聊互通、外部群互斥与收紧自动退群、历史同事 1:1 私聊冻结只读与可逆恢复、私有 PA 静默旁观与对外发送/代发/飞书拦截、`TaskGraphService` 跨空间与私有安全及 `task_context` 撤销联动 | `change-code-review` · 独立子代理 `b52fe6d6-32c7-48fa-ae8c-5b3d0b3ba4e4`（Round 1 `full` + Round 2 合并后 `patch & closure` + Round 3 `closure & patch`） | `pass` | Round 1 `0 CRITICAL / 0 WARNING`（3 项非阻塞建议已关闭）；同步 `origin/develop`（`feat-785` 等）后 Round 2 检出 `1 CRITICAL / 2 WARNING`（`TaskGraphService` 私有崩溃与跨空间任务盲区、冻结私聊任务写入漏口、收紧时 `task_context` 捕获顺序），在 `332b707db` 全部修复并由 Round 3 独立复核确认 `0 CRITICAL / 0 WARNING`。全仓构建、类型检查、后端与合约 Vitest（155 文件 / 1,041+ 用例）、Web Vitest（134 文件 / 1,308+ 用例）、iOS Simulator 编译与 `pytest -m "not e2e"`（138 用例）全绿。 |
-| 12 份 delta-spec 与同步后 `docs/specs/{im,gateway}/`、`design.md` 及最终实现的一致性 | `change-code-review` · 独立子代理 `b52fe6d6-32c7-48fa-ae8c-5b3d0b3ba4e4` · `corrected-delta` | `pass` (`aligned`) | 逐文件核对全部 12 份 delta-spec（含融入 `feat-785` 主动筹划与焦点台条款后的 `im/spec.md`、`im/ios-client.md`、`im/personal-agent.md` 及修复 L16 提示表述后的 `im/web-chat-ux.md`），Requirement 计数（`im/conversations-messages` `39 -> 40`，其余不变）与行为条款 `12 / 12 aligned`。 |
+| 12 份 delta-spec 与同步后 `docs/specs/{im,gateway}/`、`design.md` 及最终实现的一致性 | `change-code-review` · 独立子代理 `b52fe6d6-32c7-48fa-ae8c-5b3d0b3ba4e4` · `corrected-delta` | `pass` (`aligned`) | 逐文件核对全部 12 份 delta-spec（含融入 `feat-785` 主动筹划与焦点台条款后的 `im/spec.md`、`im/ios-client.md`、`im/personal-agent.md` 及修复 L16 提示表述后的 `im/web-chat-ux.md`），Requirement 计数（`im/conversations-messages` 在 `feat-797` `40` 基线上 `+1 -> 41`，其余不变）与行为条款 `12 / 12 aligned`。 |
 | Web（桌面 `1280×820` / 手机 `390×844`）与原生 iOS 全创建/编辑入口两档选择、Onboarding Step 2 窄屏首屏主按钮可达、建群/群详情互斥置灰与原因说明、冻结私聊只读横幅与个人置顶/免打扰保留 | `frontend-experience-review` · 独立子代理 `b52fe6d6-32c7-48fa-ae8c-5b3d0b3ba4e4`（真实隔离栈双视口截图与源码审查 + Round 2 `closure`） | `pass` | 逐张核验隔离真实栈 Chromium 9 项双视口旅程截图（Onboarding Step 2 `390×844` 主按钮 `bottom = 782px <= 844px`、PA 弹窗直接建私有、普通 Agent 创建/编辑两档卡片、建群互斥锁定私密、同事视角隐藏私有助手、历史 1:1 私聊 `agent_private` 横幅隐藏输入框并保留置顶/免打扰、恢复 `team` 即时解锁）；Round 1 关于移动端加人子视图提示与 iOS 列表行侧滑置顶/免打扰的 2 项建议已在 `ab92a4434` 关闭。限制：原生 iOS 通过 `xcodebuild` Simulator 构建、`Runtime` 单测与 SwiftUI 源码核验，未额外执行 Simulator 手工触控录屏。 |
 | PA 代建 `agent_creation(options)` 与 `nano-agent-creation` Skill 指引、私有 PA / 普通 Agent 外发 `not_sent (collaboration_scope_restricted)` 模型可见报错、收紧后 `InboxStore` / `SingleThread` / `task_context` 撤销投影与单纯切换 `collaboration_scope` 零缓存前缀重写 | `agent-context-review` · 独立子代理 `b52fe6d6-32c7-48fa-ae8c-5b3d0b3ba4e4`（只读 `tsx` 实时调用检查 + Round 2/3 `closure & patch`） | `pass` | 实测核验 `agent_creation(action="options")` 架构描述与默认值、`nano-agent-creation/SKILL.md` 对齐清单、`send_message` / `send_user_message` 在 IM 与飞书非主人会话的清晰可行动 `not_sent` 文案、`InboxStore.restrict` 与 `access_revoked` 最小脱敏撤销通知，以及 `candidateFingerprint` / `applyRevisionOnly` 在仅切换 `collaboration_scope` 时保持缓存前缀零重写、零配置分界线。 |
 

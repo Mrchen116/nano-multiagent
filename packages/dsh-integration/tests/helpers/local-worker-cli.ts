@@ -19,7 +19,12 @@ export const turnUsages = () =>
   );
 export const onEnd = vi.fn<CliWorkerOptions['onEnd']>(async () => {});
 export const mcp = { command: 'mcp-bridge', args: ['parent-socket'], env: {} };
-export async function fakeCli(runtime: CliWorkerOptions['runtime'], code: string, sessionId?: string) {
+export async function fakeCli(
+  runtime: CliWorkerOptions['runtime'],
+  code: string,
+  sessionId?: string,
+  onPermission?: CliWorkerOptions['onPermission'],
+) {
   const script =
     `#!${process.execPath}\n` +
     `
@@ -39,6 +44,7 @@ export async function fakeCli(runtime: CliWorkerOptions['runtime'], code: string
     instructions: 'Help the parent',
     mcp,
     onReport,
+    onPermission,
     onDetail,
     onEnd,
     sessionId,
