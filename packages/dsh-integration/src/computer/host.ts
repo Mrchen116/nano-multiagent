@@ -101,7 +101,7 @@ export class ComputerHost {
     scope.tools.register({
       name: 'computer_use',
       description:
-        'Use your assigned browser tabs or authorized desktop window. Start with status or describe for the selected surface.',
+        'Browse interactive or signed-in webpages in Chrome (background daily profile or clean isolated browser) and operate native desktop app windows when web_fetch/CLI are insufficient or user state lives in an app. Call describe or status first.',
       parameters,
       output: {
         schema: {

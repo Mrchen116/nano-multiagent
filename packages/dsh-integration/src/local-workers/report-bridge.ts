@@ -16,7 +16,8 @@ const reportTool = {
 };
 const computerTool = {
   name: 'computer_use',
-  description: 'Use your assigned browser tab or desktop window. Start with status or describe for actions and inputs.',
+  description:
+    'Browse interactive or signed-in webpages in Chrome (daily or isolated) and operate native desktop app windows. Call describe or status first for actions and inputs.',
   inputSchema: {
     type: 'object', properties: {
       surface: {enum: ['browser', 'desktop']}, action: {type: 'string'}, input: {type: 'object'},
