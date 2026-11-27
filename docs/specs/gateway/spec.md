@@ -26,7 +26,7 @@
 | [Heartbeat and Cron](heartbeat-cron.md) | 心跳启停、定时工具与有效安排、错过触发后的恢复及主会话归属 | 5 |
 | [Relay Protocol](relay-protocol.md) | active/idle 后台返回经既有消息协议精确绑定与透传、只读原生轨迹观察、断连重连持久诊断 | 23 |
 | [Workflows](workflows.md) | Web/外部 IM 的 Workflow 来源、能力开关、运行时查询控制、权限路由与投递 | 9 |
-| [External Channels](external-channels.md) | Feishu channel、富文本与多模态消息、IM 托管配置、多 Bot、listener lifecycle、trigger source、reply mirror、运行信息页脚、控制文本、群聊上下文、原生权限、shadow sync、offline autonomy、隔离、限定附件来源 | 17 |
+| [External Channels](external-channels.md) | Feishu 与个人微信外部 channel、扫码连接与仅本人准入、富文本/卡片/合并转发与多模态媒体消息、IM 托管配置、多 Bot 与多 provider 隔离、listener/poller lifecycle、trigger source、reply mirror、运行信息页脚、控制文本、群聊上下文、原生卡片与微信文本权限审批、shadow sync、offline autonomy、隔离、限定附件来源 | 19 |
 | [Task Graphs](task-graphs.md) | 会话内渐进式任务图协作、真实 Agent 授权、本人 doing 边沿单次唤醒、可选定时或静默等待、停止恢复、停用冻结与真人指定恢复、原子修改与未知回执、拒绝后独立推进与显式暂停 | 23 |
 | [Personal Agent](personal-agent.md) | 可信主人与参与关系、双身份历史、观察背景批次、平时轻量记账与夜间深度筹划及实质早报、来源限制与对外披露边界、代表用户发送与原委托延续、消息级准入、主PA安全处置、冻结图片与任务卡审核、按主人明确要求聊天创建独立 Agent；通用能力复用 Global | 20 |
 

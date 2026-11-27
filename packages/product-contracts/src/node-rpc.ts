@@ -112,6 +112,20 @@ const browserReply = z.object({
   error:publicError.optional(),
   ...failure,
 }).refine((value): value is WithField<typeof value, 'browser' | 'error' | 'error_code'> => !!(value.browser || value.error || value.error_code));
+const wechatSetupInput = z.discriminatedUnion('action',[
+  agent.extend({action:z.literal('start'),editing_channel_id:id.optional()}),
+  agent.extend({action:z.literal('status'),setup_id:id}),
+  agent.extend({action:z.literal('verify_code'),setup_id:id,code:text.regex(/^\d{1,12}$/)}),
+  agent.extend({action:z.literal('cancel'),setup_id:id}),
+]);
+const wechatSetupResult = z.object({
+  setup_id:text.optional(),
+  state:z.enum(['waiting_scan','scanned','need_verify_code','confirmed','expired','failed','cancelled']),
+  qr_svg:text.optional(),
+  expires_at:text.optional(),
+  binding:z.object({bot_token:id,bot_id:id,owner_user_id:id,base_url:id}).optional(),
+  ...failure,
+});
 const fork = z.discriminatedUnion('ok',[
   z.object({ok:z.literal(true),new_session_id:text.optional(),id_map:z.record(text,text),error:z.never().optional()}),
   z.object({ok:z.literal(false),error:text,id_map:z.never().optional()}),
@@ -153,6 +167,7 @@ export const nodeCommands = {
   'node.cron.delete.request':command('node.cron.delete',target.extend({job_id:id,actor_user_id:id,operation_id:id}),z.object({deleted:z.boolean()})),
   'node.setup.request':command('node.setup',setupInput,setup,{error_code:'setup_invalid',message:'Model setup is unavailable'}),
   'node.browser.request':command('node.browser',browserInput,browserReply,{error_code:'browser_invalid',message:'Browser pairing is unavailable'}),
+  'node.wechat.setup.request':command('node.wechat.setup.result',wechatSetupInput,wechatSetupResult,{state:'failed',error_code:'setup_invalid',message:'WeChat setup is unavailable'}),
   'node.distill.prompt.request':command('node.distill.prompt',z.object({sources:z.array(z.object({conversation_id:id,source_agent_id:id,
     external_source:text.optional(),external_chat_id:text.optional()})).nonempty(),execution_agent_id:id,target_scope:z.enum(['agent','global'])}),
     z.object({prompt:text.optional(),...failure}).refine((p): p is WithField<typeof p, 'prompt' | 'error_code'> =>p.prompt !== undefined || !!p.error_code),{error_code:'invalid_request',message:'Invalid distill request'}),

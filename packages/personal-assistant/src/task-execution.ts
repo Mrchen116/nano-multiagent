@@ -93,6 +93,8 @@ export class TaskExecution {
     return this.options.store.lifecycle.run(binding.agentId,input.lifecycle_revision,()=>this.stopAdmitted(binding,input));
   }
   private async stopAdmitted(binding:SessionBinding,input:RelayInput):Promise<{wasRunning:boolean;paused:number}> {
+    const config=this.options.agents.find(a=>a.agentId===binding.agentId);
+    const taskGraphDisabled=config?.features?.task_graph===false||!!(config?.toolAllowlist&&!config.toolAllowlist.includes('task_graph'));
     const id=`task-stop:${binding.agentId}:${input.message.id}`;
     const intent:ControlIntent=this.options.store.control(id)??{id,binding,input,action:'task-stop',argument:''};
     intent.stoppedAt??=new Date().toISOString();
@@ -102,14 +104,23 @@ export class TaskExecution {
     await this.options.runtime.request('session.ensure',(({conversationId,...value})=>value)(binding));
     const cancelled=await this.options.runtime.request('session.cancel',{sessionId:binding.sessionId,stoppedAt:intent.stoppedAt});
     await this.options.drain(binding.sessionId);
+    if(taskGraphDisabled) {
+      const result={...cancelled,paused:0};
+      intent.text=JSON.stringify(result);intent.delivered=true;this.options.store.saveControl(intent);
+      await this.options.runtime.request('task.execution.block',{sessionId:binding.sessionId,blocked:false});
+      return result;
+    }
     const frame=await this.options.relay.request('task.execution.pause',{node_id:this.options.nodeId,agent_id:binding.agentId,conversation_id:this.scope(binding),request_id:randomUUID(),request_key:id,control_message_id:input.message.id});
     if(!frame.payload.ok)throw new Error('Stop is pending until Task state can be confirmed');
-    const result={...cancelled,paused:Number((frame.payload.result as {paused:number}).paused)};
-    // The authority transaction created the real Task originals. Admit those same
-    // IDs passively; a parallel private summary would split their consumption.
-    const prepared=await this.options.context(binding);
-    if(prepared.unavailable)throw new Error('Task context synchronization unavailable');
-    await this.options.runtime.request('task.context.passive',{sessionId:binding.sessionId,agentId:binding.agentId,...prepared});
+    const pauseResult=frame.payload.result as {paused:number;offline_unmirrored?:boolean};
+    const result={...cancelled,paused:Number(pauseResult.paused)};
+    if(!pauseResult.offline_unmirrored) {
+      // The authority transaction created the real Task originals. Admit those same
+      // IDs passively; a parallel private summary would split their consumption.
+      const prepared=await this.options.context(binding);
+      if(prepared.unavailable)throw new Error('Task context synchronization unavailable');
+      await this.options.runtime.request('task.context.passive',{sessionId:binding.sessionId,agentId:binding.agentId,...prepared});
+    }
     intent.text=JSON.stringify(result);intent.delivered=true;this.options.store.saveControl(intent);
     await this.options.runtime.request('task.execution.block',{sessionId:binding.sessionId,blocked:false});
     return result;

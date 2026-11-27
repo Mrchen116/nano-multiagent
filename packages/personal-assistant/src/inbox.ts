@@ -870,10 +870,39 @@ export class InboxStore {
     const text = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
     const result: Record<string, unknown>[][] = [];
     for (let start = 0; start < text.length || start === 0; start += 6000) result.push([{ type: 'text', text: text.slice(start, start + 6000) }]);
-    for (const attachment of input.message.attachments) result.push([{ type: 'attachment', ...attachment }]);
+    for (const attachment of input.message.attachments) {
+      const isTranscribedVoiceRaw = input.metadata.channel === 'wechat'
+        && typeof attachment.file_name === 'string'
+        && /^voice-raw\.(wav|mp3)$/i.test(attachment.file_name);
+      result.push([{
+        type: 'attachment',
+        ...attachment,
+        ...(isTranscribedVoiceRaw
+          ? { note: 'Raw audio of the transcribed voice message above; call download_attachment only if raw audio file is needed' }
+          : {}),
+      }]);
+    }
     return result;
   }
   updateTarget(agent: string, target: string, name: string): void { this.db.prepare('INSERT INTO targets VALUES(?,?,?) ON CONFLICT(agent_id,target) DO UPDATE SET name=excluded.name').run(agent, target, name); }
+  /** Return whether the latest non-context human message across an external chat and its IM shadow originated from internal Web IM. */
+  latestHumanTriggerIsInternalIm(agent: string, shadowId: string, externalId?: string): boolean {
+    const targets = externalId && externalId !== shadowId ? [shadowId, externalId] : [shadowId];
+    const row = this.db.prepare(
+      `SELECT target, payload FROM inbox
+       WHERE agent_id = ? AND target IN (SELECT value FROM json_each(?))
+         AND json_extract(payload, '$.message.sender_type') = 'user'
+         AND coalesce(json_extract(payload, '$.metadata.context_only'), 0) = 0
+         AND coalesce(json_extract(payload, '$.metadata.scope_skipped'), 0) = 0
+       ORDER BY seq DESC LIMIT 1`,
+    ).get(agent, JSON.stringify(targets)) as { target: string; payload: string } | undefined;
+    if (!row) return false;
+    const input = JSON.parse(row.payload) as RelayInput;
+    if (input.metadata.trigger_source === 'im') return true;
+    if (input.metadata.channel === 'web') return true;
+    if (!input.metadata.channel && row.target === shadowId && !shadowId.startsWith('external:')) return true;
+    return false;
+  }
   imageReferences(session: string, call: string): string[] {
     return this.imageSources(session, call).map(source => source.url);
   }

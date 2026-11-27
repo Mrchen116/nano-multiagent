@@ -3198,6 +3198,64 @@ body {
   font-weight: 900;
 }
 
+.im-channel-provider-logo--wechat {
+  background: #07c160;
+  color: white;
+}
+
+.im-wechat-qr-stage {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 6px 0 4px;
+  text-align: center;
+}
+
+.im-wechat-qr-box {
+  position: relative;
+  width: 184px;
+  height: 184px;
+  border-radius: 12px;
+  border: 1px solid var(--im-border);
+  padding: 12px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.im-wechat-qr-overlay {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.94);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+.im-wechat-pin-input {
+  width: 100%;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 9px 12px;
+  font-size: 16px;
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.im-wechat-pin-input[aria-invalid="true"] {
+  border-color: #be123c;
+  background: #fff1f2;
+}
+
 .im-channel-card-meta {
   margin: 5px 0 0;
   color: var(--im-text-muted);

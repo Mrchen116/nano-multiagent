@@ -225,7 +225,7 @@ export class SingleThread {
     const control = sessionControl(input, config);
     const command = controlText(input);
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command) && !control ||
-      command === '/new' && input.metadata.channel === 'feishu' && !needsAttention(input,config);
+      command === '/new' && (input.metadata.channel === 'feishu' || input.metadata.channel === 'wechat') && !needsAttention(input,config);
     if (priority === 'skip' || unaddressedControl || store.skippedChat(input)) {
       store.skipChat(input);
       await this.options.relay.request('node.delivery_receipt', { node_id:this.options.nodeId, relay_task_id:input.relay_task_id, delivery_status:'skipped' });
@@ -343,7 +343,7 @@ export class SingleThread {
       const source: SubmitInput['source'] = deadline
         ? {kind:'system', channel:'chat-background', actorId:binding.agentId, messageId:inputId}
         : {kind:input.message.sender_type === 'user' ? 'human' : 'system', actorId:input.message.sender_user_id,
-          ...(input.metadata.channel === 'feishu' && input.metadata.owner_user_id === binding.ownerId ? {roleAccountId:binding.ownerId} : {}),
+          ...((input.metadata.channel === 'feishu' || input.metadata.channel === 'wechat') && input.metadata.owner_user_id === binding.ownerId ? {roleAccountId:binding.ownerId} : {}),
           channel:typeof input.metadata.channel === 'string' ? input.metadata.channel : 'web_relay', messageId:input.message.id, sender:{id:input.message.sender_user_id,kind:input.message.sender_type,...input.message.sender},
           ...(input.message.pa_agent_id ? {pa_agent_id:input.message.pa_agent_id} : {}), contextEnvelope,
           ...(computerRequest ? {computerOwnerRequest:store.toolReferences.messageRef(binding.agentId,input.message.id)} : {}),
@@ -403,8 +403,9 @@ export class SingleThread {
     const sourceTime = 'provider_source_time' in input.metadata ? input.metadata.provider_source_time : input.message.created_at;
     if (typeof sourceTime === 'string' && Number.isFinite(Date.parse(sourceTime))) {
       const time = formatLocalTime(sourceTime, input.message.timezone);
-      contextEnvelope = `Message time: ${time}${input.message.timezone ? ` (${input.message.timezone})` : ''}; source: ${input.metadata.channel === 'feishu' ? 'Feishu' : 'Web IM'}.`;
-      if (labelSource && !threadRoot && !input.metadata.origin && !binding.conversationId.startsWith('external:') && input.metadata.channel !== 'feishu') {
+      const sourceLabel = input.metadata.channel === 'feishu' ? 'Feishu' : input.metadata.channel === 'wechat' ? 'WeChat' : 'Web IM';
+      contextEnvelope = `Message time: ${time}${input.message.timezone ? ` (${input.message.timezone})` : ''}; source: ${sourceLabel}.`;
+      if (labelSource && !threadRoot && !input.metadata.origin && !binding.conversationId.startsWith('external:') && input.metadata.channel !== 'feishu' && input.metadata.channel !== 'wechat') {
         contextEnvelope += ` IM message ID: ${shortMsgId}.`;
       }
       content.push({ type: 'text', text: contextEnvelope });
@@ -430,8 +431,15 @@ export class SingleThread {
       content.push({ type: 'text', text: `${content.length ? '\n\n' : ''}${lines.join('\n')}\n\nCurrent message:\n` });
     }
     if (ordered && input.metadata.conversation_type === 'group') content.push({ type: 'text', text: `[${input.metadata.sender_display_name ?? input.message.sender_user_id}] ` });
+    let prevWasMessageText = false;
     for (const part of parts) {
-      if (part.type === 'text') { content.push({ type: 'text', text: part.text ?? '' }); continue; }
+      if (part.type === 'text') {
+        const sep = prevWasMessageText && input.metadata.channel === 'wechat' ? '\n\n' : '';
+        content.push({ type: 'text', text: `${sep}${part.text ?? ''}` });
+        prevWasMessageText = true;
+        continue;
+      }
+      prevWasMessageText = false;
       const attachment = input.message.attachments.find(attachment => attachment.url === part.url);
       if (!attachment) throw new Error('Unsupported image media type');
       if (!isRasterImageMime(attachment.content_type)) {
@@ -440,8 +448,18 @@ export class SingleThread {
         const mime = attachment.content_type || 'application/octet-stream';
         const allowlist = this.options.agents.find(agent => agent.agentId === binding.agentId)?.toolAllowlist;
         const canDownload = allowlist === undefined || allowlist.includes('download_attachment');
-        const suffix = ref ? (canDownload ? `, attachment_id=${ref} — call download_attachment to save locally` : `, attachment_id=${ref}`) : '';
-        content.push({ type: 'text', text: `${content.length ? '\n' : ''}[Attachment: ${label} (${mime})${suffix}]` });
+        const isTranscribedVoiceRaw = input.metadata.channel === 'wechat' && /^voice-raw\.(wav|mp3)$/i.test(label);
+        if (isTranscribedVoiceRaw) {
+          const suffix = ref
+            ? (canDownload
+              ? `, attachment_id=${ref} — raw audio of the transcribed voice message above; call download_attachment only if raw audio file is needed`
+              : `, attachment_id=${ref}`)
+            : '';
+          content.push({ type: 'text', text: `${content.length ? '\n' : ''}[Raw voice audio: ${label} (${mime})${suffix}]` });
+        } else {
+          const suffix = ref ? (canDownload ? `, attachment_id=${ref} — call download_attachment to save locally` : `, attachment_id=${ref}`) : '';
+          content.push({ type: 'text', text: `${content.length ? '\n' : ''}[Attachment: ${label} (${mime})${suffix}]` });
+        }
         continue;
       }
       const ref = this.options.store.toolReferences.attachmentRef(binding.agentId, attachment.url);

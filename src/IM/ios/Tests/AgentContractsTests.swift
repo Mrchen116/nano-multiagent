@@ -105,6 +105,30 @@ struct AgentContractsTests {
         #expect(receipt.observed == nil)
     }
 
+    @Test func wechatChannelAvoidsFeishuResidueAndReflectsDualProviderState() throws {
+        let feishu = try JSONDecoder().decode(AgentChannel.self, from: Data(#"{"channel_id":"ch_fs","provider":"feishu","enabled":true,"config":{"app_id":"cli_abcdef1234"},"secret_configured":true,"channel_revision":1,"sync_state":"applied"}"#.utf8))
+        let wechatConnected = try JSONDecoder().decode(AgentChannel.self, from: Data(#"{"channel_id":"ch_wx","provider":"wechat","enabled":true,"config":{"bot_id":"bot_99","owner_user_id":"wxid_owner_3k92","base_url":"https://ilinkai.weixin.qq.com"},"secret_configured":true,"channel_revision":2,"sync_state":"applied","observed":{"observed_revision":2,"connection_state":"connected","status_updated_at":"2026-10-05T00:00:00Z"}}"#.utf8))
+        let wechatRevoked = try JSONDecoder().decode(AgentChannel.self, from: Data(#"{"channel_id":"ch_wx","provider":"wechat","enabled":true,"config":{"bot_id":"bot_99","owner_user_id":"wxid_owner_3k92","base_url":"https://ilinkai.weixin.qq.com"},"secret_configured":true,"channel_revision":2,"sync_state":"applied","observed":{"observed_revision":2,"connection_state":"failed","status_code":"wechat_token_revoked","status_message":"Session revoked","status_updated_at":"2026-10-05T00:01:00Z"}}"#.utf8))
+        let wechatRemoval = try JSONDecoder().decode(AgentChannel.self, from: Data(#"{"resource_type":"removal","channel_id":"ch_wx","provider":"wechat","display_config":{"bot_id_suffix":"bot_99","owner_user_id_suffix":"3k92"},"deletion_manifest_revision":3,"apply_state":"pending","created_at":"2026-10-05T00:02:00Z"}"#.utf8))
+
+        #expect(AgentChannel.canAddAnyChannel(in: []))
+        #expect(AgentChannel.canAddAnyChannel(in: [feishu]))
+        #expect(AgentChannel.canAddAnyChannel(in: [wechatConnected]))
+        #expect(!AgentChannel.canAddAnyChannel(in: [feishu, wechatConnected]))
+
+        #expect(feishu.canEditInApp)
+        #expect(feishu.feishuPermissionsURL != nil)
+        #expect(wechatConnected.isWeChat)
+        #expect(!wechatConnected.canEditInApp)
+        #expect(wechatConnected.canReconnect)
+        #expect(wechatConnected.feishuPermissionsURL == nil)
+        #expect(wechatConnected.maskedIdentitySummary == "wxid_o••••3k92")
+
+        #expect(wechatRevoked.isTokenRevoked)
+        #expect(!wechatRevoked.canReconnect)
+        #expect(wechatRemoval.removalIdentitySummary == "••••3k92")
+    }
+
     @Test func workRecordCompletenessIsOptionalAndSeparateFromExecution() throws {
         for state in ["current", "catching_up", "unknown"] {
             let response = "{\"record_sync_state\":\"\(state)\",\"node_connection_state\":\"online\",\"main_execution\":\"running\",\"turns\":[],\"next_cursor\":null}"

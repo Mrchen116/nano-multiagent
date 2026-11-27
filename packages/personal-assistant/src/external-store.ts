@@ -15,14 +15,43 @@ function decodeFrame(value: unknown): ExternalFrame {
   return stream;
 }
 
-export interface ExternalChat { id: string; agentId: string; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }
+export type ExternalProvider = 'feishu' | 'wechat';
+export type ExternalMessagePart =
+  | { type: 'text'; text: string }
+  | { type: 'image'; key: string; fileName?: string }
+  | { type: 'file'; key: string; fileName: string; mediaType?: string };
+export interface ExternalStoredMessage {
+  messageId: string;
+  chatId: string;
+  senderId: string;
+  isGroup: boolean;
+  mentioned: boolean;
+  time: string;
+  parentId?: string;
+  mentionIds?: string[];
+  senderName?: string;
+  chatName?: string;
+  contextOnly?: boolean;
+  parts: ExternalMessagePart[];
+}
+export interface ExternalChat { id: string; agentId: string; provider?: ExternalProvider; appId: string; chatId: string; isGroup: boolean; sourceId: string; shadowId?: string; name?: string }
 export interface ExternalOutput { lifecycle_revision:number; id: string; chatId: string; operationId: string; reply?: string; state: string; platformId?: string; imId?: string }
 
-type InboundRow = { id: string; chatId: string; body: string; accepted: number; mirror: string | null; reaction: string | null; reactionStage: 'received' | 'read' | null };
-export type ExternalInbound = Omit<InboundRow, 'body'> & { message: FeishuMessage; input: RelayInput };
-const selectInbound = 'SELECT id,chat_id AS chatId,body,accepted,mirror,reaction,reaction_stage AS reactionStage FROM inbound';
+type InboundRow = {
+  id: string;
+  chatId: string;
+  body: string;
+  accepted: number;
+  mirror: string | null;
+  reaction: string | null;
+  reactionStage: 'received' | 'read' | null;
+  imReceiptStage: 'sent' | 'read' | null;
+  imReceiptConfirmed: 'sent' | 'read' | null;
+};
+export type ExternalInbound = Omit<InboundRow, 'body'> & { message: ExternalStoredMessage; input: RelayInput };
+const selectInbound = 'SELECT id,chat_id AS chatId,body,accepted,mirror,reaction,reaction_stage AS reactionStage,im_receipt_stage AS imReceiptStage,im_receipt_confirmed AS imReceiptConfirmed FROM inbound';
 function decodeInbound({ body, ...row }: InboundRow): ExternalInbound {
-  return { ...row, ...JSON.parse(body) as { message: FeishuMessage; input: RelayInput } };
+  return { ...row, ...JSON.parse(body) as { message: ExternalStoredMessage; input: RelayInput } };
 }
 
 /** Separate facts for platform delivery and IM projection; one can succeed without the other. */
@@ -45,8 +74,18 @@ export class ExternalStore {
       CREATE TABLE IF NOT EXISTS approvals(request_id TEXT PRIMARY KEY,output_id TEXT NOT NULL,platform_id TEXT,body TEXT NOT NULL,settled INTEGER NOT NULL DEFAULT 0);
     `);
     if(!(this.db.prepare('PRAGMA table_info(outputs)').all() as {name:string}[]).some(c=>c.name==='lifecycle_revision'))this.db.exec('ALTER TABLE outputs ADD COLUMN lifecycle_revision INTEGER NOT NULL DEFAULT 1');
-    if (!(this.db.prepare('PRAGMA table_info(inbound)').all() as {name:string}[]).some(c=>c.name==='reaction_stage'))
+    const inboundCols = (this.db.prepare('PRAGMA table_info(inbound)').all() as {name:string}[]).map(c => c.name);
+    if (!inboundCols.includes('reaction_stage'))
       this.db.exec('ALTER TABLE inbound ADD COLUMN reaction_stage TEXT');
+    if (!inboundCols.includes('im_receipt_stage'))
+      this.db.exec('ALTER TABLE inbound ADD COLUMN im_receipt_stage TEXT');
+    if (!inboundCols.includes('im_receipt_confirmed'))
+      this.db.exec('ALTER TABLE inbound ADD COLUMN im_receipt_confirmed TEXT');
+    if (!(this.db.prepare('PRAGMA table_info(images)').all() as {name:string}[]).some(c=>c.name==='file_name'))
+      this.db.exec('ALTER TABLE images ADD COLUMN file_name TEXT');
+    const approvalCols = (this.db.prepare('PRAGMA table_info(approvals)').all() as {name:string}[]).map(c => c.name);
+    if (!approvalCols.includes('closed')) this.db.exec('ALTER TABLE approvals ADD COLUMN closed INTEGER NOT NULL DEFAULT 0');
+    if (!approvalCols.includes('decided_surface')) this.db.exec('ALTER TABLE approvals ADD COLUMN decided_surface TEXT');
     // A crash after dispatch has no trustworthy platform result. Recovery must never blindly send it again.
     this.db.exec("UPDATE outputs SET state='unknown' WHERE state='sending'");
   }
@@ -84,7 +123,7 @@ export class ExternalStore {
       .all(agentId, selected, selected) as {body:string}[]).map(row => JSON.parse(row.body) as ExternalChat);
   }
   saveChat(chat: ExternalChat): void { this.db.prepare('INSERT INTO chats VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body').run(chat.id, chat.agentId, JSON.stringify(chat)); }
-  saveInbound(id: string, chatId: string, message: FeishuMessage, input: RelayInput): void {
+  saveInbound(id: string, chatId: string, message: ExternalStoredMessage | FeishuMessage, input: RelayInput): void {
     this.db.prepare('INSERT OR IGNORE INTO inbound(id,chat_id,body) VALUES(?,?,?)').run(id, chatId, JSON.stringify({ message, input }));
   }
   inbound(id: string): ExternalInbound | undefined {
@@ -119,14 +158,32 @@ export class ExternalStore {
   recentInbound(chatId: string): ExternalInbound[] {
     return (this.db.prepare(selectInbound + ' WHERE chat_id=? ORDER BY rowid DESC LIMIT 50').all(chatId) as InboundRow[]).reverse().map(decodeInbound);
   }
-  updateInput(id: string, message: FeishuMessage, input: RelayInput): void { this.db.prepare('UPDATE inbound SET body=? WHERE id=?').run(JSON.stringify({ message, input }), id); }
+  updateInput(id: string, message: ExternalStoredMessage | FeishuMessage, input: RelayInput): void { this.db.prepare('UPDATE inbound SET body=? WHERE id=?').run(JSON.stringify({ message, input }), id); }
   accept(id: string): void { this.db.prepare('UPDATE inbound SET accepted=1 WHERE id=?').run(id); }
   mirrorInput(id: string, messageId: string): void { this.db.prepare('UPDATE inbound SET mirror=? WHERE id=?').run(messageId, id); }
   reaction(id: string, reaction: string | null, stage?: 'received' | 'read'): void {
     this.db.prepare('UPDATE inbound SET reaction=?,reaction_stage=? WHERE id=?').run(reaction, stage ?? null, id);
   }
+  recordImReceiptStage(id: string, stage: 'sent' | 'read'): void {
+    this.db.prepare(
+      "UPDATE inbound SET im_receipt_stage=CASE WHEN im_receipt_stage='read' THEN 'read' ELSE ? END WHERE id=?",
+    ).run(stage, id);
+  }
+  pendingImReceipts(): ExternalInbound[] {
+    return (this.db.prepare(
+      selectInbound + " WHERE mirror IS NOT NULL AND mirror!='' AND im_receipt_stage IS NOT NULL AND coalesce(im_receipt_confirmed,'')!=im_receipt_stage ORDER BY rowid",
+    ).all() as InboundRow[]).map(decodeInbound);
+  }
+  confirmImReceipt(id: string, stage: 'sent' | 'read'): void {
+    this.db.prepare(
+      "UPDATE inbound SET im_receipt_confirmed=CASE WHEN im_receipt_confirmed='read' THEN 'read' ELSE ? END WHERE id=?",
+    ).run(stage, id);
+  }
   output(id: string): ExternalOutput | undefined {
     return this.db.prepare('SELECT id,chat_id AS chatId,operation_id AS operationId,reply,state,platform_id AS platformId,im_id AS imId,lifecycle_revision FROM outputs WHERE id=?').get(id) as unknown as ExternalOutput | undefined;
+  }
+  outputByOperation(operationId: string): ExternalOutput | undefined {
+    return this.db.prepare('SELECT id,chat_id AS chatId,operation_id AS operationId,reply,state,platform_id AS platformId,im_id AS imId,lifecycle_revision FROM outputs WHERE operation_id=?').get(operationId) as unknown as ExternalOutput | undefined;
   }
   prepare(chatId: string, operationId: string, reply?: string, revision=1): ExternalOutput {
     const id = `external:${createHash('sha256').update(operationId).digest('hex')}`;
@@ -145,20 +202,44 @@ export class ExternalStore {
   }
   pendingFrames() { return (this.db.prepare('SELECT id,output_id AS outputId,body FROM frames WHERE mirrored=0 ORDER BY rowid').all() as { id: string; outputId: string; body: string }[]).map(row => ({ ...row, body: decodeFrame(JSON.parse(row.body)) })); }
   confirmFrame(id: string): void { this.db.prepare('UPDATE frames SET mirrored=1 WHERE id=?').run(id); }
-  image(url: string, agentId: string): { data: Buffer; mediaType: string; uploaded: string | null } | undefined {
-    const row = this.db.prepare('SELECT data,media_type AS mediaType,uploaded FROM images WHERE url=? AND agent_id=?').get(url, agentId) as { data: Uint8Array; mediaType: string; uploaded: string | null } | undefined;
-    return row && { ...row, data: Buffer.from(row.data) };
+  image(url: string, agentId: string): { data: Buffer; mediaType: string; uploaded: string | null; fileName?: string } | undefined {
+    const row = this.db.prepare('SELECT data,media_type AS mediaType,uploaded,file_name AS fileName FROM images WHERE url=? AND agent_id=?').get(url, agentId) as { data: Uint8Array; mediaType: string; uploaded: string | null; fileName: string | null } | undefined;
+    return row && { data: Buffer.from(row.data), mediaType: row.mediaType, uploaded: row.uploaded, ...(row.fileName ? { fileName: row.fileName } : {}) };
   }
-  saveImage(url: string, agentId: string, data: Buffer, mediaType: string): void { this.db.prepare('INSERT OR IGNORE INTO images(url,agent_id,data,media_type) VALUES(?,?,?,?)').run(url, agentId, data, mediaType); }
+  saveImage(url: string, agentId: string, data: Buffer, mediaType: string, fileName?: string): void {
+    this.db.prepare('INSERT OR IGNORE INTO images(url,agent_id,data,media_type,file_name) VALUES(?,?,?,?,?)').run(url, agentId, data, mediaType, fileName ?? null);
+  }
   uploaded(url: string, attachment: unknown): void { this.db.prepare('UPDATE images SET uploaded=? WHERE url=?').run(JSON.stringify(attachment), url); }
   approval(requestId: string, outputId: string, body: Record<string, unknown>, platformId?: string): void {
     this.db.prepare('INSERT INTO approvals(request_id,output_id,body,platform_id) VALUES(?,?,?,?) ON CONFLICT(request_id) DO UPDATE SET platform_id=coalesce(excluded.platform_id,platform_id)').run(requestId, outputId, JSON.stringify(body), platformId ?? null);
   }
   /** Read one approval by its durable request identity. */
   approvalForRequest(requestId: string) {
-    const row = this.db.prepare('SELECT request_id AS requestId,output_id AS outputId,platform_id AS platformId,body,settled FROM approvals WHERE request_id=?').get(requestId) as {requestId:string;outputId:string;platformId:string|null;body:string;settled:number}|undefined;
+    const row = this.db.prepare('SELECT request_id AS requestId,output_id AS outputId,platform_id AS platformId,body,settled,closed,decided_surface AS decidedSurface FROM approvals WHERE request_id=?').get(requestId) as {requestId:string;outputId:string;platformId:string|null;body:string;settled:number;closed:number;decidedSurface:string|null}|undefined;
     return row && {...row, body:JSON.parse(row.body) as Record<string,unknown>};
   }
-  settleApproval(requestId: string): void { this.db.prepare('UPDATE approvals SET settled=1 WHERE request_id=?').run(requestId); }
+  /** Read the newest non-closed approval belonging to an active turn in `chatId`. */
+  latestActiveApprovalForChat(chatId: string) {
+    const row = this.db.prepare(
+      `SELECT a.request_id AS requestId, a.output_id AS outputId, a.platform_id AS platformId, a.body, a.settled, a.closed, a.decided_surface AS decidedSurface
+       FROM approvals a
+       JOIN outputs o ON o.id = a.output_id
+       WHERE o.chat_id = ? AND a.closed = 0
+       ORDER BY a.rowid DESC LIMIT 1`,
+    ).get(chatId) as { requestId: string; outputId: string; platformId: string | null; body: string; settled: number; closed: number; decidedSurface: string | null } | undefined;
+    return row && { ...row, body: JSON.parse(row.body) as Record<string, unknown> };
+  }
+  settleApproval(requestId: string, surface?: string): void {
+    this.db.prepare('UPDATE approvals SET settled=1, decided_surface=coalesce(decided_surface, ?) WHERE request_id=?').run(surface ?? null, requestId);
+  }
+  closeApprovalsForOutput(outputId: string): void {
+    this.db.prepare('UPDATE approvals SET settled=1, closed=1 WHERE output_id=?').run(outputId);
+  }
+  closeApprovalsForChat(chatId: string): void {
+    this.db.prepare('UPDATE approvals SET settled=1, closed=1 WHERE output_id IN (SELECT id FROM outputs WHERE chat_id=?)').run(chatId);
+  }
+  closeApprovalsForAgent(agentId: string): void {
+    this.db.prepare('UPDATE approvals SET settled=1, closed=1 WHERE output_id IN (SELECT id FROM outputs WHERE chat_id IN (SELECT id FROM chats WHERE agent_id=?))').run(agentId);
+  }
   close(): void { this.db.close(); }
 }

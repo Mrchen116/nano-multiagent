@@ -20,6 +20,7 @@ interface Options {
   runtime: RuntimePort; relay: { readonly ready?: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
   image(url: string, agentId: string): Promise<string>;
   uploadScreenshot?: ScreenshotUploader;
+  stageExternalImage?: ScreenshotUploader;
   uploadAttachment?: AttachmentUploader;
   downloadAttachment?: AttachmentDownloader;
   onError(error: unknown): void;
@@ -244,7 +245,7 @@ export class GlobalAgent {
             this.options.inbox.confirmRelay(receipt.input.relay_task_id, receipt.status);
           } catch (error) {
             if (error instanceof RelayDeliveryError && error.delivery === 'rejected'
-              && /scope_not_allowed|agent_not_accessible|conversation_id not found|relay task not found|node_not_registered|gateway_owner_mismatch/.test(error.code ?? '')) {
+              && /scope_not_allowed|agent_not_accessible|conversation_id not found|relay task not found|external source message not found|node_not_registered|gateway_owner_mismatch/.test(error.code ?? '')) {
               this.options.inbox.rejectRelay(receipt.input.relay_task_id);
               this.options.onError(error);
               continue;
@@ -803,7 +804,7 @@ export class GlobalAgent {
     }
   }
 
-  /** Consume persisted source events without changing the owner's read receipts. */
+  /** Consume persisted source events; only owner 1:1 external shadow messages opt into agent receipts. */
   recoverPersonalObservations(): Promise<void> {
     if (this.options.relay.ready === false) return Promise.resolve();
     if (this.observations) return this.observations;
@@ -823,9 +824,15 @@ export class GlobalAgent {
               if(message.sender_agent_id===config.agentId || message.sender?.agent_id===config.agentId || (message.sender?.type==='agent'&&message.sender?.id===config.agentId)) {
                 await this.personal.request(config,'pa.observations.ack',{event_ids:[event.event_id],stage:'processed'}); continue;
               }
+              const agentReceipt = Boolean(
+                event.owner_direct
+                && event.conversation_type === 'direct'
+                && (event.channel === 'feishu' || event.channel === 'wechat')
+                && message.receipts_requested,
+              );
               await this.ingest({agent_id:config.agentId,conversation_id:event.conversation_id,
                 lifecycle_revision:event.lifecycle_revision??1,relay_task_id:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,idempotency_key:`pa-observation:${config.personal!.bindingId}:${event.event_id}`,
-                metadata:{pa_observation:true,owner_direct:event.owner_direct,
+                metadata:{pa_observation:true,...(agentReceipt ? {agent_receipt:true} : {}),owner_direct:event.owner_direct,
                   ...(typeof event.owner_internal==='boolean'?{owner_internal:event.owner_internal}:{}),
                   ...(typeof event.delivery==='string'?{personal_delivery:event.delivery}:{}),
                   addressed_to_owner:event.addressed_to_owner,addressed_to_agent:event.addressed_to_agent,
@@ -1197,14 +1204,15 @@ export class GlobalAgent {
       if (typeof resolved.target === 'string') reviewConversation = resolved.target;
     }
     const info = reviewConversation ? await this.query(binding, { action: 'info', target: reviewConversation }) : undefined;
+    const isExternalChannel = info?.channel === 'feishu' || info?.channel === 'wechat' || info?.channel === 'external' || targetBase.startsWith('external:');
+    const allowsExternalImages = (info?.channel === 'wechat' || info?.channel === 'feishu') && info?.type === 'direct' && !filePaths?.length && !!this.options.stageExternalImage;
     if((replyTo || inThread) && info?.channel && info.channel!=='web')throw new Error('Quoted replies and topics require a Nano IM destination');
-    if (hasLocalMedia && (!reviewConversation || info?.channel !== 'web')) throw new Error('Local attachments require a writable Nano IM conversation');
-    const isExternalChannel = info?.channel === 'feishu' || info?.channel === 'external' || targetBase.startsWith('external:');
+    if (hasLocalMedia && (!reviewConversation || (info?.channel !== 'web' && !allowsExternalImages))) throw new Error('Local attachments require a writable Nano IM conversation');
     let outboundText = text;
     if (isExternalChannel && taskCards?.length) {
       outboundText = await this.appendExternalTaskCardsSummary(binding.agentId, text, taskCards);
     }
-    if (isExternalChannel && !outboundText.trim()) throw new Error('This destination requires a text answer; interactive UI is not supported');
+    if (isExternalChannel && !outboundText.trim() && !(allowsExternalImages && hasLocalMedia)) throw new Error('This destination requires a text answer; interactive UI is not supported');
     const baseTargets = [reviewConversation, info?.target, reviewConversation && store.imConversation(binding.agentId, reviewConversation)];
     const reviewTargets = info?.type === 'direct' || info?.type === 'group' && info.channel === 'web'
       ? [...new Set(baseTargets)].filter((id): id is string => typeof id === 'string').map(id => joinThreadTarget(id, inThread)) : [];
@@ -1245,7 +1253,8 @@ export class GlobalAgent {
     const held = revalidate();
     if (held) return held;
 
-    const attachments = hasLocalMedia ? await prepareLocalAttachments(this.options.uploadScreenshot, this.options.uploadAttachment, {
+    const imageUploader = allowsExternalImages ? this.options.stageExternalImage : this.options.uploadScreenshot;
+    const attachments = hasLocalMedia ? await prepareLocalAttachments(imageUploader, allowsExternalImages ? undefined : this.options.uploadAttachment, {
       agentId:binding.agentId, conversationId:reviewConversation!, operationId:call.operationId,
       lifecycleRevision:store.lifecycle.assert(binding.agentId), signal,
     }, paths, filePaths, call.args.attachments) : call.args.attachments === undefined ? undefined : chatAttachments(call.args.attachments);
@@ -1255,11 +1264,30 @@ export class GlobalAgent {
       const changed = revalidate();
       if (changed) return changed;
     }
+    const rawRequestedBase = targetBase.replace(/^conversation:/, '');
+    const resolvedExternalId = typeof info?.target === 'string' && info.target.startsWith('external:')
+      ? info.target
+      : (reviewConversation ? store.canonicalConversation(binding.agentId, reviewConversation) : undefined);
+    const resolvedShadowId = resolvedExternalId?.startsWith('external:')
+      ? store.imConversation(binding.agentId, resolvedExternalId)
+      : undefined;
+    const singleThreadImTrigger = !global
+      && rawRequestedBase === 'current'
+      && !!resolvedShadowId
+      && store.inputs(binding.sessionId).at(-1)?.input.metadata.trigger_source === 'im';
+    const globalImShadowTrigger = global
+      && !rawRequestedBase.startsWith('external:')
+      && !!resolvedShadowId
+      && rawRequestedBase === resolvedShadowId
+      && inbox.latestHumanTriggerIsInternalIm(binding.agentId, resolvedShadowId, resolvedExternalId);
+    const internalShadowOnly = singleThreadImTrigger || globalImShadowTrigger;
+
     inbox.settlePublication(call.operationId, 'sending');
     try {
       const response = await this.publishMessage({ node_id: this.options.nodeId, text: outboundText, ...(attachments ? {attachments} : {}),
         ...(replyTo?{reply_to_message_id:replyTo}:{}),
         ...(inThread?{in_thread_of:inThread}:{}),
+        ...(internalShadowOnly ? {internal_shadow_only: true} : {}),
         ...(interactive && !isExternalChannel ? {interactive} : {}),
         ...(taskCards?.length && !isExternalChannel ? {task_cards:taskCards} : {}),
         to: conversation ? `conversation:${conversation}` : targetBase, from_session_id: `${binding.agentId}|tool_call:${call.operationId}` });
@@ -1671,13 +1699,13 @@ export class GlobalAgent {
     this.options.onWork?.();
   }
   private async receipt(input: RelayInput, status: string) {
-    if(input.metadata.pa_observation || (input.relay_task_id.startsWith('external:') && !input.metadata.agent_receipt)) {await this.transmitReceipt(input,status);return;}
+    if((input.metadata.pa_observation || input.relay_task_id.startsWith('external:')) && !input.metadata.agent_receipt) {await this.transmitReceipt(input,status);return;}
     this.options.inbox.settleRelay(input,status);
     this.scheduleReceipts();
   }
   private async transmitReceipt(input: RelayInput, status: string) {
     if(input.metadata.pa_observation) {
-      if(input.metadata.channel==='feishu')await this.options.relay.request('node.delivery_receipt',{node_id:this.options.nodeId,agent_id:input.agent_id,external_source_message_id:input.message.id,delivery_status:status});
+      if(input.metadata.channel==='feishu' || input.metadata.channel==='wechat')await this.options.relay.request('node.delivery_receipt',{node_id:this.options.nodeId,agent_id:input.agent_id,external_source_message_id:input.message.id,delivery_status:status});
       return;
     }
     await this.options.relay.request('node.delivery_receipt', { node_id: this.options.nodeId, relay_task_id: input.relay_task_id, delivery_status: status });
