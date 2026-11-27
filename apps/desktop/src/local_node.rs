@@ -129,10 +129,12 @@ fn advance_managed_active_pointers_to_seed(
     version: &str,
     target_sha: &str,
     final_version_root: &Path,
-) {
+) -> Result<(), String> {
     let connections_dir = paths.nano_install_root.join("connections");
-    let Ok(entries) = fs::read_dir(&connections_dir) else {
-        return;
+    let entries = match fs::read_dir(&connections_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.to_string()),
     };
     let now_epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -140,54 +142,56 @@ fn advance_managed_active_pointers_to_seed(
         .unwrap_or(0);
     let root_str = final_version_root.to_string_lossy().to_string();
     let ui_str = final_version_root.join("ui").to_string_lossy().to_string();
-    for entry in entries.flatten() {
-        let active_path = entry.path().join(".desktop-active.json");
-        if !active_path.is_file() {
+    for entry in entries {
+        let connection = entry.map_err(|e| e.to_string())?.path();
+        if !connection.is_dir() {
             continue;
         }
-        let Ok(raw) = fs::read_to_string(&active_path) else {
-            continue;
+        let active_path = connection.join(".desktop-active.json");
+        let raw = match fs::read_to_string(&active_path) {
+            Ok(raw) => raw,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(e.to_string()),
         };
-        let Ok(mut val) = serde_json::from_str::<Value>(&raw) else {
+        let mut val: Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        if val["managed_by"] != "crewden-desktop" {
             continue;
-        };
-        let Some(obj) = val.as_object_mut() else {
-            continue;
-        };
-        obj.insert("managed_by".to_string(), json!("crewden-desktop"));
+        }
+        let obj = val.as_object_mut().ok_or("Invalid desktop active pointer")?;
         obj.insert("sha256".to_string(), json!(target_sha));
         obj.insert("version".to_string(), json!(version));
         obj.insert("version_root".to_string(), json!(root_str));
         obj.insert("ui_root".to_string(), json!(ui_str));
         obj.insert("updated_at_epoch".to_string(), json!(now_epoch));
-        let _ = write_private_json(&active_path, &val);
+        write_private_json(&active_path, &val)?;
     }
+    Ok(())
 }
 
 /// Reconcile `seed-current.json` and `.desktop-active.json` immediately when the bundled seed `.ready` already exists
 /// and differs from `seed-current.json` (e.g. re-installing or switching installers while keeping OTA updates untouched).
-pub fn reconcile_ready_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Option<&Path>) {
+pub fn reconcile_ready_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Option<&Path>) -> Result<(), String> {
     let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
-        return;
+        return Ok(());
     };
     let manifest_path = seed_dir.join(seed_manifest_filename());
     let Ok(manifest_raw) = fs::read_to_string(&manifest_path) else {
-        return;
+        return Ok(());
     };
     let Ok(manifest) = serde_json::from_str::<Value>(&manifest_raw) else {
-        return;
+        return Ok(());
     };
     let Some(target_sha) = manifest["sha256"].as_str() else {
-        return;
+        return Ok(());
     };
     let version = manifest["version"].as_str().unwrap_or("0.1.0");
     let final_version_root = paths.desktop_home.join("versions").join(target_sha);
     if !final_version_root.join(".ready").is_file() {
-        return;
+        return Ok(());
     }
     let prev = read_seed_marker(paths);
     if prev.as_ref().map(|m| m.sha256.as_str()) == Some(target_sha) {
-        return;
+        return Ok(());
     }
     let runtime_sha = manifest["package"]
         .as_str()
@@ -196,7 +200,8 @@ pub fn reconcile_ready_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Opti
         .and_then(|d| d["runtime"]["sha256"].as_str().map(str::to_string))
         .or_else(|| prev.map(|m| m.runtime_sha256))
         .unwrap_or_default();
-    let _ = write_private_json(
+    advance_managed_active_pointers_to_seed(paths, version, target_sha, &final_version_root)?;
+    write_private_json(
         &paths.seed_marker_path(),
         &SeedMarker {
             version: version.to_string(),
@@ -204,8 +209,7 @@ pub fn reconcile_ready_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Opti
             runtime_sha256: runtime_sha,
             version_root: final_version_root.to_string_lossy().to_string(),
         },
-    );
-    advance_managed_active_pointers_to_seed(paths, version, target_sha, &final_version_root);
+    )
 }
 
 /// Gracefully stop all managed local node processes across saved Desktop sessions without setting `user_stopped`.
@@ -266,7 +270,6 @@ pub fn ensure_seed_bundle_installed(
     paths: &DesktopPaths,
     seed_archives_dir: Option<&Path>,
 ) -> Result<Option<PathBuf>, String> {
-    sync_seed_desktop_defaults(paths, seed_archives_dir);
     let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
         return Ok(None);
     };
@@ -287,7 +290,7 @@ pub fn ensure_seed_bundle_installed(
 
     let final_version_root = paths.desktop_home.join("versions").join(target_sha);
     if final_version_root.join(".ready").is_file() {
-        reconcile_ready_seed_bundle(paths, Some(&seed_dir));
+        reconcile_ready_seed_bundle(paths, Some(&seed_dir))?;
         return Ok(Some(final_version_root));
     }
 
@@ -410,6 +413,9 @@ pub fn ensure_seed_bundle_installed(
     let seed_changed = read_seed_marker(paths)
         .map(|m| m.sha256 != target_sha)
         .unwrap_or(true);
+    if seed_changed {
+        advance_managed_active_pointers_to_seed(paths, &version, target_sha, &final_version_root)?;
+    }
     write_private_json(
         &paths.seed_marker_path(),
         &SeedMarker {
@@ -419,9 +425,6 @@ pub fn ensure_seed_bundle_installed(
             version_root: final_version_root.to_string_lossy().to_string(),
         },
     )?;
-    if seed_changed {
-        advance_managed_active_pointers_to_seed(paths, &version, target_sha, &final_version_root);
-    }
     Ok(Some(final_version_root))
 }
 
@@ -805,7 +808,7 @@ mod tests {
             json!({ "package": "pkg.json", "version": "1.0.0", "sha256": "sha_v1" }).to_string(),
         )
         .unwrap();
-        reconcile_ready_seed_bundle(&paths, Some(&seed_official));
+        reconcile_ready_seed_bundle(&paths, Some(&seed_official)).unwrap();
 
         let active_path = paths.desktop_active_path(origin).unwrap();
         write_private_json(
@@ -834,7 +837,7 @@ mod tests {
             }),
         )
         .unwrap();
-        reconcile_ready_seed_bundle(&paths, Some(&seed_official));
+        reconcile_ready_seed_bundle(&paths, Some(&seed_official)).unwrap();
         let resolved_ota = resolve_active_bundle(&paths, origin, None).unwrap();
         assert_eq!(resolved_ota.version, "1.0.5");
         assert_eq!(resolved_ota.sha256.as_deref(), Some("sha_ota"));
@@ -845,7 +848,7 @@ mod tests {
             json!({ "package": "pkg.json", "version": "2.0.0", "sha256": "sha_v2" }).to_string(),
         )
         .unwrap();
-        reconcile_ready_seed_bundle(&paths, Some(&seed_official));
+        reconcile_ready_seed_bundle(&paths, Some(&seed_official)).unwrap();
         let resolved_v2 = resolve_active_bundle(&paths, origin, None).unwrap();
         assert_eq!(resolved_v2.version, "2.0.0");
         assert_eq!(resolved_v2.sha256.as_deref(), Some("sha_v2"));

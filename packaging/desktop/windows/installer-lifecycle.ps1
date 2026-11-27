@@ -15,8 +15,12 @@ $policy = 'desktop-defaults.json'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $installArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART')
 
-function Install-Or-Uninstall($program) {
+function Install-Or-Uninstall($program, [switch]$expectFailure) {
     $p = Start-Process $program -ArgumentList $installArgs -PassThru -Wait
+    if ($expectFailure) {
+        if ($p.ExitCode -eq 0) { throw "$program unexpectedly reported success" }
+        return
+    }
     if ($p.ExitCode -ne 0) { throw "$program exited with $($p.ExitCode)" }
 }
 function Wait-For($description, [scriptblock]$probe, $attempts = 120) {
@@ -62,7 +66,32 @@ try {
     Set-Content $doc 'owner workspace'
     $privatePtr = Get-Content -Raw "$conn/.desktop-active.json" | ConvertFrom-Json
 
-    Install-Or-Uninstall (Join-Path $release 'Crewden-Desktop-Setup-x64.exe')
+    $official = Join-Path $release 'Crewden-Desktop-Setup-x64.exe'
+    $privateTask = Get-ScheduledTask -TaskPath '\' -TaskName 'CrewdenDesktop-*' | Where-Object {$_.Actions.Arguments.Contains($config)}
+    $workerPackage = Join-Path $root 'blocked worker'
+    New-Item -Type Directory -Force "$workerPackage/apps/node/lib" | Out-Null
+    New-Item -Type Junction -Path "$workerPackage/runtime" -Target "$($privatePtr.version_root)/runtime" | Out-Null
+    Set-Content "$workerPackage/apps/node/lib/update-worker.js" "const fs=require('node:fs'); fs.writeFileSync('started', ''); const timer=setInterval(()=>{if(fs.existsSync('finish')) clearInterval(timer)}, 50)"
+    $updateAction = New-ScheduledTaskAction -Execute $privateTask.Actions.Execute -Argument ('worker "' + $config + '" ' + [guid]::NewGuid() + ' "' + $workerPackage + '"')
+    $updateName = "$($privateTask.TaskName)-Update"
+    Register-ScheduledTask -TaskName $updateName -Action $updateAction -Principal $privateTask.Principal | Out-Null
+    Start-ScheduledTask -TaskName $updateName
+    $null = Wait-For 'active update worker' { Test-Path "$workerPackage/started" }
+    Install-Or-Uninstall $official -expectFailure
+    Install-Or-Uninstall (Join-Path $bin 'unins000.exe') -expectFailure
+    if ($privateShell.HasExited -or !(Get-Process -Id $bound.pid -ErrorAction SilentlyContinue)) { throw 'Rejected maintenance interrupted the running binding' }
+    Set-Content "$workerPackage/finish" 'finish'
+    $null = Wait-For 'update to finish' { !(Get-ScheduledTask -TaskPath '\' -TaskName $updateName -ErrorAction SilentlyContinue) }
+
+    # Reject seed write failure before replacing the private installation, then retry.
+    $descriptor = Get-Content -Raw (Join-Path $release 'desktop-win32-x64.json') | ConvertFrom-Json
+    $cacheBlock = Join-Path $env:CREWDEN_DESKTOP_HOME "cache/$($descriptor.app.sha256)-$($descriptor.app.name)"
+    New-Item -ItemType Directory $cacheBlock | Out-Null
+    Install-Or-Uninstall $official -expectFailure
+    if (!(Test-Path "$bin/seed-archives/$policy") -or
+        (Get-Content -Raw "$conn/.desktop-active.json" | ConvertFrom-Json).sha256 -ne $privatePtr.sha256) { throw 'Failed overwrite lost the selected private release' }
+    Remove-Item -LiteralPath $cacheBlock
+    Install-Or-Uninstall $official
     if (!$privateShell.HasExited) { throw 'Overwrite left private shell running' }
     foreach ($dir in @((Join-Path $bin 'seed-archives'), $env:CREWDEN_DESKTOP_HOME)) {
         if (Test-Path (Join-Path $dir $policy)) { throw "Stale policy in $dir" }

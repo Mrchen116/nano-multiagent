@@ -108,7 +108,7 @@ def test_inno_setup_manifest_defines_default_checked_desktop_shortcut_and_close_
     assert "CloseApplications=yes" in iss_text
     assert "AppMutex=" not in iss_text
     assert "function PrepareToInstall" in iss_text
-    assert "'--stop'" in iss_text
+    assert "prepare-overwrite" in iss_text
     assert 'Name: "desktopicon"; Description: "创建桌面快捷方式(&D)"' in iss_text
     # Must be checked by default (no `unchecked` flag on desktopicon task).
     task_lines = [

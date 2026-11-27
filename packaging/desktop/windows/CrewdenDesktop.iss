@@ -61,8 +61,6 @@ Root: HKCU; Subkey: "Software\Classes\crewden-desktop\shell\open\command"; Value
 Filename: "{app}\CrewdenDesktop.exe"; Description: "立即启动 Crewden Desktop"; Flags: nowait postinstall skipifsilent
 
 [Code]
-var
-  ReplacePrivateSeed: Boolean;
 
 function DesktopHome(Param: String): String;
 begin
@@ -99,18 +97,25 @@ var
 begin
   Result := '';
   InstalledExe := ExpandConstant('{app}\CrewdenDesktop.exe');
-  ReplacePrivateSeed := FileExists(ExpandConstant('{app}\seed-archives\desktop-defaults.json')) and
-      FileExists(DesktopHome('') + '\seed-current.json');
   if FileExists(InstalledExe) then begin
-    if not Exec(InstalledExe, '--stop', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ExitCode)
-        or (ExitCode <> 0) then begin
-      Result := '未能停止已安装的桌面客户端。';
-      Exit;
-    end;
     ExtractTemporaryFile('DesktopGatewayHost.exe');
     if not Exec(ExpandConstant('{tmp}\DesktopGatewayHost.exe'),
         'prepare-overwrite "' + InstalledExe + '" "' + DesktopHome('') + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode)
-        or (ExitCode <> 0) then Result := '未能停止桌面后台服务。请等待电脑端更新结束后重试。';
+        or (ExitCode <> 0) then begin
+      Result := '未能停止桌面后台服务。请等待电脑端更新结束后重试。';
+      Exit;
+    end;
+    if FileExists(ExpandConstant('{app}\seed-archives\desktop-defaults.json')) and
+        FileExists(DesktopHome('') + '\seed-current.json') then begin
+      ExtractTemporaryFile('CrewdenDesktop.exe');
+      ExtractTemporaryFile('manifest.desktop-win32-x64.json');
+      ExtractTemporaryFile('desktop-win32-x64.json');
+      ExtractTemporaryFile('desktop-runtime-win32-x64.tar.gz');
+      ExtractTemporaryFile('desktop-app-win32-x64.tar.gz');
+      if not Exec(ExpandConstant('{tmp}\CrewdenDesktop.exe'), '--prepare-seed --seed-archives-dir "' +
+          ExpandConstant('{tmp}') + '"', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then
+        Result := '未能准备新安装包的运行环境。请查看 desktop-host.log 后重试。';
+    end;
   end;
 end;
 
@@ -128,10 +133,6 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   ExitCode: Integer;
 begin
-  if (CurStep = ssPostInstall) and ReplacePrivateSeed then begin
-    if not Exec(ExpandConstant('{app}\CrewdenDesktop.exe'), '--prepare-seed', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ExitCode)
-        or (ExitCode <> 0) then RaiseException('未能切换到新安装包内置的发布源。');
-  end;
   if (CurStep = ssPostInstall) and (not IsWebView2Installed()) then begin
     ExtractTemporaryFile('MicrosoftEdgeWebView2Setup.exe');
     if not Exec(ExpandConstant('{tmp}\MicrosoftEdgeWebView2Setup.exe'), '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) or (ExitCode <> 0) then

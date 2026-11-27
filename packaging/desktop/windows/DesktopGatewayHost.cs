@@ -165,6 +165,14 @@ internal static class DesktopGatewayHost {
             dynamic task = FindTask(folder, update);
             if (task != null && task.GetInstances(0).Count != 0) throw new IOException("Desktop update still running");
         }
+        if (!uninstall) {
+            // Existing shells understand --stop. Check for active updates before
+            // draining the gateway they may still be using for their handoff.
+            using (var stop = Process.Start(new ProcessStartInfo(shell, "--stop") {UseShellExecute = false})) {
+                stop.WaitForExit();
+                if (stop.ExitCode != 0) throw new IOException("Could not stop the installed desktop");
+            }
+        }
         // Stop the tray supervisor first so it cannot recreate a gateway task.
         foreach (var process in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(shell))) {
             using (process) {
