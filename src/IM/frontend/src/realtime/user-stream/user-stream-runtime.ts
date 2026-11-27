@@ -1,4 +1,4 @@
-import type { UserStreamNotificationHint } from "@nano/product-contracts";
+import type { UserStreamNotificationHint } from "@nano/product-contracts/client-parity";
 import type { SessionReadiness } from "../../features/auth/auth-session";
 import {
   UserStreamRecoveryError,

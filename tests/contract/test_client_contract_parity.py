@@ -239,3 +239,20 @@ def test_node_directory_fsync_is_confined_to_platform_io() -> None:
     assert not offenders, (
         f"Use syncDirectoryIfSupported from platform-io.ts: {offenders}"
     )
+
+
+def test_web_frontend_avoids_node_bound_product_contracts_root_barrel() -> None:
+    """Browser runtime imports must use browser-safe @nano/product-contracts/* subpaths."""
+    barrel_value_import = re.compile(
+        r"""^\s*import\s+(?!type\b)[\s\S]*?from\s+['"]@nano/product-contracts['"]""",
+        re.MULTILINE,
+    )
+    offenders = [
+        path.relative_to(ROOT).as_posix()
+        for path in sorted((ROOT / "src/IM/frontend/src").rglob("*.ts*"))
+        if barrel_value_import.search(path.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, (
+        "Import browser runtime helpers from @nano/product-contracts/<subpath> so "
+        f"Rollup never pulls in node:crypto from root barrel: {offenders}"
+    )

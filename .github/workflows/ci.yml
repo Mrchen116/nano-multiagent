@@ -245,5 +245,7 @@ jobs:
 
       - name: Typecheck Web IM and its component contracts
         run: npx tsc -b
+      - name: Bundle Web IM for browser
+        run: npx vite build
       - name: vitest run
         run: npm run test

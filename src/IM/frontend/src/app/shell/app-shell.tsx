@@ -1,7 +1,7 @@
 import { PropsWithChildren, useEffect } from "react";
 import { Link, NavLink, useLocation, useMatch, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { computeUnreadBadgeTotal } from "@nano/product-contracts";
+import { computeUnreadBadgeTotal } from "@nano/product-contracts/client-parity";
 
 import { isDesktopClient } from "../../desktop/desktop-context";
 import { DesktopNodeOnboardingBanner } from "../../desktop/desktop-node-onboarding-banner";

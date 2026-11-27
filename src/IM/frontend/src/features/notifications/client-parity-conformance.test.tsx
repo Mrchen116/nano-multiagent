@@ -8,7 +8,7 @@ import {
   computeUnreadBadgeTotal,
   timelineDividerMessageIds,
   type UserStreamNotificationHint
-} from "@nano/product-contracts";
+} from "@nano/product-contracts/client-parity";
 
 import unreadVectors from "../../../../shared/unread-badge-test-cases.json";
 import dividerVectors from "../../../../shared/timeline-divider-test-cases.json";

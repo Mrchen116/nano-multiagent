@@ -7,7 +7,7 @@
   - `executed_base`：`953eeb86ecedadd590e7975a5709a2a1ca4cf739`（`origin/develop`，含 `bugfix-802-ci-feedback` 并行 CI 基线）
   - Round 1 `validated_at`（`pre_fix_head`）：`43d69477b895e31385a1099b477d066457827419`
   - Round 2 `validated_at`（修复后关闭复审）：`d1d71712f8ecd2b296e96311b6b4ba34440710a3`
-- 最终 effective_base / effective_through 与保留依据：`effective_base = 953eeb86ecedadd590e7975a5709a2a1ca4cf739`，`effective_through` 在 `d1d71712f8ecd2b296e96311b6b4ba34440710a3` 基础上仅包含本审查报告落盘、已通过校对的 3 份 canonical spec 归并与 `docs/changes/archive/` 归档移动，无生产代码或测试变更，Round 2 独立审查结论完整保留。
+- 最终 effective_base / effective_through 与保留依据：`effective_base = 953eeb86ecedadd590e7975a5709a2a1ca4cf739`，`effective_through` 在 `d1d71712f8ecd2b296e96311b6b4ba34440710a3` 基础上包含本审查报告落盘、3 份 canonical spec 归并、unit 归档，以及将前端 `@nano/product-contracts` 运行时导入切至浏览器安全的 `./client-parity` 子路径导出（规避 Rollup 解析根 barrel 中 `configuration.ts` 的 `node:crypto`，已在本地 `npm --prefix src/IM/frontend run build` 与 `test_client_contract_parity.py` 验证通过），无业务逻辑或契约语义变更，Round 2 独立审查结论完整保留。
 
 ## 审查结果
 

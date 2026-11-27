@@ -1,5 +1,5 @@
 import { ComposerAttachmentButton, useComposerHeight } from "./composer-controls";
-import { timelineDividerMessageIds } from "@nano/product-contracts";
+import { timelineDividerMessageIds } from "@nano/product-contracts/client-parity";
 import { formatHM } from "../message-time";
 import { ThreadColumn } from "./thread-column";
 import { CooperationGuide, type CooperationGuideAgent } from "./cooperation-guide";
