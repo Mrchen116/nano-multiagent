@@ -286,6 +286,11 @@ struct ConversationView: View {
                 try? await Task.sleep(for: .seconds(3))
             }
         }
+        .task(id: "\(conversationID)-\(store.pendingThreadTarget?.conversationID ?? "")-\(store.pendingThreadTarget?.rootMessageID ?? "")-\(items.count)") {
+            if let resolved = await store.resolvePendingThreadRoot(conversationID: conversationID) {
+                threadRoot = resolved
+            }
+        }
         .task(id: store.composeRequest?.id) {
             guard let request = store.composeRequest, request.target == conversationID else { return }
             focusRequest = ComposerFocusRequest(selection: NSRange(location: (request.text as NSString).length, length: 0))

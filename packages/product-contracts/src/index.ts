@@ -183,6 +183,7 @@ export * from './work-events.js';
 export {decodeWorkEvent, decodeWorkBatch, WorkEventError, workObject} from './work-event-codec.js';
 export * from './chat.js';
 export * from './chat-codec.js';
+export * from './client-parity.js';
 
 export { intelligentUICatalog, interactiveTools } from './intelligent-ui-catalog.js';
 export { definitionsForRole, effectiveFeatures } from './capabilities.js';

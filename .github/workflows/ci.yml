@@ -5,7 +5,7 @@ name: CI
 on:
   # push 仅限主干：功能分支由 pull_request 跑一次，避免开 PR 后同一 commit 被 push+pull_request 双触发。
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
 
 jobs:
@@ -25,6 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       required: ${{ steps.filter.outputs.required }}
+      tasks: ${{ steps.filter.outputs.tasks }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,30 +38,72 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python3 - <<'PY'
+          import json
           import os
           import subprocess
 
+          event_name = os.environ['EVENT_NAME']
           base, head = os.environ['BASE_SHA'], os.environ['HEAD_SHA']
           # PRs compare their full branch diff; pushes compare the entire update.
-          revisions = [f"{base}...{head}"] if os.environ['EVENT_NAME'] == 'pull_request' else [base, head]
+          revisions = [f"{base}...{head}"] if event_name == 'pull_request' else [base, head]
           diff = subprocess.check_output([
               "git", "diff", "--name-only", "--no-renames", "-z",
               *revisions,
           ])
           paths = [os.fsdecode(path) for path in diff.split(b"\0") if path]
-          required = any(
-              path == ".github/workflows/ci.yml"
-              or (path.startswith("src/IM/ios/") and not path.endswith((".md", "/.gitignore")))
-              or path.startswith("src/IM/shared/")
-              or path in ("src/IM/frontend/src/features/chat/components/avatar.tsx", "src/IM/frontend/src/features/chat/components/assistant-portrait.tsx")
+          is_push = event_name == 'push'
+          ios_non_doc = [
+              path for path in paths
+              if path.startswith("src/IM/ios/") and not path.endswith((".md", "/.gitignore"))
+          ]
+          ui_changed = any(
+              path.startswith("src/IM/ios/NanoIM/")
+              or path.startswith("src/IM/ios/UITests/")
+              or path.startswith("src/IM/ios/NanoIM.xcodeproj/")
+              or path.startswith("src/IM/ios/Config/")
+              or path == "src/IM/ios/scripts/build.sh"
+              for path in ios_non_doc
+          ) or any(
+              path in (
+                  "src/IM/frontend/src/features/chat/components/avatar.tsx",
+                  "src/IM/frontend/src/features/chat/components/assistant-portrait.tsx",
+                  "src/IM/frontend/vite.ios.config.ts",
+                  "src/IM/frontend/package.json",
+                  "src/IM/frontend/package-lock.json",
+              )
               or path.startswith("src/IM/frontend/src/features/chat/interactive/")
               or path.startswith("src/IM/frontend/src/ios-interactive/")
-              or path in ("src/IM/frontend/vite.ios.config.ts", "src/IM/frontend/package.json", "src/IM/frontend/package-lock.json")
               or path.startswith("packages/product-contracts/src/interactive-")
               for path in paths
           )
+          contract_or_test_changed = any(
+              path == ".github/workflows/ci.yml"
+              or path.startswith("src/IM/ios/Tests/")
+              or path.startswith("src/IM/shared/")
+              or path.startswith("packages/product-contracts/src/")
+              or path == "scripts/generate-client-contracts.ts"
+              for path in paths
+          )
+          ui_required = is_push or ui_changed
+          unit_required = ui_required or contract_or_test_changed
+          archive_required = is_push or any(
+              path == ".github/workflows/ci.yml"
+              or path == "src/IM/ios/scripts/build.sh"
+              or path.startswith("src/IM/ios/NanoIM.xcodeproj/")
+              or path.startswith("src/IM/ios/Config/")
+              for path in paths
+          )
+          tasks: list[str] = []
+          if ui_required:
+              tasks.append("test")
+          elif unit_required:
+              tasks.append("unit-test")
+          if archive_required:
+              tasks.append("archive")
+          required = bool(tasks)
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write(f"required={str(required).lower()}\n")
+              output.write(f"tasks={json.dumps(tasks or ['test'])}\n")
           PY
 
   ios:
@@ -68,7 +111,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        task: [test, archive]
+        task: ${{ fromJSON(needs.ios_changes.outputs.tasks || '["test", "archive"]') }}
     needs: ios_changes
     # Only a successful, explicit negative detection may skip the required check.
     if: ${{ !cancelled() && (needs.ios_changes.result != 'success' || needs.ios_changes.outputs.required != 'false') }}
@@ -79,7 +122,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Select iPhone simulator
-        if: matrix.task == 'test'
+        if: matrix.task != 'archive'
         run: |
           DEVICE_ID=$(xcrun simctl create 'NanoIM CI' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-26-4)
           echo "NANO_IOS_SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
@@ -109,7 +152,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Diff-aware test quality gates compare the PR head with origin/main.
+          # Diff-aware test quality gates compare the PR head with its base branch.
           fetch-depth: 0
 
       - uses: actions/setup-python@v5
@@ -125,6 +168,14 @@ jobs:
         if: matrix.shard == 1
         run: ./scripts/docs-check
 
+      - name: Five-platform parity gate
+        if: matrix.shard == 1 && github.event_name == 'pull_request'
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+          GITHUB_PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 scripts/check_platform_parity.py --base-ref "$GITHUB_BASE_REF" --head-ref "$GITHUB_HEAD_REF"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "24.22.1"
@@ -138,6 +189,9 @@ jobs:
       - name: Typecheck
         if: matrix.shard == 1
         run: pnpm typecheck
+      - name: Check generated native and desktop client contracts
+        if: matrix.shard == 1
+        run: pnpm check:client-contracts
       - name: Check packaged native interactive runtime
         if: matrix.shard == 1
         run: pnpm check:ios-runtime
@@ -146,6 +200,8 @@ jobs:
 
       - name: Standalone helper and architecture tests
         if: matrix.shard == 1
+        env:
+          NANO_TEST_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || format('origin/{0}', github.ref_name) }}
         run: pytest -m "not e2e" -q
 
       - name: ruff check
@@ -189,5 +245,7 @@ jobs:
 
       - name: Typecheck Web IM and its component contracts
         run: npx tsc -b
+      - name: Bundle Web IM for browser
+        run: npx vite build
       - name: vitest run
         run: npm run test

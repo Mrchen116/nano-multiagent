@@ -1,23 +1,11 @@
 import net from 'node:net';
 import { chmod, rm } from 'node:fs/promises';
-import { createHash } from 'node:crypto';
-import { dirname, join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { encodeTrajectoryValue, type SessionBinding, type TrajectoryScope } from '@nano/product-contracts';
+import { localNodeBridgeEndpoint } from './platform-io.js';
 import type { PartitionRuntime } from './runtime-partitions.js';
 
-/** Compute the current-user local IPC endpoint path for a node configuration file. */
-export function localNodeBridgeEndpoint(configPath: string): string {
-  if (process.platform === 'win32') {
-    const digest = createHash('sha256').update(configPath.toLowerCase()).digest('hex').slice(0, 24);
-    return `\\\\.\\pipe\\crewden-desktop-node-${digest}`;
-  }
-  const digest = createHash('sha256').update(configPath).digest('hex').slice(0, 20);
-  const candidate = join(dirname(configPath), '.desktop-node.sock');
-  // Unix domain sockets have a ~104 byte sun_path limit on macOS; fall back to TMPDIR when deep.
-  if (Buffer.byteLength(candidate) <= 96) return candidate;
-  return join(process.env.TMPDIR ?? '/tmp', `crewden-node-${digest}.sock`);
-}
+export { localNodeBridgeEndpoint };
 
 export interface LocalNodeBridgeOptions {
   configPath: string;

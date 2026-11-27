@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-799
+> 对齐: refactor-800
 >
 > 写法与归并规则见 [长青行为契约编写规范](../CONTRIBUTING.md)。
 

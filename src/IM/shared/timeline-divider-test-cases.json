@@ -1,0 +1,48 @@
+{
+  "cases": [
+    {
+      "id": "utc-day-rollover-and-five-minute-threshold",
+      "timezone": "UTC",
+      "items": [
+        { "type": "message", "id": "first", "created_at": "2026-10-21T23:58:00Z" },
+        { "type": "message", "id": "nearby", "created_at": "2026-10-21T23:59:00Z" },
+        { "type": "message", "id": "new-day", "created_at": "2026-10-22T00:00:00Z" },
+        { "type": "message", "id": "short-gap", "created_at": "2026-10-22T00:04:59Z" },
+        { "type": "message", "id": "five-minutes", "created_at": "2026-10-22T00:09:59Z" },
+        { "type": "message", "id": "fractional", "created_at": "2026-10-22T00:10:00.123Z" }
+      ],
+      "expected_divider_ids": ["first", "new-day", "five-minutes"]
+    },
+    {
+      "id": "shanghai-local-midnight-rollover-within-ninety-seconds",
+      "timezone": "Asia/Shanghai",
+      "items": [
+        { "type": "message", "id": "before-cst-midnight", "created_at": "2026-10-21T15:59:00Z" },
+        { "type": "message", "id": "after-cst-midnight", "created_at": "2026-10-21T16:00:30Z" }
+      ],
+      "expected_divider_ids": ["before-cst-midnight", "after-cst-midnight"]
+    },
+    {
+      "id": "utc-same-ninety-seconds-stays-grouped",
+      "timezone": "UTC",
+      "items": [
+        { "type": "message", "id": "before-cst-midnight", "created_at": "2026-10-21T15:59:00Z" },
+        { "type": "message", "id": "after-cst-midnight", "created_at": "2026-10-21T16:00:30Z" }
+      ],
+      "expected_divider_ids": ["before-cst-midnight"]
+    },
+    {
+      "id": "boundaries-and-system-notices-do-not-reset-elapsed-anchor",
+      "timezone": "UTC",
+      "items": [
+        { "type": "message", "id": "m1", "created_at": "2026-10-22T10:00:00Z" },
+        { "type": "agent_config_changed", "id": "cfg-1", "created_at": "2026-10-22T10:03:00Z" },
+        { "type": "message", "id": "sys-1", "created_at": "2026-10-22T10:03:30Z", "has_system_notice": true },
+        { "type": "message", "id": "m2-within-5m", "created_at": "2026-10-22T10:04:30Z" },
+        { "type": "message", "id": "sys-2", "created_at": "2026-10-22T10:07:30Z", "has_system_notice": true },
+        { "type": "message", "id": "m3-after-5m-from-m2", "created_at": "2026-10-22T10:09:30Z" }
+      ],
+      "expected_divider_ids": ["m1", "m3-after-5m-from-m2"]
+    }
+  ]
+}
