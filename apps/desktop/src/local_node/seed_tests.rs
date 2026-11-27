@@ -176,7 +176,7 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
 
 #[cfg(windows)]
 #[test]
-fn windows_seed_directory_rename_identifies_blocking_child_handle() {
+fn windows_seed_directory_rename_recovers_after_child_handle_closes() {
     use std::os::windows::fs::OpenOptionsExt;
 
     let tmp = tempfile::tempdir().unwrap();
@@ -190,13 +190,17 @@ fn windows_seed_directory_rename_identifies_blocking_child_handle() {
         .share_mode(1) // FILE_SHARE_READ, as with a scanner reading the extracted file
         .open(node)
         .unwrap();
-    let error = publish_seed_directory(&stage, &target).unwrap_err();
-    assert!(error.contains("os error 5"), "{error}");
-    assert!(error.contains(&*stage.to_string_lossy()), "{error}");
-    assert!(error.contains(&*target.to_string_lossy()), "{error}");
+    assert_eq!(
+        fs::rename(&stage, &target).unwrap_err().raw_os_error(),
+        Some(5)
+    );
     assert!(!target.exists());
-    drop(held);
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(100));
+        drop(held);
+    });
     publish_seed_directory(&stage, &target).unwrap();
+    release.join().unwrap();
     assert_eq!(
         fs::read(target.join("node.exe")).unwrap(),
         b"runtime fixture"

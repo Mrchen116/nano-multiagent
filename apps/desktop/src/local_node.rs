@@ -308,8 +308,20 @@ fn mark_seed_ready(root: &Path, contents: &[u8]) -> Result<(), String> {
 }
 
 fn publish_seed_directory(stage: &Path, target: &Path) -> Result<(), String> {
-    fs::rename(stage, target)
-        .map_err(|e| format!("Rename seed directory {} to {}: {e}", stage.display(), target.display()))
+    let mut result = fs::rename(stage, target);
+    if cfg!(windows) {
+        // NTFS also reports access denied while a child of the staged directory is open.
+        for delay_ms in [25, 50, 100, 200, 400, 800] {
+            if !matches!(&result, Err(e) if e.raw_os_error() == Some(5)) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+            result = fs::rename(stage, target);
+        }
+    }
+    result.map_err(|e| {
+        format!("Rename seed directory {} to {}: {e}", stage.display(), target.display())
+    })
 }
 
 /// Unpack first-install seed archives into `<desktop_home>/{cache,runtimes,versions}` so
