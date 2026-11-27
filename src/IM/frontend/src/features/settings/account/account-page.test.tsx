@@ -365,11 +365,12 @@ describe("account settings", () => {
       expect(await screen.findByTestId("account-avatar-feedback")).toHaveTextContent(/5 MB/i);
       expect(screen.queryByTestId("avatar-crop-dialog")).toBeNull();
 
-      // 3. Valid 4096x3072 PNG is pre-downscaled to 2048x1536, revokes temporary file ObjectURL immediately, and opens crop dialog.
+      // 3. Valid 4096x3072 PNG is pre-downscaled to 2048x1536, revokes temporary file ObjectURL immediately, and paints 480x480 preview canvas on open.
       const validFile = new File([new Uint8Array([137, 80, 78, 71])], "portrait.png", { type: "image/png" });
       fireEvent.change(fileInput, { target: { files: [validFile] } });
       expect(await screen.findByTestId("avatar-crop-dialog")).toBeInTheDocument();
       expect(drawnSizes).toContainEqual([2048, 1536]);
+      expect(drawnSizes).toContainEqual([480, 480]);
       expect(revokedUrls).toContain("blob:test-avatar-1");
 
       // Escape closes crop dialog and returns focus to upload button.

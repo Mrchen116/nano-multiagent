@@ -1,5 +1,5 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "../../../i18n";
 
 export interface PreparedAvatarSource {
@@ -181,7 +181,17 @@ export function AvatarCropDialog({
     ctx.drawImage(prepared.source, drawX, drawY, drawW, drawH);
   }, [prepared, zoom, pan]);
 
-  useEffect(() => {
+  const bindCanvas = useCallback(
+    (node: HTMLCanvasElement | null) => {
+      canvasRef.current = node;
+      if (node) {
+        drawPreview();
+      }
+    },
+    [drawPreview],
+  );
+
+  useLayoutEffect(() => {
     if (open) drawPreview();
   }, [open, drawPreview]);
 
@@ -253,7 +263,7 @@ export function AvatarCropDialog({
                 dragRef.current = null;
               }}
             >
-              <canvas ref={canvasRef} width={480} height={480} />
+              <canvas ref={bindCanvas} width={480} height={480} />
               <div className="im-avatar-crop-mask-ring" aria-hidden="true" />
             </div>
 
