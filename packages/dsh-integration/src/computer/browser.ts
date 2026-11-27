@@ -231,7 +231,7 @@ export class BrowserBackend implements ComputerBackend {
     let length = 0;
     const visit = (node: Node, depth: number) => {
       if (length >= 48000) return;
-      const ref = node.ref && /^e\d+$/.test(node.ref) ? node.ref : undefined;
+      const ref = node.ref && /^(?:[a-z]+\d+)+$/i.test(node.ref) ? node.ref : undefined;
       const label = [
         node.role,
         node.name && JSON.stringify(node.name.slice(0, 512)),
