@@ -275,17 +275,41 @@ fn cache_seed_asset(source: &Path, cached: &Path, expected_sha: &str) -> Result<
     // The single seed worker reuses this sibling after interruption. OTA readers
     // only see the final name once all bytes have passed verification.
     let stage = cached.with_added_extension("seed-part");
-    let replace = || -> io::Result<()> {
-        io::copy(&mut fs::File::open(source)?, &mut fs::File::create(&stage)?)?;
-        if file_sha256(&stage)? != expected_sha {
-            return Err(io::Error::new(io::ErrorKind::InvalidData, "SHA-256 mismatch"));
+    let replace = || -> Result<(), String> {
+        let mut input = fs::File::open(source)
+            .map_err(|e| format!("Open bundled seed {}: {e}", source.display()))?;
+        let mut output = fs::File::create(&stage)
+            .map_err(|e| format!("Create seed cache staging file {}: {e}", stage.display()))?;
+        io::copy(&mut input, &mut output)
+            .map_err(|e| format!("Copy {} to {}: {e}", source.display(), stage.display()))?;
+        drop(output);
+        let digest = file_sha256(&stage)
+            .map_err(|e| format!("Verify seed cache {}: {e}", stage.display()))?;
+        if digest != expected_sha {
+            return Err(format!("Bundled seed {}: SHA-256 mismatch", source.display()));
         }
         fs::rename(&stage, cached)
+            .map_err(|e| format!("Rename {} to {}: {e}", stage.display(), cached.display()))
     };
-    replace().map_err(|err| {
+    let result = replace();
+    if result.is_err() {
         let _ = fs::remove_file(&stage);
-        format!("Failed to cache bundled seed {}: {err}", source.display())
-    })
+    }
+    result
+}
+
+fn create_seed_directory(path: &Path) -> Result<(), String> {
+    fs::create_dir_all(path).map_err(|e| format!("Create seed directory {}: {e}", path.display()))
+}
+
+fn mark_seed_ready(root: &Path, contents: &[u8]) -> Result<(), String> {
+    let path = root.join(".ready");
+    fs::write(&path, contents).map_err(|e| format!("Write seed marker {}: {e}", path.display()))
+}
+
+fn publish_seed_directory(stage: &Path, target: &Path) -> Result<(), String> {
+    fs::rename(stage, target)
+        .map_err(|e| format!("Rename seed directory {} to {}: {e}", stage.display(), target.display()))
 }
 
 /// Unpack first-install seed archives into `<desktop_home>/{cache,runtimes,versions}` so
@@ -303,7 +327,8 @@ pub fn ensure_seed_bundle_installed(
     if !manifest_path.is_file() {
         return Ok(None);
     }
-    let manifest_raw = fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?;
+    let manifest_raw = fs::read_to_string(&manifest_path)
+        .map_err(|e| format!("Read seed {}: {e}", manifest_path.display()))?;
     let manifest: Value = serde_json::from_str(&manifest_raw).map_err(|e| e.to_string())?;
     let pkg_name = manifest["package"]
         .as_str()
@@ -320,10 +345,11 @@ pub fn ensure_seed_bundle_installed(
     }
 
     let cache_dir = paths.desktop_home.join("cache");
-    fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+    create_seed_directory(&cache_dir)?;
     let cached_desc = cache_dir.join(format!("descriptor-{}.json", target_sha));
     cache_seed_asset(&seed_dir.join(pkg_name), &cached_desc, target_sha)?;
-    let descriptor_raw = fs::read_to_string(&cached_desc).map_err(|e| e.to_string())?;
+    let descriptor_raw = fs::read_to_string(&cached_desc)
+        .map_err(|e| format!("Read seed {}: {e}", cached_desc.display()))?;
     let descriptor: Value = serde_json::from_str(&descriptor_raw).map_err(|e| e.to_string())?;
     let runtime_name = descriptor["runtime"]["name"]
         .as_str()
@@ -340,8 +366,8 @@ pub fn ensure_seed_bundle_installed(
 
     let runtimes_dir = paths.desktop_home.join("runtimes");
     let versions_dir = paths.desktop_home.join("versions");
-    fs::create_dir_all(&runtimes_dir).map_err(|e| e.to_string())?;
-    fs::create_dir_all(&versions_dir).map_err(|e| e.to_string())?;
+    create_seed_directory(&runtimes_dir)?;
+    create_seed_directory(&versions_dir)?;
 
     let cached_rt = cache_dir.join(format!("{}-{}", runtime_sha, runtime_name));
     let cached_app = cache_dir.join(format!("{}-{}", app_sha, app_name));
@@ -352,7 +378,7 @@ pub fn ensure_seed_bundle_installed(
     if !final_runtime_root.join(".ready").is_file() {
         let stage = runtimes_dir.join(format!(".seed-rt-{}", std::process::id()));
         let _ = fs::remove_dir_all(&stage);
-        fs::create_dir_all(&stage).map_err(|e| e.to_string())?;
+        create_seed_directory(&stage)?;
         extract_tar_gz(&cached_rt, &stage)?;
         let node_bin = stage.join(standalone_node_rel_path());
         #[cfg(unix)]
@@ -372,7 +398,7 @@ pub fn ensure_seed_bundle_installed(
                 .arg(&stage)
                 .arg(&final_runtime_root)
                 .output()
-                .map_err(|e| format!("Failed to run runtime layout.mjs: {}", e))?;
+                .map_err(|e| format!("Run {} with {}: {e}", layout.display(), node_bin.display()))?;
             if !out.status.success() {
                 let _ = fs::remove_dir_all(&stage);
                 return Err(format!(
@@ -381,11 +407,11 @@ pub fn ensure_seed_bundle_installed(
                 ));
             }
         }
-        fs::write(stage.join(".ready"), b"").map_err(|e| e.to_string())?;
+        mark_seed_ready(&stage, b"")?;
         if final_runtime_root.exists() {
             let _ = fs::remove_dir_all(&stage);
         } else {
-            fs::rename(&stage, &final_runtime_root).map_err(|e| e.to_string())?;
+            publish_seed_directory(&stage, &final_runtime_root)?;
         }
     }
 
@@ -395,8 +421,8 @@ pub fn ensure_seed_bundle_installed(
     let version_stage = versions_dir.join(format!(".seed-ver-stage-{}", std::process::id()));
     let _ = fs::remove_dir_all(&app_extract);
     let _ = fs::remove_dir_all(&version_stage);
-    fs::create_dir_all(&app_extract).map_err(|e| e.to_string())?;
-    fs::create_dir_all(&version_stage).map_err(|e| e.to_string())?;
+    create_seed_directory(&app_extract)?;
+    create_seed_directory(&version_stage)?;
 
     extract_tar_gz(&cached_app, &app_extract)?;
     let mut cmd = Command::new(&node_bin);
@@ -409,7 +435,7 @@ pub fn ensure_seed_bundle_installed(
         .arg(&final_runtime_root)
         .arg(&app_extract)
         .output()
-        .map_err(|e| format!("Failed to run version layout.mjs: {}", e))?;
+        .map_err(|e| format!("Run {} with {}: {e}", layout.display(), node_bin.display()))?;
     let _ = fs::remove_dir_all(&app_extract);
     if !out.status.success() {
         let _ = fs::remove_dir_all(&version_stage);
@@ -420,9 +446,9 @@ pub fn ensure_seed_bundle_installed(
     }
 
     write_private_json(&version_stage.join(".release-manifest.json"), &manifest)?;
-    fs::write(version_stage.join(".ready"), format!("{}\n", target_sha)).map_err(|e| e.to_string())?;
+    mark_seed_ready(&version_stage, format!("{target_sha}\n").as_bytes())?;
     if !final_version_root.exists() {
-        fs::rename(&version_stage, &final_version_root).map_err(|e| e.to_string())?;
+        publish_seed_directory(&version_stage, &final_version_root)?;
     } else {
         let _ = fs::remove_dir_all(&version_stage);
     }
@@ -464,10 +490,11 @@ fn extract_tar_gz(archive: &Path, dest: &Path) -> Result<(), String> {
         .arg("-C")
         .arg(dest)
         .output()
-        .map_err(|e| format!("Failed to invoke tar: {}", e))?;
+        .map_err(|e| format!("Extract {} to {}: {e}", archive.display(), dest.display()))?;
     if !out.status.success() {
         return Err(format!(
-            "tar extraction failed: {}",
+            "Extract {} to {}: tar extraction failed: {}",
+            archive.display(), dest.display(),
             String::from_utf8_lossy(&out.stderr)
         ));
     }

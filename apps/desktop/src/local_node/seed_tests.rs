@@ -173,3 +173,62 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     assert_eq!(fs::read(paths.sessions_path()).unwrap(), session_bytes);
     assert_eq!(fs::read(workspace_file).unwrap(), b"saved note");
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_seed_directory_rename_identifies_blocking_child_handle() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let stage = tmp.path().join(".seed-rt-stage");
+    let target = tmp.path().join("installed-runtime");
+    fs::create_dir(&stage).unwrap();
+    let node = stage.join("node.exe");
+    fs::write(&node, b"runtime fixture").unwrap();
+    let held = fs::OpenOptions::new()
+        .read(true)
+        .share_mode(1) // FILE_SHARE_READ, as with a scanner reading the extracted file
+        .open(node)
+        .unwrap();
+    let error = publish_seed_directory(&stage, &target).unwrap_err();
+    assert!(error.contains("os error 5"), "{error}");
+    assert!(error.contains(&*stage.to_string_lossy()), "{error}");
+    assert!(error.contains(&*target.to_string_lossy()), "{error}");
+    assert!(!target.exists());
+    drop(held);
+    publish_seed_directory(&stage, &target).unwrap();
+    assert_eq!(
+        fs::read(target.join("node.exe")).unwrap(),
+        b"runtime fixture"
+    );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_seed_directory_rename_reports_real_acl_denial() {
+    let tmp = tempfile::tempdir().unwrap();
+    let stage = tmp.path().join(".seed-ver-stage");
+    let target = tmp.path().join("installed-version");
+    fs::create_dir(&stage).unwrap();
+    fs::write(stage.join(".ready"), "pending").unwrap();
+    // NTFS grants rename through DELETE on the object or DELETE_CHILD on its parent.
+    let acl = |path: &Path, action: &str, ace: &str| {
+        assert!(Command::new("icacls.exe")
+            .arg(path)
+            .args([action, ace])
+            .status()
+            .unwrap()
+            .success());
+    };
+    acl(tmp.path(), "/deny", "*S-1-1-0:(DC)");
+    acl(&stage, "/deny", "*S-1-1-0:(D)");
+    let result = publish_seed_directory(&stage, &target);
+    acl(&stage, "/remove:d", "*S-1-1-0");
+    acl(tmp.path(), "/remove:d", "*S-1-1-0");
+    let error = result.unwrap_err();
+    assert!(error.contains("os error 5"), "{error}");
+    assert!(error.contains(&*stage.to_string_lossy()), "{error}");
+    assert!(error.contains(&*target.to_string_lossy()), "{error}");
+    assert!(stage.join(".ready").exists());
+    assert!(!target.exists());
+}

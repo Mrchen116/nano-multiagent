@@ -564,17 +564,17 @@ pub struct StoredSessionsFile {
 
 pub fn write_private_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        fs::create_dir_all(parent).map_err(|e| format!("Create directory {}: {e}", parent.display()))?;
     }
     let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
     let tmp = path.with_extension(format!("tmp-{}-{}", std::process::id(), random_hex_token(4)));
-    fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
+    fs::write(&tmp, &bytes).map_err(|e| format!("Write {}: {e}", tmp.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
     }
-    fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, path).map_err(|e| format!("Rename {} to {}: {e}", tmp.display(), path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
