@@ -153,8 +153,6 @@ export interface ParseReleaseManifestOptions {
   trustedReleaseBaseUrls?: readonly string[];
   /** Allow private-network HTTP in `trustedReleaseBaseUrls` when private HTTP mode is enabled. */
   allowPrivateHttpReleaseBase?: boolean;
-  /** Validate an embedded seed manifest inside an installer bundle. */
-  embeddedSeed?: boolean;
 }
 
 const PLATFORM_PACKAGES: Record<string, {platform: 'win32-x64' | DesktopPlatform; installer: string; shellProtocol?: 1}> = {

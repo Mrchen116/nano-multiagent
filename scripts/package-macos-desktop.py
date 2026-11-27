@@ -201,7 +201,6 @@ def main() -> None:
             json.dumps(manifest, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
         ).encode("utf-8")
         manifest_path.write_bytes(manifest_bytes)
-        (seed_dir / "manifest.desktop-darwin-arm64.json").write_bytes(manifest_bytes)
         subprocess.run(
             ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(app_bundle)],
             check=True,

@@ -7,7 +7,7 @@ pub mod tray;
 
 use crate::config::{append_host_log, DesktopCliOptions, DesktopPaths, HostRuntimeStateFile, InstanceLock};
 use crate::host_server::{handle_deep_link_url, start_host_server_full};
-use crate::local_node::{resolve_active_bundle, run_local_admin_sync};
+use crate::local_node::{resolve_active_bundle, run_local_admin_sync, stop_all_managed_local_nodes};
 use crate::notifications::NoopUiBridge;
 use crate::tray::{install_system_tray, TauriUiCoordinator};
 use serde_json::json;
@@ -147,9 +147,26 @@ fn spawn_managed_node_supervisor(
                             ) {
                                 let is_stopped =
                                     inspect.body["ownership"].as_str() == Some("managed_stopped");
+                                let is_online =
+                                    inspect.body["ownership"].as_str() == Some("managed_online");
                                 let autostart_on =
                                     inspect.body["autostart"].as_bool() != Some(false);
-                                if inspect.ok
+                                let version_mismatch = !initial_boot_checked
+                                    && is_online
+                                    && bundle.version != "source"
+                                    && inspect.body["version"].as_str()
+                                        != Some(bundle.version.as_str());
+                                if inspect.ok && version_mismatch {
+                                    let _ = run_local_admin_sync(
+                                        &paths,
+                                        &bundle,
+                                        &im_origin,
+                                        "lifecycle",
+                                        Some(&owner_id),
+                                        None,
+                                        Some(&json!({ "action": "restart" })),
+                                    );
+                                } else if inspect.ok
                                     && is_stopped
                                     && ((!initial_boot_checked && autostart_on)
                                         || crash_marker_present)
@@ -180,10 +197,20 @@ fn acquire_instance_or_forward(
     paths: &DesktopPaths,
     cli: &DesktopCliOptions,
 ) -> Result<Option<InstanceLock>, String> {
-    if forward_to_running_instance(paths, cli)? {
+    if cli.stop {
+        let _ = forward_to_running_instance(paths, cli);
+        for _ in 0..50 {
+            if let Ok(Some(lock)) = InstanceLock::try_acquire(&paths.instance_lock_path()) {
+                stop_all_managed_local_nodes(paths, cli.dev_repo_root.as_deref());
+                drop(lock);
+                return Ok(None);
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        stop_all_managed_local_nodes(paths, cli.dev_repo_root.as_deref());
         return Ok(None);
     }
-    if cli.stop {
+    if forward_to_running_instance(paths, cli)? {
         return Ok(None);
     }
     if let Some(lock) = InstanceLock::try_acquire(&paths.instance_lock_path())? {

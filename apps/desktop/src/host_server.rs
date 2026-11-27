@@ -7,8 +7,8 @@ use crate::config::{
 };
 use crate::local_node::{
     ensure_seed_bundle_installed, has_pending_seed_bundle, open_external_url,
-    open_or_reveal_workspace_path, resolve_active_bundle, run_local_admin_sync,
-    sync_seed_desktop_defaults,
+    open_or_reveal_workspace_path, reconcile_ready_seed_bundle, resolve_active_bundle,
+    run_local_admin_sync, stop_all_managed_local_nodes, sync_seed_desktop_defaults,
 };
 use crate::notifications::{
     spawn_notification_daemon, ActiveDaemonSession, DesktopUiBridge, NotificationCenterState,
@@ -310,6 +310,7 @@ pub async fn start_host_server_full(
     ui_bridge: Arc<dyn DesktopUiBridge>,
 ) -> Result<RunningHostServer, String> {
     sync_seed_desktop_defaults(&paths, seed_archives_dir.as_deref());
+    reconcile_ready_seed_bundle(&paths, seed_archives_dir.as_deref());
     let mut host_cfg = load_or_init_host_config(&paths, seed_archives_dir.as_deref(), override_origin);
     let (listener, port) = bind_persisted_loopback(host_cfg.persisted_port).await?;
     host_cfg.persisted_port = port;
@@ -936,33 +937,12 @@ async fn handle_internal_shutdown(
     if let Err(err) = verify_reload_token(&state, &headers) {
         return err;
     }
-    // Gracefully stop managed local node for current origin if running under isolated/stop request
-    let im_origin = state.host_config.read().unwrap().im_origin.clone();
-    let owner = state
-        .sessions
-        .read()
-        .unwrap()
-        .by_origin
-        .get(&im_origin)
-        .map(|s| s.owner_id.clone());
-    if let Some(owner_id) = owner {
-        let paths = state.paths.clone();
-        let dev = state.dev_repo_root.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            if let Ok(bundle) = resolve_active_bundle(&paths, &im_origin, dev.as_deref()) {
-                let _ = run_local_admin_sync(
-                    &paths,
-                    &bundle,
-                    &im_origin,
-                    "lifecycle",
-                    Some(&owner_id),
-                    None,
-                    Some(&json!({ "action": "stop" })),
-                );
-            }
-        })
-        .await;
-    }
+    let paths = state.paths.clone();
+    let dev = state.dev_repo_root.clone();
+    let _ = tokio::task::spawn_blocking(move || {
+        stop_all_managed_local_nodes(&paths, dev.as_deref());
+    })
+    .await;
     let _ = fs::remove_file(state.paths.host_state_path());
     if let Some(tx) = state.shutdown_tx.lock().unwrap().take() {
         let _ = tx.send(());

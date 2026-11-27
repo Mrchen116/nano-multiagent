@@ -64,7 +64,7 @@ export function registerOnboardingRoutes(app: FastifyInstance, ctx: ImContext, r
     }
     if (['save','remove'].includes(input.action) && !result.error && !result.error_code) {
       catalogReads(ctx).invalidateNode(nodeId);
-      if (input.action === 'save') {
+      if (input.action === 'save' && (!result.operation || result.operation.state === 'succeeded')) {
         setImmediate(() => {
           try {
             if (!ctx.db.isOpen) return;

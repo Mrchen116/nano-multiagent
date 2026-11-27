@@ -56,7 +56,7 @@ export class NodeRpc<Connection> {
           try {
             const result = decodeNodeResult(command,value);
             if (inspection && 'error_code' in result && typeof result.error_code === 'string')
-              throw Object.assign(new Error('Catalog inspection unavailable'), {statusCode:result.error_code === 'catalog_timeout' ? 504 : 503});
+              throw Object.assign(new Error('Catalog inspection unavailable'), {statusCode:result.error_code === 'catalog_timeout' ? 504 : 503, code:result.error_code});
             resolve(result);
           } catch (error) { reject(error); }
         },
@@ -65,7 +65,7 @@ export class NodeRpc<Connection> {
       if (inspection) signal?.addEventListener('abort',abort,{once:true});
       if (!this.transport.send(nodeId, {type:command, payload:{...payload,request_id:requestId,...(carriesDeadline ? {deadline_at:Date.now()+timeoutMs} : {})}})) {
         cleanup();
-        reject(Object.assign(new Error('node offline'), {statusCode:503}));
+        reject(Object.assign(new Error('node offline'), {statusCode:503, code:'node_offline'}));
       }
     });
   };
@@ -83,7 +83,7 @@ export class NodeRpc<Connection> {
   /** Release inspections on disconnect without changing durable mutation recovery. */
   disconnect(connection: Connection): void {
     for (const waiter of this.pending.values()) if (waiter.connection === connection && inspectionReplies.has(waiter.responseType))
-      waiter.stop(Object.assign(new Error('node offline'), {statusCode:503}));
+      waiter.stop(Object.assign(new Error('node offline'), {statusCode:503, code:'node_offline'}));
   }
 
   /** Reject callers and cancel temporary inspections before sockets are released. */

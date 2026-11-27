@@ -324,6 +324,7 @@ export async function controlLocalNodeLifecycle(input: {
   origin: string;
   ownerId: string;
   action: 'start' | 'stop' | 'restart' | 'autostart-on' | 'autostart-off';
+  preserveUserStopped?: boolean;
   configPath?: string;
 }): Promise<{ ok: true; autostart: boolean; running: boolean; active_tasks: number }> {
   const configPath = connectionConfigPathForOrigin(input.origin, input.configPath);
@@ -350,7 +351,7 @@ export async function controlLocalNodeLifecycle(input: {
   }
 
   const activeFile = desktopActiveFilePath(config.path);
-  if (existsSync(activeFile)) {
+  if (existsSync(activeFile) && !(input.action === 'stop' && input.preserveUserStopped)) {
     try {
       const prevActive = JSON.parse(await readFile(activeFile, 'utf8')) as Record<string, unknown>;
       await atomicPrivate(activeFile, {

@@ -478,6 +478,11 @@
   color: var(--im-text-muted, #68736b);
 }
 
+.local-panel-box code,
+.desktop-bind-card code {
+  display: inline;
+}
+
 .local-field {
   margin-bottom: 12px;
 }

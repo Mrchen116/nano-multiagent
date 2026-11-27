@@ -235,7 +235,28 @@ it('reuses warmed CatalogReads without a second cold resolve and maps pre-persis
 
    const agentRes = await app.inject({method: 'POST', url: '/im/v1/nodes/n/agents', payload: {agent_id: 'warm-helper', display_name: '助手'}});
    expect(agentRes.statusCode, agentRes.body).toBe(201);
+   expect(agentRes.json().skills).toContain('memo');
    expect(capResolveCalls).toBe(1);
+
+   // Online node capability inspection failure (`catalog_failed` -> 503 on NodeRpc) must NOT be misreported as `node_offline`,
+   // nor silently drop default_on skills on ordinary agent creation.
+   db.prepare('DELETE FROM pa_policies').run();
+   db.prepare('DELETE FROM pa_binding_scopes').run();
+   db.prepare('DELETE FROM personal_agent_bindings').run();
+   await (gateway as any).handleFrame(connection, 'node.capabilities.changed', {node_id: 'n'});
+   ctx.gateway.request = async (_node, method) => {
+     if (method === 'node.capabilities.resolve') {
+       throw Object.assign(new Error('Catalog inspection unavailable'), {statusCode: 503, code: 'catalog_failed'});
+     }
+     return {status: 'pending'};
+   };
+   const capFailPaRes = await app.inject({method: 'POST', url: '/im/v1/personal-agent', payload: {request_key: 'cap-fail-pa', node_id: 'n', display_name: '小检'}});
+   expect(capFailPaRes.statusCode).toBe(502);
+   expect(capFailPaRes.json().detail).toMatchObject({code: 'node_capabilities_unavailable'});
+
+   const capFailAgentRes = await app.inject({method: 'POST', url: '/im/v1/nodes/n/agents', payload: {agent_id: 'cap-fail-agent', display_name: '防漏挂'}});
+   expect(capFailAgentRes.statusCode).toBe(503);
+   expect(db.prepare("SELECT COUNT(*) AS n FROM agent_profiles WHERE agent_id='cap-fail-agent'").get()).toEqual({n: 0});
  } finally {
    await app.close();
  }

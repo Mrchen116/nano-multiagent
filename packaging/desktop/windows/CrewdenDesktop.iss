@@ -7,7 +7,6 @@ AppId={{7D9E4A21-6C15-4D88-9E23-4B0F8819C790}
 AppName=Crewden Desktop
 AppVersion={#MyAppVersion}
 AppPublisher=Crewden
-AppMutex=CrewdenDesktopAppMutex
 CloseApplications=yes
 CloseApplicationsFilter=*.exe
 DefaultDirName={localappdata}\CrewdenDesktop\bin
@@ -56,6 +55,18 @@ Root: HKCU; Subkey: "Software\Classes\crewden-desktop\shell\open\command"; Value
 Filename: "{app}\CrewdenDesktop.exe"; Description: "立即启动 Crewden Desktop"; Flags: nowait postinstall skipifsilent
 
 [Code]
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  InstalledExe: String;
+  ExitCode: Integer;
+begin
+  Result := '';
+  InstalledExe := ExpandConstant('{app}\CrewdenDesktop.exe');
+  if FileExists(InstalledExe) then begin
+    Exec(InstalledExe, '--stop', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ExitCode);
+  end;
+end;
+
 function IsWebView2Installed(): Boolean;
 var
   Version: String;

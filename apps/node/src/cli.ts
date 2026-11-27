@@ -92,6 +92,7 @@ if (values.help) {
             origin,
             ownerId: values["owner-id"] ?? "",
             action: lifeAction as "start" | "stop" | "restart" | "autostart-on" | "autostart-off",
+            preserveUserStopped: Boolean(input.preserve_user_stopped),
             configPath: values.config,
           });
         } else if (subcommand === "config") {
