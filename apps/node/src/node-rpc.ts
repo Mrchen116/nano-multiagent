@@ -10,7 +10,7 @@ export async function dispatchNodeCommand<K extends NodeCommand>(command:K,paylo
   const reply = async (result:object) => { await send(spec.responseType,{...result,request_id:requestId,node_id:nodeId}); };
   let input:NodeParams<K>;
   try {
-    if (spec.inspection && payload.deadline_at !== undefined && (typeof payload.deadline_at !== 'number' || !Number.isFinite(payload.deadline_at)))
+    if (payload.deadline_at !== undefined && (typeof payload.deadline_at !== 'number' || !Number.isFinite(payload.deadline_at)))
       throw new Error(`Invalid ${command} field deadline_at`);
     input = decodeNodeInput(command,payload);
   } catch (error) {

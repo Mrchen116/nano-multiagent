@@ -6,7 +6,7 @@ import {readAgentProfile, readConfigOperation} from './configuration-records.js'
 import {storedConfigurationCandidate, type ConfigurationCandidate, type CreateConfigurationInput} from './configuration-input.js';
 import {settingsConnection, requireSettingsNodeOnline} from './agent-settings.js';
 import {catalogReads, type CatalogScope} from './catalog-reads.js';
-import {gatewayRequest} from './node-rpc-request.js';
+import type {NodeCapabilities} from '@nano/product-contracts/node-rpc';
 import {isRecord} from './node-rpc-values.js';
 
 /** Keep creation and catalog reads within the owning account's node directory. */
@@ -85,6 +85,79 @@ export function featureOptions(value: unknown): Row[] {
     }));
 }
 
+/** Read the shared online catalog through `CatalogReads` so creation flows reuse warm entries.
+ *
+ * Args:
+ *   ctx: IM service dependencies.
+ *   id: Target computer selected from the owner directory.
+ *   owner: Authenticated account owner.
+ *   options: When `allowUnboundRequestFallback` is true, permits direct `gateway.request`
+ *     for unit tests that stub `gateway.request` without opening a live WebSocket.
+ * Returns:
+ *   Raw node capabilities payload from `CatalogReads` or direct request.
+ */
+export async function readNodeCapabilitiesRaw(
+  ctx: ImContext,
+  id: string,
+  owner: string,
+  options?: { allowUnboundRequestFallback?: boolean; allowLegacyMockResponse?: boolean },
+): Promise<NodeCapabilities> {
+  const unwrapMock = (response: unknown): NodeCapabilities | null => {
+    if (!isRecord(response)) return null;
+    if (isRecord(response.capabilities)) return response.capabilities as unknown as NodeCapabilities;
+    if ('skills' in response || 'tools' in response || 'models' in response || 'features' in response) {
+      return response as unknown as NodeCapabilities;
+    }
+    if (options?.allowLegacyMockResponse && !('error_code' in response)) {
+      return {} as NodeCapabilities;
+    }
+    return null;
+  };
+  requireOwnedNode(ctx, id, owner);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const connection = settingsConnection(ctx, { owner_id: owner, node_id: id });
+    if (!connection) {
+      if (options?.allowUnboundRequestFallback) {
+        const response = await ctx.gateway.request(id, 'node.capabilities.resolve', {});
+        const unwrapped = unwrapMock(response);
+        if (unwrapped) return unwrapped;
+        fail(502, 'Node capabilities are unavailable');
+      }
+      fail(503, 'target_node_id is not connected');
+    }
+    const scope: CatalogScope = { owner_id: owner, node_id: id, node_epoch: connection.node_epoch, connection };
+    let legacyFallback: NodeCapabilities | null = null;
+    try {
+      const result = await catalogReads(ctx).read(scope, async (signal, requestId) => {
+        const response = await ctx.gateway.request(id, 'node.capabilities.resolve', { request_id: requestId }, signal);
+        if (isRecord(response?.capabilities)) return response.capabilities;
+        if (options?.allowLegacyMockResponse) {
+          legacyFallback = unwrapMock(response);
+          if (legacyFallback) fail(502, 'Legacy mock capabilities response');
+        }
+        fail(502, 'Node capabilities are unavailable');
+      });
+      requireOwnedNode(ctx, id, owner);
+      if (!result.current() || settingsConnection(ctx, { owner_id: owner, node_id: id }) !== scope.connection) {
+        fail(503, 'Catalog read superseded');
+      }
+      return result.capabilities;
+    } catch (error) {
+      if (legacyFallback) {
+        catalogReads(ctx).invalidateNode(id);
+        return legacyFallback;
+      }
+      const msg = String((error as { detail?: unknown; message?: string })?.detail ?? (error as { message?: string })?.message ?? '');
+      const superseded = /Catalog (?:read superseded|request cancelled)/.test(msg);
+      if (attempt === 0 && superseded && settingsConnection(ctx, { owner_id: owner, node_id: id })) {
+        continue;
+      }
+      throw error;
+    }
+  }
+  fail(503, 'Catalog read superseded');
+}
+
 /** Read the shared online catalog without losing its binding fence.
  *
  * Args:
@@ -95,19 +168,7 @@ export function featureOptions(value: unknown): Row[] {
  *   Confirmed public models, Skills, tools, Features and inherited defaults.
  */
 export async function readNodeCreationCapabilities(ctx: ImContext, id: string, owner: string): Promise<Row> {
-  requireOwnedNode(ctx,id,owner);
-  const connection = settingsConnection(ctx,{owner_id:owner,node_id:id});
-  if (!connection) fail(503,'target_node_id is not connected');
-  const scope: CatalogScope = {owner_id:owner,node_id:id,node_epoch:connection.node_epoch,connection};
-  const result = await catalogReads(ctx).read(scope,async (signal,requestId) => {
-    const response = await ctx.gateway.request(id,'node.capabilities.resolve',{request_id:requestId},signal);
-    if (!response?.capabilities) fail(502,'Node capabilities are unavailable');
-    return response.capabilities;
-  });
-  requireOwnedNode(ctx,id,owner);
-  if (!result.current()
-    || settingsConnection(ctx,{owner_id:owner,node_id:id}) !== scope.connection) fail(503,'Catalog read superseded');
-  const r = result.capabilities;
+  const r = await readNodeCapabilitiesRaw(ctx, id, owner);
   return {
     node_id: id,
     models: modelOptions(r.models),
@@ -159,7 +220,23 @@ export async function createAgent(ctx: ImContext, owner: string, id: string, b: 
     if (skills === undefined && (defaults === null || Array.isArray(defaults) && defaults.every(name => typeof name === 'string'))) {
       skills = defaults ?? undefined;
     } else if (skills === undefined) {
-      const capabilities = await gatewayRequest(ctx, id, "node.capabilities.resolve", {});
+      let capabilities: NodeCapabilities | null = null;
+      try {
+        capabilities = await readNodeCapabilitiesRaw(ctx, id, owner, {
+          allowUnboundRequestFallback: true,
+          allowLegacyMockResponse: true,
+        });
+      } catch (error) {
+        const status = Number((error as { statusCode?: number })?.statusCode ?? 0);
+        const msg = String((error as { detail?: unknown; message?: string })?.detail ?? (error as { message?: string })?.message ?? '');
+        const isOfflineFallback =
+          !settingsConnection(ctx, { owner_id: owner, node_id: id }) ||
+          (error as { code?: string })?.code === 'node_offline' ||
+          /offline|not connected/i.test(msg);
+        if (!isOfflineFallback || ![503, 504].includes(status)) {
+          throw error;
+        }
+      }
       skills = capabilities
         ? (capabilities.skills ?? []).filter(isRecord).filter(s => s.default_on).map(s => s.name).filter((name): name is string => typeof name === 'string')
         : undefined;

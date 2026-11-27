@@ -8,9 +8,22 @@ import { ModelServiceEditor, newServiceDraft, serviceDraft, type ServiceDraft } 
 import './models.css';
 
 
+export interface LiftedModelPrimaryAction {
+  formId: string;
+  label: string;
+  disabled: boolean;
+}
+
 /** Manage one computer's services while keeping editable drafts independent of polling. */
-export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, onConnected, heading, children }: {
-  node: OnboardingNode; initialAdd?: boolean; heading?: string; children?: ReactNode; onEditingChange?: (editing: boolean) => void; onConnected?: () => void;
+export function ModelServicesPanel({ node, initialAdd = false, formId, onPrimaryActionChange, onEditingChange, onConnected, heading, children }: {
+  node: OnboardingNode;
+  initialAdd?: boolean;
+  formId?: string;
+  onPrimaryActionChange?: (action: LiftedModelPrimaryAction | null) => void;
+  heading?: string;
+  children?: ReactNode;
+  onEditingChange?: (editing: boolean) => void;
+  onConnected?: () => void;
 }) {
   useTranslation();
   const text = (zh: string, en: string) => getCurrentLanguage() === 'zh' ? zh : en;
@@ -111,6 +124,18 @@ export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, 
   const codex = data?.catalog.find(p => p.provider === 'openai-codex');
   const codexConnected = data?.services.some(s => s.provider === 'openai-codex');
   const firstConnection = initialAdd && !data?.services.length;
+  const liftPrimaryAction = Boolean(firstConnection && !(accessMethod === 'subscription' && codex) && draft && formId && onPrimaryActionChange);
+  const primaryLabel = busy ? text('正在验证…', 'Verifying…') : firstConnection ? text('验证并继续', 'Verify and continue') : text('测试并保存', 'Test and save');
+  const primaryDisabled = Boolean(!canWrite || conflict);
+  useEffect(() => {
+    if (!onPrimaryActionChange) return;
+    if (!liftPrimaryAction || !formId) {
+      onPrimaryActionChange(null);
+      return;
+    }
+    onPrimaryActionChange({ formId, label: primaryLabel, disabled: primaryDisabled });
+  }, [onPrimaryActionChange, liftPrimaryAction, formId, primaryLabel, primaryDisabled]);
+  useEffect(() => () => { onPrimaryActionChange?.(null); }, [onPrimaryActionChange]);
   const operationFeedback = <>
     {error && <div className="model-notice model-error" role="alert"><p>{errorMessage}</p>{error.dependencies?.length ? <><strong>{text('请先为以下助手更换模型：', 'Choose another model for these assistants first:')}</strong><ul>{error.dependencies.map(a => <li key={a.agent_id}>{a.agent_id.startsWith('system:') ? a.display_name : <Link to={`/settings/agents/${encodeURIComponent(a.agent_id)}`}>{a.display_name}</Link>}</li>)}</ul></> : null}</div>}
     {notice && <div className="model-notice" role="status">{notice}</div>}
@@ -138,7 +163,7 @@ export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, 
     {heading && <header className="model-settings-heading"><div><h1>{heading}</h1><p>{text('管理助手可用的 API 服务与模型。', 'Manage API services and models for your assistants.')}</p></div>{!draft && addButton}</header>}
     {children}
     {firstConnection && codex && !codexConnected && <div className="model-access-options" role="group" aria-label={text('模型接入方式', 'Model access method')}><button disabled={busy} aria-pressed={accessMethod === 'api'} onClick={() => setAccessMethod('api')}>{text('使用 API 服务', 'Use an API service')}</button><button disabled={busy} aria-pressed={accessMethod === 'subscription'} onClick={() => setAccessMethod('subscription')}>{text('使用 ChatGPT / Codex 订阅', 'Use a ChatGPT / Codex subscription')}</button></div>}
-    {firstConnection && accessMethod === 'subscription' && codex ? <div className="model-first-subscription"><p className="model-hint">{text('在授权页面登录你的账号。授权完成并验证模型后，继续创建助手。', 'Sign in on the authorization page. Once the model is verified, continue to your assistant.')}</p>{subscriptionFields}</div> : draft ? <form className="model-card model-editor" onSubmit={e => { e.preventDefault(); save(); }}>
+    {firstConnection && accessMethod === 'subscription' && codex ? <div className="model-first-subscription"><p className="model-hint">{text('在授权页面登录你的账号。授权完成并验证模型后，继续创建助手。', 'Sign in on the authorization page. Once the model is verified, continue to your assistant.')}</p>{subscriptionFields}</div> : draft ? <form id={liftPrimaryAction ? formId : undefined} className="model-card model-editor" onSubmit={e => { e.preventDefault(); save(); }}>
       {!(initialAdd && !data?.services.length) && <><button type="button" className="model-link model-back" disabled={busy} onClick={() => { setDraft(null); resetFeedback(); }}>{text('← 模型服务', '← Model services')}</button>
       <h2>{draft.provider ? text('编辑模型服务', 'Edit model service') : text('添加模型服务', 'Add model service')}</h2>
       <p className="model-hint">{text('修改后先测试连接，成功才会保存。', 'Changes are tested before they are saved.')}</p></>}
@@ -152,7 +177,7 @@ export function ModelServicesPanel({ node, initialAdd = false, onEditingChange, 
           <div className="model-actions"><button type="button" onClick={() => { setDraft(latestService ? serviceDraft(latestService, comparison.revision) : null); resetFeedback(); }}>{text('使用电脑上的配置', 'Use computer configuration')}</button>
             <button type="button" disabled={!!draft.provider && !latestService} onClick={() => { setDraft({ ...draft, revision: comparison.revision }); resetFeedback(); setNotice(text('已核对最新版本。点击测试并保存以重新应用草稿。', 'Latest version reviewed. Test and save to reapply your draft.')); }}>{text('核对后重新应用我的修改', 'Reapply my changes after review')}</button></div>
         </>}</div>}
-      <div className={`model-footer${firstConnection ? ' model-footer-first' : ''}`}>{!firstConnection && <button type="button" disabled={busy} onClick={() => { setDraft(null); resetFeedback(); }}>{text('取消', 'Cancel')}</button>}<button className="model-primary" disabled={!canWrite || conflict}>{busy ? text('正在验证…', 'Verifying…') : firstConnection ? text('验证并继续', 'Verify and continue') : text('测试并保存', 'Test and save')}</button></div>
+      {!liftPrimaryAction && <div className={`model-footer${firstConnection ? ' model-footer-first' : ''}`}>{!firstConnection && <button type="button" disabled={busy} onClick={() => { setDraft(null); resetFeedback(); }}>{text('取消', 'Cancel')}</button>}<button className="model-primary" disabled={primaryDisabled}>{primaryLabel}</button></div>}
     </form> : <>
       {!heading && <div className="model-list-heading"><h2>{text('已连接的服务', 'Connected services')}</h2>{addButton}</div>}
       {feedback}

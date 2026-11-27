@@ -1,10 +1,11 @@
-use crate::config::{append_private_jsonl, write_private_json, DesktopPaths};
+use crate::config::{append_private_jsonl, write_private_json, DesktopPaths, StoredSessionsFile};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
 pub struct ActiveBundlePaths {
@@ -90,20 +91,186 @@ pub fn default_seed_archives_dir(explicit: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
+fn seed_manifest_filename() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "manifest.desktop-win32-x64.json"
+    } else {
+        "manifest.desktop-darwin-arm64.json"
+    }
+}
+
+/// Copy `seed-archives/desktop-defaults.json` (if bundled) into `<desktop_home>/desktop-defaults.json`
+/// before loopback server initialization, or remove stale defaults when an official installer overwrites a private one.
+pub fn sync_seed_desktop_defaults(paths: &DesktopPaths, seed_archives_dir: Option<&Path>) {
+    let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
+        return;
+    };
+    let defaults_src = seed_dir.join("desktop-defaults.json");
+    let dest = paths.desktop_defaults_path();
+    if defaults_src.is_file() {
+        if let Some(parent) = dest.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::copy(&defaults_src, &dest);
+    } else {
+        let _ = fs::remove_file(&dest);
+    }
+}
+
+fn read_seed_marker(paths: &DesktopPaths) -> Option<SeedMarker> {
+    fs::read_to_string(paths.seed_marker_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str::<SeedMarker>(&raw).ok())
+}
+
+/// Advance existing `.desktop-active.json` pointers across connections when a new installer seed bundle lands.
+fn advance_managed_active_pointers_to_seed(
+    paths: &DesktopPaths,
+    version: &str,
+    target_sha: &str,
+    final_version_root: &Path,
+) {
+    let connections_dir = paths.nano_install_root.join("connections");
+    let Ok(entries) = fs::read_dir(&connections_dir) else {
+        return;
+    };
+    let now_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let root_str = final_version_root.to_string_lossy().to_string();
+    let ui_str = final_version_root.join("ui").to_string_lossy().to_string();
+    for entry in entries.flatten() {
+        let active_path = entry.path().join(".desktop-active.json");
+        if !active_path.is_file() {
+            continue;
+        }
+        let Ok(raw) = fs::read_to_string(&active_path) else {
+            continue;
+        };
+        let Ok(mut val) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        let Some(obj) = val.as_object_mut() else {
+            continue;
+        };
+        obj.insert("managed_by".to_string(), json!("crewden-desktop"));
+        obj.insert("sha256".to_string(), json!(target_sha));
+        obj.insert("version".to_string(), json!(version));
+        obj.insert("version_root".to_string(), json!(root_str));
+        obj.insert("ui_root".to_string(), json!(ui_str));
+        obj.insert("updated_at_epoch".to_string(), json!(now_epoch));
+        let _ = write_private_json(&active_path, &val);
+    }
+}
+
+/// Reconcile `seed-current.json` and `.desktop-active.json` immediately when the bundled seed `.ready` already exists
+/// and differs from `seed-current.json` (e.g. re-installing or switching installers while keeping OTA updates untouched).
+pub fn reconcile_ready_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Option<&Path>) {
+    let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
+        return;
+    };
+    let manifest_path = seed_dir.join(seed_manifest_filename());
+    let Ok(manifest_raw) = fs::read_to_string(&manifest_path) else {
+        return;
+    };
+    let Ok(manifest) = serde_json::from_str::<Value>(&manifest_raw) else {
+        return;
+    };
+    let Some(target_sha) = manifest["sha256"].as_str() else {
+        return;
+    };
+    let version = manifest["version"].as_str().unwrap_or("0.1.0");
+    let final_version_root = paths.desktop_home.join("versions").join(target_sha);
+    if !final_version_root.join(".ready").is_file() {
+        return;
+    }
+    let prev = read_seed_marker(paths);
+    if prev.as_ref().map(|m| m.sha256.as_str()) == Some(target_sha) {
+        return;
+    }
+    let runtime_sha = manifest["package"]
+        .as_str()
+        .and_then(|pkg| fs::read_to_string(seed_dir.join(pkg)).ok())
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|d| d["runtime"]["sha256"].as_str().map(str::to_string))
+        .or_else(|| prev.map(|m| m.runtime_sha256))
+        .unwrap_or_default();
+    let _ = write_private_json(
+        &paths.seed_marker_path(),
+        &SeedMarker {
+            version: version.to_string(),
+            sha256: target_sha.to_string(),
+            runtime_sha256: runtime_sha,
+            version_root: final_version_root.to_string_lossy().to_string(),
+        },
+    );
+    advance_managed_active_pointers_to_seed(paths, version, target_sha, &final_version_root);
+}
+
+/// Gracefully stop all managed local node processes across saved Desktop sessions without setting `user_stopped`.
+pub fn stop_all_managed_local_nodes(paths: &DesktopPaths, dev_repo_root: Option<&Path>) {
+    let sessions = fs::read_to_string(paths.sessions_path())
+        .ok()
+        .and_then(|raw| serde_json::from_str::<StoredSessionsFile>(&raw).ok())
+        .unwrap_or_default();
+    for (im_origin, session) in sessions.by_origin {
+        if let Ok(active_path) = paths.desktop_active_path(&im_origin) {
+            if !active_path.is_file() {
+                continue;
+            }
+        }
+        if let Ok(bundle) = resolve_active_bundle(paths, &im_origin, dev_repo_root) {
+            let _ = run_local_admin_sync(
+                paths,
+                &bundle,
+                &im_origin,
+                "lifecycle",
+                Some(&session.owner_id),
+                None,
+                Some(&json!({ "action": "stop", "preserve_user_stopped": true })),
+            );
+        }
+    }
+}
+
+/// Return true when bundled seed archives exist and have not yet unpacked their target `.ready` marker.
+pub fn has_pending_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Option<&Path>) -> bool {
+    let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
+        return false;
+    };
+    let manifest_path = seed_dir.join(seed_manifest_filename());
+    if !manifest_path.is_file() {
+        return false;
+    }
+    let Ok(raw) = fs::read_to_string(&manifest_path) else {
+        return true;
+    };
+    let Ok(manifest) = serde_json::from_str::<Value>(&raw) else {
+        return true;
+    };
+    let Some(target_sha) = manifest["sha256"].as_str() else {
+        return true;
+    };
+    !paths
+        .desktop_home
+        .join("versions")
+        .join(target_sha)
+        .join(".ready")
+        .is_file()
+}
+
 /// Unpack first-install seed archives into `<desktop_home>/{cache,runtimes,versions}` so
 /// managed Node 24.22.1 works with zero global PATH tools and future updates reuse `runtime`.
 pub fn ensure_seed_bundle_installed(
     paths: &DesktopPaths,
     seed_archives_dir: Option<&Path>,
 ) -> Result<Option<PathBuf>, String> {
+    sync_seed_desktop_defaults(paths, seed_archives_dir);
     let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
         return Ok(None);
     };
-    let manifest_name = if cfg!(target_os = "windows") {
-        "manifest.desktop-win32-x64.json"
-    } else {
-        "manifest.desktop-darwin-arm64.json"
-    };
+    let manifest_name = seed_manifest_filename();
     let manifest_path = seed_dir.join(manifest_name);
     if !manifest_path.is_file() {
         return Ok(None);
@@ -120,6 +287,7 @@ pub fn ensure_seed_bundle_installed(
 
     let final_version_root = paths.desktop_home.join("versions").join(target_sha);
     if final_version_root.join(".ready").is_file() {
+        reconcile_ready_seed_bundle(paths, Some(&seed_dir));
         return Ok(Some(final_version_root));
     }
 
@@ -239,15 +407,21 @@ pub fn ensure_seed_bundle_installed(
         let _ = fs::remove_dir_all(&version_stage);
     }
 
+    let seed_changed = read_seed_marker(paths)
+        .map(|m| m.sha256 != target_sha)
+        .unwrap_or(true);
     write_private_json(
         &paths.seed_marker_path(),
         &SeedMarker {
-            version,
+            version: version.clone(),
             sha256: target_sha.to_string(),
             runtime_sha256: runtime_sha.to_string(),
             version_root: final_version_root.to_string_lossy().to_string(),
         },
     )?;
+    if seed_changed {
+        advance_managed_active_pointers_to_seed(paths, &version, target_sha, &final_version_root);
+    }
     Ok(Some(final_version_root))
 }
 
@@ -330,10 +504,17 @@ pub fn resolve_active_bundle(
         }
     }
 
-    // 3. Development / test repository fallback
-    let repo_root = dev_repo_root
-        .map(Path::to_path_buf)
-        .or_else(|| std::env::var("CREWDEN_DEV_REPO_ROOT").ok().map(PathBuf::from))
+    // 3. Development / test repository fallback (blocked when packaged seed-archives exist without explicit dev_repo_root)
+    let explicit_dev = dev_repo_root.map(Path::to_path_buf).or_else(|| {
+        std::env::var("CREWDEN_DEV_REPO_ROOT")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .map(PathBuf::from)
+    });
+    if explicit_dev.is_none() && default_seed_archives_dir(None).is_some() {
+        return Err("Seed runtime bundle is still preparing".to_string());
+    }
+    let repo_root = explicit_dev
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
     let repo_root = fs::canonicalize(&repo_root).unwrap_or(repo_root);
     let node_bin = resolve_dev_node_binary(&repo_root)?;
@@ -569,4 +750,108 @@ pub fn open_external_url(paths: &DesktopPaths, raw_url: &str) -> Result<(), Stri
 
     #[allow(unreachable_code)]
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn advances_active_pointers_on_new_installer_seed_while_preserving_ota_updates_and_clearing_stale_defaults() {
+        use crate::config::DesktopCliOptions;
+        let tmp = tempdir().unwrap();
+        let paths = DesktopPaths::resolve(&DesktopCliOptions {
+            isolated_root: Some(tmp.path().to_path_buf()),
+            ..Default::default()
+        })
+        .unwrap();
+        let origin = "https://im.crewden.work";
+
+        // 1. Seed v1 with private defaults -> sync copies desktop-defaults.json; official seed without it removes it.
+        let seed_v1 = tmp.path().join("seed-v1");
+        fs::create_dir_all(&seed_v1).unwrap();
+        fs::write(
+            seed_v1.join("desktop-defaults.json"),
+            r#"{"default_im_origin":"http://10.0.0.8:8011","allow_private_http_release_base":true}"#,
+        )
+        .unwrap();
+        sync_seed_desktop_defaults(&paths, Some(&seed_v1));
+        assert!(paths.desktop_defaults_path().is_file());
+
+        let seed_official = tmp.path().join("seed-official");
+        fs::create_dir_all(&seed_official).unwrap();
+        sync_seed_desktop_defaults(&paths, Some(&seed_official));
+        assert!(!paths.desktop_defaults_path().exists());
+
+        // 2. Prepare ready versions sha_v1, sha_ota, sha_v2
+        let make_ready_version = |sha: &str| {
+            let root = paths.desktop_home.join("versions").join(sha);
+            let node_path = root.join(node_rel_path());
+            fs::create_dir_all(node_path.parent().unwrap()).unwrap();
+            fs::create_dir_all(root.join("ui/frontend")).unwrap();
+            fs::write(&node_path, b"node").unwrap();
+            fs::write(root.join(".ready"), format!("{}\n", sha)).unwrap();
+            root
+        };
+        let root_v1 = make_ready_version("sha_v1");
+        let root_ota = make_ready_version("sha_ota");
+        let root_v2 = make_ready_version("sha_v2");
+
+        // Initial seed v1 reconciled and connection bound
+        let manifest_name = seed_manifest_filename();
+        fs::write(
+            seed_official.join(manifest_name),
+            json!({ "package": "pkg.json", "version": "1.0.0", "sha256": "sha_v1" }).to_string(),
+        )
+        .unwrap();
+        reconcile_ready_seed_bundle(&paths, Some(&seed_official));
+
+        let active_path = paths.desktop_active_path(origin).unwrap();
+        write_private_json(
+            &active_path,
+            &json!({
+                "managed_by": "crewden-desktop",
+                "sha256": "sha_v1",
+                "version": "1.0.0",
+                "version_root": root_v1.to_string_lossy(),
+                "ui_root": root_v1.join("ui").to_string_lossy(),
+                "user_stopped": true,
+            }),
+        )
+        .unwrap();
+
+        // Simulate OTA update moving `.desktop-active.json` to `sha_ota` while installer `seed-archives` is still `sha_v1`
+        write_private_json(
+            &active_path,
+            &json!({
+                "managed_by": "crewden-desktop",
+                "sha256": "sha_ota",
+                "version": "1.0.5",
+                "version_root": root_ota.to_string_lossy(),
+                "ui_root": root_ota.join("ui").to_string_lossy(),
+                "user_stopped": true,
+            }),
+        )
+        .unwrap();
+        reconcile_ready_seed_bundle(&paths, Some(&seed_official));
+        let resolved_ota = resolve_active_bundle(&paths, origin, None).unwrap();
+        assert_eq!(resolved_ota.version, "1.0.5");
+        assert_eq!(resolved_ota.sha256.as_deref(), Some("sha_ota"));
+
+        // Now simulate over-installing new installer v2.0.0 (`sha_v2`) -> `.desktop-active.json` advances to `sha_v2` & keeps `user_stopped: true`!
+        fs::write(
+            seed_official.join(manifest_name),
+            json!({ "package": "pkg.json", "version": "2.0.0", "sha256": "sha_v2" }).to_string(),
+        )
+        .unwrap();
+        reconcile_ready_seed_bundle(&paths, Some(&seed_official));
+        let resolved_v2 = resolve_active_bundle(&paths, origin, None).unwrap();
+        assert_eq!(resolved_v2.version, "2.0.0");
+        assert_eq!(resolved_v2.sha256.as_deref(), Some("sha_v2"));
+        assert_eq!(resolved_v2.version_root, root_v2);
+        let updated_ptr: Value =
+            serde_json::from_str(&fs::read_to_string(&active_path).unwrap()).unwrap();
+        assert_eq!(updated_ptr["user_stopped"], json!(true));
+    }
 }

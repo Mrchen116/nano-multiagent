@@ -335,6 +335,32 @@ impl DesktopUiBridge for TauriUiCoordinator {
         });
     }
 
+    fn focus_window(&self) {
+        self.dismiss_notification_popup();
+        let Some(app) = self.app_handle.lock().unwrap().clone() else {
+            return;
+        };
+        let coord = app.state::<Arc<TauriUiCoordinator>>().inner().clone();
+        let app_clone = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let _ = coord.ensure_main_window(&app_clone, None);
+        });
+    }
+
+    fn notify_host_context_updated(&self) {
+        let Some(app) = self.app_handle.lock().unwrap().clone() else {
+            return;
+        };
+        let app_clone = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(win) = app_clone.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = win.eval(
+                    "window.dispatchEvent(new CustomEvent('crewden:host-context-updated'));",
+                );
+            }
+        });
+    }
+
     fn present_notification_popup(&self, item: &DesktopNotificationRecord) {
         let seq = self.popup_seq.fetch_add(1, Ordering::SeqCst) + 1;
         self.popup_shown_count.fetch_add(1, Ordering::SeqCst);

@@ -286,3 +286,34 @@ it('opens an already-created assistant chat while its runtime is unavailable', a
  expect(router.state.location.pathname).toBe('/chat/existing');
  expect(createPersonalAgent).not.toHaveBeenCalled();
 });
+
+it('lifts Verify and continue into the pinned onboarding footer alongside Back during first-run API setup', async () => {
+ mount();
+ await screen.findByLabelText('API Key');
+ const verifyBtn = screen.getByRole('button', { name: 'Verify and continue' });
+ const backBtn = screen.getByRole('button', { name: '← Back' });
+ expect(verifyBtn.closest('.onboarding-footer')).toBe(backBtn.closest('.onboarding-footer'));
+ expect(verifyBtn).toHaveAttribute('form', 'onboarding-model-form');
+});
+
+it('maps pre-persistence node_offline and node_capabilities_timeout errors to distinct copy while preserving draft and request_key', async () => {
+ vi.mocked(setupNode).mockResolvedValue({ ...modelStatus, default_model: 'model-one', models: [{ provider: 'p', model: 'model-one' }] });
+ vi.mocked(createPersonalAgent)
+   .mockRejectedValueOnce(Object.assign(new Error('offline'), { status: 503, code: 'node_offline' }))
+   .mockRejectedValueOnce(Object.assign(new Error('timeout'), { status: 504, code: 'node_capabilities_timeout' }));
+ mount();
+ await screen.findByRole('heading', { name: 'Name your personal assistant' });
+ await userEvent.clear(screen.getByLabelText('Name your assistant'));
+ await userEvent.type(screen.getByLabelText('Name your assistant'), 'Atlas');
+
+ await userEvent.click(screen.getByRole('button', { name: 'Create personal assistant' }));
+ expect(await screen.findByRole('alert')).toHaveTextContent('Your selected computer is offline, so creation has not started yet');
+ expect(screen.getByLabelText('Name your assistant')).toHaveValue('Atlas');
+
+ await userEvent.click(screen.getByRole('button', { name: 'Check and retry' }));
+ await waitFor(() => expect(createPersonalAgent).toHaveBeenCalledTimes(2));
+ expect(await screen.findByRole('alert')).toHaveTextContent('Reading your computer runtime capabilities timed out');
+ expect(vi.mocked(createPersonalAgent).mock.calls[1]![0].request_key).toBe(
+   vi.mocked(createPersonalAgent).mock.calls[0]![0].request_key,
+ );
+});

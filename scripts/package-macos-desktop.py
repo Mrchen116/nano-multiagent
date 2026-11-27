@@ -63,6 +63,10 @@ def main() -> None:
     parser.add_argument("--version", default=os.environ.get("RELEASE_VERSION") or "")
     parser.add_argument("--source-commit", default="")
     parser.add_argument("--base-url", default="")
+    parser.add_argument(
+        "--default-im-origin",
+        default=os.environ.get("CREWDEN_DEFAULT_IM_ORIGIN") or "",
+    )
     parser.add_argument("--extra-app-note", default="")
     parser.add_argument(
         "--skip-dmg",
@@ -73,12 +77,26 @@ def main() -> None:
 
     out_dir = args.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
-    commit = (
-        args.source_commit
-        or subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-        ).strip()
-    )
+    raw_commit = args.source_commit.strip() or "HEAD"
+    try:
+        commit = (
+            subprocess.check_output(
+                ["git", "rev-parse", "--verify", f"{raw_commit}^{{commit}}"],
+                cwd=ROOT,
+                text=True,
+                stderr=subprocess.PIPE,
+            )
+            .strip()
+            .lower()
+        )
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"Invalid --source-commit '{args.source_commit}': {exc.stderr.strip()}"
+        ) from exc
+    if not re.fullmatch(r"[a-f0-9]{40}", commit):
+        raise RuntimeError(
+            f"Resolved commit '{commit}' is not a 40-character hexadecimal SHA"
+        )
 
     with tempfile.TemporaryDirectory(prefix="crewden-mac-pkg-") as tmp_str:
         tmp = Path(tmp_str)
@@ -104,6 +122,8 @@ def main() -> None:
         ]
         if args.base_url:
             archive_cmd.extend(["--base-url", args.base_url])
+        if args.default_im_origin:
+            archive_cmd.extend(["--default-im-origin", args.default_im_origin])
         if args.extra_app_note:
             archive_cmd.extend(["--extra-app-note", args.extra_app_note])
         subprocess.run(archive_cmd, cwd=ROOT, check=True)
@@ -139,6 +159,10 @@ def main() -> None:
             "desktop-app-darwin-arm64.tar.gz",
         ):
             shutil.copy2(out_dir / asset_name, seed_dir / asset_name)
+        if (out_dir / "desktop-defaults.json").is_file():
+            shutil.copy2(
+                out_dir / "desktop-defaults.json", seed_dir / "desktop-defaults.json"
+            )
 
         subprocess.run(
             ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(app_bundle)],
@@ -177,7 +201,6 @@ def main() -> None:
             json.dumps(manifest, sort_keys=True, ensure_ascii=False, indent=2) + "\n"
         ).encode("utf-8")
         manifest_path.write_bytes(manifest_bytes)
-        (seed_dir / "manifest.desktop-darwin-arm64.json").write_bytes(manifest_bytes)
         subprocess.run(
             ["/usr/bin/codesign", "--force", "--deep", "--sign", "-", str(app_bundle)],
             check=True,

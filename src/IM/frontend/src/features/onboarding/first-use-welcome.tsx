@@ -34,9 +34,11 @@ export function FirstUseWelcome({ onNewChat }: { onNewChat(): void }) {
     <div className="first-use-inner">
       <header className="first-use-heading">
         <AssistantIllustration size={72} />
-        <span className="first-use-eyebrow">{t('firstUse.eyebrow')}</span>
-        <h1 id="first-use-title">{t('firstUse.title')}</h1>
-        <p>{t('firstUse.intro')}</p>
+        <div className="first-use-heading-copy">
+          <span className="first-use-eyebrow">{t('firstUse.eyebrow')}</span>
+          <h1 id="first-use-title">{t('firstUse.title')}</h1>
+          <p>{t('firstUse.intro')}</p>
+        </div>
       </header>
       <div className="first-use-layout">
         <section className="first-use-setup" aria-labelledby="first-use-setup-title">

@@ -4,6 +4,7 @@ import { Menu, X } from 'lucide-react';
 import { NanoBrand } from '../../app/shell/nano-brand';
 import { useTranslation } from '../../i18n';
 import { LanguageSelect } from '../../app/shell/language-select';
+import { isDesktopClient } from '../../desktop/desktop-context';
 import { accountEnabled, useAuthStore } from '../auth/auth-store';
 import './product-entry.css';
 
@@ -18,10 +19,11 @@ export function ProductHeader({ page = 'home', accountName }: {
   const menuButton = useRef<HTMLButtonElement>(null);
   const sections = [['download', 'download'], ['teamwork', 'team'], ['how-it-works', 'how'], ['getting-started', 'start']] as const;
   const workspacePath = user && accountEnabled(user) ? '/chat' : '/membership';
+  const brandPath = isDesktopClient() ? (user ? workspacePath : '/login') : '/about';
   return <header className={`product-header product-header--${page}`} onKeyDown={event => {
     if (event.key === 'Escape' && menuOpen) { setMenuOpen(false); menuButton.current?.focus(); }
   }}>
-    <Link to="/about" className="product-brand" aria-label={t('publicHome.home')}><NanoBrand /></Link>
+    <Link to={brandPath} className="product-brand" aria-label={t('publicHome.home')}><NanoBrand /></Link>
     {page === 'home' && <nav className="product-nav" aria-label={t('publicHome.navigation')}>
       {sections.map(([id, key]) => <a key={id} href={`#${id}`}>{t(`crewdenStory.nav.${key}`)}</a>)}
     </nav>}

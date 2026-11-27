@@ -72,3 +72,25 @@
   .product-header .product-header-actions { gap: 4px; }
   .product-menu-trigger { width: 34px; }
 }
+
+@media (min-width: 768px) {
+  html[data-crewden-desktop="true"] .product-header,
+  html[data-crewden-desktop="true"] .public-home .product-header,
+  html[data-crewden-desktop="true"] .crew-account .product-header {
+    width: min(1200px, calc(100% - 56px));
+    min-height: 52px;
+    gap: 20px;
+  }
+  html[data-crewden-desktop="true"] .product-brand .im-nano-brand {
+    font-size: 22px;
+    gap: 8px;
+  }
+  html[data-crewden-desktop="true"] .product-brand svg {
+    width: 26px;
+    height: 26px;
+  }
+  html[data-crewden-desktop="true"] .product-header-button {
+    min-height: 34px;
+    padding: 6px 13px;
+  }
+}

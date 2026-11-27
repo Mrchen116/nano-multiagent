@@ -3,10 +3,24 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 const [version, home] = process.argv.slice(2);
 const fromNode = createRequire(join(version, 'apps/node/lib/cli.js'));
 const { prepareProfile, RuntimeClient } = await import(pathToFileURL(fromNode.resolve('@nano/dsh-integration/client')).href);
+// Verify that @deepseek-ai/dsh-web resolves zod cleanly inside the relocated store layout.
+const dshIntegrationPkg = fromNode.resolve('@nano/dsh-integration/client');
+const fromDshIntegration = createRequire(dshIntegrationPkg);
+try {
+  const dshPkgJson = fromDshIntegration.resolve('@deepseek-ai/dsh/package.json');
+  const fromDsh = createRequire(dshPkgJson);
+  const dshWebEntry = fromDsh.resolve('@deepseek-ai/dsh-web');
+  if (existsSync(dshWebEntry)) {
+    const fromDshWeb = createRequire(dshWebEntry);
+    assert.ok(fromDshWeb.resolve('zod'), '@deepseek-ai/dsh-web must resolve zod');
+  }
+} catch (error) {
+  if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+}
 mkdirSync(home, { recursive: true });
 // A reboot can leave the former Gateway PID occupied by an unrelated process.
 const {manageGateway, processBirth} = await import(pathToFileURL(join(version, 'apps/node/lib/lifecycle.js')).href);
@@ -22,7 +36,15 @@ await assert.rejects(manageGateway(configPath, {}, 'stop'), /PID identity change
 console.log('Previous-boot state expired; same-boot PID reuse preserved');
 
 await prepareProfile(home);
-const runtime = new RuntimeClient({home, cwd:home, onLog: text => process.stderr.write(text)});
+let runtimeLogs = '';
+const runtime = new RuntimeClient({
+  home,
+  cwd: home,
+  onLog: text => {
+    runtimeLogs += text;
+    process.stderr.write(text);
+  },
+});
 const timer = setTimeout(() => { runtime.process.kill(); throw new Error('Installed DSH did not initialize'); }, 120_000);
 try {
   const agent = {agentId:'probe', revision:'1', mode:'global', provider:'deepseek-official', model:'deepseek-flash'};
@@ -40,6 +62,10 @@ try {
   await runtime.rpc.request('session.ensure', {sessionId, agentId:agent.agentId, revision:agent.revision, ownerId:'probe', cwd:home});
   const capabilities = await runtime.rpc.request('session.capabilities', {sessionId});
   assert.ok(capabilities.tools.includes('read'), 'Installed session must offer the file reader');
+  assert.ok(
+    !/did not activate|failed to register|Cannot find package/i.test(runtimeLogs),
+    `Unexpected module activation warning in runtime logs:\n${runtimeLogs}`,
+  );
   console.log('Installed session tools:', capabilities.tools.sort().join(', '));
   await runtime.shutdown();
 } finally {

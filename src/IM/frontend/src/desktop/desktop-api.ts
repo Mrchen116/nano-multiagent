@@ -8,12 +8,17 @@ import type {
 } from "@nano/product-contracts/desktop-local";
 import { authFetch } from "../features/auth/auth-fetch";
 import { readHttpError } from "../features/auth/http-error";
-import type { DesktopPlatformId } from "./desktop-context";
+import type { DesktopPlatformId, PendingServerSwitch } from "./desktop-context";
 
 export interface DesktopHostContextResponse {
   im_origin: string;
   context_epoch: number;
   platform: DesktopPlatformId;
+  seed_ready?: boolean;
+  seed_error?: string | null;
+  host_log_path?: string;
+  pending_server_switch?: PendingServerSwitch | null;
+  deep_link_error?: string | null;
 }
 
 export interface DesktopConnectResponse {
@@ -87,6 +92,13 @@ export function switchDesktopServer(imOrigin: string): Promise<DesktopHostContex
   return hostFetchJson<DesktopHostContextResponse>("/desktop/v1/server", {
     method: "PUT",
     body: JSON.stringify({ im_origin: imOrigin.trim() }),
+  });
+}
+
+/** Dismiss a pending deep-link server switch or blocked deep-link error notice without switching servers. */
+export function dismissPendingDesktopServerSwitch(): Promise<{ ok: boolean }> {
+  return hostFetchJson<{ ok: boolean }>("/desktop/v1/server/pending/dismiss", {
+    method: "POST",
   });
 }
 
