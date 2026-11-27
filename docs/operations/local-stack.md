@@ -28,7 +28,7 @@ IM 提供 `/install.sh` 与 `/install/manifest.json`，旧 `/install/nano-node.t
 
 ### Mac 桌面包分发
 
-Crewden Desktop 支持 macOS 15.0 及以上的 Apple Silicon Mac。v2.2.0 的历史 DMG 使用 ad-hoc 应用签名，缺少公证票据。正式发布策略从包含此修复的工作流开始生效，历史资产保持原版本。
+Crewden Desktop 支持 macOS 15.0 及以上的 Apple Silicon Mac。v2.2.0 的历史 DMG 使用 ad-hoc 应用签名，缺少公证票据。发布带 Mac 桌面端的新版本时，所选源码 SHA 必须包含 bugfix-811 的产物检查。历史资产保持原版本。
 
 PR 产生 `unsigned-test-desktop-darwin-arm64-<SHA>` 内测 artifact。验证器挂载 DMG、对照包内与 OTA 归档、检查原生 arm64 最低版本，并从磁盘映像拷出 app 验证离线首启和运行时。单独复验可在 Apple Silicon Mac 上用 Python 3.11+ 运行：
 
