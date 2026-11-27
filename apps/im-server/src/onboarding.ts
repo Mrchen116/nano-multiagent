@@ -79,4 +79,84 @@ export function registerOnboardingRoutes(app: FastifyInstance, ctx: ImContext, r
     if (result.error_code) fail(503, 'Computer setup is unavailable. Reconnect your computer and retry.');
     return setupStatus(result);
   });
+  // Transiently bridge Daily Chrome pairing to the owned online node; never persist or log the extension token.
+  app.post('/im/v1/nodes/:node_id/browser', async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    const user = ctx.identity.authenticateRequest(req);
+    const nodeId = params(req).node_id;
+    const owned = () => {
+      ctx.identity.authenticateRequest(req);
+      if (!one(ctx.db, 'SELECT 1 FROM nodes WHERE node_id=? AND owner_id=?', nodeId, user.owner_id)) {
+        fail(404, 'node_id not found');
+      }
+    };
+    owned();
+    const input = body(req);
+    const action = input.action;
+    if (!['status', 'open-guide', 'pair', 'disconnect'].includes(action)) {
+      fail(400, { code: 'invalid_browser_action', message: 'Unsupported browser pairing action' });
+    }
+    const profile = input.profile;
+    if (profile !== undefined && typeof profile !== 'string') {
+      fail(400, { code: 'invalid_browser_profile', message: 'Browser profile must be text' });
+    }
+    let rpcPayload:
+      | { action: 'status'; profile?: string }
+      | { action: 'open-guide'; profile?: string; target?: 'auto' | 'store' | 'token' }
+      | { action: 'pair'; profile?: string; token: string }
+      | { action: 'disconnect' };
+    if (action === 'status') {
+      rpcPayload = { action: 'status', ...(profile !== undefined ? { profile } : {}) };
+    } else if (action === 'open-guide') {
+      if (input.target !== undefined && !['auto', 'store', 'token'].includes(input.target)) {
+        fail(400, { code: 'invalid_browser_action', message: 'Invalid browser guide target' });
+      }
+      rpcPayload = {
+        action: 'open-guide',
+        ...(profile !== undefined ? { profile } : {}),
+        ...(input.target !== undefined ? { target: input.target } : {}),
+      };
+    } else if (action === 'pair') {
+      if (typeof input.token !== 'string' || !input.token.trim()) {
+        fail(422, { code: 'invalid_browser_token', message: 'Paste the token shown by the official Playwright Extension' });
+      }
+      rpcPayload = {
+        action: 'pair',
+        ...(profile !== undefined ? { profile } : {}),
+        token: input.token,
+      };
+    } else {
+      rpcPayload = { action: 'disconnect' };
+    }
+    const result = await ctx.gateway.request(nodeId, 'node.browser.request', rpcPayload);
+    owned();
+    if (result.error) {
+      const code = result.error.code;
+      const status = code === 'invalid_browser_profile' || code === 'invalid_browser_action' ? 400 : 422;
+      fail(status, { code, message: result.error.message });
+    }
+    if (result.error_code || !result.browser) {
+      fail(503, 'Browser pairing is unavailable on this computer. Ensure the node is online and updated.');
+    }
+    const rawBrowser = result.browser as Row;
+    return {
+      browser: {
+        ...fields(rawBrowser, [
+          'supported',
+          'state',
+          'chrome_installed',
+          'chrome_running',
+          'chrome_version_ok',
+          'paired_profile',
+          'selected_profile',
+          'extension_installed',
+          'last_checked_at',
+        ]),
+        profiles: Array.isArray(rawBrowser.profiles)
+          ? rawBrowser.profiles.map((p: Row) => fields(p, ['profile', 'extension_installed']))
+          : [],
+      },
+      ...(result.opened === 'store' || result.opened === 'token' ? { opened: result.opened } : {}),
+    };
+  });
 }

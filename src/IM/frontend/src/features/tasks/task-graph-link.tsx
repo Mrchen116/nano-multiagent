@@ -10,7 +10,14 @@ export function TaskGraphLink({ href, node: _node, ...props }: ComponentProps<"a
       if (inRouter && target.origin === window.location.origin && /^\/chat\/[^/]+$/.test(target.pathname) && target.searchParams.has('message_id')) {
         return <SourceMessageLink {...props} href={`${target.pathname}${target.search}${target.hash}`} />;
       }
-      if (target.origin === window.location.origin && (target.pathname === "/tasks" || target.pathname.startsWith("/tasks/"))) {
+      if (
+        inRouter &&
+        target.origin === window.location.origin &&
+        (target.pathname === "/tasks" ||
+          target.pathname.startsWith("/tasks/") ||
+          target.pathname === "/settings" ||
+          target.pathname.startsWith("/settings/"))
+      ) {
         return <Link {...props} to={`${target.pathname}${target.search}${target.hash}`} />;
       }
     } catch {

@@ -83,6 +83,10 @@ if(m.updater_protocol!==undefined) {
   cp "$NANO_TEMP/manifest.json" "$NANO_TEMP/package/.release-manifest.json"
   echo '3/4 Installing dependencies in your private Nano folder…'
   (cd "$NANO_TEMP/package" && "$NANO_NODE" "$NANO_PNPM" install --prod --frozen-lockfile)
+  # Verify the locked stdio backend in the staged release, before publishing it to the running node.
+  if [ -f "$NANO_TEMP/package/packages/dsh-integration/lib/computer/browser.js" ]; then
+    (cd "$NANO_TEMP/package/packages/dsh-integration" && "$NANO_NODE" node_modules/@playwright/mcp/cli.js --version >/dev/null)
+  fi
   touch "$NANO_TEMP/package/.installed"
   # Reuse only complete installations; a failed attempt never replaces a running version.
   if [ ! -e "$NANO_RELEASE" ]; then mv "$NANO_TEMP/package" "$NANO_RELEASE"; fi
@@ -102,3 +106,7 @@ fi
 echo '4/4 Confirm this computer in your browser…'
 "$NANO_NODE" "$NANO_RELEASE/apps/node/lib/cli.js" setup --im-service-url "$NANO_ORIGIN"
 echo 'Your computer is connected. Return to Nano to choose a model and create your assistant.'
+if [ "$(uname -s)" = Darwin ] && [ -f "$NANO_RELEASE/apps/node/lib/browser-pairing.js" ]; then
+  echo 'To use your daily Chrome, install the official Playwright Extension and pair it on this computer.'
+  printf '  "%s" "%s" browser pair\n' "$NANO_NODE" "$NANO_RELEASE/apps/node/lib/cli.js"
+fi

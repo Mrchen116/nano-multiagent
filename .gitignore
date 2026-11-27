@@ -18,6 +18,7 @@ CLAUDE.local.md
 /package-lock.json
 
 .nanoassistant
+.nano-browser/
 .nanocode
 
 .DS_Store

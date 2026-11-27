@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -21,6 +21,7 @@ export interface CliWorkerOptions {
   sessionId?: string;
   instructions: string;
   mcp: WorkerMcpLaunch;
+  computer?: WorkerMcpLaunch;
   onPermission?: WorkerPermissionHandler;
   onReport(id: string, message: string): Promise<void>;
   onDetail(id: string, detail: RuntimeWorkerDetail): Promise<void>;
@@ -389,7 +390,7 @@ async function codex(options: CliWorkerOptions) {
       approvalPolicy: 'on-request',
       approvalsReviewer: 'auto_review',
       config: Object.fromEntries(
-        hostedWorkerMcp(options.mcp).map(({ server, launch, tools }) => [
+        hostedWorkerMcp(options.mcp, options.computer).map(({ server, launch, tools }) => [
           `mcp_servers.${server}`,
           {
             ...launch,
@@ -458,8 +459,16 @@ async function codex(options: CliWorkerOptions) {
 }
 
 async function claude(options: CliWorkerOptions) {
+  const hosted = hostedWorkerMcp(options.mcp, options.computer);
+  const payload = JSON.stringify({mcpServers: Object.fromEntries(hosted.map(({server, launch}) => [server, launch]))});
+  const directory = options.computer && await mkdtemp(join(tmpdir(), 'nano-claude-mcp-'));
+  const config = directory ? join(directory, 'mcp.json') : payload;
+  if (directory) {
+    // A bound computer launch carries a short-lived credential. Keep it out of argv and ps output.
+    try { await writeFile(config, payload, {mode: 0o600}); }
+    catch (error) { await rm(directory, {recursive: true, force: true}); throw error; }
+  }
   const sessionId = options.sessionId ?? randomUUID();
-  const hosted = hostedWorkerMcp(options.mcp);
   const args = [
     '--print',
     '--verbose',
@@ -477,11 +486,13 @@ async function claude(options: CliWorkerOptions) {
     '--allowedTools',
     ...hosted.flatMap(({ server, tools }) => tools.map((tool) => `mcp__${server}__${tool}`)),
     '--mcp-config',
-    JSON.stringify({ mcpServers: Object.fromEntries(hosted.map(({ server, launch }) => [server, launch])) }),
+    config,
     options.sessionId ? '--resume' : '--session-id',
     sessionId,
   ];
-  const proc = new CliProcess('claude', args, options.cwd);
+  const proc = new CliProcess('claude', args, options.cwd, directory ? {
+    onCleanup: () => rm(directory, {recursive: true, force: true}),
+  } : undefined);
   const events = new TurnEvents(options);
   const unconsumed = new Map<string, string>();
   let model: string | undefined;
@@ -783,6 +794,7 @@ interface TrackedAcpTool {
 }
 
 async function antigravity(options: CliWorkerOptions) {
+  const hosted = hostedWorkerMcp(options.mcp, options.computer);
   const runtimeTmp = await mkdtemp(join(tmpdir(), 'nano-agy-tmp-'));
   const proc = new CliProcess('agy', ['acp', '--process-per-session'], options.cwd, {
     env: {
@@ -812,7 +824,6 @@ async function antigravity(options: CliWorkerOptions) {
   let inFlightPrompts = 0;
   let assistantDraft = '';
   let lastAssistantText = '';
-  const hosted = hostedWorkerMcp(options.mcp);
   const trackedTools = new Map<string, TrackedAcpTool>();
   const settledToolIds = new Set<string>();
 

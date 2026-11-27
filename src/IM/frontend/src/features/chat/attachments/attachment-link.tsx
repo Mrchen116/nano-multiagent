@@ -33,7 +33,9 @@ export function AttachmentLink({
     window.addEventListener("im:conversation-invalidated", cancel);
     return () => { cancel(); window.removeEventListener("im:conversation-invalidated", cancel); };
   }, [self, href]);
-  if (!url) return <a className={className} href={href} target="_blank" rel="noreferrer" title={title} aria-label={ariaLabel}>{children}</a>;
+  if (!url) {
+    return <a className={className} href={href} target="_blank" rel="noreferrer" title={title} aria-label={ariaLabel}>{children}</a>;
+  }
   async function download() {
     if (!self || !url || busy) return;
     const controller = new AbortController(); request.current = controller;

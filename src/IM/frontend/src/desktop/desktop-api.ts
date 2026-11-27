@@ -1,4 +1,6 @@
 import type {
+  DesktopBrowserActionInput,
+  DesktopBrowserActionResponse,
   DesktopLocalConfigInput,
   DesktopLocalInspectResponse,
   DesktopLocalOwnership,
@@ -119,6 +121,14 @@ export function probeDesktopWorkers(extraPath?: string): Promise<{ workers: Desk
   return authedDesktopJson<{ workers: DesktopWorkerProbeItem[] }>("/desktop/v1/local-node/probe-workers", {
     method: "POST",
     body: JSON.stringify({ extra_path: extraPath ?? "" }),
+  });
+}
+
+/** Inspect, open guided setup tabs, pair, or disconnect the local daily Chrome extension. */
+export function manageDesktopLocalBrowser(input: DesktopBrowserActionInput): Promise<DesktopBrowserActionResponse> {
+  return authedDesktopJson<DesktopBrowserActionResponse>("/desktop/v1/local-node/browser", {
+    method: "POST",
+    body: JSON.stringify(input),
   });
 }
 

@@ -7,13 +7,15 @@ import { useAuthStore } from '../../auth/auth-store';
 import { getOnboarding } from '../../onboarding/onboarding-api';
 import type { NodeSettingsProfile } from '../im-settings-api';
 import { computerName, computerVersion, NodeStatus } from './node-display';
+import { BrowserPairingSection } from './browser-pairing-section';
 import { NodeIcon } from './node-surface';
 import { nodeUpdateNeedsRecovery, nodeUpdateSwitching } from './node-update-panel';
 
 /** Edit only the alias while connection fields keep following the live node. */
-export function NodeDetails({ node, pending, error, save, resetError }: {
+export function NodeDetails({ node, pending, error, save, resetError, defaultPairBrowserOpen }: {
   node: NodeSettingsProfile; pending: boolean; error: boolean;
   save(alias: string): Promise<unknown>; resetError(): void;
+  defaultPairBrowserOpen?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const userId = useAuthStore(s => s.user?.id);
@@ -43,6 +45,15 @@ export function NodeDetails({ node, pending, error, save, resetError }: {
     {!canManage && <p className="node-drawer-note">{t(node.status !== 'online' && !nodeUpdateSwitching(node.update) && !nodeUpdateNeedsRecovery(node.update) ? 'computers.offlineManage' : 'computers.updateManage')}</p>}
     <div className="node-detail-row"><span>{t(nodeUpdateNeedsRecovery(node.update) ? 'computers.lastVersion' : 'settings.nodes.version')}</span><span>{computerVersion(node)}</span></div>
     <div className="node-detail-row"><span>{t('computers.lastOnline')}</span><span>{node.last_heartbeat_at ? new Date(node.last_heartbeat_at).toLocaleString(i18n.language) : t('computers.noConnection')}</span></div>
+    {canManage && (
+      <BrowserPairingSection
+        variant="drawer"
+        nodeId={node.node_id}
+        computerName={name}
+        online={canManage}
+        defaultExpanded={defaultPairBrowserOpen}
+      />
+    )}
     <h4 className="node-section-title">{t('computers.assistantsHere')}</h4>
     {query.isPending ? <p className="node-muted">{t('common.loading')}</p> : query.isError ? <div className="node-inline-error"><p>{t('computers.assistantsFailed')}</p><button className="node-button" onClick={() => void query.refetch()}>{t('common.retry')}</button></div>
       : agents.length ? agents.map(agent => <div className="node-detail-row" key={agent.agent_id}><span className="node-assistant"><Avatar id={agentAvatarId(agent.agent_id)} size={30} />{agent.display_name}</span></div>)

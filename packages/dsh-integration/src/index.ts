@@ -1,3 +1,4 @@
+import {ComputerHost} from './computer/host.js';
 /** Nano's sole stdio server inside an unmodified DSH profile. */
 import { personalEvidenceMessages, personalReviewAction, personalReviewImages, reviewPersonal, assertPersonalConfiguration } from './personal-security.js';
 import { randomUUID } from 'node:crypto';
@@ -200,6 +201,7 @@ export default class NanoRuntime {
         return {allow:result.outcome === 'allowed-once', reason:result.reason || result.outcome};
       }));
     let configurationService: ConfigurationScopes;
+    new ComputerHost(ctx,this.bindings,agent=>configurationService?.forAgent(agent));
     this.capabilities = new CapabilityState((config, names) => configurationService.selection(config, names));
     const history = new NativeHistory(ctx, process.env.DSH_HOME!);
     this.cron = new CronOwners(ctx, process.env.DSH_HOME!, (agentId, action) => !['catalog', 'history', 'list', 'delete'].includes(action) && (this.capabilities.held(agentId, {kind: 'feature', name: 'cron_scheduling'}) || this.capabilities.held(agentId, {kind: 'tool', name: `schedule_${action}`})));
@@ -794,7 +796,7 @@ export default class NanoRuntime {
           }
         }
         await (await knowledge).dreaming.configurationChanging(next);
-        (await configuration).restrictSelection(next);
+        await (await configuration).restrictSelection(next);
         const restricted = { ...previous.features };
         for (const [key, enabled] of Object.entries(next.features ?? {})) if (!enabled) restricted[key] = false;
         await (await configuration).setFeatures(next.agentId, restricted);

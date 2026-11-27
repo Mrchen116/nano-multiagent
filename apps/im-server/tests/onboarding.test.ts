@@ -270,3 +270,68 @@ it('enforces strict HTTPS by default and enables self-contained Desktop material
   closers.push(async () => { await publicHttpApp.close(); });
   expect((await publicHttpApp.inject('/im/v1/public/install')).json().desktop_win32_x64).toBeNull();
 });
+
+it('transiently bridges Web Daily Chrome pairing only to owned nodes with Cache-Control no-store and strips unexpected fields', async () => {
+  const { app, headers, owner } = await fixture();
+  app.im.db
+    .prepare(
+      "INSERT INTO nodes(node_id,owner_id,node_name,status,last_heartbeat_at,agent_count,version) VALUES('mine',?,'Mac-Studio','online','',0,''),('other','other','Foreign','online','',0,'')",
+    )
+    .run(owner);
+  const rpc = vi.spyOn(app.im.gateway, 'request').mockResolvedValue({
+    browser: {
+      supported: true,
+      state: 'paired',
+      chrome_installed: true,
+      chrome_running: true,
+      chrome_version_ok: true,
+      paired_profile: 'Default',
+      selected_profile: 'Default',
+      extension_installed: true,
+      token: 'never-leak-token',
+      profiles: [{ profile: 'Default', extension_installed: true, token: 'never-leak-token' }],
+    },
+    opened: 'token',
+  } as any);
+
+  expect(
+    (await app.inject({ method: 'POST', url: '/im/v1/nodes/other/browser', headers, payload: { action: 'status' } }))
+      .statusCode,
+  ).toBe(404);
+  expect(rpc).not.toHaveBeenCalled();
+
+  const paired = await app.inject({
+    method: 'POST',
+    url: '/im/v1/nodes/mine/browser',
+    headers,
+    payload: {
+      action: 'pair',
+      profile: 'Default',
+      token: 'PLAYWRIGHT_MCP_EXTENSION_TOKEN=pw_secret_1234567890abcdef',
+      unexpected: 'dropped',
+    },
+  });
+  expect(paired.statusCode).toBe(200);
+  expect(paired.headers['cache-control']).toBe('no-store');
+  expect(paired.body).not.toContain('never-leak-token');
+  expect(paired.body).not.toContain('pw_secret_1234567890abcdef');
+  expect(rpc).toHaveBeenCalledWith('mine', 'node.browser.request', {
+    action: 'pair',
+    profile: 'Default',
+    token: 'PLAYWRIGHT_MCP_EXTENSION_TOKEN=pw_secret_1234567890abcdef',
+  });
+
+  rpc.mockResolvedValueOnce({
+    error: { code: 'browser_extension_missing', message: 'Install Playwright Extension first' },
+  } as any);
+  const missingExt = await app.inject({
+    method: 'POST',
+    url: '/im/v1/nodes/mine/browser',
+    headers,
+    payload: { action: 'pair', profile: 'Default', token: 'pw_secret_1234567890abcdef' },
+  });
+  expect(missingExt.statusCode).toBe(422);
+  expect(missingExt.json()).toEqual({
+    detail: { code: 'browser_extension_missing', message: 'Install Playwright Extension first' },
+  });
+});

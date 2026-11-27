@@ -13,27 +13,32 @@ import type { AttachmentSource } from './trajectory-attachments.js';
 export const name = 'nano-global-mode';
 export const inject = ['nanoWorkers', 'nanoProduct', 'tools', 'systemPrompt', 'attachments', 'nanoApproval', 'nanoTrajectoryAttachments'];
 
-/** Global mode supplies root Inbox access and explicit product communication. */
-export function apply(ctx: Context, config: { mode?: string; personal?: boolean; workerRuntime?: WorkerRuntime }) {
-  ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions });
-  const nativeSend = ctx.tools.get('send_message');
-  if(config.mode==='global') ctx.tools.register({
+/** Mount just the delegation schema so revocation does not replace other Global tools. */
+export const delegation = {name:'nano-global-delegation',inject:['tools','nanoWorkers'],apply(ctx:Context,config:{workerRuntime?:WorkerRuntime;computerUse:boolean}){
+  ctx.tools.register({
     name:'delegate_worker', description:'Delegate a complete matter to a background worker. Start returns its ID. Send a correction or stop the original worker by ID.',
-    parameters:{type:'object',properties:{action:{type:'string',enum:['start','send','stop']},label:{type:'string',description:'Required on start. A short, user-visible task title in the user’s language. Name the action and its target.'},message:{type:'string',description:'The full assignment on start, or the follow-up instructions on send.'},worker_id:{type:'string'}},required:['action'],additionalProperties:false},
+    parameters:{type:'object',properties:{action:{type:'string',enum:['start','send','stop']},label:{type:'string',description:'Required on start. A short, user-visible task title in the user’s language. Name the action and its target.'},message:{type:'string',description:'The full assignment on start, or the follow-up instructions on send.'},worker_id:{type:'string'},...(config.computerUse ? {computer_request_ref:{type:'string',description:'On start or send, pass the owner Inbox/IM message ID (or current) to grant computer_use for this worker activation when the task may need Chrome browsing, desktop apps, or clipboard.'}} : {})},required:['action'],additionalProperties:false},
     output:{schema:{type:'object',additionalProperties:true},render:(_args,value)=>[{type:'text',text:JSON.stringify(value)}]},
     execute:async(args,exec)=>{
-      const {action,label,message,worker_id}=args as {action:string;label?:string;message?:string;worker_id?:string};
+      const {action,label,message,worker_id,computer_request_ref}=args as {action:string;label?:string;message?:string;worker_id?:string;computer_request_ref?:string};
+      if(computer_request_ref !== undefined && (!config.computerUse || (action!=='start' && action!=='send') || !computer_request_ref.trim())) throw new Error('A computer assignment needs an enabled start or send and an original owner message ID');
       const root=exec.agent;
       if(!root || root.session.header.origin==='subagent')throw new Error('Only the Global root can delegate work');
       if(action==='start' && label?.trim() && message?.trim()) {
-        const row=await ctx.nanoWorkers.start(root,config.workerRuntime??'dsh',label,message,exec);
+        const row=await ctx.nanoWorkers.start(root,config.workerRuntime??'dsh',label,message,exec,computer_request_ref);
         return {worker_id:row.workerId,runtime:row.runtime,state:row.state};
       }
       if(worker_id && (action==='stop' || action==='send' && message?.trim()))
-        return ctx.nanoWorkers.control(root,worker_id,action,message??'',exec.signal,exec.callId);
+        return ctx.nanoWorkers.control(root,worker_id,action,message??'',exec.signal,exec.callId,computer_request_ref);
       throw new Error('start requires label and message; send requires worker_id and message; stop requires worker_id');
     },
   });
+ }};
+
+/** Global mode supplies root Inbox access and explicit product communication. */
+export function apply(ctx: Context, config: { mode?: string; personal?: boolean; workerRuntime?: WorkerRuntime; computerUse?: boolean }) {
+  ctx.systemPrompt.section({ name: 'nano-inbox-source', order: 801, text: inboxSourceInstructions });
+  const nativeSend = ctx.tools.get('send_message');
   if (config.mode === 'global') ctx.systemPrompt.section({ name: 'nano-global-mode', order: 800, text:
     `You are the long-lived Agent defined above. Work toward your assigned responsibilities and goals, using relevant conversations, memory and execution results to decide what needs attention. Within your responsibilities and authority, initiate useful work and follow through on existing work without waiting for a new request. Collaborate with people and other Agents as peers, and remain responsible for your external communication and results.
 

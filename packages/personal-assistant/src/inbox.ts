@@ -1,3 +1,4 @@
+import {computerOwnerText} from './computer-source.js';
 import { sourceInstant } from './attention.js';
 import { InboxReviews } from './inbox-review.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
@@ -44,6 +45,7 @@ export class InboxStore {
       CREATE TABLE IF NOT EXISTS fragments(seq INTEGER,part INTEGER,PRIMARY KEY(seq,part));
       CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY,data TEXT);
       CREATE TABLE IF NOT EXISTS reads(session_id TEXT,call_id TEXT,fragments TEXT,body TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
+      CREATE TABLE IF NOT EXISTS computer_clipboard_claims(owner TEXT,message TEXT,PRIMARY KEY(owner,message));
       CREATE TABLE IF NOT EXISTS query_reads(session_id TEXT,call_id TEXT,fragments TEXT,digest TEXT,PRIMARY KEY(session_id,call_id));
       CREATE TABLE IF NOT EXISTS wakes(agent_id TEXT PRIMARY KEY,watermark INTEGER);
       CREATE TABLE IF NOT EXISTS inbox_notifications(session_id TEXT,input_id TEXT,agent_id TEXT,seqs TEXT,summary TEXT,delivered INTEGER DEFAULT 0,PRIMARY KEY(session_id,input_id));
@@ -922,6 +924,59 @@ export class InboxStore {
       kind: 'chat' as const, conversationId: message.target ?? body.target, messageId: message.id, url: part.url!,
     })));
   }
+  /** Resolve the original owner instruction behind a committed, host-observed read. */
+  computerRequest(
+    agent: string,
+    owner: string,
+    session: string,
+    call: string,
+    id: string,
+    personal: boolean,
+    afterReads?: string[],
+  ) {
+    const row = this.db
+      .prepare(`SELECT i.payload, i.target FROM inbox i JOIN ingestions g ON g.seq=i.seq
+      JOIN reads r ON r.session_id=g.session_id AND r.call_id=?
+      WHERE g.session_id=? AND i.agent_id=? AND i.message_id=? AND i.consumed=1
+      AND EXISTS (SELECT 1 FROM json_each(r.fragments) WHERE json_extract(value,'$.seq')=i.seq)
+      AND NOT EXISTS (SELECT 1 FROM scope_cancelled WHERE agent_id=i.agent_id AND message_id=i.message_id)`)
+      .get(call, session, agent, id) as { payload: string; target: string } | undefined;
+    if (!row) return;
+    const text = computerOwnerText(JSON.parse(row.payload) as RelayInput, owner, personal);
+    if (!text) return;
+    const allowedCalls = afterReads ? new Set(afterReads) : undefined;
+    if (allowedCalls && !allowedCalls.has(call)) return;
+    const priorRows = this.db
+      .prepare(`SELECT i.seq, i.payload FROM inbox i JOIN ingestions g ON g.seq=i.seq
+      WHERE g.session_id=? AND i.agent_id=? AND i.target=? AND i.consumed=1
+      AND NOT EXISTS (SELECT 1 FROM scope_cancelled WHERE agent_id=i.agent_id AND message_id=i.message_id)
+      ORDER BY i.seq ASC`)
+      .all(session, agent, row.target) as { seq: number; payload: string }[];
+    let allowedSeqs: Set<number> | undefined;
+    if (allowedCalls) {
+      allowedSeqs = new Set<number>();
+      for (const readCall of allowedCalls) {
+        const readRow = this.db
+          .prepare('SELECT fragments FROM reads WHERE session_id=? AND call_id=?')
+          .get(session, readCall) as { fragments: string } | undefined;
+        if (!readRow) continue;
+        for (const frag of JSON.parse(readRow.fragments) as { seq?: unknown }[]) {
+          if (typeof frag.seq === 'number') allowedSeqs.add(frag.seq);
+        }
+      }
+    }
+    const ownerHistory = priorRows
+      .filter(r => !allowedSeqs || allowedSeqs.has(r.seq))
+      .map(r => computerOwnerText(JSON.parse(r.payload) as RelayInput, owner, personal))
+      .filter((t): t is string => Boolean(t));
+    return { id, text, ...(ownerHistory.length > 1 ? { ownerContext: ownerHistory.join('\n') } : {}) };
+  }
+
+  /** Reserve a single OS read across active seats and restarts before contacting the driver. */
+  claimComputerClipboard(owner: string, id: string): boolean {
+    return this.db.prepare('INSERT OR IGNORE INTO computer_clipboard_claims VALUES(?,?)').run(owner,id).changes === 1;
+  }
+
   prepareRead(session: string, call: string, content: { type: string; text?: string }[]): void {
     const row = this.db.prepare('SELECT body FROM reads WHERE session_id=? AND call_id=?').get(session, call) as { body: string } | undefined;
     if (!row || content[0]?.text !== row.body || content.filter(part => part.type === 'image').length !== this.imageReferences(session, call).length) throw new Error('Incomplete prepared inbox content');

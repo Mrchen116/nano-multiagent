@@ -6,10 +6,9 @@ Name the user's postcondition and any method constraint before acting.
 
 1. For a non-GUI outcome, use a caller-provided application API, filesystem operation, or CLI when permitted; independently read back its result. An MCP-only client must not assume it has a shell.
 2. For exact window geometry, prefer `set_window_frame` and verify with `list_windows`. For a known native menu path, use `invoke_menu` and verify the command's effect. It can temporarily activate the target, so apply the foreground authorization boundary.
-3. For supported browser page content, use [BROWSER.md](BROWSER.md) when page-aware automation is permitted. GUI-only or native-input proof stays on the native route.
-4. For native controls, prefer snapshot-bound accessibility actions. If semantics cannot reach the target, use a fresh, valid screenshot and the window pixel route.
-5. If the selected background route refuses or visibly fails, consider explicitly authorized foreground delivery for that action.
-6. If exact-window observation or delivery is unavailable, use the desktop route only when the task and authorization admit full-display capture and visible input.
+3. For native controls, prefer snapshot-bound accessibility actions. If semantics cannot reach the target, use a fresh, valid screenshot and the window pixel route.
+4. If the selected background route refuses or visibly fails, consider explicitly authorized foreground delivery for that action.
+5. If exact-window observation or delivery is unavailable, use the desktop route only when the task and authorization admit full-display capture and visible input.
 
 Skip a route whose prerequisite is demonstrably absent: no valid window image means no window-pixel attempt. Do not exhaust impossible actions just to reach a later rung. A refusal never grants broader authority.
 
@@ -167,11 +166,11 @@ Successful action escalation uses `target` (`pixel`, `foreground`, or `page`) an
 A refusal, an `unverifiable` action and a `suspected_noop` carry two fields that say what to try next, on every tool:
 
 - `hint`: one short sentence. Read it before you give up or reach for pixels.
-- `next_call`: `{tool, arguments}`, a call that is safe to run as is. It is a read (`get_window_state`, `list_windows`, `get_browser_state`, `check_permissions`) or a call that keeps the user's window where it is. Make it, then decide.
+- `next_call`: `{tool, arguments}`, a call that is safe to run as is. It is a read (`get_window_state`, `list_windows`, `check_permissions`) or a call that keeps the user's window where it is. Make it, then decide.
 
 A foreground retry is never a `next_call`. When the `hint` names `delivery_mode:"foreground"`, it comes with a condition: only if the user allows the window to come forward. Without that, the step is blocked: say so and why; do not force it.
 
-The fields sit next to `code` on an error result, next to `refusal` on a browser refusal, and on the `ActionResult` itself. In `run_steps` a failed step's report carries them; in `run_script` the hint is appended to the failed call's error message. A tool that already set its own `hint` or `next_call` keeps it. `next_call` is advice, not an automatic retry: never replay a partial or unknown action without a fresh read.
+The fields sit next to `code` on an error result and on the `ActionResult` itself. In `run_steps` a failed step's report carries them; in `run_script` the hint is appended to the failed call's error message. A tool that already set its own `hint` or `next_call` keeps it. `next_call` is advice, not an automatic retry: never replay a partial or unknown action without a fresh read.
 
 After three single action calls in a row in one session (not counting reads), the result of the third also carries a `hint` to chain the next ones with `run_steps`, and again after every third. It is advice with no `next_call`, and it is never sent for a step that already runs inside `run_steps` or `run_script`. Every model turn costs seconds, so chain actions whenever you already know the next few steps.
 
@@ -214,9 +213,6 @@ When the requested postcondition is an exact value on the system clipboard,
 rather than the literal gesture of selecting and copying it, keep the operation
 semantic. Read the value from the narrowest typed source, call
 `clipboard_write`, then prove the real clipboard state with `clipboard_read`.
-For browser content, this means reading the page with `get_browser_state` and
-writing the exact observed text; a passive page-text ref does not need to be
-clicked first.
 
 Use visual selection followed by the platform copy hotkey only when the user
 explicitly asks for that gesture, the source cannot expose the value

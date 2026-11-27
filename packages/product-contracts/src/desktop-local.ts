@@ -58,6 +58,42 @@ export interface DesktopWorkerProbeItem {
   detail: string;
 }
 
+export type DesktopBrowserPairingState =
+  | 'unsupported'
+  | 'not_paired'
+  | 'paired'
+  | 'verified'
+  | 'reconnect';
+
+export interface DesktopBrowserProfileItem {
+  profile: string;
+  extension_installed: boolean;
+}
+
+export interface DesktopBrowserStatus {
+  supported: boolean;
+  state: DesktopBrowserPairingState;
+  chrome_installed: boolean;
+  chrome_running: boolean;
+  chrome_version_ok: boolean;
+  paired_profile?: string;
+  selected_profile: string;
+  extension_installed: boolean;
+  profiles: DesktopBrowserProfileItem[];
+  last_checked_at?: string;
+}
+
+export type DesktopBrowserActionInput =
+  | { action: 'status'; profile?: string }
+  | { action: 'open-guide'; profile?: string; target?: 'auto' | 'store' | 'token' }
+  | { action: 'pair'; profile?: string; token: string }
+  | { action: 'disconnect' };
+
+export interface DesktopBrowserActionResponse {
+  browser: DesktopBrowserStatus;
+  opened?: 'store' | 'token';
+}
+
 export interface DesktopLocalInspectResponse {
   ownership: DesktopLocalOwnership;
   node_id?: string;
@@ -74,6 +110,7 @@ export interface DesktopLocalInspectResponse {
   autostart?: boolean;
   worker_runtime?: WorkerRuntime;
   workers?: DesktopWorkerProbeItem[];
+  browser?: DesktopBrowserStatus;
   proxy?: DesktopProxySettings;
   tool_approval_model?: string | null;
   registered_models?: { name: string; display_name: string }[];

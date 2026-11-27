@@ -416,3 +416,58 @@ it('resumes a paged native child after runtime loss and pairs the complete tool 
   finally {await product?.stop();if(client?.process.exitCode===null&&client.process.signalCode===null){client.process.kill('SIGKILL');await client.exited;}
     inbox.close();store.close();await rm(home,{recursive:true,force:true});}
 },25_000);
+
+it('binds a clipboard claim to the owner in a real Global Inbox read with a peer sending the same words', async () => {
+  const home=await mkdtemp(join(tmpdir(),'nano-global-computer-'));
+  const store=new NodeStore(':memory:','owner'), inbox=new InboxStore(':memory:');
+  const text='把我刚复制的内容整理一下';
+  const binding=store.bind({sessionId:'root',agentId:'a',conversationId:'owner:owner',ownerId:'owner',cwd:home,revision:'1'});
+  const target=store.toolReferences.conversationRef('a','c_fixture');
+  let client:RuntimeClient|undefined, product:GlobalAgent|undefined;
+  const claims:string[]=[];
+  const observed:string[]=[];
+  try {
+    await writeFile(join(home,'model.mjs'),`import {appendFile} from 'node:fs/promises';export const name='inbox-computer-probe';export const inject=['llm'];
+export function apply(ctx){let step=0;ctx.on('llm/stream',async function*(o){
+  await appendFile(process.env.DSH_HOME+'/global-inbox.jsonl',JSON.stringify(o.messages.at(-1))+'\\n');
+  let call;
+  if(step===0)call=['inbox',{action:'read',target:${JSON.stringify(target)}}];
+  if(step===1||step===2){
+    const row=o.messages.find(m=>m.toolCallId==='probe-0');
+    const refs=JSON.parse(row.content[0].text).messages;
+    call=['computer_use',{surface:'desktop',action:'read_clipboard',request_ref:refs[step-1].id}];
+  }
+  if(call){yield {type:'block-end',index:0,block:{type:'tool-call',id:'probe-'+step++,name:call[0],arguments:JSON.stringify(call[1])}};yield {type:'finish',reason:{kind:'tool-calls'}};return;}
+  yield {type:'block-end',index:0,block:{type:'text',text:'done'}};yield {type:'finish',reason:{kind:'stop'}};
+});}`);
+    await prepareProfile(home,[{insert:[{id:'inbox-computer',name:join(home,'model.mjs')}]}]);
+    client=new RuntimeClient({home,cwd:home});
+    registerEmptyTaskContext(client);
+    const config: AgentConfiguration={agentId:'a',revision:'1',workspace:home,mode:'global',provider:'deepseek-official',model:'deepseek-flash',toolAllowlist:['computer_use','inbox'],approval:{dangerouslySkipPermissions:true}};
+    await client.rpc.request('initialize',{protocol:1,agents:[config],bindings:[]});
+    await client.rpc.request('session.ensure',{...binding});
+    product=new GlobalAgent({nodeId:'node',ownerId:'owner',agents:[config],store,inbox,runtime:client.rpc,image:async()=>'',onError:()=>{},
+      relay:{request:async(type,payload:any)=>type==='agent.work.append'
+        ? {type:'ack',payload:{through_seq:payload.events.at(-1).seq}}
+        : {type:'ack',payload:{ok:true,result:{target:'c_fixture',name:'Fixture',type:'group'}}}}});
+    for(const sender of ['peer','owner'])inbox.acceptRelay({agent_id:'a',conversation_id:'c_fixture',relay_task_id:sender,idempotency_key:sender,
+      metadata:{conversation_type:'group',explicit_mentioned_agent_ids:['a']},message:{id:'msg-'+sender,content:text,sender_user_id:sender,sender_type:'user',attachments:[]}},true);
+    client.rpc.handle('product.call',async value=>{
+      const call=value as ProductCall;
+      const out=await product!.call(call);
+      observed.push(call.method+' '+JSON.stringify(out).slice(0,180));
+      if(call.method==='computer.claim'){
+        if(out===true)claims.push(String(call.args.id));
+        return false; // Do not touch the operating system clipboard in this test.
+      }
+      return out;
+    });
+    await client.rpc.request('session.submit',{sessionId:'root',inputId:'wake',mode:'followup',content:[{type:'text',text:'Read the new Inbox messages.'}],
+      source:{kind:'system',actorId:'a',channel:'test',messageId:'wake'}});
+    await expect.poll(async()=>(await client!.rpc.request('session.lookup',{sessionId:'root',inputId:'wake'})).terminal,{timeout:10000}).toBeTruthy();
+    const trace=await readFile(join(home,'global-inbox.jsonl'),'utf8').catch(()=>'(no model request)');
+    expect(claims,JSON.stringify(observed)+'\n'+trace.slice(-1800)).toEqual(['msg-owner']);
+  } finally {
+    await product?.stop(); await client?.shutdown(); inbox.close();store.close();await rm(home,{recursive:true,force:true});
+  }
+},20000);

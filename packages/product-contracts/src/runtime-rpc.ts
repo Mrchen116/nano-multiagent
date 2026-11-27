@@ -22,7 +22,7 @@ const attachments = z.array(z.discriminatedUnion('kind', [
 ]).nullable());
 const source = z.object({
   kind: z.enum(['human','system']), actorId: id, channel: id, messageId: id,
-  lifecycle_revision: count.optional(), nanoTeamChat: bool.optional(), directHumanText: text.optional(),
+  lifecycle_revision: count.optional(), nanoTeamChat: bool.optional(), directHumanText: text.optional(), computerOwnerRequest: text.optional(),
   humanTaskControl: dataObject.optional(), contextEnvelope: text.optional(), conversationId: id.optional(),
   sender: dataObject.optional(), pa_agent_id: id.optional(), roleAccountId: id.optional(),
   senderSessionId: id.optional(), background_returns: z.array(dataObject).optional(),

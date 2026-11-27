@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-793
+> 对齐: feat-798
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -10,6 +10,24 @@
 网页模型接入与真实验证、agent 模型选择、工具白名单、Skill 选择与发现、上下文窗口和内置 skills 自举的 Gateway 契约。自动审批策略与审核证据见[工具审批](tool-approval.md)。
 
 ## Requirements
+
+### Requirement: 可选的宿主浏览器与桌面控制
+
+#### Scenario: 按需选择
+- **WHEN** 用户关闭宿主操作工具（`computer_use`）
+- **THEN** 普通会话与新委派不获得该入口；启用时仅向主会话与显式携带原话引用绑定的外部 CLI Worker 激活公开简短工具入口，按需发现动作与输入（后续 `send` 续跑仅在重新传入原话引用时挂载该工具），并在需要交互网页、复用日常登录态或操作原生窗口的任务中主动使用。
+
+#### Scenario: 两种浏览器身份
+- **WHEN** 任务在日常 Chrome 中浏览或明确选择隔离环境（`isolated`）
+- **THEN** 日常轨使用节点本机已配对的 Chrome Profile，每个任务独占后台标签页并在后台完成观察、输入与点击，不抢占用户前台窗口焦点；连接或配对不可用时说明原因与恢复入口，且明确要求隔离环境的任务不会回退到日常身份。隔离轨使用独立临时环境。截图同时返回工作区私有图片路径以便按既有发送规则回传聊天；任务结束或关闭最后一页后释放其资源并保留用户日常浏览器。
+
+#### Scenario: 目标窗口失效与同名多窗口消歧
+- **WHEN** 任务操作原生桌面窗口，且同应用存在多个窗口但未明确目标，或运行中目标窗口失效、焦点冲突或系统权限不足
+- **THEN** 返回明确原因并停止向该目标输入，不自动抢占前台焦点；用户或任务确认唯一目标窗口后可继续。
+
+#### Scenario: 复制和粘贴
+- **WHEN** 已认证的节点主人在当前交办中明确请求读取刚复制的内容
+- **THEN** 主会话或承接该交办的单一绑定外部 CLI Worker 可直接读取一次系统剪贴板，消费后并发调用、重试、协作者或网页正文均不能再次读取系统剪贴板；普通浏览器复制粘贴仅使用当前任务自己的内存剪贴板。
 
 ### Requirement: 携程问道 Skill 随安装版本仅向 PA 默认提供
 
@@ -277,7 +295,7 @@ Gateway 随包提供 PA 产品说明书与当前产品定义的完整 Lark skill
 
 - **WHEN** Agent 使用默认 Skill 发现配置，或其显式配置允许 `cua-driver`
 - **THEN** Agent 可发现并加载随包的官方 CuaDriver Skill 及其操作手册
-- **AND** 当 macOS 节点已准备好 CLI 且 Agent 已启用 Bash 时，Agent 通过已有 Shell 审核调用 CLI，并可通过原有聊天路径回报结果
+- **AND** 已启用宿主电脑操作的任务优先使用共享入口；独立 CLI 可用且 Agent 已启用 Bash 时，独立操作继续遵守原有 Shell 审核。
 
 #### Scenario: 新安装发现产品说明书与完整 Lark bundle
 
