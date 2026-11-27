@@ -940,16 +940,17 @@ async fn handle_internal_shutdown(
     if let Err(err) = verify_reload_token(&state, &headers) {
         return err;
     }
+    let shutdown = state.shutdown_tx.lock().unwrap().take();
     let paths = state.paths.clone();
     let dev = state.dev_repo_root.clone();
+    let lock = state.node_lifecycle.clone();
     let _ = tokio::task::spawn_blocking(move || {
+        let _guard = lock.lock().unwrap();
         stop_all_managed_local_nodes(&paths, dev.as_deref());
     })
     .await;
     let _ = fs::remove_file(state.paths.host_state_path());
-    if let Some(tx) = state.shutdown_tx.lock().unwrap().take() {
-        let _ = tx.send(());
-    }
+    if let Some(tx) = shutdown { let _ = tx.send(()); }
     Json(json!({ "ok": true })).into_response()
 }
 

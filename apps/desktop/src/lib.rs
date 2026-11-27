@@ -90,20 +90,29 @@ fn spawn_managed_node_supervisor(
     let login_owner = state.sessions.read().unwrap().by_origin.get(&login_origin).map(|s| s.owner_id.clone());
     std::thread::spawn(move || {
         let mut first_check = true;
-        while state.shutdown_tx.lock().unwrap().is_some() {
-            if state.is_seed_ready() {
+        let mut expected_running = None;
+        loop {
+            let mut delay = Duration::from_secs(3);
+            {
                 let _guard = state.node_lifecycle.lock().unwrap();
-                let origin = state.host_config.read().unwrap().im_origin.clone();
-                let owner = state.sessions.read().unwrap().by_origin.get(&origin).map(|s| s.owner_id.clone());
-                if let Some(owner) = owner {
-                    let login = background_login && first_check && origin == login_origin && Some(&owner) == login_owner.as_ref();
-                    match supervise_node(&state, &runtime, &origin, &owner, first_check, login) {
-                        Ok(checked) => first_check &= !checked,
-                        Err(error) => { append_host_log(Some(&state.paths), "WARN", &error); }
+                if state.shutdown_tx.lock().unwrap().is_none() { return; }
+                if state.is_seed_ready() {
+                    let origin = state.host_config.read().unwrap().im_origin.clone();
+                    let owner = state.sessions.read().unwrap().by_origin.get(&origin).map(|s| s.owner_id.clone());
+                    if let Some(owner) = owner {
+                        let login = background_login && first_check && origin == login_origin && Some(&owner) == login_owner.as_ref();
+                        match supervise_node(&state, &runtime, &origin, &owner, first_check, login, &mut expected_running) {
+                            Ok(true) => first_check = false,
+                            Ok(false) => {}
+                            Err(error) => {
+                                append_host_log(Some(&state.paths), "WARN", &error);
+                                delay = Duration::from_secs(30);
+                            }
+                        }
                     }
                 }
             }
-            std::thread::sleep(Duration::from_secs(3));
+            std::thread::sleep(delay);
         }
     });
 }
@@ -117,6 +126,7 @@ fn supervise_node(
     owner: &str,
     first_check: bool,
     login: bool,
+    expected_running: &mut Option<(String, String)>,
 ) -> Result<bool, String> {
     let paths = &state.paths;
     let dir = paths.connection_dir(origin)?;
@@ -128,19 +138,24 @@ fn supervise_node(
         .map_err(|e| e.to_string())?;
     let stopped = active["user_stopped"].as_bool() == Some(true);
     let resume = login && autostart::get_desktop_login_autostart(paths);
+    let was_running = expected_running.as_ref().is_some_and(|(o, id)| o == origin && id == owner);
     if stopped && !resume {
+        *expected_running = None;
         return Ok(true);
     }
     let has_state = dir.join(".gateway-state.json").is_file();
     if !first_check {
-        if !has_state {
+        if !has_state && !was_running {
             return Ok(true);
         }
         let config = dir.join("config.yaml");
         #[cfg(unix)]
         let config = config.canonicalize().unwrap_or(config);
         let endpoint = local_node_bridge_endpoint(&config);
-        if runtime.block_on(ping_local_bridge(&endpoint)).is_some() {
+        if let Some(ping) = runtime.block_on(ping_local_bridge(&endpoint)) {
+            if !was_running && ping["owner_id"] == owner {
+                *expected_running = Some((origin.to_owned(), owner.to_owned()));
+            }
             return Ok(true);
         }
     }
@@ -160,9 +175,12 @@ fn supervise_node(
         active["user_stopped"] = json!(false);
         write_private_json(&pointer, &active)?;
     }
+    if online || (offline && (was_running || has_state || (first_check && enabled))) {
+        *expected_running = Some((origin.to_owned(), owner.to_owned()));
+    }
     let action = if first_check && online && bundle.version != "source" && inspect.body["version"] != bundle.version {
         "restart"
-    } else if offline && (has_state || (first_check && enabled)) {
+    } else if offline && (was_running || has_state || (first_check && enabled)) {
         "start"
     } else {
         return Ok(true);

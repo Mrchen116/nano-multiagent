@@ -194,9 +194,10 @@ export async function inspectLocalNode(input: {
   const config = await NodeConfiguration.read(configPath);
   const value = config.value;
   const nodeName = value.node.node_name ?? value.node.node_id ?? hostname();
-  const bound = value.node.user_id && value.im_service.token;
-  if (!bound && input.supervisionOnly) return { ownership: 'unbound', node_name: nodeName };
-  if (!bound) {
+  if (input.supervisionOnly && (!value.node.user_id || !value.im_service.token)) {
+    return { ownership: 'unbound', node_name: nodeName };
+  }
+  if (!value.node.user_id || !value.im_service.token) {
     const workers = await probeDesktopWorkers(value.gateway?.environment?.PATH);
     return {
       ownership: 'unbound',
