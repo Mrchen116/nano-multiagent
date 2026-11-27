@@ -99,8 +99,15 @@ exports.default=async ({page})=>{
   page.on('framenavigated',frame=>{if(frame===page.mainFrame()){++state.revision;publish();}});
   page.on('close',publish);
   publish();
-  const cdp=await page.context().newCDPSession(page);
-  await cdp.send('Emulation.setFocusEmulationEnabled',{enabled:true});
+  // Extension chrome.debugger forbids browser-level newCDPSession (Target.attachToBrowserTarget /
+  // Target.attachToTarget), so reuse the tab's already-attached main-frame session when available.
+  const session=page._connection?.toImpl?.(page)?.delegate?._mainFrameSession?._client;
+  if(session?.send){
+    await session.send('Emulation.setFocusEmulationEnabled',{enabled:true});
+  }else{
+    const cdp=await page.context().newCDPSession(page);
+    await cdp.send('Emulation.setFocusEmulationEnabled',{enabled:true});
+  }
 };`;
 
 /** One paired extension client or isolated browser for one host-owned task. */
@@ -433,7 +440,11 @@ export class BrowserBackend implements ComputerBackend {
         } else if (action === 'close_tab') {
           await client.call('browser_tabs', { action: 'close', index: live.index }, sig);
           this.tabs.delete(live.id);
-          if (!this.tabs.size) await this.release();
+          if (!this.tabs.size) {
+            await this.release();
+            return text('Tab closed; browser seat released.');
+          }
+          return text('Tab closed.');
         } else if (action === 'upload') {
           if ((await this.uploadFile(field(input, 'path'))) !== file) throw new Error('Upload target changed.');
           await client.call('browser_file_upload', { paths: [file] }, sig);
