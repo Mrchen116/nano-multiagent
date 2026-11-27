@@ -188,9 +188,13 @@ export async function inspectLocalNode(input: {
   }
   const config = await NodeConfiguration.read(configPath);
   const value = config.value;
+  const environment = value.gateway?.environment;
+  const workerPath = process.platform === 'win32'
+    ? Object.entries(environment ?? {}).findLast(([key]) => key.toUpperCase() === 'PATH')?.[1]
+    : environment?.PATH;
   const nodeName = value.node.node_name ?? value.node.node_id ?? hostname();
   if (!value.node.user_id || !value.im_service.token) {
-    const workers = await probeDesktopWorkers(value.gateway?.environment?.PATH);
+    const workers = await probeDesktopWorkers(workerPath);
     return {
       ownership: 'unbound',
       node_id: value.node.node_id,
@@ -211,7 +215,7 @@ export async function inspectLocalNode(input: {
   const activeTasks = live ? await pingBridgeActiveTasks(configPath) : 0;
   const { proxy, userEnvironment } = extractDesktopProxySettings(value.gateway?.environment);
   const [workers, browser, logs] = await Promise.all([
-    probeDesktopWorkers(value.gateway?.environment?.PATH),
+    probeDesktopWorkers(workerPath),
     inspectDailyBrowserStatus(browserPairingFile(configPath, value.node), undefined, input.browserDeps),
     readLogTail(configPath, input.logQuery),
   ]);

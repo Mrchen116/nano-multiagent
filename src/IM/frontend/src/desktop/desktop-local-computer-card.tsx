@@ -16,7 +16,7 @@ import {
   probeDesktopWorkers,
   saveDesktopLocalNodeConfig,
 } from "./desktop-api";
-import { isDesktopClient } from "./desktop-context";
+import { getDesktopBootContext, isDesktopClient } from "./desktop-context";
 import { DesktopNodeOnboardingBanner } from "./desktop-node-onboarding-banner";
 import "./desktop.css";
 
@@ -131,7 +131,10 @@ export function DesktopLocalComputerCard({
     }
   }, [inspect, dirty, saveError]);
 
-  const candidatePath = envVars.find((row) => row.key.trim() === "PATH")?.value ?? "";
+  const windows = getDesktopBootContext()?.platform === "win32-x64";
+  const candidatePath = [...envVars].reverse().find(({ key }) =>
+    (windows ? key.trim().toUpperCase() : key.trim()) === "PATH",
+  )?.value;
   useEffect(() => {
     if (!dirty || !inspect || (inspect.ownership !== "managed_online" && inspect.ownership !== "managed_stopped")) return;
     const timer = window.setTimeout(() => {

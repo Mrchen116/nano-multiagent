@@ -45,7 +45,11 @@ export async function terminateRuntimeTree(pid: number): Promise<void> {
   const {execFile} = await import('node:child_process');
   const {promisify} = await import('node:util');
   const execute=promisify(execFile);
-  if (process.platform==='win32') {await execute('taskkill',['/pid',String(pid),'/t','/f'],{timeout:5000});return;}
+  if (process.platform === 'win32') {
+    const {join} = await import('node:path');
+    await execute(join(process.env.SystemRoot!, 'System32', 'taskkill.exe'), ['/pid', String(pid), '/t', '/f'], {timeout: 5000});
+    return;
+  }
   const signal=(target:number,kind:NodeJS.Signals)=>{
     try {process.kill(target,kind);}catch(error){if((error as NodeJS.ErrnoException).code!=='ESRCH')throw error;}
   };

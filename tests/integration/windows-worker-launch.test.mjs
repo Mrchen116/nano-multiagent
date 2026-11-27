@@ -46,12 +46,14 @@ test('desktop-discovered Windows workers open native stdio sessions', {skip: pro
   await mkdir(bin);
   await mkdir(cwd);
   await writeFile(join(bin, 'fixture.cjs'), fixture);
-  // Keep system tools for tree cleanup while isolating the worker lookup.
-  process.env.PATH = [bin, join(process.env.SystemRoot, 'System32')].join(';');
+  // A user-supplied PATH can contain just the Worker install.
+  process.env.PATH = bin;
   const wrapper = `@echo off\r\n"${process.execPath}" "%~dp0fixture.cjs" %*\r\n`;
   for (const file of ['codex.cmd', 'claude.bat', 'agy.cmd']) await writeFile(join(bin, file), wrapper);
   // The original bare spawn cannot start the otherwise discoverable codex.cmd.
   assert.equal(spawnSync('codex', ['app-server'], {cwd, timeout: 3000}).error?.code, 'ENOENT');
+  assert.equal((await probeDesktopWorkers()).find(w => w.runtime === 'codex').resolved_path, join(bin, 'codex.cmd'));
+  assert.equal((await probeDesktopWorkers('')).find(w => w.runtime === 'codex').available, false);
   const instructions = 'Read "release notes" & preserve %PATH%!\n第二行';
   const mcp = {command: 'fixture bridge', args: ['two words', 'quoted "value"'], env: {}};
   const noop = async () => {};

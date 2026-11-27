@@ -66,6 +66,7 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
     };
 
     let autostart = true;
+    const probePayloads: Record<string, unknown>[] = [];
     const savedConfigPayloads: Record<string, unknown>[] = [];
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -114,6 +115,7 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
         );
       }
       if (url === "/desktop/v1/local-node/probe-workers") {
+        probePayloads.push(JSON.parse(String(init?.body)));
         return new Response(JSON.stringify({ workers: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       if (url === "/desktop/v1/local-node/config") {
@@ -160,6 +162,7 @@ describe("Crewden Desktop local computer admin, direct trajectory, and path safe
     expect(proxyInput).toBeEnabled();
     await user.clear(proxyInput);
     await user.type(proxyInput, "socks5://127.0.0.1:1080");
+    await waitFor(() => expect(probePayloads).toContainEqual({}));
     await user.click(within(localCard).getByRole("button", { name: "保存并重启本机节点" }));
     // Active tasks > 0 requires explicit confirmation before restarting the local node!
     expect(savedConfigPayloads).toHaveLength(0);
