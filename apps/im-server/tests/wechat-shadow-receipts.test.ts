@@ -39,13 +39,13 @@ it('tracks sent -> received -> read double-checkmark receipts on owner 1:1 WeCha
     db.prepare("INSERT INTO node_binding_state(node_id,owner_id,node_epoch) VALUES('node','owner',1)").run();
     db.prepare("INSERT INTO node_credential_keys(node_id,owner_id,key_id,algorithm,public_key,updated_at) VALUES('node','owner','key-1','X25519-HKDF-SHA256-AES-256-GCM',?,?)").run(testPublicKeyBase64(), now);
 
-    for (const [id, mode, space] of [
-      ['pa_main', 'global', 'personal:owner'],
-      ['global_bot', 'global', 'company:default'],
-      ['single_bot', 'single_thread', 'company:default'],
+    for (const [id, displayName, mode, space] of [
+      ['pa_main', 'PA · 个人助手', 'global', 'personal:owner'],
+      ['global_bot', '周报助手', 'global', 'company:default'],
+      ['single_bot', 'SingleBot', 'single_thread', 'company:default'],
     ] as const) {
-      db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,workspace_root,work_mode,collaboration_scope,space_id,created_at,updated_at) VALUES(?,?,?,?,'/ws',?,'team',?,?,?)")
-        .run(id, 'owner', 'node', id, mode, space, now, now);
+      db.prepare("INSERT INTO agent_profiles(agent_id,owner_id,node_id,display_name,workspace_root,work_mode,collaboration_scope,space_id,created_at,updated_at) VALUES(?,?,?,?, '/ws',?,'team',?,?,?)")
+        .run(id, 'owner', 'node', displayName, mode, space, now, now);
       app.im.messaging.agentUser(id);
     }
 
@@ -87,6 +87,7 @@ it('tracks sent -> received -> read double-checkmark receipts on owner 1:1 WeCha
       ownerId: 'owner',
       store,
       relay: relayBridge,
+      agentName: id => ({ pa_main: 'PA · 个人助手', global_bot: '周报助手', single_bot: 'SingleBot' } as Record<string, string>)[id],
       personalAgent: id => id === 'pa_main',
       globalAgent: id => id === 'global_bot',
       im: (path, init) => requestIm(base, 'gateway-token', path, init),
@@ -183,6 +184,11 @@ it('tracks sent -> received -> read double-checkmark receipts on owner 1:1 WeCha
     }, 'wechat');
 
     const paShadow = db.prepare("SELECT id FROM conversations WHERE config_agent_id='pa_main' AND external_source='wechat'").get() as { id: string };
+    const paConvRes = await app.inject({ method: 'GET', url: `/im/v1/conversations/${paShadow.id}` });
+    expect(paConvRes.json().title).toBe('PA · 个人助手 · wechat');
+    // Legacy raw-ID shadow titles also project to the Agent's current display_name when not custom-renamed
+    db.prepare("UPDATE conversations SET title='pa_main · wechat' WHERE id=?").run(paShadow.id);
+    expect((await app.inject({ method: 'GET', url: `/im/v1/conversations/${paShadow.id}` })).json().title).toBe('PA · 个人助手 · wechat');
     expect((await readShadowMessages(paShadow.id))[0]?.receipts).toMatchObject([{ status: 'sent' }]);
 
     await globalProduct.recoverPersonalObservations();

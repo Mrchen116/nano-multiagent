@@ -371,7 +371,7 @@ export class PersonalAgents {
       .filter(m=>!this.representedBy(m.id) && this.sourceFacts(b,m).is_owner && this.messageAllowed(b,m));
     const conversationIds=[...new Set(messages.map(m=>m.conversation_id))];
     const conversations=conversationIds.map(id=>{
-      const chat=one(this.db,'SELECT id,title,type,title_is_custom,external_source FROM conversations WHERE id=?',id)!;
+      const chat=one(this.db,'SELECT id,title,type,title_is_custom,external_source,config_agent_id FROM conversations WHERE id=?',id)!;
       return {id,name:conversationName(chat,this.ctx.messaging.members(id),this.ctx.messaging.agentUser(b.agent_id).id),conversation_type:chat.type,channel:chat.external_source??'web',
         messages:all(this.db,'SELECT * FROM messages WHERE conversation_id=? ORDER BY rowid',id)
           .filter(m=>this.messageAllowed(b,m)).map(m=>this.messageEvidence(b,m))};
@@ -388,11 +388,11 @@ export class PersonalAgents {
   incidentEvent(b:Row,incident:Row) {
     const source=this.sourceAllowed(b,incident.conversation_id)?one(this.db,`SELECT m.content,
       COALESCE(NULLIF(m.sender_display_name,''),NULLIF(u.display_name,'')) actor_name,
-      c.id conversation_id,c.title conversation_name,c.type conversation_type,c.title_is_custom,c.external_source
+      c.id conversation_id,c.title conversation_name,c.type conversation_type,c.title_is_custom,c.external_source,c.config_agent_id
       FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN users u ON u.id=?
       WHERE m.id=?`,incident.actor_id,incident.source_message_id):undefined;
     const identity=source?{...(source.actor_name?{actor_name:source.actor_name}:{}),
-      conversation:{id:source.conversation_id,name:conversationName({title:source.conversation_name,type:source.conversation_type,title_is_custom:source.title_is_custom,external_source:source.external_source},this.ctx.messaging.members(source.conversation_id),this.ctx.messaging.agentUser(b.agent_id).id),type:source.conversation_type}}:{};
+      conversation:{id:source.conversation_id,name:conversationName({title:source.conversation_name,type:source.conversation_type,title_is_custom:source.title_is_custom,external_source:source.external_source,config_agent_id:source.config_agent_id},this.ctx.messaging.members(source.conversation_id),this.ctx.messaging.agentUser(b.agent_id).id),type:source.conversation_type}}:{};
     const automatic=one(this.db,'SELECT 1 FROM pa_contact_violations WHERE incident_id=? AND triggered_block=1',incident.id);
     if(automatic) {
       // The system action remains reportable to the owner after source access or contact policy changes.

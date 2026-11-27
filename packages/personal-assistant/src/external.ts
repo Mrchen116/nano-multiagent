@@ -62,6 +62,7 @@ interface Options {
   ownerId: string;
   store: NodeStore;
   runtimeFooter?: boolean | ((provider: ExternalProvider) => boolean);
+  agentName?(agentId: string): string | undefined;
   personalAgent?(agentId: string): boolean;
   globalAgent?(agentId: string): boolean;
   personalDelivery?(delivery: ExternalDelivery): Promise<string | undefined>;
@@ -1020,7 +1021,7 @@ export class ExternalChannels {
       return {
         target: chat.id,
         id: chat.id,
-        name: chatTitle(chat),
+        name: chatTitle(chat, this.options.agentName),
         type: chat.isGroup ? 'group' : 'direct',
         channel: provider,
         owner_recipient: !!owner && !chat.isGroup && chat.sourceId === `${provider}:${chat.appId}:dm:${owner}`,
@@ -1044,7 +1045,7 @@ export class ExternalChannels {
           ...row.input.message,
           ...(row.input.message.created_at ? { created_at: formatLocalTime(row.input.message.created_at, row.input.message.timezone) } : {}),
           sender: { name: row.message.senderName, kind: 'external', channel: provider, source_id: row.message.senderId },
-          source: { target: chat.id, name: chatTitle(chat), ...(row.mirror ? { message_id: row.mirror } : {}) },
+          source: { target: chat.id, name: chatTitle(chat, this.options.agentName), ...(row.mirror ? { message_id: row.mirror } : {}) },
           partial: { status: 'unknown' },
         })),
       };
@@ -1163,7 +1164,7 @@ export class ExternalChannels {
         external_source: provider,
         external_chat_id: chat.sourceId,
         agent_id: chat.agentId,
-        title: chatTitle(chat),
+        title: chatTitle(chat, this.options.agentName),
         is_group: chat.isGroup,
         participant_ids: [`user:${this.options.ownerId}`, `agent:${chat.agentId}`],
       })) as { id: string };
@@ -1389,8 +1390,9 @@ function approvalStatus(decision: string): Record<string, unknown> {
   return { config: { update_multi: true }, elements: [{ tag: 'markdown', content: `审批已结束：${decision}` }] };
 }
 
-function chatTitle(chat: ExternalChat): string {
-  return [chat.agentId, ...(chat.isGroup && chat.name ? [chat.name] : []), chatProvider(chat)].join(' · ');
+function chatTitle(chat: ExternalChat, agentName?: (agentId: string) => string | undefined): string {
+  const label = agentName?.(chat.agentId)?.trim() || chat.agentId;
+  return [label, ...(chat.isGroup && chat.name ? [chat.name] : []), chatProvider(chat)].join(' · ');
 }
 
 function parseWeChatApprovalCommand(text: string): { decision: 'allow_once' | 'deny'; reason?: string } | undefined {

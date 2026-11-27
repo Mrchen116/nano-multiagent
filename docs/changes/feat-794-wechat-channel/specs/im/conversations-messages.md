@@ -2,6 +2,32 @@
 
 ## MODIFIED Requirements
 
+### Requirement: 外部 channel 影子会话按外部身份幂等创建
+
+IM 支持为 Gateway 创建带 `external_source` 和 `external_chat_id` 标记的影子会话,用于镜像外部 channel 中的聊天。1:1 私聊映射为 `direct` 类型,群聊映射为 `group` 类型。会话按 `(external_source, external_chat_id, agent_id, owner_id)` 幂等创建或查找;`agent_id` 使用 IM 现有 conversation agent 配置维度,不引入第二套 agent 身份来源。未手动改名的影子会话标题前缀优先使用目标 Agent 当前公开显示名（无显示名时回退 `agent_id`），在 Agent 或 Personal Agent 更新显示名时同步刷新未手动改名的影子会话标题。
+
+#### Scenario: 外部 1:1 会话在内部 IM 有独立会话
+- **GIVEN** Gateway 请求为 plato 的飞书 1:1 聊天创建影子会话
+- **WHEN** IM 收到 `POST /im/v1/conversations/external/find-or-create`
+- **THEN** 返回一个类型为 `direct`、标题为 `plato · feishu` 的会话
+- **AND** 重复请求同一四元组时返回同一会话
+
+#### Scenario: 外部群聊在内部 IM 有独立 group 会话
+- **GIVEN** Gateway 请求为 plato 的飞书群「产品群」创建影子会话
+- **WHEN** IM 收到 `POST /im/v1/conversations/external/find-or-create`
+- **THEN** 返回一个类型为 `group`、标题为 `plato · 产品群 · feishu` 的会话
+- **AND** 参与者包含 IM owner 和 plato agent
+
+#### Scenario: 同一外部群绑定多个 agent 时生成多个独立会话
+- **GIVEN** 飞书群「产品群」同时配置了 plato 和 luban
+- **WHEN** Gateway 分别为 plato 和 luban 请求创建影子会话
+- **THEN** IM 生成两个独立的 group 会话,标题分别为 `plato · 产品群 · feishu` 和 `luban · 产品群 · feishu`
+
+#### Scenario: 影子会话默认标题使用 Agent 当前显示名并在 Agent 改名时同步
+- **GIVEN** 目标 Personal Agent 或普通 Agent 的内部标识为自动生成 ID（如 `pa_...`），公开显示名为 `小助`
+- **WHEN** Gateway 为其微信或飞书会话创建/同步影子会话，或主人随后修改该 Agent 的公开显示名
+- **THEN** 未手动改名的影子会话标题显示 `<公开显示名> · wechat` / `<公开显示名> · feishu`（群聊保留中间群名），不直接把内部 `pa_...` 标识暴露为默认标题前缀；用户已手动改名的影子会话保留自定义标题
+
 ### Requirement: 真人发送的普通聊天消息提供逐人回执
 
 #### Scenario: 聚合展示私聊与群聊回执
