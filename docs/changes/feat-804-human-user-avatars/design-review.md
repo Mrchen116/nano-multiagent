@@ -334,3 +334,48 @@ Round 1 提出的 `R1-C1`–`R1-C3`、`R1-W1`–`R1-W4` 与 `R1-R1`–`R1-R2` �
 ### Recommendations
 
 无。
+
+---
+
+## Round 4
+
+- **reviewer**: Independent Gate 2 Design Reviewer (`change-design-reviewer` + `frontend-experience-review` + `agent-context-review`)
+- **target**: `docs/changes/feat-804-human-user-avatars/{spec.md,design.md,prototype.html}`
+- **commit**: `20a0269ab` (`e6055b3f0..20a0269ab`, branch `unit/feat-804-human-user-avatars`)
+- **review_mode**: `closure`
+- **retained_from**: `Round 3`
+- **mode_reason**: 本轮仅针对桌面端现有导航壳层基线描述做局部消歧（对照真实 `AppShell` 将文案中的“右上角/顶栏菜单”更正为“左侧导航栏左下角个人菜单”，并将 `prototype.html` 背景壳层还原为真实的 `88px` `.im-shell-rail` + 左下角 `36px` 头像），不涉及任何需求、接口、数据流、安全边界、delta-spec 或里程碑变更，故采用 `closure` 模式核实局部消歧证据，其余结论沿用 Round 1–3。
+- **started_at**: `2026-11-27T22:50:55+09:00`
+- **completed_at**: `2026-11-27T22:52:30+09:00`
+- **duration**: `2m`
+
+### Verdict
+
+**Approved** — `0 CRITICAL / 0 WARNING / 0 Recommendations`
+
+局部消歧与真实产品桌面壳层基线完全对齐，无遗留或新增问题，保持 Gate 2 `Approved`。
+
+---
+
+### Coverage 与关闭证据（`closure`，其余沿用 `retained_from: Round 3`）
+
+- **代码基线核实**：对照 `src/IM/frontend/src/app/shell/app-shell.tsx:79-92` 与 `user-menu.tsx:44-52`，桌面端（Web 与 Crewden Desktop）主导航确为左侧竖置 `.im-shell-rail`（`聊天 / 同事 / 任务 / 助手`），底部挂载 `UserMenu`（`<Avatar id={user.id} size={36} />`）；移动端（`isMobile`）隐藏左侧栏。
+- **文档与原型核验**：`e6055b3f0..20a0269ab` 已将 `spec.md` 与 `design.md` 中所有桌面个人菜单方位统一更正为「左侧导航栏左下角个人菜单」（全文检索 `右上角|顶栏菜单` 零残留）；刷新后的 2x Retina 截图 `01-account-desktop-1120x780.png`、`04-chat-mixed-popover-1160x780.png` 准确呈现左侧 `88px` 导航栏 + 左下角 `36px` 圆形照片头像，`07-mobile-crop-modal-zh-390x844.png` 在窄屏下正确隐藏桌面侧栏、主内容与裁剪弹窗布局完好。
+
+---
+
+### 历史问题闭环
+
+无未关闭历史问题（Round 1–3 全部条目均已 **closed**）。
+
+---
+
+### Issues
+
+无（`0 CRITICAL / 0 WARNING`）。
+
+---
+
+### Recommendations
+
+无。
