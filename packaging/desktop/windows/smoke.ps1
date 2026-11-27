@@ -29,6 +29,18 @@ $shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Crewde
 if (!(Test-Path $shortcut)) {
     throw "Start Menu shortcut missing at $shortcut"
 }
+$desktopShortcut = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Crewden Desktop.lnk'
+if (!(Test-Path $desktopShortcut)) {
+    throw "Default Desktop shortcut missing at $desktopShortcut"
+}
+Remove-Item -LiteralPath $desktopShortcut -Force
+$noIconProc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/NORESTART', '/SUPPRESSMSGBOXES', '/MERGETASKS="!desktopicon"' -Wait -PassThru
+if ($noIconProc.ExitCode -ne 0) {
+    throw "Crewden-Desktop-Setup-x64.exe (!desktopicon) failed with exit code $($noIconProc.ExitCode)"
+}
+if (Test-Path $desktopShortcut) {
+    throw "Desktop shortcut was unexpectedly recreated when /MERGETASKS=!desktopicon was passed"
+}
 $uriCmd = (Get-Item 'HKCU:\Software\Classes\crewden-desktop\shell\open\command').GetValue('')
 if (!$uriCmd.Contains('CrewdenDesktop.exe')) {
     throw "URI protocol registration unexpected: $uriCmd"

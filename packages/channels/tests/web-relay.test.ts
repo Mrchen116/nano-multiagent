@@ -228,3 +228,31 @@ test('delivers a slow inspection response under its original request ID until th
   await response;
   expect(s.frames.find(frame=>frame.type==='node.capabilities')?.payload.request_id).toBe('cold-catalog');
 },20_000);
+
+test('preserves server request_id on slow Windows agent.create beyond 10s when deadline_at is supplied', async () => {
+  let finished!: (value: ProtocolFrame) => void, failed!: (reason: unknown) => void;
+  const response = new Promise<ProtocolFrame>((resolve, reject) => { finished = resolve; failed = reject; });
+  const s = await server((socket, frame) => {
+    ack(socket, frame);
+    if (frame.type === 'node.register') {
+      socket.send(JSON.stringify({
+        type: 'agent.create',
+        payload: { request_id: 'win-agent-create', deadline_at: Date.now() + 60_000 },
+      }));
+    }
+  });
+  const relay = connection(s.url, {
+    onFrame: async frame => {
+      if (frame.type !== 'agent.create') return;
+      await pause(10_300);
+      await relay.request('agent.created', {
+        request_id: 'win-agent-create',
+        operation_id: 'op-1',
+        status: 'applied',
+      }).then(finished, failed);
+    },
+  });
+  await relay.start();
+  await response;
+  expect(s.frames.find(frame => frame.type === 'agent.created')?.payload.request_id).toBe('win-agent-create');
+}, 20_000);

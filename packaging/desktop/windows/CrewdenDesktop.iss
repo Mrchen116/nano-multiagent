@@ -7,6 +7,9 @@ AppId={{7D9E4A21-6C15-4D88-9E23-4B0F8819C790}
 AppName=Crewden Desktop
 AppVersion={#MyAppVersion}
 AppPublisher=Crewden
+AppMutex=CrewdenDesktopAppMutex
+CloseApplications=yes
+CloseApplicationsFilter=*.exe
 DefaultDirName={localappdata}\CrewdenDesktop\bin
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64os
@@ -23,17 +26,22 @@ WizardStyle=modern
 Compression=lzma2/fast
 SolidCompression=no
 
+[Tasks]
+Name: "desktopicon"; Description: "创建桌面快捷方式(&D)"; GroupDescription: "附加快捷方式:"
+
 [Files]
 Source: "..\..\..\dist\desktop-windows-build\CrewdenDesktop.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\..\apps\desktop\icons\128x128.png"; DestDir: "{app}"; DestName: "crewden-toast-icon.png"; Flags: ignoreversion
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\manifest.desktop-win32-x64.json"; DestDir: "{app}\seed-archives"; Flags: ignoreversion
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-win32-x64.json"; DestDir: "{app}\seed-archives"; Flags: ignoreversion
+Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-defaults.json"; DestDir: "{app}\seed-archives"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-runtime-win32-x64.tar.gz"; DestDir: "{app}\seed-archives"; Flags: ignoreversion nocompression
 Source: "..\..\..\dist\desktop-windows-build\seed-archives\desktop-app-win32-x64.tar.gz"; DestDir: "{app}\seed-archives"; Flags: ignoreversion nocompression
 Source: "..\..\..\dist\desktop-windows-build\MicrosoftEdgeWebView2Setup.exe"; Flags: dontcopy
 
 [Icons]
 Name: "{userprograms}\Crewden Desktop"; Filename: "{app}\CrewdenDesktop.exe"; WorkingDir: "{app}"; AppUserModelID: "work.crewden.desktop"; Comment: "Crewden Desktop 工作台与本机助手管理"
+Name: "{userdesktop}\Crewden Desktop"; Filename: "{app}\CrewdenDesktop.exe"; WorkingDir: "{app}"; AppUserModelID: "work.crewden.desktop"; Tasks: desktopicon; Comment: "Crewden Desktop 工作台与本机助手管理"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\AppUserModelId\work.crewden.desktop"; ValueType: string; ValueName: "DisplayName"; ValueData: "Crewden"; Flags: uninsdeletekey

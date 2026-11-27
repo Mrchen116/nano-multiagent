@@ -16,6 +16,13 @@ interface Pending<Connection> {
   stop(error: Error): void;
 }
 
+const WINDOWS_SLOW_MUTATION_COMMANDS = new Set<NodeCommand>([
+  'agent.create',
+  'agent.config.apply',
+  'agent.config.operation.status',
+  'node.setup.request',
+]);
+
 /** Own request correlation and timers, independently of IM persistence and business services. */
 export class NodeRpc<Connection> {
   private readonly pending = new Map<string, Pending<Connection>>();
@@ -25,7 +32,10 @@ export class NodeRpc<Connection> {
   readonly request: NodeRequest = <K extends NodeCommand>(nodeId: string, command: K, payload: NodeInput<NoInfer<K>>, signal?: AbortSignal): Promise<NodeOutput<K>> => {
     if (this.transport.updating(nodeId)) return Promise.reject(Object.assign(new Error('Computer is updating; try again when it reconnects'), {statusCode:409}));
     const inspection = nodeCommands[command].inspection, requestId = payload.request_id ?? randomUUID();
-    const timeoutMs = inspection ? inspectionTimeouts(this.transport.windows(nodeId)).rpcMs : 10000;
+    const isWindows = this.transport.windows(nodeId);
+    const slowWindowsMutation = isWindows && WINDOWS_SLOW_MUTATION_COMMANDS.has(command);
+    const carriesDeadline = inspection || slowWindowsMutation;
+    const timeoutMs = inspection ? inspectionTimeouts(isWindows).rpcMs : (slowWindowsMutation ? 60_000 : 10_000);
     if (inspection && signal?.aborted) return Promise.reject(Object.assign(new Error('Catalog request cancelled'), {statusCode:503}));
     return new Promise((resolve, reject) => {
       const connection = this.transport.current(nodeId);
@@ -53,7 +63,7 @@ export class NodeRpc<Connection> {
         stop,
       });
       if (inspection) signal?.addEventListener('abort',abort,{once:true});
-      if (!this.transport.send(nodeId, {type:command, payload:{...payload,request_id:requestId,...(inspection ? {deadline_at:Date.now()+timeoutMs} : {})}})) {
+      if (!this.transport.send(nodeId, {type:command, payload:{...payload,request_id:requestId,...(carriesDeadline ? {deadline_at:Date.now()+timeoutMs} : {})}})) {
         cleanup();
         reject(Object.assign(new Error('node offline'), {statusCode:503}));
       }

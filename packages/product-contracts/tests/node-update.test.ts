@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { parseReleaseManifest } from '../src/node-update.js';
+import { classifyOriginSecurity, normalizeReleaseBaseUrl, parseReleaseManifest } from '../src/node-update.js';
 
 const release = { version: '1.2.3', source_commit: 'a'.repeat(40), sha256: 'b'.repeat(64),
   package: 'nano-node.tgz', node_major: 24, pnpm_version: '11.7.0', updater_protocol: 1, data_epoch: 1,
@@ -72,4 +72,104 @@ it('validates desktop-darwin-arm64 and desktop-win32-x64 manifests with shell_pr
   expect(parseReleaseManifest({ ...macDesktop, shell_protocol: 2 })).toBeNull();
   expect(parseReleaseManifest({ ...macDesktop, installer: { ...macDesktop.installer, download_url: base + 'Crewden-Setup-x64.exe' } })).toBeNull();
   expect(parseReleaseManifest({ ...release, shell_protocol: 1 })).toBeNull();
+});
+
+it('classifies origin security strictly by literal IPv4/IPv6, loopback, .local, and reserved domains', () => {
+  expect(classifyOriginSecurity('https://im.crewden.work')).toEqual({
+    kind: 'https',
+    normalizedOrigin: 'https://im.crewden.work',
+  });
+  expect(classifyOriginSecurity('http://im.crewden.work')).toEqual({
+    kind: 'rejected_public_http',
+    normalizedOrigin: 'http://im.crewden.work',
+  });
+  expect(classifyOriginSecurity('http://sub.crewden.work:8080')).toEqual({
+    kind: 'rejected_public_http',
+    normalizedOrigin: 'http://sub.crewden.work:8080',
+  });
+  // Must not confuse domain names starting with digits for RFC1918 IPv4 literals.
+  expect(classifyOriginSecurity('http://10.evil.com')).toEqual({
+    kind: 'rejected_public_http',
+    normalizedOrigin: 'http://10.evil.com',
+  });
+  expect(classifyOriginSecurity('http://192.168.evil.com')).toEqual({
+    kind: 'rejected_public_http',
+    normalizedOrigin: 'http://192.168.evil.com',
+  });
+  // CGNAT 100.64.0.0/10 is not treated as trusted cleartext private LAN.
+  expect(classifyOriginSecurity('http://100.64.0.1:8011')).toEqual({
+    kind: 'rejected_public_http',
+    normalizedOrigin: 'http://100.64.0.1:8011',
+  });
+  expect(classifyOriginSecurity('http://127.0.0.1:18080')).toEqual({
+    kind: 'loopback_http',
+    normalizedOrigin: 'http://127.0.0.1:18080',
+  });
+  expect(classifyOriginSecurity('http://localhost:8011')).toEqual({
+    kind: 'loopback_http',
+    normalizedOrigin: 'http://localhost:8011',
+  });
+  expect(classifyOriginSecurity('http://[::1]:8011')).toEqual({
+    kind: 'loopback_http',
+    normalizedOrigin: 'http://[::1]:8011',
+  });
+  expect(classifyOriginSecurity('http://10.24.8.15:8011')).toEqual({
+    kind: 'private_http',
+    normalizedOrigin: 'http://10.24.8.15:8011',
+  });
+  expect(classifyOriginSecurity('http://172.16.5.9:8011')).toEqual({
+    kind: 'private_http',
+    normalizedOrigin: 'http://172.16.5.9:8011',
+  });
+  expect(classifyOriginSecurity('http://172.32.5.9:8011').kind).toBe('rejected_public_http');
+  expect(classifyOriginSecurity('http://192.168.1.20:8011')).toEqual({
+    kind: 'private_http',
+    normalizedOrigin: 'http://192.168.1.20:8011',
+  });
+  expect(classifyOriginSecurity('http://[fd12:3456::1]:8011').kind).toBe('private_http');
+  expect(classifyOriginSecurity('http://crewden-box.local:8011')).toEqual({
+    kind: 'private_http',
+    normalizedOrigin: 'http://crewden-box.local:8011',
+  });
+});
+
+it('accepts self-hosted release_base_url only when explicitly trusted and within HTTP security rules', () => {
+  expect(normalizeReleaseBaseUrl('https://releases.corp.internal/crewden')).toBe('https://releases.corp.internal/crewden/');
+  expect(normalizeReleaseBaseUrl('http://10.24.8.15:9000/releases', false)).toBeNull();
+  expect(normalizeReleaseBaseUrl('http://10.24.8.15:9000/releases', true)).toBe('http://10.24.8.15:9000/releases/');
+  expect(normalizeReleaseBaseUrl('http://im.crewden.work/releases', true)).toBeNull();
+  expect(normalizeReleaseBaseUrl('http://10.evil.com/releases', true)).toBeNull();
+
+  const privateBase = 'http://10.24.8.15:9000/releases/v1.2.3/';
+  const selfHostedWinDesktop = {
+    ...release,
+    release_base_url: privateBase,
+    platform: 'desktop-win32-x64',
+    package: 'desktop-win32-x64.json',
+    size: 520,
+    shell_protocol: 1,
+    download_url: privateBase + 'desktop-win32-x64.json',
+    installer: {
+      download_url: privateBase + 'Crewden-Desktop-Setup-x64.exe',
+      sha256: 'f'.repeat(64),
+      size: 24576,
+    },
+  };
+
+  // Untrusted by default.
+  expect(parseReleaseManifest(selfHostedWinDesktop)).toBeNull();
+  // Rejected when private HTTP is not enabled on the verifier.
+  expect(
+    parseReleaseManifest(selfHostedWinDesktop, {
+      trustedReleaseBaseUrls: ['http://10.24.8.15:9000/releases'],
+      allowPrivateHttpReleaseBase: false,
+    }),
+  ).toBeNull();
+  // Accepted when both trustedReleaseBaseUrls and allowPrivateHttpReleaseBase match.
+  expect(
+    parseReleaseManifest(selfHostedWinDesktop, {
+      trustedReleaseBaseUrls: ['http://10.24.8.15:9000/releases'],
+      allowPrivateHttpReleaseBase: true,
+    }),
+  ).toEqual(selfHostedWinDesktop);
 });

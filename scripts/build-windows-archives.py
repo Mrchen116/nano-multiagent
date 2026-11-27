@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -113,9 +114,42 @@ ALTERNATE_CLI_PACKAGES = {
 }
 
 
+def _version_sort_key(version):
+    tokens = []
+    for part in re.split(r"([0-9]+)", version):
+        if not part:
+            continue
+        tokens.append((1, int(part)) if part.isdigit() else (0, part))
+    return tuple(tokens)
+
+
+def normalize_commit_sha(raw_commit="", repo_root=ROOT):
+    target = (raw_commit or "").strip() or "HEAD"
+    try:
+        resolved = (
+            subprocess.check_output(
+                ["git", "rev-parse", "--verify", f"{target}^{{commit}}"],
+                cwd=repo_root,
+                text=True,
+                stderr=subprocess.PIPE,
+            )
+            .strip()
+            .lower()
+        )
+    except subprocess.CalledProcessError as exc:
+        raise ValueError(
+            f"Invalid source commit '{raw_commit}': {exc.stderr.strip()}"
+        ) from exc
+    if not re.fullmatch(r"[a-f0-9]{40}", resolved):
+        raise ValueError(f"Resolved commit '{resolved}' is not a 40-char lowercase SHA")
+    return resolved
+
+
 def build_graph():
     app, runtime, local_links, external_links, groups = {}, {}, {}, {}, {}
     visited = set()
+    store_candidates = defaultdict(list)
+    dsh_web_prefixes = []
     pending = [ROOT / "apps/node"]
     while pending:
         package = pending.pop().resolve()
@@ -125,17 +159,19 @@ def build_graph():
         info = json.loads((package / "package.json").read_text(encoding="utf-8"))
         if package.is_relative_to(STORE):
             prefix = store_path(package)
-            groups[prefix] = info["name"] + "@" + info["version"]
+            pkg_name = str(info["name"])
+            pkg_ver = str(info["version"])
+            groups[prefix] = pkg_name + "@" + pkg_ver
+            store_candidates[pkg_name].append((pkg_ver, prefix))
+            if pkg_name == "@deepseek-ai/dsh-web":
+                dsh_web_prefixes.append(prefix)
             runtime.update(files(package, prefix))
             # pnpm encodes the actual resolved peer instance and platform-selected optional
             # dependencies as siblings inside this package's virtual-store snapshot.
             modules = STORE / package.relative_to(STORE).parts[0] / "node_modules"
             for name, link in dependencies(modules):
                 target = link.resolve()
-                if (
-                    info["name"] == "@deepseek-ai/dsh"
-                    and name in ALTERNATE_CLI_PACKAGES
-                ):
+                if pkg_name == "@deepseek-ai/dsh" and name in ALTERNATE_CLI_PACKAGES:
                     continue
                 if target == package:
                     continue
@@ -155,11 +191,22 @@ def build_graph():
                 )
                 pending.append(target)
     # Some native loaders resolve the caller's optional binary from the loader module.
-    # Reproduce pnpm's existing hoists, but never pull a dev-only package into the graph.
+    # Reproduce pnpm's existing hoists, and ensure every visited package has a fallback hoist.
     for name, link in dependencies(STORE / "node_modules"):
         target = link.resolve()
         if target in visited and target.is_relative_to(STORE):
             external_links["p/node_modules/" + name] = store_path(target)
+    for pkg_name, candidates in sorted(store_candidates.items()):
+        hoist_key = "p/node_modules/" + pkg_name
+        if hoist_key not in external_links:
+            _best_ver, best_prefix = max(
+                candidates, key=lambda item: (_version_sort_key(item[0]), item[1])
+            )
+            external_links[hoist_key] = best_prefix
+    zod_target = external_links.get("p/node_modules/zod")
+    if zod_target:
+        for dsh_web_prefix in dsh_web_prefixes:
+            external_links.setdefault(f"{dsh_web_prefix}/node_modules/zod", zod_target)
     runtime["dependencies.json"] = encoded(external_links)
     app["workspaces.json"] = encoded(local_links)
     return app, runtime, groups
@@ -197,9 +244,7 @@ def archive(name, entries, groups=None):
 
 
 def main():
-    commit = subprocess.check_output(
-        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-    ).strip()
+    commit = normalize_commit_sha(os.environ.get("SOURCE_COMMIT", ""), ROOT)
     version = os.environ.get("RELEASE_VERSION") or commit
     metadata = {"source_commit": commit, "updater_protocol": 1, "data_epoch": 1}
     OUT.mkdir(parents=True, exist_ok=True)

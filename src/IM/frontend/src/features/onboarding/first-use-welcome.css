@@ -9,7 +9,7 @@
 .first-use-heading { max-width: 670px; margin-bottom: 36px; }
 .first-use-eyebrow, .first-use-section-label { color: var(--im-accent); font-size: 12px; font-weight: 650; letter-spacing: 0; }
 .first-use-heading h1 { margin: 12px 0 16px; font-size: clamp(28px, 3vw, 38px); line-height: 1.3; font-weight: 700; letter-spacing: -.035em; text-wrap: balance; }
-.first-use-heading > p { margin: 0; color: var(--im-text-muted); font-size: 15px; line-height: 1.8; }
+.first-use-heading p { margin: 0; color: var(--im-text-muted); font-size: 15px; line-height: 1.8; }
 .first-use-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start; }
 .first-use-setup { padding: 28px; background: var(--im-surface); border: 1px solid var(--im-border); border-radius: 20px; box-shadow: 0 12px 36px -26px #30204935; }
 .first-use-setup-heading { display: flex; gap: 14px; align-items: center; }
@@ -59,3 +59,121 @@
 .first-use-heading > .assistant-portrait { display: block; margin-bottom: 18px; }
 .first-use-example:nth-of-type(2) .first-use-example-icon { background: #f1eaf9; color: #7656a0; border-color: transparent; }
 .first-use-example:nth-of-type(3) .first-use-example-icon { background: #fff2da; color: #947039; border-color: transparent; }
+
+@media (min-width: 768px) {
+  html[data-crewden-desktop="true"] .first-use {
+    display: flex;
+    align-items: center;
+    overflow-y: auto;
+  }
+  html[data-crewden-desktop="true"] .first-use-inner {
+    width: 100%;
+    max-width: 1060px;
+    margin: auto;
+    padding: 16px 32px 14px;
+  }
+  html[data-crewden-desktop="true"] .first-use-heading {
+    max-width: none;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  html[data-crewden-desktop="true"] .first-use-heading > .assistant-portrait {
+    margin-bottom: 0;
+    width: 52px;
+    height: 52px;
+    flex: none;
+  }
+  html[data-crewden-desktop="true"] .first-use-heading > .assistant-portrait svg {
+    width: 52px;
+    height: 52px;
+  }
+  html[data-crewden-desktop="true"] .first-use-heading h1 {
+    margin: 4px 0 6px;
+    font-size: 24px;
+    line-height: 1.25;
+  }
+  html[data-crewden-desktop="true"] .first-use-heading p {
+    font-size: 13.5px;
+    line-height: 1.55;
+  }
+  html[data-crewden-desktop="true"] .first-use-layout {
+    gap: 32px;
+    align-items: stretch;
+  }
+  html[data-crewden-desktop="true"] .first-use-setup {
+    padding: 18px 22px;
+    border-radius: 16px;
+  }
+  html[data-crewden-desktop="true"] .first-use-symbol {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+  }
+  html[data-crewden-desktop="true"] .first-use-symbol svg {
+    width: 22px;
+    height: 22px;
+  }
+  html[data-crewden-desktop="true"] .first-use-setup h2,
+  html[data-crewden-desktop="true"] .first-use-ideas h2 {
+    font-size: 18px;
+    line-height: 1.35;
+  }
+  html[data-crewden-desktop="true"] .first-use-steps {
+    margin: 12px 0;
+  }
+  html[data-crewden-desktop="true"] .first-use-steps li {
+    padding: 9px 0;
+    gap: 12px;
+  }
+  html[data-crewden-desktop="true"] .first-use-steps h3 {
+    margin: 0 0 2px;
+    font-size: 13.5px;
+  }
+  html[data-crewden-desktop="true"] .first-use-steps p {
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  html[data-crewden-desktop="true"] .first-use-primary {
+    min-height: 40px;
+    padding: 8px 16px;
+    font-size: 13.5px;
+  }
+  html[data-crewden-desktop="true"] .first-use-resume {
+    margin-top: 8px;
+  }
+  html[data-crewden-desktop="true"] .first-use-ideas {
+    padding-top: 4px;
+  }
+  html[data-crewden-desktop="true"] .first-use-ideas h2 {
+    margin: 4px 0;
+  }
+  html[data-crewden-desktop="true"] .first-use-ideas-intro {
+    margin: 0 0 10px;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  html[data-crewden-desktop="true"] .first-use-example {
+    padding: 10px 0;
+    gap: 12px;
+  }
+  html[data-crewden-desktop="true"] .first-use-example h3 {
+    margin: 0 0 2px;
+    font-size: 13.5px;
+  }
+  html[data-crewden-desktop="true"] .first-use-example p {
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+  html[data-crewden-desktop="true"] .first-use-example-note {
+    margin: 8px 0 0;
+    line-height: 1.45;
+  }
+  html[data-crewden-desktop="true"] .first-use-footer {
+    margin-top: 12px;
+  }
+  html[data-crewden-desktop="true"] .first-use-footer button {
+    min-height: 32px;
+  }
+}

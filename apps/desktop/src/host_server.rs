@@ -1,11 +1,14 @@
 use crate::autostart::set_desktop_login_autostart;
 use crate::config::{
-    current_desktop_platform_id, local_node_bridge_endpoint, normalize_im_origin, random_hex_token,
-    sha256_hex, write_private_json, DesktopPaths, HostRuntimeStateFile, PersistedHostConfig,
-    StoredSessionEntry, StoredSessionsFile,
+    append_host_log, classify_deep_link_connect, current_desktop_platform_id,
+    local_node_bridge_endpoint, normalize_im_origin, random_hex_token, resolve_default_im_origin,
+    sha256_hex, write_private_json, DeepLinkConnectOutcome, DesktopPaths, HostRuntimeStateFile,
+    PendingServerSwitch, PersistedHostConfig, StoredSessionEntry, StoredSessionsFile,
 };
 use crate::local_node::{
-    open_external_url, open_or_reveal_workspace_path, resolve_active_bundle, run_local_admin_sync,
+    ensure_seed_bundle_installed, has_pending_seed_bundle, open_external_url,
+    open_or_reveal_workspace_path, resolve_active_bundle, run_local_admin_sync,
+    sync_seed_desktop_defaults,
 };
 use crate::notifications::{
     spawn_notification_daemon, ActiveDaemonSession, DesktopUiBridge, NotificationCenterState,
@@ -53,8 +56,16 @@ struct LocalTrajectoryTicket {
     expires_at: Instant,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SeedPreparationState {
+    Ready,
+    Preparing,
+    Failed(String),
+}
+
 pub struct HostSharedState {
     pub paths: DesktopPaths,
+    pub seed_archives_dir: Option<PathBuf>,
     pub dev_repo_root: Option<PathBuf>,
     pub port: u16,
     pub cap_token: String,
@@ -62,6 +73,9 @@ pub struct HostSharedState {
     pub reload_token: String,
     pub host_config: RwLock<PersistedHostConfig>,
     pub sessions: RwLock<StoredSessionsFile>,
+    pub seed_status: RwLock<SeedPreparationState>,
+    pub pending_server_switch: Mutex<Option<PendingServerSwitch>>,
+    pub deep_link_error: Mutex<Option<String>>,
     pub http_client: reqwest::Client,
     auth_cache: Mutex<HashMap<String, VerifiedAuthIdentity>>,
     trajectory_tickets: Mutex<HashMap<String, LocalTrajectoryTicket>>,
@@ -71,6 +85,19 @@ pub struct HostSharedState {
     pub ui_bridge: Arc<dyn DesktopUiBridge>,
     pub shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
     pub refresh_lock: tokio::sync::Mutex<()>,
+}
+
+impl HostSharedState {
+    pub fn is_seed_ready(&self) -> bool {
+        matches!(*self.seed_status.read().unwrap(), SeedPreparationState::Ready)
+    }
+
+    pub fn seed_error(&self) -> Option<String> {
+        match &*self.seed_status.read().unwrap() {
+            SeedPreparationState::Failed(msg) => Some(msg.clone()),
+            _ => None,
+        }
+    }
 }
 
 pub struct RunningHostServer {
@@ -109,12 +136,38 @@ fn now_secs() -> u64 {
 
 fn load_or_init_host_config(
     paths: &DesktopPaths,
+    seed_archives_dir: Option<&Path>,
     override_origin: Option<&str>,
 ) -> PersistedHostConfig {
-    let mut cfg = fs::read_to_string(paths.host_config_path())
+    let fallback_origin = resolve_default_im_origin(paths, seed_archives_dir);
+    let mut cfg = match fs::read_to_string(paths.host_config_path())
         .ok()
         .and_then(|raw| serde_json::from_str::<PersistedHostConfig>(&raw).ok())
-        .unwrap_or_default();
+    {
+        Some(mut disk_cfg) => {
+            match normalize_im_origin(&disk_cfg.im_origin) {
+                Ok(valid) => disk_cfg.im_origin = valid,
+                Err(reason) => {
+                    append_host_log(
+                        Some(paths),
+                        "WARN",
+                        &format!(
+                            "Resetting invalid persisted im_origin '{}' to '{}': {}",
+                            disk_cfg.im_origin, fallback_origin, reason
+                        ),
+                    );
+                    disk_cfg.im_origin = fallback_origin;
+                    disk_cfg.context_epoch = disk_cfg.context_epoch.saturating_add(1);
+                }
+            }
+            disk_cfg
+        }
+        None => PersistedHostConfig {
+            persisted_port: 0,
+            im_origin: fallback_origin,
+            context_epoch: 1,
+        },
+    };
     if let Some(origin) = override_origin {
         if let Ok(norm) = normalize_im_origin(origin) {
             if cfg.im_origin != norm {
@@ -127,6 +180,93 @@ fn load_or_init_host_config(
         cfg.context_epoch = 1;
     }
     cfg
+}
+
+pub fn write_host_state_snapshot(state: &HostSharedState) -> Result<(), String> {
+    let im_origin = state.host_config.read().unwrap().im_origin.clone();
+    let seed_ready = state.is_seed_ready();
+    write_private_json(
+        &state.paths.host_state_path(),
+        &HostRuntimeStateFile {
+            pid: std::process::id(),
+            port: state.port,
+            ready: seed_ready,
+            host_ready: true,
+            seed_ready,
+            im_origin,
+            reload_token: state.reload_token.clone(),
+            boot_nonce: state.boot_nonce.clone(),
+        },
+    )
+}
+
+pub fn spawn_seed_unpack_worker(state: Arc<HostSharedState>) {
+    std::thread::spawn(move || {
+        match ensure_seed_bundle_installed(&state.paths, state.seed_archives_dir.as_deref()) {
+            Ok(_) => {
+                *state.seed_status.write().unwrap() = SeedPreparationState::Ready;
+                let _ = write_host_state_snapshot(&state);
+                state.ui_bridge.reload_webview(None);
+            }
+            Err(err) => {
+                append_host_log(
+                    Some(&state.paths),
+                    "ERROR",
+                    &format!("Seed bundle preparation failed: {}", err),
+                );
+                *state.seed_status.write().unwrap() = SeedPreparationState::Failed(err);
+            }
+        }
+    });
+}
+
+/// Evaluate a `crewden-desktop://...` deep link uniformly across cold start, Windows forward, and macOS `Opened`.
+pub fn handle_deep_link_url(state: &HostSharedState, raw_url: &str) {
+    match classify_deep_link_connect(raw_url) {
+        DeepLinkConnectOutcome::Valid {
+            origin,
+            is_cleartext_http,
+        } => {
+            *state.deep_link_error.lock().unwrap() = None;
+            let current_origin = state.host_config.read().unwrap().im_origin.clone();
+            if origin != current_origin {
+                *state.pending_server_switch.lock().unwrap() = Some(PendingServerSwitch {
+                    target_origin: origin,
+                    is_cleartext_http,
+                });
+                state.ui_bridge.focus_window();
+                state.ui_bridge.notify_host_context_updated();
+            } else {
+                *state.pending_server_switch.lock().unwrap() = None;
+                state.ui_bridge.focus_window();
+            }
+        }
+        DeepLinkConnectOutcome::RejectedPublicHttp { attempted_origin } => {
+            *state.pending_server_switch.lock().unwrap() = None;
+            let msg = format!(
+                "已拦截不安全的明文连接请求（{}）。官方与公网 IM 服务必须使用 https:// 加密连接，当前服务保持不变。",
+                attempted_origin
+            );
+            append_host_log(Some(&state.paths), "WARN", &msg);
+            *state.deep_link_error.lock().unwrap() = Some(msg);
+            state.ui_bridge.focus_window();
+            state.ui_bridge.notify_host_context_updated();
+        }
+        DeepLinkConnectOutcome::Invalid(reason) => {
+            let msg = format!("无法识别的服务连接请求：{}", reason);
+            append_host_log(Some(&state.paths), "WARN", &msg);
+            *state.deep_link_error.lock().unwrap() = Some(msg);
+            state.ui_bridge.focus_window();
+            state.ui_bridge.notify_host_context_updated();
+        }
+        DeepLinkConnectOutcome::NotConnectUrl => {
+            if let Ok(Some(route)) = crate::config::parse_deep_link_route(raw_url) {
+                state.ui_bridge.activate_route(&route);
+            } else {
+                state.ui_bridge.focus_window();
+            }
+        }
+    }
 }
 
 fn load_sessions(paths: &DesktopPaths) -> StoredSessionsFile {
@@ -157,7 +297,20 @@ pub async fn start_host_server(
     dev_repo_root: Option<PathBuf>,
     ui_bridge: Arc<dyn DesktopUiBridge>,
 ) -> Result<RunningHostServer, String> {
-    let mut host_cfg = load_or_init_host_config(&paths, override_origin);
+    start_host_server_full(paths, override_origin, None, dev_repo_root, None, ui_bridge).await
+}
+
+/// Start the resident loopback server with optional seed preparation and cold-start deep-link evaluation.
+pub async fn start_host_server_full(
+    paths: DesktopPaths,
+    override_origin: Option<&str>,
+    seed_archives_dir: Option<PathBuf>,
+    dev_repo_root: Option<PathBuf>,
+    initial_deep_link: Option<&str>,
+    ui_bridge: Arc<dyn DesktopUiBridge>,
+) -> Result<RunningHostServer, String> {
+    sync_seed_desktop_defaults(&paths, seed_archives_dir.as_deref());
+    let mut host_cfg = load_or_init_host_config(&paths, seed_archives_dir.as_deref(), override_origin);
     let (listener, port) = bind_persisted_loopback(host_cfg.persisted_port).await?;
     host_cfg.persisted_port = port;
     write_private_json(&paths.host_config_path(), &host_cfg)?;
@@ -180,16 +333,29 @@ pub async fn start_host_server(
     let boot_nonce = random_hex_token(24);
     let reload_token = random_hex_token(24);
 
+    // Must exceed Windows cold inspection & creation RPC budgets (130s).
     let http_client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_secs(150))
         .build()
         .map_err(|e| e.to_string())?;
 
     let notification_center = Arc::new(NotificationCenterState::default());
+    let needs_seed_unpack = dev_repo_root.is_none()
+        && std::env::var("CREWDEN_DEV_REPO_ROOT")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .is_none()
+        && has_pending_seed_bundle(&paths, seed_archives_dir.as_deref());
+    let initial_seed_state = if needs_seed_unpack {
+        SeedPreparationState::Preparing
+    } else {
+        SeedPreparationState::Ready
+    };
 
     let state = Arc::new(HostSharedState {
         paths: paths.clone(),
+        seed_archives_dir,
         dev_repo_root,
         port,
         cap_token,
@@ -197,6 +363,9 @@ pub async fn start_host_server(
         reload_token: reload_token.clone(),
         host_config: RwLock::new(host_cfg.clone()),
         sessions: RwLock::new(sessions),
+        seed_status: RwLock::new(initial_seed_state),
+        pending_server_switch: Mutex::new(None),
+        deep_link_error: Mutex::new(None),
         http_client: http_client.clone(),
         auth_cache: Mutex::new(HashMap::new()),
         trajectory_tickets: Mutex::new(HashMap::new()),
@@ -208,17 +377,15 @@ pub async fn start_host_server(
         refresh_lock: tokio::sync::Mutex::new(()),
     });
 
-    write_private_json(
-        &paths.host_state_path(),
-        &HostRuntimeStateFile {
-            pid: std::process::id(),
-            port,
-            ready: true,
-            im_origin: host_cfg.im_origin.clone(),
-            reload_token,
-            boot_nonce: boot_nonce.clone(),
-        },
-    )?;
+    if let Some(dl) = initial_deep_link {
+        handle_deep_link_url(&state, dl);
+    }
+
+    write_host_state_snapshot(&state)?;
+
+    if needs_seed_unpack {
+        spawn_seed_unpack_worker(state.clone());
+    }
 
     spawn_notification_daemon(state.clone(), session_rx);
 
@@ -257,6 +424,11 @@ fn build_router(state: Arc<HostSharedState>) -> Router {
         .route("/desktop/v1/context", get(handle_get_context))
         .route("/desktop/v1/attention", post(handle_v1_attention))
         .route("/desktop/v1/server", put(handle_put_server))
+        .route(
+            "/desktop/v1/server/pending/dismiss",
+            post(handle_dismiss_pending_server),
+        )
+        .route("/desktop/v1/seed/retry", post(handle_seed_retry))
         .route("/desktop/v1/open-external", post(handle_open_external))
         .route("/desktop/v1/local-node/inspect", get(handle_local_inspect))
         .route(
@@ -437,14 +609,24 @@ async fn handle_internal_status(
         return err;
     }
     let cfg = state.host_config.read().unwrap().clone();
-    let bundle = resolve_active_bundle(&state.paths, &cfg.im_origin, state.dev_repo_root.as_deref()).ok();
+    let seed_ready = state.is_seed_ready();
+    let bundle = if seed_ready {
+        resolve_active_bundle(&state.paths, &cfg.im_origin, state.dev_repo_root.as_deref()).ok()
+    } else {
+        None
+    };
     let attn = state.ui_bridge.window_attention();
     Json(json!({
-        "ready": true,
+        "ready": seed_ready,
+        "host_ready": true,
+        "seed_ready": seed_ready,
+        "seed_error": state.seed_error(),
         "pid": std::process::id(),
         "port": state.port,
         "im_origin": cfg.im_origin,
         "context_epoch": cfg.context_epoch,
+        "pending_server_switch": state.pending_server_switch.lock().unwrap().clone(),
+        "deep_link_error": state.deep_link_error.lock().unwrap().clone(),
         "ws_connected": state.notification_center.is_ws_connected(),
         "unread_total": state.notification_center.unread(),
         "popup_count": state.ui_bridge.popup_count(),
@@ -520,19 +702,22 @@ async fn handle_internal_deep_link(
         return err;
     }
     if let Some(ref raw_url) = body.url {
-        if let Ok(Some(new_origin)) = crate::config::parse_deep_link_origin(raw_url) {
-            let _ = apply_server_switch(&state, &new_origin);
-            state.ui_bridge.reload_webview(Some("/chat"));
-            state.ui_bridge.activate_route("/chat");
-            return Json(json!({ "ok": true, "im_origin": new_origin })).into_response();
-        }
-        if let Ok(Some(route)) = crate::config::parse_deep_link_route(raw_url) {
-            state.ui_bridge.activate_route(&route);
-            return Json(json!({ "ok": true, "route": route })).into_response();
+        handle_deep_link_url(&state, raw_url);
+        return Json(json!({
+            "ok": true,
+            "im_origin": state.host_config.read().unwrap().im_origin,
+            "pending_server_switch": state.pending_server_switch.lock().unwrap().clone(),
+            "deep_link_error": state.deep_link_error.lock().unwrap().clone(),
+        }))
+        .into_response();
+    }
+    if let Some(ref target) = body.route {
+        if !target.trim().is_empty() {
+            state.ui_bridge.activate_route(target);
+            return Json(json!({ "ok": true, "route": target })).into_response();
         }
     }
-    let target = body.route.as_deref().unwrap_or("/chat");
-    state.ui_bridge.activate_route(target);
+    state.ui_bridge.focus_window();
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -785,6 +970,20 @@ async fn handle_internal_shutdown(
     Json(json!({ "ok": true })).into_response()
 }
 
+fn build_context_payload(state: &HostSharedState) -> Value {
+    let cfg = state.host_config.read().unwrap().clone();
+    json!({
+        "im_origin": cfg.im_origin,
+        "context_epoch": cfg.context_epoch,
+        "platform": current_desktop_platform_id(),
+        "seed_ready": state.is_seed_ready(),
+        "seed_error": state.seed_error(),
+        "host_log_path": state.paths.host_log_path().to_string_lossy(),
+        "pending_server_switch": state.pending_server_switch.lock().unwrap().clone(),
+        "deep_link_error": state.deep_link_error.lock().unwrap().clone(),
+    })
+}
+
 async fn handle_get_context(
     State(state): State<Arc<HostSharedState>>,
     headers: HeaderMap,
@@ -792,13 +991,7 @@ async fn handle_get_context(
     if let Err(err) = verify_capability_guard(&state, &headers) {
         return err;
     }
-    let cfg = state.host_config.read().unwrap().clone();
-    Json(json!({
-        "im_origin": cfg.im_origin,
-        "context_epoch": cfg.context_epoch,
-        "platform": current_desktop_platform_id(),
-    }))
-    .into_response()
+    Json(build_context_payload(&state)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -819,18 +1012,10 @@ pub fn apply_server_switch(
         }
         guard.clone()
     };
+    *state.pending_server_switch.lock().unwrap() = None;
+    *state.deep_link_error.lock().unwrap() = None;
     write_private_json(&state.paths.host_config_path(), &next_cfg)?;
-    let _ = write_private_json(
-        &state.paths.host_state_path(),
-        &HostRuntimeStateFile {
-            pid: std::process::id(),
-            port: state.port,
-            ready: true,
-            im_origin: next_cfg.im_origin.clone(),
-            reload_token: state.reload_token.clone(),
-            boot_nonce: state.boot_nonce.clone(),
-        },
-    );
+    let _ = write_host_state_snapshot(state);
     state.auth_cache.lock().unwrap().clear();
     state.trajectory_tickets.lock().unwrap().clear();
     let _ = state.session_epoch_tx.send(next_cfg.context_epoch);
@@ -859,14 +1044,43 @@ async fn handle_put_server(
         return err;
     }
     match apply_server_switch(&state, &body.im_origin) {
-        Ok(cfg) => Json(json!({
-            "im_origin": cfg.im_origin,
-            "context_epoch": cfg.context_epoch,
-            "platform": current_desktop_platform_id(),
-        }))
-        .into_response(),
+        Ok(_cfg) => Json(build_context_payload(&state)).into_response(),
         Err(msg) => json_error(StatusCode::BAD_REQUEST, msg),
     }
+}
+
+async fn handle_dismiss_pending_server(
+    State(state): State<Arc<HostSharedState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    *state.pending_server_switch.lock().unwrap() = None;
+    *state.deep_link_error.lock().unwrap() = None;
+    Json(json!({ "ok": true })).into_response()
+}
+
+async fn handle_seed_retry(
+    State(state): State<Arc<HostSharedState>>,
+    headers: HeaderMap,
+) -> Response {
+    if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    let should_spawn = {
+        let mut guard = state.seed_status.write().unwrap();
+        if matches!(*guard, SeedPreparationState::Failed(_)) {
+            *guard = SeedPreparationState::Preparing;
+            true
+        } else {
+            false
+        }
+    };
+    if should_spawn {
+        spawn_seed_unpack_worker(state.clone());
+    }
+    Json(build_context_payload(&state)).into_response()
 }
 
 #[derive(Deserialize)]
@@ -893,6 +1107,20 @@ struct InspectQuery {
     log_query: Option<String>,
 }
 
+fn require_seed_ready(state: &HostSharedState) -> Result<(), Response> {
+    if !state.is_seed_ready() {
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({
+                "code": "seed_preparing",
+                "detail": state.seed_error().unwrap_or_else(|| "本机运行环境正在初始化，请稍候片刻".to_string()),
+            })),
+        )
+            .into_response());
+    }
+    Ok(())
+}
+
 async fn invoke_local_admin(
     state: Arc<HostSharedState>,
     subcommand: &'static str,
@@ -900,6 +1128,9 @@ async fn invoke_local_admin(
     log_query: Option<String>,
     stdin_payload: Option<Value>,
 ) -> Response {
+    if let Err(err) = require_seed_ready(&state) {
+        return err;
+    }
     let im_origin = state.host_config.read().unwrap().im_origin.clone();
     let paths = state.paths.clone();
     let dev_root = state.dev_repo_root.clone();
@@ -935,6 +1166,9 @@ async fn handle_local_inspect(
     if let Err(err) = verify_capability_guard(&state, &headers) {
         return err;
     }
+    if let Err(err) = require_seed_ready(&state) {
+        return err;
+    }
     let (_, caller) = match authenticate_caller(&state, &headers).await {
         Ok(v) => v,
         Err(err) => return err,
@@ -963,6 +1197,9 @@ async fn handle_local_probe_workers(
     if let Err(err) = verify_capability_guard(&state, &headers) {
         return err;
     }
+    if let Err(err) = require_seed_ready(&state) {
+        return err;
+    }
     let (_, caller) = match authenticate_caller(&state, &headers).await {
         Ok(v) => v,
         Err(err) => return err,
@@ -989,6 +1226,9 @@ async fn handle_local_connect(
     Json(body): Json<ConnectBody>,
 ) -> Response {
     if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    if let Err(err) = require_seed_ready(&state) {
         return err;
     }
     let (access_token, caller) = match authenticate_caller(&state, &headers).await {
@@ -1061,6 +1301,9 @@ async fn handle_local_lifecycle(
     if let Err(err) = verify_capability_guard(&state, &headers) {
         return err;
     }
+    if let Err(err) = require_seed_ready(&state) {
+        return err;
+    }
     let (_, caller) = match authenticate_caller(&state, &headers).await {
         Ok(v) => v,
         Err(err) => return err,
@@ -1126,6 +1369,9 @@ async fn handle_local_config(
     Json(body): Json<Value>,
 ) -> Response {
     if let Err(err) = verify_capability_guard(&state, &headers) {
+        return err;
+    }
+    if let Err(err) = require_seed_ready(&state) {
         return err;
     }
     let (_, caller) = match authenticate_caller(&state, &headers).await {
@@ -2119,14 +2365,19 @@ fn mime_for_path(path: &Path) -> &'static str {
     }
 }
 
-fn inject_desktop_boot_script(html: &str, cfg: &PersistedHostConfig) -> String {
+fn inject_desktop_boot_script(html: &str, state: &HostSharedState, cfg: &PersistedHostConfig) -> String {
     let payload = json!({
         "imOrigin": cfg.im_origin,
         "contextEpoch": cfg.context_epoch,
         "platform": current_desktop_platform_id(),
+        "seedReady": state.is_seed_ready(),
+        "seedError": state.seed_error(),
+        "hostLogPath": state.paths.host_log_path().to_string_lossy(),
+        "pendingServerSwitch": state.pending_server_switch.lock().unwrap().clone(),
+        "deepLinkError": state.deep_link_error.lock().unwrap().clone(),
     });
     let tag = format!(
-        "<script>window.__CREWDEN_DESKTOP__={};</script>",
+        "<script>window.__CREWDEN_DESKTOP__={};document.documentElement.dataset.crewdenDesktop='true';</script>",
         payload
     );
     if let Some(idx) = html.find("</head>") {
@@ -2140,11 +2391,153 @@ fn inject_desktop_boot_script(html: &str, cfg: &PersistedHostConfig) -> String {
     }
 }
 
+fn render_seed_preparation_html(state: &HostSharedState) -> String {
+    let init = json!({
+        "seedError": state.seed_error(),
+        "hostLogPath": state.paths.host_log_path().to_string_lossy(),
+    });
+    let template = r##"<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>Crewden Desktop</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; width: 100%; height: 100%; overflow: hidden;
+    background: #F6F5FA; color: #241C35;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card {
+    width: min(460px, calc(100vw - 48px));
+    background: #FFFFFF;
+    border: 1px solid rgba(36, 28, 53, 0.08);
+    border-radius: 22px;
+    padding: 32px 30px;
+    box-shadow: 0 18px 44px -18px rgba(36, 28, 53, 0.14);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .mark {
+    width: 44px; height: 44px; border-radius: 14px; background: #FFF0B5;
+    display: grid; place-items: center; flex-shrink: 0;
+  }
+  .mark svg { width: 26px; height: 26px; }
+  .brand-name { font-size: 16px; font-weight: 700; color: #6B43D8; letter-spacing: -0.2px; }
+  h1 { margin: 0 0 8px; font-size: 21px; font-weight: 700; line-height: 1.3; }
+  p { margin: 0; font-size: 13.5px; line-height: 1.55; color: #655D77; }
+  .bar-track {
+    margin-top: 22px; height: 7px; border-radius: 999px;
+    background: #EEEAF8; overflow: hidden; position: relative;
+  }
+  .bar-fill {
+    position: absolute; inset: 0 auto 0 0; width: 42%; border-radius: 999px;
+    background: linear-gradient(90deg, #6B43D8, #8D68F0);
+    animation: slide 1.35s ease-in-out infinite;
+  }
+  @keyframes slide {
+    0% { transform: translateX(-85%); }
+    100% { transform: translateX(260%); }
+  }
+  .error-box {
+    display: none; margin-top: 18px; padding: 12px 14px; border-radius: 12px;
+    background: #FEF2F2; border: 1px solid #FECACA; color: #991B1B; font-size: 12.5px; line-height: 1.5;
+  }
+  .log-path {
+    margin-top: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11.5px; color: #655D77; word-break: break-all;
+  }
+  .actions { display: none; margin-top: 18px; gap: 10px; }
+  button {
+    border: 0; border-radius: 10px; padding: 9px 16px; font-size: 13px; font-weight: 600;
+    background: #6B43D8; color: #FFFFFF; cursor: pointer;
+  }
+  button:hover { background: #5B35C5; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="brand">
+      <div class="mark" aria-hidden="true">
+        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+          <g transform="translate(51 49) rotate(-9) translate(-50 -50)">
+            <path fill="#6B43D8" d="M 33,12 H 67 C 82.5,12 91,20.5 91,36 V 52 C 91,67.5 82.5,76 67,76 H 44 L 23.5,90.5 C 20.6,92.5 17,90.4 17,86.9 V 73.2 C 11.2,68.8 9,61.5 9,52 V 36 C 9,20.5 17.5,12 33,12 Z"/>
+            <rect x="32.5" y="33" width="12" height="19" rx="6" fill="#FFF0B5"/>
+            <path d="M 55.5,44.5 Q 63,34.5 70.5,44.5" fill="none" stroke="#FFF0B5" stroke-width="8.5" stroke-linecap="round"/>
+          </g>
+        </svg>
+      </div>
+      <span class="brand-name">crewden desktop</span>
+    </div>
+    <h1 id="heading">正在准备运行环境…</h1>
+    <p id="desc">首次启动正在解压内置运行环境，无需打开命令行，准备完成后将自动进入工作台。</p>
+    <div class="bar-track" id="progress"><div class="bar-fill"></div></div>
+    <div class="error-box" id="error-box">
+      <div id="error-text"></div>
+      <div class="log-path" id="log-path"></div>
+    </div>
+    <div class="actions" id="actions">
+      <button type="button" id="retry-btn">重试初始化</button>
+    </div>
+  </main>
+<script>
+  const INIT = __CREWDEN_SEED_INIT__;
+  function applyState(err, logPath) {
+    const progress = document.getElementById("progress");
+    const errBox = document.getElementById("error-box");
+    const actions = document.getElementById("actions");
+    if (err) {
+      document.getElementById("heading").textContent = "运行环境初始化未完成";
+      document.getElementById("desc").textContent = "请检查本机磁盘空间或防病毒拦截情况后点击重试。";
+      progress.style.display = "none";
+      errBox.style.display = "block";
+      actions.style.display = "flex";
+      document.getElementById("error-text").textContent = err;
+      document.getElementById("log-path").textContent = "日志文件：" + (logPath || "");
+    } else {
+      document.getElementById("heading").textContent = "正在准备运行环境…";
+      document.getElementById("desc").textContent = "首次启动正在解压内置运行环境，无需打开命令行，准备完成后将自动进入工作台。";
+      progress.style.display = "block";
+      errBox.style.display = "none";
+      actions.style.display = "none";
+    }
+  }
+  applyState(INIT.seedError, INIT.hostLogPath);
+  document.getElementById("retry-btn").addEventListener("click", async () => {
+    applyState(null, INIT.hostLogPath);
+    try { await fetch("/desktop/v1/seed/retry", { method: "POST" }); } catch {}
+  });
+  setInterval(async () => {
+    try {
+      const res = await fetch("/desktop/v1/context", { cache: "no-store" });
+      if (!res.ok) return;
+      const ctx = await res.json();
+      if (ctx.seed_ready) {
+        window.location.reload();
+        return;
+      }
+      applyState(ctx.seed_error, ctx.host_log_path);
+    } catch {}
+  }, 600);
+</script>
+</body>
+</html>"##;
+    template.replace("__CREWDEN_SEED_INIT__", &init.to_string())
+}
+
 async fn handle_static_or_spa(
     State(state): State<Arc<HostSharedState>>,
     req: Request,
 ) -> Response {
     let req_path = req.uri().path();
+    if !state.is_seed_ready() {
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header("content-type", "text/html; charset=utf-8")
+            .header("cache-control", "no-store")
+            .body(Body::from(render_seed_preparation_html(&state)))
+            .unwrap();
+    }
     let cfg = state.host_config.read().unwrap().clone();
     let Ok(bundle) = resolve_active_bundle(&state.paths, &cfg.im_origin, state.dev_repo_root.as_deref())
     else {
@@ -2204,7 +2597,7 @@ async fn handle_static_or_spa(
     let Ok(raw_html) = fs::read_to_string(&index_path) else {
         return (StatusCode::NOT_FOUND, "Frontend index.html missing").into_response();
     };
-    let injected = inject_desktop_boot_script(&raw_html, &cfg);
+    let injected = inject_desktop_boot_script(&raw_html, &state, &cfg);
     Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "text/html; charset=utf-8")
@@ -2503,5 +2896,203 @@ mod tests {
         let popup_html = popup_res.text().await.unwrap();
         assert!(!popup_html.contains("evil()"));
         assert!(!popup_html.contains("<img"));
+    }
+
+    #[tokio::test]
+    async fn enforces_deep_link_confirmation_public_http_rejection_route_preservation_and_seed_preparation_gate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let fake_repo = tmp.path().join("repo");
+        fs::create_dir_all(fake_repo.join("src/IM/frontend/dist")).unwrap();
+        fs::create_dir_all(fake_repo.join("packages/dsh-trajectory-viewer/dist")).unwrap();
+        fs::create_dir_all(fake_repo.join("apps/node/lib")).unwrap();
+        fs::write(
+            fake_repo.join("src/IM/frontend/dist/index.html"),
+            "<!doctype html><html><head></head><body>spa-ready</body></html>",
+        )
+        .unwrap();
+        fs::write(
+            fake_repo.join("packages/dsh-trajectory-viewer/dist/index.html"),
+            "<!doctype html><html><body>traj</body></html>",
+        )
+        .unwrap();
+        fs::write(fake_repo.join("apps/node/lib/cli.js"), "").unwrap();
+
+        let cli = DesktopCliOptions {
+            isolated_root: Some(tmp.path().join("iso")),
+            dev_repo_root: Some(fake_repo.clone()),
+            ..Default::default()
+        };
+        let paths = DesktopPaths::resolve(&cli).unwrap();
+
+        // Write preset desktop-defaults.json AND a tampered persisted host-config.json with public cleartext HTTP:
+        // Startup must reject `http://im.crewden.work` and fall back to preset `http://10.24.8.15:8011`!
+        write_private_json(
+            &paths.desktop_defaults_path(),
+            &json!({
+                "default_im_origin": "http://10.24.8.15:8011",
+                "trusted_release_base_url": "http://10.24.8.15:9000/releases",
+                "allow_private_http_release_base": true,
+            }),
+        )
+        .unwrap();
+        write_private_json(
+            &paths.host_config_path(),
+            &PersistedHostConfig {
+                persisted_port: 0,
+                im_origin: "http://im.crewden.work".to_string(),
+                context_epoch: 2,
+            },
+        )
+        .unwrap();
+
+        let ui = Arc::new(NoopUiBridge::default());
+        ui.update_current_route("/onboarding");
+
+        // Cold-start with cross-origin deep link must stage `pending_server_switch` instead of silently switching!
+        let host = start_host_server_full(
+            paths.clone(),
+            None,
+            None,
+            Some(fake_repo.clone()),
+            Some("crewden-desktop://connect?origin=http%3A%2F%2F192.168.1.50%3A8011"),
+            ui.clone(),
+        )
+        .await
+        .unwrap();
+        let port = host.port;
+
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let boot_res = client.get(&host.bootstrap_url).send().await.unwrap();
+        let cap_pair = boot_res
+            .headers()
+            .get("set-cookie")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+
+        let ctx1: Value = client
+            .get(format!("http://127.0.0.1:{}/desktop/v1/context", port))
+            .header("Cookie", &cap_pair)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(ctx1["im_origin"], "http://10.24.8.15:8011");
+        assert_eq!(
+            ctx1["pending_server_switch"],
+            json!({
+                "target_origin": "http://192.168.1.50:8011",
+                "is_cleartext_http": true,
+            })
+        );
+
+        // Dismiss pending switch -> keeps original server.
+        let dismiss_res = client
+            .post(format!(
+                "http://127.0.0.1:{}/desktop/v1/server/pending/dismiss",
+                port
+            ))
+            .header("Cookie", &cap_pair)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(dismiss_res.status(), reqwest::StatusCode::OK);
+
+        // Warm deep link with rejected public cleartext HTTP -> sets `deep_link_error` and keeps server unchanged!
+        let bad_dl = client
+            .post(format!("http://127.0.0.1:{}/desktop/internal/deep-link", port))
+            .header("x-crewden-reload-token", &host.state.reload_token)
+            .json(&json!({
+                "url": "crewden-desktop://connect?origin=http%3A%2F%2Fim.crewden.work",
+                "route": null,
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(bad_dl.status(), reqwest::StatusCode::OK);
+        let ctx2: Value = client
+            .get(format!("http://127.0.0.1:{}/desktop/v1/context", port))
+            .header("Cookie", &cap_pair)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(ctx2["im_origin"], "http://10.24.8.15:8011");
+        assert!(ctx2["pending_server_switch"].is_null());
+        assert!(ctx2["deep_link_error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("https://"));
+
+        // Plain shortcut re-launch (`url: null, route: null`) must focus window WITHOUT forcing `/chat`!
+        let prev_focus = *ui.focus_count.lock().unwrap();
+        let plain_wakeup = client
+            .post(format!("http://127.0.0.1:{}/desktop/internal/deep-link", port))
+            .header("x-crewden-reload-token", &host.state.reload_token)
+            .json(&json!({ "url": null, "route": null }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(plain_wakeup.status(), reqwest::StatusCode::OK);
+        assert_eq!(*ui.focus_count.lock().unwrap(), prev_focus + 1);
+        assert_eq!(ui.window_attention().current_route, "/onboarding");
+        assert!(ui.activated_routes.lock().unwrap().is_empty());
+
+        // Seed preparation state serves inline splash HTML and gates `/desktop/v1/local-node/*` with 503 `seed_preparing`.
+        *host.state.seed_status.write().unwrap() = SeedPreparationState::Preparing;
+        let prep_html = client
+            .get(format!("http://127.0.0.1:{}/login", port))
+            .header("Cookie", &cap_pair)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(prep_html.contains("正在准备运行环境"));
+        assert!(!prep_html.contains("spa-ready"));
+
+        let local_gate = client
+            .post(format!(
+                "http://127.0.0.1:{}/desktop/v1/local-node/connect",
+                port
+            ))
+            .header("Cookie", &cap_pair)
+            .json(&json!({}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(local_gate.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
+        let gate_json: Value = local_gate.json().await.unwrap();
+        assert_eq!(gate_json["code"], "seed_preparing");
+
+        // InstanceLock prevents duplicate acquisition on the same lock path.
+        let lock1 = crate::config::InstanceLock::try_acquire(&paths.instance_lock_path())
+            .unwrap()
+            .expect("first lock should succeed");
+        assert!(
+            crate::config::InstanceLock::try_acquire(&paths.instance_lock_path())
+                .unwrap()
+                .is_none(),
+            "second lock while held must return None"
+        );
+        drop(lock1);
+        assert!(
+            crate::config::InstanceLock::try_acquire(&paths.instance_lock_path())
+                .unwrap()
+                .is_some(),
+            "lock should be acquirable after drop"
+        );
     }
 }

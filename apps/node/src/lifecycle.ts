@@ -9,6 +9,7 @@ import {
   mkdir,
   rm,
   realpath,
+  stat,
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -378,17 +379,77 @@ export async function manageGateway(
     if (action === "stop") return { text: "STOPPED", success: true };
     if (await ownedState(path)) throw new Error("Gateway is already running");
     const log = join(dirname(path), "gateway.log");
+    const logStartSize = await stat(log).then(
+      (s) => s.size,
+      () => 0,
+    );
     await rm(statePath(path), { force: true });
-    const waitReady = async () => {
+    const extractLogFailure = async () => {
+      try {
+        const raw = await readFile(log, "utf8");
+        const recent = raw.slice(Math.min(logStartSize, raw.length)).trim();
+        if (!recent) return undefined;
+        const lines = recent
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        const preferred = lines.find((l) =>
+          /^(Error|[A-Za-z]+Error|Exception|Unhandled)/i.test(l),
+        );
+        return (preferred ?? lines[0])?.slice(0, 240);
+      } catch {
+        return undefined;
+      }
+    };
+    const waitReady = async (hasExited?: () => boolean) => {
       const deadline = Date.now() + startup * 1000;
+      const runtimeLockPath = join(dirname(path), ".gateway-runtime.lock");
       while (Date.now() < deadline) {
         const state = await gatewayState(path);
         if (state?.ready && await ownedState(path, state)) return state;
+        if (hasExited?.()) {
+          await delay(50);
+          const finalState = await gatewayState(path);
+          if (finalState?.ready && await ownedState(path, finalState)) return finalState;
+          const detail = await extractLogFailure();
+          throw new Error(
+            `Gateway exited before becoming ready${detail ? `: ${detail}` : ""}; inspect ${log}`,
+          );
+        }
+        if (!hasExited) {
+          const currentSize = await stat(log).then(
+            (s) => s.size,
+            () => 0,
+          );
+          if (currentSize > logStartSize && !(await ownedState(path))) {
+            const locked = await lockfile
+              .check(path, { realpath: false, lockfilePath: runtimeLockPath })
+              .catch(() => false);
+            if (!locked) {
+              await delay(250);
+              const stillUnlocked = !(await lockfile
+                .check(path, { realpath: false, lockfilePath: runtimeLockPath })
+                .catch(() => false));
+              if (stillUnlocked && !(await ownedState(path))) {
+                const detail = await extractLogFailure();
+                if (detail && /(Error|Exception|Invalid|Cannot find|ERR_)/i.test(detail)) {
+                  throw new Error(
+                    `Gateway exited before becoming ready: ${detail}; inspect ${log}`,
+                  );
+                }
+              }
+            }
+          }
+        }
         await delay(poll * 1000);
       }
-      throw new Error(`Gateway startup timed out; inspect ${log}`);
+      const detail = await extractLogFailure();
+      throw new Error(
+        `Gateway startup timed out${detail ? `: ${detail}` : ""}; inspect ${log}`,
+      );
     };
     const background = async () => {
+      let childExited = false;
       const fd = await open(log, "a", 0o600);
       try {
         const child = spawn(
@@ -401,6 +462,9 @@ export async function manageGateway(
             stdio: ["ignore", fd.fd, fd.fd],
           },
         );
+        child.once("exit", () => {
+          childExited = true;
+        });
         await new Promise<void>((resolve, reject) => {
           child.once("spawn", resolve);
           child.once("error", reject);
@@ -409,7 +473,7 @@ export async function manageGateway(
       } finally {
         await fd.close();
       }
-      return waitReady();
+      return waitReady(() => childExited);
     };
     let autostart = "disabled";
     let failure: string | undefined;

@@ -3,6 +3,7 @@ param(
     [string]$Version = $env:RELEASE_VERSION,
     [string]$SourceCommit = '',
     [string]$BaseUrl = '',
+    [string]$DefaultImOrigin = $env:CREWDEN_DEFAULT_IM_ORIGIN,
     [string]$OutDir = 'dist\desktop-windows-release',
     [string]$ExtraAppNote = '',
     [switch]$SkipHostTests
@@ -15,6 +16,13 @@ function Checked([string]$exe, [string[]]$arguments) {
     & $exe @arguments
     if ($LASTEXITCODE -ne 0) { throw "$exe exited with $LASTEXITCODE" }
 }
+
+$rawCommit = if ($SourceCommit) { $SourceCommit } else { 'HEAD' }
+$resolvedCommit = (& git rev-parse --verify "$rawCommit^{commit}" 2>$null).Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0 -or $resolvedCommit -notmatch '^[a-f0-9]{40}$') {
+    throw "Invalid --SourceCommit '$SourceCommit': expected a valid git revision resolving to a 40-character commit SHA"
+}
+$SourceCommit = $resolvedCommit
 
 $build = 'dist\desktop-windows-build'
 $seedDir = Join-Path $build 'seed-archives'
@@ -78,6 +86,7 @@ $pyArgs = @(
 if ($Version) { $pyArgs += @('--version', $Version) }
 if ($SourceCommit) { $pyArgs += @('--source-commit', $SourceCommit) }
 if ($BaseUrl) { $pyArgs += @('--base-url', $BaseUrl) }
+if ($DefaultImOrigin) { $pyArgs += @('--default-im-origin', $DefaultImOrigin) }
 if ($ExtraAppNote) { $pyArgs += @('--extra-app-note', $ExtraAppNote) }
 Checked 'python' $pyArgs
 
@@ -99,6 +108,9 @@ if (!(Test-Path $finalExe)) {
 
 foreach ($assetName in @('desktop-runtime-win32-x64.tar.gz', 'desktop-app-win32-x64.tar.gz', 'desktop-win32-x64.json')) {
     Copy-Item (Join-Path $seedDir $assetName) (Join-Path $resolvedOut $assetName) -Force
+}
+if (Test-Path (Join-Path $seedDir 'desktop-defaults.json')) {
+    Copy-Item (Join-Path $seedDir 'desktop-defaults.json') (Join-Path $resolvedOut 'desktop-defaults.json') -Force
 }
 
 $installerHash = (Get-FileHash -Algorithm SHA256 $finalExe).Hash.ToLowerInvariant()

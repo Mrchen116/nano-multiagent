@@ -9,12 +9,15 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import ipaddress
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import tarfile
+import urllib.parse
 import zipfile
 from pathlib import Path
 
@@ -99,6 +102,179 @@ def encoded(value: object) -> bytes:
 def digest_file(path: Path) -> str:
     with path.open("rb") as handle:
         return hashlib.file_digest(handle, "sha256").hexdigest()
+
+
+def normalize_commit_sha(raw_commit: str, repo_root: Path = ROOT) -> str:
+    """Resolve any git revision or short SHA to a canonical 40-char lowercase commit SHA.
+
+    Args:
+      raw_commit: User-supplied commit ref/SHA, or empty string for `HEAD`.
+      repo_root: Git repository root used for `git rev-parse`.
+
+    Returns:
+      Verified 40-character lowercase hexadecimal commit SHA.
+    """
+    target = raw_commit.strip() or "HEAD"
+    try:
+        resolved = (
+            subprocess.check_output(
+                ["git", "rev-parse", "--verify", f"{target}^{{commit}}"],
+                cwd=repo_root,
+                text=True,
+                stderr=subprocess.PIPE,
+            )
+            .strip()
+            .lower()
+        )
+    except subprocess.CalledProcessError as exc:
+        raise ValueError(
+            f"Invalid --source-commit '{raw_commit}': {exc.stderr.strip() or 'not a valid git commit'}"
+        ) from exc
+    if not re.fullmatch(r"[a-f0-9]{40}", resolved):
+        raise ValueError(
+            f"Resolved commit '{resolved}' is not a 40-character lowercase hex SHA"
+        )
+    return resolved
+
+
+def classify_origin_security(raw_url: str) -> tuple[str, str | None]:
+    """Classify an HTTP(S) URL origin using strict literal IP parsing and reserved-domain rules.
+
+    Args:
+      raw_url: Candidate URL or origin string.
+
+    Returns:
+      Tuple `(kind, normalized_origin)` where `kind` is one of `'https'`, `'loopback_http'`,
+      `'private_http'`, `'rejected_public_http'`, or `'invalid'`.
+    """
+    trimmed = raw_url.strip()
+    if not trimmed:
+        return "invalid", None
+    parsed = urllib.parse.urlsplit(trimmed)
+    scheme = parsed.scheme.lower()
+    if (
+        scheme not in ("http", "https")
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+    ):
+        return "invalid", None
+    try:
+        port = parsed.port
+    except ValueError:
+        return "invalid", None
+
+    host = parsed.hostname.lower()
+    bracketed_host = f"[{host}]" if ":" in host else host
+    default_port = 443 if scheme == "https" else 80
+    netloc = (
+        bracketed_host
+        if port is None or port == default_port
+        else f"{bracketed_host}:{port}"
+    )
+    normalized_origin = f"{scheme}://{netloc}"
+
+    if scheme == "https":
+        return "https", normalized_origin
+
+    if host == "crewden.work" or host.endswith(".crewden.work"):
+        return "rejected_public_http", normalized_origin
+    if host == "localhost":
+        return "loopback_http", normalized_origin
+
+    if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", host):
+        octets = host.split(".")
+        if any(len(part) > 1 and part.startswith("0") for part in octets):
+            return "rejected_public_http", normalized_origin
+        nums = [int(part) for part in octets]
+        if any(n < 0 or n > 255 for n in nums):
+            return "rejected_public_http", normalized_origin
+        if nums[0] == 127:
+            return "loopback_http", normalized_origin
+        if (
+            nums[0] == 10
+            or (nums[0] == 172 and 16 <= nums[1] <= 31)
+            or (nums[0] == 192 and nums[1] == 168)
+        ):
+            return "private_http", normalized_origin
+        return "rejected_public_http", normalized_origin
+
+    if ":" in host:
+        try:
+            ipv6 = ipaddress.IPv6Address(host)
+        except ValueError:
+            return "invalid", None
+        if ipv6.is_loopback:
+            return "loopback_http", normalized_origin
+        first_word = int(ipv6) >> 112
+        if (first_word & 0xFE00) == 0xFC00 or (first_word & 0xFFC0) == 0xFE80:
+            return "private_http", normalized_origin
+        return "rejected_public_http", normalized_origin
+
+    if (
+        host.endswith(".local")
+        and len(host) > len(".local")
+        and not host.startswith(".")
+    ):
+        return "private_http", normalized_origin
+    return "rejected_public_http", normalized_origin
+
+
+def normalize_im_origin(raw_origin: str) -> tuple[str, str]:
+    """Validate and normalize a preset Desktop IM origin (`scheme://host[:port]`).
+
+    Args:
+      raw_origin: Candidate IM origin string.
+
+    Returns:
+      Tuple `(normalized_origin, security_kind)`.
+    """
+    parsed = urllib.parse.urlsplit(raw_origin.strip())
+    if parsed.query or parsed.fragment or parsed.path not in ("", "/"):
+        raise ValueError(
+            f"Invalid --default-im-origin '{raw_origin}': expected scheme://host[:port] without path or query"
+        )
+    kind, origin = classify_origin_security(raw_origin)
+    if kind in ("invalid", "rejected_public_http") or not origin:
+        raise ValueError(
+            f"Disallowed --default-im-origin '{raw_origin}': official and public domains require https://"
+        )
+    return origin, kind
+
+
+def normalize_release_base_url(raw_base: str) -> tuple[str, str]:
+    """Validate and normalize a self-hosted release base URL prefix ending with `/`.
+
+    Args:
+      raw_base: Candidate release base URL prefix.
+
+    Returns:
+      Tuple `(normalized_base_with_slash, security_kind)`.
+    """
+    parsed = urllib.parse.urlsplit(raw_base.strip())
+    if parsed.query or parsed.fragment or parsed.username or parsed.password:
+        raise ValueError(
+            f"Invalid --base-url '{raw_base}': query, fragment, and userinfo are not allowed"
+        )
+    kind, origin = classify_origin_security(raw_base)
+    if kind in ("invalid", "rejected_public_http") or not origin:
+        raise ValueError(
+            f"Disallowed --base-url '{raw_base}': official and public domains require https://"
+        )
+    clean_path = parsed.path.rstrip("/")
+    return f"{origin}{clean_path}/", kind
+
+
+def _version_sort_key(version: str) -> tuple[tuple[int, int | str], ...]:
+    tokens: list[tuple[int, int | str]] = []
+    for part in re.split(r"([0-9]+)", version):
+        if not part:
+            continue
+        if part.isdigit():
+            tokens.append((1, int(part)))
+        else:
+            tokens.append((0, part))
+    return tuple(tokens)
 
 
 def download_url_to_file(url: str, dest: Path) -> None:
@@ -244,6 +420,8 @@ def store_path(package: Path) -> str:
 def build_graph(foreign_parts: set[str]):
     app, runtime, local_links, external_links, groups = {}, {}, {}, {}, {}
     visited = set()
+    store_candidates: dict[str, list[tuple[str, str]]] = {}
+    dsh_web_prefixes: list[str] = []
     pending = [ROOT / "apps/node"]
     while pending:
         package = pending.pop().resolve()
@@ -253,15 +431,17 @@ def build_graph(foreign_parts: set[str]):
         info = json.loads((package / "package.json").read_text(encoding="utf-8"))
         if package.is_relative_to(STORE):
             prefix = store_path(package)
-            groups[prefix] = f"{info['name']}@{info['version']}"
+            pkg_name = str(info["name"])
+            pkg_ver = str(info["version"])
+            groups[prefix] = f"{pkg_name}@{pkg_ver}"
+            store_candidates.setdefault(pkg_name, []).append((pkg_ver, prefix))
+            if pkg_name == "@deepseek-ai/dsh-web":
+                dsh_web_prefixes.append(prefix)
             runtime.update(collect_files(package, prefix, foreign_parts))
             modules = STORE / package.relative_to(STORE).parts[0] / "node_modules"
             for name, link in dependencies(modules):
                 target = link.resolve()
-                if (
-                    info["name"] == "@deepseek-ai/dsh"
-                    and name in ALTERNATE_CLI_PACKAGES
-                ):
+                if pkg_name == "@deepseek-ai/dsh" and name in ALTERNATE_CLI_PACKAGES:
                     continue
                 if target == package:
                     continue
@@ -283,6 +463,20 @@ def build_graph(foreign_parts: set[str]):
         target = link.resolve()
         if target in visited and target.is_relative_to(STORE):
             external_links["p/node_modules/" + name] = store_path(target)
+    # Multi-version lockfile packages may hoist a non-visited variant at `.pnpm/node_modules/<name>`.
+    # Provide a deterministic fallback link in `p/node_modules/<name>` for every visited package.
+    for pkg_name, candidates in sorted(store_candidates.items()):
+        hoist_key = "p/node_modules/" + pkg_name
+        if hoist_key not in external_links:
+            best_ver, best_prefix = max(
+                candidates, key=lambda item: (_version_sort_key(item[0]), item[1])
+            )
+            _ = best_ver
+            external_links[hoist_key] = best_prefix
+    zod_target = external_links.get("p/node_modules/zod")
+    if zod_target:
+        for dsh_web_prefix in dsh_web_prefixes:
+            external_links.setdefault(f"{dsh_web_prefix}/node_modules/zod", zod_target)
     runtime["dependencies.json"] = encoded(external_links)
     app["workspaces.json"] = encoded(local_links)
     return app, runtime, groups
@@ -352,13 +546,20 @@ def main() -> None:
     parser.add_argument(
         "--installer",
         type=Path,
-        required=True,
-        help="Built DMG or Setup.exe installer path",
+        default=None,
+        help="Built DMG or Setup.exe installer path (optional when building embedded seed archives)",
     )
     parser.add_argument("--version", default=os.environ.get("RELEASE_VERSION", ""))
     parser.add_argument("--source-commit", default="")
     parser.add_argument(
-        "--base-url", default="", help="Override release base URL for local E2E testing"
+        "--base-url",
+        default=os.environ.get("IM_RELEASE_BASE_URL", ""),
+        help="Trusted self-hosted release base URL prefix",
+    )
+    parser.add_argument(
+        "--default-im-origin",
+        default=os.environ.get("CREWDEN_DEFAULT_IM_ORIGIN", ""),
+        help="Optional preset default IM origin written to desktop-defaults.json",
     )
     parser.add_argument(
         "--cache-dir", type=Path, default=ROOT / ".cache/desktop-archives"
@@ -371,19 +572,31 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = PLATFORM_CONFIG[args.platform]
-    commit = (
-        args.source_commit
-        or subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
-        ).strip()
-    )
-    version = args.version or commit
-    metadata = {
+    commit = normalize_commit_sha(args.source_commit, ROOT)
+    version = args.version.strip() or commit
+    tag = f"node-{commit}" if version == commit else f"v{version}"
+
+    custom_base_url: str | None = None
+    allow_private_http_base = False
+    if args.base_url.strip():
+        normalized_base, base_kind = normalize_release_base_url(args.base_url)
+        custom_base_url = normalized_base
+        allow_private_http_base = base_kind == "private_http"
+
+    preset_im_origin: str | None = None
+    if args.default_im_origin.strip():
+        preset_im_origin, _origin_kind = normalize_im_origin(args.default_im_origin)
+
+    metadata: dict[str, object] = {
         "source_commit": commit,
         "updater_protocol": 1,
         "data_epoch": 1,
         "shell_protocol": 1,
     }
+    nano_release_meta: dict[str, object] = dict(metadata)
+    if custom_base_url is not None:
+        nano_release_meta["trusted_release_base_url"] = custom_base_url
+        nano_release_meta["allow_private_http_release_base"] = allow_private_http_base
 
     frontend_dist = ROOT / "src/IM/frontend/dist"
     trajectory_dist = ROOT / "packages/dsh-trajectory-viewer/dist"
@@ -424,7 +637,7 @@ def main() -> None:
             app[tracked] = ROOT / tracked
 
     app["package.json"] = ROOT / "package.json"
-    app[".nano-release.json"] = encoded(metadata)
+    app[".nano-release.json"] = encoded(nano_release_meta)
     app.update(collect_files(frontend_dist, "ui/frontend", set()))
     app.update(collect_files(trajectory_dist, "ui/trajectory", set()))
     if args.extra_app_note:
@@ -448,19 +661,29 @@ def main() -> None:
     runtime["layout.mjs"] = ROOT / "packaging/desktop/layout.mjs"
     runtime.update(collect_files(pnpm_root, "tooling/node_modules/pnpm", foreign_parts))
 
-    tag = f"node-{commit}" if version == commit else f"v{version}"
     base = (
-        args.base_url.rstrip("/") + "/"
-        if args.base_url
+        custom_base_url
+        if custom_base_url is not None
         else f"https://github.com/Mrchen116/nano-multiagent/releases/download/{tag}/"
     )
 
     runtime_info = write_tar_gz(out_dir, cfg["runtime_archive"], runtime)
     app_info = write_tar_gz(out_dir, cfg["app_archive"], app)
 
-    installer_dest = out_dir / cfg["installer_name"]
-    if args.installer.resolve() != installer_dest.resolve():
-        shutil.copy2(args.installer, installer_dest)
+    installer_name = str(cfg["installer_name"])
+    if args.installer is not None:
+        if not args.installer.is_file() or args.installer.stat().st_size <= 0:
+            raise ValueError(
+                f"--installer '{args.installer}' must exist and have non-zero size"
+            )
+        installer_dest = out_dir / installer_name
+        if args.installer.resolve() != installer_dest.resolve():
+            shutil.copy2(args.installer, installer_dest)
+        installer_size = installer_dest.stat().st_size
+        installer_sha256 = digest_file(installer_dest)
+    else:
+        installer_size = 1
+        installer_sha256 = "0" * 64
 
     descriptor = {
         "version": version,
@@ -471,9 +694,12 @@ def main() -> None:
     descriptor_path = out_dir / cfg["descriptor_name"]
     descriptor_path.write_bytes(encoded(descriptor))
 
-    manifest = {
+    manifest: dict[str, object] = {
         "version": version,
         **metadata,
+        **(
+            {"release_base_url": custom_base_url} if custom_base_url is not None else {}
+        ),
         "package": descriptor_path.name,
         "platform": args.platform,
         "node_major": 24,
@@ -482,13 +708,27 @@ def main() -> None:
         "sha256": digest_file(descriptor_path),
         "download_url": base + descriptor_path.name,
         "installer": {
-            "download_url": base + installer_dest.name,
-            "size": installer_dest.stat().st_size,
-            "sha256": digest_file(installer_dest),
+            "download_url": base + installer_name,
+            "size": installer_size,
+            "sha256": installer_sha256,
         },
     }
     manifest_path = out_dir / cfg["manifest_name"]
     manifest_path.write_bytes(encoded(manifest))
+
+    defaults_path = out_dir / "desktop-defaults.json"
+    if preset_im_origin is not None or custom_base_url is not None:
+        desktop_defaults: dict[str, object] = {}
+        if preset_im_origin is not None:
+            desktop_defaults["default_im_origin"] = preset_im_origin
+        if custom_base_url is not None:
+            desktop_defaults["trusted_release_base_url"] = custom_base_url
+            desktop_defaults["allow_private_http_release_base"] = (
+                allow_private_http_base
+            )
+        defaults_path.write_bytes(encoded(desktop_defaults))
+    else:
+        defaults_path.unlink(missing_ok=True)
 
     print(
         json.dumps(
@@ -496,7 +736,7 @@ def main() -> None:
                 "platform": args.platform,
                 "version": version,
                 "node_version": NODE_VERSION,
-                "installer_bytes": installer_dest.stat().st_size,
+                "installer_bytes": installer_size,
                 "runtime_bytes": runtime_info["size"],
                 "runtime_sha256": runtime_info["sha256"],
                 "app_bytes": app_info["size"],

@@ -7,6 +7,7 @@ import { useTranslation } from '../../i18n';
 import { ProductHeader } from './product-header';
 import { ProductStorySections } from './product-story';
 import { HeroDownloadActions, PublicDownloadSection, usePublicInstallMaterials } from './public-download-section';
+import { isDesktopClient } from '../../desktop/desktop-context';
 import { accountEnabled, useAuthStore } from '../auth/auth-store';
 import './public-home.css';
 
@@ -23,7 +24,8 @@ export function PublicHomePage({ restoreSession = false }: { restoreSession?: bo
   const hydrated = useAuthStore(s => s.hydrated);
   const { materials } = usePublicInstallMaterials();
   const scene = (key: string) => text(`scenes.${stages[stage]}.${key}`);
-  useEffect(() => { if (restoreSession && !hydrated) void useAuthStore.getState().hydrate(); }, [restoreSession, hydrated]);
+  const desktop = isDesktopClient();
+  useEffect(() => { if ((restoreSession || desktop) && !hydrated) void useAuthStore.getState().hydrate(); }, [restoreSession, desktop, hydrated]);
   useEffect(() => {
     if (!location.hash) return;
     const targetId = location.hash.slice(1);
@@ -34,7 +36,8 @@ export function PublicHomePage({ restoreSession = false }: { restoreSession?: bo
       el.scrollIntoView({ behavior: reduced ? 'instant' : 'smooth', block: 'start' });
     }
   }, [location.hash]);
-  if (restoreSession && hydrated && user) return <Navigate to={accountEnabled(user) ? '/chat' : '/membership'} replace />;
+  if ((restoreSession || desktop) && hydrated && user) return <Navigate to={accountEnabled(user) ? '/chat' : '/membership'} replace />;
+  if (desktop && hydrated && !user) return <Navigate to="/login" replace />;
 
   function watch() {
     document.getElementById('teamwork')?.scrollIntoView({

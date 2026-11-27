@@ -10,8 +10,11 @@ import { isNotificationSupported, showAgentNotification } from "../features/noti
 import { bindingTargetKey } from "../features/onboarding/binding-target";
 import { setLanguage } from "../i18n";
 import { renderRouter } from "../test/render-router";
-import { setDesktopBootContextForTest } from "./desktop-context";
+import { classifyDesktopImOrigin, setDesktopBootContextForTest } from "./desktop-context";
 import { DesktopDualInstallPicker } from "./desktop-install-picker";
+import { DesktopServerBar } from "./desktop-server-bar";
+import { DesktopServerSwitchModal } from "./desktop-server-switch-modal";
+import { ProductHeader } from "../features/home/product-header";
 
 describe("Crewden Desktop session isolation, onboarding picker, and foreign-owner guard", () => {
   const originalFetch = globalThis.fetch;
@@ -185,5 +188,138 @@ describe("Crewden Desktop session isolation, onboarding picker, and foreign-owne
     // Step 2 sends confirm_transfer: true
     await user.click(within(foreignCard).getByRole("button", { name: "确认转移并接管" }));
     await waitFor(() => expect(connectBodies).toEqual([{ confirm_transfer: true }]));
+  });
+
+  it("enforces strict HTTPS vs private-LAN HTTP classification and in-place DesktopServerBar editing", async () => {
+    expect(classifyDesktopImOrigin("https://im.crewden.work").kind).toBe("https");
+    expect(classifyDesktopImOrigin("http://im.crewden.work").kind).toBe("rejected_public_http");
+    expect(classifyDesktopImOrigin("http://crewden.work").kind).toBe("rejected_public_http");
+    expect(classifyDesktopImOrigin("http://10.evil.com").kind).toBe("rejected_public_http");
+    expect(classifyDesktopImOrigin("http://100.64.0.1:8080").kind).toBe("rejected_public_http");
+    expect(classifyDesktopImOrigin("http://127.0.0.1:8080").kind).toBe("loopback_http");
+    expect(classifyDesktopImOrigin("http://192.168.1.25:8080").kind).toBe("private_http");
+    expect(classifyDesktopImOrigin("http://crewden-box.local:8080").kind).toBe("private_http");
+
+    const user = userEvent.setup();
+    setDesktopBootContextForTest({
+      imOrigin: "http://192.168.1.25:8080",
+      contextEpoch: 1,
+      platform: "win32-x64",
+    });
+    expect(document.documentElement.dataset.crewdenDesktop).toBe("true");
+
+    render(<DesktopServerBar />);
+    expect(screen.getByTestId("desktop-private-http-badge")).toHaveTextContent("内网 HTTP");
+
+    // Clicking "切换服务" replaces the bar in place with Cancel + Save & switch
+    await user.click(screen.getByRole("button", { name: "切换服务" }));
+    expect(screen.queryByTestId("desktop-server-bar")).not.toBeInTheDocument();
+    expect(screen.getByTestId("desktop-server-editor")).toBeInTheDocument();
+    expect(screen.getByTestId("desktop-private-http-hint")).toBeInTheDocument();
+
+    // Public/official HTTP is blocked inline without calling switch
+    const input = screen.getByLabelText("IM 服务地址");
+    await user.clear(input);
+    await user.type(input, "http://im.crewden.work");
+    await user.click(screen.getByRole("button", { name: "保存切换" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("https://");
+
+    // Cancel restores the compact bar
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(screen.getByTestId("desktop-server-bar")).toBeInTheDocument();
+  });
+
+  it("renders cross-origin server switch confirmation with cleartext warning and blocks public HTTP deep links", async () => {
+    const user = userEvent.setup();
+    let dismissed = 0;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/desktop/v1/context") {
+        return new Response(
+          JSON.stringify({
+            im_origin: "https://im.crewden.work",
+            context_epoch: 1,
+            platform: "win32-x64",
+            seed_ready: true,
+            pending_server_switch: {
+              target_origin: "http://10.0.0.18:8080",
+              is_cleartext_http: true,
+            },
+            deep_link_error: null,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (url === "/desktop/v1/server/pending/dismiss" && init?.method === "POST") {
+        dismissed += 1;
+        return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+
+    setDesktopBootContextForTest({
+      imOrigin: "https://im.crewden.work",
+      contextEpoch: 1,
+      platform: "win32-x64",
+      pendingServerSwitch: {
+        target_origin: "http://10.0.0.18:8080",
+        is_cleartext_http: true,
+      },
+    });
+
+    const { unmount } = render(<DesktopServerSwitchModal />);
+    expect(await screen.findByTestId("desktop-server-switch-modal")).toBeInTheDocument();
+    expect(screen.getByTestId("desktop-cleartext-http-warning")).toBeInTheDocument();
+    expect(screen.getByText("http://10.0.0.18:8080")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "保留原服务" }));
+    await waitFor(() => expect(dismissed).toBe(1));
+    expect(screen.queryByTestId("desktop-server-switch-modal")).not.toBeInTheDocument();
+    unmount();
+
+    // Now test blocked public HTTP deep link alert modal
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/desktop/v1/context") {
+        return new Response(
+          JSON.stringify({
+            im_origin: "https://im.crewden.work",
+            context_epoch: 1,
+            platform: "win32-x64",
+            seed_ready: true,
+            pending_server_switch: null,
+            deep_link_error: "官方与公网 IM 服务必须使用 https:// 加密连接",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+
+    setDesktopBootContextForTest({
+      imOrigin: "https://im.crewden.work",
+      contextEpoch: 1,
+      platform: "win32-x64",
+      deepLinkError: "官方与公网 IM 服务必须使用 https:// 加密连接",
+    });
+
+    render(<DesktopServerSwitchModal />);
+    const errModal = await screen.findByTestId("desktop-deep-link-error-modal");
+    expect(within(errModal).getByText(/已拦截不安全的明文连接请求/)).toBeInTheDocument();
+    expect(within(errModal).getByText("https://im.crewden.work")).toBeInTheDocument();
+  });
+
+  it("keeps ProductHeader brand navigation inside the app (/login or /chat) in Desktop mode", () => {
+    setDesktopBootContextForTest({
+      imOrigin: "https://im.crewden.work",
+      contextEpoch: 1,
+      platform: "win32-x64",
+    });
+    renderRouter({
+      routes: [{ path: "/login", element: <ProductHeader page="login" /> }],
+      initialEntries: ["/login"],
+      auth: null,
+    });
+    const brandLink = screen.getByRole("link", { name: /Crewden/i });
+    expect(brandLink).toHaveAttribute("href", "/login");
   });
 });

@@ -92,7 +92,9 @@ export interface MessageApprovalContext {
 export { canonicalAgentConfiguration, agentConfigurationFingerprint, type CanonicalAgentConfiguration } from './configuration.js';
 export { validateTimeZone, formatLocalTime } from './time.js';
 export { approvalDefaults, type ApprovalConfiguration } from './approval.js';
-export { parseReleaseManifest, nodeUpdateTerminal, nodeUpdateCancellable,
+export { parseReleaseManifest, classifyOriginSecurity, normalizeReleaseBaseUrl,
+  nodeUpdateTerminal, nodeUpdateCancellable,
+  type OriginSecurityKind, type OriginSecurityClassification, type ParseReleaseManifestOptions,
   type DesktopPlatform, type PlatformInstaller,
   type ReleaseManifest, type NodeRelease, type NodeUpdateState, type NodeUpdateOperation,
   type NodeUpdateView, type NodeUpdateReport } from './node-update.js';

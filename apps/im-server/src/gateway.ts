@@ -3,6 +3,8 @@ import {registerWorkRedactions} from './work-sync.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { NodeRpc } from './node-rpc.js';
 import { catalogReads } from './catalog-reads.js';
+import { readNodeCreationCapabilities } from './agent-creation.js';
+import { settingsConnection } from './agent-settings.js';
 import { isRecord } from './node-rpc-values.js';
 import {reportAgentDeletion, requireDeletionOperation, resumableAgentDeletions} from './agent-deletion.js';
 import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from './agent-lifecycle.js';
@@ -422,6 +424,16 @@ export class Gateway {
     });
     if (type === "node.register") {
       const result = this.register(c, p);
+      if (p.capabilities?.model_setup === true) {
+        setImmediate(() => {
+          try {
+            if (!this.ctx.db.isOpen) return;
+            if (settingsConnection(this.ctx, { owner_id: c.owner_id, node_id: c.node_id }) === c) {
+              void readNodeCreationCapabilities(this.ctx, c.node_id, c.owner_id).catch(() => {});
+            }
+          } catch { /* Server may have closed during test teardown. */ }
+        });
+      }
       return ack(result);
     }
     if (this.nodes.get(c.node_id) !== c || !this.valid(c) || p.node_id !== c.node_id)
@@ -453,7 +465,18 @@ export class Gateway {
       const agentId=type==='agent.message'?String(p.from_session_id??'').replace(/^agent:/,'').split('|tool_call:')[0]:p.agent_id;
       this.requireAgent(c,agentId);requireLifecycle(db,agentId,p.lifecycle_revision);
     }
-    if (type === 'node.capabilities.changed') { catalogReads(this.ctx).invalidateNode(c.node_id); return ack(); }
+    if (type === 'node.capabilities.changed') {
+      catalogReads(this.ctx).invalidateNode(c.node_id);
+      setImmediate(() => {
+        try {
+          if (!this.ctx.db.isOpen) return;
+          if (settingsConnection(this.ctx, { owner_id: c.owner_id, node_id: c.node_id }) === c) {
+            void readNodeCreationCapabilities(this.ctx, c.node_id, c.owner_id).catch(() => {});
+          }
+        } catch { /* Server may have closed during test teardown. */ }
+      });
+      return ack();
+    }
     if (this.rpc.accept(c, type, p)) return ack({request_id:p.request_id});
     if (type.startsWith("pa.")) {
       try { return {type:`${type}.result`,payload:{request_id:p.request_id,ok:true,result:await this.ctx.personal!.handle(c,type,p)}}; }

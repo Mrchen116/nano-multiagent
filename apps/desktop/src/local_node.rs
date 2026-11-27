@@ -90,20 +90,67 @@ pub fn default_seed_archives_dir(explicit: Option<&Path>) -> Option<PathBuf> {
     None
 }
 
+fn seed_manifest_filename() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "manifest.desktop-win32-x64.json"
+    } else {
+        "manifest.desktop-darwin-arm64.json"
+    }
+}
+
+/// Copy `seed-archives/desktop-defaults.json` (if bundled) into `<desktop_home>/desktop-defaults.json`
+/// before loopback server initialization so first launch immediately uses preset private IM settings.
+pub fn sync_seed_desktop_defaults(paths: &DesktopPaths, seed_archives_dir: Option<&Path>) {
+    let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
+        return;
+    };
+    let defaults_src = seed_dir.join("desktop-defaults.json");
+    if defaults_src.is_file() {
+        let dest = paths.desktop_defaults_path();
+        if let Some(parent) = dest.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let _ = fs::copy(&defaults_src, &dest);
+    }
+}
+
+/// Return true when bundled seed archives exist and have not yet unpacked their target `.ready` marker.
+pub fn has_pending_seed_bundle(paths: &DesktopPaths, seed_archives_dir: Option<&Path>) -> bool {
+    let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
+        return false;
+    };
+    let manifest_path = seed_dir.join(seed_manifest_filename());
+    if !manifest_path.is_file() {
+        return false;
+    }
+    let Ok(raw) = fs::read_to_string(&manifest_path) else {
+        return true;
+    };
+    let Ok(manifest) = serde_json::from_str::<Value>(&raw) else {
+        return true;
+    };
+    let Some(target_sha) = manifest["sha256"].as_str() else {
+        return true;
+    };
+    !paths
+        .desktop_home
+        .join("versions")
+        .join(target_sha)
+        .join(".ready")
+        .is_file()
+}
+
 /// Unpack first-install seed archives into `<desktop_home>/{cache,runtimes,versions}` so
 /// managed Node 24.22.1 works with zero global PATH tools and future updates reuse `runtime`.
 pub fn ensure_seed_bundle_installed(
     paths: &DesktopPaths,
     seed_archives_dir: Option<&Path>,
 ) -> Result<Option<PathBuf>, String> {
+    sync_seed_desktop_defaults(paths, seed_archives_dir);
     let Some(seed_dir) = default_seed_archives_dir(seed_archives_dir) else {
         return Ok(None);
     };
-    let manifest_name = if cfg!(target_os = "windows") {
-        "manifest.desktop-win32-x64.json"
-    } else {
-        "manifest.desktop-darwin-arm64.json"
-    };
+    let manifest_name = seed_manifest_filename();
     let manifest_path = seed_dir.join(manifest_name);
     if !manifest_path.is_file() {
         return Ok(None);
@@ -330,10 +377,17 @@ pub fn resolve_active_bundle(
         }
     }
 
-    // 3. Development / test repository fallback
-    let repo_root = dev_repo_root
-        .map(Path::to_path_buf)
-        .or_else(|| std::env::var("CREWDEN_DEV_REPO_ROOT").ok().map(PathBuf::from))
+    // 3. Development / test repository fallback (blocked when packaged seed-archives exist without explicit dev_repo_root)
+    let explicit_dev = dev_repo_root.map(Path::to_path_buf).or_else(|| {
+        std::env::var("CREWDEN_DEV_REPO_ROOT")
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .map(PathBuf::from)
+    });
+    if explicit_dev.is_none() && default_seed_archives_dir(None).is_some() {
+        return Err("Seed runtime bundle is still preparing".to_string());
+    }
+    let repo_root = explicit_dev
         .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../.."));
     let repo_root = fs::canonicalize(&repo_root).unwrap_or(repo_root);
     let node_bin = resolve_dev_node_binary(&repo_root)?;

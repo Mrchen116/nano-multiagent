@@ -47,7 +47,10 @@ export class NodeUpdates {
     const current = id ? this.installation(id) : null;
     const latest = id ? this.latest(id) : undefined;
     const operation = latest ? projection(latest) : null;
-    const target = releaseManifest(this.directory, current?.platform);
+    const target = releaseManifest(this.directory, current?.platform, {
+      allowPrivateHttp: this.ctx.allowPrivateHttp,
+      releaseBaseUrl: this.ctx.releaseBaseUrl,
+    });
     const installation = current?.kind === 'source' ? 'source' : current?.updater_protocol === 1 ? 'managed' : 'legacy';
     let reason: NodeUpdateView['reason'];
     if (operation && !nodeUpdateTerminal(operation.state)) reason = 'active';

@@ -4,10 +4,19 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ImContext } from './context.js';
 import { fail } from './context.js';
-import { parseReleaseManifest } from '@nano/product-contracts';
+import {
+  classifyOriginSecurity,
+  parseReleaseManifest,
+  type ParseReleaseManifestOptions,
+} from '@nano/product-contracts';
 
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 export const defaultReleaseDirectory = fileURLToPath(new URL('../../../dist/node-release/', import.meta.url));
+
+export interface InstallReleaseOptions {
+  allowPrivateHttp?: boolean;
+  releaseBaseUrl?: string;
+}
 
 const MANIFEST_FILES: Record<string, string> = {
   'win32-x64': 'manifest.win32-x64.json',
@@ -15,9 +24,22 @@ const MANIFEST_FILES: Record<string, string> = {
   'desktop-win32-x64': 'manifest.desktop-win32-x64.json',
 };
 
-function allowsDesktopConnectOrigin(originUrl: URL): boolean {
-  if (originUrl.protocol === 'https:') return true;
-  return originUrl.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(originUrl.hostname);
+function manifestParseOptions(options?: InstallReleaseOptions): ParseReleaseManifestOptions {
+  const allowPrivateHttp = Boolean(options?.allowPrivateHttp);
+  const baseUrl = options?.releaseBaseUrl?.trim();
+  return {
+    ...(baseUrl ? { trustedReleaseBaseUrls: [baseUrl] } : {}),
+    allowPrivateHttpReleaseBase: allowPrivateHttp,
+  };
+}
+
+function allowsDesktopConnectOrigin(originUrl: URL, allowPrivateHttp = false): boolean {
+  const security = classifyOriginSecurity(originUrl.origin);
+  return (
+    security.kind === 'https' ||
+    security.kind === 'loopback_http' ||
+    (allowPrivateHttp && security.kind === 'private_http')
+  );
 }
 
 function parseIosDownloadUrl(raw?: string): { download_url: string } | null {
@@ -37,14 +59,18 @@ function parseIosDownloadUrl(raw?: string): { download_url: string } | null {
  * Args:
  *   directory: Deployment's release selection directory.
  *   platform: Registered platform, or undefined for the original Unix package.
+ *   options: Optional private-HTTP and self-hosted release base configuration.
  * Returns:
  *   Manifest matching the requested platform, or null when unavailable.
  */
-export function releaseManifest(directory: string, platform?: string) {
+export function releaseManifest(directory: string, platform?: string, options?: InstallReleaseOptions) {
   if (platform !== undefined && !(platform in MANIFEST_FILES)) return null;
   const filename = platform === undefined ? 'manifest.json' : MANIFEST_FILES[platform]!;
   try {
-    const manifest = parseReleaseManifest(JSON.parse(readFileSync(join(directory, filename), 'utf8')));
+    const manifest = parseReleaseManifest(
+      JSON.parse(readFileSync(join(directory, filename), 'utf8')),
+      manifestParseOptions(options),
+    );
     return manifest?.platform === platform ? manifest : null;
   } catch { return null; }
 }
@@ -54,25 +80,39 @@ export function unixInstallCommand(origin: string) {
   return `curl -fsSL ${quote(new URL(origin).origin + '/install.sh')} -o /tmp/nano-install.sh && bash /tmp/nano-install.sh`;
 }
 
+function isUnixScriptInstallSupported(originUrl: URL, directory: string, options?: InstallReleaseOptions): boolean {
+  const security = classifyOriginSecurity(originUrl.origin);
+  if (security.kind !== 'https' && security.kind !== 'loopback_http') return false;
+  const manifest = releaseManifest(directory, undefined, options);
+  return manifest !== null && manifest.release_base_url === undefined;
+}
+
 /** Describe the explicitly selected installer using only validated release metadata.
  *
  * Args:
  *   origin: Configured public IM URL; request Host must not influence commands.
  *   directory: Deployment directory containing the verified manifest.
+ *   iosDownloadUrl: Optional HTTPS iOS download URL.
+ *   options: Optional private-HTTP and self-hosted release base configuration.
  * Returns:
  *   Installation availability and platform-specific download/connect materials for this IM.
  */
-export function installMaterials(origin: string, directory: string, iosDownloadUrl?: string) {
+export function installMaterials(
+  origin: string,
+  directory: string,
+  iosDownloadUrl?: string,
+  options?: InstallReleaseOptions,
+) {
   const originUrl = new URL(origin);
   const base = originUrl.origin;
-  const available = releaseManifest(directory) !== null;
-  const windows = releaseManifest(directory, 'win32-x64');
-  const windows_x64 = windows?.platform === 'win32-x64' && originUrl.protocol === 'https:'
+  const available = isUnixScriptInstallSupported(originUrl, directory, options);
+  const windows = releaseManifest(directory, 'win32-x64', options);
+  const windows_x64 = windows?.platform === 'win32-x64' && originUrl.protocol === 'https:' && !windows.release_base_url
     ? { download_url: windows.installer.download_url, connect_url: `crewden://connect?origin=${encodeURIComponent(base)}` }
     : null;
-  const macDesktop = releaseManifest(directory, 'desktop-darwin-arm64');
-  const winDesktop = releaseManifest(directory, 'desktop-win32-x64');
-  const desktopAllowed = allowsDesktopConnectOrigin(originUrl);
+  const macDesktop = releaseManifest(directory, 'desktop-darwin-arm64', options);
+  const winDesktop = releaseManifest(directory, 'desktop-win32-x64', options);
+  const desktopAllowed = allowsDesktopConnectOrigin(originUrl, options?.allowPrivateHttp);
   const desktopConnectUrl = `crewden-desktop://connect?origin=${encodeURIComponent(base)}`;
   const desktop_darwin_arm64 = macDesktop?.platform === 'desktop-darwin-arm64' && desktopAllowed
     ? { download_url: macDesktop.installer.download_url, connect_url: desktopConnectUrl, version: macDesktop.version }
@@ -102,38 +142,40 @@ export function installMaterials(origin: string, directory: string, iosDownloadU
  *   iosDownloadUrl: Optional HTTPS store/distribution URL for the iOS client.
  */
 export function registerInstallRoutes(app: FastifyInstance, ctx: ImContext, directory: string, iosDownloadUrl?: string) {
+  const opts: InstallReleaseOptions = { allowPrivateHttp: ctx.allowPrivateHttp, releaseBaseUrl: ctx.releaseBaseUrl };
   app.get('/im/v1/public/install', (_req, reply) => {
-    return reply.header('Cache-Control', 'no-store').send(installMaterials(ctx.publicUrl, directory, iosDownloadUrl));
+    return reply.header('Cache-Control', 'no-store').send(installMaterials(ctx.publicUrl, directory, iosDownloadUrl, opts));
   });
   app.get('/install.sh', (_req, reply) => {
-    if (!releaseManifest(directory)) fail(503, 'Computer installer is not published yet');
+    const originUrl = new URL(ctx.publicUrl);
+    if (!isUnixScriptInstallSupported(originUrl, directory, opts)) fail(503, 'Computer installer is not published yet');
     const template = readFileSync(new URL('../assets/install.sh', import.meta.url), 'utf8');
     return reply.header('Cache-Control', 'no-store').type('text/x-shellscript')
-      .send(template.replace('__NANO_ORIGIN__', quote(new URL(ctx.publicUrl).origin)));
+      .send(template.replace('__NANO_ORIGIN__', quote(originUrl.origin)));
   });
   app.get('/install/manifest.json', (_req, reply) => {
-    const manifest = releaseManifest(directory);
+    const manifest = releaseManifest(directory, undefined, opts);
     if (!manifest) fail(503, 'Computer installer is not published yet');
     return reply.header('Cache-Control', 'no-store').send(manifest);
   });
   app.get('/install/manifest.win32-x64.json', (_req, reply) => {
-    const manifest = releaseManifest(directory, 'win32-x64');
+    const manifest = releaseManifest(directory, 'win32-x64', opts);
     if (!manifest) fail(503, 'Windows installer is not published yet');
     return reply.header('Cache-Control', 'no-store').send(manifest);
   });
   app.get('/install/manifest.desktop-darwin-arm64.json', (_req, reply) => {
-    const manifest = releaseManifest(directory, 'desktop-darwin-arm64');
+    const manifest = releaseManifest(directory, 'desktop-darwin-arm64', opts);
     if (!manifest) fail(503, 'macOS Desktop installer is not published yet');
     return reply.header('Cache-Control', 'no-store').send(manifest);
   });
   app.get('/install/manifest.desktop-win32-x64.json', (_req, reply) => {
-    const manifest = releaseManifest(directory, 'desktop-win32-x64');
+    const manifest = releaseManifest(directory, 'desktop-win32-x64', opts);
     if (!manifest) fail(503, 'Windows Desktop installer is not published yet');
     return reply.header('Cache-Control', 'no-store').send(manifest);
   });
   // Old scripts still request the IM path; redirect without reading the archive.
   app.get('/install/nano-node.tgz', (_req, reply) => {
-    const manifest = releaseManifest(directory);
+    const manifest = releaseManifest(directory, undefined, opts);
     if (!manifest) fail(503, 'Computer installer is not published yet');
     return reply.header('Cache-Control', 'no-store').redirect(manifest.download_url, 302);
   });
