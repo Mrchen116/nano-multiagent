@@ -163,14 +163,14 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
     #[cfg(windows)]
     {
         let runtimes = paths.desktop_home.join("runtimes");
-        // Inherit DELETE denial on the stage and deny DELETE_CHILD on its parent.
-        // Extraction and layout can finish, but publishing the staged runtime cannot.
-        set_test_acl(&runtimes, "/deny", "*S-1-1-0:(CI)(D,DC)");
+        // Deny only creation of a child directory so the GUI sees a deterministic
+        // filesystem failure before tar starts. The rename ACL is tested separately.
+        set_test_acl(&runtimes, "/deny", "*S-1-1-0:(AD)");
         retry().await;
         let error = wait_for_seed_error(&host).await;
         set_test_acl(&runtimes, "/remove:d", "*S-1-1-0");
         assert!(
-            error.contains("Rename seed directory") && error.contains("os error 5"),
+            error.contains("Create runtime directory") && error.contains("os error 5"),
             "{error}"
         );
         assert_eq!(
@@ -186,7 +186,7 @@ async fn seed_retry_repairs_cached_archives_from_bundle() {
             .text()
             .await
             .unwrap();
-        assert!(page.contains("Rename seed directory"));
+        assert!(page.contains("Create runtime directory"));
         assert!(!paths.seed_marker_path().exists());
         assert!(!paths.desktop_home.join("versions").join(&target).exists());
         assert_eq!(fs::read(older.join(".ready")).unwrap(), b"older");
