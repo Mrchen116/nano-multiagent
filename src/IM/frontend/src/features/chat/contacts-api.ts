@@ -26,11 +26,6 @@ export function contactActor(contact: Contact): Actor {
   return {
     type: contact.kind === "human" ? "user" : "agent",
     id: contact.agent_id ?? contact.user_id,
-    user_id: contact.user_id,
-    display_name: contact.display_name,
-    ...(contact.role ? { role: contact.role } : {}),
-    ...(contact.avatar_variant !== undefined ? { avatar_variant: contact.avatar_variant } : {}),
-    ...(contact.avatar_version !== undefined ? { avatar_version: contact.avatar_version } : {}),
   };
 }
 

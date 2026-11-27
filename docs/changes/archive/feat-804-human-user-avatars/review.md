@@ -41,7 +41,7 @@
 - **重要目标和关键设计覆盖**：全部覆盖（真人静态头像上传/圆形裁剪/替换/移除/首字母柔和色回退、服务端 `sharp` 256×256 去 EXIF WebP 与同账号互斥锁、`selfManagedAuth` 可见性矩阵、三端实时同步与登出清理、iOS 纯内存缓存与 SQLite v9 元数据、桌面端左下角导航轨基线、引用块等次级结构零头像克制、Agent/PA 零上下文污染、五端对齐矩阵）。
 - **开放问题 / pending / inconclusive**：无（`0`）。
 - **最终 delta 校对**：已由独立代码审查校对通过，并按最新 `origin/develop` 基线完成 canonical 归并（`docs/specs/im/{spec,auth-tenancy,web-chat-ux,ios-client}.md`）。
-- **版本变化后保留 / 补验的判断与依据**：`52eceae80` 合入 `origin/develop`（`1bdc4646c`）至 `fae40d6bc` 的三处冲突消解均为正交保留，经合入后全套契约检查、前后端单测与构建验证无回归，保留全部独立审查 `pass` 结论。
+- **版本变化后保留 / 补验的判断与依据**：`52eceae80` 合入 `origin/develop`（`1bdc4646c`）至 `fae40d6bc` 的三处冲突消解均为正交保留，并在全量前端 141 文件回归中恢复 `contacts-api.ts` 的 `contactActor` 纯 `{ type, id }` 创建会话入参（全局头像目录由 `providers.tsx` 直接读取 `Contact` 字段，不依赖 `contactActor`），经合入后全套契约检查、后端 98 文件与前端 141 文件单测及构建验证无回归，保留全部独立审查 `pass` 结论。
 - **测试资源回收结果**：4 类本轮临时资源全部已回收，0 个遗留：
   1. 隔离真栈（`WT_ROOT` 下的 `im-server` 与 `gateway` 进程、SQLite 与临时上传目录）已执行 `./scripts/e2e-down.sh` 并删除目录，确认无残留监听进程；
   2. 本轮新建专用模拟器 `NanoIM feat-804 E2E`（`A6025E88-5CCD-4D39-9243-AAAF71CE832D`）已 `shutdown` 并 `simctl delete`，宿主机原有模拟器均保持初始 `Shutdown` 状态；
