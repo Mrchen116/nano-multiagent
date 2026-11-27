@@ -290,11 +290,21 @@ export class ExternalChannels {
         if(publication.reply_to_message_id!==undefined)throw new Error('Quoted replies require a Nano IM destination');
         const agentId = String(publication.from_session_id).split('|')[0];
         if (chat.agentId !== agentId) throw new Error('External target belongs to another Agent');
+        this.assertOutboundScopeAllowed(agentId, chat);
         const output = this.state.prepare(chat.id, String(publication.from_session_id), 'explicit',Number(publication.lifecycle_revision??1));
         this.state.frame(output.id, { lifecycle_revision:output.lifecycle_revision,kind: 'turn_start', conversation_id: chat.id, agent_id: agentId, idempotency_key: output.operationId });
         const complete: CompletedMessage = { lifecycle_revision:output.lifecycle_revision,kind: 'message_completed', message_id: output.id, final_content: publication.text, pa_incident_ref:publication.pa_incident_ref, delivery_status: 'completed' };
         await this.finish(output, complete);
         void this.flush().catch(this.options.onError); return ack(type, { message_id: output.platformId ?? this.state.output(output.id)!.platformId, conversation_id: chat.id });
+      }
+      if (target.startsWith('external:')) {
+        const agentId = String(publication.from_session_id).split('|')[0];
+        if (this.options.ownerOnly?.(agentId) === true) {
+          const message = "This assistant is set to Private and can only communicate with its owner and the owner's own assistants.";
+          throw Object.assign(new RelayDeliveryError(message, 'rejected', 'collaboration_scope_restricted'), {
+            detail: { code: 'collaboration_scope_restricted', message },
+          });
+        }
       }
       return this.options.relay.request(type, {...publication});
     }
@@ -304,6 +314,7 @@ export class ExternalChannels {
     if (stream.kind === 'turn_start') {
       const chat = this.state.chat(String(stream.conversation_id));
       if (!chat) return this.forwardStream(stream);
+      this.assertOutboundScopeAllowed(String(stream.agent_id ?? chat.agentId), chat);
       const output = this.state.prepare(chat.id, String(stream.idempotency_key), typeof stream.external_reply === 'string' ? stream.external_reply : undefined,Number(stream.lifecycle_revision??1));
       this.state.frame(output.id, stream);
       void this.flush().catch(this.options.onError); return ack(type, { message_id: output.id, conversation_id: chat.id });
@@ -322,6 +333,17 @@ export class ExternalChannels {
     if (stream.kind === 'permission_request' && output.reply) await this.approval(output, stream);
     if (stream.kind === 'permission_resolved') await this.resolveApproval(String(stream.permission_request?.request_id ?? stream.request_id), String(stream.decision));
     void this.flush().catch(this.options.onError); return ack(type);
+  }
+  private assertOutboundScopeAllowed(agentId: string, chat: ExternalChat): void {
+    if (this.options.ownerOnly?.(agentId) !== true) return;
+    const ownerOpenId = this.connections.get(agentId)?.config.ownerOpenId;
+    const isOwnerDm = !chat.isGroup && !!ownerOpenId && chat.sourceId === `feishu:${chat.appId}:dm:${ownerOpenId}`;
+    if (!isOwnerDm) {
+      const message = "This assistant is set to Private and can only communicate with its owner and the owner's own assistants.";
+      throw Object.assign(new RelayDeliveryError(message, 'rejected', 'collaboration_scope_restricted'), {
+        detail: { code: 'collaboration_scope_restricted', message },
+      });
+    }
   }
   private forwardStream(payload: ChatStreamFact): Promise<ProtocolFrame> {
     return this.options.relay.request('node.streaming_delta', {...payload});

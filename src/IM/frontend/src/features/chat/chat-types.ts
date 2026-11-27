@@ -287,6 +287,7 @@ export interface Conversation {
   dissolved_at?: string | null;
   is_member?: boolean;
   can_write?: boolean;
+  write_blocked_reason?: string | null;
   is_observer?: boolean;
   can_change_visibility?: boolean;
   id: string;

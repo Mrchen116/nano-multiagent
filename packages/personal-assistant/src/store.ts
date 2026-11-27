@@ -461,6 +461,29 @@ export class NodeStore {
   skippedChat(input:RelayInput):boolean {
     return !!this.db.prepare('SELECT 1 FROM input_lifecycles WHERE agent_id=? AND message_id=? AND scope_cancelled=1').get(input.agent_id,input.message.id);
   }
+  /** Clear stale `owner_internal` metadata on parked/unresolved inputs when an external member joins a group. */
+  markConversationExternal(agentId:string, conversationId:string):void {
+    const canonical = this.canonicalConversation(agentId, conversationId);
+    const parked = this.db.prepare('SELECT input_id,payload FROM group_background WHERE agent_id=? AND conversation_id=? AND cancelled=0')
+      .all(agentId, canonical) as {input_id:string;payload:string}[];
+    for (const row of parked) {
+      const parsed = JSON.parse(row.payload) as RelayInput;
+      if (parsed.metadata?.owner_internal === true) {
+        parsed.metadata.owner_internal = false;
+        this.db.prepare('UPDATE group_background SET payload=? WHERE input_id=?').run(JSON.stringify(parsed), row.input_id);
+      }
+    }
+    const inputs = this.db.prepare(`SELECT i.input_id,i.payload FROM inputs i JOIN sessions s USING(session_id)
+      WHERE s.agent_id=? AND i.evidence_final=0 AND json_extract(i.payload,'$.conversation_id') IN (?,?)`)
+      .all(agentId, conversationId, canonical) as {input_id:string;payload:string}[];
+    for (const row of inputs) {
+      const parsed = JSON.parse(row.payload) as RelayInput;
+      if (parsed.metadata?.owner_internal === true) {
+        parsed.metadata.owner_internal = false;
+        this.db.prepare('UPDATE inputs SET payload=? WHERE input_id=?').run(JSON.stringify(parsed), row.input_id);
+      }
+    }
+  }
 
   /** Block local submission while the runtime determines which requests have reached a provider. */
   restrictChat(agentId: string, blocked: (input: RelayInput) => boolean) {

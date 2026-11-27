@@ -362,6 +362,7 @@
     "title": "Agents",
     "newButton": "Create agent",
     "loadError": "Could not load agents.",
+    "unavailablePrivate": "This assistant does not exist or is currently private.",
     "retry": "Retry",
     "openNodes": "Open Nodes",
     "empty": {
@@ -573,10 +574,13 @@
         "previewLoading": "Loading preview…",
         "previewError": "Could not load preview.",
         "scope": "Collaboration scope",
-        "team": "Team",
-        "ownerOnly": "Owner only",
-        "teamHelp": "Team members can message this Agent privately. Direct messages, mentions and replies arrive promptly. Other group messages arrive in batches.",
-        "ownerOnlyHelp": "Only your private messages to this Agent arrive. Pending team messages are skipped, including after switching back.",
+        "team": "Team public",
+        "ownerOnly": "Private (you & your assistants)",
+        "ownerOnlyShort": "Private",
+        "teamHelp": "Teammates can find and message this assistant or add it to groups. Direct messages, mentions and replies arrive promptly; other group messages arrive in batches.",
+        "ownerOnlyHelp": "Hidden from teammates; collaborates only with you and your own assistants in direct chats or internal private groups.",
+        "ownerOnlyPaHelp": "Hidden from teammates and never sends or delegates messages externally; still silently observes chats you allow and reports back to you.",
+        "tightenScopeNotice": "Saving removes this assistant from groups with teammates and makes existing teammate direct chats read-only.",
         "approvalMode": "Approval strategy",
         "approvalInherit": "Follow node ({{strategy}})",
         "approvalUnknown": "strategy unconfirmed",
@@ -1119,6 +1123,9 @@
       "title": "New group chat",
       "subtitle": "Choose people and Agents you manage",
       "personalScope": "Groups with a personal assistant stay private in your personal space.",
+      "privateAgentScope": "Groups with a private assistant stay private for you and your own assistants only.",
+      "disabledHumanForPrivateAgent": "Unavailable while a private assistant is selected",
+      "disabledPrivateAgentForHuman": "Unavailable while a teammate is selected",
       "sectionAgents": "People and my Agents",
       "sectionPeople": "People",
       "sectionMyAgents": "My Agents",
@@ -1170,6 +1177,7 @@
       "accessErrorDismiss": "Dismiss notice",
       "observerTitle": "Agent collaboration · read only",
       "observerDescription": "You can view this exchange, but cannot send messages.",
+      "agentPrivateNotice": "This assistant is currently private and unavailable for external messages.",
       "systemNotice": {
         "direct": {
           "skills": "· Background self-evolution: skills updated",
@@ -1359,7 +1367,8 @@
       "dissolveConfirm": "The group and its chat history will be permanently deleted and can't be recovered.",
       "actionError": "Something went wrong. Please try again.",
       "leave": "Leave group",
-      "memberCount": "{{count}} members"
+      "memberCount": "{{count}} members",
+      "privateAgentVisibilityLocked": "Contains a private assistant: visibility stays private and external teammates cannot be added."
     },
     "mention": {
       "header": "Mention member",

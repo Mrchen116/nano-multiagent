@@ -271,7 +271,7 @@ describe("agent create page", () => {
     const scope = screen.getByLabelText("Collaboration scope");
     expect(scope).toHaveValue("team");
     await user.selectOptions(scope, "owner_only");
-    expect(screen.getByText(/pending team messages are skipped/i)).toBeInTheDocument();
+    expect(screen.getByText(/Hidden from teammates; collaborates only with you and your own assistants/i)).toBeInTheDocument();
 
     if (workMode === "global") {
       await user.click(screen.getByRole("radio", { name: /Global mode/ }));

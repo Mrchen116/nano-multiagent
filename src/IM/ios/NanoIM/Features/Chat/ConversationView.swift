@@ -193,7 +193,13 @@ struct ConversationView: View {
                 }.padding().frame(maxWidth: .infinity).background(.bar)
             } else if let conversation, conversation.can_write == false {
                 VStack {
-                    Text(conversation.is_observer == true ? L("Agent 协作 · 只读", "Agent collaboration · read only") : conversation.dissolved_at != nil ? L("已解散群历史 · 只读", "Dissolved group history · read only") : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
+                    Text(conversation.is_observer == true
+                         ? L("Agent 协作 · 只读", "Agent collaboration · read only")
+                         : conversation.dissolved_at != nil
+                           ? L("已解散群历史 · 只读", "Dissolved group history · read only")
+                           : conversation.write_blocked_reason == "agent_private"
+                             ? L("该助手当前设为私有，暂不对外接收或发送消息", "This assistant is currently private and unavailable for external messages.")
+                             : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
                     if conversation.is_observer == true { Text(L("你可以查看双方往来，不能发送消息。", "You can view this exchange, but cannot send messages.")).font(.caption).foregroundStyle(.secondary) }
                     if conversation.is_observer != true && conversation.dissolved_at == nil && conversation.visibility == "public" && conversation.is_member == false {
                         Button(L("加入群聊", "Join group")) { Task {
@@ -531,7 +537,7 @@ struct ConversationView: View {
                                                   canManage: workContacts[message.sender.id]?.owner_id == store.user.id)
             }
         }
-        if conversation?.category == "agent", message.sender.type == "agent", message.kernel_message_id != nil, message.delivery_status == "completed" {
+        if conversation?.can_write != false, conversation?.category == "agent", message.sender.type == "agent", message.kernel_message_id != nil, message.delivery_status == "completed" {
             Button(L("从这里分支", "Fork from here"), systemImage: "arrow.triangle.branch") { confirmFork = message }
         }
     }

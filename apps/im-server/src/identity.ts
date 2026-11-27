@@ -71,11 +71,56 @@ export function ownerAccount(db: DatabaseSync, owner: string): Row | undefined {
 export function agentAvailable(db: DatabaseSync, profile: Row | undefined): boolean {
   return !!profile && !profile.is_stale && canAccessSpace(ownerAccount(db, profile.owner_id), profile.space_id);
 }
+/** Return whether an Agent ID is bound as a Personal Assistant. */
+export function isPersonalAgent(db: DatabaseSync, agentId: string): boolean {
+  return !!db.prepare("SELECT 1 FROM personal_agent_bindings WHERE agent_id=?").get(agentId);
+}
 /** Public contactability never grants access to personal configuration or Work. */
-export function canContactPersonalAgent(db: DatabaseSync, viewer: Row, profile: Row): boolean {
-  return viewer.membership_status === 'active' && ownerAccount(db,profile.owner_id)?.membership_status === 'active'
+export function canContactPersonalAgent(db: DatabaseSync, viewer: Row | undefined, profile: Row | undefined): boolean {
+  return !!viewer && !!profile && (profile.collaboration_scope ?? 'team') === 'team'
+    && viewer.membership_status === 'active' && ownerAccount(db,profile.owner_id)?.membership_status === 'active'
     && !!db.prepare("SELECT 1 FROM personal_agent_bindings WHERE agent_id=? AND status='active'").get(profile.agent_id)
     && agentAvailable(db,profile);
+}
+/** Allow a PA owner to retain read-only Network observation of historical PA-colleague directs even when PA is private. */
+export function canOwnerObservePersonalAgentDirect(db: DatabaseSync, profile: Row | undefined): boolean {
+  return !!profile && ownerAccount(db, profile.owner_id)?.membership_status === 'active'
+    && !!db.prepare("SELECT 1 FROM personal_agent_bindings WHERE agent_id=? AND status='active'").get(profile.agent_id)
+    && agentAvailable(db, profile);
+}
+/** Evaluate whether an active team colleague may discover and contact an Agent or PA in company collaboration.
+ *
+ * Args:
+ *   db: Center business database.
+ *   viewer: Human or runtime account requesting team-level contactability.
+ *   profile: Target Agent profile row.
+ * Returns:
+ *   True when both viewer and Agent owner are active company members, the Agent is available
+ *   and set to `team`, and (if a PA) its personal binding is active.
+ */
+export function canTeamContactAgent(db: DatabaseSync, viewer: Row | undefined, profile: Row | undefined): boolean {
+  if (!viewer || !profile || (profile.collaboration_scope ?? 'team') !== 'team') return false;
+  if (viewer.membership_status !== 'active' || ownerAccount(db, profile.owner_id)?.membership_status !== 'active') return false;
+  if (!agentAvailable(db, profile)) return false;
+  const binding = db.prepare("SELECT status FROM personal_agent_bindings WHERE agent_id=?").get(profile.agent_id) as { status?: string } | undefined;
+  return !binding || binding.status === 'active';
+}
+/** Evaluate whether a human user may view a global Agent's Work timeline and native trajectory.
+ *
+ * Args:
+ *   db: Center business database.
+ *   viewer: Authenticated human user row.
+ *   profile: Target global Agent profile row.
+ * Returns:
+ *   True for the Agent's own manager in an accessible space, or for active team colleagues
+ *   when the target is a non-PA global Agent set to `team` owned by an active team member.
+ */
+export function canViewAgentWork(db: DatabaseSync, viewer: Row | undefined, profile: Row | undefined): boolean {
+  if (!viewer || viewer.username?.startsWith('agent:') || !profile || profile.is_stale || !agentAvailable(db, profile)) return false;
+  const personal = db.prepare("SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?").get(profile.agent_id) as { owner_user_id: string } | undefined;
+  if (personal) return personal.owner_user_id === viewer.id && canAccessSpace(viewer, profile.space_id);
+  if (viewer.owner_id === profile.owner_id) return canAccessSpace(viewer, profile.space_id);
+  return canTeamContactAgent(db, viewer, profile);
 }
 /** Check a conversation actor against both its fixed space and current eligibility. */
 export function canActorAccess(db: DatabaseSync, userId: string, space: string): boolean {
@@ -88,7 +133,11 @@ export function currentActorCanAccess(db: DatabaseSync, user: Row | undefined, s
   if (!user) return false;
   if (user.username.startsWith("agent:")) {
     const profile = db.prepare("SELECT * FROM agent_profiles WHERE agent_id=?").get(user.username.slice(6)) as Row | undefined;
-    return !!profile && agentAvailable(db, profile) && (profile.space_id === space || (space === "company:default" && canContactPersonalAgent(db,ownerAccount(db,profile.owner_id)!,profile)));
+    if (!profile || !agentAvailable(db, profile)) return false;
+    const owner = ownerAccount(db, profile.owner_id);
+    return profile.space_id === space
+      || (space === "company:default" && canTeamContactAgent(db, owner, profile))
+      || (space === `personal:${profile.owner_id}` && !!owner?.personal_space_enabled);
   }
   return canAccessSpace(user, space);
 }

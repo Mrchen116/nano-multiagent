@@ -6,6 +6,7 @@ export interface PersonalAgentPolicy {
 }
 export interface PersonalAgentBinding {
   avatar_variant?: number | null;
+  collaboration_scope?: 'team' | 'owner_only';
   binding_id: string;
   agent_id: string;
   owner_id: string;
@@ -19,10 +20,11 @@ export interface PersonalAgentBinding {
 export interface PersonalAgentState {
   binding: PersonalAgentBinding | null;
   policy: PersonalAgentPolicy | null;
-  creation?: {request_key: string} | null;
+  creation?: {request_key: string; collaboration_scope?: 'team' | 'owner_only'} | null;
 }
 export interface CreatePersonalAgent {
   avatar_variant?: number;
+  collaboration_scope?: 'team' | 'owner_only';
   request_key: string;
   node_id: string;
   display_name: string;

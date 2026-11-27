@@ -1,5 +1,6 @@
 import {isRecord} from './node-rpc-values.js';
 import { requireLifecycle } from './agent-lifecycle.js';
+import { canAgentAccessConversation } from "./collaboration.js";
 import { agentAvailable } from "./identity.js";
 import { createHmac, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
@@ -147,7 +148,8 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
           skills: [],
           commands: [],
         };
-        if (!a?.node_id || !a.workspace_root || !agentAvailable(db, a) || a.space_id !== one(db, "SELECT space_id FROM conversations WHERE id=?", id)!.space_id) return result;
+        const convRow = one(db, "SELECT * FROM conversations WHERE id=?", id);
+        if (!a?.node_id || !a.workspace_root || !canAgentAccessConversation(db, a, convRow)) return result;
         try {
           const response = await ctx.gateway.request(a.node_id, "agent.config.get", {
               agent_id: agentId,
@@ -213,7 +215,8 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
           source.source_agent_id,
           p.owner_id,
         );
-      if (c.run_state !== "idle" || c.source_agent_id !== source.source_agent_id || !a?.node_id || !agentAvailable(db, a) || a.space_id !== one(db, "SELECT space_id FROM conversations WHERE id=?", c.id)!.space_id)
+      const convRow = one(db, "SELECT * FROM conversations WHERE id=?", c.id);
+      if (c.run_state !== "idle" || c.source_agent_id !== source.source_agent_id || !a?.node_id || !canAgentAccessConversation(db, a, convRow))
         fail(409, "selected source is unavailable");
       if (node && node !== a.node_id) fail(409, "selected sources must belong to one Gateway");
       node = a.node_id;
@@ -264,6 +267,11 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     s.access(p, id);
     const c = s.conversation(id, p.id);
     if (c.direct_kind !== "user-agent") fail(400, "fork is only available in direct agent chats");
+    if (!c.can_write) {
+      fail(403, c.write_blocked_reason === "agent_private"
+        ? { code: "agent_private", message: "This assistant is currently private and unavailable for external messages." }
+        : "conversation is read-only");
+    }
     const agent = c.participants.find((x: Row) => x.type === "agent"),
       a = one(db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0", agent.id)!;
     const history = all(db, "SELECT * FROM messages WHERE conversation_id=? AND thread_root_id IS NULL ORDER BY rowid", id),

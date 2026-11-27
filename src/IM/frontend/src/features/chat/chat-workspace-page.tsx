@@ -601,13 +601,31 @@ export function ChatWorkspacePage() {
     });
   }, [activeConversation, contactsQuery.data, visibleHumansById, selfUserId]);
 
+  const groupHasOwnedPrivateAgent = useMemo(() => {
+    if (!activeConversation || activeConversation.type !== "group") return false;
+    return activeConversation.participants.some(p =>
+      p.type === "agent" && (contactsQuery.data ?? []).some(c => c.agent_id === p.id && c.collaboration_scope === "owner_only")
+    );
+  }, [activeConversation, contactsQuery.data]);
+
   const addableAgents = useMemo<GroupSettingsAgentOption[]>(() => {
     if (!activeConversation) return [];
     const members = new Set(activeConversation.participants.map(p => p.user_id ?? p.id));
-    return (contactsQuery.data ?? []).filter(c => !members.has(c.user_id) && (c.kind === "human" || (c.owner_user_id ?? c.owner_id) === selfUserId)).map(c => ({
+    const groupHasExternalOrPublic = activeConversation.visibility === "public" || activeConversation.participants.some(p => {
+      if (p.type === "system") return false;
+      if (p.type === "user") return (p.user_id ?? p.id) !== selfUserId;
+      return !(contactsQuery.data ?? []).some(c => c.agent_id === p.id && (c.owner_user_id ?? c.owner_id) === selfUserId);
+    });
+    return (contactsQuery.data ?? []).filter(c => {
+      if (members.has(c.user_id)) return false;
+      if (c.kind === "human") return !groupHasOwnedPrivateAgent;
+      if ((c.owner_user_id ?? c.owner_id) !== selfUserId) return false;
+      if (c.collaboration_scope === "owner_only" && groupHasExternalOrPublic) return false;
+      return true;
+    }).map(c => ({
       agentId: c.agent_id ?? c.user_id, type: c.kind === "human" ? "user" : "agent", displayName: c.display_name, username: c.username ?? null, status: c.status
     }));
-  }, [activeConversation, contactsQuery.data, selfUserId]);
+  }, [activeConversation, contactsQuery.data, selfUserId, groupHasOwnedPrivateAgent]);
 
   // Switching conversations closes any open settings surface.
   useEffect(() => {
@@ -1561,7 +1579,7 @@ export function ChatWorkspacePage() {
                 ? () => personalBinding && !personalAgent.data?.creation ? navigate(`/settings/agents/${personalBinding.agent_id}`) : setShowPersonalAgentSetup(true)
                 : isGroupKind
                 ? () => setShowGroupSettings(true)
-                : headerAgentContext.agentId
+                : headerAgentContext.agentId && (publicAgents.some(a => a.agent_id === headerAgentContext.agentId) || agentsQuery.data?.some(a => a.agent_id === headerAgentContext.agentId))
                   ? () => navigate(`/settings/agents/${headerAgentContext.agentId}`)
                   : undefined
             }
@@ -1589,7 +1607,7 @@ export function ChatWorkspacePage() {
           isBusy={createGroupMutation.isPending}
           error={createGroupMutation.isError}
           agents={(contactsQuery.data ?? []).filter(c => c.user_id !== selfUserId && (c.kind === "human" || (c.owner_user_id ?? c.owner_id) === selfUserId)).map(c => ({
-            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, username: c.username, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id
+            agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, username: c.username, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id, collaboration_scope: c.collaboration_scope
           }))}
           onClose={() => setShowNewGroup(false)}
           onCreate={(payload) => createGroupMutation.mutate(payload)}
@@ -1681,6 +1699,7 @@ export function ChatWorkspacePage() {
         <GroupSettings
           title={activeConversation.title}
           readOnly={activeConversation.can_write === false || Boolean(activeConversation.dissolved_at)}
+          privateAgentLocked={groupHasOwnedPrivateAgent}
           visibility={activeConversation.visibility}
           canChangeVisibility={activeConversation.can_change_visibility}
           onVisibilityChange={visibility => updateConversation(activeConversation.id, { visibility }).then(() => queryClient.invalidateQueries({ queryKey: ["chat"] }))}

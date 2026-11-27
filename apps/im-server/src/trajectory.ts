@@ -1,5 +1,5 @@
 import {rejectDeletedExecution} from './agent-deletion.js';
-import { agentAvailable, canAccessSpace, bearer } from "./identity.js";
+import { agentAvailable, canAccessSpace, canViewAgentWork, bearer } from "./identity.js";
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type WebSocket from 'ws';
@@ -62,11 +62,10 @@ export class TrajectoryObservers {
   }
 
   private create(auth: Row, agentId: string, sessionId: string): Observer {
-    rejectDeletedExecution(this.ctx,this.ctx.identity.user(auth.user_id) ?? {},agentId,'session',sessionId);
+    const viewer = this.ctx.identity.user(auth.user_id);
+    rejectDeletedExecution(this.ctx, viewer ?? {}, agentId, 'session', sessionId);
     const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'", agentId);
-    if (!profile || one(this.ctx.db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',agentId) || !agentAvailable(this.ctx.db, profile) || !canAccessSpace(this.ctx.identity.user(auth.user_id), profile.space_id)) throw new Error('该执行不可访问');
-    const personal=one(this.ctx.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",agentId);
-    if(personal && personal.owner_user_id!==auth.user_id)throw new Error("该执行不可访问");
+    if (!profile || one(this.ctx.db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',agentId) || !canViewAgentWork(this.ctx.db, viewer, profile)) throw new Error('该执行不可访问');
     const selected = this.ctx.gateway.work.session(agentId, sessionId);
     if (selected.scope === 'worker' && selected.runtime !== 'dsh') throw new Error('该执行没有原生 DSH 轨迹');
     let root = selected;
@@ -164,9 +163,8 @@ export class TrajectoryObservers {
 
   valid(observer: Observer): boolean {
     const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", observer.scope.rootAgentId);
-    if (!profile || one(this.ctx.db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',observer.scope.rootAgentId) || !agentAvailable(this.ctx.db, profile) || profile.owner_id !== observer.scope.ownerId || !canAccessSpace(this.ctx.identity.user(observer.userId), profile.space_id)) return false;
-    const personal=one(this.ctx.db,"SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?",observer.scope.rootAgentId);
-    if(personal && personal.owner_user_id!==observer.userId)return false;
+    const viewer = this.ctx.identity.user(observer.userId);
+    if (!profile || one(this.ctx.db,'SELECT 1 FROM agent_deletions WHERE agent_id=?',observer.scope.rootAgentId) || profile.owner_id !== observer.scope.ownerId || !canViewAgentWork(this.ctx.db, viewer, profile)) return false;
     return this.ctx.gateway.nodes.get(observer.device.node_id) === observer.device && observer.device.socket.readyState === 1
       && this.ctx.gateway.valid(observer.device) && this.ctx.gateway.browserValid(observer);
   }
@@ -199,11 +197,7 @@ export class TrajectoryObservers {
     const user = this.ctx.identity.user(auth.user_id);
     rejectDeletedExecution(this.ctx, user ?? {}, agentId, 'session', sessionId);
     const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'", agentId);
-    if (!profile || one(this.ctx.db, 'SELECT 1 FROM agent_deletions WHERE agent_id=?', agentId) || !agentAvailable(this.ctx.db, profile) || !canAccessSpace(user, profile.space_id)) {
-      fail(404, '该执行不可访问');
-    }
-    const personal = one(this.ctx.db, 'SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?', agentId);
-    if (personal && personal.owner_user_id !== auth.user_id) {
+    if (!profile || one(this.ctx.db, 'SELECT 1 FROM agent_deletions WHERE agent_id=?', agentId) || !canViewAgentWork(this.ctx.db, user, profile)) {
       fail(404, '该执行不可访问');
     }
     const binding = one(
@@ -246,11 +240,9 @@ export class TrajectoryObservers {
     if (!Array.isArray(sources) || sources.length === 0) return { allowed: false };
     const user = this.ctx.identity.user(userId);
     const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0 AND work_mode='global'", agentId);
-    if (!profile || one(this.ctx.db, 'SELECT 1 FROM agent_deletions WHERE agent_id=?', agentId) || !agentAvailable(this.ctx.db, profile) || !canAccessSpace(user, profile.space_id)) {
+    if (!profile || one(this.ctx.db, 'SELECT 1 FROM agent_deletions WHERE agent_id=?', agentId) || !canViewAgentWork(this.ctx.db, user, profile)) {
       return { allowed: false };
     }
-    const personal = one(this.ctx.db, 'SELECT owner_user_id FROM personal_agent_bindings WHERE agent_id=?', agentId);
-    if (personal && personal.owner_user_id !== userId) return { allowed: false };
     const allowed = sources.some(source => Boolean(source && typeof source === 'object' && this.sourceAllowedForUser(userId, source as Row)));
     return { allowed };
   }

@@ -1,4 +1,4 @@
-import { cancelChatRelay, chatAllowed } from './collaboration.js';
+import { cancelChatRelay, canAgentAccessConversation, chatAllowed } from './collaboration.js';
 import {registerWorkRedactions} from './work-sync.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { NodeRpc } from './node-rpc.js';
@@ -9,7 +9,7 @@ import { AgentLifecycles, lifecycle, lifecycleAllows, requireLifecycle } from '.
 import { conversationAccess, conversationReaderIds, qualifiedUser, readableConversationIds } from './conversation-access.js';
 import { captureTaskContextAccess, revokeLostTaskContextAccess } from './task-context-access.js';
 import type { ChatMessage } from '@nano/product-contracts';
-import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, ownerAccount, agentAvailable } from "./identity.js";
+import { accountEnabled, defaultSpace, canAccessSpace, canActorAccess, canViewAgentWork, ownerAccount, agentAvailable } from "./identity.js";
 import { ChatStreaming } from './chat-streaming.js';
 import type { ChatStreamReceipt } from '@nano/product-contracts';
 import { randomBytes, randomUUID } from "node:crypto";
@@ -58,7 +58,10 @@ export class Gateway {
   constructor(readonly ctx: ImContext) {
     this.chat=new ChatStreaming(ctx.db,ctx.messaging?.records,{
       requireAgent:(connection,id)=>{const agent=this.requireAgent(connection,id);return {agent_id:agent.agent_id,work_mode:agent.work_mode};},
-      requirePersonalConversation:(agentId,cid)=>{const binding=one(ctx.db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',agentId);if(binding&&!ctx.personal!.ownerConversation(binding,cid))fail(403,'personal_reviewed_delivery_required');},
+      requirePersonalConversation:(agentId,cid)=>{
+        const binding=one(ctx.db,'SELECT * FROM personal_agent_bindings WHERE agent_id=?',agentId);
+        if(binding&&!ctx.personal!.ownerConversation(binding,cid))fail(403,'personal_reviewed_delivery_required');
+      },
       agentUserId:id=>ctx.messaging.agentUser(id).id,resolveTarget:(id,target)=>ctx.messaging.resolveTarget(id,target),
       access:(connection,cid,id)=>{ctx.messaging.access({...connection,kind:'gateway'},cid,id,'write');},groupReply:id=>this.groupReply(id),
       publishCommitted:frame=>ctx.messaging.publishCommitted(frame),
@@ -132,13 +135,13 @@ export class Gateway {
       const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", p.agent_id, nodeId);
       const conversation = one(this.ctx.db, "SELECT * FROM conversations WHERE id=?", p.conversation_id);
       if(!profile||!lifecycleAllows(this.ctx.db,profile.agent_id,p.lifecycle_revision))return false;
-      if (!agentAvailable(this.ctx.db, profile) || !conversation || !canActorAccess(this.ctx.db,this.ctx.messaging.agentUser(profile!.agent_id).id,conversation.space_id)) return false;
+      if (!canAgentAccessConversation(this.ctx.db, profile, conversation)) return false;
     }
     if (frame.type === "node.streaming_delta" && frame.payload?.kind === "permission_response") {
       const message = one(this.ctx.db, "SELECT m.conversation_id,u.username FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?", frame.payload.message_id);
       const profile = message?.username?.startsWith("agent:") ? one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", message.username.slice(6), nodeId) : undefined;
-      const conversation = message ? one(this.ctx.db, "SELECT space_id FROM conversations WHERE id=?", message.conversation_id) : undefined;
-      if (!agentAvailable(this.ctx.db, profile) || !conversation || profile!.space_id !== conversation.space_id || !lifecycleAllows(this.ctx.db,profile!.agent_id,frame.payload.lifecycle_revision)) return false;
+      const conversation = message ? one(this.ctx.db, "SELECT * FROM conversations WHERE id=?", message.conversation_id) : undefined;
+      if (!canAgentAccessConversation(this.ctx.db, profile, conversation) || !lifecycleAllows(this.ctx.db,profile!.agent_id,frame.payload.lifecycle_revision)) return false;
     }
     return !!c && this.valid(c) && this.write(c.socket, frame);
   }
@@ -213,7 +216,7 @@ export class Gateway {
       if (space !== undefined && !canActorAccess(this.ctx.db,b.userId,space)) continue;
       if (frame.event_type === "agent.work.updated") {
         const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=?", frame.data?.agent_id);
-        if (!profile || !canAccessSpace(this.ctx.identity.user(b.userId), profile.space_id)) continue;
+        if (!canViewAgentWork(this.ctx.db, this.ctx.identity.user(b.userId), profile)) continue;
       }
       if (!chat && frame.conversation_id && !conversationAccess(this.ctx.db,frame.conversation_id,b.userId)) continue;
       this.write(b.socket, frame);
@@ -452,7 +455,13 @@ export class Gateway {
     if (this.rpc.accept(c, type, p)) return ack({request_id:p.request_id});
     if (type.startsWith("pa.")) {
       try { return {type:`${type}.result`,payload:{request_id:p.request_id,ok:true,result:await this.ctx.personal!.handle(c,type,p)}}; }
-      catch(error) { const e=error as any;return {type:`${type}.result`,payload:{request_id:p.request_id,ok:false,error:e.detail?.code==='invalid_interactive_source'?e.detail:{code:e.detail??"personal_operation_failed",message:e.message}}}; }
+      catch(error) {
+        const e=error as any;
+        const structured = isRecord(e.detail) && typeof e.detail.code === 'string'
+          ? { ...e.detail, message: typeof e.detail.message === 'string' ? e.detail.message : e.message }
+          : { code: typeof e.detail === 'string' ? e.detail : 'personal_operation_failed', message: e.message };
+        return {type:`${type}.result`,payload:{request_id:p.request_id,ok:false,error:structured}};
+      }
     }
     if (type === "node.heartbeat") {
       db.prepare(
@@ -576,7 +585,9 @@ export class Gateway {
       if (!relay) fail(404, "relay task not found");
       const input = JSON.parse(relay.payload_json);
       const targetAgent = this.requireAgent(c, input.agent_id);
-      s.access({ ...c, kind: "gateway" }, relay.conversation_id, targetAgent.agent_id);
+      if (!one(db, "SELECT 1 FROM conversations WHERE id=?", relay.conversation_id) || !agentAvailable(db, targetAgent)) {
+        fail(404, "conversation_id not found");
+      }
       if (p.delivery_status==='skipped') {
         transaction(db,()=>cancelChatRelay(db,relay,targetAgent.agent_id,true));
         s.delivery.receipt(c.node_id,p.relay_task_id);
@@ -625,7 +636,7 @@ export class Gateway {
       const agent=this.requireAgent(c,String(p.agent_id));
       const previous=one(db,'SELECT * FROM agent_message_dispatch_log WHERE dispatch_request_key=? AND source_agent_id=?',`${agent.agent_id}:${String(p.operation_id)}`,agent.agent_id);
       if(!previous)return ack({found:false});
-      s.access({...c,kind:'gateway'},previous.conversation_id,agent.agent_id);
+      if(!one(db,'SELECT 1 FROM conversations WHERE id=?',previous.conversation_id) || !agentAvailable(db,agent))fail(404,'conversation_id not found');
       return ack({found:true,conversation_id:previous.conversation_id,message_id:previous.message_id,target_kind:previous.target_kind,target_id:previous.target_id,source_agent_id:agent.agent_id});
     }
     if (type === 'agent.message') {
