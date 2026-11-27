@@ -846,7 +846,18 @@ export class InboxStore {
     const text = withInteractionContext(input.message.content, input.message.interaction_reply, input.metadata.interaction_contexts, input.message.interactive);
     const result: Record<string, unknown>[][] = [];
     for (let start = 0; start < text.length || start === 0; start += 6000) result.push([{ type: 'text', text: text.slice(start, start + 6000) }]);
-    for (const attachment of input.message.attachments) result.push([{ type: 'attachment', ...attachment }]);
+    for (const attachment of input.message.attachments) {
+      const isTranscribedVoiceRaw = input.metadata.channel === 'wechat'
+        && typeof attachment.file_name === 'string'
+        && /^voice-raw\.(wav|mp3)$/i.test(attachment.file_name);
+      result.push([{
+        type: 'attachment',
+        ...attachment,
+        ...(isTranscribedVoiceRaw
+          ? { note: 'Raw audio of the transcribed voice message above; call download_attachment only if raw audio file is needed' }
+          : {}),
+      }]);
+    }
     return result;
   }
   updateTarget(agent: string, target: string, name: string): void { this.db.prepare('INSERT INTO targets VALUES(?,?,?) ON CONFLICT(agent_id,target) DO UPDATE SET name=excluded.name').run(agent, target, name); }

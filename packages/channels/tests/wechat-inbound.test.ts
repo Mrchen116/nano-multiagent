@@ -215,27 +215,45 @@ describe('WeChat rich inbound parsing, media normalization, and quote store', ()
         expect(meta.height).toBe(120);
       }
 
-      // 2. Voice with built-in transcript -> uses transcript directly without downloading audio
-      const transcriptMsg = await transformWeChatInboundMessage({
-        message_id: '1002',
-        from_user_id: 'wxid_owner',
-        message_type: WeChatMessageType.USER,
-        item_list: [{
-          type: WeChatItemType.VOICE,
-          voice_item: { text: '帮我总结一下刚才那篇文章的三个重点' },
-        }],
-      }, { db, baseUrl, ownerUserId: 'wxid_owner', abortSignal: new AbortController().signal, env });
-      expect(transcriptMsg?.parts).toEqual([
-        { type: 'text', text: '[语音转写] 帮我总结一下刚才那篇文章的三个重点' },
-      ]);
-
-      // 3. Voice WITHOUT transcript (SILK V3) -> decrypted & transcoded to 24kHz WAV file part
+      // 2. Voice with built-in transcript: retains transcript AND attaches voice-raw.wav when media is present (graceful fallback when media missing)
       const pcm = createPcmSineWave(24_000, 100);
       const silkEncoded = await encodeSilk(pcm, 24_000);
       const voiceKey = randomBytes(16);
       const voiceHexAsciiB64 = Buffer.from(voiceKey.toString('hex'), 'utf8').toString('base64');
       blobs.set('voice_silk', encryptAesEcb(Buffer.from(silkEncoded.data), voiceKey));
 
+      const transcriptWithMediaMsg = await transformWeChatInboundMessage({
+        message_id: '1002',
+        from_user_id: 'wxid_owner',
+        message_type: WeChatMessageType.USER,
+        item_list: [{
+          type: WeChatItemType.VOICE,
+          voice_item: {
+            text: '帮我总结一下刚才那篇文章的三个重点',
+            encode_type: 6,
+            media: { encrypt_query_param: 'voice_silk', aes_key: voiceHexAsciiB64 },
+          },
+        }],
+      }, { db, baseUrl, ownerUserId: 'wxid_owner', abortSignal: new AbortController().signal, env });
+      expect(transcriptWithMediaMsg?.parts[0]).toEqual({ type: 'text', text: '[语音转写] 帮我总结一下刚才那篇文章的三个重点' });
+      expect(transcriptWithMediaMsg?.parts[1]).toMatchObject({ type: 'file', fileName: 'voice-raw.wav', mediaType: 'audio/wav' });
+
+      const transcriptFallbackMsg = await transformWeChatInboundMessage({
+        message_id: '1002b',
+        from_user_id: 'wxid_owner',
+        message_type: WeChatMessageType.USER,
+        item_list: [{
+          type: WeChatItemType.VOICE,
+          voice_item: {
+            text: '普通语音测试',
+            media: { encrypt_query_param: 'missing_blob', aes_key: voiceHexAsciiB64 },
+          },
+        }],
+      }, { db, baseUrl, ownerUserId: 'wxid_owner', abortSignal: new AbortController().signal, env });
+      expect(transcriptFallbackMsg?.notices).toBeUndefined();
+      expect(transcriptFallbackMsg?.parts).toEqual([{ type: 'text', text: '[语音转写] 普通语音测试' }]);
+
+      // 3. Voice WITHOUT transcript (SILK V3) -> decrypted & transcoded to 24kHz WAV file part (voice.wav)
       const silkMsg = await transformWeChatInboundMessage({
         message_id: '1003',
         from_user_id: 'wxid_owner',

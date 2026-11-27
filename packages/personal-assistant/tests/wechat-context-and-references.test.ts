@@ -110,6 +110,7 @@ it('projects <=8-char a_xxxxxx references for external attachments on SingleThre
         { type: 'text' as const, text: '第二段卡片' },
         { type: 'image' as const, key: 'img_0', data: TINY_PNG, mediaType: 'image/png', fileName: 'photo.png' },
         { type: 'file' as const, key: 'voice_1', data: Buffer.from('RIFF'), mediaType: 'audio/wav', fileName: 'voice.wav' },
+        { type: 'file' as const, key: 'voice_2', data: Buffer.from('RIFF'), mediaType: 'audio/wav', fileName: 'voice-raw.wav' },
       ],
     };
     await external.receive('writer', richMsg, 'wechat');
@@ -118,6 +119,7 @@ it('projects <=8-char a_xxxxxx references for external attachments on SingleThre
     expect(singleText).toContain('第一段说明\n\n第二段卡片');
     expect(singleText).toMatch(/\[Image attachment_id=a_[0-9a-f]{6} \(photo\.png\)\]/);
     expect(singleText).toMatch(/\[Attachment: voice\.wav \(audio\/wav\), attachment_id=a_[0-9a-f]{6} — call download_attachment to save locally\]/);
+    expect(singleText).toMatch(/\[Raw voice audio: voice-raw\.wav \(audio\/wav\), attachment_id=a_[0-9a-f]{6} — raw audio of the transcribed voice message above; call download_attachment only if raw audio file is needed\]/);
 
     await external.receive('coord', richMsg, 'wechat');
     const rootBinding = store.bindingFor('coord', 'global:coord')!;
@@ -148,9 +150,14 @@ it('projects <=8-char a_xxxxxx references for external attachments on SingleThre
     const textBlock = blocks.find(b => b.type === 'text')!;
     expect(String(textBlock.text)).toBe('第一段说明\n\n第二段卡片');
     const fileBlock = blocks.find(b => b.file_name === 'voice.wav')!;
+    const rawVoiceBlock = blocks.find(b => b.file_name === 'voice-raw.wav')!;
     const imgBlock = blocks.find(b => b.file_name === 'photo.png')!;
     expect(fileBlock.attachment_id).toMatch(/^a_[0-9a-f]{6}$/);
     expect(fileBlock.url).toBeUndefined();
+    expect(fileBlock.note).toBeUndefined();
+    expect(rawVoiceBlock.attachment_id).toMatch(/^a_[0-9a-f]{6}$/);
+    expect(rawVoiceBlock.url).toBeUndefined();
+    expect(rawVoiceBlock.note).toContain('call download_attachment only if raw audio file is needed');
     expect(imgBlock.attachment_id).toMatch(/^a_[0-9a-f]{6}$/);
     expect(typeof imgBlock.url).toBe('string');
 

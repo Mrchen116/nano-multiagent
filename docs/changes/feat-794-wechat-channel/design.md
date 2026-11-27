@@ -128,7 +128,7 @@ flowchart LR
 
 5. **入站媒体流式限额归一化 + 出站图片“节点本机暂存 → 外部直发 → 影子会话幂等补传”双阶段闭合。**
    - **理由**：
-     - **入站**：原图最高 `16 MiB` 经动态加载的 `sharp` 自动修正 EXIF 方向并收敛至 `<= 10 MiB`、`<= 4096×4096`；语音优先采用 `voice_item.text`，缺失时解密并通过 44 字节 WAV 封装（`PCM`）或动态加载 `silk-wasm` 转码（`SILK`）生成 `voice.wav` 附件及清晰说明；文件/视频（单文件 `<= 25 MiB`、单消息总媒体 `<= 40 MiB`）写入 `ExternalStore` 媒体表并打通 `file-transfer.ts` 对当前 `agentId` 归属 `external:` 附件的直接落盘读取；
+     - **入站**：原图最高 `16 MiB` 经动态加载的 `sharp` 自动修正 EXIF 方向并收敛至 `<= 10 MiB`、`<= 4096×4096`；语音在附带 `voice_item.text` 时保留 `[语音转写]` 文本并在语音媒体存在时同步转码生成 `voice-raw.wav`/`voice-raw.mp3` 原声附件（模型侧投影显式标注已转写、仅在需要处理原音频文件时调用 `download_attachment`，媒体拉取异常不阻断已有转写），缺失转写时解密并通过 44 字节 WAV 封装（`PCM`）或动态加载 `silk-wasm` 转码（`SILK`）生成 `voice.wav` 附件及清晰说明；文件/视频（单文件 `<= 25 MiB`、单消息总媒体 `<= 40 MiB`）写入 `ExternalStore` 媒体表并打通 `file-transfer.ts` 对当前 `agentId` 归属 `external:` 附件的直接落盘读取；
      - **出站图片闭合（覆盖 `SingleThread`、`GlobalAgent` 与 `PA` 主人外部私聊）**：当回复含内联 `data:image/...` 或显式调用 `send_message(..., local_images=[...])` 发往 `wechat` / `feishu` 会话时，节点通过 `ExternalChannels.stageOutboundImage` 在本机校验读取图片字节（`1B..10 MiB`、`<= 4096×4096`）并幂等存入 `ExternalStore.images`（键 `external:out:${operationId}:${index}`），**不依赖中心 IM 在线即可先由 `WeChatConnection.send` 加密上传微信 CDN 作为 `image_item` 发出**；待 IM 在线且 `shadowId` 就绪时，`ExternalChannels.flush()` 自动将该本地图片幂等上传至 `/im/v1/conversations/${shadowId}/images?screenshot=1` 并替换为真实 IM 附件 URL 写入影子会话（同时在 `personal-actions.ts` 允许 `ownerConversation` 下的外部传输提案携带图片或纯图消息，保持非主人会话与 `dsh-integration` 私有证据 `ask` 拦截边界不变）。
 
 6. **局部引用采用上游子串出现序号 + MD5 消歧算法；工具审批严格区分 `SingleThread` 卡片互斥与 `Global / PA` 对话内确认，并在轮次终结时自动清理未决项。**

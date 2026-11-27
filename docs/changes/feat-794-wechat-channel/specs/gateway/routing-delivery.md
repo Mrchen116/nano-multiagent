@@ -59,7 +59,7 @@ Gateway MUST 将普通 assistant 回复中的可交付图片与文字按原顺�
 
 ### Requirement: Agent 可通过短标识下载受保护会话附件
 
-产品根主 Agent 可使用 `download_attachment(attachment_id)`（`attachment_id` 为 `<= 8` 字符的 `a_xxxxxx` 引用，来自 `inbox`、`read_messages`、`search_messages` 或 SingleThread 入站消息）将当前仍有权读取的原生 Nano IM 附件，或本节点已验权入站持久化的当前 Agent 外部通道附件（如微信入站通用文件、视频或未转写语音音频）下载到受控本地目录（`<workspace>/.nano-downloads/<attachment_id>-<sanitized_name>`，无 workspace 时落 `<nodeHome>/downloads/<agentId>/`），返回 `{ attachment_id, local_path, file_name, content_type, byte_size }`。
+产品根主 Agent 可使用 `download_attachment(attachment_id)`（`attachment_id` 为 `<= 8` 字符的 `a_xxxxxx` 引用，来自 `inbox`、`read_messages`、`search_messages` 或 SingleThread 入站消息）将当前仍有权读取的原生 Nano IM 附件，或本节点已验权入站持久化的当前 Agent 外部通道附件（如微信入站通用文件、视频及语音原声附件）下载到受控本地目录（`<workspace>/.nano-downloads/<attachment_id>-<sanitized_name>`，无 workspace 时落 `<nodeHome>/downloads/<agentId>/`），返回 `{ attachment_id, local_path, file_name, content_type, byte_size }`。
 
 #### Scenario: 跨节点文件下载、本机外部通道入站附件落盘、文件名保留与幂等覆写
 - **WHEN** 节点 B 的根主 Agent 调用 `download_attachment(attachment_id)` 下载同一会话中节点 A 发送的原生通用文件或光栅图片，或本节点根主 Agent 下载本机外部通道已验权入站的附件

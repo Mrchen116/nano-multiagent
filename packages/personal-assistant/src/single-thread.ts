@@ -413,8 +413,18 @@ export class SingleThread {
         const mime = attachment.content_type || 'application/octet-stream';
         const allowlist = this.options.agents.find(agent => agent.agentId === binding.agentId)?.toolAllowlist;
         const canDownload = allowlist === undefined || allowlist.includes('download_attachment');
-        const suffix = ref ? (canDownload ? `, attachment_id=${ref} — call download_attachment to save locally` : `, attachment_id=${ref}`) : '';
-        content.push({ type: 'text', text: `${content.length ? '\n' : ''}[Attachment: ${label} (${mime})${suffix}]` });
+        const isTranscribedVoiceRaw = input.metadata.channel === 'wechat' && /^voice-raw\.(wav|mp3)$/i.test(label);
+        if (isTranscribedVoiceRaw) {
+          const suffix = ref
+            ? (canDownload
+              ? `, attachment_id=${ref} — raw audio of the transcribed voice message above; call download_attachment only if raw audio file is needed`
+              : `, attachment_id=${ref}`)
+            : '';
+          content.push({ type: 'text', text: `${content.length ? '\n' : ''}[Raw voice audio: ${label} (${mime})${suffix}]` });
+        } else {
+          const suffix = ref ? (canDownload ? `, attachment_id=${ref} — call download_attachment to save locally` : `, attachment_id=${ref}`) : '';
+          content.push({ type: 'text', text: `${content.length ? '\n' : ''}[Attachment: ${label} (${mime})${suffix}]` });
+        }
         continue;
       }
       const ref = this.options.store.toolReferences.attachmentRef(binding.agentId, attachment.url);

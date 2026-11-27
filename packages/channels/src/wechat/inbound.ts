@@ -204,9 +204,10 @@ async function normalizeWeChatImage(rawBytes: Buffer): Promise<{ data: Buffer; m
 async function decodeWeChatVoice(
   rawBytes: Buffer,
   voiceItem: NonNullable<WeChatMessageItem['voice_item']>,
+  filePrefix = 'voice',
 ): Promise<{ data: Buffer; mediaType: string; fileName: string }> {
   if (rawBytes.subarray(0, 4).toString('ascii') === 'RIFF' && rawBytes.subarray(8, 12).toString('ascii') === 'WAVE') {
-    return { data: rawBytes, mediaType: 'audio/wav', fileName: 'voice.wav' };
+    return { data: rawBytes, mediaType: 'audio/wav', fileName: `${filePrefix}.wav` };
   }
   if (voiceItem.encode_type === 1) {
     const rate = voiceItem.sample_rate && voiceItem.sample_rate > 0 ? voiceItem.sample_rate : 24_000;
@@ -214,7 +215,7 @@ async function decodeWeChatVoice(
     return {
       data: wrapPcm16MonoWav(rawBytes, rate, bits, 1),
       mediaType: 'audio/wav',
-      fileName: 'voice.wav',
+      fileName: `${filePrefix}.wav`,
     };
   }
 
@@ -222,11 +223,11 @@ async function decodeWeChatVoice(
   if (voiceItem.encode_type === 6 || isSilk(rawBytes)) {
     const decoded = await decode(rawBytes, 24_000);
     const wav = wrapPcm16MonoWav(Buffer.from(decoded.data), 24_000, 16, 1);
-    return { data: wav, mediaType: 'audio/wav', fileName: 'voice.wav' };
+    return { data: wav, mediaType: 'audio/wav', fileName: `${filePrefix}.wav` };
   }
 
   if (voiceItem.encode_type === 7 || rawBytes.subarray(0, 3).toString('ascii') === 'ID3' || (rawBytes[0] === 0xff && (rawBytes[1]! & 0xe0) === 0xe0)) {
-    return { data: rawBytes, mediaType: 'audio/mpeg', fileName: 'voice.mp3' };
+    return { data: rawBytes, mediaType: 'audio/mpeg', fileName: `${filePrefix}.mp3` };
   }
 
   throw new Error(`Unsupported voice encoding (${voiceItem.encode_type ?? 'unknown'})`);
@@ -342,6 +343,31 @@ export async function transformWeChatInboundMessage(
         usableCount++;
         parts.push({ type: 'text', text: `[语音转写] ${transcript}` });
         mediaSummaries.push(`[语音] ${transcript.slice(0, 80)}`);
+        if (item.voice_item.media?.encrypt_query_param) {
+          try {
+            const decrypted = await downloadAndDecryptMedia({
+              media: item.voice_item.media,
+              maxPlaintextBytes: MAX_WECHAT_VOICE_BYTES,
+              label: 'wechat_voice',
+              abortSignal: ctx.abortSignal,
+              env: ctx.env,
+            });
+            if (cumulativeMediaBytes + decrypted.length <= MAX_WECHAT_MESSAGE_MEDIA_BYTES) {
+              const audio = await decodeWeChatVoice(decrypted, item.voice_item, 'voice-raw');
+              cumulativeMediaBytes += decrypted.length;
+              parts.push({
+                type: 'file',
+                key: `voice_${index}`,
+                data: audio.data,
+                mediaType: audio.mediaType,
+                fileName: audio.fileName,
+              });
+            }
+          } catch (err) {
+            if (ctx.abortSignal.aborted) throw err;
+            // Built-in transcript is already usable; skip raw audio backup silently on CDN/codec failure.
+          }
+        }
         continue;
       }
       try {
