@@ -1,4 +1,5 @@
 import { applyCollaborationScopeTransitionInTx, type ScopeTransitionEffects } from './collaboration.js';
+import { captureTaskContextAccess } from './task-context-access.js';
 import { sortedJsonUtf8 } from '@nano/product-contracts/serialization';
 import {createHash, randomUUID} from 'node:crypto';
 import type {DatabaseSync} from 'node:sqlite';
@@ -477,15 +478,24 @@ export class ConfigOperations {
         c.heartbeat_json ?? null,
       ];
       if (existing) {
+        const scopeChanged = (existing.collaboration_scope ?? "team") !== (c.collaboration_scope ?? "team");
+        const beforeTaskAccess = scopeChanged ? captureTaskContextAccess(db, { agentIds: [op.agent_id] }) : undefined;
         const changed = db
           .prepare(
             "UPDATE agent_profiles SET display_name=?,description=?,skills_json=?,skills_selection_mode=?,tool_allowlist_json=?,collaboration_scope=?,default_model=?,model_fallbacks_json=?,reasoning_effort=?,approval_mode=?,work_mode=?,workspace_root=?,workspace_is_default=?,features_json=?,heartbeat_json=?,profile_version=profile_version+1,registration_seed=0,pending_create_operation_id=NULL,updated_at=? WHERE agent_id=? AND profile_version=?",
           )
           .run(...vals, now(), op.agent_id, existing.profile_version);
         if (!changed.changes) fail(409, "profile_version conflict");
-        if ((existing.collaboration_scope ?? "team") !== (c.collaboration_scope ?? "team")) {
+        if (scopeChanged) {
           const actorUserId = ownerAccount(db, op.owner_id)?.id ?? op.owner_id;
-          scopeEffects = applyCollaborationScopeTransitionInTx(db, op.agent_id, existing.collaboration_scope, c.collaboration_scope, actorUserId);
+          scopeEffects = applyCollaborationScopeTransitionInTx(
+            db,
+            op.agent_id,
+            existing.collaboration_scope,
+            c.collaboration_scope,
+            actorUserId,
+            beforeTaskAccess,
+          );
         }
       } else
         db.prepare(

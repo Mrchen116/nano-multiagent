@@ -445,7 +445,7 @@ export class GlobalAgent {
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command);
     const notice=input.message.system_notice as {kind?:string;attention_actor_ids?:string[]}|undefined;
     const isTaskNotice=notice?.kind==='task_graph';
-    const taskContext=isTaskNotice&&notice.attention_actor_ids?.includes(config.agentId)===true;
+    const taskContext=isTaskNotice&&(input.metadata.task_context===true||notice.attention_actor_ids?.includes(config.agentId)===true);
     const attention = !unaddressedControl && !isTaskNotice && (!config.personal || input.metadata.personal_delivery === 'participant') && needsAttention(input, config);
     if(taskContext)input={...input,metadata:{...input.metadata,task_context:true}};
     if((isTaskNotice && !taskContext) || this.outsideScope(input,config)){this.options.inbox.skip(input);this.scheduleReceipts();return;}

@@ -227,3 +227,148 @@ it('exposes personal-space active colleague team Agents end-to-end while hiding 
   expect(authAttach.statusCode).toBe(200);
   expect(authAttach.json()).toEqual({ allowed: false });
 });
+
+it('aligns TaskGraphService cross-space team visibility, owner_only list/focus safety, frozen DM task write block, and tightening task_context revocations', async () => {
+  const { app, db, alice, bob, request, attachOnlineNode } = await createTestEnv();
+  db.prepare("UPDATE users SET personal_space_enabled=1 WHERE id=?").run(alice.user.id);
+  const { sentFrames } = attachOnlineNode('node-alice', alice.user.owner_id);
+
+  const taskFeatures = { task_graph: true, cron_scheduling: true, dreaming: false, plugin_management: false, intelligent_ui: false };
+  const taskTools = ['send_message', 'task_graph', 'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history'];
+
+  vi.spyOn(app.im.gateway, 'request').mockImplementation(async (_node, method, payload: any) => {
+    if (method === 'node.capabilities.resolve') {
+      return {
+        capabilities: {
+          tools: taskTools.map(name => ({ name, default_on: true })),
+          skills: [{ name: 'nano-ongoing-work', default_on: true }],
+        },
+      };
+    }
+    if (method === 'agent.create' || method === 'agent.config.apply') {
+      return {
+        status: 'applied',
+        operation_id: payload.operation_id,
+        candidate_fingerprint: payload.candidate_fingerprint,
+        agent: { ...payload.agent, workspace_root: payload.agent.workspace_root ?? `/ws/${payload.agent.agent_id}`, workspace_is_default: true },
+      };
+    }
+    return null;
+  });
+
+  // 1. Alice (active team + personal_space_enabled=1) creates a team Global Agent (in personal:<alice>) AND a company-space Global Agent.
+  const createCrossRes = await request(alice.access_token, 'POST', '/im/v1/nodes/node-alice/agents', {
+    agent_id: 'alice-personal-team',
+    display_name: 'Cross Space Planner',
+    work_mode: 'global',
+    collaboration_scope: 'team',
+    skills: ['nano-ongoing-work'],
+    tool_allowlist: taskTools,
+    features: taskFeatures,
+  });
+  expect(createCrossRes.statusCode, createCrossRes.body).toBe(201);
+  expect(createCrossRes.json().space_id).toBe(`personal:${alice.user.owner_id}`);
+
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO agent_profiles(agent_id,owner_id,space_id,node_id,display_name,collaboration_scope,work_mode,skills_json,tool_allowlist_json,features_json,profile_version,is_stale,created_at,updated_at)
+     VALUES('alice-company-bot',?,'company:default','node-alice','Company Bot','team','global','["nano-ongoing-work"]',?,?,1,0,?,?)`,
+  ).run(alice.user.owner_id, JSON.stringify(taskTools), JSON.stringify(taskFeatures), now, now);
+  db.prepare("INSERT INTO users(id,username,display_name,owner_id,created_at) VALUES('u-company-bot','agent:alice-company-bot','Company Bot',?,?)").run(alice.user.owner_id, now);
+
+  // Create a public company group containing Alice, Bob, alice-personal-team, and alice-company-bot, plus a Bob <-> alice-company-bot 1:1 DM, plus an Alice <-> alice-company-bot internal DM.
+  const pubGroup = (await request(alice.access_token, 'POST', '/im/v1/conversations', {
+    title: 'Public Roadmap',
+    type: 'group',
+    visibility: 'public',
+    participants: [
+      { type: 'user', id: bob.user.id },
+      { type: 'agent', id: 'alice-personal-team' },
+      { type: 'agent', id: 'alice-company-bot' },
+    ],
+  })).json();
+  const bobDm = (await request(bob.access_token, 'POST', '/im/v1/conversations', {
+    title: 'Bob <-> Company Bot',
+    type: 'direct',
+    participants: [{ type: 'agent', id: 'alice-company-bot' }],
+  })).json();
+  const ownerDm = (await request(alice.access_token, 'POST', '/im/v1/conversations', {
+    title: 'Alice <-> Company Bot',
+    type: 'direct',
+    participants: [{ type: 'agent', id: 'alice-company-bot' }],
+  })).json();
+
+  // Assign a doing task in company:default group to alice-personal-team (cross-space) and tasks in pubGroup + bobDm + ownerDm to alice-company-bot.
+  expect((await request(alice.access_token, 'POST', '/im/v1/task-graphs', {
+    request_key: 'tg-cross-1',
+    conversation_id: pubGroup.id,
+    title: 'Cross-space deliverable',
+    status: 'doing',
+    assignee: { type: 'agent', id: 'alice-personal-team' },
+  })).statusCode).toBe(200);
+  const bobDmGraph = (await request(bob.access_token, 'POST', '/im/v1/task-graphs', {
+    request_key: 'tg-bob-dm-1',
+    conversation_id: bobDm.id,
+    title: 'External colleague DM task',
+    status: 'doing',
+    assignee: { type: 'agent', id: 'alice-company-bot' },
+  })).json();
+  expect((await request(alice.access_token, 'POST', '/im/v1/task-graphs', {
+    request_key: 'tg-pub-bot-1',
+    conversation_id: pubGroup.id,
+    title: 'Public group bot task',
+    status: 'doing',
+    assignee: { type: 'agent', id: 'alice-company-bot' },
+  })).statusCode).toBe(200);
+  const ownerDmGraph = (await request(alice.access_token, 'POST', '/im/v1/task-graphs', {
+    request_key: 'tg-owner-dm-1',
+    conversation_id: ownerDm.id,
+    title: 'Owner private task',
+    status: 'doing',
+    assignee: { type: 'agent', id: 'alice-company-bot' },
+  })).json();
+
+  // Cross-space team Global Agent sees its company:default task in list, focus, and executionScopes!
+  const crossActor = { kind: 'agent' as const, id: 'alice-personal-team', node_id: 'node-alice', lifecycle_revision: 1 };
+  expect(app.im.gateway.tasks.execute(crossActor, 'list', {}).items.map((i: any) => i.title)).toContain('Cross-space deliverable');
+  expect(app.im.gateway.tasks.execute(crossActor, 'focus', { scope: 'all' }).active.map((i: any) => i.title)).toContain('Cross-space deliverable');
+  expect(app.im.gateway.tasks.executionScopes(crossActor).conversation_ids).toContain(pubGroup.id);
+
+  // 2. Tighten alice-company-bot from team -> owner_only via PATCH config!
+  sentFrames.length = 0;
+  const tighten = await request(alice.access_token, 'PATCH', '/im/v1/agents/alice-company-bot/config', {
+    profile_version: 1,
+    display_name: 'Company Bot',
+    work_mode: 'global',
+    collaboration_scope: 'owner_only',
+    skills: ['nano-ongoing-work'],
+    tool_allowlist: taskTools,
+    features: taskFeatures,
+  });
+  expect(tighten.statusCode, tighten.body).toBe(200);
+
+  // Durable task_context_index revocations recorded AND delivered via relay.message for BOTH exited pubGroup AND frozen bobDm!
+  const revokedConvs = db.prepare("SELECT conversation_id FROM task_context_index WHERE agent_id='alice-company-bot' AND projection_kind='revoked'")
+    .all().map((r: any) => r.conversation_id);
+  expect(revokedConvs).toEqual(expect.arrayContaining([pubGroup.id, bobDm.id]));
+  expect(revokedConvs).not.toContain(ownerDm.id);
+  const revokedRelays = sentFrames.filter(f => f.type === 'relay.message' && f.payload.agent_id === 'alice-company-bot' && f.payload.message?.system_notice?.change_kinds?.includes('access_revoked'));
+  expect(revokedRelays.map(f => f.payload.conversation_id)).toEqual(expect.arrayContaining([pubGroup.id, bobDm.id]));
+
+  // 3. owner_only alice-company-bot calling list, focus, and executionScopes does NOT crash on public groups or frozen bobDm, and returns only ownerDm!
+  const privateActor = { kind: 'agent' as const, id: 'alice-company-bot', node_id: 'node-alice', lifecycle_revision: 1 };
+  expect(app.im.gateway.tasks.execute(privateActor, 'list', {}).items.map((i: any) => i.graph_id)).toEqual([ownerDmGraph.graph_id]);
+  expect(app.im.gateway.tasks.execute(privateActor, 'focus', { scope: 'all' }).active.map((i: any) => i.graph_id)).toEqual([ownerDmGraph.graph_id]);
+  expect(app.im.gateway.tasks.executionScopes(privateActor).conversation_ids).toEqual([ownerDm.id]);
+
+  // 4. Colleague Bob in frozen agent_private bobDm can still read existing task graph, but create/apply/delete are blocked with 403 agent_private!
+  expect((await request(bob.access_token, 'GET', `/im/v1/task-graphs/${bobDmGraph.graph_id}`)).statusCode).toBe(200);
+  for (const writeRes of [
+    await request(bob.access_token, 'POST', '/im/v1/task-graphs', { request_key: 'bob-blocked-create', conversation_id: bobDm.id, title: 'Blocked' }),
+    await request(bob.access_token, 'POST', `/im/v1/task-graphs/${bobDmGraph.graph_id}/apply`, { request_key: 'bob-blocked-apply', base_revision: bobDmGraph.revision, change_note: '', operations: [{ op: 'update_task', node_id: 'n1', patch: { title: 'Mutated' } }] }),
+    await request(bob.access_token, 'DELETE', `/im/v1/task-graphs/${bobDmGraph.graph_id}`, { request_key: 'bob-blocked-del', base_revision: bobDmGraph.revision, node_id: 'n1' }),
+  ]) {
+    expect(writeRes.statusCode).toBe(403);
+    expect(writeRes.json().detail).toMatchObject({ code: 'agent_private' });
+  }
+});

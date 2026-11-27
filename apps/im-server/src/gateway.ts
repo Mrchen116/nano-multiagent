@@ -135,7 +135,8 @@ export class Gateway {
       const profile = one(this.ctx.db, "SELECT * FROM agent_profiles WHERE agent_id=? AND node_id=?", p.agent_id, nodeId);
       const conversation = one(this.ctx.db, "SELECT * FROM conversations WHERE id=?", p.conversation_id);
       if(!profile||!lifecycleAllows(this.ctx.db,profile.agent_id,p.lifecycle_revision))return false;
-      if (!canAgentAccessConversation(this.ctx.db, profile, conversation)) return false;
+      const isRevocationRelay = !!p.message?.id && !!one(this.ctx.db, "SELECT 1 FROM task_context_index WHERE agent_id=? AND message_id=? AND projection_kind='revoked'", p.agent_id, p.message.id);
+      if (isRevocationRelay ? (!agentAvailable(this.ctx.db, profile) || !conversation) : !canAgentAccessConversation(this.ctx.db, profile, conversation)) return false;
     }
     if (frame.type === "node.streaming_delta" && frame.payload?.kind === "permission_response") {
       const message = one(this.ctx.db, "SELECT m.conversation_id,u.username FROM messages m JOIN users u ON u.id=m.sender_user_id WHERE m.id=?", frame.payload.message_id);

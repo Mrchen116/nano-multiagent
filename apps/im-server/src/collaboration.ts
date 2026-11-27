@@ -155,6 +155,7 @@ export function applyCollaborationScopeTransitionInTx(
   previousScope: string | undefined,
   nextScope: string | undefined,
   actorUserId: string,
+  beforeTaskAccess?: readonly { agent_id: string; conversation_id: string }[],
 ): ScopeTransitionEffects {
   const prev = previousScope ?? 'team';
   const next = nextScope ?? 'team';
@@ -165,6 +166,10 @@ export function applyCollaborationScopeTransitionInTx(
   if (!profile || !agentUser) return effects;
 
   if (next === 'owner_only') {
+    const before = beforeTaskAccess ?? captureTaskContextAccess(db, { agentIds: [agentId] });
+    if (profile.collaboration_scope !== 'owner_only') {
+      db.prepare("UPDATE agent_profiles SET collaboration_scope='owner_only' WHERE agent_id=?").run(agentId);
+    }
     const joined = all(db, `SELECT c.* FROM conversations c
       JOIN conversation_participants p ON p.conversation_id=c.id
       WHERE p.user_id=? AND c.dissolved_at IS NULL`, agentUser.id);
@@ -179,12 +184,13 @@ export function applyCollaborationScopeTransitionInTx(
       for (const gid of groupIds) {
         recipientsByGroup.set(gid, all(db, 'SELECT user_id FROM conversation_participants WHERE conversation_id=?', gid).map(r => r.user_id));
       }
-      const before = captureTaskContextAccess(db, { agentIds: [agentId], conversationIds: groupIds });
       for (const gid of groupIds) {
         db.prepare('DELETE FROM conversation_participants WHERE conversation_id=? AND user_id=?').run(gid, agentUser.id);
         db.prepare('DELETE FROM thread_follows WHERE conversation_id=? AND user_id=?').run(gid, agentUser.id);
         effects.membershipBroadcasts.push({ conversationId: gid, recipients: recipientsByGroup.get(gid) ?? [] });
       }
+    }
+    if (before.length) {
       effects.notices.push(...revokeLostTaskContextAccess(db, before, actorUserId));
     }
 
