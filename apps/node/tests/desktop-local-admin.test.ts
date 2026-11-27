@@ -1,5 +1,4 @@
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,7 +15,7 @@ import { LocalNodeBridge } from '../src/local-bridge.js';
 import { gatewayPlist, processBirth } from '../src/lifecycle.js';
 
 // The Windows candidate supplies a loopback SMB path in addition to its local drive.
-const workspaceParents = [realpathSync(tmpdir()), ...(process.env.CREWDEN_TEST_UNC_PARENT ? [process.env.CREWDEN_TEST_UNC_PARENT] : [])];
+const workspaceParents = [tmpdir(), ...(process.env.CREWDEN_TEST_UNC_PARENT ? [process.env.CREWDEN_TEST_UNC_PARENT] : [])];
 it.each(workspaceParents)('resolves workspace file URLs against real files under %s', async parent => {
   const root = await mkdtemp(join(parent, 'crewden-file-url-'));
   try {
@@ -270,7 +269,7 @@ it('enforces owner_id isolation, probes workers with candidate PATH, validates e
         origin: 'https://im.example.com',
         ownerId: 'owner-alice',
         agentId: 'e1',
-        targetPath: 'reports/escape-link.txt',
+        targetPath: pathToFileURL(join(workspace, 'reports', 'escape-link.txt')).href,
         mode: 'open',
         configPath,
       }),

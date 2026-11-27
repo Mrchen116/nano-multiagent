@@ -30,3 +30,5 @@
 - macOS 上运行聊天和 Desktop 工作区两个 Vitest 文件，117 项通过。以 `TMPDIR=/private/tmp` 运行 local-admin、platform-conformance 两个文件，7 项通过，覆盖真实文件名中的空格、井号与字面量 `%20`、其他主机、工作区外路径和符号链接。使用规范化的临时目录可让既有启动项测试的 plist 路径与 macOS realpath 一致。
 - Windows Desktop candidate 增加对同一宿主解析入口的定向回归，在本机盘符及回环 SMB 共享下分别创建临时工作区和文件，核对获准的实际路径及越界拒绝。该用例的终点为宿主解析器，未观测 PDF 阅读器窗口。
 - `git merge-tree --write-tree 7f09ec0f2 2163c8956` 验证与 PR #568 无冲突，合并树同时包含 UNC 回归和调用 `installer-lifecycle.ps1` 的卸载回归。
+
+首轮 [Windows 原生 CI](https://github.com/Mrchen116/nano-multiagent/actions/runs/46040496909/job/140646689770) 已通过回环 SMB 共享、文件名转义与越界拒绝。盘符用例发现 runner 的临时目录采用 8.3 短名 `RUNNER~1`，解析器先将工作区根展开，再与仍含短名的目标比较，提前返回 403。宿主现在在首次范围检查时接受配置根或已规范化的根，最终仍要求文件的真实路径位于规范化根之内。macOS 使用系统提供的临时目录别名重跑获准和越界用例，并验证指向工作区外的文件链接仍被拒绝。

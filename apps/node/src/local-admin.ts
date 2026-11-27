@@ -548,7 +548,9 @@ export async function resolveLocalWorkspaceTarget(input: {
     throw new LocalAdminHttpError(404, 'workspace_missing', 'Local workspace directory does not exist');
   }
   const candidate = isAbsolute(rawTarget) ? resolve(rawTarget) : resolve(workspaceRoot, rawTarget);
-  if (!isWithinWorkspace(candidate, workspaceRoot)) {
+  // A configured root may use a Windows short name or a symlink. Its real path
+  // is still the authority for the final check after resolving the target.
+  if (!isWithinWorkspace(candidate, workspaceRoot) && !isWithinWorkspace(candidate, agent.workspace_root)) {
     throw new LocalAdminHttpError(403, 'outside_workspace', 'Target path is outside the Agent workspace');
   }
   const resolvedTarget = await realpath(candidate).catch(() => null);
