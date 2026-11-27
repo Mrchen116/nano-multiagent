@@ -4,16 +4,17 @@
 
 - 本次问题与需求/设计位置：
   - [spec.md](spec.md)、[design.md](design.md)、[prototype.html](prototype.html)、[design-review.md](design-review.md)
-  - 4 份 delta-spec：[external-channels.md](specs/gateway/external-channels.md)、[routing-delivery.md](specs/gateway/routing-delivery.md)、[spec.md](specs/gateway/spec.md)、[agents-nodes.md](specs/im/agents-nodes.md)
+  - 5 份 delta-spec：[external-channels.md](specs/gateway/external-channels.md)、[routing-delivery.md](specs/gateway/routing-delivery.md)、[spec.md](specs/gateway/spec.md)、[agents-nodes.md](specs/im/agents-nodes.md)、[conversations-messages.md](specs/im/conversations-messages.md)
   - 里程碑证据：[m1-verification.md](M1-wechat-binding-and-text-channel/evidence/m1-verification.md)、[m2-verification.md](M2-wechat-rich-media-forwards-and-approvals/evidence/m2-verification.md)
 - 实际 `executed_base` / `validated_at`：
   - `executed_base`：`3fafe61c545e89aee6ff6977ed3d082c21a23de2`
   - Round 1 `validated_at`：`60a6648e7a433ebe00c746db9be0e554e44cd4f3`
   - Round 2 `validated_at`：`8c8828dd509f9634193499828dc1ce2ff67cc296`
   - Round 3 `validated_at`：`406bb70eae6c37b2ed9ce0599ef4df52acf35855`
+  - Round 4（真机实测增量审查）`validated_at`：`c27eaa26d50c052e474df581487bfa69edd94b33`
 - 最终 `effective_base` / `effective_through` 与保留依据：
   - `effective_base`：`3fafe61c545e89aee6ff6977ed3d082c21a23de2`
-  - `effective_through`：`406bb70eae6c37b2ed9ce0599ef4df52acf35855`（`406bb70ea` 相对 `8c8828dd5` 仅补齐 `specs/gateway/routing-delivery.md` 末尾 14 行既有 Scenario 纯文档内容，运行时/前端/测试源码 `git diff` 为空，因此 Gate 2/3/4 在 `8c8828dd5` 上的通过结论对 `406bb70ea` 继续有效，Gate 1 已在 `406bb70ea` 上完成 Round 3 终审通过）。
+  - `effective_through`：`c27eaa26d50c052e474df581487bfa69edd94b33`（`e3f79d253..c27eaa26d` 仅包含真机微信扫码实测期间按用户反馈收口的 3 项增强：主人 1:1 外部影子会话双勾回执 `445481484`、影子会话标题采用 Agent `display_name` `9d41b6b31`、带转写语音同步保留 `voice-raw.wav` 原声附件及模型侧按需下载说明 `c27eaa26d`；已由独立子代理 `646b17ad` 完成 `change-code-review` + `agent-context-review` + 5 份 delta-spec `corrected-delta` 联合终审 `pass`，并经 6 组真模型隔离语音场景 + 用户真机微信实测验证通过）。
 
 ## 审查结果
 
@@ -23,7 +24,8 @@
 | 模型可见上下文、`<= 8` 字符短 `attachment_id`、防注入包裹与静态前缀缓存零退化 | `agent-context-review` · 独立子代理 `eff76cd0` · 隔离真栈轨迹原件审查 + `closure`（R1 `60a6648e7` → R2 `8c8828dd5`） | **`pass`** | 隔离真栈 `/tmp/feat-794-ctx-r2` 读取真实 `session.v4.jsonl`：`SingleThread`（`ctx-st-r2`）与非 PA `Global`（`daily-engineering`）均分配 `a_xxxxxx` 并端到端调用 `download_attachment` 落盘 PDF 与 `voice.wav`；非光栅附件已剥离 57 字符原始 `external:...` 键；同条多段文本以 `\n\n` 分隔；PA 观察链 `latest_message_at` 稳定呈现 ISO 时间；`packages/dsh-integration/` 0 改动，`fork-prefix-provider.test.ts` 3/3 通过且真实会话 `cacheReadTokens` 稳定命中 |
 | Web 桌面（`1280×800`）与移动（`390×844`）扫码/PIN/状态卡片视觉交互及原生 iOS 通道契约 | `frontend-experience-review` · 独立子代理 `0af37057` · 隔离真栈双视口目视走查 + iOS 源码契约审查（R1 `60a6648e7` → R2 `8c8828dd5`） | **`pass`** | 隔离真栈 `/tmp/feat-794-ux-r2` 在 `1280×800` 与 `390×844` 逐态实测：同节点飞书失败不再污染微信绿色 `已连接`；微信卡片隐藏飞书专属「权限状态暂时无法确认」面板；高频列表刷新下重新扫码确认可靠关闭弹窗、被动卸载自动触发 `cancel`；`-14` 失效文案去重、已扫码遮罩均衡折行、双视口零横向溢出；iOS `xcodebuild build-for-testing` 与 `AgentContractsTests`（12/12）通过 |
 | 真实入口端到端旅程（扫码/PIN、`PA` 与普通 Agent 收发、内部影子隔离、富媒体/引用、纯文本审批、`/stop`、`-14` 恢复） | `product-journey-review` · 独立子代理 `d4b28ce2` · 隔离真栈全链路验收（R1 `60a6648e7` → R2 `8c8828dd5`） | **`pass`** | 隔离真栈 `/tmp/feat-794-pj-r2`（`e2e-wechat-twin` + `codexOAuth:gpt-6.2-sol`）实测：微信 `/stop` 在 `SingleThread`、`PA`、启用 `task_graph` 的 `Global` 三路径均立即回执并释放会话继续对话；Web IM 内部 `PA · wechat` 与 `Global · wechat` 影子会话回复零泄漏至微信（`sent_messages` 不变），切回微信后 `local_images`（64×64 PNG）与 `download_attachment` 双向正常；多段卡片+合并转发 `\n\n` 分隔清晰 |
-| 连接真实腾讯公网 `ilinkai.weixin.qq.com` 的手机微信真机扫码验收 | 用户本人（按 `spec.md` Q2 约定，PR 前隔离真上游预览） | **`pending`（待用户扫码确认）** | 本地可控 iLink twin 已覆盖全部协议状态机；归档与创建 PR 前启动不带 `NANO_WECHAT_E2E_BASE_URL` 的隔离预览栈，由用户本人用手机微信完成真机扫码与实发验收 |
+| 连接真实腾讯公网 `ilinkai.weixin.qq.com` 的手机微信真机扫码与实发验收 | 用户本人（隔离真上游预览 `/tmp/feat-794-live-scan`） | **`pass`** | 用户本人使用真机微信完成扫码绑定、公众号文章卡片转发、Web IM 1:1 影子会话蓝双勾已读回执（`✓✓`）与 `PA · 个人助手 · wechat` 标题确认、微信实时语音转写往返，以及真机发语音触发 PA 按需下载 `voice-raw.wav` 实测说话音高（`113 Hz`）端到端验收通过 |
+| 真机实测增量改动（1:1 影子双勾回执、`display_name` 影子标题、双轨语音 `voice-raw.wav`）与全部 5 份 delta-spec 终审 | `change-code-review` + `agent-context-review` · 独立子代理 `646b17ad` · `delta` + `corrected-delta`（`e3f79d253..c27eaa26d`） | **`pass`** | 0 阻塞项（顺手收口 `NB-1` `inbound.ts:346` 补充 `media?.full_url` 判据）；独立实跑 56 个测试文件 / 476 项测试、14 项依赖契约与 `docs-check` 全绿；`packages/dsh-integration/` 0 改动；另经独立真模型（`codexOAuth:gpt-6.2-sol`）实跑 `SingleThread`/`Global`/`PA` 4 组日常语音（0 次误调 `download_attachment`）+ 2 组当轮/跨轮提取 `voice-raw.wav` 测频场景全通；5 份 delta-spec 全部 `aligned` |
 
 ## Findings 与关闭
 
@@ -41,9 +43,9 @@ Round 1 共识别 16 项问题（合并跨门禁同源项），加上 Round 2 �
 
 ## 流程收口
 
-- 重要目标和关键设计覆盖：微信扫码/IDC 切域/数字 PIN 交互式绑定与 X25519 封存、单 poller 先停再起与 `-14` 自动停用、`PA` 与普通 Agent（`single_thread`/`global`）双向消息及触发源路由隔离、`<appmsg>` 卡片/`<recordinfo>` 递归合并转发/双层语音/16 MiB EXIF 图片/25 MiB 离线可下载文件/`partial_text` 引用定位、出站双阶段发图与代码块安全分片、`SingleThread` 纯文本互斥审批、Web 双视口与原生 iOS 端引导卡片均已完整实现并经独立验证通过。
-- 开放问题 / pending / inconclusive：无代码或设计开放问题；唯一约定待办项为用户在 PR 前对隔离真上游预览环境的真机微信扫码实测（`spec.md` Q2）。
-- 最终 delta 校对：4 份 delta-spec（`gateway/external-channels.md`、`gateway/routing-delivery.md`、`gateway/spec.md`、`im/agents-nodes.md`）均已通过 Gate 1 `corrected-delta` 终审（`aligned`）。
-- 版本变化后保留 / 补验的判断与依据：`406bb70ea` 相对 `8c8828dd5` 仅含 `specs/gateway/routing-delivery.md` 14 行纯文档增量，Gate 2/3/4 实测证据完整保留有效，Gate 1 已对 `406bb70ea` 完成增量终审。
-- 测试资源回收结果：Round 1 与 Round 2 全部临时目录（`/tmp/feat-794-*-rt`、`/tmp/feat-794-*-r2`）、`e2e-wechat-twin` 进程、Gateway/IM 进程与浏览器实例均已销毁并核实零残留。
-- 交付范围与剩余事项：当前保持 `feat-794-wechat-channel` 处于 active 状态，启动连接真实腾讯微信上游的隔离预览栈交用户亲自扫码实测；待用户确认后立即回收预览栈、将 4 份 delta-spec 归并入 `docs/specs/`、归档 unit 至 `docs/changes/archive/`、跑齐 CI 本地门禁并向 `develop` 提交 PR。
+- 重要目标和关键设计覆盖：微信扫码/IDC 切域/数字 PIN 交互式绑定与 X25519 封存、单 poller 先停再起与 `-14` 自动停用、`PA` 与普通 Agent（`single_thread`/`global`）双向消息、主人 1:1 影子双勾回执、`display_name` 影子标题及触发源路由隔离、`<appmsg>` 卡片/`<recordinfo>` 递归合并转发/双轨语音（现成转写 + `voice-raw.wav` 原声附件按需下载 + 无转写兜底）/16 MiB EXIF 图片/25 MiB 离线可下载文件/`partial_text` 引用定位、出站双阶段发图与代码块安全分片、`SingleThread` 纯文本互斥审批、Web 双视口与原生 iOS 端引导卡片均已完整实现并经独立验证及用户真机实测通过。
+- 开放问题 / pending / inconclusive：无（0 存活 findings，用户真机扫码与实发验收已通过）。
+- 最终 delta 校对：全部 5 份 delta-spec（`gateway/external-channels.md`、`gateway/routing-delivery.md`、`gateway/spec.md`、`im/agents-nodes.md`、`im/conversations-messages.md`）均已通过独立终审（`aligned`）并归并入权威 `docs/specs/`。
+- 版本变化后保留 / 补验的判断与依据：`e3f79d253..c27eaa26d` 的实测增量改动已由独立子代理 `646b17ad` 完成代码、上下文与 delta-spec 增量终审（`pass`），顺手补齐的 `NB-1`（`inbound.ts:346` 兼容 `media?.full_url`）仅放宽 1 个可选字段布尔判据，此前通过结论完整有效。
+- 测试资源回收结果：Round 1/2 全部临时目录、语音真模型验证栈 `/tmp/feat-794-voice-verify` 及真机预览栈 `/tmp/feat-794-live-scan` 均已执行 `e2e-down.sh` 并删除目录，核实端口与进程零残留。
+- 交付范围与剩余事项：已完成 5 份权威 spec 归并、unit 归档至 `docs/changes/archive/feat-794-wechat-channel` 与全套本地 CI 门禁验证，向 `develop` 提交并合入 PR。

@@ -343,7 +343,7 @@ export async function transformWeChatInboundMessage(
         usableCount++;
         parts.push({ type: 'text', text: `[语音转写] ${transcript}` });
         mediaSummaries.push(`[语音] ${transcript.slice(0, 80)}`);
-        if (item.voice_item.media?.encrypt_query_param) {
+        if (item.voice_item.media?.encrypt_query_param || item.voice_item.media?.full_url) {
           try {
             const decrypted = await downloadAndDecryptMedia({
               media: item.voice_item.media,

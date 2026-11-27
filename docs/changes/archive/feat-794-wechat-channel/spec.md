@@ -24,7 +24,7 @@
 
 ### 本仓现行契约与实现基线
 
-1. **外部通道与影子会话契约（[external-channels.md](../../specs/gateway/external-channels.md)、[agents-nodes.md](../../specs/im/agents-nodes.md)、[gateway-relay.md](../../specs/im/gateway-relay.md)）**：
+1. **外部通道与影子会话契约（[external-channels.md](../../../specs/gateway/external-channels.md)、[agents-nodes.md](../../../specs/im/agents-nodes.md)、[gateway-relay.md](../../../specs/im/gateway-relay.md)）**：
    - 节点本地维护外部连接，中心 IM 服务只保存托管期望状态与经节点公钥密封的凭据，不直连外部平台、不回显已保存凭据；节点与中心服务断连期间仍可凭本地受保护缓存继续处理外部通道对话，恢复连接后补建并追平内部 IM 影子会话。
    - 外部消息按稳定身份映射为内部 IM 独立影子会话，触发源决定回复去向，可见回复镜像同步到内部 IM，`/new`、`/stop`、`/compact` 在外部聊天与内部影子会话间共享同一底层对话上下文。
    - **外部内容获取安全边界**：通道入站预处理仅获取受控消息媒体并受超时与体积上限约束，**不在通道预处理阶段自动抓取任意外部网页地址**；公开文章或网页正文由 Agent 在会话中通过受控网页读取能力按需获取。

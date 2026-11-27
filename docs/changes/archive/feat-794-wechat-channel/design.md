@@ -31,9 +31,9 @@
 
 ### 既有约束
 
-- **跨包依赖红线（[SPEC.md](../../../SPEC.md) & `test_runtime_dependency_contract.py`）**：`apps/im-server` 与 `packages/channels` 仅依赖 `packages/product-contracts`；IM Server 绝不直连外部微信服务，所有二维码轮询、消息长轮询与媒体加解密均在节点（`apps/node` + `packages/channels`）运行。
+- **跨包依赖红线（[SPEC.md](../../../../SPEC.md) & `test_runtime_dependency_contract.py`）**：`apps/im-server` 与 `packages/channels` 仅依赖 `packages/product-contracts`；IM Server 绝不直连外部微信服务，所有二维码轮询、消息长轮询与媒体加解密均在节点（`apps/node` + `packages/channels`）运行。
 - **凭据零回显与离线自治**：`bot_token` 仅以节点通道公钥封装的 `X25519-HKDF-SHA256-AES-256-GCM` 信封落库于 `agent_channels.credential_envelope_json` 并同步到节点 `channels.sqlite3`；绝不写入 `config.yaml`、日志或浏览器可读响应，且禁止客户端经普通 REST `POST/PATCH` 直传明文微信令牌。
-- **防 SSRF 与受控媒体边界（[external-channels.md](../../specs/gateway/external-channels.md)）**：通道层仅访问严格匹配 `https://*.weixin.qq.com` 的官方地址（含 `scaned_but_redirect` 域名校验，统一 `redirect: 'error'`，仅隔离环境显式配置 `NANO_WECHAT_E2E_BASE_URL=http://127.0.0.1:<port>` 时允许本地测试桩 origin），**绝不在通道入站预处理或出站渲染阶段自动抓取公众号文章或任意外部 URL**。
+- **防 SSRF 与受控媒体边界（[external-channels.md](../../../specs/gateway/external-channels.md)）**：通道层仅访问严格匹配 `https://*.weixin.qq.com` 的官方地址（含 `scaned_but_redirect` 域名校验，统一 `redirect: 'error'`，仅隔离环境显式配置 `NANO_WECHAT_E2E_BASE_URL=http://127.0.0.1:<port>` 时允许本地测试桩 origin），**绝不在通道入站预处理或出站渲染阶段自动抓取公众号文章或任意外部 URL**。
 - **范围收敛红线**：不引入 `<persona-context>` 提示词段注入，不改动跨会话记忆归档架构，不改变根主 Agent 静态系统提示词前缀缓存（`verify-context-cache-prefix`），不改变 `Global / PA` 既有 `return_to_agent` 审批路由。
 
 ### 可复用能力
@@ -247,8 +247,8 @@ sequenceDiagram
 
 | 当前产品入口 | 画面与操作基线 | 沿用或改善的体验及原因 | 本次设计 |
 |---|---|---|---|
-| Web 助手设置「外部通道」页签（[`agent-channels-panel.tsx`](../../../src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx)、[`channel-provider-registry.ts`](../../../src/IM/frontend/src/features/settings/agents/channel-provider-registry.ts)） | 顶部说明 + `+ 添加通道`；`.im-channel-card` 展示图标、状态胶囊、掩码标识与操作组；`.chat-modal` 承载弹窗（窄屏底部抽屉） | 复用既有卡片密度与离线只读锁；针对扫码与失效恢复优化操作权重，避免把无效「重连」与「重新扫码」并列 | Provider 选择器支持飞书与微信独立占用；扫码弹窗支持二维码/已扫码/验证码（含错误提示）/过期四态；登录失效卡隐藏「重连」并高亮「重新扫码」 |
-| 原生 iOS 外部通道页（[`AgentChannelsView.swift`](../../../src/IM/ios/NanoIM/Features/Agents/AgentChannelsView.swift)）与模型服务页（[`ModelServicesView.swift`](../../../src/IM/ios/NanoIM/Features/Me/ModelServicesView.swift)） | `AgentChannelsView` 当前硬编码飞书表单与外链；`ModelServicesView` 对交互式登录隐藏表单编辑、保留状态查看与移除 | 消除非飞书通道错误字段与外链，同时闭合移动端点击 `+ 添加通道` 时的微信绑定预期 | `+` 提供飞书/微信分流（微信展示网页端扫码引导）；已绑定微信行展示掩码标识与状态，支持启停/重连/删除，无飞书专属残留 |
+| Web 助手设置「外部通道」页签（[`agent-channels-panel.tsx`](../../../../src/IM/frontend/src/features/settings/agents/agent-channels-panel.tsx)、[`channel-provider-registry.ts`](../../../../src/IM/frontend/src/features/settings/agents/channel-provider-registry.ts)） | 顶部说明 + `+ 添加通道`；`.im-channel-card` 展示图标、状态胶囊、掩码标识与操作组；`.chat-modal` 承载弹窗（窄屏底部抽屉） | 复用既有卡片密度与离线只读锁；针对扫码与失效恢复优化操作权重，避免把无效「重连」与「重新扫码」并列 | Provider 选择器支持飞书与微信独立占用；扫码弹窗支持二维码/已扫码/验证码（含错误提示）/过期四态；登录失效卡隐藏「重连」并高亮「重新扫码」 |
+| 原生 iOS 外部通道页（[`AgentChannelsView.swift`](../../../../src/IM/ios/NanoIM/Features/Agents/AgentChannelsView.swift)）与模型服务页（[`ModelServicesView.swift`](../../../../src/IM/ios/NanoIM/Features/Me/ModelServicesView.swift)） | `AgentChannelsView` 当前硬编码飞书表单与外链；`ModelServicesView` 对交互式登录隐藏表单编辑、保留状态查看与移除 | 消除非飞书通道错误字段与外链，同时闭合移动端点击 `+ 添加通道` 时的微信绑定预期 | `+` 提供飞书/微信分流（微信展示网页端扫码引导）；已绑定微信行展示掩码标识与状态，支持启停/重连/删除，无飞书专属残留 |
 
 ### 原型对齐契约
 
@@ -283,11 +283,11 @@ sequenceDiagram
 
 ## 契约层增量 (delta-spec)
 
-- **Gateway 外部通道契约**：[`docs/specs/gateway/external-channels.md`](../../specs/gateway/external-channels.md) → 见 [`specs/gateway/external-channels.md`](specs/gateway/external-channels.md)（新增个人微信通道收发与单会话文本审批 2 条 Requirement；修改托管通道热调和、受控附件源及 PA 主人外部单聊 3 条 Requirement，无内部错误码硬编码）。
-- **Gateway 包入口索引**：[`docs/specs/gateway/spec.md`](../../specs/gateway/spec.md) → 见 [`specs/gateway/spec.md`](specs/gateway/spec.md)（更新 `External Channels` 覆盖说明并将 Requirement 数由 `17` 更新为 `19`）。
-- **Gateway 路由与投递契约**：[`docs/specs/gateway/routing-delivery.md`](../../specs/gateway/routing-delivery.md) → 见 [`specs/gateway/routing-delivery.md`](specs/gateway/routing-delivery.md)（修改 `当前会话的 Agent 图片与文件回复具有统一交付语义` 放开外部私聊 `local_images` 与离线暂存同步，修改 `Agent 可通过短标识下载受保护会话附件` 支持本机已验权 `external:` 入站附件落盘；Requirement 总数保持 `26` 不变）。
-- **IM 通道管理契约**：[`docs/specs/im/agents-nodes.md`](../../specs/im/agents-nodes.md) → 见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)（修改 Agent 通道页统一管理条款，纳入 `wechat`、Web 扫码零明文回显、禁 REST 明文直传及原生 iOS 添加引导与状态管理；Requirement 总数保持 `56` 不变，`docs/specs/im/spec.md` 为 `no spec delta`）。
-- **IM 会话与消息回执契约**：[`docs/specs/im/conversations-messages.md`](../../specs/im/conversations-messages.md) → 见 [`specs/im/conversations-messages.md`](specs/im/conversations-messages.md)（修改 `真人发送的普通聊天消息提供逐人回执`，覆盖主人 1:1 外部私聊影子会话向 Global Agent / Personal Agent 的待送达 → 已送达 → 已读回执推进，保持群旁观、非主人与 SingleThread 边界不变；Requirement 总数不变，`docs/specs/im/spec.md` 为 `no spec delta`）。
+- **Gateway 外部通道契约**：[`docs/specs/gateway/external-channels.md`](../../../specs/gateway/external-channels.md) → 见 [`specs/gateway/external-channels.md`](specs/gateway/external-channels.md)（新增个人微信通道收发与单会话文本审批 2 条 Requirement；修改托管通道热调和、受控附件源及 PA 主人外部单聊 3 条 Requirement，无内部错误码硬编码）。
+- **Gateway 包入口索引**：[`docs/specs/gateway/spec.md`](../../../specs/gateway/spec.md) → 见 [`specs/gateway/spec.md`](specs/gateway/spec.md)（更新 `External Channels` 覆盖说明并将 Requirement 数由 `17` 更新为 `19`）。
+- **Gateway 路由与投递契约**：[`docs/specs/gateway/routing-delivery.md`](../../../specs/gateway/routing-delivery.md) → 见 [`specs/gateway/routing-delivery.md`](specs/gateway/routing-delivery.md)（修改 `当前会话的 Agent 图片与文件回复具有统一交付语义` 放开外部私聊 `local_images` 与离线暂存同步，修改 `Agent 可通过短标识下载受保护会话附件` 支持本机已验权 `external:` 入站附件落盘；Requirement 总数保持 `26` 不变）。
+- **IM 通道管理契约**：[`docs/specs/im/agents-nodes.md`](../../../specs/im/agents-nodes.md) → 见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)（修改 Agent 通道页统一管理条款，纳入 `wechat`、Web 扫码零明文回显、禁 REST 明文直传及原生 iOS 添加引导与状态管理；Requirement 总数保持 `56` 不变，`docs/specs/im/spec.md` 为 `no spec delta`）。
+- **IM 会话与消息回执契约**：[`docs/specs/im/conversations-messages.md`](../../../specs/im/conversations-messages.md) → 见 [`specs/im/conversations-messages.md`](specs/im/conversations-messages.md)（修改 `外部 channel 影子会话按外部身份幂等创建` 使其默认标题使用目标 Agent 公开显示名并在改名时同步刷新未手动改名的影子会话，修改 `真人发送的普通聊天消息提供逐人回执` 覆盖主人 1:1 外部私聊影子会话向 Global Agent / Personal Agent 的待送达 → 已送达 → 已读回执推进，保持群旁观、非主人与 SingleThread 边界不变；Requirement 总数保持 `39` 不变，`docs/specs/im/spec.md` 为 `no spec delta`）。
 - **其他领域（`gateway/personal-agent.md`、`im/personal-agent.md`、`im/ios-client.md`、`im/desktop-client.md`）**：`no spec delta`——现有条款已通过通用外部通道与管理页面契约覆盖。
 
 ## 风险与回退
