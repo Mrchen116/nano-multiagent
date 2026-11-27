@@ -24,25 +24,32 @@ export function isReservedRuntimeUsername(username: unknown): boolean {
   );
 }
 
-/** Check whether `viewerId` has member or observer read access to a conversation involving `targetId`. */
+/** Check whether `viewerId` can read (or has subscribed member/observer access to) a conversation involving `targetId`. */
 export function hasSharedReadableConversation(
   db: DatabaseSync,
   viewerId: string,
   targetId: string,
+  options?: { requireSubscribedAccess?: boolean },
 ): boolean {
   const rows = all(
     db,
     `SELECT DISTINCT conversation_id FROM (
        SELECT conversation_id FROM conversation_participants WHERE user_id=?
        UNION
+       SELECT conversation_id FROM conversation_participation_history WHERE user_id=?
+       UNION
        SELECT conversation_id FROM messages WHERE sender_user_id=? AND sender_source_id IS NULL
      )`,
+    targetId,
     targetId,
     targetId,
   );
   return rows.some((row) => {
     const access = conversationAccess(db, row.conversation_id, viewerId);
-    return Boolean(access && (access.is_member || access.is_observer));
+    if (!access) return false;
+    return options?.requireSubscribedAccess
+      ? Boolean(access.is_member || access.is_observer)
+      : true;
   });
 }
 
@@ -82,7 +89,7 @@ export function broadcastUserProfileUpdated(ctx: ImContext, user: Row): void {
     if (
       (viewer.membership_status === "active" && user.membership_status === "active") ||
       (viewer.membership_status === "active" && Boolean(viewer.is_company_admin) && user.membership_status !== "none") ||
-      hasSharedReadableConversation(ctx.db, viewer.id, user.id)
+      hasSharedReadableConversation(ctx.db, viewer.id, user.id, { requireSubscribedAccess: true })
     ) {
       audience.push(viewerId);
     }

@@ -19,7 +19,7 @@ struct NanoIMApp: App {
                     } else {
                         MembershipView(model: model, user: user)
                             .environment(\.avatarDirectory, AvatarDirectory(user: user))
-                            .environment(\.avatarImageStore, model.ensureAvatarImages(for: user))
+                            .environment(\.avatarImageStore, model.avatarImages)
                     }
                 } else { AuthView(model: model) }
             }
@@ -106,7 +106,11 @@ final class AppModel {
         }
         guard client === self.client, revision == (await client.session.revision()),
               (await client.session.currentUser())?.id == user.id else { return }
-        if user.accountEnabled { installChat(user) }
+        if user.accountEnabled {
+            installChat(user)
+        } else {
+            _ = ensureAvatarImages(for: user)
+        }
         self.user = user
         UserDefaults.standard.set(user.locale.hasPrefix("zh") ? "zh" : "en", forKey: "nano.locale")
     }
@@ -169,6 +173,7 @@ final class AppModel {
                 clearChat()
                 if let stored {
                     await storage.purge(reason: .deactivated, partition: ChatPartition(origin: current.baseURL, userID: stored.id))
+                    _ = ensureAvatarImages(for: stored)
                 }
             }
             guard current === client, revision == (await current.session.revision()) else { return }

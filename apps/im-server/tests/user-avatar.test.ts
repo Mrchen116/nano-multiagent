@@ -221,8 +221,43 @@ it("serializes concurrent PUT and DELETE for the same user and enforces selfMana
   await req(admin.access_token, "POST", `/im/v1/conversations/${chat.id}/participants`, {
     participants: [{ type: "user", id: nonAdminPeer.user.id }],
   });
+  // Unjoined active company member browsing public ArchiveGroup can also read suspended member's avatar (no false 404 negative cache).
+  const publicReader = await register("public_reader");
+  await req(publicReader.access_token, "POST", "/im/v1/company/join", {});
+  await req(admin.access_token, "POST", `/im/v1/company/members/${publicReader.user.id}/approve`, {});
+  const publicReaderAuth = await app.im.identity.login("public_reader", "password-123");
+
+  // Former member who only read a message (recorded in conversation_participation_history / message_receipts without sending), left the group, and got suspended remains readable to group readers.
+  const receiptOnlyPeer = await register("receipt_peer");
+  await req(receiptOnlyPeer.access_token, "POST", "/im/v1/company/join", {});
+  await req(admin.access_token, "POST", `/im/v1/company/members/${receiptOnlyPeer.user.id}/approve`, {});
+  const receiptPeerAuth = await app.im.identity.login("receipt_peer", "password-123");
+  await req(receiptPeerAuth.access_token, "PUT", "/im/v1/me/avatar", img, { "content-type": "image/png" });
+  const privateGroup = (await req(admin.access_token, "POST", "/im/v1/conversations", {
+    title: "PrivateHistoryGroup",
+    type: "group",
+    visibility: "private",
+    participants: [
+      { type: "user", id: nonAdminPeer.user.id },
+      { type: "user", id: receiptOnlyPeer.user.id },
+    ],
+  })).json();
+  const rootMsg = (await req(peer2Auth.access_token, "POST", `/im/v1/conversations/${privateGroup.id}/messages`, {
+    sender_user_id: nonAdminPeer.user.id,
+    content: "Please acknowledge",
+    suppress_relay: true,
+  })).json();
+  await req(receiptPeerAuth.access_token, "POST", `/im/v1/conversations/${privateGroup.id}/read`, {
+    last_read_message_id: rootMsg.id,
+  });
+  await req(admin.access_token, "DELETE", `/im/v1/conversations/${privateGroup.id}/participants/${receiptOnlyPeer.user.id}`);
+  await req(admin.access_token, "POST", `/im/v1/company/members/${receiptOnlyPeer.user.id}/suspend`, {});
+
   await req(admin.access_token, "POST", `/im/v1/company/members/${member.user.id}/suspend`, {});
   expect((await req(peer2Auth.access_token, "GET", `/im/v1/users/${member.user.id}/avatar`)).statusCode).toBe(200);
+  expect((await req(publicReaderAuth.access_token, "GET", `/im/v1/users/${member.user.id}/avatar`)).statusCode).toBe(200);
+  expect((await req(peer2Auth.access_token, "GET", `/im/v1/users/${receiptOnlyPeer.user.id}/avatar`)).statusCode).toBe(200);
+  expect((await req(publicReaderAuth.access_token, "GET", `/im/v1/users/${receiptOnlyPeer.user.id}/avatar`)).statusCode).toBe(404);
 
   // Concurrent large PUT followed immediately by DELETE for the same user settles with NULL avatar and 0 files on disk.
   const heavyPng = await makePng(1200, 1200, { r: 90, g: 140, b: 210 });

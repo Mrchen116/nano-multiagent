@@ -286,6 +286,24 @@
 .settings-identity > div {
   min-width: 0;
 }
+.settings-identity.account-identity-editor > .account-identity-meta {
+  flex: 1 1 160px;
+  min-width: 160px;
+}
+@media (max-width: 520px) {
+  .settings-identity.account-identity-editor {
+    row-gap: 12px;
+  }
+  .settings-identity.account-identity-editor > .account-avatar-actions {
+    flex-basis: 100%;
+    padding-left: 72px;
+  }
+}
+@media (max-width: 359px) {
+  .settings-identity.account-identity-editor > .account-avatar-actions {
+    padding-left: 0;
+  }
+}
 .settings-identity strong {
   display: block;
   font-size: 18px;
