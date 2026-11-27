@@ -22,7 +22,7 @@ Platform-Parity-Exempt: 两个桌面平台共用受修复的回环代理。Web �
 
 ## 验证
 
-- macOS arm64，隔离宿主、临时目录、随机回环端口。修前正常二进制通过，未结束的 chunked 文件被识别为完整正文，慢流的响应头超时，会话写入短正文返回 200。修后 `cargo test --manifest-path apps/desktop/Cargo.toml --locked` 通过 9 个原有用例与 4 个 HTTP 回归用例。慢流用例在读到 512 KiB + 1 字节后关闭客户端，并从 IM 端观察到连接关闭；断流用例在客户端读到 200 和首段后切断 IM，再确认正文读取失败。会话测试核对正常 JSON、角标与中断时的 502。
+- macOS arm64，隔离宿主、临时目录、随机回环端口。修前正常二进制通过，未结束的 chunked 文件被识别为完整正文，慢流的响应头超时，会话写入短正文返回 200。修后 `cargo test --manifest-path apps/desktop/Cargo.toml --locked` 通过 9 个原有用例与 4 个 HTTP 回归用例。慢流用例在读到 512 KiB + 1 字节后关闭客户端，并从 IM 端观察到连接关闭；断流用例在客户端读到 200 和首段后切断 IM，再确认正文读取失败。会话测试先通过宿主登录入口建立有效通知会话，再核对完整响应使角标变为 3、截断响应返回 502 且角标仍为 3。
 - 前端 `vitest run src/features/chat/attachments/attachment-preview.test.tsx` 通过 11 个用例，覆盖附件按钮和弹窗下载失败时显示错误且没有触发保存。
 - macOS 系统 WKWebView 载入隔离宿主提供的实际 AttachmentChip、authFetch 与预览弹窗，通过 bootstrap cookie 访问受保护附件 fixture。观察下载动作携带的文件名及 Blob 字节，完整文件为 `ok.txt` / `intact`；断流后出现下载与预览错误，保存次数仍为 1；慢流在上游尚未完成时显示 512 KB 截断提示，上游观测到连接关闭并写入确认文件，WKWebView 进程读到确认后才退出。该检查拦截保存动作，未操作系统保存对话框。
 - Windows 原生宿主用例随现有 Desktop candidate 在 windows-2022 执行；本地未运行 WebView2 界面。

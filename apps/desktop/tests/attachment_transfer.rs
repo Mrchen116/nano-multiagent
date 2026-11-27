@@ -2,6 +2,7 @@ use crewden_desktop::config::{DesktopCliOptions, DesktopPaths};
 use crewden_desktop::host_server::{start_host_server, RunningHostServer};
 use crewden_desktop::notifications::NoopUiBridge;
 use reqwest::{Method, RequestBuilder, StatusCode};
+use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 use tempfile::TempDir;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -9,6 +10,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::time::timeout;
 
 const ATTACHMENT: &str = "/im/v1/conversations/c1/attachments/file1";
+const LOGIN: &str = "/im/v1/auth/login";
 const WAIT: Duration = Duration::from_secs(5);
 
 struct Fixture {
@@ -55,25 +57,61 @@ impl Fixture {
 
     // A raw upstream socket lets the fixture stop after valid headers and part of a chunked body.
     async fn accept(&self, method: &str, path: &str) -> TcpStream {
-        let (mut socket, _) = timeout(WAIT, self.upstream.accept())
-            .await
-            .expect("proxy must contact IM")
-            .unwrap();
-        let mut reader = BufReader::new(&mut socket);
-        let mut line = String::new();
-        reader.read_line(&mut line).await.unwrap();
-        assert_eq!(line, format!("{method} {path} HTTP/1.1\r\n"));
-        let mut headers = String::new();
         loop {
-            line.clear();
-            assert!(reader.read_line(&mut line).await.unwrap() > 0);
-            if line == "\r\n" {
-                break;
+            let (mut socket, _) = timeout(WAIT, self.upstream.accept())
+                .await
+                .expect("proxy must contact IM")
+                .unwrap();
+            let mut reader = BufReader::new(&mut socket);
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).await.unwrap();
+            let mut headers = String::new();
+            let mut line = String::new();
+            loop {
+                line.clear();
+                assert!(reader.read_line(&mut line).await.unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+                headers.push_str(&line.to_ascii_lowercase());
             }
-            headers.push_str(&line.to_ascii_lowercase());
+            // A signed-in host also refreshes in the background. Keep the session without syncing a badge.
+            if request_line == "POST /im/v1/auth/refresh HTTP/1.1\r\n" {
+                socket.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+                continue;
+            }
+            assert_eq!(request_line, format!("{method} {path} HTTP/1.1\r\n"));
+            if path != LOGIN {
+                assert!(headers.contains("authorization: bearer test-member\r\n"));
+            }
+            return socket;
         }
-        assert!(headers.contains("authorization: bearer test-member\r\n"));
-        socket
+    }
+
+    async fn login(&self) {
+        let request = tokio::spawn(
+            self.request(Method::POST, LOGIN)
+                .json(&json!({ "username": "member", "password": "fixture" }))
+                .send(),
+        );
+        let mut socket = self.accept("POST", LOGIN).await;
+        let session = json!({
+            "access_token": "test-member",
+            "refresh_token": "test-refresh",
+            "user": { "id": "member", "owner_id": "member", "username": "member" }
+        })
+        .to_string();
+        let reply = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{session}",
+            session.len()
+        );
+        socket.write_all(reply.as_bytes()).await.unwrap();
+        let response = request.await.unwrap().unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.json::<Value>().await.unwrap()["access_token"],
+            "test-member"
+        );
     }
 }
 
@@ -154,6 +192,7 @@ async fn slow_preview_can_cancel_before_upstream_finishes() {
 #[tokio::test]
 async fn conversation_write_updates_badge_only_after_complete_response() {
     let fixture = Fixture::start().await;
+    fixture.login().await;
     let path = "/im/v1/conversations/c1";
     for (body, missing, expected) in [
         (r#"{"id":"c1","unread_count":3}"#, 0, StatusCode::OK),
