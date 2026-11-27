@@ -410,3 +410,4 @@ export class WebRelayConnection {
 
 export { FeishuConnection, parseFeishuMessage, type FeishuConfiguration, type FeishuMessage } from './feishu.js';
 export { ChannelKey, type ChannelAad, type CredentialEnvelope } from './channel-credentials.js';
+export * from './wechat/index.js';

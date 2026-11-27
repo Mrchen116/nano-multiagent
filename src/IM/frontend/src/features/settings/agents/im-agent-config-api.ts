@@ -797,6 +797,13 @@ export async function retryAgentChannelRemoval(
   );
 }
 
+export {
+  setupWeChatChannel,
+  type WeChatChannelSetupInput,
+  type WeChatChannelSetupResponse,
+  type WeChatSetupState,
+} from "./wechat-channel-setup-api";
+
 // feat-379-M3: preview assembled system prompt for an agent with given feature flags and custom text.
 // Calls POST /im/v1/agents/{id}/prompt-preview (IM proxies to Gateway → agent core assembler).
 // scenario is fixed to "direct" — group/heartbeat runtime segments are excluded from previews.

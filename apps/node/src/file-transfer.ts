@@ -167,6 +167,10 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   'text/html': '.html',
   'application/zip': '.zip',
   'application/gzip': '.gz',
+  'audio/mpeg': '.mp3',
+  'audio/wav': '.wav',
+  'video/mp4': '.mp4',
+  'video/webm': '.webm',
 };
 
 function appendFallbackExtension(name: string, contentType: string): string {
@@ -179,6 +183,7 @@ export async function downloadAttachment(config: {
   baseUrl: string;
   token: () => string;
   nodeHome: string;
+  resolveExternalAttachment?: (url: string, agentId: string) => { data: Buffer; mediaType: string; fileName?: string };
 }, input: {
   agentId: string;
   attachmentId: string;
@@ -193,6 +198,50 @@ export async function downloadAttachment(config: {
   content_type: string;
   byte_size: number;
 }> {
+  if (input.url.startsWith('external:')) {
+    if (!config.resolveExternalAttachment) {
+      throw new Error('Only native Nano IM attachments can be downloaded with download_attachment');
+    }
+    const local = config.resolveExternalAttachment(input.url, input.agentId);
+    if (local.data.byteLength > MAX_FILE_BYTES) {
+      throw new Error('Attachment exceeds maximum downloadable size (25 MiB)');
+    }
+    const contentType = (local.mediaType || 'application/octet-stream').split(';')[0]!.trim().toLowerCase() || 'application/octet-stream';
+    const safeName = appendFallbackExtension(sanitizeDownloadFilename(local.fileName ?? input.fileName ?? 'attachment'), contentType);
+    const safeId = input.attachmentId.replace(/[^a-zA-Z0-9_-]/g, '');
+    if (!safeId) throw new Error('Invalid attachment_id');
+
+    const destDir = resolve(input.workspace ? join(input.workspace, '.nano-downloads') : join(config.nodeHome, 'downloads', input.agentId));
+    await mkdir(destDir, { recursive: true });
+    const destination = resolve(destDir, `${safeId}-${safeName}`);
+    if (!destination.startsWith(`${destDir}/`) && !destination.startsWith(`${destDir}\\`)) {
+      throw new Error('Attachment download path escapes managed download directory');
+    }
+    const temporary = join(destDir, `.${safeId}-${randomUUID()}.tmp`);
+    const handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    let committed = false;
+    try {
+      await handle.writeFile(local.data);
+      await handle.close();
+      await rename(temporary, destination);
+      committed = true;
+      return {
+        attachment_id: input.attachmentId,
+        local_path: destination,
+        file_name: safeName,
+        content_type: contentType,
+        byte_size: local.data.byteLength,
+      };
+    } finally {
+      if (!committed) {
+        await handle.close().catch(() => {});
+        if (existsSync(temporary)) {
+          try { unlinkSync(temporary); } catch { /* Best-effort temp cleanup. */ }
+        }
+      }
+    }
+  }
+
   if (!NATIVE_ATTACHMENT_URL_RE.test(input.url)) {
     throw new Error('Only native Nano IM attachments can be downloaded with download_attachment');
   }

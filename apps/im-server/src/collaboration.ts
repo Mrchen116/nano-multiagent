@@ -63,14 +63,24 @@ export function isOwnerInternalConversation(db:DatabaseSync,conversationId:strin
   });
 }
 
-/** Check whether a Feishu shadow conversation is the bound human owner's 1:1 DM for this Agent. */
+/** Check whether an external shadow conversation is the bound human owner's 1:1 DM for this Agent. */
 export function isFeishuBoundOwnerShadow(db:DatabaseSync,conversation:Row|undefined,profile:Row|undefined):boolean {
-  if(!conversation || !profile || conversation.external_source!=='feishu' || conversation.type!=='direct' || conversation.config_agent_id!==profile.agent_id)return false;
-  return !!one(db,`SELECT 1 FROM agent_channels ch
-    WHERE ch.agent_id=? AND ch.node_id=? AND ch.owner_id=? AND ch.provider='feishu' AND ch.enabled=1
-      AND coalesce(json_extract(ch.provider_runtime_json,'$.owner_open_id'),'')!=''
-      AND ?='feishu:'||json_extract(ch.config_json,'$.app_id')||':dm:'||json_extract(ch.provider_runtime_json,'$.owner_open_id')`,
-    profile.agent_id,profile.node_id,profile.owner_id,conversation.external_chat_id);
+  if(!conversation || !profile || conversation.type!=='direct' || conversation.config_agent_id!==profile.agent_id)return false;
+  if(conversation.external_source==='feishu') {
+    return !!one(db,`SELECT 1 FROM agent_channels ch
+      WHERE ch.agent_id=? AND ch.node_id=? AND ch.owner_id=? AND ch.provider='feishu' AND ch.enabled=1
+        AND coalesce(json_extract(ch.provider_runtime_json,'$.owner_open_id'),'')!=''
+        AND ?='feishu:'||json_extract(ch.config_json,'$.app_id')||':dm:'||json_extract(ch.provider_runtime_json,'$.owner_open_id')`,
+      profile.agent_id,profile.node_id,profile.owner_id,conversation.external_chat_id);
+  }
+  if(conversation.external_source==='wechat') {
+    return !!one(db,`SELECT 1 FROM agent_channels ch
+      WHERE ch.agent_id=? AND ch.node_id=? AND ch.owner_id=? AND ch.provider='wechat' AND ch.enabled=1
+        AND coalesce(json_extract(ch.config_json,'$.owner_user_id'),'')!=''
+        AND ?='wechat:'||json_extract(ch.config_json,'$.bot_id')||':dm:'||json_extract(ch.config_json,'$.owner_user_id')`,
+      profile.agent_id,profile.node_id,profile.owner_id,conversation.external_chat_id);
+  }
+  return false;
 }
 
 /** Check whether an Agent may read or write a conversation under its current collaboration scope and space rules. */

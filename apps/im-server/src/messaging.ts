@@ -1,4 +1,5 @@
 import { chatAllowed, canAgentAccessConversation, groupHasPrivateAgent, isFeishuBoundOwnerShadow, isOwnerInternalConversation, ownerDirect, providerFacts, storedProviderFacts } from './collaboration.js';
+import { matchesExternalChannel } from './channels.js';
 import { conversationName } from './conversation-name.js';
 import { sortedJsonAscii } from '@nano/product-contracts/serialization';
 import { chatTaskCards, interactiveResponse, modelInteractiveContent, type AgentPublication, type ChatPublicationReceipt, type TaskCardRef } from '@nano/product-contracts';
@@ -482,7 +483,7 @@ export class Messaging {
     const binding=this.ctx.personal!.authority(principal,{agent_id:agentId});
     const c=one(this.db,'SELECT * FROM conversations WHERE id=? AND config_agent_id=? AND owner_id=?',id,agentId,binding.owner_id);
     const channel=c?all(this.db,'SELECT * FROM agent_channels WHERE agent_id=? AND node_id=? AND owner_id=? AND provider=? AND enabled=1',agentId,binding.node_id,binding.owner_id,c.external_source)
-      .find(row=>String(c.external_chat_id).startsWith(`${row.provider}:${JSON.parse(row.config_json).app_id}:${c.type==='group'?'group':'dm'}:`)):undefined;
+      .find(row=>matchesExternalChannel(row,c)):undefined;
     if(!c||!channel||!this.ctx.personal!.sourceAllowed(binding,id))fail(403,'incoming_source_not_verified');
     return {...c,owner_user_id:binding.owner_user_id};
   }
@@ -499,7 +500,7 @@ export class Messaging {
     const content=this.validateReferences(p,id,b.content,agentId);
     const safeAttachments=attachments.map(a=>({url:this.validateReferences(p,id,a.url!,agentId),content_type:a.content_type,file_name:a.file_name}));
     return this.insertMessage(id,c.owner_user_id,'user',content,safeAttachments,key,'completed',{
-      sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,provider_facts:providerFacts(b.provider_facts),
+      sender_source_id:b.sender_source_id,sender_display_name:b.sender_display_name,created_at:b.created_at,timezone:b.timezone,provider_facts:providerFacts(b.provider_facts),trackReceipts:true,
     });
   }
   /** Resolve an original message only inside the caller's authorized destination.
@@ -683,12 +684,12 @@ export class Messaging {
       : b.timezone === undefined ? one(this.db, "SELECT timezone FROM users WHERE id=?", p.id)?.timezone ?? null
       : this.updateUserTimezone(p.id, b.timezone);
     const agents = b.suppress_relay ? [] : this.relayAgents(id).filter(a=>type!=='agent' || a.agent_id!==agentId);
-    const origin = p.kind==='gateway' && c.external_source==='feishu' && c.config_agent_id===agentId && type==='user' && b.sender_source_id
+    const origin = p.kind==='gateway' && (c.external_source==='feishu' || c.external_source==='wechat') && c.config_agent_id===agentId && type==='user' && b.sender_source_id
       ? providerFacts(b.provider_facts) : undefined;
     // Freeze private background with its message; publish only after both are durable.
     const {m} = transaction(this.db, () => {
       const m = this.insertMessage(id,sender,type,b.content ?? "",attachments,key,
-        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), ...(taskCards ? { task_cards: taskCards } : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, thread_root_id:threadRoot, publish:false, trackReceipts:p.kind!=='gateway' && type==='user' });
+        agents.length ? "pending" : "completed",{ ...(p.kind === "gateway" ? messageMetadata(b) : {}), ...(taskCards ? { task_cards: taskCards } : {}), provider_facts:origin,pendingRelayAgents:agents.map(a=>a.agent_id), timezone, reply_to:replyTo, thread_root_id:threadRoot, publish:false, trackReceipts:type==='user' && (p.kind!=='gateway' || Boolean(origin)) });
       this.records.saveAttempt(m.id,messageAttemptPayload(b));
       return {m,relays:this.enqueueRelays(m,key,agents,contexts)};
     });

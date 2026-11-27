@@ -186,6 +186,50 @@ it('streams authorized attachments to managed workspace dir, sanitizes traversal
       'a_png001-shot.png',
       'a_png002-deadbeef12345678.png',
     ]);
+
+    // Downloads node-local `external:` attachments offline while enforcing agent ownership and 25 MiB cap.
+    const offlineConfig = {
+      baseUrl: 'http://127.0.0.1:1',
+      token: () => 'unused-offline',
+      nodeHome,
+      resolveExternalAttachment: (url: string, agentId: string) => {
+        if (agentId !== 'agent-a') throw new Error('Image is outside the authenticated external input');
+        if (url === 'external:agent-a:wechat:bot1:msg1:file_0') {
+          return { data: Buffer.from('%PDF-1.4 offline wechat doc\n'), mediaType: 'application/pdf', fileName: '../Spec Review.pdf' };
+        }
+        if (url === 'external:agent-a:wechat:bot1:msg2:huge') {
+          return { data: Buffer.alloc(25 * 1024 * 1024 + 1), mediaType: 'application/octet-stream', fileName: 'huge.bin' };
+        }
+        throw new Error('Image is outside the authenticated external input');
+      },
+    };
+    const extSaved = await downloadAttachment(offlineConfig, {
+      agentId: 'agent-a',
+      workspace,
+      attachmentId: 'a_wxpdf1',
+      url: 'external:agent-a:wechat:bot1:msg1:file_0',
+      signal,
+    });
+    expect(basename(extSaved.local_path)).toBe('a_wxpdf1-Spec Review.pdf');
+    expect(extSaved.content_type).toBe('application/pdf');
+    expect((await readFile(extSaved.local_path, 'utf8'))).toBe('%PDF-1.4 offline wechat doc\n');
+    expect(((await stat(extSaved.local_path)).mode & 0o777)).toBe(0o600);
+
+    await expect(downloadAttachment(offlineConfig, {
+      agentId: 'agent-b',
+      workspace,
+      attachmentId: 'a_wxpdf1',
+      url: 'external:agent-a:wechat:bot1:msg1:file_0',
+      signal,
+    })).rejects.toThrow('outside the authenticated external input');
+
+    await expect(downloadAttachment(offlineConfig, {
+      agentId: 'agent-a',
+      workspace,
+      attachmentId: 'a_wxhuge',
+      url: 'external:agent-a:wechat:bot1:msg2:huge',
+      signal,
+    })).rejects.toThrow('25 MiB');
   } finally {
     await new Promise<void>(resolve => { server.close(() => resolve()); server.closeAllConnections(); });
     await rm(root, { recursive: true, force: true });

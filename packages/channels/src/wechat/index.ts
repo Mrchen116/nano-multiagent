@@ -1,0 +1,87 @@
+export {
+  aesEcbPaddedSize,
+  decryptAesEcb,
+  encryptAesEcb,
+  parseWeChatAesKey,
+  readBoundedResponseBytes,
+} from './crypto.js';
+export {
+  DEFAULT_ILINK_BOT_TYPE,
+  DEFAULT_WECHAT_BASE_URL,
+  DEFAULT_WECHAT_CDN_BASE_URL,
+  WeChatItemType,
+  WeChatMessageState,
+  WeChatMessageType,
+  WeChatUploadMediaType,
+  assertWeChatAllowedUrl,
+  fetchBotQrCode,
+  getWeChatConfig,
+  getWeChatUpdates,
+  getWeChatUploadUrl,
+  isValidWeChatRedirectHost,
+  parseWeChatApiJson,
+  pollQrCodeStatus,
+  resolveWeChatBaseUrl,
+  resolveWeChatCdnBaseUrl,
+  sendWeChatItem,
+  sendWeChatTyping,
+  type WeChatCdnMedia,
+  type WeChatGetUpdatesResp,
+  type WeChatMessageItem,
+  type WeChatPartialText,
+  type WeChatQrCodeResp,
+  type WeChatQrRawStatus,
+  type WeChatQrStatusResp,
+  type WeChatRefMessage,
+  type WeChatUploadUrlReq,
+  type WeChatUploadUrlResp,
+  type WeChatWireMessage,
+} from './ilink.js';
+export {
+  WECHAT_MAX_TEXT_CODEPOINTS,
+  chunkWeChatText,
+  filterWeChatMarkdown,
+  uploadWeChatOutboundImage,
+  type UploadedWeChatMedia,
+} from './outbound.js';
+export {
+  WeChatLoginCoordinator,
+  type ExistingWeChatCredentials,
+  type WeChatSetupReply,
+  type WeChatSetupRequest,
+} from './login.js';
+export {
+  WeChatConnection,
+  isWeChatChannelRevokedOnDisk,
+  purgeWeChatChannelState,
+  type WeChatConfiguration,
+  type WeChatInboundMessage,
+  type WeChatInboundPart,
+  type WeChatInboundTransformContext,
+  type WeChatInboundTransformer,
+  type WeChatStatusReport,
+} from './connection.js';
+export {
+  MAX_NORMALIZED_IMAGE_BYTES,
+  MAX_WECHAT_FILE_BYTES,
+  MAX_WECHAT_IMAGE_BYTES,
+  MAX_WECHAT_IMAGE_DIMENSION,
+  MAX_WECHAT_MESSAGE_MEDIA_BYTES,
+  MAX_WECHAT_VOICE_BYTES,
+  transformWeChatInboundMessage,
+  wrapPcm16MonoWav,
+} from './inbound.js';
+export {
+  WeChatQuoteStore,
+  resolvePartialQuote,
+  type PartialQuoteResult,
+  type WeChatQuoteRecord,
+} from './quote-store.js';
+export {
+  MAX_MERGED_FORWARD_DEPTH,
+  MAX_MERGED_FORWARD_ITEMS,
+  MAX_WECHAT_XML_BYTES,
+  decodeXmlText,
+  parseWeChatXmlPayload,
+  type ParsedWeChatXml,
+} from './xml.js';

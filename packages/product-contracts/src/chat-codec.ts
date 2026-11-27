@@ -81,6 +81,7 @@ export function decodeChatStream(value: unknown): ChatStreamFact {
       case 'message_delta': fields(row, ['delta_text', 'idempotency_key'], 'string'); break;
       case 'message_completed':
         fields(row, ['final_content', 'idempotency_key', 'resolved_model'], 'string'); fields(row, ['kernel_message_id','external_reply'], 'string', true); fields(row, ['elapsed_ms'], 'number', true);
+        if (row.attachments != null) chatAttachments(row.attachments);
         if (row.token_usage != null) fields(object(row.token_usage),['context_used','context_window','output','total','cache_read_tokens','cache_total_input_tokens'],'number');
         if (row.delivery_status !== undefined && !['completed', 'failed'].includes(String(row.delivery_status))) throw new Error('invalid delivery status');
         break;
@@ -105,10 +106,11 @@ export function decodeAgentPublication(value: unknown): AgentPublication {
   const row = object(value); required(row, 'from_session_id'); required(row, 'to');
   if (typeof row.text !== 'string') throw new Error('invalid_agent_message');
   fields(row, ['node_id','reply_to_message_id','in_thread_of'], 'string'); fields(row, ['lifecycle_revision'], 'number', true);
+  fields(row, ['internal_shadow_only'], 'boolean');
   if (row.attachments != null) chatAttachments(row.attachments);
   if (row.task_cards != null) chatTaskCards(row.task_cards);
   if (row.background_returns != null && !Array.isArray(row.background_returns)) throw new Error('invalid chat background_returns');
-  if (!row.text.trim() && row.interactive === undefined && !(row.background_returns as unknown[] | undefined)?.length && !(row.task_cards as unknown[] | undefined)?.length) throw new Error('invalid_agent_message');
+  if (!row.text.trim() && row.interactive === undefined && !(row.attachments as unknown[] | undefined)?.length && !(row.background_returns as unknown[] | undefined)?.length && !(row.task_cards as unknown[] | undefined)?.length) throw new Error('invalid_agent_message');
   if (row.reply_draft !== undefined) throw new Error('reply_draft is retired; use ComposeMessage');
   return row as unknown as AgentPublication;
 }

@@ -511,9 +511,18 @@ export class ConfigOperations {
       // Appearance is center-owned metadata, never sent to the execution runtime.
       if (c.avatar_variant !== undefined) db.prepare('UPDATE agent_profiles SET avatar_variant=? WHERE agent_id=?').run(c.avatar_variant, op.agent_id);
       // All configuration entry points and delayed recovery commit the same PA identity.
-      db.prepare("UPDATE personal_agent_bindings SET display_name=? WHERE agent_id=? AND owner_id=?").run(c.display_name || op.agent_id, op.agent_id, op.owner_id);
+      const nextDisplayName = c.display_name || op.agent_id;
+      db.prepare("UPDATE personal_agent_bindings SET display_name=? WHERE agent_id=? AND owner_id=?").run(nextDisplayName, op.agent_id, op.owner_id);
       db.prepare("INSERT OR REPLACE INTO pa_binding_scopes(binding_id,collaboration_scope) SELECT binding_id,? FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?").run(c.collaboration_scope ?? "team", op.agent_id, op.owner_id);
-      db.prepare("UPDATE conversations SET title=? WHERE title_is_custom=0 AND id IN (SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?)").run(c.display_name || op.agent_id, op.agent_id, op.owner_id);
+      db.prepare("UPDATE conversations SET title=? WHERE title_is_custom=0 AND id IN (SELECT conversation_id FROM personal_agent_bindings WHERE agent_id=? AND owner_id=?)").run(nextDisplayName, op.agent_id, op.owner_id);
+      for (const prevName of new Set([op.agent_id, existing?.display_name].filter((v): v is string => typeof v === 'string' && v.length > 0 && v !== nextDisplayName))) {
+        const oldLead = `${prevName} · `;
+        for (const row of db.prepare("SELECT id, title FROM conversations WHERE title_is_custom=0 AND external_source IS NOT NULL AND config_agent_id=? AND owner_id=?").all(op.agent_id, op.owner_id) as { id: string; title: string }[]) {
+          if (typeof row.title === 'string' && row.title.startsWith(oldLead)) {
+            db.prepare("UPDATE conversations SET title=? WHERE id=?").run(`${nextDisplayName} · ${row.title.slice(oldLead.length)}`, row.id);
+          }
+        }
+      }
       db.prepare(
         "UPDATE agent_config_operations SET status='committed',updated_at=? WHERE operation_id=?",
       ).run(now(), op.operation_id);

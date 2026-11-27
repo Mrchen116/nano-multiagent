@@ -17,16 +17,29 @@ struct AgentChannelsView: View {
             if !loaded { ProgressView() }
             if loaded && channels.isEmpty { ContentUnavailableView(L("暂无通道", "No channels"), systemImage: "point.3.connected.trianglepath.dotted") }
             ForEach(channels) { channel in
-                Section(channel.provider == "feishu" ? L("飞书", "Feishu") : channel.provider) {
+                Section(channel.providerTitle) {
                     if channel.isRemoval { removal(channel) } else { active(channel) }
                 }
             }
             Section { Text(L("每个 Agent 每种 provider 仅一个通道。凭据由节点安全存储；删除通道保留聊天历史。", "One channel per provider per Agent. Credentials use node secure storage. Removing a channel preserves chat history.")).font(.caption).foregroundStyle(.secondary) }
         }
         .navigationTitle(L("外部通道", "Channels")).navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
-        .toolbar { Button { adding = true } label: { Label(L("添加通道", "Add channel"), systemImage: "plus") }.disabled(channels.contains { $0.provider == "feishu" }) }
-        .sheet(isPresented: $adding, onDismiss: { Task { await load() } }) { NavigationStack { AgentChannelEditor(client: client, agentID: agentID) } }
-        .sheet(item: $editing, onDismiss: { Task { await load() } }) { channel in NavigationStack { AgentChannelEditor(client: client, agentID: agentID, existing: channel) } }
+        .toolbar {
+            Button { adding = true } label: { Label(L("添加通道", "Add channel"), systemImage: "plus") }
+                .disabled(!AgentChannel.canAddAnyChannel(in: channels))
+        }
+        .sheet(isPresented: $adding, onDismiss: { Task { await load() } }) {
+            NavigationStack {
+                AgentChannelAddPicker(
+                    client: client,
+                    agentID: agentID,
+                    existingProviders: Set(channels.map(\.provider))
+                )
+            }
+        }
+        .sheet(item: $editing, onDismiss: { Task { await load() } }) { channel in
+            NavigationStack { AgentChannelEditor(client: client, agentID: agentID, existing: channel) }
+        }
         .confirmationDialog(L("删除通道并停止连接？聊天历史保留。", "Delete this channel and stop its connection? Chat history is preserved."), isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             if let deleting { Button(L("删除通道", "Delete channel"), role: .destructive) { Task { await remove(deleting) } } }
         }
@@ -34,7 +47,12 @@ struct AgentChannelsView: View {
         .task(id: scenePhase) { guard scenePhase == .active else { return }; var firstLoad = true; repeat { await load(clearError: firstLoad); firstLoad = false; try? await Task.sleep(for: .seconds(3)) } while !Task.isCancelled }
     }
     @ViewBuilder private func active(_ channel: AgentChannel) -> some View {
-        LabeledContent("App ID", value: channel.config?["app_id"] ?? "—")
+        LabeledContent(channel.identityLabel, value: channel.maskedIdentitySummary)
+        if channel.isWeChat {
+            Text(L("仅限扫码绑定者本人 1:1 私聊；如需更换绑定微信号或重新授权，请在网页端或桌面端扫码。", "Owner 1:1 DM only. To re-bind or renew WeChat authorization, scan QR on Web or Desktop."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
         LabeledContent(L("期望状态", "Desired state"), value: channel.enabled == true ? L("启用", "Enabled") : L("停用", "Disabled"))
         LabeledContent(L("配置版本 / 同步", "Revision / sync"), value: "\(channel.channel_revision ?? 0) · \(channel.sync_state ?? "unknown")")
         if let observed = channel.observed {
@@ -43,7 +61,7 @@ struct AgentChannelsView: View {
             if observed.status_stale == true { Text(L("节点离线或状态已过期；此状态并非当前连接确认。", "Node offline or status stale; this is not a current connection confirmation.")).font(.caption) }
             if let message = observed.status_message, !message.isEmpty { Text(message) }
             if let code = observed.status_code, !code.isEmpty { Text(code).font(.caption).textSelection(.enabled) }
-            if observed.diagnostics_state == "unknown" { Text(L("权限状态暂时无法确认。可重连后重试诊断。", "Permission status is unknown. Reconnect to retry diagnostics.")) }
+            if channel.isFeishu, observed.diagnostics_state == "unknown" { Text(L("权限状态暂时无法确认。可重连后重试诊断。", "Permission status is unknown. Reconnect to retry diagnostics.")) }
             ForEach(observed.checks ?? []) { check in
                 DisclosureGroup(check.check_id + " · " + check.state) {
                     Text(check.effect)
@@ -56,17 +74,23 @@ struct AgentChannelsView: View {
         } else { Text(L("连接状态尚未报告", "Connection status has not been reported")) }
         if let failure = channel.apply_error { ErrorNotice(message: failure.code + ": " + failure.message) }
         HStack {
-            Button(L("编辑", "Edit")) { editing = channel }
+            if channel.canEditInApp {
+                Button(L("编辑", "Edit")) { editing = channel }
+            }
             Spacer()
             Button(channel.enabled == true ? L("停用", "Disable") : L("启用", "Enable")) { Task { await toggle(channel) } }
-            Button(L("重连", "Reconnect")) { Task { await action(channel, removal: false) } }
+            if channel.canReconnect {
+                Button(L("重连", "Reconnect")) { Task { await action(channel, removal: false) } }
+            }
         }.disabled(busy).buttonStyle(.borderless)
         Button(L("删除通道", "Delete channel"), role: .destructive) { deleting = channel }.disabled(busy)
-        Link(L("检查飞书开放平台权限", "Check Feishu permissions"), destination: URL(string: "https://open.feishu.cn/app/\(agentSegment(channel.config?["app_id"] ?? ""))/auth")!)
+        if let permissionsURL = channel.feishuPermissionsURL {
+            Link(L("检查飞书开放平台权限", "Check Feishu permissions"), destination: permissionsURL)
+        }
     }
     @ViewBuilder private func removal(_ channel: AgentChannel) -> some View {
         Text(L("通道正在删除；等待节点实际停止连接。", "Channel removal is pending until the node actually stops its connection."))
-        LabeledContent("App ID", value: channel.display_config?["app_id_suffix"] ?? "—")
+        LabeledContent(channel.identityLabel, value: channel.removalIdentitySummary)
         LabeledContent(L("删除状态", "Removal state"), value: channel.apply_state ?? "pending")
         LabeledContent(L("删除版本", "Removal revision"), value: String(channel.deletion_manifest_revision ?? 0))
         if let failure = channel.apply_error { ErrorNotice(message: failure.code + ": " + failure.message) }
@@ -105,6 +129,72 @@ struct AgentChannelsView: View {
             let receipt: AgentChannel = try await client.delete(base + "/" + agentSegment(channel.id), query: [URLQueryItem(name: "channel_revision", value: String(channel.channel_revision ?? 0))])
             channels.removeAll { $0.id == channel.id }; channels.append(receipt); deleting = nil
         } catch { self.error = agentError(error) }
+    }
+}
+
+private struct AgentChannelAddPicker: View {
+    let client: IMClient
+    let agentID: String
+    let existingProviders: Set<String>
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        List {
+            Section(L("选择外部通道类型", "Choose channel provider")) {
+                if existingProviders.contains("feishu") {
+                    LabeledContent(L("飞书", "Feishu"), value: L("已添加", "Added")).foregroundStyle(.secondary)
+                } else {
+                    NavigationLink {
+                        AgentChannelEditor(client: client, agentID: agentID)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L("飞书", "Feishu")).font(.headline)
+                            Text(L("连接飞书开放平台应用机器人", "Connect a Feishu Open Platform bot")).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                if existingProviders.contains("wechat") {
+                    LabeledContent(L("微信", "WeChat"), value: L("已添加", "Added")).foregroundStyle(.secondary)
+                } else {
+                    NavigationLink {
+                        WeChatWebSetupGuideView()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L("微信", "WeChat")).font(.headline)
+                            Text(L("手机微信扫码绑定专属机器人，仅限本人 1:1 私聊", "Scan QR with personal WeChat; owner 1:1 DM only")).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(L("添加通道", "Add channel"))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(L("取消", "Cancel")) { dismiss() }
+            }
+        }
+    }
+}
+
+private struct WeChatWebSetupGuideView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        List {
+            Section(L("前往网页端或桌面端扫码绑定", "Scan QR on Web or Desktop")) {
+                Text(L("个人微信通道需要使用手机微信摄像头现场扫描屏幕二维码完成授权，无需填写 App ID 或密钥。", "Personal WeChat binding uses your phone camera to scan a live QR code on screen — no App ID or secret required."))
+                Text(L("请在电脑浏览器或桌面端打开 Crewden → 进入该助手设置 → 外部通道 → 选择「微信」完成扫码。绑定成功后，你可以在 iPhone 上实时查看连接状态，并随时启用、停用、重连或删除。", "Open Crewden on your computer browser or desktop app → Assistant Settings → External Channels → WeChat to scan. Once bound, you can view status and enable, disable, reconnect, or delete it right here on iPhone."))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Button(L("知道了", "Got it")) { dismiss() }
+            }
+        }
+        .navigationTitle(L("绑定微信", "Bind WeChat"))
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
