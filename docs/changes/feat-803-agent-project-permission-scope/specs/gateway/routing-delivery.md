@@ -112,3 +112,16 @@
 #### Scenario: 私有与项目级档位下的话题边界
 - **WHEN** 外部会话话题尝试指向一个「私有」Agent，或公开群话题尝试指向一个「项目级」Agent，同时创建者在同项目私密群话题里 `@` 该「项目级」Agent、或在同主人私密专属群话题里 `@` 该「私有」Agent
 - **THEN** 越界群话题不叫醒对应 Agent，而在有权接收的私密群或私聊话题中正常到达并建立初始话题关注
+
+### Requirement: Agent 可通过短标识下载受保护会话附件
+
+产品根主 Agent 可使用 `download_attachment(attachment_id)`（`attachment_id` 为 `<= 8` 字符的 `a_xxxxxx` 引用，来自 `inbox`、`read_messages`、`search_messages` 或 SingleThread 入站消息）将当前仍有权读取的原生 Nano IM 附件，或本节点已验权入站持久化的当前 Agent 外部通道附件（如微信入站通用文件、视频及语音原声附件）下载到受控本地目录（`<workspace>/.nano-downloads/<attachment_id>-<sanitized_name>`，无 workspace 时落 `<nodeHome>/downloads/<agentId>/`），返回 `{ attachment_id, local_path, file_name, content_type, byte_size, sha256 }`。
+
+#### Scenario: 跨节点文件下载、本机外部通道入站附件落盘、文件名保留与幂等覆写
+- **WHEN** 节点 B 的根主 Agent 调用 `download_attachment(attachment_id)` 下载同一会话中节点 A 发送的原生通用文件或光栅图片，或本节点根主 Agent 下载本机外部通道已验权入站的附件
+- **THEN** 原生 IM 附件由宿主持当前 Gateway 凭据向 IM Server 发起实时鉴权流式下载（上限 25 MiB、超时 60 秒），本机已验权外部通道附件直接从当前 Agent 归属的受保护外部存储读取（即使中心 IM 暂不可达亦可用），均保留清理后的原始文件名与扩展名（无扩展名时按 MIME 兜底），经临时文件原子重命名落盘并逐字节还原原文件且返回精确 `sha256` 摘要；重复下载同一 `attachment_id` 幂等覆盖同一路径，不留半截临时文件。
+- **AND** 对不属于当前 Agent 的 `external:` 标识、任意外部网页 URL 或已失权会话附件一律拒绝下载并清理临时文件；下载路径始终受限于受控目录，防止路径穿越。
+
+#### Scenario: SingleThread 接收非图与图片附件不崩溃
+- **WHEN** SingleThread Agent 收到含通用非图附件（如 `.csv`、`.zip`、`.svg`、`.pdf`、`.wav`、`.mp4`）或光栅图片的入站消息
+- **THEN** 非光栅附件渲染为带文件名、MIME 与短 `attachment_id` 的文本条目（当 `download_attachment` 在当前工具集可用时附带调用提示），不再因非图片 MIME 抛错中断；原生光栅图片与已验权外部通道光栅图片保留内联多模态图片块并在前附带 `[Image attachment_id=<a_xxxxxx> (<name>)]` 标签。
