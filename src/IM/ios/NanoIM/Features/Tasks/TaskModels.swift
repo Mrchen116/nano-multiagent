@@ -470,19 +470,20 @@ func isKnownTaskStatus(_ status: String) -> Bool {
 
 /// Maps the nine canonical statuses to exact badge words while safely displaying unknown future statuses.
 func taskStatus(_ status: String) -> String {
-    switch status {
-    case "proposed": return L("待拍板", "Proposed")
-    case "todo": return L("待办", "To do")
-    case "doing": return L("推进中", "Advancing")
-    case "waiting": return L("等待中", "Waiting")
-    case "in_review": return L("待确认", "In review")
-    case "done": return L("已完成", "Done")
-    case "paused": return L("已暂缓", "Paused")
-    case "backlog": return L("先存着", "Backlog")
-    case "closed": return L("已关闭", "Closed")
-    default:
+    guard let known = TaskStatusContract(rawValue: status) else {
         let trimmed = status.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? L("未知状态", "Unknown") : trimmed
+    }
+    switch known {
+    case .proposed: return L("待拍板", "Proposed")
+    case .todo: return L("待办", "To do")
+    case .doing: return L("推进中", "Advancing")
+    case .waiting: return L("等待中", "Waiting")
+    case .inReview: return L("待确认", "In review")
+    case .done: return L("已完成", "Done")
+    case .paused: return L("已暂缓", "Paused")
+    case .backlog: return L("先存着", "Backlog")
+    case .closed: return L("已关闭", "Closed")
     }
 }
 

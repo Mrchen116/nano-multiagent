@@ -49,7 +49,7 @@ export interface AgentConfig {
   skills: string[];
   skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist";
   tool_allowlist: string[];
-  collaboration_scope: "team" | "owner_only";
+  collaboration_scope: "team" | "project" | "owner_only";
   default_model: string | null;
   model_fallbacks: string[];
   reasoning_effort: string | null;
@@ -171,7 +171,7 @@ export interface NodeAgentCreateRequest {
   skills: string[];
   skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist";
   tool_allowlist: string[];
-  collaboration_scope: "team" | "owner_only";
+  collaboration_scope: "team" | "project" | "owner_only";
   default_model: string | null;
   model_fallbacks?: string[];
   reasoning_effort: string | null;
@@ -197,7 +197,8 @@ export interface UpdateAgentConfigRequest {
   skills: string[];
   skills_selection_mode?: "default_discovery" | "explicit_allowlist" | "explicit_denylist";
   tool_allowlist: string[];
-  collaboration_scope: "team" | "owner_only";
+  collaboration_scope: "team" | "project" | "owner_only";
+  confirm_scope_widen?: boolean;
   default_model: string | null;
   model_fallbacks?: string[];
   reasoning_effort: string | null;
@@ -732,6 +733,7 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
         (next.skills.length > 0 ? "explicit_allowlist" : "default_discovery"),
       tool_allowlist: next.tool_allowlist,
       collaboration_scope: next.collaboration_scope,
+      ...(next.confirm_scope_widen ? { confirm_scope_widen: true } : {}),
       default_model: next.default_model,
       model_fallbacks: next.model_fallbacks ?? [],
       reasoning_effort: next.reasoning_effort,

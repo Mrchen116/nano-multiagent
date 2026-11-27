@@ -22,6 +22,7 @@ interface NotificationSpec {
   title: string;
   body: string;
   conversationId: string;
+  targetRoute: string;
   tag: string;
 }
 
@@ -47,7 +48,8 @@ function buildCandidateSpec(
     title: resolvedName === candidate.senderUserId ? candidate.senderName : resolvedName,
     body: truncate(candidate.preview),
     conversationId: candidate.conversationId,
-    tag: `im-conv-${candidate.conversationId}`
+    targetRoute: candidate.targetRoute ?? `/chat/${candidate.conversationId}`,
+    tag: candidate.conversationId ? `im-conv-${candidate.conversationId}` : `im-notif-${candidate.messageKey}`
   };
 }
 
@@ -128,7 +130,7 @@ export function AgentCompletionNotifier({
         } catch {
           /* focus 可能在某些浏览器被阻挡,通知点击的导航仍然要发生 */
         }
-        navigateRef.current(`/chat/${spec.conversationId}`);
+        navigateRef.current(spec.targetRoute);
       }
     });
   }, [candidate, resolveAgentName, userId, queryClient]);

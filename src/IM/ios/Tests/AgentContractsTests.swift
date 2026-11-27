@@ -199,8 +199,16 @@ struct AgentContractsTests {
         var draft = AgentDraft()
         draft.agent_id = "helper"; draft.display_name = "Helper"
         #expect(draft.payload(creating: true)["collaboration_scope"] == .string("team"))
+        draft.collaboration_scope = "project"
+        #expect(draft.payload(creating: true)["collaboration_scope"] == .string("project"))
+        #expect(draft.payload(version: 2, confirmScopeWiden: true)["confirm_scope_widen"] == .bool(true))
         draft.collaboration_scope = "owner_only"
         #expect(draft.payload(creating: true)["collaboration_scope"] == .string("owner_only"))
+
+        let projConvJSON = #"{"id":"c2","title":"Project Frozen DM","participants":[],"participant_ids":["u2","u-a"],"type":"direct","direct_kind":"user-agent","owner_id":"o1","creator_id":"u2","is_pinned":false,"is_muted":false,"unread_count":0,"created_at":"2026-11-27T00:00:00Z","can_write":false,"write_blocked_reason":"agent_project_restricted"}"#
+        let projConv = try JSONDecoder().decode(Conversation.self, from: Data(projConvJSON.utf8))
+        #expect(projConv.can_write == false)
+        #expect(projConv.write_blocked_reason == "agent_project_restricted")
     }
 
 }

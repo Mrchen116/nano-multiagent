@@ -19,7 +19,7 @@ export interface Contact {
   node_name?: string;
   status?: "online" | "offline";
   work_mode?: "global" | "single_thread";
-  collaboration_scope?: "team" | "owner_only";
+  collaboration_scope?: "team" | "project" | "owner_only";
 }
 
 export function contactActor(contact: Contact): Actor {

@@ -406,7 +406,7 @@ it('reuses the frozen quoted card when the original is superseded between retrie
  expect(()=>service.actions.prepare(principal,{...request,reply_to_message_id:replacement.id})).toThrow('operation_key_content_conflict');
 });
 
-it('allows reviewed strict UTF-8 text attachments to non-owner chats and fails closed on binary, invalid UTF-8, NUL, oversized text, and SVG', async () => {
+it('allows reviewed strict UTF-8 text attachments inline, admits binary/oversized/SVG files as unreadable snapshots, and fails closed on corrupt raster images', async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import('node:fs');
   const { join } = await import('node:path');
   const { tmpdir } = await import('node:os');
@@ -448,21 +448,35 @@ it('allows reviewed strict UTF-8 text attachments to non-owner chats and fails c
     const storedMsg = ctx.messaging.message(sent.message_id);
     expect(storedMsg.attachments[0]?.url).toMatch(/^\/im\/v1\/conversations\/peer\/attachments\//);
 
-    // Non-reviewable attachments fail closed (409) for non-owner groups.
-    const blockedCases = [
+    // Non-inline non-raster attachments are admitted into action review with content_review='unreadable'.
+    const unreadableCases = [
       ['bad-utf8', 'text/csv', 'bad.csv', Buffer.from([0x61, 0xff, 0xfe, 0x0a])],
       ['nul-csv', 'text/csv', 'nul.csv', Buffer.from('a,b\x00c\n', 'utf8')],
       ['big-yaml', 'text/yaml', 'big.yaml', Buffer.alloc(256 * 1024 + 1, 0x61)],
       ['zip-bin', 'application/zip', 'archive.zip', Buffer.from([0x50, 0x4b, 0x03, 0x04])],
       ['svg-xml', 'image/svg+xml', 'icon.svg', Buffer.from('<svg></svg>', 'utf8')],
     ] as const;
-    for (const [id, mime, name, bytes] of blockedCases) {
+    for (const [id, mime, name, bytes] of unreadableCases) {
       const url = install(id, mime, name, bytes);
-      await expect(service.actions.prepareChecked(principal, {
-        ...args, request_key: `blocked-${id}`, representation: 'owner', conversation_id: 'peer',
+      const prop = await service.actions.prepareChecked(principal, {
+        ...args, request_key: `unreadable-${id}`, representation: 'owner', conversation_id: 'peer',
         content: 'Attempt', attachments: [{ url }],
-      })).rejects.toMatchObject({ statusCode: 409, message: expect.stringContaining('attachment_content_review_unavailable') });
+      });
+      expect(prop.evidence.payload.attachment_snapshots[0]).toMatchObject({
+        file: true,
+        content_review: 'unreadable',
+        file_name: name,
+        content_type: mime,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      });
     }
+
+    // Corrupt raster image still fails closed (422) on non-owner destination.
+    const corruptPngUrl = install('corrupt-png', 'image/png', 'broken.png', Buffer.from('not-a-valid-png'));
+    await expect(service.actions.prepareChecked(principal, {
+      ...args, request_key: 'corrupt-png-send', representation: 'owner', conversation_id: 'peer',
+      content: 'Attempt', attachments: [{ url: corruptPngUrl }],
+    })).rejects.toMatchObject({ statusCode: 422 });
 
     // Owner DM allows binary files without 409 and marks them as { file: true } (not image: true).
     const zipUrl = install('owner-zip', 'application/zip', 'backup.zip', Buffer.from([0x50, 0x4b, 0x03, 0x04]));

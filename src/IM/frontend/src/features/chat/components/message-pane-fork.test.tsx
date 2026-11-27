@@ -148,4 +148,26 @@ describe("MessageBubble fork button gating", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.getByRole("button", { name: "Conversation menu" })).toBeTruthy();
   });
+
+  it("shows project-restricted read-only banner, hides Branch and composer, and keeps pin/mute menu on agent_project_restricted chats", () => {
+    const onPref = vi.fn().mockResolvedValue(undefined);
+    render(
+      <MessagePane
+        conversation={{ ...conv(), can_write: false, write_blocked_reason: "agent_project_restricted", is_member: true }}
+        messages={[msg({ id: "ro-proj", kernel_message_id: "kmsg-ro-proj" })]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+        isDirectChat
+        agentOnline
+        onFork={vi.fn()}
+        onPreferenceChange={onPref}
+      />,
+    );
+    expect(
+      screen.getByText("This assistant is open only to members sharing an active private project group and is currently read-only."),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("message-branch-ro-proj")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.getByRole("button", { name: "Conversation menu" })).toBeTruthy();
+  });
 });

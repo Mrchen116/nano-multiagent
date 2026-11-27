@@ -528,7 +528,7 @@ export class PersonalAssistant {
         && inbox.latestHumanTriggerIsInternalIm(config.agentId, shadowId, deliveryTarget);
       inbox.preparePublication(operationId, target, publicationBody, binding.agentId);
       try {
-        if (config.collaborationScope === 'owner_only' && shadowId) {
+        if ((config.collaborationScope ?? 'team') !== 'team' && shadowId) {
           await this.request(config, 'pa.action.status', { request_key: operationId, conversation_id: shadowId, check_scope: true });
         }
         const extAttachments = hasLocalMedia
@@ -606,7 +606,7 @@ export class PersonalAssistant {
       attachments = await prepareLocalAttachments(this.options.uploadScreenshot, this.options.uploadAttachment, {
         agentId:config.agentId, conversationId:config.personal!.conversationId, operationId,
         lifecycleRevision:this.options.store.lifecycle.assert(config.agentId), signal,
-      }, paths, filePaths, call.args.attachments);
+      }, paths, filePaths, call.args.attachments, { includeLocalPath: conversation !== config.personal!.conversationId });
       signal.throwIfAborted();
       if (conversation !== config.personal!.conversationId) await this.options.flushConversation?.(config, binding, conversation);
       if (inbox.blocking(config.agentId,reviewTarget)) {
@@ -740,7 +740,7 @@ export class PersonalAssistant {
     }
     const resolved=(result.payload.result as Data).target;
     if(typeof resolved!=='string') {
-      if (config.collaborationScope === 'owner_only') {
+      if ((config.collaborationScope ?? 'team') !== 'team') {
         throw Object.assign(new Error('collaboration_scope_restricted'), { code: 'collaboration_scope_restricted' });
       }
       throw new Error('Recipient is not a resolved conversation');

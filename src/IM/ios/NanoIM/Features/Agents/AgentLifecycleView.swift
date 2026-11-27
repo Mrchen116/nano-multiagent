@@ -11,17 +11,49 @@ struct AgentLifecycleSnapshot: Decodable, Sendable {
     var error_code: String?
     var error_detail: String?
 
-    var canEnable: Bool { desired == "disabled" && observed == "disabled" && applied_revision == revision }
+    var desiredContract: AgentLifecycleDesiredContract? { AgentLifecycleDesiredContract(rawValue: desired) }
+    var observedContract: AgentLifecycleObservedContract? { AgentLifecycleObservedContract(rawValue: observed) }
+
+    var canEnable: Bool {
+        guard let d = desiredContract, let o = observedContract else { return false }
+        let isDesiredDisabled: Bool = {
+            switch d {
+            case .disabled: return true
+            case .enabled: return false
+            }
+        }()
+        let isObservedDisabled: Bool = {
+            switch o {
+            case .disabled: return true
+            case .enabling, .enabled, .stopping, .stopUnconfirmed: return false
+            }
+        }()
+        return isDesiredDisabled && isObservedDisabled && applied_revision == revision
+    }
     var action: AgentLifecycleAction? {
-        if desired == "enabled" { return .disable }
-        if observed == "stop_unconfirmed" { return .retry }
+        if let d = desiredContract {
+            switch d {
+            case .enabled: return .disable
+            case .disabled: break
+            }
+        }
+        if let o = observedContract {
+            switch o {
+            case .stopUnconfirmed: return .retry
+            case .enabling, .enabled, .stopping, .disabled: break
+            }
+        }
         return canEnable ? .enable : nil
     }
     func disablingFeedback(online: Bool) -> String? {
-        guard desired == "disabled", !canEnable else { return nil }
+        guard desiredContract == .disabled, !canEnable else { return nil }
         if !online { return L("电脑离线，联网后会继续停用。", "The computer is offline. Disabling will continue when it reconnects.") }
         if error_code == "node_upgrade_required" { return L("请更新电脑上的 Nano 后再停用。", "Update Nano on the computer to finish disabling.") }
-        return observed == "stop_unconfirmed" ? L("停用还没完成。", "Disabling did not finish.") : nil
+        guard let o = observedContract else { return nil }
+        switch o {
+        case .stopUnconfirmed: return L("停用还没完成。", "Disabling did not finish.")
+        case .enabling, .enabled, .stopping, .disabled: return nil
+        }
     }
 }
 struct AgentLifecycleChange: Encodable, Sendable {

@@ -448,6 +448,9 @@ export class TaskGraphService {
       if (c.write_blocked_reason === "agent_private") {
         fail("agent_private", "This assistant is currently private and unavailable for external messages.");
       }
+      if (c.write_blocked_reason === "agent_project_restricted") {
+        fail("agent_project_restricted", "This assistant is only available to members sharing an active private group with it.");
+      }
       forbidden();
     }
     return c;
@@ -1654,7 +1657,7 @@ export function registerTaskGraphRoutes(app: FastifyInstance, ctx: ImContext) {
       } catch (e) {
         if (e instanceof TaskGraphError)
           return reply
-            .code(e.code === "not_found_or_forbidden" ? 404 : e.code === "agent_private" ? 403 : e.code === "version_conflict" ? 409 : 400)
+            .code(e.code === "not_found_or_forbidden" ? 404 : ["agent_private", "agent_project_restricted"].includes(e.code) ? 403 : e.code === "version_conflict" ? 409 : 400)
             .send({ detail: e.asDict() });
         if ((e as Obj)?.code?.startsWith?.("ERR_SQLITE"))
           return reply.code(503).send({

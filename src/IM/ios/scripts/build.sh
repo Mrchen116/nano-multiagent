@@ -3,13 +3,19 @@ set -euo pipefail
 IOS_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 MODE="${1:-build}"
-pnpm --dir "$IOS_ROOT/../../.." --filter @nano/product-contracts build
-npm --prefix "$IOS_ROOT/../frontend" run build:ios-ui
+if [ "${NANO_IOS_SKIP_WEB_BUILD:-0}" != "1" ]; then
+  pnpm --dir "$IOS_ROOT/../../.." --filter @nano/product-contracts build
+  npm --prefix "$IOS_ROOT/../frontend" run build:ios-ui
+fi
 BUILD_REVISION="${NANO_IOS_BUILD_REVISION:-$(git -C "$IOS_ROOT" rev-parse --short=12 HEAD)}"
 BUILD_ROOT="${NANO_IOS_BUILD_ROOT:-/tmp/nano-ios-build}"
 case "$MODE" in
   build)
     xcodebuild -project "$IOS_ROOT/NanoIM.xcodeproj" -scheme NanoIM NANO_IM_BUILD_REVISION="$BUILD_REVISION" -destination 'generic/platform=iOS Simulator' -derivedDataPath "$BUILD_ROOT" build
+    ;;
+  unit-test)
+    DEVICE_ID="${NANO_IOS_SIMULATOR_ID:?Set NANO_IOS_SIMULATOR_ID to an available iPhone simulator UDID}"
+    xcodebuild -project "$IOS_ROOT/NanoIM.xcodeproj" -scheme NanoIM NANO_IM_BUILD_REVISION="$BUILD_REVISION" -destination "platform=iOS Simulator,id=$DEVICE_ID" -derivedDataPath "$BUILD_ROOT" -only-testing:NanoIMTests test
     ;;
   test)
     DEVICE_ID="${NANO_IOS_SIMULATOR_ID:?Set NANO_IOS_SIMULATOR_ID to an available iPhone simulator UDID}"
@@ -25,5 +31,5 @@ case "$MODE" in
     /usr/bin/file "$STAGE/Payload/NanoIM.app/NanoIM"
     printf 'Unsigned IPA for AltStore re-signing: %s\n' "$BUILD_ROOT/NanoIM-unsigned.ipa"
     ;;
-  *) printf 'Usage: %s [build|test|archive]\n' "$0" >&2; exit 2 ;;
+  *) printf 'Usage: %s [build|unit-test|test|archive]\n' "$0" >&2; exit 2 ;;
 esac

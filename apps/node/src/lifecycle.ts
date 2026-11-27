@@ -18,6 +18,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { setGlobalProxyFromEnv } from "node:http";
 import lockfile from "proper-lockfile";
 import { windowsHost } from "./windows-platform.js";
+import { syncDirectoryIfSupported } from "./platform-io.js";
 import { loadNodeRelease } from "./release.js";
 import type { NodeRelease } from "@nano/product-contracts";
 import type { NodeConfigurationFile } from "./configuration.js";
@@ -58,14 +59,7 @@ export async function atomicPrivate(path: string, value: unknown) {
     await file.close();
   }
   await rename(temporary, path);
-  // Windows flushes the file before rename. Directory handles do not support fsync.
-  if (process.platform === "win32") return;
-  const directory = await open(dirname(path), "r");
-  try {
-    await directory.sync();
-  } finally {
-    await directory.close();
-  }
+  await syncDirectoryIfSupported(dirname(path));
 }
 export async function processBirth(pid: number): Promise<string | undefined> {
   if (process.platform === "win32")

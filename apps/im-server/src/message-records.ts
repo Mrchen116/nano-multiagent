@@ -6,6 +6,7 @@ import { lifecycle } from './agent-lifecycle.js';
 import { fail, now, transaction } from './context.js';
 
 import { chatAllowed, type ProviderFacts } from './collaboration.js';
+import { isExternalPeerInboundMessage } from './notification-projector.js';
 import { discardThreadUnread, listUnread, recordThreadDelivery, threadAddressesAgent } from './threads.js';
 
 /** Fixed SQLite columns are distinct from the public JSON projection. */
@@ -143,8 +144,9 @@ export class MessageRecords {
    *   row was already discarded together with its rollback, so a replay never rolls back twice.
    */
   discard(id:string):void {
-    const row=this.db.prepare('SELECT m.rowid AS row_id,m.conversation_id,m.sender_user_id,m.thread_root_id,c.type FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.id=?').get(id) as unknown as {row_id:number;conversation_id:string;sender_user_id:string;thread_root_id:string|null;type:string}|undefined;
+    const row=this.db.prepare('SELECT m.rowid AS row_id,m.conversation_id,m.sender_user_id,m.sender_type,m.sender_source_id,m.thread_root_id,c.type,c.external_source,c.config_agent_id,c.owner_id,c.external_chat_id FROM messages m JOIN conversations c ON c.id=m.conversation_id WHERE m.id=?').get(id) as unknown as {row_id:number;conversation_id:string;sender_user_id:string;sender_type:string;sender_source_id:string|null;thread_root_id:string|null;type:string;external_source:string|null;config_agent_id:string|null;owner_id:string|null;external_chat_id:string|null}|undefined;
     if(!row)return;
+    const externalPeer=isExternalPeerInboundMessage(this.db,row as unknown as Record<string,unknown>,row.sender_type,row.sender_source_id,false,id)?1:0;
     if(row.thread_root_id && row.type==='group'){
       discardThreadUnread(this.db,row.conversation_id,row.thread_root_id,id);
       this.db.prepare('DELETE FROM messages WHERE id=?').run(id);
@@ -159,7 +161,7 @@ export class MessageRecords {
     this.db.prepare('UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?').run(preview,latest?.created_at??null,row.conversation_id);
     // unread_count is not a simple counter: read marks rewrite it from a watermark, so
     // rolling back by one for everybody would erase real unread and could go negative.
-    for(const p of this.db.prepare('SELECT p.user_id,p.unread_count,p.last_read_message_id,(SELECT m.rowid FROM messages m WHERE m.id=p.last_read_message_id AND m.conversation_id=p.conversation_id) AS read_row_id FROM conversation_participants p WHERE p.conversation_id=? AND p.user_id!=?').all(row.conversation_id,row.sender_user_id) as unknown as {user_id:string;unread_count:number;last_read_message_id:string|null;read_row_id:number|null}[]) {
+    for(const p of this.db.prepare('SELECT p.user_id,p.unread_count,p.last_read_message_id,(SELECT m.rowid FROM messages m WHERE m.id=p.last_read_message_id AND m.conversation_id=p.conversation_id) AS read_row_id FROM conversation_participants p WHERE p.conversation_id=? AND (p.user_id!=? OR ?=1)').all(row.conversation_id,row.sender_user_id,externalPeer) as unknown as {user_id:string;unread_count:number;last_read_message_id:string|null;read_row_id:number|null}[]) {
       // A participant who already marked something as read no longer counts this message;
       // recompute from that watermark so unread that arrived later survives. Only a
       // participant without a usable watermark still holds this message's own +1.
@@ -376,9 +378,8 @@ export class MessageRecords {
         extra.timezone ?? null,
         sourceAgent?lifecycle(this.db,sourceAgent.agent_id).revision:null,
       );
-    const groupedThread = extra.thread_root_id
-      ? (this.db.prepare('SELECT type FROM conversations WHERE id=?').get(cId) as {type?: string} | undefined)?.type === 'group'
-      : false;
+    const convRow = this.db.prepare('SELECT * FROM conversations WHERE id=?').get(cId) as Record<string, unknown> | undefined;
+    const groupedThread = Boolean(extra.thread_root_id && convRow?.type === 'group');
     if (!extra.thread_root_id) {
       this.db
         .prepare("UPDATE conversations SET last_message_preview=?,last_message_at=? WHERE id=?")
@@ -388,11 +389,19 @@ export class MessageRecords {
       this.db.prepare("UPDATE messages SET task_cards_json=? WHERE id=?").run(JSON.stringify(extra.task_cards), id);
     }
     if (!groupedThread && !extra.skipThreadDelivery) {
+      const externalPeer = isExternalPeerInboundMessage(
+        this.db,
+        convRow,
+        type,
+        extra.sender_source_id,
+        extra.provider_facts?.context_only === true,
+        id,
+      ) ? 1 : 0;
       this.db
         .prepare(
-          "UPDATE conversation_participants SET unread_count=unread_count+1 WHERE conversation_id=? AND user_id!=?",
+          "UPDATE conversation_participants SET unread_count=unread_count+1 WHERE conversation_id=? AND (user_id!=? OR ?=1)",
         )
-        .run(cId, sender);
+        .run(cId, sender, externalPeer);
     }
     if (extra.system_notice) this.db.prepare("UPDATE messages SET system_notice_json=? WHERE id=?").run(JSON.stringify(extra.system_notice),id);
     // Controlled provenance must exist before card validation and message.created.
@@ -430,6 +439,7 @@ export class MessageRecords {
             coalesce(json_extract(f.facts_json,'$.scope_skipped'),0)=1 OR
             coalesce(json_extract(f.facts_json,'$.context_only'),0)=1))))
         AND (a.agent_id IS NULL OR a.collaboration_scope='team'
+          OR (a.collaboration_scope='project' AND c.external_source IS NULL AND c.visibility!='public')
           OR EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.message_id=? AND d.agent_id=a.agent_id)
           OR (c.external_source IS NULL AND c.visibility!='public' AND NOT EXISTS (
             SELECT 1 FROM conversation_participants cp2 JOIN users u2 ON u2.id=cp2.user_id

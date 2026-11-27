@@ -11,10 +11,17 @@ import os
 final class ChatStore {
     let client: IMClient
     let user: AuthUser
+    struct PendingThreadTarget: Equatable, Sendable {
+        let conversationID: String
+        let rootMessageID: String
+    }
+
     var conversations: [Conversation] = []
     var inspectedConversation: Conversation?
     var openThreadRoot: String?
+    var pendingThreadTarget: PendingThreadTarget?
     var threadRevision = 0
+    private var notifiedDedupeKeys: [String] = []
     var taskCardsRevision = 0
     var timelines: [String: [TimelineItem]] = [:]
     private var receivedTimelineResults: Set<String> = []
@@ -546,6 +553,7 @@ final class ChatStore {
         inspectedConversation = nil; before = [:]; olderNeedsNetwork = []; receivedTimelineResults = []
         interactionPending = [:]; interactionConversations = [:]; interactionSending = []; sending = []
         discarded = []; revokedChats = []; checkingAccess = []; selectedID = nil; interactionDrafts.clear(); composeRequest = nil; banner = nil
+        pendingThreadTarget = nil; notifiedDedupeKeys = []
         listPhase = .loadingFirst; connection = .starting; pendingCount = 0; lastFullAt = nil; listError = nil
         cursor = nil; needsList = false; dirtyChats = []
         errors = [:]; preferenceOwners = [:]
@@ -554,6 +562,23 @@ final class ChatStore {
         cancelContinuityDeadline()
         executionCleanupRevisions = [:]; knownDeletedActorIDs = []; readingPositions = [:]; pendingReadingPositions = [:]; restoreReadingPositions = [:]
         taskCardsRevision = 0
+    }
+
+    /// Resolve a pending thread jump scoped strictly to `conversationID`, decoding the
+    /// `{ message, execution_cleanup_revision }` detail envelope when outside the loaded window.
+    func resolvePendingThreadRoot(conversationID: String) async -> ChatMessage? {
+        guard let target = pendingThreadTarget, target.conversationID == conversationID else { return nil }
+        if let found = timelines[conversationID]?.compactMap(\.message).first(where: { $0.id == target.rootMessageID }) {
+            pendingThreadTarget = nil
+            return found
+        }
+        struct MessageDetailEnvelope: Decodable, Sendable { let message: ChatMessage }
+        let path = "/im/v1/conversations/\(conversationID.pathComponent)/messages/\(target.rootMessageID.pathComponent)"
+        let loaded = (try? await client.get(path) as MessageDetailEnvelope)?.message
+        if pendingThreadTarget == target {
+            pendingThreadTarget = nil
+        }
+        return loaded
     }
 
     func run() async {
@@ -1144,6 +1169,29 @@ final class ChatStore {
             NotificationCenter.default.post(name: UserProfileUpdate.notification, object: client, userInfo: ["update": update])
             return
         }
+        if event.event_type == "conversation.read" || event.event_type == "conversation.preference_updated" {
+            if let chat, let index = conversations.firstIndex(where: { $0.id == chat }) {
+                if let unread = data["unread_count"].intValue { conversations[index].unread_count = max(0, unread) }
+                if let muted = data["is_muted"].boolValue { conversations[index].is_muted = muted }
+                if let pinned = data["is_pinned"].boolValue { conversations[index].is_pinned = pinned }
+            }
+            needsList = true
+            scheduleRefresh()
+            return
+        }
+        if event.event_type == "agent.work.updated" {
+            if let hint = event.notification_hint,
+               hint.eligible,
+               hint.replayed != true,
+               hint.kind?.knownValue == .workPermission,
+               let agentID = hint.agent_id, !agentID.isEmpty,
+               !notifiedDedupeKeys.contains(hint.dedupe_key),
+               UserDefaults.standard.object(forKey: "nano.foregroundReminders") as? Bool ?? true {
+                rememberDedupeKey(hint.dedupe_key)
+                banner = ChatBanner(agentID: agentID, title: hint.sender_name, kind: .workPermission)
+            }
+            return
+        }
         guard let eventID = event.event_id, eventID > (cursor ?? 0) else { return }
         cursor = eventID
         if event.event_type == "message.discarded", let id = data["message_id"].stringValue {
@@ -1154,26 +1202,60 @@ final class ChatStore {
         }
         if let chat { dirtyChats.insert(chat) }
         needsList = true
-        // Human writes emit message.sent; their optional creation event must not remind twice.
-        let newMessage = (event.event_type == "message.sent" && data["sender_type"].stringValue == "user")
-            || (event.event_type == "message.created" && (data["sender_type"].stringValue != "user" || data["pa_agent_id"].stringValue != nil))
         if let root = data["thread_root_message_id"].stringValue, root == openThreadRoot {
             threadRevision += 1
         }
         let notifyUsers = data["thread_notify_user_ids"].arrayValue
         let shouldNotify = notifyUsers?.contains { $0.stringValue == user.id } ?? true
-        if newMessage, shouldNotify, eventID > notificationFloor,
-           let chat, chat != selectedID, conversations.contains(where: { $0.id == chat && !$0.is_muted }),
-           data["sender_user_id"].stringValue != user.id,
-           UserDefaults.standard.object(forKey: "nano.foregroundReminders") as? Bool ?? true {
-            banner = ChatBanner(conversationID: chat)
+
+        if let hint = event.notification_hint {
+            if let chat, chat != selectedID, let unread = hint.conversation_unread,
+               let index = conversations.firstIndex(where: { $0.id == chat }) {
+                conversations[index].unread_count = max(0, unread)
+            }
+            let effectiveMuted = chat.flatMap { id in conversations.first(where: { $0.id == id })?.is_muted } ?? hint.is_muted
+            let targetRoot = hint.thread_root_message_id ?? data["thread_root_message_id"].stringValue
+            let viewingTarget = chat != nil && chat == selectedID && (targetRoot == nil || targetRoot == openThreadRoot)
+            if hint.eligible,
+               hint.replayed != true,
+               eventID > notificationFloor,
+               let chat,
+               !viewingTarget,
+               (!effectiveMuted || hint.mentions_viewer),
+               !notifiedDedupeKeys.contains(hint.dedupe_key),
+               UserDefaults.standard.object(forKey: "nano.foregroundReminders") as? Bool ?? true {
+                rememberDedupeKey(hint.dedupe_key)
+                banner = ChatBanner(
+                    conversationID: chat,
+                    threadRootID: targetRoot,
+                    kind: hint.kind?.knownValue,
+                    fallbackTitle: hint.conversation_title ?? hint.sender_name
+                )
+            }
+        } else {
+            // Fallback for synthetic unit-test frames without `notification_hint` (`ChatStateTests`).
+            let newMessage = (event.event_type == "message.sent" && data["sender_type"].stringValue == "user")
+                || (event.event_type == "message.created" && (data["sender_type"].stringValue != "user" || data["pa_agent_id"].stringValue != nil))
+            if newMessage, shouldNotify, eventID > notificationFloor,
+               let chat, chat != selectedID, conversations.contains(where: { $0.id == chat && !$0.is_muted }),
+               data["sender_user_id"].stringValue != user.id,
+               UserDefaults.standard.object(forKey: "nano.foregroundReminders") as? Bool ?? true {
+                banner = ChatBanner(conversationID: chat, threadRootID: data["thread_root_message_id"].stringValue)
+            }
         }
         await persistEvent(event)
+        let isExternalPeer = event.notification_hint?.eligible == true && data["sender_type"].stringValue == "user"
         if shouldNotify, event.event_type == "message.created", data["receipts_requested"].boolValue == true,
-           data["sender_user_id"].stringValue != user.id, let id = data["message_id"].stringValue {
+           (data["sender_user_id"].stringValue != user.id || isExternalPeer), let id = data["message_id"].stringValue {
             confirmMessageDelivery([id])
         }
         scheduleRefresh()
+    }
+
+    private func rememberDedupeKey(_ key: String) {
+        guard !key.isEmpty else { return }
+        if notifiedDedupeKeys.count >= 128 { notifiedDedupeKeys.removeFirst() }
+        notifiedDedupeKeys.append(key)
     }
 
     private func confirmMessageDelivery(_ ids: [String]) {

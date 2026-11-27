@@ -271,7 +271,9 @@ export function registerConversationActions(app: FastifyInstance, ctx: ImContext
     if (!c.can_write) {
       fail(403, c.write_blocked_reason === "agent_private"
         ? { code: "agent_private", message: "This assistant is currently private and unavailable for external messages." }
-        : "conversation is read-only");
+        : c.write_blocked_reason === "agent_project_restricted"
+          ? { code: "agent_project_restricted", message: "This assistant is only available to members sharing an active private group with it." }
+          : "conversation is read-only");
     }
     const agent = c.participants.find((x: Row) => x.type === "agent"),
       a = one(db, "SELECT * FROM agent_profiles WHERE agent_id=? AND is_stale=0", agent.id)!;

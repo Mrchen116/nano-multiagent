@@ -36,6 +36,7 @@ export function App() {
           preview={toast.preview}
           conversationId={toast.conversationId}
           threadRootId={toast.threadRootId}
+          targetRoute={toast.targetRoute}
           onDismiss={dismiss}
         />
       )}

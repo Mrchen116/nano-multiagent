@@ -1,14 +1,20 @@
 /** Maximum wait for the oldest unnotified background chat. */
 export const CHAT_BACKGROUND_DELAY_MS = 10 * 60_000;
 
-/** Visibility and bidirectional communication scope for an Agent or PA. */
-export type CollaborationScope = 'team' | 'owner_only';
+/** Visibility and bidirectional communication scope for an ordinary or global Agent. */
+export const COLLABORATION_SCOPES = ['team', 'project', 'owner_only'] as const;
+export type CollaborationScope = (typeof COLLABORATION_SCOPES)[number];
+
+/** Visibility and bidirectional communication scope supported by a Personal Assistant (PA). */
+export const PERSONAL_COLLABORATION_SCOPES = ['team', 'owner_only'] as const;
+export type PersonalCollaborationScope = (typeof PERSONAL_COLLABORATION_SCOPES)[number];
 
 /** Facts resolved from a trusted conversation source for one receiving Agent. */
 export interface ChatAddress {
   ownerDirect: boolean;
   ownerInternal?: boolean;
   ownerObserved?: boolean;
+  projectAllowed?: boolean;
   directToAgent: boolean;
   addressedToAgent: boolean;
   addressedToOwner: boolean;
@@ -17,6 +23,11 @@ export interface ChatAddress {
 
 /** Check the public configuration value without coercing an unknown scope to team. */
 export function isCollaborationScope(value: unknown): value is CollaborationScope {
+  return value === 'team' || value === 'project' || value === 'owner_only';
+}
+
+/** Check whether a collaboration scope is valid for a Personal Assistant (PA). */
+export function isPersonalCollaborationScope(value: unknown): value is PersonalCollaborationScope {
   return value === 'team' || value === 'owner_only';
 }
 
@@ -30,6 +41,7 @@ export function isCollaborationScope(value: unknown): value is CollaborationScop
  */
 export function classifyChatDelivery(scope: CollaborationScope | undefined, facts: ChatAddress): 'skip' | 'high' | 'background' {
   if (scope === 'owner_only' && !facts.ownerDirect && !facts.ownerInternal && !facts.ownerObserved) return 'skip';
+  if (scope === 'project' && !facts.ownerDirect && !facts.ownerInternal && !facts.projectAllowed) return 'skip';
   if (facts.contextOnly) return 'background';
   return facts.ownerDirect || facts.directToAgent || facts.addressedToAgent || facts.addressedToOwner ? 'high' : 'background';
 }

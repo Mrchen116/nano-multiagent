@@ -14,6 +14,8 @@ interface InAppToastProps {
   /** Conversation to navigate to when the toast is clicked. */
   conversationId: string;
   threadRootId?: string;
+  /** Explicit route override (e.g., `/settings/agents/:id?view=work` or `/chat/:id?thread=...`). */
+  targetRoute?: string;
   /** Called when the toast should be removed (auto-dismiss or user action). */
   onDismiss: () => void;
 }
@@ -25,11 +27,14 @@ interface InAppToastProps {
  * Does not require browser Notification permission — purely in-app.
  * Auto-dismisses after AUTO_DISMISS_MS milliseconds.
  */
-export function InAppToast({ conversationTitle, senderName, preview, conversationId, threadRootId, onDismiss }: InAppToastProps) {
+export function InAppToast({ conversationTitle, senderName, preview, conversationId, threadRootId, targetRoute, onDismiss }: InAppToastProps) {
   useEffect(() => {
     const timer = setTimeout(onDismiss, AUTO_DISMISS_MS);
     return () => clearTimeout(timer);
   }, [onDismiss]);
+
+  const destination =
+    targetRoute ?? `/chat/${conversationId}${threadRootId ? `?thread=${encodeURIComponent(threadRootId)}` : ""}`;
 
   return (
     <div
@@ -43,7 +48,7 @@ export function InAppToast({ conversationTitle, senderName, preview, conversatio
           {senderName ? `${senderName}: ${preview}` : preview}
         </p>
         <Link
-          to={`/chat/${conversationId}${threadRootId ? `?thread=${encodeURIComponent(threadRootId)}` : ""}`}
+          to={destination}
           aria-label="View message"
           className="mt-1 block text-xs font-semibold text-emerald-700 underline underline-offset-2"
           onClick={onDismiss}

@@ -95,6 +95,32 @@ E2E_CRITICAL_PATH_TEST_ROOT = Path("tests/e2e/critical_paths")
 E2E_CATALOG_COLUMNS = ("#", "用户旅程", "守护测试", "归属子系统", "引入 unit")
 INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 
+PLATFORM_PARITY_ROWS = (
+    "Web",
+    "Desktop (macOS)",
+    "Desktop (Windows)",
+    "iOS",
+    "Node (macOS / Windows / Linux)",
+)
+PLATFORM_PARITY_DISPOSITIONS = frozenset({"shared", "native-sync", "platform-exempt"})
+LEGACY_ACTIVE_DESIGN_UNITS = frozenset(
+    {
+        "bugfix-448-web-fetch-cancel",
+        "bugfix-580-task-delete-permission",
+        "bugfix-641-pa-review-delivery",
+        "bugfix-643-descendant-history-memory",
+        "bugfix-689-pa-config-edits",
+        "bugfix-690-stream-read-scope",
+        "feat-532-spec-memory-loop",
+        "feat-628-pa-long-horizon-evaluation",
+        "feat-770-ordinary-agent-ptc",
+        "perf-609-compact-tool-references",
+        "perf-754-bounded-work-transfer",
+        "refactor-522-session-continuity-owner",
+        "refactor-726-skill-flow-capabilities",
+    }
+)
+
 _MARKDOWN = MarkdownIt("commonmark")
 
 
@@ -965,6 +991,159 @@ def check_agent_bootstrap(root: Path, tracked: set[Path]) -> list[Problem]:
     return problems
 
 
+def _strip_code_ticks(cell: str) -> str:
+    stripped = cell.strip()
+    if stripped.startswith("`") and stripped.endswith("`") and len(stripped) >= 2:
+        return stripped[1:-1].strip()
+    return stripped
+
+
+def parse_platform_parity_matrix(
+    path: Path, text: str
+) -> tuple[dict[str, tuple[str, str]], list[Problem]]:
+    """Parse and validate the ``## 五端对齐矩阵`` Markdown table in a Full design doc."""
+    lines = text.splitlines()
+    heading_index = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if line.strip() == "## 五端对齐矩阵"
+        ),
+        None,
+    )
+    if heading_index is None:
+        return {}, [
+            Problem(
+                "PLATFORM_MATRIX_MISSING",
+                path,
+                "Full unit design.md must include a '## 五端对齐矩阵' section",
+            )
+        ]
+
+    header_index: int | None = None
+    for index in range(heading_index + 1, len(lines)):
+        if lines[index].startswith("## "):
+            break
+        cells = _markdown_table_cells(lines[index])
+        if cells is not None and len(cells) >= 3:
+            header_index = index
+            break
+    if header_index is None:
+        return {}, [
+            Problem(
+                "PLATFORM_MATRIX_TABLE",
+                path,
+                "missing table under '## 五端对齐矩阵'",
+                heading_index + 1,
+            )
+        ]
+
+    problems: list[Problem] = []
+    rows: dict[str, tuple[str, str]] = {}
+    for index in range(header_index + 2, len(lines)):
+        cells = _markdown_table_cells(lines[index])
+        if cells is None:
+            break
+        line_number = index + 1
+        if len(cells) < 3:
+            problems.append(
+                Problem(
+                    "PLATFORM_MATRIX_ROW",
+                    path,
+                    f"expected at least 3 columns, found {len(cells)}",
+                    line_number,
+                )
+            )
+            continue
+        platform = _strip_code_ticks(cells[0])
+        disposition = _strip_code_ticks(cells[1])
+        reason = cells[2].strip()
+        if platform not in PLATFORM_PARITY_ROWS:
+            problems.append(
+                Problem(
+                    "PLATFORM_MATRIX_PLATFORM",
+                    path,
+                    f"unsupported platform row {platform!r}; expected one of {PLATFORM_PARITY_ROWS}",
+                    line_number,
+                )
+            )
+            continue
+        if platform in rows:
+            problems.append(
+                Problem(
+                    "PLATFORM_MATRIX_DUPLICATE",
+                    path,
+                    f"duplicate platform row {platform!r}",
+                    line_number,
+                )
+            )
+            continue
+        if disposition not in PLATFORM_PARITY_DISPOSITIONS:
+            problems.append(
+                Problem(
+                    "PLATFORM_MATRIX_DISPOSITION",
+                    path,
+                    f"platform {platform!r} disposition {disposition!r} must be one of "
+                    f"{sorted(PLATFORM_PARITY_DISPOSITIONS)}",
+                    line_number,
+                )
+            )
+        if not reason:
+            problems.append(
+                Problem(
+                    "PLATFORM_MATRIX_REASON",
+                    path,
+                    f"platform {platform!r} must explain its scope or exemption reason",
+                    line_number,
+                )
+            )
+        rows[platform] = (disposition, reason)
+
+    for missing in PLATFORM_PARITY_ROWS:
+        if missing not in rows:
+            problems.append(
+                Problem(
+                    "PLATFORM_MATRIX_INCOMPLETE",
+                    path,
+                    f"missing required platform row {missing!r} in '## 五端对齐矩阵'",
+                    heading_index + 1,
+                )
+            )
+    return rows, problems
+
+
+def _requires_platform_parity_matrix(path: Path, tracked: set[Path]) -> bool:
+    if path.name != "design.md" or path.parts[:2] != ("docs", "changes"):
+        return False
+    unit_dir = path.parent
+    if (unit_dir / "fix.md") in tracked or (unit_dir / "problem.md") in tracked:
+        return False
+    if len(path.parts) == 4 and path.parts[2] not in {"archive", "retired"}:
+        return path.parts[2] not in LEGACY_ACTIVE_DESIGN_UNITS
+    if len(path.parts) == 5 and path.parts[2] == "archive":
+        match = UNIT_DIR_RE.fullmatch(path.parts[3])
+        if match is None:
+            return False
+        unit_number = int(match.group("unit_id").split("-", 1)[1])
+        return unit_number >= 800
+    return False
+
+
+def check_platform_parity_matrices(root: Path, tracked: set[Path]) -> list[Problem]:
+    """Require five-platform parity matrices on non-legacy Full unit designs."""
+    problems: list[Problem] = []
+    for path in sorted(tracked):
+        if not _requires_platform_parity_matrix(path, tracked):
+            continue
+        if not (root / path).is_file():
+            continue
+        _, doc_problems = parse_platform_parity_matrix(
+            path, (root / path).read_text(encoding="utf-8")
+        )
+        problems.extend(doc_problems)
+    return problems
+
+
 def run_checks(root: Path, tracked: set[Path] | None = None) -> list[Problem]:
     """Run all repository knowledge-system checks."""
     tracked = git_tracked_files(root) if tracked is None else tracked
@@ -977,6 +1156,7 @@ def run_checks(root: Path, tracked: set[Path] | None = None) -> list[Problem]:
         *check_spec_area_indexes(root, tracked),
         *check_e2e_critical_path_catalog(root, tracked),
         *check_agent_bootstrap(root, tracked),
+        *check_platform_parity_matrices(root, tracked),
     ]
     return sorted(
         problems,

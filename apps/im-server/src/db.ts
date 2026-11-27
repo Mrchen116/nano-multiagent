@@ -182,6 +182,73 @@ export function openDatabase(path: string): DatabaseSync {
     db.close();
     throw error;
   }
+  const agentProfilesSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_profiles'").get() as { sql?: string } | undefined)?.sql ?? "";
+  if (agentProfilesSql && !agentProfilesSql.includes("'project'")) {
+    // SQLite ignores PRAGMA foreign_keys=OFF inside an open transaction; toggle it before BEGIN IMMEDIATE
+    // so rebuilding agent_profiles does not cascade-delete agent_lifecycle or agent_settings_snapshots rows.
+    db.exec("PRAGMA foreign_keys=OFF");
+    try {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        const targetCols = [
+          "agent_id", "avatar_variant", "space_id", "owner_id", "node_id", "display_name", "description",
+          "skills_json", "skills_selection_mode", "tool_allowlist_json", "collaboration_scope", "default_model",
+          "model_fallbacks_json", "reasoning_effort", "approval_mode", "work_mode", "workspace_root",
+          "workspace_is_default", "registration_seed", "pending_create_operation_id", "profile_version",
+          "created_at", "updated_at", "is_stale", "staled_at", "features_json", "heartbeat_json",
+        ];
+        const existingCols = new Set((db.prepare("PRAGMA table_info(agent_profiles)").all() as { name: string }[]).map((c) => c.name));
+        const copyCols = targetCols.filter((c) => existingCols.has(c)).join(",");
+        db.exec(`
+          DROP VIEW IF EXISTS owner_direct_agent_messages;
+          DROP TRIGGER IF EXISTS personal_observation_event;
+          DROP TRIGGER IF EXISTS agent_lifecycle_created;
+          CREATE TABLE agent_profiles_v2 (
+            agent_id TEXT PRIMARY KEY,
+            avatar_variant INTEGER CHECK (avatar_variant BETWEEN 0 AND 23),
+            space_id TEXT NOT NULL DEFAULT 'company:default',
+            owner_id TEXT NOT NULL,
+            node_id TEXT,
+            display_name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            skills_json TEXT NOT NULL DEFAULT '[]',
+            skills_selection_mode TEXT,
+            tool_allowlist_json TEXT NOT NULL DEFAULT '[]',
+            collaboration_scope TEXT NOT NULL DEFAULT 'team' CHECK(collaboration_scope IN ('team','project','owner_only')),
+            default_model TEXT,
+            model_fallbacks_json TEXT NOT NULL DEFAULT '[]',
+            reasoning_effort TEXT,
+            approval_mode TEXT CHECK (approval_mode IS NULL OR approval_mode IN ('cc', 'codex')),
+            work_mode TEXT NOT NULL DEFAULT 'single_thread',
+            workspace_root TEXT,
+            workspace_is_default INTEGER,
+            registration_seed INTEGER NOT NULL DEFAULT 0,
+            pending_create_operation_id TEXT,
+            profile_version INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            is_stale INTEGER NOT NULL DEFAULT 0,
+            staled_at TEXT,
+            features_json TEXT NOT NULL DEFAULT '{}',
+            heartbeat_json TEXT
+          );
+          INSERT INTO agent_profiles_v2(${copyCols}) SELECT ${copyCols} FROM agent_profiles;
+          DROP TABLE agent_profiles;
+          ALTER TABLE agent_profiles_v2 RENAME TO agent_profiles;
+        `);
+        db.exec(readFileSync(new URL("./schema.sql", import.meta.url), "utf8"));
+        const fkViolations = db.prepare("PRAGMA foreign_key_check").all();
+        if (fkViolations.length) throw new Error(`agent_profiles foreign_key_check failed: ${JSON.stringify(fkViolations)}`);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        db.close();
+        throw error;
+      }
+    } finally {
+      try { db.exec("PRAGMA foreign_keys=ON"); } catch { /* Closed on rollback. */ }
+    }
+  }
   db.prepare(
     `INSERT OR IGNORE INTO settings_policies VALUES ('default','codex_oauth:gpt-5.5',14,15,30,'basic',45)`,
   ).run();

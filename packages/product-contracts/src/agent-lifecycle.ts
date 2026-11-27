@@ -1,9 +1,19 @@
 /** Persistent human intent and separately confirmed execution state. */
-export type AgentLifecycleObserved = 'enabling' | 'enabled' | 'stopping' | 'disabled' | 'stop_unconfirmed';
+export const AGENT_LIFECYCLE_DESIRED_STATES = ['enabled', 'disabled'] as const;
+export type AgentLifecycleDesired = (typeof AGENT_LIFECYCLE_DESIRED_STATES)[number];
+
+export const AGENT_LIFECYCLE_OBSERVED_STATES = [
+  'enabling',
+  'enabled',
+  'stopping',
+  'disabled',
+  'stop_unconfirmed',
+] as const;
+export type AgentLifecycleObserved = (typeof AGENT_LIFECYCLE_OBSERVED_STATES)[number];
 
 export interface AgentLifecycleSnapshot {
   agent_id: string;
-  desired: 'enabled' | 'disabled';
+  desired: AgentLifecycleDesired;
   revision: number;
   disabled_through_revision: number;
   request_id: string | null;

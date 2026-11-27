@@ -199,7 +199,9 @@ struct ConversationView: View {
                            ? L("已解散群历史 · 只读", "Dissolved group history · read only")
                            : conversation.write_blocked_reason == "agent_private"
                              ? L("该助手当前设为私有，暂不对外接收或发送消息", "This assistant is currently private and unavailable for external messages.")
-                             : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
+                             : conversation.write_blocked_reason == "agent_project_restricted"
+                               ? L("该助手仅面向同项目私密群成员开放，当前无法继续发送消息", "This assistant is open only to members sharing an active private project group and is currently read-only.")
+                               : L("公开群 · 加入后可参与", "Public group · join to participate")).font(.caption).foregroundStyle(.secondary)
                     if conversation.is_observer == true { Text(L("你可以查看双方往来，不能发送消息。", "You can view this exchange, but cannot send messages.")).font(.caption).foregroundStyle(.secondary) }
                     if conversation.is_observer != true && conversation.dissolved_at == nil && conversation.visibility == "public" && conversation.is_member == false {
                         Button(L("加入群聊", "Join group")) { Task {
@@ -284,6 +286,11 @@ struct ConversationView: View {
                     await store.loadChat(conversationID)
                 }
                 try? await Task.sleep(for: .seconds(3))
+            }
+        }
+        .task(id: "\(conversationID)-\(store.pendingThreadTarget?.conversationID ?? "")-\(store.pendingThreadTarget?.rootMessageID ?? "")-\(items.count)") {
+            if let resolved = await store.resolvePendingThreadRoot(conversationID: conversationID) {
+                threadRoot = resolved
             }
         }
         .task(id: store.composeRequest?.id) {

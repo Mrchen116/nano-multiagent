@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { constants, createWriteStream, existsSync, unlinkSync } from 'node:fs';
 import { mkdir, open, rename } from 'node:fs/promises';
 import { once } from 'node:events';
@@ -197,6 +197,7 @@ export async function downloadAttachment(config: {
   file_name: string;
   content_type: string;
   byte_size: number;
+  sha256: string;
 }> {
   if (input.url.startsWith('external:')) {
     if (!config.resolveExternalAttachment) {
@@ -217,6 +218,7 @@ export async function downloadAttachment(config: {
     if (!destination.startsWith(`${destDir}/`) && !destination.startsWith(`${destDir}\\`)) {
       throw new Error('Attachment download path escapes managed download directory');
     }
+    const sha256 = createHash('sha256').update(local.data).digest('hex');
     const temporary = join(destDir, `.${safeId}-${randomUUID()}.tmp`);
     const handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
     let committed = false;
@@ -231,6 +233,7 @@ export async function downloadAttachment(config: {
         file_name: safeName,
         content_type: contentType,
         byte_size: local.data.byteLength,
+        sha256,
       };
     } finally {
       if (!committed) {
@@ -278,6 +281,7 @@ export async function downloadAttachment(config: {
   }
   const temporary = join(destDir, `.${safeId}-${randomUUID()}.tmp`);
   const output = createWriteStream(temporary, { flags: 'wx', mode: 0o600 });
+  const hash = createHash('sha256');
   let size = 0;
   let committed = false;
   try {
@@ -292,6 +296,7 @@ export async function downloadAttachment(config: {
           await reader.cancel().catch(() => {});
           throw new Error('Attachment exceeds maximum downloadable size (25 MiB)');
         }
+        hash.update(bytes);
         if (!output.write(bytes)) await once(output, 'drain');
       }
     } finally {
@@ -307,6 +312,7 @@ export async function downloadAttachment(config: {
       file_name: safeName,
       content_type: contentType,
       byte_size: size,
+      sha256: hash.digest('hex'),
     };
   } finally {
     if (!committed) {

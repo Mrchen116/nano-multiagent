@@ -1,5 +1,5 @@
-import {cancelChatRelay, chatAllowed} from './collaboration.js';
-import { all, now, transaction, type ImContext, type Row } from './context.js';
+import {cancelChatRelay, canAgentAccessConversation, chatAllowed} from './collaboration.js';
+import { all, now, one, transaction, type ImContext, type Row } from './context.js';
 
 /** Drain persisted relays through a bounded node window; socket writes are never acceptance. */
 export class RelayDelivery {
@@ -47,6 +47,17 @@ export class RelayDelivery {
           else this.ctx.db.prepare("UPDATE relay_tasks SET status='cancelled',updated_at=? WHERE relay_task_id=?").run(now(),task.relay_task_id);
           this.retries.delete(task.relay_task_id);
           continue;
+        }
+        if (payload.metadata && typeof payload.metadata === 'object') {
+          const profile = one(this.ctx.db, 'SELECT * FROM agent_profiles WHERE agent_id=?', agentId);
+          const chat = one(this.ctx.db, 'SELECT * FROM conversations WHERE id=?', task.conversation_id);
+          const isPersonal = !!one(this.ctx.db, 'SELECT 1 FROM personal_agent_bindings WHERE agent_id=?', agentId);
+          if (profile && chat && !chat.external_source && !isPersonal) {
+            payload.metadata = {
+              ...(payload.metadata as Row),
+              project_allowed: canAgentAccessConversation(this.ctx.db, { ...profile, collaboration_scope: 'project' }, chat),
+            };
+          }
         }
         if(!this.ctx.gateway.send(id,{type:'relay.message',payload}))break;
         flights.set(task.relay_task_id,time);this.lastAgents.set(id,agentId);

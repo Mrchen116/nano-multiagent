@@ -18,7 +18,7 @@ const fields = {
   skills:'Skill names from the target catalog.',skills_selection_mode:'explicit_allowlist, explicit_denylist, or default_discovery.',
   tool_allowlist:'Tool names from the target catalog. Enabled Features require their declared dependencies.',
   features:'Boolean settings by capabilities.features[].key. Include required Features, tools and Skills together.',
-  collaboration_scope:"team (default: visible to team colleagues for direct and group collaboration) or owner_only (private: hidden from colleagues; communicates only with the owner and the owner's own Agents).",
+  collaboration_scope:"team (default: visible to team colleagues for direct and group collaboration), project (project-scoped: visible, direct-messageable, and Work-transparent only to team members currently sharing an active private group with this Agent), or owner_only (private: hidden from colleagues; communicates only with the owner and the owner's own Agents).",
   workspace_root:'null uses the target computer default; custom paths are validated by that computer.',
   confirm_existing_workspace:'true only after the owner explicitly confirms using the specified existing directory; never overwrite its contents.',
 };

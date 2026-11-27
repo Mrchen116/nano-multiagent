@@ -132,3 +132,18 @@ it('keeps a confirmed directory badge when the same stop request returns its ear
   await screen.findByText('The computer is offline. Disabling will continue when it reconnects.');
   expect(client.getQueryData(key)).toEqual([{agent_id:'a',lifecycle_disabled:true}]);
 });
+
+it('stops background lifecycle polling when the agent returns 404', async () => {
+  vi.useFakeTimers();
+  try {
+    const fetch = vi.fn(async () => Response.json({detail:'agent_not_found'}, {status:404}));
+    vi.stubGlobal('fetch', fetch);
+    mount(false);
+    await act(async () => { await Promise.resolve(); });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(9000); });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});

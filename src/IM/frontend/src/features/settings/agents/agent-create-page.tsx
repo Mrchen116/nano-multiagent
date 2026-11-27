@@ -146,7 +146,7 @@ interface CreateBehaviorCardProps {
   onApprovalModeChange: (value: ApprovalMode) => void;
   onInitialRoleChange: (value: string) => void;
   onFeatureToggle: (key: string, value: boolean) => void;
-  onScopeChange: (value: "team" | "owner_only") => void;
+  onScopeChange: (value: "team" | "project" | "owner_only") => void;
 }
 
 function CreateBehaviorCard({
@@ -294,12 +294,29 @@ function CreateBehaviorCard({
           id="collaboration-scope"
           className="im-input"
           value={draft.collaboration_scope}
-          onChange={(e) => onScopeChange(e.target.value === "owner_only" ? "owner_only" : "team")}
+          onChange={(e) =>
+            onScopeChange(
+              e.target.value === "owner_only"
+                ? "owner_only"
+                : e.target.value === "project"
+                  ? "project"
+                  : "team",
+            )
+          }
         >
           <option value="team">{t("agents.form.behavior.team")}</option>
+          <option value="project">{t("agents.form.behavior.project")}</option>
           <option value="owner_only">{t("agents.form.behavior.ownerOnly")}</option>
         </select>
-        <p className="im-settings-feature-help">{t(draft.collaboration_scope === "owner_only" ? "agents.form.behavior.ownerOnlyHelp" : "agents.form.behavior.teamHelp")}</p>
+        <p className="im-settings-feature-help">
+          {t(
+            draft.collaboration_scope === "owner_only"
+              ? "agents.form.behavior.ownerOnlyHelp"
+              : draft.collaboration_scope === "project"
+                ? "agents.form.behavior.projectHelp"
+                : "agents.form.behavior.teamHelp",
+          )}
+        </p>
       </div>
 
       {/* Collapsible preview — mirrors tool-calls-panel aria-expanded + ▸/▾ pattern */}

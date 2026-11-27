@@ -20,6 +20,7 @@ export interface AgentCompletionCandidate extends PendingAgentCompletion {
   messageId: string;
   preview: string;
   cardOnly?: true;
+  targetRoute?: string;
 }
 
 export interface AgentCompletionReduction {

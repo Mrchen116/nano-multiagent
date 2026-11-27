@@ -3,7 +3,7 @@ export interface AgentProfile {
   display_name: string;
   description?: string;
   skills_allowlist: string[];
-  collaboration_scope: "team" | "owner_only";
+  collaboration_scope: "team" | "project" | "owner_only";
   no_reply_token?: string;
   default_model?: string;
   tool_allowlist: string[];

@@ -5,11 +5,11 @@ import {
   agentAvailable,
   canAccessSpace,
   canActorAccess,
+  canCollaborateWithAgent,
   canOwnerObservePersonalAgentDirect,
-  canTeamContactAgent,
   currentActorCanAccess,
 } from './identity.js';
-import { canAgentAccessConversation, groupHasPrivateAgent, isOwnerInternalConversation } from './collaboration.js';
+import { canAgentAccessConversation, groupHasPrivateAgent, groupHasProjectAgent } from './collaboration.js';
 
 /** Resolve account eligibility without treating personal access as company approval. */
 export function qualifiedUser(db: DatabaseSync, userId: string): Row | undefined {
@@ -38,7 +38,7 @@ function observerOwners(db: DatabaseSync, participants: Row[], space: string): s
     .map(p => p.pa_owner);
 }
 
-function directAgentOwners(db: DatabaseSync, conversation: Row): string[] {
+export function directAgentOwners(db: DatabaseSync, conversation: Row): string[] {
   if (conversation.type !== 'direct') return [];
   const participants = all(db, `${observerParticipants} WHERE p.conversation_id=?`, conversation.id);
   return observerOwners(db, participants, conversation.space_id);
@@ -57,7 +57,7 @@ export function readableConversationIds(db: DatabaseSync, user: Row): Set<string
   const agentProfile = agent ? one(db, 'SELECT * FROM agent_profiles WHERE agent_id=?', user.username.slice(6)) : undefined;
   if (agent) {
     if (!agentProfile || !agentAvailable(db, agentProfile)) return new Set();
-    if ((agentProfile.collaboration_scope ?? 'team') === 'owner_only') {
+    if (['owner_only', 'project'].includes(agentProfile.collaboration_scope ?? 'team')) {
       const joined = all(db, `SELECT c.* FROM conversations c
         JOIN conversation_participants p ON p.conversation_id=c.id
         WHERE p.user_id=?`, user.id)
@@ -134,9 +134,15 @@ export function conversationRowAccess(db: DatabaseSync, c: Row, userId: string):
       JOIN users u ON u.id=cp.user_id
       JOIN agent_profiles ap ON u.username='agent:'||ap.agent_id
       WHERE cp.conversation_id=? AND cp.user_id!=? LIMIT 1`, c.id, userId);
-    if (peer && peer.owner_id !== user.owner_id && (peer.collaboration_scope ?? 'team') === 'owner_only') {
-      canWrite = false;
-      writeBlockedReason = 'agent_private';
+    if (peer && peer.owner_id !== user.owner_id) {
+      const peerScope = peer.collaboration_scope ?? 'team';
+      if (peerScope === 'owner_only') {
+        canWrite = false;
+        writeBlockedReason = 'agent_private';
+      } else if (peerScope === 'project' && !canCollaborateWithAgent(db, user, peer)) {
+        canWrite = false;
+        writeBlockedReason = 'agent_project_restricted';
+      }
     }
   }
   return {
@@ -146,7 +152,7 @@ export function conversationRowAccess(db: DatabaseSync, c: Row, userId: string):
     can_write: canWrite,
     write_blocked_reason: writeBlockedReason,
     can_join: !member && c.type === 'group' && c.visibility === 'public' && !c.dissolved_at,
-    can_change_visibility: c.space_id === 'company:default' && member && !c.dissolved_at && c.type === 'group' && !!user.is_company_admin && !groupHasPrivateAgent(db, c.id),
+    can_change_visibility: c.space_id === 'company:default' && member && !c.dissolved_at && c.type === 'group' && !!user.is_company_admin && !groupHasPrivateAgent(db, c.id) && !groupHasProjectAgent(db, c.id),
   };
 }
 
@@ -175,10 +181,19 @@ export function conversationReaderIds(db: DatabaseSync, id: string, candidates?:
       readers.add(member.id);
     }
   }
-  for (const uid of directAgentOwners(db,c)) {
-    if (readers.has(uid) || (candidates && !candidates.has(uid))) continue;
-    const owner = one(db,'SELECT username,owner_id,membership_status,personal_space_enabled FROM users WHERE id=?',uid);
-    if (owner && !owner.username.startsWith('agent:') && canAccessSpace(owner,c.space_id)) readers.add(uid);
+  const missingOwners = directAgentOwners(db, c).filter(
+    uid => !readers.has(uid) && (!candidates || candidates.has(uid)),
+  );
+  if (missingOwners.length) {
+    for (const owner of all(
+      db,
+      'SELECT id,username,owner_id,membership_status,personal_space_enabled FROM users WHERE id IN (SELECT value FROM json_each(?))',
+      JSON.stringify(missingOwners),
+    )) {
+      if (!owner.username.startsWith('agent:') && canAccessSpace(owner, c.space_id)) {
+        readers.add(String(owner.id));
+      }
+    }
   }
   return [...readers];
 }

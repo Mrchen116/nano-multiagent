@@ -181,6 +181,7 @@ export interface CreateConversationRequest {
   type: "direct" | "group";
   participants: Actor[];
   visibility?: "public" | "private";
+  confirm_project_context_share?: boolean;
 }
 
 export async function createConversation(req: CreateConversationRequest): Promise<Conversation> {
@@ -191,7 +192,16 @@ export async function createConversation(req: CreateConversationRequest): Promis
   ];
   return authFetchJson<Conversation>(
     "/im/v1/conversations",
-    { method: "POST", body: JSON.stringify({ title: req.title, type: req.type, participants, ...(req.type === "group" ? { visibility: req.visibility ?? "public" } : {}) }) },
+    {
+      method: "POST",
+      body: JSON.stringify({
+        title: req.title,
+        type: req.type,
+        participants,
+        ...(req.type === "group" ? { visibility: req.visibility ?? "public" } : {}),
+        ...(req.confirm_project_context_share ? { confirm_project_context_share: true } : {}),
+      }),
+    },
     "createConversation"
   );
 }
@@ -261,11 +271,18 @@ export async function updateConversation(
 /** Add agent participants to an existing group; returns the refreshed snapshot. */
 export async function addParticipants(
   conversationId: string,
-  participants: Actor[]
+  participants: Actor[],
+  options?: { confirmProjectContextShare?: boolean }
 ): Promise<Conversation> {
   return authFetchJson<Conversation>(
     `/im/v1/conversations/${encodeURIComponent(conversationId)}/participants`,
-    { method: "POST", body: JSON.stringify({ participants }) },
+    {
+      method: "POST",
+      body: JSON.stringify({
+        participants,
+        ...(options?.confirmProjectContextShare ? { confirm_project_context_share: true } : {}),
+      }),
+    },
     "addParticipants"
   );
 }

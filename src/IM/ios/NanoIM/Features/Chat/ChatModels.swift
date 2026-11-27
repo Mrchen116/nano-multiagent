@@ -65,6 +65,17 @@ struct Conversation: Codable, Identifiable, Sendable, Hashable {
     }
     var peerAgent: ActorRef? { type == "direct" ? participants.first { $0.type == "agent" } : nil }
 
+    func rowUnreadBadge(localUnseen: Bool = false) -> Int {
+        let base = max(0, unread_count)
+        return localUnseen ? max(1, base) : base
+    }
+
+    static func totalUnreadBadge(_ conversations: [Conversation], localUnseenIDs: Set<String> = []) -> Int {
+        conversations.reduce(0) { sum, item in
+            guard !item.is_muted else { return sum }
+            return sum + item.rowUnreadBadge(localUnseen: localUnseenIDs.contains(item.id))
+        }
+    }
 }
 struct ChatAttachment: Codable, Sendable, Hashable, Identifiable {
     var url: String
