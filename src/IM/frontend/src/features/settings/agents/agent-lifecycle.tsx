@@ -15,7 +15,13 @@ export function useAgentLifecycle(agentId: string) {
   const self = useAuthStore(s => s.user?.id);
   const client = useQueryClient();
   const key = ['agent-lifecycle', self, agentId];
-  const query = useQuery({ queryKey: key, queryFn: ({signal}) => read(agentId, signal), enabled: !!agentId, retry: false, refetchInterval: 3000 });
+  const query = useQuery({
+    queryKey: key,
+    queryFn: ({signal}) => read(agentId, signal),
+    enabled: !!agentId,
+    retry: false,
+    refetchInterval: query => (query.state.error as {status?: number} | null)?.status === 404 ? false : 3000,
+  });
   useEffect(() => subscribeUserStream({
     onEvent: event => {
       if (event.eventType === 'agent.lifecycle.changed' && event.payload.agent_id === agentId) void client.invalidateQueries({queryKey: ['agent-lifecycle', self, agentId]});

@@ -62,6 +62,7 @@ export class SingleThread {
   private readonly unsubscribe: () => void;
   private readonly streams = new Map<string, BufferedStream>();
   private readonly scopeChanges = new Map<string, number>();
+  private readonly conversationRevocations = new Map<string, number>();
   private readonly chatTails = new Map<string, Promise<void>>();
   private readonly timers = new Map<string, {agentId:string; dueAt:number; timer:ReturnType<typeof setTimeout>}>();
   private readonly seenThreads = new Map<string, Set<string>>();
@@ -116,10 +117,10 @@ export class SingleThread {
   revokeConversations(agentId: string, conversationIds: readonly string[]) {
     if (!conversationIds.length) return [];
     const revokedSet = new Set(conversationIds.flatMap(cid => [cid, this.options.store.canonicalConversation(agentId, cid)]));
-    this.scopeChanges.set(agentId, (this.scopeChanges.get(agentId) ?? 0) + 1);
     const config = this.options.agents.find(agent => agent.agentId === agentId);
     for (const cid of revokedSet) {
       const key = JSON.stringify([agentId, cid]);
+      this.conversationRevocations.set(key, (this.conversationRevocations.get(key) ?? 0) + 1);
       clearTimeout(this.timers.get(key)?.timer);
       this.timers.delete(key);
     }
@@ -204,12 +205,14 @@ export class SingleThread {
     input=this.options.store.admitInput(input);
     const arrival = Date.now();
     const scopeGeneration = this.scopeChanges.get(input.agent_id) ?? 0;
+    const revokeKey = JSON.stringify([input.agent_id, this.options.store.canonicalConversation(input.agent_id, input.conversation_id)]);
+    const revokeGeneration = this.conversationRevocations.get(revokeKey) ?? 0;
     const config = this.options.agents.find(agent=>agent.agentId===input.agent_id);
-    if (config?.collaborationScope === 'owner_only' && chatDelivery(input,config,this.options.ownerId) === 'skip') this.options.store.skipChat(input);
+    if ((config?.collaborationScope === 'owner_only' || config?.collaborationScope === 'project') && chatDelivery(input,config,this.options.ownerId) === 'skip') this.options.store.skipChat(input);
     return this.serializeChat(input.agent_id,input.conversation_id,() =>
-      this.options.store.lifecycle.run(input.agent_id,input.lifecycle_revision,()=>this.receiveAdmitted(input,scopeGeneration,arrival)));
+      this.options.store.lifecycle.run(input.agent_id,input.lifecycle_revision,()=>this.receiveAdmitted(input,scopeGeneration,revokeGeneration,arrival)));
   }
-  private async receiveAdmitted(input: RelayInput, scopeGeneration:number, arrival:number): Promise<void> {
+  private async receiveAdmitted(input: RelayInput, scopeGeneration:number, revokeGeneration:number, arrival:number): Promise<void> {
     const { store, runtime, agents } = this.options;
     const config = agents.find(agent => agent.agentId === input.agent_id);
     if (!config || config.mode !== 'single_thread') throw new Error('Input has no single-thread Agent on this node');
@@ -220,8 +223,10 @@ export class SingleThread {
       return;
     }
     const crossedRestriction = scopeGeneration !== (this.scopeChanges.get(input.agent_id) ?? 0);
+    const revokeKey = JSON.stringify([input.agent_id, store.canonicalConversation(input.agent_id, input.conversation_id)]);
+    const crossedConversationRevoke = revokeGeneration !== (this.conversationRevocations.get(revokeKey) ?? 0);
     const scope = crossedRestriction ? {...config,collaborationScope:'owner_only' as const} : config;
-    const priority = chatDelivery(input,scope,this.options.ownerId);
+    const priority = crossedConversationRevoke ? 'skip' : chatDelivery(input,scope,this.options.ownerId);
     const control = sessionControl(input, config);
     const command = controlText(input);
     const unaddressedControl = /^\/(compact|effort|workflows|config)(?:\s|$)/.test(command) && !control ||
@@ -706,7 +711,7 @@ export class SingleThread {
         }
       } catch (error) {
         if (error instanceof RelayDeliveryError && error.delivery === 'rejected'
-          && /collaboration_scope_restricted|agent_private|conversation_id not found/.test(`${error.code ?? ''} ${error.message}`)) {
+          && /collaboration_scope_restricted|agent_private|agent_project_restricted|conversation_id not found/.test(`${error.code ?? ''} ${error.message}`)) {
           store.updateDelivery(delivery.operationId, 'failed', null, '');
           await this.receipt(input.input, 'failed');
           continue;
@@ -769,7 +774,7 @@ export class SingleThread {
         resolved_model: modelAt(events, end.seq),
       }); } catch (error) {
         if (error instanceof RelayDeliveryError && error.delivery === 'rejected'
-          && /collaboration_scope_restricted|agent_private|conversation_id not found/.test(`${error.code ?? ''} ${error.message}`)) {
+          && /collaboration_scope_restricted|agent_private|agent_project_restricted|conversation_id not found/.test(`${error.code ?? ''} ${error.message}`)) {
           store.updateDelivery(delivery.operationId, 'failed', delivery.messageId ?? null, '');
           await this.receipt(input.input, 'failed');
           continue;

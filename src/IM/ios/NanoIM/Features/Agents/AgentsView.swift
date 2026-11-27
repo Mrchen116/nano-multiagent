@@ -345,11 +345,14 @@ struct AgentCreateView: View {
                     }
                     Picker(L("协作范围", "Collaboration scope"), selection: $draft.collaboration_scope) {
                         Text(L("团队公开", "Team public")).tag("team")
+                        Text(L("项目级（共处私密群成员）", "Project (shared private group members)")).tag("project")
                         Text(L("私有（仅自己与名下助手）", "Private (you & your assistants)")).tag("owner_only")
                     }
                     Text(draft.collaboration_scope == "owner_only"
                          ? L("对团队同事隐藏，仅可与你及你名下的其他助手通信或组建内部私密群。", "Hidden from teammates; collaborates only with you and your own assistants.")
-                         : L("团队同事可发现并私聊该助手，也可拉入协作群。", "Teammates can find and message this assistant or add it to groups."))
+                         : draft.collaboration_scope == "project"
+                           ? L("仅面向与该助手共处同一私密群的项目同事开放发现、私聊与全局工作记录。", "Visible and open for direct chat and Global Work only to teammates sharing an active private group with this assistant.")
+                           : L("团队同事可发现并私聊该助手，也可拉入协作群。", "Teammates can find and message this assistant or add it to groups."))
                         .font(.caption).foregroundStyle(NanoTheme.muted)
                 } header: { Text(L("让它帮你做什么？", "What should it help with?")) }
                 Section(L("运行位置", "Run on")) {

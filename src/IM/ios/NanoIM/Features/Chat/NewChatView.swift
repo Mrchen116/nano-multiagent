@@ -14,12 +14,15 @@ struct NewChatView: View {
     @State private var error: String?
     @State private var busy = false
     @State private var loaded = false
+    @State private var confirmCrossGroupShare = false
     private var filtered: [Contact] {
         contacts.filter { $0.user_id != userID && $0.matchesConversationSearch(search) }
             .sorted { $0.display_name.localizedStandardCompare($1.display_name) == .orderedAscending }
     }
     private var selectedContacts: [Contact] { contacts.filter { selection.contains($0.id) } }
     private var hasPrivateAgentSelected: Bool { selectedContacts.contains { $0.kind == "agent" && $0.collaboration_scope == "owner_only" } }
+    private var hasProjectAgentSelected: Bool { selectedContacts.contains { $0.kind == "agent" && $0.collaboration_scope == "project" } }
+    private var lockPrivate: Bool { hasPrivateAgentSelected || hasProjectAgentSelected }
     private var hasHumanSelected: Bool { selectedContacts.contains { $0.kind != "agent" } }
 
     var body: some View {
@@ -37,13 +40,16 @@ struct NewChatView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "person.2.fill").foregroundStyle(Color("GroupAvatarInk"))
                             TextField(L("群名称（可选）", "Group name (optional)"), text: $title).font(.headline)
-                            Picker(L("可见范围", "Visibility"), selection: Binding(get: { hasPrivateAgentSelected ? "private" : visibility }, set: { visibility = $0 })) {
+                            Picker(L("可见范围", "Visibility"), selection: Binding(get: { lockPrivate ? "private" : visibility }, set: { visibility = $0 })) {
                                 Text(L("公开", "Public")).tag("public")
                                 Text(L("私密", "Private")).tag("private")
-                            }.pickerStyle(.menu).tint(NanoTheme.ink).font(.footnote).disabled(hasPrivateAgentSelected)
+                            }.pickerStyle(.menu).tint(NanoTheme.ink).font(.footnote).disabled(lockPrivate)
                         }
                         if hasPrivateAgentSelected {
                             Text(L("已选私有助手，群聊仅你与名下助手可参与，固定为私密群。", "Groups with a private assistant stay private for you and your own assistants only."))
+                                .font(.caption2).foregroundStyle(NanoTheme.muted)
+                        } else if hasProjectAgentSelected {
+                            Text(L("已选项目级助手，群聊固定为私密群；同群同事可与该助手私聊并查看其工作记录。", "Groups with a project assistant stay private; group members can message the assistant directly and view its Work."))
                                 .font(.caption2).foregroundStyle(NanoTheme.muted)
                         }
                         if !selectedContacts.isEmpty {
@@ -88,6 +94,11 @@ struct NewChatView: View {
                     }
                 }
             }.task { await loadContacts() }.interactiveDismissDisabled(busy)
+            .confirmationDialog(L("跨私密群共享项目上下文确认", "Confirm sharing project context across private groups?"), isPresented: $confirmCrossGroupShare, titleVisibility: .visible) {
+                Button(L("继续创建", "Continue")) { Task { await create(with: selectedContacts, confirmProjectContextShare: true) } }
+            } message: {
+                Text(L("全局项目级助手跨会话共享记忆与工作区，加入成员不完全一致的多个私密群可能使不同群的项目背景互通，是否继续？", "Global project assistants share memory and workspace across sessions. Adding one to private groups with different member sets may share project context across groups. Continue?"))
+            }
         }
     }
 
@@ -114,13 +125,19 @@ struct NewChatView: View {
         do { contacts = try await client.contacts(); loaded = true }
         catch { if !Task.isCancelled { self.error = error.localizedDescription } }
     }
-    private func create(with selected: [Contact]) async {
+    private func create(with selected: [Contact], confirmProjectContextShare: Bool = false) async {
         guard !busy, !selected.isEmpty else { return }
         busy = true; error = nil; defer { busy = false }
         let groupTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? selected.map(\.display_name).joined(separator: "、") : title
-        let effectiveVisibility = hasPrivateAgentSelected ? "private" : visibility
-        do { let chat = try await client.createConversation(title: group ? groupTitle : selected.first?.display_name ?? "", type: group ? "group" : "direct", participants: selected.map(\.actor), userID: userID, visibility: effectiveVisibility); completed(chat) }
-        catch { self.error = error.localizedDescription }
+        let effectiveVisibility = lockPrivate ? "private" : visibility
+        do { let chat = try await client.createConversation(title: group ? groupTitle : selected.first?.display_name ?? "", type: group ? "group" : "direct", participants: selected.map(\.actor), userID: userID, visibility: effectiveVisibility, confirmProjectContextShare: confirmProjectContextShare); completed(chat) }
+        catch {
+            if (error as? APIError)?.code == "project_agent_cross_group_confirmation_required" {
+                confirmCrossGroupShare = true
+            } else {
+                self.error = error.localizedDescription
+            }
+        }
     }
 }
 
@@ -144,7 +161,9 @@ struct ChatContactRow: View {
         } else {
             base = role
         }
-        return contact.collaboration_scope == "owner_only" ? base + " · " + L("私有", "Private") : base
+        if contact.collaboration_scope == "owner_only" { return base + " · " + L("私有", "Private") }
+        if contact.collaboration_scope == "project" { return base + " · " + L("项目级", "Project") }
+        return base
     }
     var body: some View {
         Button(action: choose) {

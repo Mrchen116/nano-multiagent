@@ -1,7 +1,7 @@
 import { externalAvatarId } from "./identity.js";
-import { isCollaborationScope } from '@nano/product-contracts';
+import { isPersonalCollaborationScope } from '@nano/product-contracts';
 import { externalChannelOwnerId, matchesExternalChannel } from './channels.js';
-import { chatAllowed, isOwnerInternalConversation, ownerDirect, storedProviderFacts } from './collaboration.js';
+import { chatAllowed, isOwnerInternalConversation, isPureOwnerPrivateConversation, ownerDirect, storedProviderFacts } from './collaboration.js';
 import { conversationName } from './conversation-name.js';
 import {parseAvatarVariant} from './configuration-input.js';
 import {configurationOperations} from './configuration-assembly.js';
@@ -140,6 +140,10 @@ export class PersonalAgents {
   /** Check whether a destination belongs to the owner's private chat or an owner-internal conversation. */
   ownerOrInternalDestination(b: Row, conversationId: string): boolean {
     return this.ownerConversation(b, conversationId) || isOwnerInternalConversation(this.db, conversationId, b.owner_id);
+  }
+  /** Check whether a destination is strictly pure-owner-private (owner DM or exclusively owner + same-owner `owner_only` Agents). */
+  pureOwnerPrivateDestination(b: Row, conversationId: string): boolean {
+    return this.ownerConversation(b, conversationId) || isPureOwnerPrivateConversation(this.db, conversationId, b.owner_id, b.agent_id);
   }
   /** Resolve identity and participation from persisted origin facts.
    *
@@ -531,7 +535,7 @@ export function registerPersonalAgentRoutes(app:FastifyInstance,ctx:ImContext) {
   app.post('/im/v1/personal-agent',async(req,reply)=>{
     const u=user(req),input=body(req);
     const avatar=parseAvatarVariant(input.avatar_variant);
-    if(input.collaboration_scope!==undefined && !isCollaborationScope(input.collaboration_scope)) fail(422,'invalid_collaboration_scope');
+    if(input.collaboration_scope!==undefined && !isPersonalCollaborationScope(input.collaboration_scope)) fail(422,'invalid_collaboration_scope');
     if(typeof input.request_key!=='string'||!input.request_key||typeof input.display_name!=='string'||!input.display_name.trim()) fail(422,'name_and_request_key_required');
     const node=one(ctx.db,'SELECT n.*,b.node_epoch FROM nodes n JOIN node_binding_state b ON b.node_id=n.node_id WHERE n.node_id=? AND n.owner_id=?',input.node_id,u.owner_id);
     if(!node) fail(404,'node_not_found');

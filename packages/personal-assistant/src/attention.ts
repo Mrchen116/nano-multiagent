@@ -30,6 +30,7 @@ export function chatDelivery(input: RelayInput, config: AgentConfiguration, owne
   return classifyChatDelivery(config.collaborationScope, {
     ownerDirect,
     ownerInternal,
+    projectAllowed: meta.project_allowed === true,
     ownerObserved,
     directToAgent: direct,
     addressedToAgent: addressedTopic || needsAttention(input, config),

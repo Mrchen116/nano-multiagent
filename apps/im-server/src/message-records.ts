@@ -430,6 +430,7 @@ export class MessageRecords {
             coalesce(json_extract(f.facts_json,'$.scope_skipped'),0)=1 OR
             coalesce(json_extract(f.facts_json,'$.context_only'),0)=1))))
         AND (a.agent_id IS NULL OR a.collaboration_scope='team'
+          OR (a.collaboration_scope='project' AND c.external_source IS NULL AND c.visibility!='public')
           OR EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.message_id=? AND d.agent_id=a.agent_id)
           OR (c.external_source IS NULL AND c.visibility!='public' AND NOT EXISTS (
             SELECT 1 FROM conversation_participants cp2 JOIN users u2 ON u2.id=cp2.user_id

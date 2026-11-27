@@ -24,6 +24,7 @@ export type AgentConfigurationFields = {
   personal_agent?: PersonalAgentIdentity;
   workspace_is_default?: boolean | null;
   confirm_existing_workspace?: boolean;
+  confirm_scope_widen?: boolean;
   create_operation_id?: string;
 };
 
@@ -73,6 +74,7 @@ export function parseAgentConfigurationFields(value: unknown): AgentConfiguratio
   field(p, 'features', value => isRecord(value) && Object.values(value).every(boolean));
   field(p, 'workspace_is_default', value => value === null || boolean(value));
   field(p, 'confirm_existing_workspace', boolean);
+  field(p, 'confirm_scope_widen', boolean);
   field(p, 'personal_agent', value => isRecord(value) && text(value.bindingId) && text(value.ownerId)
     && text(value.conversationId) && Number.isSafeInteger(value.epoch) && Number(value.epoch) > 0);
   // The assertion follows checks for every field in the public projection. Extra

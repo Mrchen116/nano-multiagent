@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {createServer} from 'node:http';
 import { expect, it } from 'vitest';
 import { reviewPersonal } from '../lib/personal-security.js';
-import { parsePersonalBatchDecisions, parsePersonalDecision, personalReviewAction, personalReviewPolicy } from '../src/personal-security.js';
+import { parsePersonalBatchDecisions, parsePersonalDecision, personalReviewAction, personalReviewImages, personalReviewPolicy } from '../src/personal-security.js';
 import { prepareProfile, RuntimeClient } from '../lib/client.js';
 import { approvalDefaults } from '../../product-contracts/src/approval.js';
 import { registerNoopTaskHosts } from './helpers/noop-task-hosts.js';
@@ -397,4 +397,92 @@ it('evaluates batch input timelines with dedicated allow|deny policy, 1..k short
   expect(malformedRes).toMatchObject({ decision: 'unavailable' });
   expect(malformedRes.error_code).toBeUndefined();
   expect(requests.length - beforeRetry).toBe(1);
+});
+
+it('projects recipient Agent downstream_exposure and unreadable attachment provenance while skipping non-raster files in personalReviewImages', async () => {
+  const actionPolicy = personalReviewPolicy('action');
+  expect(actionPolicy).toContain('content_review="unreadable"');
+  expect(actionPolicy).toContain('downstream_exposure');
+
+  const pngBytes = Buffer.from([137, 80, 78, 71]);
+  const pngSha = (await import('node:crypto')).createHash('sha256').update(pngBytes).digest('hex');
+  const frozen: any = {
+    owner_user_id: 'u-owner',
+    recipient: {
+      conversation_id: 'c_internal',
+      name: 'Project Sync',
+      conversation_type: 'direct',
+      channel: 'web',
+      members: [
+        { id: 'u-owner', user_id: 'u-owner', display_name: 'Owner', type: 'user' },
+        {
+          id: 'proj-bot',
+          user_id: 'u-proj-bot',
+          display_name: 'Proj Bot',
+          type: 'agent',
+          collaboration_scope: 'project',
+          downstream_exposure: {
+            scope: 'shared_private_group_members_via_project_agent',
+            shared_private_group_members: [{ id: 'u-bob', name: 'Bob' }],
+          },
+        },
+      ],
+    },
+    policy: { revision: 1, excluded_conversation_ids: [] },
+    sources: [],
+    recipient_risks: [],
+    payload: {
+      content: 'Forwarding approved spec PDF and chart',
+      attachments: [{ url: '/im/v1/conversations/dm/attachments/pdf1' }, { url: '/im/v1/conversations/dm/images/png1' }],
+      attachment_snapshots: [
+        {
+          url: '/im/v1/conversations/dm/attachments/pdf1',
+          sha256: 'pdf-sha',
+          content_type: 'application/pdf',
+          file_name: 'Spec.pdf',
+          byte_size: 1024,
+          file: true,
+          content_review: 'unreadable',
+          local_path: '/Users/owner/.nano-downloads/a_123-Spec.pdf',
+          matched_sources: [{ message_id: 'm1', conversation_id: 'c_wx', sender_user_id: 'u-owner', sender_type: 'user', is_owner: true, file_name: 'Spec.pdf', created_at: '2026-11-27T00:00:00Z' }],
+        },
+        {
+          url: '/im/v1/conversations/dm/images/png1',
+          sha256: pngSha,
+          content_type: 'image/png',
+          file_name: 'chart.png',
+          byte_size: pngBytes.length,
+          image: true,
+          width: 100,
+          height: 80,
+          base64: pngBytes.toString('base64'),
+        },
+      ],
+    },
+  };
+
+  const projected = personalReviewAction(frozen) as any;
+  expect(projected.audience.members[1]).toEqual({
+    id: 'u-proj-bot',
+    name: 'Proj Bot',
+    type: 'agent',
+    collaboration_scope: 'project',
+    downstream_exposure: {
+      scope: 'shared_private_group_members_via_project_agent',
+      shared_private_group_members: [{ id: 'u-bob', name: 'Bob' }],
+    },
+  });
+  expect(projected.arguments.attachments[0]).toMatchObject({
+    file: true,
+    content_review: 'unreadable',
+    local_path: '/Users/owner/.nano-downloads/a_123-Spec.pdf',
+    matched_sources: [expect.objectContaining({ message_id: 'm1', is_owner: true })],
+  });
+  expect(projected.arguments.attachments[1]).not.toHaveProperty('base64');
+
+  const admittedImages = await personalReviewImages(
+    { attachments: { admitPromptContent: async (parts: any[]) => parts } } as any,
+    frozen,
+  );
+  expect(admittedImages).toEqual([{ type: 'image', mediaType: 'image/png', data: pngBytes.toString('base64') }]);
 });

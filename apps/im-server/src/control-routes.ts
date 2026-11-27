@@ -1,7 +1,7 @@
 import {allowlistOptions, modelOptions, featureOptions, readNodeCreationCapabilities, createAgent} from './agent-creation.js';
 import type {FastifyInstance, FastifyRequest} from 'fastify';
 import {all, one, fail, body, query, now, type ImContext, type Row} from './context.js';
-import {bearer, canAccessSpace, ownerAccount, requireCompanyAdmin} from './identity.js';
+import {bearer, canAccessSpace, isPersonalAgent, ownerAccount, requireCompanyAdmin} from './identity.js';
 import {registerAgentDeletionRoutes} from './agent-deletion.js';
 import {registerAgentLifecycleRoutes} from './agent-lifecycle.js';
 import {activeTaskCount, registerTaskGraphRoutes} from './task-graphs.js';
@@ -356,7 +356,21 @@ export function registerControlRoutes(app: FastifyInstance, ctx: ImContext) {
           message: "The Agent is not bound to a Gateway node.",
         });
       if (b.work_mode != null && b.work_mode !== p.work_mode) fail(409, "work_mode is immutable");
+      if (isPersonalAgent(ctx.db, id) && b.collaboration_scope === "project") {
+        fail(422, {
+          code: "invalid_collaboration_scope",
+          message: "Personal Assistant supports only team or owner_only collaboration scopes.",
+        });
+      }
       if (b.profile_version !== p.profile_version) fail(409, "profile_version conflict");
+      const currentScope = p.collaboration_scope ?? "team";
+      const targetScope = b.collaboration_scope ?? currentScope;
+      if (currentScope === "owner_only" && targetScope !== "owner_only" && b.confirm_scope_widen !== true) {
+        fail(409, {
+          code: "scope_widen_confirmation_required",
+          message: "Confirm widening collaboration scope from Private before saving.",
+        });
+      }
       requireSettingsNodeOnline(ctx, p);
       return ops.update(p, candidateFor(p), u.owner_id);
     });

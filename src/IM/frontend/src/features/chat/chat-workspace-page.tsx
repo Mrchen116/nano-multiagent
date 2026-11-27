@@ -608,6 +608,22 @@ export function ChatWorkspacePage() {
     );
   }, [activeConversation, contactsQuery.data]);
 
+  const groupHasProjectAgent = useMemo(() => {
+    if (!activeConversation || activeConversation.type !== "group") return false;
+    return activeConversation.participants.some(p =>
+      p.type === "agent" && (contactsQuery.data ?? []).some(c => c.agent_id === p.id && c.collaboration_scope === "project")
+    );
+  }, [activeConversation, contactsQuery.data]);
+
+  const groupHasForeignProjectAgent = useMemo(() => {
+    if (!activeConversation || activeConversation.type !== "group") return false;
+    return activeConversation.participants.some(p =>
+      p.type === "agent" && (contactsQuery.data ?? []).some(
+        c => c.agent_id === p.id && c.collaboration_scope === "project" && (c.owner_user_id ?? c.owner_id) !== selfUserId
+      )
+    );
+  }, [activeConversation, contactsQuery.data, selfUserId]);
+
   const addableAgents = useMemo<GroupSettingsAgentOption[]>(() => {
     if (!activeConversation) return [];
     const members = new Set(activeConversation.participants.map(p => p.user_id ?? p.id));
@@ -618,14 +634,15 @@ export function ChatWorkspacePage() {
     });
     return (contactsQuery.data ?? []).filter(c => {
       if (members.has(c.user_id)) return false;
-      if (c.kind === "human") return !groupHasOwnedPrivateAgent;
+      if (c.kind === "human") return !groupHasOwnedPrivateAgent && !groupHasForeignProjectAgent;
       if ((c.owner_user_id ?? c.owner_id) !== selfUserId) return false;
       if (c.collaboration_scope === "owner_only" && groupHasExternalOrPublic) return false;
+      if (c.collaboration_scope === "project" && activeConversation.visibility === "public") return false;
       return true;
     }).map(c => ({
       agentId: c.agent_id ?? c.user_id, type: c.kind === "human" ? "user" : "agent", displayName: c.display_name, username: c.username ?? null, status: c.status
     }));
-  }, [activeConversation, contactsQuery.data, selfUserId, groupHasOwnedPrivateAgent]);
+  }, [activeConversation, contactsQuery.data, selfUserId, groupHasOwnedPrivateAgent, groupHasForeignProjectAgent]);
 
   // Switching conversations closes any open settings surface.
   useEffect(() => {
@@ -1145,13 +1162,35 @@ export function ChatWorkspacePage() {
 
   // Auto-scroll is handled inside MessagePane via a ref on the messages container.
 
+  const [pendingProjectContextShare, setPendingProjectContextShare] = useState<
+    | { kind: "create"; payload: { agentIds: string[]; userIds: string[]; name: string; visibility: "public" | "private" } }
+    | { kind: "add"; conversationId: string; actors: Actor[] }
+    | null
+  >(null);
+
   const createGroupMutation = useMutation({
-    mutationFn: (payload: { agentIds: string[]; userIds: string[]; name: string; visibility: "public" | "private" }) =>
-      createConversation({ title: payload.name, type: "group", visibility: payload.visibility, participants: [...payload.agentIds.map(id => ({ type: "agent" as const, id })), ...payload.userIds.map(id => ({ type: "user" as const, id }))] }),
+    mutationFn: (payload: { agentIds: string[]; userIds: string[]; name: string; visibility: "public" | "private"; confirmProjectContextShare?: boolean }) =>
+      createConversation({
+        title: payload.name,
+        type: "group",
+        visibility: payload.visibility,
+        confirm_project_context_share: payload.confirmProjectContextShare,
+        participants: [
+          ...payload.agentIds.map(id => ({ type: "agent" as const, id })),
+          ...payload.userIds.map(id => ({ type: "user" as const, id })),
+        ],
+      }),
     onSuccess: (conv) => {
+      setPendingProjectContextShare(null);
       setShowNewGroup(false);
       void queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] });
       navigate(`/chat/${conv.id}`);
+    },
+    onError: (err, payload) => {
+      if ((err as { code?: string })?.code === "project_agent_cross_group_confirmation_required") {
+        const { confirmProjectContextShare: _, ...basePayload } = payload;
+        setPendingProjectContextShare({ kind: "create", payload: basePayload });
+      }
     }
   });
 
@@ -1202,8 +1241,12 @@ export function ChatWorkspacePage() {
   });
 
   const addParticipantsMutation = useMutation({
-    mutationFn: (agentIds: string[]) => addParticipants(conversationId!, agentIds.map(id => ({ type: addableAgents.find(a => a.agentId === id)?.type ?? "agent", id } as Actor))),
-    onSuccess: invalidateConversations
+    mutationFn: ({ actors, confirmProjectContextShare }: { actors: Actor[]; confirmProjectContextShare?: boolean }) =>
+      addParticipants(conversationId!, actors, { confirmProjectContextShare }),
+    onSuccess: () => {
+      setPendingProjectContextShare(null);
+      invalidateConversations();
+    }
   });
 
   const removeParticipantMutation = useMutation({
@@ -1502,7 +1545,9 @@ export function ChatWorkspacePage() {
             key={`messages:${activeConversation.id}`}
             readingPositions={readingPositions}
             initialHistoryStatus={!historyReady || historyError ? <>{historyStatus}</> : undefined}
-            lifecycleNotice={activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} deleted={actor.is_deleted} />)}
+            lifecycleNotice={activeConversation.write_blocked_reason === 'agent_private' || activeConversation.write_blocked_reason === 'agent_project_restricted'
+              ? undefined
+              : activeConversation.participants.filter(actor => actor.type === 'agent').map(actor => <AgentLifecycleChatNotice key={actor.id} agentId={actor.id} name={actor.display_name || actor.id} deleted={actor.is_deleted} />)}
             onJoin={async () => { await joinConversation(activeConversation.id); await queryClient.invalidateQueries({ queryKey: ["chat"] }); }}
             onOpenTasks={isGroupKind ? () => setShowTasks(true) : undefined}
             conversation={activeConversation}
@@ -1634,11 +1679,11 @@ export function ChatWorkspacePage() {
       {showNewGroup && (
         <NewGroupModal
           isBusy={createGroupMutation.isPending}
-          error={createGroupMutation.isError}
+          error={createGroupMutation.isError && !pendingProjectContextShare}
           agents={(contactsQuery.data ?? []).filter(c => c.user_id !== selfUserId && (c.kind === "human" || (c.owner_user_id ?? c.owner_id) === selfUserId)).map(c => ({
             agent_id: c.agent_id ?? c.user_id, display_name: c.display_name, username: c.username, kind: c.kind, node_name: c.node_name, status: c.status, space_id: c.space_id, collaboration_scope: c.collaboration_scope
           }))}
-          onClose={() => setShowNewGroup(false)}
+          onClose={() => { setPendingProjectContextShare(null); setShowNewGroup(false); }}
           onCreate={(payload) => createGroupMutation.mutate(payload)}
         />
       )}
@@ -1729,6 +1774,8 @@ export function ChatWorkspacePage() {
           title={activeConversation.title}
           readOnly={activeConversation.can_write === false || Boolean(activeConversation.dissolved_at)}
           privateAgentLocked={groupHasOwnedPrivateAgent}
+          projectAgentLocked={groupHasProjectAgent && !groupHasOwnedPrivateAgent}
+          foreignProjectAgentMemberLocked={groupHasForeignProjectAgent}
           visibility={activeConversation.visibility}
           canChangeVisibility={activeConversation.can_change_visibility}
           onVisibilityChange={visibility => updateConversation(activeConversation.id, { visibility }).then(() => queryClient.invalidateQueries({ queryKey: ["chat"] }))}
@@ -1741,7 +1788,18 @@ export function ChatWorkspacePage() {
           isBusy={groupSettingsBusy}
           onClose={() => { setGroupPersonAnchor(null); setShowGroupSettings(false); }}
           onRename={isPersonalConversation ? async title=>{await renamePersonalAgent(title);await Promise.all([queryClient.invalidateQueries({queryKey:['personal-agent']}),queryClient.invalidateQueries({queryKey:['chat']})]);} : title=>renameMutation.mutateAsync(title)}
-          onAddParticipants={(agentIds) => addParticipantsMutation.mutateAsync(agentIds)}
+          onAddParticipants={async (agentIds) => {
+            const actors = agentIds.map(id => ({ type: addableAgents.find(a => a.agentId === id)?.type ?? "agent", id } as Actor));
+            try {
+              await addParticipantsMutation.mutateAsync({ actors });
+            } catch (err) {
+              if ((err as { code?: string })?.code === "project_agent_cross_group_confirmation_required") {
+                setPendingProjectContextShare({ kind: "add", conversationId: activeConversation.id, actors });
+                return;
+              }
+              throw err;
+            }
+          }}
           onRemoveParticipant={(userId) => removeParticipantMutation.mutateAsync(userId)}
           onLeave={async () => { await removeParticipant(activeConversation.id, selfUserId!); await queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }); navigate("/chat"); }}
           onDissolve={() => dissolveMutation.mutateAsync()}
@@ -1752,6 +1810,46 @@ export function ChatWorkspacePage() {
             }
           }}
         />
+      )}
+      {pendingProjectContextShare && (
+        <div className="chat-modal-backdrop" style={{ zIndex: 1200 }} role="dialog" aria-modal="true" aria-labelledby="project-context-share-title">
+          <div className="chat-modal">
+            <header className="chat-modal-header">
+              <h2 id="project-context-share-title">{t("chat.newGroup.crossGroupShareTitle")}</h2>
+            </header>
+            <div className="chat-modal-body">
+              <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: "var(--im-text)" }}>
+                {t("chat.newGroup.crossGroupShareBody")}
+              </p>
+            </div>
+            <footer className="chat-modal-footer">
+              <button
+                type="button"
+                className="chat-modal-btn-ghost"
+                disabled={createGroupMutation.isPending || addParticipantsMutation.isPending}
+                onClick={() => setPendingProjectContextShare(null)}
+              >
+                {t("chat.newGroup.cancel")}
+              </button>
+              <button
+                type="button"
+                className="chat-modal-btn-primary"
+                disabled={createGroupMutation.isPending || addParticipantsMutation.isPending}
+                onClick={() => {
+                  if (pendingProjectContextShare.kind === "create") {
+                    createGroupMutation.mutate({ ...pendingProjectContextShare.payload, confirmProjectContextShare: true });
+                  } else {
+                    void addParticipantsMutation.mutateAsync({ actors: pendingProjectContextShare.actors, confirmProjectContextShare: true }).then(() => {
+                      void queryClient.invalidateQueries({ queryKey: ["chat", "conversation-detail", pendingProjectContextShare.conversationId] });
+                    });
+                  }
+                }}
+              >
+                {t("chat.newGroup.crossGroupShareConfirm")}
+              </button>
+            </footer>
+          </div>
+        </div>
       )}
       {showGroupSettings && activeConversation && groupPersonAnchor && visibleHumansById.get(groupPersonAnchor.userId) && (
         <PersonPopover

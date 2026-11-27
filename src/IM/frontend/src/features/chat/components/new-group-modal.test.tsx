@@ -142,4 +142,34 @@ describe("NewGroupModal", () => {
       name: "Lin Xia, Public Planner"
     });
   });
+
+  it("locks visibility to private when a project agent is selected while keeping human teammates selectable", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn();
+    render(
+      <NewGroupModal
+        agents={[
+          { agent_id: "u-colleague", display_name: "Lin Xia", username: "linxia", kind: "human" },
+          { agent_id: "proj-agent", display_name: "Alpha Analyst", kind: "agent", collaboration_scope: "project" }
+        ]}
+        onClose={() => {}}
+        onCreate={onCreate}
+      />
+    );
+    expect(screen.getByText("Project")).toBeVisible();
+    await user.click(screen.getByLabelText("Alpha Analyst"));
+    expect(screen.getByLabelText("Visibility")).toHaveValue("private");
+    expect(screen.getByLabelText("Visibility")).toBeDisabled();
+    expect(screen.getByText(/Groups with a project assistant stay private/)).toBeVisible();
+    // Human teammates remain selectable with a project assistant!
+    expect(screen.getByLabelText("Lin Xia")).toBeEnabled();
+    await user.click(screen.getByLabelText("Lin Xia"));
+    await user.click(screen.getByRole("button", { name: /Create group/ }));
+    expect(onCreate).toHaveBeenCalledWith({
+      agentIds: ["proj-agent"],
+      userIds: ["u-colleague"],
+      visibility: "private",
+      name: "Lin Xia, Alpha Analyst"
+    });
+  });
 });

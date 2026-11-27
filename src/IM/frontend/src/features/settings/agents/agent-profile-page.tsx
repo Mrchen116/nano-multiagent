@@ -174,6 +174,7 @@ export function AgentProfilePage() {
           <section className="im-settings-overview" aria-label={t("agents.publicProfile")}>
             <dl className="im-settings-metadata">
               <div><dt>{t("agents.mode")}</dt><dd>{t(agent.role === "personal" ? "pa.label" : agent.work_mode === "global" ? "agents.globalMode" : "agents.threadMode")}</dd></div>
+              <div><dt>{t("agents.form.behavior.scope")}</dt><dd>{t(agent.collaboration_scope === "owner_only" ? "agents.form.behavior.ownerOnlyShort" : agent.collaboration_scope === "project" ? "agents.form.behavior.projectShort" : "agents.form.behavior.team")}</dd></div>
               <div>
                 <dt>{t("agents.managedBy")}</dt>
                 <dd className="im-agent-owner-field">

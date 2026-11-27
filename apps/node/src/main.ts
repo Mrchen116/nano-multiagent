@@ -526,7 +526,7 @@ async function im(path: string, options?: ImRequestOptions): Promise<unknown> {
 
 external = new ExternalChannels(join(home, 'external.sqlite3'), { nodeId: config.node.node_id, ownerId: config.node.user_id, store, relay,
   agentName: id => agents.find(agent => agent.agentId === id)?.displayName,
-  ownerOnly: id => agents.find(agent => agent.agentId === id)?.collaborationScope === 'owner_only',
+  ownerOnly: id => (agents.find(agent => agent.agentId === id)?.collaborationScope ?? 'team') !== 'team',
   personalAgent: id => !!agents.find(agent => agent.agentId === id)?.personal,
   globalAgent: id => agents.some(agent => agent.agentId === id && agent.mode === 'global' && !agent.personal),
   personalDelivery: delivery => globalProduct.externalDelivery(delivery),
@@ -727,6 +727,9 @@ operations = new ConfigurationOperations(join(home, 'configuration.sqlite3'), {
       const {withdrawn} = await runtime.request('configuration.restrictChat', {agentId:next.agentId, operationId:intent.operation_id, changes}) as {withdrawn:Array<{sessionId:string;inputId?:string}>};
       globalProduct.confirmRestricted(next.agentId,withdrawn);
       product.confirmRestricted(withdrawn.filter((row): row is {sessionId:string;inputId:string} => !!row.inputId));
+    } else if (previous && (previous.collaborationScope ?? 'team') === 'team' && next.collaborationScope === 'project') {
+      previous.collaborationScope = 'project';
+      external.restrictToOwner(next.agentId);
     }
     const applied = await runtime.request('configuration.apply', {...next, operationId: intent.operation_id, fingerprint: intent.candidate_fingerprint}) as {effective: boolean; message?: string};
     if (!applied.effective) throw new Error(applied.message ?? 'Configuration was not applied');

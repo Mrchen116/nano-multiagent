@@ -27,6 +27,7 @@ struct AgentConfigView: View {
     @State private var conflicted = false
     @State private var currentConfig: AgentConfig?
     @State private var confirmLeave = false
+    @State private var confirmScopeWiden = false
     @State private var preview: AgentPrompt?
     @State private var saved = false
     @State private var lifecycleUserID: String?
@@ -100,7 +101,7 @@ struct AgentConfigView: View {
                                 Text(L("Skills 选择模式", "Skill selection mode") + ": " + (currentConfig.skills_selection_mode ?? "default_discovery"))
                                 Text(L("推理强度", "Reasoning effort") + ": " + (currentConfig.reasoning_effort ?? L("默认", "Default")))
                                 LabeledContent(L("审批模式", "Approval mode"), value: currentConfig.approval_mode ?? L("继承", "Inherited"))
-                                Text(L("协作范围", "Collaboration scope") + ": " + (currentConfig.collaboration_scope == "owner_only" ? L("私有（仅自己与名下助手）", "Private (you & your assistants)") : L("团队公开", "Team public")))
+                                Text(L("协作范围", "Collaboration scope") + ": " + (currentConfig.collaboration_scope == "owner_only" ? L("私有（仅自己与名下助手）", "Private (you & your assistants)") : currentConfig.collaboration_scope == "project" ? L("项目级（共处私密群成员）", "Project (shared private group members)") : L("团队公开", "Team public")))
                                 ForEach(currentConfig.features.keys.filter { !["memory_curation", "skill_creation"].contains($0) }.sorted(), id: \.self) { key in
                                     LabeledContent(agentFeatureName(key), value: currentConfig.features[key] == true ? L("启用", "Enabled") : L("关闭", "Disabled"))
                                 }
@@ -132,6 +133,15 @@ struct AgentConfigView: View {
         .navigationBarBackButtonHidden(dirty || pending || roleHasUnsavedChanges)
         .toolbar { if dirty || pending || roleHasUnsavedChanges { ToolbarItem(placement: .navigation) { Button(L("返回", "Back")) { confirmLeave = true } } } }
         .confirmationDialog(L("离开并放弃未保存草稿？", "Leave and discard unsaved draft?"), isPresented: $confirmLeave, titleVisibility: .visible) { Button(L("离开", "Leave"), role: .destructive) { dismiss() } }
+        .confirmationDialog(L("确认放宽协作范围？", "Confirm widening collaboration scope?"), isPresented: $confirmScopeWiden, titleVisibility: .visible) {
+            Button(L("确认放宽并保存", "Confirm and save")) { Task { await save(confirmedScopeWiden: true) } }
+        } message: {
+            Text(personal
+                 ? L("确认将个人助手切换为「团队公开」？切换后团队同事可发现并与该助手对话；你的私人会话与个人助手工作记录仍仅你本人可见。", "Switch your personal assistant to Team public? Teammates will be able to find and chat with it; your private chat and personal assistant Work stay visible only to you.")
+                 : config?.work_mode == "global"
+                   ? L("放宽全局助手协作范围后，授权范围内的成员可查看其完整全局工作记录与轨迹（含此前私有记录）。", "Widening this Global assistant’s scope lets eligible members view its full Global Work and trajectories, including earlier private task history.")
+                   : L("放宽后授权范围内的同事可发现并发起会话；你此前的私有单聊历史不会公开。", "Eligible teammates will be able to discover and chat with this assistant; your existing private direct chat history remains private."))
+        }
         .sheet(item: $preview) { value in AgentTextSheet(title: L("提示词预览", "Prompt preview"), text: value.prompt, preview: true) }
         .task { lifecycleUserID = await client.session.currentUser()?.owner_id; await load() }
         .onChange(of: lifecycleContact?.status) { old, new in
@@ -216,20 +226,29 @@ struct AgentConfigView: View {
             }
         }
     }
-    private func save() async {
+    private func save(confirmedScopeWiden: Bool = false) async {
         guard let config, ready, !deleting else { return }
+        if !confirmedScopeWiden && config.collaboration_scope == "owner_only" && draft.collaboration_scope != "owner_only" {
+            confirmScopeWiden = true
+            return
+        }
         busy = true; saved = false; error = nil; defer { busy = false }
         do {
-            let value: AgentConfig = try await client.send(agentPath(agentID) + "/config", method: "PATCH", body: draft.payload(version: config.profile_version, personal: personal, capabilities: capabilities))
+            let value: AgentConfig = try await client.send(agentPath(agentID) + "/config", method: "PATCH", body: draft.payload(version: config.profile_version, confirmScopeWiden: confirmedScopeWiden, personal: personal, capabilities: capabilities))
             self.config = value; draft = value.draft; draft.fixed_tools = capabilities?.fixed_tools ?? []; draft.tool_allowlist = draft.sanitizeStaticTools(personal: personal, capabilities: capabilities); saved = true
         }
         catch {
+            if (error as? APIError)?.code == "scope_widen_confirmation_required" {
+                confirmScopeWiden = true
+                return
+            }
             if let blocks = (error as? APIError)?.blocks, let block = blocks.first, let capabilities {
                 draft.restoreCapabilities(blocks, capabilities: capabilities, personal: personal)
-                capabilityToast = .init(text: block.message, anchor: block.target.kind + ":" + block.target.name)
+                capabilityToast = .init(text: block.message, anchor: block.target.kind + ":" + actionAnchor(block))
             } else { self.error = agentError(error); pending = (error as? APIError)?.code == "config_apply_pending" || !(error is APIError); conflicted = !pending && isAgentStateConflict(error) }
         }
     }
+    private func actionAnchor(_ block: CapabilityBlock) -> String { block.target.name }
     private func reconcile() async {
         busy = true; defer { busy = false }
         do {
@@ -290,13 +309,16 @@ struct AgentEditorFields: View {
             }.padding(.vertical, 4)
             Picker(L("协作范围", "Collaboration scope"), selection: $draft.collaboration_scope) {
                 Text(L("团队公开", "Team public")).tag("team")
+                if !personal { Text(L("项目级（共处私密群成员）", "Project (shared private group members)")).tag("project") }
                 Text(L("私有（仅自己与名下助手）", "Private (you & your assistants)")).tag("owner_only")
             }
             Text(draft.collaboration_scope == "owner_only"
                  ? (personal
                     ? L("对团队同事隐藏且不对外发言；仍按聊天访问范围静默观察你参与的聊天并向你汇报。切为私有时自动退出外部群并冻结同事历史私聊。", "Hidden from teammates and never messages externally; still silently observes chats you allow. Switching to Private exits external groups and makes teammate direct chats read-only.")
                     : L("对团队同事隐藏，仅与你及名下助手通信或组建内部私密群。切为私有时自动退出外部群并冻结同事历史私聊。", "Hidden from teammates; collaborates only with you and your own assistants. Switching to Private exits external groups and makes teammate direct chats read-only."))
-                 : L("团队同事可发现并私聊该助手，也可拉入协作群；私聊、@ 或回复会及时提醒，普通群消息合并提醒。", "Teammates can find and message this assistant or add it to groups. Direct messages, mentions and replies arrive promptly; other group messages arrive in batches."))
+                 : draft.collaboration_scope == "project"
+                   ? L("仅面向与该助手共处同一私密群的项目同事开放发现、单聊与全局工作记录；离开全部共用私密群后自动冻结。", "Visible and open for direct chat and Global Work only to teammates sharing an active private group with this assistant; freezes automatically when no private group is shared.")
+                   : L("团队同事可发现并私聊该助手，也可拉入协作群；私聊、@ 或回复会及时提醒，普通群消息合并提醒。", "Teammates can find and message this assistant or add it to groups. Direct messages, mentions and replies arrive promptly; other group messages arrive in batches."))
                 .font(.caption).foregroundStyle(NanoTheme.muted)
         } }
         if showModels { Section(L("审批模式", "Approval mode")) {

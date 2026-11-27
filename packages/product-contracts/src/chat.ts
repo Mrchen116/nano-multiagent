@@ -3,7 +3,7 @@ import type { WorkerRuntime } from './worker-runtimes.js';
 import type { TaskCardRef } from './task-graphs.js';
 
 /** Stable chat presentation fields; provider/tool-specific contents remain opaque. */
-export interface ChatAttachment {url?: string; content_type?: string; file_name?: string; attachment_id?: string; [field: string]: unknown}
+export interface ChatAttachment {url?: string; content_type?: string; file_name?: string; attachment_id?: string; local_path?: string; [field: string]: unknown}
 
 /** Safe raster image MIME types eligible for inline preview and vision decoding. */
 export const RASTER_IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
