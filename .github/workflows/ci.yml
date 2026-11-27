@@ -9,6 +9,17 @@ on:
   pull_request:
 
 jobs:
+  archive:
+    name: Change unit is archived
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check change unit
+        env:
+          GITHUB_HEAD_REF: ${{ github.head_ref }}
+        run: python3 scripts/check_change_unit_archived.py --head-ref "$GITHUB_HEAD_REF"
+
   ios_changes:
     name: Detect iOS changes
     runs-on: ubuntu-latest
@@ -53,7 +64,11 @@ jobs:
           PY
 
   ios:
-    name: iOS build and tests
+    name: iOS ${{ matrix.task }}
+    strategy:
+      fail-fast: false
+      matrix:
+        task: [test, archive]
     needs: ios_changes
     # Only a successful, explicit negative detection may skip the required check.
     if: ${{ !cancelled() && (needs.ios_changes.result != 'success' || needs.ios_changes.outputs.required != 'false') }}
@@ -64,6 +79,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Select iPhone simulator
+        if: matrix.task == 'test'
         run: |
           DEVICE_ID=$(xcrun simctl create 'NanoIM CI' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro com.apple.CoreSimulator.SimRuntime.iOS-26-4)
           echo "NANO_IOS_SIMULATOR_ID=$DEVICE_ID" >> "$GITHUB_ENV"
@@ -79,14 +95,15 @@ jobs:
           pnpm install --frozen-lockfile
           npm --prefix src/IM/frontend ci
 
-      - name: Native regression tests
-        run: ./src/IM/ios/scripts/build.sh test
-
-      - name: Release device archive
-        run: ./src/IM/ios/scripts/build.sh archive
+      - name: Run iOS ${{ matrix.task }}
+        run: ./src/IM/ios/scripts/build.sh "${{ matrix.task }}"
 
   backend:
-    name: TypeScript backend and tooling
+    name: TypeScript backend and tooling (${{ matrix.shard }}/2)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     # Keep native runtime regression tests on the validated runner image.
     runs-on: ubuntu-24.04
     steps:
@@ -105,6 +122,7 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Documentation integrity
+        if: matrix.shard == 1
         run: ./scripts/docs-check
 
       - uses: actions/setup-node@v4
@@ -115,27 +133,28 @@ jobs:
           version: 11.7.0
       - name: Install frozen runtime dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build and typecheck
-        run: pnpm build && pnpm typecheck
+      - name: Build workspace
+        run: pnpm build
+      - name: Typecheck
+        if: matrix.shard == 1
+        run: pnpm typecheck
       - name: Check packaged native interactive runtime
+        if: matrix.shard == 1
         run: pnpm check:ios-runtime
       - name: Native runtime and IM regressions
-        run: pnpm test
+        run: pnpm test --shard=${{ matrix.shard }}/2
 
       - name: Standalone helper and architecture tests
+        if: matrix.shard == 1
         run: pytest -m "not e2e" -q
 
       - name: ruff check
+        if: matrix.shard == 1
         run: ruff check .
 
       - name: ruff format check
+        if: matrix.shard == 1
         run: ruff format --check .
-
-      - name: Change unit is archived
-        if: github.event_name == 'pull_request'
-        env:
-          GITHUB_HEAD_REF: ${{ github.head_ref }}
-        run: python scripts/check_change_unit_archived.py --head-ref "$GITHUB_HEAD_REF"
 
   frontend:
     name: Frontend checks
