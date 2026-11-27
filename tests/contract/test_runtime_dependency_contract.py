@@ -39,6 +39,7 @@ ALLOWED = {
     "packages/trajectory-ui": {"@nano/product-contracts"},
     "src/IM/frontend": {
         "@nano/product-contracts",
+        "@nano/product-contracts/client-parity",
         "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/interactive-functions",
         "@nano/product-contracts/capabilities",
@@ -47,10 +48,12 @@ ALLOWED = {
     },
     "apps/desktop": {
         "@nano/product-contracts",
+        "@nano/product-contracts/client-parity",
         "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/worker-runtimes",
     },
     "apps/im-server": {
+        "@nano/product-contracts/client-parity",
         "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/node-rpc",
         "@nano/product-contracts/interactive-functions",
