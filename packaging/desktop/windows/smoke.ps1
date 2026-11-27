@@ -46,6 +46,8 @@ if (!$uriCmd.Contains('CrewdenDesktop.exe')) {
     throw "URI protocol registration unexpected: $uriCmd"
 }
 
+function Test-IsolatedSeed([int]$Attempt) {
+Write-Host "Isolated seed preparation attempt $Attempt"
 $tmpBase = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { $env:TEMP }
 $isoRoot = Join-Path $tmpBase "CrewdenDesktopSmoke-$([guid]::NewGuid().ToString('N').Substring(0,8))"
 New-Item -ItemType Directory -Force $isoRoot | Out-Null
@@ -91,6 +93,11 @@ try {
     & $bundledNode "$versionRoot\apps\node\lib\cli.js" --help | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Bundled Node CLI failed --help' }
 
+    if ($Attempt -lt 10) {
+        & $installedExe '--isolated-root' $isoRoot '--stop'
+        $hostProc.WaitForExit(10000) | Out-Null
+        return
+    }
     $probeDir = Join-Path $isoRoot 'dsh-probe'
     New-Item -ItemType Directory -Force $probeDir | Out-Null
     Copy-Item 'packaging\windows\smoke.mjs' "$probeDir\probe.mjs" -Force
@@ -104,3 +111,6 @@ try {
     if ($hostProc -and !$hostProc.HasExited) { Stop-Process -Id $hostProc.Id -Force -ErrorAction SilentlyContinue }
     Remove-Item -LiteralPath $isoRoot -Recurse -Force -ErrorAction SilentlyContinue
 }
+}
+
+foreach ($attempt in 1..10) { Test-IsolatedSeed $attempt }

@@ -153,12 +153,7 @@ jobs:
       - name: Exercise silent per-user install, seed extraction, and DSH readiness
         working-directory: src
         shell: pwsh
-        run: |
-          # Diagnostic sample for the intermittent Windows cold-start failure.
-          foreach ($attempt in 1..6) {
-            Write-Host "Isolated seed preparation attempt $attempt"
-            ./packaging/desktop/windows/smoke.ps1
-          }
+        run: ./packaging/desktop/windows/smoke.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-win32-x64-${{ inputs.commit || github.sha }}
