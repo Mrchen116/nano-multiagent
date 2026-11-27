@@ -126,14 +126,13 @@ def test_ci_runs_archive_check_for_pull_requests() -> None:
     # BaseLoader preserves GitHub's YAML `on` key instead of parsing it as boolean.
     workflow = yaml.load(_read(".github/workflows/ci.yml"), Loader=yaml.BaseLoader)
     assert "pull_request" in workflow["on"]
-    step = next(
-        item
-        for item in workflow["jobs"]["backend"]["steps"]
-        if item.get("name") == "Change unit is archived"
-    )
-    assert step["if"] == "github.event_name == 'pull_request'"
+    job = workflow["jobs"]["archive"]
+    assert "needs" not in job
+    assert job["if"] == "github.event_name == 'pull_request'"
+    assert job.get("continue-on-error", "false") == "false"
+    step = next(item for item in job["steps"] if "run" in item)
     assert shlex.split(step["run"]) == [
-        "python",
+        "python3",
         "scripts/check_change_unit_archived.py",
         "--head-ref",
         "$GITHUB_HEAD_REF",
