@@ -194,3 +194,86 @@
 - **`R1-W4`**: `accepted` — 已更新 `prototype.html` 与 `design.md`（§关键决策 4、§接口与数据流 3 & 4、§前端原型）：客户端选图解码后对边长 `> 2048px` 的高像素原图先等比降采样至安全工作画布再导出 `512×512` 裁剪图像上传，换图/关闭立即调用 `URL.revokeObjectURL` 并支持 `Escape` 关闭与焦点归还；补齐并视觉核验了 `390×844` 手机窄视口下的中英文裁剪弹窗渲染图（`07-mobile-crop-modal-zh-390x844.png`、`08-mobile-crop-modal-en-390x844.png`），底栏按钮排布充裕无挤压。
 - **`R1-R1`**: `accepted` — 已将 `prototype.html` 手机端 `/me` 演示卡片副标题改为 `@linxia`（已复采 `06-mobile-me-390x720.png`）。
 - **`R1-R2`**: `accepted` — 已在 `specs/im/web-chat-ux.md` 的统一展示枚举中补充「任务创建者与负责人」，并在 `design.md` §契约层增量中显式注明阶段 4 归并回 `docs/specs/im/web-chat-ux.md` 时恢复同目录相对链接 `agents-nodes.md`。
+
+---
+
+## Round 2
+
+- **reviewer**: Independent Gate 2 Design Reviewer (`change-design-reviewer` + `frontend-experience-review` + `agent-context-review`)
+- **target**: `docs/changes/feat-804-human-user-avatars/{spec.md,design.md,prototype.html,specs/im/{spec,auth-tenancy,web-chat-ux,ios-client}.md,M1-human-user-avatars/}`
+- **commit**: `9d2b56296` (`7580c9c9b..9d2b56296`, branch `unit/feat-804-human-user-avatars`)
+- **review_mode**: `delta`
+- **retained_from**: `Round 1`
+- **mode_reason**: 本轮修订针对 Round 1 的 7 项问题与 2 项建议进行了有界架构与交互收口（新增 `human-avatar-projection.ts` 人类出口投影层、`users` 三列与 `avatar_version: string | null` 随机版本方案、`server.ts` `selfManagedAuth` 与子插件流解析、`perUserAvatarLock` 串行互斥、Web `useMembershipCache` 全局失效与 `IdentityDirectory` `undefined`/`null` 合并、iOS `ChatRepository` `v9` 迁移与无游标事件消费、以及 `prototype.html` `390×844` 中英文裁剪弹窗核验）；`spec.md` 需求范围、`specs/im/{spec,auth-tenancy,ios-client}.md` 主体条款、跨包依赖拓扑与单里程碑 `M1` 结构未发生变化，故采用 `delta` 模式重点审查全部变更段落及其波及链路，未受影响部分沿用 Round 1 核查证据。
+- **started_at**: `2026-11-27T21:55:07+09:00`
+- **completed_at**: `2026-11-27T22:00:30+09:00`
+- **duration**: `6m`
+
+### Verdict
+
+**Approved** — `0 CRITICAL / 0 WARNING / 2 Recommendations`
+
+Round 1 提出的 `R1-C1`–`R1-C3`、`R1-W1`–`R1-W4` 与 `R1-R1`–`R1-R2` 已在冻结提交 `9d2b56296` 中全部实质闭环；本轮引入的新机制与改动波及面（`selfManagedAuth`、子插件 `5 MiB` 流读取、`perUserAvatarLock`、`human-avatar-projection.ts`、Web/iOS 状态同步及窄屏双语原型）经对照真实代码逐项复核均严密自洽，无新增阻塞或警告问题，满足进入实施阶段的 Gate 2 准出条件。
+
+---
+
+### Coverage 与证据（`delta`，未变项沿用 `retained_from: Round 1`）
+
+1. **服务端管线、存储互斥与鉴权边界（`design.md` §关键决策 1–2、§接口与数据流 1）**：
+   - `server.ts` `preHandler`（`L130`）与 `onSend`（`L164`）复用现有 `workSync` 路由 `config` 模式扩展识别 `selfManagedAuth: true`，使 `GET /im/v1/users/:user_id/avatar` 跳过默认 `messaging.principal(req)`，由路由内部调用 `identity.authenticateRequest(req, false)` + `canReadUserAvatar`，准确兑现未登录/Gateway 令牌 `401`、待审批/已停用真人读自身头像 `200`、`!accountEnabled(viewer)` 读他人头像返回防枚举 `404` 的契约；`PUT/DELETE /im/v1/me/avatar` 路径与现有 `identity-routes.ts:159, 164`（`GET/PATCH /im/v1/me`）及 `specs/im/auth-tenancy.md:10, 15` 完全一致。
+   - `PUT /im/v1/me/avatar` 封装在独立 Fastify 子插件内使用 `removeAllContentTypeParsers()` + 通配原始流解析与 `bodyLimit: 6 MiB`（流读取层执行 `5 MiB` -> `413` 硬截断），无需新增第三方依赖即可支持 2–5 MiB 图片上传。
+   - `users` 表改用 `(avatar_storage_name, avatar_version, avatar_content_type)` 配合进程内 `perUserAvatarLock(uid)` 串行互斥队列，每次写入独立 `<uuid>` 文件并在事务提交新 12 位 hex `avatar_version` 后删除旧文件，彻底消除了事务外异步 `sharp` 转码导致的并发覆盖与已删头像复活竞态。
+2. **人类出口投影与 Agent Context 零污染（`design.md` §关键决策 3、§接口与数据流 2 & 5）**：
+   - 内部 `MessageRecords.projectMessage`、`messaging.message()`、`messaging.actor()`、`enqueueRelays`、`syncTaskContext`、`PersonalAgents.{messageEvidence,compactMessageEvidence,observations}`、`PersonalActions.prepare` 与 `TaskGraphService` 保持零改动、不生成 `avatar_version`；新增 `human-avatar-projection.ts`（`attachHumanAvatars`）仅在 `principal.kind !== 'gateway'` 的会话/消息 HTTP 路由、纯人类认证的 `registerTaskGraphRoutes`（已核实 `apps/im-server/src/task-graphs.ts:1646-1653` 仅服务于 `identity.authenticateRequest` 人类调用）及人类实时流出口附着 `avatar_version: string | null`，并对 `type === 'agent'`、`external:*` 与 `sender_source_id != null` 严格跳过。
+   - 配合 `packages/personal-assistant/src/tool-references.ts` 的递归 `stripVisualActorFields` 纵深防御，确保 PA `authorizationGuard` SHA-256、`InboxStore.acceptRelay` 观察幂等哈希、SingleThread `sources.ts`、`pa.review`（`personal-security.ts`）与 `task_graph` 工具输出 100% 字节级不变。
+3. **Web/Desktop 与 iOS 跨端状态同步及缓存边界（`design.md` §接口与数据流 3 & 4）**：
+   - **Web/Desktop**：已核实 `src/IM/frontend/src/realtime/user-stream/{user-stream-runtime,canonical-event}.ts` 原生放行无 `event_id` 的 `user.profile_updated` 帧并分发至常驻 `useMembershipCache`；`IdentityDirectory.get` 区分权威 `null`（已移除头像）与局部 `undefined`（仅名称占位 stub）的合并规则清晰闭合，且已修正 `me-page.tsx:58` 现状断言并补全 `contactActor`。
+   - **iOS**：`ChatRepository.swift` 新增 `v9_actor_avatar_version` 迁移贯通 `actors` 表持久化，`ChatStore.consume` 在 `L1109` 游标门禁前消费无游标 `user.profile_updated` 事件驱动内存缓存驱逐、`actors` 表更新、`selectedID` 时间线刷新、`avatarContacts` 更新与本人 `accountUpdated()`；`AvatarIdentity` 新增 `.member` 与 `.incidentActor` 补齐 `SettingsCompanyView`（含 `pending`/`suspended` 成员）与 `PersonalAgentManagementView` 头像渲染，`Session.makeRequest` 显式 `.reloadIgnoringLocalCacheData` 保证受保护头像字节零磁盘落盘。
+4. **前端原型多视口与体验复核（`prototype.html`、`06`–`08` 截图、`specs/im/web-chat-ux.md`）**：
+   - 已核验新增渲染图 `07-mobile-crop-modal-zh-390x844.png`、`08-mobile-crop-modal-en-390x844.png` 与复采 `06-mobile-me-390x720.png`：`390×844` 窄视口下 `208×208` 圆形取景框比例舒展，中文三按钮单行留白充裕，英文长文案（`Choose another…` / `Cancel` / `Save avatar`）自动折为左次右主两行对齐、无文字截断或拥挤；`prototype.html` 已补齐 `> 2048px` 离屏预降采样、`URL.revokeObjectURL` 即时回收、`Escape` 关闭归还焦点及 `/me` `@linxia` 副标题。
+   - `specs/im/web-chat-ux.md:20` 已补入「任务创建者与负责人」，`python3 scripts/docs_check.py` 校验全绿（249 个受管文档、74 条必检路由全部通过）。
+5. **未受影响部分沿用说明（`retained_from: Round 1`）**：
+   - 跨包依赖边界、Crewden Desktop `host_server.rs` 反代复用、`specs/im/{spec,auth-tenancy,ios-client}.md` 的锚点与既有 Scenario 保留、以及单里程碑 `M1` 与双编组实施后审查安排均未改变，沿用 Round 1 已核实的通过证据。
+
+---
+
+### 历史问题闭环
+
+| Issue ID | Author Resolution | 本轮核查证据 | 状态 |
+|---|---|---|---|
+| `R1-C1` | `accepted`：`server.ts` 识别 `selfManagedAuth: true`，`PUT /im/v1/me/avatar` 使用独立子插件原始流解析与 `5 MiB` 硬截断 | `design.md` L14, L38, L90-92, L113-129, L302 已明确 `server.ts:130, 164` 放行配置、子插件 `removeAllContentTypeParsers()` + `bodyLimit: 6 MiB` + `5 MiB` 流截断及 `401/200/404` 全分支可见性规则 | **closed** |
+| `R1-C2` | `accepted`：内部消息/PA/任务服务不注入 `avatar_version`，改由 `human-avatar-projection.ts` 在人类出口附着 + `tool-references.ts` 递归剥离兜底 | `design.md` L15-16, L94-96, L135-149, L210-217, L302；核对 `task-graphs.ts:1646-1653` 与 PA 证据链路，确认 `authorizationGuard`、`acceptRelay`、SingleThread、`pa.review` 与 `task_graph` 均零变动 | **closed** |
+| `R1-C3` | `accepted`：纳入 iOS `ChatRepository.swift` `v9_actor_avatar_version` 迁移与 `ChatStore.consume` 无游标 `user.profile_updated` 消费链 | `design.md` L23-24, L40, L101-102, L196-206, L302 已完整覆盖 SQLite `actors.avatar_version` 读写、`AvatarImageStore` 驱逐、`avatarContacts` 通知、`uid == user.id` 账户刷新及 `selectedID` 刷新 | **closed** |
+| `R1-W1` | `accepted`：Web `user.profile_updated` 收拢至全局常驻 `useMembershipCache` 并补齐缓存与 `authStore` 同步 | `design.md` L19, L39, L182-186；核实 `user-stream-runtime.ts` 与 `canonical-event.ts` 支持无游标事件广播至 `useMembershipCache`，失效范围完整覆盖跨路由与同账号跨设备场景 | **closed** |
+| `R1-W2` | `accepted`：修正 `me-page.tsx` 现状断言，定义 `IdentityDirectory` `undefined` vs `null` 合并规则，补全 `contactActor`/`Contact.actor` 与 iOS `.member`/PA 页面头像 | `design.md` L18, L24, L178-181, L193-200, L236, L238 已逐项落实，消除了聊天内局部弹层被外层覆盖及 iOS 待审/停用成员显示 `"?"` 的问题 | **closed** |
+| `R1-W3` | `accepted`：新增按 `user.id` 的进程内串行互斥锁 `perUserAvatarLock` + 独立 `<uuid>` 存储文件名 | `design.md` L86-88, L120-122, L277, L302 明确同账号 `PUT`/`DELETE` 严格串行化并在事务提交新随机 `avatar_version` 后再清理旧文件 | **closed** |
+| `R1-W4` | `accepted`：补齐 `> 2048px` 选图预降采样、`ObjectURL` 及时回收、`Escape` 关闭焦点归还及 `390×844` 中英文裁剪弹窗渲染核验 | `design.md` L98-99, L187-189, L208, L252-257；`prototype.html:768-774, 1394-1499, 1565-1572` 与截图 `07`、`08` 核验无挤压、无溢出 | **closed** |
+| `R1-R1` | `accepted`：原型手机 `/me` 副标题改为 `@linxia` | `prototype.html:1059` 与复采截图 `06-mobile-me-390x720.png` 已核实 | **closed** |
+| `R1-R2` | `accepted`：`specs/im/web-chat-ux.md` 补入任务创建者与负责人，并在 `design.md` 记录阶段 4 归并相对路径恢复 | `specs/im/web-chat-ux.md:20`、`design.md:271` 已更新，`python3 scripts/docs_check.py` 通过 | **closed** |
+
+---
+
+### Issues
+
+无（`0 CRITICAL / 0 WARNING`）。
+
+---
+
+### Recommendations
+
+#### `R2-R1` 实施细节提示：重连同步与事件重放出口顺手保持身份新鲜度一致
+
+- **iOS 前台断网重连**：在 `NanoIMApp.swift:251-256` 与 `AvatarIdentity.swift:78-81` 中，`AvatarDirectory` 初始化时 `contacts`（`avatarContacts`）会后置覆盖同 ID 的 `conversations` 参与者条目。实施阶段当 `ChatStore.run()` 在断线重连后完成 `GET /im/v1/sync` 时（`ChatStore.swift:591`），建议顺手刷新一次 `client.contacts()`（或将同步到的最新参与者 `display_name`/`avatar_version` 合并进 `avatarContacts`），避免断网窗口内错过的无游标 `user.profile_updated` 被旧内存 `avatarContacts` 覆盖；Web 端的 `useMembershipCache.onRecovery` 亦可顺手 `invalidateQueries({ queryKey: ["contacts"] })`，使停留在 `/people` 时的断线恢复同样即时收敛。
+- **服务端事件重放出口**：`Gateway.broadcast`（代码仓属性名为 `this.browsers`，见 `apps/im-server/src/gateway.ts:47, 226`）与断线补帧的 `Gateway.replay`（`gateway.ts:260`）均向人类客户端写出 `op: "event"` 帧，实施 `attachHumanAvatars` 时可顺手在两处统一调用以保持实时帧与重放帧结构完全同构。
+
+#### `R2-R2` 实施细节提示：iOS `ChatRepository` 新增 `v9` 迁移时同步更新 `schema.version` 元数据记录
+
+- `src/IM/ios/NanoIM/Storage/ChatRepository.swift:199` 维护了 `cache_meta('schema.version', '8')` 写入，实施 `v9_actor_avatar_version` 迁移时顺手同步更新该版本号并在迁移单测覆盖从 `v8` 存量库平滑升级即可。
+
+
+---
+
+### Author Resolutions
+
+- **`R2-R1`**: `accepted` — 作为 M1 实施阶段的精确接线提示保留执行（不修改已通过 Round 2 审查的设计产物以保持冻结一致性）：实施 `M1` 时在服务端 `Gateway.broadcast`（`this.browsers`）与 `Gateway.replay` 两处统一调用 `attachHumanAvatars`，在 Web `useMembershipCache.onRecovery` 同步失效 `["contacts"]`，并在 iOS `ChatStore.run()` 完成断线重连 `GET /im/v1/sync` 后同步刷新/合并 `avatarContacts`。
+- **`R2-R2`**: `accepted` — 作为 M1 实施细节保留执行：实施 `ChatRepository.swift` `v9_actor_avatar_version` 迁移时同步将 `cache_meta('schema.version', ...)` 更新为 `'9'` 并在迁移单测中覆盖 `v8 -> v9` 升级校验。
