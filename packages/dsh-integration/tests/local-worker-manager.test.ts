@@ -58,7 +58,7 @@ it.each(cliWorkerRuntimes)('%s binds follow-ups to the original session and repl
     runtime,
   });
   expect(send.mock.calls).toHaveLength(1);
-  await expect(manager.control(other, row.workerId, 'send', 'replace the task', exec.signal)).rejects.toThrow(
+  await expect(manager.control(other, row.workerId, 'send', 'replace the task', exec.signal, 'other-call')).rejects.toThrow(
     /belong/,
   );
   const launch = vi.mocked(openCliWorker).mock.calls[0]![0];
@@ -68,7 +68,8 @@ it.each(cliWorkerRuntimes)('%s binds follow-ups to the original session and repl
   await expect(launch.onEnd('turn-1', 'completed', 'Which file should I inspect?')).rejects.toThrow('runtime busy');
   await expect.poll(() => close.mock.calls.length).toBe(1);
   online = true;
-  const restored = new LocalWorkers(ctx as unknown as Context, report, () => true, vi.fn());
+  const bindPermissions = vi.fn(async () => undefined);
+  const restored = new LocalWorkers(ctx as unknown as Context, report, () => true, vi.fn(), bindPermissions);
   const turns=(await restored.workPage(root.id)).page.filter(update=>update.detail);
   expect(turns.map(update=>update.detail)).toEqual([end]);
   await restored.confirmWork(root.id,turns);
@@ -77,7 +78,8 @@ it.each(cliWorkerRuntimes)('%s binds follow-ups to the original session and repl
   expect(accepted).toEqual(['end:turn-1']);
   expect(report.mock.calls.at(-1)).toEqual([root.id, row.workerId, 'end:turn-1',
     expect.stringContaining('This turn ended. The worker will do no further work unless you send it more.\nWhich file should I inspect?')]);
-  await restored.control(root, row.workerId, 'send', 'inspect B', exec.signal);
+  await restored.control(root, row.workerId, 'send', 'inspect B', exec.signal, 'new-dispatch');
+  expect(bindPermissions).toHaveBeenCalledWith(root, expect.objectContaining({workerId:row.workerId}), 'inspect B', 'new-dispatch');
   expect(vi.mocked(openCliWorker).mock.calls.at(-1)![0]).toMatchObject({
     runtime,
     sessionId: 'original-session',

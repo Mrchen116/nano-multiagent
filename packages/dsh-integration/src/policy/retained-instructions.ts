@@ -14,11 +14,12 @@ const record = (value: unknown): Row | undefined => value && typeof value === 'o
  * Args:
  *   agent: Parent whose original events remain available after compaction.
  *   inherited: Host-projected original delegation evidence.
+ *   fromSeq: Optional first event of the delegation turn.
  *   ownerId: PA owner; limits retained human sources to that owner when present.
  * Returns:
  *   Original messages with their immediate interpretation context and provenance.
  */
-export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?: string): RetainedInstructions {
+export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?: string, fromSeq = -1): RetainedInstructions {
   const units: Row[] = [];
   let incomplete=false;
   const events = scopedChatEvents(agent.session.snapshotEvents());
@@ -85,6 +86,7 @@ export function retainInstructions(agent: Agent, inherited: Row[] = [], ownerId?
     for (const name of ['inbox_result','conversations_result','read_messages_result','search_messages_result']) { const page = record(row[name]); if (page) addPage(page, 'restored'); }
   }
   for (const event of events) {
+    if (event.seq < fromSeq) continue;
     if(event.type==='compaction/start'&&!units.length)incomplete=true;
     if (event.type === 'assistant/message') {
       const message = event.data.message;

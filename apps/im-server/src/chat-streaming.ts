@@ -1,4 +1,5 @@
 import { decodeChatStream, type ChatEvent, type ChatStreamFact, type ChatStreamReceipt } from '@nano/product-contracts';
+import type { WorkerPermissionCards } from './worker-permission-cards.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { MessageRecords, withHumanApproval, type MessageEventFrame, type StreamMessageIdentity } from './message-records.js';
 import { lifecycle, requireLifecycle } from './agent-lifecycle.js';
@@ -7,6 +8,7 @@ import { fail, transaction } from './context.js';
 
 export interface ChatConnection {node_id:string; owner_id:string; node_epoch:number}
 interface Ports<C extends ChatConnection> {
+  workerPermissions: Pick<WorkerPermissionCards, 'create' | 'finish'>;
   requireAgent(connection:C,id:string):{agent_id:string;work_mode?:string};
   requirePersonalConversation(agentId:string,conversationId:string):void;
   agentUserId(agentId:string):string;
@@ -27,6 +29,11 @@ export class ChatStreaming<C extends ChatConnection> {
   }
   private apply(c:C,p:ChatStreamFact):ChatStreamReceipt {
     const records=this.records,ports=this.ports;
+    if(p.kind==='worker_permission_request') {
+      ports.requireAgent(c,p.agent_id);
+      requireLifecycle(this.db,p.agent_id,p.lifecycle_revision);
+      return ports.workerPermissions.create(c,p);
+    }
     if(p.kind==='turn_start') {
       const agent=ports.requireAgent(c,p.agent_id);
       requireLifecycle(this.db,agent.agent_id,p.lifecycle_revision);
@@ -65,6 +72,14 @@ export class ChatStreaming<C extends ChatConnection> {
     }
     const m=records.message(p.message_id);
     this.requireStreamWriter(c,m,p.lifecycle_revision);
+    const workerCard=m.permission_requests[0];
+    if(workerCard?.worker) {
+      if(p.kind!=='permission_resolved' || p.permission_request?.request_id!==workerCard.request_id ||
+        p.session_id!==workerCard.session_id || p.run_id!==workerCard.run_id || p.agent_id!==workerCard.agent_id ||
+        c.node_epoch!==workerCard.node_epoch || !p.decision) fail(409,'worker_request_identity_conflict');
+      ports.workerPermissions.finish(m,p.decision);
+      return {kind:p.kind,run_id:p.run_id,message_id:m.id};
+    }
     let event:ChatEvent;
     switch(p.kind) {
       case 'message_completed':

@@ -41,8 +41,7 @@ export class RuntimePartitions {
   private readonly sessions = new Map<string, RuntimePartition>();
   private readonly observers = new Map<string, { partition: RuntimePartition; generation: number }>();
   private readonly sessionAgents = new Map<string, string>();
-  private readonly approvalAgents = new Map<string, string>();
-  private readonly approvals = new Map<string, RuntimePartition>();
+  private readonly approvals = new Map<string, {partition: RuntimePartition; agentId: string; sessionId: string}>();
   private readonly handlers = new Map<string, (params: unknown) => unknown | Promise<unknown>>();
   private readonly listeners = new Set<(method: string, params: unknown) => void>();
   private readonly starting = new Map<string, Promise<void>>();
@@ -142,7 +141,7 @@ export class RuntimePartitions {
     partition.generation++;
     const closed: string[] = [];
     for (const [id, observer] of this.observers) if (observer.partition === partition) { this.observers.delete(id); closed.push(id); }
-    for (const [id, owner] of this.approvals) if (owner === partition) { this.approvals.delete(id); this.approvalAgents.delete(id); }
+    for (const [id, owner] of this.approvals) if (owner.partition === partition) this.approvals.delete(id);
     return closed;
   }
   onNotification(listener: (method: string, params: unknown) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
@@ -173,8 +172,14 @@ export class RuntimePartitions {
       try {
         if(!this.validateOrigin(partition, value, true)) return;
         const data = object(value);
-        if (method === 'approval.request' && typeof data.requestId === 'string') { this.approvals.set(data.requestId, partition); const id = this.agentId(data); if (id) this.approvalAgents.set(data.requestId, id); }
-        if (method === 'approval.resolved' && typeof data.requestId === 'string') { this.approvals.delete(data.requestId); this.approvalAgents.delete(data.requestId); }
+        if ((method === 'approval.request' || method === 'approval.resolved') && typeof data.requestId === 'string') {
+          const agentId = this.agentId(data);
+          const prior = this.approvals.get(data.requestId);
+          if (!agentId || typeof data.sessionId !== 'string' || prior &&
+              (prior.partition !== partition || prior.sessionId !== data.sessionId)) throw new Error('Conflicting approval origin');
+          if (method === 'approval.request') this.approvals.set(data.requestId, {partition, agentId, sessionId: data.sessionId});
+          else this.approvals.delete(data.requestId);
+        }
         this.execution(data, () => { for (const listener of this.listeners) listener(method, value); });
       } catch (error) { this.options.onError(error); }
     });
@@ -276,10 +281,9 @@ export class RuntimePartitions {
       return result;
     }
     if (method === 'approval.answer') {
-      const partition = this.approvals.get(String(value.requestId));
-      if (!partition) throw new Error('Unknown approval request');
-      const agentId = this.approvalAgents.get(String(value.requestId));
-      return this.execution({agentId}, () => this.invoke(partition, method, params, decode));
+      const approval = this.approvals.get(String(value.requestId));
+      if (!approval) throw new Error('Unknown approval request');
+      return this.execution({agentId: approval.agentId}, () => this.invoke(approval.partition, method, params, decode));
     }
     if (method.startsWith('trajectory.') && method !== 'trajectory.prepare') {
       const observer = this.observers.get(String(value.observerId));

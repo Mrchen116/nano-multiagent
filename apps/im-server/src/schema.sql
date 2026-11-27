@@ -167,6 +167,13 @@ CREATE TABLE IF NOT EXISTS messages (
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (thread_root_id) REFERENCES messages(id)
 );
+CREATE TABLE IF NOT EXISTS worker_permission_cards (
+    agent_id TEXT NOT NULL, request_id TEXT NOT NULL,
+    message_id TEXT NOT NULL UNIQUE REFERENCES messages(id) ON DELETE CASCADE,
+    pending_until INTEGER,
+    PRIMARY KEY (agent_id, request_id)
+);
+CREATE INDEX IF NOT EXISTS worker_permission_deadlines ON worker_permission_cards(pending_until) WHERE pending_until IS NOT NULL;
 CREATE TABLE IF NOT EXISTS thread_follows (
     conversation_id TEXT NOT NULL,
     root_message_id TEXT NOT NULL,

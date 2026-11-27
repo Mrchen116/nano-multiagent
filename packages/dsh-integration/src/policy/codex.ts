@@ -4,7 +4,7 @@ import type { ImageBlock } from '@deepseek-ai/dsh-llm';
 import type {} from '@deepseek-ai/dsh-working-directory';
 import type { ApprovalReviewRequest, ApprovalReviewResult } from './types.js';
 import { codexPolicy, parseCodexDecision } from './codex-context.js';
-import { codexEntries } from './sources.js';
+import { codexEntries, workerReviewInstructions } from './sources.js';
 import { retainInstructions } from './retained-instructions.js';
 import { ReviewSession, ReviewFailure, type ReviewPlan } from './review-session.js';
 import type { AgentConfiguration } from '../index.js';
@@ -33,8 +33,8 @@ export class CodexApproval extends Service {
   async review(request:ApprovalReviewRequest):Promise<ApprovalReviewResult>{
     const parent=request.exec.agent!;
     const effectiveCwd=this.ctx.get('workingDirectory')?.get(parent.session)||parent.session.header.cwd;
-    const result=await this.execute({purpose:'tool',parent,signal:request.exec.signal,config:request.config,reviewer:request.reviewer,
-      system:()=>codexPolicy(request.config.approval!),
+    const result=await this.execute({purpose:request.worker ? 'worker' : 'tool',parent,signal:request.exec.signal,config:request.config,reviewer:request.reviewer,
+      system:async()=> (await codexPolicy(request.config.approval!)) + (request.worker ? `\n\n${workerReviewInstructions}` : ''),
       evidence:async()=>[...codexEntries(request.sources.restoreEntries(request.inherited,false)),...await request.sources.history(parent,request.exec.callId,request.config.mode !== 'global',{toolResults:true,fullAssistant:true})],
       action:{name:request.exec.name,arguments:request.exec.arguments,id:request.exec.callId,schema:this.ctx.tools.schemas(parent).find(tool=>tool.name===request.exec.name),cwd:effectiveCwd,rules:request.config.approval,recipient:request.messageContext},
       retained:()=>retainInstructions(parent,request.sources.restoreEntries(request.inherited,false),request.config.personal?.ownerId),

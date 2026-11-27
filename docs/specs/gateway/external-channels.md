@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - External Channels Specification
 
-> 对齐: feat-774
+> 对齐: feat-797
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -210,6 +210,8 @@ Gateway 默认不在外部 channel 回复中暴露运行信息。启用全局设
 - **AND** Gateway 不把剩余正文或运行信息拆成额外普通消息或额外卡片
 
 ### Requirement: 外部 channel 用户可见控制与后台文本投递
+
+本条的渠道权限审批限定为原生工具。由外部 Worker 提出的提权及其终态仅投递该 Agent 的主人 Nano IM 私聊，即使派工由飞书触发也不投递到飞书或其影子会话。
 
 聊天控制先通过协作范围检查。飞书触发或绑定的用户可见事件必须回到原飞书 chat，并同步到内部 IM 影子会话；内部 IM 影子会话触发的同类事件只留在内部 IM。用户可见事件包括 assistant 文本、`/stop`、`/new`、`/compact` 及 `/compact <关注点>` 的控制确认、因主模型不可用改用备用时的轻量说明、预处理失败、后台 agent 文本、权限审批卡片和审批完成状态。含非空真实更新对象的 `self_evolution_review` system notice 遵守同一触发源规则：飞书触发时在原 chat 显示简短 Bot 更新通知并在 shadow IM 保留结构化 system notice，内部 IM 触发时不回写飞书。外部控制确认的 session/context outcome 与可恢复 delivery intent 必须先同次持久化；该 intent 幂等物化为 shadow output 后才向飞书发送，重放同一 provider message 复用首次控制结果，不重复改变会话或上下文。Gateway 启动和 IM reconnect 必须扫描未物化或未 hand-off 的 intent。若进程恰在 provider 已接受发送、但 hand-off 状态尚未来得及持久化时退出，飞书沿既有 at-least-once outbound 语义可能收到一次重复确认；本系统不伪造跨 provider exactly-once 保证，IM shadow 仍以同一 durable output 收敛。其他系统通知、thinking、工具遥测和调试状态不作为飞书普通聊天消息外发。该轻量说明与压缩控制确认同一投递形态，不是运行信息页脚。
 

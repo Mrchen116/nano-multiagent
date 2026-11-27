@@ -78,7 +78,7 @@ export class SingleThread {
       const binding = options.store.bindingForSession(data.sessionId);
       if (!binding || options.agents.find(agent => agent.agentId === binding.agentId)?.mode !== 'single_thread') return;
       if ((method === 'session.event' && data.event) || method === 'model.changed') this.reconcile(data.sessionId).catch(options.onError);
-      if (method === 'approval.request') this.approval(value as Approval).catch(options.onError);
+      if (method === 'approval.request' && !('worker' in data)) this.approval(value as Approval).catch(options.onError);
       if (method === 'approval.resolved') this.resolveApproval(value as { requestId: string; outcome: string }).catch(options.onError);
       if (method === 'session.liveness') Promise.all(options.store.activeDeliveries(data.sessionId).flatMap(delivery => delivery.messageId ? [this.delta({kind: 'run_heartbeat', message_id: delivery.messageId, source: 'dsh-agent'})] : [])).catch(options.onError);
       if (method === 'session.stream') this.stream(value as Stream);

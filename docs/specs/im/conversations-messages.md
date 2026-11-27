@@ -1,6 +1,6 @@
 # IM - Conversations and Messages Specification
 
-> 对齐: feat-786
+> 对齐: feat-797
 > 上级: [IM Specification](spec.md)
 
 ## Purpose
@@ -777,3 +777,10 @@ Agent 私聊的投递回执不授予成员资格。原聊天允许实际成员�
 - **WHEN** 用户在话题中引用该根或该话题里的一条消息
 - **THEN** 新消息留在同一话题，并带单层引用
 - **AND** 不创建第二层话题
+
+### Requirement: 外部 Worker 的人工审批归主人私聊
+
+#### Scenario: 由群聊或跨聊天根会话发起委派
+- **WHEN** 有人值守的 Global 或 PA 的外部 Worker 需要人类审批
+- **THEN** 系统只向该 Agent 与主人在 Nano IM 的私聊投递可识别 Worker 和实际动作的审批卡；只有已认证的主人可以答复。一个决定至多放行原调用一次。
+- **AND** 原调用结束、过期或取消后，卡片回复不能启动或恢复执行。

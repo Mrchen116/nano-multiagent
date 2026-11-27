@@ -410,6 +410,7 @@ export async function createServer(options: ServerOptions = {}) {
           "failed",
         );
       }
+      ctx.messaging.workerPermissions.expire();
       channels.pruneAppliedRemovals();
     },
     Number(process.env.IM_RELAY_WATCHDOG_INTERVAL_SECONDS ?? 30) * 1000,
