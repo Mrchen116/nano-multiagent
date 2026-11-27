@@ -9,6 +9,7 @@ export interface Contact {
   role?: "personal";
   lifecycle_disabled?: boolean;
   avatar_variant?: number | null;
+  avatar_version?: string | null;
   display_name: string;
   agent_id?: string;
   owner_id?: string;
@@ -22,7 +23,15 @@ export interface Contact {
 }
 
 export function contactActor(contact: Contact): Actor {
-  return { type: contact.kind === "human" ? "user" : "agent", id: contact.agent_id ?? contact.user_id };
+  return {
+    type: contact.kind === "human" ? "user" : "agent",
+    id: contact.agent_id ?? contact.user_id,
+    user_id: contact.user_id,
+    display_name: contact.display_name,
+    ...(contact.role ? { role: contact.role } : {}),
+    ...(contact.avatar_variant !== undefined ? { avatar_variant: contact.avatar_variant } : {}),
+    ...(contact.avatar_version !== undefined ? { avatar_version: contact.avatar_version } : {}),
+  };
 }
 
 export async function listContacts(q = "", kind?: Contact["kind"]): Promise<Contact[]> {
