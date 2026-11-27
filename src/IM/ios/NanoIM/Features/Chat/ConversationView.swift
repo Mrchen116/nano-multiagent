@@ -73,7 +73,7 @@ struct ConversationView: View {
             if let error = store.errors[conversationID] ?? operationError { ErrorNotice(message: error).padding(10) }
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
+                    LazyVStack(alignment: .leading, spacing: ChatScrollEndpoint.rowSpacing) {
                         // A confirmed access loss is not a missing cache or a connection
                         // problem; the dedicated revocation notice below owns that state.
                         if items.isEmpty && !store.revokedChats.contains(conversationID)
@@ -114,12 +114,12 @@ struct ConversationView: View {
                                 Label(L("Agent 配置已更新", "Agent configuration updated"), systemImage: "slider.horizontal.3").font(.caption).foregroundStyle(.secondary).id(item.id)
                             }
                         }
-                        Color.clear.frame(height: 1).id(ChatScrollEndpoint.latest)
+                        Color.clear.frame(height: ChatScrollEndpoint.markerHeight).id(ChatScrollEndpoint.latest)
                     }
                     .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .content))
                 }
                 .background(ChatScrollGeometryMarker(adapter: scrollState.physicalGeometry, role: .viewport))
-                .contentMargins(16, for: .scrollContent)
+                .contentMargins(ChatScrollEndpoint.contentMargin, for: .scrollContent)
                 .defaultScrollAnchor(location == nil ? .bottom : .top, for: .initialOffset)
                 .defaultScrollAnchor(.top, for: .alignment)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { _, frame in
