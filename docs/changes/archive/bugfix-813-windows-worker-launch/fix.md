@@ -16,3 +16,14 @@ feat-790 引入的设置探测（`c75e0415e`）独自枚举后缀，运行时仍
 ## 本次审查安排
 
 复核 Windows 探测和启动选择、批处理参数边界、原生进程握手及关闭、其他平台调用方式。原生 Windows runner 使用临时 fixture，覆盖三种 Worker。
+
+## 修复
+
+`55c5eec09` 让 Windows 设置和委派共用 PATH 查找器，按目录依次查找 .exe、.cmd 和 .bat。原生可执行文件直接启动，批处理通过系统 cmd.exe 启动。Claude 批处理入口使用提示词文件和 MCP JSON 文件，进程结束后回收。已有 POSIX 命令和三个驱动的 stdio 协议保持原契约。
+
+## 验证
+
+- `tests/integration/windows-worker-launch.test.mjs` 从设置探测进入三个真实驱动，以临时批处理和本机 Node 可执行文件完成协议握手。校验基线裸命令失败、含空格和 & 的路径、多行提示词和 JSON 原值、临时文件回收，以及 .exe 的优先级。原生结果由 PR 的 Windows installer candidate 作业中 “Exercise desktop-discovered CLI workers” 步骤记录。
+- macOS 使用 Node 24.22.1 编译本次涉及的 Node 和 integration 包及所需 workspace 依赖。运行设置探测、既有 POSIX 驱动回归及运行时依赖边界检查。
+
+独立审查两项修正与验证详情见[审查记录](review.md)。
