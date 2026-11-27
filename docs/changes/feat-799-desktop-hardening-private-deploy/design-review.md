@@ -208,3 +208,83 @@ Round 1 初审，无历史问题。
   - 在 `design.md` `## Runbook for Reviewer` 补齐可直接执行的 worktree 隔离启动、健康检查、视口实测与临时进程/目录回收命令。
 - **`R1-R1` / `R1-R2` / `R1-R3` (Accepted)**:
   - 全部采纳：`prototype.html` 清理了所有混入产品画面的演示切换按钮、多余顶栏徽章与第 1 步状态矛盾；补充了 `100.64.0.0/10` 说明；在 `CrewdenDesktop.iss` 补充了 `CloseApplications=yes` 与 `AppMutex`。
+
+---
+
+## Round 2
+
+### Metadata
+
+- **reviewer**: Independent Gate 2 Design Reviewer (`change-design-reviewer` + 设计态 `frontend-experience-review`)
+- **target**: Commit `4b75ecbfc`（`git diff f506796dc..4b75ecbfc`：`design.md`、`specs/im/desktop-client.md`、`specs/im/agents-nodes.md`、`prototype.html`、`design-evidence/01..11.png` 及 `design-review.md#Author-Resolutions`）
+- **review_mode**: `delta`
+- **mode_reason**: Round 1 已完成 `full` 全量设计审查；本轮修订聚焦于关闭 `R1-C1..C3`、`R1-W1..W4` 与采纳 `R1-R1..R3`，变更边界清晰且未改动 `spec.md` 需求基线
+- **retained_from**: `Round 1`（`spec.md` 场景与验收基线、`scripts/build-desktop-archives.py` 构建期 `.pnpm` 依赖图闭合不触碰 `@deepseek-ai/*` 运行时红线、`IM` 不代理安装包字节流、以及 `DesktopGatewayHost.cs` + `manageGateway` 崩溃退避快败设计在 Round 1 已核实通过且本轮未发生破坏性变更，沿用通过结论）
+- **started_at**: `2026-11-27T14:37:00+09:00`
+- **completed_at**: `2026-11-27T14:40:30+09:00`
+- **duration**: `3m30s`
+
+### Verdict
+
+**Approved** — `0 CRITICAL / 0 WARNING / 1 NIT (Recommendation)`
+
+---
+
+### Coverage 与证据（Delta 变更、波及面与前端视觉复查）
+
+1. **后端、协议与安全契约波及面复核**：
+   - `design.md` §1、§2.1–2.3、§3.2、§4 与两份 delta-specs（`specs/im/desktop-client.md`、`specs/im/agents-nodes.md`）及 `M1` 准出标准已实现双向对齐，未引入新的跨包依赖或协议矛盾。
+   - 特别复核了 `<versionRoot>` 到 `<desktop_home>` 的路径几何关系：在受管桌面目录 `<desktop_home>/versions/<sha>/apps/node/lib/release.js` 下，`releaseRoot` 为 `<desktop_home>/versions/<sha>`，`resolve(root, '../..')` 恒等于 `<desktop_home>`，因此 `loadTrustedReleaseOptions` 在首启解包版本与后续 `update-worker.ts` 升级版本下均能不依赖环境变量稳定读取 `<desktop_home>/desktop-defaults.json`。
+   - 复核了 `node-rpc.ts` 下发 `deadline_at` 与 `packages/channels/src/index.ts:306-309` 的衔接：`RelayClient.receive` 在分发 `onFrame` 之前直接从原始 `ProtocolFrame.payload.deadline_at` 计算 `serverRequests` 保活窗口（上限对齐 `inspectionTimeouts(true).rpcMs = 130_000ms`），同时 `@nano/product-contracts/node-rpc` 同步声明可选 `deadline_at` 字段，彻底闭环 `10s~60s` 配置/创建回包的 `request_id` 关联且不影响普通消息 `10s` ACK 语义。
+2. **设计态 `frontend-experience-review` 视觉复查（`prototype.html` + `design-evidence/01..11.png`）**：
+   - 逐张复查重绘后的 `01..09.png` 及新增的 `10-first-use-welcome-1280x720.png`、`11-onboarding-step2-expanded-inner-scroll-1280x720.png`：
+     - `?clean=1` 下所有产品画面干净自明，旧版混入卡片内的演示按钮、顶栏多余的 `Desktop 客户端` 徽章以及 `07-onboarding-step1` 的在线态矛盾已全部清除；
+     - `03-login-server-edit-1280x720.png` 验证了 `DesktopServerBar` 原地替换为编辑面板（含 `取消`、`保存切换` 与琥珀色内网明文 HTTP 风险提示条），且左侧紧凑化后的 `AuthScene` 与右侧登录表单在 `1280×720` 下完整落入一屏无裁剪；
+     - `08` 与 `11` 验证了引导第 2 步通过 `form="onboarding-model-form"` 将主提交按钮「验证并继续」钉在固定底栏 `.wizard-footer`——展开多模型长表单时仅 `.wizard-card-body` 内部滚动，顶栏、左侧步骤栏与底部「← 返回 / 验证并继续」始终可见；
+     - `09-onboarding-step3-1280x720.png` 与 `10-first-use-welcome-1280x720.png` 验证了第 3 步去除重复 `.onboarding-identity-preview` 后的双列紧凑布局，以及聊天工作台内 `FirstUseWelcome` 横向头部 + 双栏卡片在 `1280×720` 下的零外层滚动表现。
+
+---
+
+### 历史问题闭环
+
+- **`R1-C1`** — **Status: `closed`**
+  - **Author Resolution**：新增 `loadTrustedReleaseOptions(root)` 基于 `<root>/.nano-release.json` 与 `resolve(root, '../..')/desktop-defaults.json` 跨进程确定性寻址，保留 `<versionRoot>/.release-manifest.json` 前导点；`update-worker.ts` 对已授权私网 `http://` 源使用 `['--proto', '=http,https', '--max-redirs', '0']` 禁止跨源重定向并强制 SHA-256 校验；`IM_ALLOW_PRIVATE_HTTP=1` 与自托管 `IM_RELEASE_BASE_URL` 仅开放自包含 `desktop_*` 入口，将不满足前提的 `windows_x64` / `install.sh` 标为 `null` / `false`。
+  - **本轮核验**：核对 `design.md:171-174, 210-219, 399` 与 `specs/im/agents-nodes.md:34, 40-41`，路径推导、下载协议锁、前导点文件名与安装材料诚实暴露契约及 `M1` 准出条件均已完整闭环。
+
+- **`R1-C2`** — **Status: `closed`**
+  - **Author Resolution**：`DesktopCliOptions` 分离 `--im-origin` 与 `deep_link_url`，冷启动、Windows 第二实例转发与 macOS `RunEvent::Opened` 统一经 `handle_deep_link_url` 进入 `pending_server_switch` 确认或 `deep_link_error` 公网明文 `http://` 弹窗拦截。
+  - **本轮核验**：核对 `design.md:128-136, 168-169, 265-279, 399` 与 `specs/im/desktop-client.md:44-47`，三类唤起入口与公网明文 `http://` 显式提示均已闭环并纳入 `M1`。
+
+- **`R1-C3`** — **Status: `closed`**
+  - **Author Resolution**：修正命令名为 `agent.create` / `agent.config.apply` / `agent.config.operation.status` / `node.setup.request` 并传递 `deadline_at` 对齐 `packages/channels` 的 `serverRequests` 保活窗口；修正非 Windows `inspectionTimeouts(false)` 基线为 `7_000 / 8_000 / 9_000`；`agent-creation.ts` 复用 `CatalogReads` 消除二次冷检，并在 `node.register` 与 `node.capabilities.changed` 后台预热；对齐落库前错误码与落库后 `503 config_apply_pending` 恢复契约。
+  - **本轮核验**：核对 `design.md:81-82, 85, 240-254, 397` 与 `specs/im/agents-nodes.md:20-23`，超时传递、单飞缓存复用、预热时机与错误码分层完全吻合真实代码结构。
+
+- **`R1-W1`** — **Status: `closed`**
+  - **Author Resolution**：`host-state.json` 的 `ready` 仅在宿主与 `seed_ready` 双就绪时置 `true` 以兼容 `smoke.ps1`；随包 `seed-archives/` 存在且未传 `--dev-repo-root` 时禁止 `resolve_active_bundle` 回退 `CARGO_MANIFEST_DIR`；首启撞 `instance.lock` 时 `100ms × 50` 退避轮询等待唤醒后 `exit(0)`。
+  - **本轮核验**：核对 `design.md:104-116, 227, 277-279, 332-333, 398` 与 `specs/im/desktop-client.md:20-22`，与 `packaging/desktop/windows/smoke.ps1:53-68` 完全兼容。
+
+- **`R1-W2`** — **Status: `closed`**
+  - **Author Resolution**：三端及 `prototype.html` 改用严格 IPv4/IPv6 字面量范围解析 + `.local` 后缀白名单，移除单标签主机名并注明 CGNAT `100.64.0.0/10` 边界；`load_or_init_host_config` 启动复验持久化 `im_origin`。
+  - **本轮核验**：核对 `design.md:153-168, 334`、`specs/im/desktop-client.md:46` 与 `prototype.html:1415-1438`（逐段校验 `0..=255` 四段十进制 IPv4，不再误放 `http://10.evil.com`）。
+
+- **`R1-W3`** — **Status: `closed`**
+  - **Author Resolution**：补齐 `FirstUseWelcome` 紧凑规格与 `10-first-use-welcome-1280x720.png`；第 2 步通过 `form="onboarding-model-form"` 与 `onPrimaryActionChange` 将「验证并继续」固定于 `.onboarding-footer`（补 `11-onboarding-step2-expanded-inner-scroll-1280x720.png`）；明确第 3 步隐藏重复 `.onboarding-identity-preview`、`AuthScene` 紧凑高度预算及 `DesktopServerBar` 原地展开替换。
+  - **本轮核验**：核对 `design.md:289-302, 310-315, 400` 与 `design-evidence/02, 03, 05, 06, 07, 08, 09, 10, 11.png`，`1280×840` 与 `1280×720` 下高度预算、内滚边界及主按钮可见性全部达标。
+
+- **`R1-W4`** — **Status: `closed`**
+  - **Author Resolution**：在 `design.md` `## Runbook for Reviewer` 补齐 worktree 隔离 IM + Desktop Host 启动、健康检查、视口实测与清理回收命令。
+  - **本轮核验**：核对 `design.md:344-386`，端口、数据库、上传目录与 `--isolated-root` 均隔离在临时目录下且回收步骤完整，满足 `docs/development/frontend-experience.md` 与 `worktree-runtime.md` 要求。
+
+- **`R1-R1` / `R1-R2` / `R1-R3`（NITs）** — **Status: `closed`（已采纳）**
+
+---
+
+### Issues
+
+无（`0 CRITICAL / 0 WARNING`）。
+
+---
+
+### Recommendations (`NIT`)
+
+- **`R2-R1` [NIT] — Windows `CrewdenDesktop.iss` 的 `AppMutex` 与宿主进程命名内核互斥量对齐**：`design.md:226` 在 Inno Setup 中配置了 `AppMutex=CrewdenDesktopAppMutex` 与 `CloseApplications=yes`，而 `design.md:104` 单实例互斥使用文件锁 `<desktop_home>/instance.lock`。Inno Setup 的 `AppMutex` 仅在运行进程实际调用 Win32 `CreateMutexW` 创建同名内核 Mutex（`CrewdenDesktopAppMutex`）时触发前置提示（`CloseApplications=yes` 则通过 Windows Restart Manager 自动检测可执行文件占用）。实施时可在 Windows 宿主启动期顺带持有同名 Win32 Mutex 句柄，或仅保留 `CloseApplications=yes`，避免 `AppMutex` 空转。
