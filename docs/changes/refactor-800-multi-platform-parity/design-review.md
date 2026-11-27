@@ -177,3 +177,83 @@
 - **`R1-W4`**: `accepted` — 已在 `design.md`（§涉及范围、关键决策 2、5、§接口与数据流 3）修正：`client-parity.ts` 仅引用既有权威子模块组装生成表而不重复定义重导出同名类型，彻底避免 `TS2308`；`platform-io.ts` 保持 `localNodeBridgeEndpoint` 与 `apps/desktop/src/config.rs:294` 字节级一致，并新增 `src/IM/shared/local-ipc-endpoint-test-cases.json` 在 Node 与 Rust 双端锁死。
 - **`R1-R1`**: `accepted` — 已在 `design.md` §接口与数据流 3 明确为新增共享向量在 `src/IM/ios/Tests/` 建立指向 `../../shared/*.json` 的受跟踪相对符号链接。
 - **`R1-R2`**: `accepted` — 已在 `design.md` 关键决策 2 明确 `test_client_contract_parity.py` 仅针对生成协议枚举的匹配块（花括号平衡提取）禁止 `default:` 与 `_ =>`，不误伤普通本地 UI 分支。
+
+---
+
+## Round 2
+
+### Metadata
+
+- **reviewer**: Independent `change-design-reviewer`（同会话连续复审）
+- **reviewer target**:
+  - Unit: `docs/changes/refactor-800-multi-platform-parity/`
+  - Branch / Commit: `unit/refactor-800-multi-platform-parity` @ `749ac9f44`（对比上一轮 `d11e6c1db`，基线 `origin/develop` @ `3b4c0f022`）
+  - 受审产物：`motivation.md`（未变）、`design.md`、`specs/im/web-chat-ux.md`、`specs/im/ios-client.md`、`specs/im/desktop-client.md`、`design-review.md`（`Author Resolutions (Round 1)`）
+- **review_mode**: `delta`
+- **mode_reason**: `d11e6c1db..749ac9f44` 未改动 `motivation.md`、跨包运行时依赖红线或单 Milestone 拓扑，但围绕 Round 1 的 8 项问题对 `design.md`（`NotificationProjector` 确定性事件映射表、`/im/ws/user` 已读/静音同步帧、`client-parity.ts` 导出边界、`local-ipc-endpoint-test-cases.json`、`check_platform_parity.py` 双向门禁、`ci.yml` 主干与测试合并）、全部 3 份 `specs/im/*.md` delta-spec 及 M1 退出标准做了有界实质修订；故采用 `delta` 模式全量核查所有改动段落及其生产代码波及面，未变动部分引用 Round 1 证据。
+- **retained_from**: `Round 1`（`motivation.md` 原始诉求与 Q0–Q4 澄清边界、`SPEC.md` 与 `test_runtime_dependency_contract.py` 包边界、`docs/specs/gateway/service-lifecycle.md` `no spec delta` 判定，以及无需 `deployment-prompt.md` / `prototype.html` 的结论在 `d11e6c1db..749ac9f44` 无变更且证据继续有效）
+- **started_at**: `2026-11-27T18:16:38+09:00`
+- **completed_at**: `2026-11-27T18:22:00+09:00`
+- **duration**: `5m 22s`
+
+### Verdict
+
+- **结论**: **Approved**
+- **统计**: `0 CRITICAL / 0 WARNING / 1 Recommendation`
+
+---
+
+### Coverage 与证据（Delta 变更与波及范围核实）
+
+1. **外部渠道镜像消息谓词与未读水位链路核实（`design.md:15,38,110,174-175`）**：
+   - 对照 `apps/im-server/src/schema.sql:562-581`、`apps/im-server/src/channels.ts:118-154`（`externalChannelOwnerId` + `matchesExternalChannel`）、`apps/im-server/src/messaging.ts:502,691`、`apps/im-server/src/message-records.ts:162-171,362-396` 与 `apps/im-server/src/threads.ts:72-77`：
+     - SQL 视图 `owner_direct_agent_messages` 仅覆盖 `c.type = 'direct'`，而 `design.md:110` 的 `isExternalOwnerMirrorMessage` 同时核对 `owner_direct_agent_messages` 与绑定 `agent_channels` 的飞书 `owner_open_id` / 微信 `owner_user_id`，从而完整覆盖飞书外部群聊（`feishu:<app_id>:group:...`）与飞书/微信外部私聊两类场景；
+     - `messages.sender_source_id` 在 `message-records.ts:362` 先于 `line 391` 的 `unread_count` 更新入库，同一事务内即可同步判定；且同步覆盖 `message-records.ts` 插入递增、`threads.ts` `listUnread` 已读水位重算与 `message-records.ts:162` 消息丢弃回滚三处未读计算入口，数据流完全闭合。
+2. **`NotificationProjector` 确定性状态映射、PA 代发与三端路由跳转核实（`design.md:108-121,168-185,189`）**：
+   - 对照 `apps/im-server/src/messaging.ts:619-620`、`chat-streaming.ts:49,86,109-120`、`worker-permission-cards.ts:55,65,103`、`message-records.ts:304,318,400-403`、`src/IM/ios/Tests/ChatStateTests.swift:73-77` 与 `apps/desktop/src/notifications.rs:508,590,592,1643,1656`：
+     - `publishAgent` 连发的 `message.created(completed)` 与精简 `message.completed` 共享 `dedupe_key = message:${messageId}`，且第二帧缺失的 `sender`/`interactive` 从批量预取补齐，确保单次提醒且不丢互动卡片摘要；
+     - `WorkerPermissionCards` 建卡 `message.created`（`permission_requests.length > 0`）与结案 `message.completed` 均置 `eligible: false`，仅由 `permission.request(pending)` 以 `perm:${requestId}` 触发 `'chat_permission'`；
+     - PA 代发区分 `pa_agent_id != null && sender_user_id === viewerId`（本人触发代发 `eligible: false`）与他人 PA 代发（`eligible: true`），与 `ChatStateTests.swift:73-77` 完全一致；
+     - `USER_NOTIFICATION_KINDS` 收敛为 `'human_message' | 'mention' | 'message_completed' | 'chat_permission' | 'work_permission'`，与 `notifications.rs` 全部 5 类既有字符串字面量及单测断言 100% 一致；
+     - Web（`app/router.tsx` 已有 `/settings/agents/:agentId?view=work` 与 `/chat/:id?thread=`）、Desktop Rust（`notifications.rs:666,1742`）与 iOS（`NanoIMApp.swift`、`ThreadView.swift`、`AgentWorkView.swift` 已具备对应原生目标视图）三端跳转目标均真实存在。
+3. **控制面性能、已读/静音同步帧与本机轨迹 IPC 对等核实（`design.md:26,111-113,181-182,194`）**：
+   - 对照 `apps/im-server/src/work-records.ts:828-830`、`work.ts:154,294`、`gateway.ts:219-225`、`messaging.ts:1123-1132,1220-1244`、`apps/desktop/src/notifications.rs:192-220,1325,1441-1476` 与 `apps/desktop/src/config.rs:293-312`：
+     - 所有 `agent.work.updated` 均附带 `notification_hint`（非待决权限或非本人管理置 `eligible: false`），直接短路 `notifications.rs:1443,1454` 的 HTTP 反查；`work-perm:${agentId}:${mainSessionId}:${activeTurnId}` 粒度兼顾同轮子任务去重与新轮次重提醒；
+     - `POST /im/v1/conversations/:id/read` 与 `PATCH /im/v1/conversations/:id`（修改 `is_muted` / `is_pinned`）向操作者本人投递携带 `{ conversation_id, unread_count, is_muted }` 的 `conversation.read` / `conversation.preference_updated`，直接命中 `notifications.rs:1325` `center.upsert_conversation`（含取消静音时用最新 `unread_count` 恢复角标计数）；
+     - `client-parity.ts` 改为引用既有子模块导出而不重复导出同名类型，消除 `TS2308`；`local-ipc-endpoint-test-cases.json` 锁死 `apps/node` 与 `apps/desktop/src/config.rs:294` 的 SHA-256 截断与 96 字节阈值规则。
+4. **双向对称门禁、CI 分层、3 份 `specs/im/*.md` delta-spec 与 M1 退出标准核实**：
+   - `check_platform_parity.py` 双向检查、`ci.yml` `push.branches: [main, develop]`、单次 `build.sh test` 与复用 `build-desktop-windows.ps1` `cargo test` 均闭合；
+   - `specs/im/web-chat-ux.md`、`specs/im/ios-client.md`、`specs/im/desktop-client.md` 锚点精确匹配对应 `docs/specs/im/*.md` Requirement 标题，完整保留既有 Scenario，与 `motivation.md` 及 `design.md` M1 `[reviewer]` / `[worker]` 退出标准完全自洽，且未把内部实现细节写死为外部契约。
+
+---
+
+### 历史问题闭环（Round 1 → Round 2）
+
+| Issue ID | Author Resolution | 本轮核实证据 | 状态 |
+|---|---|---|---|
+| `R1-C1` | `accepted` — 引入 `isExternalOwnerMirrorMessage` 区分外部对端入站与 owner 本人外发镜像，并在 `message-records.ts` / `threads.ts` 同步维护 owner `unread_count` | `design.md:15,38,110,174-175` 及三份 `specs/im/*.md` 已明确区分；结合 `channels.ts:118-154` 核实同时覆盖飞书群聊/私聊与微信私聊，且覆盖插入、`listUnread` 水位与丢弃回滚三处未读入口。 | `closed` |
+| `R1-C2` | `accepted` — 统一三端提醒范围与聊天/话题/Work 跳转，补齐 `NotificationProjector` 确定性事件与幂等 `dedupe_key` 表，保留 `'chat_permission'` / `'work_permission'` | `design.md:90-93,118-120,168-185,189,241` 与 `specs/im/{web-chat-ux,ios-client,desktop-client}.md` 前后一致；覆盖 `publishAgent` 双事件、精简 `completed` 补齐、权限卡建卡/结案、`system` 消息、PA 代发、Web 后台通知静音过滤与 iOS 真人 `message.created` 横幅修复。 | `closed` |
+| `R1-W1` | `accepted` — 从活跃 `global_main` + 最新 turn + `isOnline` 计算 `main_execution`，全量 `agent.work.updated` 下发 `notification_hint` 免 HTTP 反查，重构 `Gateway.broadcast` 批量预取与独立浅拷贝帧 | `design.md:26,111-112,181-182,201` 已落实；`work-perm:${agentId}:${mainSessionId}:${activeTurnId}` 消除重复刷屏与漏弹，`Gateway.broadcast` 零 N+1 与无共享引用修改约束明确。 | `closed` |
+| `R1-W2` | `accepted` — 在已读与静音变更接口向本人 `/im/ws/user` 投递 `conversation.read` / `conversation.preference_updated`，打通 Web 桌面左侧栏与移动底部 `聊天` 总角标并移除 `我` Tab 重复角标 | `design.md:38,113,119,159-162` 及 `specs/im/{web-chat-ux,desktop-client}.md` 已对齐真实路由 `POST /im/v1/conversations/:id/read`、`PATCH /im/v1/conversations/:id` 与 `notifications.rs:192,1325`。 | `closed` |
+| `R1-W3` | `accepted` — `check_platform_parity.py` 升级为双向对称核验，`ci.yml` 纳入 `develop` 主干归档，合并 iOS 全量测试调用并复用 Windows 既有 `cargo test` | `design.md:12,92,98-101,125-130,241` 已修正全部单向盲区与重复测试步骤，同时保留 `iOS build and tests` 分支保护必检 Job 名。 | `closed` |
+| `R1-W4` | `accepted` — `client-parity.ts` 仅导入既有权威子模块避免 `TS2308`，保留字节级对等的 `localNodeBridgeEndpoint` 并新增 `local-ipc-endpoint-test-cases.json` | `design.md:13,20,26,104,129,188-194` 已消除重复类型重导出，并通过跨语言黄金向量锁死 `apps/node` 与 `apps/desktop/src/config.rs:294` 的 IPC 地址推导。 | `closed` |
+| `R1-R1` | `accepted` — 明确 `src/IM/ios/Tests/` 下共享测试向量的相对符号链接挂载 | `design.md:20,35,121,191-193` 已点明。 | `closed` |
+| `R1-R2` | `accepted` — `test_client_contract_parity.py` 按协议枚举匹配块粒度禁止默认通配分支 | `design.md:104-105,241` 已明确花括号平衡提取协议枚举匹配块。 | `closed` |
+
+---
+
+### Issues
+
+无（`0 CRITICAL / 0 WARNING`）。
+
+---
+
+### Recommendations
+
+- **`R2-R1` 实施时同步让 Desktop `notifications.rs` 的未读增量分支消费 `notification_hint` 的会话未读快照**：现网 `apps/desktop/src/notifications.rs:1378-1400` 仅在 `message.created` 且 `sender_user_id != self_user_id` 时调用 `on_message_created` 更新本地未读（外部对端入站消息因线上 `sender_user_id == ownerId` 会被旧逻辑误判为 `is_self_author = true`，流式 `message.completed` 阶段因 `@提及` 新加入群话题关注的成员也不会进入 `message.created` 分支）。建议实施时在 `UserStreamNotificationHint` 明确保留可选 `conversation_unread?: number` 字段（与 `design.md:179` 表格说明对齐），让 `notifications.rs` 在收到携带该字段的实时帧时直接调用 `upsert_conversation` / `on_message_created` 对齐未读，无需额外 HTTP 拉取。
+
+---
+
+### Author Resolutions (Round 2)
+
+- **`R2-R1`**: `accepted` — 采纳该实施保真细化：与 `design.md` §接口与数据流 2 表格既有“同时携带最新 `conversation_unread`”一致，M1 实施 `packages/product-contracts/src/client-parity.ts` 的 `UserStreamNotificationHint` 时直接包含可选字段 `conversation_unread?: number`，并让 `apps/desktop/src/notifications.rs` 在收到携带该快照的实时事件时直接对齐本地会话未读；本条不改变受审设计结构，其余受审设计产物相对 `749ac9f44` 保持零实质变更。
