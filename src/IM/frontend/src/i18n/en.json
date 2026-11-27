@@ -408,7 +408,7 @@
       "loadError": "Unable to load channel configuration",
       "empty": {
         "title": "No external channels yet",
-        "description": "Add a channel so users can reach this Agent from an external messaging platform. Feishu is currently supported."
+        "description": "Add a channel so users can reach this Agent from an external messaging platform. Feishu and personal WeChat are supported."
       },
       "provider": {
         "added": "Added"
@@ -418,6 +418,34 @@
         "description": "Connect a Feishu application bot",
         "guide": "Create an app in Feishu Open Platform, enable the bot, and receive events over a long connection.",
         "openPlatform": "Open Feishu Open Platform"
+      },
+      "wechat": {
+        "label": "WeChat",
+        "description": "Scan QR with personal WeChat; owner 1:1 DM only",
+        "summaryLabel": "Bound WeChat",
+        "ownerOnlyNote": "Owner 1:1 DM only",
+        "connectingDetail": "Establishing the WeChat official single connection",
+        "connectedDetail": "Personal WeChat official single connection active",
+        "revokedTitle": "Session expired",
+        "revokedDetail": "WeChat authorization was revoked or signed in elsewhere. Click Re-scan QR to restore.",
+        "dialogTitle": "Scan QR to bind WeChat",
+        "qrLoading": "Generating WeChat binding QR code…",
+        "qrAlt": "WeChat binding QR code",
+        "qrWaitHint": "Scan the QR code with your personal WeChat",
+        "qrWaitSubhint": "No Open Platform registration needed. Only 1:1 DMs from the scanning WeChat account are accepted and mirrored into IM.",
+        "qrScannedOverlay": "Scanned — confirm on your phone in WeChat",
+        "qrScannedHint": "Waiting for confirmation on your phone…",
+        "qrScannedSubhint": "If WeChat shows a numeric verification code on your phone, this dialog will switch to code entry automatically.",
+        "qrExpiredOverlay": "QR code expired",
+        "qrExpiredHint": "Timed out waiting for scan; auto-refresh paused",
+        "qrExpiredSubhint": "Click Refresh QR code to generate a fresh code and continue.",
+        "pinLabel": "Enter the numeric verification code shown in WeChat",
+        "pinHelp": "Check your phone screen in WeChat and enter the numeric code shown.",
+        "pinSubmit": "Confirm binding",
+        "pinSubmitting": "Verifying…",
+        "refreshQr": "Refresh QR code",
+        "replaceQr": "Replace QR code",
+        "back": "Back"
       },
       "diagnostics": {
         "limited": {
@@ -461,6 +489,7 @@
       "actions": {
         "add": "Connect channel",
         "edit": "Edit",
+        "rescan": "Re-scan QR",
         "close": "Close",
         "cancel": "Cancel",
         "saving": "Saving…",

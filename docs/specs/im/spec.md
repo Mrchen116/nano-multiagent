@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-796
+> 对齐: feat-794
 >
 > 写法与归并规则见 [长青行为契约编写规范](../CONTRIBUTING.md)。
 

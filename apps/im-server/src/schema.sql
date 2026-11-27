@@ -574,7 +574,11 @@ CREATE VIEW IF NOT EXISTS owner_direct_agent_messages AS
    OR (c.config_agent_id=a.agent_id AND c.external_source='feishu' AND EXISTS (
      SELECT 1 FROM agent_channels ch WHERE ch.agent_id=a.agent_id AND ch.provider='feishu' AND ch.enabled=1
      AND ch.owner_id=a.owner_id AND ch.node_id=a.node_id AND m.sender_source_id=json_extract(ch.provider_runtime_json,'$.owner_open_id')
-     AND c.external_chat_id='feishu:'||json_extract(ch.config_json,'$.app_id')||':dm:'||m.sender_source_id)));
+     AND c.external_chat_id='feishu:'||json_extract(ch.config_json,'$.app_id')||':dm:'||m.sender_source_id))
+   OR (c.config_agent_id=a.agent_id AND c.external_source='wechat' AND EXISTS (
+     SELECT 1 FROM agent_channels ch WHERE ch.agent_id=a.agent_id AND ch.provider='wechat' AND ch.enabled=1
+     AND ch.owner_id=a.owner_id AND ch.node_id=a.node_id AND m.sender_source_id=json_extract(ch.config_json,'$.owner_user_id')
+     AND c.external_chat_id='wechat:'||json_extract(ch.config_json,'$.bot_id')||':dm:'||m.sender_source_id)));
 CREATE TRIGGER IF NOT EXISTS personal_observation_event AFTER INSERT ON conversation_events
 WHEN NEW.event_type IN ('message.created','message.completed','conversation.membership_changed','task_graph.changed')
 BEGIN

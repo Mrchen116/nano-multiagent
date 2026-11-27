@@ -23,7 +23,7 @@ export interface NodeConfigurationFile {
   im_service: { url: string; token: string;username?:string;password?:string;refresh_token?:string };
   agents: LocalAgent[];
   gateway?: {worker_runtime?:import('@nano/product-contracts').WorkerRuntime;autostart?:boolean;environment?:Record<string,string>;startup_timeout_seconds?:number;shutdown_grace_seconds?:number;poll_interval_seconds?:number};
-  display?: { runtime_footer?: { enabled?: boolean }; platforms?: { feishu?: { runtime_footer?: { enabled?: boolean } } } };
+  display?: { runtime_footer?: { enabled?: boolean }; platforms?: { feishu?: { runtime_footer?: { enabled?: boolean } }; wechat?: { runtime_footer?: { enabled?: boolean } } } };
   channels?: { name: string; enabled?: boolean; settings: Record<string, string> }[];
   llm: ModelConfiguration;
 }
@@ -258,7 +258,7 @@ export class NodeConfiguration {
         }
       }
       const agents = this.value.agents.filter(item=>item.agent_id!==agentId);
-      const channels = this.value.channels?.filter(channel=>channel.name!==`feishu:${agentId}`);
+      const channels = this.value.channels?.filter(channel=>channel.name!==`feishu:${agentId}` && channel.name!==`wechat:${agentId}`);
       if (agents.length===this.value.agents.length && channels?.length===this.value.channels?.length) return;
       await this.writeFile({...this.value,agents,channels});
       this.value.agents=agents;

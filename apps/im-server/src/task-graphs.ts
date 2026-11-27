@@ -1016,7 +1016,20 @@ export class TaskGraphService {
     try {
       const original=control?this.row("SELECT m.* FROM messages m WHERE m.id=? AND m.sender_type='user' AND NOT EXISTS(SELECT 1 FROM pa_delegated_messages d WHERE d.message_id=m.id)",control.messageId):undefined;
       const relay=control?this.row("SELECT 1 FROM relay_tasks WHERE message_id=? AND target_node_id=? AND json_extract(payload_json,'$.agent_id')=?",control.messageId,control.nodeId,actor.id):undefined;
-      if(control&&(!original||!relay||conversationId&&original.conversation_id!==conversationId))fail('invalid_human_control','Stop requires its original authenticated human input');
+      const externalShadow=control&&!relay&&original?this.row(
+        `SELECT 1 FROM conversations c
+         JOIN agent_profiles a ON a.agent_id=c.config_agent_id AND a.owner_id=c.owner_id
+         WHERE c.id=? AND c.config_agent_id=? AND a.node_id=? AND c.external_source IN ('feishu','wechat')
+           AND ?=c.owner_id AND coalesce(?,'')<>'' AND coalesce(?,'') LIKE 'shadow:%'`,
+        original.conversation_id,actor.id,control.nodeId,original.sender_user_id,original.sender_source_id,original.caller_idempotency_key,
+      ):undefined;
+      const personalOwner=control&&!relay&&!externalShadow&&original?this.row(
+        `SELECT 1 FROM personal_agent_bindings b
+         WHERE b.agent_id=? AND b.node_id=? AND b.owner_user_id=?
+           AND (b.conversation_id=? OR EXISTS(SELECT 1 FROM pa_source_events e WHERE e.binding_id=b.binding_id AND e.message_id=?))`,
+        actor.id,control.nodeId,original.sender_user_id,original.conversation_id,original.id,
+      ):undefined;
+      if(control&&(!original||(!relay&&!externalShadow&&!personalOwner)||conversationId&&original.conversation_id!==conversationId))fail('invalid_human_control','Stop requires its original authenticated human input');
       if(original) {
         const self=this.row("SELECT id FROM users WHERE username='agent:'||?",actor.id);
         const text=original.content.trim(),mention=/^<mention type="user" target_id="([^"<>]+)"\s*\/>\s*/.exec(text);

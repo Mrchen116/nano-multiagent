@@ -702,7 +702,12 @@ export class NodeStore {
       relay_task_id: `runtime:${sessionId}:${message.id}`, idempotency_key: message.id,
       agent_id: binding.agentId, conversation_id: binding.conversationId,lifecycle_revision:source.lifecycle_revision??1,
       metadata: { runtime_input_id: message.id, ...(source.kind==='nano-system'&&source.channel==='task-change'?{context_only:true}:{}), origin: source.kind === 'schedule' ? 'schedule' : ['task-execution','task-change'].includes(String(source.channel))?'task_execution':'heartbeat',
-        ...(binding.conversationId.startsWith('external:') ? { external_reply: `runtime:${message.id}`, channel: 'feishu' } : {}),
+        ...(binding.conversationId.startsWith('external:')
+          ? {
+            external_reply: `runtime:${message.id}`,
+            channel: binding.conversationId.startsWith(`external:${binding.agentId}:wechat:`) ? 'wechat' : 'feishu',
+          }
+          : {}),
       },
       message: { id: message.id, content: message.content.filter(part => part.type === 'text').map(part => part.text ?? '').join(''),
         sender_user_id: binding.agentId, sender_type: 'system', attachments: [] },

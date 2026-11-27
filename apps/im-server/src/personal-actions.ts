@@ -25,12 +25,22 @@ export class PersonalActions {
   audience(conversationId:string) {return all(this.db,'SELECT user_id FROM conversation_participants WHERE conversation_id=? ORDER BY user_id',conversationId).map(r=>r.user_id);}
   transport(b:Row,conversationId:string,input:Row) {
     const chat=one(this.db,'SELECT * FROM conversations WHERE id=?',conversationId);
-    const channel=one(this.db,"SELECT * FROM agent_channels WHERE agent_id=? AND node_id=? AND owner_id=? AND provider=? AND enabled=1 AND json_extract(config_json,'$.app_id')=?",b.agent_id,b.node_id,b.owner_id,input.kind,input.destination?.app_id??'');
+    const isWeChat=input?.kind==='wechat';
+    const providerKey=isWeChat ? (input.destination?.bot_id ?? input.destination?.app_id ?? '') : (input?.destination?.app_id ?? '');
+    const channel=isWeChat
+      ? one(this.db,"SELECT * FROM agent_channels WHERE agent_id=? AND node_id=? AND owner_id=? AND provider='wechat' AND enabled=1 AND json_extract(config_json,'$.bot_id')=?",b.agent_id,b.node_id,b.owner_id,providerKey)
+      : one(this.db,"SELECT * FROM agent_channels WHERE agent_id=? AND node_id=? AND owner_id=? AND provider=? AND enabled=1 AND json_extract(config_json,'$.app_id')=?",b.agent_id,b.node_id,b.owner_id,input?.kind,providerKey);
     if(chat?.type==='group')fail(409,'external_group_audience_unavailable');
-    if(!chat||!channel||chat.config_agent_id!==b.agent_id||chat.external_source!==input.kind||chat.external_chat_id!==input.destination?.source_id||!String(input.destination?.source_id??'').startsWith(`${input.kind}:${input.destination?.app_id}:dm:`)||typeof input.destination?.chat_id!=='string'||!input.destination.chat_id)fail(403,'external_destination_not_verified');
-    const actor=`external:${conversationId}:${chat.external_chat_id.slice(`${input.kind}:${input.destination.app_id}:dm:`.length)}`;
+    const prefix=`${input?.kind}:${providerKey}:dm:`;
+    if(!chat||!channel||chat.config_agent_id!==b.agent_id||chat.external_source!==input?.kind||chat.external_chat_id!==input.destination?.source_id||!String(input.destination?.source_id??'').startsWith(prefix)||typeof input.destination?.chat_id!=='string'||!input.destination.chat_id)fail(403,'external_destination_not_verified');
+    if(isWeChat && chat.external_chat_id!==`wechat:${JSON.parse(channel.config_json).bot_id}:dm:${JSON.parse(channel.config_json).owner_user_id}`)fail(403,'external_destination_not_verified');
+    const actor=`external:${conversationId}:${chat.external_chat_id.slice(prefix.length)}`;
     if(one(this.db,'SELECT 1 FROM pa_contact_blocks WHERE binding_id=? AND actor_id=?',b.binding_id,actor))fail(403,'contact_blocked');
-    return {kind:input.kind,destination:{app_id:JSON.parse(channel.config_json).app_id,chat_id:input.destination.chat_id,source_id:chat.external_chat_id},channel_id:channel.channel_id,channel_revision:channel.channel_revision,...(input.card?{card:input.card}:{})};
+    const parsedCfg=JSON.parse(channel.config_json);
+    const destination=isWeChat
+      ? {bot_id:parsedCfg.bot_id,chat_id:input.destination.chat_id,source_id:chat.external_chat_id}
+      : {app_id:parsedCfg.app_id,chat_id:input.destination.chat_id,source_id:chat.external_chat_id};
+    return {kind:input.kind,destination,channel_id:channel.channel_id,channel_revision:channel.channel_revision,...(input.card?{card:input.card}:{})};
   }
   attachments(b:Row,conversationId:string,items:Row[],content:string,images:Row[]=[]) {
     if(!Array.isArray(items)||items.length>5)fail(422,'invalid_attachments');
@@ -168,10 +178,18 @@ export class PersonalActions {
         if (!Array.isArray(doc.nodes) || !doc.nodes.some((n: Row) => n.id === ref.node_id)) fail(404, 'task_card_node_not_found');
       }
     }
-    if(typeof args.request_key!=='string'||!args.request_key||typeof args.content!=='string'||!args.content.trim()&&args.interactive===undefined&&!taskCards?.length)fail(422,'concrete_proposal_required');
+    if(typeof args.request_key!=='string'||!args.request_key||typeof args.content!=='string'||!args.content.trim()&&args.interactive===undefined&&!taskCards?.length&&!(args.transport&&this.pa.ownerConversation(b,args.conversation_id)&&Array.isArray(args.attachments)&&args.attachments.length>0))fail(422,'concrete_proposal_required');
     this.requireWritableScope(b,args.conversation_id);
     if(!this.pa.sourceAllowed(b,args.conversation_id,'write'))fail(403,'destination_not_accessible');
-    if(args.transport&&!args.content.trim()&&!taskCards?.length)fail(422,'external_text_required');
+    if(args.transport&&!args.content.trim()&&!taskCards?.length&&!(this.pa.ownerConversation(b,args.conversation_id)&&Array.isArray(args.attachments)&&args.attachments.length>0))fail(422,'external_text_required');
+    if(args.incident_ref&&(args.interactive||args.attachments?.length||args.task||taskCards?.length))fail(403,'invalid_security_notice');
+    if(args.transport && args.in_thread_of!==undefined)fail(422,'external_thread_unavailable');
+    if(args.transport&&args.reply_to_message_id!==undefined)fail(422,'external_quoted_reply_unavailable');
+    if(args.transport && this.pa.ownerConversation(b,args.conversation_id)) {
+      this.transport(b,args.conversation_id,args.transport);
+      if(args.attachments!==undefined && (!Array.isArray(args.attachments) || args.attachments.length>5))fail(422,'invalid_attachments');
+      return {owner_private:true,conversation_id:args.conversation_id};
+    }
     if(args.transport&&args.attachments?.length)fail(409,'external_attachment_adapter_unavailable');
     let interactive;try{interactive=interactiveResponse(args.interactive);}catch(error){fail(422,(error as Error).message);}
     if(interactive?.source_mode==='patch') {
@@ -260,6 +278,9 @@ export class PersonalActions {
   /** Decode images once at prepare; commit uses the frozen hash and checked bytes. */
   async prepareChecked(principal:Row,args:Row) {
     const b=this.pa.authority(principal,args);
+    if(args.transport && this.pa.ownerConversation(b,args.conversation_id)) {
+      return this.prepare(principal,args,[]);
+    }
     const attachments=this.attachments(b,b.conversation_id,args.attachments??[],String(args.content??'')+String(args.interactive?.source??''));
     const images=await decodePersonalImages(attachments.snapshots.map(row=>({...row,bytes:this.snapshotBytes(row)})));
     return this.prepare(principal,args,images);

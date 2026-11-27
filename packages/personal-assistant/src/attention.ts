@@ -9,13 +9,13 @@ export function needsAttention(input: RelayInput, config: Pick<AgentConfiguratio
     || meta.reply_to_agent_id === config.agentId;
 }
 
-/** Check whether an input represents a 1:1 direct message from the human owner (or bound Feishu owner DM). */
+/** Check whether an input represents a 1:1 direct message from the human owner (or bound Feishu/WeChat owner DM). */
 export function isOwnerDirectMessage(input: RelayInput, ownerId: string): boolean {
   const meta = input.metadata;
   const direct = meta.conversation_type === 'direct' && meta.personal_delivery !== 'observer' && !meta.pa_observation;
   return typeof meta.owner_direct === 'boolean' ? meta.owner_direct
     : direct && input.message.sender_type === 'user' && !input.message.pa_agent_id
-      && (meta.channel === 'feishu' ? meta.owner_user_id === ownerId : input.message.sender_user_id === ownerId);
+      && ((meta.channel === 'feishu' || meta.channel === 'wechat') ? meta.owner_user_id === ownerId : input.message.sender_user_id === ownerId);
 }
 
 /** Select a chat's admission and timing independently from command or publication authority. */
@@ -64,10 +64,11 @@ export function controlText(input:RelayInput):string {
 /** Return the original send instant when it is known for this channel. */
 export function sourceInstant(input: RelayInput): number | undefined {
   const meta=input.metadata;
-  const feishu=meta.channel==='feishu' || (!meta.channel && meta.trigger_source!=='im' && input.conversation_id.startsWith('external:'));
+  const external=(meta.channel==='feishu' || meta.channel==='wechat' || (!meta.channel && meta.trigger_source!=='im' && input.conversation_id.startsWith('external:')))
+    && input.message.sender_type === 'user';
   const value='provider_source_time' in meta ? meta.provider_source_time
-    : feishu ? Number(meta.source_timestamp) : input.message.created_at;
+    : external ? Number(meta.source_timestamp) : input.message.created_at;
   if(typeof value!=='string' && typeof value!=='number')return;
   const time=typeof value==='number'?value:Date.parse(value);
-  if(Number.isSafeInteger(time) && (!feishu || time>0) && !Number.isNaN(new Date(time).getTime()))return time;
+  if(Number.isSafeInteger(time) && (!external || time>0) && !Number.isNaN(new Date(time).getTime()))return time;
 }

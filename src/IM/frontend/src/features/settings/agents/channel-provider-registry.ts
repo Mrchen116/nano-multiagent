@@ -24,6 +24,9 @@ export interface ChannelProviderField {
 export interface ChannelProviderDescriptor {
   id: string;
   icon: string;
+  setupMode?: "form" | "wechat_qr";
+  logoClassName?: string;
+  cardLogoClassName?: string;
   label: ChannelText;
   description: ChannelText;
   guide?: {
@@ -32,8 +35,13 @@ export interface ChannelProviderDescriptor {
     linkLabel: ChannelText;
   };
   fields: readonly ChannelProviderField[];
-  summary: { field: string; label: string; mask: boolean };
-  removalSummary: { displayKey: string; label: string };
+  summary: {
+    field: string;
+    label: string | ChannelText;
+    mask: boolean;
+    note?: ChannelText;
+  };
+  removalSummary: { displayKey: string; label: string | ChannelText };
   diagnostics?: {
     href: string | ((channel: AgentChannel) => string);
     linkLabel: ChannelText;
@@ -58,85 +66,123 @@ export interface SerializedChannelProviderForm {
 export const FEISHU_OPEN_PLATFORM_URL =
   "https://open.feishu.cn/page/launcher?from=backend_oneclick";
 
-export const CHANNEL_PROVIDERS: readonly ChannelProviderDescriptor[] = [{
-  id: "feishu",
-  icon: "飞",
-  label: { default: "Feishu", key: "agents.channels.feishu.label" },
-  description: {
-    default: "Connect a Feishu application bot",
-    key: "agents.channels.feishu.description",
-  },
-  guide: {
-    text: {
-      default: "Create a Feishu application and enable long connections.",
-      key: "agents.channels.feishu.guide",
+export const CHANNEL_PROVIDERS: readonly ChannelProviderDescriptor[] = [
+  {
+    id: "feishu",
+    icon: "飞",
+    setupMode: "form",
+    logoClassName: "bg-blue-50 text-blue-700",
+    label: { default: "Feishu", key: "agents.channels.feishu.label" },
+    description: {
+      default: "Connect a Feishu application bot",
+      key: "agents.channels.feishu.description",
     },
-    href: FEISHU_OPEN_PLATFORM_URL,
-    linkLabel: {
-      default: "Open Feishu Open Platform",
-      key: "agents.channels.feishu.openPlatform",
-    },
-  },
-  fields: [
-    {
-      name: "appId",
-      wireKey: "app_id",
-      source: "config",
-      label: { default: "App ID" },
-      validation: {
-        default: "Enter an App ID",
-        key: "agents.channels.validation.appId",
+    guide: {
+      text: {
+        default: "Create a Feishu application and enable long connections.",
+        key: "agents.channels.feishu.guide",
       },
-      resetsCredentials: true,
-    },
-    {
-      name: "appSecret",
-      wireKey: "app_secret",
-      source: "credentials",
-      label: { default: "App Secret" },
-      validation: {
-        default: "Enter an App Secret",
-        key: "agents.channels.validation.appSecret",
-      },
-      help: {
-        default: "The secret is stored securely and is not shown again.",
-        key: "agents.channels.credentials.secretHelp",
-      },
-      inputType: "password",
-    },
-  ],
-  summary: { field: "appId", label: "App ID", mask: true },
-  removalSummary: { displayKey: "app_id_suffix", label: "App ID" },
-  diagnostics: {
-    href: (channel) => {
-      const appId = channel.config.app_id;
-      return typeof appId === "string" && appId.trim()
-        ? `https://open.feishu.cn/app/${encodeURIComponent(appId.trim())}/auth`
-        : FEISHU_OPEN_PLATFORM_URL;
-    },
-    linkLabel: {
-      default: "Check Open Platform",
-      key: "agents.channels.diagnostics.openPlatform",
-    },
-    scopeLabel: {
-      default: "Feishu permission scopes",
-      key: "agents.channels.diagnostics.rawScopes",
-    },
-    effectOverrides: {
-      "feishu.receive_group_message": {
-        default: "Messages without an @Bot mention do not enter Agent context.",
-        key: "agents.channels.diagnostics.groupBackgroundEffect",
+      href: FEISHU_OPEN_PLATFORM_URL,
+      linkLabel: {
+        default: "Open Feishu Open Platform",
+        key: "agents.channels.feishu.openPlatform",
       },
     },
+    fields: [
+      {
+        name: "appId",
+        wireKey: "app_id",
+        source: "config",
+        label: { default: "App ID" },
+        validation: {
+          default: "Enter an App ID",
+          key: "agents.channels.validation.appId",
+        },
+        resetsCredentials: true,
+      },
+      {
+        name: "appSecret",
+        wireKey: "app_secret",
+        source: "credentials",
+        label: { default: "App Secret" },
+        validation: {
+          default: "Enter an App Secret",
+          key: "agents.channels.validation.appSecret",
+        },
+        help: {
+          default: "The secret is stored securely and is not shown again.",
+          key: "agents.channels.credentials.secretHelp",
+        },
+        inputType: "password",
+      },
+    ],
+    summary: { field: "appId", label: "App ID", mask: true },
+    removalSummary: { displayKey: "app_id_suffix", label: "App ID" },
+    diagnostics: {
+      href: (channel) => {
+        const appId = channel.config.app_id;
+        return typeof appId === "string" && appId.trim()
+          ? `https://open.feishu.cn/app/${encodeURIComponent(appId.trim())}/auth`
+          : FEISHU_OPEN_PLATFORM_URL;
+      },
+      linkLabel: {
+        default: "Check Open Platform",
+        key: "agents.channels.diagnostics.openPlatform",
+      },
+      scopeLabel: {
+        default: "Feishu permission scopes",
+        key: "agents.channels.diagnostics.rawScopes",
+      },
+      effectOverrides: {
+        "feishu.receive_group_message": {
+          default: "Messages without an @Bot mention do not enter Agent context.",
+          key: "agents.channels.diagnostics.groupBackgroundEffect",
+        },
+      },
+    },
+    connectingDetail: {
+      default: "Establishing the Feishu long connection",
+      key: "agents.channels.status.connectingDetail",
+    },
   },
-  connectingDetail: {
-    default: "Establishing the Feishu long connection",
-    key: "agents.channels.status.connectingDetail",
+  {
+    id: "wechat",
+    icon: "微",
+    setupMode: "wechat_qr",
+    logoClassName: "bg-emerald-50 text-emerald-700",
+    cardLogoClassName: "im-channel-provider-logo--wechat",
+    label: { default: "WeChat", key: "agents.channels.wechat.label" },
+    description: {
+      default: "Scan QR with personal WeChat; owner 1:1 DM only",
+      key: "agents.channels.wechat.description",
+    },
+    fields: [],
+    summary: {
+      field: "owner_user_id",
+      label: { default: "Bound WeChat", key: "agents.channels.wechat.summaryLabel" },
+      mask: true,
+      note: { default: "Owner 1:1 DM only", key: "agents.channels.wechat.ownerOnlyNote" },
+    },
+    removalSummary: {
+      displayKey: "owner_user_id_suffix",
+      label: { default: "Bound WeChat", key: "agents.channels.wechat.summaryLabel" },
+    },
+    connectingDetail: {
+      default: "Establishing the WeChat official single connection",
+      key: "agents.channels.wechat.connectingDetail",
+    },
   },
-}];
+];
 
 export function textKey(text: ChannelText): string {
   return text.key ?? text.default;
+}
+
+export function resolveSummaryLabel(
+  label: string | ChannelText,
+  translate: (key: string) => string,
+): string {
+  return typeof label === "string" ? label : translate(textKey(label));
 }
 
 export function providerDiagnosticsHref(
@@ -208,7 +254,8 @@ export function providerSummary(
   const field = provider.fields.find((candidate) => (
     candidate.name === provider.summary.field && candidate.source === "config"
   ));
-  const raw = field ? channel.config[field.wireKey] : "";
+  const wireKey = field ? field.wireKey : provider.summary.field;
+  const raw = channel.config[wireKey];
   const value = typeof raw === "string" ? raw : "";
   return provider.summary.mask ? maskIdentity(value) : value;
 }

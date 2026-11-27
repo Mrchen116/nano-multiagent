@@ -126,19 +126,45 @@ export class FeishuConnection {
       }
     } catch (error) { this.options.onError(error as Error); }
   }
-  async send(chatId: string, text: string, operationId: string, card?: Record<string, unknown>): Promise<string> {
-    const rendered = await renderFeishuImages(text, async data => {
-      const uploaded = await this.call(() => this.client.im.v1.image.create({ data: { image_type: 'message', image: data } }));
-      if (!uploaded?.image_key) throw new Error('Feishu returned no image identity'); return uploaded.image_key;
-    });
-    if (card && rendered !== text) card = JSON.parse(JSON.stringify(card).replaceAll(JSON.stringify(text).slice(1, -1), JSON.stringify(rendered).slice(1, -1))) as Record<string, unknown>;
-    const result = await this.call(() => this.client.im.v1.message.create({ params: { receive_id_type: 'chat_id' }, data: {
-      receive_id: chatId, msg_type: card ? 'interactive' : 'post',
-      content: JSON.stringify(card ?? { zh_cn: { title: '', content: [[{ tag: 'md', text: rendered }]] } }),
-      uuid: createHash('sha256').update(operationId).digest('hex').slice(0, 32),
-    } }));
-    check(result); if (!result.data?.message_id) throw new Error('Feishu returned no message identity');
-    return result.data.message_id;
+  async send(
+    chatId: string,
+    text: string,
+    operationId: string,
+    card?: Record<string, unknown>,
+    images?: { data: Buffer; mediaType: string }[],
+  ): Promise<string> {
+    let lastMessageId = '';
+    if (text.trim() || card || !images?.length) {
+      const rendered = await renderFeishuImages(text, async data => {
+        const uploaded = await this.call(() => this.client.im.v1.image.create({ data: { image_type: 'message', image: data } }));
+        if (!uploaded?.image_key) throw new Error('Feishu returned no image identity'); return uploaded.image_key;
+      });
+      if (card && rendered !== text) card = JSON.parse(JSON.stringify(card).replaceAll(JSON.stringify(text).slice(1, -1), JSON.stringify(rendered).slice(1, -1))) as Record<string, unknown>;
+      const result = await this.call(() => this.client.im.v1.message.create({ params: { receive_id_type: 'chat_id' }, data: {
+        receive_id: chatId, msg_type: card ? 'interactive' : 'post',
+        content: JSON.stringify(card ?? { zh_cn: { title: '', content: [[{ tag: 'md', text: rendered }]] } }),
+        uuid: createHash('sha256').update(operationId).digest('hex').slice(0, 32),
+      } }));
+      check(result); if (!result.data?.message_id) throw new Error('Feishu returned no message identity');
+      lastMessageId = result.data.message_id;
+    }
+    for (const [index, img] of (images ?? []).entries()) {
+      const uploaded = await this.call(() => this.client.im.v1.image.create({ data: { image_type: 'message', image: img.data } }));
+      if (!uploaded?.image_key) throw new Error('Feishu returned no image identity');
+      const imgResult = await this.call(() => this.client.im.v1.message.create({
+        params: { receive_id_type: 'chat_id' },
+        data: {
+          receive_id: chatId,
+          msg_type: 'image',
+          content: JSON.stringify({ image_key: uploaded.image_key }),
+          uuid: createHash('sha256').update(`${operationId}:image:${index}`).digest('hex').slice(0, 32),
+        },
+      }));
+      check(imgResult);
+      if (!imgResult.data?.message_id) throw new Error('Feishu returned no message identity');
+      lastMessageId = imgResult.data.message_id;
+    }
+    return lastMessageId;
   }
   async updateCard(messageId: string, card: Record<string, unknown>): Promise<void> {
     check(await this.call(() => this.client.im.v1.message.patch({ path: { message_id: messageId }, data: { content: JSON.stringify(card) } })));

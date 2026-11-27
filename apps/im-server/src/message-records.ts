@@ -122,7 +122,19 @@ export class MessageRecords {
   }
   /** Store the producer's final text/statistics and release its permission wait. */
   complete(m:ChatMessage,p:Extract<ChatStreamFact,{kind:'message_completed'}>):void {
-    this.db.prepare('UPDATE messages SET content=?,delivery_status=?,token_usage_json=?,elapsed_ms=?,kernel_message_id=?,awaiting_permission_at=NULL WHERE id=?').run(p.final_content??m.content,p.delivery_status??'completed',p.token_usage?JSON.stringify(p.token_usage):null,p.elapsed_ms??null,p.kernel_message_id??null,m.id);
+    let attachmentsJson: string | undefined;
+    if (p.attachments?.length) {
+      if (p.attachments.length > 5) fail(422, 'too many attachments');
+      const verified = p.attachments.map(({ url }) => {
+        const match = url?.match(/^\/im\/v1\/conversations\/([^/]+)\/(?:images|attachments)\/([\w-]+)$/);
+        if (!match || match[1] !== m.conversation_id) fail(422, 'attachment must belong to the destination conversation');
+        const row = this.db.prepare('SELECT file_name,content_type FROM message_images WHERE conversation_id=? AND image_id=?').get(m.conversation_id, match[2]!) as { file_name: string; content_type: string } | undefined;
+        if (!row) fail(404, 'attachment not found');
+        return { url, file_name: row.file_name, content_type: row.content_type };
+      });
+      attachmentsJson = JSON.stringify(verified);
+    }
+    this.db.prepare('UPDATE messages SET content=?,attachments_json=coalesce(?,attachments_json),delivery_status=?,token_usage_json=?,elapsed_ms=?,kernel_message_id=?,awaiting_permission_at=NULL WHERE id=?').run(p.final_content??m.content,attachmentsJson??null,p.delivery_status??'completed',p.token_usage?JSON.stringify(p.token_usage):null,p.elapsed_ms??null,p.kernel_message_id??null,m.id);
     if(m.thread_root_message_id) recordThreadDelivery(this.db,m.id);
   }
   /** Apply the existing provisional-message deletion semantics and roll back the projection it wrote on insert.
@@ -410,10 +422,16 @@ export class MessageRecords {
       JOIN conversations c ON c.id=p.conversation_id
       JOIN users u ON u.id=p.user_id
       LEFT JOIN agent_profiles a ON u.username='agent:'||a.agent_id
-      WHERE c.id=? AND p.user_id<>? AND c.external_source IS NULL
+      WHERE c.id=? AND p.user_id<>?
+        AND (c.external_source IS NULL OR (
+          c.type='direct' AND a.agent_id IS NOT NULL AND a.agent_id=c.config_agent_id
+          AND EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.message_id=? AND d.agent_id=a.agent_id)
+          AND NOT EXISTS (SELECT 1 FROM provider_message_facts f WHERE f.message_id=? AND (
+            coalesce(json_extract(f.facts_json,'$.scope_skipped'),0)=1 OR
+            coalesce(json_extract(f.facts_json,'$.context_only'),0)=1))))
         AND (a.agent_id IS NULL OR a.collaboration_scope='team'
           OR EXISTS (SELECT 1 FROM owner_direct_agent_messages d WHERE d.message_id=? AND d.agent_id=a.agent_id)
-          OR (c.visibility!='public' AND NOT EXISTS (
+          OR (c.external_source IS NULL AND c.visibility!='public' AND NOT EXISTS (
             SELECT 1 FROM conversation_participants cp2 JOIN users u2 ON u2.id=cp2.user_id
             LEFT JOIN agent_profiles a2 ON u2.username='agent:'||a2.agent_id
             WHERE cp2.conversation_id=c.id AND COALESCE(a2.owner_id, u2.owner_id)!=a.owner_id)))
@@ -421,7 +439,7 @@ export class MessageRecords {
           SELECT 1 FROM thread_follows f WHERE f.conversation_id=c.id AND f.root_message_id=? AND f.user_id=p.user_id AND f.following=1))
         AND
         (c.type='group' OR (c.type='direct' AND (a.agent_id IS NULL OR a.work_mode='global')))
-    `).run(id,cId,sender,id,extra.thread_root_id ?? null,extra.thread_root_id ?? null);
+    `).run(id,cId,sender,id,id,id,extra.thread_root_id ?? null,extra.thread_root_id ?? null);
     const m = this.message(id);
     // Shadow messages store under the local owner even when the provider has no display name.
     const data = {...m,message_id:id,...(extra.sender_source_id

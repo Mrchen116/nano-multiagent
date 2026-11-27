@@ -1,5 +1,6 @@
 import { externalAvatarId } from "./identity.js";
 import { isCollaborationScope } from '@nano/product-contracts';
+import { externalChannelOwnerId, matchesExternalChannel } from './channels.js';
 import { chatAllowed, isOwnerInternalConversation, ownerDirect, storedProviderFacts } from './collaboration.js';
 import { conversationName } from './conversation-name.js';
 import {parseAvatarVariant} from './configuration-input.js';
@@ -112,12 +113,12 @@ export class PersonalAgents {
     return this.sourceAllowed(b,message.conversation_id) && !!one(this.db,`SELECT 1 FROM messages m JOIN conversations c ON c.id=m.conversation_id
       WHERE m.id=? AND ${contactReadable}`,message.id,b.binding_id);
   }
-  private feishuChannel(b:Row,chat:Row):Row|undefined {
-    if(chat.external_source!=='feishu'||chat.owner_id!==b.owner_id)return;
-    return all(this.db,`SELECT ch.agent_id,ch.node_id,ch.config_json,ch.provider_runtime_json FROM agent_channels ch
+  private externalChannel(b:Row,chat:Row):Row|undefined {
+    if((chat.external_source!=='feishu'&&chat.external_source!=='wechat')||chat.owner_id!==b.owner_id)return;
+    return all(this.db,`SELECT ch.agent_id,ch.node_id,ch.provider,ch.config_json,ch.provider_runtime_json FROM agent_channels ch
       JOIN agent_profiles a ON a.agent_id=ch.agent_id AND a.node_id=ch.node_id
-      WHERE ch.owner_id=? AND ch.agent_id=? AND ch.provider='feishu' AND ch.enabled=1`,b.owner_id,chat.config_agent_id)
-      .find(row=>String(chat.external_chat_id).startsWith(`feishu:${JSON.parse(row.config_json).app_id}:${chat.type==='group'?'group':'dm'}:`));
+      WHERE ch.owner_id=? AND ch.agent_id=? AND ch.provider=? AND ch.enabled=1`,b.owner_id,chat.config_agent_id,chat.external_source)
+      .find(row=>matchesExternalChannel(row,chat));
   }
   /** Identify a private owner destination from current persisted channel facts.
    *
@@ -131,8 +132,8 @@ export class PersonalAgents {
     if(conversationId===b.conversation_id)return true;
     const chat=one(this.db,'SELECT * FROM conversations WHERE id=?',conversationId);
     if(!chat||chat.config_agent_id!==b.agent_id)return false;
-    const channel=this.feishuChannel(b,chat);
-    const owner=channel && channel.node_id===b.node_id && JSON.parse(channel.provider_runtime_json).owner_open_id;
+    const channel=this.externalChannel(b,chat);
+    const owner=channel && channel.node_id===b.node_id ? externalChannelOwnerId(channel) : undefined;
     return !!owner && chat.type==='direct' && chat.external_chat_id.endsWith(`:dm:${owner}`);
   }
   /** Check whether a destination belongs to the owner's private chat or an owner-internal conversation. */
@@ -149,8 +150,8 @@ export class PersonalAgents {
    */
   sourceFacts(b: Row, message: Row) {
     const chat=one(this.db,'SELECT * FROM conversations WHERE id=?',message.conversation_id)!;
-    const channel=this.feishuChannel(b,chat);
-    const providerOwner=channel && JSON.parse(channel.provider_runtime_json).owner_open_id;
+    const channel=this.externalChannel(b,chat);
+    const providerOwner=channel ? externalChannelOwnerId(channel) : undefined;
     const participant=chat.external_source
       ? !!channel && channel.agent_id===b.agent_id && channel.node_id===b.node_id
       : !!one(this.db,'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?',message.conversation_id,this.ctx.messaging.agentUser(b.agent_id).id);
@@ -237,7 +238,7 @@ export class PersonalAgents {
     };
   }
   private batchConversationMeta(b: Row, chat: Row): Row {
-    const channel = this.feishuChannel(b, chat);
+    const channel = this.externalChannel(b, chat);
     const participant = chat.external_source
       ? !!channel && channel.agent_id === b.agent_id && channel.node_id === b.node_id
       : !!one(this.db, 'SELECT 1 FROM conversation_participants WHERE conversation_id=? AND user_id=?', chat.id, this.ctx.messaging.agentUser(b.agent_id).id);
@@ -392,7 +393,7 @@ export class PersonalAgents {
       .filter(m=>!this.representedBy(m.id) && this.sourceFacts(b,m).is_owner && this.messageAllowed(b,m));
     const conversationIds=[...new Set(messages.map(m=>m.conversation_id))];
     const conversations=conversationIds.map(id=>{
-      const chat=one(this.db,'SELECT id,title,type,title_is_custom,external_source FROM conversations WHERE id=?',id)!;
+      const chat=one(this.db,'SELECT id,title,type,title_is_custom,external_source,config_agent_id FROM conversations WHERE id=?',id)!;
       return {id,name:conversationName(chat,this.ctx.messaging.members(id),this.ctx.messaging.agentUser(b.agent_id).id),conversation_type:chat.type,channel:chat.external_source??'web',
         messages:all(this.db,'SELECT * FROM messages WHERE conversation_id=? ORDER BY rowid',id)
           .filter(m=>this.messageAllowed(b,m)).map(m=>this.messageEvidence(b,m))};
@@ -409,11 +410,11 @@ export class PersonalAgents {
   incidentEvent(b:Row,incident:Row) {
     const source=this.sourceAllowed(b,incident.conversation_id)?one(this.db,`SELECT m.content,
       COALESCE(NULLIF(m.sender_display_name,''),NULLIF(u.display_name,'')) actor_name,
-      c.id conversation_id,c.title conversation_name,c.type conversation_type,c.title_is_custom,c.external_source
+      c.id conversation_id,c.title conversation_name,c.type conversation_type,c.title_is_custom,c.external_source,c.config_agent_id
       FROM messages m JOIN conversations c ON c.id=m.conversation_id LEFT JOIN users u ON u.id=?
       WHERE m.id=?`,incident.actor_id,incident.source_message_id):undefined;
     const identity=source?{...(source.actor_name?{actor_name:source.actor_name}:{}),
-      conversation:{id:source.conversation_id,name:conversationName({title:source.conversation_name,type:source.conversation_type,title_is_custom:source.title_is_custom,external_source:source.external_source},this.ctx.messaging.members(source.conversation_id),this.ctx.messaging.agentUser(b.agent_id).id),type:source.conversation_type}}:{};
+      conversation:{id:source.conversation_id,name:conversationName({title:source.conversation_name,type:source.conversation_type,title_is_custom:source.title_is_custom,external_source:source.external_source,config_agent_id:source.config_agent_id},this.ctx.messaging.members(source.conversation_id),this.ctx.messaging.agentUser(b.agent_id).id),type:source.conversation_type}}:{};
     const automatic=one(this.db,'SELECT 1 FROM pa_contact_violations WHERE incident_id=? AND triggered_block=1',incident.id);
     if(automatic) {
       // The system action remains reportable to the owner after source access or contact policy changes.
