@@ -5,7 +5,7 @@ import { canAccessSpace, canTeamContactAgent } from './identity.js';
 const batchSize = 100;
 
 function candidates(db: DatabaseSync, where: string, args: string[]): Row[] {
-  return all(db, `SELECT u.id AS user_id,u.username AS username,u.membership_status AS membership_status,
+  return all(db, `SELECT u.id AS user_id,u.username AS username,u.membership_status AS membership_status,u.avatar_version AS user_avatar_version,
       CASE WHEN ap.agent_id IS NULL THEN 'human' ELSE 'agent' END AS kind,
       COALESCE(ap.display_name,u.display_name) AS display_name,ap.avatar_variant,ap.agent_id,ap.owner_id,ap.space_id,
       ap.collaboration_scope,ap.is_stale,
@@ -41,8 +41,8 @@ function visible(db: DatabaseSync, viewer: Row, rows: Row[]): Row[] {
     if (row.owner_id === viewer.owner_id) return canAccessSpace(viewer, row.space_id);
     return canTeamContactAgent(db, viewer, row);
   }).map(row => {
-    const {membership_status: _membership, binding_id, personal_status: _personal, is_stale: _stale, username, ...contact} = row;
-    if (row.kind === 'human') return {user_id:row.user_id,kind:row.kind,display_name:row.display_name,username};
+    const {membership_status: _membership, binding_id, personal_status: _personal, is_stale: _stale, username, user_avatar_version, ...contact} = row;
+    if (row.kind === 'human') return {user_id:row.user_id,kind:row.kind,display_name:row.display_name,username,avatar_version:user_avatar_version ?? null};
     const owner = owners.get(row.owner_id);
     const owner_display_name = row.owner_display_name ?? owner?.display_name ?? null;
     const owner_user_id = owner?.id;

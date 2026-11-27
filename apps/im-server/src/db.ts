@@ -169,6 +169,13 @@ export function openDatabase(path: string): DatabaseSync {
         WHERE COALESCE(a.collaboration_scope, 'team') IN ('team', 'owner_only')`);
       db.prepare("INSERT INTO schema_migrations VALUES('pa-binding-collaboration-scope-v1')").run();
     }
+    if (!db.prepare("SELECT 1 FROM schema_migrations WHERE version='user-avatar-v1'").get()) {
+      const userCols = new Set(db.prepare("PRAGMA table_info(users)").all().map(column => column.name));
+      for (const col of ["avatar_storage_name", "avatar_version", "avatar_content_type"]) {
+        if (!userCols.has(col)) db.exec(`ALTER TABLE users ADD COLUMN ${col} TEXT`);
+      }
+      db.prepare("INSERT INTO schema_migrations VALUES('user-avatar-v1')").run();
+    }
     db.exec("COMMIT");
   } catch (error) {
     db.exec("ROLLBACK");

@@ -23,6 +23,7 @@ import { TaskGraphService, TaskGraphError } from "./task-graphs.js";
 import { Work } from "./work.js";
 import {canonicalAgentConfiguration, interactiveResponse, decodeAgentPublication, type AgentPublication} from "@nano/product-contracts";
 import { TrajectoryObservers } from './trajectory.js';
+import { attachHumanAvatars } from './human-avatar-projection.js';
 export type Connection = {
   socket: WebSocket;
   owner_id: string;
@@ -212,6 +213,9 @@ export class Gateway {
     const space = !chat && !frame.conversation_id && frame.data?.conversation_id
       ? one(this.ctx.db,"SELECT space_id FROM conversations WHERE id=?",frame.data.conversation_id)?.space_id
       : undefined;
+    const outbound = frame.data && frame.event_type !== "user.profile_updated"
+      ? { ...frame, data: attachHumanAvatars(this.ctx.db, frame.data) }
+      : frame;
     for (const b of recipients) {
       if (!this.browserValid(b)) {
         b.socket.close(1008);
@@ -223,7 +227,7 @@ export class Gateway {
         if (!canViewAgentWork(this.ctx.db, this.ctx.identity.user(b.userId), profile)) continue;
       }
       if (!chat && frame.conversation_id && !conversationAccess(this.ctx.db,frame.conversation_id,b.userId)) continue;
-      this.write(b.socket, frame);
+      this.write(b.socket, outbound);
       b.cursor = Math.max(b.cursor, frame.event_id ?? 0);
     }
   }
@@ -262,14 +266,14 @@ export class Gateway {
           event_type: e.event_type,
           event_id: e.event_id,
           conversation_id: e.conversation_id,
-          data: {
+          data: attachHumanAvatars(db, {
             ...data,
             event_id: e.event_id,
             conversation_id: e.conversation_id,
             message_id: e.message_id ?? data.message_id,
             delivery_status: e.delivery_status,
             created_at: e.event_type === "message.reconciled" ? data.created_at : e.created_at,
-          },
+          }),
         });
       }
     b.cursor = top;

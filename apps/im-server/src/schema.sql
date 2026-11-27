@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS users (
     locale TEXT NOT NULL DEFAULT 'en',
     timezone TEXT,
     created_at TEXT NOT NULL
-, personal_space_enabled INTEGER NOT NULL DEFAULT 0, membership_status TEXT NOT NULL DEFAULT 'pending', is_company_admin INTEGER NOT NULL DEFAULT 0, auth_epoch INTEGER NOT NULL DEFAULT 0);
+, personal_space_enabled INTEGER NOT NULL DEFAULT 0, membership_status TEXT NOT NULL DEFAULT 'pending', is_company_admin INTEGER NOT NULL DEFAULT 0, auth_epoch INTEGER NOT NULL DEFAULT 0, avatar_storage_name TEXT, avatar_version TEXT, avatar_content_type TEXT);
 CREATE TABLE IF NOT EXISTS settings_policies (
     singleton_key TEXT PRIMARY KEY,
     default_model TEXT NOT NULL,
