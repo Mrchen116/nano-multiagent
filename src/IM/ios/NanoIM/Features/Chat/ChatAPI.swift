@@ -6,10 +6,10 @@ extension IMClient {
         if let before { query.append(.init(name: "before_message_id", value: before)) }
         return try await get("/im/v1/conversations/\(id.pathComponent)/messages", query: query)
     }
-    func createConversation(title: String, type: String, participants: [ActorRef], userID: String, visibility: String = "public") async throws -> Conversation {
-        struct Body: Encodable, Sendable { let title: String; let type: String; let participants: [ActorRef]; let visibility: String }
+    func createConversation(title: String, type: String, participants: [ActorRef], userID: String, visibility: String = "public", confirmProjectContextShare: Bool = false) async throws -> Conversation {
+        struct Body: Encodable, Sendable { let title: String; let type: String; let participants: [ActorRef]; let visibility: String; let confirm_project_context_share: Bool? }
         return try await send("/im/v1/conversations", body: Body(title: title, type: type,
-            participants: [ActorRef(type: "user", id: userID)] + participants.filter { !($0.type == "user" && $0.id == userID) }, visibility: visibility))
+            participants: [ActorRef(type: "user", id: userID)] + participants.filter { !($0.type == "user" && $0.id == userID) }, visibility: visibility, confirm_project_context_share: confirmProjectContextShare ? true : nil))
     }
     nonisolated func prepareMessage(_ draft: PendingSend, userID: String, participants: [ActorRef] = [], interaction: InteractionReplyInput? = nil) throws -> PendingSend {
         struct Body: Encodable, Sendable {

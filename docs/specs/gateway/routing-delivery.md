@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Routing and Delivery Specification
 
-> 对齐: feat-794
+> 对齐: feat-803
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -194,12 +194,12 @@ Gateway 在非用户终态前已接受、但尚未进入模型上下文的普通
 
 ### Requirement: 群聊新消息按各 Agent 的接收策略触发，控制命令按目标生效
 
-两种模式先按协作范围过滤，再处理命令和优先级：处于「团队公开」（`team`）的 Agent 可接收所参与群的消息；处于「私有」（`owner_only`）的 Agent 仅接收同主人私密专属群（仅含主人本人及同主人名下 Agent）的消息，不接收任何含外部成员群聊的消息。下述群背景自动带入、按群创建 Session、普通正文/过程气泡及 `/new` 的重开效果适用于 `single_thread`；global 将可见更新存入 Inbox，仅有效实时触发推进唤醒，不自动摄取正文；命中的 global Agent 对 `/new` 在原聊天明确答复不支持。全局模式对应行为以 [global-agent](global-agent.md) 为准。
+两种模式先按协作范围过滤，再处理命令和优先级：处于「团队公开」（`team`）的 Agent 可接收所参与群的消息；处于「项目级」（`project`）的 Agent 可接收所参与未解散站内私密群的消息（不参与公开群）；处于「私有」（`owner_only`）的 Agent 仅接收同主人私密专属群（仅含主人本人及同主人名下 Agent）的消息，不接收任何含外部成员群聊的消息。下述群背景自动带入、按群创建 Session、普通正文/过程气泡及 `/new` 的重开效果适用于 `single_thread`；global 将可见更新存入 Inbox，仅有效实时触发推进唤醒，不自动摄取正文；命中的 global Agent 对 `/new` 在原聊天明确答复不支持。全局模式对应行为以 [global-agent](global-agent.md) 为准。
 
 允许接收该群消息时，私聊、真实提及、回复或引用本 Agent 及时触发，普通群消息累计到下次高优或十分钟。触发后仍可按相应工作模式保持静默。裸 `/stop` 与内置 Web IM 群聊中的精确裸 `/new` 独立于普通消息策略：前者中断实际触达的活动 Agent，后者按各 Agent 的工作模式处理。`/compact`、`/compact <关注点>` 和 `/effort <level>` 仍须明确指向目标 Agent。
 
-#### Scenario: 团队协作与专属私密群下未点名的普通群消息作为背景
-- **GIVEN** 一个 `single_thread` Agent 在其有权接收的群中（「团队公开」群，或「私有」下的同主人私密专属群）
+#### Scenario: 团队协作、项目级私密群与专属私密群下未点名的普通群消息作为背景
+- **GIVEN** 一个 `single_thread` Agent 在其有权接收的群中（「团队公开」群、「项目级」所参与的未解散私密群，或「私有」下的同主人私密专属群）
 - **WHEN** 群里来了一条未提及或回复该 Agent 的普通消息
 - **THEN** 暂存为该群背景。同群下一条高优或十分钟先到者使其取得积压；忙时在下一次模型请求前取得，空闲时有积压才启动。跨群正文分隔，同批只交付一次，且不将该群会话劫持绑定为主人心跳主会话。
 
@@ -450,17 +450,17 @@ Gateway 持久化聊天与内核会话的绑定及该聊天实际采用的运行
 
 以下工具显式指定目标、权限校验和真实投递结果适用于两种模式。当前群来源的复核适用于 single_thread；global 按其目标群已接收范围复核，无隐含当前聊天。全局模式对应行为以 [global-agent](global-agent.md) 为准。
 
-内核中运行的产品工具(如 `send_message`)可把 Agent 产出的消息投递到另一目标会话;模型参数 `target` 使用聊天成员的短 `user_id` 或短 `conversation_id`，人和 Agent 均以 `user_id` 联系。外部 Inbox 在镜像尚未同步时返回的临时 `local:` 目标也可原样用于回复，Gateway 在同步恢复后解析到原聊天。Gateway 经 live IM 连接路由到目标会话,目标直聊不存在且符合该 Agent 可见与协作范围时创建、已存在则复用;当发送方 Agent 处于「私有」（`owner_only`）且目标为外部同事、他人 Agent 或含外部成员的会话时，IM 明确拒绝并返回私有范围限制说明；IM 连接不可用时返回明确错误而非静默丢弃。
+内核中运行的产品工具(如 `send_message`)可把 Agent 产出的消息投递到另一目标会话;模型参数 `target` 使用聊天成员的短 `user_id` 或短 `conversation_id`，人和 Agent 均以 `user_id` 联系。外部 Inbox 在镜像尚未同步时返回的临时 `local:` 目标也可原样用于回复，Gateway 在同步恢复后解析到原聊天。Gateway 经 live IM 连接路由到目标会话,目标直聊不存在且符合该 Agent 可见与协作范围时创建、已存在则复用;当发送方 Agent 处于「私有」（`owner_only`）且目标为外部同事或含外部成员会话，或处于「项目级」（`project`）且目标为公开群或无共同未解散私密群的圈外成员时，IM 明确拒绝并返回对应范围限制说明；IM 连接不可用时返回明确错误而非静默丢弃。
 
 #### Scenario: IM 在线时投递成功并回执
-- **GIVEN** Gateway 的 IM 连接已激活且目标符合发送方 Agent 的协作范围（「团队公开」或「私有」下的主人及同主人内部会话）
+- **GIVEN** Gateway 的 IM 连接已激活且目标符合发送方 Agent 的协作范围（「团队公开」、「项目级」下的同项目私密群/成员及内部会话，或「私有」下的主人及同主人内部会话）
 - **WHEN** 工具发起投递 `{target, text}`
 - **THEN** 消息经 IM 连接投递到目标会话,投递返回 `ok=True` 与目标会话标识
 
-#### Scenario: 私有助手向外部目标投递被明确拒绝
-- **GIVEN** 发送方 Agent 处于「私有」（`owner_only`）
-- **WHEN** 工具尝试向外部同事、他人名下 Agent 或含外部成员的会话发起投递
-- **THEN** 投递被拒绝且不产生对外消息，返回明确说明该助手仅允许与主人及主人名下助手通信的错误信息
+#### Scenario: 私有或项目级助手向越界目标投递被明确拒绝
+- **GIVEN** 发送方 Agent 处于「私有」（`owner_only`）或「项目级」（`project`）
+- **WHEN** 「私有」助手尝试向外部成员或含外部成员会话投递，或「项目级」助手尝试向公开群或未共享任何未解散私密群的圈外成员发起投递
+- **THEN** 投递被拒绝且不产生对外消息，返回明确说明当前协作范围限制的错误信息
 
 #### Scenario: IM 连接不可用时返回明确错误
 - **WHEN** IM 连接缺失或未连接时收到投递请求
@@ -600,11 +600,11 @@ Gateway 只把含非空真实更新对象的 self-evolution structured result �
 
 ### Requirement: Agent 可通过短标识下载受保护会话附件
 
-产品根主 Agent 可使用 `download_attachment(attachment_id)`（`attachment_id` 为 `<= 8` 字符的 `a_xxxxxx` 引用，来自 `inbox`、`read_messages`、`search_messages` 或 SingleThread 入站消息）将当前仍有权读取的原生 Nano IM 附件，或本节点已验权入站持久化的当前 Agent 外部通道附件（如微信入站通用文件、视频及语音原声附件）下载到受控本地目录（`<workspace>/.nano-downloads/<attachment_id>-<sanitized_name>`，无 workspace 时落 `<nodeHome>/downloads/<agentId>/`），返回 `{ attachment_id, local_path, file_name, content_type, byte_size }`。
+产品根主 Agent 可使用 `download_attachment(attachment_id)`（`attachment_id` 为 `<= 8` 字符的 `a_xxxxxx` 引用，来自 `inbox`、`read_messages`、`search_messages` 或 SingleThread 入站消息）将当前仍有权读取的原生 Nano IM 附件，或本节点已验权入站持久化的当前 Agent 外部通道附件（如微信入站通用文件、视频及语音原声附件）下载到受控本地目录（`<workspace>/.nano-downloads/<attachment_id>-<sanitized_name>`，无 workspace 时落 `<nodeHome>/downloads/<agentId>/`），返回 `{ attachment_id, local_path, file_name, content_type, byte_size, sha256 }`。
 
 #### Scenario: 跨节点文件下载、本机外部通道入站附件落盘、文件名保留与幂等覆写
 - **WHEN** 节点 B 的根主 Agent 调用 `download_attachment(attachment_id)` 下载同一会话中节点 A 发送的原生通用文件或光栅图片，或本节点根主 Agent 下载本机外部通道已验权入站的附件
-- **THEN** 原生 IM 附件由宿主持当前 Gateway 凭据向 IM Server 发起实时鉴权流式下载（上限 25 MiB、超时 60 秒），本机已验权外部通道附件直接从当前 Agent 归属的受保护外部存储读取（即使中心 IM 暂不可达亦可用），均保留清理后的原始文件名与扩展名（无扩展名时按 MIME 兜底），经临时文件原子重命名落盘并逐字节还原原文件；重复下载同一 `attachment_id` 幂等覆盖同一路径，不留半截临时文件。
+- **THEN** 原生 IM 附件由宿主持当前 Gateway 凭据向 IM Server 发起实时鉴权流式下载（上限 25 MiB、超时 60 秒），本机已验权外部通道附件直接从当前 Agent 归属的受保护外部存储读取（即使中心 IM 暂不可达亦可用），均保留清理后的原始文件名与扩展名（无扩展名时按 MIME 兜底），经临时文件原子重命名落盘并逐字节还原原文件且返回精确 `sha256` 摘要；重复下载同一 `attachment_id` 幂等覆盖同一路径，不留半截临时文件。
 - **AND** 对不属于当前 Agent 的 `external:` 标识、任意外部网页 URL 或已失权会话附件一律拒绝下载并清理临时文件；下载路径始终受限于受控目录，防止路径穿越。
 
 #### Scenario: SingleThread 接收非图与图片附件不崩溃
@@ -650,8 +650,8 @@ PA 的普通与全局 Agent 获得执行环境与用户端可能不同的说明�
 复用现有消息／Inbox 与执行机制，群内可见不等于所有 Agent 立即执行。分配通知是可由负责人接手的交办信息，读取并领取后才表示开始推进。
 
 #### Scenario: 协作范围不同的 Agent 同群
-- **WHEN** 含外部成员的群内改派消息 @ A 和 B，A、B、C 处于团队公开，D 处于私有（或仅在同主人私密专属群中与主人协作）
-- **THEN** 含外部成员群的聊天提醒仅向团队公开成员按范围送达（A、B 被明确指向，C 的普通聊天消息按批次处理，D 不在含外部成员群接收聊天）；在仅含主人及同主人名下 Agent 的私密专属群中，私有 Agent 正常按群提及与批次策略接收提醒。任务原件及面向负责人的任务控制仍依其专有授权和触发规则。
+- **WHEN** 含外部成员的私密群内改派消息 @ A 和 B，A、B 处于团队公开或项目级，C 处于项目级，D 处于私有（仅在同主人私密专属群中与主人协作）
+- **THEN** 私密群的聊天提醒向群内团队公开及项目级成员按范围送达（A、B 被明确指向，C 的普通聊天消息按批次处理，D 不在含外部成员群接收聊天）；在仅含主人及同主人名下 Agent 的私密专属群中，私有 Agent 正常按群提及与批次策略接收提醒。任务原件及面向负责人的任务控制仍依其专有授权和触发规则。
 
 #### Scenario: 空闲、忙碌、离线与取消当前执行
 - **WHEN** 应处理通知的 Agent 空闲、忙碌或离线
@@ -690,7 +690,7 @@ PA 的普通与全局 Agent 获得执行环境与用户端可能不同的说明�
 
 ### Requirement: 话题回复只把关注者及时叫醒
 
-有权接收群消息的群里（「团队公开」群，或「私有」Agent 所在的同主人私密专属群），未关注、未被 @、也未被引用的话题回复不中继。它不进入该 Agent 的群背景，也不在十分钟后并入下一次运行。私聊话题仍按私聊新消息及时到达。「私有」Agent 不在含外部成员的群中接收群话题；创建者及同主人名下 Agent 与它的私聊话题和同主人私密专属群中的已关注/被点名话题正常及时到达。
+有权接收群消息的群里（「团队公开」群、「项目级」Agent 所参与的未解散私密群，或「私有」Agent 所在的同主人私密专属群），未关注、未被 @、也未被引用的话题回复不中继。它不进入该 Agent 的群背景，也不在十分钟后并入下一次运行。私聊话题仍按私聊新消息及时到达。「私有」Agent 不在含外部成员的群中接收群话题，「项目级」Agent 不参与公开群话题；创建者、同主人名下 Agent 或所参与私密群中的已关注/被点名话题正常及时到达。
 
 #### Scenario: 未关注的群话题
 - **GIVEN** 有权接收该群消息的 Agent 没有关注这条群话题
@@ -702,9 +702,9 @@ PA 的普通与全局 Agent 获得执行环境与用户端可能不同的说明�
 - **THEN** 按现在的高优路径及时叫醒，并把话题根和这条回复交给该聊天现有的 session
 - **AND** 它随后要人看见的话写回这个话题，不另写一条主时间线消息
 
-#### Scenario: 私有档位下的内部与外部话题边界
-- **WHEN** 外部会话话题尝试指向一个「私有」Agent，同时创建者（或同主人 Agent）在私聊话题或同主人私密专属群话题里 `@` 该「私有」Agent
-- **THEN** 外部话题不叫醒它，而创建者私聊话题与同主人专属群话题正常到达并建立初始话题关注
+#### Scenario: 私有与项目级档位下的话题边界
+- **WHEN** 外部会话话题尝试指向一个「私有」Agent，或公开群话题尝试指向一个「项目级」Agent，同时创建者在同项目私密群话题里 `@` 该「项目级」Agent、或在同主人私密专属群话题里 `@` 该「私有」Agent
+- **THEN** 越界群话题不叫醒对应 Agent，而在有权接收的私密群或私聊话题中正常到达并建立初始话题关注
 
 ### Requirement: 自动正文和 send_message 能写进话题
 

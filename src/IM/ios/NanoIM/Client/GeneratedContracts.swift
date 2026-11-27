@@ -77,9 +77,10 @@ enum AgentLifecycleObservedContract: String, Codable, CaseIterable, Sendable, Ha
     case stopUnconfirmed = "stop_unconfirmed"
 }
 
-/// Two-tier visibility and communication boundary for an Agent or PA.
+/// Visibility and communication boundary for an Agent or PA.
 enum CollaborationScopeContract: String, Codable, CaseIterable, Sendable, Hashable {
     case team
+    case project
     case ownerOnly = "owner_only"
 }
 

@@ -68,6 +68,7 @@ interface Options {
   personalAgent?(agentId: string): boolean;
   globalAgent?(agentId: string): boolean;
   personalDelivery?(delivery: ExternalDelivery): Promise<string | undefined>;
+  collaborationScope?(agentId: string): 'team' | 'project' | 'owner_only' | undefined;
   ownerOnly?(agentId: string): boolean;
   attention?(input: RelayInput): boolean;
   relay: { readonly ready: boolean; request(type: string, payload: Record<string, unknown>): Promise<ProtocolFrame> };
@@ -297,7 +298,7 @@ export class ExternalChannels {
 
     const ownerDirect = !storedMessage.isGroup && storedMessage.senderId === connection.config.ownerOpenId;
     const epoch = this.restrictionEpoch.get(agentId);
-    const ownerOnlyAtArrival = this.options.ownerOnly?.(agentId) === true;
+    const nonTeamAtArrival = this.isNonTeamScope(agentId);
 
     let quoted: string | undefined;
     if (storedMessage.parentId && !storedMessage.contextOnly) {
@@ -337,7 +338,7 @@ export class ExternalChannels {
         ...(repliedToBot ? { reply_to_agent_id: agentId } : {}),
         provider_source_time: time,
         mentioned_owner: (storedMessage.mentionIds ?? []).includes(connection.config.ownerOpenId ?? ''),
-        scope_skipped: !ownerDirect && (ownerOnlyAtArrival || this.restrictionEpoch.get(agentId) !== epoch || this.options.ownerOnly?.(agentId) === true),
+        scope_skipped: !ownerDirect && (nonTeamAtArrival || this.restrictionEpoch.get(agentId) !== epoch || this.isNonTeamScope(agentId)),
         external_reply: eventId,
         source_timestamp: storedMessage.time,
         channel: provider,
@@ -773,8 +774,8 @@ export class ExternalChannels {
       }
       if (target.startsWith('external:')) {
         const agentId = String(publication.from_session_id).split('|')[0];
-        if (this.options.ownerOnly?.(agentId) === true) {
-          const message = "This assistant is set to Private and can only communicate with its owner and the owner's own assistants.";
+        if (this.isNonTeamScope(agentId)) {
+          const message = this.outboundScopeErrorMessage(agentId);
           throw Object.assign(new RelayDeliveryError(message, 'rejected', 'collaboration_scope_restricted'), {
             detail: { code: 'collaboration_scope_restricted', message },
           });
@@ -825,13 +826,23 @@ export class ExternalChannels {
     void this.flush().catch(this.options.onError);
     return ack(type);
   }
+  private isNonTeamScope(agentId: string): boolean {
+    const scope = this.options.collaborationScope?.(agentId);
+    if (scope !== undefined) return scope !== 'team';
+    return this.options.ownerOnly?.(agentId) === true;
+  }
+  private outboundScopeErrorMessage(agentId: string): string {
+    return this.options.collaborationScope?.(agentId) === 'project'
+      ? "This assistant is set to Project scope and can only communicate within shared private groups, active project members, and its owner's bound external direct chat."
+      : "This assistant is set to Private and can only communicate with its owner and the owner's own assistants.";
+  }
   private assertOutboundScopeAllowed(agentId: string, chat: ExternalChat): void {
-    if (this.options.ownerOnly?.(agentId) !== true) return;
+    if (!this.isNonTeamScope(agentId)) return;
     const provider = chatProvider(chat);
     const ownerOpenId = this.connections.get(connKey(provider, agentId))?.config.ownerOpenId;
     const isOwnerDm = !chat.isGroup && !!ownerOpenId && chat.sourceId === `${provider}:${chat.appId}:dm:${ownerOpenId}`;
     if (!isOwnerDm) {
-      const message = "This assistant is set to Private and can only communicate with its owner and the owner's own assistants.";
+      const message = this.outboundScopeErrorMessage(agentId);
       throw Object.assign(new RelayDeliveryError(message, 'rejected', 'collaboration_scope_restricted'), {
         detail: { code: 'collaboration_scope_restricted', message },
       });

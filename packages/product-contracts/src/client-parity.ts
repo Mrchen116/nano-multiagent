@@ -48,7 +48,7 @@ export const CLIENT_CONTRACT_ENUM_SPECS: readonly ClientContractEnumSpec[] = [
   },
   {
     name: 'CollaborationScopeContract',
-    doc: 'Two-tier visibility and communication boundary for an Agent or PA.',
+    doc: 'Visibility and communication boundary for an Agent or PA.',
     values: COLLABORATION_SCOPES,
   },
   {

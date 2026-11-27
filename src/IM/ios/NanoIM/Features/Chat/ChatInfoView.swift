@@ -19,6 +19,7 @@ struct ChatInfoView: View {
     @State private var busy = false
     @State private var confirmDelete = false
     @State private var confirmExitGroup = false
+    @State private var confirmCrossGroupShare = false
     @State private var remove: ActorRef?
     @State private var editingName = false
     @State private var showingMembers = false
@@ -28,6 +29,14 @@ struct ChatInfoView: View {
         guard let chat, chat.type == "group" else { return false }
         return chat.participants.contains { actor in
             actor.type == "agent" && contacts.contains { $0.agent_id == actor.id && $0.collaboration_scope == "owner_only" }
+        }
+    }
+    private var groupHasForeignProjectAgent: Bool {
+        guard let chat, chat.type == "group" else { return false }
+        return chat.participants.contains { actor in
+            actor.type == "agent" && contacts.contains {
+                $0.agent_id == actor.id && $0.collaboration_scope == "project" && $0.owner_id != store.user.id && $0.owner_id != store.user.owner_id
+            }
         }
     }
     private var groupHasExternalOrPublic: Bool {
@@ -43,9 +52,10 @@ struct ChatInfoView: View {
         contacts.filter { item in
             if item.user_id == store.user.id { return false }
             if chat?.participants.contains(where: { ($0.user_id ?? $0.id) == item.user_id || ($0.type == "agent" && $0.id == item.agent_id) }) == true { return false }
-            if item.kind != "agent" { return !groupHasPrivateAgent && item.matchesConversationSearch(memberSearch) }
+            if item.kind != "agent" { return !groupHasPrivateAgent && !groupHasForeignProjectAgent && item.matchesConversationSearch(memberSearch) }
             guard item.owner_id == store.user.id || item.owner_id == store.user.owner_id else { return false }
             if item.collaboration_scope == "owner_only" && groupHasExternalOrPublic { return false }
+            if item.collaboration_scope == "project" && chat?.visibility == "public" { return false }
             return item.matchesConversationSearch(memberSearch)
         }.sorted { $0.display_name.localizedStandardCompare($1.display_name) == .orderedAscending }
     }
@@ -91,7 +101,7 @@ struct ChatInfoView: View {
                             Toggle(isOn: Binding(get: { chat.is_muted }, set: { mutate(["is_muted": .bool($0)]) })) {
                                 Label(L("消息免打扰", "Mute notifications"), systemImage: "bell.slash")
                             }.padding(.vertical, 11)
-                        }.disabled((chat.can_write == false && chat.write_blocked_reason != "agent_private") || busy).tint(NanoTheme.accent)
+                        }.disabled((chat.can_write == false && !["agent_private", "agent_project_restricted"].contains(chat.write_blocked_reason ?? "")) || busy).tint(NanoTheme.accent)
                     }
                     if let error { ErrorNotice(message: error) }
                 }.padding(.horizontal, 22).padding(.vertical, 16)
@@ -183,6 +193,13 @@ struct ChatInfoView: View {
                             ErrorNotice(message: contactsError)
                             Button(L("重试", "Retry")) { Task { await loadContacts() } }
                         } else if !contactsLoaded { ProgressView() }
+                        if groupHasPrivateAgent {
+                            Text(L("包含私有助手，不可添加其他团队成员。", "Contains a private assistant: external teammates cannot be added."))
+                                .font(.caption).foregroundStyle(NanoTheme.muted)
+                        } else if groupHasForeignProjectAgent {
+                            Text(L("包含他人管理的项目级助手，仅该助手主人可邀请新的外部同事入群。", "Contains a project assistant owned by another member: only its owner can invite external teammates."))
+                                .font(.caption).foregroundStyle(NanoTheme.muted)
+                        }
                         let chosen = contacts.filter { selected.contains($0.id) }
                         if !chosen.isEmpty {
                             SelectedChatContacts(contacts: chosen) { selected.remove($0.id) }
@@ -201,6 +218,11 @@ struct ChatInfoView: View {
                             ToolbarItem(placement: .cancellationAction) { Button(L("取消", "Cancel")) { addingMembers = false }.disabled(busy) }
                             ToolbarItem(placement: .confirmationAction) { Button(L("添加", "Add") + (selected.isEmpty ? "" : " (\(selected.count))")) { Task { await addMember() } }.disabled(selected.isEmpty || busy) }
                         }.interactiveDismissDisabled(busy)
+                        .confirmationDialog(L("跨私密群共享项目上下文确认", "Confirm sharing project context across private groups?"), isPresented: $confirmCrossGroupShare, titleVisibility: .visible) {
+                            Button(L("继续加入", "Continue")) { Task { await addMember(confirmProjectContextShare: true) } }
+                        } message: {
+                            Text(L("全局项目级助手跨会话共享记忆与工作区，加入成员不完全一致的多个私密群可能使不同群的项目背景互通，是否继续？", "Global project assistants share memory and workspace across sessions. Adding one to private groups with different member sets may share project context across groups. Continue?"))
+                        }
                 }
             }
             .confirmationDialog(L("退出此群聊？", "Leave this group?"), isPresented: $confirmExitGroup, titleVisibility: .visible) {
@@ -327,13 +349,21 @@ struct ChatInfoView: View {
         do { contacts = try await store.client.contacts(); contactsLoaded = true }
         catch { if !Task.isCancelled { contactsError = error.localizedDescription } }
     }
-    private func addMember() async {
+    private func addMember(confirmProjectContextShare: Bool = false) async {
         let members = contacts.filter { selected.contains($0.id) }
         guard !members.isEmpty else { return }
-        struct Body: Encodable, Sendable { let participants: [ActorRef] }
+        struct Body: Encodable, Sendable { let participants: [ActorRef]; let confirm_project_context_share: Bool? }
         busy = true; defer { busy = false }
-        do { let _: Conversation = try await store.client.send("/im/v1/conversations/\(conversationID.pathComponent)/participants", body: Body(participants: members.map(\.actor))); selected = []; addingMembers = false; await load() }
-        catch { self.error = error.localizedDescription }
+        do {
+            let _: Conversation = try await store.client.send("/im/v1/conversations/\(conversationID.pathComponent)/participants", body: Body(participants: members.map(\.actor), confirm_project_context_share: confirmProjectContextShare ? true : nil))
+            selected = []; addingMembers = false; await load()
+        } catch {
+            if (error as? APIError)?.code == "project_agent_cross_group_confirmation_required" {
+                confirmCrossGroupShare = true
+            } else {
+                self.error = error.localizedDescription
+            }
+        }
     }
     private func removeMember(_ actor: ActorRef) async {
         guard let userID = actor.user_id else { return }

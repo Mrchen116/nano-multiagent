@@ -50,6 +50,9 @@ export function recordThreadDelivery(db: DatabaseSync, messageId: string): void 
       const isPaObserver = !!one(db, 'SELECT 1 FROM personal_agent_bindings b JOIN conversation_participants p ON p.user_id=b.owner_user_id WHERE b.agent_id=? AND b.status=\'active\' AND p.conversation_id=?', targetUser.agent_id, m.conversation_id);
       if (!isOwnerInternalConversation(db, m.conversation_id, targetUser.owner_id) && !isPaObserver) continue;
     }
+    if (targetUser?.agent_id && (targetUser.collaboration_scope ?? 'team') === 'project') {
+      if (one(db, 'SELECT visibility FROM conversations WHERE id=?', m.conversation_id)?.visibility === 'public') continue;
+    }
     const reactivate = named.has(id) ? 1 : 0;
     add.run(m.conversation_id, m.thread_root_id, at, id, m.conversation_id, m.conversation_id, reactivate, messageId, reactivate, reactivate);
   }

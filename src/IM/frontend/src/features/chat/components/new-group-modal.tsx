@@ -13,7 +13,7 @@ interface AgentRow {
   status?: "online" | "offline";
   kind?: "human" | "agent";
   space_id?: string;
-  collaboration_scope?: "team" | "owner_only";
+  collaboration_scope?: "team" | "project" | "owner_only";
 }
 
 export interface NewGroupModalProps {
@@ -35,8 +35,9 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
   const [search, setSearch] = useState("");
   const personalGroup = agents.some(a => selected.includes(a.agent_id) && a.space_id?.startsWith("personal:"));
   const hasPrivateAgentSelected = agents.some(a => selected.includes(a.agent_id) && a.kind !== "human" && a.collaboration_scope === "owner_only");
+  const hasProjectAgentSelected = agents.some(a => selected.includes(a.agent_id) && a.kind !== "human" && a.collaboration_scope === "project");
   const hasHumanSelected = agents.some(a => selected.includes(a.agent_id) && a.kind === "human");
-  const lockPrivate = personalGroup || hasPrivateAgentSelected;
+  const lockPrivate = personalGroup || hasPrivateAgentSelected || hasProjectAgentSelected;
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -91,6 +92,7 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
     const on = selected.includes(a.agent_id);
     const isHuman = a.kind === "human";
     const isPrivateAgent = !isHuman && a.collaboration_scope === "owner_only";
+    const isProjectAgent = !isHuman && a.collaboration_scope === "project";
     const disabled = !on && ((isHuman && hasPrivateAgentSelected) || (isPrivateAgent && hasHumanSelected));
     return (
       <li key={a.agent_id}>
@@ -118,7 +120,7 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
           <span className="chat-modal-agent-body">
             <span className="chat-modal-agent-topline">
               <span className="chat-modal-agent-name">{a.display_name}</span>
-              {isPrivateAgent && (
+              {(isPrivateAgent || isProjectAgent) && (
                 <span
                   style={{
                     fontSize: 11,
@@ -131,7 +133,7 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
                     border: "1px solid var(--im-border)"
                   }}
                 >
-                  {t("agents.form.behavior.ownerOnlyShort")}
+                  {t(isPrivateAgent ? "agents.form.behavior.ownerOnlyShort" : "agents.form.behavior.projectShort")}
                 </span>
               )}
               {!isHuman && a.status && (
@@ -212,8 +214,10 @@ export function NewGroupModal({ agents, onClose, onCreate, isBusy = false, error
         {error && <p role="alert">{t("chat.contacts.failed")}</p>}
         <label className="chat-modal-section-label">{t("tasks.visibility")}<select value={lockPrivate ? "private" : visibility} disabled={lockPrivate} onChange={e => setVisibility(e.target.value as "public" | "private")}><option value="public">{t("tasks.public")}</option><option value="private">{t("tasks.private")}</option></select></label>
         {hasPrivateAgentSelected
-          ? <p className="chat-modal-section-label">{t("chat.newGroup.privateAgentScope")}</p>
-          : personalGroup && <p className="chat-modal-section-label">{t("chat.newGroup.personalScope")}</p>}
+          ? <p className="group-settings-meta" style={{ margin: "-2px 0 8px" }}>{t("chat.newGroup.privateAgentScope")}</p>
+          : hasProjectAgentSelected
+            ? <p className="group-settings-meta" style={{ margin: "-2px 0 8px" }}>{t("chat.newGroup.projectAgentScope")}</p>
+            : personalGroup && <p className="group-settings-meta" style={{ margin: "-2px 0 8px" }}>{t("chat.newGroup.personalScope")}</p>}
         <p className="chat-modal-section-label">{t("chat.newGroup.sectionAgents")}</p>
         <input type="search" className="chat-sidebar-search" aria-label={t("chat.contacts.search")} placeholder={t("chat.contacts.search")} value={search} onChange={e => setSearch(e.target.value)} />
         {humanCandidates.length > 0 && (

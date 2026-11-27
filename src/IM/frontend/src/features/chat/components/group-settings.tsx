@@ -30,6 +30,8 @@ export interface GroupSettingsAgentOption {
 export interface GroupSettingsProps {
   readOnly?: boolean;
   privateAgentLocked?: boolean;
+  projectAgentLocked?: boolean;
+  foreignProjectAgentMemberLocked?: boolean;
   visibility?: "public" | "private";
   canChangeVisibility?: boolean;
   onVisibilityChange?(visibility: "public" | "private"): Promise<unknown>;
@@ -408,7 +410,9 @@ export function GroupSettings(props: GroupSettingsProps) {
         <option value="public">{t('tasks.public')}</option><option value="private">{t('tasks.private')}</option>
       </select>
     </label>}
-    {props.privateAgentLocked && <p className="group-settings-meta" style={{ margin: "2px 0 6px" }}>{t("chat.groupSettings.privateAgentVisibilityLocked")}</p>}
+    {props.privateAgentLocked
+      ? <p className="group-settings-meta" style={{ margin: "2px 0 6px" }}>{t("chat.groupSettings.privateAgentVisibilityLocked")}</p>
+      : props.projectAgentLocked && <p className="group-settings-meta" style={{ margin: "2px 0 6px" }}>{t("chat.groupSettings.projectAgentVisibilityLocked")}</p>}
     {onPreferenceChange && <>
       <label className="group-settings-control"><span>{t('chat.preferences.pin')}</span><input className="group-settings-switch" type="checkbox" role="switch" disabled={readOnly || isBusy} checked={!!isPinned} onChange={e => void runAction(() => onPreferenceChange({is_pinned:e.target.checked}))} /></label>
       <label className="group-settings-control"><span>{t('chat.preferences.mute')}</span><input className="group-settings-switch" type="checkbox" role="switch" disabled={readOnly || isBusy} checked={!!isMuted} onChange={e => void runAction(() => onPreferenceChange({is_muted:e.target.checked}))} /></label>
@@ -428,6 +432,7 @@ export function GroupSettings(props: GroupSettingsProps) {
         </div>
         {errorBanner}
         {props.privateAgentLocked && <p className="group-settings-meta" style={{ padding: "8px 16px 0", margin: 0 }}>{t("chat.groupSettings.privateAgentVisibilityLocked")}</p>}
+        {props.foreignProjectAgentMemberLocked && <p className="group-settings-meta" style={{ padding: "8px 16px 0", margin: 0 }}>{t("chat.groupSettings.foreignProjectAgentMemberLocked")}</p>}
         <div className="group-settings-mobile-scroll">
           <div className="group-settings-pick-list">{pickerRows}</div>
         </div>
@@ -533,9 +538,12 @@ export function GroupSettings(props: GroupSettingsProps) {
           {adding && (
             <div className="group-settings-addbox">
               <div className="group-settings-addbox-head">{t("chat.groupSettings.addMembersTitle")}</div>
+              {props.foreignProjectAgentMemberLocked && (
+                <p className="group-settings-meta" style={{ margin: "0 0 6px", padding: "6px 13px 0" }}>{t("chat.groupSettings.foreignProjectAgentMemberLocked")}</p>
+              )}
               <div className="group-settings-pick-list">{pickerRows}</div>
-              {addableAgents.length > 0 && (
-                <div className="group-settings-addbox-foot">
+              <div className="group-settings-addbox-foot">
+                {addableAgents.length > 0 && (
                   <button
                     type="button"
                     className="chat-modal-btn-primary"
@@ -544,11 +552,11 @@ export function GroupSettings(props: GroupSettingsProps) {
                   >
                     {t("chat.groupSettings.addCount", { count: selectedAgentIds.length })}
                   </button>
-                  <button type="button" className="chat-modal-btn-ghost" onClick={closeAdd}>
-                    {t("chat.groupSettings.cancel")}
-                  </button>
-                </div>
-              )}
+                )}
+                <button type="button" className="chat-modal-btn-ghost" onClick={closeAdd}>
+                  {t("chat.groupSettings.cancel")}
+                </button>
+              </div>
             </div>
           )}
 

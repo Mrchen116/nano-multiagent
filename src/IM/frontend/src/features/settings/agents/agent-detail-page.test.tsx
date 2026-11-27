@@ -1384,4 +1384,45 @@ describe("explicit empty tool allowlist", () => {
     expect(pill("write")?.getAttribute("aria-pressed")).toBe("false");
     expect(pill("edit")?.getAttribute("aria-pressed")).toBe("false");
   });
+
+  it("offers 3-tier scope for ordinary Global Agents, omits project for PA, and requires confirmation before widening from owner_only", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    const privState = {
+      ...makeClearState([], 1),
+      config: { ...makeClearConfig([], 1), collaboration_scope: "owner_only" as const, work_mode: "global" as const },
+    };
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(privState);
+    apiMocks.updateAgentConfigMock.mockResolvedValue({
+      ...privState.config,
+      collaboration_scope: "project",
+      profile_version: 2,
+    });
+
+    renderDetailPage(queryClient);
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    const scopeSelect = screen.getByLabelText(/Collaboration scope/i) as HTMLSelectElement;
+    expect(Array.from(scopeSelect.options).map(o => o.value)).toEqual(["team", "project", "owner_only"]);
+
+    await user.selectOptions(scopeSelect, "project");
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+
+    // Save must pause at the scope-widen confirmation modal before firing PATCH.
+    expect(apiMocks.updateAgentConfigMock).not.toHaveBeenCalled();
+    expect(screen.getByText(/Confirm widening collaboration scope/i)).toBeTruthy();
+    expect(screen.getByText(/full Global Work and trajectories/i)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: /Confirm and save/i }));
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
+        "agent-core-1",
+        expect.objectContaining({
+          collaboration_scope: "project",
+          confirm_scope_widen: true,
+        }),
+      );
+    });
+  });
 });

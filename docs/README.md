@@ -14,6 +14,7 @@
 | 构建与使用原生 iPhone 客户端 | [`../src/IM/ios/README.md`](../src/IM/ios/README.md) → [`specs/im/ios-client.md`](specs/im/ios-client.md) |
 | 交付 Nano IM 的 iPhone IPA 或通过 Mac mini 无线安装 | [`nano-ios-install`](../.agents/skills/nano-ios-install/SKILL.md) |
 | 查看双方 Agent owner 对协作私聊的只读观察权限 | [`specs/im/auth-tenancy.md`](specs/im/auth-tenancy.md) → [`specs/im/conversations-messages.md`](specs/im/conversations-messages.md)；Web 入口见 [`specs/im/web-chat-ux.md`](specs/im/web-chat-ux.md) |
+| 查看 PA 与普通/全局 Agent 多档协作权限统一矩阵 | [`specs/im/auth-tenancy.md`](specs/im/auth-tenancy.md#requirement-agent-与个人助手按统一权限矩阵控制发现会话轨迹与披露审核) |
 | 理解全局 Agent 的跨聊天工作、原生轨迹与父子执行范围导航 | [`specs/gateway/global-agent.md`](specs/gateway/global-agent.md) → [`specs/im/agent-work.md`](specs/im/agent-work.md) |
 | 理解每个人的 PA、双身份聊天访问、原聊天协助与聊天创建独立 Agent | [`specs/im/personal-agent.md`](specs/im/personal-agent.md) → [`specs/gateway/personal-agent.md`](specs/gateway/personal-agent.md) |
 | 理解角色化文档记忆、增量 Dreaming、来源失效与旧库回退 | [`specs/gateway/agent-capabilities.md`](specs/gateway/agent-capabilities.md)；配置入口见 [`specs/im/agents-nodes.md`](specs/im/agents-nodes.md)，整理记录见 [`specs/im/agent-work.md`](specs/im/agent-work.md) |

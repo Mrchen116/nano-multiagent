@@ -169,11 +169,13 @@ impl AgentLifecycleObservedContract {
     }
 }
 
-/// Two-tier visibility and communication boundary for an Agent or PA.
+/// Visibility and communication boundary for an Agent or PA.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CollaborationScopeContract {
     #[serde(rename = "team")]
     Team,
+    #[serde(rename = "project")]
+    Project,
     #[serde(rename = "owner_only")]
     OwnerOnly,
 }
@@ -182,6 +184,7 @@ impl CollaborationScopeContract {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Team => "team",
+            Self::Project => "project",
             Self::OwnerOnly => "owner_only",
         }
     }
@@ -189,6 +192,7 @@ impl CollaborationScopeContract {
     pub fn from_wire_str(raw: &str) -> Option<Self> {
         match raw {
             "team" => Some(Self::Team),
+            "project" => Some(Self::Project),
             "owner_only" => Some(Self::OwnerOnly),
             _ => None,
         }

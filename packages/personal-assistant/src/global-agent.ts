@@ -1301,7 +1301,11 @@ export class GlobalAgent {
       if (error instanceof RelayDeliveryError && error.delivery === 'rejected'
         && ((error.detail as {code?:string}|undefined)?.code === 'collaboration_scope_restricted' || error.code === 'collaboration_scope_restricted')) {
         inbox.settlePublication(call.operationId, 'rejected');
-        throw new Error("This assistant is set to Private and can only communicate with its owner and the owner's own assistants.");
+        const detailMessage = (error.detail as {message?:string}|undefined)?.message;
+        const fallbackMessage = config?.collaborationScope === 'project'
+          ? 'This assistant is set to Project scope and can only communicate within shared private groups and active project members.'
+          : "This assistant is set to Private and can only communicate with its owner and the owner's own assistants.";
+        throw new Error(typeof detailMessage === 'string' && detailMessage.trim() ? detailMessage : fallbackMessage);
       }
       if ((interactive || hasLocalMedia) && error instanceof RelayDeliveryError && error.delivery === 'rejected') {
         inbox.settlePublication(call.operationId, 'rejected');

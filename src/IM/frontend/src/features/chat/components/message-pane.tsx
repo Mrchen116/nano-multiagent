@@ -1431,7 +1431,7 @@ export function MessagePane({
       </header>
       {returnNavigation && <div className="pa-source-return">{returnNavigation}</div>}
 
-      {conversation.can_write === false && !conversation.is_observer && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : conversation.write_blocked_reason === "agent_private" ? "chat.messagePane.agentPrivateNotice" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
+      {conversation.can_write === false && !conversation.is_observer && <div className="tasks-notice"><span>{t(conversation.dissolved_at ? "tasks.history" : conversation.write_blocked_reason === "agent_private" ? "chat.messagePane.agentPrivateNotice" : conversation.write_blocked_reason === "agent_project_restricted" ? "chat.messagePane.agentProjectRestrictedNotice" : "tasks.readOnly")}</span>{conversation.visibility === "public" && !conversation.is_member && !conversation.dissolved_at && <button className="tasks-button" disabled={joining} onClick={() => { setJoining(true); setJoinError(null); void onJoin?.().catch(err => setJoinError(err instanceof Error ? err.message : t("tasks.writeFailed"))).finally(() => setJoining(false)); }}>{t("tasks.join")}</button>}</div>}
       {joinError && <p role="alert" className="tasks-notice">{joinError}</p>}
       <div ref={messagesContainerRef} className="chat-pane-messages" onScroll={handleMessagesScroll}>
         <div ref={messageListRef} className="chat-pane-message-list">
@@ -1442,7 +1442,7 @@ export function MessagePane({
             <div className="chat-pane-empty">
               <div className="chat-pane-empty-icon" aria-hidden="true">✨</div>
               <p className="chat-pane-empty-title">{t('chat.messagePane.emptyTitle')}</p>
-              <p className="chat-pane-empty-sub">{t('chat.messagePane.emptySubtitle')}</p>
+              {conversation.can_write !== false && <p className="chat-pane-empty-sub">{t('chat.messagePane.emptySubtitle')}</p>}
             </div>
           ))) : (
             <>
