@@ -901,7 +901,10 @@ export class GlobalAgent {
       await this.reconcileRoot(binding);
       const id = this.options.store.toolReferences.resolveMessageId(binding.agentId,String(call.args.ref));
       const personal = !!this.options.agents.find(agent => agent.agentId === binding.agentId)?.personal;
-      return this.options.inbox.computerRequest(binding.agentId,binding.ownerId,binding.sessionId,String(call.args.read),id,personal) ?? null;
+      const afterReads = Array.isArray(call.args.afterReads)
+        ? call.args.afterReads.filter((v): v is string => typeof v === 'string')
+        : undefined;
+      return this.options.inbox.computerRequest(binding.agentId,binding.ownerId,binding.sessionId,String(call.args.read),id,personal,afterReads) ?? null;
     }
     const references = this.options.store.toolReferences;
     const result = await this.execute({ ...call, args: call.method === 'memory.conversations' ? call.args : references.arguments(call.agentId, call.method, call.args) }, binding);

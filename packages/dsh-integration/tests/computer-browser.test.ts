@@ -15,9 +15,20 @@ it.skipIf(!installed)(
   'observes only the assigned browser and revalidates a reviewed target',
   async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'nano-browser-test-'));
-    const server = createServer((_req, res) =>
-      res.end('<html><title>Local fixture</title><button>Test button</button><input aria-label="Name"></html>'),
+    const server = createServer((req, res) => {
+      if (req.url === '/redirect') {
+        res.writeHead(302, { Location: redirectTarget });
+        res.end();
+        return;
+      }
+      res.end(
+        `<html><title>Local fixture</title><button>Test button</button><input aria-label="Name"><a href="${redirectTarget}" target="_blank">Open Cross Origin Popup</a></html>`,
+      );
+    });
+    const redirectedServer = createServer((_req, res) =>
+      res.end('<html><title>Redirected origin</title><p>Landed on second origin</p></html>'),
     );
+    let redirectTarget = '';
     const seat = new BrowserBackend(cwd);
     const other = new BrowserBackend(cwd);
     const signal = AbortSignal.timeout(45000);
@@ -30,8 +41,10 @@ it.skipIf(!installed)(
     }
     try {
       server.listen(0, '127.0.0.1');
-      await once(server, 'listening');
+      redirectedServer.listen(0, '127.0.0.1');
+      await Promise.all([once(server, 'listening'), once(redirectedServer, 'listening')]);
       const url = 'http://127.0.0.1:' + (server.address() as { port: number }).port + '/';
+      redirectTarget = 'http://127.0.0.1:' + (redirectedServer.address() as { port: number }).port + '/landed';
       const opening = await seat.prepare('open', { mode: 'isolated', url }, signal);
       expect(opening.access).toBe('review');
       await expect(other.prepare('snapshot', {}, signal)).rejects.toThrow();
@@ -69,9 +82,31 @@ it.skipIf(!installed)(
       const shotParts = await (await other.prepare('screenshot', {}, signal)).run(signal);
       expect(shotParts.some((p) => p.type === 'image')).toBe(true);
       expect(shotParts.find((p) => p.type === 'text')?.text).toContain('Screenshot saved to ');
+
+      // Cross-origin 302 redirect keeps the tab owned, readable, and closable
+      const navResult = await (await other.prepare('navigate', { url: url + 'redirect' }, signal)).run(signal);
+      expect(navResult[0]?.type === 'text' ? navResult[0].text : '').toContain(redirectTarget);
+      const redirectedSnap = await (await other.prepare('snapshot', {}, signal)).run(signal);
+      expect(JSON.stringify(redirectedSnap)).toContain('Landed on second origin');
+      const otherTabsAfterRedirect = JSON.parse(
+        ((await (await other.prepare('tabs', {}, signal)).run(signal))[0] as { text: string }).text,
+      );
+      expect(otherTabsAfterRedirect).toHaveLength(1);
+
+      // Approved target="_blank" click adopts the spawned cross-origin popup tab
+      await (await other.prepare('navigate', { url }, signal)).run(signal);
+      const popupPageSnap = ((await (await other.prepare('snapshot', {}, signal)).run(signal))[0] as { text: string })
+        .text;
+      const popupLinkRef = /link "Open Cross Origin Popup" \[ref=(\w+)\]/.exec(popupPageSnap)![1]!;
+      await (await other.prepare('click', { ref: popupLinkRef }, signal)).run(signal);
+      const popupTabs = JSON.parse(
+        ((await (await other.prepare('tabs', {}, signal)).run(signal))[0] as { text: string }).text,
+      );
+      expect(popupTabs).toHaveLength(2);
     } finally {
       await Promise.all([seat.close(), other.close()]);
       server.close();
+      redirectedServer.close();
       await rm(cwd, { recursive: true, force: true });
     }
   },

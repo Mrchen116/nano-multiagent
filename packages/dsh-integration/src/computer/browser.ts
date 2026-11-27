@@ -67,8 +67,13 @@ function webUrl(raw: string) {
   return url;
 }
 function publicUrl(raw: string) {
-  const url = new URL(raw);
-  return url.origin + url.pathname;
+  try {
+    const url = new URL(raw);
+    if (url.protocol === 'http:' || url.protocol === 'https:') return url.origin + url.pathname;
+    return url.protocol + (url.pathname || '');
+  } catch {
+    return 'non-web-page';
+  }
 }
 function label(t: Tab) {
   return publicUrl(t.url) + ' ' + t.title.slice(0, 140);
@@ -117,7 +122,6 @@ export class BrowserBackend implements ComputerBackend {
   private mode?: Mode;
   private connection?: Pairing;
   private closed = false;
-  private readonly origins = new Set<string>();
   private readonly tabs = new Set<string>();
   private readonly pendingTabs = new Set<string>();
   private seen?: { tab: Tab; snapshot: string; refs: Map<string, string> };
@@ -203,8 +207,11 @@ export class BrowserBackend implements ComputerBackend {
     }
     return (await this.inventory(signal)).current;
   }
-  private allowed(t: Tab) {
-    return this.tabs.has(t.id) && this.origins.has(new URL(t.url).origin);
+  private owned(t: Tab) {
+    return this.tabs.has(t.id);
+  }
+  private webPage(t: Tab) {
+    return this.tabs.has(t.id) && /^https?:\/\//i.test(t.url);
   }
   private async snapshot(signal: AbortSignal) {
     const parts = await this.client!.call('browser_snapshot', { _meta: { json: true } }, signal);
@@ -327,8 +334,8 @@ export class BrowserBackend implements ComputerBackend {
             this.tabs.add(initial.id);
             if (this.connection) await recordCheck(this.connection.id, 'verified');
             await this.client!.call('browser_navigate', { url: url!.href }, sig);
-            this.origins.add(url!.origin);
-            return text('Browser seat opened. Use snapshot to observe the page.');
+            const landed = await this.current(sig);
+            return text(`Browser seat opened at ${publicUrl(landed.url)}. Use snapshot to observe the page.`);
           } catch (error) {
             if (this.connection && !this.tabs.size) await recordCheck(this.connection.id, 'reconnect');
             await this.release();
@@ -342,11 +349,12 @@ export class BrowserBackend implements ComputerBackend {
       };
     }
     const tab = await this.current(signal);
-    if (
-      !['tabs', 'select_tab'].includes(action) &&
-      (!this.tabs.has(tab.id) || (!this.allowed(tab) && action !== 'navigate'))
-    )
-      throw new Error('This page is outside the approved task site. Navigate to an explicitly authorized URL.');
+    if (!['tabs', 'select_tab'].includes(action)) {
+      if (!this.owned(tab))
+        throw new Error('Current tab does not belong to this browser task. Use tabs and select_tab.');
+      if (!['navigate', 'new_tab', 'close_tab'].includes(action) && !this.webPage(tab))
+        throw new Error('This tab is not on an http(s) web page. Navigate to an authorized web URL or close the tab.');
+    }
     let target: string | undefined;
     let value: string | undefined;
     let file: string | undefined;
@@ -371,7 +379,7 @@ export class BrowserBackend implements ComputerBackend {
           throw new Error('Browser target changed. Observe the page and request the action again.');
         const client = this.client!;
         if (action === 'tabs' || action === 'select_tab') {
-          const list = (await this.inventory(sig)).tabs.filter((t) => this.allowed(t));
+          const list = (await this.inventory(sig)).tabs.filter((t) => this.owned(t));
           if (action === 'tabs')
             return text(JSON.stringify(list.map((t) => ({ tab: t.id, current: t.id === live.id, label: label(t) }))));
           const chosen = list.find((t) => t.id === field(input, 'tab'));
@@ -452,7 +460,8 @@ export class BrowserBackend implements ComputerBackend {
             this.pendingTabs.delete(marker);
             await client.call('browser_navigate', { url: url!.href }, sig);
           }
-          this.origins.add(url!.origin);
+          const landed = await this.current(sig);
+          return text(`Navigated to ${publicUrl(landed.url)}. Use snapshot to observe the page.`);
         } else if (action === 'close_tab') {
           await client.call('browser_tabs', { action: 'close', index: live.index }, sig);
           this.tabs.delete(live.id);
@@ -464,8 +473,15 @@ export class BrowserBackend implements ComputerBackend {
         } else if (action === 'upload') {
           if ((await this.uploadFile(field(input, 'path'))) !== file) throw new Error('Upload target changed.');
           await client.call('browser_file_upload', { paths: [file] }, sig);
-        } else if (action === 'click') await client.call('browser_click', { target: input.ref }, sig);
-        else await client.call('browser_type', { target: input.ref, text: value }, sig);
+        } else if (action === 'click') {
+          const beforeIds = new Set((await this.inventory(sig)).tabs.map((t) => t.id));
+          await client.call('browser_click', { target: input.ref }, sig);
+          const after = await this.inventory(sig);
+          for (const t of after.tabs) {
+            if (!beforeIds.has(t.id)) this.tabs.add(t.id);
+          }
+          return text(`Action completed on ${publicUrl(after.current.url)}. Use snapshot to verify the result.`);
+        } else await client.call('browser_type', { target: input.ref, text: value }, sig);
         return text('Action completed. Use snapshot to verify the result.');
       },
     };
@@ -504,7 +520,6 @@ export class BrowserBackend implements ComputerBackend {
       this.seen = undefined;
       this.tabs.clear();
       this.pendingTabs.clear();
-      this.origins.clear();
     }
   }
 }

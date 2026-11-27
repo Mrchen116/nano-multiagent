@@ -7,7 +7,10 @@ import { randomUUID } from 'node:crypto';
 
 const exec = promisify(execFile);
 const extensionId = 'mmlmfjhmonkocbjadbfplnigmagldckm';
-const macBundle = '/Applications/Google Chrome.app';
+const macBundles = [
+  '/Applications/Google Chrome.app',
+  join(homedir(), 'Applications/Google Chrome.app'),
+];
 export interface Pairing {
   id: string;
   profile: string;
@@ -70,7 +73,7 @@ function atLeast(version: string, min: number[]) {
 export async function chromeExecutable() {
   const candidates =
     process.platform === 'darwin'
-      ? [join(macBundle, 'Contents/MacOS/Google Chrome')]
+      ? macBundles.map((bundle) => join(bundle, 'Contents/MacOS/Google Chrome'))
       : process.platform === 'win32'
         ? [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA]
             .filter(Boolean)
@@ -96,7 +99,7 @@ export async function chromeExecutable() {
 export async function dailyPrerequisites(profile: string) {
   if (!['darwin', 'win32'].includes(process.platform))
     throw new Error('Daily Chrome is supported on macOS and Windows. Choose isolated for a clean browser.');
-  const exe = await chromeExecutable();
+  let exe = await chromeExecutable();
   const windows = process.platform === 'win32';
   let version: string;
   try {
@@ -116,10 +119,13 @@ export async function dailyPrerequisites(profile: string) {
       ).stdout.trim();
       if (!version) throw new Error();
     } else {
+      const allowedExes = new Set(macBundles.map((bundle) => join(bundle, 'Contents/MacOS/Google Chrome')));
       const root = join(homedir(), 'Library/Application Support/Google/Chrome');
       const lock = await readlink(join(root, 'SingletonLock'));
       const pid = /-([1-9]\d*)$/.exec(lock)?.[1];
-      if (!pid || (await exec('/bin/ps', ['-p', pid, '-o', 'comm='])).stdout.trim() !== exe) throw new Error();
+      const comm = pid ? (await exec('/bin/ps', ['-p', pid, '-o', 'comm='])).stdout.trim() : '';
+      if (!pid || !allowedExes.has(comm)) throw new Error();
+      exe = comm;
       const children = (await exec('/usr/bin/pgrep', ['-P', pid])).stdout.trim().split(/\s+/);
       const paths = (await exec('/bin/ps', ['-p', children.join(','), '-o', 'comm='])).stdout;
       version = /Google Chrome Framework\.framework\/Versions\/([\d.]+)\//.exec(paths)?.[1] ?? '';

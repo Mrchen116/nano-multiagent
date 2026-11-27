@@ -20,7 +20,7 @@ declare module '@deepseek-ai/cordis' {
 
 type Surface = 'browser' | 'desktop';
 type Call = { surface: Surface; action: string; input?: Record<string, unknown>; request_ref?: string };
-type OwnerRequest = { id: string; text: string; ref: string; read?: string };
+type OwnerRequest = { id: string; text: string; ref: string; read?: string; ownerContext?: string };
 type Seat = {
   root: Agent;
   controller: AbortController;
@@ -82,11 +82,13 @@ export class ComputerHost {
         this.direct.set(session.id, live);
       }
       if (event.type === 'turn/end') {
-        this.revokedAt.delete(session.id);
         this.endRoot(session.id);
       }
     });
-    ctx.on('agent/disposed', ({ agent }) => this.endRoot(agent.id));
+    ctx.on('agent/disposed', ({ agent }) => {
+      this.revokedAt.delete(agent.id);
+      this.endRoot(agent.id);
+    });
     ctx.on('tools/result', (exec) => {
       this.release(exec);
     });
@@ -153,10 +155,17 @@ export class ComputerHost {
     const events = scopedChatEvents(root.session.snapshotEvents());
     const start = events.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
     if (!owner || start?.type !== 'turn/start') throw new Error('No active owner request');
+    const minRevoked = this.revokedAt.get(root.id);
+    const afterReads =
+      minRevoked !== undefined
+        ? events
+            .filter((ev) => ev.seq > minRevoked && ev.type === 'tool/result' && !ev.data.message.isError)
+            .map((ev) => (ev as Extract<typeof ev, { type: 'tool/result' }>).data.message.toolCallId)
+        : undefined;
     const matches = new Map<string, OwnerRequest>();
     const seenReads = new Set<string>();
     for (const e of events) {
-      if (e.seq <= Math.max(start.seq, this.revokedAt.get(root.id) ?? -1)) continue;
+      if (e.seq <= Math.max(start.seq, minRevoked ?? -1)) continue;
       if (e.type === 'user/message' && this.direct.get(root.id)?.has(e.data.id) && isHumanSource(e.data.source)) {
         const src = e.data.source;
         if (
@@ -188,9 +197,14 @@ export class ComputerHost {
       seenReads.add(read);
       const source = (await this.ctx
         .get('nanoProduct')!
-        .call('computer.request', { ref, read }, { agent: root, signal, callId: ToolCallId(randomUUID()) })) as {
+        .call(
+          'computer.request',
+          { ref, read, ...(afterReads ? { afterReads } : {}) },
+          { agent: root, signal, callId: ToolCallId(randomUUID()) },
+        )) as {
         id: string;
         text: string;
+        ownerContext?: string;
       } | null;
       if (source) matches.set(source.id, { ...source, ref, read });
     }
@@ -201,9 +215,10 @@ export class ComputerHost {
     return matches.values().next().value!;
   }
 
-  private sessionOwnerContext(root: Agent, currentText: string): string {
+  private sessionOwnerContext(root: Agent, request: OwnerRequest): string {
+    if (request.ownerContext) return request.ownerContext;
     const owner = this.bindings.get(root.id)?.ownerId;
-    if (!owner) return currentText;
+    if (!owner) return request.text;
     const minSeq = this.revokedAt.get(root.id) ?? -1;
     const history: string[] = [];
     for (const e of scopedChatEvents(root.session.snapshotEvents())) {
@@ -218,7 +233,7 @@ export class ComputerHost {
         history.push(e.data.source.directHumanText);
       }
     }
-    if (!history.includes(currentText)) history.push(currentText);
+    if (!history.includes(request.text)) history.push(request.text);
     return history.join('\n');
   }
 
@@ -310,7 +325,7 @@ export class ComputerHost {
           ? (seat.browser ??= new BrowserBackend(root.session.header.cwd!))
           : (seat.desktop ??= new DesktopBackend(root.session.header.cwd));
       const action = await backend.prepare(args.action, args.input ?? {}, signal);
-      const ownerContext = request ? this.sessionOwnerContext(root, request.text) : '';
+      const ownerContext = request ? this.sessionOwnerContext(root, request) : '';
       if (action.window && (!request || !permitsWindow(ownerContext, action.window)))
         throw new Error('Name the intended window title in the owner request.');
       if (action.access === 'system_clipboard' && (!request || !requestsClipboard(request.text)))

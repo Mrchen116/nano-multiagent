@@ -896,16 +896,51 @@ export class InboxStore {
     })));
   }
   /** Resolve the original owner instruction behind a committed, host-observed read. */
-  computerRequest(agent: string, owner: string, session: string, call: string, id: string, personal: boolean) {
-    const row = this.db.prepare(`SELECT i.payload FROM inbox i JOIN ingestions g ON g.seq=i.seq
+  computerRequest(
+    agent: string,
+    owner: string,
+    session: string,
+    call: string,
+    id: string,
+    personal: boolean,
+    afterReads?: string[],
+  ) {
+    const row = this.db
+      .prepare(`SELECT i.payload, i.target FROM inbox i JOIN ingestions g ON g.seq=i.seq
       JOIN reads r ON r.session_id=g.session_id AND r.call_id=?
       WHERE g.session_id=? AND i.agent_id=? AND i.message_id=? AND i.consumed=1
       AND EXISTS (SELECT 1 FROM json_each(r.fragments) WHERE json_extract(value,'$.seq')=i.seq)
       AND NOT EXISTS (SELECT 1 FROM scope_cancelled WHERE agent_id=i.agent_id AND message_id=i.message_id)`)
-      .get(call,session,agent,id) as {payload:string} | undefined;
+      .get(call, session, agent, id) as { payload: string; target: string } | undefined;
     if (!row) return;
-    const text = computerOwnerText(JSON.parse(row.payload) as RelayInput,owner,personal);
-    return text ? {id,text} : undefined;
+    const text = computerOwnerText(JSON.parse(row.payload) as RelayInput, owner, personal);
+    if (!text) return;
+    const allowedCalls = afterReads ? new Set(afterReads) : undefined;
+    if (allowedCalls && !allowedCalls.has(call)) return;
+    const priorRows = this.db
+      .prepare(`SELECT i.seq, i.payload FROM inbox i JOIN ingestions g ON g.seq=i.seq
+      WHERE g.session_id=? AND i.agent_id=? AND i.target=? AND i.consumed=1
+      AND NOT EXISTS (SELECT 1 FROM scope_cancelled WHERE agent_id=i.agent_id AND message_id=i.message_id)
+      ORDER BY i.seq ASC`)
+      .all(session, agent, row.target) as { seq: number; payload: string }[];
+    let allowedSeqs: Set<number> | undefined;
+    if (allowedCalls) {
+      allowedSeqs = new Set<number>();
+      for (const readCall of allowedCalls) {
+        const readRow = this.db
+          .prepare('SELECT fragments FROM reads WHERE session_id=? AND call_id=?')
+          .get(session, readCall) as { fragments: string } | undefined;
+        if (!readRow) continue;
+        for (const frag of JSON.parse(readRow.fragments) as { seq?: unknown }[]) {
+          if (typeof frag.seq === 'number') allowedSeqs.add(frag.seq);
+        }
+      }
+    }
+    const ownerHistory = priorRows
+      .filter(r => !allowedSeqs || allowedSeqs.has(r.seq))
+      .map(r => computerOwnerText(JSON.parse(r.payload) as RelayInput, owner, personal))
+      .filter((t): t is string => Boolean(t));
+    return { id, text, ...(ownerHistory.length > 1 ? { ownerContext: ownerHistory.join('\n') } : {}) };
   }
 
   /** Reserve a single OS read across active seats and restarts before contacting the driver. */

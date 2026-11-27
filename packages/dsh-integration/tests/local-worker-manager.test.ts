@@ -102,4 +102,9 @@ it.each(cliWorkerRuntimes)('%s binds follow-ups to the original session and repl
   expect(bindWorker).toHaveBeenCalledTimes(1);
   expect(send).toHaveBeenLastCalledWith('inspect B');
   await restored.stopRoot(root.id);
+  await restored.control(root, row.workerId, 'send', 'inspect C with computer', exec.signal, 'computer-followup', 'owner-message-C');
+  expect(bindWorker).toHaveBeenCalledTimes(2);
+  expect(bindWorker).toHaveBeenLastCalledWith(root, row.workerId, 'owner-message-C', exec.signal);
+  expect(vi.mocked(openCliWorker).mock.calls.at(-1)![0].computer).toBeDefined();
+  await restored.stopRoot(root.id);
 });

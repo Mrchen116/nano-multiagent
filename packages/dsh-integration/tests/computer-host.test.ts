@@ -295,3 +295,71 @@ it('invalidates a pending worker binding when computer use is withdrawn during t
   await expect(grant).rejects.toThrow('revoked');
   await expect(host.callWorker(root as any, 'worker', {}, signal)).rejects.toThrow('ended');
 });
+
+it('threads same-conversation Global Inbox ownerContext into multi-turn window disambiguation and NanoApproval observation', async () => {
+  const { ComputerHost } = await import('../src/computer/host.js');
+  const { DesktopBackend } = await import('../src/computer/desktop.js');
+  const origPrepare = DesktopBackend.prototype.prepare;
+  DesktopBackend.prototype.prepare = async function () {
+    return {
+      access: 'review',
+      evidence: 'bind TextEdit 草稿 A',
+      window: { title: '草稿 A', candidates: 2 },
+      run: async () => [{ type: 'text', text: 'bound' }],
+    };
+  };
+  try {
+    const root = {
+      id: 'global-root',
+      session: {
+        header: { cwd: '/tmp' },
+        snapshotEvents: () => [
+          { type: 'turn/start', seq: 10 },
+          {
+            type: 'tool/result',
+            seq: 11,
+            data: {
+              message: {
+                toolCallId: 'inbox-read-2',
+                isError: false,
+                content: [{ type: 'text', text: JSON.stringify({ messages: [{ id: 'm_turn2' }] }) }],
+              },
+            },
+          },
+        ],
+      },
+    };
+    const ctx = {
+      provide() {},
+      on() {},
+      effect() {},
+      get(name: string) {
+        if (name === 'nanoApproval') return { sources: { isLiveInbox: () => true } };
+        if (name === 'nanoProduct')
+          return {
+            call: async () => ({
+              id: 'orig-turn2',
+              text: '截个图发给我',
+              ownerContext: '先看看 TextEdit 的「草稿 A」窗口\n截个图发给我',
+            }),
+          };
+      },
+    };
+    const bindings = new Map([
+      ['global-root', { sessionId: 'global-root', agentId: 'g1', ownerId: 'owner', revision: '1', cwd: '/tmp' }],
+    ]);
+    const host = new ComputerHost(ctx as any, bindings, () => ({ toolAllowlist: ['computer_use'] }) as any);
+    const obs = await host.prepare({
+      agent: root as any,
+      callId: 'c1' as any,
+      token: Symbol('tok') as any,
+      name: 'computer_use',
+      signal: new AbortController().signal,
+      arguments: { surface: 'desktop', action: 'bind', input: { app: 'com.apple.TextEdit' }, request_ref: 'm_turn2' },
+    });
+    expect(obs.ownerRequest).toBe('截个图发给我');
+    expect(obs.ownerContext).toBe('先看看 TextEdit 的「草稿 A」窗口\n截个图发给我');
+  } finally {
+    DesktopBackend.prototype.prepare = origPrepare;
+  }
+});

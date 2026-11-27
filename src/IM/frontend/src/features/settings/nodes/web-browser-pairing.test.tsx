@@ -8,7 +8,7 @@ import { appRoutes } from "../../../app/router";
 import { setDesktopBootContextForTest } from "../../../desktop/desktop-context";
 import { setLanguage } from "../../../i18n";
 import { renderRouter } from "../../../test/render-router";
-import { AttachmentLink } from "../../chat/attachments/attachment-link";
+import { TaskGraphLink } from "../../tasks/task-graph-link";
 import { BrowserPairingSection } from "./browser-pairing-section";
 
 describe("Web IM Daily Chrome pairing across computer drawer, agent tool callout, and chat deep-link", () => {
@@ -170,7 +170,7 @@ describe("Web IM Daily Chrome pairing across computer drawer, agent tool callout
               <form onSubmit={outerSubmit}>
                 <BrowserPairingSection variant="agent-callout" nodeId="node-1" computerName="MacBook" online />
               </form>
-              <AttachmentLink href="/settings/nodes?pair_browser=1">连接日常 Chrome</AttachmentLink>
+              <TaskGraphLink href="/settings/nodes?pair_browser=1">连接日常 Chrome</TaskGraphLink>
               <LocationReadout />
             </div>
           ),
@@ -202,5 +202,54 @@ describe("Web IM Daily Chrome pairing across computer drawer, agent tool callout
     // Clicking /settings/nodes?pair_browser=1 in chat navigates in-place via SPA Router
     await user.click(screen.getByRole("link", { name: "连接日常 Chrome" }));
     expect(screen.getByTestId("loc")).toHaveTextContent("/settings/nodes?pair_browser=1");
+  });
+
+  it("lands on the computer list without guessing when multiple online computers exist on /settings/nodes?pair_browser=1", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/im/v1/nodes")) {
+        return new Response(
+          JSON.stringify([
+            {
+              node_id: "mac-1",
+              owner_id: "user-1",
+              node_name: "Mac-1",
+              alias: "Mac-1",
+              status: "online",
+              last_heartbeat_at: "2026-11-27T02:00:00Z",
+              agent_count: 1,
+              version: "0.4.2",
+              relay_enabled: true,
+              reporting_enabled: true,
+              last_error: null,
+            },
+            {
+              node_id: "mac-2",
+              owner_id: "user-1",
+              node_name: "Mac-2",
+              alias: "Mac-2",
+              status: "online",
+              last_heartbeat_at: "2026-11-27T02:00:00Z",
+              agent_count: 1,
+              version: "0.4.2",
+              relay_enabled: true,
+              reporting_enabled: true,
+              last_error: null,
+            },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response(JSON.stringify({ items: [], max_event_id: 0 }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as typeof fetch;
+
+    renderRouter({ routes: appRoutes, initialEntries: ["/settings/nodes?pair_browser=1"] });
+
+    expect(await screen.findByText("Mac-1")).toBeInTheDocument();
+    expect(screen.getByText("Mac-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("node-drawer-browser-setup")).not.toBeInTheDocument();
   });
 });

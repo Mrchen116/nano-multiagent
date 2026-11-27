@@ -80,12 +80,18 @@ export function NodesPage() {
   useEffect(() => {
     if (!pairBrowserParam || localDesktopPairOpen || !query.data?.length) return;
     if (autoOpenedPairRef.current === pairBrowserParam) return;
+    const onlineVisible = visibleNodes.filter(n => n.status === 'online');
+    const onlineAll = query.data.filter(n => n.status === 'online');
     const candidate =
       pairBrowserParam !== '1'
         ? query.data.find(n => n.node_id === pairBrowserParam)
-        : (visibleNodes.find(n => n.status === 'online') ?? query.data.find(n => n.status === 'online'));
+        : onlineVisible.length === 1
+          ? onlineVisible[0]
+          : !onlineVisible.length && onlineAll.length === 1
+            ? onlineAll[0]
+            : undefined;
+    autoOpenedPairRef.current = pairBrowserParam;
     if (candidate) {
-      autoOpenedPairRef.current = pairBrowserParam;
       setPanel({ kind: 'detail', id: candidate.node_id, pairBrowser: true });
     }
   }, [localDesktopPairOpen, pairBrowserParam, query.data, visibleNodes]);
