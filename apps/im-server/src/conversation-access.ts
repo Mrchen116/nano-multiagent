@@ -38,7 +38,7 @@ function observerOwners(db: DatabaseSync, participants: Row[], space: string): s
     .map(p => p.pa_owner);
 }
 
-function directAgentOwners(db: DatabaseSync, conversation: Row): string[] {
+export function directAgentOwners(db: DatabaseSync, conversation: Row): string[] {
   if (conversation.type !== 'direct') return [];
   const participants = all(db, `${observerParticipants} WHERE p.conversation_id=?`, conversation.id);
   return observerOwners(db, participants, conversation.space_id);
@@ -181,10 +181,19 @@ export function conversationReaderIds(db: DatabaseSync, id: string, candidates?:
       readers.add(member.id);
     }
   }
-  for (const uid of directAgentOwners(db,c)) {
-    if (readers.has(uid) || (candidates && !candidates.has(uid))) continue;
-    const owner = one(db,'SELECT username,owner_id,membership_status,personal_space_enabled FROM users WHERE id=?',uid);
-    if (owner && !owner.username.startsWith('agent:') && canAccessSpace(owner,c.space_id)) readers.add(uid);
+  const missingOwners = directAgentOwners(db, c).filter(
+    uid => !readers.has(uid) && (!candidates || candidates.has(uid)),
+  );
+  if (missingOwners.length) {
+    for (const owner of all(
+      db,
+      'SELECT id,username,owner_id,membership_status,personal_space_enabled FROM users WHERE id IN (SELECT value FROM json_each(?))',
+      JSON.stringify(missingOwners),
+    )) {
+      if (!owner.username.startsWith('agent:') && canAccessSpace(owner, c.space_id)) {
+        readers.add(String(owner.id));
+      }
+    }
   }
   return [...readers];
 }

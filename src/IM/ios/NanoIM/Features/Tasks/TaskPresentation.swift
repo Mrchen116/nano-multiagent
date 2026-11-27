@@ -76,17 +76,19 @@ struct TaskAgentRuntimeView: View {
 }
 
 func taskStatusIcon(_ status: String) -> String {
-    switch status {
-    case "proposed": return "sparkles"
-    case "todo": return "circle"
-    case "doing": return "circle.lefthalf.filled"
-    case "waiting": return "clock"
-    case "in_review": return "eye.circle"
-    case "done": return "checkmark.circle.fill"
-    case "paused": return "pause.circle"
-    case "backlog": return "tray"
-    case "closed": return "nosign"
-    default: return "circle.dashed"
+    guard let known = TaskStatusContract(rawValue: status) else {
+        return "circle.dashed"
+    }
+    switch known {
+    case .proposed: return "sparkles"
+    case .todo: return "circle"
+    case .doing: return "circle.lefthalf.filled"
+    case .waiting: return "clock"
+    case .inReview: return "eye.circle"
+    case .done: return "checkmark.circle.fill"
+    case .paused: return "pause.circle"
+    case .backlog: return "tray"
+    case .closed: return "nosign"
     }
 }
 
@@ -97,27 +99,28 @@ struct TaskStatusPalette {
     let dashed: Bool
 
     static func forStatus(_ status: String) -> TaskStatusPalette {
-        switch status {
-        case "proposed":
-            return .init(background: Color("Butter"), foreground: Color(red: 0.37, green: 0.28, blue: 0.06), border: Color(red: 0.92, green: 0.83, blue: 0.47), dashed: false)
-        case "todo":
-            return .init(background: NanoTheme.softAccent, foreground: NanoTheme.accent, border: NanoTheme.accent.opacity(0.28), dashed: false)
-        case "doing":
-            return .init(background: Color.green.opacity(0.13), foreground: Color(red: 0.14, green: 0.42, blue: 0.27), border: Color.green.opacity(0.30), dashed: false)
-        case "waiting":
-            return .init(background: Color.orange.opacity(0.14), foreground: Color(red: 0.60, green: 0.38, blue: 0.09), border: Color.orange.opacity(0.32), dashed: false)
-        case "in_review":
-            return .init(background: Color.blue.opacity(0.12), foreground: Color(red: 0.11, green: 0.36, blue: 0.55), border: Color.blue.opacity(0.28), dashed: false)
-        case "backlog":
-            return .init(background: NanoTheme.canvas, foreground: Color(red: 0.36, green: 0.33, blue: 0.27), border: NanoTheme.muted.opacity(0.45), dashed: true)
-        case "paused":
-            return .init(background: Color.secondary.opacity(0.12), foreground: Color.secondary, border: Color.secondary.opacity(0.25), dashed: false)
-        case "done":
-            return .init(background: Color.green.opacity(0.08), foreground: Color(red: 0.24, green: 0.39, blue: 0.29), border: Color.green.opacity(0.22), dashed: false)
-        case "closed":
-            return .init(background: NanoTheme.canvas, foreground: NanoTheme.muted, border: NanoTheme.border, dashed: false)
-        default:
+        guard let known = TaskStatusContract(rawValue: status) else {
             return .init(background: NanoTheme.canvas, foreground: NanoTheme.muted, border: NanoTheme.muted.opacity(0.4), dashed: true)
+        }
+        switch known {
+        case .proposed:
+            return .init(background: Color("Butter"), foreground: Color(red: 0.37, green: 0.28, blue: 0.06), border: Color(red: 0.92, green: 0.83, blue: 0.47), dashed: false)
+        case .todo:
+            return .init(background: NanoTheme.softAccent, foreground: NanoTheme.accent, border: NanoTheme.accent.opacity(0.28), dashed: false)
+        case .doing:
+            return .init(background: Color.green.opacity(0.13), foreground: Color(red: 0.14, green: 0.42, blue: 0.27), border: Color.green.opacity(0.30), dashed: false)
+        case .waiting:
+            return .init(background: Color.orange.opacity(0.14), foreground: Color(red: 0.60, green: 0.38, blue: 0.09), border: Color.orange.opacity(0.32), dashed: false)
+        case .inReview:
+            return .init(background: Color.blue.opacity(0.12), foreground: Color(red: 0.11, green: 0.36, blue: 0.55), border: Color.blue.opacity(0.28), dashed: false)
+        case .backlog:
+            return .init(background: NanoTheme.canvas, foreground: Color(red: 0.36, green: 0.33, blue: 0.27), border: NanoTheme.muted.opacity(0.45), dashed: true)
+        case .paused:
+            return .init(background: Color.secondary.opacity(0.12), foreground: Color.secondary, border: Color.secondary.opacity(0.25), dashed: false)
+        case .done:
+            return .init(background: Color.green.opacity(0.08), foreground: Color(red: 0.24, green: 0.39, blue: 0.29), border: Color.green.opacity(0.22), dashed: false)
+        case .closed:
+            return .init(background: NanoTheme.canvas, foreground: NanoTheme.muted, border: NanoTheme.border, dashed: false)
         }
     }
 }

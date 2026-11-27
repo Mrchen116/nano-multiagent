@@ -141,11 +141,14 @@ export function projectChatReplyContext(reply: ChatReplyReference) {
 }
 
 /** The sender's view of one recipient's confirmed message progress. */
+export const MESSAGE_RECEIPT_STATUSES = ['sent', 'received', 'read'] as const;
+export type MessageReceiptStatus = (typeof MESSAGE_RECEIPT_STATUSES)[number];
+
 export interface MessageReceipt {
   recipient?: ChatActor;
   recipient_id: string;
   display_name: string;
-  status: 'sent' | 'received' | 'read';
+  status: MessageReceiptStatus;
 }
 
 export interface ChatMessage {

@@ -1299,6 +1299,7 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       db.prepare("UPDATE conversations SET visibility=? WHERE id=?").run(b.visibility,id);
       revokeLostTaskContextAccess(db,before,p.id);
     });
+    const prefChanged = b.is_pinned !== undefined || b.is_muted !== undefined;
     for (const key of ["is_pinned", "is_muted"])
       if (b[key] !== undefined)
         db.prepare(
@@ -1308,7 +1309,21 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
       id,
       s.members(id).map((u) => u.id),
     );
-    return s.conversation(id, p.id);
+    const updated = s.conversation(id, p.id);
+    if (prefChanged) {
+      ctx.gateway.broadcast([p.id], {
+        op: "event",
+        event_type: "conversation.preference_updated",
+        conversation_id: id,
+        data: {
+          conversation_id: id,
+          unread_count: updated.unread_count,
+          is_muted: updated.is_muted,
+          is_pinned: updated.is_pinned,
+        },
+      });
+    }
+    return updated;
   });
   app.delete("/im/v1/conversations/:conversation_id", (req, reply) => {
     const p = ctx.identity.authenticateRequest(req),
@@ -1462,7 +1477,20 @@ export function registerMessagingRoutes(app: FastifyInstance, ctx: ImContext) {
         .run(p.id,id,m.rowid,...(grouped ? [topic] : [])).changes;
     });
     if(changed) s.event(id,null,'message.receipts_changed',{});
-    return s.conversation(id, p.id);
+    const updated = s.conversation(id, p.id);
+    ctx.gateway.broadcast([p.id], {
+      op: "event",
+      event_type: "conversation.read",
+      conversation_id: id,
+      data: {
+        conversation_id: id,
+        unread_count: updated.unread_count,
+        is_muted: updated.is_muted,
+        is_pinned: updated.is_pinned,
+        last_read_message_id: lastRead,
+      },
+    });
+    return updated;
   });
   app.post('/im/v1/message-receipts', req => {
     const p = ctx.identity.authenticateRequest(req);

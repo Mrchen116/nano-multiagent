@@ -41,6 +41,16 @@
 - `feat-796-agent-privacy-scope`：建立了 `'team' | 'owner_only'` 双档可见性、内部会话互通、切换清退、`agent.scope.revoked` 及 Web/iOS 双端防呆基础。
 - `feat-794-wechat-channel`：接入个人微信 1:1 主人通道与 PDF 等入站媒体解密镜像，是用户经微信通过 PA 向名下专项助手转发体检 PDF 的上游入口。
 
+## 五端对齐矩阵
+
+| 平台 | 处置方式 | 受影响范围与理由 | 下游验证投影 |
+|---|---|---|---|
+| `Web` | `native-sync` | `src/IM/frontend` 新增普通/全局助手三档（含 `project`）与 PA 两档配置、按角色放宽确认、建群/群详情私密锁定与跨私密群 `409` 二次确认重试、以及 `agent_project_restricted` 只读单聊与生命周期轮询收口 | M1 Web 单测 + 隔离 E2E 桌面/移动走查 |
+| `Desktop (macOS)` | `native-sync` | 主窗口复用 `src/IM/frontend`；`apps/desktop/src/generated_contracts.rs` 同步 `CollaborationScopeContract::Project` 生成契约 | `cargo test` + 契约门禁 |
+| `Desktop (Windows)` | `native-sync` | 与 macOS 共享 `apps/desktop/src/generated_contracts.rs` 与主窗口 `src/IM/frontend` 代码 | `cargo test` + 契约门禁 |
+| `iOS` | `native-sync` | `src/IM/ios` 接入 `GeneratedContracts.swift`（含 `.project`）、普通助手三档与 PA 两档配置、放宽确认弹窗、新建群/群详情加人私密锁定与跨私密群 `409` 重试、以及 `agent_project_restricted` 只读横幅与置顶/免打扰豁免 | `NanoIM` Xcode 构建与 `AgentContractsTests` |
+| `Node (macOS / Windows / Linux)` | `native-sync` | `apps/node`（`main.ts`、`file-transfer.ts`）接入 `project` 外部渠道出站拦截与错误语义，以及 `download_attachment` 返回已验权文件 `sha256` | `apps/node` 单测 + 全量运行时测试 |
+
 ## 架构总览
 
 围绕「普通/全局助手三档（`owner_only` / `project` / `team`）+ 个人助手两档（`owner_only` / `team`）」建立统一的双向中心判定、节点精确清退与 PA 分级出站审核闭环：

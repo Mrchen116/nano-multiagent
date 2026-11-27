@@ -1,8 +1,59 @@
 import Foundation
 
 struct ChatBanner: Identifiable, Equatable {
+    enum Destination: Equatable {
+        case conversation(id: String, threadRootID: String?)
+        case agentWork(agentID: String, title: String?)
+    }
+
     let id = UUID()
-    let conversationID: String
+    let destination: Destination
+    var kind: UserNotificationKindContract?
+    var fallbackTitle: String?
+
+    init(conversationID: String, threadRootID: String? = nil, kind: UserNotificationKindContract? = nil, fallbackTitle: String? = nil) {
+        self.destination = .conversation(id: conversationID, threadRootID: threadRootID)
+        self.kind = kind
+        self.fallbackTitle = fallbackTitle
+    }
+
+    init(agentID: String, title: String? = nil, kind: UserNotificationKindContract = .workPermission) {
+        self.destination = .agentWork(agentID: agentID, title: title)
+        self.kind = kind
+        self.fallbackTitle = title
+    }
+
+    var conversationID: String? {
+        switch destination {
+        case .conversation(let id, _): return id
+        case .agentWork: return nil
+        }
+    }
+
+    var threadRootID: String? {
+        switch destination {
+        case .conversation(_, let root): return root
+        case .agentWork: return nil
+        }
+    }
+
+    var agentID: String? {
+        switch destination {
+        case .conversation: return nil
+        case .agentWork(let id, _): return id
+        }
+    }
+
+    /// Status-only summary preserving the foreground privacy guarantee (never reveals message body).
+    var summaryLabel: String {
+        guard let kind else { return L("新消息", "New message") }
+        switch kind {
+        case .humanMessage: return L("新消息", "New message")
+        case .mention: return L("有人提及你", "Mentioned you")
+        case .messageCompleted: return L("回复已完成", "Reply ready")
+        case .chatPermission, .workPermission: return L("待确认权限", "Approval needed")
+        }
+    }
 }
 
 /// Keeps readable composer mentions separate from the relay's stable member identity.

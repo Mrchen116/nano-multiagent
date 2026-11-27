@@ -10,12 +10,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 IMPORT = re.compile(r"(?:\bfrom\s*|\bimport\s*\(?\s*)['\"]([^'\"]+)['\"]")
-# Web and native iOS use the same static avatar assets and parity fixtures.
-SHARED_AVATAR_DATA = {
-    ROOT / "src/IM/shared/avatar-palette.json",
-    ROOT / "src/IM/shared/portrait-palette.json",
-    ROOT / "src/IM/shared/avatar-test-cases.json",
-}
+# Web, Desktop, Node, and native iOS share static JSON assets and parity test vectors.
+SHARED_IM_STATIC_DATA_DIR = ROOT / "src/IM/shared"
 ALLOWED = {
     "packages/product-contracts": set(),
     "packages/channels": {
@@ -43,6 +39,7 @@ ALLOWED = {
     "packages/trajectory-ui": {"@nano/product-contracts"},
     "src/IM/frontend": {
         "@nano/product-contracts",
+        "@nano/product-contracts/client-parity",
         "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/interactive-functions",
         "@nano/product-contracts/capabilities",
@@ -51,10 +48,12 @@ ALLOWED = {
     },
     "apps/desktop": {
         "@nano/product-contracts",
+        "@nano/product-contracts/client-parity",
         "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/worker-runtimes",
     },
     "apps/im-server": {
+        "@nano/product-contracts/client-parity",
         "@nano/product-contracts/desktop-local",
         "@nano/product-contracts/node-rpc",
         "@nano/product-contracts/interactive-functions",
@@ -105,7 +104,11 @@ def test_product_owns_no_runtime_internals(package: str) -> None:
             ), (path, specifier)
             if specifier.startswith("."):
                 resolved = (path.parent / specifier).resolve()
-                if package == "src/IM/frontend" and resolved in SHARED_AVATAR_DATA:
+                if (
+                    package == "src/IM/frontend"
+                    and resolved.parent == SHARED_IM_STATIC_DATA_DIR
+                    and resolved.suffix == ".json"
+                ):
                     continue
                 assert resolved.is_relative_to(ROOT / package), (path, specifier)
 

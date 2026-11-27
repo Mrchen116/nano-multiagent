@@ -1,5 +1,6 @@
 pub mod autostart;
 pub mod config;
+pub mod generated_contracts;
 pub mod host_server;
 pub mod local_node;
 pub mod notifications;

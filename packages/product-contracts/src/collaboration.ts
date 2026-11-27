@@ -2,10 +2,12 @@
 export const CHAT_BACKGROUND_DELAY_MS = 10 * 60_000;
 
 /** Visibility and bidirectional communication scope for an ordinary or global Agent. */
-export type CollaborationScope = 'team' | 'project' | 'owner_only';
+export const COLLABORATION_SCOPES = ['team', 'project', 'owner_only'] as const;
+export type CollaborationScope = (typeof COLLABORATION_SCOPES)[number];
 
 /** Visibility and bidirectional communication scope supported by a Personal Assistant (PA). */
-export type PersonalCollaborationScope = 'team' | 'owner_only';
+export const PERSONAL_COLLABORATION_SCOPES = ['team', 'owner_only'] as const;
+export type PersonalCollaborationScope = (typeof PERSONAL_COLLABORATION_SCOPES)[number];
 
 /** Facts resolved from a trusted conversation source for one receiving Agent. */
 export interface ChatAddress {

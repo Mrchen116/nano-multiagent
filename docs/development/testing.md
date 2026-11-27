@@ -57,7 +57,7 @@ Context 相关验证按 [Agent Context Engineering](agent-context-engineering.md
 
 **TypeScript 后端**：行为测试与各自 package/app 放在 `tests/*.test.ts`，由根 `pnpm test` 运行；native profile 测试使用真实锁定 DSH，跨进程控制在可重复 fixture 中验证。Web Vitest 保留在前端项目；原生 iOS 按其 Xcode gate 验证。
 
-PR 按完整分支差异、主干 push 按整个更新范围（before → head）检测 iOS 变更。原生客户端、共享渲染与交互契约、CI 配置的触发路径以 [CI 工作流](../../.github/workflows/ci.yml) 为准。命中路径或检测失败时，并行运行模拟器测试与 Release 归档。当前 iOS 测试使用模拟响应。真实服务端 API 兼容性需单独验收。
+PR 按完整分支差异、主干 push 按整个更新范围（before → head）检测 iOS 变更。原生客户端、共享渲染与交互契约、CI 配置的触发路径以 [CI 工作流](../../.github/workflows/ci.yml) 为准。按命中范围运行快速单测或模拟器回归测试，并在主干（`main` / `develop`）push、构建配置变更或检测失败时并行运行 Release 归档。当前 iOS 测试使用模拟响应。真实服务端 API 兼容性需单独验收。
 
 **Python 工具与跨系统黑盒回归**：目录即分层，按“能暴露该失败原因的最低层”选：
 
