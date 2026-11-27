@@ -632,14 +632,18 @@ pub fn append_host_log(paths: Option<&DesktopPaths>, level: &str, message: &str)
 
 /// Show a native OS alert dialog when `windows_subsystem = "windows"` hides stderr on fatal startup errors.
 pub fn show_fatal_startup_dialog(message: &str, log_path: &Path) {
-    if std::env::var("CREWDEN_SUPPRESS_OS_OPEN").as_deref() == Ok("1") {
-        return;
-    }
     let full_msg = format!(
         "Crewden Desktop 启动失败：{}\n\n诊断日志已写入：\n{}",
         message,
         log_path.display()
     );
+    show_error_dialog(&full_msg);
+}
+
+pub(crate) fn show_error_dialog(full_msg: &str) {
+    if std::env::var("CREWDEN_SUPPRESS_OS_OPEN").as_deref() == Ok("1") {
+        return;
+    }
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -664,7 +668,7 @@ pub fn show_fatal_startup_dialog(message: &str, log_path: &Path) {
                 "-e",
                 "on run argv",
                 "-e",
-                "display alert \"Crewden Desktop 启动失败\" message (item 1 of argv) as critical",
+                "display alert \"Crewden Desktop\" message (item 1 of argv) as critical",
                 "-e",
                 "end run",
                 "--",

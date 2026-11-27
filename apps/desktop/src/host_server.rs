@@ -1,4 +1,4 @@
-use crate::autostart::set_desktop_login_autostart;
+use crate::autostart::{get_desktop_login_autostart, set_desktop_login_autostart};
 use crate::config::{
     append_host_log, classify_deep_link_connect, current_desktop_platform_id,
     local_node_bridge_endpoint, normalize_im_origin, random_hex_token, resolve_default_im_origin,
@@ -8,7 +8,7 @@ use crate::config::{
 use crate::local_node::{
     ensure_seed_bundle_installed, has_pending_seed_bundle, open_external_url,
     open_or_reveal_workspace_path, reconcile_ready_seed_bundle, resolve_active_bundle,
-    run_local_admin_sync, stop_all_managed_local_nodes, sync_seed_desktop_defaults,
+    ActiveBundlePaths, LocalAdminResult, run_local_admin_sync, stop_all_managed_local_nodes, sync_seed_desktop_defaults,
 };
 use crate::notifications::{
     spawn_notification_daemon, ActiveDaemonSession, DesktopUiBridge, NotificationCenterState,
@@ -84,6 +84,7 @@ pub struct HostSharedState {
     pub notification_center: Arc<NotificationCenterState>,
     pub ui_bridge: Arc<dyn DesktopUiBridge>,
     pub shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
+    pub node_lifecycle: Arc<Mutex<()>>,
     pub refresh_lock: tokio::sync::Mutex<()>,
 }
 
@@ -375,6 +376,7 @@ pub async fn start_host_server_full(
         notification_center: notification_center.clone(),
         ui_bridge: ui_bridge.clone(),
         shutdown_tx: Mutex::new(Some(shutdown_tx)),
+        node_lifecycle: Arc::new(Mutex::new(())),
         refresh_lock: tokio::sync::Mutex::new(()),
     });
 
@@ -1102,6 +1104,55 @@ fn require_seed_ready(state: &HostSharedState) -> Result<(), Response> {
     Ok(())
 }
 
+fn inspect_for_settings(
+    paths: &DesktopPaths, bundle: &ActiveBundlePaths, origin: &str, owner: Option<&str>, query: Option<&str>,
+) -> Result<LocalAdminResult, String> {
+    let mut out = run_local_admin_sync(paths, bundle, origin, "inspect", owner, query, None)?;
+    if out.ok && out.body["desktop_managed"] == true {
+        out.body["autostart"] = json!(get_desktop_login_autostart(paths));
+    }
+    Ok(out)
+}
+
+pub(crate) fn register_login(state: &HostSharedState, enabled: bool) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    set_desktop_login_autostart(&state.paths, &exe, enabled)
+        .map_err(|e| format!("系统登录自启设置失败，请检查系统登录项后重试 ({e})"))
+}
+
+// Serialize this pair of writes with node lifecycle operations. Authorize the
+// owner before touching the per-user login item, including on rollback.
+pub(crate) fn set_managed_login(
+    state: &HostSharedState,
+    bundle: &ActiveBundlePaths,
+    origin: &str,
+    owner: &str,
+    enabled: bool,
+) -> Result<LocalAdminResult, String> {
+    let paths = &state.paths;
+    let inspect = run_local_admin_sync(paths, bundle, origin, "supervise", Some(owner), None, None)?;
+    if !inspect.ok { return Ok(inspect); }
+    match inspect.body["ownership"].as_str() {
+        Some("managed_online" | "managed_stopped") => {}
+        ownership => {
+            let (status, code, detail) = if ownership == Some("foreign_owner") {
+                (403, "foreign_owner", "请使用本机节点所属账号更新登录自启")
+            } else {
+                (409, "not_managed", "请先连接这台电脑")
+            };
+            return Ok(LocalAdminResult { status, ok: false, body: json!({ "code": code, "detail": detail }) });
+        }
+    }
+    let previous = get_desktop_login_autostart(paths);
+    register_login(state, enabled)?;
+    let action = if enabled { "autostart-on" } else { "autostart-off" };
+    let result = run_local_admin_sync(paths, bundle, origin, "lifecycle", Some(owner), None, Some(&json!({ "action": action })));
+    if !matches!(&result, Ok(out) if out.ok) {
+        register_login(state, previous)?;
+    }
+    result
+}
+
 async fn invoke_local_admin(
     state: Arc<HostSharedState>,
     subcommand: &'static str,
@@ -1117,6 +1168,9 @@ async fn invoke_local_admin(
     let dev_root = state.dev_repo_root.clone();
     let res = tokio::task::spawn_blocking(move || {
         let bundle = resolve_active_bundle(&paths, &im_origin, dev_root.as_deref())?;
+        if subcommand == "inspect" {
+            return inspect_for_settings(&paths, &bundle, &im_origin, owner_id.as_deref(), log_query.as_deref());
+        }
         run_local_admin_sync(
             &paths,
             &bundle,
@@ -1241,6 +1295,7 @@ async fn handle_local_connect(
     let owner_id = caller.owner_id.clone();
 
     let res = tokio::task::spawn_blocking(move || {
+        let _guard = state.node_lifecycle.lock().unwrap();
         let bundle = resolve_active_bundle(&paths, &im_origin, dev_root.as_deref())?;
         let active_meta = json!({
             "version": bundle.version,
@@ -1263,9 +1318,9 @@ async fn handle_local_connect(
         )?;
         if connect_out.ok {
             let desired_autostart = connect_out.body["autostart"].as_bool().unwrap_or(true);
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = set_desktop_login_autostart(&paths, &exe, desired_autostart);
-            }
+            let registered = register_login(&state, desired_autostart);
+            state.ui_bridge.login_autostart_changed(get_desktop_login_autostart(&paths));
+            registered.map_err(|error| format!("本机节点已连接。{error}"))?;
         }
         Ok::<_, String>(connect_out)
     })
@@ -1308,47 +1363,27 @@ async fn handle_local_lifecycle(
         Err(err) => return err,
     };
 
-    let cli_action = if body.action == "autostart" {
-        if body.enabled.unwrap_or(true) {
-            "autostart-on"
-        } else {
-            "autostart-off"
-        }
-    } else {
-        body.action.as_str()
-    }
-    .to_string();
-    let toggle_desktop_login = if body.action == "autostart" {
-        Some(body.enabled.unwrap_or(true))
-    } else {
-        None
-    };
-
     let im_origin = state.host_config.read().unwrap().im_origin.clone();
     let paths = state.paths.clone();
     let dev_root = state.dev_repo_root.clone();
     let owner_id = caller.owner_id.clone();
 
     let res = tokio::task::spawn_blocking(move || {
+        let _guard = state.node_lifecycle.lock().unwrap();
         let bundle = resolve_active_bundle(&paths, &im_origin, dev_root.as_deref())?;
-        let life_res = run_local_admin_sync(
-            &paths,
-            &bundle,
-            &im_origin,
-            "lifecycle",
-            Some(&owner_id),
-            None,
-            Some(&json!({ "action": cli_action })),
-        )?;
-        if !life_res.ok {
-            return Ok(life_res);
-        }
-        if let Some(enable_login) = toggle_desktop_login {
-            if let Ok(exe) = std::env::current_exe() {
-                let _ = set_desktop_login_autostart(&paths, &exe, enable_login);
+        let out = if body.action == "autostart" {
+            let result = set_managed_login(&state, &bundle, &im_origin, &owner_id, body.enabled.unwrap_or(true));
+            state.ui_bridge.login_autostart_changed(get_desktop_login_autostart(&paths));
+            result?
+        } else {
+            if !matches!(body.action.as_str(), "start" | "stop" | "restart") {
+                return Ok(LocalAdminResult { status: 400, ok: false, body: json!({ "code": "invalid_action", "detail": "Unsupported lifecycle action" }) });
             }
-        }
-        run_local_admin_sync(&paths, &bundle, &im_origin, "inspect", Some(&owner_id), None, None)
+            run_local_admin_sync(&paths, &bundle, &im_origin, "lifecycle", Some(&owner_id), None,
+                Some(&json!({ "action": body.action })))?
+        };
+        if !out.ok { return Ok(out); }
+        inspect_for_settings(&paths, &bundle, &im_origin, Some(&owner_id), None)
     })
     .await;
 
@@ -1396,7 +1431,7 @@ async fn handle_local_config(
         if !cfg_res.ok {
             return Ok(cfg_res);
         }
-        run_local_admin_sync(&paths, &bundle, &im_origin, "inspect", Some(&owner_id), None, None)
+        inspect_for_settings(&paths, &bundle, &im_origin, Some(&owner_id), None)
     })
     .await;
 
@@ -1653,7 +1688,7 @@ async fn connect_local_bridge_ipc(endpoint: &str) -> Result<(BoxedIpcRead, Boxed
     Err("Unsupported platform".to_string())
 }
 
-async fn ping_local_bridge(endpoint: &str) -> Option<Value> {
+pub(crate) async fn ping_local_bridge(endpoint: &str) -> Option<Value> {
     let Ok(Ok((reader, mut writer))) =
         tokio::time::timeout(Duration::from_millis(600), connect_local_bridge_ipc(endpoint)).await
     else {

@@ -89,6 +89,12 @@ export function DesktopLocalComputerCard({
     refetchInterval: 10_000,
   });
 
+  useEffect(() => {
+    const refresh = () => { void client.invalidateQueries({ queryKey: ["desktop", "local-node", userId] }); };
+    window.addEventListener("crewden:login-autostart-changed", refresh);
+    return () => window.removeEventListener("crewden:login-autostart-changed", refresh);
+  }, [client, userId]);
+
   const inspect = inspectQuery.data;
   const matchedNode = inspect?.node_id ? nodes.find((n) => n.node_id === inspect.node_id) : undefined;
 

@@ -70,6 +70,7 @@ if (values.help) {
         let payload: unknown;
         if (subcommand === "inspect") {
           payload = await inspectLocalNode({
+            supervisionOnly: positionals[2] === "supervision",
             origin,
             ownerId: values["owner-id"],
             configPath: values.config,

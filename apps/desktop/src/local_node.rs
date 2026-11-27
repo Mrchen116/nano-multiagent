@@ -573,11 +573,14 @@ pub fn run_local_admin_sync(
 ) -> Result<LocalAdminResult, String> {
     let mut cmd = Command::new(&bundle.node_bin);
     configure_hidden_command(&mut cmd);
-    cmd.arg(&bundle.cli_js)
-        .arg("local-admin")
-        .arg(subcommand)
-        .arg("--origin")
-        .arg(im_origin);
+    cmd.arg(&bundle.cli_js).arg("local-admin");
+    if subcommand == "supervise" {
+        // Earlier active bundles accept inspect and ignore the extra positional.
+        cmd.args(["inspect", "supervision"]);
+    } else {
+        cmd.arg(subcommand);
+    }
+    cmd.arg("--origin").arg(im_origin);
     if let Some(owner) = owner_id {
         if !owner.is_empty() {
             cmd.arg("--owner-id").arg(owner);

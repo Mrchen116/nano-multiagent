@@ -32,6 +32,13 @@ fn xml_escape(input: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+fn ignore_missing(result: std::io::Result<()>) -> Result<(), String> {
+    match result {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        other => other.map_err(|err| err.to_string()),
+    }
+}
+
 /// Configure or remove the Crewden Desktop `--background` login item without interrupting live tasks.
 pub fn set_desktop_login_autostart(
     paths: &DesktopPaths,
@@ -50,7 +57,7 @@ pub fn set_desktop_login_autostart(
                 },
             )?;
         } else {
-            let _ = fs::remove_file(&marker_path);
+            ignore_missing(fs::remove_file(&marker_path))?;
         }
         return Ok(());
     }
@@ -87,7 +94,7 @@ pub fn set_desktop_login_autostart(
             );
             fs::write(&plist_path, plist).map_err(|e| e.to_string())?;
         } else {
-            let _ = fs::remove_file(&plist_path);
+            ignore_missing(fs::remove_file(&plist_path))?;
         }
         return Ok(());
     }
@@ -106,7 +113,7 @@ pub fn set_desktop_login_autostart(
                 .set_value("CrewdenDesktop", &cmd)
                 .map_err(|e| e.to_string())?;
         } else {
-            let _ = run_key.delete_value("CrewdenDesktop");
+            ignore_missing(run_key.delete_value("CrewdenDesktop"))?;
         }
         return Ok(());
     }

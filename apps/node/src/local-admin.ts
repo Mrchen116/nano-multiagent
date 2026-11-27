@@ -184,6 +184,7 @@ export async function inspectLocalNode(input: {
   ownerId?: string;
   configPath?: string;
   logQuery?: string;
+  supervisionOnly?: boolean;
   browserDeps?: BrowserPairingDeps;
 }): Promise<DesktopLocalInspectResponse> {
   const configPath = connectionConfigPathForOrigin(input.origin, input.configPath);
@@ -193,7 +194,9 @@ export async function inspectLocalNode(input: {
   const config = await NodeConfiguration.read(configPath);
   const value = config.value;
   const nodeName = value.node.node_name ?? value.node.node_id ?? hostname();
-  if (!value.node.user_id || !value.im_service.token) {
+  const bound = value.node.user_id && value.im_service.token;
+  if (!bound && input.supervisionOnly) return { ownership: 'unbound', node_name: nodeName };
+  if (!bound) {
     const workers = await probeDesktopWorkers(value.gateway?.environment?.PATH);
     return {
       ownership: 'unbound',
@@ -212,6 +215,19 @@ export async function inspectLocalNode(input: {
   const desktopManaged = existsSync(desktopActiveFilePath(configPath));
   const rawState = await gatewayState(configPath);
   const live = Boolean(rawState && (await processBirth(rawState.pid)) === rawState.process_start);
+  const ownership = !desktopManaged
+    ? 'takeover_available'
+    : live
+      ? 'managed_online'
+      : 'managed_stopped';
+
+  const status = {
+    ownership,
+    node_name: nodeName,
+    version: rawState?.release?.version ?? 'source',
+    autostart: value.gateway?.autostart !== false,
+  } satisfies DesktopLocalInspectResponse;
+  if (input.supervisionOnly) return status;
   const activeTasks = live ? await pingBridgeActiveTasks(configPath) : 0;
   const { proxy, userEnvironment } = extractDesktopProxySettings(value.gateway?.environment);
   const [workers, browser, logs] = await Promise.all([
@@ -219,16 +235,9 @@ export async function inspectLocalNode(input: {
     inspectDailyBrowserStatus(browserPairingFile(configPath, value.node), undefined, input.browserDeps),
     readLogTail(configPath, input.logQuery),
   ]);
-  const ownership = !desktopManaged
-    ? 'takeover_available'
-    : live
-      ? 'managed_online'
-      : 'managed_stopped';
-
   return {
-    ownership,
+    ...status,
     node_id: value.node.node_id,
-    node_name: nodeName,
     owner_id: value.node.user_id,
     desktop_managed: desktopManaged,
     running: live,
@@ -236,8 +245,6 @@ export async function inspectLocalNode(input: {
     connected: live ? Boolean(rawState?.connected) : false,
     active_tasks: activeTasks,
     ...(live && rawState ? { pid: rawState.pid, ...(rawState.runtime_pid ? { runtime_pid: rawState.runtime_pid } : {}) } : {}),
-    version: rawState?.release?.version ?? 'source',
-    autostart: value.gateway?.autostart !== false,
     worker_runtime: value.gateway?.worker_runtime ?? 'dsh',
     workers,
     browser,
@@ -356,8 +363,8 @@ export async function controlLocalNodeLifecycle(input: {
       ...config.value,
       gateway: { ...(config.value.gateway ?? {}), autostart: enabled },
     };
-    await config.persistNodeSettings(next);
     await manageGateway(config.path, next, input.action);
+    await config.persistNodeSettings(next);
     const rawState = await gatewayState(config.path);
     const running = Boolean(rawState && (await processBirth(rawState.pid)) === rawState.process_start);
     const activeTasks = running ? await pingBridgeActiveTasks(config.path) : 0;
@@ -366,16 +373,12 @@ export async function controlLocalNodeLifecycle(input: {
 
   const activeFile = desktopActiveFilePath(config.path);
   if (existsSync(activeFile) && !(input.action === 'stop' && input.preserveUserStopped)) {
-    try {
-      const prevActive = JSON.parse(await readFile(activeFile, 'utf8')) as Record<string, unknown>;
-      await atomicPrivate(activeFile, {
-        ...prevActive,
-        user_stopped: input.action === 'stop',
-        updated_at: new Date().toISOString(),
-      });
-    } catch {
-      // Best-effort desired-state update.
-    }
+    const prevActive = JSON.parse(await readFile(activeFile, 'utf8')) as Record<string, unknown>;
+    await atomicPrivate(activeFile, {
+      ...prevActive,
+      user_stopped: input.action === 'stop',
+      updated_at: new Date().toISOString(),
+    });
   }
 
   if (input.action !== 'stop') {
