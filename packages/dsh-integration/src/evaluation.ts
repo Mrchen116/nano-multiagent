@@ -241,3 +241,10 @@ async function copyMemory(sourceWorkspace: string, targetWorkspace: string) {
   await cp(source, join(targetWorkspace, '.nanoassistant/memory'), { recursive: true, filter: path => !path.split('/').includes('.git') });
   await cp(join(sourceWorkspace, '.nanoassistant/maintenance/documents.json'), join(targetWorkspace, '.nanoassistant/maintenance/documents.json'));
 }
+
+export {
+  NanoDolphinBenchController,
+  type DolphinBenchArm,
+  type DolphinBenchHostOptions,
+  type DolphinBenchIdentity,
+} from './evaluation/dolphinbench.js';
