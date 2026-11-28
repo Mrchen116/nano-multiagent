@@ -2382,7 +2382,8 @@ describe("MessagePane", () => {
       );
       expect(document.querySelector(".chat-kind-badge")).toBeNull();
       expect(screen.queryByText("laptop-prod")).not.toBeInTheDocument();
-      expect(document.querySelector(".chat-pane-header [aria-label=online]")).not.toBeNull();
+      expect(document.querySelector(".chat-pane-header [data-avatar]")).toBeNull();
+      expect(document.querySelector(".chat-pane-messages [data-avatar]")).not.toBeNull();
     });
 
     it("hides the header TokenChip on mobile (token chip lives under each bubble per R6)", () => {

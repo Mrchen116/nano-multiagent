@@ -6,8 +6,8 @@ pub mod local_node;
 pub mod notifications;
 pub mod tray;
 
-use crate::config::{append_host_log, DesktopCliOptions, DesktopPaths, HostRuntimeStateFile, InstanceLock};
-use crate::host_server::{handle_deep_link_url, start_host_server_full};
+use crate::config::{append_host_log, local_node_bridge_endpoint, write_private_json, DesktopCliOptions, DesktopPaths, HostRuntimeStateFile, InstanceLock};
+use crate::host_server::{handle_deep_link_url, ping_local_bridge, start_host_server_full};
 use crate::local_node::{resolve_active_bundle, run_local_admin_sync, stop_all_managed_local_nodes};
 use crate::notifications::NoopUiBridge;
 use crate::tray::{install_system_tray, TauriUiCoordinator};
@@ -73,7 +73,6 @@ fn forward_to_running_instance(
             .header("x-crewden-reload-token", &existing.reload_token)
             .json(&json!({
                 "url": cli.deep_link_url,
-                "route": cli.initial_route,
             }))
             .send()
             .await;
@@ -82,115 +81,167 @@ fn forward_to_running_instance(
 }
 
 fn spawn_managed_node_supervisor(
-    paths: DesktopPaths,
-    dev_repo_root: Option<std::path::PathBuf>,
-    host_state: Arc<crate::host_server::HostSharedState>,
+    state: Arc<crate::host_server::HostSharedState>,
+    background_login: bool,
 ) {
+    let runtime = tokio::runtime::Handle::current();
+    let login_origin = state.host_config.read().unwrap().im_origin.clone();
+    let login_owner = state
+        .sessions
+        .read()
+        .unwrap()
+        .by_origin
+        .get(&login_origin)
+        .map(|s| s.owner_id.clone());
     std::thread::spawn(move || {
-        let mut initial_boot_checked = false;
+        let mut first_check = true;
+        let mut context = None;
+        let mut expected_running = false;
+        let mut login_pending = background_login;
         loop {
-            if host_state.shutdown_tx.lock().unwrap().is_none() {
-                return;
-            }
-            if !host_state.is_seed_ready() {
-                std::thread::sleep(Duration::from_millis(500));
-                continue;
-            }
-            let im_origin = host_state.host_config.read().unwrap().im_origin.clone();
-            let owner = host_state
-                .sessions
-                .read()
-                .unwrap()
-                .by_origin
-                .get(&im_origin)
-                .map(|s| s.owner_id.clone());
-
-            if let Some(owner_id) = owner {
-                let active_ptr_json = paths
-                    .desktop_active_path(&im_origin)
-                    .ok()
-                    .and_then(|p| fs::read_to_string(p).ok())
-                    .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
-                if let Some(active_ptr) = active_ptr_json {
-                    let user_stopped = active_ptr["user_stopped"].as_bool().unwrap_or(false);
-                    let config_dir = paths
-                        .connection_config_path(&im_origin)
-                        .ok()
-                        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
-                    let busy_with_switch_or_lock = config_dir
-                        .as_ref()
-                        .map(|d| {
-                            d.join(".desktop-switch.json").exists()
-                                || d.join(".gateway-lifecycle.lock").exists()
-                        })
-                        .unwrap_or(false);
-                    let crash_marker_present = config_dir
-                        .as_ref()
-                        .map(|d| d.join(".gateway-state.json").is_file())
-                        .unwrap_or(false);
-
-                    let should_reconcile = !busy_with_switch_or_lock
-                        && !user_stopped
-                        && (!initial_boot_checked || crash_marker_present);
-
-                    if should_reconcile {
-                        if let Ok(bundle) =
-                            resolve_active_bundle(&paths, &im_origin, dev_repo_root.as_deref())
-                        {
-                            if let Ok(inspect) = run_local_admin_sync(
-                                &paths,
-                                &bundle,
-                                &im_origin,
-                                "inspect",
-                                Some(&owner_id),
-                                None,
-                                None,
-                            ) {
-                                let is_stopped =
-                                    inspect.body["ownership"].as_str() == Some("managed_stopped");
-                                let is_online =
-                                    inspect.body["ownership"].as_str() == Some("managed_online");
-                                let autostart_on =
-                                    inspect.body["autostart"].as_bool() != Some(false);
-                                let version_mismatch = !initial_boot_checked
-                                    && is_online
-                                    && bundle.version != "source"
-                                    && inspect.body["version"].as_str()
-                                        != Some(bundle.version.as_str());
-                                if inspect.ok && version_mismatch {
-                                    let _ = run_local_admin_sync(
-                                        &paths,
-                                        &bundle,
-                                        &im_origin,
-                                        "lifecycle",
-                                        Some(&owner_id),
-                                        None,
-                                        Some(&json!({ "action": "restart" })),
-                                    );
-                                } else if inspect.ok
-                                    && is_stopped
-                                    && ((!initial_boot_checked && autostart_on)
-                                        || crash_marker_present)
-                                {
-                                    let _ = run_local_admin_sync(
-                                        &paths,
-                                        &bundle,
-                                        &im_origin,
-                                        "lifecycle",
-                                        Some(&owner_id),
-                                        None,
-                                        Some(&json!({ "action": "start" })),
-                                    );
-                                }
+            let mut delay = Duration::from_secs(3);
+            {
+                let _guard = state.node_lifecycle.lock().unwrap();
+                if state.shutdown_tx.lock().unwrap().is_none() {
+                    return;
+                }
+                if state.is_seed_ready() {
+                    let origin = state.host_config.read().unwrap().im_origin.clone();
+                    let owner = state
+                        .sessions
+                        .read()
+                        .unwrap()
+                        .by_origin
+                        .get(&origin)
+                        .map(|s| s.owner_id.clone());
+                    let next = (origin.clone(), owner.clone());
+                    if context.as_ref() != Some(&next) {
+                        if context.is_some() { login_pending = false; }
+                        context = Some(next);
+                        expected_running = false;
+                        first_check = true;
+                        state.ui_bridge.login_autostart_changed(autostart::get_desktop_login_autostart(&state.paths));
+                    }
+                    if let Some(owner) = owner {
+                        let login = login_pending
+                            && first_check
+                            && origin == login_origin
+                            && Some(&owner) == login_owner.as_ref();
+                        match supervise_node(
+                            &state,
+                            &runtime,
+                            &origin,
+                            &owner,
+                            first_check,
+                            login,
+                            &mut expected_running,
+                        ) {
+                            Ok(true) => { first_check = false; login_pending = false; }
+                            Ok(false) => {}
+                            Err(error) => {
+                                append_host_log(Some(&state.paths), "WARN", &error);
+                                delay = Duration::from_secs(30);
                             }
                         }
-                        initial_boot_checked = true;
                     }
                 }
             }
-            std::thread::sleep(Duration::from_secs(3));
+            std::thread::sleep(delay);
         }
     });
+}
+
+// Check the bundle version once. Afterwards the gateway's own IPC response suffices;
+// only a missing bridge needs the CLI's PID/birth and ownership verification.
+fn supervise_node(
+    state: &crate::host_server::HostSharedState,
+    runtime: &tokio::runtime::Handle,
+    origin: &str,
+    owner: &str,
+    first_check: bool,
+    login: bool,
+    expected_running: &mut bool,
+) -> Result<bool, String> {
+    let paths = &state.paths;
+    let dir = paths.connection_dir(origin)?;
+    let pointer = dir.join(".desktop-active.json");
+    if !pointer.is_file()
+        || dir.join(".desktop-switch.json").exists()
+        || dir.join(".gateway-lifecycle.lock").exists()
+    {
+        return Ok(false);
+    }
+    let mut active: serde_json::Value =
+        serde_json::from_slice(&fs::read(&pointer).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    let stopped = active["user_stopped"].as_bool() == Some(true);
+    if stopped && !first_check {
+        *expected_running = false;
+        return Ok(true);
+    }
+    let has_state = dir.join(".gateway-state.json").is_file();
+    if !first_check {
+        if !has_state && !*expected_running {
+            return Ok(true);
+        }
+        let config = dir.join("config.yaml");
+        #[cfg(unix)]
+        let config = config.canonicalize().unwrap_or(config);
+        let endpoint = local_node_bridge_endpoint(&config);
+        if let Some(ping) = runtime.block_on(ping_local_bridge(&endpoint)) {
+            *expected_running = ping["owner_id"] == owner;
+            return Ok(true);
+        }
+    }
+    let bundle = resolve_active_bundle(paths, origin, state.dev_repo_root.as_deref())?;
+    let inspect =
+        run_local_admin_sync(paths, &bundle, origin, "supervise", Some(owner), None, None)?;
+    if !inspect.ok {
+        return Err(inspect.body["detail"].to_string());
+    }
+    let enabled = inspect.body["autostart"].as_bool() == Some(true);
+    let online = inspect.body["ownership"] == "managed_online";
+    let offline = inspect.body["ownership"] == "managed_stopped";
+    if first_check && (online || offline) {
+        state.ui_bridge.login_autostart_changed(enabled);
+    }
+    if stopped && (!login || !enabled || !(online || offline)) {
+        *expected_running = false;
+        return Ok(true);
+    }
+    if stopped && online {
+        // The Windows gateway logon task can beat the Desktop logon item.
+        active["user_stopped"] = json!(false);
+        write_private_json(&pointer, &active)?;
+    }
+    let start = offline && (*expected_running || (enabled && (has_state || first_check)));
+    if online || start {
+        *expected_running = true;
+    }
+    let action = if first_check
+        && online
+        && bundle.version != "source"
+        && inspect.body["version"] != bundle.version
+    {
+        "restart"
+    } else if start {
+        "start"
+    } else {
+        return Ok(true);
+    };
+    let result = run_local_admin_sync(
+        paths,
+        &bundle,
+        origin,
+        "lifecycle",
+        Some(owner),
+        None,
+        Some(&json!({ "action": action })),
+    )?;
+    if !result.ok {
+        return Err(result.body["detail"].to_string());
+    }
+    Ok(true)
 }
 
 /// Acquire single-instance OS lock or forward wakeup to a concurrently starting instance.
@@ -235,6 +286,11 @@ pub fn run_from_env() -> Result<(), String> {
     let cli = DesktopCliOptions::parse_from(std::env::args())?;
     let paths = DesktopPaths::resolve(&cli)?;
 
+    if cli.prepare_seed {
+        local_node::ensure_seed_bundle_installed(&paths, cli.seed_archives_dir.as_deref())?
+            .ok_or_else(|| "Installer seed bundle missing".to_string())?;
+        return Ok(());
+    }
     let Some(_instance_lock) = acquire_instance_or_forward(&paths, &cli)? else {
         return Ok(());
     };
@@ -256,7 +312,7 @@ pub fn run_from_env() -> Result<(), String> {
                 ui,
             )
             .await?;
-            spawn_managed_node_supervisor(paths, cli.dev_repo_root, running.state.clone());
+            spawn_managed_node_supervisor(running.state.clone(), cli.background);
             if let Some(rx) = running.take_shutdown_receiver() {
                 let _ = rx.await;
             }
@@ -286,10 +342,8 @@ pub fn run_from_env() -> Result<(), String> {
     let shutdown_rx = running.take_shutdown_receiver();
 
     let start_in_background = cli.background;
-    let initial_open_route = cli.initial_route.clone();
     let coord_setup = coord.clone();
     let state_setup = host_state.clone();
-    let dev_root_for_autostart = cli.dev_repo_root.clone();
 
     let app = tauri::Builder::default()
         .manage(coord.clone())
@@ -308,15 +362,11 @@ pub fn run_from_env() -> Result<(), String> {
             if !start_in_background {
                 let _ = coord_setup.ensure_main_window(
                     &handle,
-                    Some(initial_open_route.as_deref().unwrap_or("/chat")),
+                    Some("/chat"),
                 );
             }
 
-            spawn_managed_node_supervisor(
-                state_setup.paths.clone(),
-                dev_root_for_autostart,
-                state_setup.clone(),
-            );
+            spawn_managed_node_supervisor(state_setup.clone(), start_in_background);
 
             if let Some(rx) = shutdown_rx {
                 let exit_handle = handle.clone();

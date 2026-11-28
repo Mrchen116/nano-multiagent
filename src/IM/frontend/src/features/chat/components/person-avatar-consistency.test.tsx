@@ -1,7 +1,9 @@
 import avatarCases from "../../../../../shared/avatar-test-cases.json";
 import { avatarVariantFor } from "./avatar-picker";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { clearAvatarBlobStore } from "./avatar-blob-store";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import "../../../i18n";
 import type { Actor, Conversation, Message } from "../chat-types";
@@ -174,4 +176,129 @@ it('distinguishes two same-name personal assistants in a group and keeps the cho
     messages={[messages[1]]} mentionCandidates={[]} onSend={()=>{}} />);
   expect(container.querySelector('.chat-pane-header [data-avatar]')).toHaveAttribute('data-avatar','personal-7');
   expect(screen.getByTestId('message-avatar-avatar-1').querySelector('svg')).toHaveAttribute('data-avatar','personal-7');
+});
+
+it("renders custom human photos single-flight, merges IdentityDirectory priority cleanly, excludes external shadows and quote blocks, and revokes on clear", async () => {
+  const origFetch = globalThis.fetch;
+  const origCreate = URL.createObjectURL;
+  const origRevoke = URL.revokeObjectURL;
+  const revoked: string[] = [];
+  let avatarFetches = 0;
+
+  globalThis.fetch = vi.fn(async (input) => {
+    const url = String(input);
+    if (url.includes("/im/v1/users/u-photo/avatar")) {
+      avatarFetches += 1;
+      return new Response(new Uint8Array([82, 73, 70, 70]), {
+        status: 200,
+        headers: { "Content-Type": "image/webp" },
+      });
+    }
+    return new Response(null, { status: 404 });
+  }) as typeof fetch;
+  URL.createObjectURL = vi.fn(() => "blob:human-photo-v1");
+  URL.revokeObjectURL = vi.fn((u: string) => {
+    revoked.push(u);
+  });
+
+  try {
+    clearAvatarBlobStore();
+    const historyStub: Actor = { type: "user", id: "u-photo", display_name: "林夏" }; // avatar_version === undefined
+    const nameWithPhoto: Actor = { type: "user", id: "u-photo", display_name: "林夏", avatar_version: "ver111222333" };
+
+    const conversation: Conversation = {
+      id: "grp-1",
+      title: "研发群",
+      type: "group",
+      direct_kind: null,
+      participants: [historyStub],
+      participant_ids: ["u-photo"],
+      owner_id: "u-photo",
+      creator_id: "u-photo",
+      is_pinned: false,
+      is_muted: false,
+      unread_count: 0,
+      last_message_preview: null,
+      last_message_at: null,
+      created_at: "2026-11-27T00:00:00Z",
+    };
+    const quotedReply: Message = {
+      id: "m-quote",
+      conversation_id: "grp-1",
+      sender: nameWithPhoto,
+      sender_user_id: "u-photo",
+      sender_type: "user",
+      content: "收到",
+      reply_to: {
+        message_id: "m-root",
+        sender: { type: "user", id: "u-photo", display_name: "林夏" },
+        content: "上一条消息",
+        attachments: [],
+      },
+      attachments: [],
+      permission_requests: [],
+      delivery_status: "completed",
+      created_at: conversation.created_at,
+    };
+    const externalShadowMsg: Message = {
+      id: "m-ext",
+      conversation_id: "grp-1",
+      sender: { type: "user", id: "u-photo", display_name: "外部访客", avatar_id: "external:feishu:visitor", avatar_version: "ver111222333" },
+      sender_user_id: "u-photo",
+      sender_type: "user",
+      content: "外部消息",
+      attachments: [],
+      permission_requests: [],
+      delivery_status: "completed",
+      created_at: conversation.created_at,
+    };
+
+    const { container, rerender } = render(
+      <MemoryRouter>
+        <AvatarIdentities source="members" actors={[historyStub]}>
+          <AvatarIdentities source="names" actors={[nameWithPhoto]}>
+            <Avatar id="u-photo" size={36} />
+            <MessagePane
+              conversation={conversation}
+              messages={[quotedReply, externalShadowMsg]}
+              selfUserId="u-other"
+              mentionCandidates={[]}
+              onSend={() => {}}
+            />
+          </AvatarIdentities>
+        </AvatarIdentities>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      const imgs = container.querySelectorAll(".chat-avatar-face img");
+      expect(imgs.length).toBeGreaterThanOrEqual(2);
+    });
+    // Single-flight: multiple <Avatar id="u-photo" /> instances only fetch once!
+    expect(avatarFetches).toBe(1);
+    // Quote block (.chat-message-quote) must NEVER contain an avatar or img!
+    const quoteEl = container.querySelector(".chat-message-quote")!;
+    expect(quoteEl.querySelector("img")).toBeNull();
+    expect(quoteEl.querySelector(".chat-avatar")).toBeNull();
+    // External shadow sender must stay on initials fallback, never owner's photo.
+    expect(screen.getByTestId("message-avatar-m-ext").querySelector("img")).toBeNull();
+
+    // Explicit avatar_version: null on higher-priority contacts overrides lower-priority string -> reverts to initials.
+    rerender(
+      <AvatarIdentities source="contacts" actors={[{ type: "user", id: "u-photo", display_name: "林夏", avatar_version: null }]}>
+        <AvatarIdentities source="names" actors={[nameWithPhoto]}>
+          <Avatar id="u-photo" size={36} />
+        </AvatarIdentities>
+      </AvatarIdentities>,
+    );
+    expect(container.querySelector(".chat-avatar-face img")).toBeNull();
+    expect(container.querySelector(".chat-avatar-face")).toHaveTextContent("林夏");
+
+    clearAvatarBlobStore();
+    expect(revoked).toContain("blob:human-photo-v1");
+  } finally {
+    globalThis.fetch = origFetch;
+    URL.createObjectURL = origCreate;
+    URL.revokeObjectURL = origRevoke;
+  }
 });

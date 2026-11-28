@@ -195,6 +195,25 @@
         "displayNameHint": "Shown in chats, tasks and member lists.",
         "details": "Account details"
       },
+      "avatar": {
+        "upload": "Upload photo",
+        "change": "Change photo",
+        "remove": "Remove",
+        "changeTrigger": "Change profile photo",
+        "cropTitle": "Adjust avatar",
+        "cropDescription": "Drag to reposition and zoom to frame your circular profile photo.",
+        "zoomLabel": "Zoom",
+        "reselect": "Choose another",
+        "cancel": "Cancel",
+        "close": "Close",
+        "invalidFileError": "Only static PNG, JPEG, or WebP images up to 5 MB are supported. Your current photo was kept.",
+        "emptyError": "The selected image file is empty.",
+        "decodeError": "Could not decode this image. Please choose another static photo.",
+        "rateLimitedError": "Too many avatar updates. Please try again shortly.",
+        "saveError": "Could not update photo. Your current photo was kept.",
+        "updatedStatus": "Profile photo updated.",
+        "removedStatus": "Removed custom photo and restored your initials avatar."
+      },
       "defaults": {
         "heading": "Devices",
         "subtitle": "Devices you own and their connection status.",

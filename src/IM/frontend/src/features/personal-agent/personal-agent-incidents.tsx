@@ -33,6 +33,7 @@ export function PersonalAgentIncidents({bindingId}:{bindingId:string}) {
   if(!open.length)return feedback?<p className="pa-privacy-feedback" role="status">{feedback}</p>:null;
   const actors = (open).map(person => ({
     type: "user" as const, id:person.avatar_id ?? person.actor_id, display_name:person.actor_name,
+    ...(person.avatar_version !== undefined ? { avatar_version: person.avatar_version } : {}),
   }));
   return <AvatarIdentities actors={actors} source="names"><section className="pa-privacy" aria-label={t('pa.privacy.title')}>
     <button type="button" className="pa-privacy-summary" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>

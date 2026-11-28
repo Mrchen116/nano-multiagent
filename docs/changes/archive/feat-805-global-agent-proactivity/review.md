@@ -4,7 +4,7 @@
 
 - 本次问题与需求/设计位置：[spec.md](spec.md)、[design.md](design.md)、[design-review.md](design-review.md)、[verification-summary.md](M1-global-agent-proactivity/evidence/verification-summary.md) 及 [specs/](specs/) 下 9 份 delta-spec
 - 实际 executed_base / validated_at：`953eeb86ecedadd590e7975a5709a2a1ca4cf739`（Gate 2 定稿 `63aca5de0`） / 首轮实现与跨三夜真实 LLM 验收 `c9abc2587` → 审查闭环修复与回归验证 `9cbb4525d`
-- 最终 effective_base / effective_through 与保留依据：`d0ef590a0`（同步 `origin/develop` 新合入的 `refactor-800-multi-platform-parity`、`feat-803-agent-project-permission-scope` 与 `bugfix-815-ios-keyboard-timeline`，合并提交 `8486506ae` 零冲突） / 本次归并归档最终 HEAD；重叠面（`packages/product-contracts`、`apps/im-server`、`src/IM/frontend`、`src/IM/ios`、`docs/specs/{gateway,im}/**` 及 `design.md` 五端对齐矩阵）已完成全套门禁补验（`docs-check`、`check_platform_parity.py`、`check:client-contracts`、`check:ios-runtime`、`pnpm build`、`pnpm typecheck`、`vitest`、`pytest -m "not e2e"`、`ruff`），无业务语义回退，原跨天真栈 LLM 与产品旅程验收结论有效保留。
+- 最终 effective_base / effective_through 与保留依据：`42c0d2486`（同步 `origin/develop` 最新合入的 `refactor-800`、`feat-803`、`bugfix-815`、`feat-804`、`bugfix-807..812` 与 `bugfix-816`） / 本次归并归档最终 HEAD；此前在 `58dd4f6f0` 上已完成接力真栈 LLM + 预览浏览器补测（覆盖纯寒暄零建卡、空闲日零唤醒、`owner_only` 私有专家 `ROLE.md` 立卡归管理员私聊、`[Pending Proactive Handoff]` 晨报同条合发与清空、未修复门禁风险正向群提醒、浏览器 `Stash`/`Close` 复点、`Approve & start` 单次自动执行回传、以及动态开关撤回与恢复），本次解决 `docs/specs/im/spec.md` 与 `tool-references.test.ts` 两处合并冲突后已完成门禁与单测复核，原真栈验收结论有效保留。
 
 ## 审查结果
 

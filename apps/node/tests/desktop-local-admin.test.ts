@@ -96,6 +96,9 @@ it('enforces owner_id isolation, probes workers with candidate PATH, validates e
       { key: 'PATH', value: customBin },
     ]);
 
+    const supervision = await inspectLocalNode({ origin: 'https://im.example.com', ownerId: 'owner-alice', configPath, supervisionOnly: true });
+    expect(supervision).toEqual({ ownership: 'takeover_available', node_name: 'Air-Studio', version: 'source', autostart: true, scheduled_at_login: false });
+
     const probed = await probeDesktopWorkers(customBin);
     expect(probed.find(w => w.runtime === 'claude')?.resolved_path).toBe(join(customBin, 'claude'));
 
@@ -222,6 +225,16 @@ it('enforces owner_id isolation, probes workers with candidate PATH, validates e
     expect(await readFile(gatewayPlist(configPath), 'utf8')).toContain(configPath);
     await controlLocalNodeLifecycle({ origin: 'https://im.example.com', ownerId: 'owner-alice', action: 'autostart-off', configPath });
     await expect(readFile(gatewayPlist(configPath), 'utf8')).rejects.toThrow();
+
+    // A failed native registration must restore the last saved preference.
+    const brokenRegistration = gatewayPlist(configPath);
+    await mkdir(brokenRegistration, { recursive: true });
+    await expect(controlLocalNodeLifecycle({
+      origin: 'https://im.example.com', ownerId: 'owner-alice', action: 'autostart-on', configPath,
+    })).rejects.toThrow();
+    expect((await inspectLocalNode({
+      origin: 'https://im.example.com', ownerId: 'owner-alice', configPath, supervisionOnly: true,
+    })).autostart).toBe(false);
 
     // 6. Workspace open allows regular files, blocks symlink escape, and blocks direct open on .sh while allowing reveal.
     const openedDoc = await resolveLocalWorkspaceTarget({

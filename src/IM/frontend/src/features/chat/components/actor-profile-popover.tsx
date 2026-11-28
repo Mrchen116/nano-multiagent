@@ -15,6 +15,7 @@ export interface ActorProfileAnchor {
   name: string;
   role?: "personal";
   avatarVariant?: number | null;
+  avatarVersion?: string | null;
   isSelf?: boolean;
   canConfigure?: boolean;
   element: HTMLElement;
@@ -101,6 +102,7 @@ export function ActorProfilePopover({
     display_name: anchor.name,
     ...(isPersonal ? { role: "personal" as const } : {}),
     ...(anchor.avatarVariant != null ? { avatar_variant: anchor.avatarVariant } : {}),
+    ...(anchor.avatarVersion !== undefined ? { avatar_version: anchor.avatarVersion } : {}),
   };
 
   return createPortal(

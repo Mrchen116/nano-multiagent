@@ -5526,9 +5526,23 @@ body {
     padding: 10px 14px;
     background: var(--im-surface);
   }
+  .chat-pane-title-trigger {
+    display: block;
+    max-width: 100%;
+    min-height: 44px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
   .chat-pane-pending-composer { min-height: 5.65rem; }
   .chat-workspace-back { position: absolute; top: 10px; left: 14px; z-index: 1; }
-  .chat-workspace-back + .chat-pane > .chat-pane-header { padding-left: 68px; min-height: 65px; }
+  .chat-workspace-back + .chat-pane .chat-pane-header { padding-left: 68px; min-height: 65px; }
   .chat-pane-messages {
     padding: 14px 12px 8px;
   }

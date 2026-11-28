@@ -4,6 +4,32 @@ import { isRasterImageMime } from '@nano/product-contracts';
 
 type ObjectValue = Record<string, unknown>;
 
+function stripVisualActorFields(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    let changed = false;
+    const mapped = value.map(item => {
+      const next = stripVisualActorFields(item);
+      if (next !== item) changed = true;
+      return next;
+    });
+    return changed ? mapped : value;
+  }
+  const record = value as ObjectValue;
+  let changed = false;
+  const out: ObjectValue = {};
+  for (const [key, child] of Object.entries(record)) {
+    if (key === 'avatar_version') {
+      changed = true;
+      continue;
+    }
+    const nextChild = stripVisualActorFields(child);
+    if (nextChild !== child) changed = true;
+    out[key] = nextChild;
+  }
+  return changed ? out : value;
+}
+
 /** Hard upper bound for every atomic identifier an Agent must pass into tool arguments. */
 export const MAX_AGENT_ID_LENGTH = 8;
 
@@ -538,6 +564,11 @@ export class ToolReferences {
    *   Persists new mappings before returning them to the model.
    */
   result(agent: string, method: string, value: unknown, action?: string): unknown {
+    if (!SUPPORTED_METHODS.has(method)) return value;
+    return stripVisualActorFields(this.projectResult(agent, method, value, action));
+  }
+
+  private projectResult(agent: string, method: string, value: unknown, action?: string): unknown {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
     const body = { ...value } as ObjectValue;
     const cursor = (object: ObjectValue): ObjectValue => ({ ...object,

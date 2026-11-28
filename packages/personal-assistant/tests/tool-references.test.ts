@@ -184,18 +184,8 @@ it('maps task_graph short user references bidirectionally and projects task-cont
       assignee: { type: 'user', id: `user:${bobShort}` },
       wait: { asked_user_id: aliceShort, question: 'Approve?' },
       operations: [
-        {
-          op: 'add_task',
-          container_id: 'n1',
-          title: 'Subtask',
-          proposed_for_user_id: `user:${bobShort}`,
-          assignee: { type: 'agent', id: 'q' },
-        },
-        {
-          op: 'update_task',
-          node_id: 'n2',
-          patch: { proposed_for_user_id: aliceShort, wait: { asked_user_id: bobShort } },
-        },
+        { op: 'add_task', container_id: 'n1', title: 'Subtask', proposed_for_user_id: `user:${bobShort}`, assignee: { type: 'agent', id: 'q' } },
+        { op: 'update_task', node_id: 'n2', patch: { proposed_for_user_id: aliceShort, wait: { asked_user_id: bobShort } } },
         { op: 'approve_task', node_id: 'n2', assignee_type: 'user', assignee_id: bobShort },
         { op: 'set_assignee', node_id: 'n3', assignee: { type: 'user', id: aliceShort } },
       ],
@@ -216,19 +206,17 @@ it('maps task_graph short user references bidirectionally and projects task-cont
     const projectedResult = refs.result('q', 'task_graph', {
       graph_id: 'tg_1',
       conversation_id: convRaw,
-      nodes: [
-        {
-          node_id: 'n1',
-          conversation_id: convRaw,
-          proposed_for_user_id: aliceUuid,
-          created_by: { type: 'user', id: aliceUuid },
-          updated_by_actor: { type: 'agent', id: 'q' },
-          assignee: { type: 'user', id: bobUuid },
-          wait: { asked_user_id: aliceUuid },
-          resume_request: { actor_id: bobUuid },
-          doing_wake: { actor: { type: 'user', id: aliceUuid } },
-        },
-      ],
+      nodes: [{
+        node_id: 'n1',
+        conversation_id: convRaw,
+        proposed_for_user_id: aliceUuid,
+        created_by: { type: 'user', id: aliceUuid },
+        updated_by_actor: { type: 'agent', id: 'q' },
+        assignee: { type: 'user', id: bobUuid },
+        wait: { asked_user_id: aliceUuid },
+        resume_request: { actor_id: bobUuid },
+        doing_wake: { actor: { type: 'user', id: aliceUuid } },
+      }],
       needs_you: [{ graph_id: 'tg_1', node_id: 'n1', conversation_id: convRaw, proposed_for_user_id: aliceUuid }],
     }) as any;
 
@@ -243,10 +231,7 @@ it('maps task_graph short user references bidirectionally and projects task-cont
       resume_request: { actor_id: bobShort },
       doing_wake: { actor: { type: 'user', id: aliceShort } },
     });
-    expect(projectedResult.needs_you[0]).toMatchObject({
-      conversation_id: convShort,
-      proposed_for_user_id: aliceShort,
-    });
+    expect(projectedResult.needs_you[0]).toMatchObject({ conversation_id: convShort, proposed_for_user_id: aliceShort });
 
     // 3) InboxStore systemContextEntry: projects model-visible JSON while preserving raw inputId/conversationId and legacy commit compatibility
     const noticeInput: RelayInput = {
@@ -267,11 +252,7 @@ it('maps task_graph short user references bidirectionally and projects task-cont
           previous_status: 'proposed',
           status: 'closed',
           actor: { type: 'user', id: bobUuid },
-          human_control: {
-            action: 'pause',
-            actor: { type: 'user', id: aliceUuid },
-            scope: { agent_id: 'q', conversation_id: convRaw },
-          },
+          human_control: { action: 'pause', actor: { type: 'user', id: aliceUuid }, scope: { agent_id: 'q', conversation_id: convRaw } },
         },
       },
     };
@@ -291,10 +272,80 @@ it('maps task_graph short user references bidirectionally and projects task-cont
     expect(text).not.toContain(aliceUuid);
     expect(text).not.toContain(convRaw);
 
-    // Pre-upgrade prepared digest (unprojectedContent) is still accepted by commitSystemContext
     expect(inbox.commitSystemContext('q', 'q-root', msgRaw, unprojectedContent, 1)).toBe(true);
   } finally {
     inbox.close();
     store.close();
+  }
+});
+
+it('strips visual avatar_version metadata across all projected tool methods without altering user text', () => {
+  const store = new NodeStore(':memory:', 'owner');
+  try {
+    const refs = store.toolReferences;
+    const cases: Array<[string, Record<string, unknown>, string?]> = [
+      ['inbox', {
+        sources: [{ id: 'c_1', target: 'c_1', participants: [{ id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' }] }],
+        messages: [{ id: 'm_1', content: 'literal avatar_version in text stays', sender: { id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' } }],
+        security_incidents: [{ incident_ref: 'inc_1', actor_id: 'u_2', avatar_version: 'cafe12345678' }],
+      }],
+      ['conversations', {
+        conversations: [{ id: 'c_1', target: 'c_1', members: [{ user_id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' }] }],
+        messages: [{ message_id: 'm_1', sender: { id: 'u_1', name: 'Alice', avatar_version: 'deadbeef1234' }, content: [{ type: 'text', text: 'hi' }] }],
+      }, 'read'],
+      ['read_messages', {
+        messages: [{ message_id: 'm_1', sender: { id: 'u_1', name: 'Alice', avatar_version: 'deadbeef1234' }, reply_to: { message_id: 'm_0', sender: { id: 'u_2', avatar_version: '112233445566' } }, content: 'hi' }],
+      }],
+      ['search_messages', {
+        messages: [{ message_id: 'm_1', sender: { id: 'u_1', name: 'Alice', avatar_version: 'deadbeef1234' }, content: [{ type: 'text', text: 'match' }] }],
+      }],
+      ['send_message.context', {
+        target: 'c_1',
+        recipient: { kind: 'user', id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' },
+      }],
+      ['threads', {
+        threads: [{ target: 'c_1:m_1', participants: [{ id: 'u_1', actor: { id: 'u_1', avatar_version: 'deadbeef1234' } }] }],
+      }, 'list'],
+      ['personal_sources', {
+        items: [{ id: 'c_1', participants: [{ id: 'u_1', avatar_version: 'deadbeef1234' }] }],
+      }],
+      ['task_graph', {
+        ok: true,
+        result: {
+          graph_id: 'tg_1',
+          nodes: [{
+            id: 'n1',
+            title: 'Task mentioning avatar_version',
+            created_by: { type: 'user', id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' },
+            assignee: { type: 'user', id: 'u_2', display_name: 'Bob', avatar_version: null },
+            updated_by_actor: { type: 'user', id: 'u_1', display_name: 'Alice', avatar_version: 'deadbeef1234' },
+          }],
+        },
+      }],
+    ];
+    for (const [method, payload, action] of cases) {
+      const projected = JSON.stringify(refs.result('alice', method, payload, action));
+      expect(projected, method).not.toContain('"avatar_version"');
+    }
+    const inboxOut = refs.result('alice', 'inbox', cases[0]![1]) as any;
+    expect(inboxOut.messages[0].content).toBe('literal avatar_version in text stays');
+  } finally {
+    store.close();
+  }
+
+  const inbox = new InboxStore(':memory:');
+  try {
+    const obsInput: RelayInput = {
+      agent_id: 'alice',
+      conversation_id: 'c_obs',
+      relay_task_id: 'obs_m_obs_1',
+      idempotency_key: 'obs_m_obs_1',
+      metadata: { conversation_type: 'direct', pa_observation: true },
+      message: { id: 'm_obs_1', content: 'unchanged internal relay', sender_type: 'user', sender_user_id: 'u_peer', attachments: [] },
+    };
+    inbox.acceptRelay(obsInput, false, true);
+    expect(() => inbox.acceptRelay({ ...obsInput }, false, true)).not.toThrow();
+  } finally {
+    inbox.close();
   }
 });

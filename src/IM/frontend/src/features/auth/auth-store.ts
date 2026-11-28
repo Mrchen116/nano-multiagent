@@ -11,6 +11,7 @@ export interface AuthUser {
   id: string;
   username: string;
   display_name: string;
+  avatar_version?: string | null;
   owner_id: string;
   locale: string;
   timezone?: string | null;

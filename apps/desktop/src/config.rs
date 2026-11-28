@@ -12,8 +12,8 @@ pub struct DesktopCliOptions {
     pub background: bool,
     pub stop: bool,
     pub headless_host: bool,
+    pub prepare_seed: bool,
     pub im_origin: Option<String>,
-    pub initial_route: Option<String>,
     pub deep_link_url: Option<String>,
     pub seed_archives_dir: Option<PathBuf>,
     pub dev_repo_root: Option<PathBuf>,
@@ -44,6 +44,7 @@ impl DesktopCliOptions {
                 "--stop" => {
                     opts.stop = true;
                 }
+                "--prepare-seed" => opts.prepare_seed = true,
                 "--headless-host" => {
                     opts.headless_host = true;
                 }
@@ -70,9 +71,6 @@ impl DesktopCliOptions {
                 }
                 other if other.starts_with("crewden-desktop://") => {
                     opts.deep_link_url = Some(other.to_string());
-                    if let Ok(Some(route)) = parse_deep_link_route(other) {
-                        opts.initial_route = Some(route);
-                    }
                 }
                 _ => {}
             }
@@ -255,8 +253,8 @@ pub fn parse_deep_link_origin(raw: &str) -> Result<Option<String>, String> {
     }
 }
 
-/// Parse `crewden-desktop://open?route=<encoded>` safely for OS notification click routing.
-pub fn parse_deep_link_route(raw: &str) -> Result<Option<String>, String> {
+/// Extract the account/service scope and app-relative destination of a native notification.
+pub(crate) fn parse_notification_link(raw: &str) -> Result<Option<(String, String)>, String> {
     let parsed = Url::parse(raw.trim()).map_err(|_| "Malformed crewden-desktop:// URL".to_string())?;
     if parsed.scheme() != "crewden-desktop" {
         return Ok(None);
@@ -265,16 +263,23 @@ pub fn parse_deep_link_route(raw: &str) -> Result<Option<String>, String> {
     if action != "open" && parsed.path().trim_matches('/') != "open" {
         return Ok(None);
     }
-    for (k, v) in parsed.query_pairs() {
-        if k == "route" {
-            let trimmed = v.trim();
-            if !trimmed.starts_with('/') || trimmed.starts_with("//") || trimmed.chars().any(|c| c.is_control()) {
-                return Err("Deep-link route must be a safe app-relative path".to_string());
+    let mut scope = None;
+    let mut route = None;
+    for (key, value) in parsed.query_pairs() {
+        match key.as_ref() {
+            "notification_scope" => scope = Some(value.into_owned()),
+            "route" => {
+                let path = value.trim();
+                if !path.starts_with('/') || path.starts_with("//") || path.contains('\\') || path.chars().any(char::is_control) {
+                    return Err("Deep-link route must be a safe app-relative path".to_string());
+                }
+                route = Some(path.to_owned());
             }
-            return Ok(Some(trimmed.to_string()));
+            _ => {}
         }
     }
-    Ok(None)
+    // Legacy Windows toasts carried a bare route. Its original account cannot be recovered.
+    Ok(scope.zip(route))
 }
 
 pub fn current_desktop_platform_id() -> &'static str {
@@ -564,17 +569,17 @@ pub struct StoredSessionsFile {
 
 pub fn write_private_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        fs::create_dir_all(parent).map_err(|e| format!("Create directory {}: {e}", parent.display()))?;
     }
     let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
     let tmp = path.with_extension(format!("tmp-{}-{}", std::process::id(), random_hex_token(4)));
-    fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
+    fs::write(&tmp, &bytes).map_err(|e| format!("Write {}: {e}", tmp.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
     }
-    fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, path).map_err(|e| format!("Rename {} to {}: {e}", tmp.display(), path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -632,14 +637,18 @@ pub fn append_host_log(paths: Option<&DesktopPaths>, level: &str, message: &str)
 
 /// Show a native OS alert dialog when `windows_subsystem = "windows"` hides stderr on fatal startup errors.
 pub fn show_fatal_startup_dialog(message: &str, log_path: &Path) {
-    if std::env::var("CREWDEN_SUPPRESS_OS_OPEN").as_deref() == Ok("1") {
-        return;
-    }
     let full_msg = format!(
         "Crewden Desktop 启动失败：{}\n\n诊断日志已写入：\n{}",
         message,
         log_path.display()
     );
+    show_error_dialog(&full_msg);
+}
+
+pub(crate) fn show_error_dialog(full_msg: &str) {
+    if std::env::var("CREWDEN_SUPPRESS_OS_OPEN").as_deref() == Ok("1") {
+        return;
+    }
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
@@ -664,7 +673,7 @@ pub fn show_fatal_startup_dialog(message: &str, log_path: &Path) {
                 "-e",
                 "on run argv",
                 "-e",
-                "display alert \"Crewden Desktop 启动失败\" message (item 1 of argv) as critical",
+                "display alert \"Crewden Desktop\" message (item 1 of argv) as critical",
                 "-e",
                 "end run",
                 "--",
@@ -799,13 +808,14 @@ mod tests {
         )
         .is_err());
 
-        let route = parse_deep_link_route(
-            "crewden-desktop://open?route=%2Fsettings%2Fagents%2Feng-1%3Fview%3Dwork",
+        let target = parse_notification_link(
+            "crewden-desktop://open?notification_scope=test&route=%2Fsettings%2Fagents%2Feng-1%3Fview%3Dwork",
         )
         .unwrap();
-        assert_eq!(route.as_deref(), Some("/settings/agents/eng-1?view=work"));
-        assert!(parse_deep_link_route("crewden-desktop://open?route=%2F%2Fevil.example").is_err());
-        assert!(parse_deep_link_route("crewden-desktop://open?route=https%3A%2F%2Fevil.example").is_err());
+        assert_eq!(target, Some(("test".to_owned(), "/settings/agents/eng-1?view=work".to_owned())));
+        assert_eq!(parse_notification_link("crewden-desktop://open?route=%2Fchat%2Fold").unwrap(), None);
+        assert!(parse_notification_link("crewden-desktop://open?route=%2F%2Fevil.example").is_err());
+        assert!(parse_notification_link("crewden-desktop://open?route=https%3A%2F%2Fevil.example").is_err());
     }
 
     #[test]

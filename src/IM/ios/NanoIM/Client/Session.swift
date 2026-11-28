@@ -291,6 +291,7 @@ actor Session {
         if components.queryItems?.isEmpty == true { components.queryItems = nil }
         guard let url = components.url else { throw URLError(.badURL) }
         var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.httpMethod = method; request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }

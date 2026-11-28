@@ -56,24 +56,30 @@ try {
     $errLog = Join-Path $isoRoot 'host-stderr.log'
     $hostProc = Start-Process -FilePath $installedExe -ArgumentList '--isolated-root', $isoRoot, '--headless-host' -RedirectStandardError $errLog -PassThru
     $stateFile = Join-Path $isoRoot 'desktop\host-state.json'
-    $state = $null
-    for ($i = 0; $i -lt 300; $i++) {
+    $connection = $null
+    $status = $null
+    $lastProbeError = $null
+    $deadline = [DateTime]::UtcNow.AddSeconds(300)
+    while ([DateTime]::UtcNow -lt $deadline) {
         if ($hostProc.HasExited) {
             $errText = if (Test-Path $errLog) { Get-Content -Raw $errLog } else { '' }
             throw "CrewdenDesktop headless host exited prematurely ($($hostProc.ExitCode)): $errText"
         }
-        if (Test-Path $stateFile) {
-            try {
-                $candidate = Get-Content -Raw $stateFile | ConvertFrom-Json
-                if ($candidate.ready -and $candidate.port) { $state = $candidate; break }
-            } catch {}
+        try {
+            if (!$connection -and (Test-Path $stateFile)) {
+                $connection = Get-Content -Raw $stateFile | ConvertFrom-Json
+            }
+            if ($connection) {
+                $status = Invoke-RestMethod -TimeoutSec 2 -Headers @{ 'x-crewden-reload-token' = $connection.reload_token } -Uri "http://127.0.0.1:$($connection.port)/desktop/internal/status"
+            }
+        } catch {
+            $lastProbeError = $_.Exception.Message
         }
+        if ($status.seed_error) { throw "Desktop seed preparation failed: $($status.seed_error)" }
+        if ($status.seed_ready) { break }
         Start-Sleep -Seconds 1
     }
-    if (!$state) { throw 'CrewdenDesktop headless host did not become ready from seed archives within 300s' }
-
-    $status = Invoke-RestMethod -Headers @{ 'x-crewden-reload-token' = $state.reload_token } -Uri "http://127.0.0.1:$($state.port)/desktop/internal/status"
-    if (!$status.ready) { throw 'Desktop internal status not ready' }
+    if (!$status.seed_ready) { throw "Desktop seed preparation timed out after 300s. Last probe error: $lastProbeError" }
 
     $versionRoot = Join-Path $isoRoot "desktop\versions\$($manifest.sha256)"
     $bundledNode = Join-Path $versionRoot 'runtime\node.exe'
@@ -93,6 +99,8 @@ try {
 
     & $installedExe '--isolated-root' $isoRoot '--stop'
     $hostProc.WaitForExit(10000) | Out-Null
+    & $bundledNode 'apps/desktop/tests/node-lifecycle.mjs' $installedExe $versionRoot
+    if ($LASTEXITCODE -ne 0) { throw 'Desktop managed node lifecycle regression' }
 } finally {
     $env:PATH = $savedPath
     if ($hostProc -and !$hostProc.HasExited) { Stop-Process -Id $hostProc.Id -Force -ErrorAction SilentlyContinue }

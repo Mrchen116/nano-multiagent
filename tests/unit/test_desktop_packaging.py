@@ -108,7 +108,7 @@ def test_inno_setup_manifest_defines_default_checked_desktop_shortcut_and_close_
     assert "CloseApplications=yes" in iss_text
     assert "AppMutex=" not in iss_text
     assert "function PrepareToInstall" in iss_text
-    assert "'--stop'" in iss_text
+    assert "prepare-overwrite" in iss_text
     assert 'Name: "desktopicon"; Description: "创建桌面快捷方式(&D)"' in iss_text
     # Must be checked by default (no `unchecked` flag on desktopicon task).
     task_lines = [
@@ -129,4 +129,5 @@ def test_desktop_smoke_scripts_wait_for_seed_ready_flag_in_host_state() -> None:
     )
     assert 'data.get("ready") is True' in mac_wf
     assert 'if [ -f "$ISO_ROOT/desktop/host-state.json" ]; then break; fi' not in mac_wf
-    assert "$candidate.ready -and $candidate.port" in win_smoke
+    assert "if ($status.seed_error) { throw" in win_smoke
+    assert "if ($status.seed_ready) { break }" in win_smoke

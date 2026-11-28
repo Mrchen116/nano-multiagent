@@ -19,6 +19,7 @@ import type { ImContext } from "./context.js";
 import type { Messaging } from "./messaging.js";
 import { conversationAccess, qualifiedUser } from "./conversation-access.js";
 import { taskNotices } from "./task-notifications.js";
+import { attachHumanAvatars } from "./human-avatar-projection.js";
 
 type Obj = Record<string, any>;
 /** Count an Agent's durable responsibility across all conversations. */
@@ -1695,7 +1696,7 @@ export function registerTaskGraphRoutes(app: FastifyInstance, ctx: ImContext) {
         const args: Obj = { ...(req.query as Obj), ...(req.body as Obj), ...(req.params as Obj) };
         if (args.limit !== undefined) args.limit = Number(args.limit);
         if(action==="runtime")return await service.runtimeState({kind:"user",id:principal.id},args);
-        return await service.executeChecked({ kind: "user", id: principal.id }, action!, args);
+        return attachHumanAvatars(ctx.db, await service.executeChecked({ kind: "user", id: principal.id }, action!, args));
       } catch (e) {
         if (e instanceof TaskGraphError)
           return reply

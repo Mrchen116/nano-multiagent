@@ -1,4 +1,7 @@
 import SwiftUI
+import PhotosUI
+import ImageIO
+import UniformTypeIdentifiers
 
 struct MeView: View {
     let client: IMClient
@@ -177,6 +180,7 @@ struct MeView: View {
 struct SettingsAccountView: View {
     let client: IMClient
     let onAccountUpdated: @MainActor () -> Void
+    @Environment(\.avatarImageStore) private var avatarImages
     @State private var profile: SettingsAccount?
     @State private var nodes: [SettingsNode] = []
     @State private var name = ""
@@ -185,6 +189,9 @@ struct SettingsAccountView: View {
     @State private var error: String?
     @State private var success: String?
     @State private var busy = false
+    @State private var avatarBusy = false
+    @State private var pickedPhoto: PhotosPickerItem?
+    @State private var cropCandidate: IdentifiableCropImage?
 
     private var dirty: Bool {
         guard let profile else { return false }
@@ -195,6 +202,31 @@ struct SettingsAccountView: View {
             if let profile {
                 SettingsFeedback(error: error, success: success)
                 Section(L("个人资料", "Profile")) {
+                    HStack(spacing: 14) {
+                        AvatarView(id: .account(profile), size: 64)
+                            .environment(\.avatarDirectory, AvatarDirectory())
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(profile.display_name.isEmpty ? profile.username : profile.display_name)
+                                .font(.headline)
+                            Text("@" + profile.username)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 8)
+                        PhotosPicker(selection: $pickedPhoto, matching: .images) {
+                            Text(profile.avatar_version != nil ? L("更换头像", "Change photo") : L("上传头像", "Upload photo"))
+                                .font(.subheadline.weight(.semibold))
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(busy || avatarBusy)
+                    }
+                    .padding(.vertical, 4)
+                    if profile.avatar_version != nil {
+                        Button(L("移除头像", "Remove photo"), role: .destructive) {
+                            Task { await removeAvatar() }
+                        }
+                        .disabled(busy || avatarBusy)
+                    }
                     LabeledContent(L("用户名", "Username"), value: profile.username)
                     VStack(alignment: .leading, spacing: 6) { Text(L("显示名称", "Display name")).font(.caption).foregroundStyle(NanoTheme.muted); TextField(L("显示名称", "Display name"), text: $name) }.padding(.vertical, 4)
                     DisclosureGroup(L("账号信息", "Account information")) {
@@ -227,7 +259,22 @@ struct SettingsAccountView: View {
         .navigationTitle(L("个人资料与语言", "Profile and language"))
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
         .nanoUnsavedChanges(dirty)
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button(busy ? L("保存中…", "Saving…") : L("保存", "Save")) { Task { await save() } }.disabled(busy || !dirty || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } }
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button(busy ? L("保存中…", "Saving…") : L("保存", "Save")) { Task { await save() } }.disabled(busy || avatarBusy || !dirty || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) } }
+        .onChange(of: pickedPhoto) { _, nextItem in
+            guard let nextItem else { return }
+            pickedPhoto = nil
+            Task { await loadPickedPhoto(nextItem) }
+        }
+        .sheet(item: $cropCandidate) { candidate in
+            AvatarCropSheet(
+                image: candidate.image,
+                saving: avatarBusy,
+                onCancel: { if !avatarBusy { cropCandidate = nil } },
+                onConfirm: { croppedData, mimeType in
+                    Task { await uploadAvatar(croppedData, mimeType: mimeType) }
+                }
+            )
+        }
         .task { await load() }
     }
 
@@ -235,6 +282,52 @@ struct SettingsAccountView: View {
         name = value.display_name
         defaultNode = value.default_entry_node_id ?? ""
         locale = value.locale
+    }
+    @MainActor private func loadPickedPhoto(_ item: PhotosPickerItem) async {
+        error = nil; success = nil
+        do {
+            guard let rawData = try await item.loadTransferable(type: Data.self) else {
+                error = AvatarImageProcessor.ValidationError.decodeFailed.localizedDescription
+                return
+            }
+            let working = try AvatarImageProcessor.prepareWorkingImage(from: rawData)
+            cropCandidate = IdentifiableCropImage(image: working)
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? settingsError(error)
+        }
+    }
+    @MainActor private func uploadAvatar(_ data: Data, mimeType: String) async {
+        guard !avatarBusy else { return }
+        avatarBusy = true; error = nil; success = nil
+        defer { avatarBusy = false }
+        do {
+            let updated = try await client.uploadSettingsAvatar(data, mimeType: mimeType)
+            try Task.checkCancellation()
+            // Update only saved profile snapshot without touching unsaved form drafts!
+            let uid = updated.user_id.isEmpty ? updated.id : updated.user_id
+            avatarImages?.evict(userID: uid, keepingVersion: updated.avatar_version)
+            profile = updated
+            cropCandidate = nil
+            success = L("个人头像已更新", "Profile photo updated")
+            onAccountUpdated()
+        } catch is CancellationError {} catch {
+            cropCandidate = nil
+            self.error = settingsError(error)
+        }
+    }
+    @MainActor private func removeAvatar() async {
+        guard !avatarBusy else { return }
+        avatarBusy = true; error = nil; success = nil
+        defer { avatarBusy = false }
+        do {
+            let updated = try await client.deleteSettingsAvatar()
+            try Task.checkCancellation()
+            let uid = updated.user_id.isEmpty ? updated.id : updated.user_id
+            avatarImages?.evict(userID: uid, keepingVersion: nil)
+            profile = updated
+            success = L("已移除自定义头像", "Removed custom photo")
+            onAccountUpdated()
+        } catch is CancellationError {} catch { self.error = settingsError(error) }
     }
     @MainActor private func load() async {
         error = nil
@@ -293,5 +386,232 @@ struct SettingsHelpView: View {
         }
         .navigationTitle(L("提醒与安装", "Reminders and installation"))
         .navigationBarTitleDisplayMode(.inline).toolbar(.hidden, for: .tabBar)
+    }
+}
+
+private struct IdentifiableCropImage: Identifiable {
+    let id = UUID()
+    let image: UIImage
+}
+
+enum AvatarImageProcessor {
+    static let maxUploadBytes = 5 * 1024 * 1024
+    static let maxWorkingDimension = 2048
+
+    enum ValidationError: LocalizedError, Equatable {
+        case empty
+        case tooLarge
+        case unsupported
+        case decodeFailed
+
+        var errorDescription: String? {
+            switch self {
+            case .empty:
+                L("所选图片文件为空。", "The selected image file is empty.")
+            case .tooLarge:
+                L("仅支持 5 MB 以内的静态图片，当前已生效头像保持不变。", "Only static images up to 5 MB are supported. Your current photo was kept.")
+            case .unsupported:
+                L("仅支持单帧静态照片（不支持 GIF 动图），当前已生效头像保持不变。", "Only single-frame static photos are supported (animated GIFs are not allowed).")
+            case .decodeFailed:
+                L("图片无法解码，请选择其他静态图片。", "Could not decode this image. Please choose another static photo.")
+            }
+        }
+    }
+
+    static func prepareWorkingImage(from data: Data) throws -> UIImage {
+        guard !data.isEmpty else { throw ValidationError.empty }
+        guard data.count <= maxUploadBytes else { throw ValidationError.tooLarge }
+        if data.count >= 6 {
+            let magic = String(decoding: data.prefix(6), as: UTF8.self)
+            if magic == "GIF87a" || magic == "GIF89a" {
+                throw ValidationError.unsupported
+            }
+        }
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else {
+            throw ValidationError.decodeFailed
+        }
+        guard CGImageSourceGetCount(source) == 1 else {
+            throw ValidationError.unsupported
+        }
+        if let typeIdentifier = CGImageSourceGetType(source) as String?,
+           let utType = UTType(typeIdentifier),
+           utType.conforms(to: .gif) || utType.conforms(to: .svg) {
+            throw ValidationError.unsupported
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxWorkingDimension,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            throw ValidationError.decodeFailed
+        }
+        return UIImage(cgImage: cgImage)
+    }
+
+    static func clampPan(_ pan: CGSize, imageSize: CGSize, zoom: CGFloat, ringDiameter: CGFloat) -> CGSize {
+        guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
+        let scale = max(ringDiameter / imageSize.width, ringDiameter / imageSize.height) * zoom
+        let maxX = max(0, (imageSize.width * scale - ringDiameter) / 2)
+        let maxY = max(0, (imageSize.height * scale - ringDiameter) / 2)
+        return CGSize(
+            width: min(maxX, max(-maxX, pan.width)),
+            height: min(maxY, max(-maxY, pan.height))
+        )
+    }
+
+    static func exportCroppedAvatar(
+        source: UIImage,
+        zoom: CGFloat,
+        pan: CGSize,
+        ringDiameter: CGFloat = 240,
+        outputSide: CGFloat = 512
+    ) throws -> (Data, String) {
+        let clamped = clampPan(pan, imageSize: source.size, zoom: zoom, ringDiameter: ringDiameter)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        let renderer = UIGraphicsImageRenderer(size: CGSize(width: outputSide, height: outputSide), format: format)
+        let rendered = renderer.image { _ in
+            let scale = max(outputSide / max(1, source.size.width), outputSide / max(1, source.size.height)) * zoom
+            let drawW = source.size.width * scale
+            let drawH = source.size.height * scale
+            let ratio = outputSide / ringDiameter
+            let drawX = (outputSide - drawW) / 2 + clamped.width * ratio
+            let drawY = (outputSide - drawH) / 2 + clamped.height * ratio
+            source.draw(in: CGRect(x: drawX, y: drawY, width: drawW, height: drawH))
+        }
+        if let png = rendered.pngData(), png.count <= maxUploadBytes {
+            return (png, "image/png")
+        }
+        if let jpeg = rendered.jpegData(compressionQuality: 0.9), jpeg.count <= maxUploadBytes {
+            return (jpeg, "image/jpeg")
+        }
+        throw ValidationError.tooLarge
+    }
+}
+
+private struct AvatarCropSheet: View {
+    let image: UIImage
+    let saving: Bool
+    let onCancel: () -> Void
+    let onConfirm: (Data, String) -> Void
+
+    @State private var zoom: CGFloat = 1.15
+    @State private var committedPan: CGSize = .zero
+    @State private var dragDelta: CGSize = .zero
+
+    private let stageSize: CGFloat = 280
+    private let ringDiameter: CGFloat = 240
+
+    private var effectivePan: CGSize {
+        AvatarImageProcessor.clampPan(
+            CGSize(width: committedPan.width + dragDelta.width, height: committedPan.height + dragDelta.height),
+            imageSize: image.size,
+            zoom: zoom,
+            ringDiameter: ringDiameter
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                Spacer(minLength: 8)
+                ZStack {
+                    Color(red: 0.11, green: 0.09, blue: 0.15)
+                    let scale = max(ringDiameter / max(1, image.size.width), ringDiameter / max(1, image.size.height)) * zoom
+                    Image(uiImage: image)
+                        .resizable()
+                        .frame(width: image.size.width * scale, height: image.size.height * scale)
+                        .offset(effectivePan)
+                    AvatarCircularCutoutOverlay(ringDiameter: ringDiameter)
+                        .allowsHitTesting(false)
+                }
+                .frame(width: stageSize, height: stageSize)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            guard !saving else { return }
+                            dragDelta = value.translation
+                        }
+                        .onEnded { value in
+                            committedPan = AvatarImageProcessor.clampPan(
+                                CGSize(width: committedPan.width + value.translation.width, height: committedPan.height + value.translation.height),
+                                imageSize: image.size,
+                                zoom: zoom,
+                                ringDiameter: ringDiameter
+                            )
+                            dragDelta = .zero
+                        }
+                )
+
+                HStack(spacing: 12) {
+                    Image(systemName: "minus")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Slider(value: Binding(
+                        get: { zoom },
+                        set: { next in
+                            zoom = next
+                            committedPan = AvatarImageProcessor.clampPan(committedPan, imageSize: image.size, zoom: next, ringDiameter: ringDiameter)
+                        }
+                    ), in: 1.0...2.8)
+                    .disabled(saving)
+                    Image(systemName: "plus")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: stageSize)
+
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            .background(NanoTheme.canvas)
+            .navigationTitle(L("调整头像", "Adjust avatar"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L("取消", "Cancel")) { onCancel() }
+                        .disabled(saving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(saving ? L("保存中…", "Saving…") : L("保存", "Save")) {
+                        if let (data, mime) = try? AvatarImageProcessor.exportCroppedAvatar(
+                            source: image,
+                            zoom: zoom,
+                            pan: effectivePan,
+                            ringDiameter: ringDiameter
+                        ) {
+                            onConfirm(data, mime)
+                        }
+                    }
+                    .fontWeight(.semibold)
+                    .disabled(saving)
+                }
+            }
+        }
+        .interactiveDismissDisabled(saving)
+    }
+}
+
+private struct AvatarCircularCutoutOverlay: View {
+    let ringDiameter: CGFloat
+
+    var body: some View {
+        Canvas { ctx, size in
+            var full = Path(CGRect(origin: .zero, size: size))
+            let rect = CGRect(
+                x: (size.width - ringDiameter) / 2,
+                y: (size.height - ringDiameter) / 2,
+                width: ringDiameter,
+                height: ringDiameter
+            )
+            full.addEllipse(in: rect)
+            ctx.fill(full, with: .color(.black.opacity(0.55)), style: FillStyle(eoFill: true))
+            ctx.stroke(Path(ellipseIn: rect), with: .color(.white.opacity(0.9)), lineWidth: 1.5)
+        }
     }
 }
