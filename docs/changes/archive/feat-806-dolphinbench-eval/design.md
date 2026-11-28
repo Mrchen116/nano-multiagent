@@ -5,7 +5,9 @@
 ## 实现范围
 
 - Base: `890d74f70` (`origin/develop`)
-- Head: 待最终归档提交更新
+- Head: `940e4a56f`（归档前实现提交）
+- Commits: `2a9e1f086`、`940e4a56f`
+- Included dirty files: 无
 - Included files:
   - `packages/dsh-integration/package.json`
   - `packages/dsh-integration/src/evaluation.ts`
