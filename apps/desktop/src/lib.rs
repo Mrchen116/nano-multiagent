@@ -10,7 +10,9 @@ use crate::config::{
     append_host_log, local_node_bridge_endpoint, write_private_json, DesktopCliOptions,
     DesktopPaths, HostRuntimeStateFile, InstanceLock,
 };
-use crate::host_server::{handle_deep_link_url, ping_local_bridge, start_host_server_full};
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use crate::host_server::handle_deep_link_url;
+use crate::host_server::{ping_local_bridge, start_host_server_full};
 use crate::local_node::{resolve_active_bundle, run_local_admin_sync, stop_all_managed_local_nodes};
 use crate::notifications::NoopUiBridge;
 use crate::tray::{install_system_tray, TauriUiCoordinator};
@@ -539,8 +541,9 @@ pub fn run_from_env() -> Result<(), String> {
         .map_err(|e| format!("Failed to build Tauri application: {}", e))?;
 
     let coord_run = coord.clone();
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     let state_run = host_state.clone();
-    app.run(move |app_handle, event| match event {
+    app.run(move |_app_handle, event| match event {
         RunEvent::ExitRequested { api, .. } => {
             if !coord_run.explicit_quit.load(Ordering::SeqCst) {
                 api.prevent_exit();
@@ -552,7 +555,7 @@ pub fn run_from_env() -> Result<(), String> {
             ..
         } => {
             if !has_visible_windows {
-                coord_run.ensure_main_window_or_report(app_handle, None);
+                coord_run.ensure_main_window_or_report(_app_handle, None);
             }
         }
         #[cfg(any(target_os = "macos", target_os = "ios"))]

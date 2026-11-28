@@ -3,8 +3,8 @@
 ## 范围与版本
 
 - 本次问题与需求/设计位置：[fix.md](fix.md)（覆盖 Issue B 回环防缓存与 WebView 升级缓存清理、Issue C/D 主窗口创建容错与 Windows 前台激活及生命周期死锁回收、Issue E 解包前磁盘可用空间预检与精准错误分类、Issue F Windows 彩色托盘图标），关联契约 [desktop-client.md](../../../specs/im/desktop-client.md)、[service-lifecycle.md](../../../specs/gateway/service-lifecycle.md)。
-- 实际 executed_base / validated_at：`executed_base = 890d74f70d1444f2fd961a7e60d02b858821abaa`（`origin/develop`）；首轮 `validated_at = 045158d0796bd7cfaec4672898e2ffdecff0c798`，修复后独立复验 `validated_at = 5488d9ec1e219e2fb8b2768edc291b1314a2ca00`。
-- 最终 effective_base / effective_through 与保留依据：`effective_base = 890d74f70d1444f2fd961a7e60d02b858821abaa`，后续归档提交仅移动 `docs/changes/` 至 `docs/changes/archive/` 并补充本报告，未改动任何运行时或测试代码，`5488d9ec1` 的代码、测试与契约校对结论完整保留有效。
+- 实际 executed_base / validated_at：`executed_base = 890d74f70d1444f2fd961a7e60d02b858821abaa`（`origin/develop`）；首轮 `validated_at = 045158d0796bd7cfaec4672898e2ffdecff0c798`，修复后独立复验 `validated_at = 5488d9ec1e219e2fb8b2768edc291b1314a2ca00`，Windows CI 清单嵌入补丁独立增量复核基于 `ad8d5b2993ce958155420bc3d3b2e0ef90175d39` 工作树改动。
+- 最终 effective_base / effective_through 与保留依据：`effective_base = 890d74f70d1444f2fd961a7e60d02b858821abaa`；远端 `ad8d5b299` 跑通 8/9 项检查后，针对 `windows-x64` `--lib` 测试缺少 `Common-Controls 6.0.0.0` 清单导致的 `0xc0000139` 补充 `apps/desktop/build.rs` 链接器清单嵌入及条件编译告警清理，已由同一独立审查者完成 `patch` 复核（`pass`，0 新增 finding），既有代码、测试与契约校对结论完整保留有效。
 
 ## 审查结果
 
@@ -36,6 +36,6 @@
 - 重要目标和关键设计覆盖：Issue B / C / D / E / F 全部修复并由单元与跨进程集成测试覆盖，既有 `bugfix-807` / `810` / `812` 不变量完整保留。
 - 开放问题 / pending / inconclusive：本地无未决阻塞项；Windows x64 原生安装包与任务栏/WebView2 表现由 PR 远端 `Desktop client candidates` 工作流承接。
 - 最终 delta 校对：`aligned`（`docs/specs/im/desktop-client.md`、`docs/specs/gateway/service-lifecycle.md`）。
-- 版本变化后保留 / 补验的判断与依据：`5488d9ec1` 之后仅执行 change unit 归档与 `review.md` 落盘，代码与契约未再变动，全部测试与独立复验结论保持有效。
+- 版本变化后保留 / 补验的判断与依据：`ad8d5b299` 之后仅修改 `apps/desktop/build.rs`（为 Windows MSVC 测试与正式目标统一嵌入 `Common-Controls 6.0.0.0` 清单，消除 `--lib` 测试 `0xc0000139`）与 `lib.rs` / `autostart.rs` 的 `#[cfg]` 告警门控，未改变运行时逻辑或外部契约，且已通过本地 `cargo test --locked`（22 passed）与独立 `patch` 复核（`pass`）。
 - 测试资源回收结果 / 例外保留项、owner 与回收触发：所有临时测试子进程与临时目录均已在测试内回收，本地 `apps/desktop/target` 编译产物已通过 `cargo clean` 清理以释放共享磁盘空间；当前开发 worktree（`/Users/czj/.t3/worktrees/nano-multiagent/unit-bugfix-819-desktop-e09bd061465827a5`）按仓库规范保留供 PR 审查，待 PR 合入 `develop` 后触发清理。
 - 交付范围与剩余事项：归档 `bugfix-819-desktop-windows-host-resilience` 后推送分支并向 `develop` 创建 PR，跟进远端必需检查（不自动 merge）。
