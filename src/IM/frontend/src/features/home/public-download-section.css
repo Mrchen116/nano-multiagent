@@ -50,6 +50,12 @@
   color: var(--home-muted);
 }
 
+.crew-hero-platform-links {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
 .crew-hero-platforms-sep {
   color: #b7a8cd;
 }

@@ -30,7 +30,7 @@ IM 提供 `/install.sh` 与 `/install/manifest.json`，旧 `/install/nano-node.t
 
 Crewden Desktop 支持 macOS 15.0 及以上的 Apple Silicon Mac。v2.2.0 的历史 DMG 使用 ad-hoc 应用签名，缺少公证票据。发布带 Mac 桌面端的新版本时，所选源码 SHA 必须包含支持 `verify --mode` 的 bugfix-811 产物检查。历史资产保持原版本。
 
-PR 生成 `unsigned-test` 内测 artifact；发布工作流默认选择 `macos_distribution=unnotarized`，生成按版本校验的对外 DMG，与 Windows 和 Node 一起发布，无需 Apple 付费账号或签名凭据。两条路径均挂载最终 DMG，对照包内和 OTA 归档，检查 arm64 系统下限，并从 DMG 拷出 app 验证首启及默认 DSH 健康。发布器拒收内测包或与所选模式不符的包。公开下载入口和发行说明展示「未经 Apple 公证」。
+PR 生成 `unsigned-test` 内测 artifact；发布工作流默认选择 `macos_distribution=unnotarized`，生成按版本校验的对外 DMG，与 Windows 和 Node 一起发布，无需 Apple 付费账号或签名凭据。两条路径均挂载最终 DMG，对照包内和 OTA 归档，检查 arm64 系统下限，并从 DMG 拷出 app 验证首启及默认 DSH 健康。发布器拒收内测包或与所选模式不符的包。用户可在下载入口打开安装说明。安装说明和发行说明展示「未经 Apple 公证」。
 
 在 Apple Silicon Mac 上可用 Python 3.11+ 独立复核同一批产物，成功后外部清单记录所选渠道：
 

@@ -16,7 +16,7 @@ IM 与产品桌面发行包 SHALL 提供支持 macOS 15.0 及以上的 Apple Sil
 #### Scenario: 下载正式 Mac 客户端
 - **WHEN** 用户从下载页或电脑安装引导选择 Mac 桌面客户端
 - **THEN** 页面展示 Apple Silicon 和最低 macOS 版本，磁盘映像内的应用声明与宿主、种子运行时的系统要求兼容
-- **AND** 默认对外分发的 DMG 在下载前及发行说明中标注「未经 Apple 公证」，可与 Windows、Node 一起发布。内测候选单独标记且发布器拒绝上传。显式选择公证版时，应用和 DMG 必须通过 Developer ID 签名、Apple 公证、装订票据和 Gatekeeper 检查；任一步失败即停止发布
+- **AND** 默认对外分发的 DMG 在按需打开的 Mac 安装说明及发行说明中标注「未经 Apple 公证」，可与 Windows、Node 一起发布。内测候选单独标记且发布器拒绝上传。显式选择公证版时，应用和 DMG 必须通过 Developer ID 签名、Apple 公证、装订票据和 Gatekeeper 检查；任一步失败即停止发布
 
 #### Scenario: 在干净电脑上零命令行完成首次接入与真实回复
 - **GIVEN** 电脑为未安装 Node.js、npm、pnpm 或 WSL 的 macOS Apple Silicon 或 Windows 10/11 x64，且用户拥有可用的模型服务

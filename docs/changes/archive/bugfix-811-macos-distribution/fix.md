@@ -8,7 +8,7 @@
 
 ## 已确认的发布策略调整
 
-> 默认无证书也可以按现有统一流程发布 Mac、Windows、Node；Mac 默认产物在用户下载前能看到的位置和发行说明准确标注「未经 Apple 公证」，区分测试包和可对外分发的未公证包。
+> 默认无证书也可以按现有统一流程发布 Mac、Windows、Node；Mac 默认产物在按需打开的安装说明和发行说明准确标注「未经 Apple 公证」，区分测试包和可对外分发的未公证包。
 
 需要公证时在发布表单显式选择；凭据缺失或验证失败中止该次发布。可选模式的真实 Apple 回执不作为本次交付条件。
 
@@ -26,7 +26,7 @@ feat-790 将宿主和固定 Node 运行时分开构建，以便用户首次启�
 
 ## 修复
 
-M1-fix 统一 Tauri、包内 Info.plist、公开下载区及电脑接入引导的下限为 Apple Silicon / macOS 15.0。构建取配置里的 deployment target；打包验收另外读取 DMG 和两个归档的实际 Mach-O load commands。默认发行的未公证 DMG 通过包体验证后，发布器可与 Windows 和 Node 一起发布。IM 按已选版本清单提供渠道，公开首页、电脑接入、恢复下载和 GitHub Release 说明披露公证状态。可选的公证链在隔离签名 runner 上重新签署原生代码、重算 OTA 描述文件和种子哈希，分别提交 app 与 DMG 公证、装订票据，最后生成实际 DMG 的大小和 SHA-256。普通 PR 继续生成 unsigned-test artifact。发布器仅接收与所选公开渠道相符的清单；内测 artifact 不能直接上传。
+M1-fix 统一 Tauri、包内 Info.plist、公开下载区及电脑接入引导的下限为 Apple Silicon / macOS 15.0。构建取配置里的 deployment target；打包验收另外读取 DMG 和两个归档的实际 Mach-O load commands。默认发行的未公证 DMG 通过包体验证后，发布器可与 Windows 和 Node 一起发布。IM 按已选版本清单提供渠道，公开首页、电脑接入与恢复下载共用 Mac 安装说明，在说明内披露公证状态；GitHub Release 说明也标记渠道。可选的公证链在隔离签名 runner 上重新签署原生代码、重算 OTA 描述文件和种子哈希，分别提交 app 与 DMG 公证、装订票据，最后生成实际 DMG 的大小和 SHA-256。普通 PR 继续生成 unsigned-test artifact。发布器仅接收与所选公开渠道相符的清单；内测 artifact 不能直接上传。
 
 ## 验证
 
@@ -42,4 +42,4 @@ M1-fix 统一 Tauri、包内 Info.plist、公开下载区及电脑接入引导�
 
 - 在 macOS 26.5.2 arm64 下载本 PR 第一次 CI 的真实候选（Actions artifact 15220571925），DMG SHA-256 为 `455db326cf69e9e83c5c695acc7572f202f010d62f03a562d11ff9e6865cc6c8`。移除三个 Apple 配置变量后，`verify --mode unnotarized` 完成最低系统检查、从 DMG 拷出 app、离线首启及 DSH 健康检查，外部清单记录 unnotarized，DMG 字节未改。该次演练使用 CI 候选，未指定新的发行版本。
 - 无凭据运行 sign 和公证版 verify 均明确失败，未生成已签产物、未改为公证标记。发布器使用真实入口、版本化的 Mac、Windows desktop、Windows node、Node 测试清单和本地 gh/curl 替身，验证默认发行的说明、全部附件及校验后的清单。选公证却提供未公证包、选默认却提供公证包、直接提供内测包时均在上传前失败。
-- 定向前端 16、IM 与 Node 34、Python 4 项通过。下载区与首页主按钮使用同一状态标签，旧清单沿用历史未公证状态。未向 Apple 提交公证或向 GitHub 发布安装包。
+- 定向前端 16、IM 与 Node 34、Python 4 项通过。下载区与首页主按钮旁提供同一安装说明入口，旧清单沿用历史未公证状态。未向 Apple 提交公证或向 GitHub 发布安装包。
