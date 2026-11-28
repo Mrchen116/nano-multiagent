@@ -316,3 +316,30 @@ it('enforces owner_id isolation, probes workers with candidate PATH, validates e
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it('reads managed version from .desktop-active.json when local node is stopped', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'nano-desktop-stopped-ver-'));
+  try {
+    const connDir = join(root, 'connections', 'stopped');
+    const configPath = join(connDir, 'config.yaml');
+    await mkdir(connDir, { recursive: true });
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        node: { node_id: 'node-stopped', node_name: 'MacBook-Pro', user_id: 'owner-alice' },
+        im_service: { url: 'https://im.example.com', token: 'tok' },
+        agents: [],
+        llm: { default_model: '', providers: [] },
+      }),
+    );
+    await writeFile(
+      join(connDir, '.desktop-active.json'),
+      JSON.stringify({ managed_by: 'crewden-desktop', version: '1.4.0', sha256: 'a'.repeat(64) }),
+    );
+    const inspected = await inspectLocalNode({ origin: 'https://im.example.com', ownerId: 'owner-alice', configPath });
+    expect(inspected.ownership).toBe('managed_stopped');
+    expect(inspected.version).toBe('1.4.0');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

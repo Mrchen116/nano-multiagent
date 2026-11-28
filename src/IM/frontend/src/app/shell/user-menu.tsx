@@ -4,6 +4,11 @@ import { useQuery } from "@tanstack/react-query";
 
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
 import { isDesktopClient } from "../../desktop/desktop-context";
+import { DesktopCompactUpdateBox } from "../../desktop/desktop-update-pill";
+import {
+  setDesktopUserMenuOpen,
+  useDesktopUpdater,
+} from "../../desktop/use-desktop-updater";
 import { useAuthStore } from "../../features/auth/auth-store";
 import { listNodes } from "../../features/settings/im-settings-api";
 import { Avatar } from "../../features/chat/components/avatar";
@@ -19,9 +24,16 @@ export function UserMenu() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const lang = getCurrentLanguage();
+  const desktopMode = isDesktopClient();
+  const desktopUpdater = useDesktopUpdater();
   const nodesQuery = useQuery({ queryKey: ["settings", "nodes"], queryFn: listNodes, staleTime: 30_000 });
   const ownedNodes = (nodesQuery.data ?? []).filter((n) => user?.owned_node_ids?.includes(n.node_id));
   const onlineCount = ownedNodes.filter((n) => n.status === "online").length;
+
+  useEffect(() => {
+    setDesktopUserMenuOpen(open);
+    return () => setDesktopUserMenuOpen(false);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -45,16 +57,29 @@ export function UserMenu() {
   const handleLanguage = (next: Locale) => { setLanguage(next); setOpen(false); triggerRef.current?.focus(); };
   const close = () => setOpen(false);
 
+  const hasUpdateDot = Boolean(
+    desktopMode &&
+      desktopUpdater.snapshot &&
+      (desktopUpdater.snapshot.phase === "ready_to_switch" ||
+        desktopUpdater.snapshot.mode === "installer" ||
+        desktopUpdater.snapshot.phase === "waiting_for_tasks" ||
+        desktopUpdater.remoteRecoveryRequired),
+  );
+
   return <div ref={containerRef} className="im-user-menu">
     <button ref={triggerRef} type="button" aria-label={name} title={name} aria-haspopup="menu" aria-expanded={open}
       onClick={() => { setLanguageOpen(false); setOpen(previous => !previous); }} className="im-user-menu-trigger">
-      {avatar}
+      <span className="im-user-menu-trigger-avatar-wrap">
+        {avatar}
+        {hasUpdateDot && <span className="im-user-menu-update-dot" data-testid="user-menu-update-dot" aria-hidden="true" />}
+      </span>
     </button>
     {open && <div role="menu" aria-label={name} className="im-user-menu-popover">
       <div className="im-user-menu-identity" role="none">
         {avatar}
         <div><strong>{name}</strong><span>@{user.username}</span></div>
       </div>
+      {desktopMode && <DesktopCompactUpdateBox updater={desktopUpdater} testId="user-menu-update-box" />}
       <Link role="menuitem" to="/settings/account" onClick={close} className="im-user-menu-item">
         <UserMenuIcon kind="account" /><span>{t('shell.userMenu.account')}</span><span aria-hidden>›</span>
       </Link>

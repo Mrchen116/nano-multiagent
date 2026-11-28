@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { inspectDesktopLocalNode } from '../../../desktop/desktop-api';
 import { isDesktopClient } from '../../../desktop/desktop-context';
+import { DesktopClientUpdateCard } from '../../../desktop/desktop-client-update-card';
 import { DesktopLocalComputerCard } from '../../../desktop/desktop-local-computer-card';
 import { useTranslation } from '../../../i18n';
 import { subscribeUserStream } from '../../../realtime/user-stream';
@@ -110,6 +111,7 @@ export function NodesPage() {
     <header className="computers-heading"><div><h1>{t('computers.title')}</h1><p>{hasData ? t('computers.summary', { count: nodes.length, total: nodes.length, online }) : t('computers.subtitle')}</p></div>
       <button className="node-button" onClick={() => open('connect')}><NodeIcon name="plus"/>{t('computers.connect')}</button>
     </header>
+    {desktopMode && <DesktopClientUpdateCard />}
     {desktopMode && (
       <DesktopLocalComputerCard
         nodes={nodes}

@@ -1,4 +1,4 @@
-import { desktopScopedKey } from "../../../desktop/desktop-context";
+import { desktopScopedKey, getDesktopBootContext } from "../../../desktop/desktop-context";
 import type { Attachment } from "../chat-types";
 import { forgetSendAttempts } from "./send-attempt-store";
 
@@ -47,12 +47,125 @@ export function cloneComposerSnapshot(live: ComposerSnapshot): ComposerSnapshot 
   };
 }
 
+const DESKTOP_DRAFT_STORAGE_PREFIX = "crewden:composer-drafts::";
+
 const stores = new Map<string, Map<string, ComposerSnapshot>>();
 const readingStores = new Map<string, Map<string, { anchorId: string; offset: number; latestId: string; latestAt: number }>>();
 const sendingIds = new Set<string>();
 const revokedConversations = new WeakMap<Map<string, ComposerSnapshot>, Set<string>>();
 const listeners = new WeakMap<Map<string, ComposerSnapshot>, Set<(conversationId: string) => void>>();
 const owners = new WeakMap<Map<string, ComposerSnapshot>, string>();
+const sessionStorageKeys = new WeakMap<Map<string, ComposerSnapshot>, string>();
+
+type PersistedComposerEntry = {
+  revision?: string;
+  replyTo?: import("../chat-types").ReplyReference;
+  draft: string;
+  draftMentions: ComposerDraftMention[];
+  pending: Attachment[];
+  slashDismissed: boolean;
+};
+
+function desktopSessionStorageKeyFor(rawOwner: string): string | null {
+  const boot = getDesktopBootContext();
+  if (!boot || typeof window === "undefined") return null;
+  return `${DESKTOP_DRAFT_STORAGE_PREFIX}${boot.imOrigin}::${boot.contextEpoch}::${rawOwner}`;
+}
+
+function pruneStaleDesktopDraftKeys(activeOrigin: string, activeEpoch: number): void {
+  if (typeof window === "undefined") return;
+  try {
+    const validPrefix = `${DESKTOP_DRAFT_STORAGE_PREFIX}${activeOrigin}::${activeEpoch}::`;
+    const toRemove: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const k = window.sessionStorage.key(i);
+      if (k && k.startsWith(DESKTOP_DRAFT_STORAGE_PREFIX) && !k.startsWith(validPrefix)) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach((k) => window.sessionStorage.removeItem(k));
+  } catch {
+    // Ignore storage access errors in restricted sandboxes.
+  }
+}
+
+/** Clear all persisted Desktop composer drafts from `sessionStorage` on sign-out or session revocation. */
+export function clearDesktopComposerDraftStorage(userId?: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const toRemove: string[] = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const k = window.sessionStorage.key(i);
+      if (!k || !k.startsWith(DESKTOP_DRAFT_STORAGE_PREFIX)) continue;
+      if (!userId || k.endsWith(`::${userId}`)) {
+        toRemove.push(k);
+      }
+    }
+    toRemove.forEach((k) => window.sessionStorage.removeItem(k));
+  } catch {
+    // Ignore storage access errors.
+  }
+}
+
+function hydrateStoreFromSessionStorage(
+  storageKey: string,
+  store: Map<string, ComposerSnapshot>,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = window.sessionStorage.getItem(storageKey);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, PersistedComposerEntry>;
+    if (!parsed || typeof parsed !== "object") return;
+    for (const [cid, entry] of Object.entries(parsed)) {
+      if (!entry || typeof entry.draft !== "string") continue;
+      store.set(cid, {
+        revision: entry.revision,
+        replyTo: entry.replyTo,
+        draft: entry.draft,
+        draftMentions: Array.isArray(entry.draftMentions) ? entry.draftMentions : [],
+        pending: Array.isArray(entry.pending) ? entry.pending : [],
+        uploads: [],
+        slashDismissed: Boolean(entry.slashDismissed),
+      });
+    }
+  } catch {
+    // Ignore malformed storage entries.
+  }
+}
+
+function persistStoreToSessionStorage(store: Map<string, ComposerSnapshot>): void {
+  const storageKey = sessionStorageKeys.get(store);
+  if (!storageKey || typeof window === "undefined") return;
+  try {
+    const serialized: Record<string, PersistedComposerEntry> = {};
+    let count = 0;
+    for (const [cid, snap] of store.entries()) {
+      const hasContent =
+        snap.draft.length > 0 ||
+        snap.draftMentions.length > 0 ||
+        Boolean(snap.replyTo) ||
+        snap.pending.length > 0;
+      if (!hasContent) continue;
+      serialized[cid] = {
+        revision: snap.revision,
+        replyTo: snap.replyTo,
+        draft: snap.draft,
+        draftMentions: snap.draftMentions,
+        pending: snap.pending,
+        slashDismissed: snap.slashDismissed,
+      };
+      count += 1;
+    }
+    if (count === 0) {
+      window.sessionStorage.removeItem(storageKey);
+    } else {
+      window.sessionStorage.setItem(storageKey, JSON.stringify(serialized));
+    }
+  } catch {
+    // Ignore quota errors.
+  }
+}
 
 export function readingPositionStoreFor(
   userId: string | null,
@@ -68,12 +181,21 @@ export function readingPositionStoreFor(
 
 export function composerStoreFor(userId: string | null): Map<string, ComposerSnapshot> {
   const rawOwner = userId ?? "anon";
-  const key = desktopScopedKey(rawOwner);
+  const boot = getDesktopBootContext();
+  const key = boot ? `${desktopScopedKey(rawOwner)}::${boot.contextEpoch}` : desktopScopedKey(rawOwner);
   let store = stores.get(key);
   if (!store) {
     store = new Map();
     stores.set(key, store);
     owners.set(store, rawOwner);
+    if (boot) {
+      pruneStaleDesktopDraftKeys(boot.imOrigin, boot.contextEpoch);
+      const storageKey = desktopSessionStorageKeyFor(rawOwner);
+      if (storageKey) {
+        sessionStorageKeys.set(store, storageKey);
+        hydrateStoreFromSessionStorage(storageKey, store);
+      }
+    }
   }
   return store;
 }
@@ -87,7 +209,21 @@ export function writeComposerSnapshot(
   const revoked = revokedConversations.get(store);
   if (revoked?.has(membershipId) || revoked?.has(conversationId)) return;
   store.set(conversationId, cloneComposerSnapshot(snapshot));
+  persistStoreToSessionStorage(store);
   listeners.get(store)?.forEach((listener) => listener(conversationId));
+}
+
+/** Persist live in-pane Desktop composer state to the backing store and `sessionStorage` without re-notifying active pane subscribers. */
+export function syncLiveComposerSnapshot(
+  store: Map<string, ComposerSnapshot>,
+  conversationId: string,
+  snapshot: ComposerSnapshot,
+  membershipId = conversationId
+): void {
+  const revoked = revokedConversations.get(store);
+  if (revoked?.has(membershipId) || revoked?.has(conversationId)) return;
+  store.set(conversationId, cloneComposerSnapshot(snapshot));
+  persistStoreToSessionStorage(store);
 }
 
 export function subscribeComposerStore(
@@ -122,6 +258,7 @@ export function resetComposerStores(): void {
   stores.clear();
   readingStores.clear();
   sendingIds.clear();
+  clearDesktopComposerDraftStorage();
 }
 
 /** Reject late upload/unmount writes after this person loses the conversation. */
@@ -137,6 +274,7 @@ export function forgetComposerConversation(store: Map<string, ComposerSnapshot>,
   store.delete(conversationId);
   const threadPrefix = threadDraftKey(conversationId, "");
   for (const key of store.keys()) if (key.startsWith(threadPrefix)) store.delete(key);
+  persistStoreToSessionStorage(store);
   listeners.get(store)?.forEach(listener => listener(conversationId));
 }
 
@@ -148,11 +286,14 @@ export function restoreComposerMembership(store: Map<string, ComposerSnapshot>, 
 export function forgetComposerUser(userId: string): void {
   void forgetSendAttempts(userId).catch(() => {});
   readingStores.delete(userId);
-  const key = desktopScopedKey(userId);
-  const store = stores.get(key);
-  if (!store) return;
-  for (const id of store.keys()) forgetComposerConversation(store, id);
-  stores.delete(key);
+  clearDesktopComposerDraftStorage(userId);
+  const prefix = desktopScopedKey(userId);
+  for (const [k, store] of [...stores.entries()]) {
+    if (k === prefix || k.startsWith(`${prefix}::`)) {
+      for (const id of store.keys()) forgetComposerConversation(store, id);
+      stores.delete(k);
+    }
+  }
 }
 
 /** Topic drafts share the account store and membership lifetime with the parent chat. */

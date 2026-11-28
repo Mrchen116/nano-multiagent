@@ -143,11 +143,14 @@ export type DesktopPlatform = 'desktop-darwin-arm64' | 'desktop-win32-x64';
 
 export type MacDistribution = 'unsigned-test' | 'unnotarized' | 'developer-id-notarized';
 
+/** Current Desktop Tauri outer shell protocol supported for in-app split-archive hot updates. */
+export const CURRENT_DESKTOP_SHELL_PROTOCOL = 1;
+
 export type ReleaseManifest = ReleaseMetadata & (
   | {package: 'nano-node.tgz'; platform?: undefined; shell_protocol?: undefined}
   | {package: 'windows-x64.json'; platform: 'win32-x64'; size: number; installer: PlatformInstaller; shell_protocol?: undefined}
-  | {package: 'desktop-darwin-arm64.json'; platform: 'desktop-darwin-arm64'; macos_distribution?: MacDistribution; size: number; shell_protocol: 1; installer: PlatformInstaller}
-  | {package: 'desktop-win32-x64.json'; platform: 'desktop-win32-x64'; size: number; shell_protocol: 1; installer: PlatformInstaller}
+  | {package: 'desktop-darwin-arm64.json'; platform: 'desktop-darwin-arm64'; macos_distribution?: MacDistribution; size: number; shell_protocol: number; installer: PlatformInstaller}
+  | {package: 'desktop-win32-x64.json'; platform: 'desktop-win32-x64'; size: number; shell_protocol: number; installer: PlatformInstaller}
 );
 
 export interface ParseReleaseManifestOptions {
@@ -157,11 +160,15 @@ export interface ParseReleaseManifestOptions {
   allowPrivateHttpReleaseBase?: boolean;
 }
 
-const PLATFORM_PACKAGES: Record<string, {platform: 'win32-x64' | DesktopPlatform; installer: string; shellProtocol?: 1}> = {
-  'windows-x64.json': {platform: 'win32-x64', installer: 'Crewden-Setup-x64.exe'},
-  'desktop-darwin-arm64.json': {platform: 'desktop-darwin-arm64', installer: 'Crewden-Desktop-arm64.dmg', shellProtocol: 1},
-  'desktop-win32-x64.json': {platform: 'desktop-win32-x64', installer: 'Crewden-Desktop-Setup-x64.exe', shellProtocol: 1},
+const PLATFORM_PACKAGES: Record<string, {platform: 'win32-x64' | DesktopPlatform; installer: string; desktop: boolean}> = {
+  'windows-x64.json': {platform: 'win32-x64', installer: 'Crewden-Setup-x64.exe', desktop: false},
+  'desktop-darwin-arm64.json': {platform: 'desktop-darwin-arm64', installer: 'Crewden-Desktop-arm64.dmg', desktop: true},
+  'desktop-win32-x64.json': {platform: 'desktop-win32-x64', installer: 'Crewden-Desktop-Setup-x64.exe', desktop: true},
 };
+
+function validPositiveInt(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
+}
 
 function validSize(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
@@ -221,9 +228,12 @@ export function parseReleaseManifest(input: unknown, options?: ParseReleaseManif
   }
   const spec = PLATFORM_PACKAGES[v.package];
   if (!spec || v.platform !== spec.platform || !validSize(v.size)
-    || v.source_commit === undefined || (sha.test(v.version) && v.source_commit !== v.version)
-    || v.updater_protocol !== 1 || v.data_epoch !== 1) return null;
-  if (spec.shellProtocol !== undefined ? v.shell_protocol !== spec.shellProtocol : v.shell_protocol !== undefined) return null;
+    || v.source_commit === undefined || (sha.test(v.version) && v.source_commit !== v.version)) return null;
+  if (spec.desktop) {
+    if (!validPositiveInt(v.updater_protocol) || !validPositiveInt(v.data_epoch) || !validPositiveInt(v.shell_protocol)) return null;
+  } else if (v.updater_protocol !== 1 || v.data_epoch !== 1 || v.shell_protocol !== undefined) {
+    return null;
+  }
   const installer = v.installer as Partial<PlatformInstaller> | null;
   if (!installer || installer.download_url !== base + spec.installer
     || typeof installer.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(installer.sha256) || !validSize(installer.size)) return null;
@@ -231,12 +241,13 @@ export function parseReleaseManifest(input: unknown, options?: ParseReleaseManif
   if (v.package === 'windows-x64.json') {
     return {...common, package: 'windows-x64.json', platform: 'win32-x64', size: v.size, installer: parsedInstaller};
   }
+  const shellProtocol = v.shell_protocol as number;
   if (v.package === 'desktop-darwin-arm64.json') {
     const mode = v.macos_distribution;
     if (mode !== undefined && mode !== 'unsigned-test' && mode !== 'unnotarized' && mode !== 'developer-id-notarized') return null;
-    return {...common, ...(mode === undefined ? {} : {macos_distribution: mode}), package: 'desktop-darwin-arm64.json', platform: 'desktop-darwin-arm64', size: v.size, shell_protocol: 1, installer: parsedInstaller};
+    return {...common, ...(mode === undefined ? {} : {macos_distribution: mode}), package: 'desktop-darwin-arm64.json', platform: 'desktop-darwin-arm64', size: v.size, shell_protocol: shellProtocol, installer: parsedInstaller};
   }
-  return {...common, package: 'desktop-win32-x64.json', platform: 'desktop-win32-x64', size: v.size, shell_protocol: 1, installer: parsedInstaller};
+  return {...common, package: 'desktop-win32-x64.json', platform: 'desktop-win32-x64', size: v.size, shell_protocol: shellProtocol, installer: parsedInstaller};
 }
 
 export interface NodeRelease {

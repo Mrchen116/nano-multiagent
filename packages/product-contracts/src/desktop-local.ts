@@ -1,3 +1,4 @@
+import type { MacDistribution } from './node-update.js';
 import type { WorkerRuntime } from './worker-runtimes.js';
 
 /** Managed proxy environment keys synchronized atomically from the Desktop proxy form. */
@@ -133,6 +134,67 @@ export interface DesktopTrajectoryAuthorizeResponse {
   owner_id: string;
   node_epoch: number;
   auth_session_id: string;
+}
+
+export type DesktopUpdaterPhase =
+  | 'idle'
+  | 'checking'
+  | 'up_to_date'
+  | 'unpublished'
+  | 'source_mode'
+  | 'available'
+  | 'preparing'
+  | 'ready_to_switch'
+  | 'waiting_for_tasks'
+  | 'switching'
+  | 'downloading_installer'
+  | 'installer_ready'
+  | 'failed';
+
+export type DesktopUpdaterMode = 'hot_bundle' | 'installer';
+
+export type DesktopUpdaterErrorCode =
+  | 'network_unreachable'
+  | 'verification_failed'
+  | 'disk_or_unpack_failed'
+  | 'switch_rolled_back';
+
+export interface DesktopUpdaterTargetInfo {
+  version: string;
+  release_notes?: string | null;
+  size_bytes?: number | null;
+  macos_distribution?: MacDistribution | null;
+}
+
+export interface DesktopUpdaterProgress {
+  downloaded_bytes: number;
+  total_bytes: number | null;
+  stage: 'downloading' | 'verifying' | 'unpacking';
+}
+
+export interface DesktopUpdaterSnapshot {
+  current_version: string;
+  platform: 'darwin-arm64' | 'win32-x64';
+  auto_update: boolean;
+  phase: DesktopUpdaterPhase;
+  mode: DesktopUpdaterMode | null;
+  target: DesktopUpdaterTargetInfo | null;
+  progress: DesktopUpdaterProgress | null;
+  active_tasks: number;
+  just_updated_version: string | null;
+  capsule_dismissed: boolean;
+  active_ui_sha256: string | null;
+  reload_generation: number;
+  error_code: DesktopUpdaterErrorCode | null;
+  last_checked_at: string | null;
+}
+
+export interface DesktopUpdaterPreferencesInput {
+  auto_update: boolean;
+}
+
+export interface DesktopUpdaterDismissInput {
+  kind: 'just_updated' | 'capsule';
 }
 
 /** Validate an HTTP(S) proxy URL and reject unsupported schemes such as socks://.

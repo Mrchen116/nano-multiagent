@@ -38,7 +38,7 @@ it('binds the Windows bootstrap and descriptor to the same versioned release', (
   expect(parseReleaseManifest({...release, platform: 'win32-x64'})).toBeNull();
 });
 
-it('validates desktop-darwin-arm64 and desktop-win32-x64 manifests with shell_protocol=1', () => {
+it('validates desktop-darwin-arm64 and desktop-win32-x64 manifests across shell_protocol generations', () => {
   const base = release.download_url.slice(0, release.download_url.lastIndexOf('/') + 1);
   const macDesktop = {
     ...release,
@@ -68,8 +68,18 @@ it('validates desktop-darwin-arm64 and desktop-win32-x64 manifests with shell_pr
   };
   expect(parseReleaseManifest(macDesktop)).toEqual(macDesktop);
   expect(parseReleaseManifest(winDesktop)).toEqual(winDesktop);
+  // Future outer client shell / protocol upgrades (shell_protocol >= 2, updater_protocol >= 2, data_epoch >= 2)
+  // parse cleanly so clients can guide users through one-click installer upgrades instead of failing as null.
+  expect(parseReleaseManifest({ ...macDesktop, shell_protocol: 2 })).toEqual({ ...macDesktop, shell_protocol: 2 });
+  expect(parseReleaseManifest({ ...winDesktop, shell_protocol: 2, updater_protocol: 2, data_epoch: 2 })).toEqual({
+    ...winDesktop,
+    shell_protocol: 2,
+    updater_protocol: 2,
+    data_epoch: 2,
+  });
   expect(parseReleaseManifest({ ...macDesktop, shell_protocol: undefined })).toBeNull();
-  expect(parseReleaseManifest({ ...macDesktop, shell_protocol: 2 })).toBeNull();
+  expect(parseReleaseManifest({ ...macDesktop, shell_protocol: 0 })).toBeNull();
+  expect(parseReleaseManifest({ ...macDesktop, shell_protocol: 1.5 })).toBeNull();
   expect(parseReleaseManifest({ ...macDesktop, installer: { ...macDesktop.installer, download_url: base + 'Crewden-Setup-x64.exe' } })).toBeNull();
   expect(parseReleaseManifest({ ...release, shell_protocol: 1 })).toBeNull();
 });

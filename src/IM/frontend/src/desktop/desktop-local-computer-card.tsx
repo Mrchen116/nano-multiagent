@@ -7,7 +7,7 @@ import { useAuthStore } from "../features/auth/auth-store";
 import type { NodeSettingsProfile } from "../features/settings/im-settings-api";
 import { BrowserPairingSection } from "../features/settings/nodes/browser-pairing-section";
 import { computerName, computerVersion } from "../features/settings/nodes/node-display";
-import { NodeUpdatePanel, nodeUpdateNeedsRecovery, nodeUpdateSwitching } from "../features/settings/nodes/node-update-panel";
+import { nodeUpdateNeedsRecovery, nodeUpdateSwitching } from "../features/settings/nodes/node-update-panel";
 import { useTranslation } from "../i18n";
 import {
   controlDesktopLocalNode,
@@ -18,6 +18,7 @@ import {
 } from "./desktop-api";
 import { getDesktopBootContext, isDesktopClient } from "./desktop-context";
 import { DesktopNodeOnboardingBanner } from "./desktop-node-onboarding-banner";
+import { useDesktopUnsavedForm } from "./use-desktop-unsaved-form";
 import "./desktop.css";
 
 function localizeConfigSaveError(err: unknown, zh: boolean): string {
@@ -65,7 +66,6 @@ export function DesktopLocalComputerCard({
   aliasSaving,
   aliasError,
   onResetAliasError,
-  onOpenRecovery,
   defaultPairBrowserOpen,
 }: {
   nodes: NodeSettingsProfile[];
@@ -73,7 +73,7 @@ export function DesktopLocalComputerCard({
   aliasSaving: boolean;
   aliasError: boolean;
   onResetAliasError(): void;
-  onOpenRecovery(nodeId: string): void;
+  onOpenRecovery?(nodeId: string): void;
   defaultPairBrowserOpen?: boolean;
 }) {
   const { t, i18n } = useTranslation();
@@ -110,6 +110,7 @@ export function DesktopLocalComputerCard({
   const [customApprovalModel, setCustomApprovalModel] = useState<string>("");
   const [envVars, setEnvVars] = useState<{ key: string; value: string }[]>([]);
   const [dirty, setDirty] = useState(false);
+  useDesktopUnsavedForm(dirty || renaming);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [confirmBusyCount, setConfirmBusyCount] = useState<number | null>(null);
   const [liveWorkers, setLiveWorkers] = useState<DesktopWorkerProbeItem[] | null>(null);
@@ -354,16 +355,6 @@ export function DesktopLocalComputerCard({
           )}
         </div>
       </div>
-
-      {matchedNode?.update && (
-        <div className="local-computer-update-wrap">
-          <NodeUpdatePanel
-            nodeId={matchedNode.node_id}
-            update={matchedNode.update}
-            onInstructions={() => onOpenRecovery(matchedNode.node_id)}
-          />
-        </div>
-      )}
 
       {lifecycleMutation.isError && (
         <p className="node-form-error" role="alert" style={{ padding: "0 22px 10px", margin: 0 }}>

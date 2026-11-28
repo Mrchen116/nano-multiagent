@@ -7,6 +7,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import lockfile from 'proper-lockfile';
 import {
+  CURRENT_DESKTOP_SHELL_PROTOCOL,
   classifyOriginSecurity,
   normalizeReleaseBaseUrl,
   parseReleaseManifest,
@@ -177,7 +178,7 @@ export async function prepareDesktopUpdate(
   signal?: AbortSignal,
   trustedOptions?: ParseReleaseManifestOptions,
 ): Promise<{ versionRoot: string; runtimeReused: boolean }> {
-  if (!isDesktopPlatform(target.platform) || target.shell_protocol !== 1) {
+  if (!isDesktopPlatform(target.platform) || target.shell_protocol !== CURRENT_DESKTOP_SHELL_PROTOCOL || target.updater_protocol !== 1 || target.data_epoch !== 1) {
     throw new Error('Incompatible desktop release');
   }
   const oldVersionRoot = resolve(dirname(oldEntry), '../../..');
@@ -208,7 +209,7 @@ export async function prepareDesktopUpdate(
     desc.source_commit !== (target.source_commit ?? target.version) ||
     desc.updater_protocol !== 1 ||
     desc.data_epoch !== 1 ||
-    desc.shell_protocol !== 1 ||
+    desc.shell_protocol !== CURRENT_DESKTOP_SHELL_PROTOCOL ||
     !/^[a-f0-9]{64}$/.test(desc.runtime?.sha256 ?? '') ||
     !/^[a-f0-9]{64}$/.test(desc.app?.sha256 ?? '') ||
     desc.runtime.download_url !== base + desc.runtime.name ||
@@ -365,7 +366,7 @@ export async function runUpdate(configPath: string, operationId: string): Promis
     if (!target || target.platform !== old.release.platform || expectedWinHost !== (process.platform === 'win32')
         || (target.platform === 'desktop-darwin-arm64' && process.platform !== 'darwin')
         || target.data_epoch !== old.release.data_epoch || target.updater_protocol !== 1
-        || (desktop && (target.shell_protocol !== 1 || old.release.shell_protocol !== target.shell_protocol))) {
+        || (desktop && (target.shell_protocol !== CURRENT_DESKTOP_SHELL_PROTOCOL || old.release.shell_protocol !== target.shell_protocol))) {
       throw new Error('Incompatible target');
     }
     await write();

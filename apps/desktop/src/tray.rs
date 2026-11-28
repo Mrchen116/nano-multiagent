@@ -23,6 +23,8 @@ const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 struct TrayMenuItems {
     open_main: MenuItem<tauri::Wry>,
     open_nodes: MenuItem<tauri::Wry>,
+    check_update: MenuItem<tauri::Wry>,
+    auto_update: CheckMenuItem<tauri::Wry>,
     start_node: MenuItem<tauri::Wry>,
     restart_node: MenuItem<tauri::Wry>,
     stop_node: MenuItem<tauri::Wry>,
@@ -38,10 +40,20 @@ pub struct TauriUiCoordinator {
     pub explicit_quit: AtomicBool,
     tray_unread: Mutex<u64>,
     locale: Mutex<String>,
+    updater_phase: Mutex<String>,
+    updater_target_version: Mutex<Option<String>>,
     tray_icon: Mutex<Option<TrayIcon>>,
     status_item: Mutex<Option<MenuItem<tauri::Wry>>>,
     autostart_item: Mutex<Option<CheckMenuItem<tauri::Wry>>>,
     menu_items: Mutex<Option<TrayMenuItems>>,
+}
+
+impl TauriUiCoordinator {
+    pub fn with_window_visible(window_visible: bool) -> Self {
+        let coord = Self::default();
+        coord.attention.write().unwrap().window_visible = window_visible;
+        coord
+    }
 }
 
 impl Default for TauriUiCoordinator {
@@ -50,18 +62,94 @@ impl Default for TauriUiCoordinator {
             app_handle: Mutex::new(None),
             bootstrap_base: Mutex::new(None),
             attention: RwLock::new(WindowAttentionState {
+                window_visible: false,
                 visible_and_focused: false,
+                has_unsaved_form: false,
                 current_route: "/chat".to_string(),
             }),
             pending_route: Mutex::new(None),
             explicit_quit: AtomicBool::new(false),
             tray_unread: Mutex::new(0),
             locale: Mutex::new("zh".to_string()),
+            updater_phase: Mutex::new("idle".to_string()),
+            updater_target_version: Mutex::new(None),
             tray_icon: Mutex::new(None),
             status_item: Mutex::new(None),
             autostart_item: Mutex::new(None),
             menu_items: Mutex::new(None),
         }
+    }
+}
+
+fn format_update_menu_label(zh: bool, phase: &str, target_version: Option<&str>) -> String {
+    match (phase, target_version) {
+        ("ready_to_switch", Some(ver)) => {
+            if zh {
+                format!("换新至 v{} ✨", ver)
+            } else {
+                format!("Switch to v{} ✨", ver)
+            }
+        }
+        ("installer_ready", Some(ver)) => {
+            if zh {
+                format!("安装新版客户端 v{}…", ver)
+            } else {
+                format!("Install Crewden v{}…", ver)
+            }
+        }
+        ("available" | "downloading_installer", Some(ver)) => {
+            if zh {
+                format!("升级至 v{}…", ver)
+            } else {
+                format!("Update to v{}…", ver)
+            }
+        }
+        ("waiting_for_tasks", Some(ver)) => {
+            if zh {
+                format!("等待任务收尾后换上 v{}", ver)
+            } else {
+                format!("Waiting for tasks → v{}", ver)
+            }
+        }
+        _ => {
+            if zh {
+                "检查更新…".to_string()
+            } else {
+                "Check for updates…".to_string()
+            }
+        }
+    }
+}
+
+pub fn append_reload_cache_buster(route: &str) -> String {
+    let base = if route.starts_with('/') && !route.starts_with("//") {
+        route
+    } else {
+        "/chat"
+    };
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(1);
+    let Ok(mut parsed) = url::Url::parse(&format!("http://127.0.0.1{}", base)) else {
+        return base.to_string();
+    };
+    let existing: Vec<(String, String)> = parsed
+        .query_pairs()
+        .filter(|(k, _)| k != "_desktop_reload")
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    parsed.set_query(None);
+    {
+        let mut qp = parsed.query_pairs_mut();
+        for (k, v) in existing {
+            qp.append_pair(&k, &v);
+        }
+        qp.append_pair("_desktop_reload", &millis.to_string());
+    }
+    match parsed.query() {
+        Some(q) if !q.is_empty() => format!("{}?{}", parsed.path(), q),
+        _ => parsed.path().to_string(),
     }
 }
 
@@ -103,7 +191,23 @@ impl TauriUiCoordinator {
     }
 
     pub fn set_window_focused(&self, visible_and_focused: bool) {
-        self.attention.write().unwrap().visible_and_focused = visible_and_focused;
+        let mut attn = self.attention.write().unwrap();
+        attn.visible_and_focused = visible_and_focused;
+        if visible_and_focused {
+            attn.window_visible = true;
+        }
+    }
+
+    pub fn set_window_hidden(&self) {
+        let mut attn = self.attention.write().unwrap();
+        attn.window_visible = false;
+        attn.visible_and_focused = false;
+    }
+
+    pub fn set_window_shown(&self) {
+        let mut attn = self.attention.write().unwrap();
+        attn.window_visible = true;
+        attn.visible_and_focused = true;
     }
 
     pub fn set_current_route(&self, route: String) {
@@ -146,7 +250,7 @@ impl TauriUiCoordinator {
                     let _ = win.eval(&js);
                 }
             }
-            self.set_window_focused(true);
+            self.set_window_shown();
             return Some(win);
         }
 
@@ -206,6 +310,7 @@ impl TauriUiCoordinator {
             None
         });
 
+        let state_for_hide = app.try_state::<Arc<HostSharedState>>().map(|s| s.inner().clone());
         let coord_clone = app.state::<Arc<TauriUiCoordinator>>().inner().clone();
         win.on_window_event(move |event| match event {
             WindowEvent::CloseRequested { api, .. } => {
@@ -216,7 +321,10 @@ impl TauriUiCoordinator {
                             let _ = w.hide();
                         }
                     }
-                    coord_clone.set_window_focused(false);
+                    coord_clone.set_window_hidden();
+                    if let Some(ref st) = state_for_hide {
+                        crate::updater::maybe_auto_apply_when_hidden(st);
+                    }
                 }
             }
             WindowEvent::Focused(focused) => {
@@ -225,7 +333,7 @@ impl TauriUiCoordinator {
             _ => {}
         });
 
-        self.set_window_focused(true);
+        self.set_window_shown();
         Some(win)
     }
 }
@@ -233,6 +341,39 @@ impl TauriUiCoordinator {
 impl DesktopUiBridge for TauriUiCoordinator {
     fn window_attention(&self) -> WindowAttentionState {
         self.attention.read().unwrap().clone()
+    }
+
+    fn set_unsaved_form(&self, dirty: bool) {
+        self.attention.write().unwrap().has_unsaved_form = dirty;
+    }
+
+    fn set_window_visibility(&self, visible: bool) {
+        if visible {
+            self.set_window_shown();
+        } else {
+            self.set_window_hidden();
+        }
+    }
+
+    fn updater_state_changed(&self, phase: &str, target_version: Option<&str>, auto_update: bool) {
+        *self.updater_phase.lock().unwrap() = phase.to_string();
+        *self.updater_target_version.lock().unwrap() = target_version.map(str::to_string);
+        let zh = self.locale.lock().unwrap().starts_with("zh");
+        let label = format_update_menu_label(zh, phase, target_version);
+        let items = self.menu_items.lock().unwrap().clone();
+        let Some(app) = self.app_handle.lock().unwrap().clone() else {
+            return;
+        };
+        let app_clone = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let Some(m) = items {
+                let _ = m.check_update.set_text(&label);
+                let _ = m.auto_update.set_checked(auto_update);
+            }
+            if let Some(win) = app_clone.get_webview_window(MAIN_WINDOW_LABEL) {
+                let _ = win.eval("window.dispatchEvent(new CustomEvent('crewden:updater-changed'));");
+            }
+        });
     }
 
     fn update_current_route(&self, route: &str) -> Option<String> {
@@ -300,6 +441,8 @@ impl DesktopUiBridge for TauriUiCoordinator {
         let status_item = self.status_item.lock().unwrap().clone();
         let tray_icon = self.tray_icon.lock().unwrap().clone();
         let items = self.menu_items.lock().unwrap().clone();
+        let upd_phase = self.updater_phase.lock().unwrap().clone();
+        let upd_target = self.updater_target_version.lock().unwrap().clone();
         let _ = app.run_on_main_thread(move || {
             if let Some(status) = status_item {
                 let _ = status.set_text(format_status_label(zh, total_unread));
@@ -310,6 +453,8 @@ impl DesktopUiBridge for TauriUiCoordinator {
             if let Some(m) = items {
                 let _ = m.open_main.set_text(if zh { "打开主窗口" } else { "Open Crewden" });
                 let _ = m.open_nodes.set_text(if zh { "电脑与运行设置…" } else { "Computers & local settings…" });
+                let _ = m.check_update.set_text(format_update_menu_label(zh, &upd_phase, upd_target.as_deref()));
+                let _ = m.auto_update.set_text(if zh { "自动保持最新" } else { "Keep Crewden up to date" });
                 let _ = m.start_node.set_text(if zh { "启动本机后台节点" } else { "Start local node" });
                 let _ = m.restart_node.set_text(if zh { "重启本机后台节点" } else { "Restart local node" });
                 let _ = m.stop_node.set_text(if zh { "停止本机后台节点" } else { "Stop local node" });
@@ -369,17 +514,31 @@ impl DesktopUiBridge for TauriUiCoordinator {
         let Some(app) = self.app_handle.lock().unwrap().clone() else {
             return;
         };
-        let next = target_route.map(str::to_string);
-        let boot_url = self.build_bootstrap_url(next.as_deref().unwrap_or("/chat"));
+        let preserved = match target_route {
+            Some(explicit) if explicit.starts_with('/') => explicit.to_string(),
+            _ => {
+                let current = self.attention.read().unwrap().current_route.clone();
+                if current.starts_with('/') {
+                    current
+                } else {
+                    "/chat".to_string()
+                }
+            }
+        };
+        let busted_route = append_reload_cache_buster(&preserved);
+        let boot_url = self.build_bootstrap_url(&busted_route);
         let app_clone = app.clone();
         let _ = app.run_on_main_thread(move || {
             if let Some(win) = app_clone.get_webview_window(MAIN_WINDOW_LABEL) {
                 if let Some(url) = boot_url {
                     if let Ok(encoded) = serde_json::to_string(url.as_str()) {
-                        let _ = win.eval(&format!("window.location.replace({});", encoded));
+                        let _ = win.eval(&format!(
+                            "window.dispatchEvent(new Event('crewden:before-hot-reload')); window.location.replace({});",
+                            encoded
+                        ));
                     }
                 } else {
-                    let _ = win.eval("window.location.reload();");
+                    let _ = win.eval("window.dispatchEvent(new Event('crewden:before-hot-reload')); window.location.reload();");
                 }
             }
         });
@@ -397,6 +556,19 @@ pub fn install_system_tray(
         .map_err(|e| e.to_string())?;
     let open_nodes = MenuItem::with_id(app, "open_nodes", "电脑与运行设置…", true, None::<&str>)
         .map_err(|e| e.to_string())?;
+    let sep_upd = PredefinedMenuItem::separator(app).map_err(|e| e.to_string())?;
+    let check_update = MenuItem::with_id(app, "check_update", "检查更新…", true, None::<&str>)
+        .map_err(|e| e.to_string())?;
+    let initial_auto_update = crate::updater::read_updater_prefs(&host_state.paths).auto_update;
+    let auto_update = CheckMenuItem::with_id(
+        app,
+        "toggle_auto_update",
+        "自动保持最新",
+        true,
+        initial_auto_update,
+        None::<&str>,
+    )
+    .map_err(|e| e.to_string())?;
     let sep1 = PredefinedMenuItem::separator(app).map_err(|e| e.to_string())?;
     let start_node = MenuItem::with_id(app, "node_start", "启动本机后台节点", true, None::<&str>)
         .map_err(|e| e.to_string())?;
@@ -423,6 +595,8 @@ pub fn install_system_tray(
     *coord.menu_items.lock().unwrap() = Some(TrayMenuItems {
         open_main: open_main.clone(),
         open_nodes: open_nodes.clone(),
+        check_update: check_update.clone(),
+        auto_update: auto_update.clone(),
         start_node: start_node.clone(),
         restart_node: restart_node.clone(),
         stop_node: stop_node.clone(),
@@ -436,6 +610,9 @@ pub fn install_system_tray(
             &status,
             &open_main,
             &open_nodes,
+            &sep_upd,
+            &check_update,
+            &auto_update,
             &sep1,
             &start_node,
             &restart_node,
@@ -475,6 +652,38 @@ pub fn install_system_tray(
                 }
                 "open_nodes" => {
                     let _ = coord_for_menu.ensure_main_window(app_handle, Some("/settings/nodes"));
+                }
+                "check_update" => {
+                    let st = state_for_menu.clone();
+                    let coord_u = coord_for_menu.clone();
+                    let app_u = app_handle.clone();
+                    let phase = coord_for_menu.updater_phase.lock().unwrap().clone();
+                    tauri::async_runtime::spawn(async move {
+                        match phase.as_str() {
+                            "ready_to_switch" => {
+                                let _ = crate::updater::apply_desktop_update(st, None).await;
+                            }
+                            "installer_ready" => {
+                                let _ = crate::updater::open_downloaded_installer(&st);
+                                coord_u.focus_window();
+                            }
+                            "available" => {
+                                let _ = coord_u.ensure_main_window(&app_u, Some("/settings/nodes"));
+                                let _ = crate::updater::apply_desktop_update(st, None).await;
+                            }
+                            _ => {
+                                let _ = coord_u.ensure_main_window(&app_u, Some("/settings/nodes"));
+                                let _ = crate::updater::check_for_updates(st, true).await;
+                            }
+                        }
+                    });
+                }
+                "toggle_auto_update" => {
+                    let st = state_for_menu.clone();
+                    let next = !crate::updater::read_updater_prefs(&st.paths).auto_update;
+                    tauri::async_runtime::spawn(async move {
+                        let _ = crate::updater::set_auto_update_preference(st, next).await;
+                    });
                 }
                 "node_start" | "node_restart" | "node_stop" => {
                     let action = match event.id().as_ref() {

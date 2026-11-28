@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { UserMenuIcon } from "../../app/shell/user-menu-icons";
 import { isDesktopClient } from "../../desktop/desktop-context";
+import { DesktopCompactUpdateBox } from "../../desktop/desktop-update-pill";
 import { getCurrentLanguage, setLanguage, useTranslation, type Locale } from "../../i18n";
 import { useAuthStore } from "../auth/auth-store";
 import { useQuery } from "@tanstack/react-query";
@@ -69,6 +70,12 @@ export function MePage() {
         </div>
         <span className={CHEVRON} aria-hidden="true" data-testid="me-identity-chevron">›</span>
       </Link>
+
+      {isDesktopClient() && (
+        <div className="px-[14px] pt-[12px]">
+          <DesktopCompactUpdateBox testId="me-page-update-box" />
+        </div>
+      )}
 
       <div
         className={`${CARD_BG} ${CARD_BORDER} mt-[14px] rounded-none`}

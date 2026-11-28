@@ -5,6 +5,7 @@ pub mod host_server;
 pub mod local_node;
 pub mod notifications;
 pub mod tray;
+pub mod updater;
 
 use crate::config::{append_host_log, local_node_bridge_endpoint, write_private_json, DesktopCliOptions, DesktopPaths, HostRuntimeStateFile, InstanceLock};
 use crate::host_server::{handle_deep_link_url, ping_local_bridge, start_host_server_full};
@@ -136,11 +137,20 @@ fn spawn_managed_node_supervisor(
                             login,
                             &mut expected_running,
                         ) {
-                            Ok(true) => { first_check = false; login_pending = false; }
+                            Ok(true) => {
+                                crate::updater::clear_startup_promotion_backup(&state, &origin);
+                                first_check = false;
+                                login_pending = false;
+                            }
                             Ok(false) => {}
                             Err(error) => {
                                 append_host_log(Some(&state.paths), "WARN", &error);
-                                delay = Duration::from_secs(30);
+                                if first_check && crate::updater::rollback_startup_promotion_if_needed(&state, &origin) {
+                                    // Immediately retry starting the restored previous bundle without waiting 30s.
+                                    delay = Duration::from_millis(200);
+                                } else {
+                                    delay = Duration::from_secs(30);
+                                }
                             }
                         }
                     }
@@ -302,7 +312,7 @@ pub fn run_from_env() -> Result<(), String> {
             .build()
             .map_err(|e| e.to_string())?;
         return rt.block_on(async move {
-            let ui = Arc::new(NoopUiBridge::default());
+            let ui = Arc::new(NoopUiBridge::with_window_visible(!cli.background));
             let mut running = start_host_server_full(
                 paths.clone(),
                 cli.im_origin.as_deref(),
@@ -320,7 +330,7 @@ pub fn run_from_env() -> Result<(), String> {
         });
     }
 
-    let coord = Arc::new(TauriUiCoordinator::default());
+    let coord = Arc::new(TauriUiCoordinator::with_window_visible(!cli.background));
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()

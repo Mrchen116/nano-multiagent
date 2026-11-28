@@ -4,9 +4,13 @@ import type {
   DesktopLocalConfigInput,
   DesktopLocalInspectResponse,
   DesktopLocalOwnership,
+  DesktopUpdaterDismissInput,
+  DesktopUpdaterPreferencesInput,
+  DesktopUpdaterSnapshot,
   DesktopWorkerProbeItem,
 } from "@nano/product-contracts/desktop-local";
 import { authFetch } from "../features/auth/auth-fetch";
+import { useAuthStore } from "../features/auth/auth-store";
 import { readHttpError } from "../features/auth/http-error";
 import type { DesktopPlatformId, PendingServerSwitch } from "./desktop-context";
 
@@ -183,6 +187,86 @@ export function prepareDesktopLocalTrajectory(input: {
   session_id: string;
 }): Promise<DesktopTrajectoryPrepareResponse> {
   return authedDesktopJson<DesktopTrajectoryPrepareResponse>("/desktop/v1/trajectory/prepare", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+async function optionalAuthDesktopJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  if (useAuthStore.getState().accessToken) {
+    const res = await authFetch(path, init);
+    if (!res.ok) {
+      const err = await readHttpError(res);
+      throw new DesktopApiError(res.status, err.detail || `Request failed (${res.status})`, err.code);
+    }
+    return (await res.json()) as T;
+  }
+  return hostFetchJson<T>(path, init);
+}
+
+/** Report active route and unsaved form dirty state to the Desktop loopback host. */
+export function reportDesktopAttention(input: {
+  current_route: string;
+  has_unsaved_form: boolean;
+}): Promise<{ ok: boolean; route: string; navigate_to?: string | null }> {
+  return hostFetchJson("/desktop/v1/attention", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Read current Crewden Desktop updater state, preferences, and active bundle metadata. */
+export function getDesktopUpdaterSnapshot(): Promise<DesktopUpdaterSnapshot> {
+  return hostFetchJson<DesktopUpdaterSnapshot>("/desktop/v1/updater", { cache: "no-store" });
+}
+
+/** Trigger an immediate manual or post-switch Desktop update check against `im_origin`. */
+export function checkDesktopUpdates(manual = true): Promise<DesktopUpdaterSnapshot> {
+  return hostFetchJson<DesktopUpdaterSnapshot>("/desktop/v1/updater/check", {
+    method: "POST",
+    body: JSON.stringify({ manual }),
+  });
+}
+
+/** Update persistent `auto_update` ("自动保持最新") preference on the Desktop host. */
+export function setDesktopAutoUpdatePreference(
+  input: DesktopUpdaterPreferencesInput,
+): Promise<DesktopUpdaterSnapshot> {
+  return hostFetchJson<DesktopUpdaterSnapshot>("/desktop/v1/updater/preferences", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Apply a ready hot bundle switch (or begin downloading a native client installer). */
+export function applyDesktopUpdate(): Promise<DesktopUpdaterSnapshot> {
+  return optionalAuthDesktopJson<DesktopUpdaterSnapshot>("/desktop/v1/updater/apply", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+/** Cancel an active download or cancel a pending task-draining node switch. */
+export function cancelDesktopUpdate(): Promise<DesktopUpdaterSnapshot> {
+  return optionalAuthDesktopJson<DesktopUpdaterSnapshot>("/desktop/v1/updater/cancel", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+/** Re-verify SHA-256 and open/launch a downloaded Desktop platform installer (`.dmg` or `.exe`). */
+export function openDesktopUpdaterInstaller(): Promise<DesktopUpdaterSnapshot> {
+  return hostFetchJson<DesktopUpdaterSnapshot>("/desktop/v1/updater/open-installer", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+/** Dismiss the post-switch confirmation pill or collapse the floating capsule for the current target version. */
+export function dismissDesktopUpdaterNotice(
+  input: DesktopUpdaterDismissInput,
+): Promise<DesktopUpdaterSnapshot> {
+  return hostFetchJson<DesktopUpdaterSnapshot>("/desktop/v1/updater/dismiss", {
     method: "POST",
     body: JSON.stringify(input),
   });
