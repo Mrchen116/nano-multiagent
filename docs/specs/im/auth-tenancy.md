@@ -1,6 +1,6 @@
 # IM - Auth and Tenancy Specification
 
-> 对齐: feat-804
+> 对齐: bugfix-818
 > 上级: [IM Specification](spec.md)
 
 ## Purpose
@@ -41,10 +41,12 @@
 - **WHEN** 浏览器以 `X-IM-Session: browser` 和许可 Origin 调用注册、登录或刷新
 - **THEN** 响应仅含 access_token 与 user，refresh 通过 host-only、HttpOnly、SameSite=Strict Cookie 传送；HTTPS 部署带 Secure，页面可读持久存储不保存任何会话令牌。
 - **AND** 刷新页面及同源多标签续期通过 Cookie 恢复有效会话，保留稳定 Cookie、退出、成员停用和临时故障重试语义。
+- **AND** 同源其他标签页冻结休眠长期阻塞跨标签会话协调，或运行在缺少跨标签锁/广播/本地存储能力的非安全上下文（如受控内网明文 HTTP）时，当前标签页在有界时间内降级完成会话恢复、登录、续期与退出，且延迟响应不覆盖或撤销期间更新的会话身份。
 
 #### Scenario: 登录页恢复已有会话
 - **WHEN** 用户打开或刷新 /login，未主动退出且浏览器保留有效会话
 - **THEN** 自动恢复并进入 /chat；账号需准入处理时进入 /membership。没有有效会话才显示登录表单，临时服务故障显示重试入口，主动退出显示登录表单。
+- **AND** 会话恢复或受保护路由身份核验请求无响应时在有界时间内中止并展示可重试提示，不永久停留在恢复等待或空白页。
 
 #### Scenario: 三十天滚动续期与成功登录记录
 - **WHEN** 用户登录或成功续期

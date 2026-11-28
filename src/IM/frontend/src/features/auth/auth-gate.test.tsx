@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -60,6 +60,8 @@ function renderAt(initialPath: string) {
 }
 
 describe("auth gate", () => {
+  const originalLocks = Object.getOwnPropertyDescriptor(window.navigator, "locks");
+
   beforeEach(() => {
     localStorage.clear();
     useAuthStore.getState().clear();
@@ -67,6 +69,8 @@ describe("auth gate", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
+    if (originalLocks) Object.defineProperty(window.navigator, "locks", originalLocks);
     vi.restoreAllMocks();
     localStorage.clear();
   });
@@ -232,5 +236,53 @@ describe("auth gate", () => {
     expect(router.state.location.pathname).toBe("/chat/conversation-1");
     expect(router.state.location.search).toBe("?message_id=message-7");
     expect(router.state.location.hash).toBe("#focus");
+  });
+
+  it("renders the login form on cleartext HTTP when navigator.locks is undefined", async () => {
+    Object.defineProperty(window.navigator, "locks", { configurable: true, value: undefined });
+    useAuthStore.setState({ hydrated: false, hydrationError: false, user: null, accessToken: null });
+    vi.mocked(fetch).mockResolvedValue(new Response("", { status: 401 }));
+
+    renderAt("/login");
+
+    expect(await screen.findByRole("heading", { name: /welcome back/i })).toBeInTheDocument();
+    expect(screen.queryByText(/restoring/i)).not.toBeInTheDocument();
+  });
+
+  it("falls through to the login form when another frozen tab holds the session lock", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    Object.defineProperty(window.navigator, "locks", {
+      configurable: true,
+      value: { request: () => new Promise(() => {}) }
+    });
+    useAuthStore.setState({ hydrated: false, hydrationError: false, user: null, accessToken: null });
+    vi.mocked(fetch).mockResolvedValue(new Response("", { status: 401 }));
+
+    renderAt("/login");
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/^password$/i)).not.toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000);
+    });
+
+    expect(await screen.findByLabelText(/^password$/i)).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("shows a retryable alert instead of a blank screen when /auth/me hangs on a protected route", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    useAuthStore.getState().setSession({ access_token: "tok", user: SAMPLE_USER });
+    vi.mocked(fetch).mockImplementation(() => new Promise(() => {}));
+
+    renderAt("/chat");
+    expect(screen.queryByTestId("protected")).not.toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /refresh/i })).toBeInTheDocument();
   });
 });

@@ -1,7 +1,16 @@
 import { create } from "zustand";
 
 export const AUTH_STORAGE_KEY = "im_auth_v1";
-if (typeof window !== "undefined") window.localStorage.removeItem(AUTH_STORAGE_KEY);
+
+function discardLegacyStoredAuth(): void {
+  try {
+    if (typeof window !== "undefined") window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch {
+    // Restricted browser storage cannot hold legacy credentials either.
+  }
+}
+
+discardLegacyStoredAuth();
 
 export interface AuthUser {
   membership_status: "none" | "pending" | "active" | "suspended";
@@ -66,13 +75,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     return true;
   },
   clear() {
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
+    discardLegacyStoredAuth();
     set({ accessToken: null, user: null, hydrated: true, hydrationError: false, revision: get().revision + 1, verifiedAt: null });
   },
   async hydrate() {
     // Old script-readable credentials are deliberately discarded, never exchanged.
-    window.localStorage.removeItem(AUTH_STORAGE_KEY);
-    const { restoreSession } = await import("./auth-session");
-    await restoreSession();
+    discardLegacyStoredAuth();
+    const revision = get().revision;
+    if (!get().hydrated && get().hydrationError) {
+      set({ hydrationError: false });
+    }
+    try {
+      const { restoreSession } = await import("./auth-session");
+      await restoreSession();
+      if (get().revision === revision && !get().hydrated && !get().hydrationError) {
+        set({ hydrationError: true });
+      }
+    } catch {
+      if (get().revision === revision && !get().hydrated) {
+        set({ hydrationError: true });
+      }
+    }
   }
 }));
