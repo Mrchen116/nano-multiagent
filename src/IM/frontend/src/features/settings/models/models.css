@@ -1,5 +1,7 @@
 .model-settings-page { flex: 1; min-width: 0; overflow-y: auto; background: var(--im-surface); color: var(--im-text); }
 .model-settings-inner { max-width: 784px; margin: 28px auto 48px; padding: 0 24px; }
+.model-page-back { display: inline-flex; align-items: center; min-height: 44px; gap: 5px; color: var(--im-text-muted); font-size: 13px; text-decoration: none; margin-bottom: 12px; }
+.model-page-back:hover { color: var(--im-accent-2); text-decoration: underline; }
 .model-settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
 .model-settings-heading h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -.025em; line-height: 1.35; }
 .model-settings-heading p { color: var(--im-text-muted); font-size: 13px; line-height: 1.5; margin: 5px 0 0; }

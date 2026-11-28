@@ -25,7 +25,7 @@ export function ModelServicesPanel({ node, initialAdd = false, formId, onPrimary
   onEditingChange?: (editing: boolean) => void;
   onConnected?: () => void;
 }) {
-  useTranslation();
+  const { t } = useTranslation();
   const text = (zh: string, en: string) => getCurrentLanguage() === 'zh' ? zh : en;
   const userId = useAuthStore(s => s.user!.id);
   const cache = useQueryClient();
@@ -160,11 +160,11 @@ export function ModelServicesPanel({ node, initialAdd = false, formId, onPrimary
     </div>}
   </>;
   return <div className="model-services">
-    {heading && <header className="model-settings-heading"><div><h1>{heading}</h1><p>{text('管理助手可用的 API 服务与模型。', 'Manage API services and models for your assistants.')}</p></div>{!draft && addButton}</header>}
+    {heading && <header className="model-settings-heading"><div><h1>{heading}</h1><p>{t('settings.models.subtitle')}</p></div>{!draft && addButton}</header>}
     {children}
     {firstConnection && codex && !codexConnected && <div className="model-access-options" role="group" aria-label={text('模型接入方式', 'Model access method')}><button disabled={busy} aria-pressed={accessMethod === 'api'} onClick={() => setAccessMethod('api')}>{text('使用 API 服务', 'Use an API service')}</button><button disabled={busy} aria-pressed={accessMethod === 'subscription'} onClick={() => setAccessMethod('subscription')}>{text('使用 ChatGPT / Codex 订阅', 'Use a ChatGPT / Codex subscription')}</button></div>}
     {firstConnection && accessMethod === 'subscription' && codex ? <div className="model-first-subscription"><p className="model-hint">{text('在授权页面登录你的账号。授权完成并验证模型后，继续创建助手。', 'Sign in on the authorization page. Once the model is verified, continue to your assistant.')}</p>{subscriptionFields}</div> : draft ? <form id={liftPrimaryAction ? formId : undefined} className="model-card model-editor" onSubmit={e => { e.preventDefault(); save(); }}>
-      {!(initialAdd && !data?.services.length) && <><button type="button" className="model-link model-back" disabled={busy} onClick={() => { setDraft(null); resetFeedback(); }}>{text('← 模型服务', '← Model services')}</button>
+      {!(initialAdd && !data?.services.length) && <><button type="button" className="model-link model-back" disabled={busy} onClick={() => { setDraft(null); resetFeedback(); }}>{t('settings.models.backToModels')}</button>
       <h2>{draft.provider ? text('编辑模型服务', 'Edit model service') : text('添加模型服务', 'Add model service')}</h2>
       <p className="model-hint">{text('修改后先测试连接，成功才会保存。', 'Changes are tested before they are saved.')}</p></>}
       {!catalog.length && <p className="model-hint">{text('服务商目录暂不可用。可继续使用自定义 API，或重新检查连接。', 'The provider catalog is unavailable. You can use a custom API or check the connection again.')}</p>}

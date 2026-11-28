@@ -17,10 +17,18 @@ vi.mock("../features/chat/chat-api", async (importOriginal) => {
 });
 
 import { appRoutes } from "./router";
-import { renderRouter } from "../test/render-router";
+import { setLanguage } from "../i18n";
+import { renderRouter, TEST_AUTH_USER } from "../test/render-router";
+
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: width });
+  window.dispatchEvent(new Event("resize"));
+}
 
 describe("app routes", () => {
   beforeEach(() => {
+    setLanguage("en");
+    setViewportWidth(1280);
     const nodes = ["node-1", "node-2"].map(node_id => ({
       node_id, owner_id: "user-1", node_name: node_id === "node-2" ? "Route Mini" : "Default Laptop",
       status: "online", last_heartbeat_at: "2026-10-28T00:00:00Z", agent_count: 1, version: "test"
@@ -32,6 +40,29 @@ describe("app routes", () => {
         display_name: "Route Planner", node_name: "Route Mini", status: "online", work_mode: "single_thread"
       }], next_cursor: null});
       if (url.endsWith("/im/v1/nodes")) return Response.json(nodes);
+      if (url.endsWith("/im/v1/me")) return Response.json({
+        ...TEST_AUTH_USER,
+        user_id: TEST_AUTH_USER.id,
+        avatar_version: null
+      });
+      if (url.endsWith("/im/v1/policies")) return Response.json({
+        default_model: "fixture-model",
+        max_turn_per_run: 12,
+        max_attachment_size_mb: 15,
+        retention_days: 30,
+        audit_level: "basic",
+        rate_limit_per_min: 45
+      });
+      if (url.includes("/im/v1/attachments/capacity")) return Response.json({
+        service: { used_bytes: 0, reserved_bytes: 0, limit_bytes: 1024, full: false },
+        owners: []
+      });
+      if (url.endsWith("/im/v1/onboarding")) return Response.json({
+        nodes: [],
+        agents: [],
+        install: { available: false, origin: "", command: "", script_url: "" }
+      });
+      if (url.includes("/im/v1/company/members")) return Response.json({ members: [], next_cursor: null });
       if (url.endsWith("/im/v1/nodes/node-2/capabilities")) return Response.json({
         node_id: "node-2", node_name: "Route Mini", node_status: "online", skills: [], tools: [], features: [],
         model_options: [{name: "fixture-model", provider: "fixture"}], platform_default_model: "fixture-model"
@@ -96,5 +127,42 @@ describe("app routes", () => {
     expect(form.getByRole("textbox", {name: /Display name/i})).toBeEnabled();
     expect(form.getByRole("combobox", {name: /Owning node/i})).toHaveValue("node-2");
     expect(screen.queryByText("Could not load agents.")).not.toBeInTheDocument();
+  });
+
+  it("redirects desktop /me to /settings/account and hides mobile /me back links across desktop settings pages", async () => {
+    setViewportWidth(1280);
+    const meRender = renderRouter({ routes: appRoutes, initialEntries: ["/me"] });
+    expect(await screen.findByLabelText(/display name/i)).toBeInTheDocument();
+    expect(screen.queryByTestId("me-page")).not.toBeInTheDocument();
+    expect(meRender.container.querySelector('a[href="/me"]')).toBeNull();
+    meRender.unmount();
+
+    for (const path of ["/settings/account", "/settings/nodes", "/settings/policies", "/settings/models", "/settings/company"]) {
+      const view = renderRouter({ routes: appRoutes, initialEntries: [path] });
+      await screen.findByRole("navigation", { name: "primary" });
+      await screen.findByRole("heading", { level: 1 });
+      expect(view.container.querySelector('a[href="/me"]')).toBeNull();
+      view.unmount();
+    }
+  });
+
+  it("retains /me and renders localized ‹ Me back links on narrow mobile settings subpages", async () => {
+    setViewportWidth(390);
+    const meView = renderRouter({ routes: appRoutes, initialEntries: ["/me"] });
+    expect(await screen.findByTestId("me-page")).toBeInTheDocument();
+    meView.unmount();
+
+    for (const [path, testId] of [
+      ["/settings/account", "account-page-back"],
+      ["/settings/nodes", "nodes-page-back"],
+      ["/settings/policies", "policies-page-back"],
+      ["/settings/models", "models-page-back"]
+    ] as const) {
+      const view = renderRouter({ routes: appRoutes, initialEntries: [path] });
+      const backLink = await screen.findByTestId(testId);
+      expect(backLink).toHaveAttribute("href", "/me");
+      expect(backLink).toHaveTextContent(/Me/);
+      view.unmount();
+    }
   });
 });

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 
+import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import {
@@ -44,6 +45,7 @@ function validField(key: keyof PolicyProfile, value: string) {
 /** Render readable team presets while separating them from actual administrator storage data. */
 export function PoliciesPage() {
   const { t } = useTranslation();
+  const isMobile = useIsMobile();
   const user = useAuthStore((s) => s.user);
   const companyMember = user?.membership_status === "active";
   const admin = companyMember && Boolean(user?.is_company_admin);
@@ -88,13 +90,15 @@ export function PoliciesPage() {
   return (
     <section className="settings-surface im-policies-page">
       <div className="settings-frame">
-        <Link
-          className="settings-back"
-          data-testid="policies-page-back"
-          to="/me"
-        >
-          ‹ {t("computers.account")}
-        </Link>
+        {isMobile && (
+          <Link
+            className="settings-back"
+            data-testid="policies-page-back"
+            to="/me"
+          >
+            ‹ {t("me.title")}
+          </Link>
+        )}
         <header className="settings-heading">
           <h1>{t("settings.policies.title")}</h1>
           <p>{t("settings.policies.subtitle")}</p>

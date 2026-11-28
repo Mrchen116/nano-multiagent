@@ -1,6 +1,6 @@
 # IM - Agents and Nodes Specification
 
-> 对齐: feat-805
+> 对齐: bugfix-820
 > 上级: [IM Specification](spec.md)
 
 ## Purpose
@@ -1256,9 +1256,9 @@ Global 创建后的管理者私聊首屏引导，见[首次建立合作约定](p
 
 ### Requirement: 节点拥有者可通过网页引导完成日常 Chrome 配对且凭据不落中心服务
 
-#### Scenario: 电脑详情与助手工具配置的就地配对引导
-- **WHEN** 节点拥有者在 Web IM 打开在线电脑详情抽屉、访问 `/settings/nodes?pair_browser=1` 深链（聊天中点击该链接在应用内路由跳转：仅有一台在线电脑时直接展开其配对抽屉，多台在线电脑时停留在电脑列表供明确选择而不猜测），或在新建/编辑助手时勾选 `computer_use`
-- **THEN** 页面读取该电脑当前的日常 Chrome 状态与可用 Profile；拥有者触发引导连接时，节点在所选 Chrome Profile 自动打开官方扩展商店页并在检测到扩展安装后自动打开扩展 Token 管理页（已安装则直接打开 Token 管理页），拥有者手动粘贴 Token（支持粘贴 `PLAYWRIGHT_MCP_EXTENSION_TOKEN=…` 整行或裸值）即可免重启保存生效，并可随时断开连接。
+#### Scenario: 电脑详情与助手工具配置的就地配对引导与能力边界说明
+- **WHEN** 节点拥有者在 Web IM 或 Desktop 客户端查看本机/在线电脑详情中的日常 Chrome 配对区、访问 `/settings/nodes?pair_browser=1` 深链（聊天中点击该链接在应用内路由跳转：仅有一台在线电脑时直接展开其配对抽屉，多台在线电脑时停留在电脑列表供明确选择而不猜测），或在新建/编辑助手时勾选 `computer_use`
+- **THEN** 配对卡片在中英文下明确说明连接后助手可在后台标签页操作该 Chrome 浏览器（打开网页、点击、输入、读取页面与截图）并复用已登录网站会话，未连接或无需个人登录态时使用干净隔离浏览器（独立环境，不触碰个人浏览器数据）；拥有者触发引导连接时，节点在所选 Chrome Profile 自动打开官方扩展商店页并在检测到扩展安装后自动打开扩展 Token 管理页（已安装则直接打开 Token 管理页），拥有者手动粘贴 Token（支持粘贴 `PLAYWRIGHT_MCP_EXTENSION_TOKEN=…` 整行或裸值）即可免重启保存生效，并可随时断开连接。
 
 #### Scenario: 瞬时直通不保存扩展凭据且跨租户隔离
 - **WHEN** 客户端经 `POST /im/v1/nodes/:node_id/browser` 查询状态、启动引导、提交 Token 或断开配对

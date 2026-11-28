@@ -153,4 +153,35 @@ describe("AppShell", () => {
       expect(within(mobile).getByTestId("shell-chat-unread")).toHaveTextContent("5");
     });
   });
+
+  it("uses clear user-facing menu labels without internal jargon in EN and ZH", async () => {
+    renderShell("/chat");
+    const trigger = screen.getByRole("button", { name: "Alex Chen" });
+    await userEvent.click(trigger);
+
+    const menu = screen.getByRole("menu", { name: "Alex Chen" });
+    expect(within(menu).getByText("@alex")).toBeInTheDocument();
+    expect(within(menu).getByRole("menuitem", { name: /^Account/ })).toHaveAttribute("href", "/settings/account");
+    expect(within(menu).getByRole("menuitem", { name: /^Computers/ })).toHaveAttribute("href", "/settings/nodes");
+    expect(within(menu).getByRole("menuitem", { name: /^AI Models & API/ })).toHaveAttribute("href", "/settings/models");
+    expect(within(menu).getByRole("menuitem", { name: /^Usage & Policies/ })).toHaveAttribute("href", "/settings/policies");
+    expect(within(menu).getByRole("menuitem", { name: /^Team members/ })).toHaveAttribute("href", "/settings/company");
+    expect(within(menu).queryByText("Nodes")).not.toBeInTheDocument();
+    expect(within(menu).queryByText("Model services")).not.toBeInTheDocument();
+    expect(within(menu).queryByText("Company members")).not.toBeInTheDocument();
+
+    await userEvent.click(within(menu).getByRole("menuitem", { name: /^Language/ }));
+    await userEvent.click(within(menu).getByRole("menuitemradio", { name: "简体中文" }));
+
+    await userEvent.click(trigger);
+    const zhMenu = screen.getByRole("menu", { name: "Alex Chen" });
+    expect(within(zhMenu).getByRole("menuitem", { name: /^账号/ })).toHaveAttribute("href", "/settings/account");
+    expect(within(zhMenu).getByRole("menuitem", { name: /^电脑/ })).toHaveAttribute("href", "/settings/nodes");
+    expect(within(zhMenu).getByRole("menuitem", { name: /^AI 模型与 API/ })).toHaveAttribute("href", "/settings/models");
+    expect(within(zhMenu).getByRole("menuitem", { name: /^用量与团队规则/ })).toHaveAttribute("href", "/settings/policies");
+    expect(within(zhMenu).getByRole("menuitem", { name: /^成员管理/ })).toHaveAttribute("href", "/settings/company");
+    expect(within(zhMenu).queryByText("节点")).not.toBeInTheDocument();
+    expect(within(zhMenu).queryByText("模型服务")).not.toBeInTheDocument();
+    expect(within(zhMenu).queryByText("公司成员")).not.toBeInTheDocument();
+  });
 });
