@@ -1,7 +1,12 @@
 use crate::autostart::get_desktop_login_autostart;
-use crate::config::{show_error_dialog, DesktopPaths};
+use crate::config::{
+    append_host_log, random_hex_token, show_error_dialog, show_fatal_startup_dialog_async,
+    DesktopPaths,
+};
 use crate::host_server::{register_login, set_managed_login, HostSharedState};
-use crate::local_node::{open_external_url, resolve_active_bundle, run_local_admin_sync};
+use crate::local_node::{
+    open_external_url, reconcile_webview_ui_cache, resolve_active_bundle, run_local_admin_sync,
+};
 use crate::notifications::{DesktopUiBridge, WindowAttentionState};
 use serde_json::json;
 use std::path::PathBuf;
@@ -17,7 +22,8 @@ use tauri::{
 };
 
 const MAIN_WINDOW_LABEL: &str = "main";
-const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
+const TRAY_TEMPLATE_PNG: &[u8] = include_bytes!("../icons/tray.png");
+const TRAY_COLOR_PNG: &[u8] = include_bytes!("../icons/128x128.png");
 
 #[derive(Clone)]
 struct TrayMenuItems {
@@ -215,15 +221,38 @@ impl TauriUiCoordinator {
     }
 
     fn build_bootstrap_url(&self, next_route: &str) -> Option<url::Url> {
+        self.build_bootstrap_url_with_cache_bust(next_route, None)
+    }
+
+    pub(crate) fn build_bootstrap_url_with_cache_bust(
+        &self,
+        next_route: &str,
+        cache_bust: Option<&str>,
+    ) -> Option<url::Url> {
         let (port, ref nonce) = (*self.bootstrap_base.lock().unwrap()).clone()?;
         let mut u = url::Url::parse(&format!("http://127.0.0.1:{}/desktop/bootstrap", port)).ok()?;
-        u.query_pairs_mut()
-            .append_pair("nonce", nonce)
-            .append_pair("next", if next_route.starts_with('/') { next_route } else { "/chat" });
+        {
+            let mut pairs = u.query_pairs_mut();
+            pairs.append_pair("nonce", nonce).append_pair(
+                "next",
+                if next_route.starts_with('/') {
+                    next_route
+                } else {
+                    "/chat"
+                },
+            );
+            if let Some(cb) = cache_bust.filter(|s| !s.is_empty()) {
+                pairs.append_pair("_cb", cb);
+            }
+        }
         Some(u)
     }
 
-    pub fn ensure_main_window(&self, app: &AppHandle, target_route: Option<&str>) -> Option<WebviewWindow> {
+    pub fn ensure_main_window(
+        &self,
+        app: &AppHandle,
+        target_route: Option<&str>,
+    ) -> Result<WebviewWindow, String> {
         #[cfg(target_os = "macos")]
         {
             let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
@@ -237,8 +266,10 @@ impl TauriUiCoordinator {
             .or_else(|| target_route.map(str::to_string));
 
         if let Some(win) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-            let _ = win.unminimize();
             let _ = win.show();
+            if win.is_minimized().unwrap_or(false) {
+                let _ = win.unminimize();
+            }
             let _ = win.set_focus();
             if let Some(ref route) = effective_route {
                 self.set_current_route(route.clone());
@@ -251,14 +282,27 @@ impl TauriUiCoordinator {
                 }
             }
             self.set_window_shown();
-            return Some(win);
+            return Ok(win);
+        }
+
+        if let Some(host_state) = app.try_state::<Arc<HostSharedState>>() {
+            let im_origin = host_state.host_config.read().unwrap().im_origin.clone();
+            let _ = reconcile_webview_ui_cache(
+                &host_state.paths,
+                &im_origin,
+                host_state.dev_repo_root.as_deref(),
+                host_state.seed_archives_dir.as_deref(),
+            );
         }
 
         let initial_route = effective_route.as_deref().unwrap_or("/chat");
-        let url = self.build_bootstrap_url(initial_route)?;
+        let url = self
+            .build_bootstrap_url(initial_route)
+            .ok_or_else(|| "桌面本地回环引导地址尚未初始化".to_string())?;
         self.set_current_route(initial_route.to_string());
         let expected_port = self.bootstrap_base.lock().unwrap().as_ref().map(|(p, _)| *p);
         let paths_for_nav = app.try_state::<Arc<HostSharedState>>().map(|s| s.paths.clone());
+        let paths_for_log = paths_for_nav.clone();
         let paths_for_new_win = paths_for_nav.clone();
         let coord_for_new_win = app.state::<Arc<TauriUiCoordinator>>().inner().clone();
 
@@ -300,7 +344,11 @@ impl TauriUiCoordinator {
                 NewWindowResponse::Deny
             })
             .build()
-            .ok()?;
+            .map_err(|e| {
+                let msg = format!("无法创建主窗口（WebView 初始化失败）：{}", e);
+                append_host_log(paths_for_log.as_ref(), "ERROR", &msg);
+                msg
+            })?;
 
         // Apply any unread count accumulated while running silently in `--background` mode.
         let current_unread = *self.tray_unread.lock().unwrap();
@@ -334,7 +382,17 @@ impl TauriUiCoordinator {
         });
 
         self.set_window_shown();
-        Some(win)
+        Ok(win)
+    }
+
+    pub fn ensure_main_window_or_report(&self, app: &AppHandle, target_route: Option<&str>) {
+        if let Err(err) = self.ensure_main_window(app, target_route) {
+            let paths = app
+                .try_state::<Arc<HostSharedState>>()
+                .map(|s| s.paths.clone());
+            let log_path = append_host_log(paths.as_ref(), "ERROR", &err);
+            show_fatal_startup_dialog_async(err, log_path);
+        }
     }
 }
 
@@ -476,7 +534,7 @@ impl DesktopUiBridge for TauriUiCoordinator {
         let coord = app.state::<Arc<TauriUiCoordinator>>().inner().clone();
         let app_clone = app.clone();
         let _ = app.run_on_main_thread(move || {
-            let _ = coord.ensure_main_window(&app_clone, None);
+            coord.ensure_main_window_or_report(&app_clone, None);
         });
     }
 
@@ -492,7 +550,7 @@ impl DesktopUiBridge for TauriUiCoordinator {
         let coord = app.state::<Arc<TauriUiCoordinator>>().inner().clone();
         let app_clone = app.clone();
         let _ = app.run_on_main_thread(move || {
-            let _ = coord.ensure_main_window(&app_clone, None);
+            coord.ensure_main_window_or_report(&app_clone, None);
         });
     }
 
@@ -526,16 +584,24 @@ impl DesktopUiBridge for TauriUiCoordinator {
             }
         };
         let busted_route = append_reload_cache_buster(&preserved);
-        let boot_url = self.build_bootstrap_url(&busted_route);
+        let bust = random_hex_token(8);
+        let boot_url = self.build_bootstrap_url_with_cache_bust(&busted_route, Some(&bust));
         let app_clone = app.clone();
         let _ = app.run_on_main_thread(move || {
             if let Some(win) = app_clone.get_webview_window(MAIN_WINDOW_LABEL) {
                 if let Some(url) = boot_url {
-                    if let Ok(encoded) = serde_json::to_string(url.as_str()) {
-                        let _ = win.eval(&format!(
-                            "window.dispatchEvent(new Event('crewden:before-hot-reload')); window.location.replace({});",
-                            encoded
-                        ));
+                    let navigated_via_js = serde_json::to_string(url.as_str())
+                        .ok()
+                        .map(|encoded| {
+                            win.eval(&format!(
+                                "window.dispatchEvent(new Event('crewden:before-hot-reload')); window.location.replace({});",
+                                encoded
+                            ))
+                            .is_ok()
+                        })
+                        .unwrap_or(false);
+                    if !navigated_via_js {
+                        let _ = win.navigate(url);
                     }
                 } else {
                     let _ = win.eval("window.dispatchEvent(new Event('crewden:before-hot-reload')); window.location.reload();");
@@ -624,14 +690,15 @@ pub fn install_system_tray(
     )
     .map_err(|e| e.to_string())?;
 
-    let icon = Image::from_bytes(TRAY_PNG).map_err(|e| e.to_string())?;
+    let (icon_bytes, use_template) = tray_icon_bytes_and_template(std::env::consts::OS);
+    let icon = Image::from_bytes(icon_bytes).map_err(|e| e.to_string())?;
     let coord_for_menu = coord.clone();
     let coord_for_click = coord.clone();
     let state_for_menu = host_state.clone();
 
     let built_tray = TrayIconBuilder::with_id("crewden-tray")
         .icon(icon)
-        .icon_as_template(cfg!(target_os = "macos"))
+        .icon_as_template(use_template)
         .tooltip("Crewden Desktop")
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -642,16 +709,16 @@ pub fn install_system_tray(
                 ..
             } = event
             {
-                let _ = coord_for_click.ensure_main_window(tray.app_handle(), None);
+                coord_for_click.ensure_main_window_or_report(tray.app_handle(), None);
             }
         })
         .on_menu_event(move |app_handle, event| {
             match event.id().as_ref() {
                 "open_main" => {
-                    let _ = coord_for_menu.ensure_main_window(app_handle, None);
+                    coord_for_menu.ensure_main_window_or_report(app_handle, None);
                 }
                 "open_nodes" => {
-                    let _ = coord_for_menu.ensure_main_window(app_handle, Some("/settings/nodes"));
+                    coord_for_menu.ensure_main_window_or_report(app_handle, Some("/settings/nodes"));
                 }
                 "check_update" => {
                     let st = state_for_menu.clone();
@@ -791,4 +858,54 @@ fn spawn_tray_login_toggle(state: Arc<HostSharedState>) {
             show_error_dialog(&error);
         }
     });
+}
+
+pub(crate) fn tray_icon_bytes_and_template(target_os: &str) -> (&'static [u8], bool) {
+    if target_os == "macos" {
+        (TRAY_TEMPLATE_PNG, true)
+    } else {
+        (TRAY_COLOR_PNG, false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_tray_icon_uses_colorful_brand_rgba_while_macos_keeps_template() {
+        let (mac_bytes, mac_template) = tray_icon_bytes_and_template("macos");
+        assert!(mac_template);
+        let mac_img = Image::from_bytes(mac_bytes).unwrap();
+        assert!(mac_img.width() > 0 && mac_img.height() > 0);
+
+        let (win_bytes, win_template) = tray_icon_bytes_and_template("windows");
+        assert!(!win_template);
+        let win_img = Image::from_bytes(win_bytes).unwrap();
+        let colorful_pixels = win_img
+            .rgba()
+            .chunks_exact(4)
+            .filter(|px| px[3] > 32 && (px[0] != px[1] || px[1] != px[2]))
+            .count();
+        assert!(
+            colorful_pixels > 100,
+            "Windows tray icon must use colorful brand RGBA pixels instead of pure black monochrome silhouette, got {colorful_pixels} colorful pixels"
+        );
+    }
+
+    #[test]
+    fn bootstrap_url_supports_cache_bust_nonce_while_preserving_target_route() {
+        let coord = TauriUiCoordinator::default();
+        *coord.bootstrap_base.lock().unwrap() = Some((19876, "boot-nonce-1".to_string()));
+        let normal = coord.build_bootstrap_url("/settings/nodes").unwrap();
+        assert_eq!(
+            normal.as_str(),
+            "http://127.0.0.1:19876/desktop/bootstrap?nonce=boot-nonce-1&next=%2Fsettings%2Fnodes"
+        );
+        let busted = coord
+            .build_bootstrap_url_with_cache_bust("/settings/nodes", Some("reload123"))
+            .unwrap();
+        assert!(busted.as_str().contains("_cb=reload123"), "{busted}");
+        assert!(busted.as_str().contains("next=%2Fsettings%2Fnodes"), "{busted}");
+    }
 }

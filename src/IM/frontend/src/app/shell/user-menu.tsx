@@ -89,7 +89,7 @@ export function UserMenu() {
           {!nodesQuery.isPending && !nodesQuery.isError && <small>{onlineCount} {t('common.online')}</small>}
         </Link>
         <Link role="menuitem" to="/settings/models" onClick={close} className="im-user-menu-item">
-          <UserMenuIcon kind="models" /><span>{lang === 'zh' ? '模型服务' : 'Model services'}</span><span aria-hidden>›</span>
+          <UserMenuIcon kind="models" /><span>{t('shell.userMenu.models')}</span><span aria-hidden>›</span>
         </Link>
         {!isDesktopClient() && <Link role="menuitem" to="/about#download" onClick={close} className="im-user-menu-item">
           <UserMenuIcon kind="download" /><span>{t('shell.userMenu.downloadApps')}</span><span aria-hidden>›</span>

@@ -15,7 +15,7 @@ async function fixture() {
   const home = await mkdtemp(join(tmpdir(), 'nano-run-facts-'));
   const binding = { sessionId: 'root', agentId: 'a', revision: '1', ownerId: 'owner', cwd: home };
   const configuration = { protocol: 1, agents: [{ agentId: 'a', revision: '1', mode: 'global', provider: 'fixture', model: 'test',
-    toolAllowlist: ['fixture_legacy_spawn', 'subagent_fork', 'send_message', 'fixture_drain', 'fixture_release'], knowledge: { enabled: false } }], bindings: [binding] };
+    toolAllowlist: ['fixture_legacy_spawn', 'fixture_legacy_send', 'subagent_fork', 'send_message', 'fixture_drain', 'fixture_release'], knowledge: { enabled: false } }], bindings: [binding] };
   let client: RuntimeClient, logs = '';
   const requestsPath = join(home, 'requests.jsonl');
   const failedObservation = join(home, 'failed-observation');
@@ -24,8 +24,13 @@ async function fixture() {
   export const name='run-facts-fixture';export const inject=['llm','tools','agents','subagents','sessionQuery'];export function apply(ctx){
     // Seed legacy DSH edges via its native tool so the historical navigation contract
     // remains exercised after Global switches new delegations to delegate_worker.
-    const mountSpawn=()=>{const nativeSpawn=ctx.tools.get('subagent');if(nativeSpawn&&!ctx.tools.get('fixture_legacy_spawn'))ctx.tools.register({...nativeSpawn, name:'fixture_legacy_spawn'});};
-    mountSpawn();ctx.on('tools/change',mountSpawn);
+    const mountLegacy=()=>{
+      const nativeSpawn=ctx.tools.get('subagent');
+      if(nativeSpawn&&!ctx.tools.get('fixture_legacy_spawn'))ctx.tools.register({...nativeSpawn, name:'fixture_legacy_spawn'});
+      const nativeSend=ctx.tools.get('send_message');
+      if(nativeSend&&!ctx.tools.get('fixture_legacy_send'))ctx.tools.register({...nativeSend, name:'fixture_legacy_send'});
+    };
+    mountLegacy();ctx.on('tools/change',mountLegacy);
     const observe=ctx.sessionQuery.observeSession.bind(ctx.sessionQuery);
     ctx.sessionQuery.observeSession=async(id,options)=>{
       const failed=await readFile(${JSON.stringify(failedObservation)},'utf8').catch(error=>{if(error.code!=='ENOENT')throw error;});
@@ -56,7 +61,7 @@ async function fixture() {
         if(text==='nested')calls=[call('nested-call','subagent',{prompt:'leaf',description:'Nested work'})];
         if(text==='leaf')calls=[call('too-deep','subagent',{prompt:'unreachable',description:'Third level'})];
         if(text==='background')calls=[call('background-call','subagent',{prompt:'resident',description:'Resident work'})];
-        if(text.startsWith('wake:'))calls=[call(user.id+'-wake','send_message',{agent:text.slice(5),message:'resident-again'})];
+        if(text.startsWith('wake:'))calls=[call(user.id+'-wake','fixture_legacy_send',{agent:text.slice(5),message:'resident-again'})];
         if(text==='release')calls=[call(user.id+'-release','fixture_release',{})];
         if(text.startsWith('drain:'))calls=[call(user.id+'-drain','fixture_drain',{id:text.slice(6)})];
         if(['fail','cancel'].includes(text))calls=[call(text+'-call','subagent_fork',{prompt:'child-'+text,description:text})];

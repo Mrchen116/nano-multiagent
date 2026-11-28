@@ -1,8 +1,13 @@
-use crate::config::{home_dir, write_private_json, DesktopPaths};
+#[cfg(target_os = "macos")]
+use crate::config::home_dir;
+use crate::config::{write_private_json, DesktopPaths};
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 
+#[cfg(target_os = "macos")]
 const MACOS_PLIST_LABEL: &str = "work.crewden.desktop";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,6 +17,7 @@ struct TestAutostartMarker {
     args: Vec<String>,
 }
 
+#[cfg(target_os = "macos")]
 fn macos_plist_path(paths: &DesktopPaths) -> Option<PathBuf> {
     if let Some(ref test_dir) = paths.test_autostart_dir {
         return Some(test_dir.join(format!("{}.plist", MACOS_PLIST_LABEL)));
@@ -23,6 +29,7 @@ fn macos_plist_path(paths: &DesktopPaths) -> Option<PathBuf> {
     })
 }
 
+#[cfg(target_os = "macos")]
 fn xml_escape(input: &str) -> String {
     input
         .replace('&', "&amp;")

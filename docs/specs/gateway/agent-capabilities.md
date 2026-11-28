@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Agent Capabilities Specification
 
-> 对齐: feat-805
+> 对齐: feat-817
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -457,14 +457,14 @@ PA 为某 Agent 解析可选 Skill、prompt preview、下一轮新回复和 `ski
 
 #### Scenario: 新建全局 Agent 时保留正常执行能力
 - **WHEN** 用户新建全局 Agent
-- **THEN** 除读取收件箱、查阅聊天、显式发言及委派的固定基础工具外，仍默认拥有现有创建流程提供的工具
+- **THEN** 除读取收件箱、查阅聊天、显式发言、委派及 Worker 只读观测的固定基础工具外，仍默认拥有现有创建流程提供的工具
 - **AND** 不因选择全局模式变成只能统筹、不能正常查询或执行的空工具 Agent
 
 #### Scenario: 固定基础工具与可配置工具区分
 - **GIVEN** 用户创建或编辑全局 Agent
 - **WHEN** 查看和调整工具配置
-- **THEN** `inbox`、`conversations`、`read_messages`、`search_messages`、`threads`、`send_message`、`delegate_worker` 作为固定基础工具，不可关闭
-- **AND** Personal Global 另外固定 personal_sources；其他工具继续按默认选择及依赖规则配置，single_thread 和子 Agent 不继承 Global 根会话固定项
+- **THEN** `inbox`、`conversations`、`read_messages`、`search_messages`、`threads`、`send_message`、`download_attachment`、`delegate_worker`、`read_worker` 作为固定基础工具，不可关闭
+- **AND** Personal Global 另外固定 `personal_sources` 与 `send_user_message`；Global / PA 根主 Agent 运行时隐藏原生 `subagent`、`list_agents` 与 `interrupt_agent`；其他工具继续按默认选择及依赖规则配置，`single_thread` 和子 Agent 不继承 Global 根会话固定项
 
 ### Requirement: 恢复历史后台创建的 Skill 时保留既有会话提示词
 

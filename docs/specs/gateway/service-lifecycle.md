@@ -1,6 +1,6 @@
 # gateway (personal_assistant) - Service Lifecycle Specification
 
-> 对齐: feat-790
+> 对齐: bugfix-819
 > 上级: [gateway (personal_assistant) Specification](spec.md)
 >
 > 写法纪律见 [`../CONTRIBUTING.md`](../CONTRIBUTING.md)。本目录只收 Gateway **对外可观察的行为**:消费者是在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的运维者。
@@ -145,9 +145,10 @@ Gateway 的默认本机 config、持久状态和全局 extensions 归入 `~/.nan
 - **THEN** 命令返回非零且不报告 Gateway 已停止
 - **AND** 产品不再单独终止进程或启动替代实例，保留当前运行状态供继续排查
 
-#### Scenario: start stop restart 对同一 config 串行
+#### Scenario: start stop restart 对同一 config 串行且死进程遗留锁自动回收
 - **WHEN** 同一 config 的多个 lifecycle 命令并发执行
 - **THEN** 命令经同一个 config-scoped lock 串行化，且 `restart` 在一次持锁期间完成 stop、应用目标运行方式和 start
+- **AND** 若此前持锁的 lifecycle 命令或 Gateway 运行租约进程被强制结束而遗留锁目录，后续 lifecycle 命令与受管监督校验持锁进程身份后立即回收失效锁并继续执行，不被死进程遗留锁阻塞或永久跳过恢复
 
 #### Scenario: stop 只向已证明的进程实例发信号
 - **GIVEN** `.gateway-state.json` 记录 PID、resolved config 和 process birth

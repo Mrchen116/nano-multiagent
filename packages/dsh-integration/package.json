@@ -14,7 +14,8 @@
     "./assets/social-tools": "./lib/assets/social-tools.js",
     "./workflow": "./lib/workflow/engine.js",
     "./evaluation": "./lib/evaluation.js",
-    "./evaluation/runtime": "./lib/evaluation/runtime.js"
+    "./evaluation/runtime": "./lib/evaluation/runtime.js",
+    "./evaluation/dolphinbench-runtime": "./lib/evaluation/dolphinbench-runtime.js"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

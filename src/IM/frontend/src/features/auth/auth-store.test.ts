@@ -77,4 +77,23 @@ describe("auth-store", () => {
     expect(useAuthStore.getState().user?.id).toBe("user-b");
     expect(useAuthStore.getState().accessToken).toBe("access-b");
   });
+
+  it("converges hydrate to hydrationError when restoration throws unexpectedly and recovers on retry", async () => {
+    useAuthStore.setState({ hydrated: false, hydrationError: false, user: null, accessToken: null });
+    const sessionModule = await import("./auth-session");
+    const restoreSpy = vi.spyOn(sessionModule, "restoreSession").mockRejectedValueOnce(new TypeError("locks unavailable"));
+
+    await expect(useAuthStore.getState().hydrate()).resolves.toBeUndefined();
+    expect(useAuthStore.getState().hydrated).toBe(false);
+    expect(useAuthStore.getState().hydrationError).toBe(true);
+
+    restoreSpy.mockImplementationOnce(async () => {
+      expect(useAuthStore.getState().hydrationError).toBe(false);
+      useAuthStore.getState().setSession({ access_token: "recovered", user: SAMPLE_USER }, true);
+    });
+    await useAuthStore.getState().hydrate();
+    expect(useAuthStore.getState().hydrated).toBe(true);
+    expect(useAuthStore.getState().hydrationError).toBe(false);
+    expect(useAuthStore.getState().accessToken).toBe("recovered");
+  });
 });

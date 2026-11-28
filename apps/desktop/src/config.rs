@@ -314,6 +314,7 @@ pub fn sha256_hex(input: &[u8]) -> String {
 pub struct DesktopPaths {
     pub desktop_home: PathBuf,
     pub nano_install_root: PathBuf,
+    pub webview_data_dir: PathBuf,
     pub test_autostart_dir: Option<PathBuf>,
 }
 
@@ -329,6 +330,7 @@ impl DesktopPaths {
             };
             let desktop_home = abs.join("desktop");
             let nano_install_root = abs.join("nano");
+            let webview_data_dir = abs.join("webview");
             let autostart_dir = abs.join("autostart");
             fs::create_dir_all(&desktop_home).map_err(|e| e.to_string())?;
             fs::create_dir_all(&nano_install_root).map_err(|e| e.to_string())?;
@@ -336,22 +338,43 @@ impl DesktopPaths {
             return Ok(Self {
                 desktop_home,
                 nano_install_root,
+                webview_data_dir,
                 test_autostart_dir: Some(autostart_dir),
             });
         }
 
         let home = home_dir().ok_or_else(|| "Cannot determine user home directory".to_string())?;
+        let local_app_data = if cfg!(target_os = "windows") {
+            Some(
+                std::env::var("LOCALAPPDATA")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|_| home.join("AppData").join("Local")),
+            )
+        } else {
+            None
+        };
         let desktop_home = if let Ok(env_home) = std::env::var("CREWDEN_DESKTOP_HOME") {
             PathBuf::from(env_home)
-        } else if cfg!(target_os = "windows") {
-            let local_app_data = std::env::var("LOCALAPPDATA")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| home.join("AppData").join("Local"));
-            local_app_data.join("CrewdenDesktop")
+        } else if let Some(ref lad) = local_app_data {
+            lad.join("CrewdenDesktop")
         } else {
             home.join("Library")
                 .join("Application Support")
                 .join("CrewdenDesktop")
+        };
+
+        let webview_data_dir = if let Some(env_wv) = std::env::var("CREWDEN_WEBVIEW_DATA_DIR")
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+        {
+            PathBuf::from(env_wv)
+        } else if let Some(ref lad) = local_app_data {
+            lad.join("work.crewden.desktop")
+        } else {
+            home.join("Library")
+                .join("Caches")
+                .join("work.crewden.desktop")
         };
 
         let nano_install_root = std::env::var("NANO_INSTALL_ROOT")
@@ -370,6 +393,7 @@ impl DesktopPaths {
         Ok(Self {
             desktop_home,
             nano_install_root,
+            webview_data_dir,
             test_autostart_dir,
         })
     }
@@ -416,6 +440,10 @@ impl DesktopPaths {
 
     pub fn desktop_ui_active_path(&self) -> PathBuf {
         self.desktop_home.join("desktop-ui-active.json")
+    }
+
+    pub fn webview_ui_cache_marker_path(&self) -> PathBuf {
+        self.desktop_home.join("webview-ui-cache.json")
     }
 
     pub fn is_isolated_autostart(&self) -> bool {
@@ -681,6 +709,13 @@ pub fn show_fatal_startup_dialog(message: &str, log_path: &Path) {
         log_path.display()
     );
     show_error_dialog(&full_msg);
+}
+
+/// Show a native OS alert dialog on a detached helper thread so main-thread window/tray callbacks never deadlock.
+pub fn show_fatal_startup_dialog_async(message: String, log_path: PathBuf) {
+    std::thread::spawn(move || {
+        show_fatal_startup_dialog(&message, &log_path);
+    });
 }
 
 pub(crate) fn show_error_dialog(full_msg: &str) {

@@ -1307,6 +1307,12 @@ pub fn rollback_startup_promotion_if_needed(state: &HostSharedState, im_origin: 
         rt.phase = "failed".to_string();
         rt.error_code = Some("switch_rolled_back".to_string());
     }
+    let _ = crate::local_node::reconcile_webview_ui_cache(
+        &state.paths,
+        im_origin,
+        state.dev_repo_root.as_deref(),
+        state.seed_archives_dir.as_deref(),
+    );
     state.updater.reload_generation.fetch_add(1, Ordering::SeqCst);
     state.ui_bridge.reload_webview(None);
     notify_ui_updater_changed(state, im_origin);
@@ -1382,6 +1388,12 @@ pub fn on_internal_reload_assets(state: &HostSharedState) {
         }
     }
 
+    let _ = crate::local_node::reconcile_webview_ui_cache(
+        &state.paths,
+        &im_origin,
+        state.dev_repo_root.as_deref(),
+        state.seed_archives_dir.as_deref(),
+    );
     state.updater.reload_generation.fetch_add(1, Ordering::SeqCst);
     state.ui_bridge.reload_webview(None);
     notify_ui_updater_changed(state, &im_origin);
@@ -2068,6 +2080,12 @@ async fn apply_desktop_update_internal(
         }
     }
     prune_stale_update_cache(&state.paths, &[target.sha256]);
+    let _ = crate::local_node::reconcile_webview_ui_cache(
+        &state.paths,
+        &im_origin,
+        state.dev_repo_root.as_deref(),
+        state.seed_archives_dir.as_deref(),
+    );
     state.updater.reload_generation.fetch_add(1, Ordering::SeqCst);
     state.ui_bridge.reload_webview(None);
     notify_ui_updater_changed(&state, &im_origin);

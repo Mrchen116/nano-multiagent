@@ -22,7 +22,9 @@ it('keeps empty business tools and Skills empty while retaining context manageme
     for (const agentId of ['a', 'b', 'g']) await client.rpc.request('session.ensure', { sessionId: `session-${agentId}`, agentId, revision: '1', ownerId: 'owner', cwd: home });
     const read = (id: string) => client!.rpc.request('session.capabilities', { sessionId: `session-${id}` }) as Promise<{ tools: string[]; skills: { name: string }[]; prompt: unknown }>;
     expect((await read('a')).tools.sort()).toEqual(contextTools);
-    expect((await read('g')).tools.sort()).toEqual([...contextTools, 'conversations', 'download_attachment', 'inbox', 'read_messages', 'search_messages', 'send_message', 'threads', 'delegate_worker'].sort());
+    expect((await read('g')).tools.sort()).toEqual([...contextTools, 'conversations', 'download_attachment', 'inbox', 'read_messages', 'read_worker', 'search_messages', 'send_message', 'threads', 'delegate_worker'].sort());
+    expect((await read('g')).tools).not.toContain('list_agents');
+    expect((await read('g')).tools).not.toContain('interrupt_agent');
     expect((await read('a')).skills).toEqual([]);
     const catalog = await client.rpc.request('configuration.catalog', { agentId: 'a', cwd: home }) as { tools: { name: string }[]; skills: { name: string }[] };
     expect(catalog.tools.map(tool => tool.name)).toEqual(expect.arrayContaining(['read', 'schedule_create', 'schedule_list', 'schedule_update', 'schedule_delete', 'schedule_run', 'schedule_history']));
