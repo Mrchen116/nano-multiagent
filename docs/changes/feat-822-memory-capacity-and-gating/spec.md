@@ -2,7 +2,8 @@
 
 ## Relations
 
-- Related: `feat-805`, `feat-806`
+- Depends on: `feat-806`
+- Related: `feat-805`
 
 ## 原始需求
 
